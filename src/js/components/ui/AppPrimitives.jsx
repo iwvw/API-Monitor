@@ -205,12 +205,15 @@ export function ChartBoundaryBox({ className = '', children }) {
 }
 
 export function ChartCard({ className = '', children }) {
+  const [boundary, setBoundary] = useState(null);
   return (
-    <ChartBoundaryBox
-      className={cx('min-w-0 overflow-hidden app-card p-3', className)}
+    <LayerCard
+      className={cx('min-w-0 overflow-hidden rounded-lg border border-kumo-line/90 bg-kumo-base p-3 shadow-none', className)}
     >
-      {children}
-    </ChartBoundaryBox>
+      <div ref={setBoundary} className="flex h-full min-w-0 flex-col">
+        {typeof children === 'function' ? children(boundary) : children}
+      </div>
+    </LayerCard>
   );
 }
 

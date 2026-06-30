@@ -88,6 +88,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-bell',
     description: '通知渠道与告警规则管理',
   },
+  systemlogs: {
+    name: '系统日志',
+    shortName: '日志',
+    icon: 'fa-file-alt',
+    description: '统一日志查看器',
+  },
 
 };
 
@@ -116,6 +122,12 @@ export const MODULE_GROUPS = [
     name: '工具箱',
     icon: 'fa-toolbox',
     modules: ['scheduler', 'totp', 'uptime', 'filebox', 'notification'],
+  },
+  {
+    id: 'system',
+    name: '系统',
+    icon: 'fa-cog',
+    modules: ['systemlogs'],
   },
 ];
 

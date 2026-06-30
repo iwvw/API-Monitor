@@ -3,6 +3,7 @@ package cronjobs
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -33,27 +34,27 @@ type Workflow struct {
 	Name              string         `json:"name"`
 	Description       string         `json:"description"`
 	Schedule          string         `json:"schedule"`
-	Enabled           int           `json:"enabled"`
+	Enabled           int            `json:"enabled"`
 	Nodes             []WorkflowNode `json:"nodes"`
 	Edges             []WorkflowEdge `json:"edges"`
 	ConcurrencyPolicy string         `json:"concurrency_policy"`
 	FailurePolicy     string         `json:"failure_policy"`
-	CreatedAt         int64         `json:"created_at"`
-	UpdatedAt         int64         `json:"updated_at"`
+	CreatedAt         int64          `json:"created_at"`
+	UpdatedAt         int64          `json:"updated_at"`
 }
 
 type WorkflowNode struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	TaskID            int64  `json:"task_id,omitempty"`
-	Type              string `json:"type,omitempty"`
-	Command           string `json:"command,omitempty"`
-	Enabled           int    `json:"enabled"`
-	TimeoutSeconds    int    `json:"timeout_seconds,omitempty"`
-	RetryCount        int    `json:"retry_count,omitempty"`
-	NodeID            string `json:"node_id,omitempty"`
-	PositionX         int    `json:"x,omitempty"`
-	PositionY         int    `json:"y,omitempty"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	TaskID         int64  `json:"task_id,omitempty"`
+	Type           string `json:"type,omitempty"`
+	Command        string `json:"command,omitempty"`
+	Enabled        int    `json:"enabled"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	RetryCount     int    `json:"retry_count,omitempty"`
+	NodeID         string `json:"node_id,omitempty"`
+	PositionX      int    `json:"x,omitempty"`
+	PositionY      int    `json:"y,omitempty"`
 }
 
 type WorkflowEdge struct {
@@ -64,18 +65,18 @@ type WorkflowEdge struct {
 }
 
 type WorkflowRun struct {
-	ID           int64         `json:"id"`
-	WorkflowID   *int64        `json:"workflow_id"`
-	WorkflowName string        `json:"workflow_name"`
-	TriggerType  string        `json:"trigger_type"`
-	Status       string        `json:"status"`
-	StartTime    *int64        `json:"start_time"`
-	EndTime      *int64        `json:"end_time"`
-	Duration     *int64        `json:"duration"`
-	Summary      string        `json:"summary"`
-	CreatedAt    int64         `json:"created_at"`
-	NodeRuns     []NodeRun     `json:"node_runs,omitempty"`
-	Workflow     *Workflow     `json:"workflow,omitempty"`
+	ID           int64     `json:"id"`
+	WorkflowID   *int64    `json:"workflow_id"`
+	WorkflowName string    `json:"workflow_name"`
+	TriggerType  string    `json:"trigger_type"`
+	Status       string    `json:"status"`
+	StartTime    *int64    `json:"start_time"`
+	EndTime      *int64    `json:"end_time"`
+	Duration     *int64    `json:"duration"`
+	Summary      string    `json:"summary"`
+	CreatedAt    int64     `json:"created_at"`
+	NodeRuns     []NodeRun `json:"node_runs,omitempty"`
+	Workflow     *Workflow `json:"workflow,omitempty"`
 }
 
 type NodeRun struct {
@@ -92,15 +93,15 @@ type NodeRun struct {
 }
 
 type SchedulerNode struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Kind            string   `json:"kind"`
-	Status          string   `json:"status"`
-	Labels          []string `json:"labels"`
-	MaxConcurrency  int      `json:"max_concurrency"`
-	ActiveRuns      int      `json:"active_runs"`
-	LastHeartbeat   *int64   `json:"last_heartbeat,omitempty"`
-	CapabilityNote  string   `json:"capability_note"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Kind           string   `json:"kind"`
+	Status         string   `json:"status"`
+	Labels         []string `json:"labels"`
+	MaxConcurrency int      `json:"max_concurrency"`
+	ActiveRuns     int      `json:"active_runs"`
+	LastHeartbeat  *int64   `json:"last_heartbeat,omitempty"`
+	CapabilityNote string   `json:"capability_note"`
 }
 
 type schedulerTaskPayload struct {
@@ -122,11 +123,18 @@ type workflowPayload struct {
 	Name              string         `json:"name"`
 	Description       string         `json:"description"`
 	Schedule          string         `json:"schedule"`
-	Enabled           int           `json:"enabled"`
+	Enabled           int            `json:"enabled"`
 	Nodes             []WorkflowNode `json:"nodes"`
 	Edges             []WorkflowEdge `json:"edges"`
 	ConcurrencyPolicy string         `json:"concurrency_policy"`
 	FailurePolicy     string         `json:"failure_policy"`
+}
+
+type schedulerNodePayload struct {
+	Name           *string  `json:"name"`
+	Labels         []string `json:"labels"`
+	MaxConcurrency *int     `json:"max_concurrency"`
+	CapabilityNote *string  `json:"capability_note"`
 }
 
 func (s *Service) serveSchedulerHTTP(w http.ResponseWriter, r *http.Request) {
@@ -179,12 +187,36 @@ func (s *Service) serveSchedulerHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
+	case len(parts) == 2 && parts[0] == "workflows" && parts[1] == "export":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.exportWorkflows(w, r)
+	case len(parts) == 2 && parts[0] == "workflows" && parts[1] == "import":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.importWorkflows(w, r)
 	case len(parts) == 3 && parts[0] == "workflows" && parts[2] == "run":
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		s.runWorkflow(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "workflow-runs" && parts[2] == "cancel":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.cancelWorkflowRun(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "workflow-runs" && parts[2] == "retry":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.retryWorkflowRun(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "workflows":
 		switch r.Method {
 		case http.MethodGet:
@@ -217,6 +249,12 @@ func (s *Service) serveSchedulerHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.listSchedulerNodes(w, r)
+	case len(parts) == 2 && parts[0] == "nodes":
+		if r.Method != http.MethodPut {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.updateSchedulerNode(w, r, parts[1])
 	default:
 		response.Error(w, http.StatusNotFound, "scheduler route not implemented")
 	}
@@ -409,6 +447,7 @@ func (s *Service) createWorkflow(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = s.ReloadWorkflow(context.Background(), created.ID)
 	response.OK(w, created)
 }
 
@@ -438,6 +477,7 @@ func (s *Service) updateWorkflow(w http.ResponseWriter, r *http.Request, idText 
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = s.ReloadWorkflow(context.Background(), updated.ID)
 	response.OK(w, updated)
 }
 
@@ -457,7 +497,87 @@ func (s *Service) deleteWorkflow(w http.ResponseWriter, r *http.Request, idText 
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = s.ReloadWorkflow(context.Background(), id)
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) exportWorkflows(w http.ResponseWriter, r *http.Request) {
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	workflows, err := loadWorkflows(r.Context(), db)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{
+		"version":      1,
+		"exported_at":  time.Now().UTC().Format(time.RFC3339),
+		"workflow_cnt": len(workflows),
+		"workflows":    workflows,
+	})
+}
+
+func (s *Service) importWorkflows(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Workflows []Workflow `json:"workflows"`
+		Overwrite bool       `json:"overwrite"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if len(payload.Workflows) == 0 {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "没有可导入的工作流"})
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	imported := []Workflow{}
+	for _, item := range payload.Workflows {
+		raw, _ := json.Marshal(item)
+		var body workflowPayload
+		if err := json.Unmarshal(raw, &body); err != nil {
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "工作流格式无效"})
+			return
+		}
+		id := int64(0)
+		if payload.Overwrite && item.ID > 0 {
+			id = item.ID
+		}
+		workflow, err := buildWorkflow(body, id)
+		if err != nil {
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		var saved Workflow
+		if id > 0 {
+			if existing, ok, err := findWorkflow(r.Context(), db, id); err != nil {
+				response.Error(w, http.StatusInternalServerError, err.Error())
+				return
+			} else if ok {
+				workflow.CreatedAt = existing.CreatedAt
+				saved, err = updateWorkflowRow(r.Context(), db, workflow)
+			} else {
+				saved, err = insertWorkflow(r.Context(), db, workflow)
+			}
+		} else {
+			saved, err = insertWorkflow(r.Context(), db, workflow)
+		}
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		imported = append(imported, saved)
+	}
+	_ = s.ReloadAll(context.Background())
+	response.OK(w, map[string]interface{}{"imported": len(imported), "workflows": imported})
 }
 
 func (s *Service) runWorkflow(w http.ResponseWriter, r *http.Request, idText string) {
@@ -472,6 +592,70 @@ func (s *Service) runWorkflow(w http.ResponseWriter, r *http.Request, idText str
 		return
 	}
 	response.OK(w, run)
+}
+
+func (s *Service) cancelWorkflowRun(w http.ResponseWriter, r *http.Request, idText string) {
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid run id"})
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	now := time.Now().Unix()
+	result, err := db.ExecContext(r.Context(), `
+		UPDATE scheduler_workflow_runs
+		SET status = 'cancelled', end_time = ?, duration = COALESCE(?, 0) - COALESCE(start_time, ?), summary = '用户取消运行'
+		WHERE id = ? AND status IN ('queued', 'running')
+	`, now, now, now, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "运行不存在或已结束"})
+		return
+	}
+	run, _, err := findRun(r.Context(), db, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, run)
+}
+
+func (s *Service) retryWorkflowRun(w http.ResponseWriter, r *http.Request, idText string) {
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid run id"})
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	run, ok, err := findRun(r.Context(), db, id)
+	db.Close()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok || run.WorkflowID == nil {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "运行不存在或未关联工作流"})
+		return
+	}
+	retryRun, err := s.executeWorkflow(r.Context(), *run.WorkflowID, "retry")
+	if err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	response.OK(w, retryRun)
 }
 
 func (s *Service) listRuns(w http.ResponseWriter, r *http.Request) {
@@ -565,7 +749,58 @@ func (s *Service) listSchedulerNodes(w http.ResponseWriter, r *http.Request) {
 		agentNodes, _ := loadAgentNodes(r.Context(), db)
 		nodes = append(nodes, agentNodes...)
 	}
+	overrides, _ := s.loadNodeConfig(r.Context())
+	for i := range nodes {
+		if override, ok := overrides[nodes[i].ID]; ok {
+			applyNodeOverride(&nodes[i], override)
+		}
+	}
 	response.OK(w, nodes)
+}
+
+func (s *Service) updateSchedulerNode(w http.ResponseWriter, r *http.Request, id string) {
+	var payload schedulerNodePayload
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if strings.TrimSpace(id) == "" {
+		response.Error(w, http.StatusBadRequest, "invalid node id")
+		return
+	}
+	overrides, err := s.loadNodeConfig(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	node := overrides[id]
+	if payload.Name != nil {
+		node.Name = strings.TrimSpace(*payload.Name)
+	}
+	if payload.Labels != nil {
+		node.Labels = normalizeStringList(payload.Labels)
+	}
+	if payload.MaxConcurrency != nil {
+		if *payload.MaxConcurrency <= 0 || *payload.MaxConcurrency > 100 {
+			response.Error(w, http.StatusBadRequest, "max_concurrency must be 1-100")
+			return
+		}
+		node.MaxConcurrency = *payload.MaxConcurrency
+	}
+	if payload.CapabilityNote != nil {
+		node.CapabilityNote = strings.TrimSpace(*payload.CapabilityNote)
+	}
+	overrides[id] = node
+	if err := s.saveNodeConfig(overrides); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	base := SchedulerNode{ID: id, Name: id, Kind: "agent", Status: "configured", Labels: []string{}, MaxConcurrency: 2, CapabilityNote: "手动配置节点"}
+	if id == "local" {
+		base.Kind = "local"
+		base.Status = "online"
+	}
+	applyNodeOverride(&base, node)
+	response.OK(w, base)
 }
 
 func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (SchedulerTask, error) {

@@ -71,6 +71,8 @@ func Routes() []Route {
 		{Prefix: "/api/settings", Module: "settings", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "User settings read/update"},
 		{Prefix: "/api/system/host-metrics", Module: "system-host-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Local host CPU, memory, disk, and process metrics"},
 		{Prefix: "/api/system/api-stats", Module: "system-api-stats", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "System API call stats (audit & ops)"},
+		{Prefix: "/api/system/logs/stream", Module: "system-logs", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Tail and filter app logs", MatchMode: MatchExact},
+		{Prefix: "/api/system/logs/download", Module: "system-logs", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Download app log file", MatchMode: MatchExact},
 		{Prefix: "/api/system", Module: "system", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "System status routes (retired)"},
 		{Prefix: "/api/logs", Module: "logs", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Application log routes (retired)"},
 
@@ -80,6 +82,7 @@ func Routes() []Route {
 		{Prefix: "/api/notification", Module: "notification", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Notification channels, rules, and history"},
 		{Prefix: "/api/scheduler", Module: "scheduler", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Workflow scheduler, DAG, runs, and distributed nodes"},
 		{Prefix: "/api/cron", Module: "cron", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cron tasks, scheduler, and logs"},
+		{Prefix: "/api/backup", Module: "backup", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Local backup center configs, records, and runner"},
 		{Prefix: "/api/openlist", Module: "openlist", Owner: OwnerRetired, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Retired module; not migrated"},
 
 		{Prefix: "/api/cloudflare/accounts/export", Module: "cloudflare-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare account export", MatchMode: MatchExact},

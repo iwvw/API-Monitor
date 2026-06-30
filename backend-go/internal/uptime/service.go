@@ -192,6 +192,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.monitorState(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "monitors" && parts[2] == "ssl" && r.Method == http.MethodGet:
 		s.monitorSSL(w, r, parts[1])
+	case len(parts) == 1 && parts[0] == "ssl-status" && r.Method == http.MethodGet:
+		s.sslStatus(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "uptime route not implemented")
 	}
@@ -1432,6 +1434,74 @@ func (s *Service) monitorSSL(w http.ResponseWriter, r *http.Request, idText stri
 		"chain":     chain,
 	})
 }
+
+func (s *Service) sslStatus(w http.ResponseWriter, r *http.Request) {
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(r.Context(), `
+		SELECT m.id, m.name, m.url, m.active, s.ssl_expiry
+		FROM uptime_monitors m
+		LEFT JOIN uptime_monitor_states s ON s.monitor_id = m.id
+		WHERE COALESCE(m.url, '') LIKE 'https://%'
+		ORDER BY m.name ASC
+	`)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	items := []map[string]interface{}{}
+	now := time.Now()
+	for rows.Next() {
+		var id int64
+		var name, url string
+		var active int
+		var expiry sql.NullString
+		if err := rows.Scan(&id, &name, &url, &active, &expiry); err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		item := map[string]interface{}{"monitorId": id, "name": name, "url": url, "active": active != 0, "sslExpiry": nil, "daysLeft": nil, "status": "unknown"}
+		if expiry.Valid && strings.TrimSpace(expiry.String) != "" {
+			if parsed, err := parseUptimeDBTime(expiry.String); err == nil {
+				days := int(parsed.Sub(now).Hours() / 24)
+				item["sslExpiry"] = parsed.UTC().Format(time.RFC3339)
+				item["daysLeft"] = days
+				switch {
+				case days < 0:
+					item["status"] = "expired"
+				case days <= 7:
+					item["status"] = "critical"
+				case days <= 15:
+					item["status"] = "warning"
+				default:
+					item["status"] = "ok"
+				}
+			}
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, items)
+}
+
+func parseUptimeDBTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Parse(time.RFC3339Nano, value)
+}
+
 func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]interface{}) (map[string]interface{}, error) {
 	result, err := s.probe(ctx, db, monitor)
 	if err != nil {

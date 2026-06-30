@@ -352,14 +352,14 @@ function UptimeMonitorDetails({
   }, [heartbeats]);
 
   return (
-    <div className="border-t border-kumo-line bg-kumo-recessed/30 p-4 space-y-4">
+    <div className="space-y-3 border-t border-kumo-line bg-kumo-recessed/25 p-3">
       {/* 头部操作栏 */}
-      <div className="flex items-center justify-between">
-        <h5 className="text-[11px] font-bold text-kumo-strong uppercase tracking-wider flex items-center gap-1.5 select-none">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h5 className="flex items-center gap-1.5 text-xs font-semibold text-kumo-strong">
           <TrendingUp className="w-3.5 h-3.5" />
-          监控图表与统计
+          监控详情
         </h5>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <Button size="sm"
             onClick={(e) => {
               e.stopPropagation();
@@ -391,9 +391,9 @@ function UptimeMonitorDetails({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_15rem]">
         {/* 图表主栏 (Span 3) */}
-        <ChartCard className="relative h-36 lg:col-span-3">
+        <ChartCard className="relative h-36">
           {(tooltipBoundary) => (
             <DeferredRender open={expanded} fallback={<ChartWarmupSkeleton height={120} />}>
               <TimeseriesChart
@@ -418,15 +418,15 @@ function UptimeMonitorDetails({
         </ChartCard>
 
         {/* 右侧可用率统计指标 */}
-        <div className="grid grid-cols-2 lg:grid-cols-1 gap-2.5">
-          <AppCard padding="sm" className="flex flex-col justify-center">
-            <span className="text-[9px] text-kumo-subtle select-none">24小时可用率</span>
-            <span className="text-base font-bold text-kumo-strong font-mono mt-0.5">{uptime24h}%</span>
-          </AppCard>
-          <AppCard padding="sm" className="flex flex-col justify-center">
-            <span className="text-[9px] text-kumo-subtle select-none">30天可用率</span>
-            <span className="text-base font-bold text-kumo-strong font-mono mt-0.5">{uptime30d}%</span>
-          </AppCard>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+          <div className="rounded-md border border-kumo-line bg-kumo-base p-2">
+            <span className="text-[10px] text-kumo-subtle select-none">24小时可用率</span>
+            <span className="mt-1 block font-mono text-base font-semibold text-kumo-strong">{uptime24h}%</span>
+          </div>
+          <div className="rounded-md border border-kumo-line bg-kumo-base p-2">
+            <span className="text-[10px] text-kumo-subtle select-none">30天可用率</span>
+            <span className="mt-1 block font-mono text-base font-semibold text-kumo-strong">{uptime30d}%</span>
+          </div>
         </div>
       </div>
 
@@ -1337,7 +1337,7 @@ function UptimePage() {
                       {/* 卡片头部行 */}
                       <div
                         onClick={() => setExpandedMonitorId(isExpanded ? null : monitor.id)}
-                        className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 gap-4 cursor-pointer"
+                        className="flex flex-col md:flex-row items-start md:items-center justify-between p-2 gap-4 cursor-pointer"
                       >
                         {/* 左侧选择复选框 & 图标 & 核心信息 */}
                         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1412,14 +1412,14 @@ function UptimePage() {
                           </div>
 
                           {/* 30 心跳丸小条 */}
-                          <div className="flex gap-[2px] items-center h-3 select-none">
+                          <div className="flex gap-[2px] items-center h-3.5 select-none flex-shrink-0">
                             {miniBeats.map((beat, idx) => {
                               let colorClass = 'bg-kumo-line opacity-20';
                               if (beat.status === 'up') colorClass = 'bg-kumo-success';
                               if (beat.status === 'down') colorClass = 'bg-kumo-danger';
                               if (beat.status === 'pending') colorClass = 'bg-kumo-warning';
                               return (
-                                <div key={idx} className={`w-[3px] h-3 rounded-[1px] ${colorClass}`} />
+                                <div key={idx} className={`w-[4px] h-3.5 rounded-sm ${colorClass} flex-shrink-0`} />
                               );
                             })}
                           </div>

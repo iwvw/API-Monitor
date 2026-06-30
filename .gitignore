@@ -87,6 +87,7 @@ backend-go/api-monitor.exe
 # 备份 & 杂项
 # ====================
 backup/
+!backend-go/internal/backup/
 *.bak
 .example
 todo.md

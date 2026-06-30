@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Activity,
   FolderOpen,
+  FileText,
   Bell,
   LogOut,
   Hexagon,
@@ -40,6 +41,7 @@ const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
 const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
 const SchedulerPage = lazy(() => import('../pages/SchedulerPage.jsx'));
+const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 
 const PageLoadingFallback = () => (
   <div className="flex min-h-[240px] items-center justify-center">
@@ -67,6 +69,7 @@ const ICON_MAP = {
   uptime: Activity,
   filebox: FolderOpen,
   notification: Bell,
+  systemlogs: FileText,
 };
 
 const MODULE_PATHS = Object.keys(MODULE_CONFIG).reduce((paths, moduleId) => {
@@ -221,7 +224,7 @@ function MainLayout() {
       modules: moduleOrder.filter(
         (moduleId) => group.modules.includes(moduleId) && moduleVisibility[moduleId] !== false
       ),
-    })).filter((group) => group.modules.length > 0);
+    })).filter((group) => group.modules.length > 0 && group.id !== 'system');
   }, [moduleOrder, moduleVisibility]);
 
   useEffect(() => {
@@ -304,6 +307,8 @@ function MainLayout() {
         return <SettingsPage />;
       case 'scheduler':
         return <SchedulerPage />;
+      case 'systemlogs':
+        return <SystemLogsPage />;
       default:
         const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
         return (
@@ -362,6 +367,15 @@ function MainLayout() {
           <Sidebar.Group>
             <Sidebar.GroupLabel>系统</Sidebar.GroupLabel>
             <Sidebar.Menu>
+              {moduleOrder.includes('systemlogs') && moduleVisibility.systemlogs !== false && (
+                <SidebarModuleButton
+                  module="systemlogs"
+                  active={mainActiveTab === 'systemlogs'}
+                  icon={FileText}
+                  onNavigate={navigateToModule}
+                />
+              )}
+
               <SidebarModuleButton
                 module="settings"
                 active={mainActiveTab === 'settings'}

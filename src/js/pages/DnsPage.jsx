@@ -331,7 +331,6 @@ function DnsPage() {
   const [accountTokens, setAccountTokens] = useState({});
   const [loading, setLoading] = useState({});
   const [recordFilter, setRecordFilter] = useState({ type: '', name: '' });
-  const [quickSwitch, setQuickSwitch] = useState({ type: 'A', name: '@', newContent: '' });
   const [modal, setModal] = useState({ type: null, data: null });
   const [accountForm, setAccountForm] = useState(EMPTY_ACCOUNT_FORM);
   const [zoneForm, setZoneForm] = useState(EMPTY_ZONE_FORM);
@@ -1031,30 +1030,6 @@ function DnsPage() {
       toast.error(`批量删除失败：${error.message}`);
     } finally {
       setLoadingKey('batchDeleteRecords', false);
-    }
-  };
-
-  const runQuickSwitch = async () => {
-    if (!selectedZoneId) {
-      toast.warning('请先选择域名');
-      return;
-    }
-    if (!quickSwitch.name.trim() || !quickSwitch.newContent.trim()) {
-      toast.warning('请填写记录名称和新内容');
-      return;
-    }
-    setLoadingKey('quickSwitch', true);
-    try {
-      const result = await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/switch`, {
-        method: 'POST',
-        body: JSON.stringify(quickSwitch),
-      });
-      toast.success(`已切换 ${result.updated || 0} 条记录`);
-      loadRecords();
-    } catch (error) {
-      toast.error(`快速切换失败：${error.message}`);
-    } finally {
-      setLoadingKey('quickSwitch', false);
     }
   };
 
@@ -1997,35 +1972,6 @@ function DnsPage() {
                       ))}
                     </div>
                   )}
-
-                  <DnsPanelCard className="max-w-full shrink-0 overflow-hidden p-3">
-                    <div className="flex flex-wrap items-end gap-2">
-                      <Select size="sm"
-                        label="记录类型"
-                        value={quickSwitch.type}
-                        onValueChange={(value) => setQuickSwitch((prev) => ({ ...prev, type: String(value) }))}
-                        className="w-28"
-                        items={recordTypes.map((type) => ({ value: type, label: type }))}
-                      />
-                      <Input size="sm"
-                        label="记录名称"
-                        value={quickSwitch.name}
-                        onChange={(event) => setQuickSwitch((prev) => ({ ...prev, name: event.target.value }))}
-                        placeholder="@ 或 www"
-                        className="w-44"
-                      />
-                      <Input size="sm"
-                        label="新内容"
-                        value={quickSwitch.newContent}
-                        onChange={(event) => setQuickSwitch((prev) => ({ ...prev, newContent: event.target.value }))}
-                        placeholder="IP 或域名"
-                        className="min-w-72 flex-1"
-                      />
-                      <Button size="sm" onClick={runQuickSwitch} disabled={loading.quickSwitch}>
-                        快速切换
-                      </Button>
-                    </div>
-                  </DnsPanelCard>
 
                   <div className="dns-toolbar-frame flex shrink-0 flex-wrap items-center justify-between gap-2 p-2">
                     <div className="flex flex-wrap items-center gap-2">

@@ -1,231 +1,210 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import QRCode from 'qrcode';
-import { toast } from '../modules/toast.js';
-import { dialog } from '../modules/dialog.js';
+import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { ClipboardText, Meter, Tabs } from '@cloudflare/kumo';
-import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
+import { ClipboardText, LayerCard, Meter, Tabs } from '@cloudflare/kumo';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
-import { formatFileSize, formatDateTime } from '../modules/utils.js';
+import { formatDateTime, formatFileSize } from '../modules/utils.js';
 import {
-  Send,
-  Download,
-  History,
-  Info,
-  FolderOpen,
+  Clock,
   FileText,
-  Upload,
-  RefreshCw,
-  Trash,
+  FolderOpen,
+  History,
   Lock,
-  Clock
+  RefreshCw,
+  Send,
+  Settings,
+  Trash,
+  Upload,
 } from '../components/Icons.jsx';
 
-const DEFAULT_FILEBOX_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const DEFAULT_FILEBOX_MAX_FILE_SIZE = 100 * 1024 * 1024;
+const EXPIRY_OPTIONS = [
+  { value: '0', label: '永久有效' },
+  { value: '1', label: '1 小时' },
+  { value: '6', label: '6 小时' },
+  { value: '24', label: '1 天' },
+  { value: '72', label: '3 天' },
+  { value: '168', label: '7 天' },
+];
+const SHARE_TYPE_TABS = [
+  { value: 'file', label: <span className="inline-flex items-center gap-1.5"><FolderOpen className="h-3.5 w-3.5" />文件</span> },
+  { value: 'text', label: <span className="inline-flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />文本</span> },
+];
+const PAGE_TABS = [
+  { value: 'share', label: <span className="inline-flex items-center gap-1.5"><Send className="h-3.5 w-3.5" />创建分享</span> },
+  { value: 'void', label: <span className="inline-flex items-center gap-1.5"><Send className="h-3.5 w-3.5" />虚空发送</span> },
+  { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="h-3.5 w-3.5" />分享记录</span> },
+  { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Settings className="h-3.5 w-3.5" />策略</span> },
+];
+
+const VOID_CHUNK_SIZE = 64 * 1024;
+const VOID_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }];
 
 function formatSpeed(bytesPerSecond) {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return '-';
   const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
   let value = bytesPerSecond;
-  let idx = 0;
-  while (value >= 1024 && idx < units.length - 1) {
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
     value /= 1024;
-    idx += 1;
+    index += 1;
   }
-  const fixed = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-  return `${value.toFixed(fixed)} ${units[idx]}`;
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`;
 }
 
-function formatEta(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return '-';
-  if (seconds < 60) return `${Math.ceil(seconds)}秒`;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.ceil(seconds % 60);
-  return `${mins}分${secs}秒`;
+function authHeaders() {
+  return { 'x-admin-password': localStorage.getItem('admin_password') || '' };
 }
 
-function FileboxPage() {
-  const [activeTab, setActiveTab] = useState('share'); // 'share' | 'retrieve' | 'history'
-  const [shareType, setShareType] = useState('file'); // 'file' | 'text'
-  const [retrieveCode, setRetrieveCode] = useState('');
-  const [retrievePassword, setRetrievePassword] = useState('');
+function downloadURL(code) {
+  return `${window.location.origin}/api/filebox/download/${code}`;
+}
+
+function formatExpiry(value) {
+  return Number(value) === 0 ? '永久有效' : formatDateTime(value);
+}
+
+function expiryLabel(value) {
+  return EXPIRY_OPTIONS.find((item) => item.value === String(value))?.label || `${value} 小时`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || 'void-transfer.bin';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function EntryName({ entry }) {
+  const isFile = entry.type === 'file';
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${isFile ? 'border-kumo-brand/20 bg-kumo-brand/10 text-kumo-brand' : 'border-kumo-success/20 bg-kumo-success/10 text-kumo-success'}`}>
+        {isFile ? <FolderOpen className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-xs font-semibold text-kumo-strong">{isFile ? entry.originalName || entry.filename || '文件分享' : entry.preview || entry.content || '文本分享'}</div>
+        <div className="mt-0.5 text-[11px] text-kumo-subtle">{isFile ? formatFileSize(entry.size || 0) : '文本内容'}</div>
+      </div>
+    </div>
+  );
+}
+
+function FileboxPage({ publicVoidOnly = false } = {}) {
+  const [activeTab, setActiveTab] = useState(publicVoidOnly ? 'void' : 'share');
+  const [shareType, setShareType] = useState('file');
   const [shareText, setShareText] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [expiry, setExpiry] = useState('24');
   const [burnAfterReading, setBurnAfterReading] = useState(false);
   const [maxDownloads, setMaxDownloads] = useState('');
   const [accessPassword, setAccessPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  // Results
   const [result, setResult] = useState(null);
   const [qrCode, setQrCode] = useState('');
-  
-  // History lists
+  const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadSpeed, setUploadSpeed] = useState('-');
   const [localHistory, setLocalHistory] = useState([]);
   const [serverHistory, setServerHistory] = useState([]);
   const [accessLogs, setAccessLogs] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [accessLogsLoading, setAccessLogsLoading] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
-  const [fileboxSettings, setFileboxSettings] = useState({
-    max_file_size: DEFAULT_FILEBOX_MAX_FILE_SIZE,
-    allowed_mime_types: [],
-    default_expiry_hours: 24,
-    public_upload_enabled: false,
-  });
+  const [fileboxSettings, setFileboxSettings] = useState({ max_file_size: DEFAULT_FILEBOX_MAX_FILE_SIZE, allowed_mime_types: [], default_expiry_hours: 24, public_upload_enabled: false });
   const [settingsMimeText, setSettingsMimeText] = useState('');
-
-  // Teleport/Modal retrieved item
-  const [retrievedEntry, setRetrievedEntry] = useState(null);
-  
-  // Drag & drop state
-  const [isDragging, setIsDragging] = useState(false);
-
-  // Upload telemetry states
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadSpeedText, setUploadSpeedText] = useState('-');
-  const [uploadEtaText, setUploadEtaText] = useState('-');
-  const [uploadingName, setUploadingName] = useState('');
-
-  const abortControllerRef = useRef(null);
+  const [voidFile, setVoidFile] = useState(null);
+  const [voidText, setVoidText] = useState('');
+  const [voidRoom, setVoidRoom] = useState('');
+  const [voidLink, setVoidLink] = useState('');
+  const [voidQr, setVoidQr] = useState('');
+  const [voidStatus, setVoidStatus] = useState('空闲');
+  const [voidProgress, setVoidProgress] = useState(0);
+  const [voidReceiveName, setVoidReceiveName] = useState('');
+  const [voidReceiveSize, setVoidReceiveSize] = useState(0);
   const fileInputRef = useRef(null);
+  const voidFileInputRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const voidPeerRef = useRef(null);
+  const voidChannelRef = useRef(null);
   const maxFileSize = fileboxSettings.max_file_size || DEFAULT_FILEBOX_MAX_FILE_SIZE;
-
-  // Get Auth Headers
-  const getAuthHeaders = () => {
-    const password = localStorage.getItem('admin_password') || '';
-    return {
-      'x-admin-password': password,
-    };
-  };
-
-  // Load history on mount
-  useEffect(() => {
-    loadLocalHistory();
-    loadFileboxSettings();
-  }, []);
-
-  // Fetch server history when switching to history tab
-  useEffect(() => {
-    if (activeTab === 'history') {
-      loadServerHistory();
-      loadAccessLogs();
-    }
-  }, [activeTab]);
 
   const loadLocalHistory = () => {
     try {
-      const saved = localStorage.getItem('filebox_history');
-      if (saved) {
-        setLocalHistory(JSON.parse(saved));
-      }
-    } catch (e) {
-      console.error('Failed to load local history', e);
+      setLocalHistory(JSON.parse(localStorage.getItem('filebox_history') || '[]'));
+    } catch {
+      setLocalHistory([]);
     }
   };
 
-  const saveToLocalHistory = (entry) => {
-    setLocalHistory((prev) => {
-      const updated = [entry, ...prev];
-      if (updated.length > 50) updated.length = 50;
-      localStorage.setItem('filebox_history', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const clearLocalHistory = () => {
-    setLocalHistory([]);
-    localStorage.removeItem('filebox_history');
-    toast.success('本地历史已清空');
+  const loadSettings = async () => {
+    setSettingsLoading(true);
+    try {
+      const res = await axios.get('/api/filebox/settings', { headers: authHeaders() });
+      if (res.data?.success && res.data.data) {
+        setFileboxSettings(res.data.data);
+        setSettingsMimeText((res.data.data.allowed_mime_types || []).join(', '));
+        if (!expiry) setExpiry(String(res.data.data.default_expiry_hours || 24));
+      }
+    } finally {
+      setSettingsLoading(false);
+    }
   };
 
   const loadServerHistory = async () => {
     setHistoryLoading(true);
     try {
-      const res = await axios.get('/api/filebox/history', {
-        headers: getAuthHeaders(),
-      });
-      if (res.data?.success) {
-        setServerHistory(Array.isArray(res.data.data) ? res.data.data : []);
-      }
+      const [historyRes, logsRes] = await Promise.all([
+        axios.get('/api/filebox/history', { headers: authHeaders() }),
+        axios.get('/api/filebox/access-logs', { headers: authHeaders() }),
+      ]);
+      if (historyRes.data?.success) setServerHistory(Array.isArray(historyRes.data.data) ? historyRes.data.data : []);
+      if (logsRes.data?.success) setAccessLogs(Array.isArray(logsRes.data.data) ? logsRes.data.data : []);
     } catch (error) {
-      console.error(error);
-      toast.error(error.response?.data?.error || '加载服务端历史失败');
+      toast.error(error.response?.data?.error || '加载文件柜记录失败');
     } finally {
       setHistoryLoading(false);
     }
   };
 
-  const loadAccessLogs = async () => {
-    setAccessLogsLoading(true);
-    try {
-      const res = await axios.get('/api/filebox/access-logs', {
-        headers: getAuthHeaders(),
-      });
-      if (res.data?.success) {
-        setAccessLogs(Array.isArray(res.data.data) ? res.data.data : []);
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error(error.response?.data?.error || '加载访问日志失败');
-    } finally {
-      setAccessLogsLoading(false);
+  useEffect(() => {
+    if (!publicVoidOnly) {
+      loadLocalHistory();
+      loadSettings();
     }
+    const room = new URLSearchParams(window.location.search).get('void');
+    if (room) {
+      setActiveTab('void');
+      setVoidRoom(room.toUpperCase());
+    }
+  }, [publicVoidOnly]);
+
+  useEffect(() => {
+    if (activeTab === 'history') loadServerHistory();
+  }, [activeTab]);
+
+  const saveLocalHistory = (entry) => {
+    const next = [entry, ...localHistory.filter((item) => item.code !== entry.code)].slice(0, 50);
+    setLocalHistory(next);
+    localStorage.setItem('filebox_history', JSON.stringify(next));
   };
 
-  const loadFileboxSettings = async () => {
-    setSettingsLoading(true);
-    try {
-      const res = await axios.get('/api/filebox/settings', {
-        headers: getAuthHeaders(),
-      });
-      if (res.data?.success && res.data.data) {
-        setFileboxSettings(res.data.data);
-        setSettingsMimeText((res.data.data.allowed_mime_types || []).join(', '));
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setSettingsLoading(false);
-    }
-  };
-
-  const saveFileboxSettings = async () => {
-    setSettingsLoading(true);
-    try {
-      const allowedMimeTypes = settingsMimeText
-        .split(/[,，\n]/)
-        .map(item => item.trim())
-        .filter(Boolean);
-      const res = await axios.put('/api/filebox/settings', {
-        ...fileboxSettings,
-        allowed_mime_types: allowedMimeTypes,
-      }, {
-        headers: getAuthHeaders(),
-      });
-      if (res.data?.success) {
-        setFileboxSettings(res.data.data);
-        setSettingsMimeText((res.data.data.allowed_mime_types || []).join(', '));
-        toast.success('文件柜策略已保存');
-      } else {
-        toast.error(res.data?.error || '保存策略失败');
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error(error.response?.data?.error || '保存策略失败');
-    } finally {
-      setSettingsLoading(false);
-    }
-  };
-
-  const handleSelectFile = (file) => {
+  const selectFile = (file) => {
     if (!file) return;
     if (file.size > maxFileSize) {
       toast.error(`文件过大，最大支持 ${formatFileSize(maxFileSize)}`);
@@ -233,64 +212,40 @@ function FileboxPage() {
     }
     setSelectedFile(file);
     setShareType('file');
+    setResult(null);
   };
 
-  const resetForm = () => {
+  const resetShare = () => {
     setShareText('');
     setSelectedFile(null);
-    setExpiry('24');
-    setBurnAfterReading(false);
-    setMaxDownloads('');
     setAccessPassword('');
+    setMaxDownloads('');
+    setBurnAfterReading(false);
     setResult(null);
     setQrCode('');
     setUploadProgress(0);
-    setUploadSpeedText('-');
-    setUploadEtaText('-');
-    setUploadingName('');
-    abortControllerRef.current = null;
+    setUploadSpeed('-');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const cancelUpload = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-      toast.warning('上传已取消');
-    }
-  };
-
   const generateQrCode = async (code) => {
-    const url = `${window.location.origin}/api/filebox/download/${code}`;
     try {
-      const qrDataUrl = await QRCode.toDataURL(url, {
-        width: 150,
-        margin: 1,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
-      setQrCode(qrDataUrl);
-    } catch (e) {
-      console.error('QRCode generation failed:', e);
+      setQrCode(await QRCode.toDataURL(downloadURL(code), { width: 132, margin: 1, color: { dark: '#111827', light: '#ffffff' } }));
+    } catch {
       setQrCode('');
     }
   };
 
-  const handleShare = async () => {
-    const isTextMode = shareType === 'text';
-    if (isTextMode && !shareText.trim()) return;
-    if (!isTextMode && !selectedFile) return;
+  const createShare = async () => {
+    const isText = shareType === 'text';
+    if (isText && !shareText.trim()) return toast.warning('请输入要分享的文本');
+    if (!isText && !selectedFile) return toast.warning('请选择要分享的文件');
 
     setLoading(true);
     setUploadProgress(0);
-    setUploadSpeedText('-');
-    setUploadEtaText('-');
-    
-    if (selectedFile) {
-      setUploadingName(selectedFile.name);
-      abortControllerRef.current = new AbortController();
-    }
-
-    let lastTs = Date.now();
+    setUploadSpeed('-');
+    abortControllerRef.current = new AbortController();
+    let lastTime = Date.now();
     let lastLoaded = 0;
 
     try {
@@ -300,940 +255,500 @@ function FileboxPage() {
       formData.append('burn_after_reading', burnAfterReading);
       formData.append('max_downloads', maxDownloads || '0');
       formData.append('access_password', accessPassword);
-
-      if (isTextMode) {
-        formData.append('text', shareText);
-      } else {
-        formData.append('file', selectedFile);
-      }
+      if (isText) formData.append('text', shareText);
+      else formData.append('file', selectedFile);
 
       const res = await axios.post('/api/filebox/share', formData, {
-        headers: {
-          ...getAuthHeaders(),
-          'Content-Type': 'multipart/form-data',
-        },
-        signal: abortControllerRef.current?.signal,
-        onUploadProgress: (evt) => {
-          if (isTextMode || !evt || !evt.total) return;
-
+        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+        signal: abortControllerRef.current.signal,
+        onUploadProgress: (event) => {
+          if (!event?.total || isText) return;
           const now = Date.now();
-          const deltaMs = Math.max(1, now - lastTs);
-          const deltaBytes = Math.max(0, evt.loaded - lastLoaded);
-          const speed = (deltaBytes * 1000) / deltaMs;
-          const remain = Math.max(0, evt.total - evt.loaded);
-          const etaSec = speed > 0 ? remain / speed : Infinity;
-
-          setUploadProgress(Math.min(100, Math.round((evt.loaded / evt.total) * 100)));
-          setUploadSpeedText(formatSpeed(speed));
-          setUploadEtaText(formatEta(etaSec));
-
-          lastTs = now;
-          lastLoaded = evt.loaded;
+          const speed = ((event.loaded - lastLoaded) * 1000) / Math.max(1, now - lastTime);
+          setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          setUploadSpeed(formatSpeed(speed));
+          lastLoaded = event.loaded;
+          lastTime = now;
         },
       });
 
-      if (res.data?.success) {
-        setUploadProgress(100);
-        setResult({ code: res.data.code });
-        await generateQrCode(res.data.code);
-
-        saveToLocalHistory({
-          code: res.data.code,
-          type: shareType,
-          originalName: selectedFile ? selectedFile.name : null,
-          content: shareText,
-          size: selectedFile ? selectedFile.size : 0,
-          createdAt: Date.now(),
-        });
-
-        toast.success('分享成功，取件码已生成');
-      } else {
-        toast.error('分享失败: ' + (res.data?.error || '未知错误'));
-      }
+      if (!res.data?.success) throw new Error(res.data?.error || '分享失败');
+      const entry = {
+        code: res.data.code,
+        type: shareType,
+        originalName: selectedFile?.name || '',
+        content: shareText,
+        size: selectedFile?.size || 0,
+        createdAt: Date.now(),
+        requiresPassword: !!accessPassword,
+      };
+      setResult(entry);
+      saveLocalHistory(entry);
+      setUploadProgress(100);
+      await generateQrCode(res.data.code);
+      toast.success('分享已创建');
     } catch (error) {
-      if (axios.isCancel(error)) {
-        return;
-      }
-      console.error(error);
-      toast.error(error.response?.data?.error || error.message || '分享失败');
+      if (!axios.isCancel(error)) toast.error(error.response?.data?.error || error.message || '分享失败');
     } finally {
       setLoading(false);
       abortControllerRef.current = null;
     }
   };
 
-  const handleRetrieve = async () => {
-    const code = retrieveCode.trim().toUpperCase();
-    if (!code || code.length < 5) {
-      toast.warning('请输入 5 位取件码');
-      return;
-    }
-
-    setLoading(true);
+  const deleteEntry = async (code) => {
+    if (!(await dialog.confirm(`确定删除分享 ${code}？`))) return;
     try {
-      const res = await axios.get(`/api/filebox/retrieve/${code}`);
-      if (res.data?.success) {
-        const entry = res.data.data;
-        if (entry.requiresPassword && !retrievePassword) {
-          toast.warning('该分享需要访问密码');
-          return;
-        }
-        entry.accessPassword = retrievePassword;
-        if (entry.type === 'text') {
-          const contentRes = await axios.get(`/api/filebox/download/${code}`, {
-            responseType: 'text',
-            headers: retrievePassword ? { 'x-filebox-password': retrievePassword } : undefined,
-          });
-          entry.content = contentRes.data;
-        }
-        setRetrievedEntry(entry);
-        setRetrieveCode('');
-        setRetrievePassword('');
-      } else {
-        toast.error(res.data?.error || '取件失败');
-      }
+      await axios.delete(`/api/filebox/${code}`, { headers: authHeaders() });
+      toast.success('分享已删除');
     } catch (error) {
-      if (error.response && error.response.status === 404) {
-        toast.error('取件码无效或已过期');
-      } else {
-        console.error(error);
-        toast.error(error.response?.data?.error || '取件失败');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteEntry = async (code) => {
-    if (!(await dialog.confirm(`确定要删除取件码为 "${code}" 的分享吗？`))) {
-      return;
-    }
-
-    try {
-      await axios.delete(`/api/filebox/${code}`, {
-        headers: getAuthHeaders(),
-      });
-      toast.success('已成功删除分享内容');
-    } catch (error) {
-      console.error('后端删除失败:', error);
       toast.error(error.response?.data?.error || '删除失败');
     }
-
-    // Filter local memory arrays and save updated local storage
-    const updatedLocal = localHistory.filter((h) => h.code !== code);
-    setLocalHistory(updatedLocal);
-    localStorage.setItem('filebox_history', JSON.stringify(updatedLocal));
-
-    setServerHistory((prev) => prev.filter((h) => h.code !== code));
+    const localNext = localHistory.filter((item) => item.code !== code);
+    setLocalHistory(localNext);
+    localStorage.setItem('filebox_history', JSON.stringify(localNext));
+    setServerHistory((prev) => prev.filter((item) => item.code !== code));
   };
 
-  const copyToClipboard = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success('已复制到剪贴板');
-    } catch (e) {
-      console.error('Clipboard write failed:', e);
-      toast.error('复制失败，请检查浏览器剪贴板权限');
-    }
-  };
-
-  const copyDownloadLink = (code) => {
-    const url = `${window.location.origin}/api/filebox/download/${code}`;
-    copyToClipboard(url);
-  };
-
-  const runCleanupJob = async () => {
-    if (!(await dialog.confirm('确定要立即清理所有过期分享吗？'))) {
-      return;
-    }
-
+  const runCleanup = async () => {
+    if (!(await dialog.confirm('清理所有过期分享？'))) return;
     setHistoryLoading(true);
     try {
-      const res = await axios.post('/api/filebox/jobs/cleanup', {}, {
-        headers: getAuthHeaders(),
-      });
+      const res = await axios.post('/api/filebox/jobs/cleanup', {}, { headers: authHeaders() });
       const deleted = res.data?.data?.result?.deleted ?? res.data?.data?.deleted ?? 0;
-      toast.success(`清理完成，删除 ${deleted} 条过期分享`);
-      await Promise.all([loadServerHistory(), loadAccessLogs()]);
+      toast.success(`已清理 ${deleted} 条过期分享`);
+      await loadServerHistory();
     } catch (error) {
-      console.error(error);
-      toast.error(error.response?.data?.error || '清理任务执行失败');
+      toast.error(error.response?.data?.error || '清理失败');
     } finally {
       setHistoryLoading(false);
     }
   };
 
-  const triggerDownload = async (entry) => {
-    if (!entry?.code) return;
+  const saveSettings = async () => {
+    setSettingsLoading(true);
     try {
-      const response = await axios.get(`/api/filebox/download/${entry.code}`, {
-        responseType: 'blob',
-        headers: entry.accessPassword ? { 'x-filebox-password': entry.accessPassword } : undefined,
-      });
-      const blobUrl = URL.createObjectURL(response.data);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = entry.originalName || entry.filename || `filebox-${entry.code}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
+      const allowedMimeTypes = settingsMimeText.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean);
+      const res = await axios.put('/api/filebox/settings', { ...fileboxSettings, allowed_mime_types: allowedMimeTypes }, { headers: authHeaders() });
+      if (!res.data?.success) throw new Error(res.data?.error || '保存失败');
+      setFileboxSettings(res.data.data);
+      setSettingsMimeText((res.data.data.allowed_mime_types || []).join(', '));
+      toast.success('策略已保存');
     } catch (error) {
-      console.error(error);
-      toast.error(error.response?.status === 403 ? '访问密码错误或缺失' : '下载失败');
+      toast.error(error.response?.data?.error || error.message || '保存失败');
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const copyLink = async (code) => {
+    await navigator.clipboard.writeText(downloadURL(code));
+    toast.success('下载链接已复制');
+  };
+
+  const postVoidSignal = async (room, kind, payload) => {
+    await axios.post(`/api/filebox/void/rooms/${encodeURIComponent(room)}/${kind}`, payload, { headers: authHeaders() });
+  };
+
+  const getVoidSignal = async (room, kind) => {
+    const res = await axios.get(`/api/filebox/void/rooms/${encodeURIComponent(room)}/${kind}`);
+    return res.data?.data;
+  };
+
+  const closeVoidPeer = () => {
+    voidChannelRef.current?.close?.();
+    voidPeerRef.current?.close?.();
+    voidChannelRef.current = null;
+    voidPeerRef.current = null;
+  };
+
+  const sendVoidPayload = async (channel, payload) => {
+    channel.send(JSON.stringify(payload));
+  };
+
+  const startVoidSend = async () => {
+    if (!voidFile && !voidText.trim()) return toast.warning('请选择文件或输入文本');
+    closeVoidPeer();
+    setVoidProgress(0);
+    setVoidStatus('创建房间');
+    const roomRes = await axios.post('/api/filebox/void/rooms', {}, { headers: authHeaders() });
+    const room = roomRes.data?.data?.id;
+    if (!room) return toast.error('创建虚空房间失败');
+    const link = `${window.location.origin}/filebox?void=${room}`;
+    setVoidRoom(room);
+    setVoidLink(link);
+    setVoidQr(await QRCode.toDataURL(link, { width: 132, margin: 1 }));
+
+    const peer = new RTCPeerConnection({ iceServers: VOID_ICE_SERVERS });
+    voidPeerRef.current = peer;
+    const channel = peer.createDataChannel('void-filebox', { ordered: true });
+    voidChannelRef.current = channel;
+
+    peer.onicecandidate = (event) => {
+      if (event.candidate) postVoidSignal(room, 'sender-candidate', event.candidate.toJSON()).catch(() => {});
+    };
+    channel.onopen = async () => {
+      setVoidStatus('直连已建立，开始发送');
+      const isFile = !!voidFile;
+      const meta = isFile
+        ? { kind: 'meta', type: 'file', name: voidFile.name, size: voidFile.size, mime: voidFile.type || 'application/octet-stream' }
+        : { kind: 'meta', type: 'text', name: 'void-text.txt', size: new Blob([voidText]).size, mime: 'text/plain' };
+      await sendVoidPayload(channel, meta);
+      const blob = isFile ? voidFile : new Blob([voidText], { type: 'text/plain' });
+      let sent = 0;
+      for (let offset = 0; offset < blob.size; offset += VOID_CHUNK_SIZE) {
+        while (channel.bufferedAmount > 4 * 1024 * 1024) await sleep(25);
+        const chunk = await blob.slice(offset, offset + VOID_CHUNK_SIZE).arrayBuffer();
+        channel.send(chunk);
+        sent += chunk.byteLength;
+        setVoidProgress(Math.round((sent / Math.max(1, blob.size)) * 100));
+      }
+      await sendVoidPayload(channel, { kind: 'done' });
+      setVoidStatus('发送完成');
+    };
+    channel.onclose = () => setVoidStatus((prev) => (prev === '发送完成' ? prev : '连接已关闭'));
+
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    await postVoidSignal(room, 'offer', offer);
+    setVoidStatus('等待接收方打开链接');
+
+    const seen = new Set();
+    for (let i = 0; i < 300; i += 1) {
+      if (!voidPeerRef.current) return;
+      const answer = await getVoidSignal(room, 'answer');
+      if (answer && !peer.currentRemoteDescription) await peer.setRemoteDescription(answer);
+      const candidates = await getVoidSignal(room, 'receiver-candidates');
+      if (Array.isArray(candidates)) {
+        for (const candidate of candidates) {
+          const key = candidate?.candidate;
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            await peer.addIceCandidate(candidate).catch(() => {});
+          }
+        }
+      }
+      if (channel.readyState === 'open') return;
+      await sleep(1000);
+    }
+  };
+
+  const startVoidReceive = async () => {
+    const room = voidRoom.trim().toUpperCase();
+    if (!room) return toast.warning('请输入虚空房间号');
+    closeVoidPeer();
+    setVoidProgress(0);
+    setVoidStatus('读取发送方信令');
+    const peer = new RTCPeerConnection({ iceServers: VOID_ICE_SERVERS });
+    voidPeerRef.current = peer;
+    const chunks = [];
+    let meta = null;
+    let received = 0;
+
+    peer.onicecandidate = (event) => {
+      if (event.candidate) postVoidSignal(room, 'receiver-candidate', event.candidate.toJSON()).catch(() => {});
+    };
+    peer.ondatachannel = (event) => {
+      const channel = event.channel;
+      voidChannelRef.current = channel;
+      channel.binaryType = 'arraybuffer';
+      channel.onopen = () => setVoidStatus('直连已建立，等待数据');
+      channel.onmessage = async (message) => {
+        if (typeof message.data === 'string') {
+          const payload = JSON.parse(message.data);
+          if (payload.kind === 'meta') {
+            meta = payload;
+            setVoidReceiveName(payload.name || 'void-transfer.bin');
+            setVoidReceiveSize(payload.size || 0);
+            setVoidStatus('接收中');
+            return;
+          }
+          if (payload.kind === 'done') {
+            const blob = new Blob(chunks, { type: meta?.mime || 'application/octet-stream' });
+            saveBlob(blob, meta?.name || 'void-transfer.bin');
+            setVoidProgress(100);
+            setVoidStatus('接收完成，已触发下载');
+          }
+          return;
+        }
+        if (message.data instanceof ArrayBuffer) {
+          chunks.push(message.data);
+          received += message.data.byteLength;
+          setVoidProgress(Math.round((received / Math.max(1, meta?.size || received)) * 100));
+        }
+      };
+    };
+
+    const offer = await getVoidSignal(room, 'offer');
+    if (!offer) return toast.error('房间还没有发送方，稍后再试');
+    await peer.setRemoteDescription(offer);
+    const answer = await peer.createAnswer();
+    await peer.setLocalDescription(answer);
+    await postVoidSignal(room, 'answer', answer);
+    setVoidStatus('等待直连建立');
+
+    const seen = new Set();
+    for (let i = 0; i < 300; i += 1) {
+      if (!voidPeerRef.current) return;
+      const candidates = await getVoidSignal(room, 'sender-candidates');
+      if (Array.isArray(candidates)) {
+        for (const candidate of candidates) {
+          const key = candidate?.candidate;
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            await peer.addIceCandidate(candidate).catch(() => {});
+          }
+        }
+      }
+      await sleep(1000);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* ==================== 顶部 Tab 导航 ==================== */}
-      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
-        <Tabs
-          {...MODULE_TABS_PROPS}
-          value={activeTab}
-          onValueChange={setActiveTab}
-          tabs={[
-            { value: 'share', label: <span className="inline-flex items-center gap-1.5"><Send className="w-3.5 h-3.5" />快捷分享</span> },
-            { value: 'retrieve', label: <span className="inline-flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />极速取件</span> },
-            { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="w-3.5 h-3.5" />历史记录</span> },
-            { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" />策略设置</span> },
-          ]}
-        />
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
+        {!publicVoidOnly && <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={PAGE_TABS} />}
+        <div className="text-xs text-kumo-subtle">{publicVoidOnly ? '虚空发送接收页' : '文件与文本临时分享'}</div>
       </div>
 
-      {/* ==================== 1. 取件 Tab 页面 ==================== */}
-      {activeTab === 'retrieve' && (
-        <div className="max-w-lg mx-auto text-center space-y-6 py-8">
-          <div className="space-y-2">
-            <h2 className="text-base font-bold text-kumo-strong flex items-center justify-center gap-2 select-none">
-              <Download className="w-5 h-5 text-kumo-brand" />
-              下一秒，文件到手
-            </h2>
-            <p className="text-xs text-kumo-subtle">
-              输入 5 位取件码，即可快速提取共享的文件或文本内容
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Input size="sm"
-              type="text"
-              aria-label="取件码"
-              value={retrieveCode}
-              onChange={(e) => setRetrieveCode(e.target.value.toUpperCase())}
-              placeholder="请输入 5 位取件码"
-              maxLength={5}
-              onKeyDown={(e) => e.key === 'Enter' && handleRetrieve()}
-              className="flex-1 text-kumo-strong text-base font-bold font-mono tracking-widest text-center px-4 py-2"
-            />
-            <Button size="sm"
-              variant="primary"
-              onClick={handleRetrieve}
-              disabled={loading}
-              className="font-semibold"
-            >
-              {loading ? '提取中...' : '提取'}
-            </Button>
-          </div>
-          <Input
-            size="sm"
-            type="password"
-            aria-label="访问密码"
-            value={retrievePassword}
-            onChange={(e) => setRetrievePassword(e.target.value)}
-            placeholder="如分享设置了访问密码，请在此输入"
-            onKeyDown={(e) => e.key === 'Enter' && handleRetrieve()}
-            className="w-full text-kumo-strong text-sm px-4 py-2"
-          />
-          <div className="app-card p-5 text-left space-y-3">
-            <h3 className="text-xs font-bold text-kumo-strong flex items-center gap-1.5 select-none">
-              <Info className="w-4 h-4 text-kumo-brand" />
-              取件说明
-            </h3>
-            <div className="text-[11px] text-kumo-subtle space-y-2 leading-relaxed">
-              <p>1. 取件码为分享成功后生成的 5 位随机字符（字母与数字组合）。</p>
-              <p>2. 请确保取件码在有效期内，过期的内容将自动销毁且不可恢复。</p>
-              <p>3. 如果分享者开启了“阅后即焚”，内容在首次成功提取后将立即被永久删除。</p>
-              <p>4. 带锁分享需要访问密码，下载请求会通过安全请求头提交密码。</p>
+      {activeTab === 'share' && (
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(22rem,0.7fr)]">
+          <LayerCard className="p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-4">
+              <div>
+                <h2 className="text-base font-bold text-kumo-strong">创建分享</h2>
+                <p className="mt-1 text-xs text-kumo-subtle">生成可直接访问的下载链接，支持文件、文本、密码与次数限制。</p>
+              </div>
+              <Tabs {...TOOL_TABS_PROPS} value={shareType} onValueChange={(value) => { setShareType(value); setResult(null); }} tabs={SHARE_TYPE_TABS} />
             </div>
-          </div>
+
+            <div className="mt-4 grid gap-4">
+              {shareType === 'file' ? (
+                <div
+                  className="rounded-md border border-dashed border-kumo-line bg-kumo-recessed/35 p-6 text-center"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => { event.preventDefault(); selectFile(event.dataTransfer.files?.[0]); }}
+                >
+                  <input ref={fileInputRef} type="file" className="hidden" onChange={(event) => selectFile(event.target.files?.[0])} />
+                  <Upload className="mx-auto h-9 w-9 text-kumo-subtle" />
+                  <div className="mt-3 text-sm font-semibold text-kumo-strong">{selectedFile ? selectedFile.name : '拖入文件或点击选择'}</div>
+                  <div className="mt-1 text-xs text-kumo-subtle">最大 {formatFileSize(maxFileSize)}</div>
+                  <div className="mt-4 flex justify-center"><Button size="sm" onClick={() => fileInputRef.current?.click()}>选择文件</Button></div>
+                </div>
+              ) : (
+                <Textarea label="分享文本" value={shareText} onChange={(event) => { setShareText(event.target.value); setResult(null); }} className="min-h-56 font-mono text-sm" placeholder="粘贴需要分享的文本内容" />
+              )}
+
+              {loading && shareType === 'file' && <Meter label="上传进度" value={uploadProgress} customValue={`${uploadProgress}% · ${uploadSpeed}`} />}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <Select size="sm" label="有效期" value={expiry} onValueChange={setExpiry} items={EXPIRY_OPTIONS} />
+                <Input size="sm" label="最大下载次数" type="number" min="0" value={maxDownloads} onChange={(event) => setMaxDownloads(event.target.value)} placeholder="0 或留空为不限" />
+                <Input size="sm" label="访问密码" type="password" value={accessPassword} onChange={(event) => setAccessPassword(event.target.value)} placeholder="可选" />
+                <div className="flex items-center justify-between rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-2">
+                  <div>
+                    <div className="text-xs font-semibold text-kumo-strong">阅后即焚</div>
+                    <div className="text-[11px] text-kumo-subtle">首次成功下载后删除</div>
+                  </div>
+                  <Switch checked={burnAfterReading} onCheckedChange={setBurnAfterReading} />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-kumo-line pt-4">
+                {loading && <Button size="sm" variant="secondary-destructive" onClick={() => abortControllerRef.current?.abort()}>取消上传</Button>}
+                <Button size="sm" variant="secondary" onClick={resetShare}>重置</Button>
+                <Button size="sm" variant="primary" onClick={createShare} loading={loading} icon={<Send className="h-4 w-4" />}>创建分享</Button>
+              </div>
+            </div>
+          </LayerCard>
+
+          <LayerCard className="p-5">
+            <h2 className="text-base font-bold text-kumo-strong">分享结果</h2>
+            {!result ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-md border border-dashed border-kumo-line p-8 text-center text-xs text-kumo-subtle">创建后会在这里显示链接、二维码和取用信息。</div>
+                <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs">
+                  <div className="flex justify-between gap-3"><span className="text-kumo-subtle">类型</span><span className="font-semibold text-kumo-strong">{shareType === 'file' ? '文件' : '文本'}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-kumo-subtle">有效期</span><span className="font-semibold text-kumo-strong">{expiryLabel(expiry)}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-kumo-subtle">下载次数</span><span className="font-semibold text-kumo-strong">{maxDownloads || '不限'}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-kumo-subtle">访问密码</span><span className="font-semibold text-kumo-strong">{accessPassword ? '已设置' : '未设置'}</span></div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
+                  <div className="text-xs text-kumo-subtle">下载链接</div>
+                  <ClipboardText text={downloadURL(result.code)} className="mt-2" tooltip={{ text: '复制链接', copiedText: '链接已复制' }} labels={{ copyAction: '复制链接' }} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                  {qrCode && <img src={qrCode} alt="分享二维码" className="h-32 w-32 rounded-md border border-kumo-line bg-white p-2" />}
+                  <div className="space-y-2 text-xs text-kumo-subtle">
+                    <div><span className="font-semibold text-kumo-strong">分享码:</span> <span className="font-mono text-kumo-brand">{result.code}</span></div>
+                    <div>链接可直接打开；需要密码时浏览器会提示输入。</div>
+                    <div>有效期: {expiryLabel(expiry)}</div>
+                    {accessPassword && <Badge variant="warning">已启用访问密码</Badge>}
+                  </div>
+                </div>
+              </div>
+            )}
+          </LayerCard>
         </div>
       )}
 
-      {/* ==================== 2. 分享 Tab 页面 ==================== */}
-      {activeTab === 'share' && (
-        <div className="max-w-2xl mx-auto app-card p-6 relative">
-          <h3 className="text-sm font-bold text-kumo-strong border-b border-kumo-line pb-3 mb-5 select-none">
-            我要分享
-          </h3>
+      {activeTab === 'history' && (
+        <div className="grid gap-4">
+          <LayerCard className="p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
+              <div>
+                <h2 className="text-base font-bold text-kumo-strong">分享记录</h2>
+                <p className="mt-1 text-xs text-kumo-subtle">本地最近记录和服务端有效分享。</p>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="secondary" onClick={loadServerHistory} loading={historyLoading} icon={<RefreshCw className="h-4 w-4" />}>刷新</Button>
+                <Button size="sm" variant="secondary" onClick={runCleanup} icon={<Clock className="h-4 w-4" />}>清理过期</Button>
+              </div>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <Table layout="fixed" className="min-w-[820px]">
+                <colgroup><col /><col className="w-24" /><col className="w-32" /><col className="w-36" /><col className="w-32" /></colgroup>
+                <Table.Header><Table.Row><Table.Head>内容</Table.Head><Table.Head>分享码</Table.Head><Table.Head>下载次数</Table.Head><Table.Head>到期</Table.Head><Table.Head>操作</Table.Head></Table.Row></Table.Header>
+                <Table.Body>
+                  {historyLoading ? Array.from({ length: 3 }).map((_, index) => (
+                    <Table.Row key={index}><Table.Cell colSpan={5}><SkeletonLine className="h-8 w-full" /></Table.Cell></Table.Row>
+                  )) : serverHistory.length === 0 ? (
+                    <Table.Row><Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">暂无有效分享</Table.Cell></Table.Row>
+                  ) : serverHistory.map((entry) => (
+                    <Table.Row key={entry.code}>
+                      <Table.Cell><EntryName entry={entry} /></Table.Cell>
+                      <Table.Cell className="font-mono text-xs font-semibold text-kumo-brand">{entry.code}</Table.Cell>
+                      <Table.Cell className="text-xs text-kumo-subtle">{entry.downloads || 0}{entry.maxDownloads ? ` / ${entry.maxDownloads}` : ' / 不限'}</Table.Cell>
+                      <Table.Cell className="text-xs text-kumo-subtle">{formatExpiry(entry.expiry)}</Table.Cell>
+                      <Table.Cell><div className="flex gap-1"><Button size="sm" variant="secondary" onClick={() => copyLink(entry.code)}>复制</Button><Button size="sm" variant="secondary-destructive" onClick={() => deleteEntry(entry.code)}><Trash className="h-3.5 w-3.5" /></Button></div></Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+            </div>
+          </LayerCard>
 
-          <div className="max-w-xs mb-5">
-            <Tabs
-              {...TOOL_TABS_PROPS}
-              value={shareType}
-              onValueChange={setShareType}
-              tabs={[
-                { value: 'file', label: <span className="inline-flex items-center gap-1.5"><FolderOpen className="w-3.5 h-3.5" />分享文件</span> },
-                { value: 'text', label: <span className="inline-flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />分享文本</span> },
-              ]}
-            />
+          <div className="grid gap-4 xl:grid-cols-2">
+            <LayerCard className="p-5">
+              <h2 className="text-base font-bold text-kumo-strong">本地最近创建</h2>
+              <div className="mt-3 divide-y divide-kumo-line">
+                {localHistory.length === 0 ? <div className="py-8 text-center text-xs text-kumo-subtle">暂无本地记录</div> : localHistory.slice(0, 8).map((entry) => (
+                  <div key={entry.code} className="flex items-center justify-between gap-3 py-2.5">
+                    <EntryName entry={entry} />
+                    <div className="flex shrink-0 items-center gap-2"><span className="font-mono text-xs text-kumo-brand">{entry.code}</span><Button size="sm" variant="secondary" onClick={() => copyLink(entry.code)}>复制</Button></div>
+                  </div>
+                ))}
+              </div>
+            </LayerCard>
+
+            <LayerCard className="p-5">
+              <h2 className="text-base font-bold text-kumo-strong">访问日志</h2>
+              <div className="mt-3 max-h-72 overflow-auto divide-y divide-kumo-line">
+                {accessLogs.length === 0 ? <div className="py-8 text-center text-xs text-kumo-subtle">暂无访问日志</div> : accessLogs.slice(0, 20).map((log) => (
+                  <div key={log.id} className="grid grid-cols-[5rem_5rem_minmax(0,1fr)_9rem] gap-2 py-2 text-xs">
+                    <span className="font-mono text-kumo-brand">{log.code}</span>
+                    <span className="text-kumo-strong">{log.action}</span>
+                    <span className="truncate text-kumo-subtle">{log.ipAddress || log.userAgent || '-'}</span>
+                    <span className="text-right text-kumo-subtle">{formatDateTime(log.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
+            </LayerCard>
           </div>
-
-          {shareType === 'file' ? (
-            <div
-              onDragEnter={() => setIsDragging(true)}
-              onDragLeave={() => setIsDragging(false)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                const files = e.dataTransfer?.files;
-                if (files && files.length > 0) {
-                  handleSelectFile(files[0]);
-                }
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              className={`w-full py-12 border-2 border-dashed rounded-lg bg-kumo-recessed/10 flex flex-col items-center justify-center text-kumo-subtle cursor-pointer focus:border-kumo-brand focus:outline-none transition-all group ${
-                isDragging
-                  ? 'border-kumo-brand bg-kumo-brand/5'
-                  : 'border-kumo-line hover:border-kumo-brand hover:bg-kumo-recessed/20'
-              }`}
-            >
-              <Input size="sm"
-                type="file"
-                aria-label="选择分享文件"
-                ref={fileInputRef}
-                className="hidden"
-                onChange={(e) => {
-                  const files = e.target.files;
-                  if (files && files.length > 0) {
-                    handleSelectFile(files[0]);
-                  }
-                }}
-              />
-              {!selectedFile ? (
-                <>
-                  <Upload className="w-8 h-8 mb-3 text-kumo-subtle opacity-50 group-hover:scale-105 transition-transform" />
-                  <span className="text-xs font-semibold text-kumo-strong">
-                    点击选择文件 或 拖拽文件到此处
-                  </span>
-                  <span className="text-[10px] text-kumo-subtle mt-1.5">
-                    建议大小不超过 {formatFileSize(maxFileSize)}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <FolderOpen className="w-8 h-8 mb-3 text-kumo-brand group-hover:scale-105 transition-transform" />
-                  <span className="text-xs font-bold text-kumo-strong px-4 truncate max-w-full text-center">
-                    {selectedFile.name}
-                  </span>
-                  <span className="text-[10px] text-kumo-subtle mt-1.5">
-                    {formatFileSize(selectedFile.size)}
-                  </span>
-                  <Button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedFile(null);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                    variant="secondary" size="sm"
-                    className="mt-4"
-                  >
-                    重新选择
-                  </Button>
-                </>
-              )}
-            </div>
-          ) : (
-            <Textarea
-              aria-label="分享文本内容"
-              value={shareText}
-              onChange={(e) => setShareText(e.target.value)}
-              className="w-full h-32 text-kumo-strong text-xs px-3 py-2 resize-none font-mono"
-              placeholder="在此粘贴或输入需要分享的文本内容..."
-            />
-          )}
-
-          {/* Upload progress telemetry card (only shown for file uploads during loading) */}
-          {shareType === 'file' && loading && (
-            <div className="mt-4 p-4 app-subcard space-y-3">
-              <div className="flex justify-between items-center text-xs font-semibold">
-                <span className="text-kumo-strong truncate max-w-[240px]">
-                  {uploadingName || '文件上传中'}
-                </span>
-                <span className="text-kumo-brand">{uploadProgress}%</span>
-              </div>
-              <Meter
-                label="上传进度"
-                value={uploadProgress}
-                min={0}
-                max={100}
-                customValue={`${uploadProgress}%`}
-                className="text-[10px]"
-                trackClassName="!h-2 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed"
-                indicatorClassName="!h-full rounded-full bg-kumo-brand"
-              />
-              <div className="flex justify-between items-center text-[10px] text-kumo-subtle font-mono">
-                <div className="flex gap-4">
-                  <span>网速: {uploadSpeedText}</span>
-                  <span>预计剩余: {uploadEtaText}</span>
-                </div>
-                <Button
-                  onClick={cancelUpload}
-                  variant="secondary-destructive" size="sm"
-                >
-                  取消上传
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Expiry and Burn config row */}
-          <div className="mt-6 pt-5 border-t border-kumo-line space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="font-semibold text-kumo-subtle">有效期</span>
-                <Select
-                  aria-label="分享有效期" size="sm"
-                  value={expiry}
-                  onValueChange={setExpiry}
-                  items={[
-                    { value: '1', label: '1 小时' },
-                    { value: '24', label: '24 小时' },
-                    { value: '168', label: '7 天' },
-                  ]}
-                />
-              </div>
-
-              <Input
-                size="sm"
-                type="number"
-                min="0"
-                aria-label="最大下载次数"
-                label="最大下载次数"
-                value={maxDownloads}
-                onChange={(e) => setMaxDownloads(e.target.value.replace(/\D/g, ''))}
-                placeholder="0 表示不限"
-                className="font-mono"
-              />
-
-              <Input
-                size="sm"
-                type="password"
-                aria-label="访问密码"
-                label="访问密码"
-                value={accessPassword}
-                onChange={(e) => setAccessPassword(e.target.value)}
-                placeholder="可选，取件时需要输入"
-              />
-
-              <div className="flex items-center gap-2.5 text-xs">
-                <span className="font-semibold text-kumo-subtle">阅后即焚</span>
-                <Switch
-                  checked={burnAfterReading}
-                  onCheckedChange={setBurnAfterReading}
-                  size="sm"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <Button size="sm"
-                variant="primary"
-                disabled={loading || (shareType === 'file' ? !selectedFile : !shareText.trim())}
-                onClick={handleShare}
-                className="font-semibold"
-              >
-                {loading ? '分享中...' : '立即分享'}
-              </Button>
-            </div>
-          </div>
-
-          {/* Success Overlay result */}
-          {result && (
-            <div className="absolute inset-0 bg-kumo-base rounded-lg p-6 flex flex-col items-center justify-center text-center space-y-4 z-20">
-              <span className="w-12 h-12 rounded-full bg-kumo-success/10 text-kumo-success flex items-center justify-center text-2xl font-bold">
-                ✓
-              </span>
-              <div className="space-y-1">
-                <h3 className="text-sm font-bold text-kumo-strong">分享成功</h3>
-                <p className="text-[11px] text-kumo-subtle">
-                  取件码已生成，凭此码可在取件页面提取共享内容
-                </p>
-              </div>
-
-              <ClipboardText
-                size="lg"
-                text={result.code}
-                className="w-full max-w-xs text-kumo-brand"
-                tooltip={{ text: '复制取件码', copiedText: '取件码已复制', side: 'top' }}
-                labels={{ copyAction: '复制取件码' }}
-              />
-              <ClipboardText
-                size="sm"
-                text={`${window.location.origin}/api/filebox/download/${result.code}`}
-                className="w-full max-w-md"
-                tooltip={{ text: '复制链接', copiedText: '下载链接已复制', side: 'top' }}
-                labels={{ copyAction: '复制下载链接' }}
-              />
-
-              {/* QR Code */}
-              {qrCode && (
-                <div className="flex flex-col items-center justify-center p-2.5 app-subcard bg-kumo-recessed">
-                  <img src={qrCode} alt="取件二维码" className="w-[110px] h-[110px]" />
-                  <span className="text-[9px] text-kumo-subtle mt-1">扫码快速提取</span>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <Button size="sm" variant="primary" onClick={resetForm}>
-                  继续分享
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
       {activeTab === 'settings' && (
-        <div className="mx-auto max-w-2xl app-card p-6 space-y-5">
-          <div className="flex items-start justify-between gap-4 border-b border-kumo-line pb-3">
+        <LayerCard className="p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-4">
             <div>
-              <h3 className="text-sm font-bold text-kumo-strong">文件柜策略设置</h3>
-              <p className="mt-1 text-xs text-kumo-subtle">
-                这些限制由后端强制执行，保存后立即影响新分享。
-              </p>
+              <h2 className="text-base font-bold text-kumo-strong">文件柜策略</h2>
+              <p className="mt-1 text-xs text-kumo-subtle">这些限制由后端执行，影响新创建的分享。</p>
             </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={loadFileboxSettings}
-              loading={settingsLoading}
-              icon={<RefreshCw className="w-3.5 h-3.5" />}
-            >
-              刷新
-            </Button>
+            <Button size="sm" variant="secondary" onClick={loadSettings} loading={settingsLoading} icon={<RefreshCw className="h-4 w-4" />}>刷新</Button>
           </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Input
-              size="sm"
-              type="number"
-              min="1"
-              label="最大文件大小（MB）"
-              aria-label="最大文件大小"
-              value={Math.max(1, Math.round(maxFileSize / 1024 / 1024))}
-              onChange={(e) => setFileboxSettings(prev => ({
-                ...prev,
-                max_file_size: Math.max(1, parseInt(e.target.value, 10) || 1) * 1024 * 1024,
-              }))}
-              className="font-mono"
-            />
-
-            <Input
-              size="sm"
-              type="number"
-              min="1"
-              label="默认有效期（小时）"
-              aria-label="默认有效期"
-              value={fileboxSettings.default_expiry_hours || 24}
-              onChange={(e) => setFileboxSettings(prev => ({
-                ...prev,
-                default_expiry_hours: Math.max(1, parseInt(e.target.value, 10) || 24),
-              }))}
-              className="font-mono"
-            />
-
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <Input size="sm" label="最大文件大小 MB" type="number" min="1" value={Math.round((fileboxSettings.max_file_size || DEFAULT_FILEBOX_MAX_FILE_SIZE) / 1024 / 1024)} onChange={(event) => setFileboxSettings((prev) => ({ ...prev, max_file_size: Math.max(1, Number(event.target.value) || 1) * 1024 * 1024 }))} />
+            <Input size="sm" label="默认有效期小时" type="number" min="1" value={fileboxSettings.default_expiry_hours || 24} onChange={(event) => setFileboxSettings((prev) => ({ ...prev, default_expiry_hours: Math.max(1, Number(event.target.value) || 24) }))} />
             <div className="md:col-span-2">
-              <Textarea
-                aria-label="允许 MIME 类型"
-                value={settingsMimeText}
-                onChange={(e) => setSettingsMimeText(e.target.value)}
-                className="h-24 w-full resize-none font-mono text-xs"
-                placeholder="留空表示不限制。例如：image/*, application/pdf, text/plain"
-              />
-              <p className="mt-1 text-[10px] text-kumo-subtle">
-                支持逗号或换行分隔，`image/*` 这样的通配规则会匹配同类 MIME。
-              </p>
+              <Textarea label="允许 MIME 类型" value={settingsMimeText} onChange={(event) => setSettingsMimeText(event.target.value)} className="min-h-28 font-mono text-xs" placeholder="留空表示不限制。例如 image/*, application/pdf, text/plain" />
             </div>
+            <div className="md:col-span-2 flex items-center justify-between rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
+              <div><div className="text-xs font-semibold text-kumo-strong">允许公开上传</div><div className="mt-1 text-[11px] text-kumo-subtle">当前接口仍要求管理员认证；保留为策略开关。</div></div>
+              <Switch checked={!!fileboxSettings.public_upload_enabled} onCheckedChange={(checked) => setFileboxSettings((prev) => ({ ...prev, public_upload_enabled: checked }))} />
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end border-t border-kumo-line pt-4"><Button size="sm" variant="primary" onClick={saveSettings} loading={settingsLoading} icon={<Lock className="h-4 w-4" />}>保存策略</Button></div>
+        </LayerCard>
+      )}
 
-            <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
+      {activeTab === 'void' && (
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <LayerCard className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-kumo-line pb-4">
               <div>
-                <div className="text-xs font-semibold text-kumo-strong">允许公开上传</div>
-                <div className="mt-1 text-[10px] text-kumo-subtle">
-                  当前上传接口仍要求管理员认证；此开关为后续公开上传策略预留。
-                </div>
+                <h2 className="text-base font-bold text-kumo-strong">虚空发送</h2>
+                <p className="mt-1 text-xs text-kumo-subtle">点对点直连传输，大文件不占用服务器带宽。</p>
               </div>
-              <Switch
-                size="sm"
-                checked={!!fileboxSettings.public_upload_enabled}
-                onCheckedChange={(checked) => setFileboxSettings(prev => ({
-                  ...prev,
-                  public_upload_enabled: checked,
-                }))}
-              />
+              <Badge variant="success">P2P</Badge>
             </div>
-          </div>
-
-          <div className="flex justify-end border-t border-kumo-line pt-4">
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={saveFileboxSettings}
-              loading={settingsLoading}
-            >
-              保存策略
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ==================== 3. 历史记录 Tab 页面 ==================== */}
-      {activeTab === 'history' && (
-        <div className="space-y-6">
-          {/* 本地分享历史 */}
-          <div className="app-card p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-kumo-line pb-3 select-none">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-kumo-strong">本地分享历史</h3>
-                <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-1.5 py-0.5 rounded font-mono font-semibold">
-                  本地 {localHistory.length} 条
-                </span>
+            <div className="mt-4 grid gap-4">
+              <div className="rounded-md border border-dashed border-kumo-line bg-kumo-recessed/35 p-5 text-center transition-colors hover:border-kumo-brand/50">
+                <input ref={voidFileInputRef} type="file" className="hidden" onChange={(event) => { setVoidFile(event.target.files?.[0] || null); setVoidText(''); }} />
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-md border border-kumo-line bg-kumo-base text-kumo-brand"><Upload className="h-6 w-6" /></div>
+                <div className="mt-3 text-sm font-semibold text-kumo-strong">{voidFile ? voidFile.name : '选择文件'}</div>
+                <div className="mt-1 text-xs text-kumo-subtle">双方页面保持打开，连接建立后浏览器直传。</div>
+                <div className="mt-4 flex justify-center"><Button size="sm" variant="secondary" onClick={() => voidFileInputRef.current?.click()}>选择文件</Button></div>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={loadServerHistory}
-                  variant="secondary" size="sm"
-                  shape="square"
-                  aria-label="刷新服务端历史"
-                  className="text-kumo-subtle hover:text-kumo-strong"
-                  title="刷新服务端历史"
-                  icon={<RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin' : ''}`} />}
-                />
-                <Button
-                  onClick={runCleanupJob}
-                  variant="secondary" size="sm"
-                  shape="square"
-                  aria-label="清理过期分享"
-                  className="text-kumo-subtle hover:text-kumo-strong"
-                  title="清理过期分享"
-                  icon={<Clock className="w-3.5 h-3.5" />}
-                />
-                <Button
-                  onClick={clearLocalHistory}
-                  variant="secondary-destructive" size="sm"
-                  shape="square"
-                  aria-label="清空本地历史"
-                  title="清空本地历史"
-                  icon={<Trash className="w-3.5 h-3.5" />}
-                />
+              <Textarea label="或发送文本" value={voidText} onChange={(event) => { setVoidText(event.target.value); setVoidFile(null); }} className="min-h-32 font-mono text-sm" placeholder="输入文本后也可以通过虚空发送" />
+              <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs sm:grid-cols-3">
+                <div><div className="font-semibold text-kumo-strong">信令</div><div className="mt-1 text-kumo-subtle">服务器暂存 30 分钟</div></div>
+                <div><div className="font-semibold text-kumo-strong">文件流</div><div className="mt-1 text-kumo-subtle">浏览器直连</div></div>
+                <div><div className="font-semibold text-kumo-strong">中继</div><div className="mt-1 text-kumo-subtle">默认关闭</div></div>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2 border-t border-kumo-line pt-4">
+                <Button size="sm" variant="secondary" onClick={() => { closeVoidPeer(); setVoidStatus('已停止'); }}>停止</Button>
+                <Button size="sm" variant="primary" onClick={startVoidSend} icon={<Send className="h-4 w-4" />}>创建虚空发送</Button>
               </div>
             </div>
+          </LayerCard>
 
-            {localHistory.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-kumo-subtle">
-                <FolderOpen className="w-10 h-10 opacity-30 mb-2.5" />
-                <span className="text-xs">尚未分享过任何内容</span>
+          <LayerCard className="p-5">
+            <div className="flex items-start justify-between gap-3 border-b border-kumo-line pb-4">
+              <div>
+                <h2 className="text-base font-bold text-kumo-strong">连接状态</h2>
+                <p className="mt-1 text-xs text-kumo-subtle">接收方扫码后在这里建立连接。</p>
               </div>
-            ) : (
-              <div className="divide-y divide-kumo-line">
-                {localHistory.map((item) => (
-                  <div key={item.code} className="flex justify-between items-center py-3 first:pt-0 last:pb-0">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold ${
-                          item.type === 'file'
-                            ? 'bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20'
-                            : 'bg-kumo-success/10 text-kumo-success border border-kumo-success/20'
-                        }`}
-                      >
-                        {item.type === 'file' ? <FolderOpen className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-kumo-strong truncate max-w-sm">
-                          {item.type === 'file'
-                            ? item.originalName
-                            : item.content
-                            ? item.content.substring(0, 50) + (item.content.length > 50 ? '...' : '')
-                            : '文本内容'}
-                        </p>
-                        <p className="text-[10px] text-kumo-subtle mt-0.5">
-                          {formatDateTime(item.createdAt)}
-                          {item.type === 'file' && ` · ${formatFileSize(item.size)}`}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono font-bold text-kumo-brand bg-kumo-recessed px-2 py-0.5 border border-kumo-line rounded select-all">
-                        {item.code}
-                      </span>
-                      <div className="flex gap-1.5">
-                        <Button
-                          onClick={() => copyDownloadLink(item.code)}
-                          variant="secondary" size="sm"
-                          shape="square"
-                          aria-label="复制下载链接"
-                          className="text-kumo-subtle hover:text-kumo-strong"
-                          title="复制下载链接"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          onClick={() => handleDeleteEntry(item.code)}
-                          variant="secondary-destructive" size="sm"
-                          shape="square"
-                          aria-label="删除分享记录"
-                          title="删除"
-                        >
-                          <Trash className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </div>
+              <Badge variant={voidProgress >= 100 ? 'success' : 'secondary'}>{voidProgress}%</Badge>
+            </div>
+            <div className="mt-4 grid gap-4">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <Input size="sm" label="房间号" value={voidRoom} onChange={(event) => setVoidRoom(event.target.value.toUpperCase())} placeholder="扫码会自动填入" />
+                <div className="flex items-end"><Button size="sm" variant="primary" onClick={startVoidReceive}>开始接收</Button></div>
+              </div>
+              <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs">
+                <div className="flex items-center justify-between gap-3"><span className="text-kumo-subtle">状态</span><span className="rounded border border-kumo-line bg-kumo-base px-2 py-0.5 font-semibold text-kumo-strong">{voidStatus}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-kumo-subtle">内容</span><span className="truncate font-semibold text-kumo-strong">{voidReceiveName || voidFile?.name || '等待连接'}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-kumo-subtle">大小</span><span className="font-semibold text-kumo-strong">{formatFileSize(voidReceiveSize || voidFile?.size || new Blob([voidText]).size || 0)}</span></div>
+              </div>
+              <Meter label="传输进度" value={voidProgress} customValue={`${voidProgress}%`} />
+              {voidLink ? (
+                <div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-base p-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                  {voidQr && <img src={voidQr} alt="虚空发送二维码" className="h-32 w-32 rounded-md border border-kumo-line bg-white p-2" />}
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-kumo-strong">让接收方扫码或打开链接</div>
+                    <ClipboardText text={voidLink} className="mt-2" tooltip={{ text: '复制链接', copiedText: '链接已复制' }} labels={{ copyAction: '复制链接' }} />
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 服务端文件历史 */}
-          <div className="app-card p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-kumo-line pb-3 select-none">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-kumo-strong">服务端文件历史</h3>
-                <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-1.5 py-0.5 rounded font-mono font-semibold">
-                  {serverHistory.length} 条
-                </span>
-              </div>
-              <Button
-                onClick={() => Promise.all([loadServerHistory(), loadAccessLogs()])}
-                variant="secondary" size="sm"
-                shape="square"
-                aria-label="刷新服务端历史和访问日志"
-                title="刷新"
-                icon={<RefreshCw className={`w-3.5 h-3.5 ${historyLoading || accessLogsLoading ? 'animate-spin' : ''}`} />}
-              />
-            </div>
-
-            {historyLoading ? (
-              <div className="space-y-3.5">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="flex justify-between items-center py-3">
-                    <div className="flex items-center gap-3 flex-1">
-                      <SkeletonLine className="w-8 h-8 rounded-lg" />
-                      <div className="flex-1 space-y-1.5">
-                        <SkeletonLine className="w-1/3 h-3.5" />
-                        <SkeletonLine className="w-1/2 h-2.5" />
-                      </div>
-                    </div>
-                    <SkeletonLine className="w-12 h-6 rounded" />
-                  </div>
-                ))}
-              </div>
-            ) : serverHistory.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-kumo-subtle">
-                <FolderOpen className="w-10 h-10 opacity-30 mb-2.5" />
-                <span className="text-xs">服务端暂无可用文件记录</span>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table layout="fixed" className="min-w-[760px]">
-                  <colgroup>
-                    <col className="w-[96px]" />
-                    <col />
-                    <col className="w-[104px]" />
-                    <col className="w-[120px]" />
-                    <col className="w-[168px]" />
-                    <col className="w-[96px]" />
-                  </colgroup>
-                  <Table.Header variant="compact">
-                    <Table.Row>
-                      <Table.Head className="w-24">取件码</Table.Head>
-                      <Table.Head>名称</Table.Head>
-                      <Table.Head className="w-28">类型</Table.Head>
-                      <Table.Head className="w-36">次数</Table.Head>
-                      <Table.Head className="w-36">到期</Table.Head>
-                      <Table.Head className="w-24 text-right">操作</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {serverHistory.map((item) => (
-                      <Table.Row key={'server-' + item.code}>
-                        <Table.Cell className="font-mono text-xs font-bold text-kumo-brand">
-                          {item.code}
-                        </Table.Cell>
-                        <Table.Cell className="truncate text-xs font-semibold text-kumo-strong">
-                          {item.type === 'file' ? item.originalName : item.preview || '文本内容'}
-                        </Table.Cell>
-                        <Table.Cell className="text-xs">
-                          <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ${
-                            item.type === 'file'
-                              ? 'border-kumo-brand/20 bg-kumo-brand/10 text-kumo-brand'
-                              : 'border-kumo-success/20 bg-kumo-success/10 text-kumo-success'
-                          }`}>
-                            {item.requiresPassword && <Lock className="h-3 w-3" />}
-                            {item.type === 'file' ? '文件' : '文本'}
-                          </span>
-                        </Table.Cell>
-                        <Table.Cell className="font-mono text-xs text-kumo-subtle">
-                          {item.downloads || 0}{item.maxDownloads ? ` / ${item.maxDownloads}` : ' / 不限'}
-                        </Table.Cell>
-                        <Table.Cell className="font-mono text-xs text-kumo-subtle">
-                          {formatDateTime(item.expiry)}
-                        </Table.Cell>
-                        <Table.Cell>
-                          <div className="flex justify-end gap-1.5">
-                            <Button
-                              onClick={() => copyDownloadLink(item.code)}
-                              variant="secondary" size="sm"
-                              shape="square"
-                              aria-label="复制下载链接"
-                              title="复制下载链接"
-                            >
-                              <Send className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              onClick={() => handleDeleteEntry(item.code)}
-                              variant="secondary-destructive" size="sm"
-                              shape="square"
-                              aria-label="删除分享记录"
-                              title="删除"
-                            >
-                              <Trash className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table>
-              </div>
-            )}
-          </div>
-
-          <div className="app-card p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-kumo-line pb-3 select-none">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-kumo-strong">访问日志</h3>
-                <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-1.5 py-0.5 rounded font-mono font-semibold">
-                  {accessLogs.length} 条
-                </span>
-              </div>
-            </div>
-
-            {accessLogsLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <SkeletonLine key={index} className="h-8 w-full" />
-                ))}
-              </div>
-            ) : accessLogs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-kumo-subtle">
-                <History className="w-10 h-10 opacity-30 mb-2.5" />
-                <span className="text-xs">暂无访问日志</span>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table layout="fixed" className="min-w-[840px]">
-                  <colgroup>
-                    <col className="w-[96px]" />
-                    <col className="w-[112px]" />
-                    <col className="w-[160px]" />
-                    <col />
-                    <col className="w-[176px]" />
-                  </colgroup>
-                  <Table.Header variant="compact">
-                    <Table.Row>
-                      <Table.Head className="w-24">取件码</Table.Head>
-                      <Table.Head className="w-24">动作</Table.Head>
-                      <Table.Head className="w-44">IP</Table.Head>
-                      <Table.Head>User-Agent</Table.Head>
-                      <Table.Head className="w-40">时间</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {accessLogs.map((log) => (
-                      <Table.Row key={log.id}>
-                        <Table.Cell className="font-mono text-xs text-kumo-brand">{log.code}</Table.Cell>
-                        <Table.Cell className="font-mono text-xs">{log.action}</Table.Cell>
-                        <Table.Cell className="font-mono text-xs text-kumo-subtle truncate">{log.ipAddress || '-'}</Table.Cell>
-                        <Table.Cell className="truncate text-xs text-kumo-subtle">{log.userAgent || '-'}</Table.Cell>
-                        <Table.Cell className="font-mono text-xs text-kumo-subtle">{formatDateTime(log.createdAt)}</Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ==================== 模态框: 提取结果 ==================== */}
-      <Dialog.Root open={retrievedEntry !== null} onOpenChange={(open) => !open && setRetrievedEntry(null)}>
-        <Dialog className="p-6 sm:max-w-md">
-          <Dialog.Title className="text-base font-bold text-kumo-strong mb-1 select-none flex items-center gap-2">
-            <FolderOpen className="w-5 h-5 text-kumo-brand" />
-            文件提取成功
-          </Dialog.Title>
-          <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            已成功提取到分享内容，请妥善保管。
-          </Dialog.Description>
-
-          {retrievedEntry && (
-            <div className="space-y-4">
-              <div className="flex flex-col items-center justify-center py-4 space-y-2">
-                <div
-                  className={`w-14 h-14 rounded-2xl flex items-center justify-center text-xl ${
-                    retrievedEntry.type === 'file'
-                      ? 'bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20'
-                      : 'bg-kumo-success/10 text-kumo-success border border-kumo-success/20'
-                  }`}
-                >
-                  {retrievedEntry.type === 'file' ? <FolderOpen className="w-7 h-7" /> : <FileText className="w-7 h-7" />}
-                </div>
-                <h4 className="text-sm font-bold text-kumo-strong max-w-xs truncate text-center select-all">
-                  {retrievedEntry.type === 'file' ? retrievedEntry.originalName : '分享文本结果'}
-                </h4>
-              </div>
-
-              {retrievedEntry.type === 'file' ? (
-                <div className="flex justify-center gap-4 text-[10px] text-kumo-subtle font-mono app-subcard bg-kumo-recessed p-2.5 rounded-lg select-none">
-                  <span>大小: {formatFileSize(retrievedEntry.size)}</span>
-                  <span>有效期至: {formatDateTime(retrievedEntry.expiry)}</span>
                 </div>
               ) : (
-                <div className="app-subcard bg-kumo-recessed p-3 rounded-lg max-h-40 overflow-y-auto font-mono text-xs text-kumo-strong select-text whitespace-pre-wrap leading-relaxed scrollbar-thin">
-                  {retrievedEntry.content}
-                </div>
+                <div className="rounded-md border border-dashed border-kumo-line p-8 text-center text-xs text-kumo-subtle">创建虚空发送后会显示二维码和接收链接。</div>
               )}
-
-              {retrievedEntry.burnAfterReading && (
-                <div className="p-3 bg-kumo-danger/10 border border-kumo-danger/20 text-kumo-danger text-[10px] rounded-md flex items-center gap-2 select-none">
-                  <span>🔥 此内容开启了"阅后即焚"，本次提取后服务端已自动销毁且无法再次获取。</span>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-2">
-                <Dialog.Close
-                  render={(props) => (
-                    <Button size="sm" {...props} variant="secondary">
-                      关闭
-                    </Button>
-                  )}
-                />
-                {retrievedEntry.type === 'file' ? (
-                  <Button size="sm" variant="primary" onClick={() => triggerDownload(retrievedEntry)}>
-                    下载文件
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="primary" onClick={() => copyToClipboard(retrievedEntry.content)}>
-                    复制文本
-                  </Button>
-                )}
-              </div>
             </div>
-          )}
-        </Dialog>
-      </Dialog.Root>
+          </LayerCard>
+        </div>
+      )}
     </div>
   );
 }

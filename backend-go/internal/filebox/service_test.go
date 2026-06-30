@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 )
@@ -122,12 +123,28 @@ func TestSettingsRequireAuthAndCleanupExpired(t *testing.T) {
 		t.Fatalf("unexpected settings payload: %#v", settingsPayload)
 	}
 
-	entry, err := service.AddText(context.Background(), "expired", -1, false, 0, "")
+	entry, err := service.AddText(context.Background(), "expired", 1, false, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if entry == nil || entry.Code == "" {
 		t.Fatalf("expected expired entry, got %#v", entry)
+	}
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(context.Background(), `UPDATE filebox_entries SET expiry = ? WHERE code = ?`, time.Now().Add(-time.Hour).UnixMilli(), entry.Code)
+	_ = db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	permanent, err := service.AddText(context.Background(), "permanent", 0, false, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if permanent == nil || permanent.Expiry != 0 {
+		t.Fatalf("expected permanent entry, got %#v", permanent)
 	}
 	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/jobs/cleanup", strings.NewReader(`{}`), "application/json")
 	if res.Code != http.StatusOK {
@@ -142,6 +159,9 @@ func TestSettingsRequireAuthAndCleanupExpired(t *testing.T) {
 	mustDecodeFilebox(t, res, &cleanup)
 	if !cleanup.Success || cleanup.Data.Deleted != 1 {
 		t.Fatalf("unexpected cleanup payload: %#v", cleanup)
+	}
+	if found, err := service.GetEntry(context.Background(), permanent.Code, false); err != nil || found == nil {
+		t.Fatalf("expected permanent entry to survive cleanup, found=%#v err=%v", found, err)
 	}
 }
 

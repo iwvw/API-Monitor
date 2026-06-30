@@ -9,7 +9,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { Tabs } from '@cloudflare/kumo';
+import { LayerCard, Tabs } from '@cloudflare/kumo';
 import { DEFAULT_TOTP_SETTINGS } from '../store.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
@@ -796,6 +796,12 @@ function TotpPage() {
     return cleanCode;
   };
 
+  const getTotpCodeParts = (account, code) => {
+    const formatted = formatTotpCode(account, code);
+    const parts = formatted.split(' ');
+    return parts.length > 1 ? parts : [formatted];
+  };
+
   const handleCardMouseEnter = (accountId) => {
     if (totpSettings.allowRevealCode) {
       setRevealedCodes((prev) => ({ ...prev, [accountId]: true }));
@@ -867,21 +873,21 @@ function TotpPage() {
       {totpCurrentTab === 'accounts' && (
         <div>
           {totpLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="app-card p-3.5 space-y-4">
+                <LayerCard key={i} className="space-y-3 p-3">
                   <div className="flex items-center gap-2">
-                    <SkeletonLine className="w-7 h-7 rounded-md" />
+                    <SkeletonLine className="h-6 w-6 rounded-md" />
                     <div className="flex-1 space-y-1.5">
                       <SkeletonLine className="w-1/2 h-3" />
                       <SkeletonLine className="w-3/4 h-2" />
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <SkeletonLine className="w-full h-6" />
+                    <SkeletonLine className="h-5 w-2/3" />
                     <SkeletonLine className="w-1/3 h-2" />
                   </div>
-                </div>
+                </LayerCard>
               ))}
             </div>
           ) : filteredAccounts.length === 0 ? (
@@ -897,7 +903,7 @@ function TotpPage() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
               {filteredAccounts.map((account, index) => {
                 const isFirstOfPlatform =
                   index === 0 ||
@@ -909,6 +915,7 @@ function TotpPage() {
                 const remaining = codeDetail.remaining ?? 30;
                 const period = account.period || 30;
                 const ratio = Math.max(0, Math.min(100, (remaining / period) * 100));
+                const codeParts = getTotpCodeParts(account, codeDetail.code);
                 
                 // Show platform header if settings enable it
                 const showHeader =
@@ -919,19 +926,19 @@ function TotpPage() {
                 return (
                   <React.Fragment key={account.id}>
                     {showHeader && (
-                      <div className="col-span-full border-b border-kumo-line pb-1 mt-3 flex items-center justify-between">
+                      <div className="col-span-full mt-2 flex items-center justify-between border-b border-kumo-line pb-1">
                         {!totpSettings.hidePlatformText ? (
                           <div className="flex items-center gap-1.5">
                             <span
-                              className="flex h-[18px] w-[18px] items-center justify-center rounded bg-kumo-recessed text-xs"
+                              className="flex h-4 w-4 items-center justify-center rounded border border-kumo-line bg-kumo-recessed text-[10px]"
                               style={{ color: getIssuerColor(account.issuer) }}
                             >
                               <i className={getIssuerIcon(account.issuer)} />
                             </span>
-                            <span className="text-xs font-bold text-kumo-strong">
+                            <span className="text-[11px] font-semibold text-kumo-strong">
                               {account.issuer || '未知平台'}
                             </span>
-                            <span className="text-[9px] text-kumo-subtle bg-kumo-recessed px-1 py-0.5 rounded border border-kumo-line ml-1 font-medium">
+                            <span className="ml-1 rounded border border-kumo-line bg-kumo-recessed px-1 py-0.5 text-[9px] font-medium leading-none text-kumo-subtle">
                               {platformCounts[(account.issuer || '').toLowerCase()]} 个账号
                             </span>
                           </div>
@@ -946,104 +953,102 @@ function TotpPage() {
                       </div>
                     )}
 
-                    <div
+                    <LayerCard
                       onMouseEnter={() => handleCardMouseEnter(account.id)}
                       onMouseLeave={() => handleCardMouseLeave(account.id)}
                       onClick={() => copyCodeToClipboard(account)}
-                      style={{ '--card-accent': issuerColor }}
-                      className="group/card relative flex flex-col justify-between app-card hover:border-kumo-brand p-3.5 cursor-pointer transition-all min-h-[116px]"
+                      className="group/card relative grid min-h-[112px] cursor-pointer grid-rows-[auto_1fr_auto] overflow-hidden p-0 transition-colors hover:border-kumo-brand"
                     >
-                      {/* Action buttons (overlay/hover) */}
-                      <div className="absolute right-2 top-2 opacity-0 group-hover/card:opacity-100 flex items-center gap-1 transition-opacity bg-kumo-base pl-1.5 py-0.5 rounded-md z-10">
-                        <Button
-                          shape="square" size="sm"
-                          variant="ghost"
-                          aria-label="编辑账号"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenEditAccount(account);
-                          }}
-                          className="w-5 h-5 flex items-center justify-center text-kumo-subtle hover:text-kumo-strong"
-                          title="编辑"
-                        >
-                          <Edit className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          shape="square" size="sm"
-                          variant="ghost"
-                          aria-label="删除账号"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteAccount(account);
-                          }}
-                          className="w-5 h-5 flex items-center justify-center text-kumo-subtle hover:text-kumo-danger"
-                          title="删除"
-                        >
-                          <Trash className="w-3 h-3" />
-                        </Button>
-                      </div>
-
-                      {/* Header */}
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-7 h-7 rounded-md flex items-center justify-center text-kumo-inverse text-sm flex-shrink-0"
-                          style={{ background: getIssuerColor(account.issuer) }}
+                      <div className="flex items-center gap-2 border-b border-kumo-line bg-kumo-recessed/35 px-3 py-2">
+                        <span
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs text-kumo-inverse"
+                          style={{ background: issuerColor }}
                         >
                           <i className={getIssuerIcon(account.issuer)} />
-                        </div>
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <h4 className="text-[11px] font-semibold text-kumo-strong truncate leading-tight">
-                            {account.issuer}
-                          </h4>
-                          <p className="text-[9px] text-kumo-subtle truncate max-w-[130px] leading-tight">
+                          <div className="truncate text-[11px] font-semibold leading-none text-kumo-strong">{account.issuer || '未知平台'}</div>
+                          <div className="mt-1 truncate text-[10px] leading-none text-kumo-subtle">
                             {totpSettings.maskAccount ? maskEmail(account.account) : account.account}
-                          </p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-0.5 opacity-65 transition-opacity group-hover/card:opacity-100">
+                          <Button
+                            shape="square" size="sm"
+                            variant="ghost"
+                            aria-label="编辑账号"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEditAccount(account);
+                            }}
+                            className="flex h-6 w-6 items-center justify-center text-kumo-subtle hover:text-kumo-strong"
+                            title="编辑"
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            shape="square" size="sm"
+                            variant="ghost"
+                            aria-label="删除账号"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteAccount(account);
+                            }}
+                            className="flex h-6 w-6 items-center justify-center text-kumo-subtle hover:text-kumo-danger"
+                            title="删除"
+                          >
+                            <Trash className="h-3 w-3" />
+                          </Button>
                         </div>
                       </div>
 
-                      {/* Code Area */}
-                      <div className="mt-2.5 flex flex-col justify-end">
-                        <div
-                          className={`text-xl font-bold tracking-wide select-all font-mono leading-none ${
-                            remaining <= 5 ? 'text-kumo-danger animate-pulse' : 'text-kumo-strong'
-                          }`}
-                        >
-                          {formatTotpCode(account, codeDetail.code)}
-                        </div>
+                      <div
+                        className={`flex items-center justify-center gap-2 px-3 py-2.5 font-mono tabular-nums ${
+                          remaining <= 5 ? 'text-kumo-danger' : 'text-kumo-strong'
+                        }`}
+                      >
+                        {codeParts.map((part, partIndex) => (
+                          <span
+                            key={`${account.id}-${partIndex}`}
+                            className="min-w-[4.25rem] rounded-md bg-kumo-recessed px-2 py-1 text-center text-[20px] font-semibold leading-none tracking-normal"
+                          >
+                            {part}
+                          </span>
+                        ))}
+                      </div>
 
-                        <div className="mt-2 flex items-center justify-between text-[9px] text-kumo-subtle font-mono">
-                          {account.otp_type === 'hotp' ? (
-                            <div className="flex items-center gap-1.5 w-full justify-between">
-                              <span>#{codeDetail.counter || 0}</span>
-                              <Button size="sm"
-                                variant="secondary"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  incrementHotp(account);
+                      <div className="border-t border-kumo-line px-3 py-2 font-mono text-[10px] text-kumo-subtle">
+                        {account.otp_type === 'hotp' ? (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>counter #{codeDetail.counter || 0}</span>
+                            <Button size="sm"
+                              variant="secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                incrementHotp(account);
+                              }}
+                              className="flex h-6 items-center gap-1 px-2 text-[10px] text-kumo-strong"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              <span>递增</span>
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-2">
+                            <div className="h-1.5 overflow-hidden rounded-full bg-kumo-recessed">
+                              <div
+                                className={`h-full rounded-full ${remaining === period ? '' : 'transition-all duration-1000 ease-linear'}`}
+                                style={{
+                                  width: `${ratio}%`,
+                                  background: issuerColor,
                                 }}
-                                className="text-kumo-strong flex items-center gap-0.5 text-[9px]"
-                              >
-                                <RefreshCw className="w-2.5 h-2.5" />
-                                <span>递增</span>
-                              </Button>
+                              />
                             </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 w-full">
-                              <div className="flex-1 h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed">
-                                <div
-                                  className={`h-full rounded-full ${remaining === period ? '' : 'transition-all duration-1000 ease-linear'}`}
-                                  style={{
-                                    width: `${ratio}%`,
-                                    background: issuerColor,
-                                  }}
-                                />
-                              </div>
-                              <span className="w-5 text-right select-none">{remaining}s</span>
-                            </div>
-                          )}
-                        </div>
+                            <span className="select-none text-right text-[10px]">{remaining}s</span>
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    </LayerCard>
                   </React.Fragment>
                 );
               })}

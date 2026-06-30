@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
@@ -44,6 +45,18 @@ type Service struct {
 	dataDir      string
 	uploadsDir   string
 	metadataFile string
+	voidRooms    map[string]*voidRoom
+	voidMu       sync.Mutex
+}
+
+type voidRoom struct {
+	ID                 string            `json:"id"`
+	CreatedAt          int64             `json:"created_at"`
+	ExpiresAt          int64             `json:"expires_at"`
+	Offer              json.RawMessage   `json:"offer,omitempty"`
+	Answer             json.RawMessage   `json:"answer,omitempty"`
+	SenderCandidates   []json.RawMessage `json:"-"`
+	ReceiverCandidates []json.RawMessage `json:"-"`
 }
 
 type Settings struct {
@@ -122,6 +135,7 @@ func New(cfg config.Config, authenticator Authenticator) *Service {
 		dataDir:      dataDir,
 		uploadsDir:   filepath.Join(dataDir, "uploads"),
 		metadataFile: filepath.Join(dataDir, "metadata.json"),
+		voidRooms:    map[string]*voidRoom{},
 	}
 	_ = service.ensureDirs()
 	_ = service.migrateJSONMetadata(context.Background())
@@ -137,6 +151,15 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case len(parts) == 2 && parts[0] == "void" && parts[1] == "rooms" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.createVoidRoom(w, r)
+	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && r.Method == http.MethodPost:
+		s.postVoidSignal(w, r, parts[2], parts[3])
+	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && r.Method == http.MethodGet:
+		s.getVoidSignal(w, r, parts[2], parts[3])
 	case len(parts) == 2 && parts[0] == "retrieve" && r.Method == http.MethodGet:
 		s.sendEntryMetadata(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "public" && r.Method == http.MethodGet:
@@ -211,6 +234,92 @@ func (s *Service) sendEntryMetadata(w http.ResponseWriter, r *http.Request, code
 	}
 	_ = s.LogAccess(r.Context(), entry.Code, "retrieve", metaFromRequest(r))
 	response.OK(w, publicEntry(entry))
+}
+
+func (s *Service) createVoidRoom(w http.ResponseWriter, r *http.Request) {
+	s.cleanupVoidRooms()
+	id, err := randomCode(8)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	now := time.Now().UnixMilli()
+	room := &voidRoom{ID: id, CreatedAt: now, ExpiresAt: now + int64(30*time.Minute/time.Millisecond)}
+	s.voidMu.Lock()
+	s.voidRooms[id] = room
+	s.voidMu.Unlock()
+	response.OK(w, map[string]interface{}{"id": id, "expires_at": room.ExpiresAt})
+}
+
+func (s *Service) postVoidSignal(w http.ResponseWriter, r *http.Request, id, kind string) {
+	s.cleanupVoidRooms()
+	var payload json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || len(payload) == 0 {
+		response.Error(w, http.StatusBadRequest, "invalid signal payload")
+		return
+	}
+	s.voidMu.Lock()
+	room := s.voidRooms[strings.ToUpper(strings.TrimSpace(id))]
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	switch kind {
+	case "offer":
+		room.Offer = payload
+	case "answer":
+		room.Answer = payload
+	case "sender-candidate":
+		room.SenderCandidates = append(room.SenderCandidates, payload)
+	case "receiver-candidate":
+		room.ReceiverCandidates = append(room.ReceiverCandidates, payload)
+	default:
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "signal route not found")
+		return
+	}
+	s.voidMu.Unlock()
+	response.OK(w, map[string]string{"status": "ok"})
+}
+
+func (s *Service) getVoidSignal(w http.ResponseWriter, r *http.Request, id, kind string) {
+	s.cleanupVoidRooms()
+	s.voidMu.Lock()
+	room := s.voidRooms[strings.ToUpper(strings.TrimSpace(id))]
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	var data interface{}
+	switch kind {
+	case "offer":
+		data = room.Offer
+	case "answer":
+		data = room.Answer
+	case "sender-candidates":
+		data = room.SenderCandidates
+	case "receiver-candidates":
+		data = room.ReceiverCandidates
+	default:
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "signal route not found")
+		return
+	}
+	s.voidMu.Unlock()
+	response.OK(w, data)
+}
+
+func (s *Service) cleanupVoidRooms() {
+	now := time.Now().UnixMilli()
+	s.voidMu.Lock()
+	defer s.voidMu.Unlock()
+	for id, room := range s.voidRooms {
+		if room.ExpiresAt > 0 && now > room.ExpiresAt {
+			delete(s.voidRooms, id)
+		}
+	}
 }
 
 func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code string) {
@@ -439,7 +548,7 @@ func (s *Service) AddText(ctx context.Context, content string, expiryHours float
 		return nil, err
 	}
 	now := time.Now().UnixMilli()
-	expiry := now + int64(expiryHours*float64(time.Hour/time.Millisecond))
+	expiry := expiryTime(now, expiryHours)
 	passwordHash, err := hashAccessPassword(accessPassword)
 	if err != nil {
 		return nil, err
@@ -478,7 +587,7 @@ func (s *Service) AddFile(ctx context.Context, fileHeader *multipart.FileHeader,
 		return nil, err
 	}
 	now := time.Now().UnixMilli()
-	expiry := now + int64(expiryHours*float64(time.Hour/time.Millisecond))
+	expiry := expiryTime(now, expiryHours)
 	passwordHash, err := hashAccessPassword(accessPassword)
 	if err != nil {
 		return nil, err
@@ -565,7 +674,7 @@ func (s *Service) GetEntry(ctx context.Context, code string, includeExpired bool
 	if entry == nil {
 		return nil, nil
 	}
-	if !includeExpired && time.Now().UnixMilli() > entry.Expiry {
+	if !includeExpired && isExpired(entry.Expiry) {
 		_, _ = s.DeleteEntry(context.Background(), entry.Code)
 		return nil, nil
 	}
@@ -655,7 +764,7 @@ func (s *Service) CleanupExpired(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT code FROM filebox_entries WHERE expiry < ? AND deleted_at IS NULL`, time.Now().UnixMilli())
+	rows, err := db.QueryContext(ctx, `SELECT code FROM filebox_entries WHERE expiry > 0 AND expiry < ? AND deleted_at IS NULL`, time.Now().UnixMilli())
 	if err != nil {
 		_ = db.Close()
 		return 0, fmt.Errorf("load expired filebox entries: %w", err)
@@ -1123,11 +1232,26 @@ func randomCode(length int) (string, error) {
 }
 
 func parseExpiryHours(value string, fallback int) float64 {
-	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "0" || strings.EqualFold(trimmed, "permanent") || strings.EqualFold(trimmed, "forever") {
+		return 0
+	}
+	parsed, err := strconv.ParseFloat(trimmed, 64)
 	if err != nil || parsed <= 0 {
 		return float64(fallback)
 	}
 	return parsed
+}
+
+func expiryTime(now int64, expiryHours float64) int64 {
+	if expiryHours <= 0 {
+		return 0
+	}
+	return now + int64(expiryHours*float64(time.Hour/time.Millisecond))
+}
+
+func isExpired(expiry int64) bool {
+	return expiry > 0 && time.Now().UnixMilli() > expiry
 }
 
 func parseNonNegativeInt64(value string) int64 {

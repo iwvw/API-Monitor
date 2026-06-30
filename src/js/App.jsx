@@ -1,7 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import useStore, { applyThemeMode } from './store.js';
 import AuthPage from './pages/AuthPage.jsx';
 import MainLayout from './components/MainLayout.jsx';
+
+const FileboxPage = lazy(() => import('./pages/FileboxPage.jsx'));
 
 function App() {
   const { isAuthenticated, checkAuth, isCheckingAuth, themeMode } = useStore();
@@ -47,6 +49,10 @@ function App() {
 
   if (isCheckingAuth) {
     return null;
+  }
+
+  if (!isAuthenticated && window.location.pathname === '/filebox' && new URLSearchParams(window.location.search).has('void')) {
+    return <div className="min-h-screen bg-kumo-canvas p-4 sm:p-8"><Suspense fallback={null}><FileboxPage publicVoidOnly /></Suspense></div>;
   }
 
   return isAuthenticated ? <MainLayout /> : <AuthPage />;

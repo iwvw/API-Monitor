@@ -1621,7 +1621,6 @@ function PaasPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-kumo-line pb-3">
         <div>
           <h1 className="text-xl font-bold text-kumo-strong">PaaS 平台管理</h1>
-          <p className="text-xs text-kumo-subtle">Koyeb 与 Fly.io 云平台监控、运维及多账号配置</p>
         </div>
         <div className="flex gap-2">
           {activeTab === 'koyeb' && (

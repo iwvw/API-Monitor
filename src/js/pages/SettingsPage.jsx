@@ -16,6 +16,7 @@ import useStore, {
   normalizeUserSettings,
 } from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
+import { BackupPanel } from './BackupPage.jsx';
 import {
   Activity,
   Bell,
@@ -44,7 +45,7 @@ const SETTINGS_TABS = [
   { value: 'modules', label: <span className="inline-flex items-center gap-1.5"><Activity className="h-4 w-4" />模块</span> },
   { value: 'security', label: <span className="inline-flex items-center gap-1.5"><Shield className="h-4 w-4" />安全</span> },
   { value: 'database', label: <span className="inline-flex items-center gap-1.5"><Database className="h-4 w-4" />数据库</span> },
-  { value: 'logs', label: <span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4" />日志</span> },
+  { value: 'logs', label: <span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4" />审计</span> },
   { value: 'appearance', label: <span className="inline-flex items-center gap-1.5"><Sun className="h-4 w-4" />外观</span> },
   { value: 'about', label: <span className="inline-flex items-center gap-1.5"><Settings className="h-4 w-4" />关于</span> },
 ];
@@ -234,9 +235,7 @@ function SettingsPage() {
     logFileSizeMB: 10,
   });
   const [logFileInfo, setLogFileInfo] = useState(null);
-  const [systemLogs, setSystemLogs] = useState([]);
   const [operationLogs, setOperationLogs] = useState([]);
-  const [rawLog, setRawLog] = useState('');
   const [logsBusy, setLogsBusy] = useState(false);
 
   const currentOrigin = useMemo(() => {
@@ -303,9 +302,8 @@ function SettingsPage() {
   }, []);
 
   const fetchLogState = useCallback(async () => {
-    const [logSettingsResponse, sysLogsResponse, operationLogsResponse] = await Promise.all([
+    const [logSettingsResponse, operationLogsResponse] = await Promise.all([
       fetch('/api/settings/log-settings', { headers: getAuthHeaders() }),
-      fetch('/api/settings/sys-logs', { headers: getAuthHeaders() }),
       fetch('/api/settings/operation-logs', { headers: getAuthHeaders() }),
     ]);
 
@@ -313,12 +311,6 @@ function SettingsPage() {
     if (logSettingsResult.success) {
       setLogSettings(logSettingsResult.data);
       setLogFileInfo(logSettingsResult.fileInfo || null);
-    }
-
-    const sysLogsResult = await sysLogsResponse.json();
-    if (sysLogsResult.success) {
-      setSystemLogs(sysLogsResult.data || []);
-      setLogFileInfo(sysLogsResult.fileInfo || logSettingsResult.fileInfo || null);
     }
 
     const operationLogsResult = await operationLogsResponse.json();
@@ -635,21 +627,6 @@ function SettingsPage() {
     );
   };
 
-  const loadRawLogFile = async () => {
-    setLogsBusy(true);
-    try {
-      const response = await fetch('/api/settings/app-log-file', { headers: getAuthHeaders() });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || '读取日志文件失败');
-      setRawLog(result.data || '');
-      toast.success('日志文件已读取');
-    } catch (error) {
-      toast.error(error.message || '读取日志文件失败');
-    } finally {
-      setLogsBusy(false);
-    }
-  };
-
   const setAllModulesVisibility = (visible) => {
     const moduleVisibility = DEFAULT_MODULE_ORDER.reduce((acc, moduleId) => {
       acc[moduleId] = moduleId === 'dashboard' ? true : visible;
@@ -843,7 +820,7 @@ function SettingsPage() {
       )}
 
       {activeTab === 'security' && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="grid gap-4 xl:grid-cols-2">
           <LayerCard>
             <SectionHeader title="管理员密码" description="后端接口为 /api/auth/change-password，修改成功后会退出当前会话。" />
             <div className="grid max-w-xl gap-4 p-5">
@@ -950,7 +927,7 @@ function SettingsPage() {
       )}
 
       {activeTab === 'database' && (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="grid items-start gap-4 xl:grid-cols-2">
           <LayerCard className="overflow-x-auto p-0">
             <SectionHeader
               title="数据库统计"
@@ -1076,6 +1053,9 @@ function SettingsPage() {
                   </div>
                 </div>
               )}
+              <div className="mt-4 border-t border-kumo-line pt-4">
+                <BackupPanel embedded />
+              </div>
             </LayerCard>
 
             <LayerCard className="p-4">
@@ -1135,11 +1115,11 @@ function SettingsPage() {
         <div className="grid gap-4">
           <LayerCard>
             <SectionHeader
-              title="日志保留"
-              description="0 表示不限制；文件大小限制会同步到运行时 logger。"
+              title="审计与保留"
+              description="这里只管理数据库审计记录与日志保留策略；应用运行日志请到左侧「系统日志」查看。"
               actions={
                 <>
-                  <Button size="sm" onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存日志设置</Button>
+                  <Button size="sm" onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存保留策略</Button>
                   <Button size="sm" onClick={() => postSettingsAction('/api/settings/enforce-log-limits', '日志限制已执行', fetchLogState)} loading={logsBusy}>立即执行限制</Button>
                 </>
               }
@@ -1152,53 +1132,9 @@ function SettingsPage() {
             </div>
           </LayerCard>
 
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4">
             <LayerCard className="overflow-x-auto p-0">
-              <SectionHeader
-                title="系统日志"
-                description={logFileInfo?.path || '最近运行日志'}
-                actions={
-                  <>
-                    <Button size="sm" onClick={fetchLogState} loading={logsBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新日志</Button>
-                    <Button size="sm" variant="secondary-destructive" onClick={() => postSettingsAction('/api/settings/clear-app-logs', 'app.log 已清空', fetchLogState)} loading={logsBusy}>清空文件</Button>
-                  </>
-                }
-              />
-              <Table layout="fixed">
-                <colgroup>
-                  <col className="w-[90px]" />
-                  <col className="w-[90px]" />
-                  <col className="w-[120px]" />
-                  <col />
-                </colgroup>
-                <Table.Header>
-                  <Table.Row>
-                    <Table.Head>时间</Table.Head>
-                    <Table.Head>级别</Table.Head>
-                    <Table.Head>模块</Table.Head>
-                    <Table.Head>消息</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {systemLogs.slice(0, 80).map((log, index) => (
-                    <Table.Row key={`${log.time}-${index}`}>
-                      <Table.Cell className="font-mono text-xs">{log.time}</Table.Cell>
-                      <Table.Cell><Badge variant={log.level === 'ERROR' ? 'error' : log.level === 'WARN' ? 'warning' : 'outline'}>{log.level}</Badge></Table.Cell>
-                      <Table.Cell className="font-mono text-xs text-kumo-subtle">{log.module}</Table.Cell>
-                      <Table.Cell className="truncate text-xs">{log.message}</Table.Cell>
-                    </Table.Row>
-                  ))}
-                  {systemLogs.length === 0 && (
-                    <Table.Row>
-                      <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无系统日志</Table.Cell>
-                    </Table.Row>
-                  )}
-                </Table.Body>
-              </Table>
-            </LayerCard>
-
-            <LayerCard className="overflow-x-auto p-0">
-              <SectionHeader title="审计日志" description="最近 100 条操作记录" />
+              <SectionHeader title="审计记录" description="最近 100 条数据库操作记录" />
               <Table layout="fixed">
                 <colgroup>
                   <col className="w-[170px]" />
@@ -1225,24 +1161,13 @@ function SettingsPage() {
                   ))}
                   {operationLogs.length === 0 && (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无审计日志</Table.Cell>
+                      <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无审计记录</Table.Cell>
                     </Table.Row>
                   )}
                 </Table.Body>
               </Table>
             </LayerCard>
           </div>
-
-          <LayerCard>
-            <SectionHeader
-              title="app.log 文件"
-              description="读取后显示文件末尾 500 行。"
-              actions={<Button size="sm" onClick={loadRawLogFile} loading={logsBusy}>读取文件</Button>}
-            />
-            <div className="p-5">
-              <Textarea label="app.log 内容" value={rawLog} readOnly className="min-h-64 font-mono text-xs" />
-            </div>
-          </LayerCard>
         </div>
       )}
 
@@ -1312,16 +1237,16 @@ function SettingsPage() {
       )}
 
       {activeTab === 'about' && (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-1">
           <LayerCard className="p-6 lg:col-span-2">
             <div className="flex items-center gap-4">
               <img src="/logo.svg" alt="" className="h-12 w-12 object-contain" />
               <div>
                 <h2 className="text-xl font-bold text-kumo-strong">API Monitor</h2>
-                <p className="mt-1 text-xs text-kumo-subtle">React 19 + Kumo 前端重构分支</p>
+                <p className="mt-1 text-xs text-kumo-subtle">React 前端 + Go 后端</p>
               </div>
             </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-4">
                 <div className="text-xs text-kumo-subtle">当前源</div>
                 <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{currentOrigin}</div>
@@ -1330,10 +1255,23 @@ function SettingsPage() {
                 <div className="text-xs text-kumo-subtle">API 地址</div>
                 <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{`${currentOrigin}/api`}</div>
               </div>
+              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-4">
+                <div className="text-xs text-kumo-subtle">仓库地址</div>
+                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">
+                  <a
+                    href="https://github.com/iwvw/API-Monitor"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:underline text-kumo-strong"
+                  >
+                    https://github.com/iwvw/API-Monitor
+                  </a>
+                </div>
+              </div>
             </div>
           </LayerCard>
 
-          <LayerCard className="p-6">
+          {/* <LayerCard className="p-6">
             <h2 className="text-base font-bold text-kumo-strong">已对接接口</h2>
             <div className="mt-4 grid gap-2 text-xs text-kumo-default">
               {[
@@ -1350,7 +1288,7 @@ function SettingsPage() {
                 </div>
               ))}
             </div>
-          </LayerCard>
+          </LayerCard> */}
         </div>
       )}
     </div>

@@ -12,6 +12,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/aliyun"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
+	"github.com/iwvw/api-monitor/backend-go/internal/backup"
 	"github.com/iwvw/api-monitor/backend-go/internal/cloudflare"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
@@ -25,6 +26,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	"github.com/iwvw/api-monitor/backend-go/internal/settings"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
+	"github.com/iwvw/api-monitor/backend-go/internal/systemlogs"
 	"github.com/iwvw/api-monitor/backend-go/internal/tencent"
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
@@ -47,6 +49,8 @@ type Server struct {
 	cf       *cloudflare.Service
 	openai   *openai.Service
 	server   *serveragent.Service
+	backup   *backup.Service
+	logs     *systemlogs.Service
 }
 
 func New(cfg config.Config) http.Handler {
@@ -78,6 +82,8 @@ func NewServer(cfg config.Config) *Server {
 		cf:       cloudflare.New(cfg),
 		openai:   openai.New(cfg),
 		server:   serverAgentService,
+		backup:   backup.New(cfg),
+		logs:     systemlogs.New(cfg),
 	}
 }
 
@@ -184,6 +190,10 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.settings.ServeHTTP(w, r)
 	case "/api/system/host-metrics", "/api/system/api-stats":
 		s.system.ServeHTTP(w, r)
+	case "/api/system/logs/stream", "/api/system/logs/download":
+		s.logs.ServeHTTP(w, r)
+	case "/api/backup":
+		s.backup.ServeHTTP(w, r)
 	case "/api/totp":
 		s.totp.ServeHTTP(w, r)
 	case "/api/cron", "/api/scheduler":

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -30,13 +31,15 @@ const (
 )
 
 type Service struct {
-	cfg       config.Config
-	store     *database.Store
-	scheduler *cron.Cron
-	entries   map[int64]cron.EntryID
-	mu        sync.Mutex
-	client    *http.Client
-	agentRunner AgentRunner
+	cfg             config.Config
+	store           *database.Store
+	scheduler       *cron.Cron
+	entries         map[int64]cron.EntryID
+	workflowEntries map[int64]cron.EntryID
+	activeRuns      map[int64]int
+	mu              sync.Mutex
+	client          *http.Client
+	agentRunner     AgentRunner
 }
 
 type AgentRunner interface {
@@ -78,11 +81,13 @@ type taskPayload struct {
 
 func New(cfg config.Config) *Service {
 	service := &Service{
-		cfg:       cfg,
-		store:     database.New(cfg),
-		scheduler: cron.New(),
-		entries:   map[int64]cron.EntryID{},
-		client:    &http.Client{},
+		cfg:             cfg,
+		store:           database.New(cfg),
+		scheduler:       cron.New(),
+		entries:         map[int64]cron.EntryID{},
+		workflowEntries: map[int64]cron.EntryID{},
+		activeRuns:      map[int64]int{},
+		client:          &http.Client{},
 	}
 	service.scheduler.Start()
 	_ = service.ReloadAll(context.Background())
@@ -160,16 +165,29 @@ func (s *Service) ReloadAll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	workflows, err := loadWorkflows(ctx, db)
+	if err != nil {
+		return err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, entryID := range s.entries {
 		s.scheduler.Remove(entryID)
 	}
+	for _, entryID := range s.workflowEntries {
+		s.scheduler.Remove(entryID)
+	}
 	s.entries = map[int64]cron.EntryID{}
+	s.workflowEntries = map[int64]cron.EntryID{}
 	for _, task := range tasks {
 		if task.Enabled != 0 {
 			_ = s.scheduleTaskLocked(task)
+		}
+	}
+	for _, workflow := range workflows {
+		if workflow.Enabled != 0 && strings.TrimSpace(workflow.Schedule) != "" {
+			_ = s.scheduleWorkflowLocked(workflow)
 		}
 	}
 	return nil
@@ -209,6 +227,41 @@ func (s *Service) scheduleTaskLocked(task Task) error {
 		return err
 	}
 	s.entries[task.ID] = entryID
+	return nil
+}
+
+func (s *Service) ReloadWorkflow(ctx context.Context, id int64) error {
+	db, err := s.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	workflow, ok, err := findWorkflow(ctx, db, id)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entryID, ok := s.workflowEntries[id]; ok {
+		s.scheduler.Remove(entryID)
+		delete(s.workflowEntries, id)
+	}
+	if ok && workflow.Enabled != 0 && strings.TrimSpace(workflow.Schedule) != "" {
+		return s.scheduleWorkflowLocked(workflow)
+	}
+	return nil
+}
+
+func (s *Service) scheduleWorkflowLocked(workflow Workflow) error {
+	entryID, err := s.scheduler.AddFunc(workflow.Schedule, func() {
+		go func(id int64) {
+			_, _ = s.executeWorkflow(context.Background(), id, "cron")
+		}(workflow.ID)
+	})
+	if err != nil {
+		return err
+	}
+	s.workflowEntries[workflow.ID] = entryID
 	return nil
 }
 
@@ -371,12 +424,19 @@ func (s *Service) ExecuteTask(ctx context.Context, taskID int64) {
 	if err != nil {
 		return
 	}
-	task, ok, err := findTask(ctx, db, taskID)
+	task, ok, err := findSchedulerTask(ctx, db, taskID)
 	if err != nil || !ok {
 		db.Close()
 		return
 	}
 	startTime := time.Now().Unix()
+	if !s.acquireTaskSlot(task.ID, task.MaxConcurrency) {
+		_, _ = createCompletedLog(ctx, db, task.ID, "skipped", "任务达到最大并发限制，已跳过本次运行", startTime, startTime)
+		db.Close()
+		return
+	}
+	defer s.releaseTaskSlot(task.ID)
+
 	logID, err := createLog(ctx, db, task.ID, "running", "", startTime)
 	if err != nil {
 		db.Close()
@@ -385,7 +445,7 @@ func (s *Service) ExecuteTask(ctx context.Context, taskID int64) {
 	db.Close()
 
 	status := "success"
-	output, err := s.executeTaskCommand(ctx, task)
+	output, err := s.executeSchedulerTaskCommand(ctx, task)
 	if err != nil {
 		status = "failed"
 		output = err.Error()
@@ -408,34 +468,76 @@ func (s *Service) ExecuteTask(ctx context.Context, taskID int64) {
 }
 
 func (s *Service) executeTaskCommand(ctx context.Context, task Task) (string, error) {
+	return s.executeSchedulerTaskCommand(ctx, SchedulerTask{
+		Task:                 task,
+		TimeoutSeconds:       int(shellTaskTimeout / time.Second),
+		RetryCount:           0,
+		RetryIntervalSeconds: 30,
+		MaxConcurrency:       1,
+		NodeID:               "local",
+	})
+}
+
+func (s *Service) executeSchedulerTaskCommand(ctx context.Context, task SchedulerTask) (string, error) {
+	timeout := time.Duration(task.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = shellTaskTimeout
+	}
+	attempts := task.RetryCount + 1
+	if attempts < 1 {
+		attempts = 1
+	}
+	var history []string
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		output, err := s.executeSchedulerTaskAttempt(ctx, task, timeout)
+		if err == nil {
+			if attempt > 1 {
+				history = append(history, fmt.Sprintf("第 %d 次尝试成功:\n%s", attempt, output))
+				return strings.Join(history, "\n\n"), nil
+			}
+			return output, nil
+		}
+		lastErr = err
+		history = append(history, fmt.Sprintf("第 %d 次尝试失败:\n%s", attempt, err.Error()))
+		if attempt < attempts && task.RetryIntervalSeconds > 0 {
+			timer := time.NewTimer(time.Duration(task.RetryIntervalSeconds) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return "", ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	if len(history) > 0 {
+		return "", fmt.Errorf(strings.Join(history, "\n\n"))
+	}
+	return "", lastErr
+}
+
+func (s *Service) executeSchedulerTaskAttempt(ctx context.Context, task SchedulerTask, timeout time.Duration) (string, error) {
 	switch task.Type {
 	case "http":
-		return s.executeHTTPTask(ctx, task.Command, httpTaskTimeout)
+		return s.executeHTTPTask(ctx, task.Command, timeout)
 	case "internal":
-		return s.executeInternalTask(ctx, task.Command)
+		return s.executeInternalTask(ctx, task.Command, timeout)
 	case "agent":
-		return s.executeAgentTask(ctx, task)
+		return s.executeAgentTask(ctx, task, timeout)
 	default:
-		return executeShellTask(ctx, task.Command)
+		return executeShellTask(ctx, task.Command, timeout)
 	}
 }
 
-func (s *Service) executeAgentTask(ctx context.Context, task Task) (string, error) {
+func (s *Service) executeAgentTask(ctx context.Context, task SchedulerTask, timeout time.Duration) (string, error) {
 	if s.agentRunner == nil {
 		return "", fmt.Errorf("Agent 执行器未初始化")
 	}
-	nodeID := "local"
-	db, err := s.open(ctx)
-	if err == nil {
-		if schedulerTask, ok, findErr := findSchedulerTask(ctx, db, task.ID); findErr == nil && ok {
-			nodeID = schedulerTask.NodeID
-		}
-		db.Close()
-	}
+	nodeID := task.NodeID
 	if nodeID == "" || nodeID == "local" {
 		return "", fmt.Errorf("Agent 任务需要选择在线 Agent 节点")
 	}
-	return s.agentRunner.RunCommandTaskAndWait(nodeID, task.Command, shellTaskTimeout)
+	return s.agentRunner.RunCommandTaskAndWait(nodeID, task.Command, timeout)
 }
 
 func (s *Service) executeHTTPTask(ctx context.Context, target string, timeout time.Duration) (string, error) {
@@ -454,7 +556,7 @@ func (s *Service) executeHTTPTask(ctx context.Context, target string, timeout ti
 	return fmt.Sprintf("Status: %d\nData: %s", res.StatusCode, formatBody(body)), nil
 }
 
-func (s *Service) executeInternalTask(ctx context.Context, command string) (string, error) {
+func (s *Service) executeInternalTask(ctx context.Context, command string, timeout time.Duration) (string, error) {
 	parts := strings.Fields(strings.TrimSpace(command))
 	method := http.MethodGet
 	path := ""
@@ -471,7 +573,10 @@ func (s *Service) executeInternalTask(ctx context.Context, command string) (stri
 		path = "/" + path
 	}
 	target := "http://127.0.0.1:" + strconv.Itoa(s.cfg.Port) + path
-	reqCtx, cancel := context.WithTimeout(ctx, internalTimeout)
+	if timeout <= 0 {
+		timeout = internalTimeout
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, method, target, nil)
 	if err != nil {
@@ -487,8 +592,11 @@ func (s *Service) executeInternalTask(ctx context.Context, command string) (stri
 	return fmt.Sprintf("Status: %d\nData: %s", res.StatusCode, formatBody(body)), nil
 }
 
-func executeShellTask(ctx context.Context, command string) (string, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, shellTaskTimeout)
+func executeShellTask(ctx context.Context, command string, timeout time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = shellTaskTimeout
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := shellCommand(reqCtx, command)
 	var stdout bytes.Buffer
@@ -600,6 +708,29 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return ensureCronTaskColumns(ctx, db)
+}
+
+func (s *Service) acquireTaskSlot(taskID int64, maxConcurrency int) bool {
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.activeRuns[taskID] >= maxConcurrency {
+		return false
+	}
+	s.activeRuns[taskID]++
+	return true
+}
+
+func (s *Service) releaseTaskSlot(taskID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.activeRuns[taskID] <= 1 {
+		delete(s.activeRuns, taskID)
+		return
+	}
+	s.activeRuns[taskID]--
 }
 
 func ensureCronTaskColumns(ctx context.Context, db *sql.DB) error {
@@ -777,6 +908,17 @@ func createLog(ctx context.Context, db *sql.DB, taskID int64, status, output str
 	return result.LastInsertId()
 }
 
+func createCompletedLog(ctx context.Context, db *sql.DB, taskID int64, status, output string, startTime, endTime int64) (int64, error) {
+	result, err := db.ExecContext(ctx, `
+		INSERT INTO cron_logs (task_id, status, output, start_time, end_time, duration)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, taskID, status, output, startTime, endTime, endTime-startTime)
+	if err != nil {
+		return 0, fmt.Errorf("create completed cron log: %w", err)
+	}
+	return result.LastInsertId()
+}
+
 func loadAllLogs(ctx context.Context, db *sql.DB, limit int) ([]Log, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT l.id, l.task_id, t.name, l.status, l.output, l.start_time, l.end_time, l.duration
@@ -897,6 +1039,68 @@ func stringOrDefault(value sql.NullString, fallback string) string {
 		return value.String
 	}
 	return fallback
+}
+
+func (s *Service) nodeConfigPath() string {
+	return filepath.Join(s.cfg.DataDir, "scheduler", "nodes.json")
+}
+
+func (s *Service) loadNodeConfig(ctx context.Context) (map[string]SchedulerNode, error) {
+	data, err := os.ReadFile(s.nodeConfigPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]SchedulerNode{}, nil
+		}
+		return nil, err
+	}
+	var nodes map[string]SchedulerNode
+	if err := json.Unmarshal(data, &nodes); err != nil {
+		return nil, err
+	}
+	if nodes == nil {
+		nodes = map[string]SchedulerNode{}
+	}
+	return nodes, nil
+}
+
+func (s *Service) saveNodeConfig(nodes map[string]SchedulerNode) error {
+	if err := os.MkdirAll(filepath.Dir(s.nodeConfigPath()), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(nodes, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.nodeConfigPath(), data, 0o600)
+}
+
+func applyNodeOverride(node *SchedulerNode, override SchedulerNode) {
+	if strings.TrimSpace(override.Name) != "" {
+		node.Name = override.Name
+	}
+	if override.Labels != nil {
+		node.Labels = override.Labels
+	}
+	if override.MaxConcurrency > 0 {
+		node.MaxConcurrency = override.MaxConcurrency
+	}
+	if strings.TrimSpace(override.CapabilityNote) != "" {
+		node.CapabilityNote = override.CapabilityNote
+	}
+}
+
+func normalizeStringList(values []string) []string {
+	seen := map[string]bool{}
+	result := []string{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		result = append(result, trimmed)
+	}
+	return result
 }
 
 func int64OrDefault(value sql.NullInt64, fallback int64) int64 {

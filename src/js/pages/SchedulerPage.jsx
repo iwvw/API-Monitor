@@ -19,6 +19,7 @@ import {
   Check,
   Clock,
   Copy,
+  Download,
   Edit,
   Eye,
   GitBranch,
@@ -31,6 +32,7 @@ import {
   Server,
   Sliders,
   Trash,
+  Upload,
   X,
 } from '../components/Icons.jsx';
 
@@ -606,6 +608,75 @@ function SchedulerPage() {
     }
   };
 
+  const exportWorkflows = async () => {
+    try {
+      const res = await fetch('/api/scheduler/workflows/export', { headers: authHeaders() });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '导出工作流失败');
+      const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `scheduler-workflows-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error.message || '导出工作流失败');
+    }
+  };
+
+  const importWorkflows = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const workflowsToImport = Array.isArray(parsed) ? parsed : parsed.workflows;
+        if (!Array.isArray(workflowsToImport) || workflowsToImport.length === 0) throw new Error('未找到工作流定义');
+        const res = await fetch('/api/scheduler/workflows/import', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ workflows: workflowsToImport }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || '导入工作流失败');
+        toast.success(`已导入 ${data.data?.imported || 0} 个工作流`);
+        await loadAll();
+      } catch (error) {
+        toast.error(error.message || '导入工作流失败');
+      }
+    };
+    input.click();
+  };
+
+  const retryRun = async (run) => {
+    try {
+      const res = await fetch(`/api/scheduler/workflow-runs/${run.id}/retry`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '重试失败');
+      toast.success('已创建重试运行');
+      await loadAll();
+    } catch (error) {
+      toast.error(error.message || '重试失败');
+    }
+  };
+
+  const cancelRun = async (run) => {
+    try {
+      const res = await fetch(`/api/scheduler/workflow-runs/${run.id}/cancel`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '取消失败');
+      toast.success('运行已取消');
+      await loadAll();
+    } catch (error) {
+      toast.error(error.message || '取消失败');
+    }
+  };
+
   const clearOldRuns = async () => {
     if (!(await dialog.confirm('确定清理 30 天前的工作流运行记录吗？'))) return;
     try {
@@ -654,6 +725,12 @@ function SchedulerPage() {
           />
           <div className="flex flex-wrap items-center gap-2">
             <IconButton label="刷新" onClick={loadAll} icon={<RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />} />
+            {activeTab === 'workflows' && (
+              <>
+                <IconButton label="导入工作流" onClick={importWorkflows} icon={<Upload className="h-3.5 w-3.5" />} />
+                <IconButton label="导出工作流" onClick={exportWorkflows} icon={<Download className="h-3.5 w-3.5" />} />
+              </>
+            )}
             <Button size="sm" variant="primary" onClick={activeTab === 'workflows' ? openCreateWorkflow : openCreateTask}>
               <Plus className="h-3.5 w-3.5" />
               {activeTab === 'workflows' ? '新建工作流' : '新建任务'}
@@ -752,8 +829,8 @@ function SchedulerPage() {
             ) : (
               <div className="overflow-x-auto rounded-md border border-kumo-line">
                 <Table layout="fixed" className="min-w-[920px]">
-                  <colgroup><col /><col className="w-[110px]" /><col className="w-[130px]" /><col className="w-[180px]" /><col className="w-[120px]" /><col className="w-[96px]" /></colgroup>
-                  <Table.Header><Table.Row><Table.Head>运行对象</Table.Head><Table.Head>状态</Table.Head><Table.Head>触发方式</Table.Head><Table.Head>开始时间</Table.Head><Table.Head>耗时</Table.Head><Table.Head>详情</Table.Head></Table.Row></Table.Header>
+                  <colgroup><col /><col className="w-[110px]" /><col className="w-[130px]" /><col className="w-[180px]" /><col className="w-[120px]" /><col className="w-[128px]" /></colgroup>
+                  <Table.Header><Table.Row><Table.Head>运行对象</Table.Head><Table.Head>状态</Table.Head><Table.Head>触发方式</Table.Head><Table.Head>开始时间</Table.Head><Table.Head>耗时</Table.Head><Table.Head>操作</Table.Head></Table.Row></Table.Header>
                   <Table.Body>
                     {runs.map((run) => (
                       <Table.Row key={run.id}>
@@ -762,11 +839,11 @@ function SchedulerPage() {
                         <Table.Cell className="text-xs text-kumo-subtle">{run.trigger_type === 'manual' ? '手动触发' : run.trigger_type}</Table.Cell>
                         <Table.Cell className="text-xs text-kumo-subtle">{formatTimestamp(run.start_time || run.created_at)}</Table.Cell>
                         <Table.Cell className="font-mono text-xs text-kumo-default">{run.duration ?? 0}s</Table.Cell>
-                        <Table.Cell><IconButton label="查看详情" onClick={async () => {
+                        <Table.Cell><div className="flex items-center gap-1"><IconButton label="查看详情" onClick={async () => {
                           const res = await fetch(`/api/scheduler/runs/${run.id}`, { headers: authHeaders() });
                           const data = await res.json();
                           if (data.success) setSelectedRun(data.data);
-                        }} icon={<Eye className="h-3.5 w-3.5" />} /></Table.Cell>
+                        }} icon={<Eye className="h-3.5 w-3.5" />} />{run.status === 'failed' && <IconButton label="重试运行" onClick={() => retryRun(run)} icon={<RefreshCw className="h-3.5 w-3.5" />} />}{run.status === 'running' && <IconButton label="取消运行" variant="secondary-destructive" onClick={() => cancelRun(run)} icon={<X className="h-3.5 w-3.5" />} />}</div></Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>
