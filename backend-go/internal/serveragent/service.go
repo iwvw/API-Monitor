@@ -103,18 +103,21 @@ func New(cfg config.Config) *Service {
 							SET status = 'online', last_check_time = ?, last_check_status = 'success', response_time = 0, updated_at = ?
 							WHERE id = ?`, now, now, serverID)
 
-						// 获取主机名称用于通知
-						var serverName string
-						_ = db.QueryRowContext(ctx, `SELECT name FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName)
+						// 获取主机名称和真实主机地址用于通知
+						var serverName, serverHost string
+						_ = db.QueryRowContext(ctx, `SELECT name, host FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost)
 						if serverName == "" {
 							serverName = serverID
+						}
+						if serverHost == "" {
+							serverHost = serverName
 						}
 
 						if s.notifier != nil {
 							eventData := map[string]interface{}{
 								"serverId":   serverID,
 								"serverName": serverName,
-								"host":       serverName,
+								"host":       serverHost,
 								"hostname":   serverName,
 								"status":     "online",
 							}
@@ -378,18 +381,21 @@ func New(cfg config.Config) *Service {
 							SET status = 'offline', last_check_time = ?, last_check_status = 'disconnected', updated_at = ?
 							WHERE id = ?`, now, now, serverID)
 
-						// 获取主机名称用于通知
-						var serverName string
-						_ = db.QueryRowContext(ctx, `SELECT name FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName)
+						// 获取主机名称和真实主机地址用于通知
+						var serverName, serverHost string
+						_ = db.QueryRowContext(ctx, `SELECT name, host FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost)
 						if serverName == "" {
 							serverName = serverID
+						}
+						if serverHost == "" {
+							serverHost = serverName
 						}
 
 						if s.notifier != nil {
 							eventData := map[string]interface{}{
 								"serverId":   serverID,
 								"serverName": serverName,
-								"host":       serverName,
+								"host":       serverHost,
 								"hostname":   serverName,
 								"status":     "offline",
 							}
@@ -3346,16 +3352,19 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 	val, _ := s.alertStates.LoadOrStore(serverID, &alertState{})
 	state := val.(*alertState)
 
-	var serverName string
-	_ = db.QueryRowContext(ctx, `SELECT name FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName)
+	var serverName, serverHost string
+	_ = db.QueryRowContext(ctx, `SELECT name, host FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost)
 	if serverName == "" {
 		serverName = serverID
+	}
+	if serverHost == "" {
+		serverHost = serverName
 	}
 
 	eventData := map[string]interface{}{
 		"serverId":   serverID,
 		"serverName": serverName,
-		"host":       serverName,
+		"host":       serverHost,
 		"hostname":   serverName,
 		"cpu_usage":  cpu,
 		"mem_percent": mem,

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1127,12 +1128,19 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	auth := smtp.PlainAuth("", user, pass, host)
 	from := user
-	if sender := stringValue(cfg["sender_name"]); sender != "" {
-		from = fmt.Sprintf("%s <%s>", sender, user)
+	
+	// Helper to encode headers using RFC 2047 (B-encoding)
+	encodeHeader := func(s string) string {
+		return "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(s)) + "?="
 	}
+
+	if sender := stringValue(cfg["sender_name"]); sender != "" {
+		from = fmt.Sprintf("%s <%s>", encodeHeader(sender), user)
+	}
+	
 	messageBytes := []byte("To: " + to + "\r\n" +
 		"From: " + from + "\r\n" +
-		"Subject: " + title + "\r\n" +
+		"Subject: " + encodeHeader(title) + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
 		message + "\r\n")
