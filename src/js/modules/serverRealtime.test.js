@@ -43,6 +43,6 @@ describe('server realtime health helpers', () => {
 
     expect(health.state).toBe('degraded');
     expect(health.stale).toBe(true);
-    expect(health.label).toBe('异常');
+    expect(health.label).toBe('采集异常');
   });
 });
