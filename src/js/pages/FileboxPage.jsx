@@ -41,7 +41,7 @@ const SHARE_TYPE_TABS = [
 ];
 const PAGE_TABS = [
   { value: 'share', label: <span className="inline-flex items-center gap-1.5"><Send className="h-3.5 w-3.5" />创建分享</span> },
-  { value: 'void', label: <span className="inline-flex items-center gap-1.5"><Send className="h-3.5 w-3.5" />虚空发送</span> },
+  { value: 'void', label: <span className="inline-flex items-center gap-1.5"><Send className="h-3.5 w-3.5" />虚空传输</span> },
   { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="h-3.5 w-3.5" />分享记录</span> },
   { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Settings className="h-3.5 w-3.5" />策略</span> },
 ];
@@ -507,16 +507,16 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
         {!publicVoidOnly && <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={PAGE_TABS} />}
-        <div className="text-xs text-kumo-subtle">{publicVoidOnly ? '虚空发送接收页' : '文件与文本临时分享'}</div>
+        <div className="text-xs text-kumo-subtle">{publicVoidOnly ? '虚空传输接收页' : '文件与文本临时分享'}</div>
       </div>
 
       {activeTab === 'share' && (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(22rem,0.7fr)]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
           <LayerCard className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-4">
               <div>
                 <h2 className="text-base font-bold text-kumo-strong">创建分享</h2>
-                <p className="mt-1 text-xs text-kumo-subtle">生成可直接访问的下载链接，支持文件、文本、密码与次数限制。</p>
+                <p className="mt-1 text-xs text-kumo-subtle">生成可直接访问的下载链接，支持文件、文本。</p>
               </div>
               <Tabs {...TOOL_TABS_PROPS} value={shareType} onValueChange={(value) => { setShareType(value); setResult(null); }} tabs={SHARE_TYPE_TABS} />
             </div>
@@ -689,7 +689,7 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
           <LayerCard className="p-5">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-kumo-line pb-4">
               <div>
-                <h2 className="text-base font-bold text-kumo-strong">虚空发送</h2>
+                <h2 className="text-base font-bold text-kumo-strong">虚空传输</h2>
                 <p className="mt-1 text-xs text-kumo-subtle">点对点直连传输，大文件不占用服务器带宽。</p>
               </div>
               <Badge variant="success">P2P</Badge>
@@ -702,15 +702,15 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
                 <div className="mt-1 text-xs text-kumo-subtle">双方页面保持打开，连接建立后浏览器直传。</div>
                 <div className="mt-4 flex justify-center"><Button size="sm" variant="secondary" onClick={() => voidFileInputRef.current?.click()}>选择文件</Button></div>
               </div>
-              <Textarea label="或发送文本" value={voidText} onChange={(event) => { setVoidText(event.target.value); setVoidFile(null); }} className="min-h-32 font-mono text-sm" placeholder="输入文本后也可以通过虚空发送" />
-              <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs sm:grid-cols-3">
+              <Textarea label="或发送文本" value={voidText} onChange={(event) => { setVoidText(event.target.value); setVoidFile(null); }} className="min-h-32 font-mono text-sm" placeholder="输入文本后也可以通过虚空传输" />
+              {/* <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs sm:grid-cols-3">
                 <div><div className="font-semibold text-kumo-strong">信令</div><div className="mt-1 text-kumo-subtle">服务器暂存 30 分钟</div></div>
                 <div><div className="font-semibold text-kumo-strong">文件流</div><div className="mt-1 text-kumo-subtle">浏览器直连</div></div>
                 <div><div className="font-semibold text-kumo-strong">中继</div><div className="mt-1 text-kumo-subtle">默认关闭</div></div>
-              </div>
+              </div> */}
               <div className="flex flex-wrap justify-end gap-2 border-t border-kumo-line pt-4">
                 <Button size="sm" variant="secondary" onClick={() => { closeVoidPeer(); setVoidStatus('已停止'); }}>停止</Button>
-                <Button size="sm" variant="primary" onClick={startVoidSend} icon={<Send className="h-4 w-4" />}>创建虚空发送</Button>
+                <Button size="sm" variant="primary" onClick={startVoidSend} icon={<Send className="h-4 w-4" />}>创建虚空传输</Button>
               </div>
             </div>
           </LayerCard>
@@ -736,14 +736,14 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
               <Meter label="传输进度" value={voidProgress} customValue={`${voidProgress}%`} />
               {voidLink ? (
                 <div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-base p-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
-                  {voidQr && <img src={voidQr} alt="虚空发送二维码" className="h-32 w-32 rounded-md border border-kumo-line bg-white p-2" />}
+                  {voidQr && <img src={voidQr} alt="虚空传输二维码" className="h-32 w-32 rounded-md border border-kumo-line bg-white p-2" />}
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-kumo-strong">让接收方扫码或打开链接</div>
                     <ClipboardText text={voidLink} className="mt-2" tooltip={{ text: '复制链接', copiedText: '链接已复制' }} labels={{ copyAction: '复制链接' }} />
                   </div>
                 </div>
               ) : (
-                <div className="rounded-md border border-dashed border-kumo-line p-8 text-center text-xs text-kumo-subtle">创建虚空发送后会显示二维码和接收链接。</div>
+                <div className="rounded-md border border-dashed border-kumo-line p-8 text-center text-xs text-kumo-subtle">创建虚空传输后会显示二维码和接收链接。</div>
               )}
             </div>
           </LayerCard>

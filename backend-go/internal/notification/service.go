@@ -1457,9 +1457,9 @@ func decryptConfig(raw string) map[string]interface{} {
 
 func eventCatalog() []map[string]interface{} {
 	return []map[string]interface{}{
-		{"module": "uptime", "events": []string{"down", "up", "pending", "resource.created", "resource.deleted"}},
+		{"module": "uptime", "events": []string{"down", "up", "pending", "resource.created", "resource.deleted", "ssl_expiry"}},
 		{"module": "server", "events": []string{"offline", "online", "cpu_high", "memory_high", "disk_high"}},
-		{"module": "system", "events": []string{"database.backup", "database.import", "log.cleanup", "migration.failed"}},
+		{"module": "system", "events": []string{"database.backup", "database.import", "log.cleanup", "migration.failed", "cpu_high", "memory_high", "disk_high"}},
 		{"module": "filebox", "events": []string{"resource.created", "resource.deleted", "cleanup"}},
 		{"module": "totp", "events": []string{"resource.created", "resource.updated", "resource.deleted", "security.revealed", "backup.imported", "backup.exported"}},
 	}

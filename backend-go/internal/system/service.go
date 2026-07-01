@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +22,16 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
+type Notifier interface {
+	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
+}
+
+type alertState struct {
+	cpuHigh    bool
+	memoryHigh bool
+	diskHigh   bool
+}
+
 type Service struct {
 	cfg        config.Config
 	startedAt  time.Time
@@ -30,11 +41,17 @@ type Service struct {
 	statsCache map[string]*APICounters
 	stopChan   chan struct{}
 	wg         sync.WaitGroup
+	notifier   Notifier
+	alertState alertState
 }
 
 type APICounters struct {
 	Audit int64 `json:"audit"`
 	Ops   int64 `json:"ops"`
+}
+
+func (s *Service) SetNotifier(n Notifier) {
+	s.notifier = n
 }
 
 func New(cfg config.Config) *Service {
@@ -48,6 +65,9 @@ func New(cfg config.Config) *Service {
 
 	s.wg.Add(1)
 	go s.runFlushLoop()
+
+	s.wg.Add(1)
+	go s.runHostMonitorLoop()
 
 	return s
 }
@@ -64,6 +84,106 @@ func (s *Service) runFlushLoop() {
 		case <-s.stopChan:
 			s.flushToDB()
 			return
+		}
+	}
+}
+
+func (s *Service) runHostMonitorLoop() {
+	defer s.wg.Done()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.checkHostAlerts()
+		case <-s.stopChan:
+			return
+		}
+	}
+}
+
+func (s *Service) checkHostAlerts() {
+	if s.notifier == nil {
+		return
+	}
+	metrics, err := s.hostMetrics()
+	if err != nil {
+		return
+	}
+
+	cpuInfo, _ := metrics["cpu"].(map[string]interface{})
+	cpuVal, _ := cpuInfo["usage"].(float64)
+
+	memInfo, _ := metrics["memory"].(map[string]interface{})
+	memVal, _ := memInfo["usage"].(float64)
+
+	diskInfo, _ := metrics["disk"].(map[string]interface{})
+	diskVal, _ := diskInfo["usage"].(float64)
+
+	hostname, _ := metrics["hostname"].(string)
+	if hostname == "" {
+		hostname = "local-host"
+	}
+
+	eventData := map[string]interface{}{
+		"serverId":   "local-host",
+		"serverName": hostname,
+		"host":       hostname,
+		"hostname":   hostname,
+		"cpu_usage":  cpuVal,
+		"mem_percent": memVal,
+		"disk_usage": diskVal,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// CPU
+	if cpuVal >= 90 {
+		if !s.alertState.cpuHigh {
+			s.alertState.cpuHigh = true
+			eventData["eventType"] = "cpu_high"
+			_ = s.notifier.Trigger(ctx, "system", "cpu_high", eventData)
+		}
+	} else if cpuVal < 85 {
+		if s.alertState.cpuHigh {
+			s.alertState.cpuHigh = false
+			eventData["eventType"] = "cpu_normal"
+			_ = s.notifier.Trigger(ctx, "system", "cpu_normal", eventData)
+		}
+	}
+
+	// Memory
+	if memVal >= 90 {
+		if !s.alertState.memoryHigh {
+			s.alertState.memoryHigh = true
+			eventData["eventType"] = "memory_high"
+			_ = s.notifier.Trigger(ctx, "system", "memory_high", eventData)
+		}
+	} else if memVal < 85 {
+		if s.alertState.memoryHigh {
+			s.alertState.memoryHigh = false
+			eventData["eventType"] = "memory_normal"
+			_ = s.notifier.Trigger(ctx, "system", "memory_normal", eventData)
+		}
+	}
+
+	// Disk
+	if diskVal >= 90 {
+		if !s.alertState.diskHigh {
+			s.alertState.diskHigh = true
+			eventData["eventType"] = "disk_high"
+			_ = s.notifier.Trigger(ctx, "system", "disk_high", eventData)
+		}
+	} else if diskVal < 85 {
+		if s.alertState.diskHigh {
+			s.alertState.diskHigh = false
+			eventData["eventType"] = "disk_normal"
+			_ = s.notifier.Trigger(ctx, "system", "disk_normal", eventData)
 		}
 	}
 }
@@ -325,7 +445,40 @@ func readVirtualMemory() map[string]interface{} {
 	}
 }
 
-func readDiskUsage() map[string]interface{} {
+func isVirtualFS(fstype string) bool {
+	virtualFS := map[string]bool{
+		"tmpfs":        true,
+		"devtmpfs":     true,
+		"sysfs":        true,
+		"proc":         true,
+		"devpts":       true,
+		"cgroup":       true,
+		"overlay":      true,
+		"squashfs":     true,
+		"iso9660":      true,
+		"udf":          true,
+		"configfs":     true,
+		"debugfs":      true,
+		"tracefs":      true,
+		"securityfs":   true,
+		"pstore":       true,
+		"bpf":          true,
+		"fusectl":      true,
+		"mqueue":       true,
+		"hugetlbfs":    true,
+		"autofs":       true,
+		"binfmt_misc":  true,
+		"devfs":        true,
+		"fdescfs":      true,
+		"linprocfs":    true,
+		"linsysfs":     true,
+		"procfs":       true,
+		"sysctlfs":     true,
+	}
+	return virtualFS[fstype]
+}
+
+func readDiskUsageSingle() map[string]interface{} {
 	root := rootPath()
 	usage, err := disk.Usage(root)
 	if err != nil {
@@ -344,6 +497,57 @@ func readDiskUsage() map[string]interface{} {
 		"used":  usage.Used,
 		"free":  usage.Free,
 		"usage": clampPercent(usage.UsedPercent),
+	}
+}
+
+func readDiskUsage() map[string]interface{} {
+	parts, err := disk.Partitions(false)
+	if err != nil {
+		return readDiskUsageSingle()
+	}
+
+	var total, used, free uint64
+	var roots []string
+	seenDevices := make(map[string]bool)
+
+	for _, p := range parts {
+		if isVirtualFS(p.Fstype) {
+			continue
+		}
+		if p.Device == "" || seenDevices[p.Device] {
+			continue
+		}
+
+		usage, err := disk.Usage(p.Mountpoint)
+		if err != nil {
+			continue
+		}
+		if usage.Total == 0 {
+			continue
+		}
+
+		seenDevices[p.Device] = true
+		total += usage.Total
+		used += usage.Used
+		free += usage.Free
+		roots = append(roots, p.Mountpoint)
+	}
+
+	if len(roots) == 0 {
+		return readDiskUsageSingle()
+	}
+
+	var usagePercent float64
+	if total > 0 {
+		usagePercent = float64(used) / float64(total) * 100
+	}
+
+	return map[string]interface{}{
+		"root":  strings.Join(roots, ", "),
+		"total": total,
+		"used":  used,
+		"free":  free,
+		"usage": clampPercent(usagePercent),
 	}
 }
 

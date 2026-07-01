@@ -118,7 +118,7 @@ export default function SystemLogsPage() {
             <div className="text-xs">调整筛选条件或刷新后再查看。</div>
           </div>
         ) : (
-          <div className="max-h-[calc(100vh-18rem)] min-h-[26rem] overflow-auto px-3 font-mono text-xs">
+          <div className="max-h-[calc(100vh-19rem)] min-h-[26rem] overflow-auto px-3 font-mono text-xs">
             {lines.map((line, index) => (
               <div key={`${line.time}-${index}`} className="grid gap-2 border-b border-white/5 py-1.5 md:grid-cols-[4.5rem_10rem_7rem_minmax(0,1fr)]">
                 <Badge variant={variant(line.level)}>{line.level || 'RAW'}</Badge>

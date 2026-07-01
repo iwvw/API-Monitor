@@ -54,9 +54,10 @@ type Service struct {
 	notifier             Notifier
 	heartbeatBroadcaster func(monitorID int64, beat map[string]interface{})
 
-	mu      sync.Mutex
-	timers  map[int64]*time.Timer
-	stopped bool
+	mu            sync.Mutex
+	timers        map[int64]*time.Timer
+	stopped       bool
+	lastSslAlerts sync.Map // monitorID -> time.Time (expiry)
 }
 
 type probeResult struct {
@@ -1543,8 +1544,28 @@ func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]inte
 	}
 	// Persist SSL expiry from probe result into monitor state
 	if result.SslExpiry != nil {
+		monitorID := int64Value(monitor["id"], 0)
 		_, _ = db.ExecContext(ctx, `UPDATE uptime_monitor_states SET ssl_expiry = ? WHERE monitor_id = ?`,
-			result.SslExpiry.UTC().Format(time.RFC3339), int64Value(monitor["id"], 0))
+			result.SslExpiry.UTC().Format(time.RFC3339), monitorID)
+
+		// Check if SSL is expiring soon (<= 30 days)
+		daysLeft := int(time.Until(*result.SslExpiry).Hours() / 24)
+		if daysLeft <= 30 {
+			lastExpiry, exists := s.lastSslAlerts.Load(monitorID)
+			if !exists || !lastExpiry.(time.Time).Equal(*result.SslExpiry) {
+				s.lastSslAlerts.Store(monitorID, *result.SslExpiry)
+				if s.notifier != nil {
+					eventData := map[string]interface{}{
+						"monitorId":   monitorID,
+						"monitorName": stringValue(monitor["name"], ""),
+						"url":         monitorTarget(monitor),
+						"daysLeft":    daysLeft,
+						"expiry":      result.SslExpiry.UTC().Format(time.RFC3339),
+					}
+					_ = s.notifier.Trigger(ctx, "uptime", "ssl_expiry", eventData)
+				}
+			}
+		}
 	}
 	_, _ = db.ExecContext(ctx, `UPDATE uptime_monitors SET last_checked_at = ?, next_check_at = datetime(?, '+' || interval || ' seconds') WHERE id = ?`, now, now, int64Value(monitor["id"], 0))
 	return beat, nil

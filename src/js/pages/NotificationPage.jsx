@@ -37,8 +37,8 @@ const getChannelTypeName = (type) => {
 
 const getSourceModuleName = (module) => {
   const names = {
-    uptime: 'Uptime 监控',
-    server: 'Host 主机',
+    uptime: '可用性监测',
+    server: '主机实例',
     openai: 'OpenAI 接口',
     system: '系统设置',
     filebox: '文件柜',
@@ -62,8 +62,13 @@ const getEventTypeName = (type) => {
     balance_low: '余额不足',
     log_too_large: '日志体积过大',
     pending: '状态待确认',
+    ssl_expiry: 'SSL 证书即将到期',
     'resource.created': '资源已创建',
+    'resource.updated': '资源已更新',
     'resource.deleted': '资源已删除',
+    'security.revealed': '密钥已查看',
+    'backup.imported': '备份已导入',
+    'backup.exported': '备份已导出',
     cleanup: '清理任务',
     'database.backup': '数据库备份',
     'database.import': '数据库导入',
@@ -84,8 +89,11 @@ const getEventTypeName = (type) => {
 };
 
 const FALLBACK_EVENT_CATALOG = [
-  { module: 'uptime', events: ['down', 'up', 'pending'] },
+  { module: 'uptime', events: ['down', 'up', 'pending', 'resource.created', 'resource.deleted', 'ssl_expiry'] },
   { module: 'server', events: ['offline', 'online', 'cpu_high', 'memory_high', 'disk_high'] },
+  { module: 'system', events: ['database.backup', 'database.import', 'log.cleanup', 'migration.failed', 'cpu_high', 'memory_high', 'disk_high'] },
+  { module: 'filebox', events: ['resource.created', 'resource.deleted', 'cleanup'] },
+  { module: 'totp', events: ['resource.created', 'resource.updated', 'resource.deleted', 'security.revealed', 'backup.imported', 'backup.exported'] },
 ];
 
 const buildSampleEventData = (rule = {}) => ({
@@ -838,7 +846,7 @@ function NotificationPage() {
               items={[
                 { value: '', label: '所有模块' },
                 { value: 'uptime', label: 'Uptime 监测' },
-                { value: 'server', label: 'Host 主机' },
+                { value: 'server', label: '主机实例' },
               ]}
             />
 
@@ -1143,7 +1151,7 @@ function NotificationPage() {
 
       {/* ==================== 4. 全局配置 Tab ==================== */}
       {notificationCurrentTab === 'settings' && (
-        <div className="app-card p-6 space-y-6 max-w-2xl">
+        <div className="app-card p-6 space-y-6">
           <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-3 select-none">
             全局配置选项
           </h3>

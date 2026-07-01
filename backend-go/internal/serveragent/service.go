@@ -21,6 +21,16 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
 
+type Notifier interface {
+	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
+}
+
+type alertState struct {
+	cpuHigh    bool
+	memoryHigh bool
+	diskHigh   bool
+}
+
 type Service struct {
 	cfg              config.Config
 	store            *database.Store
@@ -36,10 +46,16 @@ type Service struct {
 	agentTaskWaiters sync.Map
 	targetsCache     []networkQualityTarget
 	targetsCacheMu   sync.RWMutex
+	notifier         Notifier
+	alertStates      sync.Map // serverID -> *alertState
 }
 
 const realtimeMetricsPersistInterval = 1500 * time.Millisecond
 const agentMetricsStaleAfter = 45 * time.Second
+
+func (s *Service) SetNotifier(n Notifier) {
+	s.notifier = n
+}
 
 func New(cfg config.Config) *Service {
 	registry := NewConnectionRegistry()
@@ -75,7 +91,7 @@ func New(cfg config.Config) *Service {
 				}
 				registry.Register(serverID, socket) // 注册到连接池
 
-				// 异步更新数据库状态为 online
+				// 异步更新数据库状态为 online 并发送通知
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
@@ -86,6 +102,24 @@ func New(cfg config.Config) *Service {
 						_, _ = db.ExecContext(ctx, `UPDATE server_accounts
 							SET status = 'online', last_check_time = ?, last_check_status = 'success', response_time = 0, updated_at = ?
 							WHERE id = ?`, now, now, serverID)
+
+						// 获取主机名称用于通知
+						var serverName string
+						_ = db.QueryRowContext(ctx, `SELECT name FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName)
+						if serverName == "" {
+							serverName = serverID
+						}
+
+						if s.notifier != nil {
+							eventData := map[string]interface{}{
+								"serverId":   serverID,
+								"serverName": serverName,
+								"host":       serverName,
+								"hostname":   serverName,
+								"status":     "online",
+							}
+							_ = s.notifier.Trigger(ctx, "server", "online", eventData)
+						}
 					}
 				}()
 
@@ -343,6 +377,24 @@ func New(cfg config.Config) *Service {
 						_, _ = db.ExecContext(ctx, `UPDATE server_accounts
 							SET status = 'offline', last_check_time = ?, last_check_status = 'disconnected', updated_at = ?
 							WHERE id = ?`, now, now, serverID)
+
+						// 获取主机名称用于通知
+						var serverName string
+						_ = db.QueryRowContext(ctx, `SELECT name FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName)
+						if serverName == "" {
+							serverName = serverID
+						}
+
+						if s.notifier != nil {
+							eventData := map[string]interface{}{
+								"serverId":   serverID,
+								"serverName": serverName,
+								"host":       serverName,
+								"hostname":   serverName,
+								"status":     "offline",
+							}
+							_ = s.notifier.Trigger(ctx, "server", "offline", eventData)
+						}
 					}(sid)
 
 					if metricsHub != nil {
@@ -3288,4 +3340,67 @@ func (s *Service) setTargetsCache(targets []networkQualityTarget) {
 	s.targetsCacheMu.Lock()
 	s.targetsCache = targets
 	s.targetsCacheMu.Unlock()
+}
+
+func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID string, cpu, mem, disk float64) {
+	val, _ := s.alertStates.LoadOrStore(serverID, &alertState{})
+	state := val.(*alertState)
+
+	var serverName string
+	_ = db.QueryRowContext(ctx, `SELECT name FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName)
+	if serverName == "" {
+		serverName = serverID
+	}
+
+	eventData := map[string]interface{}{
+		"serverId":   serverID,
+		"serverName": serverName,
+		"host":       serverName,
+		"hostname":   serverName,
+		"cpu_usage":  cpu,
+		"mem_percent": mem,
+		"disk_usage": disk,
+	}
+
+	if cpu >= 90 {
+		if !state.cpuHigh {
+			state.cpuHigh = true
+			eventData["eventType"] = "cpu_high"
+			_ = s.notifier.Trigger(ctx, "server", "cpu_high", eventData)
+		}
+	} else if cpu < 85 {
+		if state.cpuHigh {
+			state.cpuHigh = false
+			eventData["eventType"] = "cpu_normal"
+			_ = s.notifier.Trigger(ctx, "server", "cpu_normal", eventData)
+		}
+	}
+
+	if mem >= 90 {
+		if !state.memoryHigh {
+			state.memoryHigh = true
+			eventData["eventType"] = "memory_high"
+			_ = s.notifier.Trigger(ctx, "server", "memory_high", eventData)
+		}
+	} else if mem < 85 {
+		if state.memoryHigh {
+			state.memoryHigh = false
+			eventData["eventType"] = "memory_normal"
+			_ = s.notifier.Trigger(ctx, "server", "memory_normal", eventData)
+		}
+	}
+
+	if disk >= 90 {
+		if !state.diskHigh {
+			state.diskHigh = true
+			eventData["eventType"] = "disk_high"
+			_ = s.notifier.Trigger(ctx, "server", "disk_high", eventData)
+		}
+	} else if disk < 85 {
+		if state.diskHigh {
+			state.diskHigh = false
+			eventData["eventType"] = "disk_normal"
+			_ = s.notifier.Trigger(ctx, "server", "disk_normal", eventData)
+		}
+	}
 }

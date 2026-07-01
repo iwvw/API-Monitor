@@ -751,7 +751,7 @@ function DashboardPage({ onNavigate } = {}) {
           <p className="mt-0.5 truncate text-[11px] text-kumo-subtle sm:text-xs">系统运行概览与状态指标</p>
         </div>
 
-        <div className="flex shrink-0 items-center">
+        {/* <div className="flex shrink-0 items-center">
           <Button
             onClick={() => fetchDashboardStats(true, { force: true })}
             variant="secondary" size="sm"
@@ -760,7 +760,7 @@ function DashboardPage({ onNavigate } = {}) {
             {!loading && <RefreshCw className="w-3.5 h-3.5" />}
             <span className="hidden min-[360px]:inline">刷新数据</span>
           </Button>
-        </div>
+        </div> */}
       </div>
 
       {/* ==================== Stats Grid (5 Cards) ==================== */}
@@ -908,19 +908,25 @@ function DashboardPage({ onNavigate } = {}) {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                <span className="rounded border border-kumo-line bg-kumo-recessed px-2 py-0.5 text-[11px] font-semibold text-kumo-subtle">
+                {/* <span className="rounded border border-kumo-line bg-kumo-recessed px-2 py-0.5 text-[11px] font-semibold text-kumo-subtle">
                   2s 实时
-                </span>
+                </span> */}
                 <span className={`w-fit rounded border px-2 py-0.5 text-[11px] font-semibold ${hostHealthTone}`}>
                   CPU {formatPercent(hostCpuUsage)}
+                </span>
+                <span className={`w-fit rounded border px-2 py-0.5 text-[11px] font-semibold ${hostHealthTone}`}>
+                  MEM {formatPercent(hostMemoryUsage)}
+                </span>
+                <span className={`w-fit rounded border px-2 py-0.5 text-[11px] font-semibold ${hostHealthTone}`}>
+                  DISK {formatPercent(hostDiskUsage)}
                 </span>
               </div>
             </div>
 
             <div className="mt-3 grid gap-3 sm:mt-4 md:grid-cols-3 md:[&>*+*]:border-l md:[&>*+*]:border-kumo-line md:[&>*+*]:pl-4 md:[&>*:not(:last-child)]:pr-4">
               <MiniMeter label="CPU" value={hostCpuUsage} detail={`${formatPercent(hostCpuUsage)} / ${stats.host?.cpu?.cores || 0}C`} tone="success" />
-              <MiniMeter label="内存" value={hostMemoryUsage} detail={`${formatPercent(hostMemoryUsage)} / ${formatBytes(stats.host?.memory?.total)}`} tone="info" />
-              <MiniMeter label="磁盘" value={hostDiskUsage} detail={`${formatPercent(hostDiskUsage)} / ${formatBytes(stats.host?.disk?.total)}`} tone="brand" />
+              <MiniMeter label="内存" value={hostMemoryUsage} detail={`${formatBytes(stats.host?.memory?.used)} / ${formatBytes(stats.host?.memory?.total)}`} tone="info" />
+              <MiniMeter label="磁盘" value={hostDiskUsage} detail={`${formatBytes(stats.host?.disk?.used)} / ${formatBytes(stats.host?.disk?.total)}`} tone="brand" />
             </div>
 
             <div className="mt-3 grid gap-x-6 gap-y-2 border-t border-kumo-line pt-2 text-[11px] text-kumo-subtle sm:mt-4 sm:grid-cols-3 sm:pt-3 sm:text-xs">
@@ -1031,9 +1037,9 @@ function DashboardPage({ onNavigate } = {}) {
             </div>
           </div>
 
-          <div className="text-[10px] text-kumo-subtle border-t border-kumo-line pt-2 select-none text-center sm:pt-3">
+          {/* <div className="text-[10px] text-kumo-subtle border-t border-kumo-line pt-2 select-none text-center sm:pt-3">
             点击以上卡片可直接跳转相应模块管理。
-          </div>
+          </div> */}
         </AppCard>
 
       </div>

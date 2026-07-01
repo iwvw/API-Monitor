@@ -26,12 +26,17 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+type Notifier interface {
+	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
+}
+
 type Service struct {
 	cfg       config.Config
 	scheduler *cron.Cron
 	entry     cron.EntryID
 	mu        sync.Mutex
 	client    *http.Client
+	notifier  Notifier
 }
 
 type Config struct {
@@ -58,6 +63,10 @@ func New(cfg config.Config) *Service {
 	s.scheduler.Start()
 	_ = s.reloadSchedule(context.Background())
 	return s
+}
+
+func (s *Service) SetNotifier(n Notifier) {
+	s.notifier = n
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +163,7 @@ func (s *Service) listRecords(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) runBackup(w http.ResponseWriter, r *http.Request) {
 	record, err := s.createBackup(r.Context())
+	s.triggerBackupNotify(r.Context(), record, err)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -202,7 +212,9 @@ func (s *Service) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "invalid backup id")
 		return
 	}
-	if err := s.restoreFromZip(path); err != nil {
+	err := s.restoreFromZip(path)
+	s.triggerRestoreNotify(r.Context(), payload.ID, err)
+	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -325,13 +337,48 @@ func (s *Service) reloadSchedule(ctx context.Context) error {
 		return nil
 	}
 	entry, err := s.scheduler.AddFunc(cfg.Cron, func() {
-		_, _ = s.createBackup(context.Background())
+		ctx := context.Background()
+		record, err := s.createBackup(ctx)
+		s.triggerBackupNotify(ctx, record, err)
 	})
 	if err != nil {
 		return err
 	}
 	s.entry = entry
 	return nil
+}
+
+func (s *Service) triggerBackupNotify(ctx context.Context, record Record, err error) {
+	if s.notifier == nil {
+		return
+	}
+	eventData := map[string]interface{}{}
+	if err != nil {
+		eventData["status"] = "failed"
+		eventData["error"] = err.Error()
+	} else {
+		eventData["status"] = "success"
+		eventData["backupId"] = record.ID
+		eventData["fileName"] = record.FileName
+		eventData["size"] = record.Size
+		eventData["location"] = record.Location
+		eventData["remoteUrl"] = record.RemoteURL
+	}
+	_ = s.notifier.Trigger(ctx, "system", "database.backup", eventData)
+}
+
+func (s *Service) triggerRestoreNotify(ctx context.Context, backupID string, err error) {
+	if s.notifier == nil {
+		return
+	}
+	eventData := map[string]interface{}{"backupId": backupID}
+	if err != nil {
+		eventData["status"] = "failed"
+		eventData["error"] = err.Error()
+	} else {
+		eventData["status"] = "success"
+	}
+	_ = s.notifier.Trigger(ctx, "system", "database.import", eventData)
 }
 
 func (s *Service) uploadBackup(ctx context.Context, cfg Config, path, objectName string) (string, error) {

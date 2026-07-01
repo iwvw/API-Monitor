@@ -418,11 +418,11 @@ function MainLayout() {
                 </AppBreadcrumbs>
               )}
             >
-              <div className="flex h-6.5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-kumo-success/20 bg-kumo-success/10 px-2 text-[11px] text-kumo-success">
+              {/* <div className="flex h-6.5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-kumo-success/20 bg-kumo-success/10 px-2 text-[11px] text-kumo-success">
                 <span className="w-1 h-1 rounded-full bg-current animate-pulse"></span>
-                <span className="hidden min-[520px]:inline">系统正常运行</span>
+                <span className="hidden min-[520px]:inline">健康</span>
                 <span className="min-[520px]:hidden">正常</span>
-              </div>
+              </div> */}
             </AppPageHeader>
           </div>
         </header>

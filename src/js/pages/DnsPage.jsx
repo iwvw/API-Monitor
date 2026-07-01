@@ -1907,7 +1907,7 @@ function DnsPage() {
                         placeholder="选择模式"
                         loading={loading.ssl}
                         renderValue={(value) => sslModeLabel(value)}
-                        className="w-28 shrink-0"
+                        className="w-18 shrink-0"
                         items={SSL_MODES}
                       />
                     </DnsPanelCard>
@@ -1998,11 +1998,11 @@ function DnsPage() {
                       <Button size="sm" onClick={() => openRecordModal()} icon={<Plus className="h-4 w-4" />}>
                         添加记录
                       </Button>
-                      <Button size="sm" variant="secondary" onClick={exportRecords} icon={<Download className="h-4 w-4" />}>
-                        导出
+                      <Button shape="square" size="sm" variant="secondary" onClick={exportRecords} icon={<Upload className="h-4 w-4" />}>
+                        {/* 导出 */}
                       </Button>
-                      <Button size="sm" variant="secondary" onClick={() => openImportModal('records')} icon={<Upload className="h-4 w-4" />}>
-                        导入
+                      <Button shape="square" size="sm" variant="secondary" onClick={() => openImportModal('records')} icon={<Download className="h-4 w-4" />}>
+                        {/* 导入 */}
                       </Button>
                       {selectedRecordIds.length > 0 && (
                         <Button size="sm" variant="secondary-destructive" onClick={batchDeleteRecords} icon={<Trash className="h-4 w-4" />}>

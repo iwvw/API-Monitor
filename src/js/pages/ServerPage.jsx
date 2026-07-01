@@ -127,8 +127,8 @@ const HOST_COMPACT_COLUMNS = [
   { id: 'country', label: '位置' },
   { id: 'uptime', label: '在线' },
   { id: 'load', label: '负载' },
-  { id: 'speed', label: '【下行】网速【上行】' },
-  { id: 'traffic', label: '【下载】 流量 【上传】' },
+  { id: 'speed', label: '网速' },
+  { id: 'traffic', label: '流量' },
   { id: 'cpu', label: 'CPU' },
   { id: 'memory', label: '内存' },
   { id: 'disk', label: '硬盘' },
@@ -405,7 +405,7 @@ const getFlowUnitClassName = (unit) => {
 
 function FlowUnitBadge({ unit }) {
   return (
-    <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-[5px] px-1 font-mono text-[11px] font-bold leading-none ${getFlowUnitClassName(unit)} ${COMPACT_INLINE_SUBBOX_CLASS}`}>
+    <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-[5px] px-1 font-mono text-[13px] font-bold leading-none ${getFlowUnitClassName(unit)} ${COMPACT_INLINE_SUBBOX_CLASS}`}>
       {unit || 'B'}
     </span>
   );
@@ -5589,25 +5589,25 @@ function ServerPage() {
                 title="刷新列表"
                 aria-label="刷新列表"
               />
-              <Button size="sm"
+              <Button shape="square" size="sm"
                 variant="secondary"
                 icon={<Upload className="w-3.5 h-3.5" />}
                 onClick={exportServers}
                 title="导出主机配置"
                 className="hidden md:inline-flex"
               >
-                导出
+                {/* 导出 */}
               </Button>
-              <Button size="sm"
+              <Button shape="square" size="sm"
                 variant="secondary"
                 icon={<Download className="w-3.5 h-3.5" />}
                 onClick={openImportServerModal}
                 title="导入主机配置"
                 className="hidden md:inline-flex"
               >
-                导入
+                {/* 导入 */}
               </Button>
-              <Button size="sm"
+              {/* <Button size="sm"
                 variant="secondary"
                 icon={<RotateCw className="w-3.5 h-3.5" />}
                 onClick={probeAllServers}
@@ -5615,13 +5615,13 @@ function ServerPage() {
                 className="hidden sm:inline-flex"
               >
                 探测
-              </Button>
-              <Button size="sm"
+              </Button> */}
+              <Button shape="square" size="sm"
                 variant="primary"
                 icon={<Plus className="w-3.5 h-3.5" />}
                 onClick={openAddServerModal}
               >
-                新增主机
+                {/* 新增主机 */}
               </Button>
             </div>
           )}

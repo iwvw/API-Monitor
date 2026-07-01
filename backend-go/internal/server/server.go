@@ -61,15 +61,20 @@ func NewServer(cfg config.Config) *Server {
 	authService := auth.New(cfg)
 	notifyService := notification.New(cfg)
 	serverAgentService := serveragent.New(cfg)
+	serverAgentService.SetNotifier(notifyService)
 	cronService := cronjobs.New(cfg)
 	cronService.SetAgentRunner(serverAgentService)
 	uptimeService := uptime.New(cfg, authService, notifyService)
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
+	systemService := systemmetrics.New(cfg)
+	systemService.SetNotifier(notifyService)
+	backupService := backup.New(cfg)
+	backupService.SetNotifier(notifyService)
 	return &Server{
 		cfg:      cfg,
 		auth:     authService,
 		settings: settings.New(cfg),
-		system:   systemmetrics.New(cfg),
+		system:   systemService,
 		totp:     totp.New(cfg),
 		cron:     cronService,
 		filebox:  filebox.New(cfg, authService),
@@ -82,7 +87,7 @@ func NewServer(cfg config.Config) *Server {
 		cf:       cloudflare.New(cfg),
 		openai:   openai.New(cfg),
 		server:   serverAgentService,
-		backup:   backup.New(cfg),
+		backup:   backupService,
 		logs:     systemlogs.New(cfg),
 	}
 }

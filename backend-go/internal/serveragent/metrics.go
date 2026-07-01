@@ -288,9 +288,13 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 		gpuPower.Valid = true
 	}
 
+	cpuVal := firstMetricFloat(metrics, []string{"cpu_usage", "cpu"}, cpuInfo, []string{"Usage"})
+	memVal := firstMetricFloat(metrics, []string{"mem_usage_percent", "memory_usage", "mem_usage"}, memInfo, []string{"Usage"})
+	diskVal := firstMetricFloat(metrics, []string{"disk_usage"}, diskInfo, []string{"usage", "Usage"})
+
 	_, err := db.ExecContext(ctx, query,
 		serverID,
-		firstMetricFloat(metrics, []string{"cpu_usage", "cpu"}, cpuInfo, []string{"Usage"}),
+		cpuVal,
 		firstNonEmpty(firstString(metrics, "load", "cpu_load", "cpuLoad"), firstString(cpuInfo, "Load")),
 		firstMetricInt(metrics, []string{"cores", "cpu_cores"}, cpuInfo, []string{"Cores", "PhysicalCores"}),
 		firstMetricInt(metrics, []string{"logical_cores", "cpu_threads", "threads"}, cpuInfo, []string{"LogicalCores", "Threads"}),
@@ -298,10 +302,10 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 		firstMetricFloat(metrics, []string{"cpu_power", "cpu_power_w", "cpuPower"}, cpuInfo, []string{"Power"}),
 		firstMetricInt(metrics, []string{"mem_used_mb", "mem_used", "memory_used"}, memInfo, []string{"Used", "UsedMB"}),
 		firstMetricInt(metrics, []string{"mem_total_mb", "mem_total", "memory_total"}, memInfo, []string{"Total", "TotalMB"}),
-		firstMetricFloat(metrics, []string{"mem_usage_percent", "memory_usage", "mem_usage"}, memInfo, []string{"Usage"}),
+		memVal,
 		firstNonEmpty(getString(metrics, "disk_used"), stringFromMap(diskInfo, "used"), stringFromMap(diskInfo, "Used")),
 		firstNonEmpty(getString(metrics, "disk_total"), stringFromMap(diskInfo, "total"), stringFromMap(diskInfo, "Total")),
-		firstMetricFloat(metrics, []string{"disk_usage"}, diskInfo, []string{"usage", "Usage"}),
+		diskVal,
 		firstMetricInt(metrics, []string{"docker_installed"}, dockerInfo, []string{"installed"}),
 		firstMetricInt(metrics, []string{"docker_running"}, dockerInfo, []string{"running"}),
 		firstMetricInt(metrics, []string{"docker_stopped"}, dockerInfo, []string{"stopped"}),
@@ -314,6 +318,10 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 		firstMetricBytes(metrics, []string{"net_rx", "network_rx"}, networkInfo, []string{"rx_speed", "down"}),
 		firstMetricBytes(metrics, []string{"net_tx", "network_tx"}, networkInfo, []string{"tx_speed", "up"}),
 	)
+
+	if err == nil && s.notifier != nil {
+		go s.checkMetricAlerts(ctx, db, serverID, cpuVal, memVal, diskVal)
+	}
 
 	return err
 }

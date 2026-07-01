@@ -15,9 +15,9 @@ import {
 } from '../components/Icons.jsx';
 
 const AUTH_FEATURES = [
-  '统一监控入口',
-  '会话自动校验',
-  '双因素验证支持',
+  '统一管理入口',
+  '自动校验',
+  '多目标支持',
 ];
 
 let authParticlesEnginePromise = null;
@@ -309,19 +309,19 @@ function AuthShell({ mode, title, description, children }) {
             <img src="/logo.svg" alt="" className="size-5 object-contain" />
           </span>
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-kumo-strong">API Monitor</div>
-            <div className="text-[11px] text-kumo-subtle">监控控制台</div>
+            <div className="text-lg font-semibold text-kumo-strong">API Monitor</div>
+            {/* <div className="text-[11px] text-kumo-subtle">监控控制台</div> */}
           </div>
         </div>
 
         <div className="space-y-4">
-          <div className="inline-flex h-6.5 items-center rounded-md border border-kumo-line bg-kumo-recessed px-2 text-xs font-medium text-kumo-subtle">
+          {/* <div className="inline-flex h-6.5 items-center rounded-md border border-kumo-line bg-kumo-recessed px-2 text-xs font-medium text-kumo-subtle">
             {modeLabel}
-          </div>
+          </div> */}
           <div className="space-y-2">
-            <h1 className="text-2xl font-semibold leading-snug text-kumo-strong">进入监控面板</h1>
+            <h1 className="text-2xl font-semibold leading-snug text-kumo-strong">请登录</h1>
             <p className="max-w-[280px] text-sm leading-relaxed text-kumo-subtle">
-              管理 API、主机、DNS、PaaS 与告警状态。登录后即可进入统一工作台。
+              管理主机、DNS、PaaS......
             </p>
           </div>
         </div>
@@ -506,7 +506,7 @@ function AuthPage() {
     ? '当前环境无需密码，确认后可直接进入控制台。'
     : loginRequire2FA
       ? '请输入 Authenticator App 中显示的 6 位动态验证码。'
-      : '输入管理员密码以访问监控面板。';
+      : '输入管理员密码以访问监控面板';
 
   return (
     <AuthShell
@@ -529,7 +529,7 @@ function AuthPage() {
           <Input
             size="base"
             type="password"
-            label="管理员密码"
+            // label="管理员密码"
             placeholder="请输入管理员密码"
             value={loginPassword}
             onChange={(event) => setLoginPassword(event.target.value)}
@@ -593,11 +593,11 @@ function AuthPage() {
             </Button>
           </div>
         )}
-
+{/* 
         <div className="flex items-center justify-between border-t border-kumo-line pt-3 text-[11px] text-kumo-subtle">
           <span>会话状态</span>
           <span className="font-medium text-kumo-success">受保护</span>
-        </div>
+        </div> */}
       </form>
     </AuthShell>
   );

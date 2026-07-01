@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -61,10 +60,11 @@ func Init(dataDir string, maxFileSizeMB int) error {
 	logFile = file
 
 	writer := &rotatingWriter{path: logPath}
-	handler := slog.NewJSONHandler(io.MultiWriter(os.Stdout, writer), &slog.HandlerOptions{
+	jsonHandler := slog.NewJSONHandler(writer, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
-	logger = slog.New(handler)
+	stdoutHandler := &consoleHandler{level: slog.LevelInfo}
+	logger = slog.New(&multiHandler{handlers: []slog.Handler{jsonHandler, stdoutHandler}})
 	slog.SetDefault(logger)
 	return nil
 }
@@ -73,7 +73,7 @@ func Logger() *slog.Logger {
 	mu.Lock()
 	defer mu.Unlock()
 	if logger == nil {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		logger = slog.New(&consoleHandler{level: slog.LevelInfo})
 		slog.SetDefault(logger)
 	}
 	return logger
@@ -361,4 +361,184 @@ func MarshalAttrs(v any) string {
 		return fmt.Sprint(v)
 	}
 	return string(data)
+}
+
+type consoleHandler struct {
+	level slog.Level
+	attrs []slog.Attr
+}
+
+func (h *consoleHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return l >= h.level
+}
+
+func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
+	timeStr := r.Time.Format("15:04:05")
+	
+	const (
+		ansiReset   = "\033[0m"
+		ansiRed     = "\033[31m"
+		ansiGreen   = "\033[32m"
+		ansiYellow  = "\033[33m"
+		ansiBlue    = "\033[34m"
+		ansiMagenta = "\033[35m"
+		ansiCyan    = "\033[36m"
+		ansiGray    = "\033[90m"
+	)
+
+	var levelColor string
+	switch {
+	case r.Level >= slog.LevelError:
+		levelColor = ansiRed
+	case r.Level >= slog.LevelWarn:
+		levelColor = ansiYellow
+	case r.Level >= slog.LevelInfo:
+		levelColor = ansiGreen
+	default:
+		levelColor = ansiGray
+	}
+
+	levelStr := r.Level.String()
+	module := "system"
+	isHTTP := false
+	method := ""
+	path := ""
+	status := int64(0)
+	duration := int64(0)
+	
+	var extraAttrs []string
+	
+	extract := func(a slog.Attr) {
+		if a.Key == "module" {
+			module = a.Value.String()
+			if module == "http" {
+				isHTTP = true
+			}
+		} else {
+			switch a.Key {
+			case "method":
+				method = a.Value.String()
+			case "path":
+				path = a.Value.String()
+			case "status":
+				status = a.Value.Int64()
+			case "duration_ms":
+				duration = a.Value.Int64()
+			default:
+				if a.Key != "user_agent" && a.Key != "remote_addr" {
+					extraAttrs = append(extraAttrs, fmt.Sprintf("%s=%v", a.Key, a.Value.Any()))
+				}
+			}
+		}
+	}
+
+	for _, a := range h.attrs {
+		extract(a)
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		extract(a)
+		return true
+	})
+
+	if isHTTP && r.Message == "http request" {
+		statusColor := ansiGreen
+		switch {
+		case status >= 500:
+			statusColor = ansiRed
+		case status >= 400:
+			statusColor = ansiYellow
+		case status >= 300:
+			statusColor = ansiCyan
+		}
+
+		methodColor := ansiCyan
+		switch method {
+		case "POST":
+			methodColor = ansiGreen
+		case "PUT", "PATCH":
+			methodColor = ansiYellow
+		case "DELETE":
+			methodColor = ansiRed
+		}
+
+		durationColor := ansiGreen
+		if duration >= 500 {
+			durationColor = ansiRed
+		} else if duration >= 100 {
+			durationColor = ansiYellow
+		}
+
+		fmt.Printf("%s%s%s [%s%s%s] [%shttp%s] %s%s%s %s - %s%d%s (%s%dms%s)\n",
+			ansiGray, timeStr, ansiReset,
+			levelColor, levelStr, ansiReset,
+			ansiCyan, ansiReset,
+			methodColor, method, ansiReset,
+			path,
+			statusColor, status, ansiReset,
+			durationColor, duration, ansiReset,
+		)
+		return nil
+	}
+
+	var extraStr string
+	if len(extraAttrs) > 0 {
+		extraStr = " | " + strings.Join(extraAttrs, " ")
+	}
+
+	fmt.Printf("%s%s%s [%s%s%s] [%s%s%s] %s%s\n",
+		ansiGray, timeStr, ansiReset,
+		levelColor, levelStr, ansiReset,
+		ansiCyan, module, ansiReset,
+		r.Message, extraStr,
+	)
+	return nil
+}
+
+func (h *consoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	newAttrs := make([]slog.Attr, len(h.attrs)+len(attrs))
+	copy(newAttrs, h.attrs)
+	copy(newAttrs[len(h.attrs):], attrs)
+	return &consoleHandler{level: h.level, attrs: newAttrs}
+}
+
+func (h *consoleHandler) WithGroup(name string) slog.Handler {
+	return h
+}
+
+type multiHandler struct {
+	handlers []slog.Handler
+}
+
+func (m *multiHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	for _, h := range m.handlers {
+		if h.Enabled(ctx, l) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, h := range m.handlers {
+		if h.Enabled(ctx, r.Level) {
+			_ = h.Handle(ctx, r)
+		}
+	}
+	return nil
+}
+
+func (m *multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	next := make([]slog.Handler, len(m.handlers))
+	for i, h := range m.handlers {
+		next[i] = h.WithAttrs(attrs)
+	}
+	return &multiHandler{handlers: next}
+}
+
+func (m *multiHandler) WithGroup(name string) slog.Handler {
+	next := make([]slog.Handler, len(m.handlers))
+	for i, h := range m.handlers {
+		next[i] = h.WithGroup(name)
+	}
+	return &multiHandler{handlers: next}
 }

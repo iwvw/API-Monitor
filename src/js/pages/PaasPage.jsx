@@ -1618,7 +1618,7 @@ function PaasPage() {
   return (
     <div className="space-y-4">
       {/* Tab bar header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-kumo-line pb-3">
+      {/* <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-kumo-line pb-3">
         <div>
           <h1 className="text-xl font-bold text-kumo-strong">PaaS 平台管理</h1>
         </div>
@@ -1654,7 +1654,7 @@ function PaasPage() {
             </div>
           )}
         </div>
-      </div>
+      </div> */}
 
       {/* Main Tabs Navigation */}
       <Tabs
