@@ -111,8 +111,10 @@ async fn run_client(
         println!("[Agent] 正在建立 WebSocket 连接: {}", ws_url);
     }
 
+    println!("[Agent] 连接目标: {}", config.server_url);
+
     let (ws_stream, _) = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         connect_async(&ws_url)
     )
     .await
