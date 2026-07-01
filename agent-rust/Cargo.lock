@@ -85,6 +85,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "url",
  "webpki-roots 0.26.11",

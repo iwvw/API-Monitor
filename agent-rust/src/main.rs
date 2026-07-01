@@ -9,12 +9,13 @@ mod pty;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::protocol::Message, Connector};
+use tokio_tungstenite::{client_async_with_config, tungstenite::protocol::Message, MaybeTlsStream};
 
 use crate::collector::{Collector, DockerInfo, State};
 use crate::config::{CliArgs, Config};
@@ -92,6 +93,39 @@ async fn main() {
     }
 }
 
+async fn connect_to_host(host: &str, port: u16) -> Result<TcpStream, String> {
+    use tokio::net::lookup_host;
+    let addrs = lookup_host(format!("{}:{}", host, port))
+        .await
+        .map_err(|e| format!("DNS 解析失败: {}", e))?;
+
+    let mut addrs: Vec<_> = addrs.collect();
+    prefer_ipv4_addresses(&mut addrs);
+
+    let mut last_err = None;
+    for addr in addrs {
+        match tokio::time::timeout(Duration::from_millis(2500), TcpStream::connect(addr)).await {
+            Ok(Ok(stream)) => {
+                let _ = stream.set_nodelay(true);
+                return Ok(stream);
+            }
+            Ok(Err(e)) => {
+                last_err = Some(format!("连接 {} 失败: {}", addr, e));
+            }
+            Err(_) => {
+                last_err = Some(format!("连接 {} 超时", addr));
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| "未找到可用的解析地址".to_string()))
+}
+
+fn prefer_ipv4_addresses(addrs: &mut [SocketAddr]) {
+    // IPv6 may be advertised even when the local route is a black hole.
+    addrs.sort_by_key(|addr| addr.is_ipv6());
+}
+
 async fn run_client(
     config: Config,
     collector: Arc<tokio::sync::Mutex<Collector>>,
@@ -113,26 +147,45 @@ async fn run_client(
 
     println!("[Agent] 连接目标: {}", config.server_url);
 
+    let parsed_url = url::Url::parse(&ws_url).map_err(|e| format!("URL 解析失败: {}", e))?;
+    let host = parsed_url
+        .host_str()
+        .ok_or_else(|| "URL 中缺少主机名".to_string())?;
+    let port = parsed_url
+        .port()
+        .unwrap_or(if ws_url.starts_with("wss://") {
+            443
+        } else {
+            80
+        });
+
+    let tcp_stream = connect_to_host(host, port).await?;
+
     // Build a custom TLS config that forces HTTP/1.1 ALPN.
     // Without this, rustls may negotiate HTTP/2, which does not support
     // the traditional WebSocket upgrade mechanism and causes timeouts
     // behind CDN proxies like Cloudflare.
-    let connector = if ws_url.starts_with("wss://") {
-        let root_store = rustls::RootCertStore::from_iter(
-            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-        );
+    let maybe_tls_stream = if ws_url.starts_with("wss://") {
+        let root_store =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let mut tls_config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
         tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
-        Some(Connector::Rustls(Arc::new(tls_config)))
+        let server_name = rustls::pki_types::ServerName::try_from(host.to_owned())
+            .map_err(|e| format!("TLS 主机名无效: {}", e))?;
+        let tls_stream = tokio_rustls::TlsConnector::from(Arc::new(tls_config))
+            .connect(server_name, tcp_stream)
+            .await
+            .map_err(|e| format!("TLS 握手失败: {}", e))?;
+        MaybeTlsStream::Rustls(tls_stream)
     } else {
-        None
+        MaybeTlsStream::Plain(tcp_stream)
     };
 
     let (ws_stream, _) = tokio::time::timeout(
         Duration::from_secs(30),
-        connect_async_tls_with_config(&ws_url, None, false, connector)
+        client_async_with_config(&ws_url, maybe_tls_stream, None),
     )
     .await
     .map_err(|_| "WebSocket 连接超时".to_string())?
@@ -157,7 +210,8 @@ async fn run_client(
     // 等待服务器握手和认证
     let authenticated = Arc::new(tokio::sync::Mutex::new(false));
     let network_targets = Arc::new(tokio::sync::Mutex::new(Vec::<NetworkQualityTarget>::new()));
-    let latest_network_quality = Arc::new(tokio::sync::Mutex::new(None::<NetworkQualityProbeResponse>));
+    let latest_network_quality =
+        Arc::new(tokio::sync::Mutex::new(None::<NetworkQualityProbeResponse>));
 
     // Handle WebSocket receiver loop
     let tx_clone = tx.clone();
@@ -212,7 +266,9 @@ async fn run_client(
 
                         // Parse network_targets from auth payload if present
                         if let Some(targets_val) = data.get("network_targets") {
-                            if let Ok(targets) = serde_json::from_value::<Vec<NetworkQualityTarget>>(targets_val.clone()) {
+                            if let Ok(targets) = serde_json::from_value::<Vec<NetworkQualityTarget>>(
+                                targets_val.clone(),
+                            ) {
                                 *network_targets_clone.lock().await = targets;
                             }
                         }
@@ -259,8 +315,11 @@ async fn run_client(
                                 let probe_quality = latest_network_quality_probe.clone();
                                 let probe_tx = auth_tx.clone();
                                 tokio::spawn(async move {
-                                    let mut interval = tokio::time::interval(Duration::from_secs(60));
-                                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                                    let mut interval =
+                                        tokio::time::interval(Duration::from_secs(60));
+                                    interval.set_missed_tick_behavior(
+                                        tokio::time::MissedTickBehavior::Delay,
+                                    );
                                     interval.tick().await; // initial tick
                                     loop {
                                         if probe_tx.is_closed() {
@@ -307,7 +366,8 @@ async fn run_client(
                             stamp_state(&mut state, state_sequence, cfg.report_interval);
                             state_sequence = state_sequence.wrapping_add(1);
                             state.docker = docker_cache.lock().await.clone();
-                            state.network_quality = latest_network_quality_probe.lock().await.take();
+                            state.network_quality =
+                                latest_network_quality_probe.lock().await.take();
                             let _ = auth_tx.send(format_event(EVENT_AGENT_STATE, &state)).await;
 
                             let mut state_timer =
@@ -346,7 +406,9 @@ async fn run_client(
                             }
                         });
                     } else if event == "dashboard:network_targets_update" {
-                        if let Ok(targets) = serde_json::from_value::<Vec<NetworkQualityTarget>>(data) {
+                        if let Ok(targets) =
+                            serde_json::from_value::<Vec<NetworkQualityTarget>>(data)
+                        {
                             let len = targets.len();
                             *network_targets_clone.lock().await = targets;
                             println!("[Agent] 📶 收到服务端更新的拨测目标，共 {} 个", len);
@@ -1574,3 +1636,21 @@ fn hide_console_window() {
 
 #[cfg(not(target_os = "windows"))]
 fn hide_console_window() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefer_ipv4_addresses_moves_ipv4_before_ipv6() {
+        let mut addrs = vec![
+            "[2a09:8280:1::133:c3fa:0]:443".parse().unwrap(),
+            "66.241.124.67:443".parse().unwrap(),
+        ];
+
+        prefer_ipv4_addresses(&mut addrs);
+
+        assert!(addrs[0].is_ipv4());
+        assert!(addrs[1].is_ipv6());
+    }
+}
