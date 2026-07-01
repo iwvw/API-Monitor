@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::protocol::Message, Connector};
 
 use crate::collector::{Collector, DockerInfo, State};
 use crate::config::{CliArgs, Config};
@@ -113,9 +113,26 @@ async fn run_client(
 
     println!("[Agent] 连接目标: {}", config.server_url);
 
+    // Build a custom TLS config that forces HTTP/1.1 ALPN.
+    // Without this, rustls may negotiate HTTP/2, which does not support
+    // the traditional WebSocket upgrade mechanism and causes timeouts
+    // behind CDN proxies like Cloudflare.
+    let connector = if ws_url.starts_with("wss://") {
+        let root_store = rustls::RootCertStore::from_iter(
+            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+        );
+        let mut tls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Some(Connector::Rustls(Arc::new(tls_config)))
+    } else {
+        None
+    };
+
     let (ws_stream, _) = tokio::time::timeout(
         Duration::from_secs(30),
-        connect_async(&ws_url)
+        connect_async_tls_with_config(&ws_url, None, false, connector)
     )
     .await
     .map_err(|_| "WebSocket 连接超时".to_string())?

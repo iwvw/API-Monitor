@@ -80,12 +80,14 @@ dependencies = [
  "nvml-wrapper",
  "portable-pty",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sysinfo",
  "tokio",
  "tokio-tungstenite",
  "url",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
