@@ -29,7 +29,7 @@ describe('server realtime health helpers', () => {
     expect(health.state).toBe('stale');
     expect(health.stale).toBe(true);
     expect(health.variant).toBe('warning');
-    expect(health.label).toBe('指标停更');
+    expect(health.label).toBe('中断');
   });
 
   it('keeps degraded collection visible even when the latest sample is recent', () => {
@@ -43,6 +43,6 @@ describe('server realtime health helpers', () => {
 
     expect(health.state).toBe('degraded');
     expect(health.stale).toBe(true);
-    expect(health.label).toBe('采集异常');
+    expect(health.label).toBe('异常');
   });
 });

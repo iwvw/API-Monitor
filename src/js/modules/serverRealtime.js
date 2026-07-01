@@ -71,7 +71,7 @@ export function resolveServerMetricsHealth(server = {}, now = Date.now()) {
     return {
       state: 'stale',
       stale: true,
-      label: '指标停更',
+      label: '中断',
       variant: 'warning',
       dotClassName: 'bg-kumo-warning',
       ageMs,

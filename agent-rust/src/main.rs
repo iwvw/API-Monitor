@@ -111,9 +111,13 @@ async fn run_client(
         println!("[Agent] 正在建立 WebSocket 连接: {}", ws_url);
     }
 
-    let (ws_stream, _) = connect_async(&ws_url)
-        .await
-        .map_err(|e| format!("WebSocket 连接失败: {}", e))?;
+    let (ws_stream, _) = tokio::time::timeout(
+        Duration::from_secs(10),
+        connect_async(&ws_url)
+    )
+    .await
+    .map_err(|_| "WebSocket 连接超时".to_string())?
+    .map_err(|e| format!("WebSocket 连接失败: {}", e))?;
 
     println!("[Agent] WebSocket 连接已建立");
 
