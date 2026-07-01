@@ -269,8 +269,19 @@ $SUDO "$TMP_AGENT" --version || {
 }
 
 if systemctl list-unit-files api-monitor-agent.service >/dev/null 2>&1; then
-    $SUDO systemctl stop api-monitor-agent || true
+    echo "Removing old Agent installation..."
+    $SUDO systemctl stop api-monitor-agent 2>/dev/null || true
+    $SUDO systemctl disable api-monitor-agent 2>/dev/null || true
+    $SUDO rm -f /etc/systemd/system/api-monitor-agent.service
+    $SUDO systemctl daemon-reload
 fi
+
+# Kill any leftover agent processes
+$SUDO pkill -f api-monitor-agent 2>/dev/null || true
+sleep 1
+
+# Remove old binary
+$SUDO rm -f "$INSTALL_DIR/api-monitor-agent"
 
 $SUDO install -m 0755 "$TMP_AGENT" "$INSTALL_DIR/api-monitor-agent"
 
