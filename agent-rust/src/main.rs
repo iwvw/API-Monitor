@@ -148,7 +148,31 @@ async fn run_client(
     let latest_network_quality_clone = latest_network_quality.clone();
 
     let mut read_task = tokio::spawn(async move {
-        while let Some(Ok(Message::Text(text))) = ws_reader.next().await {
+        while let Some(res) = ws_reader.next().await {
+            let text = match res {
+                Ok(Message::Text(t)) => t,
+                Ok(Message::Ping(_)) => {
+                    if config_clone.debug {
+                        println!("[Agent] 收到 WebSocket Ping");
+                    }
+                    continue;
+                }
+                Ok(Message::Pong(_)) => {
+                    if config_clone.debug {
+                        println!("[Agent] 收到 WebSocket Pong");
+                    }
+                    continue;
+                }
+                Ok(Message::Close(_)) => {
+                    println!("[Agent] 收到 Close 帧");
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("[Agent] WebSocket 读取错误: {}", e);
+                    break;
+                }
+                _ => continue,
+            };
             if config_clone.debug && text.as_str() != "2" && text.as_str() != "3" {
                 println!("[Agent] 收到原始消息: {}", text);
             }
