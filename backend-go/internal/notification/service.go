@@ -1478,18 +1478,23 @@ func formatTitle(rule Rule, data map[string]interface{}) string {
 	if rule.TitleTemplate != "" {
 		return renderTemplate(rule.TitleTemplate, data)
 	}
-	icon := map[string]string{"critical": "critical", "warning": "warning", "info": "info"}[rule.Severity]
+	icon := map[string]string{"critical": "【严重】", "warning": "【警告】", "info": "【提示】"}[rule.Severity]
 	if icon == "" {
-		icon = "alert"
+		icon = "【警报】"
 	}
-	if rule.EventType == "up" || rule.EventType == "online" {
-		icon = "recovered"
+	eventType := strings.ToLower(rule.EventType)
+	if eventType == "up" || eventType == "online" || strings.HasSuffix(eventType, "_normal") {
+		icon = "【已恢复】"
 	}
 	subject := firstNonEmpty(stringValue(data["monitorName"]), stringValue(data["serverName"]))
 	if subject != "" {
 		return fmt.Sprintf("%s %s - %s", icon, subject, rule.Name)
 	}
-	return fmt.Sprintf("%s [%s] %s", icon, strings.ToUpper(defaultString(rule.Severity, "info")), rule.Name)
+	severityLabel := map[string]string{"critical": "严重", "warning": "警告", "info": "提示"}[rule.Severity]
+	if severityLabel == "" {
+		severityLabel = "提示"
+	}
+	return fmt.Sprintf("%s [%s] %s", icon, severityLabel, rule.Name)
 }
 
 func formatMessage(rule Rule, data map[string]interface{}) string {
@@ -1502,25 +1507,74 @@ func formatMessage(rule Rule, data map[string]interface{}) string {
 			lines = append(lines, fmt.Sprintf("%s: %v", label, value))
 		}
 	}
-	add("Project", data["monitorName"])
-	add("Server", data["serverName"])
-	add("Error", data["error"])
-	if data["url"] != nil {
-		add("Address", data["url"])
-	} else {
-		add("Address", data["host"])
+
+	// 状态汉化
+	if statusVal := data["status"]; statusVal != nil {
+		statusStr := stringValue(statusVal)
+		if statusStr == "success" {
+			statusStr = "成功"
+		} else if statusStr == "failed" {
+			statusStr = "失败"
+		}
+		add("状态", statusStr)
 	}
-	add("Hostname", data["hostname"])
-	add("Ping", data["ping"])
-	add("CPU", data["cpu_usage"])
-	add("Memory", data["mem_percent"])
-	add("Threshold", data["threshold"])
-	add("Duration", data["downDuration"])
+
+	add("项目", data["monitorName"])
+	add("服务器", data["serverName"])
+	add("错误原因", data["error"])
+	if data["url"] != nil {
+		add("地址", data["url"])
+	} else if data["host"] != nil {
+		add("地址", data["host"])
+	}
+	add("主机名", data["hostname"])
+	add("延迟 (Ping)", data["ping"])
+	add("CPU 使用率", data["cpu_usage"])
+	add("内存使用率", data["mem_percent"])
+	add("磁盘使用率", data["disk_usage"])
+	add("报警阈值", data["threshold"])
+	add("持续时间", data["downDuration"])
+
+	// 数据库备份相关字段
+	add("备份 ID", data["backupId"])
+	add("备份文件名", data["fileName"])
+	if sizeVal := data["size"]; sizeVal != nil {
+		var sizeInt int64
+		switch v := sizeVal.(type) {
+		case int:
+			sizeInt = int64(v)
+		case int64:
+			sizeInt = v
+		case float64:
+			sizeInt = int64(v)
+		}
+		if sizeInt > 0 {
+			add("文件大小", formatNotificationBytes(sizeInt))
+		} else {
+			add("文件大小", sizeVal)
+		}
+	}
+	add("存储位置", data["location"])
+	add("云端链接", data["remoteUrl"])
+
 	if len(lines) == 0 {
 		return jsonString(data)
 	}
-	lines = append(lines, "", "Time: "+time.Now().Format(time.RFC3339))
+	lines = append(lines, "", "时间: "+time.Now().Format("2006-01-02 15:04:05"))
 	return strings.Join(lines, "\n")
+}
+
+func formatNotificationBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func renderTemplate(template string, data map[string]interface{}) string {
