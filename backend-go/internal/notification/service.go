@@ -1478,23 +1478,18 @@ func formatTitle(rule Rule, data map[string]interface{}) string {
 	if rule.TitleTemplate != "" {
 		return renderTemplate(rule.TitleTemplate, data)
 	}
-	icon := map[string]string{"critical": "【严重】", "warning": "【警告】", "info": "【提示】"}[rule.Severity]
-	if icon == "" {
-		icon = "【警报】"
-	}
+	icon := "🚨"
 	eventType := strings.ToLower(rule.EventType)
 	if eventType == "up" || eventType == "online" || strings.HasSuffix(eventType, "_normal") {
-		icon = "【已恢复】"
+		icon = "🟢"
+	} else if rule.Severity == "info" {
+		icon = "ℹ️"
 	}
 	subject := firstNonEmpty(stringValue(data["monitorName"]), stringValue(data["serverName"]))
 	if subject != "" {
 		return fmt.Sprintf("%s %s - %s", icon, subject, rule.Name)
 	}
-	severityLabel := map[string]string{"critical": "严重", "warning": "警告", "info": "提示"}[rule.Severity]
-	if severityLabel == "" {
-		severityLabel = "提示"
-	}
-	return fmt.Sprintf("%s [%s] %s", icon, severityLabel, rule.Name)
+	return fmt.Sprintf("%s %s", icon, rule.Name)
 }
 
 func formatMessage(rule Rule, data map[string]interface{}) string {
@@ -1519,15 +1514,22 @@ func formatMessage(rule Rule, data map[string]interface{}) string {
 		add("状态", statusStr)
 	}
 
-	add("项目", data["monitorName"])
-	add("服务器", data["serverName"])
-	add("错误原因", data["error"])
+	// 主机 (显示 monitorName 或 serverName)
+	subject := firstNonEmpty(stringValue(data["monitorName"]), stringValue(data["serverName"]))
+	add("主机", subject)
+
 	if data["url"] != nil {
 		add("地址", data["url"])
 	} else if data["host"] != nil {
 		add("地址", data["host"])
 	}
-	add("主机名", data["hostname"])
+
+	// 最后活跃时间
+	if lastActiveVal := data["lastActive"]; lastActiveVal != nil {
+		add("最后活跃", toLocalTimeStr(stringValue(lastActiveVal)))
+	}
+
+	add("错误原因", data["error"])
 	add("延迟 (Ping)", data["ping"])
 	add("CPU 使用率", data["cpu_usage"])
 	add("内存使用率", data["mem_percent"])
@@ -1560,8 +1562,24 @@ func formatMessage(rule Rule, data map[string]interface{}) string {
 	if len(lines) == 0 {
 		return jsonString(data)
 	}
-	lines = append(lines, "", "时间: "+time.Now().Format("2006-01-02 15:04:05"))
+	lines = append(lines, "", "时间: "+time.Now().Format("2006/01/02 15:04:05"))
 	return strings.Join(lines, "\n")
+}
+
+func toLocalTimeStr(utcStr string) string {
+	if utcStr == "" {
+		return ""
+	}
+	var t time.Time
+	var err error
+	t, err = time.ParseInLocation("2006-01-02 15:04:05", utcStr, time.UTC)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339, utcStr)
+	}
+	if err != nil {
+		return utcStr
+	}
+	return t.Local().Format("2006/01/02 15:04:05")
 }
 
 func formatNotificationBytes(bytes int64) string {

@@ -1687,6 +1687,9 @@ func (s *Service) notify(ctx context.Context, eventType string, monitor, beat ma
 		"url":         monitorTarget(monitor),
 		"type":        stringValue(monitor["type"], "http"),
 	}
+	if lastChecked := monitor["last_checked_at"]; lastChecked != nil {
+		data["lastActive"] = lastChecked
+	}
 	if eventType == "down" {
 		data["error"] = stringValue(beat["msg"], "")
 	} else {
