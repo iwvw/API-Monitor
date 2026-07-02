@@ -178,7 +178,7 @@ function checkRetiredModules() {
   for (const rel of walk('backend-go')) {
     if (allowedRetiredBackendFiles.includes(rel)) continue;
     const content = stripComments(read(rel));
-    if (/\/api\/music\b|\/api\/openlist\b|\bOpenList\b|\bmusic-api\b|\bopenlist-api\b/i.test(content)) {
+    if (/\/api\/music\b|\/api\/openlist\b|\bOpenList\b|\bmusic-api\b|\bopenlist-api\b|\bMusicPage\b/i.test(content)) {
       errors.push(`retired module reference outside manifest/tests: ${rel}`);
     }
   }

@@ -417,7 +417,14 @@ func (s *Service) readOnlyAICall(req AICallRequest) (interface{}, error) {
 	case "/health":
 		return map[string]interface{}{"status": "ok", "service": "api-monitor-go", "version": s.cfg.Version, "timestamp": time.Now().UTC().Format(time.RFC3339)}, nil
 	case "/api/migration/status":
-		return map[string]interface{}{"version": s.cfg.Version, "databasePath": s.cfg.DatabasePath(), "legacyEnabled": false, "routeSummary": manifest.Summary(), "routes": manifest.Routes(), "retired": []string{"music", "openlist"}}, nil
+		routes := manifest.Routes()
+		retiredModules := make([]string, 0)
+		for _, route := range routes {
+			if route.Owner == manifest.OwnerRetired {
+				retiredModules = append(retiredModules, route.Module)
+			}
+		}
+		return map[string]interface{}{"version": s.cfg.Version, "databasePath": s.cfg.DatabasePath(), "legacyEnabled": false, "routeSummary": manifest.Summary(), "routes": routes, "retired": retiredModules}, nil
 	case "/api/system/api-docs":
 		return s.apiDocs(), nil
 	case "/api/system/openapi.json":
