@@ -128,7 +128,7 @@ export default defineConfig(({ mode }) => {
         ],
       },
       proxy: {
-        '/api': {
+        '^/api(?:/|$)': {
           target: `http://127.0.0.1:${env.PORT || 3000}`,
           changeOrigin: true,
         },

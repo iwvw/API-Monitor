@@ -41,6 +41,7 @@ const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
 const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
 const SchedulerPage = lazy(() => import('../pages/SchedulerPage.jsx'));
+const ApiDocsPage = lazy(() => import('../pages/ApiDocsPage.jsx'));
 const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 
 const PageLoadingFallback = () => (
@@ -52,6 +53,57 @@ const PageLoadingFallback = () => (
     />
   </div>
 );
+
+class ModuleErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('module render failed:', error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.moduleId !== this.props.moduleId && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (!this.state.error) {
+      return this.props.children;
+    }
+    return (
+      <div className="flex min-h-[360px] items-center justify-center">
+        <div className="app-card w-full max-w-xl p-5">
+          <div className="mb-2 text-sm font-bold text-kumo-strong">模块加载失败</div>
+          <div className="mb-4 text-xs leading-relaxed text-kumo-subtle">
+            前端资源可能已更新或缓存仍指向旧文件。请重新加载当前页面后再试。
+          </div>
+          <div className="mb-4 rounded-md border border-kumo-line bg-kumo-recessed/50 p-3 font-mono text-[11px] leading-relaxed text-kumo-subtle">
+            {this.state.error?.message || '未知错误'}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set('_reload', String(Date.now()));
+              window.location.replace(url.toString());
+            }}
+            className="h-8 rounded-md bg-kumo-brand px-3 text-xs font-bold text-white"
+          >
+            重新加载
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
 
 // 图标映射配置
 const ICON_MAP = {
@@ -69,6 +121,7 @@ const ICON_MAP = {
   uptime: Activity,
   filebox: FolderOpen,
   notification: Bell,
+  apidocs: FileText,
   systemlogs: FileText,
 };
 
@@ -307,6 +360,8 @@ function MainLayout() {
         return <SettingsPage />;
       case 'scheduler':
         return <SchedulerPage />;
+      case 'apidocs':
+        return <ApiDocsPage />;
       case 'systemlogs':
         return <SystemLogsPage />;
       default:
@@ -367,6 +422,15 @@ function MainLayout() {
           <Sidebar.Group>
             <Sidebar.GroupLabel>系统</Sidebar.GroupLabel>
             <Sidebar.Menu>
+              {moduleOrder.includes('apidocs') && moduleVisibility.apidocs !== false && (
+                <SidebarModuleButton
+                  module="apidocs"
+                  active={mainActiveTab === 'apidocs'}
+                  icon={FileText}
+                  onNavigate={navigateToModule}
+                />
+              )}
+
               {moduleOrder.includes('systemlogs') && moduleVisibility.systemlogs !== false && (
                 <SidebarModuleButton
                   module="systemlogs"
@@ -430,9 +494,11 @@ function MainLayout() {
         {/* 主内容画布 */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:px-8 lg:pb-6 lg:pt-3 scrollbar-thin">
           <div className={`mx-auto flex min-h-full w-full min-w-0 flex-col ${pageWidthClass}`}>
-            <Suspense fallback={<PageLoadingFallback />}>
-              {renderActivePage()}
-            </Suspense>
+            <ModuleErrorBoundary moduleId={mainActiveTab}>
+              <Suspense fallback={<PageLoadingFallback />}>
+                {renderActivePage()}
+              </Suspense>
+            </ModuleErrorBoundary>
           </div>
         </main>
       </div>

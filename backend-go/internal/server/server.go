@@ -70,7 +70,7 @@ func NewServer(cfg config.Config) *Server {
 	systemService.SetNotifier(notifyService)
 	backupService := backup.New(cfg)
 	backupService.SetNotifier(notifyService)
-	return &Server{
+	server := &Server{
 		cfg:      cfg,
 		auth:     authService,
 		settings: settings.New(cfg),
@@ -90,6 +90,8 @@ func NewServer(cfg config.Config) *Server {
 		backup:   backupService,
 		logs:     systemlogs.New(cfg),
 	}
+	systemService.SetAICaller(server.callAPIFromAI)
+	return server
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
@@ -116,6 +118,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if s.serveSystemControlRoute(w, r) {
 		return
 	}
 
@@ -153,6 +159,42 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.serveStatic(w, r)
+}
+
+func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+	isSessionSystemRoute := path == "/api/system/api-docs" ||
+		path == "/api/openapi.json" ||
+		path == "/api/system/openapi.json" ||
+		path == "/api/ai-access" ||
+		path == "/api/ai-access/key/rotate" ||
+		path == "/api/ai-access/audit/clear" ||
+		path == "/api/ai-access/mcp-servers" ||
+		path == "/api/ai-access/skills" ||
+		strings.HasPrefix(path, "/api/ai-access/mcp-servers/") ||
+		strings.HasPrefix(path, "/api/ai-access/skills/") ||
+		path == "/api/system/ai-access" ||
+		path == "/api/system/ai-access/key/rotate" ||
+		path == "/api/system/ai-access/audit/clear" ||
+		path == "/api/system/ai-access/mcp-servers" ||
+		path == "/api/system/ai-access/skills" ||
+		strings.HasPrefix(path, "/api/system/ai-access/mcp-servers/") ||
+		strings.HasPrefix(path, "/api/system/ai-access/skills/")
+	if isSessionSystemRoute {
+		route := manifest.Route{Prefix: path, Module: "system-control", Owner: manifest.OwnerGo, Auth: manifest.AuthSession}
+		if !s.authorizeGoRoute(w, r, route) {
+			return true
+		}
+		s.system.RecordAPICall(r.Method, r.URL.Path)
+		s.system.ServeHTTP(w, r)
+		return true
+	}
+	if path == "/api/ai/manifest" || path == "/api/ai/mcp" {
+		s.system.RecordAPICall(r.Method, r.URL.Path)
+		s.system.ServeHTTP(w, r)
+		return true
+	}
+	return false
 }
 
 func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route manifest.Route) bool {
@@ -193,7 +235,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.auth.ServeHTTP(w, r)
 	case "/api/settings", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/deprecated-tables", "/api/settings/cleanup-deprecated-tables", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/import-database", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits", "/api/settings/clear-chat-messages":
 		s.settings.ServeHTTP(w, r)
-	case "/api/system/host-metrics", "/api/system/api-stats":
+	case "/api/system/host-metrics", "/api/system/api-stats", "/api/system/api-docs", "/api/system/openapi.json", "/api/system/ai-access/key/rotate", "/api/system/ai-access/mcp-servers/{id}", "/api/system/ai-access/mcp-servers", "/api/system/ai-access/skills/{id}", "/api/system/ai-access/skills", "/api/system/ai-access/audit/clear", "/api/system/ai-access", "/api/ai/manifest", "/api/ai/mcp":
 		s.system.ServeHTTP(w, r)
 	case "/api/system/logs/stream", "/api/system/logs/download":
 		s.logs.ServeHTTP(w, r)

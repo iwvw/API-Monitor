@@ -1,7 +1,10 @@
 package system
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -64,6 +67,67 @@ func TestHostMetricsShape(t *testing.T) {
 	}
 }
 
+func TestAIAccessOverviewAndMCP(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_ai_access_test_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Config{
+		DataDir: tempDir,
+		DBName:  "data.db",
+		Version: "test",
+	}
+
+	service := New(cfg)
+	defer service.Shutdown()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/api/system/ai-access", nil)
+	overview, err := service.aiAccessOverview(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentKey := overview["agentKey"].(map[string]interface{})["value"].(string)
+	if agentKey == "" {
+		t.Fatal("expected agent key")
+	}
+
+	unauthorized := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	if _, err := service.aiManifest(unauthorized); err == nil {
+		t.Fatal("expected unauthorized manifest request to fail")
+	}
+
+	authorized := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	authorized.Header.Set("Authorization", "Bearer "+agentKey)
+	manifestPayload, err := service.aiManifest(authorized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifestPayload["name"] != "API Monitor" {
+		t.Fatalf("unexpected manifest: %#v", manifestPayload)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+	})
+	mcpReq := httptest.NewRequest(http.MethodPost, "http://example.test/api/ai/mcp", bytes.NewReader(body))
+	mcpReq.Header.Set("Authorization", "Bearer "+agentKey)
+	mcpPayload, status, err := service.handleMCP(mcpReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	result := mcpPayload.(map[string]interface{})["result"].(map[string]interface{})
+	if len(result["tools"].([]map[string]interface{})) == 0 {
+		t.Fatal("expected MCP tools")
+	}
+}
+
 func TestAPICallStats(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "api_monitor_api_stats_test_*")
 	if err != nil {
@@ -80,9 +144,9 @@ func TestAPICallStats(t *testing.T) {
 	defer service.Shutdown()
 
 	// 记录若干请求
-	service.RecordAPICall(http.MethodGet, "/api/totp/accounts") // Audit
-	service.RecordAPICall(http.MethodGet, "/api/uptime/monitors") // Audit
-	service.RecordAPICall(http.MethodPost, "/api/auth/login") // Ops
+	service.RecordAPICall(http.MethodGet, "/api/totp/accounts")           // Audit
+	service.RecordAPICall(http.MethodGet, "/api/uptime/monitors")         // Audit
+	service.RecordAPICall(http.MethodPost, "/api/auth/login")             // Ops
 	service.RecordAPICall(http.MethodDelete, "/api/server/docker/delete") // Ops
 
 	// 过滤的请求不应该被计入
@@ -127,7 +191,7 @@ func TestAPICallStats(t *testing.T) {
 	if !ok || len(trend) != 7 {
 		t.Fatalf("expected 7 days of trend data, got %#v", stats2["trend"])
 	}
-	
+
 	today := time.Now().Format("2006-01-02")
 	foundToday := false
 	for _, item := range trend {
@@ -142,7 +206,3 @@ func TestAPICallStats(t *testing.T) {
 		t.Error("expected today to be present in trend data")
 	}
 }
-
-
-
-

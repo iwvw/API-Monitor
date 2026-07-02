@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
@@ -33,15 +35,16 @@ type alertState struct {
 }
 
 type Service struct {
-	cfg        config.Config
-	startedAt  time.Time
-	store      *database.Store
+	cfg       config.Config
+	startedAt time.Time
+	store     *database.Store
 
 	mu         sync.Mutex
 	statsCache map[string]*APICounters
 	stopChan   chan struct{}
 	wg         sync.WaitGroup
 	notifier   Notifier
+	aiCaller   AICaller
 	alertState alertState
 }
 
@@ -52,6 +55,10 @@ type APICounters struct {
 
 func (s *Service) SetNotifier(n Notifier) {
 	s.notifier = n
+}
+
+func (s *Service) SetAICaller(caller AICaller) {
+	s.aiCaller = caller
 }
 
 func New(cfg config.Config) *Service {
@@ -127,13 +134,13 @@ func (s *Service) checkHostAlerts() {
 	}
 
 	eventData := map[string]interface{}{
-		"serverId":   "local-host",
-		"serverName": hostname,
-		"host":       hostname,
-		"hostname":   hostname,
-		"cpu_usage":  cpuVal,
+		"serverId":    "local-host",
+		"serverName":  hostname,
+		"host":        hostname,
+		"hostname":    hostname,
+		"cpu_usage":   cpuVal,
 		"mem_percent": memVal,
-		"disk_usage": diskVal,
+		"disk_usage":  diskVal,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -279,13 +286,29 @@ func (s *Service) RecordAPICall(method string, path string) {
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
+	if r.URL.Path == "/api/openapi.json" {
+		clone := r.Clone(r.Context())
+		nextURL := *r.URL
+		nextURL.Path = "/api/system/openapi.json"
+		nextURL.RawPath = ""
+		clone.URL = &nextURL
+		r = clone
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/ai-access") {
+		clone := r.Clone(r.Context())
+		nextURL := *r.URL
+		nextURL.Path = "/api/system/ai-access" + strings.TrimPrefix(r.URL.Path, "/api/ai-access")
+		nextURL.RawPath = ""
+		clone.URL = &nextURL
+		r = clone
 	}
 
 	switch r.URL.Path {
 	case "/api/system/host-metrics":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
 		payload, err := s.hostMetrics()
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
@@ -293,15 +316,430 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		response.OK(w, payload)
 	case "/api/system/api-stats":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
 		payload, err := s.apiStats()
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		response.OK(w, payload)
+	case "/api/system/api-docs":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		response.OK(w, s.apiDocs())
+	case "/api/system/openapi.json":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		response.JSON(w, http.StatusOK, s.openapiDocument(r))
+	case "/api/system/ai-access":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.aiAccessOverview(r)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/system/ai-access/key/rotate":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.rotateAIAgentKey(r)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/system/ai-access/mcp-servers":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.saveMCPServer(r, "")
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/system/ai-access/skills":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.saveSkill(r, "")
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/system/ai-access/audit/clear":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.clearAIAudit(r)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/ai/manifest":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.aiManifest(r)
+		if errors.Is(err, errUnauthorizedAI) {
+			response.Error(w, http.StatusUnauthorized, "AI 接入密钥无效")
+			return
+		}
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/ai/mcp":
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, status, err := s.handleMCP(r)
+		if errors.Is(err, errUnauthorizedAI) {
+			response.Error(w, http.StatusUnauthorized, "AI 接入密钥无效")
+			return
+		}
+		if err != nil {
+			response.Error(w, status, err.Error())
+			return
+		}
+		response.JSON(w, status, payload)
 	default:
+		if strings.HasPrefix(r.URL.Path, "/api/system/ai-access/mcp-servers/") {
+			id := strings.TrimPrefix(r.URL.Path, "/api/system/ai-access/mcp-servers/")
+			if r.Method == http.MethodDelete {
+				payload, err := s.deleteMCPServer(r, id)
+				if err != nil {
+					response.Error(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				response.OK(w, payload)
+				return
+			}
+			if r.Method == http.MethodPut {
+				payload, err := s.saveMCPServer(r, id)
+				if err != nil {
+					response.Error(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				response.OK(w, payload)
+				return
+			}
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/system/ai-access/skills/") {
+			id := strings.TrimPrefix(r.URL.Path, "/api/system/ai-access/skills/")
+			if r.Method == http.MethodDelete {
+				payload, err := s.deleteSkill(r, id)
+				if err != nil {
+					response.Error(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				response.OK(w, payload)
+				return
+			}
+			if r.Method == http.MethodPut {
+				payload, err := s.saveSkill(r, id)
+				if err != nil {
+					response.Error(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				response.OK(w, payload)
+				return
+			}
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
 		response.Error(w, http.StatusNotFound, "system route not implemented")
 	}
+}
+
+type apiDocRoute struct {
+	Prefix       string                `json:"prefix"`
+	Module       string                `json:"module"`
+	Group        string                `json:"group"`
+	Owner        manifest.Owner        `json:"owner"`
+	Auth         manifest.AuthMode     `json:"auth"`
+	ResponseMode manifest.ResponseMode `json:"responseMode"`
+	Description  string                `json:"description"`
+	MatchMode    manifest.MatchMode    `json:"matchMode"`
+	Methods      []string              `json:"methods"`
+	Status       string                `json:"status"`
+}
+
+func (s *Service) apiDocs() map[string]interface{} {
+	routes := manifest.Routes()
+	items := make([]apiDocRoute, 0, len(routes))
+	for _, route := range routes {
+		matchMode := route.MatchMode
+		if matchMode == "" {
+			matchMode = manifest.MatchPrefix
+		}
+		description := routeDescription(route)
+		items = append(items, apiDocRoute{
+			Prefix:       route.Prefix,
+			Module:       route.Module,
+			Group:        routeGroup(route),
+			Owner:        route.Owner,
+			Auth:         route.Auth,
+			ResponseMode: route.ResponseMode,
+			Description:  description,
+			MatchMode:    matchMode,
+			Methods:      inferRouteMethods(route),
+			Status:       routeStatus(route),
+		})
+	}
+
+	return map[string]interface{}{
+		"version":     s.cfg.Version,
+		"generatedAt": time.Now().UTC().Format(time.RFC3339),
+		"summary": map[string]interface{}{
+			"total":        len(items),
+			"byOwner":      manifest.Summary(),
+			"byAuth":       countRoutesBy(items, func(route apiDocRoute) string { return string(route.Auth) }),
+			"byGroup":      countRoutesBy(items, func(route apiDocRoute) string { return route.Group }),
+			"byStatus":     countRoutesBy(items, func(route apiDocRoute) string { return route.Status }),
+			"byResponse":   countRoutesBy(items, func(route apiDocRoute) string { return string(route.ResponseMode) }),
+			"openapiRoute": "/api/openapi.json",
+		},
+		"routes": items,
+		"aiAccess": map[string]interface{}{
+			"currentGateway": "/api/openai",
+			"compatibleAPI":  "/v1",
+			"plannedModules": []map[string]string{
+				{"id": "providers", "name": "模型端点", "description": "统一管理 OpenAI 兼容端点、模型发现、健康检测与负载均衡"},
+				{"id": "mcp", "name": "MCP 服务", "description": "管理 MCP 服务、工具发现、资源、提示词与调用权限"},
+				{"id": "skills", "name": "Skill 管理", "description": "管理本地 Skill、版本、入口、依赖与启用状态"},
+				{"id": "permissions", "name": "工具权限", "description": "统一约束模型、MCP、Skill 和内部系统动作的调用边界"},
+				{"id": "audit", "name": "调用审计", "description": "记录模型请求、工具调用、Skill 执行、耗时和失败原因"},
+			},
+		},
+	}
+}
+
+func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
+	paths := map[string]interface{}{}
+	for _, route := range s.apiDocs()["routes"].([]apiDocRoute) {
+		methods := route.Methods
+		if len(methods) == 0 {
+			methods = []string{"GET"}
+		}
+		operations := map[string]interface{}{}
+		for _, method := range methods {
+			operations[strings.ToLower(method)] = map[string]interface{}{
+				"tags":        []string{route.Group},
+				"summary":     route.Description,
+				"description": fmt.Sprintf("模块: %s；认证: %s；响应: %s；匹配: %s", route.Module, route.Auth, route.ResponseMode, route.MatchMode),
+				"deprecated":  route.Owner == manifest.OwnerRetired,
+				"responses": map[string]interface{}{
+					"200": map[string]interface{}{"description": "请求成功"},
+					"401": map[string]interface{}{"description": "未授权"},
+					"404": map[string]interface{}{"description": "接口不存在"},
+				},
+			}
+		}
+		paths[route.Prefix] = operations
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	serverURL := fmt.Sprintf("%s://%s", scheme, r.Host)
+	if r.Host == "" {
+		serverURL = "/"
+	}
+
+	return map[string]interface{}{
+		"openapi": "3.1.0",
+		"info": map[string]interface{}{
+			"title":       "API Monitor API",
+			"version":     s.cfg.Version,
+			"description": "由系统路由清单自动生成的接口索引。请求/响应 Schema 会在后续元数据补齐后逐步增强。",
+		},
+		"servers": []map[string]string{{"url": serverURL}},
+		"paths":   paths,
+	}
+}
+
+func countRoutesBy(routes []apiDocRoute, keyFn func(apiDocRoute) string) map[string]int {
+	counts := map[string]int{}
+	for _, route := range routes {
+		counts[keyFn(route)]++
+	}
+	return counts
+}
+
+func routeGroup(route manifest.Route) string {
+	prefix := route.Prefix
+	switch {
+	case strings.HasPrefix(prefix, "/api/auth"):
+		return "认证"
+	case strings.HasPrefix(prefix, "/api/settings"):
+		return "系统设置"
+	case strings.HasPrefix(prefix, "/api/system"), strings.HasPrefix(prefix, "/api/logs"), strings.HasPrefix(prefix, "/ws/logs"):
+		return "系统"
+	case strings.HasPrefix(prefix, "/api/cloudflare"):
+		return "Cloudflare"
+	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/socket.io"):
+		return "主机实例"
+	case strings.HasPrefix(prefix, "/api/openai"), strings.HasPrefix(prefix, "/api/ai"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/chat"):
+		return "AI 接入"
+	case strings.HasPrefix(prefix, "/api/aliyun"):
+		return "阿里云"
+	case strings.HasPrefix(prefix, "/api/tencent"):
+		return "腾讯云"
+	case strings.HasPrefix(prefix, "/api/koyeb"), strings.HasPrefix(prefix, "/api/flyio"):
+		return "PaaS"
+	case strings.HasPrefix(prefix, "/api/totp"):
+		return "双因子认证"
+	case strings.HasPrefix(prefix, "/api/filebox"):
+		return "文件柜"
+	case strings.HasPrefix(prefix, "/api/uptime"):
+		return "可用性监测"
+	case strings.HasPrefix(prefix, "/api/notification"):
+		return "通知"
+	case strings.HasPrefix(prefix, "/api/scheduler"), strings.HasPrefix(prefix, "/api/cron"):
+		return "定时任务"
+	case strings.HasPrefix(prefix, "/api/backup"):
+		return "备份"
+	default:
+		return "基础"
+	}
+}
+
+func routeDescription(route manifest.Route) string {
+	prefix := route.Prefix
+	switch {
+	case prefix == "/health":
+		return "服务健康检查与版本状态"
+	case prefix == "/api/migration/status":
+		return "读取迁移状态、路由归属和废弃模块信息"
+	case prefix == "/api/system/api-docs":
+		return "读取系统自动生成的 API 文档清单"
+	case prefix == "/api/system/openapi.json":
+		return "导出 OpenAPI 3.1 接口文档"
+	case prefix == "/api/openapi.json":
+		return "导出 OpenAPI 3.1 接口文档"
+	case prefix == "/api/ai-access":
+		return "读取 AI 接入、Agent Key、MCP、Skill 和审计概览"
+	case prefix == "/api/ai-access/key/rotate":
+		return "轮换 AI Agent Key"
+	case strings.HasPrefix(prefix, "/api/ai-access/mcp-servers"):
+		return "管理 AI 接入的 MCP 服务配置"
+	case strings.HasPrefix(prefix, "/api/ai-access/skills"):
+		return "管理 AI 接入的 Skill 配置"
+	case prefix == "/api/ai-access/audit/clear":
+		return "清空 AI 接入调用审计"
+	case prefix == "/api/system/ai-access":
+		return "读取 AI 接入、Agent Key、MCP、Skill 和审计概览"
+	case prefix == "/api/system/ai-access/key/rotate":
+		return "轮换 AI Agent Key"
+	case strings.HasPrefix(prefix, "/api/system/ai-access/mcp-servers"):
+		return "管理 AI 接入的 MCP 服务配置"
+	case strings.HasPrefix(prefix, "/api/system/ai-access/skills"):
+		return "管理 AI 接入的 Skill 配置"
+	case prefix == "/api/system/ai-access/audit/clear":
+		return "清空 AI 接入调用审计"
+	case prefix == "/api/ai/manifest":
+		return "供外部 AI 客户端读取系统接入能力清单"
+	case prefix == "/api/ai/mcp":
+		return "供外部 AI 客户端通过 MCP 调用系统工具"
+	case strings.HasPrefix(prefix, "/api/auth"):
+		return "登录认证、会话校验和退出登录"
+	case strings.HasPrefix(prefix, "/api/settings"):
+		return "读取和保存系统运行配置"
+	case strings.HasPrefix(prefix, "/api/system"):
+		return "系统运行状态、日志、统计和管理能力"
+	case strings.HasPrefix(prefix, "/api/logs"), strings.HasPrefix(prefix, "/ws/logs"):
+		return "读取系统日志和实时日志流"
+	case strings.HasPrefix(prefix, "/api/cloudflare"):
+		return "管理 Cloudflare 账号、DNS、Tunnel 和相关资源"
+	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/socket.io"):
+		return "管理主机实例、SSH 终端和实时连接"
+	case strings.HasPrefix(prefix, "/api/openai"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/chat"):
+		return "OpenAI 兼容模型代理、聊天和流式响应"
+	case strings.HasPrefix(prefix, "/api/aliyun"):
+		return "管理阿里云资源和云服务接口"
+	case strings.HasPrefix(prefix, "/api/tencent"):
+		return "管理腾讯云资源和云服务接口"
+	case strings.HasPrefix(prefix, "/api/koyeb"), strings.HasPrefix(prefix, "/api/flyio"):
+		return "管理 PaaS 平台应用和部署资源"
+	case strings.HasPrefix(prefix, "/api/totp"):
+		return "管理双因子认证账户和动态验证码"
+	case strings.HasPrefix(prefix, "/api/filebox"):
+		return "管理文件柜上传、下载和文件条目"
+	case strings.HasPrefix(prefix, "/api/uptime"):
+		return "管理可用性监测、探针和状态记录"
+	case strings.HasPrefix(prefix, "/api/notification"):
+		return "管理通知渠道、消息发送和通知记录"
+	case strings.HasPrefix(prefix, "/api/scheduler"), strings.HasPrefix(prefix, "/api/cron"):
+		return "管理定时任务、计划执行和任务记录"
+	case strings.HasPrefix(prefix, "/api/backup"):
+		return "管理备份任务、备份记录和恢复操作"
+	}
+	if strings.TrimSpace(route.Description) != "" {
+		return route.Description
+	}
+	return "系统接口"
+}
+
+func routeStatus(route manifest.Route) string {
+	switch route.Owner {
+	case manifest.OwnerGo:
+		return "active"
+	case manifest.OwnerRetired:
+		return "retired"
+	default:
+		return "unknown"
+	}
+}
+
+func inferRouteMethods(route manifest.Route) []string {
+	if route.ResponseMode == manifest.ResponseWebSocket {
+		return []string{"GET"}
+	}
+	if route.ResponseMode == manifest.ResponseStream {
+		if strings.HasPrefix(route.Prefix, "/v1") {
+			return []string{"GET", "POST"}
+		}
+		return []string{"GET"}
+	}
+	switch route.MatchMode {
+	case manifest.MatchExact:
+		if strings.Contains(route.Description, "list") || strings.Contains(route.Description, "read") || strings.Contains(route.Description, "status") {
+			return []string{"GET"}
+		}
+	case manifest.MatchPattern:
+		return []string{"GET", "POST", "PUT", "DELETE"}
+	}
+	if route.Owner == manifest.OwnerRetired {
+		return []string{"GET"}
+	}
+	if route.Auth == manifest.AuthPublic && (route.Prefix == "/health" || strings.Contains(route.Description, "status")) {
+		return []string{"GET"}
+	}
+	return []string{"GET", "POST", "PUT", "DELETE"}
 }
 
 func (s *Service) apiStats() (map[string]interface{}, error) {
@@ -447,33 +885,33 @@ func readVirtualMemory() map[string]interface{} {
 
 func isVirtualFS(fstype string) bool {
 	virtualFS := map[string]bool{
-		"tmpfs":        true,
-		"devtmpfs":     true,
-		"sysfs":        true,
-		"proc":         true,
-		"devpts":       true,
-		"cgroup":       true,
-		"overlay":      true,
-		"squashfs":     true,
-		"iso9660":      true,
-		"udf":          true,
-		"configfs":     true,
-		"debugfs":      true,
-		"tracefs":      true,
-		"securityfs":   true,
-		"pstore":       true,
-		"bpf":          true,
-		"fusectl":      true,
-		"mqueue":       true,
-		"hugetlbfs":    true,
-		"autofs":       true,
-		"binfmt_misc":  true,
-		"devfs":        true,
-		"fdescfs":      true,
-		"linprocfs":    true,
-		"linsysfs":     true,
-		"procfs":       true,
-		"sysctlfs":     true,
+		"tmpfs":       true,
+		"devtmpfs":    true,
+		"sysfs":       true,
+		"proc":        true,
+		"devpts":      true,
+		"cgroup":      true,
+		"overlay":     true,
+		"squashfs":    true,
+		"iso9660":     true,
+		"udf":         true,
+		"configfs":    true,
+		"debugfs":     true,
+		"tracefs":     true,
+		"securityfs":  true,
+		"pstore":      true,
+		"bpf":         true,
+		"fusectl":     true,
+		"mqueue":      true,
+		"hugetlbfs":   true,
+		"autofs":      true,
+		"binfmt_misc": true,
+		"devfs":       true,
+		"fdescfs":     true,
+		"linprocfs":   true,
+		"linsysfs":    true,
+		"procfs":      true,
+		"sysctlfs":    true,
 	}
 	return virtualFS[fstype]
 }

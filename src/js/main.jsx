@@ -10,26 +10,41 @@ import 'simple-icons-font/font/simple-icons.min.css';
 import 'flag-icons/css/flag-icons.min.css';
 import '@xterm/xterm/css/xterm.css';
 
-// 渲染 React 应用
 const container = document.getElementById('root');
 if (container) {
-  const root = createRoot(container);
-  root.render(
-    <React.StrictMode>
-      <Toasty toastManager={kumoToastManager}>
-        <App />
-        <GlobalDialogHost />
-      </Toasty>
-    </React.StrictMode>
-  );
+  try {
+    const root = createRoot(container);
+    root.render(
+      <React.StrictMode>
+        <Toasty toastManager={kumoToastManager}>
+          <App />
+          <GlobalDialogHost />
+        </Toasty>
+      </React.StrictMode>
+    );
+    window.__API_MONITOR_BOOTED = true;
 
-  setTimeout(() => {
-    const loader = document.getElementById('app-loading');
-    if (loader) {
-      loader.style.opacity = '0';
-      setTimeout(() => {
-        loader.style.display = 'none';
-      }, 300);
+    setTimeout(() => {
+      const loader = document.getElementById('app-loading');
+      if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(() => {
+          loader.style.display = 'none';
+        }, 300);
+      }
+    }, 200);
+  } catch (error) {
+    console.error('React app boot failed:', error);
+    window.__API_MONITOR_BOOTED = false;
+    if (typeof window.__API_MONITOR_SHOW_BOOT_ERROR === 'function') {
+      window.__API_MONITOR_SHOW_BOOT_ERROR(error?.message || 'React 应用启动失败');
+    } else {
+      const loader = document.getElementById('app-loading');
+      if (loader) {
+        loader.textContent = '页面启动失败，请刷新后重试';
+      }
     }
-  }, 200);
+  }
+} else if (typeof window.__API_MONITOR_SHOW_BOOT_ERROR === 'function') {
+  window.__API_MONITOR_SHOW_BOOT_ERROR('页面缺少 root 挂载节点');
 }

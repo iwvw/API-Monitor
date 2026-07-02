@@ -88,6 +88,54 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestAIMCPCallAPIUsesInternalRoutes(t *testing.T) {
+	handler := testServer(t)
+	cookie := loginServerForTest(t, handler)
+
+	keyReq := httptest.NewRequest(http.MethodGet, "/api/system/ai-access", nil)
+	keyReq.AddCookie(cookie)
+	keyRes := httptest.NewRecorder()
+	handler.ServeHTTP(keyRes, keyReq)
+	if keyRes.Code != http.StatusOK {
+		t.Fatalf("ai access status = %d, body=%s", keyRes.Code, keyRes.Body.String())
+	}
+	var keyPayload map[string]interface{}
+	if err := json.Unmarshal(keyRes.Body.Bytes(), &keyPayload); err != nil {
+		t.Fatal(err)
+	}
+	overview := keyPayload["data"].(map[string]interface{})
+	agentKey := overview["agentKey"].(map[string]interface{})["value"].(string)
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"call_api","arguments":{"method":"GET","path":"/api/migration/status"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/ai/mcp", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+agentKey)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", res.Code, res.Body.String())
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	result := payload["result"].(map[string]interface{})
+	apiResponse := result["content"]
+	if apiResponse != nil {
+		t.Fatalf("unexpected MCP content wrapper: %#v", apiResponse)
+	}
+	callResult := result
+	if callResult["statusCode"].(float64) != 200 {
+		t.Fatalf("expected proxied status 200, got %#v", callResult)
+	}
+	bodyPayload := callResult["body"].(map[string]interface{})
+	if bodyPayload["success"] != true {
+		t.Fatalf("expected envelope success, got %#v", bodyPayload)
+	}
+}
+
 func TestStaticSpaRouteServesDistIndex(t *testing.T) {
 	distDir := t.TempDir()
 	indexHTML := "<!doctype html><div id=\"root\"></div>"
@@ -1001,7 +1049,3 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("v1 models status = %d body=%s", res.Code, res.Body.String())
 	}
 }
-
-
-
-

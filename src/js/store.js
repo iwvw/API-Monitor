@@ -88,6 +88,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-bell',
     description: '通知渠道与告警规则管理',
   },
+  apidocs: {
+    name: 'API 文档',
+    shortName: '文档',
+    icon: 'fa-file-code',
+    description: '系统接口索引与 AI 接入蓝图',
+  },
   systemlogs: {
     name: '系统日志',
     shortName: '日志',
@@ -127,7 +133,7 @@ export const MODULE_GROUPS = [
     id: 'system',
     name: '系统',
     icon: 'fa-cog',
-    modules: ['systemlogs'],
+    modules: ['apidocs', 'systemlogs'],
   },
 ];
 
