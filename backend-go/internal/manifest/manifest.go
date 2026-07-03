@@ -182,6 +182,9 @@ func Routes() []Route {
 		{Prefix: "/api/server/agent/key", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent key management", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/key/generate", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Generate new agent key", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/auto-install/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent auto install via SSH/upgrade", MatchMode: MatchPattern},
+		{Prefix: "/api/server/agent/batch-install", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Create Agent batch install task", MatchMode: MatchExact},
+		{Prefix: "/api/server/agent/batch-upgrade", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Create Agent batch upgrade task", MatchMode: MatchExact},
+		{Prefix: "/api/server/agent/batch/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent batch task status", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/connection-info/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent connection status info", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/uninstall/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent uninstall", MatchMode: MatchPattern},
 
