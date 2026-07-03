@@ -124,6 +124,38 @@ func (s *terminalCaptureSocket) WriteMessage(_ int, data []byte) error {
 	return nil
 }
 
+type reconnectOnUpgradeSocket struct {
+	t        *testing.T
+	service  *Service
+	serverID string
+}
+
+func (s *reconnectOnUpgradeSocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	if !strings.HasPrefix(raw, "42") {
+		s.t.Fatalf("unexpected socket frame: %s", raw)
+	}
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		s.t.Fatalf("decode socket frame: %v frame=%s", err, raw)
+	}
+	if len(frame) != 2 || frame[0] != "dashboard:task" {
+		s.t.Fatalf("unexpected socket event: %#v", frame)
+	}
+	payload, ok := frame[1].(map[string]interface{})
+	if !ok {
+		s.t.Fatalf("unexpected socket payload: %#v", frame[1])
+	}
+	taskType, _ := payload["type"].(float64)
+	if int(taskType) == 5 {
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			s.service.registry.Register(s.serverID, s)
+		}()
+	}
+	return nil
+}
+
 func (s *terminalCaptureSocket) Events() []capturedSocketEvent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1002,6 +1034,58 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	if data["serverId"] != serverID || data["isNew"] != false {
 		t.Fatalf("expected existing host reuse, data=%#v", data)
 	}
+}
+
+func TestAgentBatchUpgradeUsesServerSideBatchAndVerifiesReconnect(t *testing.T) {
+	service, _ := testService(t)
+
+	res := perform(service, http.MethodPost, "/api/server/agent/quick-install", `{"name":"batch-agent"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("quick install status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	serverID := payload["data"].(map[string]interface{})["serverId"].(string)
+
+	socket := &reconnectOnUpgradeSocket{t: t, service: service, serverID: serverID}
+	service.registry.Register(serverID, socket)
+
+	res = perform(service, http.MethodPost, "/api/server/agent/batch-upgrade?protocol=http", `{"serverIds":["`+serverID+`"],"concurrency":1}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("batch upgrade status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	if payload["success"] != true {
+		t.Fatalf("batch upgrade payload=%#v", payload)
+	}
+	batchID := payload["data"].(map[string]interface{})["id"].(string)
+	if batchID == "" {
+		t.Fatalf("missing batch id: %#v", payload)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		service.registry.Register(serverID, &reconnectOnUpgradeSocket{t: t, service: service, serverID: serverID})
+	}()
+
+	deadline := time.Now().Add(4 * time.Second)
+	var lastPayload map[string]interface{}
+	for time.Now().Before(deadline) {
+		res = perform(service, http.MethodGet, "/api/server/agent/batch/"+batchID, "")
+		if res.Code != http.StatusOK {
+			t.Fatalf("batch status code=%d body=%s", res.Code, res.Body.String())
+		}
+		payload = decodePayload(t, res)
+		lastPayload = payload
+		data := payload["data"].(map[string]interface{})
+		if data["status"] == string(AgentBatchSucceeded) {
+			items := data["items"].([]interface{})
+			if len(items) != 1 || items[0].(map[string]interface{})["status"] != string(AgentBatchSucceeded) {
+				t.Fatalf("unexpected completed items: %#v", items)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("batch did not complete in time, last payload=%#v", lastPayload)
 }
 
 func TestSFTPRequiresValidServerConfig(t *testing.T) {

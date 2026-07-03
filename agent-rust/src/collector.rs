@@ -191,12 +191,11 @@ impl Collector {
 
         let mut cpu_models = Vec::new();
         if let Some(first_cpu) = self.sys.cpus().first() {
-            let model = format!(
-                "{} {} Core(s)",
-                first_cpu.vendor_id().trim(),
-                first_cpu.brand().trim()
-            );
-            cpu_models.push(model);
+            cpu_models.push(format_cpu_model(
+                first_cpu.vendor_id(),
+                first_cpu.brand(),
+                physical_cores,
+            ));
         } else {
             cpu_models.push(format!("Unknown CPU {} Core(s)", physical_cores));
         }
@@ -965,6 +964,18 @@ fn current_epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn format_cpu_model(vendor: &str, brand: &str, physical_cores: usize) -> String {
+    let vendor = vendor.trim();
+    let brand = brand.trim();
+
+    match (vendor.is_empty(), brand.is_empty()) {
+        (false, false) => format!("{} {} {} Core(s)", vendor, brand, physical_cores),
+        (false, true) => format!("{} {} Core(s)", vendor, physical_cores),
+        (true, false) => format!("{} {} Core(s)", brand, physical_cores),
+        (true, true) => format!("Unknown CPU {} Core(s)", physical_cores),
+    }
+}
+
 fn collect_windows_conn_counts() -> (i32, i32) {
     if let Ok(output) = std::process::Command::new("netstat").arg("-an").output() {
         let text = String::from_utf8_lossy(&output.stdout);
@@ -997,4 +1008,36 @@ fn get_conn_counts() -> (i32, i32) {
             .map(|s| s.lines().count() as i32 - 1)
             .unwrap_or(0);
     (tcp_cnt, udp_cnt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_cpu_model;
+
+    #[test]
+    fn format_cpu_model_includes_physical_core_count() {
+        let model = format_cpu_model(
+            "GenuineIntel",
+            "13th Gen Intel(R) Core(TM) i7-13700HX",
+            16,
+        );
+
+        assert_eq!(
+            model,
+            "GenuineIntel 13th Gen Intel(R) Core(TM) i7-13700HX 16 Core(s)"
+        );
+    }
+
+    #[test]
+    fn format_cpu_model_handles_missing_vendor_or_brand() {
+        assert_eq!(
+            format_cpu_model("", "13th Gen Intel(R) Core(TM) i7-13700HX", 16),
+            "13th Gen Intel(R) Core(TM) i7-13700HX 16 Core(s)"
+        );
+        assert_eq!(
+            format_cpu_model("GenuineIntel", "", 16),
+            "GenuineIntel 16 Core(s)"
+        );
+        assert_eq!(format_cpu_model("", "", 16), "Unknown CPU 16 Core(s)");
+    }
 }

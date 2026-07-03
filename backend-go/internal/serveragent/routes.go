@@ -83,6 +83,18 @@ func (s *Service) handleAgentRoutes(w http.ResponseWriter, r *http.Request, db *
 		accountID := subparts[1]
 		s.handleAgentAutoInstall(w, r, db, accountID)
 
+	// POST /api/server/agent/batch-install
+	case len(subparts) == 1 && subparts[0] == "batch-install" && r.Method == http.MethodPost:
+		s.handleAgentBatchInstall(w, r, db)
+
+	// POST /api/server/agent/batch-upgrade
+	case len(subparts) == 1 && subparts[0] == "batch-upgrade" && r.Method == http.MethodPost:
+		s.handleAgentBatchUpgrade(w, r, db)
+
+	// GET /api/server/agent/batch/{id}
+	case len(subparts) == 2 && subparts[0] == "batch" && r.Method == http.MethodGet:
+		s.handleAgentBatchStatus(w, r, subparts[1])
+
 	// GET /api/server/agent/connection-info/{id}
 	case len(subparts) == 2 && subparts[0] == "connection-info" && r.Method == http.MethodGet:
 		accountID := subparts[1]

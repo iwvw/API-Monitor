@@ -257,34 +257,36 @@ function SslCertificatePanel({ monitorId }) {
                   </div>
                 </div>
 
-                {/* DNS SANs */}
-                {sslData.dnsNames && sslData.dnsNames.length > 0 && (
-                  <div className="rounded-md p-2 bg-kumo-recessed">
-                    <span className="text-[9px] text-kumo-subtle select-none block mb-1">DNS 备用名称 (SANs)</span>
-                    <div className="flex flex-wrap gap-1">
-                      {sslData.dnsNames.map((name, i) => (
-                        <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-kumo-base text-kumo-strong font-mono border border-kumo-line">{name}</span>
-                      ))}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {/* DNS SANs */}
+                  {sslData.dnsNames && sslData.dnsNames.length > 0 && (
+                    <div className="rounded-md p-2 bg-kumo-recessed">
+                      <span className="text-[9px] text-kumo-subtle select-none block mb-1">DNS 备用名称 (SANs)</span>
+                      <div className="flex flex-wrap gap-1">
+                        {sslData.dnsNames.map((name, i) => (
+                          <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-kumo-base text-kumo-strong font-mono border border-kumo-line">{name}</span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* 证书链 */}
-                {sslData.chain && sslData.chain.length > 1 && (
-                  <div className="rounded-md p-2 bg-kumo-recessed">
-                    <span className="text-[9px] text-kumo-subtle select-none block mb-1.5">证书链 ({sslData.chain.length} 级)</span>
-                    <div className="space-y-1">
-                      {sslData.chain.map((cert, i) => (
-                        <div key={i} className="flex items-center gap-2 text-[9px] font-mono text-kumo-strong">
-                          <span className="w-3.5 h-3.5 rounded-full bg-kumo-base border border-kumo-line flex items-center justify-center text-[7px] flex-shrink-0">{i + 1}</span>
-                          <span className="truncate flex-1" title={cert.subject}>{cert.subject || '(unnamed)'}</span>
-                          <span className="text-kumo-subtle flex-shrink-0">{cert.isCA ? 'CA' : 'Leaf'}</span>
-                          <span className="text-kumo-subtle flex-shrink-0">{formatDate(cert.notAfter)}</span>
-                        </div>
-                      ))}
+                  {/* 证书链 */}
+                  {sslData.chain && sslData.chain.length > 1 && (
+                    <div className="rounded-md p-2 bg-kumo-recessed">
+                      <span className="text-[9px] text-kumo-subtle select-none block mb-1.5">证书链 ({sslData.chain.length} 级)</span>
+                      <div className="space-y-1">
+                        {sslData.chain.map((cert, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[9px] font-mono text-kumo-strong">
+                            <span className="w-3.5 h-3.5 rounded-full bg-kumo-base border border-kumo-line flex items-center justify-center text-[7px] flex-shrink-0">{i + 1}</span>
+                            <span className="truncate flex-1" title={cert.subject}>{cert.subject || '(unnamed)'}</span>
+                            <span className="text-kumo-subtle flex-shrink-0">{cert.isCA ? 'CA' : 'Leaf'}</span>
+                            <span className="text-kumo-subtle flex-shrink-0">{formatDate(cert.notAfter)}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </>
             );
           })()}
@@ -479,7 +481,7 @@ function UptimePage() {
   const [uptimeHeartbeatLoading, setUptimeHeartbeatLoading] = useState({});
   const [uptimeRateCache, setUptimeRateCache] = useState({});
   const [uptimeStats, setUptimeStats] = useState({ up: 0, down: 0, pending: 0, unknown: 0 });
-  
+
   // UI 筛选与搜索
   const [uptimeStatusFilter, setUptimeStatusFilter] = useState(null); // null | 'up' | 'down' | 'pending'
   const [uptimeSearchText, setUptimeSearchText] = useState('');
@@ -562,7 +564,7 @@ function UptimePage() {
           }
         });
         setUptimeHeartbeats(initialBeats);
-        
+
         // 延时加载具体历史记录与可用率
         monitorsData.forEach(m => {
           loadHeartbeats(m.id);
@@ -1386,9 +1388,9 @@ function UptimePage() {
                               })()}
                             </div>
                             <div className="text-[10px] text-kumo-subtle truncate max-w-[320px] mt-1 select-all" onClick={(e) => e.stopPropagation()}>
-                              {getDisplayUrl(monitor)}
+                              <span className="select-none">频率[{monitor.interval}s]</span>
                               <span className="text-kumo-subtle/40 mx-1.5 select-none">•</span>
-                              <span className="select-none">{monitor.interval}s 频率</span>
+                              {getDisplayUrl(monitor)}
                             </div>
                           </div>
                         </div>
@@ -1785,11 +1787,11 @@ function UptimePage() {
             {/* 忽略 TLS 选项 */}
             {['http', 'keyword', 'json'].includes(uptimeForm.type) && (
               <div className="md:col-span-6 flex items-end pb-2">
-                  <Checkbox
-                    checked={uptimeForm.ignoreTls}
-                    onCheckedChange={(checked) => setUptimeForm(prev => ({ ...prev, ignoreTls: checked }))}
-                    label="忽略不可信或自签名 TLS 证书"
-                  />
+                <Checkbox
+                  checked={uptimeForm.ignoreTls}
+                  onCheckedChange={(checked) => setUptimeForm(prev => ({ ...prev, ignoreTls: checked }))}
+                  label="忽略不可信或自签名 TLS 证书"
+                />
               </div>
             )}
 
@@ -1866,20 +1868,20 @@ function UptimePage() {
             <div className="md:col-span-12 space-y-2">
               <div className="flex flex-wrap gap-4 p-3.5 app-subcard bg-kumo-recessed/50">
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
-                    <Checkbox
-                      key={channel.id}
-                      checked={uptimeForm.notificationChannels.includes(channel.id)}
-                      onCheckedChange={(checked) => {
-                        const id = channel.id;
-                        setUptimeForm(prev => ({
-                          ...prev,
-                          notificationChannels: checked
-                            ? [...prev.notificationChannels, id]
-                            : prev.notificationChannels.filter(x => x !== id)
-                        }));
-                      }}
-                      label={`${channel.name} (${channel.type === 'email' ? '邮箱' : 'TG'})`}
-                    />
+                  <Checkbox
+                    key={channel.id}
+                    checked={uptimeForm.notificationChannels.includes(channel.id)}
+                    onCheckedChange={(checked) => {
+                      const id = channel.id;
+                      setUptimeForm(prev => ({
+                        ...prev,
+                        notificationChannels: checked
+                          ? [...prev.notificationChannels, id]
+                          : prev.notificationChannels.filter(x => x !== id)
+                      }));
+                    }}
+                    label={`${channel.name} (${channel.type === 'email' ? '邮箱' : 'TG'})`}
+                  />
                 ))}
 
                 {notificationChannels.filter(c => c.enabled).length === 0 && (
@@ -1988,11 +1990,10 @@ function UptimePage() {
                           <Table.Cell className="truncate text-xs font-semibold text-kumo-strong">{item.label}</Table.Cell>
                           <Table.Cell className="text-xs text-kumo-subtle">{item.kind}</Table.Cell>
                           <Table.Cell>
-                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                              item.action === 'create'
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${item.action === 'create'
                                 ? 'bg-kumo-success/10 text-kumo-success'
                                 : 'bg-kumo-warning/10 text-kumo-warning'
-                            }`}>
+                              }`}>
                               {item.action === 'create' ? '创建' : '更新'}
                             </span>
                           </Table.Cell>

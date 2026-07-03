@@ -809,7 +809,7 @@ function DashboardPage({ onNavigate } = {}) {
           badgeClassName="text-kumo-subtle bg-kumo-recessed border-kumo-line"
           label="域名解析"
           value={stats.dns.zones}
-          unit="个区域"
+          unit="个域名"
           detail="域名配置正常"
         />
 

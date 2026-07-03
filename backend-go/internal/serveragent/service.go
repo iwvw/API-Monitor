@@ -35,6 +35,7 @@ type Service struct {
 	cfg              config.Config
 	store            *database.Store
 	taskRegistry     *TaskRegistry
+	agentBatches     *AgentBatchManager
 	engineIO         *EngineIOServer
 	registry         *ConnectionRegistry
 	metricsHub       *MetricsHub
@@ -60,6 +61,7 @@ func (s *Service) SetNotifier(n Notifier) {
 func New(cfg config.Config) *Service {
 	registry := NewConnectionRegistry()
 	taskRegistry := NewTaskRegistry()
+	agentBatches := NewAgentBatchManager()
 	metricsHub := NewMetricsHub()
 	ptyHub := newPtyDataHub()
 	engineIO := NewEngineIOServer(registry)
@@ -69,6 +71,7 @@ func New(cfg config.Config) *Service {
 		cfg:          cfg,
 		store:        database.New(cfg),
 		taskRegistry: taskRegistry,
+		agentBatches: agentBatches,
 		engineIO:     engineIO,
 		registry:     registry,
 		metricsHub:   metricsHub,
@@ -3362,13 +3365,13 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 	}
 
 	eventData := map[string]interface{}{
-		"serverId":   serverID,
-		"serverName": serverName,
-		"host":       serverHost,
-		"hostname":   serverName,
-		"cpu_usage":  cpu,
+		"serverId":    serverID,
+		"serverName":  serverName,
+		"host":        serverHost,
+		"hostname":    serverName,
+		"cpu_usage":   cpu,
 		"mem_percent": mem,
-		"disk_usage": disk,
+		"disk_usage":  disk,
 	}
 
 	if cpu >= 90 {

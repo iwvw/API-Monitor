@@ -568,10 +568,13 @@ func (s *Service) handleAgentConnectionInfo(w http.ResponseWriter, r *http.Reque
 	conn, exists := s.registry.Get(serverID)
 	if exists {
 		connectedAt := conn.AuthenticatedAt.UnixNano() / int64(time.Millisecond)
+		metadata := conn.GetMetadata()
 		response.JSON(w, http.StatusOK, map[string]interface{}{
 			"success":     true,
 			"status":      "online",
 			"connectedAt": connectedAt,
+			"version":     metadata["version"],
+			"platform":    metadata["platform"],
 		})
 	} else {
 		response.JSON(w, http.StatusOK, map[string]interface{}{
