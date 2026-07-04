@@ -171,10 +171,10 @@ const useMobileClosingNavigation = (onNavigate) => {
 
 const SidebarModuleButton = ({ module, active, icon: IconComponent, onNavigate }) => {
   const navigateAndClose = useMobileClosingNavigation(onNavigate);
-  const { isMobile, state } = useSidebar();
+  const { isMobile } = useSidebar();
   const config = MODULE_CONFIG[module];
   if (!config) return null;
-  const tooltip = !isMobile && state === 'collapsed' ? config.name : undefined;
+  const tooltip = !isMobile ? config.name : undefined;
 
   return (
     <Sidebar.MenuButton
@@ -190,8 +190,8 @@ const SidebarModuleButton = ({ module, active, icon: IconComponent, onNavigate }
 };
 
 const SidebarLogoutButton = ({ onLogout }) => {
-  const { isMobile, state } = useSidebar();
-  const tooltip = !isMobile && state === 'collapsed' ? '安全退出' : undefined;
+  const { isMobile } = useSidebar();
+  const tooltip = !isMobile ? '安全退出' : undefined;
 
   return (
     <Sidebar.MenuButton
