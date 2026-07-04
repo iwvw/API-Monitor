@@ -136,13 +136,15 @@ impl Collector {
         let networks = Networks::new_with_refreshed_list();
         let components = Components::new_with_refreshed_list();
 
-        // Calculate initial network base
-        let mut total_rx = 0;
-        let mut total_tx = 0;
-        for (_, interface) in &networks {
-            total_rx += interface.total_received();
-            total_tx += interface.total_transmitted();
-        }
+        // Calculate initial network base from external-facing interfaces only.
+        let (total_rx, total_tx) =
+            aggregate_network_totals((&networks).into_iter().map(|(name, interface)| {
+                (
+                    name.as_str(),
+                    interface.total_received(),
+                    interface.total_transmitted(),
+                )
+            }));
 
         Collector {
             sys,
@@ -335,12 +337,14 @@ impl Collector {
 
         // Networks speeds
         self.networks.refresh();
-        let mut total_rx = 0;
-        let mut total_tx = 0;
-        for (_, interface) in &self.networks {
-            total_rx += interface.total_received();
-            total_tx += interface.total_transmitted();
-        }
+        let (total_rx, total_tx) =
+            aggregate_network_totals((&self.networks).into_iter().map(|(name, interface)| {
+                (
+                    name.as_str(),
+                    interface.total_received(),
+                    interface.total_transmitted(),
+                )
+            }));
 
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_net_time).as_secs_f64();
@@ -1010,17 +1014,90 @@ fn get_conn_counts() -> (i32, i32) {
     (tcp_cnt, udp_cnt)
 }
 
+fn aggregate_network_totals<I, S>(interfaces: I) -> (u64, u64)
+where
+    I: IntoIterator<Item = (S, u64, u64)>,
+    S: AsRef<str>,
+{
+    interfaces
+        .into_iter()
+        .filter(|(name, _, _)| should_count_network_interface(name.as_ref()))
+        .fold((0, 0), |(rx_total, tx_total), (_, rx, tx)| {
+            (rx_total.saturating_add(rx), tx_total.saturating_add(tx))
+        })
+}
+
+fn should_count_network_interface(name: &str) -> bool {
+    let normalized = name.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return false;
+    }
+
+    let base_name = normalized.split('@').next().unwrap_or(&normalized);
+    if base_name == "lo" || base_name.starts_with("lo:") || base_name.contains("loopback") {
+        return false;
+    }
+
+    const VIRTUAL_PREFIXES: &[&str] = &[
+        "docker",
+        "br-",
+        "veth",
+        "virbr",
+        "vmnet",
+        "vboxnet",
+        "zt",
+        "tailscale",
+        "tun",
+        "tap",
+        "wg",
+        "flannel",
+        "cni",
+        "kube",
+        "calico",
+        "cali",
+        "podman",
+        "nerdctl",
+        "containerd",
+        "ifb",
+        "ip6tnl",
+        "sit",
+        "gre",
+        "gretap",
+        "erspan",
+        "dummy",
+    ];
+    if VIRTUAL_PREFIXES
+        .iter()
+        .any(|prefix| base_name.starts_with(prefix))
+    {
+        return false;
+    }
+
+    const VIRTUAL_MARKERS: &[&str] = &[
+        "vethernet",
+        "hyper-v",
+        "virtualbox",
+        "vmware",
+        "wsl",
+        "docker",
+        "tailscale",
+        "zerotier",
+        "npcap",
+        "tap-windows",
+        "wireguard",
+    ];
+    !VIRTUAL_MARKERS
+        .iter()
+        .any(|marker| normalized.contains(marker))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::format_cpu_model;
+    use super::{aggregate_network_totals, format_cpu_model, should_count_network_interface};
 
     #[test]
     fn format_cpu_model_includes_physical_core_count() {
-        let model = format_cpu_model(
-            "GenuineIntel",
-            "13th Gen Intel(R) Core(TM) i7-13700HX",
-            16,
-        );
+        let model = format_cpu_model("GenuineIntel", "13th Gen Intel(R) Core(TM) i7-13700HX", 16);
 
         assert_eq!(
             model,
@@ -1039,5 +1116,51 @@ mod tests {
             "GenuineIntel 16 Core(s)"
         );
         assert_eq!(format_cpu_model("", "", 16), "Unknown CPU 16 Core(s)");
+    }
+
+    #[test]
+    fn aggregate_network_totals_skips_container_and_loopback_interfaces() {
+        let interfaces = [
+            ("lo", 91_071_099_488, 91_071_099_488),
+            ("enp0s6", 4_907_967_079_965, 4_873_139_838_424),
+            ("docker0", 0, 0),
+            ("br-266073283c16", 4_817_677_145_747, 4_835_632_200_041),
+            ("veth2ecfbcc@if2", 415_346_558, 125_317_817),
+        ];
+
+        assert_eq!(
+            aggregate_network_totals(interfaces),
+            (4_907_967_079_965, 4_873_139_838_424)
+        );
+    }
+
+    #[test]
+    fn network_interface_filter_keeps_common_external_interfaces() {
+        for name in ["eth0", "enp0s6", "ens18", "wlan0", "Wi-Fi", "Ethernet"] {
+            assert!(should_count_network_interface(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn network_interface_filter_rejects_common_virtual_interfaces() {
+        for name in [
+            "lo",
+            "docker0",
+            "br-a6a0746c2495",
+            "vethd0508ff@if2",
+            "virbr0",
+            "tailscale0",
+            "wg0",
+            "tun0",
+            "tap0",
+            "cni0",
+            "flannel.1",
+            "vEthernet (WSL)",
+            "VMware Network Adapter VMnet8",
+            "VirtualBox Host-Only Network",
+            "Npcap Loopback Adapter",
+        ] {
+            assert!(!should_count_network_interface(name), "{name}");
+        }
     }
 }
