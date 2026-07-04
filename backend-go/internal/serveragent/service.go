@@ -26,9 +26,10 @@ type Notifier interface {
 }
 
 type alertState struct {
-	cpuHigh    bool
-	memoryHigh bool
-	diskHigh   bool
+	cpuHigh     bool
+	memoryHigh  bool
+	diskHigh    bool
+	trafficHigh bool
 }
 
 type Service struct {
@@ -481,6 +482,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			resolved_country TEXT,
 			starts_at DATETIME,
 			expires_at DATETIME,
+			traffic_limit_bytes INTEGER DEFAULT 0,
+			traffic_alert_enabled INTEGER DEFAULT 0,
+			traffic_alert_percent REAL DEFAULT 100,
 			order_index INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -648,6 +652,16 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 	}
 	if exists, err := hasColumn(ctx, db, "server_accounts", "monitor_mode"); err == nil && !exists {
 		_, _ = db.ExecContext(ctx, `ALTER TABLE server_accounts ADD COLUMN monitor_mode TEXT DEFAULT 'agent'`)
+	}
+	accountFields := []struct{ Name, SQL string }{
+		{"traffic_limit_bytes", "ALTER TABLE server_accounts ADD COLUMN traffic_limit_bytes INTEGER DEFAULT 0"},
+		{"traffic_alert_enabled", "ALTER TABLE server_accounts ADD COLUMN traffic_alert_enabled INTEGER DEFAULT 0"},
+		{"traffic_alert_percent", "ALTER TABLE server_accounts ADD COLUMN traffic_alert_percent REAL DEFAULT 100"},
+	}
+	for _, f := range accountFields {
+		if exists, err := hasColumn(ctx, db, "server_accounts", f.Name); err == nil && !exists {
+			_, _ = db.ExecContext(ctx, f.SQL)
+		}
 	}
 
 	gpuFields := []struct{ Name, SQL string }{
@@ -1924,7 +1938,7 @@ func (s *Service) listAccounts(w http.ResponseWriter, r *http.Request, db *sql.D
 		applog.Warn(r.Context(), "serveragent", "failed to refresh server locations", "error", err.Error())
 	}
 
-	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at FROM server_accounts ORDER BY order_index ASC, created_at DESC")
+	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, updated_at FROM server_accounts ORDER BY order_index ASC, created_at DESC")
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1995,7 +2009,7 @@ func (s *Service) refreshMissingAccountLocations(ctx context.Context, db *sql.DB
 }
 
 func (s *Service) getAccount(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
-	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at FROM server_accounts WHERE id = ?", id)
+	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, updated_at FROM server_accounts WHERE id = ?", id)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2017,20 +2031,23 @@ func (s *Service) getAccount(w http.ResponseWriter, r *http.Request, db *sql.DB,
 
 func (s *Service) createAccount(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	var req struct {
-		Name        string      `json:"name"`
-		Host        string      `json:"host"`
-		Port        int         `json:"port"`
-		Username    string      `json:"username"`
-		AuthType    string      `json:"auth_type"`
-		Password    string      `json:"password"`
-		PrivateKey  string      `json:"private_key"`
-		Passphrase  string      `json:"passphrase"`
-		Tags        interface{} `json:"tags"`
-		Description string      `json:"description"`
-		Country     string      `json:"country"`
-		StartsAt    string      `json:"starts_at"`
-		ExpiresAt   string      `json:"expires_at"`
-		MonitorMode string      `json:"monitor_mode"`
+		Name                string      `json:"name"`
+		Host                string      `json:"host"`
+		Port                int         `json:"port"`
+		Username            string      `json:"username"`
+		AuthType            string      `json:"auth_type"`
+		Password            string      `json:"password"`
+		PrivateKey          string      `json:"private_key"`
+		Passphrase          string      `json:"passphrase"`
+		Tags                interface{} `json:"tags"`
+		Description         string      `json:"description"`
+		Country             string      `json:"country"`
+		StartsAt            string      `json:"starts_at"`
+		ExpiresAt           string      `json:"expires_at"`
+		MonitorMode         string      `json:"monitor_mode"`
+		TrafficLimitBytes   int64       `json:"traffic_limit_bytes"`
+		TrafficAlertEnabled bool        `json:"traffic_alert_enabled"`
+		TrafficAlertPercent float64     `json:"traffic_alert_percent"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
@@ -2062,13 +2079,15 @@ func (s *Service) createAccount(w http.ResponseWriter, r *http.Request, db *sql.
 			cachedInfo = sql.NullString{String: mergeCachedInfo(sql.NullString{}, geo), Valid: true}
 		}
 	}
+	trafficLimitBytes := normalizeTrafficLimitBytes(req.TrafficLimitBytes)
+	trafficAlertPercent := normalizeTrafficAlertPercent(req.TrafficAlertPercent)
 
 	_, err := db.ExecContext(r.Context(), `
 		INSERT INTO server_accounts (
-			id, name, host, port, username, auth_type, password, private_key, passphrase, status, tags, description, monitor_mode, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at, cached_info
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, name, host, port, username, auth_type, password, private_key, passphrase, status, tags, description, monitor_mode, country, resolved_country, starts_at, expires_at, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, order_index, created_at, updated_at, cached_info
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, req.Name, req.Host, coalesceInt(req.Port, 22), coalesceStr(req.Username, "agent"), coalesceStr(req.AuthType, "password"),
-		encPassword, encPrivateKey, encPassphrase, "unknown", SerializeList(req.Tags), req.Description, coalesceStr(req.MonitorMode, "agent"), req.Country, nullStr(resolvedCountry), nullStr(req.StartsAt), nullStr(req.ExpiresAt), orderIndex, now, now, nullStr(cachedInfo.String),
+		encPassword, encPrivateKey, encPassphrase, "unknown", SerializeList(req.Tags), req.Description, coalesceStr(req.MonitorMode, "agent"), req.Country, nullStr(resolvedCountry), nullStr(req.StartsAt), nullStr(req.ExpiresAt), trafficLimitBytes, boolToInt(req.TrafficAlertEnabled), trafficAlertPercent, orderIndex, now, now, nullStr(cachedInfo.String),
 	)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -2101,11 +2120,14 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 		password, privateKey, passphrase                                     sql.NullString
 		description, country, resolvedCountry, startsAt, expiresAt           sql.NullString
 		port, orderIndex                                                     int
+		trafficLimitBytes                                                    int64
+		trafficAlertEnabled                                                  int
+		trafficAlertPercent                                                  float64
 		responseTime                                                         sql.NullInt64
 		lastCheckTime, lastCheckStatus, cachedInfo                           sql.NullString
 	}
-	err := db.QueryRowContext(r.Context(), "SELECT name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, response_time, last_check_time, last_check_status, cached_info FROM server_accounts WHERE id = ?", id).
-		Scan(&raw.name, &raw.host, &raw.port, &raw.username, &raw.authType, &raw.password, &raw.privateKey, &raw.passphrase, &raw.status, &raw.monitorMode, &raw.tags, &raw.description, &raw.country, &raw.resolvedCountry, &raw.startsAt, &raw.expiresAt, &raw.orderIndex, &raw.createdAt, &raw.responseTime, &raw.lastCheckTime, &raw.lastCheckStatus, &raw.cachedInfo)
+	err := db.QueryRowContext(r.Context(), "SELECT name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, tags, description, country, resolved_country, starts_at, expires_at, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, order_index, created_at, response_time, last_check_time, last_check_status, cached_info FROM server_accounts WHERE id = ?", id).
+		Scan(&raw.name, &raw.host, &raw.port, &raw.username, &raw.authType, &raw.password, &raw.privateKey, &raw.passphrase, &raw.status, &raw.monitorMode, &raw.tags, &raw.description, &raw.country, &raw.resolvedCountry, &raw.startsAt, &raw.expiresAt, &raw.trafficLimitBytes, &raw.trafficAlertEnabled, &raw.trafficAlertPercent, &raw.orderIndex, &raw.createdAt, &raw.responseTime, &raw.lastCheckTime, &raw.lastCheckStatus, &raw.cachedInfo)
 	if err == sql.ErrNoRows {
 		response.Error(w, http.StatusNotFound, "服务器不存在")
 		return
@@ -2136,6 +2158,9 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 	startsAt := getStringVal(req, "starts_at", raw.startsAt.String)
 	expiresAt := getStringVal(req, "expires_at", raw.expiresAt.String)
 	orderIndex := getIntVal(req, "order_index", raw.orderIndex)
+	trafficLimitBytes := normalizeTrafficLimitBytes(getInt64Val(req, "traffic_limit_bytes", raw.trafficLimitBytes))
+	trafficAlertEnabled := getBoolVal(req, "traffic_alert_enabled", raw.trafficAlertEnabled != 0)
+	trafficAlertPercent := normalizeTrafficAlertPercent(getFloatVal(req, "traffic_alert_percent", raw.trafficAlertPercent))
 
 	password := raw.password.String
 	if p, ok := req["password"].(string); ok {
@@ -2159,9 +2184,9 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 
 	_, err = db.ExecContext(r.Context(), `
 		UPDATE server_accounts
-		SET name = ?, host = ?, port = ?, username = ?, auth_type = ?, password = ?, private_key = ?, passphrase = ?, tags = ?, description = ?, monitor_mode = ?, country = ?, resolved_country = ?, starts_at = ?, expires_at = ?, order_index = ?, cached_info = ?, updated_at = ?
+		SET name = ?, host = ?, port = ?, username = ?, auth_type = ?, password = ?, private_key = ?, passphrase = ?, tags = ?, description = ?, monitor_mode = ?, country = ?, resolved_country = ?, starts_at = ?, expires_at = ?, traffic_limit_bytes = ?, traffic_alert_enabled = ?, traffic_alert_percent = ?, order_index = ?, cached_info = ?, updated_at = ?
 		WHERE id = ?`,
-		name, host, port, username, authType, password, privateKey, passphrase, tags, description, monitorMode, nullStr(country), nullStr(resolvedCountry), nullStr(startsAt), nullStr(expiresAt), orderIndex, nullStr(cachedInfo.String), now, id,
+		name, host, port, username, authType, password, privateKey, passphrase, tags, description, monitorMode, nullStr(country), nullStr(resolvedCountry), nullStr(startsAt), nullStr(expiresAt), trafficLimitBytes, boolToInt(trafficAlertEnabled), trafficAlertPercent, orderIndex, nullStr(cachedInfo.String), now, id,
 	)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -2373,9 +2398,12 @@ func (s *Service) scanAccount(row *sql.Rows) (map[string]interface{}, error) {
 	var lastCheckTime, lastCheckStatus, cachedInfo sql.NullString
 	var responseTime sql.NullInt64
 	var port, orderIndex int
+	var trafficLimitBytes int64
+	var trafficAlertEnabled int
+	var trafficAlertPercent float64
 	var tagsStr string
 
-	err := row.Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &updatedAt)
+	err := row.Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &trafficLimitBytes, &trafficAlertEnabled, &trafficAlertPercent, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -2386,6 +2414,7 @@ func (s *Service) scanAccount(row *sql.Rows) (map[string]interface{}, error) {
 		status, monitorMode, lastCheckTime, lastCheckStatus, responseTime, cachedInfo,
 		tagsStr,
 		description, country, resolvedCountry, startsAt, expiresAt, orderIndex, createdAt, updatedAt,
+		trafficLimitBytes, trafficAlertEnabled != 0, trafficAlertPercent,
 	), nil
 }
 
@@ -2395,10 +2424,13 @@ func (s *Service) queryAccountByID(ctx context.Context, db *sql.DB, id string) (
 	var lastCheckTime, lastCheckStatus, cachedInfo sql.NullString
 	var responseTime sql.NullInt64
 	var port, orderIndex int
+	var trafficLimitBytes int64
+	var trafficAlertEnabled int
+	var trafficAlertPercent float64
 	var tagsStr string
 
-	err := db.QueryRowContext(ctx, "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at FROM server_accounts WHERE id = ?", id).
-		Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &updatedAt)
+	err := db.QueryRowContext(ctx, "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, updated_at FROM server_accounts WHERE id = ?", id).
+		Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &trafficLimitBytes, &trafficAlertEnabled, &trafficAlertPercent, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -2409,6 +2441,7 @@ func (s *Service) queryAccountByID(ctx context.Context, db *sql.DB, id string) (
 		status, monitorMode, lastCheckTime, lastCheckStatus, responseTime, cachedInfo,
 		tagsStr,
 		description, country, resolvedCountry, startsAt, expiresAt, orderIndex, createdAt, updatedAt,
+		trafficLimitBytes, trafficAlertEnabled != 0, trafficAlertPercent,
 	), nil
 }
 
@@ -2423,6 +2456,9 @@ func (s *Service) buildAccountResponse(
 	description, country, resolvedCountry, startsAt, expiresAt sql.NullString,
 	orderIndex int,
 	createdAt, updatedAt string,
+	trafficLimitBytes int64,
+	trafficAlertEnabled bool,
+	trafficAlertPercent float64,
 ) map[string]interface{} {
 	_, agentOnline := s.registry.Get(id)
 	health := s.resolveAgentMetricsHealth(id, cachedInfo, agentOnline, time.Now())
@@ -2435,29 +2471,32 @@ func (s *Service) buildAccountResponse(
 	capabilities := getServerCapabilities(host, port, username, authType, decryptedPrivateKey, decryptedPassword, isOnline)
 
 	res := map[string]interface{}{
-		"id":                id,
-		"name":              name,
-		"host":              host,
-		"port":              port,
-		"username":          username,
-		"auth_type":         authType,
-		"password":          decryptedPassword,
-		"private_key":       decryptedPrivateKey,
-		"passphrase":        decryptedPassphrase,
-		"status":            status,
-		"monitor_mode":      monitorMode,
-		"last_check_time":   nullStringVal(lastCheckTime),
-		"last_check_status": nullStringVal(lastCheckStatus),
-		"response_time":     nullIntVal(responseTime),
-		"tags":              parseJSONTags(tagsStr),
-		"description":       nullStringVal(description),
-		"country":           nullStringVal(country),
-		"resolved_country":  nullStringVal(resolvedCountry),
-		"starts_at":         nullStringVal(startsAt),
-		"expires_at":        nullStringVal(expiresAt),
-		"order_index":       orderIndex,
-		"created_at":        createdAt,
-		"updated_at":        updatedAt,
+		"id":                    id,
+		"name":                  name,
+		"host":                  host,
+		"port":                  port,
+		"username":              username,
+		"auth_type":             authType,
+		"password":              decryptedPassword,
+		"private_key":           decryptedPrivateKey,
+		"passphrase":            decryptedPassphrase,
+		"status":                status,
+		"monitor_mode":          monitorMode,
+		"last_check_time":       nullStringVal(lastCheckTime),
+		"last_check_status":     nullStringVal(lastCheckStatus),
+		"response_time":         nullIntVal(responseTime),
+		"tags":                  parseJSONTags(tagsStr),
+		"description":           nullStringVal(description),
+		"country":               nullStringVal(country),
+		"resolved_country":      nullStringVal(resolvedCountry),
+		"starts_at":             nullStringVal(startsAt),
+		"expires_at":            nullStringVal(expiresAt),
+		"traffic_limit_bytes":   trafficLimitBytes,
+		"traffic_alert_enabled": trafficAlertEnabled,
+		"traffic_alert_percent": normalizeTrafficAlertPercent(trafficAlertPercent),
+		"order_index":           orderIndex,
+		"created_at":            createdAt,
+		"updated_at":            updatedAt,
 	}
 
 	for k, v := range capabilities {
@@ -2476,7 +2515,9 @@ func (s *Service) buildAccountResponse(
 	if cachedInfo.Valid && cachedInfo.String != "" {
 		var cachedMetrics map[string]interface{}
 		if err := json.Unmarshal([]byte(cachedInfo.String), &cachedMetrics); err == nil {
-			res["info"] = s.buildInfoField(cachedMetrics)
+			info := s.buildInfoField(cachedMetrics)
+			enrichTrafficQuota(info, cachedMetrics, trafficLimitBytes, trafficAlertEnabled, trafficAlertPercent)
+			res["info"] = info
 		}
 	}
 
@@ -2884,6 +2925,107 @@ func getIntVal(m map[string]interface{}, key string, fallback int) int {
 	return fallback
 }
 
+func getInt64Val(m map[string]interface{}, key string, fallback int64) int64 {
+	if val, ok := m[key]; ok {
+		if f, err := toFloat(val); err == nil {
+			return int64(f)
+		}
+	}
+	return fallback
+}
+
+func getFloatVal(m map[string]interface{}, key string, fallback float64) float64 {
+	if val, ok := m[key]; ok {
+		if f, err := toFloat(val); err == nil {
+			return f
+		}
+	}
+	return fallback
+}
+
+func getFloatFromMap(m map[string]interface{}, key string) float64 {
+	if val, ok := m[key]; ok {
+		if f, err := toFloat(val); err == nil {
+			return f
+		}
+	}
+	return 0
+}
+
+func getBoolVal(m map[string]interface{}, key string, fallback bool) bool {
+	val, ok := m[key]
+	if !ok {
+		return fallback
+	}
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err == nil {
+			return parsed
+		}
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	}
+	return fallback
+}
+
+func normalizeTrafficLimitBytes(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func normalizeTrafficAlertPercent(value float64) float64 {
+	if value <= 0 {
+		return 100
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
+}
+
+func enrichTrafficQuota(info map[string]interface{}, metrics map[string]interface{}, limitBytes int64, alertEnabled bool, alertPercent float64) {
+	if info == nil || limitBytes <= 0 {
+		return
+	}
+	network, ok := info["network"].(map[string]interface{})
+	if !ok || network == nil {
+		network = map[string]interface{}{}
+		info["network"] = network
+	}
+
+	rxTotal := getFloatFromMap(network, "rx_total_bytes")
+	txTotal := getFloatFromMap(network, "tx_total_bytes")
+	if rxTotal == 0 {
+		rxTotal = getFloatValue(metrics, "net_in_transfer")
+	}
+	if txTotal == 0 {
+		txTotal = getFloatValue(metrics, "net_out_transfer")
+	}
+	usedBytes := int64(rxTotal + txTotal)
+	if usedBytes < 0 {
+		usedBytes = 0
+	}
+	percent := 0.0
+	if limitBytes > 0 {
+		percent = (float64(usedBytes) / float64(limitBytes)) * 100
+	}
+
+	network["traffic_used_bytes"] = usedBytes
+	network["traffic_limit_bytes"] = limitBytes
+	network["traffic_percent"] = percent
+	network["traffic_alert_enabled"] = alertEnabled
+	network["traffic_alert_percent"] = normalizeTrafficAlertPercent(alertPercent)
+	network["traffic_used"] = formatBytes(usedBytes)
+	network["traffic_limit"] = formatBytes(limitBytes)
+}
+
 func hasColumn(ctx context.Context, db *sql.DB, tableName, columnName string) (bool, error) {
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, tableName))
 	if err != nil {
@@ -3274,13 +3416,15 @@ func (s *Service) buildCachedInfo(state map[string]interface{}, hostInfo map[str
 	cached["net_tx"] = netOutSpeed
 
 	networkMap := map[string]interface{}{
-		"rx_speed":    formatSpeed(netInSpeed),
-		"tx_speed":    formatSpeed(netOutSpeed),
-		"down":        formatSpeed(netInSpeed),
-		"up":          formatSpeed(netOutSpeed),
-		"rx_total":    formatBytes(int64(netInTransfer)),
-		"tx_total":    formatBytes(int64(netOutTransfer)),
-		"connections": tcpConn + udpConn,
+		"rx_speed":       formatSpeed(netInSpeed),
+		"tx_speed":       formatSpeed(netOutSpeed),
+		"down":           formatSpeed(netInSpeed),
+		"up":             formatSpeed(netOutSpeed),
+		"rx_total":       formatBytes(int64(netInTransfer)),
+		"tx_total":       formatBytes(int64(netOutTransfer)),
+		"rx_total_bytes": int64(netInTransfer),
+		"tx_total_bytes": int64(netOutTransfer),
+		"connections":    tcpConn + udpConn,
 	}
 	cached["network"] = networkMap
 
@@ -3352,26 +3496,51 @@ func (s *Service) setTargetsCache(targets []networkQualityTarget) {
 }
 
 func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID string, cpu, mem, disk float64) {
+	if s.notifier == nil {
+		return
+	}
 	val, _ := s.alertStates.LoadOrStore(serverID, &alertState{})
 	state := val.(*alertState)
 
 	var serverName, serverHost string
-	_ = db.QueryRowContext(ctx, `SELECT name, host FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost)
+	var trafficLimitBytes int64
+	var trafficAlertEnabled int
+	var trafficAlertPercent float64
+	var cachedInfo sql.NullString
+	_ = db.QueryRowContext(ctx, `SELECT name, host, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, cached_info FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost, &trafficLimitBytes, &trafficAlertEnabled, &trafficAlertPercent, &cachedInfo)
 	if serverName == "" {
 		serverName = serverID
 	}
 	if serverHost == "" {
 		serverHost = serverName
 	}
+	trafficAlertPercent = normalizeTrafficAlertPercent(trafficAlertPercent)
+	trafficUsedBytes := int64(0)
+	trafficPercent := 0.0
+	if trafficLimitBytes > 0 && cachedInfo.Valid && cachedInfo.String != "" {
+		var cached map[string]interface{}
+		if err := json.Unmarshal([]byte(cachedInfo.String), &cached); err == nil {
+			trafficUsedBytes = int64(getFloatValue(cached, "net_in_transfer") + getFloatValue(cached, "net_out_transfer"))
+			if trafficUsedBytes < 0 {
+				trafficUsedBytes = 0
+			}
+			trafficPercent = (float64(trafficUsedBytes) / float64(trafficLimitBytes)) * 100
+		}
+	}
 
 	eventData := map[string]interface{}{
-		"serverId":    serverID,
-		"serverName":  serverName,
-		"host":        serverHost,
-		"hostname":    serverName,
-		"cpu_usage":   cpu,
-		"mem_percent": mem,
-		"disk_usage":  disk,
+		"serverId":            serverID,
+		"serverName":          serverName,
+		"host":                serverHost,
+		"hostname":            serverName,
+		"cpu_usage":           cpu,
+		"mem_percent":         mem,
+		"disk_usage":          disk,
+		"traffic_used_bytes":  trafficUsedBytes,
+		"traffic_limit_bytes": trafficLimitBytes,
+		"traffic_percent":     trafficPercent,
+		"traffic_used":        formatBytes(trafficUsedBytes),
+		"traffic_limit":       formatBytes(trafficLimitBytes),
 	}
 
 	if cpu >= 90 {
@@ -3413,6 +3582,22 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 			state.diskHigh = false
 			eventData["eventType"] = "disk_normal"
 			_ = s.notifier.Trigger(ctx, "server", "disk_normal", eventData)
+		}
+	}
+
+	if trafficLimitBytes > 0 && trafficAlertEnabled != 0 {
+		if trafficPercent >= trafficAlertPercent {
+			if !state.trafficHigh {
+				state.trafficHigh = true
+				eventData["eventType"] = "traffic_high"
+				_ = s.notifier.Trigger(ctx, "server", "traffic_high", eventData)
+			}
+		} else if trafficPercent < trafficAlertPercent-5 {
+			if state.trafficHigh {
+				state.trafficHigh = false
+				eventData["eventType"] = "traffic_normal"
+				_ = s.notifier.Trigger(ctx, "server", "traffic_normal", eventData)
+			}
 		}
 	}
 }

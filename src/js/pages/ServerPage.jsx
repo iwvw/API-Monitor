@@ -523,6 +523,42 @@ const ExpandedProgressMetric = React.memo(ExpandedProgressMetricComponent, (prev
   && prev.valueClassName === next.valueClassName
 ));
 
+function TrafficQuotaBar({ quota, compact = false }) {
+  if (!quota) return null;
+
+  const toneClassName = quota.overLimit
+    ? 'text-kumo-danger'
+    : quota.nearAlert
+      ? 'text-kumo-warning'
+      : 'text-kumo-info';
+  const indicatorClassName = quota.overLimit
+    ? '!bg-none !bg-kumo-danger'
+    : quota.nearAlert
+      ? '!bg-none !bg-kumo-warning'
+      : '!bg-none !bg-kumo-info';
+
+  return (
+    <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 ${compact ? 'px-2 py-1.5' : 'px-2.5 py-2'}`}>
+      <div className="mb-1 flex min-w-0 items-center justify-between gap-2 text-[10px] font-semibold">
+        <span className="shrink-0 text-kumo-subtle">总流量</span>
+        <span className={`min-w-0 truncate text-right tabular-nums ${toneClassName}`} title={`${quota.usedText} / ${quota.limitText}`}>
+          {quota.usedText} / {quota.limitText}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-base">
+        <div
+          className={`h-full rounded-full transition-[width] duration-300 ${indicatorClassName}`}
+          style={{ width: `${quota.barPercent}%` }}
+        ></div>
+      </div>
+      <div className="mt-1 flex min-w-0 items-center justify-between gap-2 text-[10px] font-medium text-kumo-subtle">
+        <span>{quota.alertEnabled ? `报警 ${Math.round(quota.alertPercent)}%` : '未开启报警'}</span>
+        <span className={`tabular-nums ${toneClassName}`}>{quota.percent.toFixed(quota.percent >= 10 ? 0 : 1)}%</span>
+      </div>
+    </div>
+  );
+}
+
 function ExpandedInfoChipComponent({ label, value, className = '', valueClassName = 'text-kumo-strong' }) {
   const displayValue = value === 0 ? 0 : (value || '-');
   return (
@@ -997,6 +1033,15 @@ const formatBytesSpeed = (bytes) => {
   return `${Math.round(value)} B/s`;
 };
 
+const formatBytesValue = (bytes) => {
+  const value = Math.max(0, toNumber(bytes, 0));
+  if (value >= 1024 * 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024 * 1024)).toFixed(2)} TB`;
+  if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${Math.round(value)} B`;
+};
+
 const formatCompactBytesSpeed = (bytes) => {
   const value = toNumber(bytes, 0);
   const abs = Math.abs(value);
@@ -1320,6 +1365,65 @@ const getByteParts = (value) => {
   return {
     ...parseSpeed(text),
     text,
+  };
+};
+
+const TRAFFIC_QUOTA_UNITS = {
+  GB: 1024 * 1024 * 1024,
+  TB: 1024 * 1024 * 1024 * 1024,
+  PB: 1024 * 1024 * 1024 * 1024 * 1024,
+};
+
+const bytesToTrafficQuotaForm = (bytes) => {
+  const value = toNumber(bytes, 0);
+  if (value <= 0) return { value: '', unit: 'TB' };
+  const unit = value >= TRAFFIC_QUOTA_UNITS.PB
+    ? 'PB'
+    : value >= TRAFFIC_QUOTA_UNITS.TB
+      ? 'TB'
+      : 'GB';
+  const amount = value / TRAFFIC_QUOTA_UNITS[unit];
+  return {
+    value: Number.isInteger(amount) ? String(amount) : amount.toFixed(3).replace(/0+$/, '').replace(/\.$/, ''),
+    unit,
+  };
+};
+
+const trafficQuotaInputToBytes = (value, unit = 'TB') => {
+  const amount = toNumber(value, 0);
+  if (amount <= 0) return 0;
+  return Math.round(amount * (TRAFFIC_QUOTA_UNITS[unit] || TRAFFIC_QUOTA_UNITS.TB));
+};
+
+const getTrafficQuota = (server = {}) => {
+  const network = server.info?.network || {};
+  const limit = toNumber(network.traffic_limit_bytes ?? server.traffic_limit_bytes, 0);
+  if (limit <= 0) return null;
+
+  const rawUsed = toNumber(network.traffic_used_bytes, NaN);
+  const rxBytes = toNumber(network.rx_total_bytes, NaN);
+  const txBytes = toNumber(network.tx_total_bytes, NaN);
+  const parsedRx = getByteParts(network.rx_total).bytes;
+  const parsedTx = getByteParts(network.tx_total).bytes;
+  const used = Number.isFinite(rawUsed)
+    ? rawUsed
+    : (Number.isFinite(rxBytes) && Number.isFinite(txBytes) ? rxBytes + txBytes : parsedRx + parsedTx);
+  const percent = limit > 0 ? (Math.max(0, used) / limit) * 100 : 0;
+  const alertPercent = toNumber(network.traffic_alert_percent ?? server.traffic_alert_percent, 100);
+  const overLimit = percent >= 100;
+  const nearAlert = percent >= Math.min(100, alertPercent);
+
+  return {
+    limit,
+    used: Math.max(0, used),
+    percent,
+    barPercent: clampPercent(percent),
+    alertPercent,
+    overLimit,
+    nearAlert,
+    alertEnabled: Boolean(network.traffic_alert_enabled ?? server.traffic_alert_enabled),
+    usedText: network.traffic_used || formatBytesValue(used),
+    limitText: network.traffic_limit || formatBytesValue(limit),
   };
 };
 
@@ -1848,6 +1952,9 @@ function ServerPage() {
     country: 'auto',
     startsAt: '',
     expiresAt: '',
+    trafficLimitValue: '',
+    trafficLimitUnit: 'TB',
+    trafficAlertEnabled: false,
     monitorMode: 'agent'
   });
   const [selectedCredentialId, setSelectedCredentialId] = useState('');
@@ -2949,6 +3056,9 @@ function ServerPage() {
       country: 'auto',
       startsAt: '',
       expiresAt: '',
+      trafficLimitValue: '',
+      trafficLimitUnit: 'TB',
+      trafficAlertEnabled: false,
       monitorMode: 'agent'
     });
     setSelectedCredentialId('');
@@ -2958,6 +3068,7 @@ function ServerPage() {
   };
 
   const openEditServerModal = (server) => {
+    const trafficQuotaForm = bytesToTrafficQuotaForm(server.traffic_limit_bytes);
     setServerForm({
       id: server.id,
       name: server.name,
@@ -2973,6 +3084,9 @@ function ServerPage() {
       country: server.country || 'auto',
       startsAt: formatDateInputValue(server.starts_at || server.created_at),
       expiresAt: formatDateInputValue(server.expires_at),
+      trafficLimitValue: trafficQuotaForm.value,
+      trafficLimitUnit: trafficQuotaForm.unit,
+      trafficAlertEnabled: Boolean(server.traffic_alert_enabled),
       monitorMode: server.monitor_mode || 'agent'
     });
     setServerAddMode('ssh');
@@ -3054,6 +3168,7 @@ function ServerPage() {
 
     try {
       const tags = serverForm.tagsInput ? serverForm.tagsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
+      const trafficLimitBytes = trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit);
       const payload = {
         name: serverForm.name.trim(),
         host: serverForm.host?.trim() || '',
@@ -3065,6 +3180,9 @@ function ServerPage() {
         country: serverForm.country,
         starts_at: normalizeStartInputValue(serverForm.startsAt),
         expires_at: normalizeExpiryInputValue(serverForm.expiresAt),
+        traffic_limit_bytes: trafficLimitBytes,
+        traffic_alert_enabled: trafficLimitBytes > 0 && Boolean(serverForm.trafficAlertEnabled),
+        traffic_alert_percent: 100,
         monitor_mode: isAgentForm ? 'agent' : 'ssh'
       };
 
@@ -5690,6 +5808,7 @@ function ServerPage() {
                         const rx = parseSpeed(server.info?.network?.rx_speed);
                         const txTotal = getByteParts(server.info?.network?.tx_total);
                         const rxTotal = getByteParts(server.info?.network?.rx_total);
+                        const trafficQuota = getTrafficQuota(server);
                         const disk = server.info?.disk?.[0] || {};
                         const diskUsage = clampPercent(toNumber(disk.usage, 0));
                         const memUsage = clampPercent(toNumber(server.info?.memory?.Usage, 0));
@@ -5956,24 +6075,27 @@ function ServerPage() {
                                             )}
                                           >
                                             {(tooltipBoundary) => (
-                                              <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
-                                                <TimeseriesChart
-                                                  echarts={fastTimeseriesEcharts}
-                                                  data={hasGpuData ? gpuSeries : netSeries}
-                                                  height={compactExpandedChartHeight}
-                                                  isDarkMode={isDarkMode}
-                                                  gradient
-                                                  loading={chartLoading}
-                                                  tooltipBoundary={tooltipBoundary ?? undefined}
-                                                  xAxisTickCount={expandedChartXAxisTickCount}
-                                                  yAxisTickCount={compactExpandedYAxisTickCount}
-                                                  xAxisTickFormat={expandedChartXAxisTickFormat}
-                                                  yAxisTickFormat={hasGpuData ? expandedNumberAxisTickFormat : formatCompactBytesSpeed}
-                                                  tooltipValueFormat={hasGpuData ? formatMetricTooltipValue : formatBytesSpeed}
-                                                  optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                                  ariaDescription={`${server.name} compact host trend`}
-                                                />
-                                              </DeferredRender>
+                                              <div className="flex min-w-0 flex-col gap-1.5">
+                                                {!hasGpuData && <TrafficQuotaBar quota={trafficQuota} compact />}
+                                                <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
+                                                  <TimeseriesChart
+                                                    echarts={fastTimeseriesEcharts}
+                                                    data={hasGpuData ? gpuSeries : netSeries}
+                                                    height={compactExpandedChartHeight}
+                                                    isDarkMode={isDarkMode}
+                                                    gradient
+                                                    loading={chartLoading}
+                                                    tooltipBoundary={tooltipBoundary ?? undefined}
+                                                    xAxisTickCount={expandedChartXAxisTickCount}
+                                                    yAxisTickCount={compactExpandedYAxisTickCount}
+                                                    xAxisTickFormat={expandedChartXAxisTickFormat}
+                                                    yAxisTickFormat={hasGpuData ? expandedNumberAxisTickFormat : formatCompactBytesSpeed}
+                                                    tooltipValueFormat={hasGpuData ? formatMetricTooltipValue : formatBytesSpeed}
+                                                    optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                    ariaDescription={`${server.name} compact host trend`}
+                                                  />
+                                                </DeferredRender>
+                                              </div>
                                             )}
                                           </ExpandedTrendChartCard>
 
@@ -5991,24 +6113,27 @@ function ServerPage() {
                                               )}
                                             >
                                               {(tooltipBoundary) => (
-                                                <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
-                                                  <TimeseriesChart
-                                                    echarts={fastTimeseriesEcharts}
-                                                    data={netSeries}
-                                                    height={compactExpandedChartHeight}
-                                                    isDarkMode={isDarkMode}
-                                                    gradient
-                                                    loading={chartLoading}
-                                                    tooltipBoundary={tooltipBoundary ?? undefined}
-                                                    xAxisTickCount={expandedChartXAxisTickCount}
-                                                    yAxisTickCount={compactExpandedYAxisTickCount}
-                                                    xAxisTickFormat={expandedChartXAxisTickFormat}
-                                                    yAxisTickFormat={formatCompactBytesSpeed}
-                                                    tooltipValueFormat={formatBytesSpeed}
-                                                    optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                                    ariaDescription={`${server.name} compact network trend`}
-                                                  />
-                                                </DeferredRender>
+                                                <div className="flex min-w-0 flex-col gap-1.5">
+                                                  <TrafficQuotaBar quota={trafficQuota} compact />
+                                                  <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
+                                                    <TimeseriesChart
+                                                      echarts={fastTimeseriesEcharts}
+                                                      data={netSeries}
+                                                      height={compactExpandedChartHeight}
+                                                      isDarkMode={isDarkMode}
+                                                      gradient
+                                                      loading={chartLoading}
+                                                      tooltipBoundary={tooltipBoundary ?? undefined}
+                                                      xAxisTickCount={expandedChartXAxisTickCount}
+                                                      yAxisTickCount={compactExpandedYAxisTickCount}
+                                                      xAxisTickFormat={expandedChartXAxisTickFormat}
+                                                      yAxisTickFormat={formatCompactBytesSpeed}
+                                                      tooltipValueFormat={formatBytesSpeed}
+                                                      optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                      ariaDescription={`${server.name} compact network trend`}
+                                                    />
+                                                  </DeferredRender>
+                                                </div>
                                               )}
                                             </ExpandedTrendChartCard>
                                           )}
@@ -6079,6 +6204,7 @@ function ServerPage() {
                   const canDrag = !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
                   const txTotal = getByteParts(server.info?.network?.tx_total);
                   const rxTotal = getByteParts(server.info?.network?.rx_total);
+                  const trafficQuota = getTrafficQuota(server);
                   const chartLoading = !!server.metricsLoading && records.length === 0;
                   const terminalProtocol = resolveTerminalProtocol(server);
                   const effectiveTerminalProtocol = terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
@@ -6339,24 +6465,27 @@ function ServerPage() {
                                       )}
                                     >
                                       {(tooltipBoundary) => (
-                                        <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
-                                          <TimeseriesChart
-                                            echarts={fastTimeseriesEcharts}
-                                            data={netSeries}
-                                            height={expandedTrendChartHeight}
-                                            isDarkMode={isDarkMode}
-                                            gradient
-                                            loading={chartLoading}
-                                            tooltipBoundary={tooltipBoundary ?? undefined}
-                                            xAxisTickCount={expandedChartXAxisTickCount}
-                                            yAxisTickCount={expandedChartYAxisTickCount}
-                                            xAxisTickFormat={expandedChartXAxisTickFormat}
-                                            yAxisTickFormat={expandedSpeedAxisTickFormat}
-                                            tooltipValueFormat={formatBytesSpeed}
-                                            optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                            ariaDescription={`${server.name} network upload and download speed trend`}
-                                          />
-                                        </DeferredRender>
+                                        <div className="flex min-w-0 flex-col gap-2">
+                                          <TrafficQuotaBar quota={trafficQuota} />
+                                          <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                            <TimeseriesChart
+                                              echarts={fastTimeseriesEcharts}
+                                              data={netSeries}
+                                              height={expandedTrendChartHeight}
+                                              isDarkMode={isDarkMode}
+                                              gradient
+                                              loading={chartLoading}
+                                              tooltipBoundary={tooltipBoundary ?? undefined}
+                                              xAxisTickCount={expandedChartXAxisTickCount}
+                                              yAxisTickCount={expandedChartYAxisTickCount}
+                                              xAxisTickFormat={expandedChartXAxisTickFormat}
+                                              yAxisTickFormat={expandedSpeedAxisTickFormat}
+                                              tooltipValueFormat={formatBytesSpeed}
+                                              optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                              ariaDescription={`${server.name} network upload and download speed trend`}
+                                            />
+                                          </DeferredRender>
+                                        </div>
                                       )}
                                     </ExpandedTrendChartCard>
                                   </div>
@@ -8148,6 +8277,43 @@ function ServerPage() {
                         value={serverForm.expiresAt}
                         onChange={e => setServerForm(prev => ({ ...prev, expiresAt: e.target.value }))}
                         className="px-3 py-2 text-kumo-strong"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(11rem,auto)] sm:items-end">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="font-semibold text-kumo-subtle">总流量配额</label>
+                      <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-2">
+                        <Input size="sm"
+                          aria-label="总流量配额"
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          value={serverForm.trafficLimitValue}
+                          onChange={e => setServerForm(prev => ({ ...prev, trafficLimitValue: e.target.value }))}
+                          placeholder="留空则不显示进度条"
+                          className="px-3 py-2 text-kumo-strong"
+                        />
+                        <Select size="sm"
+                          aria-label="流量配额单位"
+                          value={serverForm.trafficLimitUnit}
+                          onValueChange={(value) => setServerForm(prev => ({ ...prev, trafficLimitUnit: String(value) }))}
+                          className="px-3 py-2"
+                          items={[
+                            { value: 'GB', label: 'GB' },
+                            { value: 'TB', label: 'TB' },
+                            { value: 'PB', label: 'PB' },
+                          ]}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex min-h-8 min-w-0 items-center">
+                      <Checkbox
+                        label="超出后报警"
+                        checked={Boolean(serverForm.trafficAlertEnabled)}
+                        disabled={trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
+                        onCheckedChange={(checked) => setServerForm(prev => ({ ...prev, trafficAlertEnabled: Boolean(checked) }))}
                       />
                     </div>
                   </div>

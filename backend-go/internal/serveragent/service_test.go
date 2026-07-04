@@ -92,6 +92,28 @@ type capturedSocketEvent struct {
 	Data map[string]interface{}
 }
 
+type recordingNotifier struct {
+	mu     sync.Mutex
+	events []string
+	data   []map[string]interface{}
+}
+
+func (n *recordingNotifier) Trigger(_ context.Context, _ string, eventType string, eventData map[string]interface{}) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.events = append(n.events, eventType)
+	n.data = append(n.data, eventData)
+	return nil
+}
+
+func (n *recordingNotifier) snapshot() ([]string, []map[string]interface{}) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	events := append([]string(nil), n.events...)
+	data := append([]map[string]interface{}(nil), n.data...)
+	return events, data
+}
+
 func (s *terminalCaptureSocket) WriteMessage(_ int, data []byte) error {
 	raw := string(data)
 	if !strings.HasPrefix(raw, "42") {
@@ -167,7 +189,7 @@ func (s *terminalCaptureSocket) Events() []capturedSocketEvent {
 func TestAccountsLifecycleAndNullableUpdate(t *testing.T) {
 	service, _ := testService(t)
 
-	res := perform(service, http.MethodPost, "/api/server/accounts", `{"name":"edge","host":"127.0.0.1","port":22,"username":"root","auth_type":"password","password":"secret","tags":["prod"]}`)
+	res := perform(service, http.MethodPost, "/api/server/accounts", `{"name":"edge","host":"127.0.0.1","port":22,"username":"root","auth_type":"password","password":"secret","tags":["prod"],"traffic_limit_bytes":1099511627776,"traffic_alert_enabled":true}`)
 	if res.Code != http.StatusOK {
 		t.Fatalf("create status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -176,6 +198,9 @@ func TestAccountsLifecycleAndNullableUpdate(t *testing.T) {
 	id := data["id"].(string)
 	if data["password"] != "secret" {
 		t.Fatalf("expected decrypted password, got %#v", data["password"])
+	}
+	if data["traffic_limit_bytes"] != float64(1099511627776) || data["traffic_alert_enabled"] != true || data["traffic_alert_percent"] != float64(100) {
+		t.Fatalf("unexpected traffic quota fields after create: %#v", data)
 	}
 
 	res = perform(service, http.MethodPut, "/api/server/accounts/"+id, `{"description":"updated","tags":["prod","go"]}`)
@@ -187,6 +212,19 @@ func TestAccountsLifecycleAndNullableUpdate(t *testing.T) {
 	if data["description"] != "updated" {
 		t.Fatalf("description = %#v", data["description"])
 	}
+	if data["traffic_limit_bytes"] != float64(1099511627776) || data["traffic_alert_enabled"] != true {
+		t.Fatalf("traffic quota should be preserved by partial update: %#v", data)
+	}
+
+	res = perform(service, http.MethodPut, "/api/server/accounts/"+id, `{"traffic_limit_bytes":2199023255552,"traffic_alert_enabled":false}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("quota update status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	data = payload["data"].(map[string]interface{})
+	if data["traffic_limit_bytes"] != float64(2199023255552) || data["traffic_alert_enabled"] != false {
+		t.Fatalf("unexpected traffic quota fields after update: %#v", data)
+	}
 
 	res = perform(service, http.MethodGet, "/api/server/accounts", "")
 	if res.Code != http.StatusOK {
@@ -196,6 +234,10 @@ func TestAccountsLifecycleAndNullableUpdate(t *testing.T) {
 	list := payload["data"].([]interface{})
 	if len(list) != 1 {
 		t.Fatalf("account count = %d", len(list))
+	}
+	listItem := list[0].(map[string]interface{})
+	if listItem["traffic_limit_bytes"] != float64(2199023255552) || listItem["traffic_alert_enabled"] != false {
+		t.Fatalf("list should include traffic quota fields: %#v", listItem)
 	}
 
 	res = perform(service, http.MethodGet, "/api/server/accounts/export", "")
@@ -1169,6 +1211,65 @@ func TestBuildCachedInfoKeepsFreshStateOverStaleMetadata(t *testing.T) {
 	}
 	if cached["platform"] != "Windows" {
 		t.Fatalf("platform = %#v", cached["platform"])
+	}
+}
+
+func TestBuildCachedInfoIncludesRawNetworkTotals(t *testing.T) {
+	service := &Service{}
+	cached := service.buildCachedInfo(
+		map[string]interface{}{
+			"net_in_speed":     float64(1024),
+			"net_out_speed":    float64(2048),
+			"net_in_transfer":  float64(10 * 1024 * 1024),
+			"net_out_transfer": float64(20 * 1024 * 1024),
+		},
+		map[string]interface{}{},
+	)
+
+	network := cached["network"].(map[string]interface{})
+	if network["rx_total_bytes"] != int64(10*1024*1024) || network["tx_total_bytes"] != int64(20*1024*1024) {
+		t.Fatalf("raw network totals missing: %#v", network)
+	}
+}
+
+func TestTrafficQuotaAlertUsesConfiguredLimit(t *testing.T) {
+	service, db := testService(t)
+	notifier := &recordingNotifier{}
+	service.SetNotifier(notifier)
+
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (
+		id, name, host, username, auth_type, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, cached_info
+	) VALUES (
+		'quota-server', 'quota', '127.0.0.1', 'root', 'password', 1000, 1, 100,
+		'{"net_in_transfer":600,"net_out_transfer":500}'
+	)`)
+	if err != nil {
+		t.Fatalf("insert quota server: %v", err)
+	}
+
+	service.checkMetricAlerts(context.Background(), db, "quota-server", 1, 1, 1)
+	events, data := notifier.snapshot()
+	if len(events) != 1 || events[0] != "traffic_high" {
+		t.Fatalf("events after high = %#v", events)
+	}
+	if data[0]["traffic_used_bytes"] != int64(1100) || data[0]["traffic_limit_bytes"] != int64(1000) {
+		t.Fatalf("traffic alert data = %#v", data[0])
+	}
+
+	service.checkMetricAlerts(context.Background(), db, "quota-server", 1, 1, 1)
+	events, _ = notifier.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("traffic_high should not repeat while still high: %#v", events)
+	}
+
+	_, err = db.ExecContext(context.Background(), `UPDATE server_accounts SET cached_info = '{"net_in_transfer":400,"net_out_transfer":400}' WHERE id = 'quota-server'`)
+	if err != nil {
+		t.Fatalf("lower traffic usage: %v", err)
+	}
+	service.checkMetricAlerts(context.Background(), db, "quota-server", 1, 1, 1)
+	events, _ = notifier.snapshot()
+	if len(events) != 2 || events[1] != "traffic_normal" {
+		t.Fatalf("events after normal = %#v", events)
 	}
 }
 
