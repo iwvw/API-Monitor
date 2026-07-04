@@ -22,13 +22,34 @@ func TestMatchAgentLinuxInstallWithKey(t *testing.T) {
 	}
 }
 
-func TestMusicIsRetired(t *testing.T) {
-	route, ok := Match("/api/music/search")
-	if !ok {
-		t.Fatal("expected a route match")
+func TestManifestDoesNotExposeRetiredRoutes(t *testing.T) {
+	for _, route := range Routes() {
+		if route.Owner == OwnerRetired {
+			t.Fatalf("retired route must be removed instead of exposed: prefix=%s module=%s", route.Prefix, route.Module)
+		}
 	}
-	if route.Owner != OwnerRetired {
-		t.Fatalf("expected retired owner, got %s", route.Owner)
+}
+
+func TestServerInventoryRoutesRequireSession(t *testing.T) {
+	for _, path := range []string{
+		"/api/server/accounts",
+		"/api/server/s",
+		"/api/server/s/server-1",
+		"/api/server/s/server-1/history",
+	} {
+		route, ok := Match(path)
+		if !ok {
+			t.Fatalf("expected server inventory route match for %s", path)
+		}
+		if route.Owner != OwnerGo || route.Auth != AuthSession || route.ResponseMode != ResponseJSON {
+			t.Fatalf("expected session JSON go owner for %s, got owner=%s auth=%s response=%s", path, route.Owner, route.Auth, route.ResponseMode)
+		}
+	}
+}
+
+func TestMusicRouteIsRemoved(t *testing.T) {
+	if route, ok := Match("/api/music/search"); ok {
+		t.Fatalf("expected no removed music route match, got prefix=%s owner=%s", route.Prefix, route.Owner)
 	}
 }
 
@@ -123,12 +144,8 @@ func TestSettingsRoutesOwnDatabaseMaintenanceSlices(t *testing.T) {
 		t.Fatalf("expected session go owner for deprecated cleanup route, got owner=%s auth=%s", route.Owner, route.Auth)
 	}
 
-	route, ok = Match("/api/settings/database/legacy")
-	if !ok {
-		t.Fatal("expected settings database fallback route match")
-	}
-	if route.Owner != OwnerRetired {
-		t.Fatalf("expected retired owner for unknown database fallback route, got %s", route.Owner)
+	if route, ok := Match("/api/settings/database/legacy"); ok {
+		t.Fatalf("expected no removed settings database fallback route, got prefix=%s owner=%s", route.Prefix, route.Owner)
 	}
 
 	route, ok = Match("/api/settings/enforce-log-limits")
@@ -165,12 +182,8 @@ func TestSystemHostMetricsRouteIsGoOwned(t *testing.T) {
 		t.Fatalf("expected go owner for host metrics route, got %s", route.Owner)
 	}
 
-	route, ok = Match("/api/system/unknown")
-	if !ok {
-		t.Fatal("expected system fallback route match")
-	}
-	if route.Owner != OwnerRetired {
-		t.Fatalf("expected retired owner for other system routes, got %s", route.Owner)
+	if route, ok := Match("/api/system/unknown"); ok {
+		t.Fatalf("expected no removed system fallback route, got prefix=%s owner=%s", route.Prefix, route.Owner)
 	}
 }
 
@@ -316,12 +329,8 @@ func TestCloudflareAccountDNSAndZoneResourceRoutesAreGoOwnedWithoutSwallowingOth
 	for _, path := range []string{
 		"/api/cloudflare/unimplemented-path-fallback",
 	} {
-		route, ok := Match(path)
-		if !ok {
-			t.Fatalf("expected cloudflare fallback route match for %s", path)
-		}
-		if route.Owner != OwnerRetired {
-			t.Fatalf("expected retired owner for unmigrated cloudflare route %s, got %s", path, route.Owner)
+		if route, ok := Match(path); ok {
+			t.Fatalf("expected no removed cloudflare fallback route for %s, got prefix=%s owner=%s", path, route.Prefix, route.Owner)
 		}
 	}
 }
@@ -336,13 +345,9 @@ func TestTencentRoutesAreGoOwned(t *testing.T) {
 	}
 }
 
-func TestOpenListIsRetired(t *testing.T) {
-	route, ok := Match("/api/openlist/manage-accounts")
-	if !ok {
-		t.Fatal("expected openlist route match")
-	}
-	if route.Owner != OwnerRetired {
-		t.Fatalf("expected retired owner for openlist, got %s", route.Owner)
+func TestOpenListRouteIsRemoved(t *testing.T) {
+	if route, ok := Match("/api/openlist/manage-accounts"); ok {
+		t.Fatalf("expected no removed openlist route match, got prefix=%s owner=%s", route.Prefix, route.Owner)
 	}
 }
 

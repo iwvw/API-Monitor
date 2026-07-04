@@ -2797,23 +2797,23 @@ function OpenAIPage() {
             <AppTable>
               <Table.Header>
                 <Table.Row>
-                  <Table.HeaderCell className="text-left text-xs font-bold">时间</Table.HeaderCell>
-                  <Table.HeaderCell className="text-left text-xs font-bold">
+                  <Table.Head className="text-left text-xs font-bold">时间</Table.Head>
+                  <Table.Head className="text-left text-xs font-bold">
                     端点渠道
-                  </Table.HeaderCell>
-                  <Table.HeaderCell className="text-left text-xs font-bold">
+                  </Table.Head>
+                  <Table.Head className="text-left text-xs font-bold">
                     使用模型
-                  </Table.HeaderCell>
-                  <Table.HeaderCell className="text-center text-xs font-bold">
+                  </Table.Head>
+                  <Table.Head className="text-center text-xs font-bold">
                     状态
-                  </Table.HeaderCell>
-                  <Table.HeaderCell className="text-right text-xs font-bold">延迟</Table.HeaderCell>
-                  <Table.HeaderCell className="text-right text-xs font-bold">
+                  </Table.Head>
+                  <Table.Head className="text-right text-xs font-bold">延迟</Table.Head>
+                  <Table.Head className="text-right text-xs font-bold">
                     Prompt / Completion
-                  </Table.HeaderCell>
-                  <Table.HeaderCell className="text-right text-xs font-bold">
+                  </Table.Head>
+                  <Table.Head className="text-right text-xs font-bold">
                     总消耗
-                  </Table.HeaderCell>
+                  </Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>

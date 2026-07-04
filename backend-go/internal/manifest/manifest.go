@@ -45,8 +45,6 @@ func Routes() []Route {
 	return []Route{
 		{Prefix: "/health", Module: "health", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Go shell health check"},
 		{Prefix: "/api/migration/status", Module: "migration", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Go migration status and route ownership"},
-		{Prefix: "/api/music", Module: "music", Owner: OwnerRetired, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Retired module; not migrated"},
-
 		{Prefix: "/api/auth/2fa/status", Module: "auth-2fa-status", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public 2FA login status route"},
 		{Prefix: "/api/auth/2fa", Module: "auth-2fa-management", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "2FA setup and management routes"},
 		{Prefix: "/api/auth", Module: "auth", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Authentication, password, and session compatibility routes"},
@@ -62,13 +60,12 @@ func Routes() []Route {
 		{Prefix: "/api/settings/deprecated-tables", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Deprecated database table cleanup preview"},
 		{Prefix: "/api/settings/cleanup-deprecated-tables", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Backed-up deprecated database table cleanup"},
 		{Prefix: "/api/settings/database/import", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Database import preview and commit"},
-		{Prefix: "/api/settings/database", Module: "settings-database", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Unmigrated database maintenance fallback routes (retired)"},
 		{Prefix: "/api/settings/export-database", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SQLite database export"},
 		{Prefix: "/api/settings/import-database", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Legacy database import compatibility route"},
 		{Prefix: "/api/settings/migration-self-check", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Database migration table and column self-check"},
 		{Prefix: "/api/settings/vacuum-database", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SQLite WAL checkpoint and VACUUM action"},
 		{Prefix: "/api/settings/clear-chat-messages", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Legacy chat table cleanup"},
-		{Prefix: "/api/settings", Module: "settings", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "User settings read/update"},
+		{Prefix: "/api/settings", Module: "settings", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "User settings read/update", MatchMode: MatchExact},
 		{Prefix: "/api/system/host-metrics", Module: "system-host-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Local host CPU, memory, disk, and process metrics"},
 		{Prefix: "/api/system/api-stats", Module: "system-api-stats", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "System API call stats (audit & ops)"},
 		{Prefix: "/api/system/api-docs", Module: "system-api-docs", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Auto-generated API documentation index", MatchMode: MatchExact},
@@ -92,9 +89,6 @@ func Routes() []Route {
 		{Prefix: "/api/ai/mcp", Module: "ai-access", Owner: OwnerGo, Auth: AuthAgent, ResponseMode: ResponseJSON, Description: "AI MCP JSON-RPC endpoint", MatchMode: MatchExact},
 		{Prefix: "/api/system/logs/stream", Module: "system-logs", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Tail and filter app logs", MatchMode: MatchExact},
 		{Prefix: "/api/system/logs/download", Module: "system-logs", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Download app log file", MatchMode: MatchExact},
-		{Prefix: "/api/system", Module: "system", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "System status routes (retired)"},
-		{Prefix: "/api/logs", Module: "logs", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Application log routes (retired)"},
-
 		{Prefix: "/api/totp", Module: "totp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "TOTP and HOTP module"},
 		{Prefix: "/api/filebox", Module: "filebox", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Filebox public and authenticated routes"},
 		{Prefix: "/api/uptime", Module: "uptime", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Uptime monitors, public status, push, badge"},
@@ -102,8 +96,6 @@ func Routes() []Route {
 		{Prefix: "/api/scheduler", Module: "scheduler", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Workflow scheduler, DAG, runs, and distributed nodes"},
 		{Prefix: "/api/cron", Module: "cron", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cron tasks, scheduler, and logs"},
 		{Prefix: "/api/backup", Module: "backup", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Local backup center configs, records, and runner"},
-		{Prefix: "/api/openlist", Module: "openlist", Owner: OwnerRetired, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Retired module; not migrated"},
-
 		{Prefix: "/api/cloudflare/accounts/export", Module: "cloudflare-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare account export", MatchMode: MatchExact},
 		{Prefix: "/api/cloudflare/export/accounts", Module: "cloudflare-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare legacy account export", MatchMode: MatchExact},
 		{Prefix: "/api/cloudflare/import/accounts", Module: "cloudflare-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare account import", MatchMode: MatchExact},
@@ -154,14 +146,12 @@ func Routes() []Route {
 		{Prefix: "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/analytics", Module: "cloudflare-zone-resources", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare zone analytics", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/switch", Module: "cloudflare-dns", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare DNS quick content switch", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/batch", Module: "cloudflare-dns", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare DNS batch create", MatchMode: MatchPattern},
-		{Prefix: "/api/cloudflare", Module: "cloudflare", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Cloudflare DNS and edge resources (retired)"},
 		{Prefix: "/api/aliyun", Module: "aliyun", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Aliyun DNS and compute"},
 		{Prefix: "/api/tencent", Module: "tencent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Tencent DNS and compute"},
 		{Prefix: "/api/koyeb", Module: "koyeb", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Koyeb accounts and services"},
 		{Prefix: "/api/flyio", Module: "flyio", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Fly.io accounts, apps, and machines"},
 
 		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
-		{Prefix: "/api/chat", Module: "chat", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Legacy chat personas, sessions, and upload routes (retired)"},
 		{Prefix: "/v1", Module: "openai-compatible", Owner: OwnerGo, Auth: AuthAPIKey, ResponseMode: ResponseStream, Description: "OpenAI-compatible API"},
 
 		// Server Agent routes (Wave 5b)
@@ -213,12 +203,12 @@ func Routes() []Route {
 		{Prefix: "/api/server/accounts/import", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account import", MatchMode: MatchExact},
 		{Prefix: "/api/server/accounts/reorder", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account order update", MatchMode: MatchExact},
 		{Prefix: "/api/server/accounts/{id}", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account read/update/delete", MatchMode: MatchPattern},
-		{Prefix: "/api/server/accounts", Module: "server-api", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Server list API (dashboard)", MatchMode: MatchExact},
+		{Prefix: "/api/server/accounts", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account list", MatchMode: MatchExact},
 
 		// REST API for server list and details
-		{Prefix: "/api/server/s/{id}/history", Module: "server-api", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Server metrics history", MatchMode: MatchPattern},
-		{Prefix: "/api/server/s/{id}", Module: "server-api", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Server detail", MatchMode: MatchPattern},
-		{Prefix: "/api/server/s", Module: "server-api", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Server list", MatchMode: MatchExact},
+		{Prefix: "/api/server/s/{id}/history", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server metrics history", MatchMode: MatchPattern},
+		{Prefix: "/api/server/s/{id}", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server detail", MatchMode: MatchPattern},
+		{Prefix: "/api/server/s", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server list", MatchMode: MatchExact},
 
 		{Prefix: "/api/server/credentials/default", Module: "server-credentials", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Default server credential", MatchMode: MatchExact},
 		{Prefix: "/api/server/credentials/{id}/default", Module: "server-credentials", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Set default server credential", MatchMode: MatchPattern},
@@ -245,9 +235,6 @@ func Routes() []Route {
 		{Prefix: "/api/server/snippets", Module: "server-snippets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server command snippet list/create", MatchMode: MatchExact},
 		{Prefix: "/api/server/monitor/config", Module: "server-monitor", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server monitor configuration", MatchMode: MatchExact},
 		{Prefix: "/api/server/monitor/logs", Module: "server-monitor", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server monitor logs", MatchMode: MatchExact},
-		{Prefix: "/ws/logs", Module: "logs-ws", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseWebSocket, Description: "Log WebSocket (retired)"},
-		{Prefix: "/ws/metrics", Module: "metrics-ws", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseWebSocket, Description: "Metrics WebSocket (retired)"},
-		{Prefix: "/socket.io", Module: "agent-socketio", Owner: OwnerRetired, Auth: AuthAgent, ResponseMode: ResponseWebSocket, Description: "Socket.IO compatibility (retired)"},
 	}
 }
 

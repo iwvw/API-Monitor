@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -229,7 +230,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 			"legacyEnabled": false,
 			"routeSummary":  manifest.Summary(),
 			"routes":        manifest.Routes(),
-			"retired":       []string{"music", "openlist"},
+			"retired":       []string{},
 		})
 	case "/api/auth", "/api/auth/2fa", "/api/auth/2fa/status":
 		s.auth.ServeHTTP(w, r)
@@ -300,7 +301,11 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 如果是根路径或没有文件扩展名（可能是 SPA 路由），返回 index.html
-	cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+	cleanPath, ok := cleanStaticRequestPath(r.URL.EscapedPath())
+	if !ok {
+		response.Error(w, http.StatusNotFound, "static asset not found")
+		return
+	}
 	ext := filepath.Ext(cleanPath)
 	if cleanPath == "." || cleanPath == "" || ext == "" {
 		indexPath := filepath.Join(s.cfg.DistDir, "index.html")
@@ -322,11 +327,14 @@ func (s *Server) tryServeFile(w http.ResponseWriter, r *http.Request, dir string
 		return false
 	}
 
-	cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
-	if cleanPath == "." || cleanPath == "" {
-		cleanPath = "index.html"
+	cleanPath, ok := cleanStaticRequestPath(r.URL.EscapedPath())
+	if !ok {
+		return false
 	}
-	candidate := filepath.Join(dir, cleanPath)
+	candidate, ok := joinStaticPath(dir, cleanPath)
+	if !ok {
+		return false
+	}
 
 	// 只在文件存在时返回
 	if fileInfo, err := os.Stat(candidate); err == nil && !fileInfo.IsDir() {
@@ -342,7 +350,10 @@ func (s *Server) tryServeAssetFallback(w http.ResponseWriter, r *http.Request) b
 		return false
 	}
 
-	cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+	cleanPath, ok := cleanStaticRequestPath(r.URL.EscapedPath())
+	if !ok {
+		return false
+	}
 	switch cleanPath {
 	case "logo.svg":
 		matches, err := filepath.Glob(filepath.Join(s.cfg.DistDir, "assets", "logo-*.svg"))
@@ -362,6 +373,50 @@ func (s *Server) tryServeAssetFallback(w http.ResponseWriter, r *http.Request) b
 	default:
 		return false
 	}
+}
+
+func cleanStaticRequestPath(escapedPath string) (string, bool) {
+	decoded, err := url.PathUnescape(escapedPath)
+	if err != nil {
+		return "", false
+	}
+	normalized := strings.ReplaceAll(decoded, "\\", "/")
+	normalized = strings.TrimPrefix(normalized, "/")
+	if normalized == "" || normalized == "." {
+		return "index.html", true
+	}
+	for _, part := range strings.Split(normalized, "/") {
+		if part == ".." {
+			return "", false
+		}
+	}
+	cleanPath := filepath.Clean(filepath.FromSlash(normalized))
+	if cleanPath == "." || cleanPath == "" {
+		return "index.html", true
+	}
+	if cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanPath) || filepath.VolumeName(cleanPath) != "" {
+		return "", false
+	}
+	return cleanPath, true
+}
+
+func joinStaticPath(rootDir, relPath string) (string, bool) {
+	root, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", false
+	}
+	candidate, err := filepath.Abs(filepath.Join(root, relPath))
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return "", false
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return candidate, true
 }
 
 func (s *Server) applySecurityHeaders(w http.ResponseWriter) {

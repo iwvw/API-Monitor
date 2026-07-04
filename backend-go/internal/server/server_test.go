@@ -230,6 +230,40 @@ func TestStaticRouteFallsBackToHashedDistLogo(t *testing.T) {
 	}
 }
 
+func TestStaticRouteRejectsEncodedPathTraversal(t *testing.T) {
+	root := t.TempDir()
+	distDir := filepath.Join(root, "dist")
+	if err := os.MkdirAll(distDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "secret.txt"), []byte("do not serve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DistDir: distDir,
+		DataDir: filepath.Join(root, "data"),
+		DBName:  "data.db",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/%2e%2e/secret.txt", nil)
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "do not serve") {
+		t.Fatalf("path traversal response leaked file body: %q", res.Body.String())
+	}
+}
+
 func TestMigrationStatus(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/migration/status", nil)
 	res := httptest.NewRecorder()
@@ -255,36 +289,36 @@ func TestMigrationStatus(t *testing.T) {
 	if payload.Data.LegacyEnabled {
 		t.Fatal("legacy adapter should be disabled in test config")
 	}
-	if len(payload.Data.Retired) != 2 || payload.Data.Retired[0] != "music" || payload.Data.Retired[1] != "openlist" {
+	if len(payload.Data.Retired) != 0 {
 		t.Fatalf("retired modules = %#v", payload.Data.Retired)
 	}
 }
 
-func TestRetiredMusicReturnsGone(t *testing.T) {
+func TestRetiredMusicRouteIsRemoved(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/music/search", nil)
 	res := httptest.NewRecorder()
 
 	testServer(t).ServeHTTP(res, req)
 
-	if res.Code != http.StatusGone {
-		t.Fatalf("status = %d, want %d", res.Code, http.StatusGone)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusNotFound)
 	}
 }
 
-func TestRetiredCloudflareFallbackReturnsGoneWithoutLegacyAdapter(t *testing.T) {
+func TestRetiredCloudflareFallbackIsRemoved(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/cloudflare/accounts/cf_smoke/unimplemented-deep-path", nil)
 	res := httptest.NewRecorder()
 
 	testServer(t).ServeHTTP(res, req)
 
-	if res.Code != http.StatusGone {
-		t.Fatalf("status = %d, want %d", res.Code, http.StatusGone)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", res.Code, http.StatusNotFound)
 	}
 }
 
-func TestRetiredCloudflareFallbackDoesNotProxyToLegacyAdapter(t *testing.T) {
+func TestRemovedCloudflareFallbackDoesNotProxyToLegacyAdapter(t *testing.T) {
 	legacy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("retired route should not be proxied to legacy: %s", r.URL.Path)
+		t.Fatalf("removed route should not be proxied to legacy: %s", r.URL.Path)
 	}))
 	defer legacy.Close()
 
@@ -301,19 +335,38 @@ func TestRetiredCloudflareFallbackDoesNotProxyToLegacyAdapter(t *testing.T) {
 
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusGone {
-		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusGone, res.Body.String())
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusNotFound, res.Body.String())
 	}
 }
 
-func TestCloudflareDeepFallbackIsRetired(t *testing.T) {
+func TestCloudflareDeepFallbackIsRemoved(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/cloudflare/accounts/cf_smoke/unimplemented-deep-path", nil)
 	res := httptest.NewRecorder()
 
 	testServer(t).ServeHTTP(res, req)
 
-	if res.Code != http.StatusGone {
-		t.Fatalf("deep cloudflare route status = %d, want %d; body=%s", res.Code, http.StatusGone, res.Body.String())
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("deep cloudflare route status = %d, want %d; body=%s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+}
+
+func TestServerInventoryRoutesRequireSession(t *testing.T) {
+	handler := testServer(t)
+	for _, path := range []string{
+		"/api/server/s",
+		"/api/server/s/server-1",
+		"/api/server/s/server-1/history",
+		"/api/server/accounts",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		res := httptest.NewRecorder()
+
+		handler.ServeHTTP(res, req)
+
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status = %d, want %d; body=%s", path, res.Code, http.StatusUnauthorized, res.Body.String())
+		}
 	}
 }
 
