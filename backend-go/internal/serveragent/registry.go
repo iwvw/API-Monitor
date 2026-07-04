@@ -23,11 +23,11 @@ type AgentConnection struct {
 
 // ConnectionRegistry Agent 连接注册表
 type ConnectionRegistry struct {
-	connections map[string]*AgentConnection // serverID -> connection
-	mu          sync.RWMutex
+	connections      map[string]*AgentConnection // serverID -> connection
+	mu               sync.RWMutex
 	heartbeatTimeout time.Duration
 	cleanupInterval  time.Duration
-	stopCh          chan struct{}
+	stopCh           chan struct{}
 }
 
 // NewConnectionRegistry 创建连接注册表
@@ -36,7 +36,7 @@ func NewConnectionRegistry() *ConnectionRegistry {
 		connections:      make(map[string]*AgentConnection),
 		heartbeatTimeout: 30 * time.Second,
 		cleanupInterval:  60 * time.Second,
-		stopCh:          make(chan struct{}),
+		stopCh:           make(chan struct{}),
 	}
 
 	// 启动清理协程
@@ -99,6 +99,22 @@ func (r *ConnectionRegistry) Disconnect(serverID string) {
 		r.disconnectLocked(conn)
 		delete(r.connections, serverID)
 	}
+}
+
+// DisconnectIfSocket disconnects only when the registered socket still matches.
+// This prevents an old session's late close callback from removing a newer
+// replacement connection for the same server.
+func (r *ConnectionRegistry) DisconnectIfSocket(serverID string, socket interface{}) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	conn, exists := r.connections[serverID]
+	if !exists || conn.Socket != socket {
+		return false
+	}
+	r.disconnectLocked(conn)
+	delete(r.connections, serverID)
+	return true
 }
 
 // disconnectLocked 断开连接（内部使用，需持有锁）
@@ -243,7 +259,9 @@ func (c *AgentConnection) SendEvent(event string, data interface{}) error {
 	}
 
 	// 兼容直接写入 WebSocket 场景
-	if ws, ok := socket.(interface{ WriteMessage(messageType int, data []byte) error }); ok {
+	if ws, ok := socket.(interface {
+		WriteMessage(messageType int, data []byte) error
+	}); ok {
 		return ws.WriteMessage(1, []byte(frame)) // 1 = TextMessage
 	}
 
@@ -296,7 +314,9 @@ func (b *FrontendBroadcaster) Broadcast(event string, data interface{}) {
 	}
 
 	for _, client := range clients {
-		if ws, ok := client.(interface{ WriteMessage(messageType int, data []byte) error }); ok {
+		if ws, ok := client.(interface {
+			WriteMessage(messageType int, data []byte) error
+		}); ok {
 			ws.WriteMessage(1, jsonData)
 		}
 	}

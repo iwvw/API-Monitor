@@ -70,8 +70,13 @@ async fn main() {
     let pty_sessions = Arc::new(Mutex::new(HashMap::<String, Arc<PtySession>>::new()));
     let task_progress = Arc::new(Mutex::new(HashMap::<String, TaskProgress>::new()));
 
-    // Keep dialing loop
+    // Keep dialing loop. A healthy long-lived connection resets the delay; only
+    // repeated short failures back off to avoid hammering the control plane.
+    let base_reconnect_delay = Duration::from_millis(config.reconnect_delay.max(250));
+    let max_reconnect_delay = Duration::from_secs(30);
+    let mut next_reconnect_delay = base_reconnect_delay;
     loop {
+        let connected_since = Instant::now();
         println!("[Agent] 正在连接服务器...");
         match run_client(
             config.clone(),
@@ -89,7 +94,20 @@ async fn main() {
                 eprintln!("[Agent] 运行错误: {}", e);
             }
         }
-        sleep(Duration::from_millis(config.reconnect_delay)).await;
+        if connected_since.elapsed() >= Duration::from_secs(60) {
+            next_reconnect_delay = base_reconnect_delay;
+        }
+        println!(
+            "[Agent] 将在 {}ms 后重连...",
+            next_reconnect_delay.as_millis()
+        );
+        sleep(next_reconnect_delay).await;
+        if connected_since.elapsed() < Duration::from_secs(60) {
+            next_reconnect_delay =
+                std::cmp::min(next_reconnect_delay.saturating_mul(2), max_reconnect_delay);
+        } else {
+            next_reconnect_delay = base_reconnect_delay;
+        }
     }
 }
 
@@ -201,10 +219,11 @@ async fn run_client(
     // Task to write outgoing messages to websocket
     let mut write_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            if ws_writer.send(Message::Text(msg.into())).await.is_err() {
-                break;
+            if let Err(err) = ws_writer.send(Message::Text(msg.into())).await {
+                return Err(format!("WebSocket 写入失败: {}", err));
             }
         }
+        Err("发送通道已关闭".to_string())
     });
 
     // 等待服务器握手和认证
@@ -240,13 +259,13 @@ async fn run_client(
                     }
                     continue;
                 }
-                Ok(Message::Close(_)) => {
+                Ok(Message::Close(frame)) => {
                     println!("[Agent] 收到 Close 帧");
-                    break;
+                    return Err(format!("收到 WebSocket Close 帧: {:?}", frame));
                 }
                 Err(e) => {
                     eprintln!("[Agent] WebSocket 读取错误: {}", e);
-                    break;
+                    return Err(format!("WebSocket 读取错误: {}", e));
                 }
                 _ => continue,
             };
@@ -413,12 +432,16 @@ async fn run_client(
                             *network_targets_clone.lock().await = targets;
                             println!("[Agent] 📶 收到服务端更新的拨测目标，共 {} 个", len);
                         }
-                    } else if event == EVENT_DASHBOARD_AUTH_FAIL {
-                        let reason: AuthFailPayload =
-                            serde_json::from_value(data).unwrap_or(AuthFailPayload {
-                                reason: "未知".to_string(),
-                            });
-                        eprintln!("[Agent] ❌ 认证失败: {}", reason.reason);
+                    } else if event == EVENT_DASHBOARD_AUTH_FAIL
+                        || event == EVENT_DASHBOARD_AUTH_ERROR
+                    {
+                        let reason = data
+                            .get("reason")
+                            .or_else(|| data.get("message"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("未知")
+                            .to_string();
+                        eprintln!("[Agent] ❌ 认证失败: {}", reason);
                         std::process::exit(1);
                     } else if event == EVENT_DASHBOARD_TASK {
                         if let Ok(task) = serde_json::from_value::<TaskPayload>(data) {
@@ -949,17 +972,26 @@ async fn run_client(
                 _ => {}
             }
         }
+        Err("WebSocket 读取循环结束".to_string())
     });
 
     // Run both tasks concurrently until connection breaks
     tokio::select! {
-        _ = &mut write_task => {
+        result = &mut write_task => {
             read_task.abort();
-            Err("Write task terminated".to_string())
+            match result {
+                Ok(Err(err)) => Err(err),
+                Ok(Ok(())) => Err("写入任务已结束".to_string()),
+                Err(err) => Err(format!("写入任务异常退出: {}", err)),
+            }
         }
-        _ = &mut read_task => {
+        result = &mut read_task => {
             write_task.abort();
-            Err("Read task terminated".to_string())
+            match result {
+                Ok(Err(err)) => Err(err),
+                Ok(Ok(())) => Err("读取任务已结束".to_string()),
+                Err(err) => Err(format!("读取任务异常退出: {}", err)),
+            }
         }
     }
 }

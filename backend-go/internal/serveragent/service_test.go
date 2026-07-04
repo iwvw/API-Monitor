@@ -947,6 +947,109 @@ func TestListAccountsReportsAgentMetricsFreshnessSeparately(t *testing.T) {
 	}
 }
 
+func TestListAccountsUsesLiveAgentConnectionAsOnlineStatus(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info, tags, order_index) VALUES
+		('live-agent', 'live', '0.0.0.0', 'agent', 'password', 'offline', '{}', '[]', 1)`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	service.registry.Register("live-agent", &taskReplySocket{t: t, service: service, reply: func(int, string) string { return "" }})
+
+	res := perform(service, http.MethodGet, "/api/server/accounts", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	list := payload["data"].([]interface{})
+	if len(list) != 1 {
+		t.Fatalf("expected one account, got %#v", list)
+	}
+	server := list[0].(map[string]interface{})
+	if server["status"] != "online" || server["agent_online"] != true {
+		t.Fatalf("live agent should override stale offline db status: %#v", server)
+	}
+}
+
+func TestConnectionRegistryIgnoresStaleSocketDisconnect(t *testing.T) {
+	registry := NewConnectionRegistry()
+	oldSocket := &taskReplySocket{t: t, reply: func(int, string) string { return "" }}
+	newSocket := &taskReplySocket{t: t, reply: func(int, string) string { return "" }}
+
+	registry.Register("agent-1", oldSocket)
+	registry.Register("agent-1", newSocket)
+
+	if registry.DisconnectIfSocket("agent-1", oldSocket) {
+		t.Fatal("old socket disconnect should not remove replacement connection")
+	}
+	conn, exists := registry.Get("agent-1")
+	if !exists || conn.Socket != newSocket {
+		t.Fatalf("replacement connection should remain registered: exists=%v conn=%#v", exists, conn)
+	}
+
+	if !registry.DisconnectIfSocket("agent-1", newSocket) {
+		t.Fatal("current socket disconnect should remove connection")
+	}
+	if _, exists := registry.Get("agent-1"); exists {
+		t.Fatal("current socket should be removed after matching disconnect")
+	}
+}
+
+func TestAgentSocketAuthenticationRequiresValidServerAndKey(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info, tags, order_index) VALUES
+		('auth-agent', 'auth', '0.0.0.0', 'agent', 'password', 'offline', '{}', '[]', 1)`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES ('global_agent_key', 'good-key', datetime('now'))`)
+	if err != nil {
+		t.Fatalf("insert key: %v", err)
+	}
+
+	badSession := &EngineIOSession{ID: "bad-auth", PendingMessages: []string{}}
+	service.engineIO.mu.Lock()
+	service.engineIO.sessions[badSession.ID] = badSession
+	service.engineIO.mu.Unlock()
+	service.engineIO.handleSocketIOMessage(badSession, `2["agent:connect",{"server_id":"auth-agent","key":"bad-key","hostname":"edge"}]`)
+	if _, exists := service.registry.Get("auth-agent"); exists {
+		t.Fatal("bad key should not register agent connection")
+	}
+	if badSession.Authenticated {
+		t.Fatal("bad key should leave session unauthenticated")
+	}
+	if joined := strings.Join(badSession.PendingMessages, "\n"); !strings.Contains(joined, "dashboard:auth_fail") || strings.Contains(joined, "dashboard:auth_ok") {
+		t.Fatalf("expected only auth_fail for bad key, messages=%s", joined)
+	}
+
+	missingSession := &EngineIOSession{ID: "missing-auth", PendingMessages: []string{}}
+	service.engineIO.mu.Lock()
+	service.engineIO.sessions[missingSession.ID] = missingSession
+	service.engineIO.mu.Unlock()
+	service.engineIO.handleSocketIOMessage(missingSession, `2["agent:connect",{"server_id":"missing-agent","key":"good-key","hostname":"edge"}]`)
+	if _, exists := service.registry.Get("missing-agent"); exists {
+		t.Fatal("missing server should not register agent connection")
+	}
+	if joined := strings.Join(missingSession.PendingMessages, "\n"); !strings.Contains(joined, "dashboard:auth_fail") || strings.Contains(joined, "dashboard:auth_ok") {
+		t.Fatalf("expected only auth_fail for missing server, messages=%s", joined)
+	}
+
+	goodSession := &EngineIOSession{ID: "good-auth", PendingMessages: []string{}}
+	service.engineIO.mu.Lock()
+	service.engineIO.sessions[goodSession.ID] = goodSession
+	service.engineIO.mu.Unlock()
+	service.engineIO.handleSocketIOMessage(goodSession, `2["agent:connect",{"server_id":"auth-agent","key":"good-key","hostname":"edge"}]`)
+	if _, exists := service.registry.Get("auth-agent"); !exists {
+		t.Fatal("valid agent should register connection")
+	}
+	if !goodSession.Authenticated || goodSession.ServerID != "auth-agent" {
+		t.Fatalf("valid agent should authenticate session: %#v", goodSession)
+	}
+	if joined := strings.Join(goodSession.PendingMessages, "\n"); !strings.Contains(joined, "dashboard:auth_ok") || strings.Contains(joined, "dashboard:auth_fail") {
+		t.Fatalf("expected auth_ok for valid agent, messages=%s", joined)
+	}
+}
+
 func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	service, db := testService(t)
 

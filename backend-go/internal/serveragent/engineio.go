@@ -297,8 +297,6 @@ func (s *EngineIOServer) handleWebSocketMessages(session *EngineIOSession, conn 
 		if s.metricsHub != nil {
 			s.metricsHub.Unregister(session.ID)
 		}
-	} else if session.Authenticated && session.ServerID != "" {
-		s.registry.Disconnect(session.ServerID)
 	}
 	if s.metricsHub != nil {
 		s.metricsHub.UnregisterRoot(session.ID)
@@ -601,6 +599,28 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 				Version  string `json:"version"`
 			}
 			if err := json.Unmarshal(eventPayload, &authData); err == nil {
+				if s.service != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					err := s.service.validateAgentConnection(ctx, authData.ServerID, authData.Key)
+					cancel()
+					if err != nil {
+						session.mu.Lock()
+						session.ServerID = ""
+						session.Authenticated = false
+						session.mu.Unlock()
+						s.sendEvent(session, "dashboard:auth_fail", map[string]interface{}{
+							"success": false,
+							"reason":  err.Error(),
+						})
+						applog.Warn(context.Background(), "serveragent", "agent authentication rejected",
+							"server_id", authData.ServerID,
+							"hostname", authData.Hostname,
+							"error", err.Error(),
+						)
+						return
+					}
+				}
+
 				session.mu.Lock()
 				session.ServerID = authData.ServerID
 				session.Authenticated = true

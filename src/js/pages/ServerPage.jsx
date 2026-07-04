@@ -1577,6 +1577,10 @@ const getServerMonitorModeLabel = (server = {}) => {
   return '-';
 };
 
+const isServerOnline = (server = {}) => (
+  server.status === 'online' || server.agent_online === true || server.agent_connected === true
+);
+
 const getGpuModelText = (gpu) => {
   if (!gpu) return '';
   if (typeof gpu === 'string') return gpu;
@@ -1855,9 +1859,9 @@ const getDockerOverviewScope = (tab) => {
 };
 
 const hasServerDockerInstalled = (server = {}) => {
-  const docker = server.info?.docker || {};
-  const containers = asArray(docker.containers);
-  return server.status === 'online' && (
+	const docker = server.info?.docker || {};
+	const containers = asArray(docker.containers);
+	return isServerOnline(server) && (
     !!docker.installed
     || containers.length > 0
     || toNumber(docker.runningCount ?? docker.running, 0) > 0
@@ -2324,7 +2328,7 @@ function ServerPage() {
           return updated;
         });
         const onlineServerIds = accounts
-          .filter(server => server.status === 'online' || server.is_online === true)
+				.filter(server => isServerOnline(server) || server.is_online === true)
           .map(server => server.id)
           .filter(Boolean);
         if (onlineServerIds.length > 0) {
@@ -3000,7 +3004,7 @@ function ServerPage() {
     const server = serverList.find(s => s.id === serverId);
     if (!server) return;
 
-    if (server.status !== 'online') {
+		if (!isServerOnline(server)) {
       toast.warning('主机未在线，无法查看详情');
       return;
     }
@@ -3820,9 +3824,9 @@ function ServerPage() {
     setShowUpgradeModal(true);
   };
 
-  const getAgentUpgradeTargets = () => serverList.filter(s =>
-    s.status === 'online' || s.monitor_mode === 'agent' || s.host === '0.0.0.0'
-  );
+	const getAgentUpgradeTargets = () => serverList.filter(s =>
+		isServerOnline(s) || s.monitor_mode === 'agent' || s.host === '0.0.0.0'
+	);
 
   const performOneKeyUpgrade = async () => {
     if (upgrading) return;
@@ -5439,7 +5443,9 @@ function ServerPage() {
       if (serverStatusFilter === 'warning') {
         list = list.filter(s => resolveServerMetricsHealth(s).stale);
       } else {
-        list = list.filter(s => s.status === serverStatusFilter);
+				list = list.filter(s => (
+					serverStatusFilter === 'online' ? isServerOnline(s) : !isServerOnline(s)
+				));
       }
     }
     if (serverSearchText.trim()) {
@@ -5456,7 +5462,7 @@ function ServerPage() {
 
   const statsSummary = useMemo(() => {
     const total = serverList.length;
-    const online = serverList.filter(s => s.status === 'online').length;
+		const online = serverList.filter(s => isServerOnline(s)).length;
     const offline = total - online;
     const warning = serverList.filter(s => resolveServerMetricsHealth(s).stale).length;
     return { total, online, offline, warning };
@@ -5497,7 +5503,7 @@ function ServerPage() {
         <ContextMenu.Popup className="z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-            disabled={server.status !== 'online' || server.loading}
+						disabled={!isServerOnline(server) || server.loading}
             onClick={(event) => {
               event.stopPropagation();
               refreshServerInfo(server.id);
@@ -5529,7 +5535,7 @@ function ServerPage() {
           <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-            disabled={server.status !== 'online'}
+						disabled={!isServerOnline(server)}
             onClick={(event) => {
               event.stopPropagation();
               runServerPowerAction(server.id, 'reboot');
@@ -5540,7 +5546,7 @@ function ServerPage() {
           </ContextMenu.Item>
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
-            disabled={server.status !== 'online'}
+						disabled={!isServerOnline(server)}
             onClick={(event) => {
               event.stopPropagation();
               runServerPowerAction(server.id, 'shutdown');
@@ -5826,7 +5832,7 @@ function ServerPage() {
                         const dockerContainers = server.info?.docker?.containers || [];
                         const runningContainers = dockerContainers.filter(c => getDockerContainerState(c) === 'running').length;
                         const lifecycle = getServerLifecycle(server);
-                        const canRefresh = server.status === 'online' && !server.loading;
+						const canRefresh = isServerOnline(server) && !server.loading;
                         const networkQuality = networkQualityByServer[server.id] || {};
                         const networkQualitySeries = isExpanded ? buildNetworkQualitySeries(networkQuality, isDarkMode) : [];
                         const hasNetworkQualityData = isExpanded && networkQualitySeries.some(series => series.data.length > 0);
@@ -6286,7 +6292,7 @@ function ServerPage() {
                           </div>
 
                           <div className="contents sm:order-2 sm:ml-auto sm:flex sm:shrink-0 sm:flex-nowrap sm:items-center sm:gap-2.5">
-                            {server.status === 'online' && server.info && (
+							{isServerOnline(server) && server.info && (
                               <div className="order-3 col-span-2 grid w-full grid-cols-5 gap-1.5 text-[10px] font-semibold text-kumo-subtle sm:order-none sm:col-span-1 sm:flex sm:h-9 sm:w-auto sm:items-center sm:gap-2.5">
                                 {hasGpuData && (
                                   <CompactMetricBar

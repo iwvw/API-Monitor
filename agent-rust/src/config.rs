@@ -106,7 +106,7 @@ impl Config {
             agent_key,
             report_interval,
             host_info_interval: 600_000, // 10 minutes
-            reconnect_delay: 5000,       // 5 seconds
+            reconnect_delay: 1000,       // 1 second; repeated short failures back off in main loop
             debug,
         })
     }

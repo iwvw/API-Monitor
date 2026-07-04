@@ -59,6 +59,40 @@ func (s *Service) SetNotifier(n Notifier) {
 	s.notifier = n
 }
 
+func (s *Service) validateAgentConnection(ctx context.Context, serverID, key string) error {
+	serverID = strings.TrimSpace(serverID)
+	key = strings.TrimSpace(key)
+	if serverID == "" {
+		return errors.New("server_id is required")
+	}
+	if key == "" {
+		return errors.New("agent key is required")
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	expectedKey, err := s.getOrGenerateAgentKey(ctx, db)
+	if err != nil {
+		return err
+	}
+	if key != expectedKey {
+		return errors.New("invalid agent key")
+	}
+
+	var exists int
+	if err := db.QueryRowContext(ctx, "SELECT 1 FROM server_accounts WHERE id = ?", serverID).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("server not found")
+		}
+		return err
+	}
+	return nil
+}
+
 func New(cfg config.Config) *Service {
 	registry := NewConnectionRegistry()
 	taskRegistry := NewTaskRegistry()
@@ -369,8 +403,7 @@ func New(cfg config.Config) *Service {
 				sid := sess.ServerID
 				ns := sess.Namespace
 				sess.mu.RUnlock()
-				if ns != "/metrics" && sid != "" {
-					registry.Disconnect(sid)
+				if ns != "/metrics" && sid != "" && registry.DisconnectIfSocket(sid, sess) {
 
 					go func(serverID string) {
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2462,7 +2495,11 @@ func (s *Service) buildAccountResponse(
 ) map[string]interface{} {
 	_, agentOnline := s.registry.Get(id)
 	health := s.resolveAgentMetricsHealth(id, cachedInfo, agentOnline, time.Now())
-	isOnline := status == "online"
+	effectiveStatus := status
+	if agentOnline {
+		effectiveStatus = "online"
+	}
+	isOnline := effectiveStatus == "online"
 
 	decryptedPassword := s.decryptField(password)
 	decryptedPrivateKey := s.decryptField(privateKey)
@@ -2480,7 +2517,7 @@ func (s *Service) buildAccountResponse(
 		"password":              decryptedPassword,
 		"private_key":           decryptedPrivateKey,
 		"passphrase":            decryptedPassphrase,
-		"status":                status,
+		"status":                effectiveStatus,
 		"monitor_mode":          monitorMode,
 		"last_check_time":       nullStringVal(lastCheckTime),
 		"last_check_status":     nullStringVal(lastCheckStatus),

@@ -7,6 +7,7 @@ pub const EVENT_AGENT_STATE: &str = "agent:state";
 pub const EVENT_AGENT_TASK_RESULT: &str = "agent:task_result";
 pub const EVENT_DASHBOARD_AUTH_OK: &str = "dashboard:auth_ok";
 pub const EVENT_DASHBOARD_AUTH_FAIL: &str = "dashboard:auth_fail";
+pub const EVENT_DASHBOARD_AUTH_ERROR: &str = "dashboard:auth_error";
 pub const EVENT_DASHBOARD_TASK: &str = "dashboard:task";
 pub const EVENT_DASHBOARD_PTY_INPUT: &str = "dashboard:pty_input";
 pub const EVENT_DASHBOARD_PTY_RESIZE: &str = "dashboard:pty_resize";
@@ -21,11 +22,6 @@ pub struct AuthPayload {
     pub key: String,
     pub hostname: String,
     pub version: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct AuthFailPayload {
-    pub reason: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
