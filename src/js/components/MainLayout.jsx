@@ -7,23 +7,10 @@ import {
 import { Tabs } from '@cloudflare/kumo';
 import AppPageHeader, { AppBreadcrumbs } from './AppPageHeader.jsx';
 import {
-  LayoutDashboard,
-  Bot,
-  Terminal,
-  Cpu,
-  Cloud,
-  Globe,
-  Database,
   Server,
-  ShieldCheck,
-  Activity,
-  FolderOpen,
-  FileText,
-  Bell,
   LogOut,
-  Hexagon,
   Settings,
-  Clock
+  getModuleIconComponent,
 } from './Icons.jsx';
 
 const DashboardPage = lazy(() => import('../pages/DashboardPage.jsx'));
@@ -104,26 +91,6 @@ class ModuleErrorBoundary extends React.Component {
     );
   }
 }
-
-// 图标映射配置
-const ICON_MAP = {
-  dashboard: LayoutDashboard,
-  openai: Bot,
-
-
-  paas: Cloud,
-  dns: Globe,
-  aliyun: Database,
-  tencent: Hexagon,
-  server: Server,
-  scheduler: Clock,
-  totp: ShieldCheck,
-  uptime: Activity,
-  filebox: FolderOpen,
-  notification: Bell,
-  apidocs: FileText,
-  systemlogs: FileText,
-};
 
 const MODULE_PATHS = Object.keys(MODULE_CONFIG).reduce((paths, moduleId) => {
   paths[moduleId] = `/${moduleId}`;
@@ -365,7 +332,7 @@ function MainLayout() {
       case 'systemlogs':
         return <SystemLogsPage />;
       default:
-        const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
+        const ActiveIcon = getModuleIconComponent(mainActiveTab, Server);
         return (
           <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6 app-card max-w-xl mx-auto">
             <div className="w-16 h-16 rounded-full app-subcard bg-kumo-recessed flex items-center justify-center mb-5 text-kumo-brand">
@@ -411,7 +378,7 @@ function MainLayout() {
                       key={module}
                       module={module}
                       active={mainActiveTab === module}
-                      icon={ICON_MAP[module] || Server}
+                      icon={getModuleIconComponent(module, Server)}
                       onNavigate={navigateToModule}
                     />
                   ))}
@@ -426,7 +393,7 @@ function MainLayout() {
                 <SidebarModuleButton
                   module="apidocs"
                   active={mainActiveTab === 'apidocs'}
-                  icon={FileText}
+                  icon={getModuleIconComponent('apidocs', Server)}
                   onNavigate={navigateToModule}
                 />
               )}
@@ -435,7 +402,7 @@ function MainLayout() {
                 <SidebarModuleButton
                   module="systemlogs"
                   active={mainActiveTab === 'systemlogs'}
-                  icon={FileText}
+                  icon={getModuleIconComponent('systemlogs', Server)}
                   onNavigate={navigateToModule}
                 />
               )}

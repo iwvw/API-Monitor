@@ -70,10 +70,6 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@xterm')) {
                 return 'vendor-xterm';
               }
-              // Pixi 渲染引擎
-              if (id.includes('@pixi') || id.includes('pixi-filters')) {
-                return 'vendor-pixi';
-              }
               if (id.includes('echarts')) {
                 return 'vendor-echarts';
               }
@@ -85,7 +81,6 @@ export default defineConfig(({ mode }) => {
                 id.includes('axios') ||
                 id.includes('marked') ||
                 id.includes('dompurify') ||
-                id.includes('uuid') ||
                 id.includes('zustand')
               ) {
                 return 'vendor-utils';

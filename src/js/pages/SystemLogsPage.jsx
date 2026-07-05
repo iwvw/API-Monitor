@@ -79,7 +79,7 @@ export default function SystemLogsPage() {
   }, [autoRefresh, level, query]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       <LayerCard className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-kumo-line pb-3">
           <div className="min-w-0">

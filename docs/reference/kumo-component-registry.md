@@ -4650,12 +4650,12 @@ Example 9:
       <Input
         label="API Key (default)"
         type="password"
-        placeholder="sk_live_..."
+        placeholder="<API_KEY>"
       />
       <Input
         label="API Key (passwordManagerIgnore)"
         type="password"
-        placeholder="sk_live_..."
+        placeholder="<API_KEY>"
         passwordManagerIgnore
       />
     </div>
@@ -4688,7 +4688,7 @@ Example 12:
 <Input
       label="API Key"
       labelTooltip="Find this in your dashboard under Settings > API Keys"
-      placeholder="sk_live_..."
+      placeholder="<API_KEY>"
     />
 ```
 
@@ -4924,7 +4924,7 @@ Example 4:
       <InputGroup className="w-full max-w-3xs">
         <InputGroup.Input
           type={show ? "text" : "password"}
-          defaultValue="password"
+          defaultValue="<PASSWORD>"
           aria-label="Password"
         />
         <InputGroup.Addon align="end">
@@ -5208,7 +5208,7 @@ Example 3:
 <Input
       label="API Key"
       labelTooltip="Find this in your dashboard settings under API > Keys"
-      placeholder="sk_live_..."
+      placeholder="<API_KEY>"
     />
 ```
 
@@ -7253,7 +7253,7 @@ Example 2:
           <SensitiveInput
             label={`${size} size`}
             size={size}
-            defaultValue="secret-api-key-123"
+            defaultValue="<SECRET>"
           />
         </div>
       ))}
@@ -7274,7 +7274,7 @@ Example 3:
       </div>
       <div className="flex gap-2">
         <Button
-          onClick={() => setValue("new-secret-" + Date.now())}
+          onClick={() => setValue("<SECRET>-" + Date.now())}
           variant="primary"
           size="sm"
         >
@@ -7300,12 +7300,12 @@ Example 4:
       <SensitiveInput label="Disabled" defaultValue="cannot-edit" disabled />
       <SensitiveInput
         label="Read-only"
-        defaultValue="view-only-secret-key"
+        defaultValue="<SECRET>"
         readOnly
       />
       <SensitiveInput
         label="With Description"
-        defaultValue="my-secret-value"
+        defaultValue="<SECRET>"
         description="Keep this value secure and don't share it"
       />
     </div>
@@ -10214,7 +10214,7 @@ Example 2:
           </p>
           <Code
             lang="bash"
-            code='curl -H "Authorization: Bearer YOUR_API_KEY" https://api.example.com'
+            code='curl -H "Authorization: Bearer <API_KEY>" https://api.example.com'
           />
         </Surface>
       }

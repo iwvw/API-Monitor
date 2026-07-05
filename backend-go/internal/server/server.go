@@ -126,6 +126,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.HasPrefix(r.URL.Path, "/api/server/public/") {
+		s.system.RecordAPICall(r.Method, r.URL.Path)
+		s.server.ServeHTTP(w, r)
+		return
+	}
+
 	if route, ok := manifest.Match(r.URL.EscapedPath()); ok {
 		switch route.Owner {
 		case manifest.OwnerGo:

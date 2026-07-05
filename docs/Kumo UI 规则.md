@@ -1,4 +1,4 @@
-# Kumo-only UI 迁移规则
+# Kumo-only UI 规则
 
 最后更新：2026-06-09
 

@@ -1,6 +1,6 @@
 # API Monitor API 接口文档
 
-> **版本**: v0.1.6  
+> **版本**: v2.0.0  
 > **最后更新**: 2026-06-16  
 > **Base URL**: `http://your-domain:3000`
 
@@ -31,9 +31,9 @@ API Monitor 支持以下认证方式:
 | 认证方式 | 适用场景 | 请求头 |
 |---------|---------|--------|
 | **Session** | Web 管理界面 | `Cookie: session_id=xxx` |
-| **Admin Password** | 临时访问 | `x-admin-password: your_password` |
+| **Admin Password** | 临时访问 | `x-admin-password: <PASSWORD>` |
 | **API Key** | OpenAI 兼容 API | `Authorization: Bearer sk-xxx` |
-| **Agent Key** | Agent 连接 | `x-agent-key: agent_key_here` |
+| **Agent Key** | Agent 连接 | `x-agent-key: <AGENT_KEY>` |
 
 ### Session 认证流程
 
@@ -98,7 +98,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "password": "your_password",
+  "password": "<PASSWORD>",
   "totpToken": "123456"  // 可选，启用2FA时必填
 }
 ```
@@ -176,7 +176,7 @@ GET /api/auth/2fa/status
 ```json
 {
   "enabled": true,
-  "secret": "BASE32SECRETHERE"  // 仅在启用时返回
+  "secret": "<TOTP_SECRET>"  // 仅在启用时返回
 }
 ```
 
@@ -197,7 +197,7 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "secret": "BASE32SECRET",  // 启用时返回
+  "secret": "<TOTP_SECRET>",  // 启用时返回
   "qrcode": "data:image/png;base64,..."  // 启用时返回
 }
 ```
@@ -374,7 +374,7 @@ Content-Type: application/json
 {
   "name": "New Account",
   "email": "user@example.com",
-  "apiToken": "cloudflare_api_token_here"
+  "apiToken": "<CLOUDFLARE_API_TOKEN>"
 }
 ```
 
@@ -398,7 +398,7 @@ Content-Type: application/json
 
 {
   "name": "Updated Name",
-  "apiToken": "new_token_here"
+  "apiToken": "<CLOUDFLARE_API_TOKEN>"
 }
 ```
 
@@ -482,7 +482,7 @@ GET /api/cloudflare/accounts/{accountId}/zones/{zoneId}/records
       "id": "record_id",
       "type": "A",
       "name": "www.example.com",
-      "content": "1.2.3.4",
+      "content": "203.0.113.10",
       "proxied": true,
       "ttl": 1
     }
@@ -500,7 +500,7 @@ Content-Type: application/json
 {
   "type": "A",
   "name": "api",
-  "content": "5.6.7.8",
+  "content": "198.51.100.20",
   "proxied": true,
   "ttl": 1
 }
@@ -576,7 +576,7 @@ GET /api/server/accounts
     {
       "id": 1,
       "name": "Production Server",
-      "host": "192.168.1.100",
+      "host": "203.0.113.100",
       "port": 22,
       "status": "online",
       "agentConnected": true,
@@ -623,10 +623,10 @@ Content-Type: application/json
 
 {
   "name": "New Server",
-  "host": "192.168.1.101",
+  "host": "203.0.113.101",
   "port": 22,
   "username": "root",
-  "password": "password_here",  // 或使用 privateKey
+  "password": "<PASSWORD>",  // 或使用 privateKey
   "agentEnabled": true
 }
 ```
@@ -650,7 +650,7 @@ POST /api/server/test-connection
 Content-Type: application/json
 
 {
-  "host": "192.168.1.100",
+  "host": "203.0.113.100",
   "port": 22,
   "username": "root",
   "password": "password"
@@ -789,7 +789,7 @@ Content-Type: application/json
 **请求**:
 ```http
 GET /v1/models
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer <API_KEY>
 ```
 
 **响应**:
@@ -818,7 +818,7 @@ Authorization: Bearer sk-your-api-key
 ```http
 POST /v1/chat/completions
 Content-Type: application/json
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer <API_KEY>
 
 {
   "model": "gpt-4",
@@ -890,7 +890,7 @@ Content-Type: application/json
 {
   "name": "Custom Endpoint",
   "baseUrl": "https://custom-api.example.com/v1",
-  "apiKey": "sk-custom-key-here",
+  "apiKey": "<API_KEY>",
   "enabled": true
 }
 ```
@@ -944,7 +944,7 @@ Content-Type: application/json
 
 {
   "name": "Google",
-  "secret": "BASE32SECRETHERE",
+  "secret": "<TOTP_SECRET>",
   "issuer": "Google",
   "account": "user@example.com",
   "type": "totp"
@@ -1053,7 +1053,7 @@ POST /api/filebox
 Content-Type: multipart/form-data
 
 file: [binary file data]
-password: "optional_password"
+password: "<OPTIONAL_PASSWORD>"
 expiresIn: 3600  // 秒
 ```
 
@@ -1074,7 +1074,7 @@ expiresIn: 3600  // 秒
 **请求**:
 ```http
 GET /api/filebox/{id}
-x-filebox-password: optional_password
+x-filebox-password: <OPTIONAL_PASSWORD>
 ```
 
 **响应**: 返回文件二进制数据
@@ -1098,7 +1098,7 @@ x-filebox-password: optional_password
 ```json
 ["auth", {
   "server_id": "1",
-  "agent_key": "your_agent_key_here"
+  "agent_key": "your_<AGENT_KEY>"
 }]
 ```
 
@@ -1166,20 +1166,20 @@ const getServers = async () => {
 # 登录
 curl -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"password":"admin123456"}'
+  -d '{"password":"<ADMIN_PASSWORD>"}'
 
 # 获取 Cloudflare 账号列表
 curl http://localhost:3000/api/cloudflare/accounts \
-  -H "x-admin-password: admin123456"
+  -H "x-admin-password: <ADMIN_PASSWORD>"
 
 # 创建 DNS 记录
 curl -X POST http://localhost:3000/api/cloudflare/accounts/1/zones/zone_id/records \
   -H "Content-Type: application/json" \
-  -H "x-admin-password: admin123456" \
+  -H "x-admin-password: <ADMIN_PASSWORD>" \
   -d '{
     "type": "A",
     "name": "api",
-    "content": "1.2.3.4",
+    "content": "203.0.113.10",
     "proxied": true
   }'
 ```
@@ -1190,7 +1190,7 @@ curl -X POST http://localhost:3000/api/cloudflare/accounts/1/zones/zone_id/recor
 import requests
 
 base_url = "http://localhost:3000"
-password = "admin123456"
+password = "<ADMIN_PASSWORD>"
 
 # 登录
 login_response = requests.post(

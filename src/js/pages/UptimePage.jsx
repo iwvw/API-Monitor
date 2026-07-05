@@ -15,8 +15,9 @@ import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
-import { Input } from '@cloudflare/kumo/components/input';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { ChartPalette, Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -41,7 +42,10 @@ import {
   Bell,
   Info,
   Download,
-  Upload
+  Upload,
+  Copy,
+  ExternalLink,
+  X
 } from '../components/Icons.jsx';
 
 echarts.use([
@@ -68,6 +72,35 @@ const formatLatencyAxis = (value) => {
   if (abs >= 1000) return `${(latency / 1000).toFixed(abs >= 10000 ? 0 : 1)}s`;
   return `${Math.round(latency)}ms`;
 };
+
+const createEmptyStatusPageForm = () => ({
+  id: null,
+  title: '',
+  slug: '',
+  domain: '',
+  description: '',
+  public: true,
+  hideTargets: false,
+  linkMonitorNames: false,
+  showOnDashboard: false,
+  cacheSeconds: 300,
+  monitorIds: [],
+});
+
+const normalizeStatusSlug = (value, fallback = 'status') => {
+  const text = String(value || fallback).trim().toLowerCase();
+  const slug = text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || fallback;
+};
+
+const normalizeStatusDomain = (value) => (
+  String(value || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .split('/')[0]
+    .replace(/\/+$/g, '')
+    .toLowerCase()
+);
 
 const parseUptimeBeatTime = (value) => {
   if (!value) return null;
@@ -493,6 +526,7 @@ function UptimePage() {
   const [selectedMonitorIds, setSelectedMonitorIds] = useState([]);
   const [monitorSelectionMode, setMonitorSelectionMode] = useState(false);
   const [expandedMonitorId, setExpandedMonitorId] = useState(null);
+  const [statusPageForm, setStatusPageForm] = useState(() => createEmptyStatusPageForm());
 
   // 通知渠道配置
   const [notificationChannels, setNotificationChannels] = useState([]);
@@ -672,6 +706,136 @@ function UptimePage() {
     } catch (e) {
       toast.error(e.message || '创建状态页失败');
     }
+  };
+
+  const getStatusPageBaseOrigin = () => {
+    const configured = String(useStore.getState().publicApiUrl || '').trim().replace(/\/+$/g, '');
+    return configured || window.location.origin;
+  };
+
+  const getStatusPagePublicUrl = (pageOrForm, mode = 'status') => {
+    const slug = normalizeStatusSlug(pageOrForm?.slug || pageOrForm?.title || 'status');
+    return `${getStatusPageBaseOrigin()}/${mode}/${encodeURIComponent(slug)}`;
+  };
+
+  const getStatusPageDomainUrl = (pageOrForm) => {
+    const domain = normalizeStatusDomain(pageOrForm?.domain);
+    return domain ? `https://${domain}` : '';
+  };
+
+  const copyStatusUrl = async (value, label = '公开地址') => {
+    if (!value) {
+      toast.warning('没有可复制的地址');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label}已复制`);
+    } catch (error) {
+      toast.error('复制失败');
+    }
+  };
+
+  const resetStatusPageForm = () => {
+    setStatusPageForm(createEmptyStatusPageForm());
+  };
+
+  const editStatusPage = (page) => {
+    const config = page.config || {};
+    setStatusPageForm({
+      id: page.id,
+      title: page.title || '',
+      slug: page.slug || '',
+      domain: page.domain || '',
+      description: page.description || '',
+      public: page.public !== false,
+      hideTargets: !!config.hideTargets,
+      linkMonitorNames: !!config.linkMonitorNames,
+      showOnDashboard: !!config.showOnDashboard,
+      cacheSeconds: page.cacheSeconds || 300,
+      monitorIds: Array.isArray(page.monitorIds) ? page.monitorIds : [],
+    });
+  };
+
+  const saveStatusPage = async () => {
+    const title = statusPageForm.title.trim();
+    const slug = normalizeStatusSlug(statusPageForm.slug || title);
+    if (!title) {
+      toast.warning('请填写状态页名称');
+      return;
+    }
+    if (statusPageForm.monitorIds.length === 0) {
+      toast.warning('请至少绑定一个监测目标');
+      return;
+    }
+    setUptimeMetaLoading(true);
+    try {
+      const payload = {
+        title,
+        slug,
+        domain: normalizeStatusDomain(statusPageForm.domain),
+        description: statusPageForm.description.trim(),
+        public: !!statusPageForm.public,
+        cacheSeconds: Math.max(30, Number(statusPageForm.cacheSeconds) || 300),
+        config: {
+          hideTargets: !!statusPageForm.hideTargets,
+          linkMonitorNames: !!statusPageForm.linkMonitorNames,
+          showOnDashboard: !!statusPageForm.showOnDashboard,
+        },
+        monitorIds: statusPageForm.monitorIds,
+      };
+      const isEdit = !!statusPageForm.id;
+      const response = await fetch(isEdit ? `/api/uptime/status-pages/${statusPageForm.id}` : '/api/uptime/status-pages', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || '保存状态页失败');
+      }
+      toast.success(isEdit ? '状态页已更新' : '状态页已创建');
+      resetStatusPageForm();
+      await loadUptimeStatusPages();
+    } catch (error) {
+      toast.error(error.message || '保存状态页失败');
+    } finally {
+      setUptimeMetaLoading(false);
+    }
+  };
+
+  const deleteStatusPage = async (page) => {
+    if (!(await dialog.deleteResource({
+      resourceType: '状态页',
+      resourceName: page.title || page.slug,
+    }))) return;
+    setUptimeMetaLoading(true);
+    try {
+      const response = await fetch(`/api/uptime/status-pages/${page.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || '删除状态页失败');
+      }
+      toast.success('状态页已删除');
+      if (statusPageForm.id === page.id) resetStatusPageForm();
+      await loadUptimeStatusPages();
+    } catch (error) {
+      toast.error(error.message || '删除状态页失败');
+    } finally {
+      setUptimeMetaLoading(false);
+    }
+  };
+
+  const toggleStatusPageMonitor = (monitorId, checked) => {
+    setStatusPageForm(prev => {
+      const ids = new Set(prev.monitorIds);
+      if (checked) ids.add(monitorId);
+      else ids.delete(monitorId);
+      return { ...prev, monitorIds: Array.from(ids) };
+    });
   };
 
   const createQuickMaintenance = async () => {
@@ -1159,7 +1323,7 @@ function UptimePage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs
@@ -1474,106 +1638,222 @@ function UptimePage() {
       )}
 
       {uptimeCurrentTab === 'status-pages' && (
-        <AppCard padding="lg" className="space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-kumo-line pb-4">
-            <div>
-              <h3 className="text-sm font-semibold text-kumo-strong flex items-center gap-2">
-                <Globe className="w-4 h-4" />
-                状态页
-              </h3>
-              <p className="text-xs text-kumo-subtle mt-1">
-                对外公开监控摘要，默认页会绑定当前全部监测目标。
-              </p>
+        <div className="grid gap-4 xl:grid-cols-[minmax(24rem,0.9fr)_minmax(0,1.1fr)]">
+          <AppCard padding="lg" className="space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-kumo-line pb-4">
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                  <Globe className="h-4 w-4" />
+                  {statusPageForm.id ? '编辑状态页' : '新建状态页'}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-kumo-subtle">
+                  生成可公开访问的单页状态看板，可绑定独立域名或使用 /status/slug。
+                </p>
+              </div>
+              {statusPageForm.id && (
+                <Button size="sm" variant="secondary" shape="square" icon={<X className="h-3.5 w-3.5" />} onClick={resetStatusPageForm} aria-label="取消编辑" />
+              )}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<RotateCw className="w-3.5 h-3.5" />}
-                onClick={loadUptimeStatusPages}
-                disabled={uptimeMetaLoading}
-              >
-                刷新
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                icon={<Plus className="w-3.5 h-3.5" />}
-                onClick={createDefaultStatusPage}
-                disabled={uptimeMetaLoading}
-              >
-                生成默认页
-              </Button>
-            </div>
-          </div>
 
-          <DataTableFrame>
-            <Table layout="fixed">
-              <Table.Header variant="compact">
-                <Table.Row>
-                  <Table.Head className="w-44">名称</Table.Head>
-                  <Table.Head className="w-36">Slug</Table.Head>
-                  <Table.Head>公开地址</Table.Head>
-                  <Table.Head className="w-24 text-center">公开</Table.Head>
-                  <Table.Head className="w-28">缓存</Table.Head>
-                  <Table.Head className="w-36">更新时间</Table.Head>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {uptimeMetaLoading ? (
-                  Array.from({ length: 3 }).map((_, index) => (
-                    <Table.Row key={index}>
-                      <Table.Cell colSpan={6}>
-                        <SkeletonLine className="h-4 w-full" />
-                      </Table.Cell>
-                    </Table.Row>
-                  ))
-                ) : uptimeStatusPages.length === 0 ? (
-                  <Table.Row>
-                    <Table.Cell colSpan={6} className="py-10 text-center text-kumo-subtle">
-                      暂无状态页。
-                    </Table.Cell>
-                  </Table.Row>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                size="sm"
+                label="名称"
+                value={statusPageForm.title}
+                onChange={(event) => setStatusPageForm(prev => ({
+                  ...prev,
+                  title: event.target.value,
+                  slug: prev.slug || normalizeStatusSlug(event.target.value),
+                }))}
+                placeholder="DSUK Hub 状态"
+              />
+              <Input
+                size="sm"
+                label="Slug"
+                value={statusPageForm.slug}
+                onChange={(event) => setStatusPageForm(prev => ({ ...prev, slug: normalizeStatusSlug(event.target.value) }))}
+                placeholder="demo"
+              />
+              <Input
+                size="sm"
+                label="自定义域名"
+                value={statusPageForm.domain}
+                onChange={(event) => setStatusPageForm(prev => ({ ...prev, domain: normalizeStatusDomain(event.target.value) }))}
+                placeholder="status.example.com"
+              />
+              <Input
+                size="sm"
+                label="缓存秒数"
+                type="number"
+                min="30"
+                value={statusPageForm.cacheSeconds}
+                onChange={(event) => setStatusPageForm(prev => ({ ...prev, cacheSeconds: event.target.value }))}
+              />
+              <div className="sm:col-span-2">
+                <Textarea
+                  size="sm"
+                  label="说明"
+                  value={statusPageForm.description}
+                  onChange={(event) => setStatusPageForm(prev => ({ ...prev, description: event.target.value }))}
+                  placeholder="这里展示 DSUK Hub 公开服务的实时可用性。"
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-kumo-strong">公开访问</div>
+                <div className="mt-1 text-xs text-kumo-subtle">关闭后公开 API 和单页都会返回不可用。</div>
+              </div>
+              <Switch checked={!!statusPageForm.public} onCheckedChange={(checked) => setStatusPageForm(prev => ({ ...prev, public: checked }))} />
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-kumo-strong">隐藏地址</div>
+                  <div className="mt-1 text-xs text-kumo-subtle">公开页不直接显示监测目标 URL。</div>
+                </div>
+                <Switch checked={!!statusPageForm.hideTargets} onCheckedChange={(checked) => setStatusPageForm(prev => ({ ...prev, hideTargets: checked }))} />
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-kumo-strong">名称跳转</div>
+                  <div className="mt-1 text-xs text-kumo-subtle">点击服务名称打开对应网页。</div>
+                </div>
+                <Switch checked={!!statusPageForm.linkMonitorNames} onCheckedChange={(checked) => setStatusPageForm(prev => ({ ...prev, linkMonitorNames: checked }))} />
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-kumo-strong">首页快捷卡片</div>
+                  <div className="mt-1 text-xs text-kumo-subtle">在仪表盘显示跳转到此状态页的快捷入口。</div>
+                </div>
+                <Switch checked={!!statusPageForm.showOnDashboard} onCheckedChange={(checked) => setStatusPageForm(prev => ({ ...prev, showOnDashboard: checked }))} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-kumo-strong">绑定监测目标</div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setStatusPageForm(prev => ({ ...prev, monitorIds: uptimeMonitors.map(item => item.id) }))}
+                  disabled={uptimeMonitors.length === 0}
+                >
+                  全选
+                </Button>
+              </div>
+              <div className="max-h-64 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-2 scrollbar-thin">
+                {uptimeMonitors.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-kumo-subtle">暂无监测目标，请先添加监测。</div>
                 ) : (
-                  uptimeStatusPages.map((page) => {
-                    const publicPath = `/api/uptime/public/status-pages/${page.slug}`;
-                    return (
-                      <Table.Row key={page.id}>
-                        <Table.Cell className="font-semibold text-kumo-strong truncate">
-                          {page.title || page.slug}
-                        </Table.Cell>
-                        <Table.Cell className="font-mono text-xs text-kumo-subtle truncate">
-                          {page.slug}
-                        </Table.Cell>
-                        <Table.Cell>
-                          <a
-                            href={publicPath}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block truncate font-mono text-xs text-kumo-brand hover:underline"
-                          >
-                            {publicPath}
-                          </a>
-                        </Table.Cell>
-                        <Table.Cell className="text-center">
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${page.public ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}>
-                            {page.public ? '公开' : '私有'}
-                          </span>
-                        </Table.Cell>
-                        <Table.Cell className="font-mono text-xs">
-                          {page.cacheSeconds || 300}s
-                        </Table.Cell>
-                        <Table.Cell className="text-xs text-kumo-subtle">
-                          {formatDateTime(page.updatedAt || page.createdAt)}
-                        </Table.Cell>
-                      </Table.Row>
-                    );
-                  })
+                  <div className="grid gap-1.5">
+                    {uptimeMonitors.map((monitor) => (
+                      <label key={monitor.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-recessed">
+                        <Checkbox
+                          checked={statusPageForm.monitorIds.includes(monitor.id)}
+                          onCheckedChange={(checked) => toggleStatusPageMonitor(monitor.id, checked)}
+                          aria-label={`绑定 ${monitor.name}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">{monitor.name}</span>
+                        <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle sm:block">{getDisplayUrl(monitor)}</span>
+                      </label>
+                    ))}
+                  </div>
                 )}
-              </Table.Body>
-            </Table>
-          </DataTableFrame>
-        </AppCard>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-kumo-line bg-kumo-recessed/35 p-3 text-xs text-kumo-subtle">
+              <div className="font-semibold text-kumo-strong">预览地址</div>
+              <div className="mt-2 space-y-1 font-mono">
+                <div className="truncate">{getStatusPagePublicUrl(statusPageForm, 'status')}</div>
+                <div className="truncate">{getStatusPagePublicUrl(statusPageForm, 'u')}</div>
+                {getStatusPageDomainUrl(statusPageForm) && <div className="truncate">{getStatusPageDomainUrl(statusPageForm)}</div>}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={resetStatusPageForm}>重置</Button>
+              <Button size="sm" variant="primary" loading={uptimeMetaLoading} onClick={saveStatusPage} icon={<Save className="h-3.5 w-3.5" />}>
+                {statusPageForm.id ? '保存状态页' : '创建状态页'}
+              </Button>
+            </div>
+          </AppCard>
+
+          <AppCard padding="lg" className="space-y-4">
+            <div className="flex flex-col gap-3 border-b border-kumo-line pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                  <Globe className="h-4 w-4" />
+                  已发布状态页
+                </h3>
+                <p className="mt-1 text-xs text-kumo-subtle">公开单页会显示整体状态、监测项、延迟和 24h 可用率。</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" icon={<RotateCw className="h-3.5 w-3.5" />} onClick={loadUptimeStatusPages} disabled={uptimeMetaLoading}>刷新</Button>
+                <Button size="sm" variant="secondary" icon={<Plus className="h-3.5 w-3.5" />} onClick={createDefaultStatusPage} disabled={uptimeMetaLoading}>默认页</Button>
+              </div>
+            </div>
+
+            {uptimeMetaLoading && uptimeStatusPages.length === 0 ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => <SkeletonLine key={index} className="h-16 w-full" />)}
+              </div>
+            ) : uptimeStatusPages.length === 0 ? (
+              <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-kumo-line text-center text-sm text-kumo-subtle">
+                <Globe className="mb-3 h-8 w-8 opacity-40" />
+                暂无状态页，创建一个公开单页后即可分享。
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {uptimeStatusPages.map((page) => {
+                  const statusUrl = getStatusPagePublicUrl(page, 'status');
+                  const compactUrl = getStatusPagePublicUrl(page, 'u');
+                  const domainUrl = getStatusPageDomainUrl(page);
+                  return (
+                    <div key={page.id} className="rounded-lg border border-kumo-line bg-kumo-base p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-bold text-kumo-strong">{page.title || page.slug}</span>
+                            <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${page.public ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}>
+                              {page.public ? '公开' : '私有'}
+                            </span>
+                            <span className="rounded bg-kumo-recessed px-2 py-0.5 font-mono text-[10px] text-kumo-subtle">{page.cacheSeconds || 300}s</span>
+                          </div>
+                          <div className="mt-1 truncate font-mono text-xs text-kumo-subtle">{page.slug}</div>
+                          {page.description && <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-kumo-subtle">{page.description}</div>}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button size="sm" variant="secondary" shape="square" icon={<Edit className="h-3.5 w-3.5" />} onClick={() => editStatusPage(page)} aria-label="编辑状态页" />
+                          <Button size="sm" variant="secondary" shape="square" icon={<ExternalLink className="h-3.5 w-3.5" />} onClick={() => window.open(statusUrl, '_blank', 'noopener,noreferrer')} aria-label="打开状态页" />
+                          <Button size="sm" variant="secondary" shape="square" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyStatusUrl(statusUrl)} aria-label="复制状态页地址" />
+                          <Button size="sm" variant="destructive" shape="square" icon={<Trash className="h-3.5 w-3.5" />} onClick={() => deleteStatusPage(page)} aria-label="删除状态页" />
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs">
+                        <button type="button" onClick={() => copyStatusUrl(statusUrl)} className="truncate rounded border border-kumo-line bg-kumo-recessed px-2 py-1 text-left font-mono text-kumo-subtle hover:text-kumo-brand">
+                          {statusUrl}
+                        </button>
+                        <button type="button" onClick={() => copyStatusUrl(compactUrl, '/u 地址')} className="truncate rounded border border-kumo-line bg-kumo-recessed px-2 py-1 text-left font-mono text-kumo-subtle hover:text-kumo-brand">
+                          {compactUrl}
+                        </button>
+                        {domainUrl && (
+                          <button type="button" onClick={() => copyStatusUrl(domainUrl, '自定义域名')} className="truncate rounded border border-kumo-line bg-kumo-recessed px-2 py-1 text-left font-mono text-kumo-subtle hover:text-kumo-brand">
+                            {domainUrl}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </AppCard>
+        </div>
       )}
 
       {uptimeCurrentTab === 'maintenance' && (

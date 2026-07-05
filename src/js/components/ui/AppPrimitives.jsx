@@ -5,7 +5,7 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { Info } from '../Icons.jsx';
 
-export const pageStackClass = 'flex w-full min-w-0 flex-col gap-6';
+export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 sm:gap-4';
 export const pageToolbarClass = 'flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3';
 export const iconButtonIconClass = 'h-3.5 w-3.5';
 export const actionIconClass = 'h-4 w-4';

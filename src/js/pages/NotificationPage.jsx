@@ -59,6 +59,8 @@ const getEventTypeName = (type) => {
     memory_normal: '内存恢复',
     disk_high: '磁盘空间不足',
     disk_normal: '磁盘恢复正常',
+    traffic_high: '流量超额',
+    traffic_normal: '流量恢复',
     balance_low: '余额不足',
     log_too_large: '日志体积过大',
     pending: '状态待确认',
@@ -90,7 +92,7 @@ const getEventTypeName = (type) => {
 
 const FALLBACK_EVENT_CATALOG = [
   { module: 'uptime', events: ['down', 'up', 'pending', 'resource.created', 'resource.deleted', 'ssl_expiry'] },
-  { module: 'server', events: ['offline', 'online', 'cpu_high', 'memory_high', 'disk_high'] },
+  { module: 'server', events: ['offline', 'online', 'cpu_high', 'memory_high', 'disk_high', 'traffic_high', 'traffic_normal'] },
   { module: 'system', events: ['database.backup', 'database.import', 'log.cleanup', 'migration.failed', 'cpu_high', 'memory_high', 'disk_high'] },
   { module: 'filebox', events: ['resource.created', 'resource.deleted', 'cleanup'] },
   { module: 'totp', events: ['resource.created', 'resource.updated', 'resource.deleted', 'security.revealed', 'backup.imported', 'backup.exported'] },
@@ -108,6 +110,10 @@ const buildSampleEventData = (rule = {}) => ({
   ping: 128,
   cpu_usage: 92,
   mem_percent: 84,
+  disk_usage: 91,
+  traffic_percent: 86.35,
+  traffic_used: '863.5 GB',
+  traffic_limit: '1 TB',
   threshold: 90,
   downDuration: '3 分钟',
 });
@@ -703,7 +709,7 @@ function NotificationPage() {
   }, [notificationEventCatalog, ruleForm.source_module]);
 
   return (
-    <div className="space-y-6">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs

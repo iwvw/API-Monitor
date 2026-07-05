@@ -79,7 +79,7 @@ const OPENAPI_ROUTE = '/api/openapi.json';
 const API_SEGMENT = 'api';
 const routePrefixLiteral = (...segments) => `/${segments.join('/')}`;
 
-const apiDocsShellClass = 'h-[calc(100dvh-6.25rem-1px)] max-h-[calc(100dvh-6.25rem-1px)] min-h-0 gap-3 overflow-visible px-1 pb-1 pt-1';
+const apiDocsShellClass = 'h-[calc(100dvh-6.25rem-1px)] max-h-[calc(100dvh-6.25rem-1px)] min-h-0 gap-3 overflow-visible';
 const fixedPanelClass = 'h-full min-h-0';
 
 const defaultMCPForm = {

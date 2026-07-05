@@ -169,7 +169,7 @@ export function BackupPanel({ embedded = false } = {}) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
         {!embedded && (
           <div>

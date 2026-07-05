@@ -9,6 +9,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { Switch } from '@cloudflare/kumo/components/switch';
 import { ChartLegend, ChartPalette, ClipboardText, LayerCard, Meter, Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
@@ -94,6 +95,8 @@ import {
   Save,
   RotateCw,
   Search,
+  Copy,
+  ExternalLink,
   Upload,
   Download,
   Edit,
@@ -202,6 +205,36 @@ const SERVER_STATIC_CHART_ANIMATION_OPTIONS = {
   animationDuration: 0,
   animationDurationUpdate: 0,
 };
+
+const createEmptyServerStatusPageForm = () => ({
+  id: null,
+  title: '',
+  slug: '',
+  domain: '',
+  description: '',
+  public: true,
+  hideHosts: true,
+  showTraffic: true,
+  showCharts: true,
+  showOnDashboard: false,
+  cacheSeconds: 300,
+  serverIds: [],
+});
+
+const normalizeServerStatusSlug = (value, fallback = 'servers') => {
+  const text = String(value || fallback).trim().toLowerCase();
+  const slug = text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || fallback;
+};
+
+const normalizeServerStatusDomain = (value) => (
+  String(value || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .split('/')[0]
+    .replace(/\/+$/g, '')
+    .toLowerCase()
+);
 
 const patchFastTimeseriesAnimation = (option, animationOptions = SERVER_FAST_CHART_ANIMATION_OPTIONS) => {
   if (!option || typeof option !== 'object' || Array.isArray(option)) return option;
@@ -527,38 +560,43 @@ const ExpandedProgressMetric = React.memo(ExpandedProgressMetricComponent, (prev
   && prev.valueClassName === next.valueClassName
 ));
 
-function TrafficQuotaBar({ quota, compact = false }) {
-  if (!quota) return null;
-
-  const toneClassName = quota.overLimit
-    ? 'text-kumo-danger'
-    : quota.nearAlert
-      ? 'text-kumo-warning'
-      : 'text-kumo-info';
-  const indicatorClassName = quota.overLimit
-    ? '!bg-none !bg-kumo-danger'
-    : quota.nearAlert
-      ? '!bg-none !bg-kumo-warning'
-      : '!bg-none !bg-kumo-info';
+function TrafficTotalSummary({ txTotal, rxTotal, quota, compact = false }) {
+  const itemClassName = compact
+    ? 'px-2 py-1.5'
+    : 'px-2.5 py-2';
+  const valueClassName = compact
+    ? 'text-[13px]'
+    : 'text-sm';
+  const remainingPercent = quota ? clampPercent(100 - quota.percent) : 0;
 
   return (
-    <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 ${compact ? 'px-2 py-1.5' : 'px-2.5 py-2'}`}>
-      <div className="mb-1 flex min-w-0 items-center justify-between gap-2 text-[10px] font-semibold">
-        <span className="shrink-0 text-kumo-subtle">总流量</span>
-        <span className={`min-w-0 truncate text-right tabular-nums ${toneClassName}`} title={`${quota.usedText} / ${quota.limitText}`}>
-          {quota.usedText} / {quota.limitText}
-        </span>
+    <div className="grid min-w-0 grid-cols-2 gap-1.5 sm:grid-cols-1">
+      <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 ${itemClassName}`}>
+        <div className="text-[10px] font-semibold text-kumo-subtle">累计上行</div>
+        <div className={`mt-0.5 truncate font-bold tabular-nums text-kumo-info ${valueClassName}`} title={txTotal?.text || '-'}>
+          {txTotal?.text || '-'}
+        </div>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-base">
-        <div
-          className={`h-full rounded-full transition-[width] duration-300 ${indicatorClassName}`}
-          style={{ width: `${quota.barPercent}%` }}
-        ></div>
+      <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 ${itemClassName}`}>
+        <div className="text-[10px] font-semibold text-kumo-subtle">累计下行</div>
+        <div className={`mt-0.5 truncate font-bold tabular-nums text-kumo-success ${valueClassName}`} title={rxTotal?.text || '-'}>
+          {rxTotal?.text || '-'}
+        </div>
       </div>
-      <div className="mt-1 flex min-w-0 items-center justify-between gap-2 text-[10px] font-medium text-kumo-subtle">
-        <span>{quota.alertEnabled ? `报警 ${Math.round(quota.alertPercent)}%` : '未开启报警'}</span>
-        <span className={`tabular-nums ${toneClassName}`}>{quota.percent.toFixed(quota.percent >= 10 ? 0 : 1)}%</span>
-      </div>
+      {quota && (
+        <div className={`col-span-2 min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 sm:col-span-1 ${itemClassName}`}>
+          <Meter
+            label="剩余流量"
+            value={remainingPercent}
+            min={0}
+            max={100}
+            customValue={`${remainingPercent.toFixed(remainingPercent >= 10 ? 0 : 1)}%`}
+            className="gap-1 text-[10px] font-semibold text-kumo-subtle"
+            trackClassName="!h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-base"
+            indicatorClassName={`!h-full !bg-none ${quota.overLimit ? '!bg-kumo-danger' : quota.nearAlert ? '!bg-kumo-warning' : '!bg-kumo-info'}`}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1401,6 +1439,11 @@ const trafficQuotaInputToBytes = (value, unit = 'TB') => {
   return Math.round(amount * (TRAFFIC_QUOTA_UNITS[unit] || TRAFFIC_QUOTA_UNITS.TB));
 };
 
+const normalizeTrafficAlertPercentInput = (value) => {
+  const percent = toNumber(value, 100);
+  return Math.min(100, Math.max(1, percent));
+};
+
 const getTrafficQuota = (server = {}) => {
   const network = server.info?.network || {};
   const limit = toNumber(network.traffic_limit_bytes ?? server.traffic_limit_bytes, 0);
@@ -1422,6 +1465,7 @@ const getTrafficQuota = (server = {}) => {
   return {
     limit,
     used: Math.max(0, used),
+    remaining: Math.max(0, limit - Math.max(0, used)),
     percent,
     barPercent: clampPercent(percent),
     alertPercent,
@@ -1430,6 +1474,7 @@ const getTrafficQuota = (server = {}) => {
     alertEnabled: Boolean(network.traffic_alert_enabled ?? server.traffic_alert_enabled),
     usedText: network.traffic_used || formatBytesValue(used),
     limitText: network.traffic_limit || formatBytesValue(limit),
+    remainingText: formatBytesValue(Math.max(0, limit - Math.max(0, used))),
   };
 };
 
@@ -1916,6 +1961,9 @@ function ServerPage() {
   // 主机列表状态
   const [serverList, setServerList] = useState([]);
   const [serverLoading, setServerLoading] = useState(false);
+  const [serverStatusPages, setServerStatusPages] = useState([]);
+  const [serverStatusPagesLoading, setServerStatusPagesLoading] = useState(false);
+  const [serverStatusPageForm, setServerStatusPageForm] = useState(() => createEmptyServerStatusPageForm());
   const [serverSearchText, setServerSearchText] = useState('');
   const [serverStatusFilter, setServerStatusFilter] = useState('all');
   const [serverListViewMode, setServerListViewMode] = useState(getInitialServerListViewMode);
@@ -1965,6 +2013,7 @@ function ServerPage() {
     trafficLimitValue: '',
     trafficLimitUnit: 'TB',
     trafficAlertEnabled: false,
+    trafficAlertPercent: 100,
     monitorMode: 'agent'
   });
   const [selectedCredentialId, setSelectedCredentialId] = useState('');
@@ -2358,6 +2407,140 @@ function ServerPage() {
     } finally {
       if (silent) serverListSyncInFlightRef.current = false;
       if (!silent) setServerLoading(false);
+    }
+  };
+
+  const loadServerStatusPages = async () => {
+    setServerStatusPagesLoading(true);
+    try {
+      const response = await fetch('/api/server/status-pages');
+      const data = await response.json();
+      if (data.success && Array.isArray(data.data)) {
+        setServerStatusPages(data.data);
+      }
+    } catch (error) {
+      toast.error('载入主机状态页失败');
+    } finally {
+      setServerStatusPagesLoading(false);
+    }
+  };
+
+  const getServerStatusPageBaseOrigin = () => {
+    const configured = String(publicApiUrl || '').trim().replace(/\/+$/g, '');
+    return configured || window.location.origin;
+  };
+
+  const getServerStatusPageUrl = (pageOrForm, mode = 'servers') => {
+    const slug = normalizeServerStatusSlug(pageOrForm?.slug || pageOrForm?.title || 'servers');
+    return `${getServerStatusPageBaseOrigin()}/${mode}/${encodeURIComponent(slug)}`;
+  };
+
+  const getServerStatusDomainUrl = (pageOrForm) => {
+    const domain = normalizeServerStatusDomain(pageOrForm?.domain);
+    return domain ? `https://${domain}` : '';
+  };
+
+  const copyServerStatusUrl = async (value) => {
+    if (!value) {
+      toast.warning('没有可复制的地址');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success('公开地址已复制');
+    } catch (error) {
+      toast.error('复制失败');
+    }
+  };
+
+  const resetServerStatusPageForm = () => setServerStatusPageForm(createEmptyServerStatusPageForm());
+
+  const editServerStatusPage = (page) => {
+    const config = page.config || {};
+    setServerStatusPageForm({
+      id: page.id,
+      title: page.title || '',
+      slug: page.slug || '',
+      domain: page.domain || '',
+      description: page.description || '',
+      public: page.public !== false,
+      hideHosts: config.hideHosts !== false,
+      showTraffic: config.showTraffic !== false,
+      showCharts: config.showCharts !== false,
+      showOnDashboard: !!config.showOnDashboard,
+      cacheSeconds: page.cacheSeconds || 300,
+      serverIds: Array.isArray(page.serverIds) ? page.serverIds : [],
+    });
+  };
+
+  const toggleServerStatusPageServer = (serverId, checked) => {
+    setServerStatusPageForm(prev => {
+      const ids = new Set(prev.serverIds);
+      if (checked) ids.add(serverId);
+      else ids.delete(serverId);
+      return { ...prev, serverIds: Array.from(ids) };
+    });
+  };
+
+  const saveServerStatusPage = async () => {
+    const title = serverStatusPageForm.title.trim();
+    if (!title) {
+      toast.warning('请填写状态页名称');
+      return;
+    }
+    if (serverStatusPageForm.serverIds.length === 0) {
+      toast.warning('请至少绑定一台主机');
+      return;
+    }
+    setServerStatusPagesLoading(true);
+    try {
+      const payload = {
+        title,
+        slug: normalizeServerStatusSlug(serverStatusPageForm.slug || title),
+        domain: normalizeServerStatusDomain(serverStatusPageForm.domain),
+        description: serverStatusPageForm.description.trim(),
+        public: !!serverStatusPageForm.public,
+        cacheSeconds: Math.max(30, Number(serverStatusPageForm.cacheSeconds) || 300),
+        serverIds: serverStatusPageForm.serverIds,
+        config: {
+          hideHosts: !!serverStatusPageForm.hideHosts,
+          showTraffic: !!serverStatusPageForm.showTraffic,
+          showCharts: !!serverStatusPageForm.showCharts,
+          showOnDashboard: !!serverStatusPageForm.showOnDashboard,
+        },
+      };
+      const isEdit = !!serverStatusPageForm.id;
+      const response = await fetch(isEdit ? `/api/server/status-pages/${serverStatusPageForm.id}` : '/api/server/status-pages', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) throw new Error(data.error || '保存主机状态页失败');
+      toast.success(isEdit ? '主机状态页已更新' : '主机状态页已创建');
+      resetServerStatusPageForm();
+      await loadServerStatusPages();
+    } catch (error) {
+      toast.error(error.message || '保存主机状态页失败');
+    } finally {
+      setServerStatusPagesLoading(false);
+    }
+  };
+
+  const deleteServerStatusPage = async (page) => {
+    if (!(await dialog.deleteResource({ resourceType: '主机状态页', resourceName: page.title || page.slug }))) return;
+    setServerStatusPagesLoading(true);
+    try {
+      const response = await fetch(`/api/server/status-pages/${page.id}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) throw new Error(data.error || '删除主机状态页失败');
+      toast.success('主机状态页已删除');
+      if (serverStatusPageForm.id === page.id) resetServerStatusPageForm();
+      await loadServerStatusPages();
+    } catch (error) {
+      toast.error(error.message || '删除主机状态页失败');
+    } finally {
+      setServerStatusPagesLoading(false);
     }
   };
 
@@ -3069,6 +3252,7 @@ function ServerPage() {
       trafficLimitValue: '',
       trafficLimitUnit: 'TB',
       trafficAlertEnabled: false,
+      trafficAlertPercent: 100,
       monitorMode: 'agent'
     });
     setSelectedCredentialId('');
@@ -3097,6 +3281,7 @@ function ServerPage() {
       trafficLimitValue: trafficQuotaForm.value,
       trafficLimitUnit: trafficQuotaForm.unit,
       trafficAlertEnabled: Boolean(server.traffic_alert_enabled),
+      trafficAlertPercent: normalizeTrafficAlertPercentInput(server.traffic_alert_percent),
       monitorMode: server.monitor_mode || 'agent'
     });
     setServerAddMode('ssh');
@@ -3150,13 +3335,89 @@ function ServerPage() {
       });
       const data = await response.json();
       if (data.success) {
-        toast.success('主机删除成功');
+        toast.success('连接测试成功');
       } else {
         setServerModalError('测试连接失败: ' + data.message);
         toast.error('测试连接失败');
       }
     } catch (e) {
       setServerModalError('测试连接请求异常: ' + e.message);
+    } finally {
+      setServerModalSaving(false);
+    }
+  };
+
+  const ensureTrafficAlertRule = async () => {
+    try {
+      const [rulesRes, channelsRes] = await Promise.all([
+        fetch('/api/notification/rules'),
+        fetch('/api/notification/channels'),
+      ]);
+      const rulesData = await rulesRes.json().catch(() => ({}));
+      const channelsData = await channelsRes.json().catch(() => ({}));
+      const rules = Array.isArray(rulesData.data) ? rulesData.data : [];
+      if (rules.some(rule => rule.source_module === 'server' && rule.event_type === 'traffic_high')) {
+        return true;
+      }
+      const channels = (Array.isArray(channelsData.data) ? channelsData.data : [])
+        .filter(channel => channel.enabled !== false && channel.enabled !== 0)
+        .map(channel => channel.id)
+        .filter(Boolean);
+      if (channels.length === 0) {
+        toast.warning('请先配置通知渠道后再创建流量告警规则');
+        return false;
+      }
+      const res = await fetch('/api/notification/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: '主机流量超额',
+          source_module: 'server',
+          event_type: 'traffic_high',
+          severity: 'warning',
+          enabled: true,
+          channels,
+          suppression: { count: 1, minutes: 30 },
+          title_template: '⚠️ {{serverName}} 流量超额',
+          message_template: '主机 {{serverName}} 流量已使用 {{traffic_percent}}%，阈值 {{threshold}}%。\n已用：{{traffic_used}}\n配额：{{traffic_limit}}',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) throw new Error(data.error || '自动创建流量告警规则失败');
+      toast.success('已自动创建流量告警规则');
+      return true;
+    } catch (error) {
+      toast.warning(error.message || '流量告警规则自动创建失败');
+      return false;
+    }
+  };
+
+  const testTrafficAlert = async () => {
+    if (!serverForm.id) {
+      toast.warning('请先保存主机后再测试报警');
+      return;
+    }
+    const trafficLimitBytes = trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit);
+    if (trafficLimitBytes <= 0) {
+      toast.warning('请先设置总流量配额');
+      return;
+    }
+    setServerModalSaving(true);
+    try {
+      const ruleReady = await ensureTrafficAlertRule();
+      if (!ruleReady) return;
+      const response = await fetch(`/api/server/accounts/${serverForm.id}/test-traffic-alert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          traffic_alert_percent: normalizeTrafficAlertPercentInput(serverForm.trafficAlertPercent),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) throw new Error(data.error || data.message || '报警测试失败');
+      toast.success('流量报警测试已发送');
+    } catch (error) {
+      toast.error(error.message || '报警测试失败');
     } finally {
       setServerModalSaving(false);
     }
@@ -3179,6 +3440,7 @@ function ServerPage() {
     try {
       const tags = serverForm.tagsInput ? serverForm.tagsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
       const trafficLimitBytes = trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit);
+      const trafficAlertEnabled = trafficLimitBytes > 0 && Boolean(serverForm.trafficAlertEnabled);
       const payload = {
         name: serverForm.name.trim(),
         host: serverForm.host?.trim() || '',
@@ -3191,8 +3453,8 @@ function ServerPage() {
         starts_at: normalizeStartInputValue(serverForm.startsAt),
         expires_at: normalizeExpiryInputValue(serverForm.expiresAt),
         traffic_limit_bytes: trafficLimitBytes,
-        traffic_alert_enabled: trafficLimitBytes > 0 && Boolean(serverForm.trafficAlertEnabled),
-        traffic_alert_percent: 100,
+        traffic_alert_enabled: trafficAlertEnabled,
+        traffic_alert_percent: normalizeTrafficAlertPercentInput(serverForm.trafficAlertPercent),
         monitor_mode: isAgentForm ? 'agent' : 'ssh'
       };
 
@@ -3215,6 +3477,9 @@ function ServerPage() {
       const data = await response.json();
       if (data.success) {
         toast.success(serverModalMode === 'add' ? '主机添加成功' : '主机更新成功');
+        if (trafficAlertEnabled) {
+          await ensureTrafficAlertRule();
+        }
         setShowServerModal(false);
         loadServerList();
       } else {
@@ -5581,8 +5846,8 @@ function ServerPage() {
     <div
       className={
         serverCurrentTab === 'terminal'
-          ? 'flex h-[calc(100dvh-80px)] min-h-0 w-full min-w-0 flex-col gap-3 overflow-hidden px-1 sm:h-[calc(100dvh-88px)] lg:h-[calc(100dvh-92px)]'
-          : 'flex w-full flex-col gap-3 px-1'
+          ? 'flex h-[calc(100dvh-80px)] min-h-0 w-full min-w-0 flex-col gap-3 overflow-hidden sm:h-[calc(100dvh-88px)] lg:h-[calc(100dvh-92px)]'
+          : 'flex w-full min-w-0 flex-col gap-3 sm:gap-4'
       }
     >
       <CompactColumnMenu
@@ -5598,9 +5863,13 @@ function ServerPage() {
           <Tabs
             {...MODULE_TABS_PROPS}
             value={serverCurrentTab}
-            onValueChange={setServerCurrentTab}
+            onValueChange={(value) => {
+              setServerCurrentTab(value);
+              if (value === 'status-pages') loadServerStatusPages();
+            }}
             tabs={[
               { value: 'list', label: <ServerModuleTabLabel icon={Server} short="主机">主机管理</ServerModuleTabLabel> },
+              { value: 'status-pages', label: <ServerModuleTabLabel icon={Globe} short="状态">状态页</ServerModuleTabLabel> },
               { value: 'history', label: <ServerModuleTabLabel icon={History} short="历史">历史记录</ServerModuleTabLabel> },
               { value: 'docker', label: <ServerModuleTabLabel icon={Box}>Docker</ServerModuleTabLabel> },
               { value: 'management', label: <ServerModuleTabLabel icon={Settings} short="管理">后台管理</ServerModuleTabLabel> },
@@ -5683,6 +5952,140 @@ function ServerPage() {
           )}
         </div>
       </div>
+
+      {serverCurrentTab === 'status-pages' && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(24rem,0.9fr)_minmax(0,1.1fr)]">
+          <LayerCard className="space-y-4 p-4">
+            <div className="flex items-start justify-between gap-3 border-b border-kumo-line pb-4">
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                  <Globe className="h-4 w-4" />
+                  {serverStatusPageForm.id ? '编辑主机状态页' : '新建主机状态页'}
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-kumo-subtle">对外展示主机在线状态、资源占用、网速和流量摘要。</p>
+              </div>
+              {serverStatusPageForm.id && (
+                <Button size="sm" variant="secondary" shape="square" icon={<X className="h-3.5 w-3.5" />} onClick={resetServerStatusPageForm} aria-label="取消编辑" />
+              )}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input size="sm" label="名称" value={serverStatusPageForm.title} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, title: event.target.value, slug: prev.slug || normalizeServerStatusSlug(event.target.value) }))} placeholder="基础设施状态" />
+              <Input size="sm" label="Slug" value={serverStatusPageForm.slug} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, slug: normalizeServerStatusSlug(event.target.value) }))} placeholder="infra" />
+              <Input size="sm" label="自定义域名" value={serverStatusPageForm.domain} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, domain: normalizeServerStatusDomain(event.target.value) }))} placeholder="status.example.com" />
+              <Input size="sm" label="缓存秒数" type="number" min="30" value={serverStatusPageForm.cacheSeconds} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, cacheSeconds: event.target.value }))} />
+              <div className="sm:col-span-2">
+                <Textarea size="sm" label="说明" value={serverStatusPageForm.description} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, description: event.target.value }))} placeholder="这里展示公开基础设施的实时状态。" rows={3} />
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[
+                ['public', '公开访问', '关闭后公开 API 和单页都会不可用。'],
+                ['hideHosts', '隐藏地址', '公开页不显示主机 IP 或连接地址。'],
+                ['showTraffic', '显示流量', '展示已用流量和流量上限。'],
+                ['showCharts', '历史指标', '公开接口下发最近指标历史。'],
+                ['showOnDashboard', '首页快捷卡片', '在仪表盘显示跳转到此状态页的快捷入口。'],
+              ].map(([key, title, desc]) => (
+                <div key={key} className="flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-kumo-strong">{title}</div>
+                    <div className="mt-1 text-xs text-kumo-subtle">{desc}</div>
+                  </div>
+                  <Switch checked={!!serverStatusPageForm[key]} onCheckedChange={(checked) => setServerStatusPageForm(prev => ({ ...prev, [key]: checked }))} />
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-kumo-strong">绑定主机</div>
+                <Button size="sm" variant="secondary" onClick={() => setServerStatusPageForm(prev => ({ ...prev, serverIds: serverList.map(item => item.id) }))} disabled={serverList.length === 0}>全选</Button>
+              </div>
+              <div className="max-h-64 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-2 scrollbar-thin">
+                {serverList.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-kumo-subtle">暂无主机实例。</div>
+                ) : (
+                  <div className="grid gap-1.5">
+                    {serverList.map((server) => (
+                      <label key={server.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-recessed">
+                        <Checkbox checked={serverStatusPageForm.serverIds.includes(server.id)} onCheckedChange={(checked) => toggleServerStatusPageServer(server.id, checked)} aria-label={`绑定 ${server.name}`} />
+                        <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">{server.name}</span>
+                        <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle sm:block">{server.host || server.id}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-kumo-line bg-kumo-recessed/35 p-3 text-xs text-kumo-subtle">
+              <div className="font-semibold text-kumo-strong">预览地址</div>
+              <div className="mt-2 space-y-1 font-mono">
+                <div className="truncate">{getServerStatusPageUrl(serverStatusPageForm, 'servers')}</div>
+                <div className="truncate">{getServerStatusPageUrl(serverStatusPageForm, 's')}</div>
+                {getServerStatusDomainUrl(serverStatusPageForm) && <div className="truncate">{getServerStatusDomainUrl(serverStatusPageForm)}</div>}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={resetServerStatusPageForm}>重置</Button>
+              <Button size="sm" variant="primary" loading={serverStatusPagesLoading} onClick={saveServerStatusPage} icon={<Save className="h-3.5 w-3.5" />}>{serverStatusPageForm.id ? '保存状态页' : '创建状态页'}</Button>
+            </div>
+          </LayerCard>
+
+          <LayerCard className="space-y-4 p-4">
+            <div className="flex flex-col gap-3 border-b border-kumo-line pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-kumo-strong"><Globe className="h-4 w-4" />已发布状态页</h3>
+                <p className="mt-1 text-xs text-kumo-subtle">公开单页会显示主机状态、资源占用、网速和流量。</p>
+              </div>
+              <Button size="sm" variant="secondary" icon={<RotateCw className="h-3.5 w-3.5" />} onClick={loadServerStatusPages} loading={serverStatusPagesLoading}>刷新</Button>
+            </div>
+
+            {serverStatusPages.length === 0 ? (
+              <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-kumo-line text-center text-sm text-kumo-subtle">
+                <Globe className="mb-3 h-8 w-8 opacity-40" />
+                暂无主机状态页。
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {serverStatusPages.map((page) => {
+                  const statusUrl = getServerStatusPageUrl(page, 'servers');
+                  const compactUrl = getServerStatusPageUrl(page, 's');
+                  const domainUrl = getServerStatusDomainUrl(page);
+                  return (
+                    <div key={page.id} className="rounded-lg border border-kumo-line bg-kumo-base p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-bold text-kumo-strong">{page.title || page.slug}</span>
+                            <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${page.public ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}>{page.public ? '公开' : '私有'}</span>
+                            <span className="rounded bg-kumo-recessed px-2 py-0.5 font-mono text-[10px] text-kumo-subtle">{page.cacheSeconds || 300}s</span>
+                          </div>
+                          <div className="mt-1 truncate font-mono text-xs text-kumo-subtle">{page.slug}</div>
+                          {page.description && <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-kumo-subtle">{page.description}</div>}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button size="sm" variant="secondary" shape="square" icon={<Edit className="h-3.5 w-3.5" />} onClick={() => editServerStatusPage(page)} aria-label="编辑主机状态页" />
+                          <Button size="sm" variant="secondary" shape="square" icon={<ExternalLink className="h-3.5 w-3.5" />} onClick={() => window.open(statusUrl, '_blank', 'noopener,noreferrer')} aria-label="打开主机状态页" />
+                          <Button size="sm" variant="secondary" shape="square" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyServerStatusUrl(statusUrl)} aria-label="复制主机状态页地址" />
+                          <Button size="sm" variant="destructive" shape="square" icon={<Trash className="h-3.5 w-3.5" />} onClick={() => deleteServerStatusPage(page)} aria-label="删除主机状态页" />
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs">
+                        {[statusUrl, compactUrl, domainUrl].filter(Boolean).map((url) => (
+                          <button key={url} type="button" onClick={() => copyServerStatusUrl(url)} className="truncate rounded border border-kumo-line bg-kumo-recessed px-2 py-1 text-left font-mono text-kumo-subtle hover:text-kumo-brand">{url}</button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </LayerCard>
+        </div>
+      )}
 
       {/* ==================== 1. 主机管理 ==================== */}
       {serverCurrentTab === 'list' && (
@@ -6087,8 +6490,7 @@ function ServerPage() {
                                             )}
                                           >
                                             {(tooltipBoundary) => (
-                                              <div className="flex min-w-0 flex-col gap-1.5">
-                                                {!hasGpuData && <TrafficQuotaBar quota={trafficQuota} compact />}
+                                              <div className={`grid min-w-0 gap-1.5 ${hasGpuData ? 'grid-cols-1' : 'sm:grid-cols-[minmax(0,1fr)_8.5rem]'}`}>
                                                 <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
                                                   <TimeseriesChart
                                                     echarts={fastTimeseriesEcharts}
@@ -6107,6 +6509,7 @@ function ServerPage() {
                                                     ariaDescription={`${server.name} compact host trend`}
                                                   />
                                                 </DeferredRender>
+                                                {!hasGpuData && <TrafficTotalSummary txTotal={txTotal} rxTotal={rxTotal} quota={trafficQuota} compact />}
                                               </div>
                                             )}
                                           </ExpandedTrendChartCard>
@@ -6125,8 +6528,7 @@ function ServerPage() {
                                               )}
                                             >
                                               {(tooltipBoundary) => (
-                                                <div className="flex min-w-0 flex-col gap-1.5">
-                                                  <TrafficQuotaBar quota={trafficQuota} compact />
+                                                <div className="grid min-w-0 gap-1.5 sm:grid-cols-[minmax(0,1fr)_8.5rem]">
                                                   <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
                                                     <TimeseriesChart
                                                       echarts={fastTimeseriesEcharts}
@@ -6145,6 +6547,7 @@ function ServerPage() {
                                                       ariaDescription={`${server.name} compact network trend`}
                                                     />
                                                   </DeferredRender>
+                                                  <TrafficTotalSummary txTotal={txTotal} rxTotal={rxTotal} quota={trafficQuota} compact />
                                                 </div>
                                               )}
                                             </ExpandedTrendChartCard>
@@ -6460,10 +6863,18 @@ function ServerPage() {
 
                                     <ExpandedSection title="网络" tone="info" className={getExpandedCardSpanClassName(1, 3)}>
                                       <div className="grid grid-cols-2 gap-1.5">
-                                        <ExpandedStatTile label="上传" value={server.info?.network?.tx_speed || '0 B/s'} caption={`累计 ${txTotal.text}`} tone="info" />
-                                        <ExpandedStatTile label="下载" value={server.info?.network?.rx_speed || '0 B/s'} caption={`累计 ${rxTotal.text}`} tone="success" />
+                                        <ExpandedStatTile label="上传" value={server.info?.network?.tx_speed || '0 B/s'} tone="info" />
+                                        <ExpandedStatTile label="下载" value={server.info?.network?.rx_speed || '0 B/s'} tone="success" />
+                                        <ExpandedInfoChip label="累计上行" value={txTotal.text} valueClassName="text-kumo-info" />
+                                        <ExpandedInfoChip label="累计下行" value={rxTotal.text} valueClassName="text-kumo-success" />
                                         <ExpandedInfoChip label="连接" value={server.info?.network?.connections || 0} />
-                                        <ExpandedInfoChip label="总量" value={`↑ ${txTotal.text} / ↓ ${rxTotal.text}`} className="min-w-0" />
+                                        {trafficQuota && (
+                                          <ExpandedInfoChip
+                                            label="剩余流量"
+                                            value={trafficQuota.overLimit ? '已超限' : trafficQuota.remainingText || `${trafficQuota.percent.toFixed(trafficQuota.percent >= 10 ? 0 : 1)}%`}
+                                            valueClassName={trafficQuota.overLimit ? 'text-kumo-danger' : trafficQuota.nearAlert ? 'text-kumo-warning' : 'text-kumo-info'}
+                                          />
+                                        )}
                                       </div>
                                     </ExpandedSection>
 
@@ -6479,27 +6890,24 @@ function ServerPage() {
                                       )}
                                     >
                                       {(tooltipBoundary) => (
-                                        <div className="flex min-w-0 flex-col gap-2">
-                                          <TrafficQuotaBar quota={trafficQuota} />
-                                          <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
-                                            <TimeseriesChart
-                                              echarts={fastTimeseriesEcharts}
-                                              data={netSeries}
-                                              height={expandedTrendChartHeight}
-                                              isDarkMode={isDarkMode}
-                                              gradient
-                                              loading={chartLoading}
-                                              tooltipBoundary={tooltipBoundary ?? undefined}
-                                              xAxisTickCount={expandedChartXAxisTickCount}
-                                              yAxisTickCount={expandedChartYAxisTickCount}
-                                              xAxisTickFormat={expandedChartXAxisTickFormat}
-                                              yAxisTickFormat={expandedSpeedAxisTickFormat}
-                                              tooltipValueFormat={formatBytesSpeed}
-                                              optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                              ariaDescription={`${server.name} network upload and download speed trend`}
-                                            />
-                                          </DeferredRender>
-                                        </div>
+                                        <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                          <TimeseriesChart
+                                            echarts={fastTimeseriesEcharts}
+                                            data={netSeries}
+                                            height={expandedTrendChartHeight}
+                                            isDarkMode={isDarkMode}
+                                            gradient
+                                            loading={chartLoading}
+                                            tooltipBoundary={tooltipBoundary ?? undefined}
+                                            xAxisTickCount={expandedChartXAxisTickCount}
+                                            yAxisTickCount={expandedChartYAxisTickCount}
+                                            xAxisTickFormat={expandedChartXAxisTickFormat}
+                                            yAxisTickFormat={expandedSpeedAxisTickFormat}
+                                            tooltipValueFormat={formatBytesSpeed}
+                                            optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                            ariaDescription={`${server.name} network upload and download speed trend`}
+                                          />
+                                        </DeferredRender>
                                       )}
                                     </ExpandedTrendChartCard>
                                   </div>
@@ -8295,7 +8703,7 @@ function ServerPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(11rem,auto)] sm:items-end">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(18rem,auto)] sm:items-end">
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-kumo-subtle">总流量配额</label>
                       <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-2">
@@ -8322,13 +8730,38 @@ function ServerPage() {
                         />
                       </div>
                     </div>
-                    <div className="flex min-h-8 min-w-0 items-center">
-                      <Checkbox
-                        label="超出后报警"
-                        checked={Boolean(serverForm.trafficAlertEnabled)}
-                        disabled={trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
-                        onCheckedChange={(checked) => setServerForm(prev => ({ ...prev, trafficAlertEnabled: Boolean(checked) }))}
-                      />
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                      <label className="font-semibold text-kumo-subtle">流量报警</label>
+                      <div className="grid min-w-0 grid-cols-[auto_minmax(4.75rem,1fr)_auto] items-center gap-2">
+                        <Checkbox
+                          label="启用"
+                          checked={Boolean(serverForm.trafficAlertEnabled)}
+                          disabled={trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
+                          onCheckedChange={(checked) => setServerForm(prev => ({ ...prev, trafficAlertEnabled: Boolean(checked) }))}
+                        />
+                        <Input size="sm"
+                          aria-label="报警阈值百分比"
+                          type="number"
+                          min="1"
+                          max="100"
+                          step="1"
+                          value={serverForm.trafficAlertPercent}
+                          disabled={!serverForm.trafficAlertEnabled || trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
+                          onChange={e => setServerForm(prev => ({ ...prev, trafficAlertPercent: e.target.value }))}
+                          onBlur={() => setServerForm(prev => ({ ...prev, trafficAlertPercent: normalizeTrafficAlertPercentInput(prev.trafficAlertPercent) }))}
+                          className="px-3 py-2 text-kumo-strong"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={serverModalSaving || !serverForm.trafficAlertEnabled || trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
+                          onClick={testTrafficAlert}
+                          className="px-3 py-1.5 text-xs font-semibold"
+                        >
+                          测试
+                        </Button>
+                      </div>
                     </div>
                   </div>
 

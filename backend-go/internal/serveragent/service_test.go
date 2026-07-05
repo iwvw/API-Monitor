@@ -363,6 +363,148 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 	}
 }
 
+func TestPublicServerStatusPageReturnsWithHistory(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info, traffic_limit_bytes, response_time) VALUES ('server-1', 'edge', '127.0.0.1', 'root', 'password', 'online', '{"cpu":12.5,"mem_percent":48,"disk_percent":63,"net_rx":1280,"net_tx":640,"uptime":3600,"country_code":"jp","location":"Tokyo"}', 1000000, 1080)`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `INSERT INTO server_metrics_history (server_id, cpu_usage, mem_usage, disk_usage, net_rx, net_tx, recorded_at) VALUES ('server-1', 12.5, 48, 63, 1280, 640, datetime('now'))`)
+	if err != nil {
+		t.Fatalf("insert metrics: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `INSERT INTO server_monitor_logs (server_id, status, response_time, checked_at) VALUES ('server-1', 'success', 1080, datetime('now', '-2 minutes')), ('server-1', 'success', 2194, datetime('now', '-1 minutes'))`)
+	if err != nil {
+		t.Fatalf("insert monitor logs: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `INSERT INTO server_status_pages (slug, title, public, config_json, server_ids_json) VALUES ('infra', 'Infra', 1, '{"showCharts":true,"hideHosts":false,"showTraffic":true}', '["server-1"]')`)
+	if err != nil {
+		t.Fatalf("insert status page: %v", err)
+	}
+
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		result <- perform(service, http.MethodGet, "/api/server/public/status-pages/infra", "")
+	}()
+
+	var res *httptest.ResponseRecorder
+	select {
+	case res = <-result:
+	case <-time.After(2 * time.Second):
+		t.Fatal("public server status page request timed out")
+	}
+	if res.Code != http.StatusOK {
+		t.Fatalf("public status page status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	data := payload["data"].(map[string]interface{})
+	servers := data["servers"].([]interface{})
+	if len(servers) != 1 {
+		t.Fatalf("servers = %#v", servers)
+	}
+	server := servers[0].(map[string]interface{})
+	history, ok := server["history"].([]interface{})
+	if !ok || len(history) != 1 {
+		t.Fatalf("expected history item, server=%#v", server)
+	}
+	if server["host"] != "127.0.0.1" {
+		t.Fatalf("expected host to be visible, server=%#v", server)
+	}
+	if server["countryCode"] != "jp" || server["location"] != "Tokyo" {
+		t.Fatalf("expected location fields, server=%#v", server)
+	}
+	if server["responseTime"] != float64(1080) {
+		t.Fatalf("expected response time, server=%#v", server)
+	}
+	latencyHistory, ok := server["latencyHistory"].([]interface{})
+	if !ok || len(latencyHistory) != 2 {
+		t.Fatalf("expected latency history, server=%#v", server)
+	}
+}
+
+func TestPublicServerStatusPageUsesLiveAgentMetadata(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info) VALUES ('server-1', 'edge', '127.0.0.1', 'root', 'password', 'offline', '{"cpu":1,"mem_percent":2,"disk_percent":3,"net_rx":4,"net_tx":5,"uptime":60}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `INSERT INTO server_status_pages (slug, title, public, config_json, server_ids_json) VALUES ('infra', 'Infra', 1, '{"showCharts":false,"hideHosts":true,"showTraffic":true}', '["server-1"]')`)
+	if err != nil {
+		t.Fatalf("insert status page: %v", err)
+	}
+	conn := service.registry.Register("server-1", &taskReplySocket{t: t, service: service})
+	conn.UpdateMetadata(map[string]interface{}{
+		"cpu":               72.5,
+		"mem_percent":       63.5,
+		"disk_usage":        41.5,
+		"net_in_speed":      2048,
+		"net_out_speed":     1024,
+		"uptime_seconds":    7200,
+		"location":          "Tokyo",
+		"platform":          "linux",
+		"metrics_last_seen": time.Now().UTC().Format(time.RFC3339Nano),
+	})
+
+	res := perform(service, http.MethodGet, "/api/server/public/status-pages/infra", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("public status page status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	data := payload["data"].(map[string]interface{})
+	servers := data["servers"].([]interface{})
+	server := servers[0].(map[string]interface{})
+	if server["online"] != true || server["status"] != "online" {
+		t.Fatalf("expected live server to be online, server=%#v", server)
+	}
+	if server["cpu"] != 72.5 || server["memory"] != 63.5 || server["disk"] != 41.5 {
+		t.Fatalf("expected live metadata metrics, server=%#v", server)
+	}
+	if server["host"] != nil {
+		t.Fatalf("expected host to be hidden, server=%#v", server)
+	}
+}
+
+func TestPublicServerStatusPageWithNoServersDoesNotExposeAllHosts(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info) VALUES ('server-1', 'edge', '127.0.0.1', 'root', 'password', 'online', '{"cpu":12.5}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `INSERT INTO server_status_pages (slug, title, public, config_json, server_ids_json) VALUES ('empty', 'Empty', 1, '{}', '[]')`)
+	if err != nil {
+		t.Fatalf("insert status page: %v", err)
+	}
+
+	res := perform(service, http.MethodGet, "/api/server/public/status-pages/empty", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("public status page status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	data := payload["data"].(map[string]interface{})
+	servers := data["servers"].([]interface{})
+	if len(servers) != 0 {
+		t.Fatalf("expected no public servers, got %#v", servers)
+	}
+}
+
+func TestSaveServerStatusPageRequiresServers(t *testing.T) {
+	service, _ := testService(t)
+
+	res := perform(service, http.MethodPost, "/api/server/status-pages", `{"title":"Empty","slug":"empty","serverIds":[]}`)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("create empty status page status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestUpdateMissingServerStatusPageReturnsNotFound(t *testing.T) {
+	service, _ := testService(t)
+
+	res := perform(service, http.MethodPut, "/api/server/status-pages/999", `{"title":"Missing","slug":"missing","serverIds":["server-1"],"config":{}}`)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("update missing status page status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestDockerOverviewDoesNotInferInstalledFromUnrequestedScopes(t *testing.T) {
 	service, db := testService(t)
 	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info) VALUES ('docker-empty', 'docker', '', 'root', 'password', 'online', '{"docker":{"installed":false}}')`)
@@ -1373,6 +1515,34 @@ func TestTrafficQuotaAlertUsesConfiguredLimit(t *testing.T) {
 	events, _ = notifier.snapshot()
 	if len(events) != 2 || events[1] != "traffic_normal" {
 		t.Fatalf("events after normal = %#v", events)
+	}
+}
+
+func TestTrafficAlertTestRouteTriggersNotification(t *testing.T) {
+	service, db := testService(t)
+	notifier := &recordingNotifier{}
+	service.SetNotifier(notifier)
+
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (
+		id, name, host, username, auth_type, traffic_limit_bytes, traffic_alert_enabled, traffic_alert_percent, cached_info
+	) VALUES (
+		'quota-route-server', 'quota route', '127.0.0.1', 'root', 'password', 1000, 1, 80,
+		'{"net_in_transfer":600,"net_out_transfer":250}'
+	)`)
+	if err != nil {
+		t.Fatalf("insert quota route server: %v", err)
+	}
+
+	res := perform(service, http.MethodPost, "/api/server/accounts/quota-route-server/test-traffic-alert", `{"traffic_alert_percent":80}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("test traffic alert route status = %d body=%s", res.Code, res.Body.String())
+	}
+	events, data := notifier.snapshot()
+	if len(events) != 1 || events[0] != "traffic_high" {
+		t.Fatalf("events = %#v", events)
+	}
+	if data[0]["threshold"] != "80.00%" || data[0]["traffic_used"] == "" {
+		t.Fatalf("traffic test data = %#v", data[0])
 	}
 }
 

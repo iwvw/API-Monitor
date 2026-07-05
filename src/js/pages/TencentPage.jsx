@@ -295,7 +295,7 @@ function TencentPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full px-1">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       {/* Header Tabs */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <div className="min-w-0 w-full md:w-auto">

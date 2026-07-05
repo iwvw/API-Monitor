@@ -715,7 +715,7 @@ function SchedulerPage() {
 
   return (
     <TooltipProvider>
-      <div className="flex w-full flex-col gap-5 px-1">
+      <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
         <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
           <Tabs
             {...MODULE_TABS_PROPS}

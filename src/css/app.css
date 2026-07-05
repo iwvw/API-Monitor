@@ -58,6 +58,10 @@ body {
   transform: translateX(10.5px);
 }
 
+[data-sidebar='rail'] {
+  display: none !important;
+}
+
 .app-card {
   border: 1px solid var(--color-kumo-line);
   border-radius: 0.5rem;

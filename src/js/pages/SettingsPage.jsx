@@ -38,6 +38,7 @@ import {
   Terminal,
   Trash,
   Upload,
+  getModuleIconComponent,
 } from '../components/Icons.jsx';
 
 const SETTINGS_TABS = [
@@ -123,7 +124,7 @@ const moduleRows = DEFAULT_MODULE_ORDER.map((moduleId) => {
     id: moduleId,
     groupId: group?.id || 'other',
     groupName: GROUP_LABELS[group?.id] || group?.name || '其他',
-    config: MODULE_CONFIG[moduleId] || { name: moduleId, icon: 'fa-cube' },
+    config: MODULE_CONFIG[moduleId] || { name: moduleId },
   };
 });
 
@@ -659,7 +660,7 @@ function SettingsPage() {
   const deprecatedTableItems = deprecatedTables?.tables || [];
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       <div className="flex flex-col gap-3 border-b border-kumo-line pb-3 lg:flex-row lg:items-center lg:justify-between">
         <Tabs
           {...MODULE_TABS_PROPS}
@@ -781,6 +782,7 @@ function SettingsPage() {
               {settings.moduleOrder.map((moduleId, index) => {
                 const row = moduleRows.find((item) => item.id === moduleId);
                 if (!row) return null;
+                const ModuleIcon = getModuleIconComponent(moduleId);
 
                 return (
                   <Table.Row key={moduleId}>
@@ -788,7 +790,7 @@ function SettingsPage() {
                     <Table.Cell>
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-kumo-brand">
-                          <i className={`fas ${row.config.icon || 'fa-cube'} text-xs`} />
+                          <ModuleIcon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-kumo-strong">{row.config.name}</div>

@@ -9,7 +9,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/server"
 )
 
-var version = "0.1.6-go-shell"
+var version = "2.0.0-go-shell"
 
 func main() {
 	cfg := config.Load(version)

@@ -625,7 +625,7 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
   const voidCanSend = !!voidFile || !!voidText.trim();
 
   return (
-    <div className="space-y-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       {!publicVoidOnly && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
           <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={PAGE_TABS} />

@@ -203,6 +203,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Service) isPublicRoute(parts []string, method string) bool {
 	return (len(parts) == 2 && parts[0] == "push" && method == http.MethodPost) ||
 		(len(parts) == 3 && parts[0] == "public" && parts[1] == "status-pages" && method == http.MethodGet) ||
+		(len(parts) == 2 && parts[0] == "public" && parts[1] == "status-page-by-domain" && method == http.MethodGet) ||
 		(len(parts) == 3 && parts[0] == "public" && parts[1] == "badge" && method == http.MethodGet)
 }
 
@@ -212,6 +213,8 @@ func (s *Service) servePublic(w http.ResponseWriter, r *http.Request, parts []st
 		s.recordPush(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "public" && parts[1] == "status-pages":
 		s.publicStatusPage(w, r, parts[2])
+	case len(parts) == 2 && parts[0] == "public" && parts[1] == "status-page-by-domain":
+		s.publicStatusPageByDomain(w, r)
 	case len(parts) == 3 && parts[0] == "public" && parts[1] == "badge":
 		s.publicBadge(w, r, parts[2])
 	default:
@@ -385,6 +388,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_incidents_monitor ON uptime_incidents(monitor_id, started_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_uptime_states_state ON uptime_monitor_states(state, updated_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_uptime_status_pages_slug ON uptime_status_pages(slug, public)`,
+		`CREATE INDEX IF NOT EXISTS idx_uptime_status_pages_domain ON uptime_status_pages(domain, public)`,
 		`CREATE INDEX IF NOT EXISTS idx_uptime_maintenance_active ON uptime_maintenance_windows(active, start_at, end_at)`,
 	}
 	for _, statement := range statements {
@@ -1538,10 +1542,10 @@ func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]inte
 	if err := saveHeartbeat(ctx, db, int64Value(monitor["id"], 0), beat); err != nil {
 		return nil, err
 	}
-	s.broadcastHeartbeat(int64Value(monitor["id"], 0), beat)
 	if err := s.processState(ctx, db, monitor, result, beat, maintenance != nil); err != nil {
 		return nil, err
 	}
+	s.enrichAndBroadcastHeartbeat(ctx, db, int64Value(monitor["id"], 0), beat)
 	// Persist SSL expiry from probe result into monitor state
 	if result.SslExpiry != nil {
 		monitorID := int64Value(monitor["id"], 0)
@@ -1903,7 +1907,7 @@ func createStatusPage(ctx context.Context, db *sql.DB, data map[string]interface
 	result, err := db.ExecContext(ctx, `
 		INSERT INTO uptime_status_pages (slug, domain, title, description, theme, public, cache_seconds, config_json)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, slug, nullableString(data["domain"]), title, stringValue(data["description"], ""), stringValue(data["theme"], "auto"),
+	`, slug, nullableString(normalizeStatusPageDomain(stringValue(data["domain"], ""))), title, stringValue(data["description"], ""), stringValue(data["theme"], "auto"),
 		boolIntValue(data["public"], true), intValue(firstNonNil(data["cacheSeconds"], data["cache_seconds"]), 300), jsonOrNull(data["config"]))
 	if err != nil {
 		return statusPage{}, err
@@ -1928,6 +1932,10 @@ func updateStatusPage(ctx context.Context, db *sql.DB, id int64, data map[string
 	}
 	for key, column := range map[string]string{"domain": "domain", "title": "title", "description": "description", "theme": "theme"} {
 		if value, ok := data[key]; ok {
+			if key == "domain" {
+				add(column, nullableString(normalizeStatusPageDomain(stringValue(value, ""))))
+				continue
+			}
 			add(column, nullableString(value))
 		}
 	}
@@ -2048,8 +2056,45 @@ func (s *Service) publicStatusPage(w http.ResponseWriter, r *http.Request, slug 
 	response.OK(w, page)
 }
 
+func (s *Service) publicStatusPageByDomain(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimSpace(r.URL.Query().Get("domain"))
+	if domain == "" {
+		domain = r.Host
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	page, ok, err := getPublicStatusPageByDomain(r.Context(), db, domain)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		response.Error(w, http.StatusNotFound, "Not found")
+		return
+	}
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", intValue(page["cacheSeconds"], 300)))
+	response.OK(w, page)
+}
+
 func getPublicStatusPage(ctx context.Context, db *sql.DB, slug string) (map[string]interface{}, bool, error) {
 	rows, err := db.QueryContext(ctx, `SELECT * FROM uptime_status_pages WHERE slug = ? AND public = 1`, normalizeSlug(slug))
+	return getPublicStatusPageFromRows(ctx, db, rows, err)
+}
+
+func getPublicStatusPageByDomain(ctx context.Context, db *sql.DB, domain string) (map[string]interface{}, bool, error) {
+	normalized := normalizeStatusPageDomain(domain)
+	if normalized == "" {
+		return nil, false, nil
+	}
+	rows, err := db.QueryContext(ctx, `SELECT * FROM uptime_status_pages WHERE lower(domain) = lower(?) AND public = 1`, normalized)
+	return getPublicStatusPageFromRows(ctx, db, rows, err)
+}
+
+func getPublicStatusPageFromRows(ctx context.Context, db *sql.DB, rows *sql.Rows, err error) (map[string]interface{}, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
@@ -2072,6 +2117,8 @@ func getPublicStatusPage(ctx context.Context, db *sql.DB, slug string) (map[stri
 		return nil, false, err
 	}
 	out := structToMap(page)
+	hideTargets := boolValue(page.Config["hideTargets"], false)
+	linkMonitorNames := boolValue(page.Config["linkMonitorNames"], false)
 	monitorRows, err := db.QueryContext(ctx, `
 		SELECT m.id, COALESCE(spm.display_name, m.name) as name, m.type, m.url, m.hostname, m.port,
 			s.state, s.last_error, s.last_ping, s.updated_at
@@ -2100,25 +2147,91 @@ func getPublicStatusPage(ctx context.Context, db *sql.DB, slug string) (map[stri
 	monitorRows.Close()
 	monitors := []map[string]interface{}{}
 	for _, monitor := range rawMonitors {
-		target := stringValue(monitor["url"], "")
-		if target == "" {
-			target = strings.Trim(strings.Join([]string{stringValue(monitor["hostname"], ""), stringValue(monitor["port"], "")}, ":"), ":")
+		rawTarget := stringValue(monitor["url"], "")
+		if rawTarget == "" {
+			rawTarget = strings.Trim(strings.Join([]string{stringValue(monitor["hostname"], ""), stringValue(monitor["port"], "")}, ":"), ":")
+		}
+		displayTarget := rawTarget
+		if hideTargets {
+			displayTarget = ""
+		}
+		targetURL := ""
+		if linkMonitorNames && (strings.HasPrefix(rawTarget, "http://") || strings.HasPrefix(rawTarget, "https://")) {
+			targetURL = rawTarget
 		}
 		uptime, _ := calculateUptime(ctx, db, int64Value(monitor["id"], 0), 1)
+		uptime30d, _ := calculateUptime(ctx, db, int64Value(monitor["id"], 0), 30)
+		history, _ := getPublicMonitorHistory(ctx, db, int64Value(monitor["id"], 0), 60)
 		monitors = append(monitors, map[string]interface{}{
-			"id":        monitor["id"],
-			"name":      monitor["name"],
-			"type":      monitor["type"],
-			"target":    target,
-			"state":     stringValue(monitor["state"], stateUnknown),
-			"lastError": monitor["last_error"],
-			"lastPing":  intValue(monitor["last_ping"], 0),
-			"updatedAt": monitor["updated_at"],
-			"uptime24h": uptime,
+			"id":         monitor["id"],
+			"name":       monitor["name"],
+			"type":       monitor["type"],
+			"target":     displayTarget,
+			"targetUrl":  targetURL,
+			"state":      stringValue(monitor["state"], stateUnknown),
+			"lastError":  monitor["last_error"],
+			"lastPing":   intValue(monitor["last_ping"], 0),
+			"updatedAt":  monitor["updated_at"],
+			"uptime24h":  uptime,
+			"uptime30d":  uptime30d,
+			"heartbeats": history,
 		})
 	}
 	out["monitors"] = monitors
 	return out, true, nil
+}
+
+func getPublicMonitorHistory(ctx context.Context, db *sql.DB, monitorID int64, limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 || limit > 120 {
+		limit = 60
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT status, state, ping, status_code, created_at as time
+		FROM uptime_heartbeats
+		WHERE monitor_id = ?
+		ORDER BY created_at DESC LIMIT ?
+	`, monitorID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]interface{}{}
+	for rows.Next() {
+		row, err := scanMap(rows)
+		if err != nil {
+			return nil, err
+		}
+		normalizeHeartbeatTime(row)
+		status := stringValue(row["state"], "")
+		if status == "" {
+			if intValue(row["status"], 0) == 1 {
+				status = "up"
+			} else {
+				status = "down"
+			}
+		}
+		items = append(items, map[string]interface{}{
+			"status":     status,
+			"ping":       intValue(row["ping"], 0),
+			"statusCode": nullableInt(row["status_code"]),
+			"time":       row["time"],
+		})
+	}
+	return items, rows.Err()
+}
+
+func normalizeStatusPageDomain(value string) string {
+	domain := strings.TrimSpace(strings.ToLower(value))
+	domain = strings.TrimPrefix(domain, "https://")
+	domain = strings.TrimPrefix(domain, "http://")
+	if index := strings.Index(domain, "/"); index >= 0 {
+		domain = domain[:index]
+	}
+	domain = strings.TrimSuffix(domain, "/")
+	if host, _, err := net.SplitHostPort(domain); err == nil {
+		return host
+	}
+	return domain
 }
 
 func (s *Service) publicBadge(w http.ResponseWriter, r *http.Request, idText string) {
@@ -2671,9 +2784,19 @@ func (s *Service) recordPush(w http.ResponseWriter, r *http.Request, token strin
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.broadcastHeartbeat(int64Value(monitor["id"], 0), beat)
 	_ = s.processState(r.Context(), db, monitor, probeResult{OK: true, Status: stateUp, Message: "Push heartbeat received"}, beat, maintenance != nil)
+	s.enrichAndBroadcastHeartbeat(r.Context(), db, int64Value(monitor["id"], 0), beat)
 	response.OK(w, map[string]interface{}{"monitorId": monitor["id"], "receivedAt": beat["time"]})
+}
+
+func (s *Service) enrichAndBroadcastHeartbeat(ctx context.Context, db *sql.DB, monitorID int64, beat map[string]interface{}) {
+	state, _ := loadState(ctx, db, monitorID)
+	uptime24h, _ := calculateUptime(ctx, db, monitorID, 1)
+	uptime30d, _ := calculateUptime(ctx, db, monitorID, 30)
+	beat["monitorState"] = state
+	beat["uptime24h"] = uptime24h
+	beat["uptime30d"] = uptime30d
+	s.broadcastHeartbeat(monitorID, beat)
 }
 
 func (s *Service) broadcastHeartbeat(monitorID int64, beat map[string]interface{}) {

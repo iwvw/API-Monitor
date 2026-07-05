@@ -815,7 +815,7 @@ function TotpPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
         <Tabs

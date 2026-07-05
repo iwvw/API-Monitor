@@ -1616,7 +1616,7 @@ function PaasPage() {
   }, [activeTab, flyAutoPaused, flyIntervalSec, loadFlyData]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
       {/* Tab bar header */}
       {/* <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-kumo-line pb-3">
         <div>

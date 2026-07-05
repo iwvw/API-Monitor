@@ -1128,7 +1128,7 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	auth := smtp.PlainAuth("", user, pass, host)
 	from := user
-	
+
 	// Helper to encode headers using RFC 2047 (B-encoding)
 	encodeHeader := func(s string) string {
 		return "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(s)) + "?="
@@ -1137,7 +1137,7 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 	if sender := stringValue(cfg["sender_name"]); sender != "" {
 		from = fmt.Sprintf("%s <%s>", encodeHeader(sender), user)
 	}
-	
+
 	messageBytes := []byte("To: " + to + "\r\n" +
 		"From: " + from + "\r\n" +
 		"Subject: " + encodeHeader(title) + "\r\n" +
@@ -1466,7 +1466,7 @@ func decryptConfig(raw string) map[string]interface{} {
 func eventCatalog() []map[string]interface{} {
 	return []map[string]interface{}{
 		{"module": "uptime", "events": []string{"down", "up", "pending", "resource.created", "resource.deleted", "ssl_expiry"}},
-		{"module": "server", "events": []string{"offline", "online", "cpu_high", "memory_high", "disk_high"}},
+		{"module": "server", "events": []string{"offline", "online", "cpu_high", "memory_high", "disk_high", "traffic_high", "traffic_normal"}},
 		{"module": "system", "events": []string{"database.backup", "database.import", "log.cleanup", "migration.failed", "cpu_high", "memory_high", "disk_high"}},
 		{"module": "filebox", "events": []string{"resource.created", "resource.deleted", "cleanup"}},
 		{"module": "totp", "events": []string{"resource.created", "resource.updated", "resource.deleted", "security.revealed", "backup.imported", "backup.exported"}},
@@ -1542,6 +1542,9 @@ func formatMessage(rule Rule, data map[string]interface{}) string {
 	add("CPU 使用率", data["cpu_usage"])
 	add("内存使用率", data["mem_percent"])
 	add("磁盘使用率", data["disk_usage"])
+	add("流量使用率", data["traffic_percent"])
+	add("已用流量", data["traffic_used"])
+	add("流量配额", data["traffic_limit"])
 	add("报警阈值", data["threshold"])
 	add("持续时间", data["downDuration"])
 

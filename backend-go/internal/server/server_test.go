@@ -358,6 +358,7 @@ func TestServerInventoryRoutesRequireSession(t *testing.T) {
 		"/api/server/s/server-1",
 		"/api/server/s/server-1/history",
 		"/api/server/accounts",
+		"/api/server/accounts/server-1/test-traffic-alert",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		res := httptest.NewRecorder()

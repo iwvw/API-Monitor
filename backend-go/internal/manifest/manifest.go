@@ -202,8 +202,11 @@ func Routes() []Route {
 		{Prefix: "/api/server/accounts/export", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account export", MatchMode: MatchExact},
 		{Prefix: "/api/server/accounts/import", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account import", MatchMode: MatchExact},
 		{Prefix: "/api/server/accounts/reorder", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account order update", MatchMode: MatchExact},
+		{Prefix: "/api/server/accounts/{id}/test-traffic-alert", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Test server traffic alert", MatchMode: MatchPattern},
 		{Prefix: "/api/server/accounts/{id}", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account read/update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/server/accounts", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account list", MatchMode: MatchExact},
+		{Prefix: "/api/server/status-pages/{id}", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server status page update/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/server/status-pages", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server status page list/create", MatchMode: MatchExact},
 
 		// REST API for server list and details
 		{Prefix: "/api/server/s/{id}/history", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server metrics history", MatchMode: MatchPattern},

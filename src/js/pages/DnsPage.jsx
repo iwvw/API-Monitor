@@ -1658,8 +1658,8 @@ function DnsPage() {
   ];
   const isDnsWorkspace = activeTab === 'dns' && selectedAccountId;
   const pageShellClassName = isDnsWorkspace
-    ? 'dns-workspace flex w-full max-w-full flex-col gap-3 overflow-visible px-2 pb-4 pt-1 md:h-[calc(100dvh-88px)] md:min-h-0 md:overflow-hidden md:px-1 md:pb-1 lg:h-[calc(100dvh-92px)]'
-    : 'flex w-full flex-col gap-3 px-1 pt-1';
+    ? 'dns-workspace flex w-full max-w-full flex-col gap-3 overflow-visible pb-4 md:h-[calc(100dvh-88px)] md:min-h-0 md:overflow-hidden md:pb-1 lg:h-[calc(100dvh-92px)]'
+    : 'flex w-full min-w-0 flex-col gap-3 sm:gap-4';
   const renderResizeHead = (label, index, startResize, align = 'left') => {
     const alignClassName = {
       left: 'justify-start text-left',

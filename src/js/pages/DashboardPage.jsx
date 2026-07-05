@@ -48,6 +48,7 @@ const DEFAULT_DASHBOARD_STATS = {
   uptime: { total: 0, up: 0, down: 0 },
   filebox: { total: 0 },
   totp: { total: 0 },
+  statusPages: [],
   apiStats: {
     total: { audit: 0, ops: 0, all: 0 },
     trend: [],
@@ -214,6 +215,32 @@ function ServerStatusCapsules({ servers = [], total = 0, online = 0, error = 0 }
         </Badge>
       )}
     </div>
+  );
+}
+
+const getStatusPageUrl = (page) => {
+  const domain = String(page?.domain || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/g, '');
+  if (domain) return `https://${domain}`;
+  const slug = encodeURIComponent(page?.slug || '');
+  if (!slug) return '';
+  return page.kind === 'server' ? `/servers/${slug}` : `/status/${slug}`;
+};
+
+function StatusPageShortcutCard({ page }) {
+  const url = getStatusPageUrl(page);
+
+  return (
+    <AppCard
+      padding="none"
+      interactive
+      onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}
+      className="group flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-2.5"
+    >
+      <span className="min-w-0 truncate text-sm font-semibold text-kumo-strong group-hover:text-kumo-brand">
+        {page.title || page.slug}
+      </span>
+      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-kumo-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-kumo-brand" />
+    </AppCard>
   );
 }
 
@@ -560,6 +587,32 @@ function DashboardPage({ onNavigate } = {}) {
       return previousStats.servers;
     };
 
+    const fetchStatusPages = async () => {
+      const normalize = (item, kind) => ({ ...item, kind });
+      const enabled = (item) => item?.public !== false && item?.config?.showOnDashboard === true;
+      try {
+        const [uptimeResult, serverResult] = await Promise.allSettled([
+          fetchJson('/api/uptime/status-pages'),
+          fetchJson('/api/server/status-pages'),
+        ]);
+        const uptimePages = uptimeResult.status === 'fulfilled' && Array.isArray(uptimeResult.value?.data)
+          ? uptimeResult.value.data.filter(enabled).map((item) => normalize(item, 'uptime'))
+          : [];
+        const serverPages = serverResult.status === 'fulfilled' && Array.isArray(serverResult.value?.data)
+          ? serverResult.value.data.filter(enabled).map((item) => normalize(item, 'server'))
+          : [];
+        const val = [...uptimePages, ...serverPages];
+        updateSegment('statusPages', val);
+        return val;
+      } catch (e) {
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] Status pages fetch failed:', e);
+        }
+      }
+      updateSegment('statusPages', previousStats.statusPages || []);
+      return previousStats.statusPages || [];
+    };
+
     const request = Promise.allSettled([
       fetchServers(),
       fetchPaaS(),
@@ -568,6 +621,7 @@ function DashboardPage({ onNavigate } = {}) {
       fetchFilebox(),
       fetchTotp(),
       fetchApiStats(),
+      fetchStatusPages(),
     ]).then((results) => {
       const updatedStats = {
         host: dashboardHostMetricsCache || previousStats.host,
@@ -578,6 +632,7 @@ function DashboardPage({ onNavigate } = {}) {
         filebox: results[4].status === 'fulfilled' ? results[4].value : previousStats.filebox,
         totp: results[5].status === 'fulfilled' ? results[5].value : previousStats.totp,
         apiStats: results[6].status === 'fulfilled' ? results[6].value : previousStats.apiStats || DEFAULT_DASHBOARD_STATS.apiStats,
+        statusPages: results[7].status === 'fulfilled' ? results[7].value : previousStats.statusPages || [],
       };
       return {
         stats: updatedStats,
@@ -740,29 +795,10 @@ function DashboardPage({ onNavigate } = {}) {
     : 'text-kumo-success bg-kumo-success/10 border-kumo-success/20';
   const uptimeDetailText = stats.uptime.down > 0 ? `${stats.uptime.down} 个监测发生故障` : '服务状态健康';
   const uptimeDetailClassName = stats.uptime.down > 0 ? 'text-kumo-danger font-semibold' : '';
+  const dashboardStatusPages = Array.isArray(stats.statusPages) ? stats.statusPages : [];
 
   return (
     <PageStack className="gap-3 sm:gap-4">
-      
-      {/* ==================== Header ==================== */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-base font-bold text-kumo-strong sm:text-xl">系统控制台</h1>
-          <p className="mt-0.5 truncate text-[11px] text-kumo-subtle sm:text-xs">系统运行概览与状态指标</p>
-        </div>
-
-        {/* <div className="flex shrink-0 items-center">
-          <Button
-            onClick={() => fetchDashboardStats(true, { force: true })}
-            variant="secondary" size="sm"
-            loading={loading}
-          >
-            {!loading && <RefreshCw className="w-3.5 h-3.5" />}
-            <span className="hidden min-[360px]:inline">刷新数据</span>
-          </Button>
-        </div> */}
-      </div>
-
       {/* ==================== Stats Grid (5 Cards) ==================== */}
       <div className="grid w-full grid-cols-1 gap-2.5 min-[520px]:grid-cols-2 md:grid-cols-3 2xl:grid-cols-5">
         
@@ -1043,6 +1079,14 @@ function DashboardPage({ onNavigate } = {}) {
         </AppCard>
 
       </div>
+
+      {dashboardStatusPages.length > 0 && (
+        <div className="grid w-full grid-cols-1 gap-2.5 min-[520px]:grid-cols-2 xl:grid-cols-4">
+          {dashboardStatusPages.map((page) => (
+            <StatusPageShortcutCard key={`${page.kind}-${page.id || page.slug}`} page={page} />
+          ))}
+        </div>
+      )}
 
     </PageStack>
   );
