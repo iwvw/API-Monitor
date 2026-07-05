@@ -81,6 +81,14 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function percentOf(done, total) {
+  return Math.min(100, Math.round((done / Math.max(1, total || done || 1)) * 100));
+}
+
+function normalizeVoidRoom(value) {
+  return value.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 12);
+}
+
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -137,11 +145,21 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
   const [voidProgress, setVoidProgress] = useState(0);
   const [voidReceiveName, setVoidReceiveName] = useState('');
   const [voidReceiveSize, setVoidReceiveSize] = useState(0);
+  const [voidRole, setVoidRole] = useState(publicVoidOnly ? 'receiver' : 'sender');
+  const [voidExpiresAt, setVoidExpiresAt] = useState(0);
+  const [voidSpeed, setVoidSpeed] = useState(0);
+  const [voidTransferred, setVoidTransferred] = useState(0);
+  const [voidStartedAt, setVoidStartedAt] = useState(0);
+  const [voidReceivedText, setVoidReceivedText] = useState('');
+  const [voidMeta, setVoidMeta] = useState(null);
+  const [voidError, setVoidError] = useState('');
   const fileInputRef = useRef(null);
   const voidFileInputRef = useRef(null);
   const abortControllerRef = useRef(null);
   const voidPeerRef = useRef(null);
   const voidChannelRef = useRef(null);
+  const autoReceiveRoomRef = useRef('');
+  const voidSpeedSampleRef = useRef({ bytes: 0, time: 0 });
   const maxFileSize = fileboxSettings.max_file_size || DEFAULT_FILEBOX_MAX_FILE_SIZE;
 
   const loadLocalHistory = () => {
@@ -345,6 +363,39 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
     toast.success('下载链接已复制');
   };
 
+  const resetVoidTransfer = (status = '空闲') => {
+    closeVoidPeer();
+    setVoidStatus(status);
+    setVoidProgress(0);
+    setVoidSpeed(0);
+    setVoidTransferred(0);
+    setVoidStartedAt(0);
+    setVoidReceiveName('');
+    setVoidReceiveSize(0);
+    setVoidReceivedText('');
+    setVoidMeta(null);
+    setVoidError('');
+    voidSpeedSampleRef.current = { bytes: 0, time: 0 };
+  };
+
+  const updateVoidProgress = (done, total, startedAt = voidStartedAt) => {
+    setVoidTransferred(done);
+    setVoidProgress(percentOf(done, total));
+    const now = Date.now();
+    const last = voidSpeedSampleRef.current;
+    if (!last.time) {
+      voidSpeedSampleRef.current = { bytes: done, time: now };
+      return;
+    }
+    const elapsed = Math.max(0.2, (now - last.time) / 1000);
+    if (now - last.time >= 250 || done >= total) {
+      setVoidSpeed(Math.max(0, (done - last.bytes) / elapsed));
+      voidSpeedSampleRef.current = { bytes: done, time: now };
+    } else if (startedAt) {
+      setVoidSpeed(done / Math.max(0.2, (now - startedAt) / 1000));
+    }
+  };
+
   const postVoidSignal = async (room, kind, payload) => {
     await axios.post(`/api/filebox/void/rooms/${encodeURIComponent(room)}/${kind}`, payload, { headers: authHeaders() });
   };
@@ -367,148 +418,220 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
 
   const startVoidSend = async () => {
     if (!voidFile && !voidText.trim()) return toast.warning('请选择文件或输入文本');
-    closeVoidPeer();
-    setVoidProgress(0);
-    setVoidStatus('创建房间');
-    const roomRes = await axios.post('/api/filebox/void/rooms', {}, { headers: authHeaders() });
-    const room = roomRes.data?.data?.id;
-    if (!room) return toast.error('创建虚空房间失败');
-    const link = `${window.location.origin}/filebox?void=${room}`;
-    setVoidRoom(room);
-    setVoidLink(link);
-    setVoidQr(await QRCode.toDataURL(link, { width: 132, margin: 1 }));
+    resetVoidTransfer('创建房间');
+    setVoidRole('sender');
+    try {
+      const roomRes = await axios.post('/api/filebox/void/rooms', {}, { headers: authHeaders() });
+      const room = roomRes.data?.data?.id;
+      const expiresAt = roomRes.data?.data?.expires_at || 0;
+      if (!room) throw new Error('创建虚空房间失败');
+      const link = `${window.location.origin}/filebox?void=${room}`;
+      setVoidRoom(room);
+      setVoidLink(link);
+      setVoidExpiresAt(expiresAt);
+      setVoidQr(await QRCode.toDataURL(link, { width: 132, margin: 1 }));
 
-    const peer = new RTCPeerConnection({ iceServers: VOID_ICE_SERVERS });
-    voidPeerRef.current = peer;
-    const channel = peer.createDataChannel('void-filebox', { ordered: true });
-    voidChannelRef.current = channel;
-
-    peer.onicecandidate = (event) => {
-      if (event.candidate) postVoidSignal(room, 'sender-candidate', event.candidate.toJSON()).catch(() => {});
-    };
-    channel.onopen = async () => {
-      setVoidStatus('直连已建立，开始发送');
-      const isFile = !!voidFile;
-      const meta = isFile
+      const peer = new RTCPeerConnection({ iceServers: VOID_ICE_SERVERS });
+      voidPeerRef.current = peer;
+      const channel = peer.createDataChannel('void-filebox', { ordered: true });
+      voidChannelRef.current = channel;
+      const payloadBlob = voidFile || new Blob([voidText], { type: 'text/plain;charset=utf-8' });
+      const meta = voidFile
         ? { kind: 'meta', type: 'file', name: voidFile.name, size: voidFile.size, mime: voidFile.type || 'application/octet-stream' }
-        : { kind: 'meta', type: 'text', name: 'void-text.txt', size: new Blob([voidText]).size, mime: 'text/plain' };
-      await sendVoidPayload(channel, meta);
-      const blob = isFile ? voidFile : new Blob([voidText], { type: 'text/plain' });
-      let sent = 0;
-      for (let offset = 0; offset < blob.size; offset += VOID_CHUNK_SIZE) {
-        while (channel.bufferedAmount > 4 * 1024 * 1024) await sleep(25);
-        const chunk = await blob.slice(offset, offset + VOID_CHUNK_SIZE).arrayBuffer();
-        channel.send(chunk);
-        sent += chunk.byteLength;
-        setVoidProgress(Math.round((sent / Math.max(1, blob.size)) * 100));
-      }
-      await sendVoidPayload(channel, { kind: 'done' });
-      setVoidStatus('发送完成');
-    };
-    channel.onclose = () => setVoidStatus((prev) => (prev === '发送完成' ? prev : '连接已关闭'));
+        : { kind: 'meta', type: 'text', name: '虚空文本.txt', size: payloadBlob.size, mime: 'text/plain;charset=utf-8' };
+      setVoidMeta(meta);
+      setVoidReceiveName(meta.name);
+      setVoidReceiveSize(meta.size);
 
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    await postVoidSignal(room, 'offer', offer);
-    setVoidStatus('等待接收方打开链接');
+      peer.onconnectionstatechange = () => {
+        if (['failed', 'disconnected'].includes(peer.connectionState)) {
+          setVoidError('直连中断，请重新创建房间或检查双方网络');
+          setVoidStatus('连接中断');
+        }
+      };
+      peer.onicecandidate = (event) => {
+        if (event.candidate) postVoidSignal(room, 'sender-candidate', event.candidate.toJSON()).catch(() => {});
+      };
+      channel.onopen = async () => {
+        const startedAt = Date.now();
+        setVoidStartedAt(startedAt);
+        setVoidStatus('直连已建立，开始发送');
+        await sendVoidPayload(channel, meta);
+        let sent = 0;
+        for (let offset = 0; offset < payloadBlob.size; offset += VOID_CHUNK_SIZE) {
+          while (channel.bufferedAmount > 4 * 1024 * 1024) await sleep(25);
+          if (channel.readyState !== 'open') throw new Error('连接已关闭，发送中断');
+          const chunk = await payloadBlob.slice(offset, offset + VOID_CHUNK_SIZE).arrayBuffer();
+          channel.send(chunk);
+          sent += chunk.byteLength;
+          updateVoidProgress(sent, payloadBlob.size, startedAt);
+        }
+        await sendVoidPayload(channel, { kind: 'done' });
+        setVoidSpeed(payloadBlob.size / Math.max(0.2, (Date.now() - startedAt) / 1000));
+        setVoidProgress(100);
+        setVoidTransferred(payloadBlob.size);
+        setVoidStatus('发送完成');
+      };
+      channel.onerror = () => {
+        setVoidError('数据通道异常，请重新创建虚空传输');
+      };
+      channel.onclose = () => setVoidStatus((prev) => (prev === '发送完成' ? prev : '连接已关闭'));
 
-    const seen = new Set();
-    for (let i = 0; i < 300; i += 1) {
-      if (!voidPeerRef.current) return;
-      const answer = await getVoidSignal(room, 'answer');
-      if (answer && !peer.currentRemoteDescription) await peer.setRemoteDescription(answer);
-      const candidates = await getVoidSignal(room, 'receiver-candidates');
-      if (Array.isArray(candidates)) {
-        for (const candidate of candidates) {
-          const key = candidate?.candidate;
-          if (key && !seen.has(key)) {
-            seen.add(key);
-            await peer.addIceCandidate(candidate).catch(() => {});
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      await postVoidSignal(room, 'offer', offer);
+      setVoidStatus('等待接收方打开链接');
+
+      const seen = new Set();
+      for (let i = 0; i < 300; i += 1) {
+        if (!voidPeerRef.current) return;
+        const answer = await getVoidSignal(room, 'answer');
+        if (answer && !peer.currentRemoteDescription) await peer.setRemoteDescription(answer);
+        const candidates = await getVoidSignal(room, 'receiver-candidates');
+        if (Array.isArray(candidates)) {
+          for (const candidate of candidates) {
+            const key = candidate?.candidate;
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              await peer.addIceCandidate(candidate).catch(() => {});
+            }
           }
         }
+        if (channel.readyState === 'open') return;
+        await sleep(1000);
       }
-      if (channel.readyState === 'open') return;
-      await sleep(1000);
+      setVoidError('等待超时，接收方未建立直连');
+      setVoidStatus('等待超时');
+    } catch (error) {
+      setVoidError(error.response?.data?.error || error.message || '虚空传输创建失败');
+      setVoidStatus('创建失败');
+      toast.error(error.response?.data?.error || error.message || '虚空传输创建失败');
     }
   };
 
   const startVoidReceive = async () => {
-    const room = voidRoom.trim().toUpperCase();
+    const room = normalizeVoidRoom(voidRoom);
     if (!room) return toast.warning('请输入虚空房间号');
-    closeVoidPeer();
-    setVoidProgress(0);
-    setVoidStatus('读取发送方信令');
-    const peer = new RTCPeerConnection({ iceServers: VOID_ICE_SERVERS });
-    voidPeerRef.current = peer;
-    const chunks = [];
-    let meta = null;
-    let received = 0;
+    resetVoidTransfer('读取发送方信令');
+    setVoidRole('receiver');
+    setVoidRoom(room);
+    try {
+      const peer = new RTCPeerConnection({ iceServers: VOID_ICE_SERVERS });
+      voidPeerRef.current = peer;
+      const chunks = [];
+      let meta = null;
+      let received = 0;
+      let startedAt = 0;
+      let completed = false;
 
-    peer.onicecandidate = (event) => {
-      if (event.candidate) postVoidSignal(room, 'receiver-candidate', event.candidate.toJSON()).catch(() => {});
-    };
-    peer.ondatachannel = (event) => {
-      const channel = event.channel;
-      voidChannelRef.current = channel;
-      channel.binaryType = 'arraybuffer';
-      channel.onopen = () => setVoidStatus('直连已建立，等待数据');
-      channel.onmessage = async (message) => {
-        if (typeof message.data === 'string') {
-          const payload = JSON.parse(message.data);
-          if (payload.kind === 'meta') {
-            meta = payload;
-            setVoidReceiveName(payload.name || 'void-transfer.bin');
-            setVoidReceiveSize(payload.size || 0);
-            setVoidStatus('接收中');
-            return;
-          }
-          if (payload.kind === 'done') {
-            const blob = new Blob(chunks, { type: meta?.mime || 'application/octet-stream' });
-            saveBlob(blob, meta?.name || 'void-transfer.bin');
-            setVoidProgress(100);
-            setVoidStatus('接收完成，已触发下载');
-          }
-          return;
-        }
-        if (message.data instanceof ArrayBuffer) {
-          chunks.push(message.data);
-          received += message.data.byteLength;
-          setVoidProgress(Math.round((received / Math.max(1, meta?.size || received)) * 100));
+      peer.onconnectionstatechange = () => {
+        if (peer.connectionState === 'connected') setVoidStatus('直连已建立，等待数据');
+        if (['failed', 'disconnected'].includes(peer.connectionState)) {
+          setVoidError('直连中断，请让发送方重新创建房间');
+          setVoidStatus('连接中断');
         }
       };
-    };
+      peer.onicecandidate = (event) => {
+        if (event.candidate) postVoidSignal(room, 'receiver-candidate', event.candidate.toJSON()).catch(() => {});
+      };
+      peer.ondatachannel = (event) => {
+        const channel = event.channel;
+        voidChannelRef.current = channel;
+        channel.binaryType = 'arraybuffer';
+        channel.onopen = () => setVoidStatus('直连已建立，等待数据');
+        channel.onerror = () => setVoidError('数据通道异常，请重新接收');
+        channel.onmessage = async (message) => {
+          if (typeof message.data === 'string') {
+            const payload = JSON.parse(message.data);
+            if (payload.kind === 'meta') {
+              meta = payload;
+              startedAt = Date.now();
+              setVoidStartedAt(startedAt);
+              setVoidMeta(payload);
+              setVoidReceiveName(payload.name || 'void-transfer.bin');
+              setVoidReceiveSize(payload.size || 0);
+              setVoidStatus('接收中');
+              return;
+            }
+            if (payload.kind === 'done') {
+              const blob = new Blob(chunks, { type: meta?.mime || 'application/octet-stream' });
+              if (meta?.type === 'text') {
+                setVoidReceivedText(await blob.text());
+                setVoidStatus('接收完成，可复制文本');
+              } else {
+                saveBlob(blob, meta?.name || 'void-transfer.bin');
+                setVoidStatus('接收完成，已触发下载');
+              }
+              setVoidProgress(100);
+              setVoidTransferred(meta?.size || received);
+              setVoidSpeed((meta?.size || received) / Math.max(0.2, (Date.now() - startedAt) / 1000));
+              completed = true;
+            }
+            return;
+          }
+          if (message.data instanceof ArrayBuffer) {
+            chunks.push(message.data);
+            received += message.data.byteLength;
+            updateVoidProgress(received, meta?.size || received, startedAt);
+          }
+        };
+      };
 
-    const offer = await getVoidSignal(room, 'offer');
-    if (!offer) return toast.error('房间还没有发送方，稍后再试');
-    await peer.setRemoteDescription(offer);
-    const answer = await peer.createAnswer();
-    await peer.setLocalDescription(answer);
-    await postVoidSignal(room, 'answer', answer);
-    setVoidStatus('等待直连建立');
+      const offer = await getVoidSignal(room, 'offer');
+      if (!offer) throw new Error('房间还没有发送方，稍后再试');
+      await peer.setRemoteDescription(offer);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      await postVoidSignal(room, 'answer', answer);
+      setVoidStatus('等待直连建立');
 
-    const seen = new Set();
-    for (let i = 0; i < 300; i += 1) {
-      if (!voidPeerRef.current) return;
-      const candidates = await getVoidSignal(room, 'sender-candidates');
-      if (Array.isArray(candidates)) {
-        for (const candidate of candidates) {
-          const key = candidate?.candidate;
-          if (key && !seen.has(key)) {
-            seen.add(key);
-            await peer.addIceCandidate(candidate).catch(() => {});
+      const seen = new Set();
+      for (let i = 0; i < 300; i += 1) {
+        if (!voidPeerRef.current) return;
+        const candidates = await getVoidSignal(room, 'sender-candidates');
+        if (Array.isArray(candidates)) {
+          for (const candidate of candidates) {
+            const key = candidate?.candidate;
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              await peer.addIceCandidate(candidate).catch(() => {});
+            }
           }
         }
+        if (completed) return;
+        await sleep(1000);
       }
-      await sleep(1000);
+      setVoidError('等待超时，未收到发送方数据');
+      setVoidStatus('等待超时');
+    } catch (error) {
+      setVoidError(error.response?.data?.error || error.message || '接收失败');
+      setVoidStatus('接收失败');
+      toast.error(error.response?.data?.error || error.message || '接收失败');
     }
   };
 
+  useEffect(() => {
+    if (!publicVoidOnly) return;
+    const room = normalizeVoidRoom(voidRoom);
+    if (!room || autoReceiveRoomRef.current === room) return;
+    autoReceiveRoomRef.current = room;
+    startVoidReceive();
+  }, [publicVoidOnly, voidRoom]);
+
+  const voidPayloadSize = voidReceiveSize || voidFile?.size || (voidText ? new Blob([voidText]).size : 0);
+  const voidElapsedSeconds = voidStartedAt ? Math.max(0, Math.round((Date.now() - voidStartedAt) / 1000)) : 0;
+  const voidStatusVariant = voidProgress >= 100 ? 'success' : voidError ? 'error' : voidRole === 'receiver' ? 'secondary' : 'success';
+  const voidRoomExpiryText = voidExpiresAt ? formatDateTime(voidExpiresAt) : '房间创建后 30 分钟';
+  const voidCanSend = !!voidFile || !!voidText.trim();
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
-        {!publicVoidOnly && <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={PAGE_TABS} />}
-        <div className="text-xs text-kumo-subtle">{publicVoidOnly ? '虚空传输接收页' : '文件与文本临时分享'}</div>
-      </div>
+      {!publicVoidOnly && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
+          <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={PAGE_TABS} />
+          <div className="text-xs text-kumo-subtle">文件与文本临时分享</div>
+        </div>
+      )}
 
       {activeTab === 'share' && (
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
@@ -685,55 +808,94 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
       )}
 
       {activeTab === 'void' && (
-        <div className="grid items-start gap-4 xl:grid-cols-2">
+        <div className={`grid items-start gap-4 ${publicVoidOnly ? 'mx-auto w-full max-w-2xl' : 'xl:grid-cols-[minmax(0,1fr)_minmax(24rem,0.9fr)]'}`}>
+          {!publicVoidOnly && (
           <LayerCard className="p-5">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-kumo-line pb-4">
               <div>
                 <h2 className="text-base font-bold text-kumo-strong">虚空传输</h2>
-                <p className="mt-1 text-xs text-kumo-subtle">点对点直连传输，大文件不占用服务器带宽。</p>
+                <p className="mt-1 text-xs text-kumo-subtle">点对点直连传输，服务器只暂存握手信令。</p>
               </div>
               <Badge variant="success">P2P</Badge>
             </div>
             <div className="mt-4 grid gap-4">
-              <div className="rounded-md border border-dashed border-kumo-line bg-kumo-recessed/35 p-5 text-center transition-colors hover:border-kumo-brand/50">
+              <div
+                className="rounded-md border border-dashed border-kumo-line bg-kumo-recessed/35 p-5 text-center transition-colors hover:border-kumo-brand/50"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const file = event.dataTransfer.files?.[0];
+                  if (file) {
+                    setVoidFile(file);
+                    setVoidText('');
+                    setVoidReceivedText('');
+                  }
+                }}
+              >
                 <input ref={voidFileInputRef} type="file" className="hidden" onChange={(event) => { setVoidFile(event.target.files?.[0] || null); setVoidText(''); }} />
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-md border border-kumo-line bg-kumo-base text-kumo-brand"><Upload className="h-6 w-6" /></div>
-                <div className="mt-3 text-sm font-semibold text-kumo-strong">{voidFile ? voidFile.name : '选择文件'}</div>
-                <div className="mt-1 text-xs text-kumo-subtle">双方页面保持打开，连接建立后浏览器直传。</div>
+                <div className="mt-3 break-all text-sm font-semibold text-kumo-strong">{voidFile ? voidFile.name : '拖入文件或点击选择'}</div>
+                <div className="mt-1 text-xs text-kumo-subtle">{voidFile ? formatFileSize(voidFile.size) : '双方页面保持打开，连接建立后浏览器直传。'}</div>
                 <div className="mt-4 flex justify-center"><Button size="sm" variant="secondary" onClick={() => voidFileInputRef.current?.click()}>选择文件</Button></div>
               </div>
               <Textarea label="或发送文本" value={voidText} onChange={(event) => { setVoidText(event.target.value); setVoidFile(null); }} className="min-h-32 font-mono text-sm" placeholder="输入文本后也可以通过虚空传输" />
-              {/* <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs sm:grid-cols-3">
-                <div><div className="font-semibold text-kumo-strong">信令</div><div className="mt-1 text-kumo-subtle">服务器暂存 30 分钟</div></div>
-                <div><div className="font-semibold text-kumo-strong">文件流</div><div className="mt-1 text-kumo-subtle">浏览器直连</div></div>
-                <div><div className="font-semibold text-kumo-strong">中继</div><div className="mt-1 text-kumo-subtle">默认关闭</div></div>
-              </div> */}
               <div className="flex flex-wrap justify-end gap-2 border-t border-kumo-line pt-4">
-                <Button size="sm" variant="secondary" onClick={() => { closeVoidPeer(); setVoidStatus('已停止'); }}>停止</Button>
-                <Button size="sm" variant="primary" onClick={startVoidSend} icon={<Send className="h-4 w-4" />}>创建虚空传输</Button>
+                <Button size="sm" variant="secondary" onClick={() => resetVoidTransfer('已停止')}>停止</Button>
+                <Button size="sm" variant="primary" disabled={!voidCanSend} onClick={startVoidSend} icon={<Send className="h-4 w-4" />}>创建虚空传输</Button>
               </div>
             </div>
           </LayerCard>
+          )}
 
           <LayerCard className="p-5">
             <div className="flex items-start justify-between gap-3 border-b border-kumo-line pb-4">
               <div>
-                <h2 className="text-base font-bold text-kumo-strong">连接状态</h2>
-                <p className="mt-1 text-xs text-kumo-subtle">接收方扫码后在这里建立连接。</p>
+                <h2 className="text-base font-bold text-kumo-strong">{publicVoidOnly ? '接收虚空传输' : '连接状态'}</h2>
+                <p className="mt-1 text-xs text-kumo-subtle">{publicVoidOnly ? '保持本页打开，直连建立后会自动接收。' : '接收方扫码后在这里建立连接。'}</p>
               </div>
-              <Badge variant={voidProgress >= 100 ? 'success' : 'secondary'}>{voidProgress}%</Badge>
+              <Badge variant={voidStatusVariant}>{voidProgress}%</Badge>
             </div>
             <div className="mt-4 grid gap-4">
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <Input size="sm" label="房间号" value={voidRoom} onChange={(event) => setVoidRoom(event.target.value.toUpperCase())} placeholder="扫码会自动填入" />
-                <div className="flex items-end"><Button size="sm" variant="primary" onClick={startVoidReceive}>开始接收</Button></div>
+                <Input size="sm" label="房间号" value={voidRoom} onChange={(event) => setVoidRoom(normalizeVoidRoom(event.target.value))} placeholder="扫码会自动填入" />
+                <div className="flex items-end gap-2">
+                  <Button size="sm" variant="primary" onClick={startVoidReceive}>{publicVoidOnly ? '重新接收' : '开始接收'}</Button>
+                  <Button size="sm" variant="secondary" onClick={() => resetVoidTransfer('已停止')}>停止</Button>
+                </div>
               </div>
-              <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs">
-                <div className="flex items-center justify-between gap-3"><span className="text-kumo-subtle">状态</span><span className="rounded border border-kumo-line bg-kumo-base px-2 py-0.5 font-semibold text-kumo-strong">{voidStatus}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-kumo-subtle">内容</span><span className="truncate font-semibold text-kumo-strong">{voidReceiveName || voidFile?.name || '等待连接'}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-kumo-subtle">大小</span><span className="font-semibold text-kumo-strong">{formatFileSize(voidReceiveSize || voidFile?.size || new Blob([voidText]).size || 0)}</span></div>
+              {publicVoidOnly && (
+                <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-4">
+                  <div className="text-xs text-kumo-subtle">当前房间</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-2xl font-bold tracking-normal text-kumo-strong">{voidRoom || '等待房间号'}</span>
+                    <Badge variant="secondary">30 分钟有效</Badge>
+                  </div>
+                </div>
+              )}
+              <div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs sm:grid-cols-2">
+                <div><span className="text-kumo-subtle">状态</span><div className="mt-1 font-semibold text-kumo-strong">{voidStatus}</div></div>
+                <div><span className="text-kumo-subtle">内容</span><div className="mt-1 truncate font-semibold text-kumo-strong">{voidReceiveName || voidFile?.name || '等待连接'}</div></div>
+                <div><span className="text-kumo-subtle">大小</span><div className="mt-1 font-semibold text-kumo-strong">{formatFileSize(voidPayloadSize)}</div></div>
+                <div><span className="text-kumo-subtle">速度</span><div className="mt-1 font-semibold text-kumo-strong">{formatSpeed(voidSpeed)}</div></div>
+                <div><span className="text-kumo-subtle">已传输</span><div className="mt-1 font-semibold text-kumo-strong">{formatFileSize(voidTransferred)}</div></div>
+                <div><span className="text-kumo-subtle">有效期</span><div className="mt-1 font-semibold text-kumo-strong">{voidRoomExpiryText}</div></div>
               </div>
               <Meter label="传输进度" value={voidProgress} customValue={`${voidProgress}%`} />
+              {voidStartedAt > 0 && (
+                <div className="text-xs text-kumo-subtle">已用时 {voidElapsedSeconds} 秒，{voidMeta?.type === 'text' ? '文本会在完成后直接显示。' : '文件接收完成后会自动触发浏览器下载。'}</div>
+              )}
+              {voidError && (
+                <div className="rounded-md border border-kumo-error/30 bg-kumo-error/10 p-3 text-xs font-semibold text-kumo-error">{voidError}</div>
+              )}
+              {voidReceivedText && (
+                <div className="rounded-md border border-kumo-line bg-kumo-base p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-kumo-strong">接收到的文本</div>
+                    <Button size="sm" variant="secondary" onClick={() => navigator.clipboard.writeText(voidReceivedText).then(() => toast.success('文本已复制'))}>复制文本</Button>
+                  </div>
+                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-kumo-line bg-kumo-recessed/40 p-3 text-xs text-kumo-strong">{voidReceivedText}</pre>
+                </div>
+              )}
               {voidLink ? (
                 <div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-base p-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
                   {voidQr && <img src={voidQr} alt="虚空传输二维码" className="h-32 w-32 rounded-md border border-kumo-line bg-white p-2" />}
@@ -743,7 +905,7 @@ function FileboxPage({ publicVoidOnly = false } = {}) {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-md border border-dashed border-kumo-line p-8 text-center text-xs text-kumo-subtle">创建虚空传输后会显示二维码和接收链接。</div>
+                !publicVoidOnly && <div className="rounded-md border border-dashed border-kumo-line p-8 text-center text-xs text-kumo-subtle">创建虚空传输后会显示二维码和接收链接。</div>
               )}
             </div>
           </LayerCard>

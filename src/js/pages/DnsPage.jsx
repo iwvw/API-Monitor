@@ -103,7 +103,7 @@ echarts.use([
 ]);
 
 const CLOUDFLARE_TABS = [
-  { value: 'dns', label: <span className="inline-flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" />域名与 DNS</span> },
+  { value: 'dns', label: <span className="inline-flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" />DNS</span> },
   { value: 'workers', label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-3.5 w-3.5" />Workers</span> },
   { value: 'pages', label: <span className="inline-flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" />Pages</span> },
   { value: 'r2', label: <span className="inline-flex items-center gap-1.5"><Database className="h-3.5 w-3.5" />R2 存储</span> },
@@ -1658,7 +1658,7 @@ function DnsPage() {
   ];
   const isDnsWorkspace = activeTab === 'dns' && selectedAccountId;
   const pageShellClassName = isDnsWorkspace
-    ? 'dns-workspace flex h-[calc(100dvh-80px)] min-h-0 w-full max-w-full flex-col gap-3 overflow-hidden px-1 pb-1 pt-1 sm:h-[calc(100dvh-88px)] lg:h-[calc(100dvh-92px)]'
+    ? 'dns-workspace flex w-full max-w-full flex-col gap-3 overflow-visible px-2 pb-4 pt-1 md:h-[calc(100dvh-88px)] md:min-h-0 md:overflow-hidden md:px-1 md:pb-1 lg:h-[calc(100dvh-92px)]'
     : 'flex w-full flex-col gap-3 px-1 pt-1';
   const renderResizeHead = (label, index, startResize, align = 'left') => {
     const alignClassName = {
@@ -1680,21 +1680,23 @@ function DnsPage() {
   return (
     <div className={pageShellClassName}>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
-        <Tabs
-          {...MODULE_TABS_PROPS}
-          value={activeTab}
-          onValueChange={setActiveTab}
-          tabs={CLOUDFLARE_TABS}
-        />
+        <div className="min-w-0 max-w-full overflow-x-auto scrollbar-thin">
+          <Tabs
+            {...MODULE_TABS_PROPS}
+            value={activeTab}
+            onValueChange={setActiveTab}
+            tabs={CLOUDFLARE_TABS}
+          />
+        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           {!['accounts', 'templates'].includes(activeTab) && (
             <Select size="sm"
               aria-label="选择 Cloudflare 账号"
               value={selectedAccountId || null}
               onValueChange={(value) => setSelectedAccountId(value ? String(value) : '')}
               placeholder="选择账号"
-              className="w-48"
+              className="w-32 sm:w-48"
               items={accounts.map((account) => ({
                 value: String(account.id),
                 label: account.name,
@@ -1725,32 +1727,54 @@ function DnsPage() {
       ) : (
         <>
           {activeTab === 'dns' && (
-            <div className="dns-split grid min-h-0 max-w-full flex-1 gap-3 overflow-hidden px-px">
+            <div className="dns-split grid max-w-full gap-3 overflow-visible px-px md:min-h-0 md:flex-1 md:overflow-hidden">
               <section className="flex min-h-0 min-w-0 max-w-full flex-col gap-2">
-              <div className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" onClick={openZoneModal} icon={<Plus className="h-4 w-4" />}>
+              <div className="flex min-h-8 shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                  <Button size="sm" onClick={openZoneModal} icon={<Plus className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
                     添加域名
                   </Button>
                   {selectedZone && (
                     <>
-                      <Button size="sm" variant="secondary" onClick={purgeZoneCache} disabled={loading.purge} icon={<Shield className="h-4 w-4" />}>
+                      <Button size="sm" variant="secondary" onClick={purgeZoneCache} disabled={loading.purge} icon={<Shield className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
                         清除缓存
                       </Button>
-                      <Button size="sm" variant="secondary-destructive" onClick={() => deleteZone(selectedZone)} icon={<Trash className="h-4 w-4" />}>
+                      <Button size="sm" variant="secondary-destructive" onClick={() => deleteZone(selectedZone)} icon={<Trash className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
                         删除域名
                       </Button>
                     </>
                   )}
                 </div>
-                {selectedAccount && (
-                  <div className="text-xs text-kumo-subtle">
-                    当前账号：<span className="font-medium text-kumo-strong">{selectedAccount.name}</span>
-                  </div>
-                )}
               </div>
 
-              <div className="dns-table-frame min-h-0 max-w-full flex-1">
+              <div className="grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 md:hidden">
+                {loading.zones ? (
+                  Array.from({ length: 4 }).map((_, index) => (
+                    <LayerCard key={index} className="min-w-0 p-2">
+                      <SkeletonLine className="h-4 w-24" />
+                      <SkeletonLine className="mt-2 h-5 w-20" />
+                    </LayerCard>
+                  ))
+                ) : zones.length === 0 ? (
+                  <LayerCard className="min-w-full p-8 text-center text-xs text-kumo-subtle">当前账号下没有域名。</LayerCard>
+                ) : zones.map((zone) => (
+                  <LayerCard
+                    key={zone.id}
+                    className={`min-w-0 cursor-pointer p-2 transition-colors ${zone.id === selectedZoneId ? 'border-kumo-brand/60 bg-kumo-brand/5 ring-1 ring-kumo-brand/35' : ''}`}
+                    onClick={() => selectZone(zone)}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-bold text-kumo-strong" title={zone.name}>{zone.name}</div>
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <Badge variant={statusVariant(zone.status)} className="text-[10px] leading-4">{zoneStatusLabel(zone.status)}</Badge>
+                        <Badge variant="secondary" className="text-[10px] leading-4">{zoneTypeLabel(zone.type)}</Badge>
+                      </div>
+                    </div>
+                  </LayerCard>
+                ))}
+              </div>
+
+              <div className="dns-table-frame hidden min-h-0 max-w-full flex-1 md:block">
                 <div className="dns-table-scroll scrollbar-thin">
                 <Table layout="fixed" className="w-full text-xs" style={{ minWidth: zoneColWidths.reduce((sum, width) => sum + width, 0) }}>
                   <colgroup>
@@ -1882,7 +1906,7 @@ function DnsPage() {
 
               </section>
 
-              <section className="flex min-h-0 min-w-0 max-w-full flex-col gap-2 overflow-hidden">
+              <section className="flex min-w-0 max-w-full flex-col gap-2 overflow-visible md:min-h-0 md:overflow-hidden">
               <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 px-1">
                 <div className="flex min-w-0 items-center gap-2 text-xs text-kumo-subtle">
                   <Globe className="h-3.5 w-3.5 shrink-0" />
@@ -1898,7 +1922,7 @@ function DnsPage() {
               </div>
               {selectedZone ? (
                 <>
-                  <div className="dns-summary-grid grid shrink-0 gap-2">
+                  <div className="dns-summary-grid order-3 grid shrink-0 gap-2 md:order-none">
                     <DnsPanelCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
                       <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">SSL 模式</div>
                       <Select size="sm"
@@ -1944,7 +1968,7 @@ function DnsPage() {
                   </div>
 
                   {(analyticsPoints.length > 0 || loading.analytics) && (
-                    <div className="dns-chart-grid grid shrink-0 gap-2">
+                    <div className="dns-chart-grid order-4 grid shrink-0 gap-2 md:order-none">
                       {analyticsChartCards.map((card) => (
                         <DnsPanelCard key={card.key} className="min-w-0 overflow-hidden p-3">
                           <div className="flex items-center justify-between gap-2">
@@ -1973,28 +1997,28 @@ function DnsPage() {
                     </div>
                   )}
 
-                  <div className="dns-toolbar-frame flex shrink-0 flex-wrap items-center justify-between gap-2 p-2">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="dns-toolbar-frame order-1 flex shrink-0 flex-wrap items-center justify-between gap-2 p-2 md:order-none">
+                    <div className="grid w-full grid-cols-[minmax(0,1fr)_8rem_auto] gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
                       <Input size="sm"
                         aria-label="按名称筛选 DNS 记录"
                         value={recordFilter.name}
                         onChange={(event) => setRecordFilter((prev) => ({ ...prev, name: event.target.value }))}
                         placeholder="筛选名称"
-                        className="w-48"
+                        className="w-full sm:w-48"
                       />
                       <Select size="sm"
                         aria-label="按类型筛选 DNS 记录"
                         value={recordFilter.type || null}
                         onValueChange={(value) => setRecordFilter((prev) => ({ ...prev, type: value ? String(value) : '' }))}
                         placeholder="全部类型"
-                        className="w-36"
+                        className="w-full sm:w-36"
                         items={recordTypes.map((type) => ({ value: type, label: type }))}
                       />
                       <Button size="sm" variant="secondary" onClick={() => loadRecords(selectedZoneId, recordFilter)}>
                         查询
                       </Button>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                       <Button size="sm" onClick={() => openRecordModal()} icon={<Plus className="h-4 w-4" />}>
                         添加记录
                       </Button>
@@ -2012,7 +2036,48 @@ function DnsPage() {
                     </div>
                   </div>
 
-                  <div className="dns-table-frame min-h-0 max-w-full flex-1">
+                  <div className="order-2 grid gap-2 pb-3 md:hidden">
+                    {loading.records ? (
+                      Array.from({ length: 5 }).map((_, index) => (
+                        <LayerCard key={index} className="p-3">
+                          <SkeletonLine className="h-4 w-32" />
+                          <SkeletonLine className="mt-2 h-3.5 w-full" />
+                          <SkeletonLine className="mt-2 h-3.5 w-24" />
+                        </LayerCard>
+                      ))
+                    ) : records.length === 0 ? (
+                      <LayerCard className="p-8 text-center text-xs text-kumo-subtle">当前域名没有匹配的 DNS 记录。</LayerCard>
+                    ) : records.map((record) => (
+                      <LayerCard
+                        key={record.id}
+                        className={`p-3 ${selectedRecordIds.includes(record.id) ? 'ring-1 ring-kumo-brand/35' : ''}`}
+                        onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openRecordModal(record))}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                              <Badge variant={recordTypeBadgeVariant(record.type)} className="min-w-10 justify-center text-[10px] leading-4">{record.type}</Badge>
+                              <span className="min-w-0 truncate text-sm font-bold text-kumo-strong" title={recordShortName(record.name, selectedZone.name)}>
+                                {recordShortName(record.name, selectedZone.name)}
+                              </span>
+                              <Badge variant={record.proxied ? 'success' : 'outline'} className="text-[10px] leading-4">{record.proxied ? '代理' : '仅 DNS'}</Badge>
+                            </div>
+                            <div className="mt-2 break-all font-mono text-[11px] text-kumo-default" title={record.content}>{record.content}</div>
+                            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-kumo-subtle">
+                              <span>TTL {record.ttl === 1 ? '自动' : record.ttl}</span>
+                              <span>{formatDate(record.modifiedOn)}</span>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button size="sm" shape="square" variant="secondary" onClick={() => openRecordModal(record)} aria-label={`编辑 ${record.name}`} title="编辑" icon={<Edit className="h-3.5 w-3.5" />} />
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteRecord(record)} aria-label={`删除 ${record.name}`} title="删除" icon={<Trash className="h-3.5 w-3.5" />} />
+                          </div>
+                        </div>
+                      </LayerCard>
+                    ))}
+                  </div>
+
+                  <div className="dns-table-frame order-2 hidden min-h-0 max-w-full flex-1 md:block md:order-none">
                     <div className="dns-table-scroll scrollbar-thin">
                     <Table layout="fixed" className="w-full text-xs" style={{ minWidth: recordColWidths.reduce((sum, width) => sum + width, 0) }}>
                       <colgroup>

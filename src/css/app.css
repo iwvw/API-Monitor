@@ -137,7 +137,7 @@ th > button[aria-label='Resize column'] > span {
 
 .dns-split {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(220px, 34%) minmax(0, 1fr);
+  grid-template-rows: auto auto;
 }
 
 .dns-summary-grid {

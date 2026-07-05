@@ -491,6 +491,7 @@ function UptimePage() {
   const [uptimeImportPreview, setUptimeImportPreview] = useState(null);
   const [uptimeImportPayload, setUptimeImportPayload] = useState(null);
   const [selectedMonitorIds, setSelectedMonitorIds] = useState([]);
+  const [monitorSelectionMode, setMonitorSelectionMode] = useState(false);
   const [expandedMonitorId, setExpandedMonitorId] = useState(null);
 
   // 通知渠道配置
@@ -979,6 +980,7 @@ function UptimePage() {
     if (filteredMonitors.length === 0) return false;
     return filteredMonitors.every(m => selectedMonitorIds.includes(m.id));
   }, [filteredMonitors, selectedMonitorIds]);
+  const showMonitorSelectionControls = monitorSelectionMode || selectedMonitorIds.length > 0;
 
   const handleToggleSelectAll = () => {
     if (isAllSelected) {
@@ -1239,6 +1241,20 @@ function UptimePage() {
             </Button>
 
             <Button
+              onClick={() => {
+                if (showMonitorSelectionControls) {
+                  setSelectedMonitorIds([]);
+                  setMonitorSelectionMode(false);
+                } else {
+                  setMonitorSelectionMode(true);
+                }
+              }}
+              variant={showMonitorSelectionControls ? 'primary' : 'secondary'} size="sm"
+            >
+              {showMonitorSelectionControls ? '取消选择' : '选择'}
+            </Button>
+
+            <Button
               onClick={loadUptimeMonitors}
               loading={uptimeLoading}
               variant="secondary" size="sm"
@@ -1271,22 +1287,24 @@ function UptimePage() {
           ) : (
             <div className="space-y-3">
               {/* 批量控制条 */}
-              <div className="flex items-center justify-between app-subcard bg-kumo-recessed/30 px-4 py-2.5">
-                <Checkbox
-                  checked={isAllSelected}
-                  onCheckedChange={handleToggleSelectAll}
-                  label={`全选 (已选 ${selectedMonitorIds.length} 个)`}
-                />
-                {selectedMonitorIds.length > 0 && (
-                  <Button
-                    variant="destructive" size="sm"
-                    onClick={handleBatchDelete}
-                    icon={<Trash className="w-3 h-3" />}
-                  >
-                    批量删除
-                  </Button>
-                )}
-              </div>
+              {showMonitorSelectionControls && (
+                <div className="flex items-center justify-between app-subcard bg-kumo-recessed/30 px-4 py-2.5">
+                  <Checkbox
+                    checked={isAllSelected}
+                    onCheckedChange={handleToggleSelectAll}
+                    label={`全选 (已选 ${selectedMonitorIds.length} 个)`}
+                  />
+                  {selectedMonitorIds.length > 0 && (
+                    <Button
+                      variant="destructive" size="sm"
+                      onClick={handleBatchDelete}
+                      icon={<Trash className="w-3 h-3" />}
+                    >
+                      批量删除
+                    </Button>
+                  )}
+                </div>
+              )}
 
               {/* 监测卡片列表 */}
               <div className="flex flex-col gap-3">
@@ -1343,16 +1361,18 @@ function UptimePage() {
                       >
                         {/* 左侧选择复选框 & 图标 & 核心信息 */}
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <Checkbox
-                            checked={selectedMonitorIds.includes(monitor.id)}
-                            onCheckedChange={(checked) => {
-                              setSelectedMonitorIds(prev =>
-                                checked ? [...prev, monitor.id] : prev.filter(id => id !== monitor.id)
-                              );
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            aria-label={`选择监测目标: ${monitor.name}`}
-                          />
+                          {showMonitorSelectionControls && (
+                            <Checkbox
+                              checked={selectedMonitorIds.includes(monitor.id)}
+                              onCheckedChange={(checked) => {
+                                setSelectedMonitorIds(prev =>
+                                  checked ? [...prev, monitor.id] : prev.filter(id => id !== monitor.id)
+                                );
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label={`选择监测目标: ${monitor.name}`}
+                            />
+                          )}
 
                           {/* 类型图标 */}
                           <div className="w-8 h-8 rounded-lg bg-kumo-recessed flex items-center justify-center text-kumo-strong flex-shrink-0">

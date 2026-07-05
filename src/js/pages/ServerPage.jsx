@@ -67,6 +67,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import io from 'socket.io-client';
 import {
   Server,
+  LayoutDashboard,
   Terminal as TerminalIcon,
   Cloud,
   Globe,
@@ -100,6 +101,7 @@ import {
   Reboot,
   ChevronDown,
   ChevronUp,
+  Menu,
   Star
 } from '../components/Icons.jsx';
 
@@ -114,7 +116,7 @@ echarts.use([
   AriaComponent,
 ]);
 
-const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode';
+const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode_v2';
 const SERVER_COMPACT_COLUMNS_STORAGE_KEY = 'server_compact_visible_columns';
 const SERVER_STATUS_SYNC_INTERVAL_MS = 15000;
 const SERVER_METRIC_FLUSH_DELAY_MS = 350;
@@ -290,7 +292,9 @@ function ServerModuleTabLabel({ icon: Icon, children, short, badge = null }) {
 
 const getInitialServerListViewMode = () => {
   if (typeof window === 'undefined') return 'cards';
-  return window.localStorage.getItem(SERVER_LIST_VIEW_STORAGE_KEY) === 'compact' ? 'compact' : 'cards';
+  const saved = window.localStorage.getItem(SERVER_LIST_VIEW_STORAGE_KEY);
+  if (saved === 'compact' || saved === 'cards') return saved;
+  return window.matchMedia?.('(min-width: 768px)').matches ? 'compact' : 'cards';
 };
 
 const getInitialCompactVisibleColumns = () => {
@@ -587,7 +591,7 @@ const getSystemOverviewChipClassName = (kind = 'default') => {
   }
 };
 
-function ExpandedStatTileComponent({ label, value, caption, tone = 'default', className = '' }) {
+function ExpandedStatTileComponent({ label, value, caption, tone = 'default', className = '', captionClassName = '' }) {
   const displayValue = value === 0 ? 0 : (value || '-');
   return (
     <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2 ${className}`}>
@@ -596,7 +600,7 @@ function ExpandedStatTileComponent({ label, value, caption, tone = 'default', cl
         {displayValue}
       </div>
       {caption && (
-        <div className="mt-1 truncate text-[10px] font-medium text-kumo-subtle" title={String(caption)}>
+        <div className={`mt-1 truncate text-[10px] font-medium text-kumo-subtle ${captionClassName}`} title={String(caption)}>
           {caption}
         </div>
       )}
@@ -610,6 +614,7 @@ const ExpandedStatTile = React.memo(ExpandedStatTileComponent, (prev, next) => (
   && prev.caption === next.caption
   && prev.tone === next.tone
   && prev.className === next.className
+  && prev.captionClassName === next.captionClassName
 ));
 
 function TrendSeriesLabel({ name, color }) {
@@ -724,7 +729,7 @@ function NetworkQualityPanel({
           ) : (
             <>
               {summary.length > 0 && (
-                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
                   {summary.map(item => {
                     const tone = getNetworkQualityTone(item);
                     const latestValue = item.latest?.success
@@ -737,7 +742,8 @@ function NetworkQualityPanel({
                         value={latestValue}
                         caption={`抖动 ${formatLatencyValue(item.jitterMs)} · 丢包 ${toNumber(item.lossRate, 0).toFixed(1)}%`}
                         tone={tone}
-                        className={getNetworkQualityToneClass(tone)}
+                        className={`px-1.5 py-1.5 sm:px-2.5 sm:py-2 ${getNetworkQualityToneClass(tone)}`}
+                        captionClassName="hidden sm:block"
                       />
                     );
                   })}
@@ -5587,8 +5593,8 @@ function ServerPage() {
         onClose={() => setCompactColumnMenu(prev => ({ ...prev, open: false }))}
       />
       {/* 顶部标签导航 */}
-      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
-        <div className="min-w-0 w-full min-[450px]:w-auto">
+      <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-3">
+        <div className="min-w-0 max-w-full overflow-x-auto scrollbar-thin">
           <Tabs
             {...MODULE_TABS_PROPS}
             value={serverCurrentTab}
@@ -5609,7 +5615,7 @@ function ServerPage() {
         </div>
 
         {/* 右侧快速连接 */}
-        <div className="flex w-full items-center justify-end gap-2 min-[450px]:w-auto">
+        <div className="flex shrink-0 items-center justify-end gap-2">
           {serverCurrentTab === 'list' && (
             <div className="flex items-center justify-end gap-2">
               <Button size="sm"
@@ -5719,8 +5725,8 @@ function ServerPage() {
                 value={serverListViewMode}
                 onValueChange={setServerListViewMode}
                 tabs={[
-                  { value: 'cards', label: '卡片' },
-                  { value: 'compact', label: '表格' },
+                  { value: 'cards', label: <span title="卡片视图" aria-label="卡片视图"><LayoutDashboard className="h-3.5 w-3.5" /></span> },
+                  { value: 'compact', label: <span title="表格视图" aria-label="表格视图"><Menu className="h-3.5 w-3.5" /></span> },
                 ]}
               />
             </div>
@@ -6293,7 +6299,7 @@ function ServerPage() {
 
                           <div className="contents sm:order-2 sm:ml-auto sm:flex sm:shrink-0 sm:flex-nowrap sm:items-center sm:gap-2.5">
 							{isServerOnline(server) && server.info && (
-                              <div className="order-3 col-span-2 grid w-full grid-cols-5 gap-1.5 text-[10px] font-semibold text-kumo-subtle sm:order-none sm:col-span-1 sm:flex sm:h-9 sm:w-auto sm:items-center sm:gap-2.5">
+                              <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-subtle sm:order-none sm:col-span-1 sm:flex sm:h-9 sm:w-auto sm:items-center sm:gap-2.5">
                                 {hasGpuData && (
                                   <CompactMetricBar
                                     label="GPU"
@@ -6330,13 +6336,15 @@ function ServerPage() {
                                     width={server.info.disk[0].usage || '0%'}
                                   />
                                 )}
-                                <CompactMetricBar
-                                  label="剩余"
-                                  value={lifecycle.expiresAt ? `${Math.round(lifecycle.remainingPercent)}%` : '永久'}
-                                  valueClassName={lifecycle.toneClass}
-                                  barClassName={lifecycle.expired ? 'bg-kumo-danger' : lifecycle.remainingPercent <= 20 ? 'bg-kumo-warning' : 'bg-kumo-success'}
-                                  width={`${lifecycle.remainingPercent}%`}
-                                />
+                                <div className="hidden sm:block">
+                                  <CompactMetricBar
+                                    label="剩余"
+                                    value={lifecycle.expiresAt ? `${Math.round(lifecycle.remainingPercent)}%` : '永久'}
+                                    valueClassName={lifecycle.toneClass}
+                                    barClassName={lifecycle.expired ? 'bg-kumo-danger' : lifecycle.remainingPercent <= 20 ? 'bg-kumo-warning' : 'bg-kumo-success'}
+                                    width={`${lifecycle.remainingPercent}%`}
+                                  />
+                                </div>
                                 {!hasGpuData && server.info.network && (
                                   <div className="flex min-w-0 flex-col justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 font-mono leading-[1.2] tabular-nums sm:hidden">
                                     <span className="truncate text-kumo-info">&uarr; {tx.num}{tx.unit}</span>
