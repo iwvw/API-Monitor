@@ -26,6 +26,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/m365"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
+	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
@@ -53,6 +54,7 @@ type Server struct {
 	uptime   *uptime.Service
 	koyeb    *koyeb.Service
 	flyio    *flyio.Service
+	onepanel *onepanel.Service
 	github   *githubmodule.Service
 	aliyun   *aliyun.Service
 	tencent  *tencent.Service
@@ -138,6 +140,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		uptime:   uptimeService,
 		koyeb:    koyeb.New(cfg),
 		flyio:    flyio.New(cfg),
+		onepanel: onepanel.New(cfg),
 		github:   githubService,
 		aliyun:   aliyun.New(cfg),
 		tencent:  tencent.New(cfg),
@@ -152,6 +155,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		drawio:   drawioService,
 		prompts:  promptsService,
 	}
+	server.onepanel.SetAgentRunner(serverAgentService)
 	systemService.SetAICaller(server.callAPIFromAI)
 	// 启动代理池预热：预建立各代理到上游的连接，缓解首次请求冷启动握手延迟。
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
@@ -425,6 +429,8 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.koyeb.ServeHTTP(w, r)
 	case "/api/flyio":
 		s.flyio.ServeHTTP(w, r)
+	case "/api/onepanel", "/api/onepanel/config", "/api/onepanel/spec":
+		s.onepanel.ServeHTTP(w, r)
 	case "/api/github", "/api/github/webhook/{repositoryId}", "/api/github/webhook", "/api/github/events/stream":
 		s.github.ServeHTTP(w, r)
 	case "/api/drawio", "/api/drawio/documents", "/api/drawio/documents/{id}", "/api/drawio/documents/{id}/clone", "/api/drawio/documents/{id}/draft", "/api/drawio/documents/{id}/export", "/api/drawio/documents/{id}/versions", "/api/drawio/documents/{id}/versions/{versionId}", "/api/drawio/documents/{id}/versions/{versionId}/restore", "/api/drawio/documents/{id}/thumbnails/rebuild", "/api/drawio/import", "/api/drawio/thumbnails/rebuild", "/api/drawio/render-jobs", "/api/drawio/settings":

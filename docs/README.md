@@ -14,6 +14,7 @@
 - [Oracle OCI 模块 API 路由清单](./OracleOCI模块API路由清单.md)
 - [目录结构说明](./目录结构说明.md)
 - [贡献指南](./贡献指南.md)
+- [1Panel 快捷控制接口文档](./onepanel接口文档.md)
 
 ## 开发规范
 

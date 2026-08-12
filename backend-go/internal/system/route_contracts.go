@@ -916,6 +916,131 @@ func init() {
 		"config": {t: "object", d: "应用配置 JSON"},
 	})
 
+	// ===== 1Panel 快捷控制 =====
+	routeRequestContracts["/api/onepanel/spec"] = noBody
+	routeRequestContracts["/api/onepanel/config"] = obj([]string{"serverId", "apiKey"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "API Monitor 服务器 ID"},
+		"apiKey":   {t: "string", req: true, d: "1Panel API 签名密钥（从 core.db settings 的 ApiKey 获取）"},
+		"baseUrl":  {t: "string", d: "面板基地址，默认 https://127.0.0.1:8888"},
+	})
+	routeRequestContracts["/api/onepanel/config/{serverId}"] = obj([]string{"apiKey"}, map[string]prop{
+		"apiKey":  {t: "string", req: true, d: "1Panel API 签名密钥"},
+		"baseUrl": {t: "string", d: "面板基地址，默认 https://127.0.0.1:8888"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/health"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/overview"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/dashboard/current"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/upgrade/check"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/upgrade"] = obj([]string{"version"}, map[string]prop{
+		"version": {t: "string", req: true, d: "目标版本号，可从 /upgrade/check 获取"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites"] = obj([]string{"type", "alias", "webSiteGroupID"}, map[string]prop{
+		"type":     {t: "string", req: true, e: []string{"proxy", "static"}, d: "站点类型"},
+		"alias":    {t: "string", req: true, d: "站点别名（通常为域名）"},
+		"webSiteGroupID": {t: "integer", req: true, d: "站点分组 ID"},
+		"proxy":    {t: "string", d: "反向代理目标，如 127.0.0.1:8080"},
+		"domains":  {t: "array", d: "域名列表 [{domain, port}]"},
+		"enableSSL": {t: "boolean", d: "是否同时启用 SSL"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/operate"] = obj([]string{"id", "operate"}, map[string]prop{
+		"id":      {t: "integer", req: true, d: "网站 ID"},
+		"operate": {t: "string", req: true, e: []string{"start", "stop", "restart"}},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxy"] = obj([]string{"id", "name", "operate", "proxyHost", "proxyPass", "match"}, map[string]prop{
+		"id":        {t: "integer", req: true, d: "网站 ID"},
+		"name":      {t: "string", req: true, d: "反代配置名"},
+		"operate":   {t: "string", req: true, e: []string{"update"}, d: "操作类型"},
+		"proxyHost": {t: "string", req: true, d: "代理目标主机，如 127.0.0.1"},
+		"proxyPass": {t: "string", req: true, d: "代理目标地址，如 http://127.0.0.1:9000"},
+		"match":     {t: "string", req: true, d: "匹配规则，如 ^~ /"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/https"] = obj([]string{"websiteId", "enable", "type"}, map[string]prop{
+		"websiteId": {t: "integer", req: true, d: "网站 ID"},
+		"enable":  {t: "boolean", req: true},
+		"type":    {t: "string", req: true, e: []string{"existed", "auto", "manual"}},
+		"httpConfig": {t: "string", e: []string{"HTTPSOnly", "HTTPAlso", "HTTPToHTTPS"}},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/nginx"] = obj([]string{"id", "content"}, map[string]prop{
+		"id":      {t: "integer", req: true, d: "网站 ID"},
+		"content": {t: "string", req: true, d: "nginx 配置内容"},
+		"operate": {t: "string", e: []string{"add", "update", "delete"}},
+		"params":  {t: "object"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/apps/install"] = obj([]string{"appDetailId", "name"}, map[string]prop{
+		"appDetailId":   {t: "integer", req: true, d: "应用详细 ID（从应用市场搜索接口获取）"},
+		"name":          {t: "string", req: true, d: "应用实例名称"},
+		"appKey":        {t: "string", d: "应用标识，如 mysql / nginx"},
+		"version":       {t: "string", d: "应用版本"},
+		"dockerCompose": {t: "string", d: "自定义 compose 内容"},
+		"params":        {t: "object"},
+		"editCompose":   {t: "boolean"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/apps/installed/{appInstallId}/op"] = obj([]string{"installId", "operate"}, map[string]prop{
+		"installId": {t: "integer", req: true, d: "应用安装 ID"},
+		"operate":   {t: "string", req: true, e: []string{"enable", "disable", "restart"}, d: "应用操作"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/containers/operate"] = obj([]string{"names", "operation"}, map[string]prop{
+		"names":     {t: "array", req: true, d: "容器名列表"},
+		"operation": {t: "string", req: true, e: []string{"up", "start", "stop", "restart", "kill", "pause", "unpause", "remove"}},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/containers/{name}/logs"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/containers/compose"] = obj([]string{"from"}, map[string]prop{
+		"from":    {t: "string", req: true, d: "compose 来源：path / file / url"},
+		"name":    {t: "string", d: "compose 名称"},
+		"compose": {t: "object"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/obtain"] = obj([]string{"ID"}, map[string]prop{
+		"ID":             {t: "integer", req: true, d: "SSL 证书条目 ID"},
+		"nameservers":    {t: "array", d: "自定义 DNS 服务器"},
+		"skipDNSCheck":   {t: "boolean"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/acme"] = obj([]string{"type", "email", "keyType"}, map[string]prop{
+		"email":   {t: "string", req: true, d: "ACME 注册邮箱"},
+		"keyType": {t: "string", req: true, e: []string{"EC256", "EC384", "RSA2048", "RSA3072", "RSA4096", "RSA8192"}},
+		"type":    {t: "string", req: true, e: []string{"letsencrypt", "zerossl", "buypass", "google", "custom"}, d: "ACME 服务商"},
+		"caDirURL": {t: "string", d: "自定义 CA 目录 URL"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/openresty/reload"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/backup"] = obj([]string{"type"}, map[string]prop{
+		"type": {t: "string", req: true, e: []string{"app", "mysql", "mariadb", "redis", "website", "postgresql", "mongodb"}},
+		"name": {t: "string", d: "备份存储账号名"},
+		"detailName": {t: "string", d: "备份对象，如网站名 / 数据库名"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/backups/records"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/backups/options"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/databases"] = obj([]string{"from", "name", "type", "username", "version"}, map[string]prop{
+		"type":     {t: "string", req: true, d: "数据库类型：mysql / mariadb / postgresql / redis / mongodb"},
+		"name":     {t: "string", req: true, d: "数据库名"},
+		"from":     {t: "string", req: true, d: "来源：create / existing"},
+		"username": {t: "string", req: true, d: "数据库用户"},
+		"version":  {t: "string", req: true, d: "数据库版本"},
+		"format":   {t: "string", d: "字符集"},
+		"password": {t: "string"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/databases/{id}/password"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true, d: "新密码"},
+		"database": {t: "string", d: "数据库名"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/databases/{id}"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/runtimes"] = obj(nil, map[string]prop{
+		"type":    {t: "string", d: "runtime 类型：php / python / nodejs"},
+		"name":    {t: "string"},
+		"version": {t: "string"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/cronjobs"] = obj(nil, map[string]prop{
+		"type":     {t: "string", d: "任务类型"},
+		"name":     {t: "string"},
+		"spec":     {t: "string", d: "cron 表达式"},
+		"script":   {t: "string"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/proxy"] = obj([]string{"method", "path"}, map[string]prop{
+		"method": {t: "string", req: true, e: []string{"GET", "POST", "PUT", "DELETE"}, d: "1Panel API 方法"},
+		"path":   {t: "string", req: true, d: "1Panel API 路径，如 /websites/list（不含 /api/v2 前缀）"},
+		"body":   {t: "object", d: "请求体（可选）"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/proxy/catalog"] = noBody
+
 	// ===== AI 接入 / 备份 =====
 	routeRequestContracts["/api/ai-access/key/rotate"] = noBody
 	routeRequestContracts["/api/system/ai-access/key/rotate"] = noBody

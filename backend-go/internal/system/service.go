@@ -872,7 +872,7 @@ func routeGroup(route manifest.Route) string {
 	case strings.HasPrefix(prefix, "/api/github"):
 		return "GitHub"
 	// 主机实例
-	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/ws/agent-terminal"), strings.HasPrefix(prefix, "/socket.io"):
+	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/api/onepanel"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/ws/agent-terminal"), strings.HasPrefix(prefix, "/socket.io"):
 		return "主机实例"
 	// PaaS
 	case strings.HasPrefix(prefix, "/api/koyeb"), strings.HasPrefix(prefix, "/api/flyio"):

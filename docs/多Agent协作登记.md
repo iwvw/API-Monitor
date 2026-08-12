@@ -12,6 +12,7 @@
 
 | 状态 | 日期 | 任务名 | Agent/窗口 | 文件域 | 分支 | 验证命令 |
 |---|---|---|---|---|---|---|
+| done | 2026-08-13 | 1Panel 快捷控制模块 onepanel | opencode 主窗口 | backend-go/internal/onepanel/（新建）、backend-go/internal/manifest/manifest.go、backend-go/internal/server/server.go、backend-go/internal/system/route_descriptions.go、backend-go/internal/system/route_contracts.go、src/js/modules/onepanel.js（新建）、src/js/pages/ApiDocsPage.jsx、docs/onepanel接口文档.md（新建）、docs/多Agent协作登记.md | dev | go test ./internal/onepanel/ ./internal/manifest/ ./internal/system/、npm run governance:check、npm run lint、node tools/backend-route-inventory.mjs |
 | done | 2026-08-12 | 远程桌面五要求硬性修复（M1-M4+剪贴板） | opencode 主窗口 | agent-rust/src/remote_desktop.rs、agent-rust/vendor/nvenc-0.1.0/（sys/structs.rs、sys/function_table.rs、safe/encoder.rs、safe/session.rs）、src/js/pages/RemoteDesktopPage.jsx、src/js/modules/remoteDesktopTouch.js、docs/多Agent协作登记.md | dev | cargo check/test、npm test、go test ./internal/serveragent/ |
 | done | 2026-08-12 | 一级 tab 图标补充 | opencode 主窗口 | ApiDocsPage/DrawioPage/M365Page/OraclePage/PromptLibraryPage/SubscriptionPage 的顶部 Tabs label | dev | npm run lint |
 | done | 2026-08-12 | R2 目录树/级联删除/zip 下载 | opencode 主窗口 | src/js/pages/DnsPage.jsx、backend-go/internal/cloudflare/service.go、manifest/manifest.go、server/server.go、system/route_contracts.go、route_descriptions.go | dev | npm run lint、go test ./internal/cloudflare/ ./internal/manifest/ ./internal/system/、npm run governance:check |

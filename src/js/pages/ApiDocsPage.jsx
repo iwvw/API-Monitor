@@ -815,32 +815,24 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
     }));
   }, [routes]);
 
-  const selectedSection = selectedRoute ? sectionOfGroup(selectedRoute.group) : '';
-  const selectedGroup = selectedRoute ? (selectedRoute.group || '基础') : '';
-  const selectedModule = selectedRoute ? (selectedRoute.module || '') : '';
+  const [collapsedSections, setCollapsedSections] = useState(() => new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
+  const [collapsedModules, setCollapsedModules] = useState(() => new Set());
 
-  const [collapsedSections, setCollapsedSections] = useState(() => {
-    const initial = new Set(tree.map(item => item.section));
-    if (selectedSection) initial.delete(selectedSection);
-    return initial;
-  });
-  const [collapsedGroups, setCollapsedGroups] = useState(() => {
-    const initial = new Set(tree.flatMap(item => item.groups.map(group => group.group)));
-    if (selectedGroup) initial.delete(selectedGroup);
-    return initial;
-  });
-  const [collapsedModules, setCollapsedModules] = useState(() => {
-    const initial = new Set(
-      tree.flatMap(item => item.groups.map(group => `${group.group}\u0000${group.module}`))
-    );
-    if (selectedGroup && selectedModule) {
-      initial.delete(`${selectedGroup}\u0000${selectedModule}`);
-    }
-    return initial;
-  });
-
+  // 数据异步到达前 tree 为空，此时 collapsed 集为空会误判为「全部展开」。
+  // 数据到达（或搜索态切换）时重置三份折叠集为「全折叠」，之后由用户交互接管。
   useEffect(() => {
-    if (!selectedRoute) return;
+    if (tree.length === 0) return;
+    setCollapsedSections(new Set(tree.map(item => item.section)));
+    setCollapsedGroups(new Set(tree.flatMap(item => item.groups.map(group => group.group))));
+    setCollapsedModules(
+      new Set(tree.flatMap(item => item.groups.map(group => `${group.group}\u0000${group.module}`)))
+    );
+  }, [tree, revealAll]);
+
+  // 用户点击选中某路由后，自动展开其所在层级；初始未选择时保持全部折叠。
+  useEffect(() => {
+    if (!selectedRoute || !selectedKey) return;
     const sectionName = sectionOfGroup(selectedRoute.group);
     const groupName = selectedRoute.group || '基础';
     const moduleName = selectedRoute.module || '';
@@ -863,7 +855,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
       next.delete(key);
       return next;
     });
-  }, [selectedRoute]);
+  }, [selectedRoute, selectedKey]);
 
   const toggleSection = sectionName => {
     setCollapsedSections(current => {

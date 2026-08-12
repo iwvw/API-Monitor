@@ -471,6 +471,7 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 		{"/api/m365/accounts", "Microsoft 365"},
 		{"/api/github/tokens", "GitHub"},
 		{"/api/server/accounts", "主机实例"},
+		{"/api/onepanel/config", "主机实例"},
 		{"/api/koyeb/accounts", "PaaS"},
 		{"/api/flyio/accounts", "PaaS"},
 		{"/api/scheduler/tasks", "定时任务"},
