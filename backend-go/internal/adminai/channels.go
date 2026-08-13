@@ -408,6 +408,19 @@ func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id strin
 		args = append(args, enabled)
 	}
 	if req.Config != nil {
+		// 未提供 botToken 时保留原 Token（前端编辑表单拿不到明文，只回传打码值）
+		if _, hasToken := req.Config["botToken"]; !hasToken {
+			var oldEncrypted string
+			if err := db.QueryRowContext(r.Context(),
+				`SELECT config_encrypted FROM admin_ai_channels WHERE id = ?`, id).Scan(&oldEncrypted); err == nil {
+				var oldCfg map[string]interface{}
+				if secure.DecryptJSON(oldEncrypted, &oldCfg) == nil {
+					if t, ok := oldCfg["botToken"].(string); ok {
+						req.Config["botToken"] = t
+					}
+				}
+			}
+		}
 		encrypted, err := secure.EncryptJSON(req.Config)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, "配置加密失败")
