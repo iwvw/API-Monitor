@@ -4235,6 +4235,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// triedKeys 记录本轮请求内已尝试失败的 key（key 永不冻结，仅请求内去重），
 	// 避免单 key 场景 401 后对同一 key 无限重试。
 	triedKeys := map[string]bool{}
+	// finalUpstreamRecorded 标记最后一次尝试的限流/5xx 是否已写入转发失败明细，
+	// 避免流式无切换路径与循环结束统一判定处重复记录同一次失败。
+	finalUpstreamRecorded := false
 
 	for attempt = 0; attempt < maxProxyAttempts; attempt++ {
 		attemptCtx, cancel := context.WithCancel(ctx)
@@ -4474,6 +4477,16 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					if lastErr == nil {
 						lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误，无切换机会）", resp.StatusCode)
 					}
+					s.recordRelayError(RelayErrorRecord{
+						Route: p.route, Kind: "upstream",
+						Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: currentKeyIndex,
+						Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
+						ClientIP: p.clientIP, Attempts: attempt + 1,
+						ElapsedMs:  time.Since(res.startTime).Milliseconds(),
+						StatusCode: resp.StatusCode,
+						Error:      "retryable upstream response",
+					})
+					finalUpstreamRecorded = true
 					break
 				}
 				firstChunk = append([]byte(nil), tmp[:n]...)
@@ -4547,10 +4560,23 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// 统一判定「上游可重试错误」：无论是否启用 AutoSwitch / 是否有代理池，
 	// 只要最终响应是限流或 5xx（且流式尚未写出首字节），都交给端点级 failover
 	// 尝试下一个候选端点，尽最大可能提供可用渠道。成功（2xx）或客户端 4xx 不触发。
+	// 若最后一次尝试的失败事件尚未写入明细（非流式循环内未逐次记录的最后一跳、
+	// 或直连无切换机会），在此补齐一条，保证「最终导致失败的那一跳」也能排障追溯。
 	if resp != nil && !firstWritten && isRetryableUpstreamResponse(resp, nil) {
 		res.retryableUpstream = true
 		if lastErr == nil {
 			lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误）", resp.StatusCode)
+		}
+		if !finalUpstreamRecorded {
+			s.recordRelayError(RelayErrorRecord{
+				Route: p.route, Kind: "upstream",
+				Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: lastKeyIndex,
+				Model: p.model, Stream: stream, Proxy: hostFromProxyURL(lastProxy),
+				ClientIP: p.clientIP, Attempts: attempt + 1,
+				ElapsedMs:  time.Since(res.startTime).Milliseconds(),
+				StatusCode: resp.StatusCode,
+				Error:      "retryable upstream response",
+			})
 		}
 	}
 	res.lastErr = lastErr

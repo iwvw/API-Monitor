@@ -2432,4 +2432,26 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 	if !strings.Contains(wChat.Body.String(), "[DONE]") {
 		t.Fatalf("expected SSE [DONE], got body=%s", wChat.Body.String())
 	}
+
+	// 无切换机会路径的最后一次 429 也应写入转发失败明细（fix：以前该事件不记录）。
+	wRelay := httptest.NewRecorder()
+	rRelay, _ := http.NewRequest("GET", "/api/openai/relay-errors?limit=20", nil)
+	service.ServeHTTP(wRelay, rRelay)
+	if wRelay.Code != http.StatusOK {
+		t.Fatalf("relay-errors status = %d body=%s", wRelay.Code, wRelay.Body.String())
+	}
+	var relayResp struct {
+		Records []RelayErrorRecord `json:"records"`
+	}
+	mustDecode(t, wRelay.Body.String(), &relayResp)
+	foundFinal := false
+	for _, rec := range relayResp.Records {
+		if rec.Kind == "upstream" && rec.StatusCode == http.StatusTooManyRequests && rec.Stream {
+			foundFinal = true
+			break
+		}
+	}
+	if !foundFinal {
+		t.Fatalf("expected no-switch stream 429 to be recorded in relay-errors, records=%+v", relayResp.Records)
+	}
 }
