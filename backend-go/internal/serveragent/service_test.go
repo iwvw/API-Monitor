@@ -27,12 +27,14 @@ func testService(t *testing.T) (*Service, *sql.DB) {
 		DataDir: t.TempDir(),
 		DBName:  "data.db",
 	})
-	t.Cleanup(service.Stop)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		service.Stop()
+		_ = db.Close()
+	})
 	return service, db
 }
 

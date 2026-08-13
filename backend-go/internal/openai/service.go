@@ -167,6 +167,14 @@ type Service struct {
 	relayErrMu  sync.Mutex
 	relayErrors []RelayErrorRecord
 
+	// routeCache 缓存「已启用端点配置」列表（模型/映射/代理池等），避免每次转发
+	// 请求都全表扫描 + JSON 解析。短 TTL 到期自动重建，端点配置变更最多延迟
+	// routeCacheTTL 生效，无需逐处失效。
+	routeCacheMu    sync.Mutex
+	routeCache      []Endpoint
+	routeCacheAt    time.Time
+	routeCacheReady bool
+
 	// warmupMu 保护预热 goroutine 只启动一次。
 	warmupOnce sync.Once
 }
@@ -224,25 +232,18 @@ type sessionBinding struct {
 	count int
 }
 
-// endpointKeyState 记录端点多 API Key 的轮询与健康状态。
+// endpointKeyState 记录端点多 API Key 的轮询游标。
 // 设计语义（与代理池区分）：
+//   - key 在任何时候都不冻结：401/403、连接失败都不会让 key 进入跨请求冻结状态，
+//     只在本请求内对已尝试失败的 key 去重，保证每个 key 在每次请求都有机会被尝试。
 //   - 429 是「限速」不是「故障」：单次 429 只切换下一个 key 分担 RPM，绝不冻结。
-//   - 401/403 才是 key 真正失效：立即冻结该 key（keyAuthBanDuration），切下一个。
-//   - 连接失败按指数退避冷却，封顶后由成功转发恢复。
-//   - 仅当全部 key 都被冻结时才触发端点级切换（见 relayLoop 端点循环）。
+//   - 仅当本轮全部 key 均已尝试仍失败时才触发端点级切换（见 relayLoop 端点循环）。
 type endpointKeyState struct {
 	cursor int
-	// frozen 记录被冻结（401/403 或累计连接失败）的 key 及解冻时间。
-	frozen map[string]time.Time
-	// failures 记录每个 key 的连续链路失败次数，驱动指数退避（复用代理退避常量）。
-	failures map[string]int
 }
 
 func newEndpointKeyState() *endpointKeyState {
-	return &endpointKeyState{
-		frozen:   make(map[string]time.Time),
-		failures: make(map[string]int),
-	}
+	return &endpointKeyState{}
 }
 
 func New(cfg config.Config) *Service {
@@ -673,6 +674,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.healthCheckModelRoute(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "health-check-all" && method == http.MethodPost:
 		s.healthCheckAllModelsRoute(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "key-check" && method == http.MethodPost:
+		s.healthCheckKeysRoute(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "health" && method == http.MethodGet:
 		s.getEndpointHealthRoute(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "proxy-state" && method == http.MethodGet:
@@ -875,6 +878,7 @@ func (s *Service) updateModelMappings(w http.ResponseWriter, r *http.Request, en
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.invalidateRouteCache()
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "modelMappings": clean})
 }
 
@@ -913,16 +917,6 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		ep.ProxyEnabled = proxyEnabledInt == 1
 		ep.ForceProxy = forceProxyInt == 1
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
-		if apiKeysRaw.Valid && apiKeysRaw.String != "" {
-			_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
-		}
-		if mappingsRaw.Valid && mappingsRaw.String != "" {
-			_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)
-		}
-
-		ep.APIKey = secure.SecureDecrypt(ep.APIKey)
-		ep.Enabled = enabledInt == 1
-		ep.AutoSwitch = autoSwitchInt == 1
 		ep.CreatedAt = created.String
 		if used.Valid {
 			v := used.String
@@ -931,6 +925,12 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		if checked.Valid {
 			v := checked.String
 			ep.LastChecked = &v
+		}
+		if apiKeysRaw.Valid && apiKeysRaw.String != "" {
+			_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
+		}
+		if mappingsRaw.Valid && mappingsRaw.String != "" {
+			_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)
 		}
 
 		ep.Models = []string{}
@@ -1079,6 +1079,7 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    createdAt,
 		LastChecked:  checkedStr,
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":      true,
@@ -1263,6 +1264,7 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -1350,12 +1352,6 @@ const (
 	proxy429BanThreshold = 3
 	proxy429BanDuration  = 30 * time.Minute
 )
-
-// keyAuthBanDuration 是 API Key 因 401/403（鉴权失败，key 本身失效）被冻结的时长。
-// 相比代理 429 的 30 分钟，key 鉴权失败通常是持久的（key 被吊销/过期），
-// 但也不应永久禁用（用户可能在管理页换新 key 后复用同一列表），故设较长窗口，
-// 到期自动释放回池，由后续请求重试自然淘汰。
-const keyAuthBanDuration = 12 * time.Hour
 
 // proxyAttemptCap 是单次转发最多尝试的代理数量上限。代理池可容纳数千条
 // （文件批量导入），但一次请求串行扫完整池会拖死请求：限流时每个出口都要
@@ -1879,10 +1875,11 @@ func proxyRateLimited(state *endpointProxyState, proxy string, now time.Time) bo
 	return banned && now.Before(until)
 }
 
-// pickKey 从端点全部 key 中按轮询选出一个可用 key，返回 (key, index)。
-// 跳过处于冻结期的 key（401/403 或链路失败退避）；全部冻结时返回 ("", -1)，
-// 由调用方触发端点级切换。429 绝不冻结 key，只靠轮询天然分散 RPM 压力。
-func (s *Service) pickKey(endpointID string, keys []string, now time.Time) (string, int) {
+// pickKey 从端点全部 key 中按轮询选出一个 key，返回 (key, index)。
+// key 永不冻结：triedKeys 记录本次请求内已尝试失败的 key，跳过它们避免无限重试；
+// 全部 key 均已在本轮尝试失败时返回 ("", -1)，由调用方触发端点级切换。
+// 429 绝不冻结 key，只靠轮询天然分散 RPM 压力。
+func (s *Service) pickKey(endpointID string, keys []string, triedKeys map[string]bool) (string, int) {
 	cleaned := cleanKeyList(keys)
 	if len(cleaned) == 0 {
 		return "", -1
@@ -1900,70 +1897,13 @@ func (s *Service) pickKey(endpointID string, keys []string, now time.Time) (stri
 	start := state.cursor
 	for i := 0; i < len(cleaned); i++ {
 		idx := (start + i) % len(cleaned)
-		if until, frozen := state.frozen[cleaned[idx]]; frozen && now.Before(until) {
+		if triedKeys != nil && triedKeys[cleaned[idx]] {
 			continue
 		}
 		state.cursor = (idx + 1) % len(cleaned)
 		return cleaned[idx], idx
 	}
 	return "", -1
-}
-
-// markKeyAuthFailed 将 key 因 401/403 冻结（key 真正失效，长窗口，到期自动释放）。
-func (s *Service) markKeyAuthFailed(endpointID, key string) {
-	if key == "" {
-		return
-	}
-	s.keyMu.Lock()
-	defer s.keyMu.Unlock()
-	state, ok := s.keyStateByEndpoint[endpointID]
-	if !ok {
-		state = newEndpointKeyState()
-		s.keyStateByEndpoint[endpointID] = state
-	}
-	state.frozen[key] = time.Now().Add(keyAuthBanDuration)
-	delete(state.failures, key)
-}
-
-// markKeyLinkFailed 将 key 因链路/连接失败按指数退避冷却（复用代理退避常量），
-// 连续失败放大冷却；成功转发后由 markKeySuccess 恢复。
-func (s *Service) markKeyLinkFailed(endpointID, key string) {
-	if key == "" {
-		return
-	}
-	s.keyMu.Lock()
-	defer s.keyMu.Unlock()
-	state, ok := s.keyStateByEndpoint[endpointID]
-	if !ok {
-		state = newEndpointKeyState()
-		s.keyStateByEndpoint[endpointID] = state
-	}
-	state.failures[key]++
-	fails := state.failures[key]
-	shift := fails - 1
-	if shift > proxyCooldownShift {
-		shift = proxyCooldownShift
-	}
-	cooldown := proxyCooldown << shift
-	if cooldown > proxyCooldownMax {
-		cooldown = proxyCooldownMax
-	}
-	state.frozen[key] = time.Now().Add(cooldown)
-}
-
-// markKeySuccess 清除 key 的链路失败计数与冻结，使之下一次请求即可恢复可选。
-func (s *Service) markKeySuccess(endpointID, key string) {
-	if key == "" {
-		return
-	}
-	s.keyMu.Lock()
-	defer s.keyMu.Unlock()
-	state, ok := s.keyStateByEndpoint[endpointID]
-	if !ok {
-		return
-	}
-	delete(state.failures, key)
-	delete(state.frozen, key)
 }
 
 // cleanKeyList 清洗并去重 API Key 列表（保留顺序，剔除空串）。
@@ -2096,6 +2036,56 @@ func isRateLimitResponse(resp *http.Response, body []byte) bool {
 	return false
 }
 
+// unavailableStatusCode 在所有候选端点均失败后，根据各端点失败码聚合决定返回给客户端的
+// 状态码：全一致（如全部 429）→ 透传该码；不一致 → 503。供调用方在自己写响应时使用。
+func unavailableStatusCode(model string, failCodes []int) int {
+	if len(failCodes) > 0 {
+		first := failCodes[0]
+		allSame := true
+		for _, c := range failCodes[1:] {
+			if c != first {
+				allSame = false
+				break
+			}
+		}
+		if allSame && first >= 400 && first < 600 {
+			return first
+		}
+	}
+	return http.StatusServiceUnavailable
+}
+
+// writeRelayUnavailable 在所有候选端点均失败后，聚合各端点失败状态码决定返回给客户端的错误：
+//   - 所有端点失败码一致（如全部 429）→ 透传该码，并说明网关无可用渠道。
+//   - 失败码不一致或不在 4xx/5xx 内 → 返回 503 网关无可用渠道。
+//
+// 这类「所有渠道耗尽」属于网关自身状态，不额外写入调用日志（各尝试已在 relayLoop 内记录）。
+func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int) {
+	if len(failCodes) > 0 {
+		first := failCodes[0]
+		allSame := true
+		for _, c := range failCodes[1:] {
+			if c != first {
+				allSame = false
+				break
+			}
+		}
+		if allSame && first >= 400 && first < 600 {
+			msg := fmt.Sprintf("网关无可用渠道（模型 %s）：所有端点均返回 HTTP %d", model, first)
+			response.JSON(w, first, map[string]interface{}{
+				"error": map[string]string{"message": msg, "type": "service_unavailable"},
+			})
+			return
+		}
+	}
+	response.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+		"error": map[string]string{
+			"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
+			"type":    "service_unavailable",
+		},
+	})
+}
+
 // isRetryableUpstreamResponse 判断上游响应是否值得切换到下一个代理重试：
 // 限流（429/439/503/529 或限流关键词）与常见 5xx 服务器错误（500/502/504/599）。
 // 501/505 等表示请求本身语义问题，重试无意义，不纳入。
@@ -2197,6 +2187,7 @@ func (s *Service) toggleEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "enabled": req.Enabled})
 }
@@ -2221,6 +2212,7 @@ func (s *Service) deleteEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -2273,6 +2265,7 @@ func (s *Service) reorderEndpoints(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -2341,6 +2334,7 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.invalidateRouteCache()
 
 	res := map[string]interface{}{
 		"status":       status,
@@ -2355,6 +2349,122 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	}
 
 	response.JSON(w, http.StatusOK, res)
+}
+
+// KeyCheckResult 描述一次 API Key 校验结果：status 取值 valid/invalid/overdue/error。
+type KeyCheckResult struct {
+	Index      int    `json:"index"`
+	Key        string `json:"key"`
+	Status     string `json:"status"`
+	StatusCode int    `json:"statusCode,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// healthCheckKeysRoute 对端点配置的多个 API Key 逐个做有效性检测（GET /models）。
+// 用于端点编辑弹窗里的 key 管理：进入弹窗时自动刷新状态，快速识别失效/欠费 key。
+func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		Keys    []string `json:"keys"`
+		Timeout int      `json:"timeout"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	keys := make([]string, 0, len(req.Keys))
+	for _, k := range req.Keys {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "keys 不能为空"})
+		return
+	}
+
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	var baseURL string
+	var headersRaw, proxyRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT base_url, headers, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &headersRaw, &proxyRaw)
+	if err != nil {
+		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
+		return
+	}
+
+	timeout := 8 * time.Second
+	if req.Timeout > 0 {
+		timeout = time.Duration(req.Timeout) * time.Millisecond
+	}
+	pool := decodeProxyPool(proxyRaw)
+	headers := decodeEndpointHeaders(headersRaw)
+
+	results := make([]KeyCheckResult, len(keys))
+	var wg sync.WaitGroup
+	for i, key := range keys {
+		wg.Add(1)
+		go func(idx int, k string) {
+			defer wg.Done()
+			results[idx] = s.checkAPIKeyStatus(ctx, baseURL, k, id, timeout, pool, headers, idx)
+		}(i, key)
+	}
+	wg.Wait()
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"results": results})
+}
+
+// checkAPIKeyStatus 用 GET {baseURL}/models 检测单个 key 的有效性。
+// 2xx=valid；401/403=invalid（鉴权失败）；402=overdue（欠费）；其余/网络错误=error。
+func (s *Service) checkAPIKeyStatus(ctx context.Context, baseURL, key, endpointID string, timeout time.Duration, pool []string, headers []HeaderItem, index int) KeyCheckResult {
+	result := KeyCheckResult{Index: index, Key: key}
+	childCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	reqURL := fmt.Sprintf("%s/models", strings.TrimSuffix(baseURL, "/"))
+	httpReq, err := http.NewRequestWithContext(childCtx, "GET", reqURL, nil)
+	if err != nil {
+		result.Status = "error"
+		result.Message = err.Error()
+		return result
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+key)
+	applyCustomHeaders(httpReq, headers)
+
+	client := s.client
+	if len(pool) > 0 {
+		if poolClient, _ := s.auxClientForPool(endpointID, pool); poolClient != nil {
+			client = poolClient
+		}
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		result.Status = "error"
+		result.Message = err.Error()
+		return result
+	}
+	defer resp.Body.Close()
+	result.StatusCode = resp.StatusCode
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		result.Status = "valid"
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		result.Status = "invalid"
+		result.Message = "鉴权失败"
+	case resp.StatusCode == http.StatusPaymentRequired:
+		result.Status = "overdue"
+		result.Message = "欠费"
+	default:
+		result.Status = "error"
+		result.Message = fmt.Sprintf("HTTP %d", resp.StatusCode)
+	}
+	return result
 }
 
 func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id string) {
@@ -2389,6 +2499,7 @@ func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id s
 	checkedAt := time.Now().Format(time.RFC3339)
 
 	_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?", string(modelsJSON), checkedAt, id)
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -2453,6 +2564,7 @@ func (s *Service) toggleEndpointModel(w http.ResponseWriter, r *http.Request, id
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":        true,
@@ -2532,6 +2644,7 @@ func (s *Service) toggleEndpointModelsBatch(w http.ResponseWriter, r *http.Reque
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":        true,
@@ -3243,6 +3356,7 @@ func (s *Service) refreshAllEndpointsRoute(w http.ResponseWriter, r *http.Reques
 	}
 
 	wg.Wait()
+	s.invalidateRouteCache()
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "results": results})
 }
 
@@ -3562,6 +3676,7 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":  true,
@@ -3571,8 +3686,96 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// resolveTargetEndpoint 仅在管理面板入口（/api/openai 前缀，会话鉴权）读取
+// x-endpoint-id 强制指定端点，用于调试/聊天测试；外部统一出口（/v1）忽略该头，
+// 保证模型池路由不外泄、外部无法锁定特定上游。
+func (s *Service) resolveTargetEndpoint(r *http.Request) string {
+	if !strings.HasPrefix(r.URL.Path, "/api/openai") {
+		return ""
+	}
+	return r.Header.Get("x-endpoint-id")
+}
+
+// routeCacheTTL 是已启用端点配置缓存的过期时间。端点配置变更最多延迟该时长生效，
+// 无需在每条写路径逐处失效，避免遗漏导致的陈旧路由。
+const routeCacheTTL = 2 * time.Second
+
+// enabledEndpointsCached 返回已启用端点的完整配置列表（按 sort_order 升序），
+// 结果缓存在内存中，TTL 到期或配置变更后自动重建。调用方不得修改返回的端点。
+func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]Endpoint, error) {
+	s.routeCacheMu.Lock()
+	if s.routeCacheReady && time.Since(s.routeCacheAt) < routeCacheTTL {
+		cached := s.routeCache
+		s.routeCacheMu.Unlock()
+		return cached, nil
+	}
+	s.routeCacheMu.Unlock()
+
+	endpoints := []Endpoint{}
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, sort_order
+		FROM openai_endpoints WHERE enabled = 1
+		ORDER BY sort_order ASC, created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ep Endpoint
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, sortOrder int
+		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder); errScan == nil {
+			ep.APIKey = secure.SecureDecrypt(ep.APIKey)
+			ep.Enabled = enabledInt == 1
+			ep.AutoSwitch = autoSwitchInt == 1
+			ep.ProxyEnabled = proxyEnabledInt == 1
+			ep.ForceProxy = forceProxyInt == 1
+			ep.Protocol = normalizeProtocol(protocolRaw.String)
+			if apiKeysRaw.Valid && apiKeysRaw.String != "" {
+				_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
+			}
+			if mappingsRaw.Valid && mappingsRaw.String != "" {
+				_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)
+			}
+			if modelsRaw.Valid {
+				_ = json.Unmarshal([]byte(modelsRaw.String), &ep.Models)
+			}
+			ep.Headers = []HeaderItem{}
+			if headersRaw.Valid && headersRaw.String != "" {
+				_ = json.Unmarshal([]byte(headersRaw.String), &ep.Headers)
+			}
+			ep.DisabledModels = []string{}
+			if disabledRaw.Valid && disabledRaw.String != "" {
+				_ = json.Unmarshal([]byte(disabledRaw.String), &ep.DisabledModels)
+			}
+			ep.ProxyPool = []string{}
+			if proxyRaw.Valid && proxyRaw.String != "" {
+				_ = json.Unmarshal([]byte(proxyRaw.String), &ep.ProxyPool)
+			}
+			ep.HealthStatus = ""
+			endpoints = append(endpoints, ep)
+		}
+	}
+
+	s.routeCacheMu.Lock()
+	s.routeCache = endpoints
+	s.routeCacheAt = time.Now()
+	s.routeCacheReady = true
+	s.routeCacheMu.Unlock()
+	return endpoints, nil
+}
+
+// invalidateRouteCache 主动清空路由缓存，供端点配置变更路径调用，
+// 使新配置立即生效而无需等待 TTL 到期。
+func (s *Service) invalidateRouteCache() {
+	s.routeCacheMu.Lock()
+	s.routeCacheReady = false
+	s.routeCache = nil
+	s.routeCacheMu.Unlock()
+}
+
 // selectEndpointCandidates 根据模型名返回能服务该模型的全部候选端点（已按侧栏
-// sort_order 升序排序；同 order 内按创建时间稳定）。优先使用请求头 x-endpoint-id
+// sort_order 升序排序；同 order 内按创建时间稳定）。优先使用管理面板 x-endpoint-id
 // 指定的端点（若它也服务该模型则仅返回它一个，强制指定时不参与 failover）。
 // chosen 为调用方实际首选使用的端点（主 key 端），index 为 chosen 在返回切片中的下标。
 func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, model, targetEndpointID string) (candidates []Endpoint, chosen Endpoint, chosenIndex int, selectedModel string, found bool) {
@@ -3626,36 +3829,21 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	}
 
 	// Enabled is the administrator's routing decision; status is the latest verification result.
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, sort_order
-		FROM openai_endpoints WHERE enabled = 1
-		ORDER BY sort_order ASC, created_at ASC`)
+	endpoints, err := s.enabledEndpointsCached(ctx, db)
 	if err != nil {
 		return nil, chosen, -1, selectedModel, false
-	}
-	defer rows.Close()
-	endpoints := []Endpoint{}
-	for rows.Next() {
-		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, sortOrder int
-		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder); errScan == nil {
-			loadEndpoint(&ep, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt)
-			ep.HealthStatus = ""
-			endpoints = append(endpoints, ep)
-		}
 	}
 
 	for _, ep := range endpoints {
 		real, _ := s.resolveEndpointModel(ep, model)
-		if s.endpointHasModel(ep, model) && !isModelDisabled(ep.DisabledModels, real) && !s.endpointKeyStateFrozen(ep.ID, ep.AllKeys()) {
+		if s.endpointHasModel(ep, model) && !isModelDisabled(ep.DisabledModels, real) {
 			candidates = append(candidates, ep)
 		}
 	}
 	if len(candidates) == 0 {
 		// 兜底：模型列表尚未刷新时仍尝试已启用端点，但跳过已禁用该模型的端点。
 		for _, ep := range endpoints {
-			if s.endpointHasModel(ep, model) && !isModelDisabled(ep.DisabledModels, model) && !s.endpointKeyStateFrozen(ep.ID, ep.AllKeys()) {
+			if s.endpointHasModel(ep, model) && !isModelDisabled(ep.DisabledModels, model) {
 				candidates = append(candidates, ep)
 			}
 		}
@@ -3676,28 +3864,6 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	chosen = candidates[chosenIndex]
 	selectedModel, _ = s.resolveEndpointModel(chosen, model)
 	return candidates, chosen, chosenIndex, selectedModel, true
-}
-
-// endpointKeyStateFrozen 检查端点的全部 key 是否处于冻结期（用于候选过滤，
-// 全部冻结的端点不参与本轮 failover，把流量让给健康端点）。
-func (s *Service) endpointKeyStateFrozen(endpointID string, keys []string) bool {
-	cleaned := cleanKeyList(keys)
-	if len(cleaned) == 0 {
-		return false
-	}
-	s.keyMu.Lock()
-	defer s.keyMu.Unlock()
-	state, ok := s.keyStateByEndpoint[endpointID]
-	if !ok {
-		return false
-	}
-	now := time.Now()
-	for _, key := range cleaned {
-		if until, frozen := state.frozen[key]; !frozen || !now.Before(until) {
-			return false
-		}
-	}
-	return true
 }
 
 // relayLoopParams 描述一次上游转发重试循环的输入。chat.completions / responses /
@@ -3723,13 +3889,15 @@ type relayLoopParams struct {
 // 正文；resp 为 nil 时 lastErr 携带失败原因，statusCode 为应回给客户端的状态码
 // （500=构建请求失败，502=代理重试耗尽/配置错误）。cancel 为成功路径最近一次尝试的
 // context 取消函数，调用方在读完正文（或关闭 resp.Body）后调用以释放 attempt context。
-// 停止条件：resp 非空（成功拿到上游响应）或 endpointExhausted（全部 key 冻结，
-// 需要切换到下一个候选端点）。lastErr 携带失败原因，statusCode 为应回给客户端的状态码。
+// 停止条件：resp 非空（成功拿到上游响应）或 endpointExhausted（本轮全部 key 尝试
+// 失败）或 retryableUpstream（上游返回限流/5xx 且代理重试耗尽）。后两者都应切换到
+// 下一个候选端点继续尝试，保证「尽最大可能提供可用渠道」。
 type relayLoopResult struct {
 	resp              *http.Response
 	statusCode        int
 	lastErr           error
-	endpointExhausted bool // 全部 API Key 冻结/不可用，应切换到下一个候选端点
+	endpointExhausted bool // 本轮全部 API Key 尝试失败，应切换到下一个候选端点
+	retryableUpstream bool // 上游返回 429/5xx 且代理重试耗尽，应切换到下一个候选端点
 	firstChunk        []byte
 	firstWritten      bool
 	ttfbMs            int64
@@ -3774,6 +3942,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	var firstChunk []byte
 	var ttfbMs int64
 	firstWritten := false
+	// triedKeys 记录本轮请求内已尝试失败的 key（key 永不冻结，仅请求内去重），
+	// 避免单 key 场景 401 后对同一 key 无限重试。
+	triedKeys := map[string]bool{}
 
 	for attempt = 0; attempt < maxProxyAttempts; attempt++ {
 		attemptCtx, cancel := context.WithCancel(ctx)
@@ -3822,15 +3993,15 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		}
 		applyCustomHeaders(httpReq, selected.Headers)
 
-		// 多 API Key 选择：轮询选一个可用 key，429 只切换不冻结，401 冻结该 key。
+		// 多 API Key 选择：轮询选一个 key（key 永不冻结，本轮已尝试失败的 key 会被跳过）。
 		keys := selected.AllKeys()
-		currentKey, currentKeyIndex := s.pickKey(selected.ID, keys, time.Now())
+		currentKey, currentKeyIndex := s.pickKey(selected.ID, keys, triedKeys)
 		if currentKey == "" {
-			// 全部 key 被冻结：本端点不可用，标记该端点后尝试下一个候选端点。
+			// 本轮全部 key 均已尝试失败：本端点不可用，标记该端点后尝试下一个候选端点。
 			cancel()
 			s.markProxyFailed(selected.ID, currentProxy)
 			res.endpointExhausted = true
-			lastErr = fmt.Errorf("端点 %s 全部 API Key 已冻结或不可用", selected.Name)
+			lastErr = fmt.Errorf("端点 %s 本轮全部 API Key 均尝试失败", selected.Name)
 			lastProxy = currentProxy
 			break
 		}
@@ -3838,8 +4009,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 
 		resp, lastErr = client.Do(httpReq)
 		if lastErr != nil {
-			// 连接失败（例如该代理不可用）：冷却当前 key + 标记代理失败，若有池则切下一个。
-			s.markKeyLinkFailed(selected.ID, currentKey)
+			// 连接失败（例如该代理不可用）：key 不冻结，只标记代理失败，若有池则切下一个。
 			s.markProxyFailed(selected.ID, currentProxy)
 			s.recordRelayError(RelayErrorRecord{
 				Route: p.route, Kind: "dial",
@@ -3857,14 +4027,13 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			break
 		}
 
-		// 401/403 鉴权失败：key 本身失效，冻结该 key 后切下一个 key 重试。
+		// 401/403 鉴权失败：key 本身失效，但不冻结；本轮请求内已尝试的 key 记入
+		// triedKeys，避免无限重试，继续尝试下一个 key（或由 pickKey 耗尽后切换端点）。
 		// 不消耗代理切换次数，因为 key 问题是凭据级非代理级。
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			s.markKeyAuthFailed(selected.ID, currentKey)
+			triedKeys[currentKey] = true
 			resp.Body.Close()
 			cancel()
-			// 继续尝试使用下一个 key 重试（不消耗 attempt 计数）
-			// 但需要重置 attempt 循环以重新选 key；用 continue 触发下轮循环从 pickKey 重新选。
 			continue
 		}
 
@@ -3895,12 +4064,13 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					// 直连（池全部冻结回退）无处可切：保留已读正文原样返回给客户端。
 					continue
 				}
+				res.retryableUpstream = true
+				lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误，重试耗尽）", resp.StatusCode)
 				resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
 				break
 			}
 			// 不是限流：重建带正文的响应继续处理。
 			resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
-			s.markKeySuccess(selected.ID, currentKey)
 			lastKeyIndex = currentKeyIndex
 			break
 		}
@@ -3926,6 +4096,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			if currentProxy != "" {
 				continue
 			}
+			// 直连（代理池全部冻结回退）无处可切：标记上游可重试错误，交给端点级 failover。
+			res.retryableUpstream = true
+			lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误，重试耗尽）", resp.StatusCode)
 			break
 		}
 
@@ -3964,13 +4137,14 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 						continue
 					}
 					lastErr = fmt.Errorf("上游首字超时（超过 %s）", firstTokenTimeout)
+					// 首字超时属上游问题：代理重试已耗尽，交给端点级 failover 尝试下一个候选端点。
+					res.retryableUpstream = true
 					break
 				}
 				if r.n > 0 {
 					firstChunk = append([]byte(nil), tmp[:r.n]...)
 					firstWritten = true
 					ttfbMs = time.Since(res.startTime).Milliseconds()
-					s.markKeySuccess(selected.ID, currentKey)
 					lastKeyIndex = currentKeyIndex
 					break
 				}
@@ -4004,7 +4178,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				firstChunk = append([]byte(nil), tmp[:n]...)
 				firstWritten = true
 				ttfbMs = time.Since(res.startTime).Milliseconds()
-				s.markKeySuccess(selected.ID, currentKey)
 				lastKeyIndex = currentKeyIndex
 				break
 			}
@@ -4047,10 +4220,39 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusBadGateway, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex)
 		return res
 	}
+	// 防御：正常退出循环但未拿到响应（理论上只会在极端路径发生），兜底为 502，
+	// 避免调用方对 nil resp / nil lastErr 做解引用。
+	if resp == nil {
+		res.lastErr = lastErr
+		if res.lastErr == nil {
+			res.lastErr = fmt.Errorf("上游转发未返回响应（重试耗尽）")
+		}
+		res.statusCode = http.StatusBadGateway
+		res.endpointExhausted = true
+		s.recordRelayError(RelayErrorRecord{
+			Route: p.route, Kind: "bad_gateway",
+			Endpoint: selected.Name, EndpointID: selected.ID,
+			Model: p.model, Stream: stream, Proxy: hostFromProxyURL(lastProxy),
+			ClientIP: p.clientIP, Attempts: attempt + 1,
+			ElapsedMs: time.Since(res.startTime).Milliseconds(),
+			Error:     res.lastErr.Error(),
+		})
+		return res
+	}
 	// 最后一次尝试（无重试机会）返回限流：同样累计计数，供 429 熔断使用。
 	if resp != nil && isRateLimitResponse(resp, nil) {
 		s.markProxy429(selected.ID, lastProxy)
 	}
+	// 统一判定「上游可重试错误」：无论是否启用 AutoSwitch / 是否有代理池，
+	// 只要最终响应是限流或 5xx（且流式尚未写出首字节），都交给端点级 failover
+	// 尝试下一个候选端点，尽最大可能提供可用渠道。成功（2xx）或客户端 4xx 不触发。
+	if resp != nil && !firstWritten && isRetryableUpstreamResponse(resp, nil) {
+		res.retryableUpstream = true
+		if lastErr == nil {
+			lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误）", resp.StatusCode)
+		}
+	}
+	res.lastErr = lastErr
 	_, _ = p.db.ExecContext(ctx, "UPDATE openai_endpoints SET last_used = ? WHERE id = ?", time.Now().Format(time.RFC3339), selected.ID)
 	res.statusCode = resp.StatusCode
 	return res
@@ -4084,7 +4286,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body read failed: " + err.Error(),
 		})
-		s.RecordAnalytics(ctx, "chat.completions", "", "", http.StatusBadGateway, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
+		// 网关拦截（未到达上游）不写入调用日志。
 		response.JSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
@@ -4096,26 +4298,25 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
-		s.RecordAnalytics(ctx, "chat.completions", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
+		// 网关拦截（未到达上游）不写入调用日志。
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	model, _ := parsedBody["model"].(string)
 	stream, _ := parsedBody["stream"].(bool)
-	targetEndpointID := r.Header.Get("x-endpoint-id")
-	selectedModel := model
+	targetEndpointID := s.resolveTargetEndpoint(r)
 	sessionKey := resolveSessionKey(r, parsedBody)
 
 	db, err := s.open(ctx)
 	if err != nil {
-		s.RecordAnalytics(ctx, "chat.completions", "", model, http.StatusInternalServerError, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		// 网关侧数据库故障，未进入转发；不写入调用日志。
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, _, selectedModel, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
+	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: "chat.completions", Kind: "no_endpoint",
@@ -4123,10 +4324,10 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
 		})
-		s.RecordAnalytics(ctx, "chat.completions", "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		// 候选池为空属网关自身状态，不写入调用日志；直接在网关拦截并告知外部。
 		response.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"error": map[string]string{
-				"message": "No valid OpenAI endpoints available",
+				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
 				"type":    "service_unavailable",
 			},
 		})
@@ -4209,17 +4410,30 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 若请求名是对外别名，转发到上游时还原为真实模型名。
-	if selectedModel != model && selectedModel != "" {
-		parsedBody["model"] = selectedModel
-	}
-
-	upstreamBodyBytes, _ := json.Marshal(parsedBody)
-
-	// 多端点 failover：按侧栏 sort_order 顺序逐个尝试候选端点，某端点全部 key
-	// 冻结（endpointExhausted）时切换到下一个候选，保证单端点故障不影响可用性。
+	// 多端点 failover：按侧栏 sort_order 顺序逐个尝试候选端点。
+	// 端点「不可用」时切换到下一个候选，保证单端点故障不影响可用性，包括：
+	//   - endpointExhausted：本轮全部 API Key 尝试失败（key 问题）
+	//   - retryableUpstream：上游 429/5xx/首字超时且代理重试耗尽（上游问题）
+	// 2xx/4xx（含流式已写首字节）视为该端点已给出最终响应，直接 break。
+	// 注意：模型名改写（将对外别名还原为真实模型名）必须在循环内对每个候选
+	// 独立执行，因为各候选的 modelMappings 可能不同，复用同一 body 会导致
+	// 错误的模型名被发送到不匹配的端点（如 opencode 的内部名发到日日新）。
 	var res *relayLoopResult
+	failCodes := []int{}
 	for ci, cand := range endpointCandidates {
+		// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+		candModel, _ := s.resolveEndpointModel(cand, model)
+		candBody := parsedBody
+		if candModel != model && candModel != "" {
+			cp := make(map[string]interface{}, len(parsedBody))
+			for k, v := range parsedBody {
+				cp[k] = v
+			}
+			cp["model"] = candModel
+			candBody = cp
+		}
+		upstreamBodyBytes, _ := json.Marshal(candBody)
+
 		fullURL := strings.TrimSuffix(cand.BaseURL, "/")
 		if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
 			fullURL += "/v1"
@@ -4239,21 +4453,34 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			clientIP:       clientIP,
 			requestStarted: requestStarted,
 		})
-		if res.resp != nil || !res.endpointExhausted {
+		if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+			selected = cand
 			break
 		}
-		// 端点 key 全部冻结：记录一次后尝试下一个候选端点。
+		// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+		if res.statusCode > 0 {
+			failCodes = append(failCodes, res.statusCode)
+		}
 		if ci+1 < len(endpointCandidates) {
 			selected = endpointCandidates[ci+1]
+			failReason := "上游转发失败"
+			if res.lastErr != nil {
+				failReason = res.lastErr.Error()
+			}
 			s.recordRelayError(RelayErrorRecord{
 				Route: "chat.completions", Kind: "endpoint_failover",
 				Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
 				Stream: stream, ClientIP: clientIP,
 				Attempts:  res.attempt + 1,
 				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     res.lastErr.Error(),
+				Error:     failReason,
 			})
 		}
+	}
+	// 全部候选端点均已失败：聚合错误决定返回给客户端的状态码（一致透传，不一致 503）。
+	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
+		writeRelayUnavailable(w, model, failCodes)
+		return
 	}
 	if res.lastErr != nil && res.resp == nil {
 		// 失败原因与统计已在 relayLoop 内记录，这里仅按状态码写回响应。
@@ -4314,6 +4541,15 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			if err != nil {
 				break
+			}
+		}
+		// 对齐 new-api：首字节后的流式中断也静默收尾，绝不向客户端报错。
+		// 若上游未发送结束标记（[DONE]），补发收尾，保证前端对话正常结束。
+		if !bytes.Contains(tail, []byte("[DONE]")) {
+			extendStreamDeadline()
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			if ok {
+				flusher.Flush()
 			}
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
@@ -4775,7 +5011,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body read failed: " + err.Error(),
 		})
-		s.RecordAnalytics(ctx, "responses", "", "", http.StatusBadGateway, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
+		// 网关拦截（未到达上游）不写入调用日志。
 		response.JSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
@@ -4787,25 +5023,25 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
-		s.RecordAnalytics(ctx, "responses", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
+		// 网关拦截（未到达上游）不写入调用日志。
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	model, _ := parsedBody["model"].(string)
 	stream, _ := parsedBody["stream"].(bool)
-	targetEndpointID := r.Header.Get("x-endpoint-id")
+	targetEndpointID := s.resolveTargetEndpoint(r)
 	sessionKey := resolveSessionKey(r, parsedBody)
 
 	db, err := s.open(ctx)
 	if err != nil {
-		s.RecordAnalytics(ctx, "responses", "", model, http.StatusInternalServerError, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		// 网关侧数据库故障，未进入转发；不写入调用日志。
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, _, selectedModel, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
+	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: "responses", Kind: "no_endpoint",
@@ -4813,10 +5049,10 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
 		})
-		s.RecordAnalytics(ctx, "responses", "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		// 候选池为空属网关自身状态，不写入调用日志；直接在网关拦截并告知外部。
 		response.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"error": map[string]string{
-				"message": "No valid OpenAI endpoints available",
+				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
 				"type":    "service_unavailable",
 			},
 		})
@@ -4859,15 +5095,26 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	fullURL += "/responses"
 
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
-	if selectedModel != model && selectedModel != "" {
-		parsedBody["model"] = selectedModel
-	}
+	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
 	normalizeResponsesTools(parsedBody)
 	normalizeResponsesInput(parsedBody)
-	upstreamBodyBytes, _ := json.Marshal(parsedBody)
 
 	var res *relayLoopResult
+	failCodes := []int{}
 	for ci, cand := range endpointCandidates {
+		// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+		candModel, _ := s.resolveEndpointModel(cand, model)
+		candBody := parsedBody
+		if candModel != model && candModel != "" {
+			cp := make(map[string]interface{}, len(parsedBody))
+			for k, v := range parsedBody {
+				cp[k] = v
+			}
+			cp["model"] = candModel
+			candBody = cp
+		}
+		upstreamBodyBytes, _ := json.Marshal(candBody)
+
 		fullURL := strings.TrimSuffix(cand.BaseURL, "/")
 		if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
 			fullURL += "/v1"
@@ -4887,20 +5134,34 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			clientIP:       clientIP,
 			requestStarted: requestStarted,
 		})
-		if res.resp != nil || !res.endpointExhausted {
+		if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+			selected = cand
 			break
+		}
+		// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+		if res.statusCode > 0 {
+			failCodes = append(failCodes, res.statusCode)
 		}
 		if ci+1 < len(endpointCandidates) {
 			selected = endpointCandidates[ci+1]
+			failReason := "上游转发失败"
+			if res.lastErr != nil {
+				failReason = res.lastErr.Error()
+			}
 			s.recordRelayError(RelayErrorRecord{
 				Route: "responses", Kind: "endpoint_failover",
 				Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
 				Stream: stream, ClientIP: clientIP,
 				Attempts:  res.attempt + 1,
 				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     res.lastErr.Error(),
+				Error:     failReason,
 			})
 		}
+	}
+	// 全部候选端点均已失败：聚合错误决定返回给客户端的状态码（一致透传，不一致 503）。
+	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
+		writeRelayUnavailable(w, model, failCodes)
+		return
 	}
 	if res.lastErr != nil && res.resp == nil {
 		// 失败原因与统计已在 relayLoop 内记录，这里仅按状态码写回响应。
@@ -4970,7 +5231,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) GetModelsList(ctx context.Context) ([]map[string]interface{}, error) {
+func (s *Service) GetModelsList(ctx context.Context, anonymizeOwner bool) ([]map[string]interface{}, error) {
 	db, err := s.open(ctx)
 	if err != nil {
 		return nil, err
@@ -5011,11 +5272,16 @@ func (s *Service) GetModelsList(ctx context.Context) ([]map[string]interface{}, 
 					externalID = alias
 				}
 				if _, ok := modelMap[externalID]; !ok {
+					owner := name
+					if anonymizeOwner {
+						// 外部统一出口不泄漏内部端点名。
+						owner = "api-monitor-gateway"
+					}
 					modelMap[externalID] = map[string]interface{}{
 						"id":       externalID,
 						"object":   "model",
 						"created":  time.Now().Unix(),
-						"owned_by": name,
+						"owned_by": owner,
 					}
 				}
 			}
@@ -5030,7 +5296,10 @@ func (s *Service) GetModelsList(ctx context.Context) ([]map[string]interface{}, 
 }
 
 func (s *Service) proxyModels(w http.ResponseWriter, r *http.Request) {
-	modelList, err := s.GetModelsList(r.Context())
+	// 外部统一出口（/v1）匿名化 owned_by，不泄漏内部端点名；
+	// 管理面板入口（/api/openai）保留端点归属用于按端点筛选模型。
+	anonymize := !strings.HasPrefix(r.URL.Path, "/api/openai")
+	modelList, err := s.GetModelsList(r.Context(), anonymize)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

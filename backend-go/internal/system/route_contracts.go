@@ -782,6 +782,10 @@ func init() {
 	routeRequestContracts["/api/openai/endpoints/{id}/test"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/health-check"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/health-check-all"] = noBody
+	routeRequestContracts["/api/openai/endpoints/{id}/key-check"] = obj([]string{"keys"}, map[string]prop{
+		"keys":    {t: "array", req: true},
+		"timeout": {t: "number"},
+	})
 	routeRequestContracts["/api/openai/endpoints/refresh"] = noBody
 	routeRequestContracts["/api/openai/endpoints/refresh-all"] = noBody
 	routeRequestContracts["/api/openai/health-check-all"] = noBody

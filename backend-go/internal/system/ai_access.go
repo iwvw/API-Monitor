@@ -18,6 +18,13 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 )
 
+// escapeLike 转义 LIKE 模式中的通配符（配合 ESCAPE '\' 使用），
+// 让用户输入的 % _ \ 按字面匹配而非被当作模式字符。
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
 type aiMCPServer struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -918,7 +925,8 @@ func (s *Service) listAIAudit(ctx context.Context, db *sql.DB, limit int) ([]aiA
 }
 
 // listAIAuditPage returns paginated AI access audit entries filtered by recent days.
-// Supports days (default 7), page (default 1) and pageSize (default 20, max 100) query params.
+// Supports days (default 7), page (default 1), pageSize (default 20, max 100),
+// action (exact match) and search (LIKE across action, target, agent_name, details, ip_address, status).
 func (s *Service) listAIAuditPage(r *http.Request) (map[string]interface{}, error) {
 	db, err := s.store.Open(r.Context())
 	if err != nil {
@@ -944,15 +952,35 @@ func (s *Service) listAIAuditPage(r *http.Request) (map[string]interface{}, erro
 		days = d
 	}
 
+	actionFilter := strings.TrimSpace(query.Get("action"))
+	searchText := strings.TrimSpace(query.Get("search"))
+
 	offset := (page - 1) * pageSize
 	timeFilter := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
 
+	whereClause := "WHERE created_at >= ?"
+	args := []interface{}{timeFilter}
+
+	if actionFilter != "" {
+		whereClause += " AND action = ?"
+		args = append(args, actionFilter)
+	}
+	if searchText != "" {
+		whereClause += " AND (action LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\' OR agent_name LIKE ? ESCAPE '\\' OR details LIKE ? ESCAPE '\\' OR ip_address LIKE ? ESCAPE '\\' OR status LIKE ? ESCAPE '\\')"
+		escaped := escapeLike(searchText)
+		like := "%" + escaped + "%"
+		args = append(args, like, like, like, like, like, like)
+	}
+
 	var total int
-	if err := db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM ai_access_audit WHERE created_at >= ?`, timeFilter).Scan(&total); err != nil {
+	countQuery := "SELECT COUNT(*) FROM ai_access_audit " + whereClause
+	if err := db.QueryRowContext(r.Context(), countQuery, args...).Scan(&total); err != nil {
 		return nil, err
 	}
 
-	rows, err := db.QueryContext(r.Context(), `SELECT id, COALESCE(agent_name,''), action, COALESCE(target,''), status, latency_ms, COALESCE(details,''), COALESCE(ip_address,''), COALESCE(user_agent,''), created_at FROM ai_access_audit WHERE created_at >= ? ORDER BY id DESC LIMIT ? OFFSET ?`, timeFilter, pageSize, offset)
+	dataQuery := "SELECT id, COALESCE(agent_name,''), action, COALESCE(target,''), status, COALESCE(latency_ms,0), COALESCE(details,''), COALESCE(ip_address,''), COALESCE(user_agent,''), created_at FROM ai_access_audit " + whereClause + " ORDER BY id DESC LIMIT ? OFFSET ?"
+	dataArgs := append(args, pageSize, offset)
+	rows, err := db.QueryContext(r.Context(), dataQuery, dataArgs...)
 	if err != nil {
 		return nil, err
 	}

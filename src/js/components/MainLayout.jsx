@@ -8,11 +8,13 @@ import useStore, {
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar';
 import { Tooltip } from '@cloudflare/kumo/components/tooltip';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Loader, Tabs } from '@cloudflare/kumo';
+import { ClipboardText, Empty, Tabs } from '@cloudflare/kumo';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { APP_VERSION } from '../modules/appVersion.js';
 import AppPageHeader, { AppBreadcrumbs } from './AppPageHeader.jsx';
 import { AppCard } from './ui/AppPrimitives.jsx';
+import { AlertTriangle } from './IconsCore.jsx';
 import {
   Globe,
   Server,
@@ -49,9 +51,21 @@ const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
 
+import { pageStackClass } from './ui/AppPrimitives.jsx';
+
 const PageLoadingFallback = () => (
-  <div className="flex min-h-[240px] items-center justify-center">
-    <Loader size={32} />
+  <div className={`${pageStackClass} pt-3 sm:pt-4`}>
+    <div className="rounded-xl border border-kumo-fill bg-kumo-control">
+      <div className="flex items-center gap-2 border-b border-kumo-line px-4 py-2.5">
+        <SkeletonLine className="h-4 w-4" />
+        <SkeletonLine className="h-3.5 w-24" />
+      </div>
+      <div className="flex flex-col gap-3 p-4">
+        <SkeletonLine className="h-3.5 w-3/4" />
+        <SkeletonLine className="h-3.5 w-1/2" />
+        <SkeletonLine className="h-3.5 w-5/6" />
+      </div>
+    </div>
   </div>
 );
 
@@ -81,28 +95,34 @@ class ModuleErrorBoundary extends React.Component {
     }
     return (
       <div className="flex min-h-[360px] items-center justify-center">
-        <AppCard padding="none" className="w-full max-w-xl p-5">
-          <div className="mb-2 text-sm font-bold text-kumo-strong">模块加载失败</div>
-          <div className="mb-4 text-xs leading-relaxed text-kumo-subtle">
-            前端资源已更新或缓存过期，请重新加载页面。
-          </div>
-          <div className="mb-4 rounded-md border border-kumo-line bg-kumo-recessed/50 p-3 font-mono text-[11px] leading-relaxed text-kumo-subtle">
-            {this.state.error?.message || '未知错误'}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            onClick={() => {
-              const url = new URL(window.location.href);
-              url.searchParams.set('_reload', String(Date.now()));
-              window.location.replace(url.toString());
-            }}
-            className="font-bold"
-          >
-            重新加载
-          </Button>
-        </AppCard>
+        <Empty
+          size="sm"
+          className="max-w-xl"
+          icon={<AlertTriangle size={32} />}
+          title="模块加载失败"
+          description="前端资源已更新或缓存过期，请重新加载页面。"
+          contents={
+            <div className="flex flex-col items-center gap-3">
+              <ClipboardText
+                text={this.state.error?.message || '未知错误'}
+                className="w-full max-w-md"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('_reload', String(Date.now()));
+                  window.location.replace(url.toString());
+                }}
+                className="font-bold"
+              >
+                重新加载
+              </Button>
+            </div>
+          }
+        />
       </div>
     );
   }

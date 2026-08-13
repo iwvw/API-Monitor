@@ -205,11 +205,16 @@ func (s *Service) createGatewayKey(w http.ResponseWriter, r *http.Request) {
 	id := "gk_" + uuid.NewString()
 	createdAt := time.Now().Format(time.RFC3339)
 	prefix, suffix := gatewayKeyParts(rawKey)
+	keyCipher, encryptErr := secure.SecureEncrypt(rawKey)
+	if encryptErr != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "加密密钥失败"})
+		return
+	}
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO openai_gateway_keys
 			(id, name, key_hash, key_cipher, key_prefix, key_suffix, enabled, created_at, expires_at, allowed_models, allowed_endpoints, max_tokens_quota)
 		VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-		id, req.Name, hashGatewayKey(rawKey), rawKey, prefix, suffix, createdAt, expiresAt,
+		id, req.Name, hashGatewayKey(rawKey), keyCipher, prefix, suffix, createdAt, expiresAt,
 		string(allowedModelsJSON), string(allowedEndpointsJSON), maxInt64(req.MaxTokensQuota, 0))
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -329,10 +334,15 @@ func (s *Service) rotateGatewayKey(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	defer db.Close()
+	keyCipher, encryptErr := secure.SecureEncrypt(rawKey)
+	if encryptErr != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "加密密钥失败"})
+		return
+	}
 	result, err := db.ExecContext(r.Context(), `
 		UPDATE openai_gateway_keys
 		SET key_hash = ?, key_cipher = ?, key_prefix = ?, key_suffix = ?, last_used = NULL, request_count = 0
-		WHERE id = ?`, hashGatewayKey(rawKey), rawKey, prefix, suffix, id)
+		WHERE id = ?`, hashGatewayKey(rawKey), keyCipher, prefix, suffix, id)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -427,12 +437,8 @@ func scanGatewayKey(scanner interface {
 	key.Enabled = enabled == 1
 	key.IsDefault = isDefault == 1
 	key.MaskedKey = maskGatewayKey(key.KeyPrefix, key.KeySuffix)
-	if keyCipher.Valid && secure.IsEncrypted(keyCipher.String) {
-		if rawKey, decryptErr := secure.DecryptNodeGCM(keyCipher.String); decryptErr == nil {
-			key.APIKey = rawKey
-		}
-	} else if keyCipher.Valid {
-		key.APIKey = keyCipher.String
+	if keyCipher.Valid {
+		key.APIKey = secure.SecureDecrypt(keyCipher.String)
 	}
 	if lastUsed.Valid {
 		key.LastUsed = &lastUsed.String

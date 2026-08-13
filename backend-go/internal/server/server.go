@@ -931,7 +931,7 @@ func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) int {
 	ctx := r.Context()
 	var mergedModels []map[string]interface{}
 
-	if oaiModels, err := s.openai.GetModelsList(ctx); err == nil {
+	if oaiModels, err := s.openai.GetModelsList(ctx, true); err == nil {
 		mergedModels = append(mergedModels, oaiModels...)
 	} else {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

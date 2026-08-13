@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	_ "modernc.org/sqlite"
 )
 
@@ -326,7 +327,7 @@ func TestEnsureSchemaMigratesGatewayKeyCipherColumn(t *testing.T) {
 	}
 }
 
-func TestGatewayKeyIsStoredAndListedAsPlaintext(t *testing.T) {
+func TestGatewayKeyIsStoredEncrypted(t *testing.T) {
 	service := New(config.Config{
 		DataDir: t.TempDir(),
 		DBName:  "data.db",
@@ -352,8 +353,15 @@ func TestGatewayKeyIsStoredAndListedAsPlaintext(t *testing.T) {
 	if err := db.QueryRow("SELECT key_cipher FROM openai_gateway_keys LIMIT 1").Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored != created.APIKey {
-		t.Fatalf("gateway key was not stored as plaintext: stored=%q created=%q", stored, created.APIKey)
+	if stored == created.APIKey {
+		t.Fatalf("gateway key was stored as plaintext: stored=%q created=%q", stored, created.APIKey)
+	}
+	if !secure.IsEncrypted(stored) {
+		t.Fatalf("gateway key was not encrypted: stored=%q", stored)
+	}
+	decrypted := secure.SecureDecrypt(stored)
+	if decrypted != created.APIKey {
+		t.Fatalf("decrypted key does not match original: decrypted=%q original=%q", decrypted, created.APIKey)
 	}
 
 	listRecorder := httptest.NewRecorder()
@@ -384,7 +392,7 @@ func TestGetModelsListIncludesEnabledEndpointPendingVerification(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	models, err := service.GetModelsList(context.Background())
+	models, err := service.GetModelsList(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1972,5 +1980,260 @@ func TestResponsesStreamNormalizerParallelTools(t *testing.T) {
 	}
 	if strings.Count(data, "call_2") == 0 {
 		t.Errorf("call_2 missing")
+	}
+}
+
+// TestMultiEndpointFailoverOn5xx 验证端点级 failover：候选池首个端点返回 5xx（触发
+// retryableUpstream）时，应切换到下一个端点并成功返回，且不因 lastErr 为 nil 而 panic。
+func TestMultiEndpointFailoverOn5xx(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"server exploded"}}`))
+	}))
+	defer failing.Close()
+
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer ok.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	// 端点 A：总是 5xx。
+	createA := fmt.Sprintf(`{"name":"Bad A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
+	wA := httptest.NewRecorder()
+	rA, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createA))
+	service.ServeHTTP(wA, rA)
+	if wA.Code != http.StatusOK {
+		t.Fatalf("create A status = %d body=%s", wA.Code, wA.Body.String())
+	}
+	var resA struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wA.Body.String(), &resA)
+
+	// 端点 B：总是 200。
+	createB := fmt.Sprintf(`{"name":"Good B","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, ok.URL)
+	wB := httptest.NewRecorder()
+	rB, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createB))
+	service.ServeHTTP(wB, rB)
+	if wB.Code != http.StatusOK {
+		t.Fatalf("create B status = %d body=%s", wB.Code, wB.Body.String())
+	}
+	var resB struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wB.Body.String(), &resB)
+
+	// 两个端点都配置 gpt-4 模型。
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{resA.Endpoint.ID, resB.Endpoint.ID} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 触发 /v1/chat/completions：A 返回 500，网关应 failover 到 B 并返回 200，不得 panic。
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("failover to healthy endpoint failed: code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+}
+
+// TestSingleEndpoint5xxNoPanic 验证单端点返回 5xx 时（重试耗尽、无下一个候选）不 panic，
+// 且把上游 5xx 响应透传给客户端。
+func TestSingleEndpoint5xxNoPanic(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer failing.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	createBody := fmt.Sprintf(`{"name":"Rate Limited","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected upstream 429 passthrough, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+}
+
+// TestAllEndpointsSameErrorReturnsThatCode 所有候选端点返回同一错误码（429）时，
+// 客户端应收到 429 且错误信息说明网关无可用渠道。
+func TestAllEndpointsSameErrorReturnsThatCode(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer failing.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	createBody := fmt.Sprintf(`{"name":"Limited A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
+	wA := httptest.NewRecorder()
+	rA, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wA, rA)
+	if wA.Code != http.StatusOK {
+		t.Fatalf("create A status = %d body=%s", wA.Code, wA.Body.String())
+	}
+	var resA struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wA.Body.String(), &resA)
+
+	wB := httptest.NewRecorder()
+	rB, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wB, rB)
+	if wB.Code != http.StatusOK {
+		t.Fatalf("create B status = %d body=%s", wB.Code, wB.Body.String())
+	}
+	var resB struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wB.Body.String(), &resB)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{resA.Endpoint.ID, resB.Endpoint.ID} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 when all endpoints return 429, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "网关无可用渠道") {
+		t.Fatalf("expected gateway-unavailable message, got body=%s", wChat.Body.String())
+	}
+}
+
+// TestMixedEndpointErrorsReturns503 各候选端点失败码不一致时，客户端应收到 503 网关无可用渠道。
+func TestMixedEndpointErrorsReturns503(t *testing.T) {
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer rateLimited.Close()
+
+	serverErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"boom"}}`))
+	}))
+	defer serverErr.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	mk := func(name, url string) string {
+		w := httptest.NewRecorder()
+		body := fmt.Sprintf(`{"name":%q,"baseUrl":%q,"apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
+		r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(body))
+		service.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, w.Code, w.Body.String())
+		}
+		var out struct {
+			Success  bool     `json:"success"`
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, w.Body.String(), &out)
+		return out.Endpoint.ID
+	}
+	idA := mk("Limited A", rateLimited.URL)
+	idB := mk("Err B", serverErr.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{idA, idB} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when endpoint errors differ, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "网关无可用渠道") {
+		t.Fatalf("expected gateway-unavailable message, got body=%s", wChat.Body.String())
 	}
 }

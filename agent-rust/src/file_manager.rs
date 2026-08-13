@@ -3,6 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+#[cfg(target_os = "windows")]
+const FILES_ROOT: &str = "C:\\ProgramData\\api-monitor\\agent\\files";
+
+#[cfg(not(target_os = "windows"))]
+const FILES_ROOT: &str = "/var/lib/api-monitor/agent/files";
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -96,16 +103,8 @@ impl FileManager {
 
         let abs_path = resolve_path(&req.path)?;
 
-        // Windows virtual root: list drives
-        if cfg!(target_os = "windows") && abs_path == PathBuf::from("/") {
-            let resp = FileListResponse {
-                files: list_windows_drives(),
-                cwd: "/".to_string(),
-            };
-            return serde_json::to_string(&resp).map_err(|e| e.to_string());
-        }
-
         let entries = fs::read_dir(&abs_path).map_err(|e| format!("读取目录失败: {}", e))?;
+        let root = canonical_files_root()?;
 
         let mut files = Vec::new();
         for entry_res in entries {
@@ -113,7 +112,7 @@ impl FileManager {
                 if let Ok(meta) = entry.metadata() {
                     let file_path = entry.path();
                     let file_name = entry.file_name().to_string_lossy().to_string();
-                    let path_str = normalize_path(&file_path);
+                    let path_str = virtual_path(&file_path, &root);
 
                     let mtime = meta
                         .modified()
@@ -155,7 +154,7 @@ impl FileManager {
 
         let resp = FileListResponse {
             files,
-            cwd: normalize_path(&abs_path),
+            cwd: virtual_path(&abs_path, &root),
         };
 
         serde_json::to_string(&resp).map_err(|e| e.to_string())
@@ -227,17 +226,9 @@ impl FileManager {
 
         let abs_path = resolve_path(&req.path)?;
 
-        // Safety checks: do not allow deleting root directory
-        let clean_path = abs_path.clone();
-        if clean_path == PathBuf::from("/") {
-            return Err("不允许删除根目录".to_string());
-        }
-
-        if cfg!(target_os = "windows") {
-            let path_str = clean_path.to_string_lossy();
-            if path_str.len() <= 3 && path_str.ends_with(":\\") {
-                return Err("不允许删除驱动器根目录".to_string());
-            }
+        // Safety checks: do not allow deleting the sandbox root
+        if abs_path == canonical_files_root()? {
+            return Err("不允许删除文件根目录".to_string());
         }
 
         let meta = fs::metadata(&abs_path).map_err(|e| format!("文件不存在: {}", e))?;
@@ -311,7 +302,7 @@ impl FileManager {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default(),
-            path: normalize_path(&abs_path),
+            path: virtual_path(&abs_path, &canonical_files_root()?),
             is_directory: meta.is_dir(),
             is_file: meta.is_file(),
             is_symlink: meta.file_type().is_symlink(),
@@ -381,66 +372,84 @@ impl FileManager {
     }
 }
 
-fn normalize_path(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
+static FILES_ROOT_CACHE: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+/// 文件沙箱根目录：确保目录存在并返回规范化绝对路径。
+/// 仅在目录缺失时才执行创建，避免在只读操作中反复产生写副作用。
+/// 结果缓存于 OnceLock，后续调用直接返回已缓存的规范路径，避免重复 syscall。
+fn canonical_files_root() -> Result<PathBuf, String> {
+    FILES_ROOT_CACHE
+        .get_or_init(|| {
+            let root = PathBuf::from(FILES_ROOT);
+            if !root.exists() {
+                fs::create_dir_all(&root).map_err(|e| format!("创建文件根目录失败: {}", e))?;
+            }
+            fs::canonicalize(&root).map_err(|e| format!("读取文件根目录失败: {}", e))
+        })
+        .clone()
+}
+
+/// 把文件沙箱内的真实路径转换为对外暴露的虚拟路径。
+/// 根目录显示为 `/`，子路径为 `/a/b`，保证前端面包屑始终锚定在 `/`。
+fn virtual_path(abs_path: &Path, root: &Path) -> String {
+    if abs_path == root {
+        return "/".to_string();
+    }
+    let rel = abs_path.strip_prefix(root).unwrap_or(abs_path);
+    let normalized = rel.to_string_lossy().replace('\\', "/");
+    format!("/{}", normalized.trim_start_matches('/'))
 }
 
 fn resolve_path(input_path: &str) -> Result<PathBuf, String> {
-    if input_path.is_empty() || input_path == "." {
-        if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-            return Ok(PathBuf::from(home));
-        }
-        return std::env::current_dir().map_err(|e| e.to_string());
+    let root = canonical_files_root()?;
+
+    let normalized = input_path.replace('\\', "/");
+    let trimmed = normalized.trim_matches(|c| c == '/' || c == ' ');
+    if trimmed.is_empty() || trimmed == "." {
+        return Ok(root);
     }
 
-    if cfg!(target_os = "windows") && (input_path == "/" || input_path == "\\") {
-        return Ok(PathBuf::from("/"));
-    }
+    // 绝对路径（含 Windows 盘符形式）一律锚定到文件沙箱根目录内解析，
+    // 剥离前导斜杠与盘符前缀后作为沙箱内相对路径校验。
+    let rel = strip_drive_prefix(trimmed.trim_start_matches('/'));
 
-    let mut p = input_path.replace('\\', "/");
-    if cfg!(target_os = "windows")
-        && p.starts_with('/')
-        && p.len() >= 3
-        && p.chars().nth(2) == Some(':')
-    {
-        p = p[1..].to_string();
-    }
+    validate_within_allowed_root(&root.join(rel))
+}
 
-    if cfg!(target_os = "windows") && p.len() == 2 && p.ends_with(':') {
-        p.push('/');
-    }
-
-    let path = PathBuf::from(&p);
-    if path.is_absolute() {
-        Ok(path)
+/// 剥离 Windows 盘符前缀（如 `C:`），返回去掉前缀后的路径片段。
+/// 输入首两个字节必须是 ASCII 盘符（字母 + 冒号），否则原样返回。
+fn strip_drive_prefix(p: &str) -> &str {
+    let bytes = p.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        p[2..].trim_start_matches('/')
     } else {
-        let mut abs = std::env::current_dir().map_err(|e| e.to_string())?;
-        abs.push(path);
-        Ok(abs)
+        p
     }
 }
 
-fn list_windows_drives() -> Vec<FileEntry> {
-    let mut drives = Vec::new();
-    for letter in b'A'..=b'Z' {
-        let drive_letter = letter as char;
-        let drive_path = format!("{}:\\", drive_letter);
-        if Path::new(&drive_path).exists() {
-            drives.push(FileEntry {
-                name: format!("{}:", drive_letter),
-                path: format!("{}:/", drive_letter),
-                is_directory: true,
-                is_file: false,
-                is_symlink: false,
-                size: 0,
-                mode: 0o755,
-                mtime: 0,
-                atime: 0,
-                permissions: "drwxr-xr-x".to_string(),
-            });
-        }
+fn validate_within_allowed_root(path: &Path) -> Result<PathBuf, String> {
+    let root_canonical = canonical_files_root()?;
+
+    let canonical = if path.exists() {
+        fs::canonicalize(path).map_err(|e| format!("无法访问路径: {}", e))?
+    } else {
+        let parent = path.parent().ok_or_else(|| "无效的路径".to_string())?;
+        let parent_canonical =
+            fs::canonicalize(parent).map_err(|e| format!("无法访问父目录: {}", e))?;
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| "无效的文件名".to_string())?;
+        parent_canonical.join(file_name)
+    };
+
+    if !canonical.starts_with(&root_canonical) {
+        return Err(format!(
+            "路径不在允许的文件目录范围内。允许的根目录: {}",
+            root_canonical.display()
+        ));
     }
-    drives
+
+    Ok(canonical)
 }
 
 fn format_permissions(meta: &fs::Metadata) -> String {

@@ -197,6 +197,33 @@ function resultTone(statusCode, completionTokens) {
   return 'success';
 }
 
+// 端点多 key 检测结果 -> 状态徽标。check 为 null 表示该行尚未检测。
+function keyCheckBadgeProps(check) {
+  if (!check) return null;
+  switch (check.status) {
+    case 'checking':
+      return { tone: 'info', label: '检测中' };
+    case 'valid':
+      return { tone: 'success', label: '有效' };
+    case 'invalid':
+      return { tone: 'danger', label: '失效' };
+    case 'overdue':
+      return { tone: 'warning', label: '欠费' };
+    default:
+      return { tone: 'neutral', label: '异常' };
+  }
+}
+
+function KeyStatusBadge({ check }) {
+  const props = keyCheckBadgeProps(check);
+  if (!props) return <span className="w-9 shrink-0" />;
+  return (
+    <StatusBadge tone={props.tone} title={check?.message} className="shrink-0">
+      {props.label}
+    </StatusBadge>
+  );
+}
+
 const GATEWAY_EXPIRY_HOURS = Array.from({ length: 24 }, (_, hour) => {
   const value = String(hour).padStart(2, '0');
   return { value, label: value };
@@ -458,6 +485,9 @@ function OpenAIPage() {
   });
   const [endpointFormError, setEndpointFormError] = useState('');
   const [endpointSaving, setEndpointSaving] = useState(false);
+  // 端点编辑弹窗中的多 key 状态：数组下标与 key 行对齐（0=主 key/K1，n=备用 key/K(n+1)）。
+  const [endpointKeyChecks, setEndpointKeyChecks] = useState([]);
+  const [endpointKeyChecking, setEndpointKeyChecking] = useState(false);
   const [gatewayKeys, setGatewayKeys] = useState([]);
   const [gatewayKeysLoading, setGatewayKeysLoading] = useState(false);
   const [gatewayKeyToggleLoading, setGatewayKeyToggleLoading] = useState({});
@@ -1078,6 +1108,7 @@ const trendSeries = useMemo(() => {
     });
     setEndpointFormError('');
     setEndpointFormOpen(true);
+    setEndpointKeyChecks([]);
   };
 
   const openEditEndpointModal = endpoint => {
@@ -1098,6 +1129,11 @@ const trendSeries = useMemo(() => {
     });
     setEndpointFormError('');
     setEndpointFormOpen(true);
+    setEndpointKeyChecks([]);
+    checkEndpointKeys(
+      [endpoint.apiKey || '', ...(Array.isArray(endpoint.apiKeys) ? endpoint.apiKeys : [])],
+      endpoint.id
+    );
   };
 
   const updateEndpointProxy = (index, value) => {
@@ -1390,10 +1426,11 @@ const trendSeries = useMemo(() => {
       const url = editingEndpoint
         ? `/api/openai/endpoints/${editingEndpoint.id}`
         : '/api/openai/endpoints';
+      const apiKeys = (endpointForm.apiKeys || []).map(k => (k || '').trim()).filter(Boolean);
       const response = await fetch(url, {
         method: editingEndpoint ? 'PUT' : 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ ...endpointForm, forceProxy: !endpointForm.allowDirectFallback }),
+        body: JSON.stringify({ ...endpointForm, apiKeys, forceProxy: !endpointForm.allowDirectFallback }),
       });
       const data = await response.json();
       if (response.ok && (data.success || data.endpoint || data.id)) {
@@ -1409,6 +1446,74 @@ const trendSeries = useMemo(() => {
     } finally {
       setEndpointSaving(false);
     }
+  };
+
+  // 对端点多 key 逐个做有效性检测（调后端 GET /models 判定）。keysArray 与弹窗行对齐：
+  // 第 0 项=主 key（K1），后续项=备用 key（K2...），空值行跳过但仍占据对应下标。
+  const checkEndpointKeys = useCallback(async (keysArray, endpointId) => {
+    const rows = keysArray.map(k => (k || '').trim());
+    const entries = rows
+      .map((key, rowIndex) => ({ rowIndex, key }))
+      .filter(e => e.key !== '');
+    if (!endpointId) {
+      return;
+    }
+    if (entries.length === 0) {
+      setEndpointKeyChecks(Array(rows.length).fill(null));
+      return;
+    }
+    setEndpointKeyChecking(true);
+    setEndpointKeyChecks(rows.map(() => ({ status: 'checking' })));
+    try {
+      const response = await fetch(`/api/openai/endpoints/${endpointId}/key-check`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          keys: entries.map(e => e.key),
+          timeout: 10000,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || '检测失败');
+      }
+      const next = Array(rows.length).fill(null);
+      (data.results || []).forEach((result, idx) => {
+        const rowIndex = entries[idx]?.rowIndex;
+        if (rowIndex != null) next[rowIndex] = result;
+      });
+      setEndpointKeyChecks(next);
+    } catch (error) {
+      setEndpointKeyChecks(rows.map(() => ({ status: 'error', message: error.message })));
+      toast.error(`Key 检测失败：${error.message}`);
+    } finally {
+      setEndpointKeyChecking(false);
+    }
+  }, [getAuthHeaders]);
+
+  const appendEndpointKey = () => {
+    setEndpointForm(current => ({
+      ...current,
+      apiKeys: [...(current.apiKeys || []), ''],
+    }));
+    setEndpointKeyChecks(prev => [...prev, null]);
+  };
+
+  const removeEndpointKey = rowIndex => {
+    setEndpointForm(current => {
+      const keys = [current.apiKey || '', ...(current.apiKeys || [])];
+      keys.splice(rowIndex, 1);
+      return {
+        ...current,
+        apiKey: keys[0] || '',
+        apiKeys: keys.slice(1),
+      };
+    });
+    setEndpointKeyChecks(prev => {
+      const next = [...prev];
+      next.splice(rowIndex, 1);
+      return next;
+    });
   };
 
   const [pendingDeleteEndpointId, setPendingDeleteEndpointId] = useState(null);
@@ -2683,12 +2788,6 @@ const trendSeries = useMemo(() => {
     for (const modelId of modelsToTry) {
       try {
         const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
-        const endpoint = endpoints.find(
-          ep => ep.models && ep.models.some(m => (typeof m === 'string' ? m : m.id) === modelId)
-        );
-        if (endpoint) {
-          headers['x-endpoint-id'] = endpoint.id;
-        }
 
         const response = await fetch('/api/openai/v1/chat/completions', {
           method: 'POST',
@@ -2701,7 +2800,19 @@ const trendSeries = useMemo(() => {
           }),
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+if (!response.ok) {
+        let errText = `HTTP 错误 ${response.status}`;
+        try {
+          const json = await response.json();
+          errText = json.error?.message || json.message || JSON.stringify(json);
+        } catch {}
+        const retryable = response.status === 429 || response.status === 503;
+        if (retryable) {
+          toast.error(errText || '网关繁忙，请稍后重试');
+          throw Object.assign(new Error(errText || '网关繁忙，请稍后重试'), { retryable: true });
+        }
+        throw new Error(errText);
+      }
         const result = await response.json();
         let generatedTitle = result.choices?.[0]?.message?.content?.trim() || '';
 
@@ -2924,17 +3035,6 @@ const trendSeries = useMemo(() => {
         'Content-Type': 'application/json',
       };
 
-      let targetEpId = chatEndpoint;
-      if (!targetEpId && chatModel) {
-        const found = endpoints.find(
-          ep => ep.models && ep.models.some(m => (typeof m === 'string' ? m : m.id) === chatModel)
-        );
-        if (found) targetEpId = found.id;
-      }
-      if (targetEpId) {
-        headers['x-endpoint-id'] = targetEpId;
-      }
-
       const response = await fetch('/api/openai/v1/chat/completions', {
         method: 'POST',
         headers,
@@ -2953,6 +3053,13 @@ const trendSeries = useMemo(() => {
           const json = await response.json();
           errText = json.error?.message || json.message || JSON.stringify(json);
         } catch {}
+        // 网关无可用渠道（429 限流 / 全部端点耗尽）属于可重试状态：
+        // 不打断对话、不插入错误占位，仅提示用户稍后重试。
+        const retryable = response.status === 429 || response.status === 503;
+        if (retryable) {
+          toast.error(errText || '网关繁忙，请稍后重试');
+          throw Object.assign(new Error(errText || '网关繁忙，请稍后重试'), { retryable: true });
+        }
         throw new Error(errText);
       }
 
@@ -2971,11 +3078,19 @@ const trendSeries = useMemo(() => {
       setMessages(prev => [...prev, assistantMsg]);
 
       let buffer = '';
+      let streamDone = false;
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        let chunk;
+        try {
+          const { done, value } = await reader.read();
+          if (done) { streamDone = true; break; }
+          chunk = value;
+        } catch (e) {
+          // 流读取出错（如网络闪断），静默收尾，不打断对话。
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
+        buffer += decoder.decode(chunk, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -2983,7 +3098,7 @@ const trendSeries = useMemo(() => {
           const trimmed = line.trim();
           if (trimmed.startsWith('data:')) {
             const dataStr = trimmed.slice(5).trim();
-            if (dataStr === '[DONE]') break;
+            if (dataStr === '[DONE]') { streamDone = true; break; }
             try {
               const parsed = JSON.parse(dataStr);
               const delta = parsed.choices?.[0]?.delta;
@@ -3001,6 +3116,7 @@ const trendSeries = useMemo(() => {
             } catch (e) {}
           }
         }
+        if (streamDone) break;
       }
 
       // Save assistant message to DB
@@ -3025,6 +3141,8 @@ const trendSeries = useMemo(() => {
       }
     } catch (error) {
       if (error.name === 'AbortError') return;
+      // 可重试网关错误（429/503）不插入错误占位，不清空对话，用户可直接重试。
+      if (error.retryable) return;
       toast.error('对话失败: ' + error.message);
       setMessages(prev => [
         ...prev,
@@ -3105,9 +3223,6 @@ const trendSeries = useMemo(() => {
       ];
 
       const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
-      if (chatEndpoint) {
-        headers['x-endpoint-id'] = chatEndpoint;
-      }
 
       const response = await fetch('/api/openai/v1/chat/completions', {
         method: 'POST',
@@ -3138,11 +3253,19 @@ const trendSeries = useMemo(() => {
       setMessages(prev => [...prev, assistantMsg]);
 
       let buffer = '';
+      let streamDone = false;
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        let chunk;
+        try {
+          const { done, value } = await reader.read();
+          if (done) { streamDone = true; break; }
+          chunk = value;
+        } catch (e) {
+          // 流读取出错（如网络闪断），静默收尾，不打断对话。
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
+        buffer += decoder.decode(chunk, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -3150,7 +3273,7 @@ const trendSeries = useMemo(() => {
           const trimmed = line.trim();
           if (trimmed.startsWith('data:')) {
             const dataStr = trimmed.slice(5).trim();
-            if (dataStr === '[DONE]') break;
+            if (dataStr === '[DONE]') { streamDone = true; break; }
             try {
               const parsed = JSON.parse(dataStr);
               const delta = parsed.choices?.[0]?.delta;
@@ -3168,6 +3291,7 @@ const trendSeries = useMemo(() => {
             } catch (e) {}
           }
         }
+        if (streamDone) break;
       }
 
       const saved = await saveChatMessage(
@@ -4006,15 +4130,16 @@ const trendSeries = useMemo(() => {
         <div className="flex grow flex-col gap-3">
           <LayerCard className="w-full min-w-0 overflow-hidden p-0 shadow-none">
             <div className="min-w-0 overflow-x-auto scrollbar-thin">
-              <Table layout="fixed" className="min-w-[1084px]">
+              <Table layout="fixed" className="min-w-[1200px]">
                 <colgroup>
                   <col style={{ width: 180 }} />
-                  <col style={{ width: 320 }} />
-                  <col style={{ width: 92 }} />
+                  <col style={{ width: 240 }} />
+                  <col style={{ width: 88 }} />
+                  <col style={{ width: 150 }} />
+                  <col style={{ width: 150 }} />
+                  <col style={{ width: 100 }} />
                   <col style={{ width: 140 }} />
-                  <col style={{ width: 140 }} />
-                  <col style={{ width: 96 }} />
-                  <col style={{ width: 172 }} />
+                  <col style={{ width: 152 }} />
                 </colgroup>
                 <Table.Header sticky variant="compact">
                   <Table.Row>
@@ -4765,7 +4890,13 @@ const trendSeries = useMemo(() => {
       {/* ==================== dialogs & modals ==================== */}
 
       {/* 1. Endpoint Add/Edit Dialog */}
-      <Dialog.Root open={endpointFormOpen} onOpenChange={setEndpointFormOpen}>
+      <Dialog.Root
+        open={endpointFormOpen}
+        onOpenChange={open => {
+          setEndpointFormOpen(open);
+          if (!open) setEndpointKeyChecks([]);
+        }}
+      >
         <Dialog className="flex max-h-[min(calc(100dvh-2rem),42rem)] !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
           <div className="shrink-0 px-6 pt-5">
             <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
@@ -4800,41 +4931,89 @@ const trendSeries = useMemo(() => {
                   className="w-full text-kumo-strong text-[0.9em] font-mono"
                 />
 
-                <Input
-                  size="sm"
-                  label="API Key"
-                  type="text"
-                  value={endpointForm.apiKey}
-                  onChange={e => setEndpointForm({ ...endpointForm, apiKey: e.target.value })}
-                  placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  spellCheck={false}
-                  className="w-full text-kumo-strong text-[0.9em] font-mono"
-                />
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>API Key 列表</Label>
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      type="button"
+                      disabled={endpointKeyChecking || !editingEndpoint}
+                      onClick={() =>
+                        checkEndpointKeys(
+                          [endpointForm.apiKey, ...(endpointForm.apiKeys || [])],
+                          editingEndpoint?.id
+                        )
+                      }
+                    >
+                      <RotateCw className={cx(endpointKeyChecking && 'animate-spin')} size={14} />
+                      {endpointKeyChecking ? '检测中' : '重新检测'}
+                    </Button>
+                  </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <Label showOptional>
-                    备用 API Key
-                  </Label>
-                  <Textarea
-                    value={(endpointForm.apiKeys || []).join('\n')}
-                    onChange={e => {
-                      const keys = e.target.value.split(/\r?\n/).map(k => k.trim()).filter(Boolean);
-                      setEndpointForm(current => ({ ...current, apiKeys: keys }));
-                    }}
-                    placeholder={'sk-xxxxxxxxxxxxxxxxxxxxxxxx\nsk-yyyyyyyyyyyyyyyyyyyyyyyy'}
-                    autoComplete="off"
-                    data-1p-ignore
-                    data-lpignore="true"
-                    data-bwignore="true"
-                    data-form-type="other"
-                    spellCheck={false}
-                    rows={3}
-                  />
+                  <div className="space-y-1.5">
+                    {[endpointForm.apiKey, ...(endpointForm.apiKeys || [])].map((key, rowIndex) => (
+                      <div
+                        key={rowIndex}
+                        className="grid grid-cols-[2rem_minmax(0,1fr)_auto_1.75rem] items-center gap-1.5"
+                      >
+                        <span className="text-center text-[11px] font-semibold text-kumo-subtle select-none">
+                          K{rowIndex + 1}
+                        </span>
+                        <Input
+                          size="sm"
+                          type="text"
+                          value={key}
+                          onChange={e => {
+                            const value = e.target.value;
+                            setEndpointForm(current => {
+                              if (rowIndex === 0) {
+                                return { ...current, apiKey: value };
+                              }
+                              return {
+                                ...current,
+                                apiKeys: (current.apiKeys || []).map((k, j) =>
+                                  j === rowIndex - 1 ? value : k
+                                ),
+                              };
+                            });
+                            setEndpointKeyChecks(prev => {
+                              const next = [...prev];
+                              next[rowIndex] = null;
+                              return next;
+                            });
+                          }}
+                          placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                          autoComplete="off"
+                          data-1p-ignore
+                          data-lpignore="true"
+                          data-bwignore="true"
+                          data-form-type="other"
+                          spellCheck={false}
+                          className="w-full text-kumo-strong text-[0.9em] font-mono"
+                        />
+                        <KeyStatusBadge check={endpointKeyChecks?.[rowIndex]} />
+                        <Button
+                          shape="square"
+                          size="sm"
+                          variant="secondary-destructive"
+                          aria-label={`删除 Key K${rowIndex + 1}`}
+                          onClick={() => removeEndpointKey(rowIndex)}
+                          title="删除此 Key"
+                          icon={<Trash className="h-3.5 w-3.5" />}
+                        />
+                      </div>
+                    ))}
+
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={appendEndpointKey}
+                      icon={<Plus className="h-3.5 w-3.5" />}
+                    >
+                      添加 Key
+                    </Button>
+                  </div>
                 </div>
 
                 <Input
@@ -4846,7 +5025,10 @@ const trendSeries = useMemo(() => {
                   placeholder="选填"
                   className="w-full text-kumo-strong text-sm font-sans"
                 />
+              </div>
 
+              {/* ====== 右列：连接与代理 ====== */}
+              <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label showOptional>自定义请求头</Label>
                   <div className="space-y-2">
@@ -4898,10 +5080,7 @@ const trendSeries = useMemo(() => {
                     添加请求头
                   </Button>
                 </div>
-              </div>
 
-              {/* ====== 右列：连接与代理 ====== */}
-              <div className="space-y-4">
                 <Select
                   size="sm"
                   label="连接协议"

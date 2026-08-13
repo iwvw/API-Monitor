@@ -1632,6 +1632,52 @@ func TestOpenAIServerRouting(t *testing.T) {
 			t.Fatalf("models request should not pollute analytics logs: %+v", analyticsPayload.Records)
 		}
 	}
+
+	// 7. key-check 路由：端点 API Key 批量检测需要会话鉴权。
+	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints", strings.NewReader(`{
+		"name":"key-check-test","baseUrl":"https://example.com/v1","apiKey":"sk-test-main"
+	}`))
+	req.AddCookie(cookie)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK && res.Code != http.StatusCreated {
+		t.Fatalf("create endpoint for key-check status = %d body=%s", res.Code, res.Body.String())
+	}
+	var createdEndpoint struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &createdEndpoint); err != nil || createdEndpoint.ID == "" {
+		var createdEnvelope struct {
+			Endpoint struct {
+				ID string `json:"id"`
+			} `json:"endpoint"`
+		}
+		if envErr := json.Unmarshal(res.Body.Bytes(), &createdEnvelope); envErr != nil || createdEnvelope.Endpoint.ID == "" {
+			t.Fatalf("decode created endpoint: %v body=%s", err, res.Body.String())
+		}
+		createdEndpoint.ID = createdEnvelope.Endpoint.ID
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints/"+createdEndpoint.ID+"/key-check", strings.NewReader(`{"keys":["sk-test-main","sk-test-backup"],"timeout":3000}`))
+	req.AddCookie(cookie)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("key-check status = %d body=%s", res.Code, res.Body.String())
+	}
+	var keyCheckPayload struct {
+		Results []struct {
+			Index  int    `json:"index"`
+			Key    string `json:"key"`
+			Status string `json:"status"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &keyCheckPayload); err != nil {
+		t.Fatalf("unmarshal key-check: %v body=%s", err, res.Body.String())
+	}
+	if len(keyCheckPayload.Results) != 2 {
+		t.Fatalf("key-check results count = %d, want 2: %s", len(keyCheckPayload.Results), res.Body.String())
+	}
 }
 
 func TestPublicPageFaviconResolver(t *testing.T) {

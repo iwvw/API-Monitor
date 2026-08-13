@@ -2248,7 +2248,7 @@ const DOCKER_LOG_TAIL_ITEMS = [
   { value: '1000', label: '1000 行' },
 ];
 
-const createMockDockerOverview = () => {
+const createMockDockerOverview = import.meta.env.DEV ? () => {
   const servers = [
     {
       id: 'mock-hk',
@@ -2332,7 +2332,7 @@ const createMockDockerOverview = () => {
     servers: servers.map(normalizeDockerOverviewServer),
     updateChecks,
   };
-};
+} : () => ({ servers: [], updateChecks: [] });
 
 const hasServerDockerInstalled = (server = {}) => {
 	const docker = server.info?.docker || {};
@@ -2968,8 +2968,6 @@ function ServerPage() {
     serverStatusByIdRef.current = new Map(serverList.map(server => [String(server.id), server.status]));
   }, [serverList]);
 
-  const syncStoreServerList = () => { };
-
   const dockerHostOptions = useMemo(() => (
     serverList
       .filter(hasServerDockerInstalled)
@@ -3030,7 +3028,6 @@ function ServerPage() {
             return next;
           });
           if (!changed) return prev;
-          syncStoreServerList(updated);
           return updated;
         });
         const onlineServerIds = accounts
@@ -3374,7 +3371,6 @@ function ServerPage() {
         return next;
       });
       if (!changed) return prev;
-      syncStoreServerList(updated);
       return updated;
     });
   };
@@ -3646,7 +3642,6 @@ function ServerPage() {
         };
       });
       if (!changed) return prev;
-      syncStoreServerList(updated);
       return updated;
     });
   };

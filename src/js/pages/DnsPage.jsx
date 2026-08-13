@@ -1151,14 +1151,17 @@ function DnsPage() {
     if (!confirmPress('batch-records', `删除选中的 ${selectedRecordIds.length} 条 DNS 记录`)) return;
     setLoadingKey('batchDeleteRecords', true);
     try {
-      await Promise.all(selectedRecords.map((record) => cfApi(
+      const results = await Promise.allSettled(selectedRecords.map((record) => cfApi(
         `/accounts/${selectedAccountId}/zones/${selectedZoneId}/records/${record.id}`,
         { method: 'DELETE' }
       )));
-      toast.success('选中记录已删除');
+      const errors = results.filter(r => r.status === 'rejected');
+      if (errors.length > 0) {
+        toast.error(`批量删除完成，但 ${errors.length}/${selectedRecords.length} 条失败：${errors[0].reason?.message || '未知错误'}`);
+      } else {
+        toast.success('选中记录已删除');
+      }
       loadRecords();
-    } catch (error) {
-      toast.error(`批量删除失败：${error.message}`);
     } finally {
       setLoadingKey('batchDeleteRecords', false);
     }
@@ -1622,16 +1625,19 @@ function DnsPage() {
     if (files.length === 0) return;
     setLoadingKey('uploadR2', true);
     try {
-      await Promise.all(files.map((file) => {
+      const results = await Promise.allSettled(files.map((file) => {
         const relativePath = file.webkitRelativePath || file.name;
         const key = `${r2CurrentPrefix}${relativePath}`.replace(/^\/+/, '');
         return uploadR2Object(key, file, file.type || 'application/octet-stream');
       }));
-      toast.success(`已上传 ${files.length} 个文件`);
+      const errors = results.filter(r => r.status === 'rejected');
+      if (errors.length > 0) {
+        toast.error(`R2 上传完成，但 ${errors.length}/${files.length} 个文件失败：${errors[0].reason?.message || '未知错误'}`);
+      } else {
+        toast.success(`已上传 ${files.length} 个文件`);
+      }
       clearR2BucketCache(r2SelectedBucket.name);
       await loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix);
-    } catch (error) {
-      toast.error(`上传 R2 对象失败：${error.message}`);
     } finally {
       setLoadingKey('uploadR2', false);
     }
@@ -1678,11 +1684,21 @@ function DnsPage() {
   };
 
   const deleteR2KeysChunked = async (bucketName, keys, chunkSize = 25) => {
+    let totalErrors = 0;
+    const firstError = [];
     for (let i = 0; i < keys.length; i += chunkSize) {
-      await Promise.all(keys.slice(i, i + chunkSize).map((key) => cfApi(
+      const results = await Promise.allSettled(keys.slice(i, i + chunkSize).map((key) => cfApi(
         `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(bucketName)}/objects/${encodeURIComponent(key)}`,
         { method: 'DELETE' }
       )));
+      const rejected = results.filter(r => r.status === 'rejected');
+      totalErrors += rejected.length;
+      if (rejected.length > 0 && firstError.length === 0) {
+        firstError.push(rejected[0].reason?.message || '未知错误');
+      }
+    }
+    if (totalErrors > 0) {
+      throw new Error(`${totalErrors}/${keys.length} 个对象删除失败：${firstError[0]}`);
     }
   };
 

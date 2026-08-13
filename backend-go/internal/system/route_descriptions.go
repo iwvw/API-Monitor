@@ -366,6 +366,7 @@ var routeDescriptions = map[string]string{
 	"/api/openai/endpoints/{id}/test": "测试端点连通性",
 	"/api/openai/endpoints/{id}/health-check": "对单个端点执行健康检查",
 	"/api/openai/endpoints/{id}/health-check-all": "对端点执行全链路健康检查",
+	"/api/openai/endpoints/{id}/key-check": "批量检测端点 API Key 有效性",
 	"/api/openai/endpoints/{id}/health": "读取端点健康状态",
 	"/api/openai/endpoints/refresh":  "刷新端点模型列表",
 	"/api/openai/endpoints/refresh-all": "刷新全部端点的模型列表",

@@ -826,7 +826,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
     setCollapsedSections(new Set(tree.map(item => item.section)));
     setCollapsedGroups(new Set(tree.flatMap(item => item.groups.map(group => group.group))));
     setCollapsedModules(
-      new Set(tree.flatMap(item => item.groups.map(group => `${group.group}\u0000${group.module}`)))
+      new Set(tree.flatMap(item => item.groups.flatMap(group => group.modules.map(mod => `${group.group}\u0000${mod.module}`))))
     );
   }, [tree, revealAll]);
 
@@ -1477,11 +1477,17 @@ function AIAuditConsole({
   pageSize,
   loading,
   error,
+  actionFilter,
+  searchText,
+  onActionFilterChange,
+  onSearchTextChange,
+  onClearFilters,
   onPageChange,
   onPageSizeChange,
   onRefresh,
 }) {
   const [selected, setSelected] = useState(null);
+
   if (loading && records.length === 0) {
     return (
       <AppCard padding="lg">
@@ -1509,12 +1515,43 @@ function AIAuditConsole({
   return (
     <>
     <LayerCard className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
+      <div className="flex items-center gap-2 border-b border-kumo-line px-3 py-2">
+        <Select
+          value={actionFilter}
+          onValueChange={onActionFilterChange}
+          className="w-[140px]"
+          size="sm"
+          aria-label="操作类型"
+          items={[
+            { value: '', label: '全部操作' },
+            { value: 'mcp.describe', label: 'mcp.describe' },
+            { value: 'tools/call', label: 'tools/call' },
+            { value: 'manifest', label: 'manifest' },
+            { value: 'notifications/cancelled', label: 'notifications/cancelled' },
+          ]}
+        />
+        <div className="relative flex-1 max-w-xs">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-kumo-subtle" />
+          <Input
+            value={searchText}
+            onChange={e => onSearchTextChange(e.target.value)}
+            placeholder="搜索时间、动作、目标、IP..."
+            className="w-full pl-7"
+            size="sm"
+          />
+        </div>
+        {searchText || actionFilter ? (
+          <Button size="sm" variant="ghost" onClick={onClearFilters}>
+            清除
+          </Button>
+        ) : null}
+      </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
         <Table layout="fixed" className="min-w-[1080px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
           <colgroup>
             <col style={{ width: 150 }} />
             <col style={{ width: 110 }} />
-            <col style={{ width: 130 }} />
+            <col style={{ width: 150 }} />
             <col style={{ width: 190 }} />
             <col style={{ width: 84 }} />
             <col style={{ width: 92 }} />
@@ -1576,7 +1613,7 @@ function AIAuditConsole({
                     </StatusBadge>
                   </Table.Cell>
                   <Table.Cell className="text-center font-mono text-kumo-subtle">
-                    {item.latencyMs ? `${item.latencyMs}ms` : '-'}
+                    {item.latencyMs != null ? `${item.latencyMs}ms` : '-'}
                   </Table.Cell>
                   <Table.Cell
                     className="truncate text-center font-mono text-kumo-subtle"
@@ -1657,7 +1694,7 @@ function AIAuditConsole({
                 value: selected?.status || '-',
                 pill: selected?.status === 'success' ? 'success' : 'danger',
               },
-              { label: '耗时', value: selected?.latencyMs ? `${selected.latencyMs}ms` : '-' },
+              { label: '耗时', value: selected?.latencyMs != null ? `${selected.latencyMs}ms` : '-' },
               { label: 'IP', value: selected?.ipAddress || '—' },
             ].map(field => (
               <div key={field.label}>
@@ -2112,6 +2149,8 @@ function ApiDocsPage() {
   const [auditDays, setAuditDays] = useState(7);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState('');
+  const [auditAction, setAuditAction] = useState('');
+  const [auditSearch, setAuditSearch] = useState('');
   const [apiKeyOverview, setApiKeyOverview] = useState(null);
   const [apiKeysLoading, setApiKeysLoading] = useState(false);
   const [apiKeysError, setApiKeysError] = useState('');
@@ -2186,8 +2225,11 @@ function ApiDocsPage() {
     if (!silent) setAuditLoading(true);
     setAuditError('');
     try {
+      const params = new URLSearchParams({ days: auditDays, page: auditPage, pageSize: auditPageSize });
+      if (auditAction) params.set('action', auditAction);
+      if (auditSearch) params.set('search', auditSearch);
       const payload = await fetchJsonEnvelope(
-        `${AI_ACCESS_BASE}/audit?days=${auditDays}&page=${auditPage}&pageSize=${auditPageSize}`
+        `${AI_ACCESS_BASE}/audit?${params}`
       );
       setAuditRecords(payload.records || []);
       setAuditTotal(payload.total || 0);
@@ -2197,12 +2239,31 @@ function ApiDocsPage() {
     } finally {
       setAuditLoading(false);
     }
-  }, [auditDays, auditPage, auditPageSize]);
+  }, [auditDays, auditPage, auditPageSize, auditAction, auditSearch]);
+
+  const handleAuditActionChange = useCallback(value => {
+    setAuditAction(value);
+    setAuditPage(1);
+  }, []);
+
+  const handleAuditSearchChange = useCallback(value => {
+    setAuditSearch(value);
+    setAuditPage(1);
+  }, []);
+
+  const clearAuditFilters = useCallback(() => {
+    setAuditAction('');
+    setAuditSearch('');
+    setAuditPage(1);
+  }, []);
 
   useEffect(() => {
-    if (activeView === 'audit') {
+    if (activeView !== 'audit') return undefined;
+    // 搜索输入防抖：避免每敲一个字符触发一次请求
+    const timer = window.setTimeout(() => {
       loadAIAudit();
-    }
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [activeView, loadAIAudit]);
 
   const loadAPIKeys = useCallback(async (silent = false) => {
@@ -2446,9 +2507,22 @@ function ApiDocsPage() {
   if (loading) {
     return (
       <PageStack viewport className={apiDocsShellClass}>
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
+          <Tabs
+            {...MODULE_TABS_PROPS}
+            value={activeView}
+            onValueChange={setActiveView}
+            tabs={[
+              { value: 'routes', label: <span className="inline-flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />接口</span> },
+              { value: 'ai', label: <span className="inline-flex items-center gap-1.5"><Bot className="h-3.5 w-3.5" />AI 接入</span> },
+              { value: 'audit', label: <span className="inline-flex items-center gap-1.5"><History className="h-3.5 w-3.5" />调用审计</span> },
+              { value: 'keys', label: <span className="inline-flex items-center gap-1.5"><Key className="h-3.5 w-3.5" />密钥管理</span> },
+            ]}
+          />
+        </div>
+        <div className="grid grid-cols-4 gap-2 sm:gap-3">
           {Array.from({ length: 4 }).map((_, index) => (
-            <AppCard key={index} padding="md">
+            <AppCard key={index} padding="none" className="min-w-0 p-2 sm:p-3">
               <SkeletonLine className="h-4 w-20" />
               <SkeletonLine className="mt-3 h-6 w-14" />
             </AppCard>
@@ -2640,6 +2714,11 @@ function ApiDocsPage() {
             pageSize={auditPageSize}
             loading={auditLoading}
             error={auditError}
+            actionFilter={auditAction}
+            searchText={auditSearch}
+            onActionFilterChange={handleAuditActionChange}
+            onSearchTextChange={handleAuditSearchChange}
+            onClearFilters={clearAuditFilters}
             onPageChange={setAuditPage}
             onPageSizeChange={setAuditPageSize}
             onRefresh={() => loadAIAudit(true)}

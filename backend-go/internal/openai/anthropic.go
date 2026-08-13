@@ -379,7 +379,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 		return http.StatusBadRequest, nil, fmt.Errorf("request body is not valid JSON: %v", err)
 	}
 
-	targetEndpointID := r.Header.Get("x-endpoint-id")
+	targetEndpointID := s.resolveTargetEndpoint(r)
 	sessionKey := resolveSessionKey(r, parsedBody)
 
 	db, err := s.open(ctx)
@@ -389,7 +389,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, _, selectedModel, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
+	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: route, Kind: "no_endpoint",
@@ -397,8 +397,8 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
 		})
-		s.RecordAnalytics(ctx, route, "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
-		return http.StatusServiceUnavailable, nil, fmt.Errorf("No valid OpenAI endpoints available")
+		// 候选池为空属网关自身状态，不写入调用日志；直接在网关拦截并告知外部。
+		return http.StatusServiceUnavailable, nil, fmt.Errorf("网关无可用渠道（模型 %s）", model)
 	}
 
 	viaProxy := 0
@@ -421,16 +421,27 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	}
 
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
-	if selectedModel != model && selectedModel != "" {
-		parsedBody["model"] = selectedModel
-	}
-	upstreamBodyBytes, _ := json.Marshal(parsedBody)
+	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
 
 	// 正文由调用方读取：把 attempt context 的释放挂到 Body.Close 上，
 	// 避免在正文未读完时提前 cancel 掐断响应（非流式且未启用 AutoSwitch 时
 	// 正文是活连接，提前 cancel 会让调用方的 ReadAll 直接失败）。
 	var res *relayLoopResult
+	failCodes := []int{}
 	for ci, cand := range endpointCandidates {
+		// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+		candModel, _ := s.resolveEndpointModel(cand, model)
+		candBody := parsedBody
+		if candModel != model && candModel != "" {
+			cp := make(map[string]interface{}, len(parsedBody))
+			for k, v := range parsedBody {
+				cp[k] = v
+			}
+			cp["model"] = candModel
+			candBody = cp
+		}
+		upstreamBodyBytes, _ := json.Marshal(candBody)
+
 		fullURL := strings.TrimSuffix(cand.BaseURL, "/")
 		if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
 			fullURL += "/v1"
@@ -450,20 +461,33 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			clientIP:       clientIP,
 			requestStarted: requestStarted,
 		})
-		if res.resp != nil || !res.endpointExhausted {
+		if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+			selected = cand
 			break
+		}
+		// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+		if res.statusCode > 0 {
+			failCodes = append(failCodes, res.statusCode)
 		}
 		if ci+1 < len(endpointCandidates) {
 			selected = endpointCandidates[ci+1]
+			failReason := "上游转发失败"
+			if res.lastErr != nil {
+				failReason = res.lastErr.Error()
+			}
 			s.recordRelayError(RelayErrorRecord{
 				Route: route, Kind: "endpoint_failover",
 				Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
 				Stream: stream, ClientIP: clientIP,
 				Attempts:  res.attempt + 1,
 				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     res.lastErr.Error(),
+				Error:     failReason,
 			})
 		}
+	}
+	// 全部候选端点均已失败：聚合错误决定返回给客户端的状态码（一致透传，不一致 503）。
+	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
+		return unavailableStatusCode(model, failCodes), nil, fmt.Errorf("网关无可用渠道（模型 %s）", model)
 	}
 	if res.lastErr != nil && res.resp == nil {
 		return res.statusCode, nil, res.lastErr

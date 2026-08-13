@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // 进程级 SQLite 物理连接池。
@@ -158,7 +159,7 @@ func execOnConn(ctx context.Context, conn driver.Conn, query string) error {
 type pooledConn struct {
 	conn   driver.Conn
 	pool   *connPool
-	inTx   bool
+	inTx   atomic.Bool
 	closed bool
 }
 
@@ -171,7 +172,7 @@ func (c *pooledConn) Close() error {
 		return nil
 	}
 	c.closed = true
-	if c.inTx {
+	if c.inTx.Load() {
 		return c.conn.Close()
 	}
 	return c.pool.put(c.conn)
@@ -182,7 +183,7 @@ func (c *pooledConn) Begin() (driver.Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.inTx = true
+	c.inTx.Store(true)
 	return &pooledTx{tx: tx, conn: c}, nil
 }
 
@@ -195,7 +196,7 @@ func (c *pooledConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver
 	if err != nil {
 		return nil, err
 	}
-	c.inTx = true
+	c.inTx.Store(true)
 	return &pooledTx{tx: tx, conn: c}, nil
 }
 
@@ -247,12 +248,12 @@ type pooledTx struct {
 }
 
 func (t *pooledTx) Commit() error {
-	t.conn.inTx = false
+	t.conn.inTx.Store(false)
 	return t.tx.Commit()
 }
 
 func (t *pooledTx) Rollback() error {
-	t.conn.inTx = false
+	t.conn.inTx.Store(false)
 	return t.tx.Rollback()
 }
 
