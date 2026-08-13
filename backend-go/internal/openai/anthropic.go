@@ -425,69 +425,100 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 
 	// 正文由调用方读取：把 attempt context 的释放挂到 Body.Close 上，
 	// 避免在正文未读完时提前 cancel 掐断响应（非流式且未启用 AutoSwitch 时
-	// 正文是活连接，提前 cancel 会让调用方的 ReadAll 直接失败）。
+	// 对齐 New API 的 RetryTimes：全部候选失败后不立即返回，等待 interval 后
+	// 重试整轮，最多 endpointRetryRounds 轮，期间客户端保持等待状态。
 	var res *relayLoopResult
 	failCodes := []int{}
-	for ci, cand := range endpointCandidates {
-		// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
-		candModel, _ := s.resolveEndpointModel(cand, model)
-		candBody := parsedBody
-		if candModel != model && candModel != "" {
-			cp := make(map[string]interface{}, len(parsedBody))
-			for k, v := range parsedBody {
-				cp[k] = v
+	var lastRes *relayLoopResult
+	retryRoundFinished := false
+	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
+		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+			lastRes = nil
+		}
+		failCodes = failCodes[:0]
+		retryRoundCancelled := false
+		for ci, cand := range endpointCandidates {
+			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+			candModel, _ := s.resolveEndpointModel(cand, model)
+			candBody := parsedBody
+			if candModel != model && candModel != "" {
+				cp := make(map[string]interface{}, len(parsedBody))
+				for k, v := range parsedBody {
+					cp[k] = v
+				}
+				cp["model"] = candModel
+				candBody = cp
 			}
-			cp["model"] = candModel
-			candBody = cp
-		}
-		upstreamBodyBytes, _ := json.Marshal(candBody)
+			upstreamBodyBytes, _ := json.Marshal(candBody)
 
-		fullURL := strings.TrimSuffix(cand.BaseURL, "/")
-		if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-			fullURL += "/v1"
+			fullURL := strings.TrimSuffix(cand.BaseURL, "/")
+			if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
+				fullURL += "/v1"
+			}
+			fullURL += "/chat/completions"
+			res = s.relayLoop(relayLoopParams{
+				route:          route,
+				ctx:            ctx,
+				db:             db,
+				selected:       cand,
+				endpoints:      endpointCandidates,
+				model:          model,
+				fullURL:        fullURL,
+				body:           upstreamBodyBytes,
+				stream:         stream,
+				sessionKey:     sessionKey,
+				clientIP:       clientIP,
+				requestStarted: requestStarted,
+			})
+			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+				selected = cand
+				retryRoundFinished = true
+				break
+			}
+			// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+			if res.statusCode > 0 {
+				failCodes = append(failCodes, res.statusCode)
+			}
+			if ci+1 < len(endpointCandidates) {
+				selected = endpointCandidates[ci+1]
+				failReason := "上游转发失败"
+				if res.lastErr != nil {
+					failReason = res.lastErr.Error()
+				}
+				s.recordRelayError(RelayErrorRecord{
+					Route: route, Kind: "endpoint_failover",
+					Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
+					Stream: stream, ClientIP: clientIP,
+					Attempts:  res.attempt + 1,
+					ElapsedMs: time.Since(requestStarted).Milliseconds(),
+					Error:     failReason,
+				})
+			}
 		}
-		fullURL += "/chat/completions"
-		res = s.relayLoop(relayLoopParams{
-			route:          route,
-			ctx:            ctx,
-			db:             db,
-			selected:       cand,
-			endpoints:      endpointCandidates,
-			model:          model,
-			fullURL:        fullURL,
-			body:           upstreamBodyBytes,
-			stream:         stream,
-			sessionKey:     sessionKey,
-			clientIP:       clientIP,
-			requestStarted: requestStarted,
-		})
-		if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
-			selected = cand
+		if retryRoundFinished {
 			break
 		}
-		// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
-		if res.statusCode > 0 {
-			failCodes = append(failCodes, res.statusCode)
-		}
-		if ci+1 < len(endpointCandidates) {
-			selected = endpointCandidates[ci+1]
-			failReason := "上游转发失败"
-			if res.lastErr != nil {
-				failReason = res.lastErr.Error()
+		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。
+		lastRes = res
+		if retryRound < endpointRetryRounds {
+			select {
+			case <-ctx.Done():
+				retryRoundCancelled = true
+			case <-time.After(endpointRetryDelay):
 			}
-			s.recordRelayError(RelayErrorRecord{
-				Route: route, Kind: "endpoint_failover",
-				Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
-				Stream: stream, ClientIP: clientIP,
-				Attempts:  res.attempt + 1,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     failReason,
-			})
+		}
+		if retryRoundCancelled {
+			break
 		}
 	}
-	// 全部候选端点均已失败：聚合错误决定返回给客户端的状态码（一致透传，不一致 503）。
+	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
 		return unavailableStatusCode(model, failCodes), nil, fmt.Errorf("网关无可用渠道（模型 %s）", model)
+	}
+	if lastRes != nil && lastRes.resp != nil {
+		_ = lastRes.resp.Body.Close()
 	}
 	if res.lastErr != nil && res.resp == nil {
 		return res.statusCode, nil, res.lastErr

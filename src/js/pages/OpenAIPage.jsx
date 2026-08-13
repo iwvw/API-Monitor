@@ -10,6 +10,7 @@ import { Switch } from '@cloudflare/kumo/components/switch';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Autocomplete } from '@cloudflare/kumo/components/autocomplete';
 import {
+  Chart,
   ChartLegend,
   ClipboardText,
   ChartPalette,
@@ -192,8 +193,17 @@ function activeModelIdsForEndpoint(endpoint) {
 // 按请求结果给 pill 上色：成功且有输出=绿，无输出=黄，失败=红。
 function resultTone(statusCode, completionTokens) {
   const status = Number(statusCode) || 0;
-  if (status >= 400) return 'danger';
+  if (status === 429) return 'warning';
+  if (status >= 500) return 'danger';
+  if (status >= 400) return 'warning';
   if (!(Number(completionTokens) > 0)) return 'warning';
+  return 'success';
+}
+
+function statusCodeTone(code) {
+  if (code === 429) return 'warning';
+  if (code >= 500) return 'danger';
+  if (code >= 400) return 'warning';
   return 'success';
 }
 
@@ -635,23 +645,15 @@ function TrendBarChart({
   formatValue = value => (Number.isFinite(Number(value)) ? String(Number(value)) : String(value)),
   formatAxis = formatValue,
 }) {
-  const containerRef = useRef(null);
-  const chartRef = useRef(null);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !labels || labels.length === 0) return;
-    const chart = echarts.init(el);
-    chartRef.current = chart;
+  const options = useMemo(() => {
+    if (!labels || labels.length === 0) return null;
     const axisColor = kumoHex('--color-kumo-contrast');
     const gridColor = kumoHex('--color-kumo-line');
-    chart.setOption({
+    return {
       grid: { left: 8, right: 12, top: 10, bottom: 0, containLabel: true },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        // 挂到 body：LayerCard 自带 overflow-hidden，悬浮框默认渲染在图表
-        // 容器内会被卡片裁剪遮挡。
         appendTo: 'body',
         backgroundColor: kumoHex('--color-kumo-base'),
         textStyle: { color: axisColor, fontSize: 11 },
@@ -678,17 +680,12 @@ function TrendBarChart({
           itemStyle: { color, borderRadius: [2, 2, 0, 0] },
         },
       ],
-    });
-    const observer = new ResizeObserver(() => chart.resize());
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      chart.dispose();
-      chartRef.current = null;
     };
-  }, [labels, values, color, isDarkMode]);
+  }, [labels, values, color, isDarkMode, formatValue, formatAxis]);
 
-  return <div ref={containerRef} className="h-[168px] w-full" />;
+  if (!labels || labels.length === 0) return null;
+
+  return <Chart echarts={echarts} isDarkMode={isDarkMode} options={options} height={168} />;
 }
 
 // 全宽「模型 × 时间」折线趋势：类别轴（每桶唯一刻度），稀疏段断线成 Trend；
@@ -4774,9 +4771,21 @@ if (!response.ok) {
                             {log.clientIp || '—'}
                           </Table.Cell>
                           <Table.Cell className="text-center">
-                            <StatusBadge tone={log.statusCode < 400 ? 'success' : 'danger'}>
-                              {log.statusCode}
-                            </StatusBadge>
+                            <span className="inline-flex items-center gap-1">
+                              <StatusBadge tone={statusCodeTone(log.statusCode)}>
+                                {log.statusCode}
+                              </StatusBadge>
+                              {log.statusCode === 429 && (
+                                <StatusBadge tone="warning" title="上游限流或网关无可用渠道">
+                                  限
+                                </StatusBadge>
+                              )}
+                              {log.statusCode === 503 && (
+                                <StatusBadge tone="warning" title="网关无可用渠道">
+                                  无
+                                </StatusBadge>
+                              )}
+                            </span>
                           </Table.Cell>
                           <Table.Cell className="text-center">
                             <div

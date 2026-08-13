@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -2235,5 +2236,157 @@ func TestMixedEndpointErrorsReturns503(t *testing.T) {
 	}
 	if !strings.Contains(wChat.Body.String(), "网关无可用渠道") {
 		t.Fatalf("expected gateway-unavailable message, got body=%s", wChat.Body.String())
+	}
+}
+
+// TestRetryRoundRecoversOnSubsequentRound 验证对齐 New API RetryTimes 的多轮重试：
+// 全部候选在第一轮都返回 429，但重试轮内上游恢复，最终请求成功返回 200，
+// 客户端无需感知（期间保持等待）。
+func TestRetryRoundRecoversOnSubsequentRound(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		first := calls
+		mu.Unlock()
+		if first <= 2 {
+			// 前两次调用返回 429（模拟首轮 + 首个重试轮仍限流）
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":{"message":"rpm exhausted"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer flaky.Close()
+
+	// 缩短重试间隔，避免测试过慢。
+	oldDelay := endpointRetryDelay
+	defer func() { endpointRetryDelay = oldDelay }()
+	endpointRetryDelay = 50 * time.Millisecond
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	createBody := fmt.Sprintf(`{"name":"Flaky","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, flaky.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("expected eventual 200 after retry rounds, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls < 3 {
+		t.Fatalf("expected at least 3 upstream calls across retry rounds, got %d", calls)
+	}
+}
+
+// TestStream429NoAutoSwitchFailover 验证流式请求 + autoSwitch=false 的端点返回 429 时，
+// 不因「无切换机会」路径误设 firstWritten 而透传 429，而是触发 retryableUpstream
+// failover 到下一个候选端点（修复 429 在日日新 autoSwitch=false 时被直接透传）。
+func TestStream429NoAutoSwitchFailover(t *testing.T) {
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rpm exhausted","type":"quota_exceeded_error"}}`))
+	}))
+	defer rateLimited.Close()
+
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer ok.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	// 端点 A：autoSwitch=false（对齐日日新配置），返回 429。
+	createA := fmt.Sprintf(`{"name":"Limited NoSwitch","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":false}`, rateLimited.URL)
+	wA := httptest.NewRecorder()
+	rA, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createA))
+	service.ServeHTTP(wA, rA)
+	if wA.Code != http.StatusOK {
+		t.Fatalf("create A status = %d body=%s", wA.Code, wA.Body.String())
+	}
+	var resA struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wA.Body.String(), &resA)
+
+	// 端点 B：正常返回 SSE 流。
+	createB := fmt.Sprintf(`{"name":"Good","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, ok.URL)
+	wB := httptest.NewRecorder()
+	rB, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createB))
+	service.ServeHTTP(wB, rB)
+	if wB.Code != http.StatusOK {
+		t.Fatalf("create B status = %d body=%s", wB.Code, wB.Body.String())
+	}
+	var resB struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wB.Body.String(), &resB)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{resA.Endpoint.ID, resB.Endpoint.ID} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 流式请求：A(429, autoSwitch=false) → 应 failover 到 B 并成功返回 SSE。
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}],
+		"stream": true
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("expected failover to healthy endpoint, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "[DONE]") {
+		t.Fatalf("expected SSE [DONE], got body=%s", wChat.Body.String())
 	}
 }

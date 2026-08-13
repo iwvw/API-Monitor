@@ -1359,6 +1359,13 @@ const (
 // 被限死的出口会逐渐退出候选，剩余流量自动向健康出口集中。
 const proxyAttemptCap = 10
 
+// endpointRetryRounds 是全部候选端点均失败后，网关在内部重试整轮候选的
+// 最大次数。对齐 New API 的 RetryTimes 语义：让客户端保持等待状态，网关
+// 内部有耐心地反复重试所有候选，期间上游可能恢复。
+// 0 = 不重试（试完即返回），3 = 试完候选后等待 500ms 再试，最多 3 轮。
+const endpointRetryRounds = 3
+var endpointRetryDelay = 500 * time.Millisecond
+
 // sessionProxyRequestLimit 是同一会话在同一个出口 IP 上的请求数上限：
 // 达到上限后主动轮换到下一个代理。opencode 等上游按出口 IP 限额时，
 // 提前轮换可避免被限额后再重试（限额前主动换 IP）。
@@ -4172,9 +4179,20 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			}
 
 			// 无切换机会：直接阻塞读首块，读取结果留给下方流式循环继续消费。
+			// 但若上游返回的是限流/5xx 错误（非真正 SSE 数据），不应标记
+			// firstWritten（否则末尾统一判定跳过，retryableUpstream 不被设置，
+			// 导致 failover 循环直接把 429 透传）。
 			tmp := make([]byte, 4096)
 			n, err := resp.Body.Read(tmp)
 			if n > 0 {
+				// 429/5xx 错误体不是 SSE 首块，不设 firstWritten。
+				if isRetryableUpstreamResponse(resp, nil) {
+					res.retryableUpstream = true
+					if lastErr == nil {
+						lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误，无切换机会）", resp.StatusCode)
+					}
+					break
+				}
 				firstChunk = append([]byte(nil), tmp[:n]...)
 				firstWritten = true
 				ttfbMs = time.Since(res.startTime).Milliseconds()
@@ -4418,8 +4436,20 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 注意：模型名改写（将对外别名还原为真实模型名）必须在循环内对每个候选
 	// 独立执行，因为各候选的 modelMappings 可能不同，复用同一 body 会导致
 	// 错误的模型名被发送到不匹配的端点（如 opencode 的内部名发到日日新）。
+	// 对齐 New API 的 RetryTimes：全部候选失败后不立即返回，等待 interval 后
+	// 重试整轮，最多 endpointRetryRounds 轮，期间客户端保持等待状态。
 	var res *relayLoopResult
 	failCodes := []int{}
+	var lastRes *relayLoopResult
+	retryRoundFinished := false
+	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
+		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+			lastRes = nil
+		}
+		failCodes = failCodes[:0]
+	retryRoundCancelled := false
 	for ci, cand := range endpointCandidates {
 		// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 		candModel, _ := s.resolveEndpointModel(cand, model)
@@ -4455,6 +4485,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		})
 		if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
 			selected = cand
+			retryRoundFinished = true
 			break
 		}
 		// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
@@ -4477,10 +4508,29 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	// 全部候选端点均已失败：聚合错误决定返回给客户端的状态码（一致透传，不一致 503）。
+		if retryRoundFinished {
+			break
+		}
+		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。
+		lastRes = res
+		if retryRound < endpointRetryRounds {
+			select {
+			case <-ctx.Done():
+				retryRoundCancelled = true
+			case <-time.After(endpointRetryDelay):
+			}
+		}
+		if retryRoundCancelled {
+			break
+		}
+	}
+	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
 		writeRelayUnavailable(w, model, failCodes)
 		return
+	}
+	if lastRes != nil && lastRes.resp != nil {
+		_ = lastRes.resp.Body.Close()
 	}
 	if res.lastErr != nil && res.resp == nil {
 		// 失败原因与统计已在 relayLoop 内记录，这里仅按状态码写回响应。
@@ -5099,69 +5149,101 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	normalizeResponsesTools(parsedBody)
 	normalizeResponsesInput(parsedBody)
 
+	// 对齐 New API 的 RetryTimes：全部候选失败后不立即返回，等待 interval 后
+	// 重试整轮，最多 endpointRetryRounds 轮，期间客户端保持等待状态。
 	var res *relayLoopResult
 	failCodes := []int{}
-	for ci, cand := range endpointCandidates {
-		// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
-		candModel, _ := s.resolveEndpointModel(cand, model)
-		candBody := parsedBody
-		if candModel != model && candModel != "" {
-			cp := make(map[string]interface{}, len(parsedBody))
-			for k, v := range parsedBody {
-				cp[k] = v
+	var lastRes *relayLoopResult
+	retryRoundFinished := false
+	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
+		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+			lastRes = nil
+		}
+		failCodes = failCodes[:0]
+		retryRoundCancelled := false
+		for ci, cand := range endpointCandidates {
+			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+			candModel, _ := s.resolveEndpointModel(cand, model)
+			candBody := parsedBody
+			if candModel != model && candModel != "" {
+				cp := make(map[string]interface{}, len(parsedBody))
+				for k, v := range parsedBody {
+					cp[k] = v
+				}
+				cp["model"] = candModel
+				candBody = cp
 			}
-			cp["model"] = candModel
-			candBody = cp
-		}
-		upstreamBodyBytes, _ := json.Marshal(candBody)
+			upstreamBodyBytes, _ := json.Marshal(candBody)
 
-		fullURL := strings.TrimSuffix(cand.BaseURL, "/")
-		if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-			fullURL += "/v1"
+			fullURL := strings.TrimSuffix(cand.BaseURL, "/")
+			if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
+				fullURL += "/v1"
+			}
+			fullURL += "/responses"
+			res = s.relayLoop(relayLoopParams{
+				route:          "responses",
+				ctx:            ctx,
+				db:             db,
+				selected:       cand,
+				endpoints:      endpointCandidates,
+				model:          model,
+				fullURL:        fullURL,
+				body:           upstreamBodyBytes,
+				stream:         stream,
+				sessionKey:     sessionKey,
+				clientIP:       clientIP,
+				requestStarted: requestStarted,
+			})
+			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+				selected = cand
+				retryRoundFinished = true
+				break
+			}
+			// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+			if res.statusCode > 0 {
+				failCodes = append(failCodes, res.statusCode)
+			}
+			if ci+1 < len(endpointCandidates) {
+				selected = endpointCandidates[ci+1]
+				failReason := "上游转发失败"
+				if res.lastErr != nil {
+					failReason = res.lastErr.Error()
+				}
+				s.recordRelayError(RelayErrorRecord{
+					Route: "responses", Kind: "endpoint_failover",
+					Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
+					Stream: stream, ClientIP: clientIP,
+					Attempts:  res.attempt + 1,
+					ElapsedMs: time.Since(requestStarted).Milliseconds(),
+					Error:     failReason,
+				})
+			}
 		}
-		fullURL += "/responses"
-		res = s.relayLoop(relayLoopParams{
-			route:          "responses",
-			ctx:            ctx,
-			db:             db,
-			selected:       cand,
-			endpoints:      endpointCandidates,
-			model:          model,
-			fullURL:        fullURL,
-			body:           upstreamBodyBytes,
-			stream:         stream,
-			sessionKey:     sessionKey,
-			clientIP:       clientIP,
-			requestStarted: requestStarted,
-		})
-		if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
-			selected = cand
+		if retryRoundFinished {
 			break
 		}
-		// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
-		if res.statusCode > 0 {
-			failCodes = append(failCodes, res.statusCode)
-		}
-		if ci+1 < len(endpointCandidates) {
-			selected = endpointCandidates[ci+1]
-			failReason := "上游转发失败"
-			if res.lastErr != nil {
-				failReason = res.lastErr.Error()
+		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。
+		lastRes = res
+		if retryRound < endpointRetryRounds {
+			select {
+			case <-ctx.Done():
+				retryRoundCancelled = true
+			case <-time.After(endpointRetryDelay):
 			}
-			s.recordRelayError(RelayErrorRecord{
-				Route: "responses", Kind: "endpoint_failover",
-				Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
-				Stream: stream, ClientIP: clientIP,
-				Attempts:  res.attempt + 1,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     failReason,
-			})
+		}
+		if retryRoundCancelled {
+			break
 		}
 	}
-	// 全部候选端点均已失败：聚合错误决定返回给客户端的状态码（一致透传，不一致 503）。
+	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
 		writeRelayUnavailable(w, model, failCodes)
 		return
+	}
+	if lastRes != nil && lastRes.resp != nil {
+		_ = lastRes.resp.Body.Close()
 	}
 	if res.lastErr != nil && res.resp == nil {
 		// 失败原因与统计已在 relayLoop 内记录，这里仅按状态码写回响应。
