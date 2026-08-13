@@ -363,6 +363,8 @@ func init() {
 
 	// ===== 主机实例 server / serveragent =====
 	noBody := obj(nil, map[string]prop{})
+	// 公开订阅信息页（无凭据 GET），无需请求体。
+	routeRequestContracts["/api/subscription/public/{token}"] = noBody
 	routeRequestContracts["/api/server/accounts"] = obj([]string{"name", "host", "port"}, map[string]prop{
 		"name":       {t: "string", req: true},
 		"host":       {t: "string", req: true},
@@ -782,6 +784,8 @@ func init() {
 		"priority": {t: "number", d: "路由优先级（越小越优先），与 weight 至少提供一个"},
 		"weight":   {t: "number", d: "路由权重，与 priority 至少提供一个"},
 	})
+	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state"] = noBody
+	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state/unban"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/verify"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/test"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/health-check"] = noBody
