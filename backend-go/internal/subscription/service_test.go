@@ -190,57 +190,64 @@ func TestSubscriptionFormatFromUAInfersClientFormat(t *testing.T) {
 	}
 }
 
-func TestWantsSubscriptionInfoPageDetectsBrowsersOnly(t *testing.T) {
+func TestWantsBrowserInfoPageDetectsBrowsersOnly(t *testing.T) {
 	browser := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
 	browser.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 	browser.Header.Set("Accept", "text/html,application/xhtml+xml")
-	if !wantsSubscriptionInfoPage("", browser) {
+	if !wantsBrowserInfoPage(browser) {
 		t.Fatal("browser request should get the info page")
-	}
-	if !wantsSubscriptionInfoPage("info", browser) {
-		t.Fatal("explicit format=info should get the info page")
 	}
 	browserNoHTML := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
 	browserNoHTML.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 	browserNoHTML.Header.Set("Accept", "*/*")
-	if wantsSubscriptionInfoPage("", browserNoHTML) {
+	if wantsBrowserInfoPage(browserNoHTML) {
 		t.Fatal("browser-style UA without text/html Accept must not get the info page")
 	}
 	noAccept := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
 	noAccept.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-	if wantsSubscriptionInfoPage("", noAccept) {
+	if wantsBrowserInfoPage(noAccept) {
 		t.Fatal("Mozilla UA with no Accept header must not get the info page")
 	}
 	client := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
 	client.Header.Set("User-Agent", "Mihomo 1.18.0")
-	if wantsSubscriptionInfoPage("", client) {
+	if wantsBrowserInfoPage(client) {
 		t.Fatal("proxy client must not get the info page")
 	}
 	client2 := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
 	client2.Header.Set("User-Agent", "Mozilla/5.0 SFA/1.0")
-	if wantsSubscriptionInfoPage("", client2) {
+	if wantsBrowserInfoPage(client2) {
 		t.Fatal("sing-box client must not get the info page")
 	}
 }
 
-func TestRenderSubscriptionInfoPageIncludesQuotaAndNoNodeSecrets(t *testing.T) {
-	page := renderSubscriptionInfoPage(Subscription{Name: "团队订阅", CycleEnd: "2026-09-01T00:00:00Z"}, TrafficInfo{Upload: 1024, Download: 2048, Total: 1 << 30, Percent: 50, Status: "active", Expire: 0}, 3, "https://example.com/sub/abc")
-	for _, want := range []string{"团队订阅", "节点数", "3", "50%", "已用流量", "1.0 GiB", "example.com/sub/abc"} {
-		if !strings.Contains(page, want) {
-			t.Errorf("info page missing %q", want)
+func TestServePublicSubscriptionInfoExposesDisplayDataOnly(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,vless_uuid,hysteria2_password,enabled) VALUES('sub','sub','','信息订阅','public-token','00000000-0000-4000-8000-000000000001','secret-password',1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/subscription/public/public-token", nil)
+	responseRecorder := httptest.NewRecorder()
+	(&Service{}).servePublicSubscriptionInfo(responseRecorder, request, db, "public-token")
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	body := responseRecorder.Body.String()
+	for _, want := range []string{`"name":"信息订阅"`, `"public_token":"public-token"`, `"status":"active"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("public info payload missing %s: %s", want, body)
 		}
 	}
-	if strings.Contains(page, "vless://") || strings.Contains(page, "uuid") {
-		t.Fatal("info page must not leak node credentials")
-	}
-}
-
-func TestSubscriptionRequestURLHonorsForwardedProto(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://internal:3000/sub/abc", nil)
-	req.Host = "sub.example.com"
-	req.Header.Set("X-Forwarded-Proto", "https")
-	if got := subscriptionRequestURL(req); got != "https://sub.example.com/sub/abc" {
-		t.Fatalf("unexpected request URL: %q", got)
+	if strings.Contains(body, "secret-password") || strings.Contains(body, "00000000-0000-4000-8000-000000000001") {
+		t.Fatal("public info payload must not leak node credentials")
 	}
 }
 

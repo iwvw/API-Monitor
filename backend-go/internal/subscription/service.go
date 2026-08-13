@@ -376,6 +376,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 
 	switch {
+	case len(parts) == 2 && parts[0] == "public":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.servePublicSubscriptionInfo(w, r, db, parts[1])
 	case len(parts) == 0 || (len(parts) == 1 && parts[0] == "summary"):
 		s.summary(w, r, db)
 	case len(parts) == 1 && parts[0] == "profiles":
@@ -2756,23 +2762,20 @@ func (s *Service) servePublicSubscription(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	explicitFormat := r.URL.Query().Get("format")
+	showInfoPage := explicitFormat == "info" || (explicitFormat == "" && wantsBrowserInfoPage(r))
+	if showInfoPage {
+		format = "info"
+		nodeCount = len(nodes)
+		s.serveSubscriptionInfoSPA(w, r)
+		success = true
+		return
+	}
 	if format == "" {
 		format = subscriptionFormatFromUA(r.UserAgent())
 	}
 	if format == "" {
 		format = templateFormat(r.Context(), db, sub.TemplateID)
-	}
-	showInfoPage := wantsSubscriptionInfoPage(format, r)
-	if showInfoPage {
-		format = "info"
-		nodeCount = len(nodes)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(renderSubscriptionInfoPage(sub, traffic, nodeCount, subscriptionRequestURL(r))))
-		success = true
-		return
 	}
 	body, contentType, err := renderOutput(r.Context(), db, sub, nodes, format, renderBlocked)
 	if err != nil {
@@ -3719,14 +3722,12 @@ func subscriptionFormatFromUA(userAgent string) string {
 	}
 }
 
-// wantsSubscriptionInfoPage decides whether the request is a human opening the
-// subscription URL in a browser and should get the readable info page instead
-// of a raw config dump. Browsers are identified by a Mozilla-style UA plus an
-// Accept header that asks for HTML; proxy clients send neither.
-func wantsSubscriptionInfoPage(format string, r *http.Request) bool {
-	if format == "info" {
-		return true
-	}
+// wantsBrowserInfoPage decides whether a human opened the subscription URL in
+// a browser and should get the readable info page instead of a raw config dump.
+// Browsers are identified by a Mozilla-style UA plus an Accept header that asks
+// for HTML; proxy clients send neither. Explicit ?format= is decided by the
+// caller before this check so a browser can still force a config download.
+func wantsBrowserInfoPage(r *http.Request) bool {
 	ua := strings.ToLower(r.UserAgent())
 	if !strings.Contains(ua, "mozilla") || strings.Contains(ua, "clash") || strings.Contains(ua, "mihomo") || strings.Contains(ua, "sing-box") || strings.Contains(ua, "singbox") || strings.Contains(ua, "v2rayn") || strings.Contains(ua, "nekobox") || strings.Contains(ua, "sfa") || strings.Contains(ua, "sfm") || strings.Contains(ua, "sfi") || strings.Contains(ua, "quantumult") || strings.Contains(ua, "shadowrocket") {
 		return false
@@ -3735,131 +3736,75 @@ func wantsSubscriptionInfoPage(format string, r *http.Request) bool {
 	return strings.Contains(accept, "text/html")
 }
 
-// renderSubscriptionInfoPage builds a standalone readable summary page for the
-// subscription. It deliberately exposes no node secrets — only the public link,
-// quota state, node count, and copy buttons for supported formats.
-func renderSubscriptionInfoPage(sub Subscription, traffic TrafficInfo, nodeCount int, subURL string) string {
-	status := traffic.Status
-	if status == "" {
-		status = "active"
+func (s *Service) serveSubscriptionInfoSPA(w http.ResponseWriter, r *http.Request) {
+	indexPath := filepath.Join(s.cfg.DistDir, "index.html")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "subscription info page unavailable")
+		return
 	}
-	total := traffic.Total
-	used := traffic.Upload + traffic.Download
-	percent := 0
-	if total > 0 {
-		percent = int(traffic.Percent)
-		if percent < 0 {
-			percent = 0
-		}
-		if percent > 100 {
-			percent = 100
-		}
-	}
-	quota := "无限制"
-	if total > 0 {
-		quota = formatBytes(total)
-	}
-	expire := "无到期"
-	if traffic.Expire > 0 {
-		expire = time.Unix(traffic.Expire, 0).Local().Format("2006-01-02")
-	}
-	statusLabel := map[string]string{"active": "可用", "expired": "已到期", "exhausted": "流量已用尽"}[status]
-	if statusLabel == "" {
-		statusLabel = status
-	}
-	statusColor := map[string]string{"active": "#16a34a", "expired": "#dc2626", "exhausted": "#f59e0b"}[status]
-	if statusColor == "" {
-		statusColor = "#64748b"
-	}
-	name := strings.TrimSpace(sub.Name)
-	if name == "" {
-		name = "订阅"
-	}
-	return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
-<title>` + htmlEscape(name) + ` · 订阅信息</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;width:100%;max-width:420px;box-shadow:0 20px 50px rgba(0,0,0,.4)}
-h1{font-size:18px;font-weight:600;margin-bottom:4px}
-.sub{font-size:12px;color:#94a3b8;margin-bottom:20px;word-break:break-all}
-.badge{display:inline-block;font-size:12px;font-weight:600;color:#fff;background:` + statusColor + `;border-radius:999px;padding:3px 12px;margin-bottom:20px}
-.row{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-top:1px solid #334155}
-.row:first-of-type{border-top:none}
-.row span{color:#94a3b8}
-.row b{font-weight:600;text-align:right;word-break:break-all}
-.bar{position:relative;height:8px;background:#0f172a;border-radius:999px;overflow:hidden}
-.bar i{position:absolute;left:0;top:0;bottom:0;background:#3b82f6;border-radius:999px;width:` + itoa(percent) + `%}
-.btns{display:flex;gap:8px;margin-top:20px}
-.btns button{flex:1;font-size:13px;font-weight:600;color:#fff;background:#2563eb;border:0;border-radius:8px;padding:10px 0;cursor:pointer}
-.btns button.raw{background:#0ea5e9}
-.btns button.b64{background:#10b981}
-.foot{margin-top:20px;font-size:11px;color:#64748b;text-align:center}
-</style>
-</head>
-<body>
-<div class="card">
-<h1>` + htmlEscape(name) + `</h1>
-<div class="sub">` + htmlEscape(subURL) + `</div>
-<span class="badge">` + htmlEscape(statusLabel) + `</span>
-<div class="row"><span>已用流量</span><b>` + htmlEscape(formatBytes(used)) + ` / ` + htmlEscape(quota) + `</b></div>
-<div class="row"><span>节点数</span><b>` + itoa(nodeCount) + `</b></div>
-<div class="row"><span>到期时间</span><b>` + htmlEscape(expire) + `</b></div>
-<div class="row"><span>下次重置</span><b>` + htmlEscape(cycleEndLabel(sub.CycleEnd)) + `</b></div>
-<div class="bar" style="margin-top:16px"><i></i></div>
-<div class="btns">
-<button onclick="copySub(0)">复制默认</button>
-<button class="raw" onclick="copySub(1)">Raw</button>
-<button class="b64" onclick="copySub(2)">Base64</button>
-</div>
-<div class="foot">API Monitor · 团队订阅</div>
-</div>
-<script>
-var base='` + htmlEscape(subURL) + `';
-function copySub(i){
-  var fmt=['','?format=raw','?format=base64'][i];
-  var url=base+fmt;
-  if(navigator.clipboard){ navigator.clipboard.writeText(url).then(function(){var b=document.querySelector('.btns button:nth-child('+(i+1)+')'); if(b){b.textContent='已复制'} setTimeout(function(){b.textContent=['复制默认','Raw','Base64'][i]},1200)}) }
-}
-</script>
-</body>
-</html>`
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(raw)
 }
 
-func cycleEndLabel(cycleEnd string) string {
-	if strings.TrimSpace(cycleEnd) == "" {
-		return "不自动重置"
-	}
-	if t, err := parseTime(cycleEnd); err == nil {
-		return t.Local().Format("2006-01-02")
-	}
-	return cycleEnd
+// publicSubscriptionInfo is the payload served by the public subscription info
+// endpoint. It carries only display data and never node credentials, so the
+// frontend info page can render without exposing vless UUID or hy2 passwords.
+type publicSubscriptionInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Status        string   `json:"status"`
+	Upload        int64    `json:"upload"`
+	Download      int64    `json:"download"`
+	Total         int64    `json:"total"`
+	Percent       float64  `json:"percent"`
+	Expire        int64    `json:"expire"`
+	CycleStart    string   `json:"cycle_start,omitempty"`
+	CycleEnd      string   `json:"cycle_end,omitempty"`
+	NodeCount     int      `json:"node_count"`
+	Formats       []string `json:"formats"`
+	PublicToken   string   `json:"public_token"`
+	SiteName      string   `json:"site_name,omitempty"`
+	RateLimited   bool     `json:"rate_limited"`
 }
 
-func htmlEscape(value string) string {
-	return strings.NewReplacer(`&`, "&amp;", `<`, "&lt;", `>`, "&gt;", `"`, "&#34;", `'`, "&#39;").Replace(value)
-}
-
-func itoa(value int) string {
-	return strconv.Itoa(value)
-}
-
-func formatBytes(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return strconv.FormatInt(bytes, 10) + " B"
+func (s *Service) servePublicSubscriptionInfo(w http.ResponseWriter, r *http.Request, db *sql.DB, token string) {
+	subs, err := loadSubscriptionByToken(r.Context(), db, token)
+	if err != nil || len(subs) == 0 {
+		response.Error(w, http.StatusNotFound, "订阅不存在")
+		return
 	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
+	sub := subs[0]
+	if !sub.Enabled || !sub.PlanEnabled {
+		response.Error(w, http.StatusForbidden, "订阅或套餐已停用")
+		return
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
+	info := publicSubscriptionInfo{
+		ID:          sub.ID,
+		Name:        sub.Name,
+		Status:      sub.Traffic.Status,
+		Upload:      sub.Traffic.Upload,
+		Download:    sub.Traffic.Download,
+		Total:       sub.Traffic.Total,
+		Percent:     sub.Traffic.Percent,
+		Expire:      sub.Traffic.Expire,
+		CycleStart:  sub.Traffic.CycleStart,
+		CycleEnd:    sub.Traffic.CycleEnd,
+		PublicToken: sub.PublicToken,
+		Formats:     []string{"clash", "base64", "raw", "info"},
+	}
+	if info.Status == "" {
+		info.Status = "active"
+	}
+	nodes, err := loadPublishedNodesForSubscription(r.Context(), db, sub)
+	if err == nil {
+		info.NodeCount = len(nodes)
+	}
+	response.OK(w, info)
 }
 
 func validateTemplateDefinition(format, content string) error {

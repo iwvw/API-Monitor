@@ -13,6 +13,7 @@ const PublicM365RegisterPage = lazy(() => import('./pages/PublicM365RegisterPage
 const PublicStatusPage = lazy(() => import('./pages/PublicStatusPage.jsx'));
 const PublicServerStatusPage = lazy(() => import('./pages/PublicServerStatusPage.jsx'));
 const PublicGitHubPage = lazy(() => import('./pages/PublicGitHubPage.jsx'));
+const PublicSubscriptionInfoPage = lazy(() => import('./pages/PublicSubscriptionInfoPage.jsx'));
 const VoidRoomPage = lazy(() => import('./pages/VoidRoomPage.jsx'));
 const RemoteDesktopPage = lazy(() => import('./pages/RemoteDesktopPage.jsx'));
 const PublicPromptPage = lazy(() => import('./pages/PublicPromptPage.jsx'));
@@ -29,6 +30,7 @@ const isDockerMockPreviewRoute = () => (
 const getPublicStatusRouteMode = () => {
   if (typeof window === 'undefined') return false;
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (/^\/sub\/[^/]+$/.test(path)) return 'subscription-info';
   if (/^\/(?:status|u)\/[^/]+$/.test(path)) return 'slug';
   if (/^\/(?:servers|s)\/[^/]+$/.test(path)) return 'server-slug';
   if (/^\/(?:github|gh)\/[^/]+$/.test(path)) return 'github-slug';
@@ -188,6 +190,10 @@ function App() {
 
   if (publicStatusRouteMode === 'github-slug') {
     return <Suspense fallback={null}><PublicGitHubPage /></Suspense>;
+  }
+
+  if (publicStatusRouteMode === 'subscription-info') {
+    return <Suspense fallback={null}><PublicSubscriptionInfoPage /></Suspense>;
   }
 
   if (publicStatusRouteMode === 'slug') {
