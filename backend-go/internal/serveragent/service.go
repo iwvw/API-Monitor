@@ -3808,6 +3808,7 @@ func deleteAccountRecords(ctx context.Context, db *sql.DB, serverID string) erro
 		`DELETE FROM server_proxy_traffic_reports WHERE server_id=?`,
 		`DELETE FROM subscription_usage_reports WHERE server_id=?`,
 		`DELETE FROM subscription_usage_report_keys WHERE server_id=?`,
+		`DELETE FROM subscription_usage_hourly WHERE server_id=?`,
 		`UPDATE server_command_history SET server_id=NULL WHERE server_id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, statement, serverID); err != nil && !isMissingTableError(err) {

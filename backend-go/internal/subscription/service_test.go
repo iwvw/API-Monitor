@@ -1847,6 +1847,9 @@ func TestDeleteSubscriptionNeverDeletesSharedNodes(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO subscription_usage_report_keys(server_id,node_id,subscription_id,boot_id,sequence) VALUES('host','managed-node','link','boot',1)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes) VALUES('host','managed-node','link','2026-07-01T12:00:00Z',1,2)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,upload_bytes,download_bytes) VALUES('link','2026-07-01T00:00:00Z',10,20)`); err != nil {
 		t.Fatal(err)
 	}
@@ -1865,6 +1868,7 @@ func TestDeleteSubscriptionNeverDeletesSharedNodes(t *testing.T) {
 	for _, query := range []string{
 		`SELECT COUNT(*) FROM subscription_usage_reports WHERE subscription_id='link'`,
 		`SELECT COUNT(*) FROM subscription_usage_report_keys WHERE subscription_id='link'`,
+		`SELECT COUNT(*) FROM subscription_usage_hourly WHERE subscription_id='link'`,
 		`SELECT COUNT(*) FROM subscription_usage_cycles WHERE subscription_id='link'`,
 	} {
 		if err := db.QueryRow(query).Scan(&count); err != nil || count != 0 {

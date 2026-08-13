@@ -24,7 +24,7 @@ const STATE_ROOT: &str = "/var/lib/api-monitor/proxy/nodes";
 #[cfg(unix)]
 const TRAFFIC_STATE_PATH: &str = "/var/lib/api-monitor/proxy/traffic-state.json";
 #[cfg(unix)]
-const REPORT_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const REPORT_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
 #[cfg(unix)]
 #[derive(Clone, PartialEq, Message)]

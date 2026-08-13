@@ -47,10 +47,12 @@ type BatchResult struct {
 }
 
 const (
-	// 原始流量增量保留 14 天，支撑仪表盘“最近 7 天”的逐日流量趋势查询。
-	// 与回放键保留窗口一致，折叠后的周期用量（subscription_usage_cycles）不受裁剪影响。
-	reportRetentionWindow    = 14 * 24 * time.Hour
-	replayKeyRetentionWindow = 14 * 24 * time.Hour
+	// 原始流量增量明细（subscription_usage_reports）仅在旧安装的兼容期内保留，
+	// 新写入一律聚合到小时级表；两个窗口都只支撑仪表盘"最近 7 天"的逐日流量趋势。
+	reportRetentionWindow    = 7 * 24 * time.Hour
+	replayKeyRetentionWindow = 7 * 24 * time.Hour
+	// 小时级聚合行远少于逐条明细，可保留更久以便回溯更长趋势，且不会显著占空间。
+	hourlyRetentionWindow = 30 * 24 * time.Hour
 )
 
 func EnsureSchema(ctx context.Context, db *sql.DB) error {
@@ -85,6 +87,17 @@ func EnsureSchema(ctx context.Context, db *sql.DB) error {
 			updated_at TEXT DEFAULT (datetime('now')),
 			FOREIGN KEY(subscription_id) REFERENCES subscription_subscriptions(id) ON DELETE CASCADE
 		)`,
+		// 小时级聚合：Agent 上报的原始增量经幂等判重后，按 (server,node,sub,hour)
+		// 折叠为累计行，行数降至逐条写入的 1/12 以下（15min 上报间隔）。
+		`CREATE TABLE IF NOT EXISTS subscription_usage_hourly (
+			server_id TEXT NOT NULL,node_id TEXT NOT NULL,subscription_id TEXT NOT NULL,
+			hour TEXT NOT NULL,
+			upload_bytes INTEGER NOT NULL DEFAULT 0,download_bytes INTEGER NOT NULL DEFAULT 0,
+			reported_at TEXT DEFAULT (datetime('now')),
+			UNIQUE(server_id,node_id,subscription_id,hour),
+			FOREIGN KEY(subscription_id) REFERENCES subscription_subscriptions(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_usage_hourly_sub_time ON subscription_usage_hourly(subscription_id,hour)`,
 		`CREATE INDEX IF NOT EXISTS idx_subscription_usage_reports_subscription_time ON subscription_usage_reports(subscription_id,reported_at)`,
 	}
 	for _, statement := range statements {
@@ -107,6 +120,26 @@ func EnsureSchema(ctx context.Context, db *sql.DB) error {
 			FROM subscription_usage_reports`); err != nil {
 			return fmt.Errorf("backfill subscription ledger replay keys: %w", err)
 		}
+		// 从旧明细表折叠回填小时级聚合，确保仪表盘 7 天流量趋势在升级后不出现"归零"断层。
+		// 判断条件：hourly 表为空 + reports 有数据 = 首次部署新代码，据此避免重复累加。
+		var legacyCount, hourlyCount int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_usage_reports`).Scan(&legacyCount); err != nil {
+			return fmt.Errorf("count legacy reports: %w", err)
+		}
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_usage_hourly`).Scan(&hourlyCount); err != nil {
+			return fmt.Errorf("count hourly aggregates: %w", err)
+		}
+		if legacyCount > 0 && hourlyCount == 0 {
+			if _, err := db.ExecContext(ctx, `INSERT INTO subscription_usage_hourly
+				(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes,reported_at)
+				SELECT server_id,node_id,subscription_id,
+					strftime('%Y-%m-%dT%H:00:00Z', reported_at),
+					SUM(upload_bytes),SUM(download_bytes),MAX(reported_at)
+				FROM subscription_usage_reports
+				GROUP BY server_id,node_id,subscription_id,strftime('%Y-%m-%dT%H:00:00Z', reported_at)`); err != nil {
+				return fmt.Errorf("backfill hourly aggregates: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -114,10 +147,10 @@ func EnsureSchema(ctx context.Context, db *sql.DB) error {
 // Prune removes short-lived raw traffic history after it has already been
 // folded into subscription_usage_cycles. Aggregated cycle usage remains intact.
 func Prune(ctx context.Context, db *sql.DB, now time.Time) error {
-	return pruneHistory(ctx, db, now, reportRetentionWindow, replayKeyRetentionWindow)
+	return pruneHistory(ctx, db, now, reportRetentionWindow, replayKeyRetentionWindow, hourlyRetentionWindow)
 }
 
-func pruneHistory(ctx context.Context, db *sql.DB, now time.Time, reportRetention, replayKeyRetention time.Duration) error {
+func pruneHistory(ctx context.Context, db *sql.DB, now time.Time, reportRetention, replayKeyRetention, hourlyRetention time.Duration) error {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -136,6 +169,11 @@ func pruneHistory(ctx context.Context, db *sql.DB, now time.Time, reportRetentio
 			query:  `DELETE FROM subscription_usage_report_keys WHERE datetime(reported_at) < datetime(?)`,
 			cutoff: now.Add(-replayKeyRetention),
 			label:  "usage replay keys",
+		},
+		{
+			query:  `DELETE FROM subscription_usage_hourly WHERE datetime(hour) < datetime(?)`,
+			cutoff: now.Add(-hourlyRetention),
+			label:  "hourly usage aggregates",
 		},
 	}
 	for _, item := range cutoffs {
@@ -251,6 +289,7 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 		now = time.Now().UTC()
 	}
 	now = now.UTC()
+	hour := now.Truncate(time.Hour).Format(time.RFC3339)
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -347,10 +386,14 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 				report.DownloadBytes = remaining - report.UploadBytes
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_usage_reports
-		(server_id,node_id,subscription_id,credential_id,boot_id,sequence,upload_bytes,download_bytes,reported_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, report.ServerID, report.NodeID, subscriptionID, report.CredentialID, report.BootID, report.Sequence, report.UploadBytes, report.DownloadBytes, now.Format(time.RFC3339)); err != nil {
-			return result, fmt.Errorf("insert traffic report: %w", err)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_usage_hourly
+		(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes,reported_at)
+		VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(server_id,node_id,subscription_id,hour) DO UPDATE SET
+		upload_bytes=subscription_usage_hourly.upload_bytes+excluded.upload_bytes,
+		download_bytes=subscription_usage_hourly.download_bytes+excluded.download_bytes,
+		reported_at=excluded.reported_at`, report.ServerID, report.NodeID, subscriptionID, hour, report.UploadBytes, report.DownloadBytes, now.Format(time.RFC3339)); err != nil {
+			return result, fmt.Errorf("upsert hourly usage aggregate: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_usage_cycles
 		(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)

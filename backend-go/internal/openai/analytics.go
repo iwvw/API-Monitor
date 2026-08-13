@@ -55,6 +55,12 @@ func sqliteStrftimeOffset(loc *time.Location) (modifier string, offsetSec int) {
 
 // RecordAnalytics saves a gateway proxy metric to the SQLite database
 func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string) {
+	s.recordAnalyticsKey(ctx, route, endpointID, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, -1)
+}
+
+// recordAnalyticsKey 与 RecordAnalytics 相同，但附带本次实际使用的 API Key 序号
+// （keyIndex，0=主 key；-1 表示未知/未使用多 key），用于日志端点后的 key pill。
+func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -69,9 +75,9 @@ func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model 
 	defer db.Close()
 
 	result, err := db.ExecContext(writeCtx, `
-		INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, endpointID, gatewayKey.ID, route, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP)
+		INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, endpointID, gatewayKey.ID, route, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, keyIndex)
 
 	if err != nil {
 		applog.Error(writeCtx, "openai", "Failed to insert gateway analytics", "error", err.Error())
@@ -111,6 +117,7 @@ func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model 
 		"viaProxy":         viaProxy == 1,
 		"clientIp":         clientIP,
 		"upstreamIp":       upstreamIP,
+		"keyIndex":         keyIndex,
 		"timestamp":        time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -516,6 +523,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			COALESCE(g.upstream_ip, '') as upstream_ip,
 			g.stream,
 			g.via_proxy,
+			g.key_index,
 			g.timestamp
 		FROM openai_gateway_analytics g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
@@ -548,6 +556,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		UpstreamIP       string `json:"upstreamIp"`
 		Stream           bool   `json:"stream"`
 		ViaProxy         bool   `json:"viaProxy"`
+		KeyIndex         int    `json:"keyIndex"`
 		Timestamp        string `json:"timestamp"`
 	}
 
@@ -572,6 +581,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			&rec.UpstreamIP,
 			&streamVal,
 			&viaProxyVal,
+			&rec.KeyIndex,
 			&rec.Timestamp,
 		); err == nil {
 			rec.Stream = streamVal == 1

@@ -146,18 +146,22 @@ func TestPruneKeepsAggregatedUsageWhileDroppingOldRawRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := pruneHistory(ctx, db, newNow, 24*time.Hour, 24*time.Hour); err != nil {
+	if err := pruneHistory(ctx, db, newNow, 24*time.Hour, 24*time.Hour, 24*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 
-	var reports, keys int
+	var reports, keys, hourly int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM subscription_usage_reports`).Scan(&reports); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM subscription_usage_report_keys`).Scan(&keys); err != nil {
 		t.Fatal(err)
 	}
-	if reports != 1 || keys != 1 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM subscription_usage_hourly`).Scan(&hourly); err != nil {
+		t.Fatal(err)
+	}
+	// 明细表是旧安装兼容位，新写入只进 hourly；回放键与小时聚合各保留最新一行。
+	if reports != 0 || keys != 1 || hourly != 1 {
 		t.Fatalf("reports=%d keys=%d", reports, keys)
 	}
 

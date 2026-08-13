@@ -113,7 +113,7 @@ func (p *connPool) put(conn driver.Conn) error {
 	return conn.Close()
 }
 
-// connPragmas 中除 journal_mode（数据库级、持久化于文件）外均为连接级设置，
+// connPragmas 中除 journal_mode 和 auto_vacuum（数据库级、持久化于文件）外均为连接级设置，
 // 必须对每个新物理连接执行；连接复用后不再重复。
 var connPragmas = []string{
 	"PRAGMA foreign_keys = ON",
@@ -127,6 +127,7 @@ var connPragmas = []string{
 	"PRAGMA cache_size = -16000",
 	"PRAGMA wal_autocheckpoint = 256",
 	"PRAGMA journal_size_limit = 8388608",
+	"PRAGMA auto_vacuum = INCREMENTAL",
 }
 
 func applyConnPragmas(ctx context.Context, conn driver.Conn) error {

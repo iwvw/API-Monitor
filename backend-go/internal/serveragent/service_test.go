@@ -85,6 +85,9 @@ func TestDeleteAccountForceCascadesPanelRecordsAndStatusPageMembership(t *testin
 	if _, err := db.Exec(`INSERT INTO subscription_usage_report_keys(server_id,node_id,subscription_id,boot_id,sequence) VALUES('clean-host','clean-node','cascade-sub','boot',1)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes) VALUES('clean-host','clean-node','cascade-sub','2026-07-01T12:00:00Z',1,2)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`INSERT INTO server_status_pages(slug,title,server_ids_json) VALUES('cascade-page','级联页','["clean-host","other-host"]')`); err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +137,7 @@ func TestDeleteAccountForceCascadesPanelRecordsAndStatusPageMembership(t *testin
 		`SELECT COUNT(*) FROM server_proxy_traffic_reports WHERE server_id='clean-host'`,
 		`SELECT COUNT(*) FROM subscription_usage_reports WHERE server_id='clean-host'`,
 		`SELECT COUNT(*) FROM subscription_usage_report_keys WHERE server_id='clean-host'`,
+		`SELECT COUNT(*) FROM subscription_usage_hourly WHERE server_id='clean-host'`,
 	} {
 		var count int
 		if err := db.QueryRow(query).Scan(&count); err != nil || count != 0 {
@@ -164,6 +168,7 @@ func TestDeleteManagedNodeRemovesRelationsAndRawTrafficHistory(t *testing.T) {
 		`INSERT INTO subscription_runtime_reconcile(node_id,state) VALUES('deleted-node','pending')`,
 		`INSERT INTO subscription_usage_reports(server_id,node_id,subscription_id,credential_id,boot_id,sequence) VALUES('node-host','deleted-node','node-sub','node-sub','boot',1)`,
 		`INSERT INTO subscription_usage_report_keys(server_id,node_id,subscription_id,boot_id,sequence) VALUES('node-host','deleted-node','node-sub','boot',1)`,
+		`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes) VALUES('node-host','deleted-node','node-sub','2026-07-01T12:00:00Z',1,2)`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("fixture %q: %v", statement, err)
@@ -177,6 +182,7 @@ func TestDeleteManagedNodeRemovesRelationsAndRawTrafficHistory(t *testing.T) {
 		`SELECT COUNT(*) FROM subscription_runtime_reconcile WHERE node_id='deleted-node'`,
 		`SELECT COUNT(*) FROM subscription_usage_reports WHERE node_id='deleted-node'`,
 		`SELECT COUNT(*) FROM subscription_usage_report_keys WHERE node_id='deleted-node'`,
+		`SELECT COUNT(*) FROM subscription_usage_hourly WHERE node_id='deleted-node'`,
 	} {
 		var count int
 		if err := db.QueryRowContext(ctx, query).Scan(&count); err != nil || count != 0 {

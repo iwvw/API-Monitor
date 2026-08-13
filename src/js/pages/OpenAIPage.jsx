@@ -447,12 +447,13 @@ function OpenAIPage() {
     name: '',
     baseUrl: '',
     apiKey: '',
+    apiKeys: [],
     notes: '',
     headers: [],
     proxyPool: [],
     autoSwitch: false,
     proxyEnabled: false,
-    forceProxy: false,
+    allowDirectFallback: true,
     protocol: 'auto',
   });
   const [endpointFormError, setEndpointFormError] = useState('');
@@ -1065,13 +1066,14 @@ const trendSeries = useMemo(() => {
       name: '',
       baseUrl: '',
       apiKey: '',
+      apiKeys: [],
       notes: '',
       headers: [],
       proxyPool: [],
       proxyBatches: [],
       autoSwitch: false,
       proxyEnabled: false,
-      forceProxy: false,
+      allowDirectFallback: true,
       protocol: 'auto',
     });
     setEndpointFormError('');
@@ -1084,13 +1086,14 @@ const trendSeries = useMemo(() => {
       name: endpoint.name || '',
       baseUrl: endpoint.baseUrl || '',
       apiKey: endpoint.apiKey || '',
+      apiKeys: Array.isArray(endpoint.apiKeys) ? endpoint.apiKeys : [],
       notes: endpoint.notes || '',
       headers: Array.isArray(endpoint.headers) ? endpoint.headers : [],
       proxyPool: Array.isArray(endpoint.proxyPool) ? endpoint.proxyPool : [],
       proxyBatches: Array.isArray(endpoint.proxyBatches) ? endpoint.proxyBatches : [],
       autoSwitch: Boolean(endpoint.autoSwitch),
       proxyEnabled: Boolean(endpoint.proxyEnabled),
-      forceProxy: Boolean(endpoint.forceProxy),
+      allowDirectFallback: !endpoint.forceProxy,
       protocol: endpoint.protocol || 'auto',
     });
     setEndpointFormError('');
@@ -1390,7 +1393,7 @@ const trendSeries = useMemo(() => {
       const response = await fetch(url, {
         method: editingEndpoint ? 'PUT' : 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify(endpointForm),
+        body: JSON.stringify({ ...endpointForm, forceProxy: !endpointForm.allowDirectFallback }),
       });
       const data = await response.json();
       if (response.ok && (data.success || data.endpoint || data.id)) {
@@ -3678,11 +3681,12 @@ const trendSeries = useMemo(() => {
                           size="sm"
                           variant="secondary"
                           aria-label="复制 API Key"
-                          title="复制 API Key"
+                          title="复制 API Key（默认首个）"
                           onClick={() => {
+                            const keys = [endpoint.apiKey, ...(endpoint.apiKeys || [])].filter(Boolean);
                             navigator.clipboard
-                              .writeText(endpoint.apiKey || '')
-                              .then(() => toast.success('API Key 已复制'))
+                              .writeText(keys[0] || '')
+                              .then(() => toast.success(keys.length > 1 ? '已复制首个 API Key' : 'API Key 已复制'))
                               .catch(() => toast.error('复制失败'));
                           }}
                         >
@@ -4605,7 +4609,14 @@ const trendSeries = useMemo(() => {
                             className="truncate text-center font-semibold text-kumo-strong"
                             title={log.endpointName}
                           >
-                            {log.endpointName}
+                            <span className="inline-flex items-center justify-center gap-1.5">
+                              <span className="truncate">{log.endpointName}</span>
+                              {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
+                                <StatusBadge tone="info" title={`使用的 API Key 序号（0=主 key）`}>
+                                  K{log.keyIndex + 1}
+                                </StatusBadge>
+                              )}
+                            </span>
                           </Table.Cell>
                           <Table.Cell
                             className="truncate text-center text-kumo-subtle"
@@ -4805,6 +4816,27 @@ const trendSeries = useMemo(() => {
                   className="w-full text-kumo-strong text-[0.9em] font-mono"
                 />
 
+                <div className="flex flex-col gap-1.5">
+                  <Label showOptional>
+                    备用 API Key
+                  </Label>
+                  <Textarea
+                    value={(endpointForm.apiKeys || []).join('\n')}
+                    onChange={e => {
+                      const keys = e.target.value.split(/\r?\n/).map(k => k.trim()).filter(Boolean);
+                      setEndpointForm(current => ({ ...current, apiKeys: keys }));
+                    }}
+                    placeholder={'sk-xxxxxxxxxxxxxxxxxxxxxxxx\nsk-yyyyyyyyyyyyyyyyyyyyyyyy'}
+                    autoComplete="off"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore="true"
+                    data-form-type="other"
+                    spellCheck={false}
+                    rows={3}
+                  />
+                </div>
+
                 <Input
                   size="sm"
                   label="备注"
@@ -4957,14 +4989,14 @@ const trendSeries = useMemo(() => {
                 <div className="flex min-h-8 items-center gap-2">
                   <Switch
                     size="sm"
-                    aria-label="强制走代理池"
-                    checked={!!endpointForm.forceProxy}
+                    aria-label="允许直连兜底"
+                    checked={!!endpointForm.allowDirectFallback}
                     disabled={!endpointForm.proxyEnabled}
                     onCheckedChange={checked =>
-                      setEndpointForm(current => ({ ...current, forceProxy: checked }))
+                      setEndpointForm(current => ({ ...current, allowDirectFallback: checked }))
                     }
                   />
-                  <span className="text-xs text-kumo-subtle">强制走代理，禁止直连</span>
+                  <span className="text-xs text-kumo-subtle">代理池异常时允许直连兜底</span>
                 </div>
               </div>
             </div>

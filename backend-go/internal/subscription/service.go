@@ -1934,6 +1934,7 @@ func (s *Service) deleteSubscription(w http.ResponseWriter, r *http.Request, db 
 	for _, statement := range []string{
 		`DELETE FROM subscription_usage_reports WHERE subscription_id=?`,
 		`DELETE FROM subscription_usage_report_keys WHERE subscription_id=?`,
+		`DELETE FROM subscription_usage_hourly WHERE subscription_id=?`,
 		`DELETE FROM subscription_usage_cycles WHERE subscription_id=?`,
 		`DELETE FROM subscription_cycle_state WHERE subscription_id=?`,
 	} {

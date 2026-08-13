@@ -1188,9 +1188,9 @@ func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time) (map[strin
 	}
 	trafficByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
-		SELECT strftime('%Y-%m-%d', reported_at) AS day, COALESCE(SUM(upload_bytes + download_bytes), 0)
-		FROM subscription_usage_reports
-		WHERE reported_at >= ?
+		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(upload_bytes + download_bytes), 0)
+		FROM subscription_usage_hourly
+		WHERE datetime(hour) >= datetime(?)
 		GROUP BY day`, start); err != nil {
 		trafficByDay = nil
 	} else {

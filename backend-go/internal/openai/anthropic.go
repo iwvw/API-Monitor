@@ -389,7 +389,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	}
 	defer db.Close()
 
-	selected, selectedModel, found := s.selectEndpointForModel(ctx, db, model, targetEndpointID)
+	endpointCandidates, selected, _, selectedModel, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: route, Kind: "no_endpoint",
@@ -420,12 +420,6 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 		}
 	}
 
-	fullURL := strings.TrimSuffix(selected.BaseURL, "/")
-	if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-		fullURL += "/v1"
-	}
-	fullURL += "/chat/completions"
-
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
 	if selectedModel != model && selectedModel != "" {
 		parsedBody["model"] = selectedModel
@@ -435,19 +429,42 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	// 正文由调用方读取：把 attempt context 的释放挂到 Body.Close 上，
 	// 避免在正文未读完时提前 cancel 掐断响应（非流式且未启用 AutoSwitch 时
 	// 正文是活连接，提前 cancel 会让调用方的 ReadAll 直接失败）。
-	res := s.relayLoop(relayLoopParams{
-		route:          route,
-		ctx:            ctx,
-		db:             db,
-		selected:       selected,
-		model:          model,
-		fullURL:        fullURL,
-		body:           upstreamBodyBytes,
-		stream:         stream,
-		sessionKey:     sessionKey,
-		clientIP:       clientIP,
-		requestStarted: requestStarted,
-	})
+	var res *relayLoopResult
+	for ci, cand := range endpointCandidates {
+		fullURL := strings.TrimSuffix(cand.BaseURL, "/")
+		if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
+			fullURL += "/v1"
+		}
+		fullURL += "/chat/completions"
+		res = s.relayLoop(relayLoopParams{
+			route:          route,
+			ctx:            ctx,
+			db:             db,
+			selected:       cand,
+			endpoints:      endpointCandidates,
+			model:          model,
+			fullURL:        fullURL,
+			body:           upstreamBodyBytes,
+			stream:         stream,
+			sessionKey:     sessionKey,
+			clientIP:       clientIP,
+			requestStarted: requestStarted,
+		})
+		if res.resp != nil || !res.endpointExhausted {
+			break
+		}
+		if ci+1 < len(endpointCandidates) {
+			selected = endpointCandidates[ci+1]
+			s.recordRelayError(RelayErrorRecord{
+				Route: route, Kind: "endpoint_failover",
+				Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
+				Stream: stream, ClientIP: clientIP,
+				Attempts:  res.attempt + 1,
+				ElapsedMs: time.Since(requestStarted).Milliseconds(),
+				Error:     res.lastErr.Error(),
+			})
+		}
+	}
 	if res.lastErr != nil && res.resp == nil {
 		return res.statusCode, nil, res.lastErr
 	}
@@ -467,7 +484,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	if res.firstWritten && len(res.firstChunk) > 0 {
 		res.resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 	}
-	s.RecordAnalytics(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP)
+	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex)
 	return res.resp.StatusCode, res.resp, nil
 }
 func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request) {
