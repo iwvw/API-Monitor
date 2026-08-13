@@ -264,6 +264,11 @@ var apiDocSeeds = []apiDocSeed{
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/health-check-all", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint full health check", MatchMode: manifest.MatchPattern}},
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/key-check", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint API key validity check", MatchMode: manifest.MatchPattern}},
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/health", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint health summary", MatchMode: manifest.MatchPattern}},
+	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/proxy-state", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint proxy pool runtime state", MatchMode: manifest.MatchPattern}},
+	{
+		Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/proxy-state/unban", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint proxy pool one-click unban", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"POST"}},
+	},
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/refresh", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint refresh all", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/refresh-all", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint refresh all", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/openai/keys", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI gateway key list/create", MatchMode: manifest.MatchExact}},

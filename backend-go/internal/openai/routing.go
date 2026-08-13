@@ -41,7 +41,6 @@ func (s *Service) recordChannelAffinity(sessionKey, endpointID string) {
 		}
 	}
 	s.channelAffinity[sessionKey] = channelAffinityEntry{endpointID: endpointID, updatedAt: now}
-	s.channelAffinityLast = now
 	s.affinityMu.Unlock()
 }
 
@@ -175,11 +174,11 @@ func weightedEndpointPickWeighted(latencies []int64, known []bool, weights []int
 // keyHealthEntry 记录单 API Key 的独立健康状态。key 永不冻结，但保留
 // 连续失败计数与最近失败原因/时间，供排障接口与前端展示。
 type keyHealthEntry struct {
-	failCount    int       // 连续失败次数（成功转发后清零）
-	lastStatus   int       // 最近一次失败状态码（0=尚无失败）
-	lastError    string    // 最近一次失败原因（脱敏）
-	lastFailAt   time.Time // 最近一次失败时间
-	lastSuccess  time.Time // 最近一次成功转发时间
+	failCount   int       // 连续失败次数（成功转发后清零）
+	lastStatus  int       // 最近一次失败状态码（0=尚无失败）
+	lastError   string    // 最近一次失败原因（脱敏）
+	lastFailAt  time.Time // 最近一次失败时间
+	lastSuccess time.Time // 最近一次成功转发时间
 }
 
 // keyHealthByEndpoint 返回指定端点全部 API Key 的健康快照（key → 健康记录）。
@@ -305,10 +304,16 @@ const ssePingInterval = 15 * time.Second
 
 // sseStreamWriter 为流式写回加写锁，并周期性发送 SSE ping 注释行保活。
 // SSE 注释行以 `:` 开头，会被标准 SSE 客户端忽略，安全且不污染数据流。
+// ping 只在「流空闲超过一个间隔」且「当前处于事件边界」时才发送：避免上游
+// 单条 data: 帧被分多次写回时，ping 注释被插进 JSON 中间导致客户端解析失败。
 type sseStreamWriter struct {
 	mu      sync.Mutex
 	w       http.ResponseWriter
 	flusher http.Flusher
+	// lastWrite 记录最后一次写数据的时刻；lastBoundary 表示最后一次写是否以
+	// 换行结尾（SSE 事件边界）。两者在写锁保护下更新，ping goroutine 据此判断。
+	lastWrite    time.Time
+	lastBoundary bool
 }
 
 func newSSEStreamWriter(w http.ResponseWriter) *sseStreamWriter {
@@ -319,17 +324,21 @@ func newSSEStreamWriter(w http.ResponseWriter) *sseStreamWriter {
 	return sw
 }
 
-// write 在写锁保护下写入并刷新（若响应支持 flush）。
+// write 在写锁保护下写入并刷新（若响应支持 flush）。同步更新空闲时间与事件边界。
 func (sw *sseStreamWriter) write(data []byte) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 	_, _ = sw.w.Write(data)
+	sw.lastWrite = time.Now()
+	sw.lastBoundary = len(data) > 0 && data[len(data)-1] == '\n'
 	if sw.flusher != nil {
 		sw.flusher.Flush()
 	}
 }
 
 // startPing 启动 ping goroutine，返回停止函数。stop 后 goroutine 在下一次 tick 退出。
+// 每次 tick 检查：距上次写数据已超过一个间隔（流空闲），且上一段数据结束在
+// 事件边界（lastBoundary）或从未写过数据，才发送 ping，否则跳过本次 tick。
 func (sw *sseStreamWriter) startPing(ctx context.Context) func() {
 	done := make(chan struct{})
 	go func() {
@@ -342,7 +351,19 @@ func (sw *sseStreamWriter) startPing(ctx context.Context) func() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				sw.write([]byte(": ping\n\n"))
+				sw.mu.Lock()
+				// 空闲：从未写过数据（首块前的保活）或距上次写已超过一个间隔。
+				idle := sw.lastWrite.IsZero() || time.Since(sw.lastWrite) >= ssePingInterval
+				// 边界：从未写过数据（无任何已发送内容）或上一段以换行结尾。
+				boundary := sw.lastWrite.IsZero() || sw.lastBoundary
+				if idle && boundary {
+					_, _ = sw.w.Write([]byte(": ping\n\n"))
+					sw.lastWrite = time.Now()
+					if sw.flusher != nil {
+						sw.flusher.Flush()
+					}
+				}
+				sw.mu.Unlock()
 			}
 		}
 	}()

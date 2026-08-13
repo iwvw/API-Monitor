@@ -249,7 +249,10 @@ function IpCell({ value, viaProxy, placeholder }) {
 // 减少宽度占用。IPv4 保留前 2 段 + 后 1 段；IPv6 保留前 2 段 + 后 2 段。
 function maskIp(raw) {
   if (!raw) return raw || '';
-  let value = raw;
+  let value = String(raw).trim();
+  // 剥掉方括号包裹的 IPv6 端口：[2001:db8::1]:443 → 2001:db8::1。
+  const bracketed = value.match(/^\[(.+)\]:\d+$/);
+  if (bracketed) value = bracketed[1];
   const colonIdx = value.lastIndexOf(':');
   // 形如 1.2.3.4:5678 时去掉端口；IPv6（含 :: 分隔）不剥端口。
   if (/^\d{1,3}(\.\d{1,3}){3}/.test(value) && colonIdx > -1) {
@@ -1436,7 +1439,46 @@ const trendSeries = useMemo(() => {
     if (item.cooldownUntil && new Date(item.cooldownUntil).getTime() > Date.now()) {
       return { label: `连接失败冷却至 ${formatDateTime(item.cooldownUntil)}`, until: item.cooldownUntil };
     }
+    if (item.sunkUntil && new Date(item.sunkUntil).getTime() > Date.now()) {
+      return { label: `坏代理沉淀至 ${formatDateTime(item.sunkUntil)}`, until: item.sunkUntil };
+    }
     return null;
+  };
+  // disabledProxyCount 返回当前被禁用（冷却/冻结/沉淀）的代理条数。
+  const disabledProxyCount = useMemo(() => {
+    if (!editingEndpoint?.id) return 0;
+    return (endpointForm.proxyPool || []).filter(proxy => disabledProxyUntil(proxy)).length;
+  }, [endpointForm.proxyPool, proxyRuntimeStates]);
+  // unbanAllProxies 一键解封端点代理池全部出口：清除冷却/429 冻结/坏代理沉淀，
+  // 解封后重新拉取运行时状态使 UI 同步。
+  const [unbanningProxies, setUnbanningProxies] = useState(false);
+  const unbanAllProxies = async () => {
+    if (!editingEndpoint?.id || unbanningProxies) return;
+    setUnbanningProxies(true);
+    try {
+      const response = await fetch(`/api/openai/endpoints/${editingEndpoint.id}/proxy-state/unban`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+      toast.success(data.cleared ? `已解封 ${data.cleared} 条代理` : '代理池无被禁用的出口');
+      const stateRes = await fetch(`/api/openai/endpoints/${editingEndpoint.id}/proxy-state`, {
+        headers: getAuthHeaders(),
+      });
+      const stateData = await stateRes.json().catch(() => ({}));
+      if (stateRes.ok && Array.isArray(stateData.proxies)) {
+        const map = {};
+        stateData.proxies.forEach(item => {
+          map[item.proxy] = item;
+        });
+        setProxyRuntimeStates(map);
+      }
+    } catch (error) {
+      toast.error('解封失败: ' + error.message);
+    } finally {
+      setUnbanningProxies(false);
+    }
   };
   const removeProxyBatch = batch => {
     if (!confirmPress(`proxy-batch:${batch.id}`, `移除文件批次「${batch.name}」及其全部 ${batch.proxies.length} 条代理？`)) return;
@@ -5522,6 +5564,18 @@ if (!response.ok) {
               >
                 订阅链接导入
               </Button>
+              {disabledProxyCount > 0 && (
+                <Button
+                  size="xs"
+                  variant="secondary-destructive"
+                  onClick={unbanAllProxies}
+                  disabled={unbanningProxies}
+                  icon={unbanningProxies ? <Loader size="sm" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  title="清除全部冷却 / 429 冻结 / 坏代理沉淀，使被禁用的出口立即恢复可选"
+                >
+                  {unbanningProxies ? '解封中...' : `一键解封（${disabledProxyCount}）`}
+                </Button>
+              )}
             </div>
 
             {proxyBatchOpen && (

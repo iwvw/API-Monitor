@@ -84,12 +84,12 @@ type Endpoint struct {
 	ModelMappings  map[string]string `json:"modelMappings,omitempty"`
 	// Priority 是端点优先级档位：值越大越优先被选中（同模型多端点时先高优先级）。
 	// Weight 是同档位内的加权因子：值越大在该档位内被选中的概率越高。
-	Priority     int      `json:"priority,omitempty"`
-	Weight       int      `json:"weight,omitempty"`
-	CreatedAt    string   `json:"createdAt"`
-	LastUsed     *string  `json:"lastUsed"`
-	LastChecked  *string  `json:"lastChecked"`
-	HealthStatus string   `json:"healthStatus,omitempty"`
+	Priority     int     `json:"priority,omitempty"`
+	Weight       int     `json:"weight,omitempty"`
+	CreatedAt    string  `json:"createdAt"`
+	LastUsed     *string `json:"lastUsed"`
+	LastChecked  *string `json:"lastChecked"`
+	HealthStatus string  `json:"healthStatus,omitempty"`
 }
 
 // AllKeys 返回端点全部可用 API Key（主 key + 扩展 key，去重）。
@@ -187,9 +187,8 @@ type Service struct {
 	// channelAffinity 记录会话键（X-*Session-ID / user 字段）最近一次成功使用的
 	// 端点。后续同一会话的请求优先复用该端点（命中上游上下文缓存），失败后由
 	// failover 正常换端；记录带 TTL，超时自动遗忘避免粘死在坏端点上。
-	affinityMu          sync.Mutex
-	channelAffinity     map[string]channelAffinityEntry
-	channelAffinityLast time.Time
+	affinityMu      sync.Mutex
+	channelAffinity map[string]channelAffinityEntry
 
 	// warmupOnce 保护预热 goroutine 只启动一次。
 	warmupOnce sync.Once
@@ -242,6 +241,9 @@ type endpointProxyState struct {
 	sunk map[string]time.Time
 	// lastAllFrozenLog 记录最近一次「全部出口冻结回退直连」的告警时间，用于节流日志。
 	lastAllFrozenLog time.Time
+	// lastAllUnfrozen 记录最近一次「全部出口禁用时自动解冻全体代理」的时间，
+	// 用于节流：防止上游限流未恢复时出现「解冻→再全部冻结→又解冻」的限流风暴。
+	lastAllUnfrozen time.Time
 }
 
 // sessionBinding 是某会话在某出口 IP（代理）上的粘性绑定。
@@ -735,6 +737,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.getEndpointHealthRoute(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "proxy-state" && method == http.MethodGet:
 		s.getEndpointProxyStateRoute(w, r, parts[1])
+	case len(parts) == 4 && parts[0] == "endpoints" && parts[2] == "proxy-state" && parts[3] == "unban" && method == http.MethodPost:
+		s.unbanEndpointProxies(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "endpoints" && (parts[1] == "refresh" || parts[1] == "refresh-all") && method == http.MethodPost:
 		s.refreshAllEndpointsRoute(w, r)
 	case len(parts) == 2 && parts[0] == "endpoints" && parts[1] == "reorder" && method == http.MethodPost:
@@ -1460,6 +1464,11 @@ const (
 	proxy429BanDuration  = 30 * time.Minute
 )
 
+// proxyAllFrozenRetryInterval 是「全部出口禁用时自动解冻全体代理」的节流间隔：
+// 距上次自动解冻不足该间隔时仍回退直连，避免上游 IP 级限流未恢复时反复
+// 「解冻→又全部冻结→又解冻」打满全池的限流风暴。
+const proxyAllFrozenRetryInterval = 10 * time.Minute
+
 // proxyAttemptCap 是单次转发最多尝试的代理数量上限。代理池可容纳数千条
 // （文件批量导入），但一次请求串行扫完整池会拖死请求：限流时每个出口都要
 // 等一次完整往返。封顶后大池只轮询前 cap 个出口，配合 429 累计冻结，
@@ -1471,6 +1480,7 @@ const proxyAttemptCap = 10
 // 内部有耐心地反复重试所有候选，期间上游可能恢复。
 // 0 = 不重试（试完即返回），3 = 试完候选后等待 500ms 再试，最多 3 轮。
 const endpointRetryRounds = 3
+
 var endpointRetryDelay = 500 * time.Millisecond
 
 // sessionProxyRequestLimit 是同一会话在同一个出口 IP 上的请求数上限：
@@ -1707,11 +1717,18 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 			break
 		}
 		if selectedIdx == -1 {
-			// 全部出口都处于 429 冻结：IP 级限流已把整个池锁死，硬选冻结代理只会
+			// 全部出口都处于 429 冻结/坏代理沉淀：IP 级限流已把整个池锁死，硬选冻结代理只会
 			// 反复 429（老行为：selectedIdx = cursor % len(pool) 直接选回被冻 IP，
 			// 形成「全部冻结 → 每请求全池扫一遍 → 又全部冻结」的限流风暴）。
-			// 回退直连兜底：直连请求不参与 429 累计（markProxy429 对空代理为 no-op），
-			// 也不会计入代理失败。解冻（30 分钟到期）后自动恢复池内择优。
+			// 自动解冻全体代理：清除全部冷却/429 冻结/沉淀状态，让池子重新获得
+			// 出网机会（可能刚解冻即恢复）；但带节流，避免上游未恢复时反复解冻
+			// 导致每请求都全池扫一遍。节流窗口内仍回退直连兜底。
+			if s.autoUnfreezeAllLocked(endpointID, cleaned, now) {
+				// 解冻成功：本次请求直接复用解冻后的池子，重新构建候选再择优。
+				// 解冻后所有代理均可用（冷却/冻结/沉淀已清空），从 cursor 起取一个。
+				selectedIdx = state.cursor % len(cleaned)
+				break
+			}
 			s.logProxyPoolFrozen(endpointID, cleaned, now)
 			s.proxyMu.Unlock()
 			return s.client, "", nil
@@ -1996,6 +2013,34 @@ func (s *Service) logProxyPoolFrozen(endpointID string, pool []string, now time.
 		"sample_proxy", sample,
 		"until", now.Add(proxy429BanDuration).Format(time.RFC3339),
 	)
+}
+
+// autoUnfreezeAllLocked 在全部出口被禁用（429 冻结/坏代理沉淀）时自动解冻全体代理：
+// 清除池内全部出口的冷却、429 冻结与沉淀状态，使池子重新可选。带节流：
+// 距上次自动解冻不足 proxyAllFrozenRetryInterval 时不执行（返回 false，调用方回退直连）。
+// 调用方需持有 proxyMu。
+func (s *Service) autoUnfreezeAllLocked(endpointID string, pool []string, now time.Time) bool {
+	state, ok := s.proxyStateByEndpoint[endpointID]
+	if !ok {
+		return false
+	}
+	if !state.lastAllUnfrozen.IsZero() && now.Sub(state.lastAllUnfrozen) < proxyAllFrozenRetryInterval {
+		return false
+	}
+	state.lastAllUnfrozen = now
+	for _, proxy := range pool {
+		delete(state.cooldown, proxy)
+		delete(state.rateLimited, proxy)
+		delete(state.rate429, proxy)
+		delete(state.sunk, proxy)
+		delete(state.failures, proxy)
+	}
+	applog.Warn(context.Background(), "openai",
+		"proxy pool fully disabled, auto-unfroze all proxies",
+		"endpoint_id", endpointID,
+		"pool_size", len(pool),
+	)
+	return true
 }
 
 // proxyRateLimited 判断代理是否处于 429 累计触发的禁用期（禁用中不可被选中）。
@@ -3289,6 +3334,7 @@ type proxyRuntimeStateItem struct {
 	Proxy            string `json:"proxy"`
 	CooldownUntil    string `json:"cooldownUntil,omitempty"`
 	RateLimitedUntil string `json:"rateLimitedUntil,omitempty"`
+	SunkUntil        string `json:"sunkUntil,omitempty"`
 	Failures         int    `json:"failures"`
 	Rate429          int    `json:"rate429"`
 }
@@ -3296,8 +3342,9 @@ type proxyRuntimeStateItem struct {
 // getEndpointProxyStateRoute 返回端点代理池各出口的运行时禁用状态：
 //   - cooldownUntil：连接失败冷却到期时间（指数退避，1min~30min）
 //   - rateLimitedUntil：上游 429 累计冻结到期时间（30min）
+//   - sunkUntil：连续失败被判定的坏代理沉淀到期时间（6h）
 //
-// 前端据此把被冷却/冻结的代理 IP 标红，便于发现「正在被禁用的出口」。
+// 前端据此把被冷却/冻结/沉淀的代理 IP 标红，便于发现「正在被禁用的出口」。
 func (s *Service) getEndpointProxyStateRoute(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 	db, err := s.open(ctx)
@@ -3330,12 +3377,71 @@ func (s *Service) getEndpointProxyStateRoute(w http.ResponseWriter, r *http.Requ
 			if until, banned := state.rateLimited[proxy]; banned && now.Before(until) {
 				item.RateLimitedUntil = until.Format(time.RFC3339)
 			}
+			if until, sunk := state.sunk[proxy]; sunk && now.Before(until) {
+				item.SunkUntil = until.Format(time.RFC3339)
+			}
 		}
 		items = append(items, item)
 	}
 	s.proxyMu.Unlock()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "proxies": items})
+}
+
+// unbanEndpointProxies 一键解封端点代理池全部出口：清除冷却、429 冻结与坏代理沉淀
+// 状态，使被临时/长期禁用的代理立即恢复可选。代理池的禁用都是运行时内存状态，
+// 不修改配置，故解封无需写库。
+func (s *Service) unbanEndpointProxies(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	var proxyRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&proxyRaw)
+	if err != nil {
+		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
+		return
+	}
+	pool := decodeProxyPool(proxyRaw)
+
+	now := time.Now()
+	s.proxyMu.Lock()
+	state, ok := s.proxyStateByEndpoint[id]
+	cleared := 0
+	if ok {
+		for _, proxy := range pool {
+			clearedFrom := false
+			if until, cooled := state.cooldown[proxy]; cooled && now.Before(until) {
+				delete(state.cooldown, proxy)
+				clearedFrom = true
+			}
+			if until, banned := state.rateLimited[proxy]; banned && now.Before(until) {
+				delete(state.rateLimited, proxy)
+				delete(state.rate429, proxy)
+				clearedFrom = true
+			}
+			if until, sunk := state.sunk[proxy]; sunk && now.Before(until) {
+				delete(state.sunk, proxy)
+				delete(state.failures, proxy)
+				clearedFrom = true
+			}
+			if clearedFrom {
+				cleared++
+			}
+		}
+	}
+	s.proxyMu.Unlock()
+
+	applog.Info(ctx, "openai", "proxy pool unbanned",
+		"endpoint_id", id,
+		"cleared", cleared,
+		"pool_size", len(pool),
+	)
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "cleared": cleared})
 }
 
 func (s *Service) getEndpointHealthRoute(w http.ResponseWriter, r *http.Request, id string) {
@@ -4638,77 +4744,77 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			lastRes = nil
 		}
 		failCodes = failCodes[:0]
-	retryRoundCancelled := false
-	for ci, cand := range endpointCandidates {
-		// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
-		candModel, _ := s.resolveEndpointModel(cand, model)
-		candBody := parsedBody
-		if candModel != model && candModel != "" {
-			cp := make(map[string]interface{}, len(parsedBody))
-			for k, v := range parsedBody {
-				cp[k] = v
+		retryRoundCancelled := false
+		for ci, cand := range endpointCandidates {
+			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+			candModel, _ := s.resolveEndpointModel(cand, model)
+			candBody := parsedBody
+			if candModel != model && candModel != "" {
+				cp := make(map[string]interface{}, len(parsedBody))
+				for k, v := range parsedBody {
+					cp[k] = v
+				}
+				cp["model"] = candModel
+				candBody = cp
 			}
-			cp["model"] = candModel
-			candBody = cp
-		}
-		upstreamBodyBytes, _ := json.Marshal(candBody)
+			upstreamBodyBytes, _ := json.Marshal(candBody)
 
-		fullURL := strings.TrimSuffix(cand.BaseURL, "/")
-		if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-			fullURL += "/v1"
-		}
-		fullURL += "/chat/completions"
-		res = s.relayLoop(relayLoopParams{
-			route:          "chat.completions",
-			ctx:            ctx,
-			db:             db,
-			selected:       cand,
-			endpoints:      endpointCandidates,
-			model:          model,
-			fullURL:        fullURL,
-			body:           upstreamBodyBytes,
-			stream:         stream,
-			sessionKey:     sessionKey,
-			clientIP:       clientIP,
-			requestStarted: requestStarted,
-		})
-		// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
-		stepStatus := res.statusCode
-		if stepStatus == 0 && res.resp != nil {
-			stepStatus = res.resp.StatusCode
-		}
-		failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
-		if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
-			selected = cand
-			// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
-			// 后续同会话请求优先复用；4xx 客户端错误不记录，避免把会话钉死在
-			// 无法服务该请求的端点上。
-			if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
-				s.recordChannelAffinity(sessionKey, cand.ID)
+			fullURL := strings.TrimSuffix(cand.BaseURL, "/")
+			if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
+				fullURL += "/v1"
 			}
-			retryRoundFinished = true
-			break
-		}
-		// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
-		if res.statusCode > 0 {
-			failCodes = append(failCodes, res.statusCode)
-		}
-		if ci+1 < len(endpointCandidates) {
-			selected = endpointCandidates[ci+1]
-			failReason := "上游转发失败"
-			if res.lastErr != nil {
-				failReason = res.lastErr.Error()
-			}
-			s.recordRelayError(RelayErrorRecord{
-				Route: "chat.completions", Kind: "endpoint_failover",
-				Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
-				Stream: stream, ClientIP: clientIP,
-				Attempts:  res.attempt + 1,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     failReason,
+			fullURL += "/chat/completions"
+			res = s.relayLoop(relayLoopParams{
+				route:          "chat.completions",
+				ctx:            ctx,
+				db:             db,
+				selected:       cand,
+				endpoints:      endpointCandidates,
+				model:          model,
+				fullURL:        fullURL,
+				body:           upstreamBodyBytes,
+				stream:         stream,
+				sessionKey:     sessionKey,
+				clientIP:       clientIP,
+				requestStarted: requestStarted,
 			})
+			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			stepStatus := res.statusCode
+			if stepStatus == 0 && res.resp != nil {
+				stepStatus = res.resp.StatusCode
+			}
+			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+				selected = cand
+				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
+				// 后续同会话请求优先复用；4xx 客户端错误不记录，避免把会话钉死在
+				// 无法服务该请求的端点上。
+				if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
+					s.recordChannelAffinity(sessionKey, cand.ID)
+				}
+				retryRoundFinished = true
+				break
+			}
+			// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+			if res.statusCode > 0 {
+				failCodes = append(failCodes, res.statusCode)
+			}
+			if ci+1 < len(endpointCandidates) {
+				selected = endpointCandidates[ci+1]
+				failReason := "上游转发失败"
+				if res.lastErr != nil {
+					failReason = res.lastErr.Error()
+				}
+				s.recordRelayError(RelayErrorRecord{
+					Route: "chat.completions", Kind: "endpoint_failover",
+					Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
+					Stream: stream, ClientIP: clientIP,
+					Attempts:  res.attempt + 1,
+					ElapsedMs: time.Since(requestStarted).Milliseconds(),
+					Error:     failReason,
+				})
+			}
 		}
-	}
 		if retryRoundFinished {
 			break
 		}

@@ -1694,6 +1694,50 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 	}
 }
 
+func TestAutoUnfreezeAllLocked(t *testing.T) {
+	// 全部出口被禁用（429 冻结/坏代理沉淀）时：自动解冻全体代理，清除冷却/
+	// 冻结/沉淀状态；节流窗口内重复触发不再解冻（返回 false）。
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service.proxyMu.Lock()
+	state := newEndpointProxyState()
+	service.proxyStateByEndpoint["ep-unfreeze"] = state
+	state.cooldown["proxy-a"] = time.Now().Add(30 * time.Minute)
+	state.rateLimited["proxy-a"] = time.Now().Add(30 * time.Minute)
+	state.sunk["proxy-a"] = time.Now().Add(6 * time.Hour)
+	state.rate429["proxy-a"] = 3
+	state.failures["proxy-a"] = 5
+	service.proxyMu.Unlock()
+
+	now := time.Now()
+	if !service.autoUnfreezeAllLocked("ep-unfreeze", []string{"proxy-a", "proxy-b"}, now) {
+		t.Fatalf("first auto-unfreeze must succeed")
+	}
+	service.proxyMu.Lock()
+	state = service.proxyStateByEndpoint["ep-unfreeze"]
+	_, cooled := state.cooldown["proxy-a"]
+	_, banned := state.rateLimited["proxy-a"]
+	_, sunk := state.sunk["proxy-a"]
+	rate429 := state.rate429["proxy-a"]
+	failures := state.failures["proxy-a"]
+	service.proxyMu.Unlock()
+	if cooled || banned || sunk || rate429 != 0 || failures != 0 {
+		t.Fatalf("auto-unfreeze must clear cooldown/rateLimited/sunk/rate429/failures, got cooled=%v banned=%v sunk=%v rate429=%d failures=%d", cooled, banned, sunk, rate429, failures)
+	}
+
+	// 节流：紧接再次触发（仍在 proxyAllFrozenRetryInterval 内）应返回 false。
+	service.proxyMu.Lock()
+	service.proxyStateByEndpoint["ep-unfreeze"].rateLimited["proxy-a"] = time.Now().Add(30 * time.Minute)
+	service.proxyMu.Unlock()
+	if service.autoUnfreezeAllLocked("ep-unfreeze", []string{"proxy-a", "proxy-b"}, time.Now()) {
+		t.Fatalf("throttled auto-unfreeze must return false within retry interval")
+	}
+
+	// 未知端点返回 false。
+	if service.autoUnfreezeAllLocked("ep-missing", []string{"proxy-a"}, time.Now()) {
+		t.Fatalf("auto-unfreeze on missing endpoint must return false")
+	}
+}
+
 func TestImportProxyListRoute(t *testing.T) {
 	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
 	text := strings.Join([]string{
@@ -1882,7 +1926,6 @@ func TestReadSSEBlock(t *testing.T) {
 		t.Errorf("expect EOF on exhausted stream")
 	}
 }
-
 
 func TestNormalizeResponsesInput(t *testing.T) {
 	body := map[string]interface{}{
