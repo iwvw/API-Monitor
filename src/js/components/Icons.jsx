@@ -86,6 +86,8 @@ import {
   SpeakerSlash,
   Sparkle as PhSparkle,
   SquaresFour,
+  ThumbsDown as PhThumbsDown,
+  ThumbsUp as PhThumbsUp,
   Square as PhSquare,
   Stack,
   Star as PhStar,
@@ -219,6 +221,8 @@ export const Brain = createIcon(PhBrain);
 export const Image = createIcon(PhImage);
 export const Star = createIcon(PhStar);
 export const Sparkle = createIcon(PhSparkle);
+export const ThumbsDown = createIcon(PhThumbsDown);
+export const ThumbsUp = createIcon(PhThumbsUp);
 export const Pin = createIcon(PushPin);
 export const Check = createIcon(PhCheck);
 export const Paperclip = createIcon(PhPaperclip);

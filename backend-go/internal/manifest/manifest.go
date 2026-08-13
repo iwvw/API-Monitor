@@ -372,7 +372,14 @@ func buildRoutes() []Route {
 		{Prefix: "/api/admin-ai/messages", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 消息发送/历史", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channels", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道配置", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channels/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道更新/删除", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/approvals", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审批列表", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/approvals/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审批详情/操作", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/audit", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审计查询（执行与工具调用合并视图）", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/channels/{id}/start", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道启动", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/channels/{id}/stop", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道停止", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/channels/{id}/status", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道状态", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/channel-bindings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定列表/新增", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/channel-bindings/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定删除", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/settings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 系统设置", MatchMode: MatchExact},
 	}
 }

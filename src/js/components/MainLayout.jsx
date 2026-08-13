@@ -25,7 +25,7 @@ import {
   Sun,
   Moon,
   Settings,
-  Bot,
+  Sparkle,
   MODULE_GROUP_ICON_MAP,
   getModuleIconComponent,
 } from './Icons.jsx';
@@ -600,11 +600,12 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'adminai',
   ].includes(mainActiveTab);
   const mainCanvasClassName =
-    stickyHeaderScrollModule
+    (stickyHeaderScrollModule
       ? 'flex-1 min-w-0 overflow-x-clip px-[var(--app-canvas-gutter-x)] pb-[var(--app-canvas-gutter-bottom)]'
       : viewportWorkspaceModule
         ? 'flex-1 overflow-hidden px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)]'
-        : 'flex-1 overflow-x-hidden overflow-y-auto px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)] scrollbar-thin';
+        : 'flex-1 overflow-x-hidden overflow-y-auto px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)] scrollbar-thin') +
+    ' transition-[margin-right] duration-300 ease-in-out md:mr-[var(--askai-sidebar-w,0px)]';
   const mainCanvasInnerClassName = `mx-auto flex w-full min-w-0 flex-col ${
     stickyHeaderScrollModule
       ? 'min-h-full'
@@ -788,9 +789,9 @@ return (
             stickyHeaderScrollModule ? 'overflow-x-hidden overflow-y-auto scrollbar-thin' : 'overflow-hidden'
           }`}
         >
-          {/* 顶部导航 */}
+          {/* 顶部导航（跟随 Ask AI 侧栏压缩，保证按钮随主视图移动） */}
           <header
-            className={`app-main-topbar box-border flex h-[58px] flex-shrink-0 items-center border-b border-kumo-line px-3 min-[450px]:px-4 md:px-6 ${
+            className={`app-main-topbar box-border flex h-[58px] flex-shrink-0 items-center border-b border-kumo-line px-3 min-[450px]:px-4 md:px-6 transition-[margin-right] duration-300 ease-in-out md:mr-[var(--askai-sidebar-w,0px)] ${
               stickyHeaderScrollModule ? 'sticky top-0 z-20' : ''
             }`}
           >
@@ -817,7 +818,7 @@ return (
                 aria-label="Ask AI"
                 title="管理 AI"
               >
-                <Bot className="h-5 w-5" />
+                <Sparkle className="h-5 w-5 text-kumo-brand" />
               </Button>
             </div>
             </header>
@@ -831,7 +832,7 @@ return (
             </div>
           </main>
           {mainActiveTab === 'dashboard' && dashboardFooterVisible && (
-            <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle min-[450px]:px-4 md:px-6">
+            <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle min-[450px]:px-4 md:px-6 transition-[margin-right] duration-300 ease-in-out md:mr-[var(--askai-sidebar-w,0px)]">
               <div className="flex min-w-0 items-center gap-2">
                 <img src="/logo.svg" alt="" className="h-5 w-5 shrink-0 object-contain" />
                 <span className="app-brand-wordmark truncate font-semibold text-kumo-strong">API Monitor</span>

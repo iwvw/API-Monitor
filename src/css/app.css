@@ -2195,3 +2195,37 @@ input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* ==================== Admin AI 空状态云动画（Cloudflare 风格简化版） ==================== */
+.cloud-orb {
+  border-radius: 9999px;
+  position: absolute;
+  filter: saturate(1) brightness(1);
+  animation: cloud-orb-float 6s ease-in-out infinite;
+}
+.cloud-orb--back {
+  width: 84px;
+  height: 84px;
+  background: radial-gradient(circle at 30% 30%, #ececec, #d9d9d9);
+  animation-delay: -2s;
+}
+.cloud-orb--front {
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle at 30% 30%, #f7f7f7, #e6e6e6);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06);
+  animation-delay: -4s;
+}
+@keyframes cloud-orb-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.015); }
+}
+
+/* Admin AI 全屏展开淡入 */
+@keyframes askai-expand-in {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
+}
+.askai-expand-in {
+  animation: askai-expand-in 0.18s ease-out;
+}

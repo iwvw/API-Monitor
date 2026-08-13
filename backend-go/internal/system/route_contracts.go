@@ -778,6 +778,10 @@ func init() {
 	})
 	routeRequestContracts["/api/openai/analytics/clear"] = noBody
 	routeRequestContracts["/api/openai/relay-errors"] = noBody
+	routeRequestContracts["/api/openai/endpoints/{id}/routing"] = obj([]string{"priority", "weight"}, map[string]prop{
+		"priority": {t: "number", d: "路由优先级（越小越优先），与 weight 至少提供一个"},
+		"weight":   {t: "number", d: "路由权重，与 priority 至少提供一个"},
+	})
 	routeRequestContracts["/api/openai/endpoints/{id}/verify"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/test"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/health-check"] = noBody
@@ -939,12 +943,12 @@ func init() {
 		"version": {t: "string", req: true, d: "目标版本号，可从 /upgrade/check 获取"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/websites"] = obj([]string{"type", "alias", "webSiteGroupID"}, map[string]prop{
-		"type":     {t: "string", req: true, e: []string{"proxy", "static"}, d: "站点类型"},
-		"alias":    {t: "string", req: true, d: "站点别名（通常为域名）"},
+		"type":           {t: "string", req: true, e: []string{"proxy", "static"}, d: "站点类型"},
+		"alias":          {t: "string", req: true, d: "站点别名（通常为域名）"},
 		"webSiteGroupID": {t: "integer", req: true, d: "站点分组 ID"},
-		"proxy":    {t: "string", d: "反向代理目标，如 127.0.0.1:8080"},
-		"domains":  {t: "array", d: "域名列表 [{domain, port}]"},
-		"enableSSL": {t: "boolean", d: "是否同时启用 SSL"},
+		"proxy":          {t: "string", d: "反向代理目标，如 127.0.0.1:8080"},
+		"domains":        {t: "array", d: "域名列表 [{domain, port}]"},
+		"enableSSL":      {t: "boolean", d: "是否同时启用 SSL"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/operate"] = obj([]string{"id", "operate"}, map[string]prop{
 		"id":      {t: "integer", req: true, d: "网站 ID"},
@@ -959,9 +963,9 @@ func init() {
 		"match":     {t: "string", req: true, d: "匹配规则，如 ^~ /"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/https"] = obj([]string{"websiteId", "enable", "type"}, map[string]prop{
-		"websiteId": {t: "integer", req: true, d: "网站 ID"},
-		"enable":  {t: "boolean", req: true},
-		"type":    {t: "string", req: true, e: []string{"existed", "auto", "manual"}},
+		"websiteId":  {t: "integer", req: true, d: "网站 ID"},
+		"enable":     {t: "boolean", req: true},
+		"type":       {t: "string", req: true, e: []string{"existed", "auto", "manual"}},
 		"httpConfig": {t: "string", e: []string{"HTTPSOnly", "HTTPAlso", "HTTPToHTTPS"}},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/nginx"] = obj([]string{"id", "content"}, map[string]prop{
@@ -995,20 +999,20 @@ func init() {
 		"compose": {t: "object"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/ssl/obtain"] = obj([]string{"ID"}, map[string]prop{
-		"ID":             {t: "integer", req: true, d: "SSL 证书条目 ID"},
-		"nameservers":    {t: "array", d: "自定义 DNS 服务器"},
-		"skipDNSCheck":   {t: "boolean"},
+		"ID":           {t: "integer", req: true, d: "SSL 证书条目 ID"},
+		"nameservers":  {t: "array", d: "自定义 DNS 服务器"},
+		"skipDNSCheck": {t: "boolean"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/acme"] = obj([]string{"type", "email", "keyType"}, map[string]prop{
-		"email":   {t: "string", req: true, d: "ACME 注册邮箱"},
-		"keyType": {t: "string", req: true, e: []string{"EC256", "EC384", "RSA2048", "RSA3072", "RSA4096", "RSA8192"}},
-		"type":    {t: "string", req: true, e: []string{"letsencrypt", "zerossl", "buypass", "google", "custom"}, d: "ACME 服务商"},
+		"email":    {t: "string", req: true, d: "ACME 注册邮箱"},
+		"keyType":  {t: "string", req: true, e: []string{"EC256", "EC384", "RSA2048", "RSA3072", "RSA4096", "RSA8192"}},
+		"type":     {t: "string", req: true, e: []string{"letsencrypt", "zerossl", "buypass", "google", "custom"}, d: "ACME 服务商"},
 		"caDirURL": {t: "string", d: "自定义 CA 目录 URL"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/openresty/reload"] = noBody
 	routeRequestContracts["/api/onepanel/{serverId}/backup"] = obj([]string{"type"}, map[string]prop{
-		"type": {t: "string", req: true, e: []string{"app", "mysql", "mariadb", "redis", "website", "postgresql", "mongodb"}},
-		"name": {t: "string", d: "备份存储账号名"},
+		"type":       {t: "string", req: true, e: []string{"app", "mysql", "mariadb", "redis", "website", "postgresql", "mongodb"}},
+		"name":       {t: "string", d: "备份存储账号名"},
 		"detailName": {t: "string", d: "备份对象，如网站名 / 数据库名"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/backups/records"] = noBody
@@ -1033,10 +1037,10 @@ func init() {
 		"version": {t: "string"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/cronjobs"] = obj(nil, map[string]prop{
-		"type":     {t: "string", d: "任务类型"},
-		"name":     {t: "string"},
-		"spec":     {t: "string", d: "cron 表达式"},
-		"script":   {t: "string"},
+		"type":   {t: "string", d: "任务类型"},
+		"name":   {t: "string"},
+		"spec":   {t: "string", d: "cron 表达式"},
+		"script": {t: "string"},
 	})
 	routeRequestContracts["/api/onepanel/{serverId}/proxy"] = obj([]string{"method", "path"}, map[string]prop{
 		"method": {t: "string", req: true, e: []string{"GET", "POST", "PUT", "DELETE"}, d: "1Panel API 方法"},
@@ -1080,10 +1084,30 @@ func init() {
 		"config":    {t: "object", d: "渠道配置"},
 	})
 	routeRequestContracts["/api/admin-ai/channels/{id}"] = routeRequestContracts["/api/admin-ai/channels"]
+	routeRequestContracts["/api/admin-ai/channels/{id}/start"] = noBody
+	routeRequestContracts["/api/admin-ai/channels/{id}/stop"] = noBody
+	routeRequestContracts["/api/admin-ai/channels/{id}/status"] = noBody
+	routeRequestContracts["/api/admin-ai/approvals"] = noBody
+	routeRequestContracts["/api/admin-ai/audit"] = noBody
+	routeRequestContracts["/api/admin-ai/channel-bindings"] = obj([]string{"channelId", "channelUserId"}, map[string]prop{
+		"channelId":     {t: "string", req: true, d: "频道配置 ID"},
+		"channelUserId": {t: "string", req: true, d: "渠道侧用户 ID（如 Telegram 数字 ID）"},
+		"username":      {t: "string", d: "渠道用户名"},
+		"panelUserId":   {t: "string", d: "绑定的面板用户 ID"},
+		"role":          {t: "string", d: "角色，默认 admin"},
+	})
+	routeRequestContracts["/api/admin-ai/channel-bindings/{id}"] = noBody
 	routeRequestContracts["/api/admin-ai/approvals/{id}"] = obj([]string{"action"}, map[string]prop{
 		"action": {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
 	})
 	routeRequestContracts["/api/admin-ai/settings"] = obj(nil, map[string]prop{
-		"gatewayKey": {t: "string", d: "管理 AI 网关密钥"},
+		"gatewayKey":                    {t: "string", d: "管理 AI 网关密钥"},
+		"admin_ai_enabled":              {t: "string", d: "管理 AI 总开关（true/false）"},
+		"admin_ai_default_model":        {t: "string", d: "默认推理模型"},
+		"admin_ai_write_enabled":        {t: "string", d: "写操作全局开关（true/false）"},
+		"admin_ai_tool_call_limit":      {t: "string", d: "单轮最大工具调用次数"},
+		"admin_ai_timeout_seconds":      {t: "string", d: "单轮执行超时秒数"},
+		"admin_ai_context_window":       {t: "string", d: "上下文窗口 token 上限"},
+		"admin_ai_audit_retention_days": {t: "string", d: "审计记录保留天数"},
 	})
 }

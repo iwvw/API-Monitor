@@ -34,6 +34,10 @@ type Service struct {
 	runs        map[string]chan SSEEvent // runId(execId) -> 事件通道
 	sessionRuns map[string]string        // sessionId -> runId，同一会话只允许一个活跃执行
 	approval    map[string]chan string   // approvalId -> 审批结果通道
+
+	chanMgr     *channelManager // PRD-03 频道接入（channels.go）
+	cleanerOnce sync.Once       // PRD-04 审批超时清理 goroutine
+	stopCleaner chan struct{}
 }
 
 func New(cfg config.Config) *Service {
@@ -126,19 +130,76 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at TEXT NOT NULL,
 			resolved_at TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS admin_ai_channels (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			name TEXT NOT NULL,
+			enabled INTEGER DEFAULT 1,
+			config_encrypted TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS admin_ai_channel_bindings (
+			id TEXT PRIMARY KEY,
+			channel_id TEXT NOT NULL REFERENCES admin_ai_channels(id) ON DELETE CASCADE,
+			channel_user_id TEXT NOT NULL,
+			channel_username TEXT,
+			panel_user_id TEXT,
+			role TEXT DEFAULT 'admin',
+			created_at TEXT NOT NULL,
+			UNIQUE(channel_id, channel_user_id)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_sessions_activity ON admin_ai_sessions(last_activity_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_messages_session ON admin_ai_messages(session_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_executions_session ON admin_ai_executions(session_id, started_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_tool_calls_exec ON admin_ai_tool_calls(execution_id, started_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_approvals_session ON admin_ai_approvals(session_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_approvals_status ON admin_ai_approvals(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_ai_channels_type ON admin_ai_channels(type)`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_ai_bindings_user ON admin_ai_channel_bindings(channel_user_id)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("adminai ensureSchema: %w", err)
 		}
 	}
+	// 现有 ai_access_audit 表扩展 channel 列（PRD-04，不改既有行）
+	if err := ensureSQLiteColumn(ctx, db, "ai_access_audit", "channel", "TEXT"); err != nil {
+		return fmt.Errorf("adminai ensureSchema ai_access_audit: %w", err)
+	}
 	return nil
+}
+
+// ensureSQLiteColumn 幂等加列（模式与 openai 包一致，PRD-04 要求）。
+// 表不存在时静默跳过（表由其他模块创建，如 ai_access_audit 属 system 包）。
+func ensureSQLiteColumn(ctx context.Context, db *sql.DB, table, column, definition string) error {
+	var exists int
+	if err := db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue interface{}
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	_, err = db.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition)
+	return err
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -162,10 +223,43 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.streamEvents(w, r)
 	case path == "/cancel" && r.Method == http.MethodPost:
 		s.cancelRun(w, r)
+	case path == "/approvals" && r.Method == http.MethodGet:
+		s.listApprovals(w, r)
 	case strings.HasPrefix(path, "/approvals/") && strings.HasSuffix(path, "/resolve") && r.Method == http.MethodPost:
 		approvalID := strings.TrimSuffix(strings.TrimPrefix(path, "/approvals/"), "/resolve")
 		approvalID = strings.TrimSuffix(approvalID, "/")
 		s.resolveApproval(w, r, approvalID)
+	case strings.HasPrefix(path, "/approvals/") && r.Method == http.MethodGet:
+		s.getApproval(w, r, strings.TrimPrefix(path, "/approvals/"))
+	case path == "/audit" && r.Method == http.MethodGet:
+		s.handleAudit(w, r)
+	case path == "/channels" && r.Method == http.MethodGet:
+		s.listChannels(w, r)
+	case path == "/channels" && r.Method == http.MethodPost:
+		s.createChannel(w, r)
+	case strings.HasPrefix(path, "/channels/") && !strings.Contains(strings.TrimPrefix(path, "/channels/"), "/") && r.Method == http.MethodPut:
+		s.updateChannel(w, r, strings.TrimPrefix(path, "/channels/"))
+	case strings.HasPrefix(path, "/channels/") && !strings.Contains(strings.TrimPrefix(path, "/channels/"), "/") && r.Method == http.MethodDelete:
+		s.deleteChannel(w, r, strings.TrimPrefix(path, "/channels/"))
+	case strings.HasPrefix(path, "/channels/"):
+		rest := strings.TrimPrefix(path, "/channels/")
+		parts := strings.SplitN(rest, "/", 2)
+		channelID := parts[0]
+		action := ""
+		if len(parts) == 2 {
+			action = parts[1]
+		}
+		if action == "start" || action == "stop" || action == "status" {
+			s.channelAction(w, r, channelID, action)
+			return
+		}
+		response.Error(w, http.StatusNotFound, "频道路由不存在")
+	case path == "/channel-bindings" && r.Method == http.MethodGet:
+		s.listBindings(w, r)
+	case path == "/channel-bindings" && r.Method == http.MethodPost:
+		s.createBinding(w, r)
+	case strings.HasPrefix(path, "/channel-bindings/") && r.Method == http.MethodDelete:
+		s.deleteBinding(w, r, strings.TrimPrefix(path, "/channel-bindings/"))
 	case path == "/settings" && (r.Method == http.MethodGet || r.Method == http.MethodPut):
 		s.handleSettings(w, r)
 	default:
@@ -493,39 +587,6 @@ func (s *Service) resolveApproval(w http.ResponseWriter, r *http.Request, approv
 	s.mu.Unlock()
 
 	response.OK(w, map[string]interface{}{"ok": true, "action": req.Action})
-}
-
-func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
-	db, err := s.open(r.Context())
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer db.Close()
-
-	if r.Method == http.MethodGet {
-		var gatewayKey string
-		_ = db.QueryRowContext(r.Context(), "SELECT value FROM system_config WHERE key = 'admin_ai_gateway_key'").Scan(&gatewayKey)
-		response.OK(w, map[string]interface{}{"gatewayKey": gatewayKey})
-		return
-	}
-
-	var req struct {
-		GatewayKey string `json:"gatewayKey"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.Error(w, http.StatusBadRequest, "请求体解析失败")
-		return
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.ExecContext(r.Context(),
-		`INSERT OR REPLACE INTO system_config (key, value, description, updated_at) VALUES ('admin_ai_gateway_key', ?, '管理 AI 网关密钥', ?)`,
-		req.GatewayKey, now)
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	response.OK(w, map[string]interface{}{"ok": true})
 }
 
 func randomID(prefix string) (string, error) {

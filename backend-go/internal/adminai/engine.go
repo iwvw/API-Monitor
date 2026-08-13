@@ -185,6 +185,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 
 		totalPromptTokens += resp.Usage.PromptTokens
 		totalCompletionTokens += resp.Usage.CompletionTokens
+		s.emitReasoning(eventCh, resp)
 
 		if len(resp.ToolCalls) > 0 {
 			for _, tc := range resp.ToolCalls {
@@ -272,11 +273,13 @@ func nextID(ctx context.Context, db *sql.DB, prefix string) string {
 }
 
 type llmResponse struct {
-	Content string `json:"content"`
-	Choices []struct {
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content"`
+	Choices          []struct {
 		Message struct {
-			Content   string     `json:"content"`
-			ToolCalls []toolCall `json:"tool_calls"`
+			Content          string     `json:"content"`
+			ReasoningContent string     `json:"reasoning_content"`
+			ToolCalls        []toolCall `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
 	ToolCalls []toolCall `json:"tool_calls,omitempty"`
@@ -339,8 +342,17 @@ func (s *Service) callLLM(ctx context.Context, model string, messages []map[stri
 	if len(llmResp.Choices) > 0 {
 		llmResp.ToolCalls = llmResp.Choices[0].Message.ToolCalls
 		llmResp.Content = llmResp.Choices[0].Message.Content
+		llmResp.ReasoningContent = llmResp.Choices[0].Message.ReasoningContent
 	}
 	return &llmResp, nil
+}
+
+// emitReasoning 若 LLM 返回了思维链文本则下推 reasoning 事件（供前端折叠展示）。
+func (s *Service) emitReasoning(eventCh chan<- SSEEvent, resp *llmResponse) {
+	if resp == nil || resp.ReasoningContent == "" {
+		return
+	}
+	s.emit(eventCh, SSEEvent{Type: "reasoning", Fields: map[string]interface{}{"text": resp.ReasoningContent}})
 }
 
 func (s *Service) executeToolCall(ctx context.Context, db *sql.DB, toolName string, args map[string]interface{}, sessionID, tcID string, eventCh chan<- SSEEvent) (interface{}, error) {
@@ -411,13 +423,20 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 
 		planSummary := fmt.Sprintf("执行 %s %s", method, path)
 		approvalID, _ := randomID("aaa_")
-		expiresAt := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+		expiresAt := time.Now().UTC().Add(approvalTTL).Format(time.RFC3339)
 		now := time.Now().UTC().Format(time.RFC3339)
 		_, _ = db.ExecContext(ctx,
 			`INSERT INTO admin_ai_approvals (id, session_id, tool_call_id, status, plan_summary, method, path, body_snapshot, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
 			approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now)
 
-		s.emit(eventCh, SSEEvent{Type: "approval_required", Fields: map[string]interface{}{"approvalId": approvalID, "planSummary": planSummary, "expiresAt": expiresAt}})
+		s.emit(eventCh, SSEEvent{Type: "approval_required", Fields: map[string]interface{}{
+			"approvalId":   approvalID,
+			"planSummary":  planSummary,
+			"expiresAt":    expiresAt,
+			"method":       method,
+			"path":         path,
+			"bodySnapshot": string(body),
+		}})
 
 		approvalCh := make(chan string, 1)
 		s.mu.Lock()
@@ -438,7 +457,7 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 			}
 		case <-ctx.Done():
 			return nil, fmt.Errorf("等待审批时执行已超时或取消")
-		case <-time.After(5 * time.Minute):
+		case <-time.After(approvalTTL):
 			_, _ = db.ExecContext(ctx, "UPDATE admin_ai_approvals SET status = 'expired' WHERE id = ? AND status = 'pending'", approvalID)
 			return nil, fmt.Errorf("审批已超时，写操作未执行")
 		}

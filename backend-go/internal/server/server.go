@@ -163,6 +163,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.onepanel.SetAgentRunner(serverAgentService)
 	systemService.SetAICaller(server.callAPIFromAI)
 	adminaiService.SetAICaller(server.callAPIFromAI)
+	// 管理 AI：启动审批超时清理 goroutine + 频道注册（PRD-03/04）
+	adminaiService.StartBackground()
+	adminaiService.SetupChannels()
 	// 启动代理池预热：预建立各代理到上游的连接，缓解首次请求冷启动握手延迟。
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
 	server.warmupCancel = warmupCancel
@@ -193,7 +196,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.drawio.Stop()
 	}
 	if s.adminai != nil {
-		// adminai 无后台 goroutine；runs 通道由 RunLoop 结束时的 defer 清理
+		// 停止审批清理 goroutine 与频道轮询（runs 通道由 RunLoop 结束时的 defer 清理）
+		s.adminai.StopBackground()
+		s.adminai.StopAllChannels()
 	}
 	if s.cron == nil {
 		return nil
@@ -472,7 +477,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.server.ServeHTTP(w, r)
 	case "/socket.io/":
 		s.server.ServeHTTP(w, r)
-	case "/api/admin-ai", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals/{id}", "/api/admin-ai/settings":
+	case "/api/admin-ai", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings":
 		s.adminai.ServeHTTP(w, r)
 	default:
 		if strings.HasPrefix(route.Prefix, "/sub/") || strings.HasPrefix(r.URL.Path, "/sub/") {
