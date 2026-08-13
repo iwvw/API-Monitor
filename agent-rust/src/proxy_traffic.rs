@@ -24,7 +24,11 @@ const STATE_ROOT: &str = "/var/lib/api-monitor/proxy/nodes";
 #[cfg(unix)]
 const TRAFFIC_STATE_PATH: &str = "/var/lib/api-monitor/proxy/traffic-state.json";
 #[cfg(unix)]
-const REPORT_INTERVAL: Duration = Duration::from_secs(15 * 60);
+const REPORT_INTERVAL: Duration = Duration::from_secs(300);
+#[cfg(unix)]
+const REPORT_INTERVAL_ENV: &str = "API_MONITOR_TRAFFIC_REPORT_SECS";
+#[cfg(unix)]
+const MIN_REPORT_INTERVAL_SECS: u64 = 60;
 
 #[cfg(unix)]
 #[derive(Clone, PartialEq, Message)]
@@ -103,7 +107,8 @@ pub async fn run(config: Config) {
             return;
         }
     };
-    let mut timer = tokio::time::interval(REPORT_INTERVAL);
+    let report_interval = report_interval_secs();
+    let mut timer = tokio::time::interval(report_interval);
     timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     timer.tick().await;
     loop {
@@ -113,6 +118,23 @@ pub async fn run(config: Config) {
             }
         }
         timer.tick().await;
+    }
+}
+
+#[cfg(unix)]
+fn report_interval_secs() -> Duration {
+    let parsed = std::env::var(REPORT_INTERVAL_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    match parsed {
+        Some(value) if value >= MIN_REPORT_INTERVAL_SECS => Duration::from_secs(value),
+        Some(_) => {
+            eprintln!(
+                "[Agent] {REPORT_INTERVAL_ENV} below {MIN_REPORT_INTERVAL_SECS}s; using default {REPORT_INTERVAL:?}"
+            );
+            REPORT_INTERVAL
+        }
+        None => REPORT_INTERVAL,
     }
 }
 

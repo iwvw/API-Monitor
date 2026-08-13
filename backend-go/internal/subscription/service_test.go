@@ -130,6 +130,120 @@ func TestResetTokenRotatesNodeCredentialsAndQueuesRuntimeSync(t *testing.T) {
 	}
 }
 
+func TestRotateAddressOnlyRotatesTokenWithoutCredentialsOrSync(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,vless_uuid,hysteria2_password,enabled) VALUES('sub','sub','','订阅','old-token','00000000-0000-4000-8000-000000000001','old-password',1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/subscriptions/sub/rotate-address", nil)
+	responseRecorder := httptest.NewRecorder()
+	(&Service{}).rotateAddress(responseRecorder, request, db, "sub")
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var token, uuid, password string
+	if err := db.QueryRowContext(ctx, `SELECT public_token,vless_uuid,hysteria2_password FROM subscription_subscriptions WHERE id='sub'`).Scan(&token, &uuid, &password); err != nil {
+		t.Fatal(err)
+	}
+	if token == "old-token" {
+		t.Fatalf("token was not rotated: token=%q", token)
+	}
+	if uuid != "00000000-0000-4000-8000-000000000001" || password != "old-password" {
+		t.Fatalf("node credentials must stay untouched: uuid=%q password=%q", uuid, password)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_runtime_reconcile`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("rotate-address must not enqueue runtime reconciliation, found %d jobs", count)
+	}
+}
+
+func TestSubscriptionFormatFromUAInfersClientFormat(t *testing.T) {
+	cases := map[string]string{
+		"Mozilla/5.0 (Windows NT 10.0) ClashForWindows/0.20.0": "clash",
+		"Mihomo 1.18.0 (darwin)":                                "clash",
+		"Stash/2.0":                                             "clash",
+		"v2rayN/6.25":                                           "base64",
+		"NekoBox/1.3":                                           "base64",
+		"Quantumult X/1.4":                                      "base64",
+		"Shadowrocket/2023":                                     "base64",
+		"SFA/1.0":                                               "base64",
+		"sing-box 1.11":                                         "base64",
+		"random-unknown-client/1.0":                             "",
+		"":                                                      "",
+	}
+	for ua, want := range cases {
+		if got := subscriptionFormatFromUA(ua); got != want {
+			t.Errorf("subscriptionFormatFromUA(%q)=%q want %q", ua, got, want)
+		}
+	}
+}
+
+func TestWantsSubscriptionInfoPageDetectsBrowsersOnly(t *testing.T) {
+	browser := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	browser.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+	browser.Header.Set("Accept", "text/html,application/xhtml+xml")
+	if !wantsSubscriptionInfoPage("", browser) {
+		t.Fatal("browser request should get the info page")
+	}
+	if !wantsSubscriptionInfoPage("info", browser) {
+		t.Fatal("explicit format=info should get the info page")
+	}
+	browserNoHTML := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	browserNoHTML.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+	browserNoHTML.Header.Set("Accept", "*/*")
+	if wantsSubscriptionInfoPage("", browserNoHTML) {
+		t.Fatal("browser-style UA without text/html Accept must not get the info page")
+	}
+	noAccept := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	noAccept.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	if wantsSubscriptionInfoPage("", noAccept) {
+		t.Fatal("Mozilla UA with no Accept header must not get the info page")
+	}
+	client := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	client.Header.Set("User-Agent", "Mihomo 1.18.0")
+	if wantsSubscriptionInfoPage("", client) {
+		t.Fatal("proxy client must not get the info page")
+	}
+	client2 := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	client2.Header.Set("User-Agent", "Mozilla/5.0 SFA/1.0")
+	if wantsSubscriptionInfoPage("", client2) {
+		t.Fatal("sing-box client must not get the info page")
+	}
+}
+
+func TestRenderSubscriptionInfoPageIncludesQuotaAndNoNodeSecrets(t *testing.T) {
+	page := renderSubscriptionInfoPage(Subscription{Name: "团队订阅", CycleEnd: "2026-09-01T00:00:00Z"}, TrafficInfo{Upload: 1024, Download: 2048, Total: 1 << 30, Percent: 50, Status: "active", Expire: 0}, 3, "https://example.com/sub/abc")
+	for _, want := range []string{"团队订阅", "节点数", "3", "50%", "已用流量", "1.0 GiB", "example.com/sub/abc"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("info page missing %q", want)
+		}
+	}
+	if strings.Contains(page, "vless://") || strings.Contains(page, "uuid") {
+		t.Fatal("info page must not leak node credentials")
+	}
+}
+
+func TestSubscriptionRequestURLHonorsForwardedProto(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://internal:3000/sub/abc", nil)
+	req.Host = "sub.example.com"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	if got := subscriptionRequestURL(req); got != "https://sub.example.com/sub/abc" {
+		t.Fatalf("unexpected request URL: %q", got)
+	}
+}
+
 func TestPublishedNodeNamesAreUnique(t *testing.T) {
 	nodes := ensureUniquePublishedNodeNames([]Node{
 		{Name: "🇸🇬 新加坡", Raw: "vless://a@example.com:443#old", ConfigJSON: `{"name":"old","type":"vless"}`},

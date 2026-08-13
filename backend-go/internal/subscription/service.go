@@ -436,6 +436,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.resetToken(w, r, db, parts[1])
+	case len(parts) == 3 && parts[0] == "subscriptions" && parts[2] == "rotate-address":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.rotateAddress(w, r, db, parts[1])
 	case len(parts) == 3 && parts[0] == "subscriptions" && parts[2] == "refresh-upstream":
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -746,6 +752,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_subscription_access_logs_subscription ON subscription_access_logs(subscription_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_access_logs_ip ON subscription_access_logs(subscription_id, ip_address, created_at)`,
 		`CREATE TRIGGER IF NOT EXISTS trg_subscription_plan_nodes_managed_delete AFTER DELETE ON managed_proxy_nodes
 			BEGIN DELETE FROM subscription_plan_nodes WHERE node_id=OLD.id AND source='internal'; END`,
 		`CREATE TRIGGER IF NOT EXISTS trg_subscription_plan_nodes_external_delete AFTER DELETE ON subscription_nodes
@@ -2102,6 +2109,40 @@ func (s *Service) resetToken(w http.ResponseWriter, r *http.Request, db *sql.DB,
 	})
 }
 
+// rotateAddress rotates only the public subscription URL token. Client node
+// credentials (VLESS UUID, Hysteria2 password) are left untouched, so already
+// configured clients keep working; no runtime reconciliation is enqueued.
+func (s *Service) rotateAddress(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
+	token := randomToken()
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(r.Context(), `UPDATE subscription_subscriptions
+		SET public_token=?,updated_at=datetime('now')
+		WHERE id=?`, token, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		response.Error(w, http.StatusNotFound, "订阅不存在")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{
+		"public_token":        token,
+		"credentials_rotated": false,
+		"nodes_queued":        0,
+		"runtime_sync_status": "not_required",
+	})
+}
+
 // nodeIDsForSubscription keeps credential rotation compatible with legacy
 // subscriptions that predate mandatory plans. New subscriptions always use
 // the plan path; legacy filters are treated as managed-node IDs when present.
@@ -2716,7 +2757,22 @@ func (s *Service) servePublicSubscription(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if format == "" {
+		format = subscriptionFormatFromUA(r.UserAgent())
+	}
+	if format == "" {
 		format = templateFormat(r.Context(), db, sub.TemplateID)
+	}
+	showInfoPage := wantsSubscriptionInfoPage(format, r)
+	if showInfoPage {
+		format = "info"
+		nodeCount = len(nodes)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(renderSubscriptionInfoPage(sub, traffic, nodeCount, subscriptionRequestURL(r))))
+		success = true
+		return
 	}
 	body, contentType, err := renderOutput(r.Context(), db, sub, nodes, format, renderBlocked)
 	if err != nil {
@@ -2727,13 +2783,31 @@ func (s *Service) servePublicSubscription(w http.ResponseWriter, r *http.Request
 	}
 	nodeCount = len(nodes)
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": subscriptionOutputFilename(sub)}))
 	w.Header().Set("Profile-Title", subscriptionProfileTitle(sub))
 	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Upload, traffic.Download, traffic.Total, traffic.Expire))
-	w.Header().Set("Profile-Update-Interval", "24")
+	w.Header().Set("Profile-Update-Interval", "12")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(body))
 	success = true
+}
+
+// subscriptionRequestURL reconstructs the absolute subscription URL for the
+// current request, honoring the X-Forwarded-Proto set by reverse proxies.
+func subscriptionRequestURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded == "https" || forwarded == "http" {
+		scheme = forwarded
+	}
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		host = "localhost"
+	}
+	return scheme + "://" + host + r.URL.Path
 }
 
 func loadManagedSubscriptionNodes(ctx context.Context, db *sql.DB, sub Subscription) ([]Node, error) {
@@ -3626,6 +3700,166 @@ func normalizeTemplateFormat(value string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(value))
 	}
+}
+
+// subscriptionFormatFromUA maps known proxy client User-Agents to a concrete
+// subscription format. Unknown clients return "" so the caller falls back to
+// the subscription's default template format (usually Mihomo/Clash YAML).
+func subscriptionFormatFromUA(userAgent string) string {
+	lower := strings.ToLower(userAgent)
+	switch {
+	case strings.Contains(lower, "clash"), strings.Contains(lower, "mihomo"), strings.Contains(lower, "stash"):
+		return "clash"
+	case strings.Contains(lower, "v2rayn"), strings.Contains(lower, "nekobox"), strings.Contains(lower, "quantumult"), strings.Contains(lower, "shadowrocket"):
+		return "base64"
+	case strings.Contains(lower, "sing-box"), strings.Contains(lower, "singbox"), strings.Contains(lower, "sfi"), strings.Contains(lower, "sfm"), strings.Contains(lower, "sfa"):
+		return "base64"
+	default:
+		return ""
+	}
+}
+
+// wantsSubscriptionInfoPage decides whether the request is a human opening the
+// subscription URL in a browser and should get the readable info page instead
+// of a raw config dump. Browsers are identified by a Mozilla-style UA plus an
+// Accept header that asks for HTML; proxy clients send neither.
+func wantsSubscriptionInfoPage(format string, r *http.Request) bool {
+	if format == "info" {
+		return true
+	}
+	ua := strings.ToLower(r.UserAgent())
+	if !strings.Contains(ua, "mozilla") || strings.Contains(ua, "clash") || strings.Contains(ua, "mihomo") || strings.Contains(ua, "sing-box") || strings.Contains(ua, "singbox") || strings.Contains(ua, "v2rayn") || strings.Contains(ua, "nekobox") || strings.Contains(ua, "sfa") || strings.Contains(ua, "sfm") || strings.Contains(ua, "sfi") || strings.Contains(ua, "quantumult") || strings.Contains(ua, "shadowrocket") {
+		return false
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "text/html")
+}
+
+// renderSubscriptionInfoPage builds a standalone readable summary page for the
+// subscription. It deliberately exposes no node secrets — only the public link,
+// quota state, node count, and copy buttons for supported formats.
+func renderSubscriptionInfoPage(sub Subscription, traffic TrafficInfo, nodeCount int, subURL string) string {
+	status := traffic.Status
+	if status == "" {
+		status = "active"
+	}
+	total := traffic.Total
+	used := traffic.Upload + traffic.Download
+	percent := 0
+	if total > 0 {
+		percent = int(traffic.Percent)
+		if percent < 0 {
+			percent = 0
+		}
+		if percent > 100 {
+			percent = 100
+		}
+	}
+	quota := "无限制"
+	if total > 0 {
+		quota = formatBytes(total)
+	}
+	expire := "无到期"
+	if traffic.Expire > 0 {
+		expire = time.Unix(traffic.Expire, 0).Local().Format("2006-01-02")
+	}
+	statusLabel := map[string]string{"active": "可用", "expired": "已到期", "exhausted": "流量已用尽"}[status]
+	if statusLabel == "" {
+		statusLabel = status
+	}
+	statusColor := map[string]string{"active": "#16a34a", "expired": "#dc2626", "exhausted": "#f59e0b"}[status]
+	if statusColor == "" {
+		statusColor = "#64748b"
+	}
+	name := strings.TrimSpace(sub.Name)
+	if name == "" {
+		name = "订阅"
+	}
+	return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>` + htmlEscape(name) + ` · 订阅信息</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;width:100%;max-width:420px;box-shadow:0 20px 50px rgba(0,0,0,.4)}
+h1{font-size:18px;font-weight:600;margin-bottom:4px}
+.sub{font-size:12px;color:#94a3b8;margin-bottom:20px;word-break:break-all}
+.badge{display:inline-block;font-size:12px;font-weight:600;color:#fff;background:` + statusColor + `;border-radius:999px;padding:3px 12px;margin-bottom:20px}
+.row{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-top:1px solid #334155}
+.row:first-of-type{border-top:none}
+.row span{color:#94a3b8}
+.row b{font-weight:600;text-align:right;word-break:break-all}
+.bar{position:relative;height:8px;background:#0f172a;border-radius:999px;overflow:hidden}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:#3b82f6;border-radius:999px;width:` + itoa(percent) + `%}
+.btns{display:flex;gap:8px;margin-top:20px}
+.btns button{flex:1;font-size:13px;font-weight:600;color:#fff;background:#2563eb;border:0;border-radius:8px;padding:10px 0;cursor:pointer}
+.btns button.raw{background:#0ea5e9}
+.btns button.b64{background:#10b981}
+.foot{margin-top:20px;font-size:11px;color:#64748b;text-align:center}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>` + htmlEscape(name) + `</h1>
+<div class="sub">` + htmlEscape(subURL) + `</div>
+<span class="badge">` + htmlEscape(statusLabel) + `</span>
+<div class="row"><span>已用流量</span><b>` + htmlEscape(formatBytes(used)) + ` / ` + htmlEscape(quota) + `</b></div>
+<div class="row"><span>节点数</span><b>` + itoa(nodeCount) + `</b></div>
+<div class="row"><span>到期时间</span><b>` + htmlEscape(expire) + `</b></div>
+<div class="row"><span>下次重置</span><b>` + htmlEscape(cycleEndLabel(sub.CycleEnd)) + `</b></div>
+<div class="bar" style="margin-top:16px"><i></i></div>
+<div class="btns">
+<button onclick="copySub(0)">复制默认</button>
+<button class="raw" onclick="copySub(1)">Raw</button>
+<button class="b64" onclick="copySub(2)">Base64</button>
+</div>
+<div class="foot">API Monitor · 团队订阅</div>
+</div>
+<script>
+var base='` + htmlEscape(subURL) + `';
+function copySub(i){
+  var fmt=['','?format=raw','?format=base64'][i];
+  var url=base+fmt;
+  if(navigator.clipboard){ navigator.clipboard.writeText(url).then(function(){var b=document.querySelector('.btns button:nth-child('+(i+1)+')'); if(b){b.textContent='已复制'} setTimeout(function(){b.textContent=['复制默认','Raw','Base64'][i]},1200)}) }
+}
+</script>
+</body>
+</html>`
+}
+
+func cycleEndLabel(cycleEnd string) string {
+	if strings.TrimSpace(cycleEnd) == "" {
+		return "不自动重置"
+	}
+	if t, err := parseTime(cycleEnd); err == nil {
+		return t.Local().Format("2006-01-02")
+	}
+	return cycleEnd
+}
+
+func htmlEscape(value string) string {
+	return strings.NewReplacer(`&`, "&amp;", `<`, "&lt;", `>`, "&gt;", `"`, "&#34;", `'`, "&#39;").Replace(value)
+}
+
+func itoa(value int) string {
+	return strconv.Itoa(value)
+}
+
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return strconv.FormatInt(bytes, 10) + " B"
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func validateTemplateDefinition(format, content string) error {
@@ -4662,9 +4896,14 @@ func isRateLimited(ctx context.Context, db *sql.DB, subID, ip string, perMin int
 	if perMin <= 0 {
 		perMin = defaultLimitPerMin
 	}
-	var count int
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND ip_address = ? AND created_at >= datetime('now', '-1 minute')`, subID, ip).Scan(&count)
-	return count >= perMin
+	// Per-IP dimension for one subscription catches a single client hammering
+	// the endpoint. A token-global dimension (all IPs combined) limits an
+	// attacker who spreads the leaked token across many hosts and stays under
+	// each per-IP ceiling.
+	var perIP, total int
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND ip_address = ? AND created_at >= datetime('now', '-1 minute')`, subID, ip).Scan(&perIP)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND created_at >= datetime('now', '-1 minute')`, subID).Scan(&total)
+	return perIP >= perMin || total >= perMin
 }
 
 func (s *Service) logAccess(ctx context.Context, db *sql.DB, subID, token, ip, ua, format string, success bool, statusCode int, errMsg string, nodeCount int, traffic TrafficInfo) {

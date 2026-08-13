@@ -1657,6 +1657,23 @@ function SubscriptionPage() {
     loadAll();
   };
 
+  const rotateAddress = async (sub) => {
+    const confirmed = await dialog.confirm({
+      title: '更换订阅地址',
+      message: `确定要更换「${sub.name}」的订阅链接吗？旧链接立即失效，VLESS UUID 和 HY2 密码保持不变，已配置的客户端不会断开。`,
+      confirmText: '更换订阅地址',
+    });
+    if (!confirmed) return;
+    const res = await fetch(`${API}/subscriptions/${sub.id}/rotate-address`, { method: 'POST', headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      toast.error(data.error || '更换失败');
+      return;
+    }
+    toast.success('订阅地址已更换');
+    loadAll();
+  };
+
   const refreshProfileUpstream = async (profile) => {
     const res = await fetch(`${API}/profiles/${profile.id}/refresh-upstream`, { method: 'POST', headers: getAuthHeaders() });
     const data = await res.json();
@@ -1987,20 +2004,38 @@ function SubscriptionPage() {
                           <DropdownMenu.Trigger
                             render={<Button size="sm" shape="square" variant="secondary" aria-label="复制订阅链接" title="复制订阅链接" icon={<Copy className="h-3.5 w-3.5" />} />}
                           />
-                          <DropdownMenu.Content side="bottom" align="end" sideOffset={6} className="min-w-44">
-                            <DropdownMenu.Item onClick={() => copyText(link, '默认订阅链接已复制')}>
+                          <DropdownMenu.Content side="bottom" align="end" sideOffset={6} className="min-w-52">
+                            <DropdownMenu.Item onClick={() => copyText(link, '自适应订阅链接已复制')}>
+                              自适应订阅（按客户端自动识别）
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onClick={() => copyText(subscriptionURL(publicBase, sub, 'clash'), 'Mihomo / Clash 订阅链接已复制')}>
                               Mihomo / Clash（YAML）
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onClick={() => copyText(subscriptionURL(publicBase, sub, 'base64'), 'Base64 订阅链接已复制')}>
+                              sing-box 官方 / v2rayN（Base64）
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onClick={() => copyText(subscriptionURL(publicBase, sub, 'raw'), 'Raw 订阅链接已复制')}>
                               通用节点链接（Raw）
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onClick={() => copyText(subscriptionURL(publicBase, sub, 'base64'), 'Base64 订阅链接已复制')}>
-                              v2rayN / NekoBox（Base64）
+                            <DropdownMenu.Item onClick={() => copyText(subscriptionURL(publicBase, sub, 'info'), '订阅信息页链接已复制')}>
+                              订阅信息页（浏览器打开）
                             </DropdownMenu.Item>
                           </DropdownMenu.Content>
                         </DropdownMenu>
                         <Button size="sm" shape="square" variant="secondary" aria-label="编辑订阅链接" title="编辑订阅链接" onClick={() => openEditSubscription(sub)} icon={<Edit className="h-3.5 w-3.5" />} />
-                        <Button size="sm" shape="square" variant="secondary" aria-label="重置连接凭据" title="重置连接凭据" onClick={() => resetToken(sub)} icon={<RefreshCw className="h-3.5 w-3.5" />} />
+                        <DropdownMenu>
+                          <DropdownMenu.Trigger
+                            render={<Button size="sm" shape="square" variant="secondary" aria-label="订阅安全操作" title="订阅安全操作" icon={<RefreshCw className="h-3.5 w-3.5" />} />}
+                          />
+                          <DropdownMenu.Content side="bottom" align="end" sideOffset={6} className="min-w-56">
+                            <DropdownMenu.Item onClick={() => rotateAddress(sub)}>
+                              更换订阅地址（凭据不变）
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onClick={() => resetToken(sub)} variant="danger">
+                              重置连接凭据（UUID / 密码）
+                            </DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu>
                         <Button size="sm" shape="square" variant={isArmed(`subscription-delete:${sub.id}`) ? 'destructive' : 'secondary-destructive'} aria-label="删除订阅链接" title="删除订阅链接" onClick={() => deleteSubscription(sub)} icon={<Trash className="h-3.5 w-3.5" />} />
                       </div>
                     </Table.Cell>
@@ -2402,10 +2437,12 @@ function SubscriptionPage() {
           <Select size="sm" label="输出模板" value={templateBindingId} onValueChange={(value) => setTemplateBindingId(String(value))} items={templateItems} disabled={!selectedTemplateSubscription} className="w-full" />
         </div>
         {selectedTemplateSubscription && (
-          <div className="mt-4 grid gap-2 border-t border-kumo-line pt-4 sm:grid-cols-3">
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription)} tooltip={{ text: '复制默认格式', copiedText: '默认格式已复制' }} labels={{ copyAction: '复制默认格式' }} />
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'raw')} tooltip={{ text: '复制 Raw 链接', copiedText: 'Raw 链接已复制' }} labels={{ copyAction: '复制 Raw 链接' }} />
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'base64')} tooltip={{ text: '复制 Base64 链接', copiedText: 'Base64 链接已复制' }} labels={{ copyAction: '复制 Base64 链接' }} />
+          <div className="mt-4 grid gap-2 border-t border-kumo-line pt-4 sm:grid-cols-2">
+            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription)} tooltip={{ text: '复制自适应订阅链接（按客户端自动识别）', copiedText: '自适应订阅链接已复制' }} labels={{ copyAction: '复制自适应订阅' }} />
+            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'clash')} tooltip={{ text: '复制 Mihomo / Clash 链接', copiedText: 'Mihomo / Clash 链接已复制' }} labels={{ copyAction: '复制 Clash（YAML）' }} />
+            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'base64')} tooltip={{ text: '复制 Base64 链接（sing-box 官方 / v2rayN）', copiedText: 'Base64 链接已复制' }} labels={{ copyAction: '复制 Base64' }} />
+            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'raw')} tooltip={{ text: '复制 Raw 链接', copiedText: 'Raw 链接已复制' }} labels={{ copyAction: '复制 Raw' }} />
+            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'info')} tooltip={{ text: '复制订阅信息页链接（浏览器打开）', copiedText: '订阅信息页链接已复制' }} labels={{ copyAction: '复制信息页' }} />
           </div>
         )}
       </SectionCard>
