@@ -389,7 +389,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID)
+	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: route, Kind: "no_endpoint",
@@ -431,6 +431,8 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	failCodes := []int{}
 	var lastRes *relayLoopResult
 	retryRoundFinished := false
+	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
+	var failoverSteps []map[string]interface{}
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -472,8 +474,19 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 				clientIP:       clientIP,
 				requestStarted: requestStarted,
 			})
+			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			stepStatus := res.statusCode
+			if stepStatus == 0 && res.resp != nil {
+				stepStatus = res.resp.StatusCode
+			}
+			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
 			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
 				selected = cand
+				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
+				// 4xx 客户端错误不记录，避免把会话钉死在无法服务该请求的端点上。
+				if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
+					s.recordChannelAffinity(sessionKey, cand.ID)
+				}
 				retryRoundFinished = true
 				break
 			}
@@ -539,7 +552,8 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	if res.firstWritten && len(res.firstChunk) > 0 {
 		res.resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 	}
-	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex)
+	fp, _ := json.Marshal(failoverSteps)
+	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
 	return res.resp.StatusCode, res.resp, nil
 }
 func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request) {
@@ -634,7 +648,7 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
+	sw := newSSEStreamWriter(w)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -644,6 +658,9 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	extendDeadline := func() {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(streamWriteDeadline))
 	}
+	// SSE ping 保活：上游长时间不吐流时向客户端发送注释行，穿透 NAT 空闲超时。
+	stopPing := sw.startPing(ctx)
+	defer stopPing()
 	transformer := newAnthropicSSETransformer(upstreamModel)
 	scanner := bufio.NewScanner(oaiResp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -659,19 +676,13 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		events := transformer.consume([]byte(data))
 		for _, ev := range events {
 			extendDeadline()
-			_, _ = w.Write(ev)
-			if ok {
-				flusher.Flush()
-			}
+			sw.write(ev)
 		}
 	}
 	// 流结束收尾（usage 与 message_stop）。
 	for _, ev := range transformer.finish() {
 		extendDeadline()
-		_, _ = w.Write(ev)
-		if ok {
-			flusher.Flush()
-		}
+		sw.write(ev)
 	}
 }
 

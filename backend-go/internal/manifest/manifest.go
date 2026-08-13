@@ -364,6 +364,16 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/snippets", Module: "server-snippets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server command snippet list/create", MatchMode: MatchExact},
 		{Prefix: "/api/server/monitor/config", Module: "server-monitor", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server monitor configuration", MatchMode: MatchExact},
 		{Prefix: "/api/server/monitor/logs", Module: "server-monitor", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server monitor logs", MatchMode: MatchExact},
+
+		// Admin AI routes
+		{Prefix: "/api/admin-ai", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 助手总入口", MatchMode: MatchPrefix},
+		{Prefix: "/api/admin-ai/sessions", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 会话列表/创建", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/sessions/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 会话更新/删除", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/messages", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 消息发送/历史", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/channels", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道配置", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/channels/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道更新/删除", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/approvals/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审批详情/操作", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/settings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 系统设置", MatchMode: MatchExact},
 	}
 }
 

@@ -268,7 +268,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
             ['public', '公开访问', '关闭后公开页不可访问。'],
             ['showRepoLinks', '仓库跳转', '允许跳转到 GitHub 仓库。'],
             ['showDescriptions', '显示描述', '显示仓库描述和 workflow 摘要。'],
-            ['showRepositoryStats', '显示统计', '显示 Stars、Forks、Issues。'],
+            ['showRepositoryStats', '显示统计', '显示星标、复刻、议题等统计。'],
             ['showOnDashboard', '首页快捷卡片', '在仪表盘显示入口。'],
           ].map(([key, title, description]) => (
             <div key={key} className="flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">

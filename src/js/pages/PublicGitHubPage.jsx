@@ -1708,17 +1708,17 @@ function RepositoryCard({ item, now, config, detailLoading = false, onSelectRun 
         <div className={`grid min-w-0 gap-2 px-4 py-2.5 ${hasStats ? 'sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]' : ''}`}>
           {hasStats && (
             <div className="grid grid-cols-2 gap-1.5">
-              <RepositoryStat label="Stars" value={formatNumber(item.stars)} />
-              <RepositoryStat label="Forks" value={formatNumber(item.forks)} />
-              <RepositoryStat label="Issues" value={formatNumber(item.open_issues)} />
-              <RepositoryStat label="PR" value={formatNumber(item.open_pull_requests)} />
+              <RepositoryStat label="星标" value={formatNumber(item.stars)} />
+              <RepositoryStat label="复刻" value={formatNumber(item.forks)} />
+              <RepositoryStat label="议题" value={formatNumber(item.open_issues)} />
+              <RepositoryStat label="拉取请求" value={formatNumber(item.open_pull_requests)} />
             </div>
           )}
 
           <div className="grid content-start gap-1.5 rounded-lg border border-kumo-interact/70 bg-kumo-recessed/25 px-3 py-2 text-[11px]">
             <div className="flex items-center justify-between gap-2 border-b border-kumo-interact/40 pb-1">
               <span className="font-bold text-kumo-strong text-[11px] flex items-center gap-1">
-                <span>⚡ CI/CD Pipeline</span>
+                <span>⚡ CI/CD 流水线</span>
                 {sameCommitRuns.length > 1 && (
                   <span className="rounded bg-kumo-brand/10 text-kumo-brand px-1 py-0.2 text-[9px] font-mono font-semibold">
                     {sameCommitRuns.length}项工作流

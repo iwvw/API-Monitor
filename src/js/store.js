@@ -138,6 +138,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-message',
     description: '提示词管理与发布',
   },
+  adminai: {
+    name: '管理 AI',
+    shortName: 'AI',
+    icon: 'fa-robot',
+    description: '管理 AI 助手',
+  },
 };
 
 // ==================== 模块分组配置 ====================
@@ -190,7 +196,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 服务',
     icon: 'fa-bolt',
-    modules: ['openai', 'subscription'],
+    modules: ['openai', 'subscription', 'adminai'],
   },
   {
     id: 'system',
@@ -645,6 +651,8 @@ const useStore = create((set, get) => ({
   koyebRefreshInterval: 30000,
   flyRefreshInterval: 30000,
 
+  showAskAI: false,
+
   showAlert: (message, title) => dialog.alert(message, title),
   showConfirm: (options) => dialog.confirm(options),
   showPrompt: (options) => dialog.prompt(options),
@@ -752,6 +760,9 @@ const useStore = create((set, get) => ({
     }
     set({ vibrationEnabled: nextEnabled });
   },
+
+  toggleAskAI: () => set((state) => ({ showAskAI: !state.showAskAI })),
+  setShowAskAI: (show) => set({ showAskAI: Boolean(show) }),
 
   triggerHaptic: (type = 'selection') => {
     if (!get().vibrationEnabled) return false;

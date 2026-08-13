@@ -1916,7 +1916,10 @@ function APIKeyConsole({
             </div>
           )}
           <div className="space-y-2">
-            <Label showOptional>过期时间</Label>
+            <Label>
+              过期时间
+              <span className="font-normal text-kumo-subtle">（可选）</span>
+            </Label>
             <div className="flex flex-wrap gap-2">
               {API_KEY_EXPIRY_PRESETS.map(preset => {
                 const active = selectedExpiryPreset === preset.value;

@@ -294,7 +294,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
               <FolderOpen className="h-4 w-4 text-kumo-brand" />
-              <span className="truncate">FileSystem</span>
+              <span className="truncate">文件系统</span>
             </div>
             <div className="truncate text-[10px] text-kumo-subtle">{serverName || serverId || '-'}</div>
           </div>

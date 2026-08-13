@@ -23,6 +23,7 @@ type Config struct {
 	AllowLocalShellTasks bool
 	CORSAllowedOrigins   []string
 	TrustedProxyCIDRs    []string
+	AdminAIDefaultModel  string
 }
 
 func Load(version string) Config {
@@ -42,6 +43,7 @@ func Load(version string) Config {
 		AllowLocalShellTasks: envBool("ALLOW_LOCAL_SHELL_TASKS", environment != "production"),
 		CORSAllowedOrigins:   envList("CORS_ALLOWED_ORIGINS"),
 		TrustedProxyCIDRs:    envList("TRUSTED_PROXY_CIDRS"),
+		AdminAIDefaultModel:  envString("ADMIN_AI_DEFAULT_MODEL", ""),
 	}
 }
 

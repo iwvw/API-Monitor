@@ -4,6 +4,7 @@ import useStore, {
   MODULE_CONFIG,
   getGroupModuleIds,
   getModuleName,
+  store,
 } from '../store.js';
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar';
 import { Tooltip } from '@cloudflare/kumo/components/tooltip';
@@ -24,6 +25,7 @@ import {
   Sun,
   Moon,
   Settings,
+  Bot,
   MODULE_GROUP_ICON_MAP,
   getModuleIconComponent,
 } from './Icons.jsx';
@@ -50,8 +52,10 @@ const ApiDocsPage = lazy(() => import('../pages/ApiDocsPage.jsx'));
 const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
+const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
 
 import { pageStackClass } from './ui/AppPrimitives.jsx';
+import AskAiPanel from './adminai/AskAiPanel.jsx';
 
 const PageLoadingFallback = () => (
   <div className={`${pageStackClass} pt-3 sm:pt-4`}>
@@ -414,6 +418,8 @@ function MainLayout() {
     loadUserSettings,
     triggerHaptic,
     logout,
+    showAskAI,
+    setShowAskAI,
   } = useStore();
   const [runtimeClock, setRuntimeClock] = useState(() => Date.now());
   const displayedAppProcessUptime =
@@ -591,6 +597,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'aliyun',
     'tencent',
     'm365',
+    'adminai',
   ].includes(mainActiveTab);
   const mainCanvasClassName =
     stickyHeaderScrollModule
@@ -652,6 +659,8 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <DrawioPage />;
       case 'prompts':
         return <PromptLibraryPage />;
+      case 'adminai':
+        return <AdminAIPage />;
       default:
         const ActiveIcon = getModuleIconComponent(mainActiveTab, Server);
         return (
@@ -766,8 +775,15 @@ return (
           </Sidebar.Footer>
         </Sidebar>
 
-        {/* ==================== 2. 主页面区 (Main Panel) ==================== */}
-        <div
+        {/* ==================== 2. 主页面区 (Main Panel) + 右侧 Ask AI 侧栏 ==================== */}
+        <Sidebar.Provider
+          side="right"
+          open={showAskAI}
+          onOpenChange={(open) => setShowAskAI(open)}
+          collapsible="none"
+          animationDuration={200}
+        >
+          <div
           className={`app-main-panel flex-1 flex flex-col h-full ${
             stickyHeaderScrollModule ? 'overflow-x-hidden overflow-y-auto scrollbar-thin' : 'overflow-hidden'
           }`}
@@ -793,6 +809,16 @@ return (
                 }
               >
               </AppPageHeader>
+              <Button
+                onClick={() => store.toggleAskAI()}
+                className="ml-auto h-8 w-8"
+                shape="square"
+                variant="ghost"
+                aria-label="Ask AI"
+                title="管理 AI"
+              >
+                <Bot className="h-5 w-5" />
+              </Button>
             </div>
             </header>
 
@@ -846,6 +872,8 @@ return (
             </footer>
           )}
 </div>
+          <AskAiPanel />
+        </Sidebar.Provider>
       </>
     </Sidebar.Provider>
   );

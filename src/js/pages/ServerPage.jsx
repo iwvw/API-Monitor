@@ -943,7 +943,7 @@ function NetworkQualityPanel({
                   yAxisTickFormat={formatLatencyAxis}
                   tooltipValueFormat={formatLatencyValue}
                   optionUpdateBehavior={SERVER_NETWORK_QUALITY_CHART_UPDATE_BEHAVIOR}
-                  ariaDescription={`${serverName} 24 hour network latency fluctuation`}
+                  ariaDescription={`${serverName} 24 小时网络延迟波动`}
                 />
               ) : (
                 <div
@@ -1763,17 +1763,17 @@ const getServerMetricDisplay = (serverId, metricsSource, isExpanded, isDarkMode)
     cpuMemSeries: isExpanded ? getMetricSeries(chartRecords, [
       { name: 'CPU (%)', color: cpuColor, value: r => toNumber(r.cpu_usage, 0) },
       { name: '内存 (%)', color: memColor, value: r => toNumber(r.mem_usage, 0) },
-      { name: 'CPU Temp (°C)', color: cpuTempColor, value: getCpuTemp },
+      { name: 'CPU 温度 (°C)', color: cpuTempColor, value: getCpuTemp },
     ], { normalized: true }) : EMPTY_METRIC_RECORDS,
     gpuSeries: isExpanded ? getMetricSeries(chartRecords, [
       { name: 'GPU', color: gpuColor, value: r => toNumber(r.gpu_usage, 0) },
       { name: 'VRAM', color: vramColor, value: getGpuMemPercent },
-      { name: 'Power (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
+      { name: '功耗 (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
       { name: 'Temp (°C)', color: gpuTempColor, value: getGpuTemp },
     ], { normalized: true }) : EMPTY_METRIC_RECORDS,
     netSeries: isExpanded ? getMetricSeries(chartRecords, [
-      { name: 'Upload', color: txColor, value: r => toNumber(r.net_tx, 0) },
-      { name: 'Download', color: rxColor, value: r => toNumber(r.net_rx, 0) },
+      { name: '上传', color: txColor, value: r => toNumber(r.net_tx, 0) },
+      { name: '下载', color: rxColor, value: r => toNumber(r.net_rx, 0) },
     ], { normalized: true }) : EMPTY_METRIC_RECORDS,
   };
 
@@ -7040,13 +7040,13 @@ function ServerPage() {
         }
       };
       ws.onerror = () => {
-        terminal.writeln('\r\n\x1b[1;31mSSH terminal connection error.\x1b[0m');
+        terminal.writeln('\r\n\x1b[1;31mSSH 终端连接失败。\x1b[0m');
       };
       ws.onclose = () => {
         const inst = sshSessionRefs.current[sessionId];
         if (inst) inst.connected = false;
         setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
-        terminal.writeln('\r\n\x1b[1;33mSSH terminal connection closed.\x1b[0m');
+        terminal.writeln('\r\n\x1b[1;33mSSH 终端连接已关闭。\x1b[0m');
       };
       return ws;
     }
@@ -8271,7 +8271,7 @@ function ServerPage() {
                                                   yAxisTickFormat={expandedNumberAxisTickFormat}
                                                   tooltipValueFormat={formatMetricTooltipValue}
                                                   optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                                  ariaDescription={`${server.name} CPU and memory usage trend`}
+                                                  ariaDescription={`${server.name} CPU 与内存使用趋势`}
                                                 />
                                               </DeferredRender>
                                             )}
@@ -8310,7 +8310,7 @@ function ServerPage() {
                                                     yAxisTickFormat={hasGpuData ? expandedNumberAxisTickFormat : formatCompactBytesSpeed}
                                                     tooltipValueFormat={hasGpuData ? formatMetricTooltipValue : formatBytesSpeed}
                                                     optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                                    ariaDescription={`${server.name} compact host trend`}
+                                                    ariaDescription={`${server.name} 主机精简趋势`}
                                                   />
                                                 </DeferredRender>
                                                 {!hasGpuData && <TrafficTotalSummary txTotal={txTotal} rxTotal={rxTotal} quota={trafficQuota} compact />}
@@ -8348,7 +8348,7 @@ function ServerPage() {
                                                       yAxisTickFormat={formatCompactBytesSpeed}
                                                       tooltipValueFormat={formatBytesSpeed}
                                                       optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                                      ariaDescription={`${server.name} compact network trend`}
+                                                      ariaDescription={`${server.name} 网络精简趋势`}
                                                     />
                                                   </DeferredRender>
                                                   <TrafficTotalSummary txTotal={txTotal} rxTotal={rxTotal} quota={trafficQuota} compact />
@@ -8713,7 +8713,7 @@ function ServerPage() {
                                             yAxisTickFormat={expandedSpeedAxisTickFormat}
                                             tooltipValueFormat={formatBytesSpeed}
                                             optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                            ariaDescription={`${server.name} network upload and download speed trend`}
+                                            ariaDescription={`${server.name} 网络上传与下载速度趋势`}
                                           />
                                         </DeferredRender>
                                       )}
@@ -8749,7 +8749,7 @@ function ServerPage() {
                                             yAxisTickFormat={expandedNumberAxisTickFormat}
                                             tooltipValueFormat={formatMetricTooltipValue}
                                             optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                            ariaDescription={`${server.name} CPU and memory usage trend`}
+                                            ariaDescription={`${server.name} CPU 与内存使用趋势`}
                                           />
                                         </DeferredRender>
                                       )}
@@ -8785,7 +8785,7 @@ function ServerPage() {
                                               yAxisTickFormat={expandedNumberAxisTickFormat}
                                               tooltipValueFormat={formatMetricTooltipValue}
                                               optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                              ariaDescription={`${server.name} GPU usage, VRAM, and power trend`}
+                                              ariaDescription={`${server.name} GPU 使用率、显存与功耗趋势`}
                                             />
                                           </DeferredRender>
                                         )}

@@ -55,12 +55,13 @@ func sqliteStrftimeOffset(loc *time.Location) (modifier string, offsetSec int) {
 
 // RecordAnalytics saves a gateway proxy metric to the SQLite database
 func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string) {
-	s.recordAnalyticsKey(ctx, route, endpointID, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, -1)
+	s.recordAnalyticsKey(ctx, route, endpointID, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, -1, "")
 }
 
 // recordAnalyticsKey 与 RecordAnalytics 相同，但附带本次实际使用的 API Key 序号
 // （keyIndex，0=主 key；-1 表示未知/未使用多 key），用于日志端点后的 key pill。
-func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int) {
+// failoverPath 为 JSON 数组，记录本轮请求尝试过的端点与状态码，便于前端展示迁移趋势。
+func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int, failoverPath string) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -75,9 +76,9 @@ func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, mod
 	defer db.Close()
 
 	result, err := db.ExecContext(writeCtx, `
-		INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, endpointID, gatewayKey.ID, route, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, keyIndex)
+		INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, endpointID, gatewayKey.ID, route, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, keyIndex, failoverPath)
 
 	if err != nil {
 		applog.Error(writeCtx, "openai", "Failed to insert gateway analytics", "error", err.Error())
@@ -118,6 +119,7 @@ func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, mod
 		"clientIp":         clientIP,
 		"upstreamIp":       upstreamIP,
 		"keyIndex":         keyIndex,
+		"failoverPath":     failoverPath,
 		"timestamp":        time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -524,7 +526,8 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			g.stream,
 			g.via_proxy,
 			g.key_index,
-			g.timestamp
+			g.timestamp,
+			COALESCE(g.failover_path, '') as failover_path
 		FROM openai_gateway_analytics g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_gateway_keys k ON g.gateway_key_id = k.id
@@ -558,6 +561,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		ViaProxy         bool   `json:"viaProxy"`
 		KeyIndex         int    `json:"keyIndex"`
 		Timestamp        string `json:"timestamp"`
+		FailoverPath     string `json:"failoverPath"`
 	}
 
 	records := []LogRecord{}
@@ -583,6 +587,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			&viaProxyVal,
 			&rec.KeyIndex,
 			&rec.Timestamp,
+			&rec.FailoverPath,
 		); err == nil {
 			rec.Stream = streamVal == 1
 			rec.ViaProxy = viaProxyVal == 1

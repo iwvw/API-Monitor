@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { ArrowDown, ArrowUp, CalendarDotsIcon } from '@phosphor-icons/react';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
@@ -200,11 +200,116 @@ function resultTone(statusCode, completionTokens) {
   return 'success';
 }
 
+// ttfbTone 根据首字耗时（毫秒）返回色阶：
+// 绿 < 1s，琥珀 < 3s，红 >= 3s。
+function ttfbTone(ms) {
+  if (ms <= 0) return 'info';
+  if (ms < 1000) return 'success';
+  if (ms < 3000) return 'warning';
+  return 'danger';
+}
+
 function statusCodeTone(code) {
   if (code === 429) return 'warning';
   if (code >= 500) return 'danger';
   if (code >= 400) return 'warning';
   return 'success';
+}
+
+// IpCell 展示脱敏 IP，点击弹出 Popover 显示完整 IP。
+function IpCell({ value, viaProxy, placeholder }) {
+  if (!value) return <>{placeholder || '—'}</>;
+  return (
+    <Popover>
+      <Popover.Trigger
+        nativeButton={false}
+        render={
+          <span
+            className={`cursor-pointer truncate ${viaProxy ? 'text-sky-500' : ''}`}
+          >
+            {maskIp(value)}
+          </span>
+        }
+      />
+      <Popover.Content className="p-3 max-w-xs">
+        <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+          {viaProxy ? '出口 IP' : '客户端 IP'}
+        </Popover.Title>
+        <div className="mt-2">
+          <code className="rounded bg-kumo-surface-2 px-2 py-1 text-xs font-mono text-kumo-strong select-all">
+            {value}
+          </code>
+        </div>
+      </Popover.Content>
+    </Popover>
+  );
+}
+
+// maskIp 压缩 IP 展示：去掉端口，仅保留首尾片段、中间用 ••• 隐藏，用于日志表格
+// 减少宽度占用。IPv4 保留前 2 段 + 后 1 段；IPv6 保留前 2 段 + 后 2 段。
+function maskIp(raw) {
+  if (!raw) return raw || '';
+  let value = raw;
+  const colonIdx = value.lastIndexOf(':');
+  // 形如 1.2.3.4:5678 时去掉端口；IPv6（含 :: 分隔）不剥端口。
+  if (/^\d{1,3}(\.\d{1,3}){3}/.test(value) && colonIdx > -1) {
+    value = value.slice(0, colonIdx);
+  }
+  value = value.replace('[', '').replace(']', '');
+  if (value.includes(':')) {
+    // IPv6
+    const segments = value.split(':');
+    if (segments.length <= 2) return value;
+    const head = segments.slice(0, 2).join(':');
+    const tail = segments.slice(-2).join(':');
+    return `${head}•••${tail}`;
+  }
+  const parts = value.split('.');
+  if (parts.length === 4) {
+    return `${parts[0]}.•••.•••.${parts[3]}`;
+  }
+  return value;
+}
+
+// FailoverPathBadge 在端点列展示渠道迁移标记：当一次请求经历过多个端点尝试时，
+// 端点名以橙色高亮，点击弹出完整迁移路径。
+function FailoverPathBadge({ path, endpointName }) {
+  let steps = [];
+  if (path) {
+    try {
+      const parsed = JSON.parse(path);
+      if (Array.isArray(parsed)) steps = parsed;
+    } catch (e) {}
+  }
+  if (steps.length < 2) return <span className="truncate">{endpointName}</span>;
+  return (
+    <Popover>
+      <Popover.Trigger
+        nativeButton={false}
+        render={
+          <span className="cursor-pointer truncate font-medium text-orange-500">
+            {endpointName}
+          </span>
+        }
+      />
+      <Popover.Content className="p-3 max-w-xs">
+        <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+          渠道迁移路径
+        </Popover.Title>
+        <div className="mt-2 flex flex-col gap-1">
+          {steps.map((s, i) => (
+            <div key={`${s.endpoint}-${i}`} className="flex items-center gap-1.5 text-xs">
+              <span className="font-mono truncate max-w-[140px]" title={s.endpoint}>
+                {s.endpoint || 'unknown'}
+              </span>
+              <StatusBadge tone={statusCodeTone(s.status)}>{s.status || '-'}</StatusBadge>
+              {i < steps.length - 1 && <span className="text-kumo-subtle">→</span>}
+            </div>
+          ))}
+        </div>
+      </Popover.Content>
+    </Popover>
+  );
 }
 
 // 端点多 key 检测结果 -> 状态徽标。check 为 null 表示该行尚未检测。
@@ -299,23 +404,20 @@ function OpenAIPage() {
   });
   const [analyticsTotal, setAnalyticsTotal] = useState(0);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [logsAutoRefresh, setLogsAutoRefresh] = useState(true);
   const getAuthHeaders = useCallback(() => {
     return {
       'Content-Type': 'application/json',
     };
   }, []);
 
-  const fetchAnalytics = useCallback(async ({ dashboardOnly = false } = {}) => {
-    // dashboardOnly（实时/轮询刷新看板）静默更新，避免已展示的卡片闪烁。
-    if (!dashboardOnly) setAnalyticsLoading(true);
+  const fetchAnalytics = useCallback(async ({ silent = false, skipSummary = false } = {}) => {
+    if (!silent) setAnalyticsLoading(true);
     try {
       const headers = getAuthHeaders();
-      const [sumRes, chartsRes, logsRes] = dashboardOnly
-        ? await Promise.all([
-            fetch(`/api/openai/analytics/summary?days=${analyticsDays}`, { headers }),
-            fetch(`/api/openai/analytics/charts?days=${analyticsDays}&granularity=${analyticsGranularity}`, { headers }),
-          ])
+      // skipSummary（切换时间粒度触发）：跳过 summary，只刷图表+日志。
+      const [sumRes, chartsRes, logsRes] = skipSummary
+        ? [undefined, await fetch(`/api/openai/analytics/charts?days=${analyticsDays}&granularity=${analyticsGranularity}`, { headers }),
+           await fetch(`/api/openai/analytics/logs?days=${analyticsDays}&page=${analyticsPage}&pageSize=${analyticsPageSize}`, { headers })]
         : await Promise.all([
             fetch(`/api/openai/analytics/summary?days=${analyticsDays}`, { headers }),
             fetch(`/api/openai/analytics/charts?days=${analyticsDays}&granularity=${analyticsGranularity}`, { headers }),
@@ -325,11 +427,11 @@ function OpenAIPage() {
             ),
           ]);
 
-      if (sumRes.ok) {
+      if (sumRes?.ok) {
         const data = await sumRes.json();
         setAnalyticsSummary(data);
       }
-      if (chartsRes.ok) {
+      if (chartsRes?.ok) {
         const data = await chartsRes.json();
         setAnalyticsCharts(data);
       }
@@ -342,55 +444,43 @@ function OpenAIPage() {
       console.error('Failed to fetch analytics:', err);
       toast.error('获取分析数据失败');
     } finally {
-      if (!dashboardOnly) setAnalyticsLoading(false);
+      if (!silent) setAnalyticsLoading(false);
     }
   }, [analyticsDays, analyticsGranularity, analyticsPage, analyticsPageSize, getAuthHeaders]);
 
+  // 参数变化触发的刷新：切换时间粒度只刷图表+日志（summary 不依赖粒度），
+  // 切换分析范围/翻页则全量刷新（summary 也依赖天数）。首次进入 Tab 全量刷。
+  const prevDaysRef = useRef(analyticsDays);
+  const prevGranularityRef = useRef(analyticsGranularity);
   useEffect(() => {
-    if (activeTab === 'analytics' || activeTab === 'logs') {
+    if (activeTab !== 'analytics' && activeTab !== 'logs') return;
+    const daysChanged = prevDaysRef.current !== analyticsDays;
+    const granularityChanged = prevGranularityRef.current !== analyticsGranularity;
+    prevDaysRef.current = analyticsDays;
+    prevGranularityRef.current = analyticsGranularity;
+    if (granularityChanged && !daysChanged) {
+      fetchAnalytics({ silent: true, skipSummary: true });
+    } else {
       fetchAnalytics();
     }
-  }, [activeTab, fetchAnalytics]);
+  }, [activeTab, analyticsDays, analyticsGranularity, fetchAnalytics]);
 
-  // 网关日志与数据看板自动刷新（15 秒一次），页面隐藏或离开相关 Tab 时暂停。
+  // 网关实时推送（SSE）：仅在网关日志 Tab 连接，后端出现请求立即插入日志列表顶部。
   useEffect(() => {
-    if (!logsAutoRefresh || (activeTab !== 'analytics' && activeTab !== 'logs')) return undefined;
-    const timer = window.setInterval(() => {
-      if (document.hidden) return;
-      if (activeTab === 'analytics') {
-        fetchAnalytics({ dashboardOnly: true });
-      } else {
-        fetchAnalytics();
-      }
-    }, 15000);
-    return () => window.clearInterval(timer);
-  }, [logsAutoRefresh, activeTab, fetchAnalytics]);
-
-  // 网关实时推送（SSE）：后端出现请求立即插入日志列表顶部；数据看板则节流刷新汇总与图表。
-  useEffect(() => {
-    if (activeTab !== 'analytics' && activeTab !== 'logs') return undefined;
+    if (activeTab !== 'logs') return undefined;
     let source = null;
-    let dashboardRefreshTimer = null;
     try {
       source = new EventSource('/api/openai/analytics/stream');
       source.addEventListener('log', event => {
         try {
           const log = JSON.parse(event.data);
-          if (activeTab === 'logs') {
-            setAnalyticsLogs(prev => {
-              if (!prev || prev.length === 0) return [log, ...prev];
-              const existing = new Set(prev.map(item => `${item.timestamp}:${item.model}:${item.clientIp ?? ''}:${item.latencyMs ?? ''}`));
-              const key = `${log.timestamp}:${log.model ?? ''}:${log.clientIp ?? ''}:${log.latencyMs ?? ''}`;
-              if (existing.has(key)) return prev;
-              return [log, ...prev].slice(0, analyticsPageSize);
-            });
-          } else {
-            if (dashboardRefreshTimer) return;
-            dashboardRefreshTimer = window.setTimeout(() => {
-              dashboardRefreshTimer = null;
-              fetchAnalytics({ dashboardOnly: true });
-            }, 800);
-          }
+          setAnalyticsLogs(prev => {
+            if (!prev || prev.length === 0) return [log, ...prev];
+            const existing = new Set(prev.map(item => `${item.timestamp}:${item.model}:${item.clientIp ?? ''}:${item.latencyMs ?? ''}`));
+            const key = `${log.timestamp}:${log.model ?? ''}:${log.clientIp ?? ''}:${log.latencyMs ?? ''}`;
+            if (existing.has(key)) return prev;
+            return [log, ...prev].slice(0, analyticsPageSize);
+          });
         } catch {
           // 忽略无法解析的事件
         }
@@ -400,9 +490,8 @@ function OpenAIPage() {
     }
     return () => {
       if (source) source.close();
-      if (dashboardRefreshTimer) window.clearTimeout(dashboardRefreshTimer);
     };
-  }, [activeTab, analyticsPageSize, fetchAnalytics]);
+  }, [activeTab, analyticsPageSize]);
 
   // 记住日志分页数量，下次进入自动沿用。
   useEffect(() => {
@@ -637,7 +726,7 @@ function OpenAIPage() {
 
   // 时间序列（小时/天/周粒度）：为每根柱提供独立可对齐的类目轴。
 // 后端每个桶返回 day(bucket label) + count/tokens/avgLatency/errors，仅用于柱状展示。
-function TrendBarChart({
+const TrendBarChart = memo(function TrendBarChart({
   labels,
   values,
   color,
@@ -686,11 +775,11 @@ function TrendBarChart({
   if (!labels || labels.length === 0) return null;
 
   return <Chart echarts={echarts} isDarkMode={isDarkMode} options={options} height={168} />;
-}
+});
 
 // 全宽「模型 × 时间」折线趋势：类别轴（每桶唯一刻度），稀疏段断线成 Trend；
 // 顶部图例按调用次数降序，颜色与折线同一份映射，点击隔离/恢复。
-function ModelTrendChart({ labels, series, isDarkMode }) {
+const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMode }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const [hiddenSeries, setHiddenSeries] = useState({});
@@ -717,7 +806,7 @@ function ModelTrendChart({ labels, series, isDarkMode }) {
   );
 
   // 图表实例只在挂载时初始化一次；labels/系列的更新全部走 setOption，
-  // 否则 15 秒自动刷新带来的新数组引用会触发 dispose+重建，造成闪烁与交互状态丢失。
+  // 否则 30 秒自动刷新带来的新数组引用会触发 dispose+重建，造成闪烁与交互状态丢失。
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -812,7 +901,7 @@ function ModelTrendChart({ labels, series, isDarkMode }) {
       <div ref={containerRef} className="h-[280px] w-full" />
     </div>
   );
-}
+});
 
 const trendSeries = useMemo(() => {
     const buckets = Array.isArray(analyticsCharts.daily) ? analyticsCharts.daily : [];
@@ -974,6 +1063,34 @@ const trendSeries = useMemo(() => {
     }
   };
 
+  // 保存端点路由优先级/权重：PUT /api/openai/endpoints/:id/routing（照搬模型映射模式）。
+  const saveEndpointRouting = async (endpointId, field, value) => {
+    setRoutingEditKey(null);
+    const payload = field === 'priority' ? { priority: value } : { weight: value };
+    try {
+      const res = await fetch(`/api/openai/endpoints/${endpointId}/routing`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
+      setEndpoints(prev =>
+        prev.map(e =>
+          e.id === endpointId
+            ? {
+                ...e,
+                priority: typeof data.priority === 'number' ? data.priority : e.priority,
+                weight: typeof data.weight === 'number' ? data.weight : e.weight,
+              }
+            : e
+        )
+      );
+    } catch (error) {
+      toast.error('路由设置保存失败: ' + error.message);
+    }
+  };
+
   // 端点列表拖拽排序：本地先更新顺序，再持久化到后端；失败时回滚。
   const saveEndpointOrder = async nextEndpoints => {
     const orderedIds = nextEndpoints.map(ep => ep.id);
@@ -996,6 +1113,8 @@ const trendSeries = useMemo(() => {
   };
 
   const handleEndpointDragStart = (item, event) => {
+    // 如果拖拽起点是输入框，忽略拖拽（避免 priority/weight inline 编辑时误触）。
+    if (event.target && event.target.tagName === 'INPUT') return;
     setDraggedEndpointId(String(item.id));
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', String(item.id));
@@ -2139,6 +2258,10 @@ const trendSeries = useMemo(() => {
   // 模型映射（对外名称）行内编辑状态。
   const [mappingEditKey, setMappingEditKey] = useState(null);
   const [mappingDraft, setMappingDraft] = useState('');
+
+  // 端点路由优先级/权重行内编辑状态（照搬模型映射的编辑模式）。
+  const [routingEditKey, setRoutingEditKey] = useState(null); // `${endpointId}:priority|weight`
+  const [routingDraft, setRoutingDraft] = useState('');
 
   // 批量切换端点模型的启用状态（原子接口，避免并发逐个 toggle 丢失）。
   const batchToggleEndpointModels = async (endpoint, modelIds, enabled, successMessage) => {
@@ -3700,7 +3823,7 @@ if (!response.ok) {
                 : 0;
 
               return (
-                <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
+                <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_2fr]">
                   <section className="flex min-w-0 flex-col gap-2 lg:sticky lg:top-[70px] lg:self-start">
                     <div className="flex min-h-8 items-center justify-between gap-2 px-1">
                       <div className="flex items-center gap-2 text-xs text-kumo-subtle">
@@ -3713,14 +3836,18 @@ if (!response.ok) {
                       <div className="scrollbar-thin">
                         <Table layout="fixed" className="w-full text-xs">
                           <colgroup>
-                            <col />
-                            <col style={{ width: 60 }} />
+                            <col style={{ minWidth: 140 }} />
+                            <col style={{ width: 44 }} />
+                            <col style={{ width: 72 }} />
+                            <col style={{ width: 72 }} />
                             <col style={{ width: 60 }} />
                           </colgroup>
                           <Table.Header sticky variant="compact">
                             <Table.Row className="h-8">
                               <Table.Head className="!px-2.5 !py-1.5">端点</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">模型</Table.Head>
+                              <Table.Head className="!px-2 !py-1.5 text-center" title="路由优先级（值越大越优先）">优先</Table.Head>
+                              <Table.Head className="!px-2 !py-1.5 text-center" title="同优先级内的加权因子">权重</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
                             </Table.Row>
                           </Table.Header>
@@ -3736,6 +3863,7 @@ if (!response.ok) {
                                 onDrop={event => handleEndpointDrop(item, event)}
                                 onDragEnd={handleEndpointDragEnd}
                                 onClick={() => setSelectedEndpointId(item.id)}
+                                onDoubleClick={() => openEditEndpointModal(item)}
                               >
                                 <Table.Cell className="!px-2.5 !py-1.5">
                                   <div className="min-w-0">
@@ -3756,6 +3884,84 @@ if (!response.ok) {
                                 <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
                                   {activeModelIdsForEndpoint(item).length}
                                 </Table.Cell>
+                                <Table.Cell className="!px-1.5 !py-1.5 text-center">
+                                {routingEditKey === `${item.id}:priority` ? (
+                                  <Input
+                                    autoFocus
+                                    size="sm"
+                                    type="number"
+                                    min={0}
+                                    max={999}
+                                    value={routingDraft}
+                                    onChange={event => setRoutingDraft(event.target.value)}
+                                    onKeyDown={event => {
+                                      event.stopPropagation();
+                                      if (event.key === 'Enter') {
+                                        saveEndpointRouting(item.id, 'priority', Number(routingDraft) || 0);
+                                      } else if (event.key === 'Escape') {
+                                        setRoutingEditKey(null);
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      if (routingEditKey === `${item.id}:priority`) {
+                                        saveEndpointRouting(item.id, 'priority', Number(routingDraft) || 0);
+                                      }
+                                    }}
+                                    className="h-6 w-12 text-center font-mono text-[11px]"
+                                  />
+                                ) : (
+                                  <span
+                                    className="block cursor-text font-mono text-[11px] text-kumo-strong"
+                                    title="双击编辑路由优先级（值越大越优先）"
+                                    onDoubleClick={event => {
+                                      event.stopPropagation();
+                                      setRoutingDraft(String(item.priority ?? 0));
+                                      setRoutingEditKey(`${item.id}:priority`);
+                                    }}
+                                  >
+                                    {item.priority ?? 0}
+                                  </span>
+                                )}
+                              </Table.Cell>
+                              <Table.Cell className="!px-1.5 !py-1.5 text-center">
+                                {routingEditKey === `${item.id}:weight` ? (
+                                  <Input
+                                    autoFocus
+                                    size="sm"
+                                    type="number"
+                                    min={1}
+                                    max={9999}
+                                    value={routingDraft}
+                                    onChange={event => setRoutingDraft(event.target.value)}
+                                    onKeyDown={event => {
+                                      event.stopPropagation();
+                                      if (event.key === 'Enter') {
+                                        saveEndpointRouting(item.id, 'weight', Number(routingDraft) || 1);
+                                      } else if (event.key === 'Escape') {
+                                        setRoutingEditKey(null);
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      if (routingEditKey === `${item.id}:weight`) {
+                                        saveEndpointRouting(item.id, 'weight', Number(routingDraft) || 1);
+                                      }
+                                    }}
+                                    className="h-6 w-12 text-center font-mono text-[11px]"
+                                  />
+                                ) : (
+                                  <span
+                                    className="block cursor-text font-mono text-[11px] text-kumo-strong"
+                                    title="双击编辑加权因子（值越大被选中概率越高）"
+                                    onDoubleClick={event => {
+                                      event.stopPropagation();
+                                      setRoutingDraft(String(item.weight ?? 100));
+                                      setRoutingEditKey(`${item.id}:weight`);
+                                    }}
+                                  >
+                                    {item.weight ?? 100}
+                                  </span>
+                                )}
+                              </Table.Cell>
                                 <Table.Cell className="!px-2 !py-1.5 text-center">
                                   <div
                                     className="flex justify-center"
@@ -3936,7 +4142,7 @@ if (!response.ok) {
                                 </div>
                               </Table.Head>
                               <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                              <Table.Head className="!px-2 !py-1.5">模型映射</Table.Head>
+                              <Table.Head className="!px-2 !py-1.5 text-center">模型映射</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">健康</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">延迟</Table.Head>
                               <Table.Head className="app-table-action !px-2 !py-1.5">操作</Table.Head>
@@ -4002,7 +4208,7 @@ if (!response.ok) {
                                         {modelId}
                                       </span>
                                     </Table.Cell>
-                                    <Table.Cell className="!px-2 !py-1.5">
+                                    <Table.Cell className="!px-2 !py-1.5 text-center">
                                       {mappingEditKey === `${endpoint.id}:${modelId}` ? (
                                         <Input
                                           autoFocus
@@ -4017,7 +4223,12 @@ if (!response.ok) {
                                               setMappingEditKey(null);
                                             }
                                           }}
-                                          className="w-full font-mono text-[10px]"
+                                          onBlur={() => {
+                                            if (mappingEditKey === `${endpoint.id}:${modelId}`) {
+                                              saveEndpointMapping(endpoint, modelId, mappingDraft);
+                                            }
+                                          }}
+                                          className="w-full font-mono text-[10px] text-center"
                                           placeholder="对外名称"
                                         />
                                       ) : (
@@ -4323,10 +4534,10 @@ if (!response.ok) {
       {/* ==================== 3. 网关分析 Tab ==================== */}
       {activeTab === 'analytics' && (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1 overflow-hidden">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-6">
+              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-medium text-kumo-subtle">网关请求</span>
+                  <span className="truncate text-[11px] font-medium text-kumo-subtle sm:text-xs">网关请求</span>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
                     <Activity className="h-3.5 w-3.5" />
                   </span>
@@ -4334,15 +4545,17 @@ if (!response.ok) {
                 {analyticsLoading ? (
                   <SkeletonLine className="h-6 w-20" />
                 ) : (
-                  <span className="truncate font-mono text-2xl font-semibold leading-none text-kumo-strong">
-                    {String(analyticsSummary.totalRequests)}
-                  </span>
+                  <div className="flex min-w-0 items-baseline gap-1">
+                    <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-strong sm:text-xl xl:text-2xl">
+                      {String(analyticsSummary.totalRequests)}
+                    </span>
+                  </div>
                 )}
-                <span className="truncate text-[11px] text-kumo-subtle">最近 {analyticsDays} 天</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle xl:block">最近 {analyticsDays} 天</span>
               </AppCard>
-              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5">
+              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-medium text-kumo-subtle">平均端到端延迟</span>
+                  <span className="truncate text-[11px] font-medium text-kumo-subtle sm:text-xs">平均端到端延迟</span>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-warning">
                     <Clock className="h-3.5 w-3.5" />
                   </span>
@@ -4352,18 +4565,18 @@ if (!response.ok) {
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-2xl font-semibold leading-none text-kumo-warning">
+                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-warning sm:text-xl xl:text-2xl">
                         {(analyticsSummary.avgLatency / 1000).toFixed(2)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">s</span>
                     </>
                   )}
                 </div>
-                <span className="truncate text-[11px] text-kumo-subtle">最近 {analyticsDays} 天</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle xl:block">最近 {analyticsDays} 天</span>
               </AppCard>
-              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5">
+              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-medium text-kumo-subtle">词元用量（含缓存）</span>
+                  <span className="truncate text-[11px] font-medium text-kumo-subtle sm:text-xs">词元用量</span>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
                     <Brain className="h-3.5 w-3.5" />
                   </span>
@@ -4371,12 +4584,53 @@ if (!response.ok) {
                 {analyticsLoading ? (
                   <SkeletonLine className="h-6 w-24" />
                 ) : (
-                  <span className="truncate font-mono text-2xl font-semibold leading-none text-kumo-brand">
-                    {formatTokensM(analyticsSummary.totalTokens)}
-                  </span>
+                  <div className="flex min-w-0 items-baseline gap-1">
+                    <Popover>
+                      <Popover.Trigger
+                        nativeButton={false}
+                        title="查看输入/输出详情"
+                        render={
+                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-brand sm:text-xl xl:text-2xl">
+                            {formatTokensM(analyticsSummary.totalTokens)}
+                          </span>
+                        }
+                      />
+                      <Popover.Content className="w-64 p-3">
+                        <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                          词元用量详情
+                        </Popover.Title>
+                        <div className="mt-2 flex flex-col gap-1.5 text-xs text-kumo-strong">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle">输入（含缓存）</span>
+                            <span className="font-mono">
+                              {formatTokensM(analyticsSummary.totalPromptTokens || 0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle">缓存命中</span>
+                            <span className="font-mono">
+                              {formatTokensM(analyticsSummary.totalCachedTokens || 0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle">输出</span>
+                            <span className="font-mono">
+                              {formatTokensM(analyticsSummary.totalCompletionTokens || 0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 pt-1.5 text-kumo-strong border-t border-kumo-line">
+                            <span className="text-kumo-subtle">合计</span>
+                            <span className="font-mono">
+                              {formatTokensM(analyticsSummary.totalTokens || 0)}
+                            </span>
+                          </div>
+                        </div>
+                      </Popover.Content>
+                    </Popover>
+                  </div>
                 )}
                 <span
-                  className="truncate font-mono text-[11px] text-kumo-subtle"
+                  className="hidden truncate font-mono text-[11px] text-kumo-subtle xl:block"
                   title="非缓存输入 = 输入（含缓存）− 缓存命中的词元"
                 >
                   <ArrowDown
@@ -4395,9 +4649,9 @@ if (!response.ok) {
                   {formatTokensM(analyticsSummary.totalCompletionTokens || 0)}
                 </span>
               </AppCard>
-              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5">
+              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-medium text-kumo-subtle">平均 TPM</span>
+                  <span className="truncate text-[11px] font-medium text-kumo-subtle sm:text-xs">平均 TPM</span>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
                     <Cpu className="h-3.5 w-3.5" />
                   </span>
@@ -4407,18 +4661,18 @@ if (!response.ok) {
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-2xl font-semibold leading-none text-kumo-brand">
+                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-brand sm:text-xl xl:text-2xl">
                         {((analyticsSummary.totalTokens || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
                     </>
                   )}
                 </div>
-                <span className="truncate text-[11px] text-kumo-subtle">每分钟词元</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle xl:block">每分钟词元</span>
               </AppCard>
-              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5">
+              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-medium text-kumo-subtle">平均 RPM</span>
+                  <span className="truncate text-[11px] font-medium text-kumo-subtle sm:text-xs">平均 RPM</span>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
                     <TrendingUp className="h-3.5 w-3.5" />
                   </span>
@@ -4428,18 +4682,18 @@ if (!response.ok) {
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-2xl font-semibold leading-none text-kumo-brand">
+                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-brand sm:text-xl xl:text-2xl">
                         {((analyticsSummary.totalRequests || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
                     </>
                   )}
                 </div>
-                <span className="truncate text-[11px] text-kumo-subtle">每分钟请求</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle xl:block">每分钟请求</span>
               </AppCard>
-              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5">
+              <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-medium text-kumo-subtle">上游错误率</span>
+                  <span className="truncate text-[11px] font-medium text-kumo-subtle sm:text-xs">上游错误率</span>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-danger">
                     <AlertTriangle className="h-3.5 w-3.5" />
                   </span>
@@ -4449,14 +4703,14 @@ if (!response.ok) {
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-2xl font-semibold leading-none text-kumo-danger">
+                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-danger sm:text-xl xl:text-2xl">
                         {(analyticsSummary.errorRate * 100).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">%</span>
                     </>
                   )}
                 </div>
-                <span className="truncate text-[11px] text-kumo-subtle">请求失败占比</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle xl:block">请求失败占比</span>
               </AppCard>
             </div>
 
@@ -4732,7 +4986,7 @@ if (!response.ok) {
                             title={log.endpointName}
                           >
                             <span className="inline-flex items-center justify-center gap-1.5">
-                              <span className="truncate">{log.endpointName}</span>
+                              <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
                               {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
                                 <StatusBadge tone="info" title={`使用的 API Key 序号（0=主 key）`}>
                                   K{log.keyIndex + 1}
@@ -4760,15 +5014,14 @@ if (!response.ok) {
                               className="inline-flex items-center justify-center gap-1"
                               title="经代理池出口"
                             >
-                              <span className="truncate">{log.upstreamIp || '—'}</span>
-                              {log.viaProxy && <StatusBadge tone="info">代</StatusBadge>}
+                              <IpCell value={log.upstreamIp} viaProxy={log.viaProxy} />
                             </div>
                           </Table.Cell>
                           <Table.Cell
                             className="truncate text-center font-mono text-kumo-subtle"
                             title={log.clientIp || '无客户端 IP'}
                           >
-                            {log.clientIp || '—'}
+                            <IpCell value={log.clientIp} />
                           </Table.Cell>
                           <Table.Cell className="text-center">
                             <span className="inline-flex items-center gap-1">
@@ -4795,7 +5048,7 @@ if (!response.ok) {
                               <StatusBadge tone={resultTone(log.statusCode, log.completionTokens)}>
                                 {(log.latencyMs / 1000).toFixed(1)}s
                               </StatusBadge>
-                              <StatusBadge tone={resultTone(log.statusCode, log.completionTokens)}>
+                              <StatusBadge tone={ttfbTone(log.ttfbMs)}>
                                 {log.ttfbMs > 0 ? (log.ttfbMs / 1000).toFixed(1) + 's' : '—'}
                               </StatusBadge>
                               <StatusBadge
@@ -5039,7 +5292,10 @@ if (!response.ok) {
               {/* ====== 右列：连接与代理 ====== */}
               <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label showOptional>自定义请求头</Label>
+                  <Label>
+                    自定义请求头
+                    <span className="font-normal text-kumo-subtle">（可选）</span>
+                  </Label>
                   <div className="space-y-2">
                     {(endpointForm.headers || []).map((header, index) => (
                       <div
@@ -5101,7 +5357,10 @@ if (!response.ok) {
 
                 <div className="space-y-1.5">
                   <div className="flex min-w-0 items-center justify-between gap-2">
-                    <Label showOptional>出口代理池</Label>
+                    <Label>
+                      出口代理池
+                      <span className="font-normal text-kumo-subtle">（可选）</span>
+                    </Label>
                     <Button
                       size="xs"
                       variant="outline"
@@ -5544,7 +5803,10 @@ if (!response.ok) {
             />
 
             <div className="space-y-1.5">
-              <Label showOptional>过期时间</Label>
+              <Label>
+                过期时间
+                <span className="font-normal text-kumo-subtle">（可选）</span>
+              </Label>
               <div className="flex flex-wrap items-center gap-1.5">
                 {[
                   { label: '1 天', days: 1 },
@@ -5642,7 +5904,10 @@ if (!response.ok) {
               <Collapsible.DefaultPanel className="mt-2">
                 <div className="space-y-4">
                   <div className="space-y-1.5">
-                    <Label showOptional>允许的模型（白名单）</Label>
+                    <Label>
+                      允许的模型（白名单）
+                      <span className="font-normal text-kumo-subtle">（可选）</span>
+                    </Label>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {(gatewayKeyForm.allowedModels || []).map(model => (
                         <Badge
@@ -5678,7 +5943,10 @@ if (!response.ok) {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label showOptional>允许的端点（白名单）</Label>
+                    <Label>
+                      允许的端点（白名单）
+                      <span className="font-normal text-kumo-subtle">（可选）</span>
+                    </Label>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {(gatewayKeyForm.allowedEndpoints || []).map(endpointId => (
                         <Badge
@@ -5714,7 +5982,10 @@ if (!response.ok) {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label showOptional>Token 配额</Label>
+                    <Label>
+                    Token 配额
+                    <span className="font-normal text-kumo-subtle">（可选）</span>
+                  </Label>
                     <Input
                       size="sm"
                       type="number"

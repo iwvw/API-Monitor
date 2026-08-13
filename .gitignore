@@ -111,3 +111,8 @@ api-monitor.code-workspace
 # ====================
 docs/archive/
 .zcode/
+
+# ====================
+# 本地工具运行日志
+# ====================
+.playwright-cli/

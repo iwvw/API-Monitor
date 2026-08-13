@@ -22,7 +22,7 @@
     "version:patch": "npm version patch --no-git-tag-version --ignore-scripts",
     "version:minor": "npm version minor --no-git-tag-version --ignore-scripts",
     "version:major": "npm version major --no-git-tag-version --ignore-scripts",
-    "backend-go:dev": "cd backend-go && powershell -NoProfile -Command \"$env:ENCRYPTION_KEY = (Get-Content ..\\.env | ForEach-Object { if ($_ -match '^ENCRYPTION_KEY=(.+)') { $matches[1] } })[0]; go run ./cmd/api-monitor\"",
+    "backend-go:dev": "cd backend-go && powershell -NoProfile -Command \"$key = Get-Content ..\\.env | Where-Object { $_ -match '^ENCRYPTION_KEY=' } | Select-Object -First 1; if ($key -match '^ENCRYPTION_KEY=(.+)$') { $env:ENCRYPTION_KEY = $matches[1].Trim() }; go run ./cmd/api-monitor\"",
     "backend-go:start": "cd backend-go && ./api-monitor.exe",
     "backend-go:test": "cd backend-go && go test ./...",
     "backend-go:build": "cd backend-go && go build -o api-monitor.exe ./cmd/api-monitor",

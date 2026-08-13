@@ -1322,7 +1322,7 @@ function OraclePage() {
                 <InsetPanel tone="surface">
                   <div className="mb-1 text-sm font-semibold text-kumo-strong">{selectedResizeShape.name}</div>
                   <div className="text-xs leading-5 text-kumo-subtle">
-                    {selectedResizeShape.processorDescription || 'Oracle Compute shape'}
+                    {selectedResizeShape.processorDescription || 'Oracle 计算实例规格'}
                   </div>
                   <KeyValueGrid
                     className="mt-3"

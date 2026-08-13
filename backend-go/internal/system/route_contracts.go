@@ -1060,4 +1060,30 @@ func init() {
 	routeRequestContracts["/api/ai/mcp"] = noBody
 	routeRequestContracts["/api/backup/run"] = noBody
 	routeRequestContracts["/api/system/logs/download"] = noBody
+
+	// ===== 管理 AI admin-ai =====
+	routeRequestContracts["/api/admin-ai/sessions"] = obj(nil, map[string]prop{
+		"title":  {t: "string", d: "会话标题"},
+		"model":  {t: "string", d: "LLM 模型"},
+		"source": {t: "string", d: "会话来源，如 web 或 channel:<id>"},
+	})
+	routeRequestContracts["/api/admin-ai/sessions/{id}"] = noBody
+	routeRequestContracts["/api/admin-ai/messages"] = obj([]string{"sessionId", "prompt"}, map[string]prop{
+		"sessionId": {t: "string", req: true, d: "会话 ID"},
+		"prompt":    {t: "string", req: true, d: "用户消息"},
+		"model":     {t: "string", d: "指定模型"},
+		"source":    {t: "string", d: "会话来源"},
+	})
+	routeRequestContracts["/api/admin-ai/channels"] = obj(nil, map[string]prop{
+		"channelId": {t: "string", d: "渠道 ID"},
+		"name":      {t: "string", d: "渠道名称"},
+		"config":    {t: "object", d: "渠道配置"},
+	})
+	routeRequestContracts["/api/admin-ai/channels/{id}"] = routeRequestContracts["/api/admin-ai/channels"]
+	routeRequestContracts["/api/admin-ai/approvals/{id}"] = obj([]string{"action"}, map[string]prop{
+		"action": {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
+	})
+	routeRequestContracts["/api/admin-ai/settings"] = obj(nil, map[string]prop{
+		"gatewayKey": {t: "string", d: "管理 AI 网关密钥"},
+	})
 }

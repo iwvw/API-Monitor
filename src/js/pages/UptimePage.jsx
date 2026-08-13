@@ -397,7 +397,7 @@ function UptimeMonitorDetails({
                 xAxisTickFormat={formatUptimeChartTime}
                 tooltipMode="single"
                 gradient
-                ariaDescription="Uptime monitor response time history"
+                ariaDescription="Uptime 监测响应时间历史"
               />
             </DeferredRender>
           )}
@@ -634,7 +634,7 @@ function UptimePage() {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          title: 'Main Status',
+          title: '主状态页',
           slug: 'main-status',
           monitorIds: uptimeMonitors.map(m => m.id),
         }),

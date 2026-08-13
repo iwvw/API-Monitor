@@ -40,6 +40,8 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/tencent"
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/adminai"
 )
 
 type Server struct {
@@ -68,6 +70,7 @@ type Server struct {
 	sub      *subscription.Service
 	drawio   *drawiomodule.Service
 	prompts  *promptsmodule.Service
+	adminai  *adminai.Service
 
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
@@ -128,6 +131,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	backupService.SetNotifier(notifyService)
 	settingsService := settings.New(cfg)
 	settingsService.StartBackgroundCleanup()
+	adminaiService := adminai.New(cfg)
 	server := &Server{
 		cfg:      cfg,
 		auth:     authService,
@@ -154,9 +158,11 @@ func newServer(cfg config.Config) (*Server, error) {
 		sub:      subscriptionService,
 		drawio:   drawioService,
 		prompts:  promptsService,
+		adminai:  adminaiService,
 	}
 	server.onepanel.SetAgentRunner(serverAgentService)
 	systemService.SetAICaller(server.callAPIFromAI)
+	adminaiService.SetAICaller(server.callAPIFromAI)
 	// 启动代理池预热：预建立各代理到上游的连接，缓解首次请求冷启动握手延迟。
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
 	server.warmupCancel = warmupCancel
@@ -185,6 +191,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.drawio != nil {
 		s.drawio.Stop()
+	}
+	if s.adminai != nil {
+		// adminai 无后台 goroutine；runs 通道由 RunLoop 结束时的 defer 清理
 	}
 	if s.cron == nil {
 		return nil
@@ -463,6 +472,8 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.server.ServeHTTP(w, r)
 	case "/socket.io/":
 		s.server.ServeHTTP(w, r)
+	case "/api/admin-ai", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals/{id}", "/api/admin-ai/settings":
+		s.adminai.ServeHTTP(w, r)
 	default:
 		if strings.HasPrefix(route.Prefix, "/sub/") || strings.HasPrefix(r.URL.Path, "/sub/") {
 			s.sub.ServeHTTP(w, r)

@@ -169,6 +169,12 @@ function allowedColorReason(rel, line, value) {
   if ((rel === 'src/js/pages/ApiDocsPage.jsx' || rel === 'src/js/pages/SettingsPage.jsx') && value === 'text-white') {
     return 'contrast text on colored status block';
   }
+  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'bg-black') {
+    return 'Ask AI 侧栏半透明遮罩（PRD 指定 bg-black/30）';
+  }
+  if (rel === 'src/js/components/adminai/MessageList.jsx' && value === 'text-white' && line.includes('bg-kumo-brand')) {
+    return 'Ask AI 用户消息气泡对比文字';
+  }
   return null;
 }
 

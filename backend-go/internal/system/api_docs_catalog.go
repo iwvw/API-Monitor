@@ -258,6 +258,7 @@ var apiDocSeeds = []apiDocSeed{
 		Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/model-mappings", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint model mapping update", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"PUT"}},
 	},
+	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/routing", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint routing priority/weight update", MatchMode: manifest.MatchPattern}},
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/test", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint chat test", MatchMode: manifest.MatchPattern}},
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/health-check", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint model health check", MatchMode: manifest.MatchPattern}},
 	{Route: manifest.Route{Prefix: "/api/openai/endpoints/{id}/health-check-all", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint full health check", MatchMode: manifest.MatchPattern}},
