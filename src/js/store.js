@@ -196,7 +196,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 服务',
     icon: 'fa-bolt',
-    modules: ['openai', 'subscription', 'adminai'],
+    modules: ['openai', 'subscription'],
   },
   {
     id: 'system',

@@ -70,7 +70,9 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	}
 	req := httptest.NewRequest(method, "http://ai.internal"+targetPath, body).WithContext(ctx)
 	for key, value := range call.Headers {
-		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie") || strings.EqualFold(key, "X-Admin-Password") {
+		// 保留内部专用头不可由 Agent 伪造：X-Internal-Cron 仅服务端 cron 执行器会携带，
+		// 否则侧栏 AI 可借 call_api 触发仅限本机调用的内部端点。
+		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie") || strings.EqualFold(key, "X-Admin-Password") || strings.EqualFold(key, "X-Internal-Cron") {
 			continue
 		}
 		req.Header.Set(key, value)

@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,9 +97,9 @@ func (t *TelegramChannel) Start(ctx context.Context) error {
 	stop := t.stop
 	t.mu.Unlock()
 
-	// 发送就绪消息给 allowlist 用户（DM）
+	// 发送就绪消息给 allowlist 用户（DM）：附中文命令面板
 	for _, uid := range t.cfg.AllowFrom {
-		_, _ = t.Send(ctx, uid, OutboundMessage{Text: "🤖 <b>管理 AI 已就绪</b>。发送消息即可开始对话。"})
+		_, _ = t.Send(ctx, uid, OutboundMessage{Text: CommandPanel()})
 	}
 
 	for {
@@ -129,7 +130,6 @@ func (t *TelegramChannel) Start(ctx context.Context) error {
 		}
 	}
 }
-
 // Stop 停止轮询。
 func (t *TelegramChannel) Stop(ctx context.Context) error {
 	t.mu.Lock()
@@ -141,19 +141,20 @@ func (t *TelegramChannel) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Send 发送 HTML 消息（超长按段落分片）。
+// Send 通过富消息（sendRichMessage）发送 Markdown 消息。
+// 富消息原生支持 markdown 表格/分隔线/引用/标题；发送前做换行归一化
+// （GFM 单换行会折叠成空格，需要对普通文本行之间补硬换行）。
+// 若富消息不可用或内容非法，降级为普通文本 sendMessage，保证不丢消息。
 func (t *TelegramChannel) Send(ctx context.Context, to string, msg OutboundMessage) (string, error) {
 	text := msg.Text
 	if msg.Blocks != nil {
 		text = t.renderBlocks(msg.Blocks, text)
 	}
+	text = NormalizeRichMarkdown(text)
 	chunks := t.chunkText(text)
 	var lastID string
 	for _, chunk := range chunks {
-		result, err := t.callAPI(ctx, "sendMessage", map[string]interface{}{
-			"chat_id": to, "text": chunk, "parse_mode": "HTML",
-			"disable_web_page_preview": true,
-		})
+		result, err := t.sendRichMessage(ctx, to, chunk)
 		if err != nil {
 			return "", err
 		}
@@ -164,26 +165,66 @@ func (t *TelegramChannel) Send(ctx context.Context, to string, msg OutboundMessa
 	return lastID, nil
 }
 
+// sendRichMessage 发送富消息；失败时降级为普通文本（无 parse_mode）重发并记录错误。
+func (t *TelegramChannel) sendRichMessage(ctx context.Context, to, text string) (map[string]interface{}, error) {
+	richBody := map[string]interface{}{
+		"chat_id": to,
+		"rich_message": map[string]interface{}{
+			"markdown": text,
+		},
+	}
+	result, err := t.callAPI(ctx, "sendRichMessage", richBody)
+	if err == nil {
+		return result, nil
+	}
+	slog.Warn("telegram-send-rich-fallback", "chatId", to, "err", err.Error(), "textLen", len(text))
+	// 降级：富消息不支持（旧 Bot API 服务器）或内容非法时，以普通文本发送。
+	return t.callAPI(ctx, "sendMessage", map[string]interface{}{
+		"chat_id": to, "text": text,
+		"disable_web_page_preview": true,
+	})
+}
+
 // Edit 编辑已有消息（"message is not modified" 静默忽略）。
+// 优先用富消息（editMessageText + rich_message）重写为富格式；失败降级为普通文本，
+// 保证流式占位消息能被持续更新。
 func (t *TelegramChannel) Edit(ctx context.Context, to, id string, msg OutboundMessage) error {
 	text := msg.Text
 	if msg.Blocks != nil {
 		text = t.renderBlocks(msg.Blocks, text)
 	}
+	text = NormalizeRichMarkdown(text)
 	if len(text) > t.cfg.TextChunkLimit {
 		text = text[:t.cfg.TextChunkLimit] + "…[已截断]"
 	}
 	_, err := t.callAPI(ctx, "editMessageText", map[string]interface{}{
-		"chat_id": to, "message_id": id, "text": text, "parse_mode": "HTML",
-		"disable_web_page_preview": true,
+		"chat_id": to, "message_id": id,
+		"rich_message": map[string]interface{}{"markdown": text},
 	})
-	if err != nil && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
+	if err == nil {
 		return nil
 	}
-	return err
+	if strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
+		return nil
+	}
+	// 流式编辑竞争：前一次编辑未完成即发起新编辑，Telegram 返回 "canceled by new edit message request"。
+	// 此为临时状态，后续编辑会覆盖，直接忽略，不降级为纯文本（否则消息变权码）。
+	if strings.Contains(strings.ToLower(err.Error()), "canceled by new edit") {
+		return nil
+	}
+	slog.Warn("telegram-edit-rich-fallback", "chatId", to, "msgId", id, "err", err.Error(), "textLen", len(text))
+	// 降级：富消息不可用时以普通文本编辑。
+	_, derr := t.callAPI(ctx, "editMessageText", map[string]interface{}{
+		"chat_id": to, "message_id": id, "text": text,
+		"disable_web_page_preview": true,
+	})
+	if derr == nil || (derr != nil && strings.Contains(strings.ToLower(derr.Error()), "message is not modified")) {
+		return nil
+	}
+	return derr
 }
 
-// renderBlocks 把结构化块渲染为 HTML 文本。
+// renderBlocks 把结构化块渲染为 MarkdownV2 文本。
 func (t *TelegramChannel) renderBlocks(blocks []OutboundBlock, fallback string) string {
 	var sb strings.Builder
 	if fallback != "" {
@@ -193,21 +234,103 @@ func (t *TelegramChannel) renderBlocks(blocks []OutboundBlock, fallback string) 
 	for _, b := range blocks {
 		switch b.Type {
 		case "code":
-			sb.WriteString("<pre>")
-			sb.WriteString(html.EscapeString(b.Code))
-			sb.WriteString("</pre>\n")
+			sb.WriteString("```\n")
+			sb.WriteString(EscapeCode(b.Code))
+			sb.WriteString("\n```\n")
 		case "error":
-			sb.WriteString("⚠️ <b>")
-			sb.WriteString(html.EscapeString(b.Title))
-			sb.WriteString("</b>: ")
-			sb.WriteString(html.EscapeString(b.Text))
+			sb.WriteString("⚠️ *")
+			sb.WriteString(EscapeBold(b.Title))
+			sb.WriteString("*: ")
+			sb.WriteString(EscapeV2(b.Text))
 			sb.WriteString("\n")
 		default:
-			sb.WriteString(html.EscapeString(b.Text))
+			sb.WriteString(EscapeV2(b.Text))
 			sb.WriteString("\n")
 		}
 	}
 	return sb.String()
+}
+
+// shortenHTTP 以下为富消息相关。
+
+// NormalizeRichMarkdown 把模型 markdown 归一化为 Telegram 富消息（GFM）可正确呈现的形态。
+// 富消息 Markdown 遵循 GFM：单个换行 \n 会折叠成空格，必须空行分段或在行尾加两个空格
+// 才是硬换行。这里保持代码块/表格/列表/引用/标题结构不动，仅对「连续普通文本行之间」
+// 的单换行补成硬换行（行尾两个空格），避免多行普通段落被挤成一行。
+func NormalizeRichMarkdown(text string) string {
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 {
+		return text
+	}
+	listRe := regexp.MustCompile(`^([-*+]|\d+[.)])\s`)
+	hrRe := regexp.MustCompile(`^-{3,}$`)
+	isPlain := func(s string) bool {
+		t := strings.TrimSpace(s)
+		if t == "" {
+			return false
+		}
+		// 结构块：标题 / 引用 / 表格行 / 代码围栏 / 分隔线
+		if strings.HasPrefix(t, "#") || strings.HasPrefix(t, ">") ||
+			strings.HasPrefix(t, "|") || strings.HasPrefix(t, "```") {
+			return false
+		}
+		if listRe.MatchString(t) || hrRe.MatchString(t) {
+			return false
+		}
+		return true
+	}
+	for i := 0; i < len(lines); i++ {
+		if isPlain(lines[i]) && i+1 < len(lines) && isPlain(lines[i+1]) {
+			// 相邻普通文本行之间补硬换行（GFM 两个空格 + \n）
+			lines[i] = lines[i] + "  "
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func EscapeV2(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// EscapeBold 转义加粗实体内部内容（MarkdownV2 实体内部同样要求全保留字符转义）。
+func EscapeBold(s string) string { return EscapeV2(s) }
+
+// EscapeCode 转义代码块/行内代码内部的特殊字符（仅 ` 与 \ 需转义）。
+func EscapeCode(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '`' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// EscapeItalic 转义斜体实体内部内容（MarkdownV2 实体内部同样要求全保留字符转义）。
+func EscapeItalic(s string) string { return EscapeV2(s) }
+
+// EscapeLinkText 转义 MarkdownV2 链接文本内部的特殊字符（全保留字符转义）。
+func EscapeLinkText(s string) string { return EscapeV2(s) }
+
+// EscapeLinkURL 转义 MarkdownV2 链接 URL 内部的特殊字符（仅 ) 与 \ 需转义）。
+func EscapeLinkURL(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == ')' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // chunkText 按 textChunkLimit 分片（优先在换行处断开）。
@@ -283,6 +406,11 @@ func (t *TelegramChannel) getUpdates(ctx context.Context) ([]map[string]interfac
 
 // handleUpdate 处理单条更新（只处理 message）。
 func (t *TelegramChannel) handleUpdate(upd map[string]interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			// 单条消息处理 panic 不得终止整个轮询
+		}
+	}()
 	msg, ok := upd["message"].(map[string]interface{})
 	if !ok {
 		return

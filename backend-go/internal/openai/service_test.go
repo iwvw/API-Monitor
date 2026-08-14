@@ -1736,6 +1736,9 @@ func TestAutoUnfreezeAllLocked(t *testing.T) {
 	if service.autoUnfreezeAllLocked("ep-missing", []string{"proxy-a"}, time.Now()) {
 		t.Fatalf("auto-unfreeze on missing endpoint must return false")
 	}
+
+	// 等待异步持久化写库完成，避免 TempDir 清理时目录非空。
+	proxyStateWriteWG.Wait()
 }
 
 func TestImportProxyListRoute(t *testing.T) {
@@ -1816,6 +1819,9 @@ func TestMarkProxyFailedExponentialBackoff(t *testing.T) {
 	if hasCooldown || hasFailures {
 		t.Fatalf("markProxySuccess should clear cooldown and failures")
 	}
+
+	// 等待异步持久化写库完成，避免 TempDir 清理时目录非空。
+	proxyStateWriteWG.Wait()
 }
 
 func TestNormalizeResponsesTools(t *testing.T) {
@@ -1949,8 +1955,8 @@ func TestNormalizeResponsesInput(t *testing.T) {
 		t.Errorf("assistant content should be extracted to string, got %v", assistant["content"])
 	}
 	toolCalls, ok := assistant["tool_calls"].([]interface{})
-	if !ok || len(toolCalls) != 2 {
-		t.Fatalf("assistant should have 2 merged tool_calls, got %#v", assistant["tool_calls"])
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("assistant should have 1 merged tool_call (c2 has no output, dropped), got %#v", assistant["tool_calls"])
 	}
 	fc0 := toolCalls[0].(map[string]interface{})
 	if fc0["id"] != "c1" || fc0["type"] != "function" {
@@ -2453,5 +2459,607 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 	}
 	if !foundFinal {
 		t.Fatalf("expected no-switch stream 429 to be recorded in relay-errors, records=%+v", relayResp.Records)
+	}
+}
+
+func TestNormalizeReasoningEffort(t *testing.T) {
+	cases := []struct {
+		name  string
+		input map[string]interface{}
+		want  map[string]interface{}
+	}{
+		{
+			name: "chat max normalized to high",
+			input: map[string]interface{}{
+				"model":           "deepseek-v4-flash",
+				"reasoning_effort": "max",
+			},
+			want: map[string]interface{}{
+				"model":           "deepseek-v4-flash",
+				"reasoning_effort": "high",
+			},
+		},
+		{
+			name: "chat standard values preserved",
+			input: map[string]interface{}{
+				"reasoning_effort": "high",
+			},
+			want: map[string]interface{}{
+				"reasoning_effort": "high",
+			},
+		},
+		{
+			name: "responses reasoning.effort max normalized",
+			input: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+				"reasoning": map[string]interface{}{
+					"effort": "max",
+				},
+			},
+			want: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+				"reasoning": map[string]interface{}{
+					"effort": "high",
+				},
+			},
+		},
+		{
+			name: "missing reasoning_effort untouched",
+			input: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+			},
+			want: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			normalizeReasoningEffort(c.input)
+			got, _ := json.Marshal(c.input)
+			want, _ := json.Marshal(c.want)
+			if string(got) != string(want) {
+				t.Fatalf("normalizeReasoningEffort() = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+// TestFailoverNormalizesReasoningEffort 验证网关在 failover 到候选端点时，会把
+// 非标准的 reasoning_effort（max）归一化为 high 再转发：主端点 429 限流 ->
+// failover 到备端点，备端点只接受 high（收到 max 就 400），客户端应最终拿到 200。
+func TestFailoverNormalizesReasoningEffort(t *testing.T) {
+	var receivedEffort string
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if e, _ := body["reasoning_effort"].(string); e != "" {
+			receivedEffort = e
+		}
+		if receivedEffort == "max" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"ReasoningEffort invalid, should be one of: low, medium, high, xhigh, none"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer ok.Close()
+
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer failing.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	mkEndpoint := func(name, url string) string {
+		create := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(create))
+		service.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, w.Code, w.Body.String())
+		}
+		var created struct {
+			Success  bool     `json:"success"`
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, w.Body.String(), &created)
+		return created.Endpoint.ID
+	}
+
+	idA := mkEndpoint("rate limited A", failing.URL)
+	idB := mkEndpoint("strict B", ok.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{idA, idB} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"reasoning_effort": "max",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("failover with normalized reasoning_effort failed: code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if receivedEffort != "high" {
+		t.Fatalf("expected failover endpoint to receive reasoning_effort=high, got %q", receivedEffort)
+	}
+}
+
+// TestFirstCandidateKeepsReasoningEffort 首个候选应原样透传客户端的 reasoning_effort，
+// 保证主链路行为不变（只有 failover 候选才归一化）。
+func TestFirstCandidateKeepsReasoningEffort(t *testing.T) {
+	var receivedEffort string
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if e, _ := body["reasoning_effort"].(string); e != "" {
+			receivedEffort = e
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer ok.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+	create := fmt.Sprintf(`{"name":"ok","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, ok.URL)
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(create))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, w.Body.String(), &created)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"reasoning_effort": "max",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("first candidate should succeed as-is: code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if receivedEffort != "max" {
+		t.Fatalf("expected first candidate to receive reasoning_effort=max unchanged, got %q", receivedEffort)
+	}
+}
+
+// TestStressEndpointSwitchNormalizesEffort 压测真实端点切换场景：
+// 主端点持续 429 限流 -> 网关 failover 到严格端点（只接受 high，收到 max 即 400）。
+// 以高并发 reasoning_effort=max 请求模拟生产流量，验证：
+//  1. 全部请求最终 200（failover 成功）
+//  2. 严格端点从未收到非标准值 max（归一化可靠）
+//  3. 主端点稳定收到 429，切换确实发生
+func TestStressEndpointSwitchNormalizesEffort(t *testing.T) {
+	var (
+		mu          sync.Mutex
+		rateHit     int
+		strictMax   int
+		strictHigh  int
+		nonMaxSeen  map[string]int
+	)
+	nonMaxSeen = make(map[string]int)
+
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		rateHit++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer rateLimited.Close()
+
+	strict := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		effort, _ := body["reasoning_effort"].(string)
+		mu.Lock()
+		switch effort {
+		case "max":
+			strictMax++
+		case "high":
+			strictHigh++
+		default:
+			nonMaxSeen[effort]++
+		}
+		mu.Unlock()
+		if effort == "max" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"ReasoningEffort invalid, should be one of: low, medium, high, xhigh, none"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer strict.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	mkEndpoint := func(name, url string) string {
+		create := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(create))
+		service.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, w.Code, w.Body.String())
+		}
+		var created struct {
+			Success  bool     `json:"success"`
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, w.Body.String(), &created)
+		return created.Endpoint.ID
+	}
+
+	// 顺序创建：A(rate-limited) 在前，B(strict) 在后，保证候选列表 A 优先。
+	mkEndpoint("rate limited A", rateLimited.URL)
+	mkEndpoint("strict B", strict.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 通过直接更新 sort_order 强制 A 排第一（A 先创建本就应在前，双保险）。
+	if _, err := db.Exec(`UPDATE openai_endpoints SET sort_order = 0, models = ?`, `["deepseek-v4-flash"]`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 并发压测：100 个并发请求，全部携带 reasoning_effort=max。
+	const workers = 100
+	var wg sync.WaitGroup
+	codes := make([]int, workers)
+	errs := make([]int, workers)
+	start := time.Now()
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			w := httptest.NewRecorder()
+			body := `{
+				"model": "deepseek-v4-flash",
+				"reasoning_effort": "max",
+				"messages": [{"role":"user","content":"hello"}]
+			}`
+			r, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+			service.ServeHTTP(w, r)
+			codes[idx] = w.Code
+			if w.Code == http.StatusBadGateway {
+				errs[idx]++
+			}
+		}(i)
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	// 统计结果
+	counts := map[int]int{}
+	for _, c := range codes {
+		counts[c]++
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
+	t.Logf("并发压测 %d 请求耗时 %v，状态码分布 %v", workers, elapsed, counts)
+	t.Logf("rate-limited 端点命中 %d 次", rateHit)
+	t.Logf("strict 端点收到 high=%d max=%d 其它=%v", strictHigh, strictMax, nonMaxSeen)
+
+	if counts[http.StatusOK] != workers {
+		t.Fatalf("期望全部 %d 请求 200，实际分布 %v", workers, counts)
+	}
+	if strictMax != 0 {
+		t.Fatalf("strict 端点收到 %d 次非标准 reasoning_effort=max，归一化未生效", strictMax)
+	}
+	if strictHigh == 0 {
+		t.Fatalf("strict 端点未收到任何归一化后的 high，failover 未发生（rateHit=%d）", rateHit)
+	}
+	if rateHit == 0 {
+		t.Fatalf("rate-limited 端点未被命中，压测未模拟到限流")
+	}
+}
+
+// TestNormalizeResponsesInputDropsUnrespondedCalls 验证：assistant 已自带 tool_calls
+// 但后续 function_call_output 不足时（codex 多轮并行工具分步回传），未被回应的
+// tool_call 会被剔除，避免 zen 转 chat 报 "insufficient tool messages following
+// tool_calls message"。
+func TestNormalizeResponsesInputDropsUnrespondedCalls(t *testing.T) {
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{"type": "message", "role": "user", "content": "hi"},
+			map[string]interface{}{"type": "message", "role": "assistant", "content": []interface{}{}, "tool_calls": []interface{}{
+				map[string]interface{}{"id": "call_1", "type": "function", "function": map[string]interface{}{"name": "get_weather", "arguments": "{}"}},
+				map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "get_weather", "arguments": "{}"}},
+			}},
+			map[string]interface{}{"type": "function_call_output", "call_id": "call_1", "output": "done"},
+		},
+	}
+	normalizeResponsesInput(body)
+	input := body["input"].([]interface{})
+	// 末尾 function_call_output 后应追加空 user 消息 => 4 条。
+	if len(input) != 4 {
+		t.Fatalf("want 4 items (user, assistant, output, trailing user), got %d", len(input))
+	}
+	assistant := input[1].(map[string]interface{})
+	toolCalls, ok := assistant["tool_calls"].([]interface{})
+	if !ok {
+		t.Fatalf("assistant should keep tool_calls, got %#v", assistant["tool_calls"])
+	}
+	if len(toolCalls) != 1 {
+		t.Fatalf("unresponded call_2 should be dropped, kept %d: %#v", len(toolCalls), toolCalls)
+	}
+	fc := toolCalls[0].(map[string]interface{})
+	if fc["id"] != "call_1" {
+		t.Fatalf("kept tool_call should be the responded one (call_1), got %#v", fc)
+	}
+}
+
+// TestNormalizeResponsesInputKeepsAllRespondedCalls 全部 tool_call 都有对应 output
+// 时不做剔除，保持原样。
+func TestNormalizeResponsesInputKeepsAllRespondedCalls(t *testing.T) {
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{"type": "message", "role": "assistant", "content": []interface{}{}, "tool_calls": []interface{}{
+				map[string]interface{}{"id": "call_1", "type": "function", "function": map[string]interface{}{"name": "a", "arguments": "{}"}},
+				map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "b", "arguments": "{}"}},
+			}},
+			map[string]interface{}{"type": "function_call_output", "call_id": "call_1", "output": "o1"},
+			map[string]interface{}{"type": "function_call_output", "call_id": "call_2", "output": "o2"},
+		},
+	}
+	normalizeResponsesInput(body)
+	assistant := body["input"].([]interface{})[0].(map[string]interface{})
+	toolCalls := assistant["tool_calls"].([]interface{})
+	if len(toolCalls) != 2 {
+		t.Fatalf("all responded, want 2 kept, got %d", len(toolCalls))
+	}
+}
+
+// TestNormalizeResponsesInputMergedCallsDrop 独立 function_call 归并进 assistant
+// 后同样受「未被回应即剔除」约束：只归并有对应 output 的调用。
+func TestNormalizeResponsesInputMergedCallsDrop(t *testing.T) {
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{"type": "message", "role": "user", "content": "hi"},
+			map[string]interface{}{"type": "message", "role": "assistant", "content": []interface{}{}},
+			map[string]interface{}{"type": "function_call", "id": "c1", "call_id": "c1", "name": "get_weather", "arguments": "{}"},
+			map[string]interface{}{"type": "function_call", "id": "c2", "call_id": "c2", "name": "get_weather", "arguments": "{}"},
+			map[string]interface{}{"type": "function_call_output", "call_id": "c1", "output": "done"},
+		},
+	}
+	normalizeResponsesInput(body)
+	assistant := body["input"].([]interface{})[1].(map[string]interface{})
+	toolCalls := assistant["tool_calls"].([]interface{})
+	if len(toolCalls) != 1 {
+		t.Fatalf("unresponded c2 should be dropped, kept %d: %#v", len(toolCalls), toolCalls)
+	}
+	fc := toolCalls[0].(map[string]interface{})
+	if fc["id"] != "c1" {
+		t.Fatalf("kept call should be c1, got %#v", fc)
+	}
+}
+
+// TestNormalizeChatContentBlocks 覆盖 PI 等 agent 客户端以 openai-completions 协议
+// 发送 Anthropic 风格 content blocks 数组时的归一化：thinking→顶层 reasoning_content、
+// toolCall(arguments 对象/字符串)→标准 tool_calls、text→字符串；并保证纯文本/图片
+// 数组与原字符串 content 不受影响。
+func TestNormalizeChatContentBlocks(t *testing.T) {
+	// PI 真实 wire 形态：assistant content 为数组，toolCall 用 arguments(对象)，
+	// reasoning 块带 thinking 文本。归一化后 content 归字符串、reasoning_content 提顶、
+	// tool_calls 转标准 function 结构（arguments 序列化为 JSON 字符串）。
+	body := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "hi"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "thinking", "thinking": "let me think", "signature": "reasoning_content"},
+				map[string]interface{}{"type": "text", "text": "ok"},
+				map[string]interface{}{"type": "toolCall", "id": "call_1", "name": "bash", "arguments": map[string]interface{}{"command": "ls"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(body)
+	assistant := body["messages"].([]interface{})[1].(map[string]interface{})
+	if assistant["reasoning_content"] != "let me think" {
+		t.Errorf("reasoning_content should carry thinking text, got %v", assistant["reasoning_content"])
+	}
+	if assistant["content"] != "ok" {
+		t.Errorf("content should be text string, got %v", assistant["content"])
+	}
+	toolCalls, ok := assistant["tool_calls"].([]interface{})
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("assistant should have 1 tool_call, got %#v", assistant["tool_calls"])
+	}
+	fc := toolCalls[0].(map[string]interface{})
+	if fc["id"] != "call_1" || fc["type"] != "function" {
+		t.Errorf("tool_call malformed: %#v", fc)
+	}
+	fn := fc["function"].(map[string]interface{})
+	if fn["name"] != "bash" {
+		t.Errorf("function.name should be bash, got %v", fn["name"])
+	}
+	if fn["arguments"] != `{"command":"ls"}` {
+		t.Errorf("arguments should be JSON-marshaled, got %q", fn["arguments"])
+	}
+
+	// user 消息的 toolCall 不应转 tool_calls（工具调用只属于 assistant）。
+	bodyUser := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": []interface{}{
+				map[string]interface{}{"type": "toolCall", "id": "call_2", "name": "bash", "arguments": `{"command":"u"}`},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyUser)
+	userMsg := bodyUser["messages"].([]interface{})[0].(map[string]interface{})
+	if _, has := userMsg["tool_calls"]; has {
+		t.Errorf("user message should not get tool_calls")
+	}
+
+	// Claude 风格：tool_use 用 id/name/input(对象)，reasoning 用 text 字段。
+	bodyClaude := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "reasoning", "text": "thinking here"},
+				map[string]interface{}{"type": "tool_use", "id": "call_9", "name": "run_code", "input": map[string]interface{}{"code": "x"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyClaude)
+	claudeMsg := bodyClaude["messages"].([]interface{})[0].(map[string]interface{})
+	if claudeMsg["reasoning_content"] != "thinking here" {
+		t.Errorf("claude reasoning text should map to reasoning_content, got %v", claudeMsg["reasoning_content"])
+	}
+	claudeTC, _ := claudeMsg["tool_calls"].([]interface{})
+	if len(claudeTC) != 1 {
+		t.Fatalf("claude tool_use should convert to 1 tool_call, got %#v", claudeMsg["tool_calls"])
+	}
+	claudeFn := claudeTC[0].(map[string]interface{})["function"].(map[string]interface{})
+	if claudeFn["arguments"] != `{"code":"x"}` {
+		t.Errorf("claude input should be JSON-marshaled, got %q", claudeFn["arguments"])
+	}
+
+	// 纯文本数组（无 thinking/toolCall）归一化为字符串。
+	bodyText := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "text", "text": "a"},
+				map[string]interface{}{"type": "text", "text": "b"},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyText)
+	if got := bodyText["messages"].([]interface{})[0].(map[string]interface{})["content"]; got != "a\nb" {
+		t.Errorf("text parts should join with newline, got %q", got)
+	}
+
+	// 纯字符串 content 与图片数组不动；无 messages 时不动。
+	bodyPlain := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "plain"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": "https://x/y.png"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyPlain)
+	if got := bodyPlain["messages"].([]interface{})[0].(map[string]interface{})["content"]; got != "plain" {
+		t.Errorf("plain string content should be untouched, got %v", got)
+	}
+	imgContent := bodyPlain["messages"].([]interface{})[1].(map[string]interface{})["content"].([]interface{})
+	if len(imgContent) != 1 {
+		t.Errorf("image-only array should stay an array, got %#v", imgContent)
+	}
+
+	normalizeChatContentBlocks(map[string]interface{}{"model": "m"})
+	normalizeChatContentBlocks(nil)
+}
+
+// TestNormalizeChatContentBlocksThinkingChain 覆盖 zen thinking 模式下工具循环的
+// reasoning_content 续传兜底：assistant 开启思考后，后续缺失 reasoning 的 toolCall
+// 轮次必须补空串，否则上游 400 "reasoning_content must be passed back"。
+// 同时保证新用户轮次重置思考状态，不误注入后续独立对话。
+func TestNormalizeChatContentBlocksThinkingChain(t *testing.T) {
+	body := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "review"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "thinking", "thinking": "first", "thinkingSignature": "reasoning_content"},
+				map[string]interface{}{"type": "toolCall", "id": "call_1", "name": "bash", "arguments": map[string]interface{}{"command": "ls"}},
+			}},
+			map[string]interface{}{"role": "tool", "tool_call_id": "call_1", "content": "out"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "toolCall", "id": "call_2", "name": "bash", "arguments": map[string]interface{}{"command": "cat"}},
+			}},
+			map[string]interface{}{"role": "tool", "tool_call_id": "call_2", "content": "data"},
+		},
+	}
+	normalizeChatContentBlocks(body)
+	msgs := body["messages"].([]interface{})
+	a1 := msgs[1].(map[string]interface{})
+	if a1["reasoning_content"] != "first" {
+		t.Errorf("assistant1 should carry thinking text, got %v", a1["reasoning_content"])
+	}
+	a2 := msgs[3].(map[string]interface{})
+	if _, has := a2["reasoning_content"]; !has {
+		t.Error("assistant2 (toolCall round without thinking) should get empty reasoning_content injected")
+	}
+	if a2["reasoning_content"] != "" {
+		t.Errorf("assistant2 reasoning_content should be empty string, got %v", a2["reasoning_content"])
+	}
+	if a2["tool_calls"] == nil {
+		t.Error("assistant2 should keep converted tool_calls")
+	}
+}
+
+// TestNormalizeChatContentBlocksThinkingReset 覆盖 thinking 状态在新用户轮次重置：
+// 思考结束后新对话轮（user→assistant 无 thinking）不应被注入 reasoning_content。
+func TestNormalizeChatContentBlocksThinkingReset(t *testing.T) {
+	body := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "review"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "thinking", "thinking": "first", "thinkingSignature": "reasoning_content"},
+				map[string]interface{}{"type": "text", "text": "done"},
+			}},
+			map[string]interface{}{"role": "user", "content": "now a new question"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "toolCall", "id": "call_9", "name": "bash", "arguments": map[string]interface{}{"command": "pwd"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(body)
+	msgs := body["messages"].([]interface{})
+	last := msgs[3].(map[string]interface{})
+	if _, has := last["reasoning_content"]; has {
+		t.Error("thinking state should reset after a new user turn; assistant without thinking got injected")
 	}
 }

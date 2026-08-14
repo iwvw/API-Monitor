@@ -373,7 +373,7 @@ function CronEditor({ form, setForm, preview, previewError }) {
           onChange={(event) => setForm((prev) => ({ ...prev, schedule: event.target.value }))}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 cq-sm:grid-cols-2">
           <Select size="sm" label="周期" className="w-full" value={form.periodType} onValueChange={(value) => setForm((prev) => ({ ...prev, periodType: value }))} items={PERIOD_ITEMS} />
           {form.periodType === 'week' && (
             <Select size="sm" label="星期" className="w-full" value={form.weekday} onValueChange={(value) => setForm((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_ITEMS} />
@@ -390,7 +390,7 @@ function CronEditor({ form, setForm, preview, previewError }) {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div className="grid gap-3 cq-sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <div className="flex items-center px-3 py-2 rounded-md border border-kumo-line bg-kumo-recessed font-mono text-xs text-kumo-default">
           {currentSchedule || '手动触发'}
         </div>
@@ -1039,7 +1039,7 @@ function SchedulerPage() {
 
   return (
     <TooltipProvider>
-      <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+      <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
         <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
           <Tabs
             {...MODULE_TABS_PROPS}
@@ -1083,14 +1083,14 @@ function SchedulerPage() {
           />
         </div>
 
-        <div className="grid grid-cols-4 gap-2 sm:gap-3">
+        <div className="grid grid-cols-4 gap-2 cq-sm:gap-3">
           {summaryItems.map(({ label, value, icon, cardClassName }) => (
-            <LayerCard key={label} className={`min-w-0 p-2 sm:p-3 ${cardClassName || ''}`}>
-              <div className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle sm:gap-3 sm:text-xs">
+            <LayerCard key={label} className={`min-w-0 p-2 cq-sm:p-3 ${cardClassName || ''}`}>
+              <div className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle cq-sm:gap-3 cq-sm:text-xs">
                 <span className="truncate">{label}</span>
                 <span className="shrink-0">{icon}</span>
               </div>
-              <div className="mt-1 font-mono text-base font-bold text-kumo-strong sm:text-lg">{value}</div>
+              <div className="mt-1 font-mono text-base font-bold text-kumo-strong cq-sm:text-lg">{value}</div>
             </LayerCard>
           ))}
         </div>
@@ -1147,10 +1147,10 @@ function SchedulerPage() {
             {workflows.length === 0 ? (
               <Empty size="sm" className="rounded-none border-0 bg-transparent" icon={<GitBranch className="h-8 w-8 text-kumo-inactive" />} title="暂无工作流" description="创建后可按 DAG 编排任务。" contents={<Button size="sm" variant="primary" onClick={openCreateWorkflow}><Plus className="h-3.5 w-3.5" />新建工作流</Button>} />
             ) : (
-              <div className="grid gap-3 lg:grid-cols-2">
+              <div className="grid gap-3 cq-lg:grid-cols-2">
                 {workflows.map((workflow) => (
                   <div key={workflow.id} className="scheduler-workflow-card flex h-full flex-col rounded-md border border-kumo-line p-3">
-                    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+                    <div className="grid min-h-0 flex-1 gap-3 cq-lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
                       <div className="flex min-h-0 min-w-0 flex-col gap-2.5">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
@@ -1166,7 +1166,7 @@ function SchedulerPage() {
                             <IconButton label="删除工作流" variant={isArmed(`workflow:${workflow.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteWorkflow(workflow)} icon={<Trash className="h-3.5 w-3.5" />} />
                           </div>
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                        <div className="grid gap-2 cq-sm:grid-cols-2 cq-lg:grid-cols-1">
                           <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2">
                             <div className="text-[11px] text-kumo-subtle">触发方式</div>
                             <div className="mt-1 truncate font-mono text-xs text-kumo-strong">{workflow.schedule ? `Cron ${workflow.schedule}` : '手动触发'}</div>
@@ -1281,16 +1281,16 @@ function SchedulerPage() {
         )}
 
         <Dialog.Root open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-          <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto p-5 sm:w-full sm:max-w-3xl sm:p-6">
+          <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto p-5 cq-sm:w-full cq-sm:max-w-3xl cq-sm:p-6">
             <Dialog.Title className="mb-4 text-base font-bold text-kumo-strong">{taskForm.id ? '编辑任务' : '新建任务'}</Dialog.Title>
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <Input size="sm" label="名称" value={taskForm.name} onChange={(event) => setTaskForm((prev) => ({ ...prev, name: event.target.value }))} />
                 <Select size="sm" label="执行节点" className="w-full" value={taskForm.node_id} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, node_id: value }))} items={nodeItems} />
               </div>
               <Input size="sm" label="描述" value={taskForm.description} onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))} />
               <CronEditor form={taskForm} setForm={setTaskForm} preview={cronPreview} previewError={cronPreviewError} />
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <Select size="sm" label="任务类型" className="w-full" value={taskForm.type} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, type: value }))} items={TYPE_ITEMS} />
                 <Input size="sm" label="节点标签选择器" value={taskForm.node_selector} onChange={(event) => setTaskForm((prev) => ({ ...prev, node_selector: event.target.value }))} />
               </div>
@@ -1299,7 +1299,7 @@ function SchedulerPage() {
               ) : (
                 <Input size="sm" label={taskCommandLabel} placeholder={taskCommandPlaceholder} value={taskForm.command} onChange={(event) => setTaskForm((prev) => ({ ...prev, command: event.target.value }))} />
               )}
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div className="grid gap-3 cq-sm:grid-cols-4">
                 <Input size="sm" type="number" label="超时秒数" min="1" value={taskForm.timeout_seconds} onChange={(event) => setTaskForm((prev) => ({ ...prev, timeout_seconds: Number(event.target.value) }))} />
                 <Input size="sm" type="number" label="重试次数" min="0" value={taskForm.retry_count} onChange={(event) => setTaskForm((prev) => ({ ...prev, retry_count: Number(event.target.value) }))} />
                 <Input size="sm" type="number" label="重试间隔" min="0" value={taskForm.retry_interval_seconds} onChange={(event) => setTaskForm((prev) => ({ ...prev, retry_interval_seconds: Number(event.target.value) }))} />
@@ -1312,12 +1312,12 @@ function SchedulerPage() {
         </Dialog.Root>
 
         <Dialog.Root open={workflowDialogOpen} onOpenChange={setWorkflowDialogOpen}>
-          <Dialog className="flex h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-5 sm:w-[calc(100vw-2rem)] sm:max-w-[92rem] sm:p-6">
+          <Dialog className="@container flex h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-5 cq-sm:w-[calc(100vw-2rem)] cq-sm:max-w-[92rem] cq-sm:p-6">
             <Dialog.Title className="mb-4 shrink-0 text-base font-bold text-kumo-strong">{workflowForm.id ? '编辑工作流' : '新建工作流'}</Dialog.Title>
             <div className="flex min-h-0 flex-1 flex-col gap-4">
               <div className="shrink-0 rounded-md border border-kumo-line p-3">
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_8rem]">
-                  <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 cq-lg:grid-cols-[minmax(0,1fr)_8rem]">
+                  <div className="grid min-w-0 gap-3 cq-sm:grid-cols-2">
                     <Input size="sm" label="名称" value={workflowForm.name} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, name: event.target.value }))} />
                     <Input size="sm" label="Cron（留空为手动）" value={workflowForm.schedule} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, schedule: event.target.value }))} />
                   </div>
@@ -1331,7 +1331,7 @@ function SchedulerPage() {
                 </div>
               </div>
 
-              <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 xl:grid-cols-[minmax(0,1fr)_26rem] xl:overflow-hidden xl:pr-0">
+              <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 cq-xl:grid-cols-[minmax(0,1fr)_26rem] cq-xl:overflow-hidden cq-xl:pr-0">
                 <div className="flex min-h-0 flex-col gap-3">
                   <WorkflowCanvas key={`workflow-editor-${workflowCanvasEpoch}`} workflow={workflowForm} runs={[]} selectedNodeId={selectedWorkflowNode?.id} onSelectNode={setSelectedWorkflowNodeId} size="editor" />
                   <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-md border border-kumo-line p-3">
@@ -1364,7 +1364,7 @@ function SchedulerPage() {
                       </div>
                       {selectedWorkflowNode ? (
                         <div className="space-y-3">
-                          <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="grid gap-3 cq-sm:grid-cols-2">
                             <Input size="sm" label="节点名称" value={selectedWorkflowNode.name || ''} onChange={(event) => updateWorkflowNode(selectedWorkflowNode.id, { name: event.target.value })} />
                             {selectedWorkflowNode.type !== 'start' && (
                               <div className="flex items-center justify-between rounded-md border border-kumo-line px-3 py-2">
@@ -1413,7 +1413,7 @@ function SchedulerPage() {
                           <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-4 text-center text-xs text-kumo-subtle">暂无依赖规则，节点会独立存在。</div>
                         )}
                         {workflowForm.edges.map((edge, index) => (
-                          <div key={edge.id} className="grid gap-2 rounded-md border border-kumo-line p-2.5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                          <div key={edge.id} className="grid gap-2 rounded-md border border-kumo-line p-2.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                             <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
                               <Select size="sm" label="来源" className="w-full" value={edge.from} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, from: value } : item) }))} items={workflowNodeItems} />
                               <ArrowRight className="mb-2 h-3.5 w-3.5 text-kumo-subtle" />
@@ -1437,7 +1437,7 @@ function SchedulerPage() {
         </Dialog.Root>
 
         <Dialog.Root open={Boolean(selectedRun)} onOpenChange={(open) => !open && setSelectedRun(null)}>
-          <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto p-5 sm:w-full sm:max-w-4xl sm:p-6">
+          <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto p-5 cq-sm:w-full cq-sm:max-w-4xl cq-sm:p-6">
             <Dialog.Title className="mb-4 text-base font-bold text-kumo-strong">运行详情</Dialog.Title>
             {selectedRun && (
               <div className="space-y-4">

@@ -445,7 +445,7 @@ export default function DrawioPage() {
 
   const editorView = (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <LayerCard className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <LayerCard className="grid min-h-0 flex-1 grid-cols-1 cq-lg:grid-cols-[minmax(0,1fr)_20rem]">
         {selectedId && draft ? (
           <DrawioFrame
             ref={frameRef}
@@ -475,7 +475,7 @@ export default function DrawioPage() {
             }
           />
         )}
-        <div className="hidden min-h-0 flex-col border-l border-kumo-line lg:flex">
+        <div className="hidden min-h-0 flex-col border-l border-kumo-line cq-lg:flex">
           <Button
             type="button"
             variant="ghost"
@@ -706,7 +706,7 @@ export default function DrawioPage() {
             onClick={() => fileRef.current?.click()}
             icon={<Download className="h-3.5 w-3.5" />}
           >
-            <span className="hidden sm:inline">导入</span>
+            <span className="hidden cq-sm:inline">导入</span>
           </Toolbar.Button>
           <Toolbar.Button
             aria-label="导出图表"
@@ -714,7 +714,7 @@ export default function DrawioPage() {
             onClick={() => exportDocument(settings?.default_export_format || 'drawio')}
             icon={<Upload className="h-3.5 w-3.5" />}
           >
-            <span className="hidden sm:inline">导出</span>
+            <span className="hidden cq-sm:inline">导出</span>
           </Toolbar.Button>
         </Toolbar>
       </div>

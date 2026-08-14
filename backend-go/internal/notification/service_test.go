@@ -320,8 +320,8 @@ func TestTelegramProxyConfigAndTransportErrorsHideToken(t *testing.T) {
 
 	formatted := telegramMessageText("<测试>", "状态: 离线\n地址: https://example.com?a=1&b=2\n错误: <timeout>")
 	for _, want := range []string{
-		"<blockquote>", "<b>状态:</b> 🔴 离线", "<code>https://example.com?a=1&amp;b=2</code>",
-		"&lt;测试&gt;", "&lt;timeout&gt;", "<i>API Monitor</i>",
+		"*<测试\\>*", "*状态:* 🔴 离线", "`https://example.com?a=1&b=2`",
+		"<timeout\\>", "_API Monitor_",
 	} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("formatted Telegram message missing %q: %s", want, formatted)

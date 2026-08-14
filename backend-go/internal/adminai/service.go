@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,7 +34,13 @@ type Service struct {
 	mu          sync.Mutex
 	runs        map[string]chan SSEEvent // runId(execId) -> 事件通道
 	sessionRuns map[string]string        // sessionId -> runId，同一会话只允许一个活跃执行
-	approval    map[string]chan string   // approvalId -> 审批结果通道
+	cancels     map[string]context.CancelFunc // runId -> runCtx 取消函数（订阅后仍可真正终止执行）
+	approval    map[string]chan approvalResolution // approvalId -> 审批结果通道
+
+	catalogMu   sync.Mutex // 确定性接口清单缓存（apiCatalogText）
+	catalogText string
+	catalogDone bool
+	catalogDescs map[string]string // path -> 中文描述（工具步骤展示用）
 
 	chanMgr     *channelManager // PRD-03 频道接入（channels.go）
 	cleanerOnce sync.Once       // PRD-04 审批超时清理 goroutine
@@ -46,7 +53,8 @@ func New(cfg config.Config) *Service {
 		store:       database.New(cfg),
 		runs:        make(map[string]chan SSEEvent),
 		sessionRuns: make(map[string]string),
-		approval:    make(map[string]chan string),
+		cancels:     make(map[string]context.CancelFunc),
+		approval:    make(map[string]chan approvalResolution),
 	}
 }
 
@@ -167,6 +175,22 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "ai_access_audit", "channel", "TEXT"); err != nil {
 		return fmt.Errorf("adminai ensureSchema ai_access_audit: %w", err)
 	}
+	// admin_ai_messages 扩展 reasoning_content 列（推理模型要求回传思考内容）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_content", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_messages.reasoning_content: %w", err)
+	}
+	// admin_ai_messages 扩展 reasoning_summary 列（AI 生成的 ≤10 字推理摘要，前端收起态展示）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_summary", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_messages.reasoning_summary: %w", err)
+	}
+	// admin_ai_messages 扩展 tool_call_id 列（tool 结果行记录其对应的 tool_call，用于恢复历史时按 ID 配对）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "tool_call_id", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_messages.tool_call_id: %w", err)
+	}
+	// admin_ai_approvals 扩展 reason 列（请求更改/拒绝原因）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_approvals", "reason", "TEXT"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_approvals.reason: %w", err)
+	}
 	return nil
 }
 
@@ -262,6 +286,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.deleteBinding(w, r, strings.TrimPrefix(path, "/channel-bindings/"))
 	case path == "/settings" && (r.Method == http.MethodGet || r.Method == http.MethodPut):
 		s.handleSettings(w, r)
+	case path == "/cron/daily-briefing" && r.Method == http.MethodGet:
+		s.handleDailyBriefing(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "管理 AI 路由不存在")
 	}
@@ -299,13 +325,17 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item sessionItem
 		var we int
-		if err := rows.Scan(&item.ID, &item.Source, &item.ChannelRef, &item.Title, &item.Model, &we, &item.CreatedAt, &item.UpdatedAt, &item.LastActivityAt); err != nil {
+		var identity string
+		if err := rows.Scan(&item.ID, &item.Source, &item.ChannelRef, &item.Title, &item.Model, &we, &identity, &item.CreatedAt, &item.UpdatedAt, &item.LastActivityAt); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		item.WriteEnabled = we == 1
-		_ = db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM admin_ai_messages WHERE session_id = ?", item.ID).Scan(&item.MessageCount)
 		sessions = append(sessions, item)
+	}
+	rows.Close() // 先收行再查询：单连接池（SetMaxOpenConns(1)）下 rows 未关时同连接嵌套查询会自锁
+	for i := range sessions {
+		_ = db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM admin_ai_messages WHERE session_id = ?", sessions[i].ID).Scan(&sessions[i].MessageCount)
 	}
 	if err := rows.Err(); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -342,6 +372,10 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	model := req.Model
+	if model == "" {
+		// 动态读设置（管理 AI 设置页保存的默认模型），兼容旧环境变量
+		_ = db.QueryRowContext(r.Context(), "SELECT value FROM system_config WHERE key = 'admin_ai_default_model'").Scan(&model)
+	}
 	if model == "" {
 		model = s.cfg.AdminAIDefaultModel
 	}
@@ -399,12 +433,15 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 	defer db.Close()
 
 	type messageItem struct {
-		ID           string `json:"id"`
-		SessionID    string `json:"sessionId"`
-		Role         string `json:"role"`
-		Content      string `json:"content,omitempty"`
-		ToolCallMeta string `json:"toolCallMeta,omitempty"`
-		CreatedAt    string `json:"createdAt"`
+		ID               string `json:"id"`
+		SessionID        string `json:"sessionId"`
+		Role             string `json:"role"`
+		Content          string `json:"content,omitempty"`
+		ReasoningContent string `json:"reasoning_content,omitempty"`
+		ReasoningSummary string `json:"reasoning_summary,omitempty"`
+		ToolCallMeta     string `json:"toolCallMeta,omitempty"`
+		ToolCallDesc     string `json:"toolCallDesc,omitempty"`
+		CreatedAt        string `json:"createdAt"`
 	}
 
 	var rows *sql.Rows
@@ -415,11 +452,11 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 			return
 		}
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(tool_call_meta,''), created_at FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), created_at FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
 			sessionID, parts[0], parts[0], parts[1], limit+1)
 	} else {
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(tool_call_meta,''), created_at FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), created_at FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
 			sessionID, limit+1)
 	}
 	if err != nil {
@@ -431,9 +468,21 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 	items := make([]messageItem, 0, limit)
 	for rows.Next() {
 		var item messageItem
-		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ToolCallMeta, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ReasoningContent, &item.ReasoningSummary, &item.ToolCallMeta, &item.CreatedAt); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		// 工具调用行补中文动作描述（与实时 tool_start 事件的 desc 一致，保证刷新前后样式统一）
+		if item.ToolCallMeta != "" {
+			var tcs []struct {
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			}
+			if json.Unmarshal([]byte(item.ToolCallMeta), &tcs) == nil && len(tcs) > 0 {
+				item.ToolCallDesc = s.toolDesc(tcs[0].Function.Name, tcs[0].Function.Arguments)
+			}
 		}
 		items = append(items, item)
 	}
@@ -487,7 +536,7 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
-	runID, err := s.RunLoop(r.Context(), source, req.SessionID, req.Prompt, "", req.Model)
+	runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -511,6 +560,7 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if !exists {
+		slog.Warn("stream-not-found", "runId", runID, "activeRuns", len(s.runs))
 		response.Error(w, http.StatusNotFound, "执行不存在或已结束")
 		return
 	}
@@ -531,10 +581,10 @@ func (s *Service) cancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	ch, exists := s.runs[req.RunID]
-	if exists {
-		delete(s.runs, req.RunID)
-		close(ch)
+	cancel, hasCancel := s.cancels[req.RunID]
+	if hasCancel {
+		// 通道关闭交给 runInference 自身（避免生产者向已关闭通道发送导致 panic）
+		delete(s.cancels, req.RunID)
 	}
 	var cancelledSession string
 	for sid, rid := range s.sessionRuns {
@@ -544,13 +594,18 @@ func (s *Service) cancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Unlock()
+	if hasCancel {
+		cancel()
+	}
 	_ = cancelledSession
-	response.OK(w, map[string]interface{}{"cancelled": exists})
+	response.OK(w, map[string]interface{}{"cancelled": hasCancel})
 }
 
 func (s *Service) resolveApproval(w http.ResponseWriter, r *http.Request, approvalID string) {
 	var req struct {
-		Action string `json:"action"`
+		Action         string `json:"action"`
+		ApplyToSession bool   `json:"applyToSession"`
+		Reason         string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -570,17 +625,25 @@ func (s *Service) resolveApproval(w http.ResponseWriter, r *http.Request, approv
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.ExecContext(r.Context(),
-		`UPDATE admin_ai_approvals SET status = ?, resolved_at = ? WHERE id = ? AND status = 'pending'`,
-		req.Action, now, approvalID)
+		`UPDATE admin_ai_approvals SET status = ?, resolved_at = ?, reason = ? WHERE id = ? AND status = 'pending'`,
+		req.Action, now, req.Reason, approvalID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	// 允许此对话：批准的同时把本会话标记为后续写操作免审批（仅本会话生效）
+	if req.Action == "approve" && req.ApplyToSession {
+		var sessionID string
+		if err := db.QueryRowContext(r.Context(), "SELECT session_id FROM admin_ai_approvals WHERE id = ?", approvalID).Scan(&sessionID); err == nil && sessionID != "" {
+			_, _ = db.ExecContext(r.Context(), "UPDATE admin_ai_sessions SET write_enabled = 1 WHERE id = ?", sessionID)
+		}
+	}
+
 	s.mu.Lock()
 	if ch, exists := s.approval[approvalID]; exists {
 		select {
-		case ch <- req.Action:
+		case ch <- approvalResolution{Action: req.Action, Reason: req.Reason}:
 		default:
 		}
 	}

@@ -206,8 +206,8 @@ const COMPACT_INLINE_SUBBOX_CLASS = 'border border-kumo-interact/70 shadow-none'
 const COMPACT_STICKY_ACTION_CLASS = 'border-l border-kumo-interact/60 before:!w-1 before:!-left-1';
 const COMPACT_ACTION_BUTTON_CLASS = '!shadow-none';
 const SERVER_SECTION_HEADER_CLASS = 'flex min-h-[56px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-4 py-3.5';
-const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-col gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 lg:flex-row lg:items-center lg:justify-between';
-const SERVER_SECONDARY_TABS_GROUP_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap p-0.5 scrollbar-thin sm:gap-2';
+const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-col gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 cq-lg:flex-row cq-lg:items-center cq-lg:justify-between';
+const SERVER_SECONDARY_TABS_GROUP_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap p-0.5 scrollbar-thin cq-sm:gap-2';
 const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-kumo-brand';
 const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
 const COMPACT_EXPAND_EXIT_MS = 230;
@@ -391,8 +391,8 @@ function ServerModuleTabLabel({ icon: Icon, children, short, badge = null }) {
   return (
     <span className="inline-flex h-5 items-center gap-1.5 whitespace-nowrap">
       <Icon className={SERVER_MODULE_TAB_ICON_CLASS} />
-      <span className="hidden sm:inline">{children}</span>
-      <span className="sm:hidden">{short || children}</span>
+      <span className="hidden cq-sm:inline">{children}</span>
+      <span className="cq-sm:hidden">{short || children}</span>
       {badge !== null && (
         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-kumo-brand/10 px-1 text-[10px] font-bold leading-none text-kumo-brand">
           {badge}
@@ -451,7 +451,7 @@ function CompactMetricBarComponent({ label, value, valueClassName, barClassName,
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 sm:w-14 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 cq-sm:w-14 cq-sm:border-0 cq-sm:bg-transparent cq-sm:px-0 cq-sm:py-0">
       <div className="flex min-w-0 items-center justify-between gap-1">
         <span className="truncate">{label}</span>
         <span className={`shrink-0 font-bold ${color ? '' : valueClassName}`} style={color ? { color } : undefined}>{value}</span>
@@ -647,7 +647,7 @@ function TrafficTotalSummary({ txTotal, rxTotal, quota, compact = false }) {
 
   if (compact) {
     return (
-      <div className="grid min-w-0 grid-cols-2 gap-1 rounded-md bg-kumo-recessed/20 p-1 sm:flex sm:h-full sm:flex-col sm:justify-center sm:gap-1">
+      <div className="grid min-w-0 grid-cols-2 gap-1 rounded-md bg-kumo-recessed/20 p-1 cq-sm:flex cq-sm:h-full cq-sm:flex-col cq-sm:justify-center cq-sm:gap-1">
         <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1">
           <div className="text-[10px] font-semibold leading-none text-kumo-subtle">累计上行</div>
           <div className="mt-0.5 truncate text-xs font-bold tabular-nums text-kumo-info" title={txTotal?.text || '-'}>
@@ -682,7 +682,7 @@ function TrafficTotalSummary({ txTotal, rxTotal, quota, compact = false }) {
   const valueClassName = 'text-sm';
 
   return (
-    <div className="grid min-w-0 grid-cols-2 gap-1.5 sm:grid-cols-1">
+    <div className="grid min-w-0 grid-cols-2 gap-1.5 cq-sm:grid-cols-1">
       <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 ${itemClassName}`}>
         <div className="text-[10px] font-semibold text-kumo-subtle">累计上行</div>
         <div className={`mt-0.5 truncate font-bold tabular-nums text-kumo-info ${valueClassName}`} title={txTotal?.text || '-'}>
@@ -696,7 +696,7 @@ function TrafficTotalSummary({ txTotal, rxTotal, quota, compact = false }) {
         </div>
       </div>
       {quota && (
-        <div className={`col-span-2 min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 sm:col-span-1 ${itemClassName}`}>
+        <div className={`col-span-2 min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 cq-sm:col-span-1 ${itemClassName}`}>
           <Meter
             label="剩余流量"
             value={unlimited ? 100 : remainingPercent}
@@ -733,9 +733,9 @@ const ExpandedInfoChip = React.memo(ExpandedInfoChipComponent, (prev, next) => (
 const getSystemOverviewChipClassName = (kind = 'default') => {
   switch (kind) {
     case 'wide':
-      return 'sm:col-span-2 xl:col-span-3';
+      return 'cq-sm:col-span-2 cq-xl:col-span-3';
     case 'medium':
-      return 'sm:col-span-2';
+      return 'cq-sm:col-span-2';
     default:
       return '';
   }
@@ -854,15 +854,15 @@ function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false
 }
 
 const getExpandedInfoGridClassName = (dense = false) => (
-  `grid min-w-0 grid-cols-1 ${dense ? 'gap-1.5' : 'gap-2'} lg:grid-cols-2`
+  `grid min-w-0 grid-cols-1 ${dense ? 'gap-1.5' : 'gap-2'} cq-lg:grid-cols-2`
 );
 
 const getExpandedTrendGridClassName = (compact = false, dense = false) => (
-  `grid min-w-0 grid-cols-1 ${compact || dense ? 'gap-1.5' : 'gap-2'} lg:grid-cols-2`
+  `grid min-w-0 grid-cols-1 ${compact || dense ? 'gap-1.5' : 'gap-2'} cq-lg:grid-cols-2`
 );
 
 const getExpandedCardSpanClassName = (index, total) => (
-  index === total - 1 && total % 2 === 1 ? 'h-full lg:col-span-2' : 'h-full'
+  index === total - 1 && total % 2 === 1 ? 'h-full cq-lg:col-span-2' : 'h-full'
 );
 
 function NetworkQualityPanel({
@@ -6054,7 +6054,7 @@ function ServerPage() {
       { label: '主机', value: hosts.length, className: 'text-kumo-subtle' },
     ].slice(0, 4);
     return (
-      <div className="flex min-w-0 flex-col gap-3 xl:sticky xl:top-0 xl:self-start">
+      <div className="flex min-w-0 flex-col gap-3 cq-xl:sticky cq-xl:top-0 cq-xl:self-start">
         <LayerCard className="overflow-hidden p-0">
           <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
             <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
@@ -7650,7 +7650,7 @@ function ServerPage() {
       className={
         serverCurrentTab === 'terminal'
           ? 'flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-3 overflow-visible'
-          : 'flex w-full min-w-0 flex-col gap-3 sm:gap-4'
+          : 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4'
       }
     >
       <CompactColumnMenu
@@ -7691,10 +7691,10 @@ function ServerPage() {
           {serverCurrentTab === 'list' && (
             <Toolbar size="sm" aria-label="导出导入主机配置" className="shrink-0">
               <Toolbar.Button onClick={exportServers} aria-label="导出主机配置" title="导出主机配置" icon={<Upload className="h-3.5 w-3.5" />}>
-                <span className="hidden sm:inline">导出</span>
+                <span className="hidden cq-sm:inline">导出</span>
               </Toolbar.Button>
               <Toolbar.Button onClick={openImportServerModal} aria-label="导入主机配置" title="导入主机配置" icon={<Download className="h-3.5 w-3.5" />}>
-                <span className="hidden sm:inline">导入</span>
+                <span className="hidden cq-sm:inline">导入</span>
               </Toolbar.Button>
             </Toolbar>
           )}
@@ -7739,7 +7739,7 @@ function ServerPage() {
       </div>
 
       {serverCurrentTab === 'status-pages' && (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(24rem,0.9fr)_minmax(0,1.1fr)]">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(24rem,0.9fr)_minmax(0,1.1fr)]">
           <LayerCard className="overflow-hidden p-0">
             <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
               <div className="min-w-0">
@@ -7754,17 +7754,17 @@ function ServerPage() {
             </LayerCard.Secondary>
 
             <LayerCard.Primary className="space-y-4 p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <Input size="sm" label="名称" value={serverStatusPageForm.title} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, title: event.target.value, slug: prev.slug || normalizeServerStatusSlug(event.target.value) }))} placeholder="基础设施状态" />
                 <Input size="sm" label="Slug" value={serverStatusPageForm.slug} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, slug: normalizeServerStatusSlug(event.target.value) }))} placeholder="infra" />
                 <Input size="sm" label="自定义域名" value={serverStatusPageForm.domain} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, domain: normalizeServerStatusDomain(event.target.value) }))} placeholder="status.example.com" />
                 <Input size="sm" label="缓存秒数" type="number" min="30" value={serverStatusPageForm.cacheSeconds} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, cacheSeconds: event.target.value }))} />
-                <div className="sm:col-span-2">
+                <div className="cq-sm:col-span-2">
                   <Textarea size="sm" label="说明" value={serverStatusPageForm.description} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, description: event.target.value }))} placeholder="可选说明" rows={3} />
                 </div>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 cq-sm:grid-cols-2">
                 {[
                   ['public', '公开访问', '关闭后公开 API 和单页都会不可用。'],
                   ['hideHosts', '隐藏地址', '公开页不显示主机 IP 或连接地址。'],
@@ -7796,7 +7796,7 @@ function ServerPage() {
                       <label key={server.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-recessed">
                         <Checkbox checked={serverStatusPageForm.serverIds.includes(server.id)} onCheckedChange={(checked) => toggleServerStatusPageServer(server.id, checked)} aria-label={`绑定 ${server.name}`} />
                         <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">{server.name}</span>
-                        <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle sm:block">{server.host || server.id}</span>
+                        <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle cq-sm:block">{server.host || server.id}</span>
                       </label>
                     ))}
                   </div>
@@ -7851,7 +7851,7 @@ function ServerPage() {
                   const domainUrl = getServerStatusDomainUrl(page);
                   return (
                     <div key={page.id} className="rounded-lg border border-kumo-line bg-kumo-base p-3">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-brand/10 text-kumo-brand">
@@ -7934,7 +7934,7 @@ function ServerPage() {
               onChange={e => setServerSearchText(e.target.value)}
               placeholder="搜索主机名称、IP 或标签..."
               ariaLabel="搜索主机"
-              className="lg:w-72"
+              className="cq-lg:w-72"
             />
           </div>
 
@@ -8230,7 +8230,7 @@ function ServerPage() {
                                     </div>
                                   ) : (
                                     <>
-                                      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
+                                      <div className="grid grid-cols-1 gap-1.5 cq-sm:grid-cols-2 cq-lg:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
                                         <DenseDetailChip label="核心" value={coreText} />
                                         <DenseDetailChip label="Agent 版本" value={server.info?.agentVersion || '未报告'} valueClassName="font-mono text-kumo-strong" />
                                         <DenseDetailChip label="内存" value={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`} />
@@ -8294,7 +8294,7 @@ function ServerPage() {
                                             )}
                                           >
                                             {(tooltipBoundary) => (
-                                              <div className={`grid min-w-0 gap-1.5 ${hasGpuData ? 'grid-cols-1' : 'sm:grid-cols-[minmax(0,1fr)_8.5rem]'}`}>
+                                              <div className={`grid min-w-0 gap-1.5 ${hasGpuData ? 'grid-cols-1' : 'cq-sm:grid-cols-[minmax(0,1fr)_8.5rem]'}`}>
                                                 <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
                                                   <TimeseriesChart
                                                     echarts={fastTimeseriesEcharts}
@@ -8332,7 +8332,7 @@ function ServerPage() {
                                               )}
                                             >
                                               {(tooltipBoundary) => (
-                                                <div className="grid min-w-0 gap-1.5 sm:grid-cols-[minmax(0,1fr)_8.5rem]">
+                                                <div className="grid min-w-0 gap-1.5 cq-sm:grid-cols-[minmax(0,1fr)_8.5rem]">
                                                   <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
                                                     <TimeseriesChart
                                                       echarts={fastTimeseriesEcharts}
@@ -8465,7 +8465,7 @@ function ServerPage() {
                       >
                         <div
                           onClick={() => toggleServerExpand(server.id)}
-                          className="grid min-h-[56px] grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-3 gap-y-2 px-3 py-2.5 cursor-pointer sm:flex sm:flex-nowrap sm:justify-between sm:gap-2.5 sm:py-2"
+                          className="grid min-h-[56px] grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-3 gap-y-2 px-3 py-2.5 cursor-pointer cq-sm:flex cq-sm:flex-nowrap cq-sm:justify-between cq-sm:gap-2.5 cq-sm:py-2"
                         >
                           <div className="order-1 flex min-w-0 items-center gap-3">
                             <span className="relative flex h-2 w-2 rounded-full">
@@ -8506,9 +8506,9 @@ function ServerPage() {
                             </div>
                           </div>
 
-                          <div className="contents sm:order-2 sm:ml-auto sm:flex sm:shrink-0 sm:flex-nowrap sm:items-center sm:gap-2.5">
+                          <div className="contents cq-sm:order-2 cq-sm:ml-auto cq-sm:flex cq-sm:shrink-0 cq-sm:flex-nowrap cq-sm:items-center cq-sm:gap-2.5">
 							{isServerOnline(server) && server.info && (
-                              <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-subtle sm:order-none sm:col-span-1 sm:flex sm:h-9 sm:w-auto sm:items-center sm:gap-2.5">
+                              <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-subtle cq-sm:order-none cq-sm:col-span-1 cq-sm:flex cq-sm:h-9 cq-sm:w-auto cq-sm:items-center cq-sm:gap-2.5">
                                 {hasGpuData && (
                                   <CompactMetricBar
                                     label="GPU"
@@ -8545,7 +8545,7 @@ function ServerPage() {
                                     width={server.info.disk[0].usage || '0%'}
                                   />
                                 )}
-                                <div className="hidden sm:block">
+                                <div className="hidden cq-sm:block">
                                   <CompactMetricBar
                                     label="剩余"
                                     value={lifecycle.expiresAt ? `${Math.round(lifecycle.remainingPercent)}%` : '永久'}
@@ -8555,13 +8555,13 @@ function ServerPage() {
                                   />
                                 </div>
                                 {!hasGpuData && server.info.network && (
-                                  <div className="flex min-w-0 flex-col justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 font-mono leading-[1.2] tabular-nums sm:hidden">
+                                  <div className="flex min-w-0 flex-col justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 font-mono leading-[1.2] tabular-nums cq-sm:hidden">
                                     <span className="truncate text-kumo-info">&uarr; {tx.num}{tx.unit}</span>
                                     <span className="truncate text-kumo-success">&darr; {rx.num}{rx.unit}</span>
                                   </div>
                                 )}
                                 {server.info.network && (
-                                  <div className="hidden h-8 w-[126px] shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-bold leading-[1.2] tabular-nums sm:flex">
+                                  <div className="hidden h-8 w-[126px] shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-bold leading-[1.2] tabular-nums cq-sm:flex">
                                     <span className="flex items-center justify-between whitespace-nowrap font-mono text-kumo-info">
                                       <span className="flex flex-1 items-center">
                                         <span className="w-2 text-center opacity-70">&uarr;</span>
@@ -8583,21 +8583,21 @@ function ServerPage() {
                               </div>
                             )}
 
-                            <div className="order-2 flex items-center justify-end gap-1.5 sm:order-none" onClick={e => e.stopPropagation()}>
+                            <div className="order-2 flex items-center justify-end gap-1.5 cq-sm:order-none" onClick={e => e.stopPropagation()}>
                               <ServerConnectionActions
                                 remoteDesktopAvailable={canOpenRemoteDesktop(server)}
                                 terminalLabel={terminalLabel}
                                 terminalDisabled={!canOpenTerminal(server) && !hasSshEndpoint(server)}
                                 onOpenRemoteDesktop={() => openRemoteDesktop(server)}
                                 onOpenTerminal={() => openSSHTerminal(server)}
-                                buttonClassName="h-9 w-9 p-0 sm:h-8 sm:w-8"
+                                buttonClassName="h-9 w-9 p-0 cq-sm:h-8 cq-sm:w-8"
                               />
                             </div>
                           </div>
                         </div>
 
                         <AnimatedCollapse open={isExpanded} keepMounted>
-                          <div className={`rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 ${isDenseViewport ? 'p-1.5' : 'p-1.5 sm:p-2'}`}>
+                          <div className={`rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 ${isDenseViewport ? 'p-1.5' : 'p-1.5 cq-sm:p-2'}`}>
                             {server.loading && !server.info ? (
                               <div className="space-y-2 py-5">
                                 <SkeletonLine className="h-4 w-1/3 mx-auto" />
@@ -8610,7 +8610,7 @@ function ServerPage() {
                             ) : (
                               <div className={`flex flex-col ${isDenseViewport ? 'gap-1.5' : 'gap-2'}`}>
                                 <ExpandedSection title="资源状态" tone="brand">
-                                  <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4">
+                                  <div className="grid grid-cols-2 gap-1.5 cq-lg:grid-cols-4">
                                     <ExpandedProgressMetric
                                       label="CPU"
                                       value={cpuUsage}
@@ -8653,7 +8653,7 @@ function ServerPage() {
                                 <div className="flex min-w-0 flex-col gap-2">
                                   <div className={getExpandedInfoGridClassName(isDenseViewport)}>
                                     <ExpandedSection title="系统概览" tone="success" className={getExpandedCardSpanClassName(0, 1)}>
-                                      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
+                                      <div className="grid grid-cols-1 gap-1.5 cq-sm:grid-cols-3 cq-xl:grid-cols-4">
                                         <ExpandedInfoChip label="系统" value={server.info?.platform || server.info?.platformVersion || server.info?.system?.Kernel || '-'} />
                                         {/* <ExpandedInfoChip label="版本" value={server.info?.platformVersion || server.info?.system?.Kernel || '-'} /> */}
                                         <ExpandedInfoChip label="CPU 型号" value={server.info?.cpu?.Model || server.metadata?.cpu_model || server.metadata?.cpu_name || server.metadata?.processor || '-'} />
@@ -8829,7 +8829,7 @@ function ServerPage() {
 
                                     <AnimatedCollapse open={dockerExpanded} keepMounted>
                                       {dockerContainers.length > 0 ? (
-                                        <div className="grid grid-cols-1 divide-y divide-kumo-line xl:grid-cols-2 xl:divide-x xl:divide-y-0">
+                                        <div className="grid grid-cols-1 divide-y divide-kumo-line cq-xl:grid-cols-2 cq-xl:divide-x cq-xl:divide-y-0">
                                           {dockerContainers.map(c => {
                                             const state = getDockerContainerState(c);
                                             const stateBadge = getDockerStateBadge(state);
@@ -8971,7 +8971,7 @@ function ServerPage() {
               />
             </div>
 
-            <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end">
+            <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 cq-lg:justify-end">
               {dockerSubTab === 'containers' && (
                 <>
                   <Input
@@ -8980,7 +8980,7 @@ function ServerPage() {
                     value={dockerSearchQuery}
                     onChange={event => setDockerSearchQuery(event.target.value)}
                     placeholder="搜索容器 / 镜像 / 端口"
-                    className="h-6.5 w-full min-w-[12rem] sm:w-52"
+                    className="h-6.5 w-full min-w-[12rem] cq-sm:w-52"
                   />
                   <Select
                     aria-label="筛选容器状态"
@@ -9120,8 +9120,8 @@ function ServerPage() {
             <div className="flex flex-col gap-4">
               {/* 1. 容器管理 */}
               {dockerSubTab === 'containers' && (
-                <div className="grid min-w-0 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
-                  <div className="flex min-w-0 flex-col gap-3 xl:order-2">
+                <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
+                  <div className="flex min-w-0 flex-col gap-3 cq-xl:order-2">
                     {dockerOverviewServers.length === 0 ? (
                       renderDockerEmptyState('未检测到可用的 Docker 主机')
                     ) : visibleDockerContainerServers.length === 0 ? (
@@ -9371,7 +9371,7 @@ function ServerPage() {
                     )}
                   </div>
 
-                  <div className="flex min-w-0 flex-col gap-3 xl:order-1 xl:sticky xl:top-0 xl:self-start">
+                  <div className="flex min-w-0 flex-col gap-3 cq-xl:order-1 cq-xl:sticky cq-xl:top-0 cq-xl:self-start">
                     {renderDockerSimpleLogCard('order-3')}
 
                     <LayerCard className="order-1 overflow-hidden p-0">
@@ -9512,7 +9512,7 @@ function ServerPage() {
                 const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'compose'));
                 const runningProjects = dockerComposeProjects.filter(item => getComposeStatus(item).includes('running')).length;
                 return (
-                  <div className="grid min-w-0 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: 'Compose 项目',
                       icon: <FolderOpen className="h-4 w-4 shrink-0 text-kumo-brand" />,
@@ -9570,7 +9570,7 @@ function ServerPage() {
                                           <span className="truncate text-xs font-bold text-kumo-strong">{projectName}</span>
                                           <Badge variant={statusLower.includes('running') ? 'success' : 'error'} appearance="dot">{statusLabel}</Badge>
                                         </div>
-                                        <div className="mt-1 grid min-w-0 gap-1 text-[10px] text-kumo-subtle lg:grid-cols-2">
+                                        <div className="mt-1 grid min-w-0 gap-1 text-[10px] text-kumo-subtle cq-lg:grid-cols-2">
                                           <span className="truncate font-mono" title={configFiles}>配置: {configFiles || '-'}</span>
                                           <span className="truncate font-mono" title={workingDir}>目录: {workingDir || '-'}</span>
                                         </div>
@@ -9656,7 +9656,7 @@ function ServerPage() {
                 const allImagePruneConfirmKey = `image.prune.all::${hosts.map(server => server.id).join('|')}`;
                 const pruneCandidateCount = dockerImages.filter(isDockerImagePruneCandidate).length;
                 return (
-                  <div className="grid min-w-0 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '镜像',
                       icon: <HardDrive className="h-4 w-4 shrink-0 text-kumo-brand" />,
@@ -9810,7 +9810,7 @@ function ServerPage() {
                 const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'networks'));
                 const allNetworkPruneConfirmKey = `network.prune.all::${hosts.map(server => server.id).join('|')}`;
                 return (
-                  <div className="grid min-w-0 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '网络',
                       icon: <Globe className="h-4 w-4 shrink-0 text-kumo-brand" />,
@@ -9955,7 +9955,7 @@ function ServerPage() {
               {dockerSubTab === 'volumes' && (() => {
                 const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'volumes'));
                 return (
-                  <div className="grid min-w-0 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '存储卷',
                       icon: <Database className="h-4 w-4 shrink-0 text-kumo-brand" />,
@@ -10083,7 +10083,7 @@ function ServerPage() {
               {dockerSubTab === 'stats' && (() => {
                 const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'stats'));
                 return (
-                  <div className="grid min-w-0 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '实时统计',
                       icon: <Activity className="h-4 w-4 shrink-0 text-kumo-brand" />,
@@ -10193,7 +10193,7 @@ function ServerPage() {
                                 暂无 Docker 资源统计
                               </div>
                             ) : (
-                              <div className="grid gap-3 xl:grid-cols-2">
+                              <div className="grid gap-3 cq-xl:grid-cols-2">
                                 {charts.map(chart => (
                                   <ChartBoundaryBox key={chart.key} className="min-w-0 rounded-md border border-kumo-line bg-kumo-base p-3">
                                     {(tooltipBoundary) => (
@@ -10266,7 +10266,7 @@ function ServerPage() {
               bodyPadding="none"
             >
               <div className="divide-y divide-kumo-line/80">
-                <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] lg:items-center">
+                <div className="grid gap-3 px-4 py-3.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] cq-lg:items-center">
                   <div className="min-w-0">
                     <div className="text-xs font-semibold leading-5 text-kumo-strong">主机地址显示</div>
                     <div className="mt-0.5 text-[11px] leading-4 text-kumo-subtle">
@@ -10285,7 +10285,7 @@ function ServerPage() {
                     ]}
                   />
                 </div>
-                <div className="grid gap-3 px-4 py-3.5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,1fr)] lg:items-center">
+                <div className="grid gap-3 px-4 py-3.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(18rem,1fr)] cq-lg:items-center">
                   <div className="min-w-0">
                     <div className="text-xs font-semibold leading-5 text-kumo-strong">Agent 下载目录</div>
                     <div className="mt-0.5 text-[11px] leading-4 text-kumo-subtle">
@@ -10303,7 +10303,7 @@ function ServerPage() {
               </div>
             </SectionCard>
 
-            <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-4 cq-xl:grid-cols-2">
               <div className="flex min-w-0 flex-col gap-4">
             <SectionCard
               title="批量录入"
@@ -10341,7 +10341,7 @@ function ServerPage() {
               icon={<Database className={MANAGEMENT_CARD_ICON_CLASS} />}
               meta={<span className="text-xs font-semibold text-kumo-subtle">JSON</span>}
               bodyPadding="sm"
-              bodyClassName="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+              bodyClassName="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between"
             >
                 <div className="min-w-0 space-y-1">
                   <div className="text-xs font-medium text-kumo-strong">主机配置</div>
@@ -10349,25 +10349,25 @@ function ServerPage() {
                     包含连接、认证、标签等配置。
                   </div>
                 </div>
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                <Toolbar size="sm" aria-label="导出导入主机配置" className="w-full justify-center sm:w-auto">
+                <div className="flex w-full flex-col gap-2 cq-sm:w-auto cq-sm:flex-row cq-sm:items-center">
+                <Toolbar size="sm" aria-label="导出导入主机配置" className="w-full justify-center cq-sm:w-auto">
                   <Toolbar.Button
                     onClick={exportServers}
                     aria-label="导出主机配置备份"
                     title="导出主机配置备份"
                     icon={<Upload className="h-3.5 w-3.5" />}
-                    className="w-full sm:w-auto"
+                    className="w-full cq-sm:w-auto"
                   >
-                    <span className="hidden sm:inline">导出</span>
+                    <span className="hidden cq-sm:inline">导出</span>
                   </Toolbar.Button>
                   <Toolbar.Button
                     onClick={openImportServerModal}
                     aria-label="导入主机配置"
                     title="导入主机配置"
                     icon={<Download className="h-3.5 w-3.5" />}
-                    className="w-full sm:w-auto"
+                    className="w-full cq-sm:w-auto"
                   >
-                    <span className="hidden sm:inline">导入</span>
+                    <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                 </Toolbar>
                 </div>
@@ -10901,7 +10901,7 @@ function ServerPage() {
 
       {/* ==================== 模态框: 添加与编辑服务器 ==================== */}
       <Dialog.Root open={showServerModal} onOpenChange={setShowServerModal}>
-        <Dialog size="xl" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[48rem] flex-col overflow-hidden p-0 sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[48rem] flex-col overflow-hidden p-0 cq-sm:max-w-[calc(100vw-3rem)]">
           <div ref={serverModalPortalRef} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
               <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
@@ -10941,7 +10941,7 @@ function ServerPage() {
 
               {serverModalMode === 'edit' || serverAddMode === 'ssh' ? (
                 <>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-kumo-subtle">主机名称 (别名)</label>
                       <Input size="sm"
@@ -10981,8 +10981,8 @@ function ServerPage() {
                       <span className="text-[11px] text-kumo-subtle">配额、报警与重置周期</span>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.85fr)]">
-                      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
+                    <div className="grid grid-cols-1 gap-3 cq-lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.85fr)]">
+                      <div className="grid min-w-0 grid-cols-1 gap-3 cq-sm:grid-cols-[minmax(0,1fr)_8rem]">
                         <div className="flex min-w-0 flex-col gap-1.5">
                           <label className="font-semibold text-kumo-subtle">流量配额</label>
                           <div className="grid grid-cols-[minmax(0,1fr)_4.5rem] gap-2">
@@ -11059,7 +11059,7 @@ function ServerPage() {
                       </div>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-1 gap-3 border-t border-kumo-line pt-3 sm:grid-cols-3">
+                    <div className="mt-3 grid grid-cols-1 gap-3 border-t border-kumo-line pt-3 cq-sm:grid-cols-3">
                       <div className="flex flex-col gap-1.5">
                         <label className="font-semibold text-kumo-subtle">流量周期</label>
                         <Select size="sm"
@@ -11071,7 +11071,7 @@ function ServerPage() {
                         />
                       </div>
                       {serverForm.trafficCycleType === 'monthly' && (
-                        <div className="flex flex-col gap-1.5 sm:col-span-2">
+                        <div className="flex flex-col gap-1.5 cq-sm:col-span-2">
                           <label className="font-semibold text-kumo-subtle">账单日</label>
                           <Input size="sm"
                             aria-label="每月流量重置日"
@@ -11087,7 +11087,7 @@ function ServerPage() {
                         </div>
                       )}
                       {serverForm.trafficCycleType === 'custom' && (
-                        <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-3 cq-sm:col-span-2 cq-sm:grid-cols-2">
                           <div className="flex flex-col gap-1.5">
                             <label className="font-semibold text-kumo-subtle">周期开始</label>
                             <Input size="sm"
@@ -11111,7 +11111,7 @@ function ServerPage() {
                         </div>
                       )}
                       {(serverForm.trafficCycleType === 'calendar_month' || serverForm.trafficCycleType === 'none') && (
-                        <div className="rounded-md border border-kumo-line bg-kumo-surface px-3 py-2 text-xs text-kumo-subtle sm:col-span-2">
+                        <div className="rounded-md border border-kumo-line bg-kumo-surface px-3 py-2 text-xs text-kumo-subtle cq-sm:col-span-2">
                           {serverForm.trafficCycleType === 'calendar_month' ? '每月 1 日作为新流量周期。' : '不设置重置周期，按累计流量显示。'}
                         </div>
                       )}
@@ -11124,8 +11124,8 @@ function ServerPage() {
                       <span className="text-[11px] text-kumo-subtle">SSH 登录信息</span>
                     </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                  <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-3">
+                    <div className="flex flex-col gap-1.5 cq-sm:col-span-2">
                       <label className="font-semibold text-kumo-subtle">连接地址（IP 或域名）</label>
                       <Input size="sm"
                         aria-label="连接地址"
@@ -11168,7 +11168,7 @@ function ServerPage() {
                   </div>
 
                   <div className="mt-3 flex flex-col gap-3 border-t border-kumo-line pt-3">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2">
                       <div className="flex flex-col gap-1.5">
                         <label className="font-semibold text-kumo-subtle">登录用户名</label>
                         <Input size="sm"
@@ -11298,7 +11298,7 @@ function ServerPage() {
                       <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 text-[11px] leading-relaxed text-kumo-subtle">
                         {getAgentInstallExecutionHint(agentInstallOS)}
                       </div>
-                      <div className="grid grid-cols-1 gap-2 text-[11px] text-kumo-subtle sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-2 text-[11px] text-kumo-subtle cq-sm:grid-cols-2">
                         <AppCard padding="none" className="p-2">
                           <div className="font-semibold text-kumo-strong">主机 ID</div>
                           <div className="mt-1 font-mono">{quickDeployResult.serverId}</div>
@@ -11320,7 +11320,7 @@ function ServerPage() {
               )}
             </div>
 
-            <div className="flex flex-col-reverse gap-2.5 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-2.5 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:justify-end">
               {serverModalMode === 'add' && serverAddMode === 'agent' ? (
                 <>
                   <Button
@@ -11328,7 +11328,7 @@ function ServerPage() {
                     variant="primary"
                     loading={serverModalSaving}
                     onClick={generateQuickInstallCommand}
-                    className="w-full sm:w-auto"
+                    className="w-full cq-sm:w-auto"
                   >
                     生成 Agent 安装命令
                   </Button>
@@ -11338,7 +11338,7 @@ function ServerPage() {
                 variant="secondary"
                 onClick={testServerConnection}
                 disabled={serverModalSaving}
-                className={`w-full px-3.5 py-1.5 text-xs font-semibold sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
+                className={`w-full px-3.5 py-1.5 text-xs font-semibold cq-sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 连接测试
               </Button>
@@ -11346,7 +11346,7 @@ function ServerPage() {
                 variant="primary"
                 onClick={saveServer}
                 disabled={serverModalSaving}
-                className={`w-full px-4 py-1.5 text-kumo-inverse text-xs font-bold sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
+                className={`w-full px-4 py-1.5 text-kumo-inverse text-xs font-bold cq-sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 {serverModalSaving ? '保存中...' : '确认保存'}
               </Button>
@@ -11357,7 +11357,7 @@ function ServerPage() {
 
       {/* ==================== 模态框: 凭据预设新增 ==================== */}
       <Dialog.Root open={showAddCredentialModal} onOpenChange={setShowAddCredentialModal}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-96 sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-96 cq-sm:max-w-[calc(100vw-3rem)]">
           <div ref={credentialModalPortalRef} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
               <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
@@ -11470,9 +11470,9 @@ function ServerPage() {
               )}
             </div>
 
-            <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs sm:flex-row sm:justify-end">
-              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="w-full sm:w-auto">取消</Button>
-              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-bold sm:w-auto">确认保存</Button>
+            <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs cq-sm:flex-row cq-sm:justify-end">
+              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="w-full cq-sm:w-auto">取消</Button>
+              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-bold cq-sm:w-auto">确认保存</Button>
             </div>
           </div>
         </Dialog>
@@ -11480,7 +11480,7 @@ function ServerPage() {
 
       {/* ==================== 模态框: 导入主机备份 ==================== */}
       <Dialog.Root open={showImportServerModal} onOpenChange={setShowImportServerModal}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-96 sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-96 cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               导入主机备份配置
@@ -11528,13 +11528,13 @@ function ServerPage() {
             )}
           </div>
 
-          <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs sm:flex-row sm:justify-end">
-            <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)} className="w-full sm:w-auto">取消</Button>
+          <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs cq-sm:flex-row cq-sm:justify-end">
+            <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)} className="w-full cq-sm:w-auto">取消</Button>
             <Button size="sm"
               variant="primary"
               onClick={confirmImportServers}
               disabled={importModalSaving || !importPreview}
-              className="w-full text-kumo-inverse font-bold disabled:opacity-50 sm:w-auto"
+              className="w-full text-kumo-inverse font-bold disabled:opacity-50 cq-sm:w-auto"
             >
               {importModalSaving ? '恢复中...' : '确认恢复导入'}
             </Button>
@@ -11550,7 +11550,7 @@ function ServerPage() {
           if (!open) setAgentModalData(null);
         }}
       >
-        <Dialog size="xl" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 lg:!w-[min(72rem,calc(100vw-3rem))] lg:!max-w-[min(72rem,calc(100vw-3rem))]">
+        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-lg:!w-[min(72rem,calc(100vw-3rem))] cq-lg:!max-w-[min(72rem,calc(100vw-3rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               部署 Agent
@@ -11586,7 +11586,7 @@ function ServerPage() {
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                  <div className="grid gap-3 cq-md:grid-cols-[minmax(0,1fr)_auto] cq-md:items-center">
                     <div className="font-semibold text-kumo-subtle">安装命令</div>
                     <div className="min-w-0">
                       <Tabs
@@ -11664,7 +11664,7 @@ function ServerPage() {
             )}
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button" size="sm"
@@ -11685,7 +11685,7 @@ function ServerPage() {
                 重新生成 Key
               </Button>
             </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
+            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-end cq-sm:gap-3">
               {!isWindowsAgentInstallOs(agentInstallOS) && canSshDeployAgent(serverList.find((server) => server.id === agentModalData?.serverId)) && <Checkbox
                 label="Linux SSH 覆盖"
                 checked={agentForceSsh}
@@ -11696,7 +11696,7 @@ function ServerPage() {
                 type="button" size="sm"
                 variant="secondary"
                 onClick={() => setShowAgentModal(false)}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 关闭
               </Button>
@@ -11707,7 +11707,7 @@ function ServerPage() {
                 loading={agentInstalling}
                 disabled={!agentModalData || agentInstallLoading}
                 onClick={() => agentModalData && autoInstallAgent(agentModalData.serverId)}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 一键安装
               </Button>
@@ -11724,7 +11724,7 @@ function ServerPage() {
           setShowBatchAgentModal(open);
         }}
       >
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[48rem] sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[48rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               批量部署 Agent
@@ -11764,7 +11764,7 @@ function ServerPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
                 {serverList.map(server => {
                   const deployable = canSshDeployAgent(server);
                   return (
@@ -11831,7 +11831,7 @@ function ServerPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
             <div className="flex flex-wrap items-center gap-3 text-xs text-kumo-subtle">
               <Checkbox
                 label="强制 SSH 覆盖"
@@ -11841,13 +11841,13 @@ function ServerPage() {
               />
               {agentInstallLoading && <span>任务执行中</span>}
             </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
               <Button
                 type="button" size="sm"
                 variant="secondary"
                 disabled={agentInstallLoading}
                 onClick={() => setShowBatchAgentModal(false)}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 关闭
               </Button>
@@ -11858,7 +11858,7 @@ function ServerPage() {
                 loading={agentInstallLoading}
                 disabled={selectedBatchServers.length === 0}
                 onClick={runBatchAgentInstall}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 开始部署
               </Button>
@@ -11874,7 +11874,7 @@ function ServerPage() {
           setShowUpgradeModal(open);
         }}
       >
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[32rem] sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[32rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               升级 Agent
@@ -11897,7 +11897,7 @@ function ServerPage() {
 
           <div className="flex-1 overflow-y-auto p-4 text-xs text-kumo-default">
             <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 cq-sm:grid-cols-2">
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">目标 Agent</div>
                   <div className="mt-1 text-lg font-bold text-kumo-strong">{upgradeBatchSnapshot?.items?.length || getAgentUpgradeTargets().length}</div>
@@ -11926,7 +11926,7 @@ function ServerPage() {
                 />
               )}
 
-              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] lg:items-stretch">
+              <div className="grid min-w-0 gap-4 cq-lg:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] cq-lg:items-stretch">
                 <div className="min-w-0 space-y-1.5">
                   <div className="text-xs font-semibold text-kumo-strong">主机状态</div>
                   {upgradeBatchSnapshot?.items?.length > 0 ? (
@@ -11977,7 +11977,7 @@ function ServerPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               <Checkbox
                 label="Linux SSH 保底"
@@ -11986,12 +11986,12 @@ function ServerPage() {
                 onCheckedChange={(checked) => setUpgradeFallbackSsh(Boolean(checked))}
               />
             </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
               <Button
                 type="button" size="sm"
                 variant="secondary"
                 onClick={() => setShowUpgradeModal(false)}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 {upgrading ? '后台运行' : '关闭'}
               </Button>
@@ -12002,7 +12002,7 @@ function ServerPage() {
                 loading={upgrading}
                 disabled={upgrading || getAgentUpgradeTargets().length === 0}
                 onClick={performOneKeyUpgrade}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 开始升级
               </Button>
@@ -12017,7 +12017,7 @@ function ServerPage() {
           if (!open) requestCloseDockerComposeEditor();
         }}
       >
-        <Dialog size="xl" className="flex h-[min(78dvh,760px)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[56rem] sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="xl" className="@container flex h-[min(78dvh,760px)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[56rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/35 px-4 py-3">
             <Dialog.Title className="flex min-w-0 items-center gap-2 truncate text-sm font-bold text-kumo-strong">
               <FolderOpen className="h-4 w-4 shrink-0 text-kumo-brand" />
@@ -12038,7 +12038,7 @@ function ServerPage() {
             />
           </div>
 
-          <div className="grid min-h-0 flex-1 gap-3 overflow-hidden p-4 text-xs lg:grid-cols-[18rem_minmax(0,1fr)]">
+          <div className="grid min-h-0 flex-1 gap-3 overflow-hidden p-4 text-xs cq-lg:grid-cols-[18rem_minmax(0,1fr)]">
             <LayerCard className="flex min-h-0 flex-col overflow-hidden p-0">
               <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
                 <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
@@ -12100,17 +12100,17 @@ function ServerPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
             <div className="min-w-0 truncate text-[11px] text-kumo-subtle">
               {dockerComposeEditor?.path || '未选择配置文件'}
             </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
               <Button
                 type="button"
                 size="sm"
                 variant="secondary"
                 onClick={requestCloseDockerComposeEditor}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 关闭
               </Button>
@@ -12123,7 +12123,7 @@ function ServerPage() {
                   loading={dockerComposeEditor?.saving}
                   disabled={dockerComposeEditor?.loading || !dockerComposeEditor?.path}
                   onClick={saveDockerComposeConfig}
-                  className="w-full sm:w-auto"
+                  className="w-full cq-sm:w-auto"
                 >
                   保存
                 </Button>
@@ -12137,7 +12137,7 @@ function ServerPage() {
                   loading={dockerComposeEditor?.updating}
                   disabled={dockerComposeEditor?.updating || !dockerComposeEditor?.path}
                   onClick={updateDockerComposeDeployment}
-                  className="w-full sm:w-auto"
+                  className="w-full cq-sm:w-auto"
                 >
                   更新编排
                 </Button>
@@ -12157,7 +12157,7 @@ function ServerPage() {
           }
         }}
       >
-        <Dialog size="lg" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[48rem] sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="lg" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[48rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong flex items-center gap-2">
               <FileText className="h-4 w-4 text-kumo-brand" />
@@ -12184,7 +12184,7 @@ function ServerPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
             <div className="flex items-center gap-3">
               <Select
                 size="sm"
@@ -12205,7 +12205,7 @@ function ServerPage() {
                 </span>
               )}
             </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
               <Button
                 type="button" size="sm"
                 variant="secondary"
@@ -12214,7 +12214,7 @@ function ServerPage() {
                 }}
                 disabled={dockerLogsLoading}
                 icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerLogsLoading ? 'animate-spin' : ''}`} />}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 刷新
               </Button>
@@ -12224,7 +12224,7 @@ function ServerPage() {
                 onClick={() => {
                   setDockerLogsModalOpen(false);
                 }}
-                className="w-full sm:w-auto"
+                className="w-full cq-sm:w-auto"
               >
                 关闭
               </Button>
@@ -12233,7 +12233,7 @@ function ServerPage() {
         </Dialog>
       </Dialog.Root>
       <Dialog.Root open={showNetworkTargetModal} onOpenChange={setShowNetworkTargetModal}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-96 sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-96 cq-sm:max-w-[calc(100vw-3rem)]">
           <form onSubmit={saveNetworkTarget} className="flex flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 items-center justify-between border-b border-kumo-line/80 px-4 py-3">
               <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
@@ -12270,7 +12270,7 @@ function ServerPage() {
                 onChange={e => setNetworkTargetForm(prev => ({ ...prev, host: e.target.value }))}
                 placeholder="如：hb-ct-v4.ip.zstaticcdn.com"
               />
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
+              <div className="grid gap-3 cq-sm:grid-cols-[minmax(0,1fr)_9rem]">
                 <Input
                   size="sm"
                   label="端口"

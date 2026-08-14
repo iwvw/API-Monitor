@@ -48,7 +48,7 @@ type OutboundBlock struct {
 
 // OutboundMessage 是出站消息（支持多段与流式编辑）。
 type OutboundMessage struct {
-	Text   string          `json:"text,omitempty"`   // 主文本（HTML 子集）
+	Text   string          `json:"text,omitempty"`   // 主文本（MarkdownV2 语法）
 	Blocks []OutboundBlock `json:"blocks,omitempty"` // 结构化块
 	Stream bool            `json:"stream,omitempty"` // 是否流式编辑
 }
@@ -73,6 +73,17 @@ type ChannelStatus struct {
 
 // OnInboundFunc 是入站消息回调（由上层 adminai service 注入）。
 type OnInboundFunc func(env InboundEnvelope)
+
+// CommandPanel 返回全中文命令面板文本（频道启动就绪消息与 /help 共用）。
+// 文本使用 Telegram MarkdownV2 语法（*加粗*）。
+func CommandPanel() string {
+	return "🔔 *API Monitor 管理助手*\n\n" +
+		"本站点智能机器人可直接对话，也可以用以下命令：\n\n" +
+		"/开始 或 /start —— 显示本面板\n" +
+		"/帮助 或 /help —— 显示本面板\n" +
+		"/状态 或 /status —— 查看站点实时状态\n" +
+		"/简报 或 /briefing —— 立即生成并发送一份站点简报"
+}
 
 // Registry 管理已注册的 Channel 实例。
 type Registry struct {

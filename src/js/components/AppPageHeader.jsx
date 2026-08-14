@@ -21,7 +21,7 @@ function AppPageHeader({
     <div className={`flex min-w-0 flex-1 items-center ${spacingClass[spacing] || spacingClass.base} ${className}`}>
       <div className="flex min-w-0 flex-1 items-center overflow-hidden">{breadcrumbs}</div>
       {(tabs || children) && (
-        <div className="flex shrink-0 items-center justify-end gap-2 min-[520px]:gap-3">
+        <div className="flex shrink-0 items-center justify-end gap-2 @[520px]:gap-3">
           {tabs && (
             <Tabs
               {...TOOL_TABS_PROPS}

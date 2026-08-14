@@ -458,13 +458,13 @@ function FileboxPage() {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={PAGE_TABS} />
       </div>
 
       {activeTab === 'share' && (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
           <SectionCard
             title="创建分享"
             icon={<Send className="h-4 w-4 text-kumo-brand" />}
@@ -517,7 +517,7 @@ function FileboxPage() {
 
             {loading && shareType === 'file' && <Meter label="上传进度" value={uploadProgress} customValue={`${uploadProgress}% · ${uploadSpeed}`} />}
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 cq-md:grid-cols-2">
               <Select size="sm" label="有效期" value={expiry} onValueChange={setExpiry} items={EXPIRY_OPTIONS} />
               <Input size="sm" label="最大下载次数" type="number" min="0" value={maxDownloads} onChange={(event) => setMaxDownloads(event.target.value)} placeholder="0 或留空为不限" />
               <Input size="sm" label="访问密码" type="text" value={accessPassword} onChange={(event) => setAccessPassword(event.target.value)} placeholder="可选" autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" spellCheck={false} />
@@ -570,7 +570,7 @@ function FileboxPage() {
               </div>
             ) : (
               <div className="mt-4 space-y-4">
-				<div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-recessed/35 p-3 sm:grid-cols-2">
+				<div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-recessed/35 p-3 cq-sm:grid-cols-2">
 				  <div className="min-w-0">
 					<div className="text-xs text-kumo-subtle">分享链接</div>
 					<ClipboardText text={fileboxShareURL(result.code)} className="mt-2" tooltip={{ text: '复制分享链接', copiedText: '分享链接已复制' }} labels={{ copyAction: '复制分享链接' }} />
@@ -580,7 +580,7 @@ function FileboxPage() {
 					<ClipboardText text={fileboxDirectURL(result.code)} className="mt-2" tooltip={{ text: '复制直链', copiedText: '直链已复制' }} labels={{ copyAction: '复制直链' }} />
 				  </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                <div className="grid gap-3 cq-sm:grid-cols-[auto_minmax(0,1fr)] cq-sm:items-center">
                   {qrCode && <img src={qrCode} alt="分享二维码" className="h-32 w-32 rounded-md border border-kumo-line bg-white p-2" />}
                   <div className="space-y-2 text-xs text-kumo-subtle">
                     <div>
@@ -676,7 +676,7 @@ function FileboxPage() {
             </Table>
           </SectionCard>
 
-          <div className="grid items-start gap-4 xl:grid-cols-2">
+          <div className="grid items-start gap-4 cq-xl:grid-cols-2">
             <SectionCard title="本地最近创建" icon={<History className="h-4 w-4 text-kumo-brand" />} bodyPadding="none">
               <div className="divide-y divide-kumo-line">
                 {localHistory.length === 0 ? (
@@ -727,7 +727,7 @@ function FileboxPage() {
             </Button>
           }
         >
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 cq-md:grid-cols-2">
             <Input
               size="sm"
               label="最大文件大小 MB"
@@ -754,10 +754,10 @@ function FileboxPage() {
                 }))
               }
             />
-            <div className="md:col-span-2">
+            <div className="cq-md:col-span-2">
               <Textarea label="允许 MIME 类型" value={settingsMimeText} onChange={(event) => setSettingsMimeText(event.target.value)} className="min-h-28 font-mono text-xs" placeholder="留空不限。如 image/*, application/pdf, text/plain" />
             </div>
-            <div className="md:col-span-2 flex items-center justify-between rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
+            <div className="cq-md:col-span-2 flex items-center justify-between rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
               <div>
                 <div className="text-xs font-semibold text-kumo-strong">允许公开上传</div>
                 <div className="mt-1 text-[11px] text-kumo-subtle">当前接口仍要求管理员认证；保留为策略开关。</div>
@@ -774,7 +774,7 @@ function FileboxPage() {
       )}
 
       {activeTab === 'void' && (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)]">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)]">
           <SectionCard
             title="房间管理"
             icon={<Send className="h-4 w-4 text-kumo-brand" />}
@@ -785,7 +785,7 @@ function FileboxPage() {
             }
             bodyClassName="grid gap-4"
           >
-            <div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-recessed/30 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-recessed/30 p-4 cq-lg:grid-cols-[minmax(0,1fr)_auto] cq-lg:items-center">
               <div className="flex flex-wrap items-center gap-3 min-w-0">
                 <div className="flex shrink-0 items-center gap-2">
                   <div className="text-sm font-semibold text-kumo-strong">新建房间</div>
@@ -800,7 +800,7 @@ function FileboxPage() {
               </Button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 cq-md:grid-cols-3">
               <div className="rounded-md border border-kumo-line bg-kumo-base p-3">
                 <div className="text-[11px] text-kumo-subtle">临时房间</div>
                 <div className="mt-1 text-xs font-semibold text-kumo-strong">30 分钟</div>
@@ -829,7 +829,7 @@ function FileboxPage() {
                   const roomId = room.roomId || room.id;
                   const mode = room.mode || (room.persistent ? 'persistent' : 'temporary');
                   return (
-                    <div key={roomId} className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                    <div key={roomId} className="grid gap-3 px-4 py-3 cq-lg:grid-cols-[minmax(0,1fr)_auto] cq-lg:items-center">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-sm font-bold text-kumo-strong">{roomId}</span>

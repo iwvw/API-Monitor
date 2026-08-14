@@ -1082,6 +1082,10 @@ func init() {
 		"model":     {t: "string", d: "指定模型"},
 		"source":    {t: "string", d: "会话来源"},
 	})
+	routeRequestContracts["/api/admin-ai/cancel"] = obj([]string{"runId"}, map[string]prop{
+		"runId": {t: "string", req: true, d: "要取消的执行 ID"},
+	})
+	routeRequestContracts["/api/admin-ai/cron/daily-briefing"] = noBody
 	routeRequestContracts["/api/admin-ai/channels"] = obj(nil, map[string]prop{
 		"channelId": {t: "string", d: "渠道 ID"},
 		"name":      {t: "string", d: "渠道名称"},
@@ -1102,7 +1106,9 @@ func init() {
 	})
 	routeRequestContracts["/api/admin-ai/channel-bindings/{id}"] = noBody
 	routeRequestContracts["/api/admin-ai/approvals/{id}"] = obj([]string{"action"}, map[string]prop{
-		"action": {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
+		"action":         {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
+		"applyToSession": {t: "boolean", d: "批准并授权本会话后续写操作免审批"},
+		"reason":         {t: "string", d: "拒绝/请求更改的原因"},
 	})
 	routeRequestContracts["/api/admin-ai/settings"] = obj(nil, map[string]prop{
 		"gatewayKey":                    {t: "string", d: "管理 AI 网关密钥"},

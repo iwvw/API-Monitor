@@ -23,7 +23,7 @@ export default function DrawioSettingsView({
         className="max-w-4xl self-start"
         bodyClassName="grid gap-4"
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 cq-sm:grid-cols-2">
           <Field label="默认导出格式" description="工具栏中的导出按钮优先使用此格式">
             <Select
               size="sm"
@@ -93,7 +93,7 @@ export default function DrawioSettingsView({
           </Field>
         </div>
 
-        <div className="grid gap-3 border-t border-kumo-line pt-4 sm:grid-cols-3">
+        <div className="grid gap-3 border-t border-kumo-line pt-4 cq-sm:grid-cols-3">
           <Switch
             size="sm"
             label="自动保存草稿"
@@ -117,7 +117,7 @@ export default function DrawioSettingsView({
           />
         </div>
 
-        <div className="grid gap-4 border-t border-kumo-line pt-4 sm:grid-cols-3">
+        <div className="grid gap-4 border-t border-kumo-line pt-4 cq-sm:grid-cols-3">
           <Field label="预览格式">
             <Select
               size="sm"

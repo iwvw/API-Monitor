@@ -172,8 +172,17 @@ function allowedColorReason(rel, line, value) {
   if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'bg-black') {
     return 'Ask AI 侧栏半透明遮罩（PRD 指定 bg-black/30）';
   }
-  if (rel === 'src/js/components/adminai/MessageList.jsx' && value === 'text-white' && line.includes('bg-kumo-brand')) {
+  if (rel === 'src/js/components/adminai/MessageList.jsx' && value === 'text-white' && (line.includes('bg-kumo-brand') || line.includes('from-kumo-brand'))) {
     return 'Ask AI 用户消息气泡对比文字';
+  }
+  if (rel === 'src/js/components/adminai/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
+    return 'Ask AI 批准按钮白色对比文字';
+  }
+  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'text-white' && line.includes('from-kumo-brand')) {
+    return 'Ask AI 发送按钮白色对比文字';
+  }
+  if (rel === 'src/css/app.css' && (value === '#FFF' || value === '#FFEDDD' || value === '#FF9335' || value === '#FFB371')) {
+    return 'Ask AI 云朵动画 Cloudflare 品牌色';
   }
   return null;
 }

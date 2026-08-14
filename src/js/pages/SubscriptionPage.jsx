@@ -841,7 +841,7 @@ function MasonryGrid({ children, className = '' }) {
   }, [childKeys]);
 
   return (
-    <div ref={containerRef} className={`grid grid-flow-row-dense grid-cols-1 items-start gap-3 lg:grid-cols-2 ${className}`} style={{ gridAutoRows: '1px' }}>
+    <div ref={containerRef} className={`grid grid-flow-row-dense grid-cols-1 items-start gap-3 cq-lg:grid-cols-2 ${className}`} style={{ gridAutoRows: '1px' }}>
       {childArray.map((child, index) => (
         <div key={child.key || index} className="min-w-0 self-start" style={rowSpans[index] ? { gridRowEnd: `span ${rowSpans[index]}` } : undefined}>
           {child}
@@ -1944,8 +1944,8 @@ function SubscriptionPage() {
         bodyPadding="none"
         actions={(
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-            <span className="hidden rounded border border-kumo-info/20 bg-kumo-info/10 px-1.5 py-0.5 text-[11px] font-semibold text-kumo-info sm:inline-flex">{visibleNodes.length} 个节点</span>
-            <span className="hidden rounded border border-kumo-badge-purple/20 bg-kumo-badge-purple/10 px-1.5 py-0.5 text-[11px] font-semibold text-kumo-badge-purple sm:inline-flex">{currentSubscriptions.length} 个订阅</span>
+            <span className="hidden rounded border border-kumo-info/20 bg-kumo-info/10 px-1.5 py-0.5 text-[11px] font-semibold text-kumo-info cq-sm:inline-flex">{visibleNodes.length} 个节点</span>
+            <span className="hidden rounded border border-kumo-badge-purple/20 bg-kumo-badge-purple/10 px-1.5 py-0.5 text-[11px] font-semibold text-kumo-badge-purple cq-sm:inline-flex">{currentSubscriptions.length} 个订阅</span>
             <Button size="sm" variant="primary" onClick={() => openCreateSubscription()} disabled={!firstEnabledPlanID}><Plus className="h-3.5 w-3.5" />生成订阅</Button>
           </div>
         )}
@@ -2114,7 +2114,7 @@ function SubscriptionPage() {
                 <Table.Cell className="text-center"><Switch size="sm" aria-label={node.enabled ? '停用内部节点' : '启用内部节点'} checked={!!node.enabled} onCheckedChange={(checked) => toggleInternalNodeEnabled(node, checked)} /></Table.Cell>
                 <Table.Cell><div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-bold text-kumo-strong">{node.stable && <Star className="h-3.5 w-3.5 shrink-0 text-kumo-warning" />}{node.name}{node.stable && <Badge variant="success">稳定</Badge>}</div>{!node.publishable && (() => { const [stateLabel, stateVariant] = managedNodeState(node); return <div className="mt-1"><Badge variant={stateVariant}>{stateLabel}</Badge></div>; })()}</Table.Cell>
                 <Table.Cell className="text-center"><Badge variant={nodeTypeBadgeVariant(protocol)} className="uppercase">{node.protocol === 'vless-reality' ? 'VLESS' : node.protocol === 'hysteria2' ? 'HYSTERIA2' : node.protocol === 'socks' ? 'SOCKS5' : node.protocol === 'http' ? 'HTTP' : String(node.protocol || 'UNKNOWN').toUpperCase()}</Badge></Table.Cell>
-                <Table.Cell><div className="truncate font-mono text-xs text-kumo-strong">{displayHost}:{displayPort}</div><div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none">{connectionTags.map((tag) => <span key={tag} className={`${tag === node.runtime ? 'hidden sm:inline-flex' : 'inline-flex'} shrink-0 rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] leading-4 ${nodeNetworkTagClass({ key: tag === 'tls' ? 'tls' : 'network', tone: tag })}`}>{tag}</span>)}</div></Table.Cell>
+                <Table.Cell><div className="truncate font-mono text-xs text-kumo-strong">{displayHost}:{displayPort}</div><div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none">{connectionTags.map((tag) => <span key={tag} className={`${tag === node.runtime ? 'hidden cq-sm:inline-flex' : 'inline-flex'} shrink-0 rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] leading-4 ${nodeNetworkTagClass({ key: tag === 'tls' ? 'tls' : 'network', tone: tag })}`}>{tag}</span>)}</div></Table.Cell>
                 <Table.Cell>{server?.status === 'online' ? <NodeHostQuality node={{ ...node, traffic_server_id: node.server_id }} serverNameById={serverNameById} /> : <div className="flex min-w-0 flex-col items-start gap-1"><span className="inline-flex max-w-full rounded-[3px] border border-kumo-info/25 bg-kumo-info/10 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-kumo-info"><span className="truncate">{server?.name || node.server_name || node.server_id}</span></span><span className={`inline-flex rounded-[3px] border px-1.5 py-0.5 text-[10px] font-semibold leading-4 ${latencyChipClass(0)}`}>主机离线</span></div>}</Table.Cell>
                 <Table.Cell className="text-center"><div className="inline-flex items-center justify-center gap-2"><Button size="sm" shape="square" variant="secondary" aria-label={`编辑 ${node.name}`} title={`编辑 ${node.name}`} disabled={reconciling || deleting} onClick={(event) => { event.stopPropagation(); openEditInternalNode(node); }} icon={<Edit className="h-3.5 w-3.5" />} /><RefreshButton size="sm" variant="secondary" loading={reconciling} aria-label={`重新部署 ${node.name}`} title={`重新部署 ${node.name}`} disabled={reconciling || deleting} onClick={(event) => { event.stopPropagation(); reconcileInternalNode(node); }} /><Button size="sm" shape="square" variant={confirmingDelete ? 'destructive' : 'secondary-destructive'} aria-label={confirmingDelete ? `再次确认卸载 ${node.name}` : `卸载 ${node.name}`} title={confirmingDelete ? '再次点击确认卸载' : `卸载 ${node.name}`} disabled={reconciling} loading={deleting} onClick={(event) => { event.stopPropagation(); deleteInternalNode(node); }} icon={<Trash className="h-3.5 w-3.5" />} /></div></Table.Cell>
               </Table.Row>;
@@ -2126,7 +2126,7 @@ function SubscriptionPage() {
     </SectionCard>
     <SectionCard
       title={(
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2 cq-sm:gap-3">
           <span>节点列表 ({filteredNodes.length})</span>
           <Tabs
             {...TOOL_TABS_PROPS}
@@ -2198,7 +2198,7 @@ function SubscriptionPage() {
                       {networkTags.map((tag) => (
                         <span
                           key={tag.key}
-                          className={`${['fingerprint', 'path', 'alpn'].includes(tag.key) ? 'hidden sm:inline-flex' : 'inline-flex'} shrink-0 min-w-0 max-w-full truncate rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] leading-4 ${nodeNetworkTagClass(tag)}`}
+                          className={`${['fingerprint', 'path', 'alpn'].includes(tag.key) ? 'hidden cq-sm:inline-flex' : 'inline-flex'} shrink-0 min-w-0 max-w-full truncate rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] leading-4 ${nodeNetworkTagClass(tag)}`}
                           title={tag.label}
                         >
                           {tag.label}
@@ -2292,14 +2292,14 @@ function SubscriptionPage() {
 
   const renderTunnelControls = () => (
     <LayerCard className="mb-3 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-0 shadow-none ring-0">
-      <LayerCard.Secondary className="flex min-h-12 items-center justify-between gap-3 px-3 sm:px-4">
+      <LayerCard.Secondary className="flex min-h-12 items-center justify-between gap-3 px-3 cq-sm:px-4">
         <div className="text-sm font-semibold text-kumo-strong">Tunnel 与优选地址</div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button className="sm:hidden" size="sm" variant="secondary" onClick={() => setPreferredModalOpen(true)}><Plus className="h-3.5 w-3.5" />管理</Button>
-          <Button className="hidden sm:inline-flex" size="sm" variant="secondary" onClick={() => setPreferredModalOpen(true)}><Plus className="h-3.5 w-3.5" />优选地址</Button>
+          <Button className="cq-sm:hidden" size="sm" variant="secondary" onClick={() => setPreferredModalOpen(true)}><Plus className="h-3.5 w-3.5" />管理</Button>
+          <Button className="hidden cq-sm:inline-flex" size="sm" variant="secondary" onClick={() => setPreferredModalOpen(true)}><Plus className="h-3.5 w-3.5" />优选地址</Button>
         </div>
       </LayerCard.Secondary>
-      <LayerCard.Primary className="px-3 py-2.5 sm:px-4">
+      <LayerCard.Primary className="px-3 py-2.5 cq-sm:px-4">
         {managedTunnels.length > 0 || preferredAddresses.length > 0 ? (
           <div className="flex flex-col gap-2">
             {managedTunnels.length > 0 && (
@@ -2360,19 +2360,19 @@ function SubscriptionPage() {
             <SkeletonLine className="h-4 w-20" />
             <SkeletonLine className="h-3 w-72 max-w-[42vw]" />
           </div>
-          <div className="hidden shrink-0 items-center gap-2 sm:flex">
+          <div className="hidden shrink-0 items-center gap-2 cq-sm:flex">
             <SkeletonLine className="h-8 w-24" />
             <SkeletonLine className="h-8 w-24" />
             <SkeletonLine className="h-8 w-28" />
           </div>
         </LayerCard.Secondary>
         <LayerCard.Primary className="p-4">
-          <div className="grid gap-4 lg:grid-cols-4">
+          <div className="grid gap-4 cq-lg:grid-cols-4">
             <div className="space-y-2">
               <SkeletonLine className="h-3 w-12" />
               <SkeletonLine className="h-8 w-full" />
             </div>
-            <div className="space-y-2 lg:col-span-2">
+            <div className="space-y-2 cq-lg:col-span-2">
               <SkeletonLine className="h-3 w-20" />
               <SkeletonLine className="h-8 w-full" />
             </div>
@@ -2432,12 +2432,12 @@ function SubscriptionPage() {
           </div>
         )}
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 cq-sm:grid-cols-2">
           <Select size="sm" label="对外订阅" value={templateSubscriptionId} onValueChange={(value) => setTemplateSubscriptionId(String(value))} items={subscriptionItems} className="w-full" />
           <Select size="sm" label="输出模板" value={templateBindingId} onValueChange={(value) => setTemplateBindingId(String(value))} items={templateItems} disabled={!selectedTemplateSubscription} className="w-full" />
         </div>
         {selectedTemplateSubscription && (
-          <div className="mt-4 grid gap-2 border-t border-kumo-line pt-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-2 border-t border-kumo-line pt-4 cq-sm:grid-cols-2">
             <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription)} tooltip={{ text: '复制自适应订阅链接（按客户端自动识别）', copiedText: '自适应订阅链接已复制' }} labels={{ copyAction: '复制自适应订阅' }} />
             <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'clash')} tooltip={{ text: '复制 Mihomo / Clash 链接', copiedText: 'Mihomo / Clash 链接已复制' }} labels={{ copyAction: '复制 Clash（YAML）' }} />
             <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'base64')} tooltip={{ text: '复制 Base64 链接（sing-box 官方 / v2rayN）', copiedText: 'Base64 链接已复制' }} labels={{ copyAction: '复制 Base64' }} />
@@ -2512,7 +2512,7 @@ function SubscriptionPage() {
 
   const renderSettings = () => settings && (
     <SectionCard title="默认策略" className="max-w-3xl">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 cq-sm:grid-cols-2">
           <Select size="sm" label="默认模板" value={settings.default_template_id} onValueChange={(value) => setSettings((prev) => ({ ...prev, default_template_id: String(value) }))} items={templateItems} />
           <Input size="sm" label="默认上游刷新间隔（小时）" type="number" value={settings.default_refresh_hours || 24} onChange={(e) => setSettings((prev) => ({ ...prev, default_refresh_hours: Number(e.target.value) || 24 }))} />
           <Input size="sm" label="默认限流阈值（次/分钟）" type="number" value={settings.default_rate_limit_per_minute || 30} onChange={(e) => setSettings((prev) => ({ ...prev, default_rate_limit_per_minute: Number(e.target.value) || 30 }))} />
@@ -2560,41 +2560,41 @@ function SubscriptionPage() {
       </div>
 
       <Dialog.Root open={planModalOpen} onOpenChange={setPlanModalOpen}>
-        <Dialog size="xl" className="flex max-h-[min(calc(100dvh-2rem),48rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:!w-[min(72rem,calc(100vw-3rem))] sm:!max-w-[min(72rem,calc(100vw-3rem))]">
-          <div className="border-b border-kumo-line px-3 py-3 sm:px-5 sm:py-4"><Dialog.Title>{editingPlanId ? '编辑套餐' : '新建套餐'}</Dialog.Title></div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 scrollbar-thin sm:p-5">
-            <div className="grid gap-3 sm:grid-cols-2"><Input size="sm" label="套餐名称" value={planForm.name} onChange={(e) => setPlanForm((prev) => ({ ...prev, name: e.target.value }))} /><Input size="sm" label="备注" value={planForm.remark} onChange={(e) => setPlanForm((prev) => ({ ...prev, remark: e.target.value }))} /></div>
-            <div className="grid items-end gap-3 md:grid-cols-[minmax(16rem,1.2fr)_minmax(12rem,.8fr)_minmax(10rem,.7fr)]"><TrafficSizeInput label="订阅额度（仅托管节点，0 不限）" value={planForm.total_bytes} onChange={(value) => setPlanForm((prev) => ({ ...prev, total_bytes: value }))} /><Select size="sm" label="重置周期" value={planForm.cycle_type} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, cycle_type: String(value) }))} items={[{ value: 'monthly', label: '每月重置' }, { value: 'none', label: '不重置' }]} /><Input size="sm" label="每月重置日" type="number" min="1" max="31" value={planForm.cycle_day} disabled={planForm.cycle_type !== 'monthly'} onChange={(e) => setPlanForm((prev) => ({ ...prev, cycle_day: Number(e.target.value) || 1 }))} /></div>
+        <Dialog size="xl" className="@container flex max-h-[min(calc(100dvh-2rem),48rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:!w-[min(72rem,calc(100vw-3rem))] cq-sm:!max-w-[min(72rem,calc(100vw-3rem))]">
+          <div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>{editingPlanId ? '编辑套餐' : '新建套餐'}</Dialog.Title></div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 scrollbar-thin cq-sm:p-5">
+            <div className="grid gap-3 cq-sm:grid-cols-2"><Input size="sm" label="套餐名称" value={planForm.name} onChange={(e) => setPlanForm((prev) => ({ ...prev, name: e.target.value }))} /><Input size="sm" label="备注" value={planForm.remark} onChange={(e) => setPlanForm((prev) => ({ ...prev, remark: e.target.value }))} /></div>
+            <div className="grid items-end gap-3 cq-md:grid-cols-[minmax(16rem,1.2fr)_minmax(12rem,.8fr)_minmax(10rem,.7fr)]"><TrafficSizeInput label="订阅额度（仅托管节点，0 不限）" value={planForm.total_bytes} onChange={(value) => setPlanForm((prev) => ({ ...prev, total_bytes: value }))} /><Select size="sm" label="重置周期" value={planForm.cycle_type} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, cycle_type: String(value) }))} items={[{ value: 'monthly', label: '每月重置' }, { value: 'none', label: '不重置' }]} /><Input size="sm" label="每月重置日" type="number" min="1" max="31" value={planForm.cycle_day} disabled={planForm.cycle_type !== 'monthly'} onChange={(e) => setPlanForm((prev) => ({ ...prev, cycle_day: Number(e.target.value) || 1 }))} /></div>
 			{planForm.total_bytes > 0 && ((planForm.selection_mode === 'all' && planForm.include_external_nodes) || (planForm.selection_mode === 'explicit' && planForm.node_ids.some((id) => nodes.some((node) => node.id === id)))) && <div className="rounded-md border border-kumo-warning/30 bg-kumo-warning/10 px-3 py-2 text-xs text-kumo-warning">外部节点不受 Agent 管理，额度仅约束内部节点。</div>}
-            <div className="grid items-end gap-3 md:grid-cols-[minmax(18rem,1fr)_auto]"><Input size="sm" label="订阅请求限制（次/分钟）" type="number" min="1" value={planForm.rate_limit_per_minute} onChange={(e) => setPlanForm((prev) => ({ ...prev, rate_limit_per_minute: Number(e.target.value) || 30 }))} /><div className="flex min-h-8 items-center"><Switch size="sm" label="启用请求限制" checked={planForm.rate_limit_enabled} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, rate_limit_enabled: checked }))} /></div></div>
+            <div className="grid items-end gap-3 cq-md:grid-cols-[minmax(18rem,1fr)_auto]"><Input size="sm" label="订阅请求限制（次/分钟）" type="number" min="1" value={planForm.rate_limit_per_minute} onChange={(e) => setPlanForm((prev) => ({ ...prev, rate_limit_per_minute: Number(e.target.value) || 30 }))} /><div className="flex min-h-8 items-center"><Switch size="sm" label="启用请求限制" checked={planForm.rate_limit_enabled} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, rate_limit_enabled: checked }))} /></div></div>
             <div className="border-t border-kumo-line pt-4">
-              <div className="mb-3 grid items-end gap-3 sm:grid-cols-[14rem_1fr]">
+              <div className="mb-3 grid items-end gap-3 cq-sm:grid-cols-[14rem_1fr]">
                 <Select size="sm" label="节点范围" value={planForm.selection_mode} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, selection_mode: String(value), node_ids: String(value) === 'all' ? [] : prev.node_ids }))} items={[{ value: 'explicit', label: '指定节点' }, { value: 'all', label: '全部当前及未来节点' }]} />
                 {planForm.selection_mode === 'all' && <div className="flex min-h-8 flex-wrap items-center gap-x-6 gap-y-2"><Switch size="sm" label="包含内部节点" checked={planForm.include_internal_nodes} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, include_internal_nodes: checked }))} /><Switch size="sm" label="包含外部节点" checked={planForm.include_external_nodes} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, include_external_nodes: checked }))} /></div>}
               </div>
               {planForm.selection_mode === 'explicit' && <>
 				<div className="mb-2 flex flex-wrap items-end justify-between gap-2"><div className="flex flex-wrap items-end gap-2"><Label className="text-xs font-semibold text-kumo-subtle">套餐节点</Label><Select size="sm" aria-label="节点类型筛选" value={planNodeTypeFilter} onValueChange={(value) => setPlanNodeTypeFilter(String(value))} items={planNodeTypeItems} className="w-36" /><Select size="sm" aria-label="节点来源筛选" value={planNodeSourceFilter} onValueChange={(value) => setPlanNodeSourceFilter(String(value))} items={[{ value: 'all', label: '全部来源' }, { value: 'internal', label: 'Agent 节点' }, { value: 'external', label: '外部节点' }]} className="w-36" /></div><div className="flex items-center gap-2"><Badge variant="neutral">已选 {planForm.node_ids.length}</Badge><Button size="sm" variant="secondary" disabled={visiblePlanNodeIDs.length === 0} onClick={() => setPlanForm((prev) => ({ ...prev, node_ids: allVisiblePlanNodesSelected ? prev.node_ids.filter((id) => !visiblePlanNodeIDs.includes(id)) : [...new Set([...prev.node_ids, ...visiblePlanNodeIDs])] }))}>{allVisiblePlanNodesSelected ? '取消当前全部' : '全选当前结果'}</Button></div></div>
-				<div className="max-h-72 overflow-auto rounded-md border border-kumo-line p-2 scrollbar-thin"><div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">{visiblePlanNodes.map((node) => <label key={`${node.source_group}-${node.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 hover:bg-kumo-recessed"><Checkbox aria-label={`选择套餐节点 ${node.name}`} checked={planForm.node_ids.includes(node.id)} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, node_ids: checked ? [...new Set([...prev.node_ids, node.id])] : prev.node_ids.filter((id) => id !== node.id) }))} /><span className="min-w-0 flex-1 truncate text-xs font-semibold">{node.name}</span><Badge variant="neutral">{node.source_group === 'internal' ? 'Agent' : '外部'}</Badge><Badge variant={nodeTypeBadgeVariant(node.display_type)}>{node.display_type || '-'}</Badge></label>)}{visiblePlanNodes.length === 0 && <div className="p-5 text-center text-xs text-kumo-subtle sm:col-span-2 lg:col-span-3">没有符合类型与来源条件的节点</div>}</div></div>
+				<div className="max-h-72 overflow-auto rounded-md border border-kumo-line p-2 scrollbar-thin"><div className="grid gap-1 cq-sm:grid-cols-2 cq-lg:grid-cols-3">{visiblePlanNodes.map((node) => <label key={`${node.source_group}-${node.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 hover:bg-kumo-recessed"><Checkbox aria-label={`选择套餐节点 ${node.name}`} checked={planForm.node_ids.includes(node.id)} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, node_ids: checked ? [...new Set([...prev.node_ids, node.id])] : prev.node_ids.filter((id) => id !== node.id) }))} /><span className="min-w-0 flex-1 truncate text-xs font-semibold">{node.name}</span><Badge variant="neutral">{node.source_group === 'internal' ? 'Agent' : '外部'}</Badge><Badge variant={nodeTypeBadgeVariant(node.display_type)}>{node.display_type || '-'}</Badge></label>)}{visiblePlanNodes.length === 0 && <div className="p-5 text-center text-xs text-kumo-subtle cq-sm:col-span-2 cq-lg:col-span-3">没有符合类型与来源条件的节点</div>}</div></div>
               </>}
             </div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 sm:px-5"><Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} /><Button size="sm" variant="primary" loading={saving} onClick={savePlan}><Save className="h-3.5 w-3.5" />保存套餐</Button></div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5"><Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} /><Button size="sm" variant="primary" loading={saving} onClick={savePlan}><Save className="h-3.5 w-3.5" />保存套餐</Button></div>
         </Dialog>
       </Dialog.Root>
 
       <Dialog.Root open={internalNodeModalOpen} onOpenChange={setInternalNodeModalOpen}>
-        <Dialog size="xl" className="!w-[min(58rem,calc(100vw-1rem))] !max-w-[min(58rem,calc(100vw-1rem))] overflow-hidden p-0">
-          <div className="border-b border-kumo-line px-3 py-3 sm:px-5 sm:py-4"><Dialog.Title>{editingInternalNodeId ? '编辑内部节点' : '生成内部节点'}</Dialog.Title></div>
-          <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-5">
-            {!editingInternalNodeId && <div className="sm:col-span-2">
+        <Dialog size="xl" className="@container !w-[min(58rem,calc(100vw-1rem))] !max-w-[min(58rem,calc(100vw-1rem))] overflow-hidden p-0">
+          <div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>{editingInternalNodeId ? '编辑内部节点' : '生成内部节点'}</Dialog.Title></div>
+          <div className="grid gap-3 p-3 cq-sm:grid-cols-2 cq-sm:p-5">
+            {!editingInternalNodeId && <div className="cq-sm:col-span-2">
 				<div className="flex items-center justify-between gap-2"><Label className="text-xs font-semibold text-kumo-subtle">已安装代理程序的实例</Label><Badge variant="neutral">已选 {selectedInternalHosts.size} / {runtimeReadyServers.length}</Badge></div>
               <div className="mt-1.5 max-h-44 overflow-auto rounded-md border border-kumo-line bg-kumo-recessed/20 p-1.5 scrollbar-thin">
-                <div className="grid gap-1 sm:grid-cols-2">
+                <div className="grid gap-1 cq-sm:grid-cols-2">
                   {runtimeReadyServers.map((server) => {
                     const checked = selectedInternalHosts.has(server.id);
 					return <label key={server.id} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 hover:bg-kumo-base/60"><Checkbox checked={checked} disabled={server.status !== 'online'} onCheckedChange={(value) => { const next = new Set(selectedInternalHosts); if (value) next.add(server.id); else next.delete(server.id); setSelectedInternalHosts(next); const first = [...next][0] || ''; setInternalNodeForm((prev) => ({ ...prev, server_id: first, public_host: servers.find((item) => item.id === first)?.host || '' })); }} aria-label={`选择 ${server.name}`} /><span className="min-w-0 flex-1 truncate text-xs font-semibold text-kumo-strong">{server.name}</span><Badge variant={server.status === 'online' ? 'success' : 'neutral'} appearance="dot">{server.status === 'online' ? '在线' : '离线'}</Badge></label>;
                   })}
-                  {runtimeReadyServers.length === 0 && <div className="p-3 text-center text-xs text-kumo-subtle sm:col-span-2">暂无已安装 sing-box 的实例</div>}
+                  {runtimeReadyServers.length === 0 && <div className="p-3 text-center text-xs text-kumo-subtle cq-sm:col-span-2">暂无已安装 sing-box 的实例</div>}
                 </div>
               </div>
             </div>}
@@ -2607,21 +2607,21 @@ function SubscriptionPage() {
             {internalNodeForm.access_mode === 'cloudflare_tunnel' && <Select size="sm" label="优选地址" value={internalNodeForm.preferred_address_id || ''} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, preferred_address_id: String(value) }))} items={[{ value: '', label: '继承默认地址' }, ...preferredAddresses.map((item) => ({ value: item.id, label: `${item.name} · ${item.address}` }))]} />}
             <div className="flex min-h-8 items-center rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2"><Switch size="sm" label="稳定节点" controlFirst={false} checked={!!internalNodeForm.stable} onCheckedChange={(checked) => setInternalNodeForm((prev) => ({ ...prev, stable: checked }))} /></div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 sm:px-5 sm:py-4"><Button size="sm" variant="secondary" onClick={() => setInternalNodeModalOpen(false)}>取消</Button><Button size="sm" variant="primary" loading={saving} onClick={editingInternalNodeId ? saveInternalNode : createInternalNode}>{editingInternalNodeId ? '保存' : '生成节点'}</Button></div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Button size="sm" variant="secondary" onClick={() => setInternalNodeModalOpen(false)}>取消</Button><Button size="sm" variant="primary" loading={saving} onClick={editingInternalNodeId ? saveInternalNode : createInternalNode}>{editingInternalNodeId ? '保存' : '生成节点'}</Button></div>
         </Dialog>
       </Dialog.Root>
 
 		<Dialog.Root open={tunnelModalOpen} onOpenChange={setTunnelModalOpen}>
-			<Dialog size="lg" className="w-[calc(100vw-1rem)] max-w-2xl p-0">
-				<div className="border-b border-kumo-line px-3 py-3 sm:px-5 sm:py-4"><Dialog.Title>部署 Cloudflare Named Tunnel</Dialog.Title></div>
-				<div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-5"><Select size="sm" label="Cloudflare 账号" value={tunnelForm.account_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, account_id: String(value), zone_id: '', hostname: '' }))} items={cloudflareAccounts.map((item) => ({ value: item.id, label: item.name || item.email || item.id }))} /><Select size="sm" label="DNS Zone" value={tunnelForm.zone_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, zone_id: String(value) }))} items={cloudflareZones.map((item) => ({ value: item.id, label: item.name || item.id }))} /><Input size="sm" className="sm:col-span-2" label="自动生成的 Tunnel 域名" value={tunnelForm.hostname || '选择 DNS Zone 后自动生成'} readOnly /></div>
-				<div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 sm:px-5 sm:py-4"><Button size="sm" variant="secondary" onClick={() => setTunnelModalOpen(false)}>取消</Button><Button size="sm" variant="primary" onClick={() => deployTunnel()} disabled={!tunnelTargetServer || !tunnelForm.hostname}>开始部署</Button></div>
+			<Dialog size="lg" className="@container w-[calc(100vw-1rem)] max-w-2xl p-0">
+				<div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>部署 Cloudflare Named Tunnel</Dialog.Title></div>
+				<div className="grid gap-3 p-3 cq-sm:grid-cols-2 cq-sm:p-5"><Select size="sm" label="Cloudflare 账号" value={tunnelForm.account_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, account_id: String(value), zone_id: '', hostname: '' }))} items={cloudflareAccounts.map((item) => ({ value: item.id, label: item.name || item.email || item.id }))} /><Select size="sm" label="DNS Zone" value={tunnelForm.zone_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, zone_id: String(value) }))} items={cloudflareZones.map((item) => ({ value: item.id, label: item.name || item.id }))} /><Input size="sm" className="cq-sm:col-span-2" label="自动生成的 Tunnel 域名" value={tunnelForm.hostname || '选择 DNS Zone 后自动生成'} readOnly /></div>
+				<div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Button size="sm" variant="secondary" onClick={() => setTunnelModalOpen(false)}>取消</Button><Button size="sm" variant="primary" onClick={() => deployTunnel()} disabled={!tunnelTargetServer || !tunnelForm.hostname}>开始部署</Button></div>
 			</Dialog>
 		</Dialog.Root>
 
 		<Dialog.Root open={preferredModalOpen} onOpenChange={setPreferredModalOpen}>
-			<Dialog size="lg" className="!w-[min(56rem,calc(100vw-1rem))] !max-w-[min(56rem,calc(100vw-1rem))] overflow-hidden p-0">
-				<div className="flex min-h-12 items-center justify-between gap-3 border-b border-kumo-line px-3 py-3 sm:px-5 sm:py-3.5">
+			<Dialog size="lg" className="@container !w-[min(56rem,calc(100vw-1rem))] !max-w-[min(56rem,calc(100vw-1rem))] overflow-hidden p-0">
+				<div className="flex min-h-12 items-center justify-between gap-3 border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
 					<Dialog.Title>优选地址</Dialog.Title>
 					<div className="flex shrink-0 items-center gap-2">
 						<Badge variant="neutral">{preferredAddresses.length} 个地址</Badge>
@@ -2641,8 +2641,8 @@ function SubscriptionPage() {
 						/>
 					</div>
 				</div>
-				<div className="grid min-h-0 min-w-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-					<div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line p-3 sm:p-4 lg:border-b-0 lg:border-r">
+				<div className="grid min-h-0 min-w-0 cq-lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+					<div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line p-3 cq-sm:p-4 cq-lg:border-b-0 cq-lg:border-r">
 						<div className="text-xs font-semibold text-kumo-strong">添加新地址</div>
 						<Input size="sm" label="名称" value={preferredForm.name} onChange={(event) => setPreferredForm((prev) => ({ ...prev, name: event.target.value }))} />
 						<Input size="sm" label="域名或 IP" placeholder="saas.sin.fan" value={preferredForm.address} onChange={(event) => setPreferredForm((prev) => ({ ...prev, address: event.target.value }))} />
@@ -2654,7 +2654,7 @@ function SubscriptionPage() {
 						<Button size="sm" variant="primary" className="self-end" onClick={savePreferredAddress}><Save className="h-3.5 w-3.5" />添加地址</Button>
 					</div>
 					<div className="flex min-h-0 min-w-0 flex-col">
-						<div className="px-3 pt-3 sm:px-4"><div className="text-xs font-semibold text-kumo-strong">地址列表</div></div>
+						<div className="px-3 pt-3 cq-sm:px-4"><div className="text-xs font-semibold text-kumo-strong">地址列表</div></div>
 						<div className="max-h-64 min-h-0 overflow-y-auto p-2 scrollbar-thin">
 							{preferredAddresses.length === 0 ? (
 								<div className="p-6 text-center text-xs text-kumo-subtle">暂无优选地址，请先添加</div>
@@ -2675,16 +2675,16 @@ function SubscriptionPage() {
 						</div>
 					</div>
 				</div>
-				<div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 sm:px-5 sm:py-4">
+				<div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4">
 					<Button size="sm" variant="secondary" onClick={() => setPreferredModalOpen(false)}>关闭</Button>
 				</div>
 			</Dialog>
 		</Dialog.Root>
 
       <Dialog.Root open={subscriptionModalOpen} onOpenChange={setSubscriptionModalOpen}>
-        <Dialog size="lg" className="flex max-h-[min(calc(100dvh-2rem),42rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:w-[min(calc(100vw-3rem),64rem)]">
+        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:w-[min(calc(100vw-3rem),64rem)]">
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 sm:px-5 sm:py-3.5">
+            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
               <div className="min-w-0">
                 <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">
                   {editingSubscriptionId ? '编辑对外订阅' : '创建对外订阅'}
@@ -2707,7 +2707,7 @@ function SubscriptionPage() {
               />
             </div>
 
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 text-xs scrollbar-thin sm:px-5 sm:py-4">
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 text-xs scrollbar-thin cq-sm:px-5 cq-sm:py-4">
               <div className="space-y-4">
                 <section className="space-y-3">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-kumo-subtle">基础信息</div>
@@ -2722,7 +2722,7 @@ function SubscriptionPage() {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 sm:px-5 sm:justify-end">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5 cq-sm:justify-end">
               <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
               <Button size="sm" variant="primary" loading={saving} onClick={saveSubscription}><Save className="h-3.5 w-3.5" />保存</Button>
             </div>
@@ -2731,9 +2731,9 @@ function SubscriptionPage() {
       </Dialog.Root>
 
       <Dialog.Root open={nodeModalOpen} onOpenChange={setNodeModalOpen}>
-        <Dialog size="lg" className="flex max-h-[min(calc(100dvh-2rem),44rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:w-[min(calc(100vw-3rem),72rem)]">
+        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),44rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:w-[min(calc(100vw-3rem),72rem)]">
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 sm:px-5 sm:py-3.5">
+            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
               <div className="min-w-0">
                 <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">编辑节点</Dialog.Title>
               </div>
@@ -2754,7 +2754,7 @@ function SubscriptionPage() {
               />
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin sm:px-5 sm:py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin cq-sm:px-5 cq-sm:py-4">
               <div className="space-y-4">
                 <section className="min-w-0 space-y-3">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-kumo-subtle">连接信息</div>
@@ -2773,7 +2773,7 @@ function SubscriptionPage() {
                   <div className="text-[11px] font-bold uppercase tracking-wide text-kumo-subtle">外部节点属性</div>
                   <div className="grid min-w-0 items-end gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(14rem,100%),1fr))]">
                     <Input size="sm" label="排序" type="number" value={nodeForm.sort_order || 0} onChange={(e) => setNodeForm((prev) => ({ ...prev, sort_order: Number(e.target.value) || 0 }))} className="w-full min-w-0" />
-                    <div className="grid min-h-8 min-w-0 gap-3 rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 sm:grid-cols-2">
+                    <div className="grid min-h-8 min-w-0 gap-3 rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 cq-sm:grid-cols-2">
                       <Switch size="sm" label="启用节点" controlFirst={false} checked={!!nodeForm.enabled} onCheckedChange={(checked) => setNodeForm((prev) => ({ ...prev, enabled: checked }))} />
                       <Switch size="sm" label="稳定节点" controlFirst={false} checked={!!nodeForm.stable} onCheckedChange={(checked) => setNodeForm((prev) => ({ ...prev, stable: checked }))} />
                     </div>
@@ -2790,7 +2790,7 @@ function SubscriptionPage() {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 sm:px-5 sm:justify-end">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5 cq-sm:justify-end">
               <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
               <Button size="sm" variant="primary" loading={saving} onClick={saveNode}><Save className="h-3.5 w-3.5" />保存节点</Button>
             </div>
@@ -2799,9 +2799,9 @@ function SubscriptionPage() {
       </Dialog.Root>
 
       <Dialog.Root open={importModalOpen} onOpenChange={setImportModalOpen}>
-        <Dialog size="xl" className="flex !h-auto max-h-[min(calc(100dvh-1rem),42rem)] !w-[min(72rem,calc(100vw-1rem))] !max-w-[min(72rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
+        <Dialog size="xl" className="@container flex !h-auto max-h-[min(calc(100dvh-1rem),42rem)] !w-[min(72rem,calc(100vw-1rem))] !max-w-[min(72rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 sm:px-5 sm:py-3.5">
+            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
               <div className="min-w-0">
                 <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">导入节点</Dialog.Title>
               </div>
@@ -2822,13 +2822,13 @@ function SubscriptionPage() {
               />
             </div>
 
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin sm:px-5 sm:py-4">
-              <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin cq-sm:px-5 cq-sm:py-4">
+              <div className="grid min-w-0 items-start gap-4 cq-lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
                 <div className="min-w-0 space-y-3">
                   <Input size="sm" label="订阅 URL" placeholder="https://example.com/sub.yaml" value={importSourceURL} onChange={(e) => setImportSourceURL(e.target.value)} />
                   <CodeEditor className="h-[18rem] min-w-0" label="节点链接 / YAML / Base64 内容" language="yaml" minHeight="18rem" placeholder="可粘贴节点链接、Base64 订阅，或 Clash/Mihomo YAML 的 proxies。" value={importText} onChange={setImportText} />
                 </div>
-                <LayerCard className="flex h-[18rem] min-h-0 min-w-0 flex-col overflow-hidden border border-kumo-line bg-kumo-elevated p-0 shadow-none lg:mt-[3.5rem]">
+                <LayerCard className="flex h-[18rem] min-h-0 min-w-0 flex-col overflow-hidden border border-kumo-line bg-kumo-elevated p-0 shadow-none cq-lg:mt-[3.5rem]">
                   <LayerCard.Secondary className="flex min-h-11 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-4 py-2.5">
                     <div className="min-w-0 truncate text-sm font-bold text-kumo-strong">解析预览</div>
 					<Badge variant="neutral">{importPreview.length} 个节点</Badge>
@@ -2856,7 +2856,7 @@ function SubscriptionPage() {
               </div>
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 sm:px-5 sm:justify-end">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5 cq-sm:justify-end">
               <Button size="sm" variant="secondary" onClick={previewImport}>预览</Button>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="secondary" onClick={() => commitImport(true)}>
@@ -2874,9 +2874,9 @@ function SubscriptionPage() {
       </Dialog.Root>
 
       <Dialog.Root open={templateModalOpen} onOpenChange={setTemplateModalOpen}>
-        <Dialog size="lg" className="flex max-h-[min(calc(100dvh-2rem),42rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:w-[min(calc(100vw-3rem),64rem)]">
+        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:w-[min(calc(100vw-3rem),64rem)]">
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 sm:px-5 sm:py-3.5">
+            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
               <div className="min-w-0">
                 <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">
                   {editingTemplateId ? '编辑模板' : '创建模板'}
@@ -2899,9 +2899,9 @@ function SubscriptionPage() {
               />
             </div>
 
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin sm:px-5 sm:py-4">
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin cq-sm:px-5 cq-sm:py-4">
               <div className="grid gap-4">
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 cq-sm:grid-cols-2">
                   <Input size="sm" label="名称" value={templateForm.name} onChange={(e) => setTemplateForm((prev) => ({ ...prev, name: e.target.value }))} />
                   <Select size="sm" label="格式" value={templateForm.format} onValueChange={(value) => setTemplateForm((prev) => ({ ...prev, format: String(value) }))} items={[{ value: 'clash', label: 'Mihomo/Clash YAML' }, { value: 'raw', label: 'Raw URI List' }, { value: 'base64', label: 'Base64 URI List' }]} />
                 </div>
@@ -2910,7 +2910,7 @@ function SubscriptionPage() {
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 sm:px-5 sm:justify-end">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5 cq-sm:justify-end">
               <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
               <Button size="sm" variant="primary" loading={saving} onClick={saveTemplate}><Save className="h-3.5 w-3.5" />保存模板</Button>
             </div>

@@ -41,11 +41,17 @@ const (
 	healthConcurrencyMax     = 200
 	// firstTokenTimeout 是流式请求等待首个字节的上限。超时后视为该代理出网链路
 	// 不可用，网关会取消当前连接并切换下一个代理（仅在代理池+自动切换启用时生效）。
-	firstTokenTimeout = 20 * time.Second
+	// 值需平衡：过高会让慢代理拖长重试（客户端断开回 502），过低会误伤正常的
+	// 慢心智模型首字。取 10s，把单次等待减半，同时留给推理首字足够余量。
+	firstTokenTimeout = 10 * time.Second
 	// streamWriteDeadline 是流式响应的写超时窗口。http.Server 的 WriteTimeout
 	// 覆盖整个响应写入时间，长流式对话可能远超该值；每次写前延长 deadline，
 	// 使长对话不被 WriteTimeout 掐断，同时保留慢客户端保护（长时间无进展才断）。
 	streamWriteDeadline = 5 * time.Minute
+	// usageTailLimit 是流式响应尾部保留的最大字节数：usage 信息总在最后一个
+	// SSE chunk / response.completed 事件里，只保留尾部即可，避免长对话把整个
+	// 流式响应累积在内存中。chat.completions 与 responses 两个流式入口共用。
+	usageTailLimit = 64 * 1024
 )
 
 // 热路径正则预编译：chat completion 每请求都会用到，避免逐请求编译。
@@ -55,6 +61,11 @@ var (
 	completionTokensRegex = regexp.MustCompile(`"completion_tokens"\s*:\s*(\d+)`)
 	totalTokensRegex      = regexp.MustCompile(`"total_tokens"\s*:\s*(\d+)`)
 	cachedTokensRegex     = regexp.MustCompile(`"cached_tokens"\s*:\s*(\d+)`)
+	// Responses API 的 usage 字段名为 input_tokens/output_tokens（对应 chat 的
+	// prompt/completion），缓存与推理分开明细。流式场景 usage 出现在最后的
+	// response.completed 事件里，同样用尾部正则提取。
+	inputTokensRegex      = regexp.MustCompile(`"input_tokens"\s*:\s*(\d+)`)
+	outputTokensRegex     = regexp.MustCompile(`"output_tokens"\s*:\s*(\d+)`)
 	versionPathRegex      = regexp.MustCompile(`(?i)/v\d+/?`)
 )
 
@@ -192,6 +203,28 @@ type Service struct {
 
 	// warmupOnce 保护预热 goroutine 只启动一次。
 	warmupOnce sync.Once
+
+	// notifier 用于上报网关健康/配额告警（由 server 注入；nil 时静默忽略）。
+	notifier Notifier
+	// alertOnce 保护告警监测 goroutine 只启动一次。
+	alertOnce sync.Once
+	// alertState 记录告警边沿状态，避免同状态反复触发通知。
+	alertMu    sync.Mutex
+	alertState gatewayAlertState
+}
+
+// Notifier 是 openai 网关向外部通知系统上报告警的最小接口。
+// 各模块自行声明同构接口，避免包级循环依赖；由 server 注入实现。
+type Notifier interface {
+	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
+}
+
+// gatewayAlertState 记录网关健康告警的去重边沿状态。
+type gatewayAlertState struct {
+	// lastProxyFrozenAt 记录最近一次「代理池全冻结」告警时间，避免反复刷屏。
+	lastProxyFrozenAt time.Time
+	// errorRateHigh 标记当前是否处于「错误率过高」告警态（触发->恢复成对）。
+	errorRateHigh bool
 }
 
 // relayErrorBufferSize 是转发失败事件环形缓冲的上限。
@@ -239,6 +272,11 @@ type endpointProxyState struct {
 	// sunk 记录因连续失败被判定为「坏代理」的沉淀标记及沉淀到期时间；沉淀期内
 	// 不参与选择，到期自动放回（暂态故障恢复后可重新加入）。
 	sunk map[string]time.Time
+	// lastExitIP 记录每个代理最近一次探活拿到的出口公网 IP（经代理出网），
+	// 用于前端排查「代理能用但出口被封 / 出口雷同」等代理级问题。
+	lastExitIP map[string]string
+	// lastProbeAt 记录每个代理最近一次成功探活的时间（UTC），前端展示探活新鲜度。
+	lastProbeAt map[string]time.Time
 	// lastAllFrozenLog 记录最近一次「全部出口冻结回退直连」的告警时间，用于节流日志。
 	lastAllFrozenLog time.Time
 	// lastAllUnfrozen 记录最近一次「全部出口禁用时自动解冻全体代理」的时间，
@@ -284,8 +322,9 @@ func New(cfg config.Config) *Service {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		// 兜底限制「等待响应头」的时间；快速切换由 headerTimeoutPerAttempt 在转发循环内控制，
-		// 故此处放宽到 60s，避免误杀「慢但最终成功」的非流式请求，也不限制流式响应体时长。
-		ResponseHeaderTimeout: 60 * time.Second,
+		// 故此处放宽到 180s，避免误杀「慢但最终成功」的非流式请求（推理模型思考阶段可能超过 60s），
+		// 也不限制流式响应体时长。
+		ResponseHeaderTimeout: 180 * time.Second,
 	}
 	s := &Service{
 		cfg:                  cfg,
@@ -305,6 +344,7 @@ func New(cfg config.Config) *Service {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if db, err := s.open(ctx); err == nil {
+		s.loadProxyState(ctx, db)
 		db.Close()
 	}
 	return s
@@ -312,6 +352,11 @@ func New(cfg config.Config) *Service {
 
 // warmupInterval 是代理池预热的保活周期。
 const warmupInterval = 10 * time.Minute
+
+// SetNotifier 注入告警通知器（由 server 组装时调用）。notifier 为 nil 时告警监测静默跳过。
+func (s *Service) SetNotifier(notifier Notifier) {
+	s.notifier = notifier
+}
 
 // StartWarmup 在后台周期性地对启用了代理池的端点发起轻量 /models 请求，
 // 预建立 SOCKS5/TLS 连接并复用连接池，避免首次请求承受完整的冷启动握手。
@@ -332,6 +377,99 @@ func (s *Service) StartWarmup(ctx context.Context) {
 			}
 		}()
 	})
+}
+
+// StartAlertMonitor 在后台周期性评估网关健康并触发通知告警：
+//   - 网关错误率过高（最近 10 分钟 ≥50% 且样本 ≥20）：触发 gateway_error_high，
+//     恢复（<25%）时触发 gateway_error_normal（成对事件便于通知生命周期）。
+// 由 server 在启动 openai 服务后调用；notifier 未注入时静默跳过。
+// 错误率按开表计算，避免引入运行时计数器带来的并发复杂度。
+func (s *Service) StartAlertMonitor(ctx context.Context) {
+	s.alertOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(gatewayAlertInterval)
+			defer ticker.Stop()
+			s.alertOnceNow(ctx)
+			for {
+				select {
+				case <-ticker.C:
+					s.alertOnceNow(ctx)
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	})
+}
+
+// gatewayAlertInterval 是网关健康告警的评估周期。
+const gatewayAlertInterval = 5 * time.Minute
+
+// gatewayErrorRateHigh / Normal 是错误率告警的触发与恢复阈值（百分比）。
+const (
+	gatewayErrorRateHigh   = 50
+	gatewayErrorRateNormal = 25
+)
+
+// gatewayErrorSampleMin 是错误率判定所需的最少样本数，避免冷启动误报。
+const gatewayErrorSampleMin = 20
+
+// alertOnceNow 执行一次网关健康告警评估。
+func (s *Service) alertOnceNow(ctx context.Context) {
+	if s.notifier == nil {
+		return
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+
+	since := time.Now().UTC().Add(-10 * time.Minute).Format("2006-01-02 15:04:05")
+	var total, errors int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
+		FROM openai_gateway_analytics WHERE timestamp >= ? AND route != 'models'`, since).Scan(&total, &errors)
+	if err != nil {
+		return
+	}
+
+	s.alertMu.Lock()
+	defer s.alertMu.Unlock()
+	high := total >= gatewayErrorSampleMin && float64(errors)/float64(total)*100 >= gatewayErrorRateHigh
+	if high && !s.alertState.errorRateHigh {
+		s.alertState.errorRateHigh = true
+		s.triggerGatewayAlert(ctx, "gateway_error_high", map[string]interface{}{
+			"requests":   total,
+			"errors":     errors,
+			"error_rate": float64(errors) / float64(total) * 100,
+			"windowMin":  10,
+			"event_type": "gateway_error_high",
+		})
+	} else if !high && s.alertState.errorRateHigh {
+		s.alertState.errorRateHigh = false
+		s.triggerGatewayAlert(ctx, "gateway_error_normal", map[string]interface{}{
+			"requests":   total,
+			"errors":     errors,
+			"error_rate": float64(errors) / float64(total) * 100,
+			"event_type": "gateway_error_normal",
+		})
+	}
+}
+
+// triggerGatewayAlert 向通知系统触发 openai 模块告警；发送失败仅记日志。
+func (s *Service) triggerGatewayAlert(ctx context.Context, eventType string, data map[string]interface{}) {
+	if s.notifier == nil {
+		return
+	}
+	triggerCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.notifier.Trigger(triggerCtx, "openai", eventType, data); err != nil {
+		applog.Warn(triggerCtx, "openai", "failed to trigger gateway alert",
+			"event_type", eventType,
+			"error", err.Error(),
+		)
+	}
 }
 
 // warmupOnceNow 对每个启用了代理池的端点，尝试通过每个代理建连一次。
@@ -411,6 +549,7 @@ func (s *Service) warmProxyConnection(ctx context.Context, endpointID, baseURL, 
 	resp.Body.Close()
 	s.markProxySuccess(endpointID, proxyURL)
 	s.unsinkProxy(endpointID, proxyURL)
+	s.probeProxyExitIP(endpointID, proxyURL)
 }
 
 // proxyFailCount 返回端点下某代理的连续失败计数（供探活判定沉降阈值）。
@@ -424,6 +563,44 @@ func (s *Service) proxyFailCount(endpointID, proxy string) int {
 		return state.failures[proxy]
 	}
 	return 0
+}
+
+// probeProxyExitIP 经指定代理访问 ipify 获取该代理出口的公网 IP 并记录到
+// 端点代理状态，供前端展示。失败静默忽略（仅为观测，不参与可用性判定）。
+// 独立超时与短连接，避免探活拖长预热循环。
+func (s *Service) probeProxyExitIP(endpointID, proxyURL string) {
+	if endpointID == "" || proxyURL == "" {
+		return
+	}
+	client, err := s.proxyClient(proxyURL)
+	if err != nil {
+		return
+	}
+	reqCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, "https://api.ipify.org", nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return
+	}
+	ip := strings.TrimSpace(string(body))
+	if ip == "" {
+		return
+	}
+	s.proxyMu.Lock()
+	if state, ok := s.proxyStateByEndpoint[endpointID]; ok {
+		state.lastExitIP[proxyURL] = ip
+		state.lastProbeAt[proxyURL] = time.Now()
+	}
+	s.proxyMu.Unlock()
 }
 
 func (s *Service) open(ctx context.Context) (*sql.DB, error) {
@@ -543,6 +720,14 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_analytics_timestamp ON openai_gateway_analytics(timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_gateway_keys_hash ON openai_gateway_keys(key_hash)`,
+		`CREATE TABLE IF NOT EXISTS openai_proxy_state (
+			endpoint_id TEXT NOT NULL,
+			proxy TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			until DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (endpoint_id, proxy, kind)
+		)`,
 		`INSERT OR IGNORE INTO openai_chat_personas (id, name, icon, system_prompt, is_default)
 		 VALUES ('1', '默认助手', 'fa-robot', '你是一个有用的 AI 助手。', 1)`,
 	}
@@ -739,6 +924,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.getEndpointProxyStateRoute(w, r, parts[1])
 	case len(parts) == 4 && parts[0] == "endpoints" && parts[2] == "proxy-state" && parts[3] == "unban" && method == http.MethodPost:
 		s.unbanEndpointProxies(w, r, parts[1])
+	case len(parts) == 4 && parts[0] == "endpoints" && parts[2] == "proxy-state" && parts[3] == "probe" && method == http.MethodPost:
+		s.probeEndpointProxies(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "endpoints" && (parts[1] == "refresh" || parts[1] == "refresh-all") && method == http.MethodPost:
 		s.refreshAllEndpointsRoute(w, r)
 	case len(parts) == 2 && parts[0] == "endpoints" && parts[1] == "reorder" && method == http.MethodPost:
@@ -819,6 +1006,28 @@ func (s *Service) resolveEndpointModel(ep Endpoint, requested string) (string, b
 		}
 	}
 	return requested, false
+}
+
+// normalizeReasoningEffort 将 OpenAI 标准枚举之外的 reasoning_effort 值归一到
+// 兼容值，避免 failover 到枚举更窄的上游（如部分仅接受 low/medium/high 的
+// 服务）时被 400 拒绝。当前仅收敛 max -> high；其余值保持透传，最小侵入。
+// 同时兼容 chat.completions（reasoning_effort 顶层字段）与 responses
+// （reasoning.effort 嵌套字段）两种请求形态。
+func normalizeReasoningEffort(body map[string]interface{}) {
+	normalize := func(raw interface{}) interface{} {
+		if s, ok := raw.(string); ok && s == "max" {
+			return "high"
+		}
+		return raw
+	}
+	if raw, ok := body["reasoning_effort"]; ok {
+		body["reasoning_effort"] = normalize(raw)
+	}
+	if reasoning, ok := body["reasoning"].(map[string]interface{}); ok {
+		if raw, ok := reasoning["effort"]; ok {
+			reasoning["effort"] = normalize(raw)
+		}
+	}
 }
 
 // recordRelayError 记录一次推理转发失败事件：写入内存环形缓冲（供 relay-errors 接口读取），
@@ -1473,7 +1682,9 @@ const proxyAllFrozenRetryInterval = 10 * time.Minute
 // （文件批量导入），但一次请求串行扫完整池会拖死请求：限流时每个出口都要
 // 等一次完整往返。封顶后大池只轮询前 cap 个出口，配合 429 累计冻结，
 // 被限死的出口会逐渐退出候选，剩余流量自动向健康出口集中。
-const proxyAttemptCap = 10
+// 与 firstTokenTimeout 配合构成单次转发最坏耗时预算：10s × cap，避免
+// 池过大 / 出口过慢时把请求拖到客户端超时断开（回 502）。
+const proxyAttemptCap = 8
 
 // endpointRetryRounds 是全部候选端点均失败后，网关在内部重试整轮候选的
 // 最大次数。对齐 New API 的 RetryTimes 语义：让客户端保持等待状态，网关
@@ -1552,6 +1763,19 @@ func weightedEndpointPick(latencies []int64, known []bool) int {
 	return len(latencies) - 1
 }
 
+// randIntN 返回 [0, n) 内的安全随机整数；n <= 0 时返回 0。
+// 用于并发请求需要打散到不同出口的场景（如全池解冻后分散起点）。
+func randIntN(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	bigN, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return int(bigN.Int64())
+}
+
 // normalizeProtocol 规范化端点连接协议设置：
 //   - "" / auto：自动协商（HTTP/2 优先，服务端不支持时回退 HTTP/1.1），即默认行为
 //   - http1：强制 HTTP/1.1（对齐主流 AI SDK / 官方客户端的传输层）
@@ -1592,8 +1816,9 @@ func (s *Service) clientForProtocol(protocol string) *http.Client {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		// 兜底限制「等待响应头」的时间；快速切换由 headerTimeoutPerAttempt 在转发循环内控制，
-		// 故此处放宽到 60s，避免误杀「慢但最终成功」的非流式请求，也不限制流式响应体时长。
-		ResponseHeaderTimeout: 60 * time.Second,
+		// 故此处放宽到 180s，避免误杀「慢但最终成功」的非流式请求（推理模型思考阶段可能超过 60s），
+		// 也不限制流式响应体时长。
+		ResponseHeaderTimeout: 180 * time.Second,
 	}
 	if key == "http1" {
 		// 关闭 HTTP/2 升级：既不尝试 h2 也不在 ALPN 中声明 h2，
@@ -1617,6 +1842,8 @@ func newEndpointProxyState() *endpointProxyState {
 		rate429:         make(map[string]int),
 		rateLimited:     make(map[string]time.Time),
 		sunk:            make(map[string]time.Time),
+		lastExitIP:      make(map[string]string),
+		lastProbeAt:     make(map[string]time.Time),
 	}
 }
 
@@ -1726,7 +1953,14 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 			if s.autoUnfreezeAllLocked(endpointID, cleaned, now) {
 				// 解冻成功：本次请求直接复用解冻后的池子，重新构建候选再择优。
 				// 解冻后所有代理均可用（冷却/冻结/沉淀已清空），从 cursor 起取一个。
-				selectedIdx = state.cursor % len(cleaned)
+				// 解冻时刻会有大量并发请求同时涌入，若都从 cursor 起点开始会全部
+				// 命中同一批代理，形成「刚解冻就被再次打爆」的雪崩。从 cursor 起加
+				// 一个随机偏移，让并发请求散开到池内不同出口，避免集中重打。
+				offset := 0
+				if len(cleaned) > 1 {
+					offset = randIntN(len(cleaned))
+				}
+				selectedIdx = (state.cursor + offset) % len(cleaned)
 				break
 			}
 			s.logProxyPoolFrozen(endpointID, cleaned, now)
@@ -1944,6 +2178,7 @@ func (s *Service) markProxyFailed(endpointID, proxy string) {
 		cooldown = proxyCooldownMax
 	}
 	state.cooldown[proxy] = time.Now().Add(cooldown)
+	s.persistProxyState(endpointID, proxy, "cooldown", state.cooldown[proxy])
 }
 
 // markProxySuccess 清除代理的失败计数与冷却（探活/预热成功时调用），使之立即恢复可选。
@@ -1959,6 +2194,9 @@ func (s *Service) markProxySuccess(endpointID, proxy string) {
 	}
 	delete(state.failures, proxy)
 	delete(state.cooldown, proxy)
+	s.persistProxyState(endpointID, proxy, "cooldown", time.Time{})
+	s.persistProxyState(endpointID, proxy, "rate_limited", time.Time{})
+	s.persistProxyState(endpointID, proxy, "sunk", time.Time{})
 }
 
 // markProxy429 记录代理的一次上游 429。与 markProxyFailed 的区别：
@@ -1966,8 +2204,10 @@ func (s *Service) markProxySuccess(endpointID, proxy string) {
 // 但同一代理累计 proxy429BanThreshold 次 429 说明该 IP 已被上游限死，
 // 继续把它留在候选池只会让重试反复打同一个 IP，故临时禁用 proxy429BanDuration，
 // 到期自动释放回池。成功转发不解除禁用；触发禁用时清零累计计数（重新累计下一轮）。
+// retryAfter 非 nil 时优先用上游给出的 Retry-After 时长作为禁用期（封顶
+// proxy429BanDuration），更贴合上游的配额恢复窗口；nil 时退回默认禁用期。
 // 触发禁用时打 WARN 日志（此前冻结完全静默，难以确认熔断是否生效）。
-func (s *Service) markProxy429(endpointID, proxy string) {
+func (s *Service) markProxy429(endpointID, proxy string, retryAfter *time.Duration) {
 	if proxy == "" {
 		return
 	}
@@ -1981,15 +2221,145 @@ func (s *Service) markProxy429(endpointID, proxy string) {
 	}
 	state.rate429[proxy]++
 	if state.rate429[proxy] >= proxy429BanThreshold {
-		state.rateLimited[proxy] = time.Now().Add(proxy429BanDuration)
+		duration := proxy429BanDuration
+		if retryAfter != nil && *retryAfter > 0 {
+			if *retryAfter < duration {
+				duration = *retryAfter
+			}
+		}
+		state.rateLimited[proxy] = time.Now().Add(duration)
 		delete(state.rate429, proxy)
 		applog.Warn(context.Background(), "openai",
 			"proxy frozen after repeated upstream 429s",
 			"endpoint_id", endpointID,
 			"proxy", hostFromProxyURL(proxy),
-			"duration", proxy429BanDuration.String(),
+			"duration", duration.String(),
 		)
+		s.persistProxyState(endpointID, proxy, "rate_limited", state.rateLimited[proxy])
 	}
+}
+
+// loadProxyState 启动时从 openai_proxy_state 表恢复代理池的持久化状态
+// （429 冻结 / 连接失败冷却 / 坏代理沉淀）。只恢复尚未过期的记录；
+// 过期记录在恢复时顺手清理，避免表无限增长。
+// 幂等：重复调用只是再次把未过期状态写回内存（各 map 均为覆盖语义）。
+func (s *Service) loadProxyState(ctx context.Context, db *sql.DB) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT endpoint_id, proxy, kind, until FROM openai_proxy_state`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	now := time.Now()
+	var stale [][3]string
+	for rows.Next() {
+		var endpointID, proxy, kind, untilRaw string
+		if err := rows.Scan(&endpointID, &proxy, &kind, &untilRaw); err != nil {
+			continue
+		}
+		until, err := time.Parse(time.RFC3339, untilRaw)
+		if err != nil {
+			continue
+		}
+		if !until.After(now) {
+			stale = append(stale, [3]string{endpointID, proxy, kind})
+			continue
+		}
+		s.proxyMu.Lock()
+		state, ok := s.proxyStateByEndpoint[endpointID]
+		if !ok {
+			state = newEndpointProxyState()
+			s.proxyStateByEndpoint[endpointID] = state
+		}
+		switch kind {
+		case "rate_limited":
+			state.rateLimited[proxy] = until
+		case "cooldown":
+			state.cooldown[proxy] = until
+		case "sunk":
+			state.sunk[proxy] = until
+		}
+		s.proxyMu.Unlock()
+	}
+	if len(stale) > 0 {
+		for _, key := range stale {
+			_, _ = db.ExecContext(ctx,
+				"DELETE FROM openai_proxy_state WHERE endpoint_id=? AND proxy=? AND kind=?",
+				key[0], key[1], key[2])
+		}
+	}
+}
+
+// proxyStateWriteDedup 是代理池状态持久化的写入去重表：
+// 同一 (endpoint, proxy, kind) 在 proxyStateWriteDedupWindow 内只触发一次实际写库，
+// 避免连接失败等高频事件把 DB 写入打爆（期间状态的最终值由补写时的 latest 决定，
+// 慢一点覆盖没关系，只关心当前是否该恢复/清除）。
+var proxyStateWriteDedup sync.Map
+
+// proxyStateWriteWG 追踪代理池状态持久化的在途 goroutine，供测试在 TempDir
+// 清理前等待落盘完成，避免 RemoveAll 竞态失败（Windows 下目录非空）。
+var proxyStateWriteWG sync.WaitGroup
+
+// proxyStateWriteDedupWindow 是同一键持久化去重的窗口时长。
+const proxyStateWriteDedupWindow = 30 * time.Second
+
+// persistProxyState 把代理池的一条运行时状态异步持久化到 openai_proxy_state：
+// until 为零值时表示清除该条记录（代理已恢复）。
+// 使用独立短连接与 goroutine，避免阻塞转发热路径；同一键的并发写由
+// SQLite 的 UPSERT 语义自然收敛为最终值。写入带去重窗口，低频高频均安全。
+func (s *Service) persistProxyState(endpointID, proxy, kind string, until time.Time) {
+	if endpointID == "" || proxy == "" || kind == "" {
+		return
+	}
+	key := endpointID + "\x00" + proxy + "\x00" + kind
+	now := time.Now()
+	if v, ok := proxyStateWriteDedup.Load(key); ok {
+		if last, _ := v.(time.Time); now.Sub(last) < proxyStateWriteDedupWindow {
+			return
+		}
+	}
+	proxyStateWriteDedup.Store(key, now)
+	proxyStateWriteWG.Add(1)
+	go func() {
+		defer proxyStateWriteWG.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		db, err := s.open(ctx)
+		if err != nil {
+			return
+		}
+		defer db.Close()
+		if until.IsZero() {
+			_, _ = db.ExecContext(ctx,
+				"DELETE FROM openai_proxy_state WHERE endpoint_id=? AND proxy=? AND kind=?",
+				endpointID, proxy, kind)
+			return
+		}
+		_, _ = db.ExecContext(ctx, `
+			INSERT INTO openai_proxy_state(endpoint_id, proxy, kind, until, created_at)
+			VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(endpoint_id, proxy, kind) DO UPDATE SET until=excluded.until`,
+			endpointID, proxy, kind, until.UTC().Format(time.RFC3339))
+	}()
+}
+
+// retryAfterFromHeader 解析上游响应的 Retry-After 头为时长。
+// 仅支持秒数形式（RFC 7231 的 HTTP-date 形式较少见，且与配额窗口语义不符）；
+// 头缺失或解析失败返回 nil。禁用期上限由调用方与 proxy429BanDuration 封顶。
+func retryAfterFromHeader(resp *http.Response) *time.Duration {
+	if resp == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if raw == "" {
+		return nil
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return nil
+	}
+	d := time.Duration(seconds) * time.Second
+	return &d
 }
 
 // logProxyPoolFrozen 在全部出口因 429 冻结、回退直连时记录 WARN。
@@ -2034,6 +2404,9 @@ func (s *Service) autoUnfreezeAllLocked(endpointID string, pool []string, now ti
 		delete(state.rate429, proxy)
 		delete(state.sunk, proxy)
 		delete(state.failures, proxy)
+		s.persistProxyState(endpointID, proxy, "cooldown", time.Time{})
+		s.persistProxyState(endpointID, proxy, "rate_limited", time.Time{})
+		s.persistProxyState(endpointID, proxy, "sunk", time.Time{})
 	}
 	applog.Warn(context.Background(), "openai",
 		"proxy pool fully disabled, auto-unfroze all proxies",
@@ -2181,9 +2554,9 @@ func (s *Service) proxyClient(proxyURL string) (*http.Client, error) {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		// 兜底限制「等待响应头」的时间；排队的上游（免费模型高峰）可能 30s+ 才
-		// 返回响应头，固定 30s 会误杀「慢但最终成功」的请求，故放宽到 60s。
+		// 返回响应头，固定 30s 会误杀「慢但最终成功」的请求，故放宽到 180s。
 		// 首字失败切换由转发循环的 firstTokenTimeout（收到响应头后等首块）控制。
-		ResponseHeaderTimeout: 60 * time.Second,
+		ResponseHeaderTimeout: 180 * time.Second,
 	}
 	if err := configureProxyTransport(tr, u); err != nil {
 		return nil, err
@@ -3158,7 +3531,7 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
-			s.markProxy429(id, selectedProxy)
+			s.markProxy429(id, selectedProxy, retryAfterFromHeader(resp))
 		}
 		respBytes, _ := io.ReadAll(resp.Body)
 		response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(respBytes))})
@@ -3337,6 +3710,9 @@ type proxyRuntimeStateItem struct {
 	SunkUntil        string `json:"sunkUntil,omitempty"`
 	Failures         int    `json:"failures"`
 	Rate429          int    `json:"rate429"`
+	LastTTFB         int64  `json:"lastTTFB,omitempty"`
+	LastExitIP       string `json:"lastExitIP,omitempty"`
+	LastProbeAt      string `json:"lastProbeAt,omitempty"`
 }
 
 // getEndpointProxyStateRoute 返回端点代理池各出口的运行时禁用状态：
@@ -3371,6 +3747,11 @@ func (s *Service) getEndpointProxyStateRoute(w http.ResponseWriter, r *http.Requ
 		if ok {
 			item.Failures = state.failures[proxy]
 			item.Rate429 = state.rate429[proxy]
+			item.LastTTFB = state.lastTTFB[proxy]
+			item.LastExitIP = state.lastExitIP[proxy]
+			if probeAt, probed := state.lastProbeAt[proxy]; probed && !probeAt.IsZero() {
+				item.LastProbeAt = probeAt.Format(time.RFC3339)
+			}
 			if until, cooled := state.cooldown[proxy]; cooled && now.Before(until) {
 				item.CooldownUntil = until.Format(time.RFC3339)
 			}
@@ -3431,6 +3812,9 @@ func (s *Service) unbanEndpointProxies(w http.ResponseWriter, r *http.Request, i
 			}
 			if clearedFrom {
 				cleared++
+				s.persistProxyState(id, proxy, "cooldown", time.Time{})
+				s.persistProxyState(id, proxy, "rate_limited", time.Time{})
+				s.persistProxyState(id, proxy, "sunk", time.Time{})
 			}
 		}
 	}
@@ -3442,6 +3826,107 @@ func (s *Service) unbanEndpointProxies(w http.ResponseWriter, r *http.Request, i
 		"pool_size", len(pool),
 	)
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "cleared": cleared})
+}
+
+// probeEndpointProxies 立即对端点代理池全体出口做一次手动探活：
+//   1. 经代理向端点 /models 发起请求，判定链路连通性（成功清冷却/沉淀，失败按
+//      失败计数指数冷却且连续失败达阈值沉淀为坏代理）
+//   2. 经代理访问 ipify 记录出口公网 IP
+// 并发执行（上限 20），响应返回每个代理的探测结果（成功后记入运行时状态）。
+// 用于前端「批量测试」：探活结果随后通过 /proxy-state 读取。
+func (s *Service) probeEndpointProxies(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	var baseURL, apiKey string
+	var proxyRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &proxyRaw)
+	if err != nil {
+		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
+		return
+	}
+	pool := decodeProxyPool(proxyRaw)
+	if len(pool) == 0 {
+		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "probed": 0, "reachable": 0})
+		return
+	}
+
+	sem := make(chan struct{}, 20)
+	var probe sync.WaitGroup
+	var okMu sync.Mutex
+	reachable := 0
+	for _, proxyURL := range pool {
+		proxyURL := proxyURL
+		probe.Add(1)
+		go func() {
+			defer probe.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if s.probeEndpointProxyOnce(ctx, id, baseURL, apiKey, proxyURL) {
+				okMu.Lock()
+				reachable++
+				okMu.Unlock()
+			}
+		}()
+	}
+	probe.Wait()
+
+	applog.Info(ctx, "openai", "proxy pool manually probed",
+		"endpoint_id", id,
+		"pool_size", len(pool),
+		"reachable", reachable,
+	)
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "probed": len(pool), "reachable": reachable})
+}
+
+// probeEndpointProxyOnce 对单个代理做一次手动探活，返回是否链路可达。
+// 链路可达：清冷却/沉淀，记录出口 IP；不可达：指数冷却 + 连续失败沉淀。
+func (s *Service) probeEndpointProxyOnce(ctx context.Context, endpointID, baseURL, apiKey, proxyURL string) bool {
+	client, err := s.proxyClient(proxyURL)
+	if err != nil {
+		return false
+	}
+	fullURL := strings.TrimSuffix(baseURL, "/")
+	if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
+		fullURL += "/v1"
+	}
+	fullURL += "/models"
+
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return false
+	}
+	if apiKey != "" && apiKey != "public" {
+		req.Header.Set("Authorization", "Bearer "+secure.SecureDecrypt(apiKey))
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		s.markProxyFailed(endpointID, proxyURL)
+		if s.proxyFailCount(endpointID, proxyURL) >= proxySinkThreshold {
+			s.sinkProxy(endpointID, proxyURL)
+		}
+		return false
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 16*1024))
+	resp.Body.Close()
+	if resp.StatusCode != 0 && resp.StatusCode >= 300 {
+		// 上游 4xx/5xx：链路可达但上游拒绝；不沉淀代理（可能是 key/额度问题）。
+		s.markProxySuccess(endpointID, proxyURL)
+		s.unsinkProxy(endpointID, proxyURL)
+		s.probeProxyExitIP(endpointID, proxyURL)
+		return true
+	}
+	s.markProxySuccess(endpointID, proxyURL)
+	s.unsinkProxy(endpointID, proxyURL)
+	s.probeProxyExitIP(endpointID, proxyURL)
+	return true
 }
 
 func (s *Service) getEndpointHealthRoute(w http.ResponseWriter, r *http.Request, id string) {
@@ -4240,6 +4725,17 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	finalUpstreamRecorded := false
 
 	for attempt = 0; attempt < maxProxyAttempts; attempt++ {
+		// 客户端已断开（ctx 取消/超时）：立即结束尝试循环，不再发起新的
+		// 网络连接。无显式检查时，连接失败路径虽也会因 attemptCtx 取消而快速
+		// 返回，但在 clientForEndpoint 选择阶段仍可能空转；这里在每轮最前面
+		// 提前终止，杜绝客户端断开后的无效重试（对应网关 502 的常见成因）。
+		if err := ctx.Err(); err != nil {
+			if lastErr == nil {
+				lastErr = err
+			}
+			res.attempt = attempt
+			break
+		}
 		attemptCtx, cancel := context.WithCancel(ctx)
 		res.cancel = cancel
 		client, currentProxy, clientErr := s.clientForEndpoint(selected.ID, selected.ProxyPool, selected.ProxyEnabled, selected.ForceProxy, p.sessionKey, selected.Protocol)
@@ -4340,7 +4836,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			cancel()
 			if readErr != nil || isRetryableUpstreamResponse(resp, bodyBytesRead) {
 				if isRateLimitResponse(resp, bodyBytesRead) {
-					s.markProxy429(selected.ID, currentProxy)
+					s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
 				}
 				s.clearSessionBinding(selected.ID, p.sessionKey)
 				s.recordRelayError(RelayErrorRecord{
@@ -4372,7 +4868,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		// 但限流会累计计数，达到阈值后禁用该代理）。
 		if stream && selected.AutoSwitch && attempt+1 < maxProxyAttempts && isRetryableUpstreamResponse(resp, nil) {
 			if isRateLimitResponse(resp, nil) {
-				s.markProxy429(selected.ID, currentProxy)
+				s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
 			}
 			resp.Body.Close()
 			cancel()
@@ -4555,7 +5051,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	}
 	// 最后一次尝试（无重试机会）返回限流：同样累计计数，供 429 熔断使用。
 	if resp != nil && isRateLimitResponse(resp, nil) {
-		s.markProxy429(selected.ID, lastProxy)
+		s.markProxy429(selected.ID, lastProxy, retryAfterFromHeader(resp))
 	}
 	// 统一判定「上游可重试错误」：无论是否启用 AutoSwitch / 是否有代理池，
 	// 只要最终响应是限流或 5xx（且流式尚未写出首字节），都交给端点级 failover
@@ -4747,6 +5243,16 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 归一化 Anthropic/Claude 风格的消息 content 数组为 OpenAI 标准格式。
+	// PI / 部分 agent 客户端以 openai-completions 协议发请求时，assistant 历史
+	// 消息的 content 可能是 content blocks 数组（[{type:"thinking",...},
+	// {type:"text",...},{type:"toolCall",...}] 或 Claude 的 tool_use/tool_result），
+	// 而 zen 等上游的 chat.completions 只接受字符串或 OpenAI 标准 parts。
+	// 这里把 thinking block 提取为顶层 reasoning_content、text 合并为字符串、
+	// toolCall/tool_use 转为标准 tool_calls，否则上游直接 400 break（见本地网关
+	// 透传后 opencode.ai/zen 的 "Input should be a valid string" 错误）。
+	normalizeChatContentBlocks(parsedBody)
+
 	// 多端点 failover：按侧栏 sort_order 顺序逐个尝试候选端点。
 	// 端点「不可用」时切换到下一个候选，保证单端点故障不影响可用性，包括：
 	//   - endpointExhausted：本轮全部 API Key 尝试失败（key 问题）
@@ -4774,14 +5280,23 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		for ci, cand := range endpointCandidates {
 			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 			candModel, _ := s.resolveEndpointModel(cand, model)
+			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
+			// 候选归一化（写 reasoning_effort）。首个候选不复制、保持原样透传；
+			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
 			candBody := parsedBody
-			if candModel != model && candModel != "" {
+			needCopy := ci > 0 || (candModel != model && candModel != "")
+			if needCopy {
 				cp := make(map[string]interface{}, len(parsedBody))
 				for k, v := range parsedBody {
 					cp[k] = v
 				}
-				cp["model"] = candModel
 				candBody = cp
+			}
+			if candModel != model && candModel != "" {
+				candBody["model"] = candModel
+			}
+			if ci > 0 {
+				normalizeReasoningEffort(candBody)
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
@@ -4889,9 +5404,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		sw := newSSEStreamWriter(w)
 		buf := make([]byte, 4096)
-		// usage 信息总在最后一个 SSE chunk 里，只保留响应尾部即可，
-		// 避免长对话把整个流式响应累积在内存中。
-		const usageTailLimit = 64 * 1024
 		tail := make([]byte, 0, usageTailLimit)
 
 		// 每次写前延长写超时，避免 http.Server.WriteTimeout 掐断长流式响应。
@@ -5022,11 +5534,19 @@ func normalizeResponsesTools(body map[string]interface{}) {
 //     zen 对独立 function_call item 的归并不稳定（同样的请求时而 200 时而 400
 //     "An assistant message with 'tool_calls' must be followed by tool messages responding
 //     to each 'tool_call_id'"），显式归并后可稳定通过。
+//  4. assistant 已自带 tool_calls 但后续 function_call_output 不足时（codex 多轮
+//     并行工具分步回传：历史 tool_calls 仍含全部 call_id，但部分工具结果尚未返回），
+//     zen 转 chat 会报 "insufficient tool messages following tool_calls message"。
+//     对未被任何 function_call_output 回应的 tool_call 做防御性剔除，让校验通过。
 func normalizeResponsesInput(body map[string]interface{}) {
 	input, ok := body["input"].([]interface{})
 	if !ok {
 		return
 	}
+	// responded 记录已被 function_call_output 回应的 call_id。归并时从独立
+	// function_call item 取 call_id（call_id 优先，回退 id）；assistant 自带
+	// tool_calls 的 call_id 也在最终校验阶段核对。
+	responded := map[string]bool{}
 	normalized := make([]interface{}, 0, len(input))
 	var lastAssistant map[string]interface{}
 	for _, item := range input {
@@ -5061,6 +5581,10 @@ func normalizeResponsesInput(body map[string]interface{}) {
 				})
 			}
 			continue
+		case "function_call_output":
+			if callID, _ := msg["call_id"].(string); callID != "" {
+				responded[callID] = true
+			}
 		}
 		normalized = append(normalized, item)
 		if msg["type"] == "message" {
@@ -5111,6 +5635,46 @@ func normalizeResponsesInput(body map[string]interface{}) {
 		}
 	}
 
+	// 防御性剔除：assistant 已声明但未被任何 function_call_output 回应的 tool_call
+	// 会触发 zen 的 "insufficient tool messages following tool_calls message"。codex
+	// 多轮并行工具分步回传时历史 tool_calls 含全部 call_id，但部分 output 尚未返回，
+	// 这类未回应的调用本轮无法执行，剔除后既满足 zen 校验也不改变对话语义。
+	for _, item := range normalized {
+		msg, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if msg["type"] != "message" {
+			continue
+		}
+		if role, _ := msg["role"].(string); role != "assistant" {
+			continue
+		}
+		toolCalls, ok := msg["tool_calls"].([]interface{})
+		if !ok || len(toolCalls) == 0 {
+			continue
+		}
+		kept := toolCalls[:0]
+		for _, tc := range toolCalls {
+			tcMap, ok := tc.(map[string]interface{})
+			if !ok {
+				kept = append(kept, tc)
+				continue
+			}
+			callID, _ := tcMap["id"].(string)
+			if callID != "" && !responded[callID] {
+				// 无对应 function_call_output：剔除。
+				continue
+			}
+			kept = append(kept, tc)
+		}
+		if len(kept) == 0 {
+			delete(msg, "tool_calls")
+		} else {
+			msg["tool_calls"] = kept
+		}
+	}
+
 	// 末尾补齐：若最后一条是 function_call_output，追加空 user 消息。
 	if len(normalized) > 0 {
 		if last, ok := normalized[len(normalized)-1].(map[string]interface{}); ok {
@@ -5124,6 +5688,194 @@ func normalizeResponsesInput(body map[string]interface{}) {
 		}
 	}
 	body["input"] = normalized
+}
+
+// normalizeChatContentBlocks 把 Anthropic/Claude 或 agent 客户端发送的 content
+// blocks 数组归一化为 OpenAI chat.completions 标准格式。上游 zen 的 chat.completions
+// 只接受 content 为字符串或 OpenAI 标准 parts，若传入含 {type:"thinking",
+// signature:"reasoning_content"} / {type:"toolCall"} / {type:"tool_use"} 等块会直接
+// 400。归一化规则：
+//   - thinking / reasoning / redacted_thinking：提取 thinking 文本累积到消息顶层
+//     reasoning_content，并丢弃该块（避免把 Anthropic signature 传给 zen）。
+//   - toolCall / tool-call / tool_use block：转化为标准 tool_calls（id/type/function）。
+//     arguments 优先（PI 用对象或字符串），其次 input（Anthropic 用结构化对象）。
+//   - text：合并为 content 字符串。
+//   - image / image_url：保留为 OpenAI 图片 parts。
+//   - tool_result：随 keptParts 原样保留（对应消息已是 role=tool 时由 zen 直接处理）。
+//
+// 仅当 content 为非空数组且含可识别块时才改写；纯普通图片数组（image_url）不动。
+func normalizeChatContentBlocks(body map[string]interface{}) {
+	messages, ok := body["messages"].([]interface{})
+	if !ok {
+		return
+	}
+	for _, m := range messages {
+		msg, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		contentArr, ok := msg["content"].([]interface{})
+		if !ok || len(contentArr) == 0 {
+			continue
+		}
+		role, _ := msg["role"].(string)
+		var text strings.Builder
+		hasText := false
+		var reasoning strings.Builder
+		hasReasoning := false
+		var toolCalls []interface{}
+		var keptParts []interface{}
+		needsRewrite := false
+		for _, part := range contentArr {
+			pm, ok := part.(map[string]interface{})
+			if !ok {
+				keptParts = append(keptParts, part)
+				continue
+			}
+			ptype, _ := pm["type"].(string)
+			switch ptype {
+			case "text":
+				if t, ok := pm["text"].(string); ok {
+					if hasText {
+						text.WriteString("\n")
+					}
+					text.WriteString(t)
+					hasText = true
+				}
+				needsRewrite = true
+			case "thinking", "reasoning", "redacted_thinking":
+				if t := chatContentThinkingText(pm); t != "" {
+					if hasReasoning {
+						reasoning.WriteString("\n")
+					}
+					reasoning.WriteString(t)
+					hasReasoning = true
+				}
+				// 丢弃 thinking 块，reasoning 转顶层字段。
+				needsRewrite = true
+			case "toolCall", "tool-call", "tool_use":
+				name, _ := pm["name"].(string)
+				callID, _ := pm["id"].(string)
+				argsStr := chatContentToolArguments(pm)
+				if name != "" {
+					toolCalls = append(toolCalls, map[string]interface{}{
+						"id":   callID,
+						"type": "function",
+						"function": map[string]interface{}{
+							"name":      name,
+							"arguments": argsStr,
+						},
+					})
+				}
+				needsRewrite = true
+			case "image", "image_url":
+				// 保持 OpenAI 图片 part 原样。
+				keptParts = append(keptParts, part)
+			default:
+				keptParts = append(keptParts, part)
+			}
+		}
+
+		if !needsRewrite {
+			continue
+		}
+
+		var content interface{}
+		switch {
+		case hasText:
+			// 文本合并为首个或唯一 part；若同时含图片/其余 part，则文本作为
+			// ContentTextPart 后接其余 part，保证 zen 接受的 OpenAI parts 结构。
+			var merged []interface{}
+			if len(keptParts) == 0 {
+				content = text.String()
+			} else {
+				merged = append(merged, map[string]interface{}{
+					"type": "text",
+					"text": text.String(),
+				})
+				content = append(merged, keptParts...)
+			}
+		case len(keptParts) > 0:
+			content = keptParts
+		default:
+			if role == "assistant" && len(toolCalls) > 0 {
+				content = ""
+			} else {
+				content = text.String()
+			}
+		}
+
+		msg["content"] = content
+		if hasReasoning {
+			msg["reasoning_content"] = reasoning.String()
+		}
+		if len(toolCalls) > 0 && role == "assistant" {
+			msg["tool_calls"] = toolCalls
+		}
+	}
+
+	// zen 的 thinking 模式下，assistant 消息一旦在 tool 循环中开启思考，之后每轮
+	// toolCall 轮次的 assistant 消息都必须携带 reasoning_content（可为空串），否则
+	// 上游返回 400 "The `reasoning_content` in the thinking mode must be passed back
+	// to the API"。PI 等 agent 客户端在多轮工具调用时可能漏发 thinking 块，这里做
+	// 兜底：记录 thinking 是否已开启，对后续缺失 reasoning_content 的 assistant
+	// toolCall 消息补空串，满足 zen 的连续传回要求。
+	thinkingActive := false
+	for _, m := range messages {
+		msg, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		role, _ := msg["role"].(string)
+		if _, hasRC := msg["reasoning_content"]; hasRC {
+			thinkingActive = true
+		}
+		if role == "user" || role == "system" {
+			// 新一轮用户请求重置思考状态：新的对话轮不要求续传上一轮 reasoning。
+			thinkingActive = false
+		}
+		if thinkingActive && role == "assistant" {
+			if _, hasRC := msg["reasoning_content"]; !hasRC {
+				if _, hasTC := msg["tool_calls"]; hasTC {
+					msg["reasoning_content"] = ""
+				}
+			}
+		}
+	}
+}
+
+// chatContentThinkingText 提取 thinking/reasoning block 中的文本。PI 用
+// {type:"thinking", thinking, signature:"reasoning_content"}，部分 agent 用
+// {type:"reasoning", text}；统一兼容 thinking/reasoning_content/text/content。
+func chatContentThinkingText(pm map[string]interface{}) string {
+	for _, key := range []string{"thinking", "reasoning_content", "text", "content"} {
+		if t, ok := pm[key].(string); ok && t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// chatContentToolArguments 提取 toolCall block 的参数并序列化为 JSON 字符串。
+// PI 用 arguments（对象或字符串），Anthropic 用 input（结构化对象）。
+func chatContentToolArguments(pm map[string]interface{}) string {
+	if v, ok := pm["arguments"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+		if b, err := json.Marshal(v); err == nil {
+			return string(b)
+		}
+	}
+	if v, ok := pm["input"]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+		if b, err := json.Marshal(v); err == nil {
+			return string(b)
+		}
+	}
+	return "{}"
 }
 
 // sseDataJSON 提取 SSE 事件块中 data: 行的内容。
@@ -5497,14 +6249,23 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		for ci, cand := range endpointCandidates {
 			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 			candModel, _ := s.resolveEndpointModel(cand, model)
+			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
+			// 候选归一化（写 reasoning.effort）。首个候选不复制、保持原样透传；
+			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
 			candBody := parsedBody
-			if candModel != model && candModel != "" {
+			needCopy := ci > 0 || (candModel != model && candModel != "")
+			if needCopy {
 				cp := make(map[string]interface{}, len(parsedBody))
 				for k, v := range parsedBody {
 					cp[k] = v
 				}
-				cp["model"] = candModel
 				candBody = cp
+			}
+			if candModel != model && candModel != "" {
+				candBody["model"] = candModel
+			}
+			if ci > 0 {
+				normalizeReasoningEffort(candBody)
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
@@ -5625,9 +6386,16 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		if res.firstWritten && len(res.firstChunk) > 0 {
 			streamReader = bufio.NewReader(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 		}
+		// usage 信息总在最后的 response.completed 事件里，只保留流尾部即可，
+		// 避免长对话把整个流式响应累积在内存中。
+		tail := make([]byte, 0, usageTailLimit)
 		for {
 			block, readErr := readSSEBlock(streamReader)
 			if len(block) > 0 {
+				tail = append(tail, block...)
+				if len(tail) > usageTailLimit {
+					tail = tail[len(tail)-usageTailLimit:]
+				}
 				for _, out := range normalizer.transform(block) {
 					extendStreamDeadline()
 					sw.write(out)
@@ -5639,17 +6407,57 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
+		// 从尾部 response.completed 事件解析 usage（Responses 用 input/output_tokens）。
+		promptTokens := 0
+		completionTokens := 0
+		totalTokens := 0
+		cachedTokens := 0
+		accumulatedStr := string(tail)
+		if matches := inputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			promptTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := outputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			completionTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := totalTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			totalTokens, _ = strconv.Atoi(matches[1])
+		} else if promptTokens > 0 || completionTokens > 0 {
+			totalTokens = promptTokens + completionTokens
+		}
+		if matches := cachedTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			cachedTokens, _ = strconv.Atoi(matches[1])
+		}
+
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)
 		fp, _ := json.Marshal(failoverSteps)
-		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+		s.recordEndpointLatency(selected.ID, latencyMs)
+		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
+			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
+		}
 	} else {
 		respBodyBytes, _ := io.ReadAll(res.resp.Body)
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
+		var usageInfo struct {
+			Usage struct {
+				InputTokens         int `json:"input_tokens"`
+				OutputTokens        int `json:"output_tokens"`
+				TotalTokens         int `json:"total_tokens"`
+				InputTokensDetails  struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"input_tokens_details"`
+			} `json:"usage"`
+		}
+		_ = json.Unmarshal(respBodyBytes, &usageInfo)
+
 		s.recordProxyTTFB(selected.ID, res.lastProxy, latencyMs)
 		fp, _ := json.Marshal(failoverSteps)
-		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.InputTokens, usageInfo.Usage.OutputTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.InputTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
 		s.recordEndpointLatency(selected.ID, latencyMs)
+		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
+			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(usageInfo.Usage.TotalTokens))
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(res.resp.StatusCode)
@@ -5809,7 +6617,7 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
-			s.markProxy429(endpointID, selectedProxy)
+			s.markProxy429(endpointID, selectedProxy, retryAfterFromHeader(resp))
 		}
 		return false, 0, fmt.Errorf("verify failed: HTTP %d", resp.StatusCode)
 	}
@@ -5865,7 +6673,7 @@ func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
-			s.markProxy429(endpointID, selectedProxy)
+			s.markProxy429(endpointID, selectedProxy, retryAfterFromHeader(resp))
 		}
 		return nil, fmt.Errorf("list models failed: HTTP %d", resp.StatusCode)
 	}
@@ -6053,7 +6861,7 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 		// 健康检测也累计上游限流：半死出口（已限死的 IP）在健康检查里反复
 		// 429 时同样触发冻结，避免只有真实流量才能发现问题代理。
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
-			s.markProxy429(endpointID, selectedProxy)
+			s.markProxy429(endpointID, selectedProxy, retryAfterFromHeader(resp))
 		}
 
 		// 状态码优先：2xx 视为可用（仅校验显式 error 结构），

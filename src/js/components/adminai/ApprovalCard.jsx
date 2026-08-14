@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Loader } from '@cloudflare/kumo';
+import { Button, Loader } from '@cloudflare/kumo';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { ChevronDown, ChevronRight, Check } from '../Icons.jsx';
 
 /* 审批卡片 — Cloudflare Agent 风格：
@@ -51,10 +52,10 @@ export default function ApprovalCard({ approval, onResolve }) {
   diffRows.push({ key: 'method', value: method || 'GET' });
   if (path) diffRows.push({ key: 'path', value: path });
 
-  const handleResolve = async (action) => {
+  const handleResolve = async (action, applyToSession) => {
     setResolving(true);
     try {
-      await onResolve(id, action);
+      await onResolve(id, action, applyToSession);
     } finally {
       setResolving(false);
     }
@@ -64,7 +65,7 @@ export default function ApprovalCard({ approval, onResolve }) {
     if (!requestText.trim()) return;
     setResolving(true);
     try {
-      await onResolve(id, 'reject');
+      await onResolve(id, 'reject', false, requestText.trim());
     } finally {
       setResolving(false);
       setRequestOpen(false);
@@ -102,14 +103,15 @@ export default function ApprovalCard({ approval, onResolve }) {
       {/* 「N 处更改」展开区 */}
       {diffRows.length > 0 && (
         <div className="mt-2">
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => setShowDiff(!showDiff)}
-            className="flex items-center gap-1 text-xs text-kumo-brand transition-colors hover:text-kumo-strong"
+            className="flex items-center gap-1 text-xs !text-kumo-brand hover:!text-kumo-strong"
           >
             {showDiff ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             {diffRows.length} 处更改
-          </button>
+          </Button>
           {showDiff && (
             <div className="mt-2 space-y-1 rounded-lg bg-kumo-control p-2.5 font-mono text-[11px] text-kumo-default">
               {diffRows.map((row, i) => (
@@ -131,8 +133,8 @@ export default function ApprovalCard({ approval, onResolve }) {
       {/* 请求更改输入 */}
       {requestOpen && (
         <div className="mt-3">
-          <textarea
-            className="w-full resize-none rounded-lg border-0 bg-kumo-control p-2.5 text-xs text-kumo-default outline-none ring-1 ring-kumo-line focus:ring-kumo-brand/50"
+          <Textarea
+            className="w-full"
             placeholder="描述需要更改的内容……"
             rows={3}
             maxLength={1000}
@@ -142,21 +144,21 @@ export default function ApprovalCard({ approval, onResolve }) {
           <div className="mt-1.5 flex items-center justify-between">
             <span className="text-[10px] text-kumo-subtle">{requestText.length}/1,000</span>
             <div className="flex gap-2">
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => { setRequestOpen(false); setRequestText(''); }}
-                className="rounded-md px-2.5 py-1 text-xs text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default"
               >
                 取消
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
                 disabled={!requestText.trim() || resolving}
                 onClick={handleRequestChanges}
-                className="rounded-md bg-kumo-brand px-2.5 py-1 text-xs font-medium text-white transition-opacity disabled:opacity-40"
               >
                 发送
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -165,39 +167,42 @@ export default function ApprovalCard({ approval, onResolve }) {
       {/* 操作按钮：允许此对话 / 仅此次 / 拒绝 / 请求更改 */}
       {!requestOpen && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="primary"
             disabled={resolving}
-            onClick={() => handleResolve('approve')}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-kumo-success px-2.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            onClick={() => handleResolve('approve', true)}
+            className="!bg-kumo-success !text-white hover:!opacity-90"
           >
             {resolving ? <Loader size={12} /> : null}
             允许此对话
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
             disabled={resolving}
-            onClick={() => handleResolve('approve')}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-kumo-fill px-2.5 text-xs font-medium text-kumo-default ring-1 ring-kumo-line transition-colors hover:bg-kumo-tint disabled:opacity-50"
+            onClick={() => handleResolve('approve', false)}
           >
             仅此次
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             disabled={resolving}
             onClick={() => handleResolve('reject')}
-            className="inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium text-kumo-danger ring-1 ring-kumo-line transition-colors hover:bg-kumo-danger/10 disabled:opacity-50"
+            className="!text-kumo-danger hover:!bg-kumo-danger/10"
           >
             拒绝
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             disabled={resolving}
             onClick={() => setRequestOpen(true)}
-            className="inline-flex h-7 items-center rounded-md px-2.5 text-xs font-medium text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default disabled:opacity-50"
+            className="!text-kumo-subtle hover:!text-kumo-default"
           >
             请求更改
-          </button>
+          </Button>
         </div>
       )}
     </div>

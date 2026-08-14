@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"html"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,36 @@ func (s *Service) SetupChannels() {
 	// 动态注册：把当前所有启用的 telegram 频道实例加入注册表
 	s.reloadChannels(auth)
 	s.chanMgr.registry.SetOnInbound(s.handleChannelInbound)
+	// 默认启动：服务启动后自动拉起全部已启用频道（失败仅记日志，不阻断启动）
+	s.startAllEnabledChannels()
+}
+
+// startAllEnabledChannels 自动启动 DB 中全部已启用的频道。
+func (s *Service) startAllEnabledChannels() {
+	db, err := s.open(context.Background())
+	if err != nil {
+		slog.Warn("channel-auto-start", "err", err.Error())
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(context.Background(),
+		`SELECT id FROM admin_ai_channels WHERE enabled = 1`)
+	if err != nil {
+		slog.Warn("channel-auto-start", "err", err.Error())
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		if err := s.startChannelInstance(context.Background(), id); err != nil {
+			slog.Warn("channel-auto-start-failed", "channelId", id, "err", err.Error())
+		}
+	}
 }
 
 // reloadChannels 从 DB 重建频道实例（启动或配置变更后调用）。
@@ -79,7 +110,7 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 		if err := secure.DecryptJSON(encrypted, &cfg); err != nil {
 			continue
 		}
-		tg := channel.NewTelegramChannel("telegram", cfg, s.chanMgr.registry)
+		tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
 		tg.SetAuthorize(auth)
 		s.chanMgr.registry.Register(tg)
 	}
@@ -130,7 +161,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		if err := secure.DecryptJSON(encrypted, &cfg); err != nil {
 			return fmt.Errorf("频道配置解密失败: %w", err)
 		}
-		tg := channel.NewTelegramChannel("telegram", cfg, s.chanMgr.registry)
+		tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
 		tg.SetAuthorize(auth)
 		ch = tg
 	default:
@@ -144,8 +175,11 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 
 	s.chanMgr.registry.Register(ch)
 	go func() {
-		// Start 阻塞；退出后清理 cancel 注册
-		_ = ch.Start(runCtx)
+		// Start 阻塞；退出后清理 cancel 注册（含异常退出）
+		err := ch.Start(runCtx)
+		if err != nil {
+			slog.Warn("channel-poll-exited", "channelId", id, "err", err.Error())
+		}
 		s.chanMgr.mu.Lock()
 		if c, ok := s.chanMgr.cancels[id]; ok {
 			c()
@@ -165,7 +199,7 @@ func (s *Service) stopChannelInstance(id string) {
 		delete(s.chanMgr.cancels, id)
 	}
 	s.chanMgr.mu.Unlock()
-	if ch, exists := s.chanMgr.registry.Get("telegram"); exists {
+	if ch, exists := s.chanMgr.registry.Get(id); exists {
 		_ = ch.Stop(context.Background())
 	}
 }
@@ -184,12 +218,25 @@ func (s *Service) StopAllChannels() {
 	s.chanMgr.registry.SetOnInbound(nil)
 }
 
-// handleChannelInbound 处理频道入站消息：绑定校验 → RunLoop → 事件收集 → 出站回复。
+// handleChannelInbound 处理频道入站消息：斜杠命令（通知类）→ 其余消息进入 AI 对话。
+// 普通消息异步处理，避免 AI 推理耗时阻塞频道轮询（阻塞会导致后续消息积压）。
 func (s *Service) handleChannelInbound(env channel.InboundEnvelope) {
-	// 会话键：channels 用 chatID 派生（同一对话/群组共享会话）
+	// 斜杠命令优先处理（响应快，同步执行）
+	if handled, reply := s.handleChannelCommand(env); handled {
+		if strings.TrimSpace(reply) != "" {
+			s.sendChannelReplyReport(env, reply)
+		}
+		return
+	}
+	go s.handleChannelConversation(env)
+}
+
+// handleChannelConversation 异步执行频道普通消息对话（先发占位消息，再流式 Edit 增量呈现）。
+func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
+	slog.Info("channel-inbound-start", "channelId", env.ChannelID, "chatId", env.ChatID, "text", env.Text)
+	// 会话键：channels 用 chatID 派生（同一对话/群组共享上下文）
 	sessionID := "cha_" + env.ChatID
 	source := "channel:" + env.ChannelID
-
 	identity, _ := json.Marshal(map[string]interface{}{
 		"source":    source,
 		"channelId": env.ChannelID,
@@ -198,53 +245,364 @@ func (s *Service) handleChannelInbound(env channel.InboundEnvelope) {
 		"chatId":    env.ChatID,
 	})
 
-	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, string(identity), "")
-	if err != nil {
-		_, _ = s.sendChannelReply(env, "⚠️ 执行失败："+err.Error())
+	ch, ok := s.chanMgr.registry.Get(env.ChannelID)
+	if !ok {
+		s.sendChannelReplyReport(env, "⚠️ 频道未就绪。")
 		return
 	}
-
-	// 消费事件直到结束，收集回答文本
-	texts := s.subscribeRun(runID)
-	reply := strings.Join(texts, "\n")
-	if strings.TrimSpace(reply) == "" {
-		reply = "✅ 已处理（无文本输出）。"
+	msgID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在处理中…"})
+	if err != nil {
+		slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
+		return
 	}
-	_, _ = s.sendChannelReply(env, reply)
+	slog.Info("channel-placeholder-sent", "channelId", env.ChannelID, "msgId", msgID)
+
+	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, string(identity), "")
+	if err != nil {
+		s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
+		return
+	}
+	s.streamChannelReply(env, runID, msgID)
 }
 
-// subscribeRun 订阅 runId 的事件通道直至关闭，返回累计的 delta 文本。
-func (s *Service) subscribeRun(runID string) []string {
+// streamChannelReply 订阅 runId 事件，把 delta 文本持续 Edit 到占位消息上，实现真流式。
+// Edit 节流：最小间隔 + 最小增量，避免 Telegram 对高频编辑触发 429 限流。
+func (s *Service) streamChannelReply(env channel.InboundEnvelope, runID, msgID string) {
+	var mu sync.Mutex
+	var contents strings.Builder
+	var errMsg string
+	timer := time.NewTicker(streamEditInterval)
+	defer timer.Stop()
+	done := make(chan struct{})
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				mu.Lock()
+				cur := contents.String()
+				mu.Unlock()
+				if cur == "" {
+					continue
+				}
+				s.sendChannelEdit(env, msgID, cur)
+			}
+		}
+	}()
+
+	s.subscribeRunLive(runID, func(ev SSEEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch ev.Type {
+		case "delta":
+			if text, ok := ev.Fields["text"].(string); ok && text != "" {
+				contents.WriteString(text)
+			}
+		case "error":
+			if m, ok := ev.Fields["message"].(string); ok {
+				errMsg = m
+			}
+		}
+	})
+	close(done)
+
+	// 收尾定型：错误优先，无输出给占位文案。
+	mu.Lock()
+	final := contents.String()
+	if errMsg != "" {
+		final = "⚠️ " + errMsg
+	}
+	mu.Unlock()
+	if strings.TrimSpace(final) == "" {
+		final = "✅ 已处理（无文本输出）。"
+	}
+	// 超长回复 Edit 会截断丢内容：改用 Send 分片完整发送（保留占位消息不动）。
+	if len([]rune(final)) > streamEditMaxRunes {
+		s.sendChannelReplyReport(env, final)
+	} else {
+		s.sendChannelEdit(env, msgID, final)
+	}
+	slog.Info("channel-inbound-done", "channelId", env.ChannelID, "chatId", env.ChatID, "runId", runID, "replyLen", len(final))
+}
+
+// streamEditInterval 是 Telegram 消息编辑的最小间隔；过小会触发 429 限流。
+const streamEditInterval = 500 * time.Millisecond
+
+// streamEditMaxRunes 是流式收尾仍可用 Edit 的单条文本上限（Telegram 单条 4096，留余量）。
+const streamEditMaxRunes = 4000
+
+// sendChannelEdit 编辑频道占位消息（流式增量更新）。调用方负责转义动态内容。
+func (s *Service) sendChannelEdit(env channel.InboundEnvelope, msgID, text string) error {
+	ch, ok := s.chanMgr.registry.Get(env.ChannelID)
+	if !ok {
+		return fmt.Errorf("频道 %s 未注册", env.ChannelID)
+	}
+	err := ch.Edit(context.Background(), env.ChatID, msgID, channel.OutboundMessage{Text: text})
+	if err != nil {
+		slog.Error("channel-edit-failed", "channelId", env.ChannelID, "msgId", msgID, "err", err.Error(), "textLen", len(text))
+	}
+	return err
+}
+
+// sendChannelReplyReport 与 sendChannelReply 同，但失败时打日志并尽量回传错误，避免静默丢消息。
+func (s *Service) sendChannelReplyReport(env channel.InboundEnvelope, text string) {
+	msgID, err := s.sendChannelReply(env, text)
+	if err != nil {
+		slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
+		return
+	}
+	_ = msgID
+	var preview string
+	if r := []rune(text); len(r) > 60 {
+		preview = string(r[:60])
+	} else {
+		preview = text
+	}
+	slog.Info("channel-reply-sent", "channelId", env.ChannelID, "chatId", env.ChatID, "msgId", msgID, "preview", preview)
+}
+
+// subscribeRunLive 订阅 runId 的事件通道直至关闭，把每个事件实时回调给 onEvent。返回事件总数。
+// 注意：不能从 s.runs 中 delete —— runInference 结束时由 defer 统一 close 通道并清理，
+// 若在此抢先删除，runInference 的 deferred close 会因找不到条目而跳过，导致 for range 永久阻塞。
+func (s *Service) subscribeRunLive(runID string, onEvent func(SSEEvent)) int {
 	s.mu.Lock()
 	ch, exists := s.runs[runID]
-	if exists {
-		delete(s.runs, runID)
-	}
 	s.mu.Unlock()
 	if !exists {
-		return nil
+		return 0
+	}
+	count := 0
+	for event := range ch {
+		count++
+		if onEvent != nil {
+			onEvent(event)
+		}
+	}
+	return count
+}
+
+// channelCommandPanel 返回全中文命令面板文本（Start 就绪消息与 /help 共用）。
+func channelCommandPanel() string {
+	return channel.CommandPanel()
+}
+
+// handleChannelCommand 处理频道斜杠命令。返回 (是否已处理, 回复文本)。
+func (s *Service) handleChannelCommand(env channel.InboundEnvelope) (bool, string) {
+	text := strings.TrimSpace(env.Text)
+	if text == "" {
+		return false, ""
+	}
+	first := strings.ToLower(strings.Fields(text)[0])
+
+	var reply string
+	switch first {
+	case "/start", "/开始":
+		reply = channelCommandPanel()
+	case "/help", "/帮助":
+		reply = channelCommandPanel()
+	case "/status", "/状态":
+		reply = s.channelStatusReply(env)
+	case "/briefing", "/简报":
+		reply = s.channelBriefingReply(env)
+	default:
+		return false, "" // 不是已知命令，静默忽略
+	}
+	return true, reply
+}
+
+// channelStatusReply 生成站点实时状态中文摘要。
+func (s *Service) channelStatusReply(env channel.InboundEnvelope) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	snapshot, err := s.gatherSiteSnapshot(ctx)
+	if err != nil {
+		return "⚠️ 获取站点状态失败：" + channel.EscapeV2(err.Error())
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(snapshot), &data); err != nil {
+		return "⚠️ 状态数据解析失败：" + channel.EscapeV2(err.Error())
+	}
+	var sb strings.Builder
+	sb.WriteString("📊 *站点实时状态*\n")
+
+	host := statusSection(data["/api/system/host-metrics"])
+	if host != nil {
+		sb.WriteString("\n💻 *系统资源*\n")
+		if v, ok := str(host["hostname"]); ok {
+			sb.WriteString("· 主机：" + channel.EscapeV2(v) + "\n")
+		}
+		if v, ok := str(host["platformLabel"]); ok {
+			sb.WriteString("· 平台：" + channel.EscapeV2(v) + "\n")
+		}
+		if cpu, ok := host["cpu"].(map[string]interface{}); ok {
+			usage := numF(cpu["usage"])
+			logical := int64(numF(cpu["logicalCores"]))
+			sb.WriteString(fmt.Sprintf("· CPU：%.1f%%（%d 线程）\n", usage, logical))
+		}
+		if mem, ok := host["memory"].(map[string]interface{}); ok {
+			usage := numF(mem["usage"])
+			used := numF(mem["used"])
+			total := numF(mem["total"])
+			sb.WriteString(fmt.Sprintf("· 内存：%.1f%%（已用 %s / 共 %s）\n", usage, formatBytes(used), formatBytes(total)))
+		}
+		if disk, ok := host["disk"].(map[string]interface{}); ok {
+			usage := numF(disk["usage"])
+			used := numF(disk["used"])
+			total := numF(disk["total"])
+			sb.WriteString(fmt.Sprintf("· 磁盘：%.1f%%（已用 %s / 共 %s）\n", usage, formatBytes(used), formatBytes(total)))
+		}
+		if v := numF(host["uptime"]); v > 0 {
+			sb.WriteString("· 运行时长：" + formatUptime(v) + "\n")
+		}
 	}
 
-	texts := make([]string, 0)
-	for event := range ch {
-		if event.Type == "delta" {
-			if text, ok := event.Fields["text"].(string); ok && text != "" {
-				texts = append(texts, text)
+	stats := statusSection(data["/api/system/api-stats"])
+	if stats != nil {
+		sb.WriteString("\n📈 *API 调用*\n")
+		if total, ok := stats["total"].(map[string]interface{}); ok {
+			all := int64(numF(total["all"]))
+			audit := int64(numF(total["audit"]))
+			ops := int64(numF(total["ops"]))
+			sb.WriteString(fmt.Sprintf("· 累计调用：%s 次（审计 %s / 操作 %s）\n", formatInt(all), formatInt(audit), formatInt(ops)))
+		}
+		if v := numF(stats["tokens"]); v > 0 {
+			sb.WriteString("· 累计 Token：" + formatTokens(v) + "\n")
+		}
+		if trend, ok := stats["trend"].([]interface{}); ok && len(trend) > 0 {
+			if day, ok := trend[len(trend)-1].(map[string]interface{}); ok {
+				if bucket, ok := str(day["bucket"]); ok {
+					total := int64(numF(day["total"]))
+					sb.WriteString(fmt.Sprintf("· %s 调用：%s 次\n", channel.EscapeV2(bucket), formatInt(total)))
+				}
 			}
 		}
 	}
-	return texts
+	return sb.String()
 }
 
-// sendChannelReply 向频道发送 HTML 回复（简单转义）。
+// statusSection 从快照单条目提取 data 字段（内部接口经 response.OK 包装为 {success,data}）。
+func statusSection(v interface{}) map[string]interface{} {
+	body, _ := json.Marshal(v)
+	var inner struct {
+		Data map[string]interface{} `json:"data"`
+	}
+	if json.Unmarshal(body, &inner) != nil || inner.Data == nil {
+		return nil
+	}
+	return inner.Data
+}
+
+// str 返回 map 中的字符串值。
+func str(v interface{}) (string, bool) {
+	s, ok := v.(string)
+	return s, ok && s != ""
+}
+
+// numF 把数值字段转 float64（JSON 数字统一为 float64）。
+func numF(v interface{}) float64 {
+	f, _ := v.(float64)
+	return f
+}
+
+// formatInt 数字加千分位逗号。
+func formatInt(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if n < 0 {
+		return "-" + formatInt(-n)
+	}
+	if len(s) <= 3 {
+		return s
+	}
+	var sb strings.Builder
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteByte(byte(c))
+	}
+	return sb.String()
+}
+
+// formatBytes 把字节数压缩为人类可读单位。
+func formatBytes(n float64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%.0f B", n)
+	}
+	div, exp := unit, 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", n/float64(div), "KMGTPE"[exp])
+}
+
+// formatTokens 把 Token 数压缩为中文习惯单位。
+func formatTokens(n float64) string {
+	const (
+		yi  = 100000000
+		wan = 10000
+	)
+	switch {
+	case n >= yi:
+		return fmt.Sprintf("%.2f 亿", n/yi)
+	case n >= wan:
+		return fmt.Sprintf("%.0f 万", n/wan)
+	default:
+		return formatInt(int64(n))
+	}
+}
+
+// formatUptime 把秒数格式化为人类可读时长。
+func formatUptime(seconds float64) string {
+	sec := int64(seconds)
+	switch {
+	case sec < 60:
+		return "不足 1 分钟"
+	case sec < 3600:
+		return fmt.Sprintf("%d 分钟", sec/60)
+	case sec < 86400:
+		return fmt.Sprintf("%d 小时 %d 分钟", sec/3600, (sec%3600)/60)
+	default:
+		return fmt.Sprintf("%d 天 %d 小时", sec/86400, (sec%86400)/3600)
+	}
+}
+
+// channelBriefingReply 立即生成站点简报并发送到当前 chat。
+func (s *Service) channelBriefingReply(env channel.InboundEnvelope) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	model := s.getBriefingModel(ctx)
+	if model == "" {
+		return "⚠️ 未配置简报模型，请在「管理 AI 设置」中配置默认模型。"
+	}
+	snapshot, err := s.gatherSiteSnapshot(ctx)
+	if err != nil {
+		return "⚠️ 收集站点状态失败：" + err.Error()
+	}
+	briefing, err := s.generateBriefing(ctx, model, snapshot)
+	if err != nil {
+		return "⚠️ 生成简报失败：" + err.Error()
+	}
+	ch, ok := s.chanMgr.registry.Get(env.ChannelID)
+	if !ok {
+		return "⚠️ 频道未注册：" + env.ChannelID
+	}
+	if _, err := ch.Send(ctx, env.ChatID, channel.OutboundMessage{Text: briefing}); err != nil {
+		return "⚠️ 发送简报失败：" + err.Error()
+	}
+	return ""
+}
+
+// sendChannelReply 向频道发送 MarkdownV2 回复。调用方负责转义动态内容。
 func (s *Service) sendChannelReply(env channel.InboundEnvelope, text string) (string, error) {
 	ch, ok := s.chanMgr.registry.Get(env.ChannelID)
 	if !ok {
 		return "", fmt.Errorf("频道 %s 未注册", env.ChannelID)
 	}
-	escaped := html.EscapeString(text)
-	escaped = strings.ReplaceAll(escaped, "\n", "\n")
-	return ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: escaped})
+	return ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: text})
 }
 
 /* ==================== HTTP 路由 ==================== */
@@ -369,7 +727,17 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(w, map[string]interface{}{"id": id, "ok": true})
+
+	// 默认启动：新建即监听（失败不阻碍创建，返回 started/startError 供前端提示）
+	result := map[string]interface{}{"id": id, "ok": true, "started": false}
+	if enabled == 1 {
+		if err := s.startChannelInstance(r.Context(), id); err != nil {
+			result["startError"] = err.Error()
+		} else {
+			result["started"] = true
+		}
+	}
+	response.OK(w, result)
 }
 
 // updateChannel PUT /api/admin-ai/channels/{id}
@@ -514,7 +882,7 @@ func (s *Service) channelAction(w http.ResponseWriter, r *http.Request, id, acti
 			if running {
 				state = "running"
 			}
-			if ch, ok := s.chanMgr.registry.Get("telegram"); ok {
+			if ch, ok := s.chanMgr.registry.Get(id); ok {
 				st := ch.Status()
 				if st.Error != "" {
 					lastErr = st.Error

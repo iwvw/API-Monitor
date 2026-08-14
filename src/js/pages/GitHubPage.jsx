@@ -1680,12 +1680,12 @@ function PermissionChecks({ token }) {
         </div>
       )}
       {checks.length > 0 && (
-        <div className="grid gap-1 sm:grid-cols-2">
+        <div className="grid gap-1 cq-sm:grid-cols-2">
           {checks.map((check) => (
             <div key={check.key || check.label} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-kumo-line px-2 py-1.5 text-[11px]">
               <span className="min-w-0 truncate text-kumo-strong">{check.label}</span>
               <div className="flex min-w-0 items-center gap-1">
-                <span className="hidden max-w-32 truncate text-kumo-subtle md:inline">{check.level}</span>
+                <span className="hidden max-w-32 truncate text-kumo-subtle cq-md:inline">{check.level}</span>
                 <Badge variant={check.status === 'success' ? 'success' : check.status === 'skipped' ? 'neutral' : 'danger'}>
                   {check.status === 'success' ? '通过' : check.status === 'skipped' ? '跳过' : '失败'}
                 </Badge>
@@ -2435,7 +2435,7 @@ function GitHubPage() {
                     title="导出仓库列表"
                     icon={<Upload className="h-3.5 w-3.5" />}
                   >
-                    <span className="hidden sm:inline">导出</span>
+                    <span className="hidden cq-sm:inline">导出</span>
                   </Toolbar.Button>
                   <Toolbar.Button
                     onClick={() => repoImportInputRef.current?.click()}
@@ -2444,7 +2444,7 @@ function GitHubPage() {
                     title="导入仓库列表"
                     icon={<Download className="h-3.5 w-3.5" />}
                   >
-                    <span className="hidden sm:inline">导入</span>
+                    <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                 </Toolbar>
                 <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setRepoDialogOpen(true)}>添加仓库</Button>
@@ -2454,7 +2454,7 @@ function GitHubPage() {
             {repositories.length === 0 ? (
               <FillEmpty title="暂无 GitHub 仓库" description="先添加仓库" />
             ) : (
-              <div className="grid items-start gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              <div className="grid items-start gap-3 p-4 cq-sm:grid-cols-2 cq-xl:grid-cols-3 cq-2xl:grid-cols-4">
                 {repositories.map((repo) => {
                   const isSelected = String(repo.id) === String(selectedRepo?.id);
                   const actionStatus = repo.latest_action_conclusion || repo.latest_action_status || '未知';
@@ -2554,7 +2554,7 @@ function GitHubPage() {
               </div>
             </LayerCard.Secondary>
             <LayerCard.Primary className="p-4">
-              <Grid variant="6up" gap="sm" className="items-start xl:grid-cols-5">
+              <Grid variant="6up" gap="sm" className="items-start cq-xl:grid-cols-5">
                 <RepositoryMetric icon={<Star className="h-3.5 w-3.5" />} label="Stars" value={formatNumber(selectedRepo.stars)} />
                 <RepositoryMetric icon={<GitBranch className="h-3.5 w-3.5" />} label="Forks" value={formatNumber(selectedRepo.forks)} />
                 <RepositoryMetric icon={<Activity className="h-3.5 w-3.5" />} label="Issues / PR" value={`${formatNumber(selectedRepo.open_issues)} / ${formatNumber(selectedRepo.open_pull_requests)}`} />
@@ -2654,7 +2654,7 @@ function GitHubPage() {
           )}
 
           {activeTab === 'trends' && (
-            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(20rem,0.7fr)]">
+            <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1.5fr)_minmax(20rem,0.7fr)]">
               <LayerCard className="p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -2703,7 +2703,7 @@ function GitHubPage() {
           )}
 
           {activeTab === 'events' && (
-            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
+            <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
               <LayerCard className="p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center gap-2 border-b border-kumo-line px-4 py-3">
                   <Bell className="h-4 w-4 text-kumo-brand" />
@@ -2767,7 +2767,7 @@ function GitHubPage() {
       )}
 
       {activeTab === 'settings' && (
-        <div className="grid items-start gap-4 xl:grid-cols-2">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-2">
           <LayerCard className="self-start p-0 shadow-none">
             <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
@@ -2797,7 +2797,7 @@ function GitHubPage() {
               </Grid>
               <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} onClick={createToken} loading={saving}>保存 Token</Button>
               {tokens.length > 0 && (
-                <div className="grid items-start gap-3 sm:grid-cols-2">
+                <div className="grid items-start gap-3 cq-sm:grid-cols-2">
                   {tokens.map((token) => (
                     <LayerCard key={token.id} className="min-w-0 p-0 shadow-none">
                       <LayerCard.Primary className="grid gap-3 p-3">
@@ -2915,7 +2915,7 @@ function GitHubPage() {
       )}
 
       <Dialog.Root open={repoDialogOpen} onOpenChange={setRepoDialogOpen}>
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),38rem)] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),38rem)] flex-col overflow-hidden p-0">
           <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
             <Dialog.Title className="text-base font-semibold text-kumo-strong">添加 GitHub 仓库</Dialog.Title>
             <Dialog.Description className="mt-1 text-xs text-kumo-subtle">
@@ -2938,7 +2938,7 @@ function GitHubPage() {
                 placeholder="owner/repo 或完整 GitHub URL"
                 autoFocus
               />
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <Select
                   size="sm"
                   label="访问凭据"

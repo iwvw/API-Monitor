@@ -207,7 +207,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
   };
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(24rem,0.92fr)_minmax(0,1.08fr)]">
+    <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(24rem,0.92fr)_minmax(0,1.08fr)]">
       <SectionCard
         title={form.id ? '编辑 GitHub 公开页' : '新建 GitHub 公开页'}
         icon={<Globe className="h-4 w-4 text-kumo-brand" />}
@@ -217,7 +217,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
         bodyPadding="lg"
         bodyClassName="space-y-4"
       >
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 cq-sm:grid-cols-2">
           <Input
             size="sm"
             label="名称"
@@ -251,7 +251,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
             value={form.cacheSeconds}
             onChange={(event) => setForm((current) => ({ ...current, cacheSeconds: event.target.value }))}
           />
-          <div className="sm:col-span-2">
+          <div className="cq-sm:col-span-2">
             <Textarea
               size="sm"
               label="说明"
@@ -263,7 +263,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 cq-sm:grid-cols-2">
           {[
             ['public', '公开访问', '关闭后公开页不可访问。'],
             ['showRepoLinks', '仓库跳转', '允许跳转到 GitHub 仓库。'],
@@ -306,7 +306,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
                       aria-label={`绑定 ${repo.full_name}`}
                     />
                     <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">{repo.full_name}</span>
-                    <span className="hidden max-w-[12rem] truncate text-[10px] text-kumo-subtle sm:block">
+                    <span className="hidden max-w-[12rem] truncate text-[10px] text-kumo-subtle cq-sm:block">
                       {repo.private ? '私有仓库' : '公开仓库'}
                     </span>
                   </label>
@@ -365,7 +365,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
                 .filter(Boolean);
               return (
                 <div key={page.id} className="rounded-lg border border-kumo-line bg-kumo-base p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-brand/10 text-kumo-brand">

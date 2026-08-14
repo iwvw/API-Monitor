@@ -767,7 +767,7 @@ function NotificationPage() {
   ]), [catalogModuleItems]);
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
@@ -814,7 +814,7 @@ function NotificationPage() {
       {notificationCurrentTab === 'channels' && (
         <div className="space-y-4">
           {notificationLoading && notificationChannels.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 cq-md:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-4 gap-4">
               {[...Array(4)].map((_, i) => (
                 <AppCard key={i} padding="none" className="space-y-4 p-4">
                   <div className="flex min-w-0 items-start justify-between gap-3">
@@ -837,7 +837,7 @@ function NotificationPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 cq-md:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-4 gap-4">
               {notificationChannels.map((channel) => (
                 <AppCard
                   key={channel.id}
@@ -936,7 +936,7 @@ function NotificationPage() {
           </div>
 
           {notificationLoading && notificationRules.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 cq-md:grid-cols-2 cq-lg:grid-cols-3 gap-4">
               {[...Array(3)].map((_, i) => (
                 <AppCard key={i} padding="none" className="space-y-4 p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -959,7 +959,7 @@ function NotificationPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 cq-md:grid-cols-2 cq-lg:grid-cols-3 gap-4">
               {filteredRules.map((rule) => (
                 <AppCard
                   key={rule.id}
@@ -1079,7 +1079,7 @@ function NotificationPage() {
 
       {/* ==================== 事件目录 Tab ==================== */}
       {notificationCurrentTab === 'events' && (
-        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 items-start gap-4 cq-md:grid-cols-2 cq-xl:grid-cols-3">
           <div className="col-span-full flex flex-wrap items-center gap-2 text-[10px] text-kumo-subtle">
             <Badge className="border border-kumo-brand/25 bg-kumo-brand/10 text-kumo-brand">↻ 动态消息</Badge>
             <span>同一 Telegram 消息会随告警打开、变化和恢复持续更新；每次变化仍会写入通知历史。</span>
@@ -1196,10 +1196,10 @@ function NotificationPage() {
                   <AppCard
                     key={log.id}
                     padding="none"
-                    className="grid grid-cols-1 gap-3 p-3.5 transition-all duration-200 hover:border-kumo-brand/40 hover:shadow-sm md:grid-cols-[280px_1fr] md:items-start"
+                    className="grid grid-cols-1 gap-3 p-3.5 transition-all duration-200 hover:border-kumo-brand/40 hover:shadow-sm cq-md:grid-cols-[280px_1fr] cq-md:items-start"
                   >
                     {/* 左栏：状态与元数据快照 (固定 280px 宽度，饱满工整) */}
-                    <div className="flex flex-col gap-2 min-w-0 pr-0 md:pr-3.5 md:border-r md:border-kumo-line/50">
+                    <div className="flex flex-col gap-2 min-w-0 pr-0 cq-md:pr-3.5 cq-md:border-r cq-md:border-kumo-line/50">
                       {/* 1. 状态指示 + 标题 + 投递状态 */}
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
@@ -1326,7 +1326,7 @@ function NotificationPage() {
               onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, base_url: e.target.value }))}
             />
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 cq-sm:grid-cols-2">
               <Input
                 size="sm"
                 label="全局限频（条/小时）"

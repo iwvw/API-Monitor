@@ -480,6 +480,10 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 	pageStr := r.URL.Query().Get("page")
 	pageSizeStr := r.URL.Query().Get("pageSize")
 	daysStr := r.URL.Query().Get("days")
+	statusStr := r.URL.Query().Get("status")
+	modelStr := strings.TrimSpace(r.URL.Query().Get("model"))
+	endpointStr := strings.TrimSpace(r.URL.Query().Get("endpoint"))
+	failOnly := r.URL.Query().Get("errors") == "1"
 
 	page := 1
 	pageSize := 20
@@ -498,15 +502,44 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 	offset := (page - 1) * pageSize
 	timeFilter, _ := analyticsTimeWindow(ctx, db, days)
 
+	// 动态筛选条件：按状态码(success/error/429/5xx)、模型、端点过滤，或只看失败。
+	whereClauses := []string{"g.timestamp >= ?", "g.route != 'models'"}
+	whereArgs := []interface{}{timeFilter}
+	switch statusStr {
+	case "error":
+		whereClauses = append(whereClauses, "g.status_code >= 400")
+	case "429":
+		whereClauses = append(whereClauses, "g.status_code = 429")
+	case "5xx":
+		whereClauses = append(whereClauses, "g.status_code >= 500")
+	case "success":
+		whereClauses = append(whereClauses, "g.status_code >= 200 AND g.status_code < 400")
+	}
+	if failOnly {
+		whereClauses = append(whereClauses, "g.status_code >= 400")
+	}
+	if modelStr != "" {
+		whereClauses = append(whereClauses, "g.model = ?")
+		whereArgs = append(whereArgs, modelStr)
+	}
+	if endpointStr != "" {
+		whereClauses = append(whereClauses, "e.id = ?")
+		whereArgs = append(whereArgs, endpointStr)
+	}
+	whereSQL := strings.Join(whereClauses, " AND ")
+
 	// Get total count
+	args := append([]interface{}{}, whereArgs...)
 	var total int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM openai_gateway_analytics WHERE timestamp >= ? AND route != 'models'", timeFilter).Scan(&total)
+	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM openai_gateway_analytics g LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id WHERE "+whereSQL, args...).Scan(&total)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
 	// Query paginated logs
+	args = append([]interface{}{}, whereArgs...)
+	args = append(args, pageSize, offset)
 	rows, err := db.QueryContext(ctx, `
 		SELECT 
 			g.id,
@@ -531,10 +564,10 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		FROM openai_gateway_analytics g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_gateway_keys k ON g.gateway_key_id = k.id
-		WHERE g.timestamp >= ? AND g.route != 'models'
+		WHERE `+whereSQL+`
 		ORDER BY g.timestamp DESC
 		LIMIT ? OFFSET ?
-	`, timeFilter, pageSize, offset)
+	`, args...)
 
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

@@ -181,12 +181,13 @@ var adminAISettingDefs = []struct {
 }{
 	{"admin_ai_enabled", "true", "管理 AI 总开关"},
 	{"admin_ai_default_model", "", "默认推理模型（endpointId/modelName）"},
+	{"admin_ai_briefing_model", "", "站点简报专用模型（留空回退默认模型）"},
 	{"admin_ai_write_enabled", "false", "写操作全局开关"},
+	{"admin_ai_auto_approve", "false", "完全批准模式（所有写操作免审批直接执行）"},
 	{"admin_ai_tool_call_limit", "12", "单轮最大工具调用次数"},
 	{"admin_ai_timeout_seconds", "300", "单轮执行超时秒数"},
 	{"admin_ai_context_window", "40000", "上下文窗口 token 上限"},
 	{"admin_ai_audit_retention_days", "90", "审计记录保留天数"},
-	{"admin_ai_gateway_key", "", "管理 AI 网关密钥"},
 }
 
 // handleSettings GET/PUT /api/admin-ai/settings

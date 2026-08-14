@@ -1650,7 +1650,7 @@ func (s *Service) sendTelegram(ctx context.Context, cfg map[string]interface{}, 
 	payload := map[string]interface{}{
 		"chat_id":                  chatID,
 		"text":                     telegramMessageText(title, message),
-		"parse_mode":               "HTML",
+		"parse_mode":               "MarkdownV2",
 		"disable_web_page_preview": true,
 	}
 	client, err := s.telegramHTTPClient(cfg)
@@ -1676,7 +1676,7 @@ func (s *Service) editTelegram(ctx context.Context, cfg map[string]interface{}, 
 		"chat_id":                  chatID,
 		"message_id":               messageID,
 		"text":                     telegramMessageText(title, message),
-		"parse_mode":               "HTML",
+		"parse_mode":               "MarkdownV2",
 		"disable_web_page_preview": true,
 	}
 	client, err := s.telegramHTTPClient(cfg)
@@ -1697,10 +1697,11 @@ func telegramMessageText(title, message string) string {
 		formatted = append(formatted, telegramMessageLine(line))
 	}
 	body := strings.Join(formatted, "\n")
+	head := "*" + telegramEscapeBold(title) + "*"
 	if body == "" {
-		return "<b>" + html.EscapeString(title) + "</b>"
+		return head
 	}
-	return "<b>" + html.EscapeString(title) + "</b>\n\n<blockquote>" + body + "</blockquote>\n\n<i>API Monitor</i>"
+	return head + "\n\n" + body + "\n\n_API Monitor_"
 }
 
 func telegramMessageLine(line string) string {
@@ -1709,16 +1710,47 @@ func telegramMessageLine(line string) string {
 		return ""
 	}
 	if field.Label == "" {
-		return html.EscapeString(field.Value)
+		return telegramEscapeV2(field.Value)
 	}
-	escapedValue := html.EscapeString(field.Value)
+	escapedValue := telegramEscapeV2(field.Value)
 	if field.Label == "状态" || strings.EqualFold(field.Label, "status") {
 		escapedValue = notificationStatusIcon(field.Value) + escapedValue
 	}
 	if isNotificationCodeField(field.Label) {
-		escapedValue = "<code>" + escapedValue + "</code>"
+		escapedValue = "`" + telegramEscapeCode(field.Value) + "`"
 	}
-	return "<b>" + html.EscapeString(field.Label) + ":</b> " + escapedValue
+	return "*" + telegramEscapeBold(field.Label) + ":* " + escapedValue
+}
+
+// telegramEscapeV2 转义 Telegram MarkdownV2 特殊字符。
+// MarkdownV2 规定除 pre/code（仅 ` 与 \）和链接 URL（仅 ) 与 \）外，
+// 全部保留字符 _ * [ ] ( ) ~ ` > # + - = | { } . ! 在普通文本与实体内部都必须转义，
+// 否则 Telegram 返回 "can't parse entities"。
+func telegramEscapeV2(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// telegramEscapeBold 转义 MarkdownV2 加粗实体内部内容（同全量转义）。
+func telegramEscapeBold(s string) string { return telegramEscapeV2(s) }
+
+// telegramEscapeCode 转义 MarkdownV2 行内代码内部（仅 ` 与 \ 需转义）。
+func telegramEscapeCode(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '`' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 type notificationMessageField struct {
@@ -2168,6 +2200,7 @@ func eventCatalog() []map[string]interface{} {
 		{"module": "filebox", "events": []string{"resource.created", "resource.deleted", "cleanup"}},
 		{"module": "github", "events": []string{"action_failed", "action_recovered", "release_published", "star_spike", "issue_opened", "pull_request_opened", "repository_unreachable", "token_invalid", "rate_limit_low", "webhook_delivery_failed", "webhook_ping"}, "dynamic_events": []string{"action_failed", "action_recovered"}},
 		{"module": "totp", "events": []string{"resource.created", "resource.updated", "resource.deleted", "security.revealed", "backup.imported", "backup.exported"}},
+		{"module": "openai", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
 	}
 }
 
@@ -2261,6 +2294,14 @@ func formatMessage(rule Rule, data map[string]interface{}, loc *time.Location) s
 	}
 	add("链接", data["htmlUrl"])
 	add("说明", firstNonEmpty(stringValue(data["message"]), stringValue(data["reason"])))
+
+	// 网关告警（openai 模块）字段
+	if rateVal, ok := data["error_rate"].(float64); ok {
+		add("错误率", fmt.Sprintf("%.1f%%", rateVal))
+	}
+	add("请求数", data["requests"])
+	add("错误数", data["errors"])
+	add("统计窗口", data["windowMin"])
 
 	// 数据库备份相关字段
 	add("备份 ID", data["backupId"])
@@ -2382,6 +2423,7 @@ func notificationEventLabel(eventType string) string {
 		"database.backup": "数据库备份", "database.import": "数据库恢复", "log.cleanup": "日志清理", "migration.failed": "数据库迁移失败",
 		"resource.created": "资源已创建", "resource.updated": "资源已更新", "resource.deleted": "资源已删除", "cleanup": "清理任务",
 		"security.revealed": "敏感信息已查看", "backup.imported": "备份已导入", "backup.exported": "备份已导出",
+		"gateway_error_high": "网关错误率过高", "gateway_error_normal": "网关错误率恢复正常",
 	}
 	if label := labels[strings.ToLower(strings.TrimSpace(eventType))]; label != "" {
 		return label

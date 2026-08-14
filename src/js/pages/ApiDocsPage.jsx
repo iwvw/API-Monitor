@@ -733,15 +733,15 @@ function StatCard({ icon: Icon, label, value, tone = 'brand' }) {
     }[tone] || 'bg-kumo-info/6 text-kumo-info';
 
   return (
-    <AppCard padding="none" className={cx('min-w-0 p-2 sm:p-3', toneClass)}>
-      <div className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle sm:gap-3 sm:text-xs">
+    <AppCard padding="none" className={cx('min-w-0 p-2 cq-sm:p-3', toneClass)}>
+      <div className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle cq-sm:gap-3 cq-sm:text-xs">
         <span className="truncate">{label}</span>
         <span className="shrink-0">
           <Icon className="h-5 w-5" />
         </span>
       </div>
       <div className="mt-1">
-        <div className="truncate font-mono text-base font-bold text-kumo-strong sm:text-lg">
+        <div className="truncate font-mono text-base font-bold text-kumo-strong cq-sm:text-lg">
           {value}
         </div>
       </div>
@@ -912,11 +912,11 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
         <div className="flex items-center gap-1">
           <Button size="sm" variant="ghost" onClick={expandAll} className="gap-1">
             <ChevronDown className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">展开</span>
+            <span className="hidden cq-sm:inline">展开</span>
           </Button>
           <Button size="sm" variant="ghost" onClick={collapseAll} className="gap-1">
             <ChevronUp className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">折叠</span>
+            <span className="hidden cq-sm:inline">折叠</span>
           </Button>
         </div>
       }
@@ -1192,7 +1192,7 @@ function RouteDetail({ route, openapiRoute }) {
       bodyPadding="lg"
       bodyClassName="flex min-w-0 flex-col"
     >
-      <div className="grid gap-3 py-4 sm:grid-cols-2">
+      <div className="grid gap-3 py-4 cq-sm:grid-cols-2">
         <InfoRow label="模块" value={route.module} />
         <InfoRow label="分组" value={route.group} />
         <InfoRow label="归属" value={route.owner} />
@@ -1342,7 +1342,7 @@ function AIAccessConsole({
   const policy = aiAccess?.policy || {};
 
   return (
-    <div className="grid h-full min-h-0 min-w-0 gap-4 xl:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
+    <div className="grid h-full min-h-0 min-w-0 gap-4 cq-xl:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
       <div
         className={cx(fixedPanelClass, 'min-h-0 space-y-4 overflow-y-auto px-px pb-2 pr-1 pt-px')}
       >
@@ -1401,7 +1401,7 @@ function AIAccessConsole({
             <div className="flex items-center justify-between gap-2 rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2">
               <div className="flex items-center gap-2">
                 <span>允许写入</span>
-                <span className="hidden text-[10px] text-kumo-subtle sm:inline">
+                <span className="hidden text-[10px] text-kumo-subtle cq-sm:inline">
                   开启后 Agent 才能执行 POST/PUT/PATCH/DELETE，全部写入都会审计
                 </span>
               </div>
@@ -1431,7 +1431,7 @@ function AIAccessConsole({
           }
           bodyClassName="grid gap-3"
         >
-<div className="grid gap-2 md:grid-cols-3">
+<div className="grid gap-2 cq-md:grid-cols-3">
             {[
               {
                 step: '1',
@@ -1826,7 +1826,7 @@ function APIKeyConsole({
   };
 
   return (
-    <div className="grid h-full min-h-0 min-w-0 gap-4 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
+    <div className="grid h-full min-h-0 min-w-0 gap-4 cq-xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
       <div className="min-h-0 space-y-4 overflow-y-auto px-px pb-2 pr-1 pt-px">
         <div className="grid grid-cols-2 gap-3">
           <StatCard icon={Key} label="密钥总数" value={summary.total || 0} />
@@ -1896,7 +1896,7 @@ function APIKeyConsole({
             </div>
           </div>
           {form.kind === 'api' && (
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 cq-sm:grid-cols-2">
               {[
                 { value: 'api:read', label: '读取后台 API' },
                 { value: 'api:write', label: '修改后台 API' },
@@ -1947,7 +1947,7 @@ function APIKeyConsole({
                       size="sm"
                       variant="outline"
                       icon={CalendarDotsIcon}
-                      className="min-w-[12.5rem] justify-start font-normal sm:min-w-[13.5rem]"
+                      className="min-w-[12.5rem] justify-start font-normal cq-sm:min-w-[13.5rem]"
                     />
                   }
                 >
@@ -2110,7 +2110,7 @@ function APIKeyConsole({
                       )}
                     </div>
                   </div>
-                  <div className="mt-3 grid gap-2 border-t border-kumo-line/70 pt-3 text-[11px] text-kumo-subtle sm:grid-cols-2 2xl:grid-cols-4">
+                  <div className="mt-3 grid gap-2 border-t border-kumo-line/70 pt-3 text-[11px] text-kumo-subtle cq-sm:grid-cols-2 cq-2xl:grid-cols-4">
                     <div><span className="block">请求次数</span><strong className="font-mono text-kumo-strong">{Number(key.requestCount || 0).toLocaleString()}</strong></div>
                     <div><span className="block">过期时间</span><strong className="font-normal text-kumo-strong">{formatKeyTime(key.expiresAt)}</strong></div>
                     <div><span className="block">最后使用</span><strong className="font-normal text-kumo-strong">{formatKeyTime(key.lastUsedAt)}</strong></div>
@@ -2523,9 +2523,9 @@ function ApiDocsPage() {
             ]}
           />
         </div>
-        <div className="grid grid-cols-4 gap-2 sm:gap-3">
+        <div className="grid grid-cols-4 gap-2 cq-sm:gap-3">
           {Array.from({ length: 4 }).map((_, index) => (
-            <AppCard key={index} padding="none" className="min-w-0 p-2 sm:p-3">
+            <AppCard key={index} padding="none" className="min-w-0 p-2 cq-sm:p-3">
               <SkeletonLine className="h-4 w-20" />
               <SkeletonLine className="mt-3 h-6 w-14" />
             </AppCard>
@@ -2613,7 +2613,7 @@ function ApiDocsPage() {
       {activeView === 'routes' && (
         <div className="flex min-w-0 flex-col gap-2">
           <div className="space-y-2">
-            <div className="grid grid-cols-4 gap-2 sm:gap-3">
+            <div className="grid grid-cols-4 gap-2 cq-sm:gap-3">
               <StatCard icon={FileText} label="接口总数" value={summary.total} />
               <StatCard
                 icon={Activity}
@@ -2636,7 +2636,7 @@ function ApiDocsPage() {
             </div>
 
             <AppCard padding="md" className="shrink-0">
-              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,0.67fr))] items-center gap-2 sm:grid-cols-[minmax(240px,1.35fr)_repeat(3,minmax(0,0.82fr))]">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,0.67fr))] items-center gap-2 cq-sm:grid-cols-[minmax(240px,1.35fr)_repeat(3,minmax(0,0.82fr))]">
                 <Input
                   size="sm"
                   aria-label="搜索接口"
@@ -2678,14 +2678,14 @@ function ApiDocsPage() {
             </AppCard>
           </div>
 
-          <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)] 2xl:grid-cols-[minmax(360px,0.84fr)_minmax(0,1.16fr)]">
+          <div className="grid min-w-0 gap-3 cq-xl:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)] cq-2xl:grid-cols-[minmax(360px,0.84fr)_minmax(0,1.16fr)]">
             <RouteTree
               routes={filteredRoutes}
               selectedRoute={selectedRoute}
               onSelect={route => setSelectedKey(getRouteKey(route))}
               revealAll={query.trim().length > 0}
             />
-            <div className="min-w-0 xl:sticky xl:top-[70px] xl:max-h-[calc(100vh-82px)] xl:overflow-y-auto xl:overscroll-contain xl:self-start">
+            <div className="min-w-0 cq-xl:sticky cq-xl:top-[70px] cq-xl:max-h-[calc(100vh-82px)] cq-xl:overflow-y-auto cq-xl:overscroll-contain cq-xl:self-start">
               <RouteDetail route={selectedRoute} openapiRoute={summary.openapiRoute} />
             </div>
           </div>

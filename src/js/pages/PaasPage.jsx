@@ -8,7 +8,7 @@ import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
-import { Badge, ClipboardText, Empty, Grid as KumoGrid, LayerCard, Link, Loader, Tabs, Text, Toolbar } from '@cloudflare/kumo';
+import { Badge, ClipboardText, Empty, LayerCard, Link, Loader, Tabs, Text, Toolbar } from '@cloudflare/kumo';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -1684,9 +1684,9 @@ function PaasPage() {
   }, [activeTab, flyIntervalSec, loadFlyData]);
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
-        <div className="min-w-0 w-full md:w-auto">
+        <div className="min-w-0 w-full cq-md:w-auto">
           <Tabs
             {...MODULE_TABS_PROPS}
             value={activeTab}
@@ -1750,7 +1750,7 @@ function PaasPage() {
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
-                        className="flex min-w-0 cursor-pointer flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex min-w-0 cursor-pointer flex-col gap-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between"
                         onClick={() => toggleKoyebAccount(account.name)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -1764,7 +1764,7 @@ function PaasPage() {
                           variant="ghost"
                           size="sm"
                           tabIndex={-1}
-                          className="w-full min-w-0 justify-start px-0 text-left sm:w-auto"
+                          className="w-full min-w-0 justify-start px-0 text-left cq-sm:w-auto"
                           icon={<ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />}
                         >
                           <span className="flex min-w-0 items-center gap-2 text-left">
@@ -1772,7 +1772,7 @@ function PaasPage() {
                             <Text as="span" bold truncate>{account.name}</Text>
                           </span>
                         </Button>
-                        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                        <div className="flex w-full flex-wrap items-center justify-end gap-2 cq-sm:w-auto">
                           {account.data?.email ? (
                             <Badge variant="outline" className="max-w-full">
                               <Mail className="h-3 w-3 shrink-0" />
@@ -1802,7 +1802,7 @@ function PaasPage() {
                           description="此账号暂无 Koyeb 应用。"
                         />
                       ) : (
-                        <KumoGrid variant="4up" gap="sm" className="items-start">
+                        <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3 cq-lg:grid-cols-4">
                           {account.projects.map((app) => {
                             const services = app.services || [];
                             return (
@@ -1989,7 +1989,7 @@ function PaasPage() {
                               </LayerCard>
                             );
                           })}
-                        </KumoGrid>
+                        </div>
                       )}
                     </AnimatedCollapse>
                   </section>
@@ -2030,7 +2030,7 @@ function PaasPage() {
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
-                        className="flex min-w-0 cursor-pointer flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex min-w-0 cursor-pointer flex-col gap-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between"
                         onClick={() => toggleFlyAccount(account.name)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -2044,7 +2044,7 @@ function PaasPage() {
                           variant="ghost"
                           size="sm"
                           tabIndex={-1}
-                          className="w-full min-w-0 justify-start px-0 text-left sm:w-auto"
+                          className="w-full min-w-0 justify-start px-0 text-left cq-sm:w-auto"
                           icon={<ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />}
                         >
                           <span className="flex min-w-0 items-center gap-2 text-left">
@@ -2052,7 +2052,7 @@ function PaasPage() {
                             <Text as="span" bold truncate>{account.name}</Text>
                           </span>
                         </Button>
-                        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                        <div className="flex w-full flex-wrap items-center justify-end gap-2 cq-sm:w-auto">
                           <Badge variant="neutral">{appCount} 应用</Badge>
                           <Badge variant="neutral">{machineCount} 机器</Badge>
                           <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); updateAllFlyAppsImage(account); }} icon={<Rocket className="h-3.5 w-3.5" />}>
@@ -2082,7 +2082,7 @@ function PaasPage() {
                           contents={<Button size="sm" variant="primary" onClick={() => createFlyApp(account)} icon={<Plus className="h-3.5 w-3.5" />}>新建应用</Button>}
                         />
                       ) : (
-                        <KumoGrid variant="4up" gap="sm" className="items-start">
+                        <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3 cq-lg:grid-cols-4">
                           {account.projects.map((app) => (
                             <LayerCard key={app.id} className="self-start">
                               <LayerCard.Secondary className="flex min-w-0 items-start justify-between gap-3">
@@ -2213,7 +2213,7 @@ function PaasPage() {
                               </LayerCard.Primary>
                             </LayerCard>
                           ))}
-                        </KumoGrid>
+                        </div>
                       )}
                     </AnimatedCollapse>
                   </section>
@@ -2226,7 +2226,7 @@ function PaasPage() {
 
       {/* ==================== Configuration Tab Content ==================== */}
       {activeTab === 'config' && (
-        <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] xl:items-start">
+        <div className="grid min-w-0 gap-3 cq-xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] cq-xl:items-start">
           <SectionCard
             title="自动刷新"
             icon={<Settings className="h-4 w-4 text-kumo-brand" />}
@@ -2286,10 +2286,10 @@ function PaasPage() {
                   <Button size="sm" onClick={() => setShowAddFlyModal(true)} icon={<FlyIoBrand className="h-3.5 w-3.5" />}>添加 Fly.io</Button>
                   <Toolbar size="sm" aria-label="导出导入 PaaS 账号" className="shrink-0">
                     <Toolbar.Button onClick={exportPaasAccounts} aria-label="导出 PaaS 账号" title="导出账号" icon={<Upload className="h-3.5 w-3.5" />}>
-                      <span className="hidden sm:inline">导出</span>
+                      <span className="hidden cq-sm:inline">导出</span>
                     </Toolbar.Button>
                     <Toolbar.Button onClick={importPaasAccounts} aria-label="导入 PaaS 账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-                      <span className="hidden sm:inline">导入</span>
+                      <span className="hidden cq-sm:inline">导入</span>
                     </Toolbar.Button>
                   </Toolbar>
               </>
@@ -2493,7 +2493,7 @@ function PaasPage() {
 
       {/* Global Self-Contained Log Viewer Dialog */}
       <Dialog.Root open={logViewerOpen} onOpenChange={setLogViewerOpen}>
-        <Dialog className="flex h-[80vh] !w-[min(56rem,calc(100vw-2rem))] !max-w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex h-[80vh] !w-[min(56rem,calc(100vw-2rem))] !max-w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           {/* Header */}
           <div className="p-4 border-b border-kumo-line bg-kumo-recessed/40 flex justify-between items-center">
             <div>
@@ -2512,14 +2512,14 @@ function PaasPage() {
           </div>
 
           {/* Log Controls */}
-          <div className="p-3 border-b border-kumo-line flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs bg-kumo-base">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="p-3 border-b border-kumo-line flex flex-col cq-sm:flex-row justify-between items-start cq-sm:items-center gap-3 text-xs bg-kumo-base">
+            <div className="flex items-center gap-2 w-full cq-sm:w-auto">
               <ResponsiveSearchInput
                 value={logFilterText}
                 onChange={(e) => setLogFilterText(e.target.value)}
                 placeholder="搜索日志消息..."
                 ariaLabel="搜索日志消息"
-                className="sm:w-48"
+                className="cq-sm:w-48"
               />
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[10px]">

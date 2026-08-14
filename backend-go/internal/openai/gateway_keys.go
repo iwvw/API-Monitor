@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -63,6 +64,13 @@ func gatewayKeyFromContext(ctx context.Context) gatewayKeyIdentity {
 }
 
 func (s *Service) AuthorizeGatewayRequest(r *http.Request) (*http.Request, error) {
+	// 本机内部调用（管理 AI 会话 / 部署脚本等）免密钥放行，以“internal”身份进入网关。
+	// 信任边界：运行本后台的宿主机上的任何进程（loopback 来源）都被视为内部可信调用，
+	// 可免密钥消费/路由/审计网关能力。这与单机部署的既有信任模型一致；若需多租户或
+	// 暴露到不可信网络，应改由 API Key 强制鉴权并移除该放行。
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && (host == "127.0.0.1" || host == "::1") {
+		return r.WithContext(context.WithValue(r.Context(), gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "internal", Name: "内部调用"})), nil
+	}
 	rawKey := strings.TrimSpace(r.Header.Get("X-API-Key"))
 	if rawKey == "" {
 		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))

@@ -1039,6 +1039,8 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"POST"}
 	case "/api/auth/check-password", "/api/auth/session", "/api/auth/2fa/status", "/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json":
 		return []string{"GET"}
+	case "/api/admin-ai/cron/daily-briefing":
+		return []string{"GET"}
 	}
 	description := strings.ToLower(route.Description)
 	switch {

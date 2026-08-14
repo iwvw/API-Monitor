@@ -169,7 +169,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 启动代理池预热：预建立各代理到上游的连接，缓解首次请求冷启动握手延迟。
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
 	server.warmupCancel = warmupCancel
+	server.openai.SetNotifier(notifyService)
 	server.openai.StartWarmup(warmupCtx)
+	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
+	server.openai.StartAlertMonitor(warmupCtx)
 	return server, nil
 }
 
@@ -315,6 +318,11 @@ func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route manifest.Route) bool {
+	// 本机定时任务内部调用（cronjobs internal 任务）：仅放行明确登记的内部接口，
+	// 且来源必须是本机回环地址，防止外部伪造 X-Internal-Cron 头绕过会话鉴权。
+	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) {
+		return true
+	}
 	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible") {
 		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
 		if err != nil {
@@ -392,6 +400,22 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/settings/cleanup-deprecated-tables": true,
 	}
 	return protectedSettings[path]
+}
+
+// isLoopbackRemoteAddr 判断请求来源是否为本机回环地址。
+func isLoopbackRemoteAddr(remoteAddr string) bool {
+	host := strings.TrimSpace(remoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// isInternalCronRoute 判断路径是否为登记的本机定时任务内部接口。
+func isInternalCronRoute(path string) bool {
+	return path == "/api/admin-ai/cron/daily-briefing"
 }
 
 func hasAPIKeyCredential(r *http.Request) bool {
@@ -477,7 +501,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.server.ServeHTTP(w, r)
 	case "/socket.io/":
 		s.server.ServeHTTP(w, r)
-	case "/api/admin-ai", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings":
+	case "/api/admin-ai", "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/messages/stream", "/api/admin-ai/cancel", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings":
 		s.adminai.ServeHTTP(w, r)
 	default:
 		if strings.HasPrefix(route.Prefix, "/sub/") || strings.HasPrefix(r.URL.Path, "/sub/") {

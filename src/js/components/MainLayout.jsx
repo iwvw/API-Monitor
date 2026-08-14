@@ -58,7 +58,7 @@ import { pageStackClass } from './ui/AppPrimitives.jsx';
 import AskAiPanel from './adminai/AskAiPanel.jsx';
 
 const PageLoadingFallback = () => (
-  <div className={`${pageStackClass} pt-3 sm:pt-4`}>
+  <div className={`${pageStackClass} pt-3 cq-sm:pt-4`}>
     <div className="rounded-xl border border-kumo-fill bg-kumo-control">
       <div className="flex items-center gap-2 border-b border-kumo-line px-4 py-2.5">
         <SkeletonLine className="h-4 w-4" />
@@ -605,8 +605,11 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
       : viewportWorkspaceModule
         ? 'flex-1 overflow-hidden px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)]'
         : 'flex-1 overflow-x-hidden overflow-y-auto px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)] scrollbar-thin') +
-    ' transition-[margin-right] duration-300 ease-in-out md:mr-[var(--askai-sidebar-w,0px)]';
-  const mainCanvasInnerClassName = `mx-auto flex w-full min-w-0 flex-col ${
+    ' transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)]';
+  // 容器放在画布内层而非 main 自身：container-type(size containment) 与 main 的
+  // lg:mr 让位 margin 同元素时在 Chrome 中让位失效（flex item 交互问题），
+  // 内层 div 宽度 = main 内容可用宽度，cq-* 断点语义一致。
+  const mainCanvasInnerClassName = `@container mx-auto flex w-full min-w-0 flex-col ${
     stickyHeaderScrollModule
       ? 'min-h-full'
       : viewportWorkspaceModule
@@ -791,7 +794,7 @@ return (
         >
           {/* 顶部导航（跟随 Ask AI 侧栏压缩，保证按钮随主视图移动） */}
           <header
-            className={`app-main-topbar box-border flex h-[58px] flex-shrink-0 items-center border-b border-kumo-line px-3 min-[450px]:px-4 md:px-6 transition-[margin-right] duration-300 ease-in-out md:mr-[var(--askai-sidebar-w,0px)] ${
+            className={`app-main-topbar box-border flex h-[58px] flex-shrink-0 items-center border-b border-kumo-line px-3 @[450px]:px-4 cq-md:px-6 transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)] ${
               stickyHeaderScrollModule ? 'sticky top-0 z-20' : ''
             }`}
           >
@@ -823,7 +826,7 @@ return (
             </div>
             </header>
 
-          {/* 主内容画布 */}
+          {/* 主内容画布（@container：页面布局按内容实际可用宽度自适应，侧栏让位后自动降级） */}
           <main className={mainCanvasClassName}>
             <div className={mainCanvasInnerClassName}>
               <ModuleErrorBoundary moduleId={mainActiveTab}>
@@ -832,11 +835,11 @@ return (
             </div>
           </main>
           {mainActiveTab === 'dashboard' && dashboardFooterVisible && (
-            <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle min-[450px]:px-4 md:px-6 transition-[margin-right] duration-300 ease-in-out md:mr-[var(--askai-sidebar-w,0px)]">
+            <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle @[450px]:px-4 cq-md:px-6 transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)]">
               <div className="flex min-w-0 items-center gap-2">
                 <img src="/logo.svg" alt="" className="h-5 w-5 shrink-0 object-contain" />
                 <span className="app-brand-wordmark truncate font-semibold text-kumo-strong">API Monitor</span>
-                <span className="hidden shrink-0 text-kumo-subtle min-[520px]:inline">
+                <span className="hidden shrink-0 text-kumo-subtle @[520px]:inline">
                   · 已运行{' '}
                   {appProcessUptimeMeasuredAt > 0
                     ? formatAppProcessUptime(displayedAppProcessUptime)

@@ -1,101 +1,170 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ChatsCircle } from '@phosphor-icons/react';
+import { Button } from '@cloudflare/kumo/components/button';
+import { Badge } from '@cloudflare/kumo/components/badge';
+import { Textarea } from '@cloudflare/kumo/components/input';
+import { Empty, Sidebar, Tooltip } from '@cloudflare/kumo';
 import useStore from '../../store.js';
-import { Sparkle, X, Send, Plus, ChevronDown, Settings as SettingsIcon, Sliders, Star, ArrowLeft, Trash, Maximize2 } from '../Icons.jsx';
+import {
+  Sparkle, X, Send, Plus, ChevronDown, Settings as SettingsIcon,
+  Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Bot,
+} from '../Icons.jsx';
 import MessageList from './MessageList.jsx';
+import AdminConsole from './AdminConsole.jsx';
+import ApprovalCard from './ApprovalCard.jsx';
 import { parseAdminAiEvent } from '../../modules/adminAiEvents.js';
+import {
+  STREAM_EVENTS,
+  createUserMessage,
+  createAssistantMessage,
+  normalizeAiEvent,
+  applyAiEvent,
+  failMessage,
+  cancelMessage,
+  resolveApprovalBlock,
+} from '../../modules/adminAiMessages.js';
+import { useCloudflareSpotlight } from '../../hooks/useCloudflareSpotlight.js';
+import { useAskAiCloudMotion } from '../../hooks/useAskAiCloudMotion.js';
 
 const PANEL_MIN_WIDTH = 320;
 const PANEL_MAX_WIDTH = 800;
 const PANEL_DEFAULT_WIDTH = 450;
 
+// 会话时间格式化：后端返回 RFC3339 字符串（字段名 createdAt，注意勿用 created_at）
+function formatSessionDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('zh-CN');
+}
+
+const PROMPT_ICONS = [Sliders, ShieldCheck, Globe, Cloud, Server];
+
 const SUGGESTED_PROMPTS = [
-  { title: '环境变量', subtitle: '调整 Worker 的环境变量', icon: 'Env' },
-  { title: '创建 API Token', subtitle: '创建 API 访问令牌', icon: 'Key' },
-  { title: '域名设置', subtitle: '显示我的域名配置', icon: 'Globe' },
-  { title: 'DNS 记录', subtitle: '添加一条 DNS 记录', icon: 'Routes' },
-  { title: '服务器状态', subtitle: '检查服务器运行状态', icon: 'Server' },
+  { title: '环境变量', subtitle: 'Worker 环境变量' },
+  { title: '创建 API Token', subtitle: '面板访问令牌' },
+  { title: '域名设置', subtitle: '我的域名配置' },
+  { title: 'DNS 记录', subtitle: '添加一条记录' },
+  { title: '服务器状态', subtitle: '运行状态' },
 ];
 
-const PRIVACY_TEXT = '聊天记录用于改进服务，处理遵循隐私政策。';
-
-/* ---------- 空状态：云 + 问候 + 建议提示（Cloudflare EmptyState 风格） ---------- */
+/* ---------- 空状态：云朵 + 问候 + 建议提示（Cloudflare 官方云朵 CSS 移植 + 动态/视差） ---------- */
 function EmptyState({ onPrompt }) {
+  const cloudRef = useRef(null);
+  useAskAiCloudMotion(cloudRef);
   const hour = new Date().getHours();
   const greeting = hour < 6 ? '夜深了。' : hour < 12 ? '早上好。' : hour < 18 ? '下午好。' : '晚上好。';
   return (
     <div className="flex h-full flex-1 flex-col items-center overflow-y-auto overscroll-contain">
-      <div className="my-auto flex w-full flex-col items-center gap-8 pt-4">
-        {/* 云装饰（简化版 Cloudflare 浮云动画） */}
-        <div className="relative flex items-center justify-center" aria-hidden>
-          <div className="cloud-orb cloud-orb--back" />
-          <div className="cloud-orb cloud-orb--front" />
-          <Sparkle className="absolute h-8 w-8 text-orange-400" />
+      <div className="my-auto flex w-full flex-col items-center gap-5 pt-4">
+        <div ref={cloudRef} className="askai-cloud-container relative aspect-square -my-8" style={{ width: 150, '--blur-multiplier': 1 }} aria-hidden>
+          {/* 节点顺序与 Cloudflare 官方 DOM 一致（5,4,2-blur,3,2,1-shadow,1-blur,1） */}
+          <div className="askai-cloud-node askai-cloud-node-5" />
+          <div className="askai-cloud-node askai-cloud-node-4" />
+          <div className="askai-cloud-node askai-cloud-node-2-blur" />
+          <div className="askai-cloud-node askai-cloud-node-3" />
+          <div className="askai-cloud-node askai-cloud-node-2" />
+          <div className="askai-cloud-node askai-cloud-node-1-shadow" />
+          <div className="askai-cloud-node askai-cloud-node-1-blur" />
+          <div className="askai-cloud-node askai-cloud-node-1" />
         </div>
         <div className="text-center">
           <h3 className="mb-1.5 text-lg font-medium text-kumo-default">{greeting}</h3>
           <p className="text-sm text-kumo-subtle">今天想做什么？</p>
         </div>
 
-        {/* 建议提示 */}
         <div className="flex w-full max-w-[300px] flex-col gap-1.5">
-          {SUGGESTED_PROMPTS.map((p) => (
-            <button
-              key={p.title}
-              type="button"
-              onClick={() => onPrompt(p.subtitle || p.title)}
-              className="group relative flex w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-orange-200 hover:bg-kumo-base hover:shadow-[0_0_10px_rgba(251,146,60,0.15)] dark:hover:border-orange-950"
-            >
-              <span
-                className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-orange-300 to-orange-500 transition-all duration-200 group-hover:h-5"
-              />
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100/80 transition-colors duration-200 group-hover:bg-orange-50 dark:bg-neutral-800/60 dark:group-hover:bg-orange-900/30">
-                <Star className="h-3.5 w-3.5 text-neutral-400 transition-colors duration-200 group-hover:text-orange-500" />
-              </span>
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium text-kumo-subtle transition-colors group-hover:text-kumo-default">{p.title}</span>
-                <span className="truncate text-xs text-kumo-subtle">{p.subtitle}</span>
-              </span>
-            </button>
-          ))}
+          {SUGGESTED_PROMPTS.map((p, i) => {
+            const PromptIcon = PROMPT_ICONS[i % PROMPT_ICONS.length];
+            return (
+              <Button
+                key={p.title}
+                size="sm"
+                variant="ghost"
+                type="button"
+                onClick={() => onPrompt(p.subtitle || p.title)}
+                className="group relative flex w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-kumo-brand/40 hover:bg-kumo-base hover:shadow-[0_0_12px_-2px_var(--color-kumo-shadow-drop)]"
+              >
+                <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-kumo-brand/80 to-kumo-brand transition-all duration-200 group-hover:h-5" />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 transition-colors duration-200 group-hover:bg-kumo-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-kumo-brand/20">
+                  <PromptIcon className="h-3.5 w-3.5 text-kumo-subtle transition-colors duration-200 group-hover:text-kumo-brand" />
+                </span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-xs font-medium text-kumo-subtle transition-colors group-hover:text-kumo-default">{p.title}</span>
+                  <span className="truncate text-xs text-kumo-subtle">{p.subtitle}</span>
+                </span>
+              </Button>
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
-/* ---------- 点阵背景（InteractiveDotGrid 简化静态版） ---------- */
-function DotGrid() {
+/* ---------- 点阵背景（复用登录页 .cf-ai-background + surface 光斑） ---------- */
+function DotGrid({ surfaceRef }) {
   return (
     <div className="pointer-events-none absolute inset-0" aria-hidden>
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: 'radial-gradient(circle, rgba(125,125,125,0.12) 1px, transparent 1px)',
-          backgroundSize: '12px 12px',
-        }}
-      />
+      <div ref={surfaceRef} className="cf-ai-background-surface cf-ai-background absolute inset-0" />
     </div>
   );
 }
-
-/* ---------- SupportBart：Need more help? + 支持链接 ---------- */
-function SupportBar() {
+ /* ---------- 行为模式菜单 ---------- */
+function BehaviorMenu({ behavior, onSelect }) {
   return (
-    <div className="flex shrink-0 items-center justify-between rounded-xl bg-kumo-overlay p-2 pl-3 shadow-xs ring-1 ring-kumo-line dark:bg-kumo-base">
-      <p className="text-sm font-medium text-kumo-default">需要更多帮助？</p>
-      <a
-        href="https://github.com/iwvw/API-Monitor/issues"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mx-0 flex h-6.5 shrink-0 items-center gap-1 rounded-md bg-kumo-base px-2 text-xs font-medium text-kumo-default ring-1 ring-kumo-line transition-colors not-hover:bg-kumo-base hover:bg-kumo-tint"
+    <div className="absolute bottom-full left-0 mb-1 z-40 w-44 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line dark:bg-kumo-base">
+      <Button
+        size="sm"
+        variant="ghost"
+        type="button"
+        onClick={() => onSelect('ask')}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${behavior === 'ask' ? 'bg-kumo-fill font-medium text-kumo-default' : 'text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default'}`}
       >
-        支持
-      </a>
+        <Sparkle className="h-3.5 w-3.5" /> 询问
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        type="button"
+        onClick={() => onSelect('agent')}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${behavior === 'agent' ? 'bg-kumo-fill font-medium text-kumo-default' : 'text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default'}`}
+      >
+        <Bot className="h-3.5 w-3.5" /> 代理
+      </Button>
     </div>
   );
 }
 
-export default function AskAiPanel() {
+/* ---------- @ 资源菜单（域列表面板） ---------- */
+function AtResourceMenu({ zones, error, loading, onInsert }) {
+  return (
+    <div className="absolute bottom-full left-2 z-40 mb-1 w-72 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line dark:bg-kumo-base">
+      <p className="border-b border-kumo-line px-3 py-2 text-xs font-medium text-kumo-subtle">引用资源</p>
+      <div className="max-h-60 overflow-y-auto p-1">
+        {loading && <p className="px-3 py-2 text-xs text-kumo-subtle">加载中…</p>}
+        {!loading && error && <p className="px-3 py-2 text-xs text-kumo-subtle">加载失败</p>}
+        {!loading && !error && zones.length === 0 && (
+          <p className="px-3 py-2 text-xs text-kumo-subtle">暂无可引用域名</p>
+        )}
+        {!loading && zones.map((z) => (
+          <Button
+            key={z.name || z.id}
+            size="sm"
+            variant="ghost"
+            type="button"
+            onClick={() => onInsert(z.name)}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-kumo-default hover:bg-kumo-tint"
+          >
+            <Globe className="h-3.5 w-3.5 text-kumo-subtle" />
+            <span className="truncate">{z.name}</span>
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+ export default function AskAiPanel() {
   const showAskAI = useStore((s) => s.showAskAI);
   const setShowAskAI = useStore((s) => s.setShowAskAI);
 
@@ -107,25 +176,39 @@ export default function AskAiPanel() {
   const [runId, setRunId] = useState(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
-  const [privacyDismissed, setPrivacyDismissed] = useState(() => {
-    try { return localStorage.getItem('adminai-privacy-dismissed') === '1'; } catch { return false; }
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [panelWidth, setPanelWidth] = useState(() => {
+    try { const v = Number(localStorage.getItem('adminai-sidebar-w')); return (v >= PANEL_MIN_WIDTH && v <= PANEL_MAX_WIDTH) ? v : PANEL_DEFAULT_WIDTH; } catch { return PANEL_DEFAULT_WIDTH; }
   });
-  const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_WIDTH);
   const [expanded, setExpanded] = useState(false);
   const [fullscreenSidebar, setFullscreenSidebar] = useState(true);
-  const [fullscreenArtifacts, setFullscreenArtifacts] = useState(false);
+  const [behaviorMenuOpen, setBehaviorMenuOpen] = useState(false);
+  const [atMenuOpen, setAtMenuOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false); // 管理视图（设置/频道/审计收进侧栏）
+  const [pendingApproval, setPendingApproval] = useState(null); // 写操作审批弹窗（approval 事件触发）
+  const [behavior, setBehavior] = useState(() => {
+    try { return localStorage.getItem('adminai-behavior') === 'agent' ? 'agent' : 'ask'; } catch { return 'ask'; }
+  });
 
-  // 侧栏打开时主内容让出宽度（MainLayout 主画布读 --askai-sidebar-w）
+  // 背景光斑（鼠标跟随橙色光斑）
+  const spotlightSidebarRef = useCloudflareSpotlight();
+
+  // @ 资源（DNS 域名）
+  const [dnsZones, setDnsZones] = useState([]);
+  const [atLoading, setAtLoading] = useState(false);
+  const [atError, setAtError] = useState(false);
+  const dnsZonesRef = useRef([]);
+
+  // 侧栏打开时主内容让出宽度（MainLayout 主画布读 --askai-sidebar-w）；
+  // --askai-panel-w 由拖拽/面板宽度驱动，re-render（如 SSE 流式）不会重置拖拽中的宽度
   useEffect(() => {
+    document.documentElement.style.setProperty('--askai-panel-w', `${panelWidth}px`);
     document.documentElement.style.setProperty(
       '--askai-sidebar-w',
       showAskAI && !expanded ? `${panelWidth}px` : '0px'
     );
   }, [showAskAI, expanded, panelWidth]);
-
-  /* 侧栏滑入/滑出动画：组件保持挂载，由 animate 状态驱动 transform。
-     首帧先以关闭态渲染、下一帧再切到目标态，保证 transition 可播放。 */
-  const [animated, setAnimated] = useState(false);
+   const [animated, setAnimated] = useState(false);
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) {
@@ -140,21 +223,26 @@ export default function AskAiPanel() {
   const textareaRef = useRef(null);
   const dragState = useRef(null);
   const panelRef = useRef(null);
+  const activeSessionIdRef = useRef(activeSessionId);
+  const lastPromptRef = useRef('');
+  const skipLoadSessionRef = useRef(null);
+  const streamTargetIdRef = useRef(null);
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
     try {
       const res = await fetch('/api/admin-ai/sessions');
       const data = await res.json();
-      const body = data.data || data; // response.OK 统一 { success, data } 包装
+      const body = data.data || data;
       const list = body.sessions || [];
       setSessions(list);
-      if (list.length > 0 && !activeSessionId) setActiveSessionId(list[0].id);
+      setSessions((prev) => [...list, ...prev.filter((p) => !list.some((s) => s.id === p.id))]);
+      if (list.length > 0 && !activeSessionIdRef.current) setActiveSessionId(list[0].id);
     } catch {
     } finally {
       setSessionsLoading(false);
     }
-  }, [activeSessionId]);
+  }, []);
 
   const loadMessages = useCallback(async (sessionId) => {
     if (!sessionId) return;
@@ -163,206 +251,275 @@ export default function AskAiPanel() {
       const data = await res.json();
       const body = data.data || data;
       const items = body.items || body.messages || [];
-      setMessages(items.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content || '',
-        reasoning: '',
-        thinking: [],
-        blocks: m.toolCallMeta ? [{ type: 'tool_call', ...JSON.parse(m.toolCallMeta) }] : [],
-      })));
+      // 工具结果行（role='tool'）不渲染为独立消息：其内容已随对应 assistant 的
+      // tool_call 卡片展示（刷新后不出现 JSON 全文刷屏）
+      // 同一轮的连续 assistant 行（推理 + 多个工具调用 + 最终正文）合并为一条消息，
+      // 与实时流式显示结构一致（推理折叠区 + 工具步骤 + 正文卡片）
+      setMessages(items
+        .filter((m) => m.role !== 'tool')
+        .reduce((acc, m) => {
+          const last = acc[acc.length - 1];
+          if (m.role === 'assistant' && last && last.role === 'assistant') {
+            if (m.toolCallMeta) last.toolCalls.push(m.toolCallMeta);
+            if (m.content) last.content = (last.content || '') + m.content;
+            if (!last.reasoning_content && m.reasoning_content) last.reasoning_content = m.reasoning_content;
+            if (!last.reasoning_summary && m.reasoning_summary) last.reasoning_summary = m.reasoning_summary;
+            return acc;
+          }
+          acc.push({ ...m, toolCalls: m.toolCallMeta ? [m.toolCallMeta] : [] });
+          return acc;
+        }, [])
+        .map((m) => {
+          const isUser = m.role === 'user';
+          // 工具调用并入 thinking 步骤（与实时流式的事件结构一致：推理折叠 + 工具步骤 + 正文）
+          const thinking = (m.toolCalls || []).flatMap((raw) => {
+            let rawArr;
+            try {
+              const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              rawArr = Array.isArray(parsed) ? parsed : [parsed];
+            } catch {
+              rawArr = [];
+            }
+            // 后端返回的 toolCallDesc 对应第一个工具调用；若数组多项则只有第一项有描述
+            const desc = m.toolCallDesc || '';
+            return rawArr.map((tc, idx) => ({
+              type: 'tool_call',
+              toolName: tc.function?.name || tc.toolName || '未知工具',
+              args: tc.function?.arguments || tc.args || '',
+              desc: idx === 0 ? desc : '',
+              status: 'success',
+            }));
+          });
+          const blocks = m.content ? [{ type: 'text', text: m.content }] : [];
+          return {
+            id: m.id,
+            role: m.role,
+            content: isUser ? m.content || '' : '',
+            reasoning: m.reasoning_content || '',
+            reasoningSummary: m.reasoning_summary || '',
+            thinking,
+            blocks,
+            status: 'idle',
+            active: false,
+          };
+        }));
     } catch {
     }
   }, []);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
-  useEffect(() => {
-    if (activeSessionId) loadMessages(activeSessionId);
-  }, [activeSessionId, loadMessages]);
-
   const stopStream = useCallback(() => {
     if (eventSource.current) {
       eventSource.current.close();
       eventSource.current = null;
     }
+    streamTargetIdRef.current = null;
     setStreaming(false);
     setRunId(null);
   }, []);
 
-  useEffect(() => () => stopStream(), [stopStream]);
+  useEffect(() => {
+    if (activeSessionId) {
+      activeSessionIdRef.current = activeSessionId;
+      stopStream();
+      if (skipLoadSessionRef.current === activeSessionId) {
+        skipLoadSessionRef.current = null;
+        return undefined;
+      }
+      loadMessages(activeSessionId);
+    }
+    return undefined;
+  }, [activeSessionId, loadMessages, stopStream]);
 
-  /* Esc 关闭侧栏（全屏模式亦收回到侧栏形态） */
+  useEffect(() => () => stopStream(), [stopStream]);
+   /* Esc 关闭侧栏（管理视图先返回对话，全屏模式先收回侧栏形态） */
   useEffect(() => {
     if (!showAskAI) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        if (expanded) setExpanded(false);
+        if (manageOpen) setManageOpen(false);
+        else if (expanded) setExpanded(false);
         else setShowAskAI(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showAskAI, expanded, setShowAskAI]);
+  }, [showAskAI, expanded, manageOpen, setShowAskAI]);
 
-  const startStream = (newRunId) => {
+  /* 菜单外部点击关闭（@ / 行为 / 会话） */
+  useEffect(() => {
+    if (!showAskAI) return undefined;
+    const onDown = (e) => {
+      if (e.target && e.target.closest && e.target.closest('[data-askai-menu]')) return;
+      setSessionMenuOpen(false);
+      setBehaviorMenuOpen(false);
+      setAtMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [showAskAI]);
+
+  /* 会话删除二次确认：2 秒后自动复原 */
+  useEffect(() => {
+    if (confirmDeleteId == null) return undefined;
+    const t = window.setTimeout(() => setConfirmDeleteId(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [confirmDeleteId]);
+
+  const startStream = (newRunId, targetId) => {
     stopStream();
+    streamTargetIdRef.current = targetId;
     setRunId(newRunId);
     setStreaming(true);
 
     const es = new EventSource(`/api/admin-ai/messages/stream?runId=${newRunId}`);
     eventSource.current = es;
 
-    es.addEventListener('reasoning', (e) => {
-      try {
-        const event = parseAdminAiEvent('reasoning', e.data);
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === 'assistant') {
-            last.reasoning = event.text || '';
-          } else {
-            updated.push({ id: `msg_${Date.now()}`, role: 'assistant', reasoning: event.text || '', thinking: [], blocks: [] });
-          }
-          return updated;
-        });
-      } catch {
+    const applyEvent = (raw) => {
+      const ev = normalizeAiEvent(raw);
+      if (!ev) return;
+      if (ev.type === 'error') ev.retryPrompt = lastPromptRef.current;
+      // AI 生成会话标题：更新本地会话列表，等待中的占位标题被真实标题替换
+      if (ev.type === 'session_title' && ev.sessionId) {
+        if (ev.title) {
+          setSessions((prev) => prev.map((s) => (s.id === ev.sessionId ? { ...s, title: ev.title } : s)));
+        }
+        return;
       }
-    });
+      // 固化 targetId：setMessages 的 updater 异步执行时，streamTargetIdRef
+      // 可能已被 stopStream（done/error 后同步调用）清空，导致 findTarget 失败、
+      // 消息永远停留在 streaming（正文/完成态丢失）
+      const tid = streamTargetIdRef.current;
+      setMessages((prev) => applyAiEvent(prev, ev, tid));
+      if (ev.type === 'approval') setPendingApproval(ev); // 写操作请求：自动弹出审批弹窗
+      if (ev.type === 'done' || ev.type === 'error') stopStream();
+    };
 
-    es.addEventListener('delta', (e) => {
-      try {
-        const event = parseAdminAiEvent('delta', e.data);
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === 'assistant') {
-            const lastBlock = last.blocks ? last.blocks[last.blocks.length - 1] : null;
-            if (lastBlock && lastBlock.type === 'text') {
-              lastBlock.text = (lastBlock.text || '') + (event.delta || '');
-            } else {
-              if (!last.blocks) last.blocks = [];
-              last.blocks.push({ type: 'text', text: event.delta || '' });
-            }
-          } else {
-            updated.push({
-              id: `msg_${Date.now()}`,
-              role: 'assistant',
-              reasoning: '',
-              thinking: [],
-              blocks: [{ type: 'text', text: event.delta || '' }],
-            });
-          }
-          return updated;
-        });
-      } catch {
+    for (const t of STREAM_EVENTS) {
+      es.addEventListener(t, (e) => {
+        try {
+          applyEvent(parseAdminAiEvent(t, e.data));
+        } catch {
+        }
+      });
+    }
+
+    es.onerror = () => {
+      // 连接层失败（网络断开/服务端退出）：清理并取消当前流目标，避免卡死 streaming
+      const tid = streamTargetIdRef.current;
+      stopStream();
+      if (tid) setMessages((prev) => cancelMessage(prev, tid));
+    };
+  };
+   /* @ 资源：懒加载 dnsZones（账户 → zones） */
+  const loadDnsZones = useCallback(async () => {
+    if (dnsZonesRef.current.length > 0 || atLoading) return;
+    setAtLoading(true);
+    setAtError(false);
+    try {
+      const accRes = await fetch('/api/cloudflare/accounts');
+      const accData = await accRes.json();
+      const accounts = Array.isArray(accData) ? accData : (accData.data || accData.accounts || []);
+      if (accounts.length === 0) { setAtError(true); return; }
+      const first = accounts[0];
+      const zoneRes = await fetch(`/api/cloudflare/accounts/${first.id}/zones`);
+      const zoneData = await zoneRes.json();
+      const body = zoneData.data || zoneData;
+      const zones = body.zones || [];
+      const names = zones.map((z) => ({ id: z.id, name: z.name })).filter((z) => z.name);
+      dnsZonesRef.current = names;
+      setDnsZones(names);
+    } catch {
+      setAtError(true);
+    } finally {
+      setAtLoading(false);
+    }
+  }, [atLoading]);
+
+  /* 输入检测 @ 触发资源菜单 */
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setInput(value);
+    resizeTextarea();
+    const atIdx = value.lastIndexOf('@');
+    if (atIdx >= 0) {
+      const after = value.slice(atIdx + 1);
+      if (!after.includes(' ')) {
+        loadDnsZones();
+        setAtMenuOpen(true);
+      } else {
+        setAtMenuOpen(false);
       }
-    });
-
-    es.addEventListener('tool_start', (e) => {
-      try {
-        const event = parseAdminAiEvent('tool_start', e.data);
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === 'assistant') {
-            if (!last.thinking) last.thinking = [];
-            last.thinking.push({ type: 'tool_call', toolName: event.toolName, args: event.args, status: 'running' });
-          }
-          return updated;
-        });
-      } catch {
-      }
-    });
-
-    es.addEventListener('tool_result', (e) => {
-      try {
-        const event = parseAdminAiEvent('tool_result', e.data);
-        setMessages((prev) => {
-          const updated = [...prev];
-          for (const msg of updated) {
-            if (msg.role === 'assistant' && msg.thinking) {
-              for (const step of msg.thinking) {
-                if (step.toolName === event.toolName) {
-                  step.status = event.status === 'success' ? 'success' : 'failed';
-                  step.error = event.error || '';
-                  return updated;
-                }
-              }
-            }
-          }
-          return updated;
-        });
-      } catch {
-      }
-    });
-
-    es.addEventListener('approval_required', (e) => {
-      try {
-        const event = parseAdminAiEvent('approval_required', e.data);
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === 'assistant') {
-            if (!last.blocks) last.blocks = [];
-            last.blocks.push({ type: 'approval', ...event });
-          }
-          return updated;
-        });
-      } catch {
-      }
-    });
-
-    es.addEventListener('error', (e) => {
-      try {
-        const event = parseAdminAiEvent('error', e.data);
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.role === 'assistant') {
-            if (!last.blocks) last.blocks = [];
-            last.blocks.push({ type: 'error', message: event.message || '发生错误', retryable: true });
-          }
-          return updated;
-        });
-      } catch {
-      }
-    });
-
-    es.addEventListener('done', () => stopStream());
+    } else {
+      setAtMenuOpen(false);
+    }
   };
 
-  const handleSend = async () => {
-    const trimmed = input.trim();
-    if (!trimmed || !activeSessionId || streaming) return;
+  const insertAtResource = (name) => {
+    const atIdx = input.lastIndexOf('@');
+    if (atIdx >= 0) {
+      const before = input.slice(0, atIdx);
+      const after = input.slice(atIdx + 1).replace(/^\S*/, '');
+      const next = before + name + (after ? ' ' + after : '');
+      setInput(next);
+      setTimeout(() => { if (textareaRef.current) { textareaRef.current.value = next; resizeTextarea(); textareaRef.current.focus(); } }, 0);
+    } else {
+      const next = input ? `${input} ${name}` : name;
+      setInput(next);
+      setTimeout(() => { if (textareaRef.current) { textareaRef.current.value = next; resizeTextarea(); textareaRef.current.focus(); } }, 0);
+    }
+    setAtMenuOpen(false);
+  };
+   const chooseBehavior = (mode) => {
+    setBehavior(mode);
+    try { localStorage.setItem('adminai-behavior', mode); } catch { }
+    setBehaviorMenuOpen(false);
+  };
+   const handleSend = async (promptOverride) => {
+    const trimmed = (promptOverride === undefined ? input : promptOverride).trim();
+    if (!trimmed || streaming) return;
 
-    setInput('');
+    lastPromptRef.current = trimmed;
+    if (promptOverride === undefined) setInput('');
+    setAtMenuOpen(false);
     let sessionId = activeSessionId;
 
     if (!sessions.find((s) => s.id === sessionId)) {
       try {
-        const res = await fetch('/api/admin-ai/sessions', { method: 'POST' });
+        const res = await fetch('/api/admin-ai/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
         const data = await res.json();
         const body = data.data || data;
         sessionId = body.id || body.session?.id;
+        if (!sessionId) return;
+        skipLoadSessionRef.current = sessionId;
         setActiveSessionId(sessionId);
-        setSessions((prev) => [...prev, { id: sessionId, title: new Date().toLocaleString('zh-CN') }]);
+        setSessions((prev) => [{ id: sessionId, title: new Date().toLocaleString('zh-CN') }, ...prev]);
       } catch {
+        setMessages((prev) => [...prev, {
+          id: `err_${Date.now()}`,
+          role: 'assistant',
+          reasoning: '',
+          thinking: [],
+          blocks: [{ type: 'error', message: '创建会话失败，请重试', retryable: true, retryPrompt: trimmed }],
+        }]);
         return;
       }
     }
 
-    setMessages((prev) => [...prev, {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      content: trimmed,
-    }, {
-      id: `assistant_${Date.now()}`,
-      role: 'assistant',
-      reasoning: '',
-      thinking: [],
-      blocks: [],
-    }]);
+    const assistantMsgId = `assistant_${Date.now()}`;
+    setMessages((prev) => [...prev,
+      createUserMessage(`user_${Date.now()}`, trimmed),
+      createAssistantMessage(assistantMsgId),
+    ]);
+
+    const failWith = (message) => {
+      setMessages((prev) => failMessage(prev, assistantMsgId, message, trimmed));
+    };
 
     try {
       const res = await fetch('/api/admin-ai/messages', {
@@ -370,20 +527,26 @@ export default function AskAiPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, prompt: trimmed }),
       });
+      if (!res.ok) {
+        let msg = `发送失败（HTTP ${res.status}）`;
+        try {
+          const data = await res.json();
+          msg = (data?.error?.message) || msg;
+        } catch { }
+        failWith(msg);
+        return;
+      }
       const data = await res.json();
-      if (data.runId) startStream(data.runId);
+      const body = data && data.data ? data.data : data;
+      if (body.runId) startStream(body.runId, assistantMsgId);
+      else failWith('未能启动执行，请重试');
     } catch {
-      setMessages((prev) => [...prev, {
-        id: `err_${Date.now()}`,
-        role: 'assistant',
-        reasoning: '',
-        thinking: [],
-        blocks: [{ type: 'error', message: '发送失败，请重试', retryable: true }],
-      }]);
+      failWith('发送失败，请重试');
     }
   };
 
   const handleCancel = async () => {
+    const tid = streamTargetIdRef.current;
     if (runId) {
       try {
         await fetch('/api/admin-ai/cancel', {
@@ -394,12 +557,17 @@ export default function AskAiPanel() {
       } catch {
       }
     }
+    if (tid) setMessages((prev) => cancelMessage(prev, tid));
     stopStream();
   };
 
   const handleNewSession = async () => {
     try {
-      const res = await fetch('/api/admin-ai/sessions', { method: 'POST' });
+      const res = await fetch('/api/admin-ai/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
       const data = await res.json();
       const body = data.data || data;
       const newSession = { id: body.id || body.session?.id, title: new Date().toLocaleString('zh-CN') };
@@ -411,10 +579,12 @@ export default function AskAiPanel() {
     }
   };
 
+  /* 会话删除：二次确认 */
   const handleDeleteSession = async (sessionId) => {
     try {
       await fetch(`/api/admin-ai/sessions/${sessionId}`, { method: 'DELETE' });
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      setConfirmDeleteId(null);
       if (activeSessionId === sessionId) {
         setActiveSessionId(sessions.find((s) => s.id !== sessionId)?.id || null);
         setMessages([]);
@@ -423,32 +593,46 @@ export default function AskAiPanel() {
     }
   };
 
-  const handleResolveApproval = async (approvalId, action) => {
+  const requestDelete = (sessionId) => {
+    if (confirmDeleteId === sessionId) {
+      handleDeleteSession(sessionId);
+    } else {
+      setConfirmDeleteId(sessionId);
+    }
+  };
+   const handleResolveApproval = async (approvalId, action, applyToSession, reason) => {
     try {
-      await fetch(`/api/admin-ai/approvals/${approvalId}/resolve`, {
+      const res = await fetch(`/api/admin-ai/approvals/${approvalId}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, applyToSession: !!applyToSession, reason: reason || '' }),
       });
-      setMessages((prev) => {
-        const updated = [...prev];
-        for (const msg of updated) {
-          if (msg.blocks) {
-            for (const block of msg.blocks) {
-              if (block.type === 'approval' && block.approvalId === approvalId) {
-                block.status = action === 'approve' ? 'approved' : 'rejected';
-                return updated;
-              }
-            }
-          }
-        }
-        return updated;
-      });
+      if (!res.ok) return;
+      setMessages((prev) => resolveApprovalBlock(prev, approvalId, action));
+      setPendingApproval((p) => (p && p.approvalId === approvalId ? null : p));
     } catch {
     }
   };
 
-  /* textarea 自动增高（最大 256px，对齐 Cloudflare） */
+  /* 审批事件 → ApprovalCard props（侧栏内浮层，不遮挡主画布） */
+  const approvalProps = (p) => ({
+    id: p.approvalId,
+    planSummary: p.planSummary,
+    method: p.method,
+    path: p.path,
+    bodySnapshot: p.bodySnapshot,
+    expiresAt: p.expiresAt,
+    status: 'pending',
+  });
+
+  /* 审批浮层（侧栏/全屏各一份，出现在 AI 面板内部） */
+  const approvalOverlay = (positionClass) => (
+    <div className={`askai-modal-in absolute z-40 ${positionClass}`}>
+      <ApprovalCard approval={approvalProps(pendingApproval)} onResolve={handleResolveApproval} />
+    </div>
+  );
+
+  /* textarea 自动增高（最大 256px） */
   const resizeTextarea = () => {
     const el = textareaRef.current;
     if (!el) return;
@@ -456,14 +640,44 @@ export default function AskAiPanel() {
     el.style.height = `${Math.min(el.scrollHeight, 256)}px`;
   };
 
-  /* 拖宽手柄 */
+  /* 回车发送，Shift+Enter 换行（中文输入法组词回车不发） */
+  const handleTextareaKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    if (e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    handleSend();
+  };
+
+  /* 拖宽手柄：直接操作 panelRef.style.width + CSS 变量，不触发 React 重渲染 */
+  const applyPanelWidth = (w) => {
+    const clamped = Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, w));
+    if (panelRef.current) panelRef.current.style.width = `${clamped}px`;
+    document.documentElement.style.setProperty('--askai-panel-w', `${clamped}px`);
+    document.documentElement.style.setProperty('--askai-sidebar-w', showAskAI && !expanded ? `${clamped}px` : '0px');
+    return clamped;
+  };
+
   const startDrag = (e) => {
+    e.preventDefault();
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    if (panelRef.current) panelRef.current.style.transition = 'none'; // 拖拽中禁用宽度过渡
     dragState.current = { startX: e.clientX, startWidth: panelWidth };
     const onMove = (ev) => {
+      if (!dragState.current) return;
       const next = dragState.current.startWidth + (dragState.current.startX - ev.clientX);
-      setPanelWidth(Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, next)));
+      applyPanelWidth(next);
     };
-    const onUp = () => {
+    const onUp = (ev) => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      if (panelRef.current) panelRef.current.style.transition = '';
+      if (dragState.current) {
+        const next = dragState.current.startWidth + (dragState.current.startX - ev.clientX);
+        const clamped = applyPanelWidth(next);
+        setPanelWidth(clamped);
+        try { localStorage.setItem('adminai-sidebar-w', String(clamped)); } catch { }
+      }
       dragState.current = null;
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
@@ -474,283 +688,416 @@ export default function AskAiPanel() {
 
   const sessionTitle = sessions.find((s) => s.id === activeSessionId)?.title
     || (activeSessionId ? new Date().toLocaleString('zh-CN') : '新对话');
+  const placeholder = behavior === 'agent' ? '输入指令' : '输入消息，@ 引用资源';
+   /* ==================== 渲染 ==================== */
+  const closeSidebar = () => { setShowAskAI(false); setExpanded(false); setManageOpen(false); };
 
-  /* ==================== 渲染 ==================== */
-  const closeSidebar = () => { setShowAskAI(false); setExpanded(false); };
-
-  /* ---- 全屏扩展模式（Expand sidebar）---- */
-  if (expanded) {
-    return (
-      <div className="askai-expand-in fixed inset-0 z-50 flex flex-col bg-neutral-800/90 p-2">
-        <div className="flex h-full w-full flex-1 overflow-hidden rounded-2xl bg-kumo-canvas shadow-2xl">
-          {fullscreenSidebar && (
-            <div className="flex h-full w-64 shrink-0 flex-col border-r border-kumo-line bg-kumo-overlay">
-              <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line px-4">
-                <span className="truncate text-sm font-medium text-kumo-default">{sessionTitle}</span>
-                <button type="button" onClick={handleNewSession} className="flex h-7 w-7 items-center justify-center rounded-md text-kumo-default transition-colors hover:bg-kumo-tint" aria-label="新建会话">
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-2">
-                {sessions.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
-                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${s.id === activeSessionId ? 'bg-kumo-fill font-medium text-kumo-default' : 'text-kumo-subtle hover:bg-kumo-tint'}`}
-                  >
-                    <span className="truncate">{s.title || new Date(s.created_at || s.id).toLocaleString('zh-CN')}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 主对话区 */}
-          <div className="relative flex min-w-0 flex-1 flex-col">
-            <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line px-4">
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setFullscreenSidebar(!fullscreenSidebar)} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default" aria-label="Toggle Sidebar">
-                  <ArrowLeft className={`h-3.5 w-3.5 transition-transform ${fullscreenSidebar ? '' : 'rotate-180'}`} />
-                  侧栏
-                </button>
-                <button type="button" onClick={() => setFullscreenArtifacts(!fullscreenArtifacts)} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default" aria-label="Toggle Artifacts">
-                  <Sliders className="h-3.5 w-3.5" />
-                  工件
-                </button>
-              </div>
-              <button type="button" onClick={() => setExpanded(false)} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default" aria-label="Collapse to sidebar">
-                收回到侧栏
-              </button>
-            </div>
-
-            <div className="flex min-h-0 flex-1">
-              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-6 md:p-8 xl:px-10 xl:py-9">
-                <DotGrid />
-                <div className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-4">
-                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-                    {messages.length === 0 ? (
-                      <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
-                    ) : (
-                      <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} />
-                    )}
-                  </div>
-                </div>
-              </div>
-              {fullscreenArtifacts && (
-                <div className="w-72 shrink-0 border-l border-kumo-line bg-kumo-overlay p-4">
-                  <p className="text-xs font-medium text-kumo-subtle">工件</p>
-                  <p className="mt-2 text-xs text-kumo-subtle/70">暂无工件</p>
-                </div>
+  /* ---- 全屏扩展模式 ---- */
+  const renderFullscreen = () => (
+    <div
+      className="askai-expand-in group/sidebar fixed inset-0 z-[1150] flex flex-col p-2"
+      data-state="expanded"
+      style={{
+        '--sidebar-active-bg': 'var(--color-kumo-tint)',
+        '--sidebar-bg': 'var(--color-kumo-base)',
+        '--sidebar-animation-duration': '250ms',
+        '--sidebar-easing': 'cubic-bezier(0.77, 0, 0.175, 1)',
+      }}
+    >
+      <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-kumo-brand/80 bg-kumo-canvas shadow-2xl">
+        <div
+          className={`flex h-full shrink-0 flex-col overflow-hidden bg-kumo-base transition-[width] duration-300 ease-in-out ${fullscreenSidebar ? 'w-64 border-r border-kumo-line' : 'w-0'}`}
+          aria-hidden={!fullscreenSidebar}
+        >
+          <div className="flex h-full w-64 shrink-0 flex-col">
+            <div className="flex h-[58px] shrink-0 items-center justify-between gap-2 border-b border-kumo-line px-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-brand/10 text-kumo-brand">
+              <Sparkle className="h-4 w-4" />
+            </span>
+            <span className="truncate text-sm font-bold text-kumo-strong">会话</span>
+            <Badge variant="secondary">{sessions.length}</Badge>
+          </div>
+          <Tooltip
+            content="新建会话"
+            side="bottom"
+            render={
+              <Button size="sm" shape="square" variant="ghost" aria-label="新建会话" onClick={handleNewSession}>
+                <Plus className="h-4 w-4 transition-transform duration-300 hover:rotate-90" />
+              </Button>
+            }
+          />
+        </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 scrollbar-thin">
+              {sessions.length === 0 ? (
+                <Empty title="暂无会话" description="点击右上角新建会话开始对话" />
+              ) : (
+                <Sidebar.Menu>
+                  {sessions.map((s) => {
+                    const active = s.id === activeSessionId;
+                    return (
+                      <div key={s.id} className="group relative">
+                        <Sidebar.MenuButton
+                          active={active}
+                          aria-current={active ? 'page' : undefined}
+                          onClick={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                          icon={
+                            <ChatsCircle
+                              weight="duotone"
+                              className={`size-4 shrink-0 transition-all duration-200 ${
+                                active
+                                  ? 'text-kumo-brand'
+                                  : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
+                              }`}
+                            />
+                          }
+                          className={`${active ? '!bg-kumo-brand/10' : ''} !px-2`}
+                        >
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span
+                              className={`truncate text-xs transition-colors ${
+                                active
+                                  ? 'font-semibold text-kumo-default'
+                                  : 'font-medium text-kumo-subtle group-hover:text-kumo-default'
+                              }`}
+                            >
+                              {s.title || '新对话'}
+                            </span>
+                            <span className="truncate text-[10px] text-kumo-subtle/70">
+                              {formatSessionDate(s.createdAt)}
+                            </span>
+                          </span>
+                        </Sidebar.MenuButton>
+                        <Button
+                          size="sm"
+                          shape="square"
+                          variant={confirmDeleteId === s.id ? 'destructive' : 'ghost'}
+                          aria-label="删除会话"
+                          onClick={() => requestDelete(s.id)}
+                          className={`!absolute right-1.5 top-1/2 z-10 -translate-y-1/2 !h-6 !w-6 !rounded-md opacity-0 transition-all duration-200 group-hover:opacity-100 ${
+                            confirmDeleteId === s.id
+                              ? '!opacity-100 !bg-kumo-danger/10 !text-kumo-danger'
+                              : 'hover:!bg-kumo-tint hover:!text-kumo-default'
+                          }`}
+                        >
+                          {confirmDeleteId === s.id ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </Sidebar.Menu>
               )}
-            </div>
-
-            {/* 全屏输入区 */}
-            <div className="z-10 mx-auto w-full max-w-4xl px-6 pb-6">
-              <div className="relative rounded-xl bg-kumo-control ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50">
-                <textarea
-                  ref={textareaRef}
-                  rows={2}
-                  value={input}
-                  onChange={(e) => { setInput(e.target.value); resizeTextarea(); }}
-                  onInput={resizeTextarea}
-                  placeholder="输入消息，@ 引用资源"
-                  className="h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
-                  style={{ maxHeight: 256 }}
-                />
-                <div className="flex items-center justify-between gap-1 p-4 pt-1.5">
-                  <button type="button" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default" aria-label="Edit behavior">
-                    询问
-                  </button>
-                  <div className="flex items-center gap-1">
-                    <button type="button" className="flex h-6.5 w-6.5 items-center justify-center rounded-md text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default" aria-label="设置">
-                      <SettingsIcon className="h-3.5 w-3.5" />
-                    </button>
-                    {streaming ? (
-                      <button type="button" onClick={handleCancel} className="flex h-6.5 w-6.5 items-center justify-center rounded-md bg-kumo-fill text-kumo-default transition-colors hover:bg-kumo-tint" aria-label="停止生成">
-                        <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleSend}
-                        disabled={!input.trim() || !activeSessionId}
-                        className="flex h-6.5 w-6.5 items-center justify-center rounded-md bg-kumo-fill text-kumo-default transition-colors hover:bg-kumo-tint disabled:cursor-not-allowed disabled:text-kumo-subtle disabled:opacity-60"
-                        aria-label="发送"
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
-      </div>
-    );
-  }
 
-  /* ---- 侧栏模式 ---- */
-  return (
+        <div className="@container relative flex min-w-0 flex-1 flex-col">
+          <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line px-4">
+            <div className="flex items-center gap-1">
+              <Button type="button" size="sm" variant="ghost" onClick={() => setFullscreenSidebar(!fullscreenSidebar)} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs" aria-label="Toggle Sidebar">
+                <ArrowLeft className={`h-3.5 w-3.5 transition-transform ${fullscreenSidebar ? '' : 'rotate-180'}`} />
+                侧栏
+              </Button>
+            </div>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setExpanded(false)} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs" aria-label="Collapse to sidebar">
+              收回到侧栏
+            </Button>
+          </div>
+           <div className="flex min-h-0 flex-1">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-6 pt-6 pb-2 cq-md:px-8 cq-md:pt-8 cq-xl:px-10 cq-xl:pt-9">
+              <DotGrid />
+              <div className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-4">
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+                  {messages.length === 0 ? (
+                    <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
+                  ) : (
+                    <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} />
+                  )}
+                </div>
+                {/* 全屏输入区（实底不透明，与消息区无缝衔接） */}
+                <div className="z-10 shrink-0">
+                  <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
+              <Textarea
+                ref={textareaRef}
+                rows={2}
+                value={input}
+                onChange={handleInputChange}
+                onInput={resizeTextarea}
+                onKeyDown={handleTextareaKeyDown}
+                placeholder={placeholder}
+                className="h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
+                style={{ maxHeight: 256 }}
+              />
+              {atMenuOpen && (
+                <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
+              )}
+              <div className="flex items-center justify-between gap-1 p-4 pt-1.5">
+                              <div className="relative" data-askai-menu>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => { setSessionMenuOpen(false); setAtMenuOpen(false); setBehaviorMenuOpen(!behaviorMenuOpen); }} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs" aria-label="Edit behavior">
+                    {behavior === 'agent' ? <Bot className="h-3 w-3" /> : <Sparkle className="h-3 w-3" />}
+                    {behavior === 'agent' ? '代理' : '询问'}
+                  </Button>
+                  {behaviorMenuOpen && <BehaviorMenu behavior={behavior} onSelect={chooseBehavior} />}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => { setExpanded(false); setManageOpen(true); }} aria-label="设置">
+                    <SettingsIcon className="h-3.5 w-3.5" />
+                  </Button>
+                {streaming ? (
+                  <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleCancel} className="!rounded-full !bg-kumo-fill !text-kumo-danger !ring-1 !ring-kumo-line hover:!bg-kumo-danger/10" aria-label="停止生成">
+                    <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
+                  </Button>
+) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    shape="square"
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                    className="!rounded-full !bg-gradient-to-b !from-kumo-brand !to-kumo-brand-hover !text-white !shadow-sm hover:!shadow disabled:!cursor-not-allowed disabled:!opacity-40 disabled:!shadow-none"
+                    aria-label="发送"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                </div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+        {pendingApproval && approvalOverlay('bottom-[150px] left-1/2 w-full max-w-4xl -translate-x-1/2 px-6')}
+      </div>
+      </div>
+    </div>
+    </div>
+  );
+   /* ---- 侧栏模式 ---- */
+  const renderSidebar = () => (
     <div
       ref={panelRef}
-      className="fixed right-0 top-0 z-[1150] flex h-screen flex-col overflow-hidden border-l border-kumo-line bg-kumo-overlay transition-[width,transform] duration-300 ease-in-out dark:bg-kumo-base max-md:!w-screen"
-      style={{ width: `${panelWidth}px`, transform: animated ? 'translateX(0)' : 'translateX(100%)', pointerEvents: animated ? 'auto' : 'none' }}
+      className="@container fixed right-0 top-0 z-[1150] flex h-screen flex-col overflow-hidden border-l border-kumo-line bg-[var(--app-main-surface)] transition-[width,transform] duration-300 ease-in-out max-lg:!w-screen"
+      style={{ width: 'var(--askai-panel-w)', transform: animated ? 'translateX(0)' : 'translateX(100%)', pointerEvents: animated ? 'auto' : 'none' }}
     >
       {/* 拖宽手柄 */}
       <div className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize" onMouseDown={startDrag} aria-hidden />
 
+      {/* 写操作审批浮层：侧栏内滑出（输入区上方），不遮挡主画布 */}
+      {pendingApproval && approvalOverlay('inset-x-3 bottom-[132px]')}
+
+      {manageOpen ? (
+        <>
+          {/* ===== 管理视图（设置/频道/审计收进侧栏） ===== */}
+          <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setManageOpen(false)}
+              className="flex h-7 items-center gap-1.5 rounded-md px-1 text-xs"
+              aria-label="返回对话"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> 对话
+            </Button>
+            <span className="text-sm font-medium text-kumo-default">管理 AI</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              shape="square"
+              onClick={closeSidebar}
+              aria-label="关闭侧栏"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4">
+            <AdminConsole />
+          </div>
+        </>
+      ) : (
+        <>
       {/* ===== Header（58px） ===== */}
-      <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-kumo-overlay px-4 dark:bg-kumo-base">
-        {/* 会话切换 */}
-        <div className="relative flex items-center">
-          <button
+      <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
+        <div className="relative flex items-center" data-askai-menu>
+          <Button
             type="button"
-            onClick={() => setSessionMenuOpen(!sessionMenuOpen)}
-            className="flex h-9 max-w-[200px] min-w-0 items-center justify-between gap-2 rounded-lg px-1 text-left text-sm text-kumo-default transition-colors hover:bg-kumo-tint"
+            size="sm"
+            variant="ghost"
+            onClick={() => { setBehaviorMenuOpen(false); setAtMenuOpen(false); setSessionMenuOpen(!sessionMenuOpen); }}
+            className={`flex h-8 max-w-[200px] min-w-0 items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-medium ${
+              sessionMenuOpen
+                ? 'bg-kumo-tint text-kumo-strong'
+                : 'bg-kumo-fill text-kumo-default hover:bg-kumo-tint'
+            }`}
             aria-haspopup="menu"
             aria-expanded={sessionMenuOpen}
           >
             <span className="truncate">{sessionTitle}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-kumo-subtle" />
-          </button>
+            <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${sessionMenuOpen ? 'rotate-180' : ''}`} />
+          </Button>
           {sessionMenuOpen && (
-            <div className="absolute left-0 top-[calc(100%+4px)] z-40 w-64 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line dark:bg-kumo-base">
+            <div
+              className="absolute left-0 top-[calc(100%+4px)] z-40 w-64 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line"
+              style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': '250ms' }}
+            >
               <div className="max-h-72 overflow-y-auto p-1.5">
-                {sessions.length === 0 && (
-                  <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无会话</p>
-                )}
-                {sessions.map((s) => (
-                  <div key={s.id} className="group flex items-center">
-                    <button
-                      type="button"
-                      onClick={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); setSessionMenuOpen(false); }}
-                      className={`flex-1 truncate rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${s.id === activeSessionId ? 'bg-kumo-fill font-medium text-kumo-default' : 'text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default'}`}
-                    >
-                      {s.title || new Date(s.created_at || s.id).toLocaleString('zh-CN')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteSession(s.id)}
-                      className="mr-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-kumo-subtle transition-colors hover:bg-kumo-danger/10 hover:text-kumo-danger group-hover:flex"
-                      aria-label="删除会话"
-                    >
-                      <Trash className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
+                {sessions.length === 0 && <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无会话</p>}
+                <Sidebar.Menu>
+                  {sessions.map((s) => {
+                    const active = s.id === activeSessionId;
+                    return (
+                      <div key={s.id} className="group relative">
+                        <Sidebar.MenuButton
+                          active={active}
+                          aria-current={active ? 'page' : undefined}
+                          onClick={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); setSessionMenuOpen(false); }}
+                          icon={
+                            <ChatsCircle
+                              weight="duotone"
+                              className={`size-4 shrink-0 transition-all duration-200 ${
+                                active
+                                  ? 'text-kumo-brand'
+                                  : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
+                              }`}
+                            />
+                          }
+                          className={`${active ? '!bg-kumo-brand/10' : ''} !px-2`}
+                        >
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span
+                              className={`truncate text-xs transition-colors ${
+                                active
+                                  ? 'font-semibold text-kumo-default'
+                                  : 'font-medium text-kumo-subtle group-hover:text-kumo-default'
+                              }`}
+                            >
+                              {s.title || '新对话'}
+                            </span>
+                            <span className="truncate text-[10px] text-kumo-subtle/70">
+                              {formatSessionDate(s.createdAt)}
+                            </span>
+                          </span>
+                        </Sidebar.MenuButton>
+                        <Button
+                          size="sm"
+                          shape="square"
+                          variant={confirmDeleteId === s.id ? 'destructive' : 'ghost'}
+                          aria-label="删除会话"
+                          onClick={() => requestDelete(s.id)}
+                          className={`!absolute right-1.5 top-1/2 z-10 -translate-y-1/2 !h-6 !w-6 !rounded-md opacity-0 transition-all duration-200 group-hover:opacity-100 ${
+                            confirmDeleteId === s.id
+                              ? '!opacity-100 !bg-kumo-danger/10 !text-kumo-danger'
+                              : 'hover:!bg-kumo-tint hover:!text-kumo-default'
+                          }`}
+                        >
+                          {confirmDeleteId === s.id ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </Sidebar.Menu>
               </div>
-              <div className="border-t border-kumo-line p-1.5">
-                <button type="button" onClick={handleNewSession} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-kumo-default transition-colors hover:bg-kumo-tint">
+              <div className="flex items-center gap-1 border-t border-kumo-line p-1.5">
+                <Button type="button" size="sm" variant="ghost" onClick={handleNewSession} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-kumo-default hover:bg-kumo-tint">
                   <Plus className="h-3.5 w-3.5" /> 新对话
-                </button>
+                </Button>
               </div>
             </div>
           )}
         </div>
-
-        {/* 右侧操作 */}
-        <div className="flex items-center gap-0.5">
-          <button type="button" onClick={handleNewSession} className="flex h-7 w-7 items-center justify-center rounded-md text-kumo-default transition-colors hover:bg-kumo-tint" aria-label="新对话">
+         <div className="flex items-center gap-0.5">
+          <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleNewSession} aria-label="新对话">
             <Plus className="h-3.5 w-3.5" />
-          </button>
-          <button type="button" onClick={() => setExpanded(true)} className="flex h-7 w-7 items-center justify-center rounded-md text-kumo-default transition-colors hover:bg-kumo-tint" aria-label="展开侧栏">
+          </Button>
+          <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => setExpanded(true)} aria-label="展开侧栏">
             <Maximize2 className="h-3.5 w-3.5" />
-          </button>
-          <button type="button" onClick={closeSidebar} className="flex h-7 w-7 items-center justify-center rounded-md text-kumo-default transition-colors hover:bg-kumo-tint" aria-label="关闭侧栏">
+          </Button>
+          <Button type="button" size="sm" variant="ghost" shape="square" onClick={closeSidebar} aria-label="关闭侧栏">
             <X className="h-3.5 w-3.5" />
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* ===== Body ===== */}
-      <div className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-y-hidden p-4">
-        <DotGrid />
-        <div className="relative flex min-h-0 flex-1 flex-col gap-2">
-          <SupportBar />
-          <div className="relative min-h-0 flex-1 flex-col">
-            {messages.length === 0 ? (
-              <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
-            ) : (
-              <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} />
-            )}
+      {/* ===== Body + Footer（点阵背景；消息区与输入框上下无缝衔接） ===== */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <DotGrid surfaceRef={spotlightSidebarRef} />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-hidden px-4 pt-4">
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div className="relative min-h-0 flex-1 flex-col">
+              {messages.length === 0 ? (
+                <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
+              ) : (
+                <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} />
+              )}
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* ===== Footer ===== */}
-      <div className="mt-auto flex shrink-0 flex-col gap-2 p-4">
-        {!privacyDismissed && (
-          <div className="flex items-center gap-2 rounded-xl bg-kumo-overlay p-3 shadow-xs ring-1 ring-kumo-line dark:bg-kumo-base">
-            <p className="flex-1 text-xs leading-snug text-kumo-subtle">
-              {PRIVACY_TEXT}
-              <a href="https://github.com/iwvw/API-Monitor" target="_blank" rel="noopener noreferrer" className="ml-1 underline transition-colors hover:text-kumo-default">隐私政策</a>
-            </p>
-            <button
-              type="button"
-              onClick={() => { setPrivacyDismissed(true); try { localStorage.setItem('adminai-privacy-dismissed', '1'); } catch { } }}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default"
-              aria-label="关闭隐私提示"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )}
-
-        <form
-          onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-        >
-          <div className="relative rounded-xl bg-kumo-control ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50">
-            <textarea
+        {/* ===== Footer（输入框：实底不透明，无上边距，与消息区相连） ===== */}
+        <div className="relative shrink-0 px-4 pb-4">
+        <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
+          <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
+            <Textarea
               ref={textareaRef}
               rows={2}
               value={input}
-              onChange={(e) => { setInput(e.target.value); resizeTextarea(); }}
+              onChange={handleInputChange}
               onInput={resizeTextarea}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="输入消息，@ 引用资源"
+              onKeyDown={handleTextareaKeyDown}
+              placeholder={placeholder}
               className="h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
               style={{ maxHeight: 256 }}
             />
+            {atMenuOpen && (
+              <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
+            )}
             <div className="flex items-center justify-between gap-1 p-4 pt-1.5">
-              <button type="button" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default" aria-label="行为模式">
-                <Sparkle className="h-3 w-3" />
-                询问
-              </button>
+              <div className="relative" data-askai-menu>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setSessionMenuOpen(false); setAtMenuOpen(false); setBehaviorMenuOpen(!behaviorMenuOpen); }} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs" aria-label="行为模式">
+                  {behavior === 'agent' ? <Bot className="h-3 w-3" /> : <Sparkle className="h-3 w-3" />}
+                  {behavior === 'agent' ? '代理' : '询问'}
+                </Button>
+                {behaviorMenuOpen && <BehaviorMenu behavior={behavior} onSelect={chooseBehavior} />}
+              </div>
               <div className="flex items-center gap-1">
-                <button type="button" className="flex h-6.5 w-6.5 items-center justify-center rounded-md text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default" aria-label="设置">
+                <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => setManageOpen(true)} aria-label="设置">
                   <SettingsIcon className="h-3.5 w-3.5" />
-                </button>
+                </Button>
                 {streaming ? (
-                  <button
-                    type="button"
-                    onClick={handleCancel}
-                    className="flex h-6.5 w-6.5 items-center justify-center rounded-md bg-kumo-fill text-kumo-default transition-colors hover:bg-kumo-tint"
-                    aria-label="停止生成"
-                  >
+                  <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleCancel} className="!rounded-full !bg-kumo-fill !text-kumo-danger !ring-1 !ring-kumo-line hover:!bg-kumo-danger/10" aria-label="停止生成">
                     <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
                     type="submit"
-                    disabled={!input.trim() || !activeSessionId}
-                    className="flex h-6.5 w-6.5 items-center justify-center rounded-md bg-kumo-fill text-kumo-default transition-colors hover:bg-kumo-tint disabled:cursor-not-allowed disabled:text-kumo-subtle disabled:opacity-60"
+                    size="sm"
+                    variant="primary"
+                    shape="square"
+                    disabled={!input.trim()}
+                    className="!rounded-full !bg-gradient-to-b !from-kumo-brand !to-kumo-brand-hover !text-white !shadow-sm hover:!shadow disabled:!cursor-not-allowed disabled:!opacity-40 disabled:!shadow-none"
                     aria-label="发送"
                   >
                     <Send className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
           </div>
         </form>
+        </div>
       </div>
+        </>
+      )}
     </div>
+  );
+
+  /* 返回：已展开 renderFullscreen，未展开 renderSidebar（含管理视图）。
+     全屏遮罩用 Portal 挂到 <body>，跳出外层 Sidebar.Provider 的 isolate 层叠上下文，
+     避免被左侧导航等元素在层级上盖住。 */
+  return (
+    <>
+      {expanded ? createPortal(renderFullscreen(), document.body) : renderSidebar()}
+    </>
   );
 }

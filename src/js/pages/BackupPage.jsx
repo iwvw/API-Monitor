@@ -180,7 +180,7 @@ export function BackupPanel({ embedded = false } = {}) {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       {!embedded && (
         <section className="grid gap-3">
           <h1 className="text-lg font-semibold text-kumo-strong">备份中心</h1>
@@ -207,7 +207,7 @@ export function BackupPanel({ embedded = false } = {}) {
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong"><Clock className="h-3.5 w-3.5" />自动备份计划</div>
               <Select size="sm" label="频率" className="w-full" value={schedule.type} onValueChange={(value) => setSchedule((prev) => ({ ...prev, type: value }))} items={SCHEDULE_TYPES} />
               {['daily', 'weekly', 'monthly'].includes(schedule.type) && (
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-2 cq-sm:grid-cols-2">
                   <Input size="sm" type="number" label="小时" min="0" max="23" value={schedule.hour} onChange={(event) => setSchedule((prev) => ({ ...prev, hour: event.target.value }))} />
                   <Input size="sm" type="number" label="分钟" min="0" max="59" value={schedule.minute} onChange={(event) => setSchedule((prev) => ({ ...prev, minute: event.target.value }))} />
                   {schedule.type === 'weekly' && <Select size="sm" label="星期" value={String(schedule.weekday)} onValueChange={(value) => setSchedule((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_OPTIONS} />}

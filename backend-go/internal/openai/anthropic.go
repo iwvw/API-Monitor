@@ -444,14 +444,23 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 		for ci, cand := range endpointCandidates {
 			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 			candModel, _ := s.resolveEndpointModel(cand, model)
+			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
+			// 候选归一化（写 reasoning_effort）。首个候选不复制、保持原样透传；
+			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
 			candBody := parsedBody
-			if candModel != model && candModel != "" {
+			needCopy := ci > 0 || (candModel != model && candModel != "")
+			if needCopy {
 				cp := make(map[string]interface{}, len(parsedBody))
 				for k, v := range parsedBody {
 					cp[k] = v
 				}
-				cp["model"] = candModel
 				candBody = cp
+			}
+			if candModel != model && candModel != "" {
+				candBody["model"] = candModel
+			}
+			if ci > 0 {
+				normalizeReasoningEffort(candBody)
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 

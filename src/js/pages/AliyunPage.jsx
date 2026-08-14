@@ -437,10 +437,10 @@ function AliyunPage() {
           />
           <Toolbar size="sm" aria-label="导出导入账号" className="shrink-0">
             <Toolbar.Button onClick={exportAccounts} disabled={accounts.length === 0} aria-label="导出账号" title="导出账号（含 AccessKey Secret）" icon={<Upload className="h-3.5 w-3.5" />}>
-              <span className="hidden sm:inline">导出</span>
+              <span className="hidden cq-sm:inline">导出</span>
             </Toolbar.Button>
             <Toolbar.Button onClick={() => accountImportInputRef.current?.click()} disabled={accountImporting} aria-label="导入账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-              <span className="hidden sm:inline">导入</span>
+              <span className="hidden cq-sm:inline">导入</span>
             </Toolbar.Button>
           </Toolbar>
           <Button size="sm" onClick={openCreateModal}><Plus className="h-3.5 w-3.5" />添加账号</Button>
@@ -501,14 +501,14 @@ function AliyunPage() {
       {activeTab === 'accounts' && renderAccounts()}
 
       <Dialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),34rem)] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),34rem)] flex-col overflow-hidden p-0">
           <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
             <Dialog.Title className="text-base font-semibold text-kumo-strong">{editingAccount ? '编辑阿里云账号' : '添加阿里云账号'}</Dialog.Title>
             <Dialog.Description className="mt-1 text-xs text-kumo-subtle">建议使用最小权限 RAM 账号，Secret 保存后不会回显。</Dialog.Description>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
             <Input size="sm" label="备注名称" value={accountForm.name} onChange={(event) => setAccountForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="生产环境" />
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 cq-sm:grid-cols-2">
               <Input size="sm" label="AccessKey ID" value={accountForm.accessKeyId} onChange={(event) => setAccountForm((prev) => ({ ...prev, accessKeyId: event.target.value }))} className="font-mono" placeholder="LTAI..." />
               <Input size="sm" label="默认地域 ID" value={accountForm.regionId} onChange={(event) => setAccountForm((prev) => ({ ...prev, regionId: event.target.value }))} className="font-mono" placeholder="cn-hangzhou" />
             </div>

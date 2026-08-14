@@ -11,14 +11,14 @@ import { Info } from '../IconsCore.jsx';
 import { MoreVertical, Search } from '../Icons.jsx';
 import { resolveTableColumns } from '../../modules/tableLayout.js';
 
-export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 sm:gap-4 pb-6 sm:pb-8';
-export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 sm:gap-4 pb-0';
+export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-6 cq-sm:pb-8';
+export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-0';
 export const pageToolbarClass =
-  'flex min-w-0 flex-col items-stretch gap-3 border-b border-kumo-line pb-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between [&>*]:min-w-0';
+  'flex min-w-0 flex-col items-stretch gap-3 border-b border-kumo-line pb-3 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-between [&>*]:min-w-0';
 export const stickyTabsBaseClass =
   'sticky top-0 z-30 flex min-h-(--app-header-height) items-center bg-[var(--app-main-surface)] px-[var(--app-tab-gutter-x)] -mx-[var(--app-canvas-gutter-x)]';
 export const sectionCardHeaderClass =
-  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2.5 sm:min-h-[56px] sm:flex-row sm:flex-wrap sm:items-center sm:py-3.5';
+  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
 export const sectionCardTitleClass =
   'inline-flex min-w-0 max-w-full items-center gap-2 text-sm font-bold text-kumo-strong';
 export const iconButtonIconClass = 'h-3.5 w-3.5';
@@ -60,7 +60,7 @@ export function TabBarOverflowActions({
   const wideActions = (
     <div
       className={cx(
-        'hidden min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 md:flex',
+        'hidden min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 cq-md:flex',
         className
       )}
     >
@@ -144,7 +144,7 @@ export function TabBarOverflowActions({
   return (
     <>
       {wideActions}
-      <div className="shrink-0 md:hidden">
+      <div className="shrink-0 cq-md:hidden">
         <DropdownMenu>
           <DropdownMenu.Trigger
             render={
@@ -199,8 +199,8 @@ export function ResponsiveSearchInput({
 
   return (
     <>
-      <div className={cx('hidden md:block', className)}>{wideInput}</div>
-      <div className="md:hidden">
+      <div className={cx('hidden cq-md:block', className)}>{wideInput}</div>
+      <div className="cq-md:hidden">
         <Popover>
           <Popover.Trigger
             render={
@@ -270,7 +270,7 @@ function withCompactCardActions(node) {
       return React.cloneElement(node, {
         size: node.props.size || 'sm',
         className: cx(node.props.className, compactClass),
-        children: <span className="hidden sm:inline">{node.props.children}</span>,
+        children: <span className="hidden cq-sm:inline">{node.props.children}</span>,
         'aria-label': node.props['aria-label'] || textLabel || node.props.title,
       });
     }
@@ -322,8 +322,8 @@ const insetToneClass = {
 
 const keyValueGridColumnsClass = {
   1: 'grid-cols-1',
-  2: 'md:grid-cols-2',
-  3: 'md:grid-cols-3',
+  2: 'cq-md:grid-cols-2',
+  3: 'cq-md:grid-cols-3',
 };
 
 export function SectionCard({
@@ -357,7 +357,7 @@ export function SectionCard({
       )}
     >
       <LayerCard.Secondary className={cx(sectionCardHeaderClass, headerClassName)}>
-        <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center">
           <div className={cx(sectionCardTitleClass, titleClassName)}>
             {icon}
             {typeof title === 'string' || typeof title === 'number' ? (
@@ -369,7 +369,7 @@ export function SectionCard({
           {description && (
             <div
               className={cx(
-                'hidden min-w-0 flex-1 text-xs font-normal leading-5 text-kumo-subtle sm:block sm:basis-40 sm:truncate',
+                'hidden min-w-0 flex-1 text-xs font-normal leading-5 text-kumo-subtle cq-sm:block cq-sm:basis-40 cq-sm:truncate',
                 descriptionClassName
               )}
             >
@@ -380,7 +380,7 @@ export function SectionCard({
         {trailing.length > 0 && (
           <div
             className={cx(
-              'ml-3 flex shrink-0 items-center justify-end gap-2 whitespace-nowrap sm:ml-auto sm:flex-wrap sm:whitespace-normal [&>*]:shrink-0',
+              'ml-3 flex shrink-0 items-center justify-end gap-2 whitespace-nowrap cq-sm:ml-auto cq-sm:flex-wrap cq-sm:whitespace-normal [&>*]:shrink-0',
               actionsClassName
             )}
           >

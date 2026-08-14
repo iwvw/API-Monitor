@@ -30,7 +30,7 @@ export default function DrawioLibraryView({
   return (
     <div className="min-h-0 w-full min-w-0 flex-1 overflow-y-auto pr-1 scrollbar-thin">
       {loading ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-5">
           {[0, 1, 2, 3, 4].map(item => (
             <SkeletonLine key={item} className="h-64 w-full" />
           ))}
@@ -65,7 +65,7 @@ export default function DrawioLibraryView({
           }
         />
       ) : (
-        <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid grid-cols-1 items-start gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3 cq-xl:grid-cols-5">
           {documents.map(document => {
             const status = thumbnailStatus(document);
             return (
@@ -74,7 +74,7 @@ export default function DrawioLibraryView({
                 padding="none"
                 className="flex min-w-0 flex-col overflow-hidden"
               >
-                <div className="group h-48 w-full border-b border-kumo-line bg-kumo-recessed/20 sm:h-52">
+                <div className="group h-48 w-full border-b border-kumo-line bg-kumo-recessed/20 cq-sm:h-52">
                   <div className="flex h-full w-full items-center justify-center overflow-hidden px-6 py-4">
                     {document.thumbnail_path && document.thumbnail_status === 'ready' ? (
                       <img

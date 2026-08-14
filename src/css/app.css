@@ -5,6 +5,19 @@
 /* 手动切换主题时 dark: 变体跟随 html.dark class，而非系统 prefers-color-scheme */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* 容器查询断点（cq-*）：与视口断点同值（40/48/64/80/96/120rem）。
+   主画布/侧栏/独立页根均为 @container，布局按内容实际可用宽度判定，
+   侧栏让位后主视图自动降级为窄屏布局。注意：kumo 弹层（Dialog/Menu/
+   Popover 等）经 portal 渲染到 body，位于所有页面 @container 之外，
+   凡在弹层内容里使用 cq-*，必须在该弹层根上声明 @container（如
+   <Dialog className="@container ...">），否则断点永不匹配。 */
+@custom-variant cq-sm (@container (width >= 40rem));
+@custom-variant cq-md (@container (width >= 48rem));
+@custom-variant cq-lg (@container (width >= 64rem));
+@custom-variant cq-xl (@container (width >= 80rem));
+@custom-variant cq-2xl (@container (width >= 96rem));
+@custom-variant cq-3xl (@container (width >= 120rem));
+
 @font-face {
   font-family: 'Chakra Petch API Monitor';
   src: url('/fonts/chakra-petch-api-monitor-600.woff2') format('woff2');
@@ -2196,31 +2209,6 @@ input[type='number'] {
   appearance: textfield;
 }
 
-/* ==================== Admin AI 空状态云动画（Cloudflare 风格简化版） ==================== */
-.cloud-orb {
-  border-radius: 9999px;
-  position: absolute;
-  filter: saturate(1) brightness(1);
-  animation: cloud-orb-float 6s ease-in-out infinite;
-}
-.cloud-orb--back {
-  width: 84px;
-  height: 84px;
-  background: radial-gradient(circle at 30% 30%, #ececec, #d9d9d9);
-  animation-delay: -2s;
-}
-.cloud-orb--front {
-  width: 120px;
-  height: 120px;
-  background: radial-gradient(circle at 30% 30%, #f7f7f7, #e6e6e6);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06);
-  animation-delay: -4s;
-}
-@keyframes cloud-orb-float {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-6px) scale(1.015); }
-}
-
 /* Admin AI 全屏展开淡入 */
 @keyframes askai-expand-in {
   from { opacity: 0; transform: scale(0.985); }
@@ -2228,4 +2216,273 @@ input[type='number'] {
 }
 .askai-expand-in {
   animation: askai-expand-in 0.18s ease-out;
+}
+
+/* ==================== Ask AI 空状态云朵（Cloudflare 官方 Ask AI 侧栏 CSS 移植，纯 CSS 多层渐变） ==================== */
+.askai-cloud-container {
+  --blur-multiplier: 1;
+  --node-1-x: 0;
+  --node-1-y: 0;
+  --node-1-offset-x: 8%;
+  --node-1-offset-y: 0%;
+  --node-1-s: 0.57;
+
+  --node-2-x: 0;
+  --node-2-y: 0;
+  --node-2-offset-x: -22%;
+  --node-2-offset-y: 8%;
+  --node-2-s: 0.35;
+
+
+  --node-1-blur-x: var(--node-1-x);
+  --node-1-blur-y: var(--node-1-y);
+  --node-1-blur-s: calc(var(--node-1-s) * 1.15);
+  --node-1-blur-offset-x: 8%;
+  --node-1-blur-offset-y: 0%;
+
+  --global-to-node-1-blur: calc(1/ var(--node-1-blur-s));
+  --node-1-blur-clip-s: calc(var(--node-2-s) / var(--node-1-blur-s)) * 50;
+
+  --n2-offs-x-local: var(--node-2-offset-x) * var(--global-to-node-1-blur);
+  --n2-offs-y-local: var(--node-2-offset-y) * var(--global-to-node-1-blur);
+  --n1-blur-offs-x-local: var(--node-1-blur-offset-x) * var(--global-to-node-1-blur);
+  --n1-blur-offs-y-local: var(--node-1-blur-offset-y) * var(--global-to-node-1-blur);
+
+  --node-1-blur-clip-x: calc((var(--n2-offs-x-local) + (var(--node-2-x) * 1px) - var(--n1-blur-offs-x-local) - (var(--node-1-blur-x) * 1px)));
+  --node-1-blur-clip-y: calc((var(--n2-offs-y-local) + (var(--node-2-y) * 1px) - var(--n1-blur-offs-y-local) - (var(--node-1-blur-y) * 1px)));
+
+  --node-3-x: 0;
+  --node-3-y: 0;
+  --node-3-offset-x: 30%;
+  --node-3-offset-y: 6%;
+  --node-3-s: 0.41;
+
+  --n3-offs-x-local: var(--node-3-offset-x) * var(--global-to-node-1-blur);
+  --n3-offs-y-local: var(--node-3-offset-y) * var(--global-to-node-1-blur);
+
+  --node-1-shadow-clip-x: calc((var(--n3-offs-x-local) + (var(--node-3-x) * 1px) - var(--n1-blur-offs-x-local) - (var(--node-1-blur-x) * 1px)));
+  --node-1-shadow-clip-y: calc((var(--n3-offs-y-local) + (var(--node-3-y) * 1px) - var(--n1-blur-offs-y-local) - (var(--node-1-blur-y) * 1px)));
+  --node-1-shadow-clip-s: calc(var(--node-3-s) / var(--node-1-blur-s)) * 50;
+
+  --node-4-x: 0;
+  --node-4-y: 0;
+  --node-4-offset-x: -27.5%;
+  --node-4-offset-y: -2.5%;
+  --node-4-s: 0.32;
+
+  --node-2-blur-s: calc(var(--node-2-s) * 1.15);
+  --global-to-node-2-blur: calc(1/ var(--node-2-blur-s));
+
+  --n4-offs-x-local: var(--node-4-offset-x) * var(--global-to-node-2-blur);
+  --n4-offs-y-local: var(--node-4-offset-y) * var(--global-to-node-2-blur);
+  --n2-blur-offs-x-local: var(--node-2-offset-x) * var(--global-to-node-2-blur);
+  --n2-blur-offs-y-local: var(--node-2-offset-y) * var(--global-to-node-2-blur);
+
+  --node-2-blur-clip-x: calc((var(--n4-offs-x-local) + (var(--node-4-x) * 1px) - var(--n2-blur-offs-x-local) - (var(--node-2-x) * 1px)));
+  --node-2-blur-clip-y: calc((var(--n4-offs-y-local) + (var(--node-4-y) * 1px) - var(--n2-blur-offs-y-local) - (var(--node-2-y) * 1px)));
+  --node-2-blur-clip-s: calc(var(--node-4-s) / var(--node-2-blur-s)) * 50;
+
+  --node-5-x: 0;
+  --node-5-y: 0;
+  --node-5-offset-x: -41%;
+  --node-5-offset-y: 10%;
+  --node-5-s: 0.24;
+}
+
+.askai-cloud-node {
+  position: absolute;
+  aspect-ratio: 1;
+  border-radius: 100%;
+}
+
+.askai-cloud-node-5 {
+  height: calc(var(--node-5-s) * 100%);
+  top: calc(50% + var(--node-5-offset-y));
+  left: calc(50% + var(--node-5-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), linear-gradient(0deg, #FFB371 0%, #FFB371 100%), #FFB371;
+  background-blend-mode: soft-light, overlay, normal, normal, normal;
+}
+
+.askai-cloud-node-4 {
+  height: calc(var(--node-4-s) * 100%);
+  top: calc(50% + var(--node-4-offset-y));
+  left: calc(50% + var(--node-4-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(163deg, #FFEDDD 7.61%, #FF9335 93.15%);
+  background-blend-mode: overlay, normal;
+}
+
+.askai-cloud-node-2-blur {
+  height: calc(var(--node-2-blur-s) * 100%);
+  top: calc(50% + var(--node-2-offset-y));
+  left: calc(50% + var(--node-2-offset-x));
+  filter: blur(calc(2.25px * var(--blur-multiplier)));
+  translate: -50% -50%;
+  background-blend-mode: soft-light, overlay, normal, normal;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), #FFB371;
+  clip-path: circle(calc(var(--node-2-blur-clip-s) * 1%) at calc(50% + var(--node-2-blur-clip-x)) calc(50% + var(--node-2-blur-clip-y)));
+}
+
+.askai-cloud-node-3 {
+  height: calc(var(--node-3-s) * 100%);
+  top: calc(50% + var(--node-3-offset-y));
+  left: calc(50% + var(--node-3-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), #FFB371;
+  background-blend-mode: soft-light, overlay, normal, normal;
+}
+
+.askai-cloud-node-2 {
+  height: calc(var(--node-2-s) * 100%);
+  top: calc(50% + var(--node-2-offset-y));
+  left: calc(50% + var(--node-2-offset-x));
+  translate: -50% -50%;
+  background-blend-mode: soft-light, overlay, normal, normal;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), #FFB371;
+}
+
+.askai-cloud-node-1-shadow {
+  /* Cloudflare 官方：向上渐变黑 + 大模糊 + 高透明度的桌面投影，clip-path 裁剪只落在球团下方 */
+  background: linear-gradient(to top, black, rgba(0, 0, 0, 0) 60%);
+  height: calc(var(--node-1-blur-s) * 100%);
+  top: calc(50% + var(--node-1-blur-offset-y));
+  left: calc(50% + var(--node-1-blur-offset-x));
+  translate: -50% -50%;
+  filter: blur(calc(7.25px * var(--blur-multiplier)));
+  opacity: 0.6;
+  clip-path: circle(calc(var(--node-1-shadow-clip-s) * 1%) at calc(50% + var(--node-1-shadow-clip-x)) calc(50% + var(--node-1-shadow-clip-y)));
+}
+
+.askai-cloud-node-1-blur {
+  background: radial-gradient(50% 50% at 50% 50%, rgba(255, 255, 255, 0.00) 46.63%, rgba(255, 255, 255, 0.29) 100%), radial-gradient(102.97% 102.97% at 14.06% 10.94%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%);
+  background-blend-mode: normal, overlay, normal;
+  height: calc(var(--node-1-blur-s) * 100%);
+  top: calc(50% + var(--node-1-blur-offset-y));
+  left: calc(50% + var(--node-1-blur-offset-x));
+  translate: -50% -50%;
+  filter: blur(calc(3.75px * var(--blur-multiplier)));
+  clip-path: circle(calc(var(--node-1-blur-clip-s) * 1%) at calc(50% + var(--node-1-blur-clip-x)) calc(50% + var(--node-1-blur-clip-y)));
+}
+
+.askai-cloud-node-1 {
+  height: calc(var(--node-1-s) * 100%);
+  top: calc(50% + var(--node-1-offset-y));
+  left: calc(50% + var(--node-1-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(255, 255, 255, 0.00) 46.63%, rgba(255, 255, 255, 0.29) 100%), radial-gradient(102.97% 102.97% at 14.06% 10.94%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%);
+  background-blend-mode: normal, overlay, normal;
+}
+
+/* ==================== Ask AI 对话状态（Cloudflare 风格） ==================== */
+
+/* 流式回复光标（CF 聊天末尾闪烁竖条） */
+@keyframes askai-caret-blink {
+  0%, 45% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.askai-caret {
+  display: inline-block;
+  width: 1px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: -0.12em;
+  background: var(--color-kumo-brand);
+  border-radius: 1px;
+  animation: askai-caret-blink 1s steps(1) infinite;
+}
+
+/* 打字三点（思考中 / 等待中） */
+@keyframes askai-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+.askai-typing-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: askai-dot-bounce 1.2s ease-in-out infinite;
+}
+.askai-typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.askai-typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* pending 占位骨架（等待首个流事件） */
+@keyframes askai-skeleton-shimmer {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+.askai-skeleton-line {
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--color-kumo-line), color-mix(in oklab, var(--color-kumo-brand) 18%, var(--color-kumo-line)), var(--color-kumo-line));
+  background-size: 200% 100%;
+  animation: askai-skeleton-shimmer 1.4s ease-in-out infinite alternate;
+}
+
+/* 工具运行中：左侧品牌色脉冲边条 */
+@keyframes askai-tool-live {
+  0% { opacity: 0.25; transform: scaleY(0.6); }
+  50% { opacity: 1; transform: scaleY(1); }
+  100% { opacity: 0.25; transform: scaleY(0.6); }
+}
+.askai-tool-live::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-kumo-brand);
+  transform-origin: center;
+  animation: askai-tool-live 1.1s ease-in-out infinite;
+}
+
+/* 思维链展开淡入 */
+@keyframes askai-reason-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.askai-reason-fade {
+  animation: askai-reason-fade 0.18s ease-out;
+}
+
+/* 审批弹窗（遮罩+卡片淡入放大） */
+@keyframes askai-modal-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.askai-modal-in {
+  animation: askai-modal-in 0.15s ease-out;
+}
+.askai-modal-in > div {
+  animation: askai-expand-in 0.15s ease-out;
+}
+
+/* 折叠区丝滑展开/收起：grid-rows 0fr→1fr + 透明度（工具步骤/推理/长文本共用） */
+.askai-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.22s ease;
+}
+.askai-collapse[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.askai-collapse > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 工具步骤依次浮现：每行错峰滑入（index 决定 delay） */
+@keyframes askai-tool-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.askai-tool-stagger {
+  animation: askai-tool-in 0.25s ease-out both;
 }

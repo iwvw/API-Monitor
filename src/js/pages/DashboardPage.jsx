@@ -68,9 +68,9 @@ const DASHBOARD_FETCH_TIMEOUT_MS = 6_000;
 const HOST_METRICS_POLL_MS = 2_000;
 const HOST_METRICS_FETCH_TIMEOUT_MS = 4_000;
 const DASHBOARD_SERVER_STATUS_LIMIT = 7;
-const SERVICE_TOOL_ITEM_CLASS = 'group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/45 px-2.5 py-1.5 transition-colors hover:border-kumo-brand/60 hover:bg-kumo-base sm:h-12 sm:px-3 xl:h-auto xl:min-h-12';
-const SERVICE_TOOL_ICON_CLASS = 'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm sm:h-8 sm:w-8';
-const SERVICE_TOOL_BADGE_CLASS = 'flex h-6 min-w-9 shrink-0 items-center justify-center gap-1 rounded-md border border-kumo-line bg-kumo-base px-1.5 text-[10px] font-semibold text-kumo-strong tabular-nums sm:min-w-10 sm:text-[11px]';
+const SERVICE_TOOL_ITEM_CLASS = 'group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/45 px-2.5 py-1.5 transition-colors hover:border-kumo-brand/60 hover:bg-kumo-base cq-sm:h-12 cq-sm:px-3 cq-xl:h-auto cq-xl:min-h-12';
+const SERVICE_TOOL_ICON_CLASS = 'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm cq-sm:h-8 cq-sm:w-8';
+const SERVICE_TOOL_BADGE_CLASS = 'flex h-6 min-w-9 shrink-0 items-center justify-center gap-1 rounded-md border border-kumo-line bg-kumo-base px-1.5 text-[10px] font-semibold text-kumo-strong tabular-nums cq-sm:min-w-10 cq-sm:text-[11px]';
 
 let dashboardStatsCache = null;
 let dashboardStatsFetchPromise = null;
@@ -144,10 +144,10 @@ function formatPercent(value) {
 
 function formatBytes(bytes) {
   const size = Number(bytes) || 0;
-  if (size >= 1024 ** 4) return `${(size / 1024 ** 4).toFixed(1)} TB`;
-  if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(1)} GB`;
-  if (size >= 1024 ** 2) return `${(size / 1024 ** 2).toFixed(1)} MB`;
-  if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
+  if (size >= 1024 ** 4) return `${(size / 1024 ** 4).toFixed(1)} T`;
+  if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(1)} G`;
+  if (size >= 1024 ** 2) return `${(size / 1024 ** 2).toFixed(1)} M`;
+  if (size >= 1024) return `${(size / 1024).toFixed(1)} K`;
   return `${Math.round(size)} B`;
 }
 
@@ -162,13 +162,12 @@ function formatDuration(seconds) {
   return `${minutes}分钟`;
 }
 
-function formatHostCpuDetail(cpu = {}, usage = 0) {
+function formatHostCpuDetail(cpu = {}) {
   const physicalCores = Number(cpu.physicalCores ?? cpu.physical_cores ?? cpu.cores) || 0;
   const logicalCores = Number(cpu.logicalCores ?? cpu.logical_cores ?? cpu.threads) || 0;
-  const coreDetail = logicalCores && logicalCores !== physicalCores
-    ? `${physicalCores || '-'}核 / ${logicalCores}线程`
-    : `${physicalCores || logicalCores || 0}核`;
-  return `${formatPercent(usage)} / ${coreDetail}`;
+  return logicalCores && logicalCores !== physicalCores
+    ? `${physicalCores || '-'}C · ${logicalCores}T`
+    : `${physicalCores || logicalCores || 0}C`;
 }
 
 function normalizeServerStatus(status) {
@@ -285,7 +284,7 @@ function StatusPageShortcutCard({ page }) {
       padding="none"
       interactive
       onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}
-      className="group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2.5 px-3 sm:h-12 sm:px-3.5"
+      className="group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2.5 px-3 cq-sm:h-12 cq-sm:px-3.5"
     >
       <span className="flex min-w-0 items-center gap-2.5">
         <span className={STATUS_PAGE_SHORTCUT_ICON_CLASS}>
@@ -340,41 +339,41 @@ function DashboardOverviewCard({
       onClick={onClick}
       padding="none"
       interactive
-      className="group grid min-h-[92px] cursor-pointer grid-rows-[auto_1fr_auto] gap-1.5 overflow-hidden p-2.5 sm:min-h-[112px] sm:p-3.5"
+      className="group grid min-h-[92px] cursor-pointer grid-rows-[auto_1fr_auto] gap-1.5 overflow-hidden p-2.5 cq-sm:min-h-[112px] cq-sm:p-3.5"
     >
       <div className="flex min-w-0 items-center justify-between gap-1.5">
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md sm:h-8 sm:w-8 ${iconClassName}`}>
-            <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+        <div className="flex min-w-0 items-center gap-1.5 cq-sm:gap-2">
+          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md cq-sm:h-8 cq-sm:w-8 ${iconClassName}`}>
+            <Icon className="h-3 w-3 cq-sm:h-3.5 cq-sm:w-3.5" />
           </div>
-          <span className="min-w-0 truncate text-[10px] font-semibold text-kumo-subtle sm:text-[11px]">
+          <span className="min-w-0 truncate text-[10px] font-semibold text-kumo-subtle cq-sm:text-[11px]">
             {label}
           </span>
         </div>
-        <Badge className={`shrink-0 whitespace-nowrap text-[9px] sm:text-[11px] ${badgeClassName}`}>
+        <Badge className={`shrink-0 whitespace-nowrap text-[9px] cq-sm:text-[11px] ${badgeClassName}`}>
           {badge}
         </Badge>
       </div>
 
-      <div className="flex h-8 min-w-0 items-center justify-between gap-2 sm:h-9">
-        <span className="flex min-w-0 items-baseline gap-0.5 truncate text-[1.15rem] font-bold leading-none text-kumo-strong tabular-nums sm:text-[1.45rem] sm:gap-1">
+      <div className="flex h-8 min-w-0 items-center justify-between gap-2 cq-sm:h-9">
+        <span className="flex min-w-0 items-baseline gap-0.5 truncate text-[1.15rem] font-bold leading-none text-kumo-strong tabular-nums cq-sm:text-[1.45rem] cq-sm:gap-1">
           {value}
-          <span className="truncate text-[10px] font-normal leading-none text-kumo-subtle sm:text-[11px]">
+          <span className="truncate text-[10px] font-normal leading-none text-kumo-subtle cq-sm:text-[11px]">
             {unit}
           </span>
         </span>
         {statusVisual && (
-          <div className="hidden h-5 shrink-0 items-center justify-end sm:flex">
+          <div className="hidden h-5 shrink-0 items-center justify-end cq-sm:flex">
             {statusVisual}
           </div>
         )}
       </div>
 
-      <div className="flex min-h-5 items-center justify-between gap-1.5 border-t border-kumo-line pt-1.5 text-[10px] leading-tight text-kumo-subtle transition-colors group-hover:text-kumo-strong sm:min-h-6 sm:pt-2 sm:text-[11px]">
+      <div className="flex min-h-5 items-center justify-between gap-1.5 border-t border-kumo-line pt-1.5 text-[10px] leading-tight text-kumo-subtle transition-colors group-hover:text-kumo-strong cq-sm:min-h-6 cq-sm:pt-2 cq-sm:text-[11px]">
         <span className={`min-w-0 truncate ${detailClassName}`}>
           {detail}
         </span>
-        <ArrowRight className="h-2.5 w-2.5 shrink-0 sm:h-3 sm:w-3" />
+        <ArrowRight className="h-2.5 w-2.5 shrink-0 cq-sm:h-3 cq-sm:w-3" />
       </div>
     </AppCard>
   );
@@ -1006,9 +1005,9 @@ function DashboardPage({ onNavigate } = {}) {
   const dashboardStatusPages = Array.isArray(stats.statusPages) ? stats.statusPages : [];
 
   return (
-    <PageStack className="gap-3 sm:gap-4">
+    <PageStack className="gap-3 cq-sm:gap-4">
       {/* ==================== Stats Grid (5 Cards) ==================== */}
-      <div className="grid w-full grid-cols-2 gap-2 md:grid-cols-3 2xl:grid-cols-5">
+      <div className="grid w-full grid-cols-2 gap-2 cq-md:grid-cols-3 cq-2xl:grid-cols-5">
         
         <DashboardOverviewCard
           onClick={() => navigateToModule('server')}
@@ -1083,12 +1082,12 @@ function DashboardPage({ onNavigate } = {}) {
       </div>
 
       {/* ==================== Detail Column Split ==================== */}
-      <div className="grid grid-cols-1 items-stretch gap-3 sm:gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)]">
+      <div className="grid grid-cols-1 items-stretch gap-3 cq-sm:gap-4 cq-xl:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)]">
         
         <SectionCard
           title="API 调用趋势"
           icon={<TrendingUp className="h-4 w-4 text-kumo-brand" />}
-          bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 sm:p-5"
+          bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 cq-sm:p-5"
         >
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-1">
             {apiTrendSeries.map((series) => (
@@ -1126,26 +1125,26 @@ function DashboardPage({ onNavigate } = {}) {
         <SectionCard
           title="模块入口"
           icon={<Box className="h-4 w-4 text-kumo-brand" />}
-          className="order-2 h-full min-w-0 xl:col-start-2 xl:row-span-2 xl:row-start-1"
-          bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 sm:p-3"
+          className="order-2 h-full min-w-0 cq-xl:col-start-2 cq-xl:row-span-2 cq-xl:row-start-1"
+          bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 cq-sm:p-3"
         >
-          <div className="grid flex-1 auto-rows-fr grid-cols-2 gap-2 xl:grid-cols-1">
+          <div className="grid flex-1 auto-rows-fr grid-cols-2 gap-2 cq-xl:grid-cols-1">
             {/* Koyeb */}
             <div
               onClick={() => navigateToModule('paas')}
               className={SERVICE_TOOL_ITEM_CLASS}
             >
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2.5 cq-sm:gap-3">
                 <div className={`${SERVICE_TOOL_ICON_CLASS} bg-kumo-badge-purple/10 text-kumo-badge-purple`}>
-                  <KoyebBrand className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <KoyebBrand className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Koyeb</h4>
-                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle sm:block">边缘计算应用服务</p>
+                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">边缘计算应用服务</p>
                 </div>
               </div>
               <div className={SERVICE_TOOL_BADGE_CLASS}>
-                <span className={`w-1 h-1 rounded-full sm:w-1.5 sm:h-1.5 ${stats.paas.koyeb.running > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
+                <span className={`w-1 h-1 rounded-full cq-sm:w-1.5 cq-sm:h-1.5 ${stats.paas.koyeb.running > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
                 {stats.paas.koyeb.running}
               </div>
             </div>
@@ -1155,17 +1154,17 @@ function DashboardPage({ onNavigate } = {}) {
               onClick={() => navigateToModule('paas')}
               className={SERVICE_TOOL_ITEM_CLASS}
             >
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2.5 cq-sm:gap-3">
                 <div className={`${SERVICE_TOOL_ICON_CLASS} bg-kumo-brand/10 text-kumo-brand`}>
-                  <FlyIoBrand className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <FlyIoBrand className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Fly.io</h4>
-                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle sm:block">全球微型虚拟机</p>
+                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">全球微型虚拟机</p>
                 </div>
               </div>
               <div className={SERVICE_TOOL_BADGE_CLASS}>
-                <span className={`w-1 h-1 rounded-full sm:w-1.5 sm:h-1.5 ${stats.paas.fly.running > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
+                <span className={`w-1 h-1 rounded-full cq-sm:w-1.5 cq-sm:h-1.5 ${stats.paas.fly.running > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
                 {stats.paas.fly.running}
               </div>
             </div>
@@ -1175,17 +1174,17 @@ function DashboardPage({ onNavigate } = {}) {
               onClick={() => navigateToModule('uptime')}
               className={SERVICE_TOOL_ITEM_CLASS}
             >
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2.5 cq-sm:gap-3">
                 <div className={`${SERVICE_TOOL_ICON_CLASS} bg-kumo-success/10 text-kumo-success`}>
-                  <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <Activity className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
                   <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">可用性监测</h4>
-                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle sm:block">HTTP、TCP 与 Ping 监测</p>
+                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">HTTP、TCP 与 Ping 监测</p>
                 </div>
               </div>
               <div className={SERVICE_TOOL_BADGE_CLASS}>
-                <span className={`w-1 h-1 rounded-full sm:w-1.5 sm:h-1.5 ${stats.uptime.total > 0 && stats.uptime.down === 0 ? 'bg-kumo-success' : stats.uptime.down > 0 ? 'bg-kumo-danger' : 'bg-kumo-fill'}`} />
+                <span className={`w-1 h-1 rounded-full cq-sm:w-1.5 cq-sm:h-1.5 ${stats.uptime.total > 0 && stats.uptime.down === 0 ? 'bg-kumo-success' : stats.uptime.down > 0 ? 'bg-kumo-danger' : 'bg-kumo-fill'}`} />
                 {stats.uptime.total}
               </div>
             </div>
@@ -1195,17 +1194,17 @@ function DashboardPage({ onNavigate } = {}) {
               onClick={() => navigateToModule('scheduler')}
               className={SERVICE_TOOL_ITEM_CLASS}
             >
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2.5 cq-sm:gap-3">
                 <div className={`${SERVICE_TOOL_ICON_CLASS} bg-kumo-warning/10 text-kumo-warning`}>
-                  <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <Clock className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
                   <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">定时任务</h4>
-                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle sm:block">任务、工作流与运行记录</p>
+                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">任务、工作流与运行记录</p>
                 </div>
               </div>
               <div className={SERVICE_TOOL_BADGE_CLASS}>
-                <span className={`w-1 h-1 rounded-full sm:w-1.5 sm:h-1.5 ${stats.scheduler.enabled > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
+                <span className={`w-1 h-1 rounded-full cq-sm:w-1.5 cq-sm:h-1.5 ${stats.scheduler.enabled > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
                 {stats.scheduler.total}
               </div>
             </div>
@@ -1215,17 +1214,17 @@ function DashboardPage({ onNavigate } = {}) {
               onClick={() => navigateToModule('totp')}
               className={SERVICE_TOOL_ITEM_CLASS}
             >
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2.5 cq-sm:gap-3">
                 <div className={`${SERVICE_TOOL_ICON_CLASS} bg-kumo-success/10 text-kumo-success`}>
-                  <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <Shield className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
                   <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">双因子认证</h4>
-                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle sm:block">OTP 动态验证码账号</p>
+                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">OTP 动态验证码账号</p>
                 </div>
               </div>
               <div className={SERVICE_TOOL_BADGE_CLASS}>
-                <span className={`w-1 h-1 rounded-full sm:w-1.5 sm:h-1.5 ${stats.totp.total > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
+                <span className={`w-1 h-1 rounded-full cq-sm:w-1.5 cq-sm:h-1.5 ${stats.totp.total > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
                 {stats.totp.total}
               </div>
             </div>
@@ -1235,17 +1234,17 @@ function DashboardPage({ onNavigate } = {}) {
               onClick={() => navigateToModule('filebox')}
               className={SERVICE_TOOL_ITEM_CLASS}
             >
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2.5 cq-sm:gap-3">
                 <div className={`${SERVICE_TOOL_ICON_CLASS} bg-kumo-info-tint text-kumo-info`}>
-                  <FolderOpen className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <FolderOpen className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
                   <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">文件分享柜</h4>
-                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle sm:block">文件与片段分享柜</p>
+                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">文件与片段分享柜</p>
                 </div>
               </div>
               <div className={SERVICE_TOOL_BADGE_CLASS}>
-                <span className={`w-1 h-1 rounded-full sm:w-1.5 sm:h-1.5 ${stats.filebox.total > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
+                <span className={`w-1 h-1 rounded-full cq-sm:w-1.5 cq-sm:h-1.5 ${stats.filebox.total > 0 ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
                 {stats.filebox.total}
               </div>
             </div>
@@ -1256,10 +1255,10 @@ function DashboardPage({ onNavigate } = {}) {
           <SectionCard
             title="状态页"
             icon={<Activity className="h-4 w-4 text-kumo-brand" />}
-            className="order-3 min-w-0 xl:col-span-2 xl:row-start-3"
-            bodyClassName="p-2.5 sm:p-3"
+            className="order-3 min-w-0 cq-xl:col-span-2 cq-xl:row-start-3"
+            bodyClassName="p-2.5 cq-sm:p-3"
           >
-            <div className="grid w-full auto-rows-fr grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-5">
+            <div className="grid w-full auto-rows-fr grid-cols-2 gap-2 cq-lg:grid-cols-3 cq-xl:grid-cols-5">
               {dashboardStatusPages.map((page) => (
                 <StatusPageShortcutCard key={`${page.kind}-${page.id || page.slug}`} page={page} />
               ))}
@@ -1271,15 +1270,15 @@ function DashboardPage({ onNavigate } = {}) {
           title={(
             <span className="flex min-w-0 items-center gap-3">
               <span className="shrink-0">宿主机性能</span>
-              <span className="hidden min-w-0 flex-col gap-0.5 text-[10px] font-normal leading-tight text-kumo-subtle sm:flex sm:text-[11px]">
+              <span className="hidden min-w-0 flex-col gap-0.5 text-[10px] font-normal leading-tight text-kumo-subtle cq-sm:flex cq-sm:text-[11px]">
                 <span className="truncate">主机: {stats.host?.hostname || '等待采样'}</span>
                 <span className="truncate">系统: {stats.host?.platformLabel || '本机运行环境'}</span>
               </span>
             </span>
           )}
           icon={<Cpu className="h-4 w-4 text-kumo-success" />}
-          className="order-4 min-w-0 xl:col-span-1 xl:row-start-2"
-          bodyClassName="p-2.5 sm:p-5"
+          className="order-4 min-w-0 cq-xl:col-span-1 cq-xl:row-start-2"
+          bodyClassName="p-2.5 cq-sm:p-5"
           meta={(
             <span
               className="w-fit rounded border border-kumo-success/20 bg-kumo-success/10 px-2 py-0.5 text-[11px] font-semibold text-kumo-success"
@@ -1290,8 +1289,8 @@ function DashboardPage({ onNavigate } = {}) {
             </span>
           )}
         >
-          <div className="grid gap-2.5 md:grid-cols-3 md:gap-3 md:[&>*+*]:border-l md:[&>*+*]:border-kumo-line md:[&>*+*]:pl-4 md:[&>*:not(:last-child)]:pr-4">
-            <MiniMeter label={`CPU (${Number.isFinite(hostLoad) ? hostLoad.toFixed(2) : '-'})`} value={hostCpuUsage} detail={formatHostCpuDetail(stats.host?.cpu, hostCpuUsage)} tone="success" />
+          <div className="grid gap-2.5 cq-md:grid-cols-3 cq-md:gap-3 cq-md:[&>*+*]:border-l cq-md:[&>*+*]:border-kumo-line cq-md:[&>*+*]:pl-4 cq-md:[&>*:not(:last-child)]:pr-4">
+            <MiniMeter label={`CPU (${Number.isFinite(hostLoad) ? hostLoad.toFixed(2) : '-'})`} value={hostCpuUsage} detail={formatHostCpuDetail(stats.host?.cpu)} tone="success" />
             <MiniMeter label="内存" value={hostMemoryUsage} detail={`${formatBytes(stats.host?.memory?.used)} / ${formatBytes(stats.host?.memory?.total)}`} tone="info" />
             <MiniMeter label={`磁盘 (${stats.host?.disk?.root || '-'})`} value={hostDiskUsage} detail={`${formatBytes(stats.host?.disk?.used)} / ${formatBytes(stats.host?.disk?.total)}`} tone="brand" />
           </div>

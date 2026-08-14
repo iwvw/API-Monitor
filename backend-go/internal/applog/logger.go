@@ -299,6 +299,12 @@ func (r *statusRecorder) Flush() {
 	flusher.Flush()
 }
 
+// Unwrap 透传底层 ResponseWriter：让 http.NewResponseController 能下钻到真实
+// response 设置写 deadline（SSE 长连接续期），否则封装层挡住 SetWriteDeadline。
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))

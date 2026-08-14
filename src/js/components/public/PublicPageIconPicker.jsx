@@ -313,7 +313,7 @@ export default function PublicPageIconPicker({
       {trigger}
       {isAuthenticated ? (
         <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (!saving && !uploading && !deletingId) setOpen(nextOpen); }}>
-          <Dialog className="flex max-h-[min(calc(100dvh-2rem),36rem)] !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+          <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),36rem)] !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
             <div className="flex items-start justify-between border-b border-kumo-line px-4 py-3">
               <div>
                 <Dialog.Title className="text-base font-semibold text-kumo-strong">公开页图标</Dialog.Title>
@@ -360,7 +360,7 @@ export default function PublicPageIconPicker({
               />
             </div>
             <div className="overflow-y-auto p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <PublicPageIconOption
                   active={!selectedIconId}
                   title="默认图标"

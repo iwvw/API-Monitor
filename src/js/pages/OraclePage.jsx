@@ -952,7 +952,7 @@ function OraclePage() {
       </div>
 
       {activeTab === 'instances' && (
-        <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
+        <div className="grid min-h-0 gap-4 cq-xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
           <SectionCard
             title="实例列表"
             description={`${filteredInstances.length} 台实例`}
@@ -967,12 +967,12 @@ function OraclePage() {
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="搜索名称、ID、IP、shape"
                   ariaLabel="搜索 Oracle 实例"
-                  className="w-40 sm:w-52"
+                  className="w-40 cq-sm:w-52"
                 />
                 <Select
                   aria-label="实例状态筛选"
                   size="sm"
-                  className="w-32 sm:w-36"
+                  className="w-32 cq-sm:w-36"
                   value={stateFilter}
                   onValueChange={setStateFilter}
                   items={stateOptions}
@@ -1051,7 +1051,7 @@ function OraclePage() {
           <SectionCard
             title="实例详情"
             icon={<Settings className="h-4 w-4" />}
-            className="min-w-0 xl:sticky xl:top-0 xl:self-start"
+            className="min-w-0 cq-xl:sticky cq-xl:top-0 cq-xl:self-start"
             bodyPadding="none"
             bodyClassName="flex flex-col"
             actions={selectedInstance && (
@@ -1087,7 +1087,7 @@ function OraclePage() {
       {activeTab === 'network' && <ResourceList title="VNIC 附加" icon={<Cloud className="h-4 w-4" />} loading={loadingDetail} items={instanceDetail?.vnicSummary || []} columns={['displayName', 'state', 'privateIp', 'publicIp', 'subnetId']} onCopy={copyText} />}
       {activeTab === 'storage' && <ResourceList title="卷附加" icon={<HardDrive className="h-4 w-4" />} loading={loadingDetail} items={[...(instanceDetail?.bootVolumeSummary || []), ...(instanceDetail?.blockVolumeSummary || [])]} columns={['volumeType', 'state', 'device', 'volumeId', 'attachmentId']} onCopy={copyText} />}
       {activeTab === 'console' && (
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
+        <div className="grid min-h-0 flex-1 gap-4 cq-xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
           <SectionCard
             title="创建控制台连接"
             icon={<Terminal className="h-4 w-4 text-kumo-brand" />}
@@ -1203,10 +1203,10 @@ function OraclePage() {
               />
               <Toolbar size="sm" aria-label="导出导入账号" className="shrink-0">
                 <Toolbar.Button type="button" onClick={exportAccounts} aria-label="导出账号" title="导出账号" icon={<Upload className="h-3.5 w-3.5" />}>
-                  <span className="hidden sm:inline">导出</span>
+                  <span className="hidden cq-sm:inline">导出</span>
                 </Toolbar.Button>
                 <Toolbar.Button type="button" onClick={openAccountImportDialog} aria-label="导入账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-                  <span className="hidden sm:inline">导入</span>
+                  <span className="hidden cq-sm:inline">导入</span>
                 </Toolbar.Button>
               </Toolbar>
               <Button type="button" size="sm" shape="square" variant="primary" onClick={() => openAccountDialog()} aria-label="添加账号" title="添加账号" icon={<Plus className="h-4 w-4" />} />
@@ -1271,7 +1271,7 @@ function OraclePage() {
       )}
 
       <Dialog.Root open={resizeDialogOpen} onOpenChange={setResizeDialogOpen}>
-        <Dialog className="!w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
+        <Dialog className="@container !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
           <Dialog.Title className="mb-1 text-base font-bold text-kumo-strong">实例升降配</Dialog.Title>
           <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
             调整 shape 或 Flex 规格时，Oracle 可能重启实例，建议在低峰期执行。
@@ -1338,7 +1338,7 @@ function OraclePage() {
                     ]}
                   />
                   {selectedResizeShape.isFlexible ? (
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="mt-4 grid gap-3 cq-md:grid-cols-2">
                       <Input
                         size="sm"
                         label={`OCPU${selectedResizeShape.ocpuOptions?.min || selectedResizeShape.ocpuOptions?.max ? ` (${formatInstanceMetric(selectedResizeShape.ocpuOptions?.min)} - ${formatInstanceMetric(selectedResizeShape.ocpuOptions?.max)})` : ''}`}
@@ -1357,7 +1357,7 @@ function OraclePage() {
                         <Select
                           aria-label="baseline OCPU"
                           size="sm"
-                          className="md:col-span-2"
+                          className="cq-md:col-span-2"
                           value={resizeForm.baselineOcpuUtilization}
                           onValueChange={(value) => setResizeForm((current) => ({ ...current, baselineOcpuUtilization: value }))}
                           items={[
@@ -1404,7 +1404,7 @@ function OraclePage() {
       </Dialog.Root>
 
       <Dialog.Root open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
-        <Dialog className="!w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
+        <Dialog className="@container !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
           <Dialog.Title className="mb-1 text-base font-bold text-kumo-strong">
             {editingAccount ? '编辑 Oracle 账号' : '添加 Oracle 账号'}
           </Dialog.Title>
@@ -1430,7 +1430,7 @@ key_file=<path to your private keyfile>`}
               <span>粘贴后自动填充 User OCID、Fingerprint、Tenancy OCID 和 Region；key_file 不使用，私钥请在下方粘贴或上传。</span>
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 cq-md:grid-cols-2">
             <Input
               label="账号名称 *"
               value={accountForm.name}
@@ -1486,7 +1486,7 @@ key_file=<path to your private keyfile>`}
               onChange={(event) => setAccountForm({ ...accountForm, description: event.target.value })}
               placeholder="可选"
             />
-            <div className="md:col-span-2">
+            <div className="cq-md:col-span-2">
               <input
                 ref={privateKeyFileRef}
                 type="file"

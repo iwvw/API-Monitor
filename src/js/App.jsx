@@ -173,39 +173,41 @@ function App() {
   }
 
   if (publicFileboxRouteMode === 'share') {
-    return <Suspense fallback={null}><PublicSharePage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicSharePage /></Suspense></div>;
   }
 
   if (publicFileboxRouteMode === 'void') {
-    return <Suspense fallback={null}><VoidRoomPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><VoidRoomPage /></Suspense></div>;
   }
 
   if (publicM365RegisterRoute) {
-    return <Suspense fallback={null}><PublicM365RegisterPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicM365RegisterPage /></Suspense></div>;
   }
 
   if (publicStatusRouteMode === 'server-slug') {
-    return <Suspense fallback={null}><PublicServerStatusPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicServerStatusPage /></Suspense></div>;
   }
 
   if (publicStatusRouteMode === 'github-slug') {
-    return <Suspense fallback={null}><PublicGitHubPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicGitHubPage /></Suspense></div>;
   }
 
   if (publicStatusRouteMode === 'subscription-info') {
-    return <Suspense fallback={null}><PublicSubscriptionInfoPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicSubscriptionInfoPage /></Suspense></div>;
   }
 
   if (publicStatusRouteMode === 'slug') {
     return (
-      <Suspense fallback={null}>
-        <PublicStatusPage />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicStatusPage />
+        </Suspense>
+      </div>
     );
   }
 
 	if (publicPromptRoute) {
-		return <Suspense fallback={null}><PublicPromptPage /></Suspense>;
+		return <div className="@container"><Suspense fallback={null}><PublicPromptPage /></Suspense></div>;
 	}
 
   if (isCheckingAuth) {
@@ -214,7 +216,7 @@ function App() {
 
   if (isAuthenticated || dockerMockPreview) {
     if (remoteDesktopRoute) {
-      return <Suspense fallback={null}><RemoteDesktopPage /></Suspense>;
+      return <div className="@container"><Suspense fallback={null}><RemoteDesktopPage /></Suspense></div>;
     }
     return <Suspense fallback={null}><MainLayout /></Suspense>;
   }
@@ -228,7 +230,7 @@ function App() {
     );
   }
 
-  return <AuthPage />;
+  return <div className="@container"><AuthPage /></div>;
 }
 
 function DomainPublicStatusResolver({ route, onRouteChange }) {
@@ -283,25 +285,31 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
   if (route === 'uptime') {
     return (
-      <Suspense fallback={null}>
-        <PublicStatusPage domainOnly />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicStatusPage domainOnly />
+        </Suspense>
+      </div>
     );
   }
 
   if (route === 'server') {
     return (
-      <Suspense fallback={null}>
-        <PublicServerStatusPage domainOnly />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicServerStatusPage domainOnly />
+        </Suspense>
+      </div>
     );
   }
 
   if (route === 'github') {
     return (
-      <Suspense fallback={null}>
-        <PublicGitHubPage domainOnly />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicGitHubPage domainOnly />
+        </Suspense>
+      </div>
     );
   }
 
@@ -309,7 +317,7 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
     return null;
   }
 
-  return <AuthPage />;
+  return <div className="@container"><AuthPage /></div>;
 }
 
 export default App;

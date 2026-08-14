@@ -1981,7 +1981,7 @@ function DnsPage() {
     [r2CurrentPrefix]
   );
   const isViewportWorkspaceTab = ['dns', 'r2'].includes(activeTab);
-  const pageShellClassName = 'dns-workspace min-h-full max-w-full md:h-full md:min-h-0 md:flex-1';
+  const pageShellClassName = 'dns-workspace min-h-full max-w-full cq-md:h-full cq-md:min-h-0 cq-md:flex-1';
   const contentAreaClassName = 'flex min-w-0 flex-col';
   const renderResizeHead = (label, index, startResize, align = 'left') => {
     const alignClassName = {
@@ -2061,18 +2061,18 @@ function DnsPage() {
           <>
           {activeTab === 'dns' && (
             <div className="dns-split grid min-w-0 gap-3">
-              <section className="flex min-w-0 flex-col gap-2 lg:sticky lg:top-[70px] lg:max-h-[calc(100vh-82px)] lg:overflow-y-auto lg:overscroll-contain lg:self-start">
-              <div className="flex min-h-8 shrink-0 flex-col gap-2 pl-px sm:flex-row sm:items-center sm:justify-between">
-                <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
-                  <Button size="sm" variant="secondary" onClick={openZoneModal} icon={<Plus className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
+              <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[70px] cq-lg:max-h-[calc(100vh-82px)] cq-lg:overflow-y-auto cq-lg:overscroll-contain cq-lg:self-start">
+              <div className="flex min-h-8 shrink-0 flex-col gap-2 pl-px cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
+                <div className="grid grid-cols-3 gap-2 cq-sm:flex cq-sm:flex-wrap cq-sm:items-center">
+                  <Button size="sm" variant="secondary" onClick={openZoneModal} icon={<Plus className="h-4 w-4" />} className="w-full justify-center cq-sm:w-auto">
                     添加域名
                   </Button>
                   {selectedZone && (
                     <>
-                      <Button size="sm" variant={isArmed(`zone-cache:${selectedZoneId}`) ? 'destructive' : 'secondary-destructive'} onClick={purgeZoneCache} disabled={loading.purge} icon={<Shield className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
+                      <Button size="sm" variant={isArmed(`zone-cache:${selectedZoneId}`) ? 'destructive' : 'secondary-destructive'} onClick={purgeZoneCache} disabled={loading.purge} icon={<Shield className="h-4 w-4" />} className="w-full justify-center cq-sm:w-auto">
                         清除缓存
                       </Button>
-                      <Button size="sm" variant={isArmed(`zone:${selectedZone.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteZone(selectedZone)} icon={<Trash className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
+                      <Button size="sm" variant={isArmed(`zone:${selectedZone.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteZone(selectedZone)} icon={<Trash className="h-4 w-4" />} className="w-full justify-center cq-sm:w-auto">
                         删除域名
                       </Button>
                     </>
@@ -2080,7 +2080,7 @@ function DnsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 md:hidden">
+              <div className="grid grid-cols-2 gap-2 @[430px]:grid-cols-3 cq-md:hidden">
                 {loading.zones ? (
                   Array.from({ length: 4 }).map((_, index) => (
                     <LayerCard key={index} className="min-w-0 p-2">
@@ -2107,7 +2107,7 @@ function DnsPage() {
                 ))}
               </div>
 
-              <div className="dns-table-frame hidden max-w-full md:flex">
+              <div className="dns-table-frame hidden max-w-full cq-md:flex">
                 <div className="dns-table-scroll scrollbar-thin">
                 <Table layout="fixed" className="w-full text-xs">
                   <colgroup>
@@ -2278,7 +2278,7 @@ function DnsPage() {
               </div>
               {selectedZone ? (
                 <>
-                  <div className="dns-summary-grid order-3 grid shrink-0 gap-2 md:order-none">
+                  <div className="dns-summary-grid order-3 grid shrink-0 gap-2 cq-md:order-none">
                     <DnsPanelCard className="flex min-h-9 items-center justify-between gap-2 p-2">
                       <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">SSL 模式</div>
                       <Select size="sm"
@@ -2315,7 +2315,7 @@ function DnsPage() {
 
                   <AnimatedCollapse
                     open={showAnalyticsPanel}
-                    className={showAnalyticsPanel ? 'order-5 shrink-0 md:order-none' : 'contents'}
+                    className={showAnalyticsPanel ? 'order-5 shrink-0 cq-md:order-none' : 'contents'}
                   >
                     <div className="dns-chart-grid grid gap-2 pt-0.5">
                     {analyticsChartCards.map((card) => (
@@ -2346,37 +2346,37 @@ function DnsPage() {
                     </div>
                   </AnimatedCollapse>
 
-                  <div className="dns-toolbar-frame order-1 flex shrink-0 flex-wrap items-center justify-between gap-2 p-2 md:order-none">
-                    <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(7rem,0.7fr)_auto] gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+                  <div className="dns-toolbar-frame order-1 flex shrink-0 flex-wrap items-center justify-between gap-2 p-2 cq-md:order-none">
+                    <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(7rem,0.7fr)_auto] gap-2 cq-sm:flex cq-sm:w-auto cq-sm:flex-wrap cq-sm:items-center">
                       <Input size="sm"
                         aria-label="按名称筛选 DNS 记录"
                         value={recordFilter.name}
                         onChange={(event) => setRecordFilter((prev) => ({ ...prev, name: event.target.value }))}
                         placeholder="筛选名称"
-                        className="w-full sm:w-48"
+                        className="w-full cq-sm:w-48"
                       />
                       <Select size="sm"
                         aria-label="按类型筛选 DNS 记录"
                         value={recordFilter.type || null}
                         onValueChange={(value) => setRecordFilter((prev) => ({ ...prev, type: value ? String(value) : '' }))}
                         placeholder="全部类型"
-                        className="w-full sm:w-36"
+                        className="w-full cq-sm:w-36"
                         items={recordTypes.map((type) => ({ value: type, label: type }))}
                       />
                       <Button size="sm" variant="secondary" onClick={() => loadRecords(selectedZoneId, recordFilter)}>
                         查询
                       </Button>
                     </div>
-                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                    <div className="flex w-full flex-wrap items-center gap-2 cq-sm:w-auto">
                       <Button size="sm" onClick={() => openRecordModal()} icon={<Plus className="h-4 w-4" />}>
                         添加记录
                       </Button>
                       <Toolbar size="sm" aria-label="导出导入 DNS 记录" className="shrink-0">
                         <Toolbar.Button onClick={exportRecords} aria-label="导出 DNS 记录" icon={<Upload className="h-3.5 w-3.5" />}>
-                          <span className="hidden sm:inline">导出</span>
+                          <span className="hidden cq-sm:inline">导出</span>
                         </Toolbar.Button>
                         <Toolbar.Button onClick={() => openImportModal('records')} aria-label="导入 DNS 记录" icon={<Download className="h-3.5 w-3.5" />}>
-                          <span className="hidden sm:inline">导入</span>
+                          <span className="hidden cq-sm:inline">导入</span>
                         </Toolbar.Button>
                       </Toolbar>
                       {selectedRecordIds.length > 0 && (
@@ -2387,7 +2387,7 @@ function DnsPage() {
                     </div>
                   </div>
 
-                  <div className="order-2 grid gap-2 pb-3 md:hidden">
+                  <div className="order-2 grid gap-2 pb-3 cq-md:hidden">
                     {loading.records ? (
                       Array.from({ length: 5 }).map((_, index) => (
                         <LayerCard key={index} className="p-3">
@@ -2428,7 +2428,7 @@ function DnsPage() {
                     ))}
                   </div>
 
-                  <div className="dns-table-frame order-2 hidden max-w-full md:flex md:order-none">
+                  <div className="dns-table-frame order-2 hidden max-w-full cq-md:flex cq-md:order-none">
                     <div className="dns-table-scroll scrollbar-thin">
                     <Table layout="fixed" className="w-full text-xs" style={{ minWidth: recordColWidths.reduce((sum, width) => sum + width, 0) }}>
                       <colgroup>
@@ -2629,8 +2629,8 @@ function DnsPage() {
           )}
 
           {activeTab === 'r2' && (
-            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[18rem_minmax(0,1fr)]">
-              <AppCard padding="sm" className="flex min-h-0 flex-col gap-3 lg:h-full">
+            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 cq-lg:grid-cols-[18rem_minmax(0,1fr)]">
+              <AppCard padding="sm" className="flex min-h-0 flex-col gap-3 cq-lg:h-full">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-kumo-strong">存储桶</div>
@@ -2704,7 +2704,7 @@ function DnsPage() {
                 </div>
               </AppCard>
 
-              <AppCard padding="none" className="flex min-h-0 min-w-0 flex-col overflow-hidden lg:h-full">
+              <AppCard padding="none" className="flex min-h-0 min-w-0 flex-col overflow-hidden cq-lg:h-full">
                 {!r2SelectedBucket ? (
                   <div className="flex min-h-72 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
                     <Database className="h-8 w-8 text-kumo-subtle" />
@@ -2794,7 +2794,7 @@ function DnsPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex flex-col gap-2 cq-lg:flex-row cq-lg:items-center cq-lg:justify-between">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-kumo-subtle">
                           <Badge variant="outline">{r2Prefixes.length} 个文件夹</Badge>
                           <Badge variant="outline">{r2Objects.filter((object) => !String(object.key || object.name || '').endsWith('/.keep')).length} 个对象</Badge>
@@ -2996,10 +2996,10 @@ function DnsPage() {
                 <>
                 <Toolbar size="sm" aria-label="导出导入模板" className="shrink-0">
                   <Toolbar.Button onClick={() => openImportModal('templates')} aria-label="导入模板" title="导入模板" icon={<Download className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导入</span>
+                    <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                   <Toolbar.Button onClick={() => downloadJson(`cloudflare-dns-templates-${Date.now()}.json`, { version: '1.0', templates })} aria-label="导出模板" title="导出模板" icon={<Upload className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导出</span>
+                    <span className="hidden cq-sm:inline">导出</span>
                   </Toolbar.Button>
                 </Toolbar>
                 <Button size="sm" onClick={() => openTemplateModal()} icon={<Plus className="h-4 w-4" />}>添加模板</Button>
@@ -3055,10 +3055,10 @@ function DnsPage() {
                 <>
                 <Toolbar size="sm" aria-label="导出导入账号" className="shrink-0">
                   <Toolbar.Button onClick={exportAccounts} aria-label="导出账号" title="导出账号" icon={<Upload className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导出</span>
+                    <span className="hidden cq-sm:inline">导出</span>
                   </Toolbar.Button>
                   <Toolbar.Button onClick={() => openImportModal('accounts')} aria-label="导入账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导入</span>
+                    <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                 </Toolbar>
                 <Button size="sm" variant="primary" onClick={() => openAccountModal()} icon={<Plus className="h-4 w-4" />}>添加账号</Button>
@@ -3122,7 +3122,7 @@ function DnsPage() {
 
       <Dialog.Root open={Boolean(modal.type)} onOpenChange={(open) => { if (!open) closeModal(); }}>
         {modal.type && (
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),48rem)] !w-[min(760px,calc(100vw-2rem))] !max-w-[min(760px,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),48rem)] !w-[min(760px,calc(100vw-2rem))] !max-w-[min(760px,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
           {modal.type === 'account' && (
             <div className="flex flex-col gap-4">
@@ -3132,7 +3132,7 @@ function DnsPage() {
               <Dialog.Description className="text-sm text-kumo-subtle">
                 推荐使用 API Token，邮箱可留空；账户 Token（cfat_）需额外填 Account ID。Origin CA Key（v1.0-）已弃用。
               </Dialog.Description>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="备注名称" value={accountForm.name} onChange={(event) => setAccountForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="生产账号" />
                 <Input size="sm" label="邮箱" type="email" value={accountForm.email} onChange={(event) => setAccountForm((prev) => ({ ...prev, email: event.target.value }))} placeholder="name@example.com" />
               </div>
@@ -3197,7 +3197,7 @@ function DnsPage() {
               <Dialog.Title className="text-base font-semibold text-kumo-strong">
                 {modal.data ? '编辑 DNS 记录' : '添加 DNS 记录'}
               </Dialog.Title>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-3">
                 <Select size="sm"
                   label="类型"
                   value={recordForm.type}
@@ -3208,7 +3208,7 @@ function DnsPage() {
                 <Input size="sm" label="TTL" type="number" value={String(recordForm.ttl)} onChange={(event) => setRecordForm((prev) => ({ ...prev, ttl: event.target.value }))} />
               </div>
               <Input size="sm" label="内容" value={recordForm.content} onChange={(event) => setRecordForm((prev) => ({ ...prev, content: event.target.value }))} placeholder="IP、域名或文本内容" />
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="优先级" type="number" value={String(recordForm.priority)} onChange={(event) => setRecordForm((prev) => ({ ...prev, priority: event.target.value }))} />
                 <div className="flex items-center justify-between rounded-md border border-kumo-line p-3">
                   <div>
@@ -3232,11 +3232,11 @@ function DnsPage() {
               <Dialog.Title className="text-base font-semibold text-kumo-strong">
                 {modal.data ? '编辑 DNS 模板' : '添加 DNS 模板'}
               </Dialog.Title>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="模板名称" value={templateForm.name} onChange={(event) => setTemplateForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="默认 A 记录" />
                 <Input size="sm" label="描述" value={templateForm.description} onChange={(event) => setTemplateForm((prev) => ({ ...prev, description: event.target.value }))} placeholder="可选" />
               </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-4">
                 <Select size="sm"
                   label="类型"
                   value={templateForm.type}
@@ -3294,7 +3294,7 @@ function DnsPage() {
           {modal.type === 'workerRoutes' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">Worker 路由：{workerRouteState.worker?.name}</Dialog.Title>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_auto]">
+              <div className="grid grid-cols-1 gap-3 cq-md:grid-cols-[1fr_220px_auto]">
                 <Input size="sm"
                   label="路由规则"
                   value={workerRouteState.form.pattern}
@@ -3345,7 +3345,7 @@ function DnsPage() {
           {modal.type === 'workerDomains' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">Worker 自定义域名：{workerDomainState.worker?.name}</Dialog.Title>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_auto]">
+              <div className="grid grid-cols-1 gap-3 cq-md:grid-cols-[1fr_180px_auto]">
                 <Input size="sm" label="域名" value={workerDomainState.hostname} onChange={(event) => setWorkerDomainState((prev) => ({ ...prev, hostname: event.target.value }))} placeholder="worker.example.com" />
                 <Input size="sm" label="环境" value={workerDomainState.environment} onChange={(event) => setWorkerDomainState((prev) => ({ ...prev, environment: event.target.value }))} />
                 <div className="flex items-end"><Button size="sm" onClick={addWorkerDomain}>添加域名</Button></div>
@@ -3418,7 +3418,7 @@ function DnsPage() {
           {modal.type === 'pagesDomains' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">Pages 自定义域名：{pagesDomainState.project?.name}</Dialog.Title>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+              <div className="grid grid-cols-1 gap-3 cq-md:grid-cols-[1fr_auto]">
                 <Input size="sm" label="域名" value={pagesDomainState.domain} onChange={(event) => setPagesDomainState((prev) => ({ ...prev, domain: event.target.value }))} placeholder="www.example.com" />
                 <div className="flex items-end"><Button size="sm" onClick={addPagesDomain}>添加域名</Button></div>
               </div>
@@ -3448,7 +3448,7 @@ function DnsPage() {
           {modal.type === 'r2Bucket' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">创建 R2 存储桶</Dialog.Title>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="存储桶名称" value={r2BucketForm.name} onChange={(event) => setR2BucketForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="my-bucket" />
                 <Input size="sm" label="位置" value={r2BucketForm.location} onChange={(event) => setR2BucketForm((prev) => ({ ...prev, location: event.target.value }))} placeholder="auto" />
               </div>

@@ -1,23 +1,119 @@
 package adminai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/adminai/channel"
+	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
 )
 
 const (
-	maxToolCalls     = 12
-	runTimeout       = 5 * time.Minute
-	contentSizeLimit = 64 * 1024
-	eventChBuffer    = 128
+	defaultMaxToolCalls  = 12
+	defaultRunTimeoutSec = 600
+	contentSizeLimit     = 64 * 1024
+	eventChBuffer        = 128
+	maxToolRetries       = 3 // 工具调用失败后的自动重试次数
+)
+
+// retryableToolError 决定工具调用失败是否值得重试：
+// 审批类（拒绝/未启用/超时）与参数类（4xx）是确定结果，重试无意义；网络/5xx 等偶发故障才重试。
+// 注意：是否重试还需同时满足幂等（toolCallIdempotent），写操作不因偶发故障重试。
+func retryableToolError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "审批") || strings.Contains(msg, "未启用") {
+		return false
+	}
+	if strings.Contains(msg, "HTTP 4") {
+		return false
+	}
+	return true
+}
+
+// toolCallIdempotent 判断工具调用是否幂等（只读/无副作用），决定失败后能否自动重试：
+// 写操作（call_api 非 GET/HEAD/OPTIONS、send_telegram_message 等）失败不重试，
+// 避免"服务端已提交但响应丢失"时重复创建/删除资源，或重复插入同一审批再次打扰用户。
+func toolCallIdempotent(toolName string, args map[string]interface{}) bool {
+	if toolName != "call_api" {
+		return toolName != "send_telegram_message"
+	}
+	return toolIsCacheable(toolName, args)
+}
+
+// adminAITools 是注入 LLM 请求的工具 schema（与 executeToolCall 的工具有一一对应）。
+// 注意：接口目录不再以探查工具（list_apis/get_openapi）暴露——系统提示词已内置
+// 确定性接口清单（apiCatalogText），避免模型靠猜/试浪费词元；get_route 仅用于查请求体契约。
+var adminAITools = []map[string]interface{}{
+	{ "type": "function", "function": map[string]interface{}{
+		"name":        "get_route",
+		"description": "读取单个 API 接口的完整契约（请求体 schema、参数、示例）；仅在需要构造请求体时使用",
+		"parameters": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path": map[string]interface{}{"type": "string", "description": "接口路径，如 /api/flyio/apps/{appName}/update-image"},
+			},
+			"required": []string{"path"},
+		},
+	}},
+	{ "type": "function", "function": map[string]interface{}{
+		"name":        "get_system_status",
+		"description": "读取本机系统运行状态（CPU/内存/磁盘）",
+		"parameters": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "required": []string{}},
+	}},
+	{ "type": "function", "function": map[string]interface{}{
+		"name":        "call_api",
+		"description": "调用系统 API 接口；写操作（非 GET）会进入人工审批，需等待用户批准",
+		"parameters": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"method":  map[string]interface{}{"type": "string", "description": "HTTP 方法，默认 GET"},
+				"path":    map[string]interface{}{"type": "string", "description": "接口路径，如 /api/cloudflare/zones"},
+				"headers": map[string]interface{}{"type": "object", "description": "请求头（选填）"},
+				"body":    map[string]interface{}{"type": "object", "description": "JSON 请求体（选填）"},
+			},
+			"required": []string{"path"},
+		},
+	}},
+	{ "type": "function", "function": map[string]interface{}{
+		"name":        "list_telegram_targets",
+		"description": "列出可接收消息的 Telegram 接收者（频道 + 已绑定用户），用于主动推送简报/通知",
+		"parameters": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "required": []string{}},
+	}},
+	{ "type": "function", "function": map[string]interface{}{
+		"name":        "send_telegram_message",
+		"description": "向指定 Telegram 接收者发送消息（channelId + chatId 来自 list_telegram_targets）；用于主动推送简报",
+		"parameters": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"channelId": map[string]interface{}{"type": "string", "description": "频道 ID（如 telegram）"},
+				"chatId":    map[string]interface{}{"type": "string", "description": "接收者 chatId"},
+				"text":      map[string]interface{}{"type": "string", "description": "消息文本（MarkdownV2 语法）"},
+			},
+			"required": []string{"channelId", "chatId", "text"},
+		},
+	}},
+}
+
+// system_config 键名（与 adminAISettingDefs 对齐，供 getIntSetting 读取）。
+const (
+	adminAIKeyToolCallLimit  = "admin_ai_tool_call_limit"
+	adminAIKeyTimeoutSeconds = "admin_ai_timeout_seconds"
 )
 
 // SSEEvent 是 RunLoop 下推给 SSE 消费方的事件，MarshalJSON 将 Fields 与 type 合并进 JSON 对象。
@@ -33,6 +129,12 @@ func (e SSEEvent) MarshalJSON() ([]byte, error) {
 		m[k] = v
 	}
 	return json.Marshal(m)
+}
+
+// approvalResolution 是审批结果（含请求更改原因），由 resolveApproval 下发给等待中的执行。
+type approvalResolution struct {
+	Action string
+	Reason string
 }
 
 // RunLoop 创建一个运行中的执行并立即返回 runId；推理过程在后台 goroutine 中执行，
@@ -74,8 +176,25 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 
 	s.emit(eventCh, SSEEvent{Type: "meta", Fields: map[string]interface{}{"sessionId": sessionID, "runId": runID}})
 
-	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	readCtx, readCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer readCancel()
+
+	toolCallLimit := s.getIntSetting(readCtx, adminAIKeyToolCallLimit, defaultMaxToolCalls)
+	timeoutSeconds := s.getIntSetting(readCtx, adminAIKeyTimeoutSeconds, defaultRunTimeoutSec)
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = defaultRunTimeoutSec
+	}
+	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
+
+	s.mu.Lock()
+	s.cancels[runID] = cancel
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.cancels, runID)
+		s.mu.Unlock()
+	}()
 
 	db, err := s.open(runCtx)
 	if err != nil {
@@ -87,6 +206,10 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	sessionModel := modelHint
+	if sessionModel == "" {
+		// 动态读设置（管理 AI 设置页保存的默认模型），兼容旧环境变量
+		_ = db.QueryRowContext(runCtx, "SELECT value FROM system_config WHERE key = 'admin_ai_default_model'").Scan(&sessionModel)
+	}
 	if sessionModel == "" {
 		sessionModel = s.cfg.AdminAIDefaultModel
 	}
@@ -107,6 +230,21 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 		sessionModel = existingModel
 	}
 	_, _ = db.ExecContext(runCtx, "UPDATE admin_ai_sessions SET last_activity_at = ?, updated_at = ? WHERE id = ?", now, now, sessionID)
+
+	// 首条消息自动生成会话标题（仅当尚无标题时）：异步交给模型生成 ≤12 字标题，
+	// 不阻塞首条推理；生成失败回退为消息前 24 字截断。
+	runes := []rune(strings.TrimSpace(prompt))
+	if len(runes) > 24 {
+		runes = runes[:24]
+	}
+	if len(runes) > 0 {
+		fallbackTitle := string(runes)
+		titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer titleCancel()
+		// 标题写库需要独立连接：runInference 主流程持有 db（单连接池），
+		// goroutine 内并发使用同一 db 会自锁。
+		go s.generateSessionTitleAsync(titleCtx, sessionID, sessionModel, prompt, fallbackTitle, eventCh)
+	}
 
 	userMsgID, err := randomID("aam_")
 	if err != nil {
@@ -133,29 +271,23 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 		return
 	}
 
-	type historyMsg struct {
-		Role    string
-		Content string
-	}
-	historyRows, err := db.QueryContext(runCtx,
-		`SELECT role, COALESCE(content,'') FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at ASC, id ASC`,
-		sessionID)
+	messages, err := s.restoreSessionHistory(runCtx, db, sessionID)
 	if err != nil {
 		s.finishExecution(db, runID, "error", 0, llmModel, 0, 0, err.Error())
 		s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": err.Error()}})
 		return
 	}
-	messages := make([]historyMsg, 0)
-	for historyRows.Next() {
-		var m historyMsg
-		if err := historyRows.Scan(&m.Role, &m.Content); err == nil {
-			messages = append(messages, m)
-		}
-	}
-	historyRows.Close()
 
 	var totalPromptTokens, totalCompletionTokens int
 	toolCount := 0
+
+	// 同轮只读工具结果缓存：模型偶尔会在同一轮并行重复调用同一接口（相同参数），
+	// 命中后直接复用结果并在给模型的 tool 消息里标注，避免重复打上游、浪费执行时间。
+	toolCache := map[string]interface{}{}
+
+	// 确定性接口清单：每个 run 构建一次（进程内缓存），注入系统提示词，
+	// 让模型直接按清单调用，不再靠 list_apis/get_route 探查猜测。
+	apiCatalog := s.apiCatalogText(runCtx)
 
 	for {
 		select {
@@ -163,21 +295,57 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			msg := "执行超时或已取消"
 			s.finishExecution(db, runID, "cancelled", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, msg)
 			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": msg}})
+			s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": userMsgID}})
 			return
 		default:
 		}
 
 		llmMessages := make([]map[string]interface{}, 0, len(messages)+1)
+		systemContent := "你是 API Monitor 的管理助手，帮助用户管理服务器、Cloudflare、GitHub、云平台等资源。请用中文回答。\n\n" +
+			"回答格式要求：\n" +
+			"1. 结构化数据（Zone 列表、账号列表、DNS 记录、实例等）优先用 markdown 表格或短列表呈现，不要逐条复述原始 JSON。\n" +
+			"2. 每条数据只保留关键字段（名称、ID、状态、地区、更新时间等），省略冗余字段；ID 过长时用省略号截断。\n" +
+			"3. 数据量大时先给一行结论（共 N 条，其中 M 条异常），再附表格；不要罗列全部明细。\n" +
+			"4. 全文尽量控制在 500 字以内，无必要不展开解释；操作步骤用编号列表。\n" +
+			"5. 工具执行结果已在工具消息中给出，最终回答不要重复粘贴大段 JSON 原文。\n\n" +
+			"执行效率要求：\n" +
+			"1. 能一次拿全的数据（如聚合接口、列表接口）只调用一次，不要按每个子项循环调用同一接口；优先使用「聚合列出所有账号下的 Zone」这类聚合路径。\n" +
+			"2. 需要多个独立接口时，在一轮回复中并行发起多个 tool_calls，不要一轮只调一个。\n" +
+			"3. 串联依赖（下一步需要上一步的 ID）才必须等上一步完成，独立查询不要串行等待。\n" +
+			"4. 整轮执行有严格时间预算（默认几分钟），超时会强制终止；宁可给出部分结论也不要无限循环调用。\n\n" +
+			"以下是本系统全部可调用接口的确定性清单（格式：HTTP方法 路径 —— 说明；带「需请求体」的写接口请先调用 get_route 读取该路径的请求体契约）。" +
+			"路径与方法均已确认，直接使用 call_api 调用，禁止臆造清单之外的路径；同一接口用相同参数只调用一次，不要并行或循环重复调用：\n" + apiCatalog
 		llmMessages = append(llmMessages, map[string]interface{}{
 			"role":    "system",
-			"content": "你是 API Monitor 的管理助手。你可以调用系统工具帮助用户管理服务器、Cloudflare、GitHub 等资源。请用中文回答。",
+			"content": systemContent,
 		})
 		for _, m := range messages {
-			llmMessages = append(llmMessages, map[string]interface{}{"role": m.Role, "content": truncateContent(m.Content)})
+			item := map[string]interface{}{"role": m.Role, "content": truncateContent(m.Content)}
+			// 推理模型（thinking mode）要求 assistant 消息必须回传 reasoning_content 字段，
+			// 否则上游 400 "reasoning_content ... must be passed back"；空值也须携带。
+			if m.Role == "assistant" {
+				item["reasoning_content"] = m.ReasoningContent
+			}
+			if len(m.ToolCalls) > 0 {
+				item["tool_calls"] = m.ToolCalls
+			}
+			if m.ToolCallID != "" {
+				item["tool_call_id"] = m.ToolCallID
+			}
+			llmMessages = append(llmMessages, item)
 		}
 
-		resp, err := s.callLLM(runCtx, llmModel, llmMessages)
+		resp, err := s.callLLMStream(runCtx, llmModel, llmMessages, eventCh)
 		if err != nil {
+			// 整轮执行预算（admin_ai_timeout_seconds）到期会掐断正在进行的 LLM 请求，
+			// 归为「执行超时」而非通用调用失败，提示调大超时或减少请求规模。
+			if runCtx.Err() != nil || errors.Is(err, context.DeadlineExceeded) {
+				msg := "执行超时：整轮任务超过了设置的时间上限（可在「管理 AI 设置」中调大「执行超时」，或让请求更聚焦）"
+				s.finishExecution(db, runID, "cancelled", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, msg)
+				s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": msg}})
+				s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
+				return
+			}
 			s.finishExecution(db, runID, "error", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, err.Error())
 			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": err.Error()}})
 			return
@@ -185,25 +353,36 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 
 		totalPromptTokens += resp.Usage.PromptTokens
 		totalCompletionTokens += resp.Usage.CompletionTokens
-		s.emitReasoning(eventCh, resp)
+		// 流式调用已在过程中实时推送 reasoning / delta；此处仅为剩余思维链生成 ≤10 字摘要。
+		reasoningSummary := s.summarizeReasoning(runCtx, llmModel, resp.ReasoningContent)
+		if reasoningSummary != "" {
+			s.emit(eventCh, SSEEvent{Type: "reasoning_summary", Fields: map[string]interface{}{"text": reasoningSummary}})
+		}
 
 		if len(resp.ToolCalls) > 0 {
+			if toolCount+len(resp.ToolCalls) > toolCallLimit {
+				s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": fmt.Sprintf("工具调用次数已达上限 %d，执行已结束", toolCallLimit)}})
+				s.finishExecution(db, runID, "completed", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "")
+				s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
+				return
+			}
+			// assistant 消息携带本轮全部 tool_calls 与思考内容（推理模型要求回传）。
+			// 落库：用一个 assistant 行携带全部 tool_calls（JSON 数组），tool 结果行各自带 tool_call_id，
+			// 保证恢复历史时能按 ID 精确配对（并行多 tool_calls 不丢失、不串 ID）。
+			messages = append(messages, historyMsg{Role: "assistant", Content: "", ReasoningContent: resp.ReasoningContent, ToolCalls: resp.ToolCalls})
+			tcMeta, _ := json.Marshal(resp.ToolCalls)
+			_, _ = db.ExecContext(runCtx,
+				`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, tool_call_meta, created_at) VALUES (?, ?, 'assistant', '', ?, ?, ?, ?)`,
+				nextID(runCtx, db, "aam_"), sessionID, resp.ReasoningContent, reasoningSummary, string(tcMeta), time.Now().UTC().Format(time.RFC3339))
+
 			for _, tc := range resp.ToolCalls {
-				if toolCount >= maxToolCalls {
-					s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": fmt.Sprintf("工具调用次数已达上限 %d，执行已结束", maxToolCalls)}})
-					s.finishExecution(db, runID, "completed", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "")
-					s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
-					return
-				}
 				toolCount++
 
-				tcMeta, _ := json.Marshal(tc)
-				_, _ = db.ExecContext(runCtx,
-					`INSERT INTO admin_ai_messages (id, session_id, role, content, tool_call_meta, created_at) VALUES (?, ?, 'assistant', '', ?, ?)`,
-					nextID(runCtx, db, "aam_"), sessionID, string(tcMeta), time.Now().UTC().Format(time.RFC3339))
-				messages = append(messages, historyMsg{Role: "assistant", Content: ""})
-
-				s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{"toolName": tc.Function.Name, "args": tc.Function.Arguments}})
+				s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
+					"toolName": tc.Function.Name,
+					"args":     tc.Function.Arguments,
+					"desc":     s.toolDesc(tc.Function.Name, tc.Function.Arguments),
+				}})
 
 				tcID, _ := randomID("aatc_")
 				tcNow := time.Now().UTC().Format(time.RFC3339)
@@ -214,14 +393,50 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 				var args map[string]interface{}
 				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 
-				result, callErr := s.executeToolCall(runCtx, db, tc.Function.Name, args, sessionID, tcID, eventCh)
+				// 同轮去重：只读接口且与之前调用参数完全一致时直接复用结果，
+				// 并在 tool 消息里标注「结果已复用」，避免模型并行重复打同一接口。
+				var cachedResult interface{}
+				var hit bool
+				var cacheKey string
+				if toolIsCacheable(tc.Function.Name, args) {
+					cacheKey = toolCacheKey(tc.Function.Name, args)
+					cachedResult, hit = toolCache[cacheKey]
+				}
+				var result interface{}
+				var callErr error
+				if hit {
+					result = cachedResult
+				} else {
+					// 工具调用失败自动重试（最多重试 3 次）：审批拒绝/参数错误（4xx）不重试，
+					// 写操作不重试（避免重复副作用 / 重复挂起审批）；仅幂等的只读调用在 5xx/网络等
+					// 偶发故障且短暂退避后重试
+					for attempt := 0; attempt <= maxToolRetries; attempt++ {
+						result, callErr = s.executeToolCall(runCtx, db, tc.Function.Name, args, sessionID, tcID, eventCh)
+						if callErr == nil || !retryableToolError(callErr) || !toolCallIdempotent(tc.Function.Name, args) || attempt == maxToolRetries {
+							break
+						}
+						slog.Warn("tool-retry", "tool", tc.Function.Name, "attempt", attempt+1, "err", callErr.Error())
+						select {
+						case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+						case <-runCtx.Done():
+							break
+						}
+					}
+					// 只缓存成功结果（含调用链上无副作用路径的 GET），后续同参调用直接复用
+					if callErr == nil {
+						toolCache[cacheKey] = result
+					}
+				}
 				status := "success"
 				summary := ""
 				if callErr != nil {
 					status = "error"
 					summary = callErr.Error()
 				} else {
-					summary = truncateContent(fmt.Sprintf("%v", result))
+					summary = summarizeToolResult(result)
+					if hit {
+						summary = "（本轮已用相同参数调用过此接口，结果为：）" + summary
+					}
 				}
 
 				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": tc.Function.Name, "status": status, "summary": summary}})
@@ -232,9 +447,9 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 					status, summary, tcFinished, tcID)
 
 				_, _ = db.ExecContext(runCtx,
-					`INSERT INTO admin_ai_messages (id, session_id, role, content, created_at) VALUES (?, ?, 'tool', ?, ?)`,
-					nextID(runCtx, db, "aam_"), sessionID, summary, tcFinished)
-				messages = append(messages, historyMsg{Role: "tool", Content: summary})
+					`INSERT INTO admin_ai_messages (id, session_id, role, content, tool_call_id, created_at) VALUES (?, ?, 'tool', ?, ?, ?)`,
+					nextID(runCtx, db, "aam_"), sessionID, summary, tc.ID, tcFinished)
+				messages = append(messages, historyMsg{Role: "tool", Content: summary, ToolCallID: tc.ID})
 			}
 			continue
 		}
@@ -244,12 +459,23 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			content = resp.Choices[0].Message.Content
 		}
 
+		// 模型空回复兜底：工具已执行成功但未给出文本总结 → 明确提示，避免“静默无回复”。
+		if content == "" && toolCount == 0 {
+			s.finishExecution(db, runID, "error", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "模型返回空内容")
+			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": "模型未返回有效内容，请重试"}})
+			return
+		}
+		if content == "" && toolCount > 0 {
+			content = "工具调用已完成，但模型未返回总结文本。"
+		}
+
 		assistantMsgID := nextID(runCtx, db, "aam_")
 		_, _ = db.ExecContext(runCtx,
-			`INSERT INTO admin_ai_messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)`,
-			assistantMsgID, sessionID, content, time.Now().UTC().Format(time.RFC3339))
+			`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, created_at) VALUES (?, ?, 'assistant', ?, ?, ?, ?)`,
+			assistantMsgID, sessionID, content, resp.ReasoningContent, reasoningSummary, time.Now().UTC().Format(time.RFC3339))
 
-		s.emit(eventCh, SSEEvent{Type: "delta", Fields: map[string]interface{}{"text": content}})
+		// 注意：不再重复 emit 完整 content 作为 delta —— 流式阶段 callLLMStream 已
+		// 逐 chunk 实时推送过。再 emit 一次会让侧栏/TG/频道消费端把同一段内容拼两遍。
 
 		s.finishExecution(db, runID, "completed", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "")
 		s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": assistantMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
@@ -262,6 +488,136 @@ func (s *Service) emit(ch chan<- SSEEvent, event SSEEvent) {
 	case ch <- event:
 	default:
 	}
+}
+
+// historyMsg 是恢复历史时的会话消息内存形态，与 admin_ai_messages 行对应。
+type historyMsg struct {
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ReasoningSummary string     `json:"-"`
+	ToolCalls        []toolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	ToolCallRaw      string     `json:"-"`
+}
+
+// restoreSessionHistory 从库中恢复会话历史并做 tool_calls 配对重建：
+// assistant 携带 tool_calls 时必须与同轮 tool 结果严格配对，否则上游 400
+// "insufficient tool messages following tool_calls"。写入时用一个 assistant 行携带
+// 全部 tool_calls（JSON 数组），逐条 tool 行落库时记录其 tool_call_id；重建时按 ID 配对。
+// 兼容旧的逐条 assistant 落库格式（合并相邻行）。中断残留（有 tool_calls 无完整结果 /
+// 无主的孤儿 tool 行）直接丢弃并从库中删除，保证每次发给上游的消息严格配对。
+func (s *Service) restoreSessionHistory(ctx context.Context, db *sql.DB, sessionID string) ([]historyMsg, error) {
+	historyRows, err := db.QueryContext(ctx,
+		`SELECT id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_call_id,'') FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at ASC, id ASC`,
+		sessionID)
+	if err != nil {
+		return nil, err
+	}
+	type histRow struct {
+		id string
+		historyMsg
+	}
+	rawRows := make([]histRow, 0, 64)
+	for historyRows.Next() {
+		var h histRow
+		var toolID string
+		if err := historyRows.Scan(&h.id, &h.Role, &h.Content, &h.ReasoningContent, &h.ReasoningSummary, &h.ToolCallRaw, &toolID); err == nil {
+			if h.Role == "assistant" && h.ToolCallRaw != "" {
+				// tool_call_meta 兼容 JSON 数组（写入格式）或单条（旧的逐条落库格式）
+				if h.ToolCallRaw[0] == '[' {
+					var tcs []toolCall
+					if json.Unmarshal([]byte(h.ToolCallRaw), &tcs) == nil {
+						h.ToolCalls = tcs
+					}
+				} else {
+					var tc toolCall
+					if json.Unmarshal([]byte(h.ToolCallRaw), &tc) == nil {
+						h.ToolCalls = []toolCall{tc}
+					}
+				}
+			}
+			if h.Role == "tool" {
+				h.ToolCallID = toolID
+			}
+			rawRows = append(rawRows, h)
+		}
+	}
+	historyRows.Close()
+
+	messages := make([]historyMsg, 0, len(rawRows))
+	for i := 0; i < len(rawRows); {
+		h := &rawRows[i]
+		if h.Role == "assistant" && len(h.ToolCalls) > 0 {
+			// 合并相邻的 assistant-tool_calls 行（兼容旧的逐条落库格式）成一轮
+			asst := h.historyMsg
+			j := i
+			for j+1 < len(rawRows) && rawRows[j+1].Role == "assistant" && len(rawRows[j+1].ToolCalls) > 0 {
+				j++
+				asst.ToolCalls = append(asst.ToolCalls, rawRows[j].ToolCalls...)
+			}
+			// 收集紧随其后的 tool 结果行
+			tools := make([]historyMsg, 0, len(asst.ToolCalls))
+			k := j + 1
+			for k < len(rawRows) && rawRows[k].Role == "tool" {
+				tools = append(tools, rawRows[k].historyMsg)
+				k++
+			}
+			// 按 ID 配对：缺失 ID 的按顺序回填到本轮 assistant 的 tool_calls
+			idSet := map[string]bool{}
+			for _, tc := range asst.ToolCalls {
+				idSet[tc.ID] = true
+			}
+			ti := 0
+			for l := range tools {
+				if tools[l].ToolCallID == "" {
+					for ti < len(asst.ToolCalls) && !idSet[asst.ToolCalls[ti].ID] {
+						ti++
+					}
+					if ti < len(asst.ToolCalls) {
+						tools[l].ToolCallID = asst.ToolCalls[ti].ID
+						ti++
+					}
+				}
+			}
+			// 校验：assistant 的每个 tool_call 都必须有匹配的工具结果，否则视为中断残留整轮丢弃
+			got := map[string]bool{}
+			for _, t := range tools {
+				if t.ToolCallID != "" {
+					got[t.ToolCallID] = true
+				}
+			}
+			valid := true
+			for _, tc := range asst.ToolCalls {
+				if !got[tc.ID] {
+					valid = false
+					break
+				}
+			}
+			if !valid || len(tools) > len(asst.ToolCalls) {
+				for m := i; m < k; m++ {
+					_, _ = db.ExecContext(ctx, `DELETE FROM admin_ai_messages WHERE id = ?`, rawRows[m].id)
+				}
+				i = k
+				continue
+			}
+			messages = append(messages, asst)
+			for _, t := range tools {
+				messages = append(messages, t)
+			}
+			i = k
+			continue
+		}
+		if h.Role == "tool" {
+			// 无前置 assistant tool_calls 的孤儿 tool 行，丢弃并清理
+			_, _ = db.ExecContext(ctx, `DELETE FROM admin_ai_messages WHERE id = ?`, h.id)
+			i++
+			continue
+		}
+		messages = append(messages, h.historyMsg)
+		i++
+	}
+	return messages, nil
 }
 
 func nextID(ctx context.Context, db *sql.DB, prefix string) string {
@@ -298,21 +654,19 @@ type toolCall struct {
 	} `json:"function"`
 }
 
-// callLLM 通过本机网关 HTTP 调用 chat/completions（简化版非流式，v1 不做感知厂商差异）。
+// callLLM 通过本机网关 HTTP 调用 chat/completions（内部调用免鉴权，简化版非流式，带工具 schema）。
 func (s *Service) callLLM(ctx context.Context, model string, messages []map[string]interface{}) (*llmResponse, error) {
-	db, err := s.open(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
-	}
-	defer db.Close()
+	reqBody := map[string]interface{}{"model": model, "messages": messages, "tools": adminAITools}
+	return s.callLLMWithBody(ctx, reqBody)
+}
 
-	var gatewayKey string
-	err = db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = 'admin_ai_gateway_key'").Scan(&gatewayKey)
-	if err != nil {
-		return nil, fmt.Errorf("未配置管理 AI 网关密钥，请在「管理 AI 设置」中配置")
-	}
-
+// callLLMPlain 不带工具 schema 的普通对话调用（推理摘要等辅助任务，避免模型误触发工具）。
+func (s *Service) callLLMPlain(ctx context.Context, model string, messages []map[string]interface{}) (*llmResponse, error) {
 	reqBody := map[string]interface{}{"model": model, "messages": messages}
+	return s.callLLMWithBody(ctx, reqBody)
+}
+
+func (s *Service) callLLMWithBody(ctx context.Context, reqBody map[string]interface{}) (*llmResponse, error) {
 	bodyBytes, _ := json.Marshal(reqBody)
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Port)
@@ -321,9 +675,10 @@ func (s *Service) callLLM(ctx context.Context, model string, messages []map[stri
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+gatewayKey)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	// 单次请求等待响应头上限 180s（与 openai 网关的 headerTimeout 一致，推理模型
+	// 思考阶段可能超过 60s）；响应体时长不受限。整体执行时长仍由 runCtx 总预算管控。
+	client := &http.Client{Timeout: 180 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("LLM 调用失败: %w", err)
@@ -347,12 +702,408 @@ func (s *Service) callLLM(ctx context.Context, model string, messages []map[stri
 	return &llmResp, nil
 }
 
-// emitReasoning 若 LLM 返回了思维链文本则下推 reasoning 事件（供前端折叠展示）。
-func (s *Service) emitReasoning(eventCh chan<- SSEEvent, resp *llmResponse) {
-	if resp == nil || resp.ReasoningContent == "" {
+// streamDelta 是流式响应里每个 chunk 的增量字段。
+type streamDelta struct {
+	Content          string         `json:"content"`
+	ReasoningContent string         `json:"reasoning_content"`
+	Role             string         `json:"role"`
+	ToolCalls        []streamToolCall `json:"tool_calls"`
+	FinishReason     string         `json:"finish_reason"`
+}
+
+type streamToolCall struct {
+	Index    int `json:"index"`
+	ID       string `json:"id"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// callLLMStream 通过本机网关调用 chat/completions（stream=true），逐块解析 SSE，
+// 实时把 content / reasoning 增量推给 eventCh；返回完整响应（含 usage / tool_calls）。
+// 网关侧本身非流式时（上游不支持），返回单块但同样推一次 delta，行为无差异。
+func (s *Service) callLLMStream(ctx context.Context, model string, messages []map[string]interface{}, eventCh chan<- SSEEvent) (*llmResponse, error) {
+	reqBody := map[string]interface{}{"model": model, "messages": messages, "stream": true, "tools": adminAITools}
+	bodyBytes, _ := json.Marshal(reqBody)
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Port)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/chat/completions", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 180 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("LLM 调用失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("LLM 调用失败 (HTTP %d): %s", resp.StatusCode, truncateContent(string(raw)))
+	}
+
+	llmResp := &llmResponse{}
+	var content, reasoning strings.Builder
+	toolAcc := map[int]*toolCall{}
+	var lastToolOrder []int
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta        streamDelta `json:"delta"`
+				FinishReason string      `json:"finish_reason"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue
+		}
+		if chunk.Usage != nil {
+			llmResp.Usage.PromptTokens = chunk.Usage.PromptTokens
+			llmResp.Usage.CompletionTokens = chunk.Usage.CompletionTokens
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		d := chunk.Choices[0].Delta
+		if d.ReasoningContent != "" {
+			reasoning.WriteString(d.ReasoningContent)
+			s.emit(eventCh, SSEEvent{Type: "reasoning", Fields: map[string]interface{}{"text": d.ReasoningContent}})
+		}
+		if d.Content != "" {
+			content.WriteString(d.Content)
+			s.emit(eventCh, SSEEvent{Type: "delta", Fields: map[string]interface{}{"text": d.Content}})
+		}
+		for _, tc := range d.ToolCalls {
+			cur, exists := toolAcc[tc.Index]
+			if !exists {
+				cur = &toolCall{}
+				toolAcc[tc.Index] = cur
+				lastToolOrder = append(lastToolOrder, tc.Index)
+			}
+			if tc.ID != "" {
+				cur.ID = tc.ID
+			}
+			cur.Type = "function"
+			if tc.Function.Name != "" {
+				cur.Function.Name = tc.Function.Name
+			}
+			cur.Function.Arguments += tc.Function.Arguments
+		}
+	}
+	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("读取 LLM 流失败: %w", err)
+	}
+
+	llmResp.Content = content.String()
+	llmResp.ReasoningContent = reasoning.String()
+	if len(lastToolOrder) > 0 {
+		out := make([]toolCall, 0, len(lastToolOrder))
+		for _, idx := range lastToolOrder {
+			out = append(out, *toolAcc[idx])
+		}
+		llmResp.ToolCalls = out
+		if len(out) > 0 {
+			llmResp.Choices = []struct {
+				Message struct {
+					Content          string     `json:"content"`
+					ReasoningContent string     `json:"reasoning_content"`
+					ToolCalls        []toolCall `json:"tool_calls"`
+				} `json:"message"`
+			}{{Message: struct {
+				Content          string     `json:"content"`
+				ReasoningContent string     `json:"reasoning_content"`
+				ToolCalls        []toolCall `json:"tool_calls"`
+			}{Content: llmResp.Content, ReasoningContent: llmResp.ReasoningContent, ToolCalls: out}}}
+		}
+	}
+	if errors.Is(scanner.Err(), context.DeadlineExceeded) {
+		return nil, context.DeadlineExceeded
+	}
+	return llmResp, nil
+}
+
+// apiCatalogText 返回系统提示词中的确定性接口清单（进程内构建一次并缓存；
+// 构建失败返回空串，下次 run 自动重试）。
+func (s *Service) apiCatalogText(ctx context.Context) string {
+	s.catalogMu.Lock()
+	if s.catalogDone {
+		text := s.catalogText
+		s.catalogMu.Unlock()
+		return text
+	}
+	s.catalogMu.Unlock()
+
+	text, err := s.buildCatalogText(ctx)
+	s.catalogMu.Lock()
+	if err == nil {
+		s.catalogText = text
+		s.catalogDone = true
+		slog.Info("adminai-catalog", "lines", strings.Count(text, "\n")+1, "bytes", len(text))
+	} else {
+		slog.Warn("adminai-catalog-failed", "err", err.Error())
+	}
+	text = s.catalogText
+	s.catalogMu.Unlock()
+	return text
+}
+
+// buildCatalogText 从系统 auto-docs（含 Methods 的确定性契约）生成紧凑清单。
+// 只保留 /api/ 下会话内可直接调用的 JSON 接口，排除流式/WebSocket/代理与公共路由。
+func (s *Service) buildCatalogText(ctx context.Context) (string, error) {
+	if s.aiCaller == nil {
+		return "", fmt.Errorf("AI 调用器未配置")
+	}
+	resp, err := s.aiCaller(ctx, systemmetrics.AICallRequest{Method: http.MethodGet, Path: "/api/system/api-docs"})
+	if err != nil {
+		return "", err
+	}
+	payload, ok := resp.Body.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("api-docs 返回格式异常")
+	}
+	// 内部接口经 response.OK 统一包装为 {success, data}，先解包
+	if inner, ok := payload["data"].(map[string]interface{}); ok {
+		payload = inner
+	}
+	rawRoutes, ok := payload["routes"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("api-docs 缺少 routes")
+	}
+
+	lines := make([]string, 0, len(rawRoutes))
+	descs := make(map[string]string, len(rawRoutes))
+	for _, raw := range rawRoutes {
+		r, _ := raw.(map[string]interface{})
+		prefix, _ := r["prefix"].(string)
+		if !strings.HasPrefix(prefix, "/api/") {
+			continue
+		}
+		auth, _ := r["auth"].(string)
+		if auth != string(manifest.AuthSession) {
+			continue
+		}
+		mode, _ := r["responseMode"].(string)
+		if mode != string(manifest.ResponseJSON) {
+			continue
+		}
+		rawMethods, _ := r["methods"].([]interface{})
+		if len(rawMethods) == 0 {
+			continue
+		}
+		methods := make([]string, 0, len(rawMethods))
+		for _, m := range rawMethods {
+			methods = append(methods, fmt.Sprint(m))
+		}
+		desc, _ := r["detail"].(string)
+		if desc == "" {
+			desc, _ = r["description"].(string)
+		}
+		descs[prefix] = desc
+		line := strings.Join(methods, ",") + " " + prefix
+		if r["requestSchema"] != nil {
+			line += " (需请求体)"
+		}
+		if desc != "" {
+			line += " —— " + desc
+		}
+		lines = append(lines, line)
+	}
+	sort.Strings(lines)
+	s.catalogMu.Lock()
+	s.catalogDescs = descs
+	s.catalogMu.Unlock()
+	return strings.Join(lines, "\n"), nil
+}
+
+// toolDesc 返回工具调用的中文动作描述（来自接口清单的中文描述，前端工具步骤展示用）。
+func (s *Service) toolDesc(toolName, argsJSON string) string {
+	switch toolName {
+	case "get_system_status":
+		return "读取本机系统状态"
+	case "get_openapi":
+		return "导出 OpenAPI 文档"
+	case "list_apis":
+		return "读取接口目录"
+	case "list_telegram_targets":
+		return "列出 Telegram 接收者"
+	case "send_telegram_message":
+		var args struct {
+			ChatID string `json:"chatId"`
+			Text   string `json:"text"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+		if args.ChatID != "" {
+			text := args.Text
+			if r := []rune(text); len(r) > 12 {
+				text = string(r[:12]) + "…"
+			}
+			if text != "" {
+				return "发送 TG 消息：" + text
+			}
+			return "发送 TG 消息"
+		}
+		return "发送 Telegram 消息"
+	}
+	if argsJSON == "" {
+		return ""
+	}
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return ""
+	}
+	path, _ := args["path"].(string)
+	if path == "" {
+		return ""
+	}
+	if toolName == "get_route" {
+		return "查询接口契约 " + path
+	}
+	if desc := s.lookupCatalogDesc(path); desc != "" {
+		return desc
+	}
+	// 清单未命中时回退到 方法+路径（与前端 fallback 一致）
+	if method, ok := args["method"].(string); ok && method != "" {
+		return strings.ToUpper(method) + " " + path
+	}
+	return path
+}
+
+// lookupCatalogDesc 按具体路径取接口中文描述：先按原样查（无参路径直接命中），
+// 未命中时对清单里的模板路径做逐段匹配（{id} 等参数段通配），使
+// /api/aliyun/accounts/1/domains 也能命中 /api/aliyun/accounts/{id}/domains 的描述。
+func (s *Service) lookupCatalogDesc(path string) string {
+	s.catalogMu.Lock()
+	descs := s.catalogDescs
+	s.catalogMu.Unlock()
+	if desc, ok := descs[path]; ok {
+		return desc
+	}
+	for template, desc := range descs {
+		if catalogTemplateMatches(template, path) {
+			return desc
+		}
+	}
+	return ""
+}
+
+// catalogTemplateMatches 判断具体路径是否匹配模板路径（{...} 段通配，段数必须一致）。
+func catalogTemplateMatches(template, path string) bool {
+	parts := strings.Split(template, "/")
+	target := strings.Split(path, "/")
+	if len(parts) != len(target) {
+		return false
+	}
+	for i, part := range parts {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			continue
+		}
+		if part != target[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// generateSessionTitleAsync 异步生成会话标题：模型生成 ≤12 字中文标题并写库，
+// 成功后下推 session_title 事件（前端实时更新会话列表）；失败回退消息截断。
+// 独立连接写库避免与 runInference 主流程的单连接池互锁。
+func (s *Service) generateSessionTitleAsync(ctx context.Context, sessionID, model, prompt, fallback string, eventCh chan<- SSEEvent) {
+	title := s.generateSessionTitle(ctx, model, prompt)
+	if strings.TrimSpace(title) == "" {
+		title = fallback
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		slog.Warn("session-title-db", "err", err.Error())
 		return
 	}
-	s.emit(eventCh, SSEEvent{Type: "reasoning", Fields: map[string]interface{}{"text": resp.ReasoningContent}})
+	defer db.Close()
+	if _, err := db.ExecContext(ctx,
+		`UPDATE admin_ai_sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')`,
+		title, sessionID); err != nil {
+		slog.Warn("session-title-update", "err", err.Error())
+		return
+	}
+	s.emit(eventCh, SSEEvent{Type: "session_title", Fields: map[string]interface{}{"sessionId": sessionID, "title": title}})
+}
+
+// generateSessionTitle 用同一模型生成 ≤12 字的会话标题；失败返回空串（调用方回退截断）。
+func (s *Service) generateSessionTitle(ctx context.Context, model, prompt string) string {
+	if strings.TrimSpace(prompt) == "" {
+		return ""
+	}
+	messages := []map[string]interface{}{
+		{"role": "system", "content": "为下面的用户消息生成一个不超过 12 个字的简体中文对话标题。只输出标题本身，不要引号、冒号或任何解释。"},
+		{"role": "user", "content": truncateContent(prompt)},
+	}
+	resp, err := s.callLLMPlain(ctx, model, messages)
+	if err != nil {
+		slog.Warn("session-title-failed", "err", err.Error())
+		return ""
+	}
+	text := strings.TrimSpace(resp.Content)
+	if text == "" && len(resp.Choices) > 0 {
+		text = strings.TrimSpace(resp.Choices[0].Message.Content)
+	}
+	text = strings.Trim(text, "\"'「」『』()（）:：")
+	if r := []rune(text); len(r) > 12 {
+		text = string(r[:12])
+	}
+	return text
+}
+
+// summarizeReasoning 用同一模型生成 ≤10 字的思维链标题式摘要；失败返回空串（前端回退截断）。
+func (s *Service) summarizeReasoning(ctx context.Context, model, reasoning string) string {
+	if strings.TrimSpace(reasoning) == "" {
+		return ""
+	}
+	// 思维链过短时不需要（也不值得）额外发起一次模型调用，直接跳过
+	if len([]rune(strings.TrimSpace(reasoning))) < 40 {
+		return ""
+	}
+	// 摘要使用独立短超时（父上下文仍受整轮预算约束），尽力而为，不显著占用整轮时间
+	sumCtx, sumCancel := context.WithTimeout(ctx, 20*time.Second)
+	defer sumCancel()
+	messages := []map[string]interface{}{
+		{"role": "system", "content": "把用户的思考内容压缩为不超过 10 个字的标题式摘要，必须使用简体中文。只输出摘要本身，不要引号、冒号或任何解释。"},
+		{"role": "user", "content": truncateContent(reasoning)},
+	}
+	resp, err := s.callLLMPlain(sumCtx, model, messages)
+	if err != nil {
+		slog.Warn("reasoning-summary-failed", "err", err.Error())
+		return ""
+	}
+	text := strings.TrimSpace(resp.Content)
+	if text == "" && len(resp.Choices) > 0 {
+		text = strings.TrimSpace(resp.Choices[0].Message.Content)
+	}
+	// 结果清洗：去掉常见前后缀噪音，限制长度
+	text = strings.Trim(text, "\"'「」『』()（）:：")
+	if r := []rune(text); len(r) > 12 {
+		text = string(r[:12])
+	}
+	return text
 }
 
 func (s *Service) executeToolCall(ctx context.Context, db *sql.DB, toolName string, args map[string]interface{}, sessionID, tcID string, eventCh chan<- SSEEvent) (interface{}, error) {
@@ -361,9 +1112,115 @@ func (s *Service) executeToolCall(ctx context.Context, db *sql.DB, toolName stri
 		return s.executeReadOnlyTool(ctx, toolName, args)
 	case "call_api":
 		return s.executeCallAPITool(ctx, db, args, sessionID, tcID, eventCh)
+	case "list_telegram_targets":
+		return s.listTelegramTargets(ctx)
+	case "send_telegram_message":
+		return s.sendTelegramMessage(ctx, args)
 	default:
 		return nil, fmt.Errorf("未知工具: %s", toolName)
 	}
+}
+
+// listTelegramTargets 列出 Telegram 频道的绑定接收者（channelId + chatId），
+// 供 send_telegram_message 工具构造推送目标。未配置频道或未初始化时返回空列表。
+func (s *Service) listTelegramTargets(ctx context.Context) (interface{}, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT b.channel_id, b.channel_user_id, COALESCE(b.channel_username,''), COALESCE(b.panel_user_id,''), b.created_at
+		 FROM admin_ai_channel_bindings b JOIN admin_ai_channels c ON c.id = b.channel_id
+		 WHERE c.type = 'telegram' AND c.enabled = 1
+		 ORDER BY b.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type target struct {
+		ChannelID string `json:"channelId"`
+		ChatID    string `json:"chatId"`
+		Username  string `json:"username,omitempty"`
+		PanelID   string `json:"panelUserId,omitempty"`
+		CreatedAt string `json:"createdAt"`
+	}
+	targets := make([]target, 0)
+	for rows.Next() {
+		var t target
+		if err := rows.Scan(&t.ChannelID, &t.ChatID, &t.Username, &t.PanelID, &t.CreatedAt); err != nil {
+			continue
+		}
+		targets = append(targets, t)
+	}
+	return map[string]interface{}{"targets": targets, "count": len(targets)}, nil
+}
+
+// sendTelegramMessage 通过已注册的 Telegram 频道向指定 chatId 发送消息。
+// 参数：channelId（频道配置 id，为空时自动选一个 telegram 频道）、chatId（接收者唯一键）、text。
+func (s *Service) sendTelegramMessage(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if s.chanMgr == nil {
+		return nil, fmt.Errorf("频道未初始化")
+	}
+	channelID, _ := args["channelId"].(string)
+	chatID, _ := args["chatId"].(string)
+	text, _ := args["text"].(string)
+	if channelID == "" {
+		// 多频道时代仍允许省略 channelId：从注册表里挑第一个 telegram 频道
+		best := ""
+		for _, ch := range s.chanMgr.registry.All() {
+			if strings.HasPrefix(ch.ID(), "aac_") {
+				best = ch.ID()
+				break
+			}
+		}
+		channelID = best
+	}
+	if chatID == "" {
+		return nil, fmt.Errorf("chatId 不能为空")
+	}
+	if text == "" {
+		return nil, fmt.Errorf("text 不能为空")
+	}
+	ch, ok := s.chanMgr.registry.Get(channelID)
+	if !ok {
+		return nil, fmt.Errorf("频道未注册: %s", channelID)
+	}
+	msgID, err := ch.Send(ctx, chatID, channel.OutboundMessage{Text: text})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"ok": true, "messageId": msgID, "channelId": channelID, "chatId": chatID}, nil
+}
+
+// toolIsCacheable 判定工具调用是否可走同轮去重缓存：
+// 只读工具（get_route 等）与 call_api 的 GET/HEAD/OPTIONS 幂等，可缓存；
+// 写方法（POST/PUT/DELETE，含审批链）有副作用，禁止缓存。
+func toolIsCacheable(toolName string, args map[string]interface{}) bool {
+	if toolName != "call_api" {
+		return true
+	}
+	if method, ok := args["method"].(string); ok {
+		switch strings.ToUpper(method) {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			return true
+		default:
+			return false
+		}
+	}
+	return true // 未显式指定方法时 call_api 默认 GET
+}
+
+// toolCacheKey 构造同轮去重缓存的键：工具名 + 规范化参数（JSON 稳定序列化，
+// map 键排序由 encoding/json 保证），相同参数的并行重复调用命中同一键。
+func toolCacheKey(toolName string, args map[string]interface{}) string {
+	raw, err := json.Marshal(args)
+	if err != nil {
+		raw = []byte(fmt.Sprintf("%v", args))
+	}
+	return toolName + "|" + string(raw)
 }
 
 func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
@@ -386,7 +1243,11 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 	if path == "" {
 		return nil, fmt.Errorf("未知只读工具: %s", toolName)
 	}
-	return s.aiCaller(ctx, systemmetrics.AICallRequest{Method: http.MethodGet, Path: path})
+	resp, err := s.aiCaller(ctx, systemmetrics.AICallRequest{Method: http.MethodGet, Path: path})
+	if err != nil {
+		return nil, err
+	}
+	return aiCallResult(resp)
 }
 
 func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[string]interface{}, sessionID, tcID string, eventCh chan<- SSEEvent) (interface{}, error) {
@@ -413,59 +1274,126 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 
 	isWrite := method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 	if isWrite {
-		writeAllowed, err := s.getWriteEnabled(ctx, db)
+		// 完全批准模式（admin_ai_auto_approve）：所有写操作免审批直接执行，
+		// 不再弹审批卡片；对模型标记「已自动批准」避免困惑。
+		autoApprove, err := s.getAutoApprove(ctx, db)
 		if err != nil {
 			return nil, err
 		}
-		if !writeAllowed {
-			return nil, fmt.Errorf("写操作未启用")
-		}
-
-		planSummary := fmt.Sprintf("执行 %s %s", method, path)
-		approvalID, _ := randomID("aaa_")
-		expiresAt := time.Now().UTC().Add(approvalTTL).Format(time.RFC3339)
-		now := time.Now().UTC().Format(time.RFC3339)
-		_, _ = db.ExecContext(ctx,
-			`INSERT INTO admin_ai_approvals (id, session_id, tool_call_id, status, plan_summary, method, path, body_snapshot, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-			approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now)
-
-		s.emit(eventCh, SSEEvent{Type: "approval_required", Fields: map[string]interface{}{
-			"approvalId":   approvalID,
-			"planSummary":  planSummary,
-			"expiresAt":    expiresAt,
-			"method":       method,
-			"path":         path,
-			"bodySnapshot": string(body),
-		}})
-
-		approvalCh := make(chan string, 1)
-		s.mu.Lock()
-		s.approval[approvalID] = approvalCh
-		s.mu.Unlock()
-
-		defer func() {
-			s.mu.Lock()
-			delete(s.approval, approvalID)
-			s.mu.Unlock()
-		}()
-
-		select {
-		case action := <-approvalCh:
-			if action != "approve" {
-				_, _ = db.ExecContext(ctx, "UPDATE admin_ai_approvals SET status = 'rejected' WHERE id = ? AND status = 'pending'", approvalID)
-				return nil, fmt.Errorf("写操作审批被拒绝")
+		if !autoApprove {
+			// 会话级写授权（“允许此对话”）优先于全局开关，授权后本会话后续写操作免审批
+			sessionWrite, err := s.isSessionWriteEnabled(ctx, db, sessionID)
+			if err != nil {
+				return nil, err
 			}
-		case <-ctx.Done():
-			return nil, fmt.Errorf("等待审批时执行已超时或取消")
-		case <-time.After(approvalTTL):
-			_, _ = db.ExecContext(ctx, "UPDATE admin_ai_approvals SET status = 'expired' WHERE id = ? AND status = 'pending'", approvalID)
-			return nil, fmt.Errorf("审批已超时，写操作未执行")
+			if !sessionWrite {
+				writeAllowed, err := s.getWriteEnabled(ctx, db)
+				if err != nil {
+					return nil, err
+				}
+				if !writeAllowed {
+					return nil, fmt.Errorf("写操作未启用")
+				}
+
+				planSummary := fmt.Sprintf("执行 %s %s", method, path)
+				approvalID, _ := randomID("aaa_")
+				expiresAt := time.Now().UTC().Add(approvalTTL).Format(time.RFC3339)
+				now := time.Now().UTC().Format(time.RFC3339)
+				_, _ = db.ExecContext(ctx,
+					`INSERT INTO admin_ai_approvals (id, session_id, tool_call_id, status, plan_summary, method, path, body_snapshot, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+					approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now)
+
+				s.emit(eventCh, SSEEvent{Type: "approval_required", Fields: map[string]interface{}{
+					"approvalId":   approvalID,
+					"planSummary":  planSummary,
+					"expiresAt":    expiresAt,
+					"method":       method,
+					"path":         path,
+					"bodySnapshot": string(body),
+				}})
+
+				approvalCh := make(chan approvalResolution, 1)
+				s.mu.Lock()
+				s.approval[approvalID] = approvalCh
+				s.mu.Unlock()
+
+				defer func() {
+					s.mu.Lock()
+					delete(s.approval, approvalID)
+					s.mu.Unlock()
+				}()
+
+				select {
+				case res := <-approvalCh:
+					if res.Action != "approve" {
+						_, _ = db.ExecContext(ctx, "UPDATE admin_ai_approvals SET status = 'rejected' WHERE id = ? AND status = 'pending'", approvalID)
+						if res.Reason != "" {
+							return nil, fmt.Errorf("写操作审批被拒绝（用户请求更改：%s）", res.Reason)
+						}
+						return nil, fmt.Errorf("写操作审批被拒绝")
+					}
+				case <-ctx.Done():
+					return nil, fmt.Errorf("等待审批时执行已超时或取消")
+				case <-time.After(approvalTTL):
+					_, _ = db.ExecContext(ctx, "UPDATE admin_ai_approvals SET status = 'expired' WHERE id = ? AND status = 'pending'", approvalID)
+					return nil, fmt.Errorf("审批已超时，写操作未执行")
+				}
+			}
 		}
 	}
 
-	return s.aiCaller(ctx, systemmetrics.AICallRequest{
+	resp, err := s.aiCaller(ctx, systemmetrics.AICallRequest{
 		Method: method, Path: path, Headers: headers, Body: body,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return aiCallResult(resp)
+}
+
+// isSessionWriteEnabled 读取会话级写授权标记（“允许此对话”授予后为 1）。
+func (s *Service) isSessionWriteEnabled(ctx context.Context, db *sql.DB, sessionID string) (bool, error) {
+	var value int
+	err := db.QueryRowContext(ctx, "SELECT write_enabled FROM admin_ai_sessions WHERE id = ?", sessionID).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return value == 1, nil
+}
+
+// aiCallResult 把 AICallResponse 转换为模型友好的工具结果：
+// 非 2xx 视为错误；成功时优先返回解码后的 JSON Body，其次为原始文本。
+func aiCallResult(resp systemmetrics.AICallResponse) (interface{}, error) {
+	if resp.StatusCode >= 400 {
+		raw := resp.Raw
+		if raw == "" && resp.Body != nil {
+			if b, err := json.Marshal(resp.Body); err == nil {
+				raw = string(b)
+			}
+		}
+		return nil, fmt.Errorf("接口返回 HTTP %d: %s", resp.StatusCode, truncateContent(raw))
+	}
+	if resp.Body != nil {
+		return resp.Body, nil
+	}
+	return resp.Raw, nil
+}
+
+// summarizeToolResult 把工具返回值序列化为紧凑 JSON 文本（供 LLM 读取）。
+func summarizeToolResult(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return truncateContent(s)
+	}
+	if b, err := json.Marshal(v); err == nil {
+		return truncateContent(string(b))
+	}
+	return truncateContent(fmt.Sprintf("%v", v))
 }
 
 func (s *Service) getWriteEnabled(ctx context.Context, db *sql.DB) (bool, error) {
@@ -478,6 +1406,39 @@ func (s *Service) getWriteEnabled(ctx context.Context, db *sql.DB) (bool, error)
 		return false, err
 	}
 	return value == "true" || value == "1", nil
+}
+
+// getAutoApprove 读取「完全批准模式」（admin_ai_auto_approve）：开启后
+// 所有写操作免审批直接执行；未配置时默认关闭。
+func (s *Service) getAutoApprove(ctx context.Context, db *sql.DB) (bool, error) {
+	var value string
+	err := db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = 'admin_ai_auto_approve'").Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return value == "true" || value == "1", nil
+}
+
+// getIntSetting 读取 system_config 的整数配置，缺失或非法时回默认值。
+// 与 adminAISettingDefs（approvals.go）共用键名。
+func (s *Service) getIntSetting(ctx context.Context, key string, def int) int {
+	db, err := s.open(ctx)
+	if err != nil {
+		return def
+	}
+	defer db.Close()
+	var value string
+	err = db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = ?", key).Scan(&value)
+	if err != nil || value == "" {
+		return def
+	}
+	if n, convErr := strconv.Atoi(value); convErr == nil && n > 0 {
+		return n
+	}
+	return def
 }
 
 func (s *Service) finishExecution(db *sql.DB, execID, status string, toolCount int, llmModel string, promptTokens, completionTokens int, errMsg string) {

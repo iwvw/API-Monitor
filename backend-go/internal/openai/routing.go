@@ -270,6 +270,8 @@ func (s *Service) sinkProxy(endpointID, proxy string) {
 	delete(state.failures, proxy)
 	state.failures[proxy] = proxySinkThreshold
 	delete(state.cooldown, proxy)
+	s.persistProxyState(endpointID, proxy, "sunk", state.sunk[proxy])
+	s.persistProxyState(endpointID, proxy, "cooldown", time.Time{})
 	applog.Warn(context.Background(), "openai", "proxy sunk as bad", "endpoint_id", endpointID, "proxy", hostFromProxyURL(proxy), "duration", proxySinkDuration.String())
 }
 
@@ -283,6 +285,7 @@ func (s *Service) unsinkProxy(endpointID, proxy string) {
 	if state, ok := s.proxyStateByEndpoint[endpointID]; ok {
 		delete(state.sunk, proxy)
 		delete(state.failures, proxy)
+		s.persistProxyState(endpointID, proxy, "sunk", time.Time{})
 	}
 }
 

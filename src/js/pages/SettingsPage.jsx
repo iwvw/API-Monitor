@@ -131,7 +131,7 @@ const moduleRows = DEFAULT_MODULE_ORDER.filter((moduleId) => moduleId !== 'promp
 
 function FieldRow({ title, description, children }) {
   return (
-    <div className="grid gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] md:items-center">
+    <div className="grid gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-md:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] cq-md:items-center">
       <div className="min-w-0">
         <div className="text-sm font-semibold text-kumo-strong">{title}</div>
         {description && <div className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</div>}
@@ -181,7 +181,7 @@ function SummaryMetricCard({ label, value, hint, tone = 'default', compact = fal
       <span className={cx('font-bold uppercase tracking-wider text-kumo-subtle', compact ? 'text-[11px] leading-none' : 'text-[10px]')}>
         {label}
       </span>
-      <span className={cx('font-mono font-bold leading-none', compact ? 'text-lg sm:text-base' : 'text-xl', valueToneClass[tone] || valueToneClass.default)}>
+      <span className={cx('font-mono font-bold leading-none', compact ? 'text-lg cq-sm:text-base' : 'text-xl', valueToneClass[tone] || valueToneClass.default)}>
         {value}
       </span>
       {!compact && hint ? <span className="truncate text-[11px] text-kumo-subtle">{hint}</span> : null}
@@ -1159,7 +1159,7 @@ function SettingsPage() {
   const contentViewportClassName = 'min-w-0';
 
   return (
-    <div className="flex min-h-full w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex min-h-full w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
           {...MODULE_TABS_PROPS}
@@ -1195,7 +1195,7 @@ function SettingsPage() {
 
       <div className={contentViewportClassName}>
       {activeTab === 'general' && (
-        <div className="grid min-h-0 items-start gap-4 md:h-full md:overflow-auto xl:grid-cols-[minmax(16rem,1fr)_minmax(0,3fr)]">
+        <div className="grid min-h-0 items-start gap-4 cq-md:h-full cq-md:overflow-auto cq-xl:grid-cols-[minmax(16rem,1fr)_minmax(0,3fr)]">
           <div className="grid min-h-0 gap-4">
             <StatCard label="运行状态" value="正常" hint={settingsLoading ? '同步中' : '已连接后端'} icon={Check} />
             <StatCard label="公网入口" value={settings.publicApiUrl || currentOrigin} hint="/api 自动拼接" icon={Globe} />
@@ -1233,9 +1233,9 @@ function SettingsPage() {
 
 
       {activeTab === 'modules' && (
-        <div className="min-h-0 overflow-auto md:h-full">
+        <div className="min-h-0 overflow-auto cq-md:h-full">
         <SectionCard
-          className="flex min-h-0 md:h-full"
+          className="flex min-h-0 cq-md:h-full"
           headerClassName="max-sm:min-h-12 max-sm:flex-row max-sm:items-center max-sm:px-3 max-sm:py-2"
           title="功能模块"
           icon={<Activity className="h-4 w-4 text-kumo-brand" />}
@@ -1247,13 +1247,13 @@ function SettingsPage() {
                   onChange={(event) => setModuleSearch(event.target.value)}
                   placeholder="搜索模块"
                   ariaLabel="搜索模块"
-                  className="sm:w-52"
+                  className="cq-sm:w-52"
                 />
               </>
           }
           bodyClassName="flex min-h-0 flex-1 flex-col gap-3 overflow-auto"
         >
-          <div className="flex flex-col gap-3 sm:gap-4">
+          <div className="flex flex-col gap-3 cq-sm:gap-4">
             {moduleGroups.map((group) => {
               const groupRows = filteredModuleRows.filter((row) => row.groupId === group.id);
               if (groupRows.length === 0) return null;
@@ -1265,19 +1265,19 @@ function SettingsPage() {
                     <span className="h-px min-w-4 flex-1 bg-kumo-line" />
                     <span className="font-normal">{groupRows.length} 项</span>
                   </div>
-                  <div className="grid gap-1.5 lg:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-1.5 cq-lg:grid-cols-2 cq-xl:grid-cols-3">
                     {groupRows.map((row) => {
                       const ModuleIcon = getModuleIconComponent(row.id);
                       const isVisible = settings.moduleVisibility[row.id] !== false;
 
                       return (
-                        <div key={row.id} className={cx('flex min-h-15 items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors sm:min-h-16 sm:gap-3 sm:px-3', isVisible ? 'border-kumo-line bg-kumo-base' : 'border-kumo-line/70 bg-kumo-recessed/35 opacity-75')}>
+                        <div key={row.id} className={cx('flex min-h-15 items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors cq-sm:min-h-16 cq-sm:gap-3 cq-sm:px-3', isVisible ? 'border-kumo-line bg-kumo-base' : 'border-kumo-line/70 bg-kumo-recessed/35 opacity-75')}>
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-kumo-brand">
                             <ModuleIcon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-semibold text-kumo-strong">{row.config.name}</div>
-                            <div className="hidden truncate text-xs text-kumo-subtle sm:block">{row.config.description}</div>
+                            <div className="hidden truncate text-xs text-kumo-subtle cq-sm:block">{row.config.description}</div>
                           </div>
                           <Switch
                             checked={isVisible}
@@ -1301,7 +1301,7 @@ function SettingsPage() {
       )}
 
       {activeTab === 'security' && (
-        <div className="min-w-0 overflow-auto [column-gap:1rem] xl:columns-2">
+        <div className="min-w-0 overflow-auto [column-gap:1rem] cq-xl:columns-2">
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="管理员密码"
@@ -1325,7 +1325,7 @@ function SettingsPage() {
                   className="w-full"
                 />
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-sm:grid-cols-2">
                 <Input size="sm"
                   label="新密码"
                   type="text"
@@ -1379,7 +1379,7 @@ function SettingsPage() {
             )}
             bodyPadding="lg"
           >
-            <div className="grid items-start gap-4 xl:grid-cols-2">
+            <div className="grid items-start gap-4 cq-xl:grid-cols-2">
               <AppCard padding="md" className="flex h-auto flex-col gap-4 self-start border border-kumo-line/80">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-kumo-strong">验证器</div>
@@ -1484,7 +1484,7 @@ function SettingsPage() {
                     <div className="px-4 py-6 text-sm text-kumo-subtle">加载中...</div>
                   )}
                   {!passkeysLoading && passkeys.map((passkey) => (
-                    <div key={passkey.id} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                    <div key={passkey.id} className="grid gap-3 px-4 py-3 cq-md:grid-cols-[minmax(0,1fr)_auto] cq-md:items-center">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-kumo-strong">{passkey.label || '通行密钥'}</span>
@@ -1528,8 +1528,8 @@ function SettingsPage() {
             bodyPadding="lg"
           >
             <div className="grid gap-4">
-              <div className="grid gap-4 border-b border-kumo-line/70 pb-4 xl:grid-cols-2 xl:gap-0">
-                  <div className="grid gap-2 xl:pr-5">
+              <div className="grid gap-4 border-b border-kumo-line/70 pb-4 cq-xl:grid-cols-2 cq-xl:gap-0">
+                  <div className="grid gap-2 cq-xl:pr-5">
                     <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
                       <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-kumo-brand/10 text-xs font-bold text-kumo-brand">1</span>
                       <span>创建 OAuth App</span>
@@ -1553,7 +1553,7 @@ function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="grid gap-2 border-t border-kumo-line/70 pt-4 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
+                  <div className="grid gap-2 border-t border-kumo-line/70 pt-4 cq-xl:border-l cq-xl:border-t-0 cq-xl:pl-5 cq-xl:pt-0">
                     <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
                       <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-kumo-brand/10 text-xs font-bold text-kumo-brand">2</span>
                       <span>填回调并保存到下方</span>
@@ -1571,7 +1571,7 @@ function SettingsPage() {
                   </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <Input
                   size="sm"
                   label="Client ID"
@@ -1595,7 +1595,7 @@ function SettingsPage() {
                 />
               </div>
 
-              <div className="grid gap-3 xl:grid-cols-2">
+              <div className="grid gap-3 cq-xl:grid-cols-2">
                 <label className="grid gap-1.5 text-xs text-kumo-subtle">
                   <span className="font-semibold text-kumo-strong">允许登录的 GitHub 用户名</span>
                   <Textarea
@@ -1665,7 +1665,7 @@ function SettingsPage() {
           >
             <div className="divide-y divide-kumo-line">
               {loginSessions.map((session) => (
-                <div key={session.id} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                <div key={session.id} className="grid gap-3 px-4 py-3 cq-md:grid-cols-[minmax(0,1fr)_auto] cq-md:items-center">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold text-kumo-strong">{describeUserAgent(session.userAgent)}</span>
@@ -1697,7 +1697,7 @@ function SettingsPage() {
       )}
 
       {activeTab === 'database' && (
-        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
+        <div className="grid items-start gap-3 cq-xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
           <SectionCard
             className="flex h-full min-h-0 flex-1"
             title="数据库统计"
@@ -1711,7 +1711,7 @@ function SettingsPage() {
           >
             {databaseStorage && (
               <div className="shrink-0 border-b border-kumo-line px-3 py-3">
-                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 cq-lg:grid-cols-4">
                   <SummaryMetricCard
                     label="总占用"
                     value={formatFileSize(databaseStorage.totalSizeBytes)}
@@ -1880,7 +1880,7 @@ function SettingsPage() {
               bodyPadding="sm"
               bodyClassName="space-y-3"
             >
-              <div className="grid gap-3 xl:grid-cols-3">
+              <div className="grid gap-3 cq-xl:grid-cols-3">
                 <MaintenanceActionCard
                   title="压缩数据库"
                   icon={<Database className="h-4 w-4" />}
@@ -2048,7 +2048,7 @@ function SettingsPage() {
       )}
 
       {activeTab === 'appearance' && (
-        <div className="grid min-h-0 items-start gap-3 overflow-auto xl:grid-cols-[minmax(20rem,0.82fr)_minmax(0,1.18fr)]">
+        <div className="grid min-h-0 items-start gap-3 overflow-auto cq-xl:grid-cols-[minmax(20rem,0.82fr)_minmax(0,1.18fr)]">
           <SectionCard
             title="界面外观"
             icon={<Sun className="h-4 w-4 text-kumo-brand" />}
@@ -2108,14 +2108,14 @@ function SettingsPage() {
       )}
 
       {activeTab === 'about' && (
-        <div className="grid items-start gap-4 overflow-auto lg:grid-cols-1">
+        <div className="grid items-start gap-4 overflow-auto cq-lg:grid-cols-1">
           <SectionCard
             title={<span className="app-brand-wordmark">API Monitor</span>}
             description={APP_VERSION}
             icon={<img src="/logo.svg" alt="" className="h-6 w-6 object-contain" />}
             bodyPadding="lg"
           >
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 cq-sm:grid-cols-3">
               <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-3">
                 <div className="text-xs text-kumo-subtle">当前源</div>
                 <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{currentOrigin}</div>
