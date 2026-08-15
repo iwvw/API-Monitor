@@ -51,7 +51,7 @@ RUN if [ "$USE_PREBUILT_FRONTEND" = "true" ]; then \
     test -f /app/dist/index.html && test -d /app/dist/assets
 
 # 阶段 2: 构建 Go 后端 (Go Backend Builder)
-FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.24 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.24 AS go-builder
 
 # 安装必要的构建工具
 RUN apk add --no-cache gcc musl-dev
