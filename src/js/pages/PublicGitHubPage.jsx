@@ -124,7 +124,7 @@ const formatActionDuration = (startedAt, finishedAt, now) => {
   return `${seconds}秒`;
 };
 
-const formatNumber = (value) => Number(value || 0).toLocaleString();
+const formatNumber = (value) => Number(value || 0).toLocaleString('en-US', { useGrouping: false });
 
 const actionFlowStatusDotClass = (status) => {
   const value = String(status || '').toLowerCase();

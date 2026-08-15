@@ -11,6 +11,7 @@
    Popover 等）经 portal 渲染到 body，位于所有页面 @container 之外，
    凡在弹层内容里使用 cq-*，必须在该弹层根上声明 @container（如
    <Dialog className="@container ...">），否则断点永不匹配。 */
+@custom-variant cq-xs (@container (width >= 20rem));
 @custom-variant cq-sm (@container (width >= 40rem));
 @custom-variant cq-md (@container (width >= 48rem));
 @custom-variant cq-lg (@container (width >= 64rem));
@@ -1341,6 +1342,29 @@ samp {
   min-height: 24rem;
 }
 
+/* Kumo Dialog 默认 size 变体带 sm:w-96 等媒体查询宽度，会覆盖调用方传入的 Tailwind 宽度类。
+   此处用未分层组件类（优先级高于 utilities layer）统一接管弹框宽度，
+   避免 <Dialog> 内容容器的 cq-* 断点因为自身宽度被压成 384px 而永不触发。 */
+.scheduler-task-dialog {
+  width: min(calc(100vw - 1rem), 56rem);
+}
+
+@container (width >= 40rem) {
+  .scheduler-task-dialog {
+    width: 56rem;
+  }
+}
+
+.scheduler-workflow-dialog {
+  width: min(calc(100vw - 1rem), 92rem);
+}
+
+@container (width >= 40rem) {
+  .scheduler-workflow-dialog {
+    width: 92rem;
+  }
+}
+
 [role='dialog'] {
   max-height: calc(100dvh - 1rem);
 }
@@ -2458,6 +2482,26 @@ input[type='number'] {
 }
 .askai-modal-in > div {
   animation: askai-expand-in 0.15s ease-out;
+}
+
+/* AI 入口按钮：闲置呼吸（星形微缩放+转动+亮度闪亮，无模糊），hover 提速，打开态常亮 */
+@keyframes askai-entry-twinkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    filter: brightness(0.92);
+  }
+  50% {
+    transform: scale(1.14) rotate(10deg);
+    filter: brightness(1.3);
+  }
+}
+.askai-entry-sparkle {
+  animation: askai-entry-twinkle 3s ease-in-out infinite;
+  will-change: transform, filter;
+}
+.askai-entry-btn:hover .askai-entry-sparkle,
+.askai-entry-btn:focus-visible .askai-entry-sparkle {
+  animation-duration: 0.9s;
 }
 
 /* 折叠区丝滑展开/收起：grid-rows 0fr→1fr + 透明度（工具步骤/推理/长文本共用） */

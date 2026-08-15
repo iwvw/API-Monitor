@@ -2111,7 +2111,7 @@ function APIKeyConsole({
                     </div>
                   </div>
                   <div className="mt-3 grid gap-2 border-t border-kumo-line/70 pt-3 text-[11px] text-kumo-subtle cq-sm:grid-cols-2 cq-2xl:grid-cols-4">
-                    <div><span className="block">请求次数</span><strong className="font-mono text-kumo-strong">{Number(key.requestCount || 0).toLocaleString()}</strong></div>
+                    <div><span className="block">请求次数</span><strong className="font-mono text-kumo-strong">{Number(key.requestCount || 0).toLocaleString('en-US', { useGrouping: false })}</strong></div>
                     <div><span className="block">过期时间</span><strong className="font-normal text-kumo-strong">{formatKeyTime(key.expiresAt)}</strong></div>
                     <div><span className="block">最后使用</span><strong className="font-normal text-kumo-strong">{formatKeyTime(key.lastUsedAt)}</strong></div>
                     <div className="min-w-0"><span className="block">最后 IP</span><strong className="block truncate font-mono font-normal text-kumo-strong" title={key.lastIpAddress || ''}>{key.lastIpAddress || '-'}</strong></div>

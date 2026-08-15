@@ -246,11 +246,19 @@ func init() {
 
 	// ===== 定时任务 =====
 	routeRequestContracts["/api/scheduler/tasks"] = obj([]string{"name", "command"}, map[string]prop{
-		"name":     {t: "string", req: true},
-		"schedule": {t: "string", d: "cron 表达式"},
-		"command":  {t: "string", req: true},
-		"type":     {t: "string"},
-		"enabled":  {t: "boolean"},
+		"name":                 {t: "string", req: true},
+		"description":          {t: "string"},
+		"schedule":             {t: "string", d: "cron 表达式"},
+		"command":              {t: "string", req: true},
+		"type":                 {t: "string", d: "shell | internal | agent | http | ai"},
+		"enabled":              {t: "boolean", d: "是否启用（兼容 0/1 整数）"},
+		"timeout_seconds":      {t: "integer"},
+		"retry_count":          {t: "integer"},
+		"retry_interval_seconds": {t: "integer"},
+		"max_concurrency":      {t: "integer"},
+		"node_id":              {t: "string"},
+		"node_selector":        {t: "string"},
+		"config":               {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}）"},
 	})
 	routeRequestContracts["/api/scheduler/tasks/{id}"] = routeRequestContracts["/api/scheduler/tasks"]
 	routeRequestContracts["/api/cron/tasks"] = routeRequestContracts["/api/scheduler/tasks"]
@@ -512,6 +520,7 @@ func init() {
 		"timeout": {t: "integer"},
 	})
 	routeRequestContracts["/api/server/agent/auto-install/{id}"] = obj(nil, map[string]prop{"protocol": {t: "string"}})
+	routeRequestContracts["/api/server/monitor/collect"] = noBody
 	routeRequestContracts["/api/server/agent/batch-install"] = obj([]string{"serverIds"}, map[string]prop{
 		"serverIds": {t: "array", req: true},
 		"protocol":  {t: "string"},
@@ -671,6 +680,7 @@ func init() {
 	routeRequestContracts["/api/aliyun/accounts/{id}/records/{recordId}/status"] = obj(nil, map[string]prop{
 		"status": {t: "string", e: []string{"enable", "disable"}},
 	})
+	routeRequestContracts["/api/aliyun/accounts/{id}/metrics"] = noBody
 	routeRequestContracts["/api/aliyun/accounts/{id}/instances/{instanceId}/{action}"] = obj(nil, map[string]prop{
 		"action": {t: "string", d: "实例动作"},
 	})
@@ -1086,6 +1096,13 @@ func init() {
 		"runId": {t: "string", req: true, d: "要取消的执行 ID"},
 	})
 	routeRequestContracts["/api/admin-ai/cron/daily-briefing"] = noBody
+	routeRequestContracts["/api/admin-ai/cron/task-run"] = obj([]string{"prompt"}, map[string]prop{
+		"prompt":    {t: "string", req: true, d: "AI 提示词"},
+		"model":     {t: "string", d: "指定模型，留空回退默认模型"},
+		"policy":    {t: "string", d: "allow（默认，写操作免审批）| readonly"},
+		"channelId": {t: "string", d: "可选：完成后推送到绑定频道的接收者"},
+		"title":     {t: "string", d: "会话标题，留空取 prompt 摘要"},
+	})
 	routeRequestContracts["/api/admin-ai/channels"] = obj(nil, map[string]prop{
 		"channelId": {t: "string", d: "渠道 ID"},
 		"name":      {t: "string", d: "渠道名称"},

@@ -6,6 +6,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
+import { Textarea } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Badge } from '@cloudflare/kumo/components/badge';
@@ -16,6 +17,7 @@ import { LayerCard, Tabs } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { SectionCard, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
+import { renderMarkdown } from '../modules/markdown.js';
 import {
   Activity,
   ArrowRight,
@@ -34,6 +36,7 @@ import {
   Save,
   Server,
   Sliders,
+  Sparkle,
   Trash,
   Upload,
   X,
@@ -59,6 +62,10 @@ const DEFAULT_TASK_FORM = {
   max_concurrency: 1,
   node_id: 'local',
   node_selector: '',
+  // AI 智能任务扩展配置（保存时序列化为 config JSON）
+  aiModel: '',
+  aiPolicy: 'allow',
+  aiChannelId: '',
 };
 
 const DEFAULT_WORKFLOW_FORM = {
@@ -99,6 +106,12 @@ const TYPE_ITEMS = [
   { value: 'http', label: 'HTTP 请求' },
   { value: 'internal', label: '内部接口' },
   { value: 'agent', label: 'Agent 命令' },
+  { value: 'ai', label: 'AI 智能任务' },
+];
+
+const AI_POLICY_ITEMS = [
+  { value: 'allow', label: '完全允许（写操作免审批）' },
+  { value: 'readonly', label: '只读（禁用写操作）' },
 ];
 
 const CONDITION_ITEMS = [
@@ -350,6 +363,36 @@ function IconButton({ label, icon, onClick, variant = 'secondary', disabled = fa
   );
 }
 
+/* 弹窗内分组卡（与设置页 SectionCard 同语言：圆角 + 抬升底 + 图标方角标题） */
+function FormCard({ icon, title, description, children }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none">
+      <div className="flex items-center gap-2.5 border-b border-kumo-line px-4 py-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-brand">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-kumo-strong">{title}</div>
+          {description && <div className="truncate text-xs text-kumo-subtle">{description}</div>}
+        </div>
+      </div>
+      <div className="px-4">{children}</div>
+    </div>
+  );
+}
+
+/* AI 输出 markdown 渲染（与编辑器预览同管线：marked + DOMPurify + katex） */
+function MarkdownOutput({ text }) {
+  const html = useMemo(() => renderMarkdown(text), [text]);
+  if (!text) return null;
+  return (
+    <div
+      className="app-markdown-preview prose prose-sm max-w-none break-words text-xs"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 function CronEditor({ form, setForm, preview, previewError }) {
   const currentSchedule = getCronExpressionFromSimple(form);
   return (
@@ -373,7 +416,7 @@ function CronEditor({ form, setForm, preview, previewError }) {
           onChange={(event) => setForm((prev) => ({ ...prev, schedule: event.target.value }))}
         />
       ) : (
-        <div className="grid gap-3 cq-sm:grid-cols-2">
+        <div className="space-y-3">
           <Select size="sm" label="周期" className="w-full" value={form.periodType} onValueChange={(value) => setForm((prev) => ({ ...prev, periodType: value }))} items={PERIOD_ITEMS} />
           {form.periodType === 'week' && (
             <Select size="sm" label="星期" className="w-full" value={form.weekday} onValueChange={(value) => setForm((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_ITEMS} />
@@ -382,9 +425,12 @@ function CronEditor({ form, setForm, preview, previewError }) {
             <Input size="sm" type="number" label="日期" min="1" max="31" value={form.dayOfMonth} onChange={(event) => setForm((prev) => ({ ...prev, dayOfMonth: Number(event.target.value) }))} />
           )}
           {['day', 'week', 'month'].includes(form.periodType) && (
-            <Input size="sm" type="number" label="小时" min="0" max="23" value={form.hour} onChange={(event) => setForm((prev) => ({ ...prev, hour: Number(event.target.value) }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input size="sm" type="number" label="小时" min="0" max="23" value={form.hour} onChange={(event) => setForm((prev) => ({ ...prev, hour: Number(event.target.value) }))} />
+              <Input size="sm" type="number" label="分钟" min="0" max="59" value={form.minute} onChange={(event) => setForm((prev) => ({ ...prev, minute: Number(event.target.value) }))} />
+            </div>
           )}
-          {['hour', 'day', 'week', 'month'].includes(form.periodType) && (
+          {form.periodType === 'hour' && (
             <Input size="sm" type="number" label="分钟" min="0" max="59" value={form.minute} onChange={(event) => setForm((prev) => ({ ...prev, minute: Number(event.target.value) }))} />
           )}
         </div>
@@ -411,7 +457,7 @@ function CronEditor({ form, setForm, preview, previewError }) {
   );
 }
 
-function WorkflowCanvas({ workflow, runs = [], selectedNodeId = '', onSelectNode = null, size = 'default' }) {
+function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', onSelectNode = null, size = 'default' }) {
   const nodes = workflow.nodes || [];
   const edges = workflow.edges || [];
   const compact = size === 'compact';
@@ -432,6 +478,8 @@ function WorkflowCanvas({ workflow, runs = [], selectedNodeId = '', onSelectNode
   const renderNode = (node) => {
     const status = nodeStatus[node.id];
     const selected = selectedNodeId === node.id;
+    const linkedTask = tasks.find((t) => String(t.id) === String(node.task_id));
+    const isAi = !!linkedTask && linkedTask.type === 'ai';
     const dependencies = incomingEdges.get(node.id) || [];
     const dependencyText = dependencies.length > 1
       ? `${dependencies.length} 条依赖`
@@ -462,9 +510,9 @@ function WorkflowCanvas({ workflow, runs = [], selectedNodeId = '', onSelectNode
             <span className={`flex min-w-0 items-start justify-between ${compact ? 'gap-2' : 'gap-3'}`}>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold text-kumo-strong">{node.name || node.id}</span>
-                <span className="mt-1 block truncate text-xs leading-5 text-kumo-subtle">{workflowNodeTypeLabel(node)}</span>
+                <span className="mt-1 block truncate text-xs leading-5 text-kumo-subtle">{isAi ? 'AI 智能任务' : workflowNodeTypeLabel(node)}</span>
               </span>
-              <Badge variant={workflowNodeKindVariant(node)}>{workflowNodeKindLabel(node)}</Badge>
+              <Badge variant={isAi ? 'purple' : workflowNodeKindVariant(node)}>{isAi ? 'AI' : workflowNodeKindLabel(node)}</Badge>
             </span>
             <span className={`mt-auto flex min-w-0 items-center justify-between gap-2 ${compact ? 'pt-3' : 'pt-5'}`}>
               <Badge variant={statusBadgeVariant(status || (node.enabled === 0 ? 'skipped' : 'queued'))} appearance="dot">
@@ -527,6 +575,8 @@ function SchedulerPage() {
   const [cronPreviewError, setCronPreviewError] = useState('');
   const [selectedRun, setSelectedRun] = useState(null);
   const [workflowCanvasEpoch, setWorkflowCanvasEpoch] = useState(0);
+  const [aiModelOptions, setAiModelOptions] = useState([{ value: '', label: '默认模型' }]);
+  const [aiChannelOptions, setAiChannelOptions] = useState([]);
 
   const workflowNodeTabs = useMemo(() => workflowForm.nodes.map((node) => ({
     value: node.id,
@@ -587,6 +637,45 @@ function SchedulerPage() {
     };
   }, [workflowDialogOpen]);
 
+  useEffect(() => {
+    if (!taskDialogOpen) return undefined;
+    // AI 任务选项懒加载：模型选项来自模型网关端点，推送目标来自已启用 Telegram 频道
+    let cancelled = false;
+    (async () => {
+      try {
+        const [epRes, chRes] = await Promise.all([
+          fetch('/api/openai/endpoints'),
+          fetch('/api/admin-ai/channels'),
+        ]);
+        const epData = await epRes.json();
+        const eps = Array.isArray(epData) ? epData : (epData.data || []);
+        const seen = new Set();
+        const options = [];
+        for (const ep of eps) {
+          if (!ep.enabled || !Array.isArray(ep.models)) continue;
+          for (const m of ep.models) {
+            if (seen.has(m)) continue;
+            seen.add(m);
+            options.push({ value: m, label: `${ep.name || ep.id} / ${m}` });
+          }
+        }
+        options.sort((a, b) => a.label.localeCompare(b.label));
+        const chData = await chRes.json();
+        const body = chData.data || chData;
+        const channels = (body.channels || []).filter((c) => c.type === 'telegram' && c.enabled);
+        if (cancelled) return;
+        setAiModelOptions(options.length ? options : [{ value: '', label: '默认模型' }]);
+        setAiChannelOptions(channels.map((c) => ({ value: c.id, label: c.name || c.id })));
+      } catch {
+        if (!cancelled) {
+          setAiModelOptions([{ value: '', label: '默认模型' }]);
+          setAiChannelOptions([]);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [taskDialogOpen]);
+
   const currentSchedule = useMemo(() => getCronExpressionFromSimple(taskForm), [taskForm]);
 
   useEffect(() => {
@@ -625,6 +714,19 @@ function SchedulerPage() {
 
   const openEditTask = (task) => {
     const simple = parseSimpleSchedule(task.schedule || '');
+    let aiModel = '';
+    let aiPolicy = 'allow';
+    let aiChannelId = '';
+    if (task.config) {
+      try {
+        const cfg = typeof task.config === 'string' ? JSON.parse(task.config) : task.config;
+        aiModel = cfg.model || '';
+        aiPolicy = cfg.policy === 'readonly' ? 'readonly' : 'allow';
+        aiChannelId = cfg.channelId || '';
+      } catch {
+        // config 解析失败时按默认值处理
+      }
+    }
     setTaskForm({
       ...DEFAULT_TASK_FORM,
       ...simple,
@@ -641,6 +743,9 @@ function SchedulerPage() {
       max_concurrency: task.max_concurrency ?? 1,
       node_id: task.node_id || 'local',
       node_selector: task.node_selector || '',
+      aiModel,
+      aiPolicy,
+      aiChannelId,
     });
     setTaskDialogOpen(true);
   };
@@ -667,6 +772,13 @@ function SchedulerPage() {
         node_id: taskForm.node_id || 'local',
         node_selector: taskForm.node_selector || '',
       };
+      if (taskForm.type === 'ai') {
+        payload.config = JSON.stringify({
+          model: taskForm.aiModel || '',
+          policy: taskForm.aiPolicy === 'readonly' ? 'readonly' : 'allow',
+          channelId: taskForm.aiChannelId || '',
+        });
+      }
       const res = await fetch(isEdit ? `/api/scheduler/tasks/${taskForm.id}` : '/api/scheduler/tasks', {
         method: isEdit ? 'PUT' : 'POST',
         headers: authHeaders(),
@@ -1030,12 +1142,14 @@ function SchedulerPage() {
   const taskItems = useMemo(() => [{ value: '0', label: '内联命令' }, ...tasks.map((task) => ({ value: String(task.id), label: `${task.name} #${task.id}` }))], [tasks]);
   const workflowNodeItems = useMemo(() => workflowForm.nodes.map((node) => ({ value: node.id, label: node.name || node.id })), [workflowForm.nodes]);
   const selectedWorkflowNode = workflowForm.nodes.find((node) => node.id === selectedWorkflowNodeId) || workflowForm.nodes[0] || null;
-  const taskCommandLabel = taskForm.type === 'http' ? 'URL' : taskForm.type === 'internal' ? '内部接口路径' : '命令';
+  const taskCommandLabel = taskForm.type === 'http' ? 'URL' : taskForm.type === 'internal' ? '内部接口路径' : taskForm.type === 'ai' ? '提示词' : '命令';
   const taskCommandPlaceholder = taskForm.type === 'http'
     ? 'https://example.com/health'
     : taskForm.type === 'internal'
       ? 'GET /health'
-      : 'echo hello';
+      : taskForm.type === 'ai'
+        ? '例如：检查所有主机和 Docker 容器状态，输出巡检报告；有异常时说明原因并给出处置建议。'
+        : 'echo hello';
 
   return (
     <TooltipProvider>
@@ -1083,7 +1197,7 @@ function SchedulerPage() {
           />
         </div>
 
-        <div className="grid grid-cols-4 gap-2 cq-sm:gap-3">
+        <div className="grid grid-cols-2 gap-2 cq-sm:grid-cols-4 cq-sm:gap-3">
           {summaryItems.map(({ label, value, icon, cardClassName }) => (
             <LayerCard key={label} className={`min-w-0 p-2 cq-sm:p-3 ${cardClassName || ''}`}>
               <div className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle cq-sm:gap-3 cq-sm:text-xs">
@@ -1121,7 +1235,7 @@ function SchedulerPage() {
                         <Table.Cell className="text-xs text-kumo-subtle">{formatTimestamp(task.next_run)}</Table.Cell>
                         <Table.Cell>{task.recent_status ? <Badge variant={statusBadgeVariant(task.recent_status)} appearance="dot">{statusLabel(task.recent_status)}</Badge> : <span className="text-xs text-kumo-subtle">暂无运行</span>}</Table.Cell>
                         <Table.Cell>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-1">
                             <IconButton label="立即运行" onClick={() => runTask(task)} icon={<Play className="h-3.5 w-3.5" />} />
                             <IconButton label={task.enabled ? '停用' : '启用'} onClick={() => toggleTask(task)} icon={task.enabled ? <Pause className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />} />
                             <IconButton label="编辑" onClick={() => openEditTask(task)} icon={<Edit className="h-3.5 w-3.5" />} />
@@ -1149,7 +1263,7 @@ function SchedulerPage() {
             ) : (
               <div className="grid gap-3 cq-lg:grid-cols-2">
                 {workflows.map((workflow) => (
-                  <div key={workflow.id} className="scheduler-workflow-card flex h-full flex-col rounded-md border border-kumo-line p-3">
+                  <div key={workflow.id} className="scheduler-workflow-card flex h-full flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated p-3 shadow-none">
                     <div className="grid min-h-0 flex-1 gap-3 cq-lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
                       <div className="flex min-h-0 min-w-0 flex-col gap-2.5">
                         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1179,7 +1293,7 @@ function SchedulerPage() {
                       </div>
 
                       <div className="flex min-h-0 min-w-0 overflow-visible">
-                        <WorkflowCanvas workflow={workflow} runs={runs} size="compact" />
+                        <WorkflowCanvas workflow={workflow} runs={runs} tasks={tasks} size="compact" />
                       </div>
                     </div>
                   </div>
@@ -1216,7 +1330,7 @@ function SchedulerPage() {
                         <Table.Cell className="text-xs text-kumo-subtle">{run.trigger_type === 'manual' ? '手动触发' : run.trigger_type}</Table.Cell>
                         <Table.Cell className="text-xs text-kumo-subtle">{formatTimestamp(run.start_time || run.created_at)}</Table.Cell>
                         <Table.Cell className="font-mono text-xs text-kumo-default">{run.duration ?? 0}s</Table.Cell>
-                        <Table.Cell><div className="flex items-center gap-1"><IconButton label="查看详情" onClick={async () => {
+                        <Table.Cell><div className="flex items-center justify-center gap-1"><IconButton label="查看详情" onClick={async () => {
                           const res = await fetch(`/api/scheduler/runs/${run.id}`, { headers: authHeaders() });
                           const data = await res.json();
                           if (data.success) setSelectedRun(data.data);
@@ -1281,60 +1395,111 @@ function SchedulerPage() {
         )}
 
         <Dialog.Root open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-          <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto p-5 cq-sm:w-full cq-sm:max-w-3xl cq-sm:p-6">
-            <Dialog.Title className="mb-4 text-base font-bold text-kumo-strong">{taskForm.id ? '编辑任务' : '新建任务'}</Dialog.Title>
-            <div className="space-y-4">
-              <div className="grid gap-3 cq-sm:grid-cols-2">
-                <Input size="sm" label="名称" value={taskForm.name} onChange={(event) => setTaskForm((prev) => ({ ...prev, name: event.target.value }))} />
-                <Select size="sm" label="执行节点" className="w-full" value={taskForm.node_id} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, node_id: value }))} items={nodeItems} />
-              </div>
-              <Input size="sm" label="描述" value={taskForm.description} onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))} />
-              <CronEditor form={taskForm} setForm={setTaskForm} preview={cronPreview} previewError={cronPreviewError} />
-              <div className="grid gap-3 cq-sm:grid-cols-2">
-                <Select size="sm" label="任务类型" className="w-full" value={taskForm.type} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, type: value }))} items={TYPE_ITEMS} />
-                <Input size="sm" label="节点标签选择器" value={taskForm.node_selector} onChange={(event) => setTaskForm((prev) => ({ ...prev, node_selector: event.target.value }))} />
-              </div>
-              {taskForm.type === 'shell' || taskForm.type === 'agent' ? (
-                <CodeEditor label={taskCommandLabel} language="shell" placeholder={taskCommandPlaceholder} value={taskForm.command} onChange={(command) => setTaskForm((prev) => ({ ...prev, command }))} minHeight="8rem" />
-              ) : (
-                <Input size="sm" label={taskCommandLabel} placeholder={taskCommandPlaceholder} value={taskForm.command} onChange={(event) => setTaskForm((prev) => ({ ...prev, command: event.target.value }))} />
+          <Dialog className="@container scheduler-task-dialog flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-5 cq-sm:p-6">
+            <Dialog.Title className="mb-4 shrink-0 text-base font-bold text-kumo-strong">{taskForm.id ? '编辑任务' : '新建任务'}</Dialog.Title>
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid gap-4 cq-xs:grid-cols-2 cq-xs:items-start">
+                <div className="min-w-0 space-y-4">
+              <FormCard icon={<Server className="h-4 w-4" />} title="基础信息" description="任务名称、描述与执行节点">
+                <div className="space-y-3 py-4">
+                  <div className="grid gap-3 cq-sm:grid-cols-2">
+                    <Input size="sm" label="名称" value={taskForm.name} onChange={(event) => setTaskForm((prev) => ({ ...prev, name: event.target.value }))} />
+                    <Select size="sm" label="执行节点" className="w-full" value={taskForm.node_id} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, node_id: value }))} items={nodeItems} />
+                  </div>
+                  <Input size="sm" label="描述" value={taskForm.description} onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))} />
+                  <div className="grid gap-3 cq-sm:grid-cols-2">
+                    <Select size="sm" label="任务类型" className="w-full" value={taskForm.type} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, type: value }))} items={TYPE_ITEMS} />
+                    <Input size="sm" label="节点标签选择器" value={taskForm.node_selector} onChange={(event) => setTaskForm((prev) => ({ ...prev, node_selector: event.target.value }))} />
+                  </div>
+                  {taskForm.type === 'shell' || taskForm.type === 'agent' ? (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-kumo-subtle">{taskCommandLabel}</div>
+                      <CodeEditor language="shell" placeholder={taskCommandPlaceholder} value={taskForm.command} onChange={(command) => setTaskForm((prev) => ({ ...prev, command }))} minHeight="8rem" />
+                    </div>
+                  ) : taskForm.type === 'ai' ? (
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-kumo-subtle">{taskCommandLabel}</div>
+                      <Textarea
+                        rows={6}
+                        placeholder={taskCommandPlaceholder}
+                        value={taskForm.command}
+                        onChange={(event) => setTaskForm((prev) => ({ ...prev, command: event.target.value }))}
+                        className="w-full"
+                      />
+                    </div>
+                  ) : (
+                    <Input size="sm" label={taskCommandLabel} placeholder={taskCommandPlaceholder} value={taskForm.command} onChange={(event) => setTaskForm((prev) => ({ ...prev, command: event.target.value }))} />
+                  )}
+                </div>
+              </FormCard>
+
+              <FormCard icon={<Sliders className="h-4 w-4" />} title="执行参数" description="超时、重试与并发控制">
+                <div className="grid gap-3 py-4 cq-sm:grid-cols-2">
+                  <Input size="sm" type="number" label="超时秒数" min="1" value={taskForm.timeout_seconds} onChange={(event) => setTaskForm((prev) => ({ ...prev, timeout_seconds: Number(event.target.value) }))} />
+                  <Input size="sm" type="number" label="重试次数" min="0" value={taskForm.retry_count} onChange={(event) => setTaskForm((prev) => ({ ...prev, retry_count: Number(event.target.value) }))} />
+                  <Input size="sm" type="number" label="重试间隔" min="0" value={taskForm.retry_interval_seconds} onChange={(event) => setTaskForm((prev) => ({ ...prev, retry_interval_seconds: Number(event.target.value) }))} />
+                  <Input size="sm" type="number" label="最大并发" min="1" value={taskForm.max_concurrency} onChange={(event) => setTaskForm((prev) => ({ ...prev, max_concurrency: Number(event.target.value) }))} />
+                </div>
+                <div className="flex items-center justify-between border-t border-kumo-line py-3">
+                  <span className="text-sm font-medium text-kumo-strong">启用任务</span>
+                  <Switch checked={taskForm.enabled === 1} onCheckedChange={(checked) => setTaskForm((prev) => ({ ...prev, enabled: checked ? 1 : 0 }))} />
+                </div>
+              </FormCard>
+            </div>
+            <div className="min-w-0 space-y-4">
+
+              {taskForm.type === 'ai' && (
+                <FormCard icon={<Sparkle className="h-4 w-4" />} title="AI 执行配置" description="定时向管理 AI 发起提示词，可调用全部内部接口完成巡检/运维/报告">
+                  <div className="grid gap-3 py-4 cq-sm:grid-cols-2">
+                    <Select size="sm" label="推理模型" className="w-full" value={taskForm.aiModel} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiModel: String(value) }))} items={aiModelOptions} />
+                    <Select size="sm" label="写操作策略" className="w-full" value={taskForm.aiPolicy} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiPolicy: String(value) }))} items={AI_POLICY_ITEMS} />
+                    <Select size="sm" label="结果推送" className="w-full cq-sm:col-span-2" value={taskForm.aiChannelId} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiChannelId: String(value) }))} items={[{ value: '', label: '不推送（仅记录到运行结果）' }, ...aiChannelOptions]} />
+                  </div>
+                  <div className="border-t border-kumo-line py-3 text-xs text-kumo-subtle">
+                    执行结果写入会话与审计；策略「完全允许」时写操作免审批执行（受管理 AI 写操作全局开关约束）。
+                  </div>
+                </FormCard>
               )}
-              <div className="grid gap-3 cq-sm:grid-cols-4">
-                <Input size="sm" type="number" label="超时秒数" min="1" value={taskForm.timeout_seconds} onChange={(event) => setTaskForm((prev) => ({ ...prev, timeout_seconds: Number(event.target.value) }))} />
-                <Input size="sm" type="number" label="重试次数" min="0" value={taskForm.retry_count} onChange={(event) => setTaskForm((prev) => ({ ...prev, retry_count: Number(event.target.value) }))} />
-                <Input size="sm" type="number" label="重试间隔" min="0" value={taskForm.retry_interval_seconds} onChange={(event) => setTaskForm((prev) => ({ ...prev, retry_interval_seconds: Number(event.target.value) }))} />
-                <Input size="sm" type="number" label="最大并发" min="1" value={taskForm.max_concurrency} onChange={(event) => setTaskForm((prev) => ({ ...prev, max_concurrency: Number(event.target.value) }))} />
+
+              <FormCard icon={<Clock className="h-4 w-4" />} title="调度规则" description="可视化 Cron 或自定义表达式">
+                <div className="py-4">
+                  <CronEditor form={taskForm} setForm={setTaskForm} preview={cronPreview} previewError={cronPreviewError} />
+                </div>
+              </FormCard>
               </div>
-              <div className="flex items-center justify-between rounded-md border border-kumo-line p-3"><span className="text-sm font-medium text-kumo-strong">启用任务</span><Switch checked={taskForm.enabled === 1} onCheckedChange={(checked) => setTaskForm((prev) => ({ ...prev, enabled: checked ? 1 : 0 }))} /></div>
-              <div className="flex justify-end gap-2 pt-2"><Button size="sm" variant="secondary" onClick={() => setTaskDialogOpen(false)}><X className="h-3.5 w-3.5" />取消</Button><Button size="sm" variant="primary" onClick={saveTask} disabled={saving || Boolean(cronPreviewError)}><Save className="h-3.5 w-3.5" />保存</Button></div>
+              </div>
+            </div>
+            <div className="mt-3 flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line pt-3">
+              <Button size="sm" variant="secondary" onClick={() => setTaskDialogOpen(false)}><X className="h-3.5 w-3.5" />取消</Button>
+              <Button size="sm" variant="primary" onClick={saveTask} disabled={saving || Boolean(cronPreviewError)}><Save className="h-3.5 w-3.5" />保存</Button>
             </div>
           </Dialog>
         </Dialog.Root>
 
         <Dialog.Root open={workflowDialogOpen} onOpenChange={setWorkflowDialogOpen}>
-          <Dialog className="@container flex h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-5 cq-sm:w-[calc(100vw-2rem)] cq-sm:max-w-[92rem] cq-sm:p-6">
+          <Dialog className="@container scheduler-workflow-dialog flex h-[calc(100dvh-1rem)] flex-col overflow-hidden p-5 cq-sm:p-6">
             <Dialog.Title className="mb-4 shrink-0 text-base font-bold text-kumo-strong">{workflowForm.id ? '编辑工作流' : '新建工作流'}</Dialog.Title>
             <div className="flex min-h-0 flex-1 flex-col gap-4">
-              <div className="shrink-0 rounded-md border border-kumo-line p-3">
-                <div className="grid gap-3 cq-lg:grid-cols-[minmax(0,1fr)_8rem]">
+              <FormCard icon={<GitBranch className="h-4 w-4" />} title="工作流信息" description="名称、触发规则与启用状态">
+                <div className="grid gap-3 py-4 cq-lg:grid-cols-[minmax(0,1fr)_8rem]">
                   <div className="grid min-w-0 gap-3 cq-sm:grid-cols-2">
                     <Input size="sm" label="名称" value={workflowForm.name} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, name: event.target.value }))} />
                     <Input size="sm" label="Cron（留空为手动）" value={workflowForm.schedule} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, schedule: event.target.value }))} />
                   </div>
-                  <div className="flex h-9 items-center justify-between gap-3 self-end rounded-md border border-kumo-line px-3">
+                  <div className="flex h-8 items-center justify-between gap-3 self-end rounded-md border border-kumo-line bg-kumo-base px-3">
                     <span className="text-sm font-medium text-kumo-strong">启用</span>
                     <Switch checked={workflowForm.enabled === 1} onCheckedChange={(checked) => setWorkflowForm((prev) => ({ ...prev, enabled: checked ? 1 : 0 }))} />
                   </div>
                 </div>
-                <div className="mt-3">
+                <div className="border-t border-kumo-line pb-4 pt-3">
                   <Input size="sm" label="描述" value={workflowForm.description} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, description: event.target.value }))} />
                 </div>
-              </div>
+              </FormCard>
 
               <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 cq-xl:grid-cols-[minmax(0,1fr)_26rem] cq-xl:overflow-hidden cq-xl:pr-0">
                 <div className="flex min-h-0 flex-col gap-3">
-                  <WorkflowCanvas key={`workflow-editor-${workflowCanvasEpoch}`} workflow={workflowForm} runs={[]} selectedNodeId={selectedWorkflowNode?.id} onSelectNode={setSelectedWorkflowNodeId} size="editor" />
-                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-md border border-kumo-line p-3">
+                  <WorkflowCanvas key={`workflow-editor-${workflowCanvasEpoch}`} workflow={workflowForm} runs={[]} tasks={tasks} selectedNodeId={selectedWorkflowNode?.id} onSelectNode={setSelectedWorkflowNodeId} size="editor" />
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-kumo-line bg-kumo-elevated p-3">
                     <Tabs
                       {...TOOL_TABS_PROPS}
                       value={selectedWorkflowNode?.id || selectedWorkflowNodeId}
@@ -1352,16 +1517,19 @@ function SchedulerPage() {
 
                 <div className="flex min-h-0 flex-col gap-3">
                   <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
-                    <div className="rounded-md border border-kumo-line p-3">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-kumo-strong">
-                          <Layers className="h-4 w-4 shrink-0" />
+                    <div className="overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none">
+                      <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-kumo-strong">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-brand">
+                            <Layers className="h-4 w-4" />
+                          </span>
                           <span className="truncate">当前节点</span>
                         </div>
                         {selectedWorkflowNode && selectedWorkflowNode.type !== 'start' && (
                           <IconButton label="删除节点" variant="secondary-destructive" onClick={() => deleteWorkflowNode(selectedWorkflowNode.id)} icon={<Trash className="h-3.5 w-3.5" />} />
                         )}
                       </div>
+                      <div className="px-4 pb-4 pt-3">
                       {selectedWorkflowNode ? (
                         <div className="space-y-3">
                           <div className="grid gap-3 cq-sm:grid-cols-2">
@@ -1401,13 +1569,20 @@ function SchedulerPage() {
                       ) : (
                         <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-4 text-center text-xs text-kumo-subtle">请选择一个节点。</div>
                       )}
+                      </div>
                     </div>
 
-                    <div className="rounded-md border border-kumo-line p-3">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-kumo-strong"><Sliders className="h-4 w-4" />依赖规则</div>
+                    <div className="overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none">
+                      <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                        <div className="flex items-center gap-2.5 text-sm font-semibold text-kumo-strong">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-brand">
+                            <Sliders className="h-4 w-4" />
+                          </span>
+                          依赖规则
+                        </div>
                         <Button size="sm" variant="secondary" onClick={addWorkflowEdge}><Plus className="h-3.5 w-3.5" />新增</Button>
                       </div>
+                      <div className="px-4 pb-4 pt-3">
                       <div className="space-y-2">
                         {workflowForm.edges.length === 0 && (
                           <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-4 text-center text-xs text-kumo-subtle">暂无依赖规则，节点会独立存在。</div>
@@ -1426,10 +1601,11 @@ function SchedulerPage() {
                           </div>
                         ))}
                       </div>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 justify-end gap-2"><Button size="sm" variant="secondary" onClick={() => setWorkflowDialogOpen(false)}>取消</Button><Button size="sm" variant="primary" onClick={saveWorkflow} disabled={saving}><Save className="h-3.5 w-3.5" />保存</Button></div>
+                  <div className="flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line pt-3"><Button size="sm" variant="secondary" onClick={() => setWorkflowDialogOpen(false)}>取消</Button><Button size="sm" variant="primary" onClick={saveWorkflow} disabled={saving}><Save className="h-3.5 w-3.5" />保存</Button></div>
                 </div>
               </div>
             </div>
@@ -1437,20 +1613,46 @@ function SchedulerPage() {
         </Dialog.Root>
 
         <Dialog.Root open={Boolean(selectedRun)} onOpenChange={(open) => !open && setSelectedRun(null)}>
-          <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto p-5 cq-sm:w-full cq-sm:max-w-4xl cq-sm:p-6">
-            <Dialog.Title className="mb-4 text-base font-bold text-kumo-strong">运行详情</Dialog.Title>
+          <Dialog className="@container scheduler-task-dialog flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-5 cq-sm:p-6">
+            <Dialog.Title className="mb-4 shrink-0 text-base font-bold text-kumo-strong">运行详情</Dialog.Title>
             {selectedRun && (
-              <div className="space-y-4">
-                {selectedRun.workflow && <WorkflowCanvas workflow={selectedRun.workflow} runs={[selectedRun]} />}
-                <div className="grid gap-2">
-                  {(selectedRun.node_runs || []).map((nodeRun) => (
-                    <div key={nodeRun.id} className="rounded-md border border-kumo-line p-3">
-                      <div className="flex items-center justify-between gap-3"><div className="font-semibold text-kumo-strong">{nodeRun.node_name}</div><Badge variant={statusBadgeVariant(nodeRun.status)} appearance="dot">{statusLabel(nodeRun.status)}</Badge></div>
-                      <div className="mt-2 text-xs text-kumo-subtle">{formatTimestamp(nodeRun.start_time)} / {nodeRun.duration ?? 0}s</div>
-                      <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-kumo-recessed p-3 text-xs text-kumo-default">{nodeRun.output || '无输出'}</pre>
-                      <Button size="sm" variant="secondary" className="mt-2" onClick={() => navigator.clipboard?.writeText(nodeRun.output || '')}><Copy className="h-3.5 w-3.5" />复制输出</Button>
-                    </div>
-                  ))}
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+                {selectedRun.workflow && <WorkflowCanvas workflow={selectedRun.workflow} runs={[selectedRun]} tasks={tasks} />}
+                <div className="grid gap-3">
+                  {(selectedRun.node_runs || []).map((nodeRun) => {
+                    const wfNode = (selectedRun.workflow?.nodes || []).find((n) => n.id === nodeRun.node_id || n.name === nodeRun.node_name);
+                    const linkedTask = tasks.find((t) => String(t.id) === String(wfNode?.task_id || nodeRun.task_id));
+                    const isAi = linkedTask?.type === 'ai';
+                    return (
+                      <div key={nodeRun.id} className="overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none">
+                        <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isAi ? 'bg-kumo-brand/10 text-kumo-brand' : 'bg-kumo-fill text-kumo-brand'}`}>
+                              {isAi ? <Sparkle className="h-4 w-4" /> : <Activity className="h-4 w-4" />}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-semibold text-kumo-strong">{nodeRun.node_name}</span>
+                                {isAi && <Badge variant="purple">AI</Badge>}
+                              </div>
+                              <div className="text-xs text-kumo-subtle">{formatTimestamp(nodeRun.start_time)} / {nodeRun.duration ?? 0}s</div>
+                            </div>
+                          </div>
+                          <Badge variant={statusBadgeVariant(nodeRun.status)} appearance="dot">{statusLabel(nodeRun.status)}</Badge>
+                        </div>
+                        <div className="px-4 py-3">
+                          {isAi ? (
+                            <div className="max-h-80 overflow-auto">
+                              <MarkdownOutput text={nodeRun.output} />
+                            </div>
+                          ) : (
+                            <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-kumo-recessed p-3 text-xs text-kumo-default">{nodeRun.output || '无输出'}</pre>
+                          )}
+                          <Button size="sm" variant="secondary" className="mt-2" onClick={() => navigator.clipboard?.writeText(nodeRun.output || '')}><Copy className="h-3.5 w-3.5" />复制输出</Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

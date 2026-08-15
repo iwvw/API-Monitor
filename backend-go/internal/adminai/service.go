@@ -36,6 +36,7 @@ type Service struct {
 	sessionRuns map[string]string        // sessionId -> runId，同一会话只允许一个活跃执行
 	cancels     map[string]context.CancelFunc // runId -> runCtx 取消函数（订阅后仍可真正终止执行）
 	approval    map[string]chan approvalResolution // approvalId -> 审批结果通道
+	runAutoApprove map[string]bool // runId -> 定时任务策略「完全允许」：该次执行写操作免审批
 
 	catalogMu   sync.Mutex // 确定性接口清单缓存（apiCatalogText）
 	catalogText string
@@ -55,6 +56,7 @@ func New(cfg config.Config) *Service {
 		sessionRuns: make(map[string]string),
 		cancels:     make(map[string]context.CancelFunc),
 		approval:    make(map[string]chan approvalResolution),
+		runAutoApprove: make(map[string]bool),
 	}
 }
 
@@ -288,6 +290,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleSettings(w, r)
 	case path == "/cron/daily-briefing" && r.Method == http.MethodGet:
 		s.handleDailyBriefing(w, r)
+	case path == "/cron/task-run" && r.Method == http.MethodPost:
+		s.handleCronTaskRun(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "管理 AI 路由不存在")
 	}

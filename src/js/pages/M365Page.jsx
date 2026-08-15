@@ -315,7 +315,7 @@ function clampPercent(value) {
 function formatMetricNumber(value) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) return '0';
-  return numericValue.toLocaleString('en-US');
+  return numericValue.toLocaleString('en-US', { useGrouping: false });
 }
 
 function formatDateOnly(value) {

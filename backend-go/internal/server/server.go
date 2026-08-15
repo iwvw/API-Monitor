@@ -415,7 +415,7 @@ func isLoopbackRemoteAddr(remoteAddr string) bool {
 
 // isInternalCronRoute 判断路径是否为登记的本机定时任务内部接口。
 func isInternalCronRoute(path string) bool {
-	return path == "/api/admin-ai/cron/daily-briefing"
+	return path == "/api/admin-ai/cron/daily-briefing" || path == "/api/admin-ai/cron/task-run"
 }
 
 func hasAPIKeyCredential(r *http.Request) bool {
@@ -501,10 +501,14 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.server.ServeHTTP(w, r)
 	case "/socket.io/":
 		s.server.ServeHTTP(w, r)
-	case "/api/admin-ai", "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/messages/stream", "/api/admin-ai/cancel", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings":
+	case "/api/admin-ai", "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/cron/task-run", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/messages/stream", "/api/admin-ai/cancel", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings":
 		s.adminai.ServeHTTP(w, r)
 	default:
 		if strings.HasPrefix(route.Prefix, "/sub/") || strings.HasPrefix(r.URL.Path, "/sub/") {
+			s.sub.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(route.Prefix, "/api/subscription") {
 			s.sub.ServeHTTP(w, r)
 			return
 		}

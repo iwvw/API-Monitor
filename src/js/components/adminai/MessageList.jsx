@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Loader } from '@cloudflare/kumo';
-import { ChevronDown, Sparkle, Copy, Check, X } from '../Icons.jsx';
+import { Button, Loader, Textarea } from '@cloudflare/kumo';
+import { ChevronDown, Sparkle, Copy, Check, X, Edit } from '../Icons.jsx';
 import ToolCallCard from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { isStreaming } from '../../modules/adminAiMessages.js';
@@ -418,31 +418,6 @@ function ThinkingBlock({ thinking, streaming }) {
   );
 }
 
-/* ---------- 助手消息底部反馈操作 ---------- */
-function FeedbackRow({ onCopy }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = async () => {
-    await onCopy();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <div className="mt-1 flex items-center gap-1 text-kumo-subtle">
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        shape="square"
-        onClick={handleCopy}
-        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-kumo-tint"
-        aria-label="复制回答"
-      >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </Button>
-    </div>
-  );
-}
-
 /* ---------- 消息定义块分发 ---------- */
 function MessageBlock({ block, streaming, onResolveApproval, onRetry }) {
   switch (block.type) {
@@ -471,11 +446,26 @@ function MessageBlock({ block, streaming, onResolveApproval, onRetry }) {
 }
 
 /* ---------- 消息列表 ---------- */
-export default function MessageList({ messages, onResolveApproval, onRetry }) {
+export default function MessageList({ messages, onResolveApproval, onRetry, onEditResend }) {
   const listRef = useRef(null);
   const userScrolledUp = useRef(false);
   // 超长回复折叠状态（按消息 id 独立记忆），由「代理」标签点击切换
   const [collapsedIds, setCollapsedIds] = useState({});
+  // 用户消息编辑态：{ id, text }
+  const [editing, setEditing] = useState(null);
+  const editRef = useRef(null);
+
+  useEffect(() => {
+    if (editing) editRef.current?.focus();
+  }, [editing]);
+
+  const saveEdit = () => {
+    const text = (editing?.text || '').trim();
+    if (!text) return;
+    const id = editing.id;
+    setEditing(null);
+    onEditResend?.(id, text);
+  };
 
   useEffect(() => {
     const el = listRef.current;
@@ -493,7 +483,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry }) {
   if (!messages || messages.length === 0) return null;
 
   return (
-    <div ref={listRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain scrollbar-thin px-1.5">
+    <div ref={listRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain scrollbar-thin px-1.5 pt-4 pb-4">
       <div className="flex w-full flex-col gap-4">
         {messages.map((msg, idx) => {
           const streaming = isStreaming(msg.status);
@@ -516,9 +506,47 @@ export default function MessageList({ messages, onResolveApproval, onRetry }) {
             className={`flex w-full flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
           >
             {msg.role === 'user' ? (
-              <div className="w-fit max-w-prose rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
-                <TextBlock text={msg.content} />
-              </div>
+              editing && editing.id === msg.id ? (
+                <div className="w-fit max-w-prose">
+                  <div className="flex flex-col gap-2 rounded-2xl rounded-tr-md bg-kumo-base p-3 ring-1 ring-kumo-brand/40">
+                    <Textarea
+                      ref={editRef}
+                      rows={1}
+                      value={editing.text}
+                      onChange={(e) => setEditing((prev) => ({ ...prev, text: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                          e.preventDefault();
+                          saveEdit();
+                        }
+                      }}
+                      className="!ring-0 max-h-48 w-full resize-none rounded-lg border-0 bg-transparent p-0 text-sm text-kumo-default outline-none"
+                      style={{ maxHeight: 220 }}
+                    />
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>取消</Button>
+                      <Button type="button" size="sm" variant="primary" onClick={saveEdit} disabled={!editing.text.trim()}>保存并重发</Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="group relative flex w-fit max-w-prose items-start gap-1.5">
+                  <div className="rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                    <TextBlock text={msg.content} />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    shape="square"
+                    onClick={() => setEditing({ id: msg.id, text: msg.content || '' })}
+                    className="absolute -left-8 top-1/2 z-10 !h-6 !w-6 -translate-y-1/2 !rounded-md !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
+                    aria-label="编辑重发"
+                  >
+                    <Edit className="h-3 w-3" />
+                  </Button>
+                </div>
+              )
             ) : (
               <div className="flex w-full flex-col gap-1">
                 <ReasoningBlock text={msg.reasoning} summary={msg.reasoningSummary} streaming={streaming && !hasText} />
@@ -589,7 +617,6 @@ export default function MessageList({ messages, onResolveApproval, onRetry }) {
                   </div>
                   </div>
                   )}
-                  <FeedbackRow onCopy={() => navigator.clipboard.writeText(msg.content || msg.blocks?.map((b) => b.text || '').join('\n') || '')} />
                 </div>
               </div>
             )}

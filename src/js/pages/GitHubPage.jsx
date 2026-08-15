@@ -185,7 +185,7 @@ const tokenTestStatusLabel = (status) => ({
   unknown: '未检测',
 }[String(status || '').toLowerCase()] || status || '未检测');
 
-const formatNumber = (value) => Number(value || 0).toLocaleString();
+const formatNumber = (value) => Number(value || 0).toLocaleString('en-US', { useGrouping: false });
 const formatDateTime = (value) => {
   if (!value) return '-';
   const date = new Date(value);

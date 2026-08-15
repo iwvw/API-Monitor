@@ -217,7 +217,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 			COUNT(*), 
 			COALESCE(AVG(latency_ms), 0.0), 
 			COALESCE(SUM(total_tokens), 0),
-			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+			COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(cached_tokens), 0),
 			COALESCE(SUM(prompt_tokens), 0),
 			COALESCE(SUM(completion_tokens), 0)

@@ -2,6 +2,7 @@ package cronjobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -71,6 +72,53 @@ func containsString(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestCronSecondsFieldNormalization(t *testing.T) {
+	service := newCronService(t)
+
+	// 带秒的 6 段表达式（秒段为 0）应被规范化为标准 5 段并成功预览
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/cron/preview", `{"schedule":"0 0 2 * * *","count":5}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("preview 6-field status = %d body=%s", res.Code, res.Body.String())
+	}
+	preview := decodeCronData[struct {
+		Schedule string  `json:"schedule"`
+		Summary  string  `json:"summary"`
+		Next     []int64 `json:"next"`
+	}](t, res)
+	if preview.Summary == "" || len(preview.Next) != 5 {
+		t.Fatalf("unexpected normalized preview: %#v", preview)
+	}
+	if preview.Summary != "每天 02:00 执行" {
+		t.Fatalf("unexpected normalized summary: %q", preview.Summary)
+	}
+
+	// 秒段非 0 的 6 段表达式应明确拒绝，避免静默改变语义
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/cron/preview", `{"schedule":"30 0 2 * * *","count":5}`)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("preview non-zero seconds status = %d body=%s", res.Code, res.Body.String())
+	}
+
+	// 创建任务时归一化并持久化
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/tasks", `{"name":"Daily2","schedule":"0 0 2 * * *","command":"echo ok","type":"shell","enabled":1}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create scheduler task status = %d body=%s", res.Code, res.Body.String())
+	}
+	task := decodeCronData[SchedulerTask](t, res)
+	if task.Schedule != "0 2 * * *" {
+		t.Fatalf("expected normalized schedule, got %q", task.Schedule)
+	}
+
+	// 工作流同样归一化
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/workflows", `{"name":"Flow","schedule":"0 0 2 * * *","enabled":1,"nodes":[{"id":"a","name":"A","type":"shell","command":"echo hi","enabled":1}],"edges":[]}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	workflow := decodeCronData[Workflow](t, res)
+	if workflow.Schedule != "0 2 * * *" {
+		t.Fatalf("expected normalized workflow schedule, got %q", workflow.Schedule)
+	}
 }
 
 func TestSchedulerWorkflowDagValidationAndRun(t *testing.T) {
@@ -266,4 +314,66 @@ func (r *flakyAgentRunner) RunCommandTaskAndWait(serverID string, command string
 		return "", fmt.Errorf("temporary failure")
 	}
 	return "agent ok", nil
+}
+
+func TestSchedulerTaskEnabledIntOrBool(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		expected int
+	}{
+		{"int zero", `{"name":"t","command":"echo hi","enabled":0}`, 0},
+		{"int one", `{"name":"t","command":"echo hi","enabled":1}`, 1},
+		{"bool false", `{"name":"t","command":"echo hi","enabled":false}`, 0},
+		{"bool true", `{"name":"t","command":"echo hi","enabled":true}`, 1},
+		{"omitted defaults to one", `{"name":"t","command":"echo hi"}`, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var payload schedulerTaskPayload
+			if err := json.Unmarshal([]byte(c.raw), &payload); err != nil {
+				t.Fatalf("unmarshal failed: %v", err)
+			}
+			actual := intOrBoolValue(payload.Enabled, 1)
+			if actual != c.expected {
+				t.Fatalf("enabled = %d, want %d", actual, c.expected)
+			}
+		})
+	}
+}
+
+func TestSchedulerTaskConfigPassthrough(t *testing.T) {
+	raw := `{"name":"AI 任务","command":"说明系统状态","type":"ai","config":"{\"model\":\"test-model\",\"policy\":\"readonly\",\"channelId\":\"aac_1\"}"}`
+	var payload schedulerTaskPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	task, err := buildSchedulerTask(payload, nil)
+	if err != nil {
+		t.Fatalf("buildSchedulerTask failed: %v", err)
+	}
+	if task.Type != "ai" {
+		t.Fatalf("type = %q, want ai", task.Type)
+	}
+	if task.Config == "" {
+		t.Fatal("config was dropped")
+	}
+	var cfg map[string]string
+	if err := json.Unmarshal([]byte(task.Config), &cfg); err != nil {
+		t.Fatalf("config not valid JSON: %v", err)
+	}
+	if cfg["policy"] != "readonly" || cfg["model"] != "test-model" || cfg["channelId"] != "aac_1" {
+		t.Fatalf("unexpected config: %v", cfg)
+	}
+}
+
+func TestSchedulerTaskConfigRejectsInvalidJSON(t *testing.T) {
+	raw := `{"name":"AI 任务","command":"说明系统状态","type":"ai","config":"not-json"}`
+	var payload schedulerTaskPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, err := buildSchedulerTask(payload, nil); err == nil {
+		t.Fatal("expected error for invalid config JSON")
+	}
 }

@@ -4,11 +4,11 @@ import { ChatsCircle } from '@phosphor-icons/react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Textarea } from '@cloudflare/kumo/components/input';
-import { Empty, Sidebar, Tooltip } from '@cloudflare/kumo';
+import { Empty, Sidebar, Tabs, Tooltip } from '@cloudflare/kumo';
 import useStore from '../../store.js';
 import {
   Sparkle, X, Send, Plus, ChevronDown, Settings as SettingsIcon,
-  Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Bot,
+  Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Terminal,
 } from '../Icons.jsx';
 import MessageList from './MessageList.jsx';
 import AdminConsole from './AdminConsole.jsx';
@@ -83,7 +83,7 @@ function EmptyState({ onPrompt }) {
                 variant="ghost"
                 type="button"
                 onClick={() => onPrompt(p.subtitle || p.title)}
-                className="group relative flex w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-kumo-brand/40 hover:bg-kumo-base hover:shadow-[0_0_12px_-2px_var(--color-kumo-shadow-drop)]"
+                className="group relative flex !h-auto w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-kumo-brand/40 hover:bg-kumo-base hover:shadow-[0_0_12px_-2px_var(--color-kumo-shadow-drop)]"
               >
                 <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-kumo-brand/80 to-kumo-brand transition-all duration-200 group-hover:h-5" />
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 transition-colors duration-200 group-hover:bg-kumo-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-kumo-brand/20">
@@ -110,31 +110,12 @@ function DotGrid({ surfaceRef }) {
     </div>
   );
 }
- /* ---------- 行为模式菜单 ---------- */
-function BehaviorMenu({ behavior, onSelect }) {
-  return (
-    <div className="absolute bottom-full left-0 mb-1 z-40 w-44 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line dark:bg-kumo-base">
-      <Button
-        size="sm"
-        variant="ghost"
-        type="button"
-        onClick={() => onSelect('ask')}
-        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${behavior === 'ask' ? 'bg-kumo-fill font-medium text-kumo-default' : 'text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default'}`}
-      >
-        <Sparkle className="h-3.5 w-3.5" /> 询问
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        type="button"
-        onClick={() => onSelect('agent')}
-        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${behavior === 'agent' ? 'bg-kumo-fill font-medium text-kumo-default' : 'text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default'}`}
-      >
-        <Bot className="h-3.5 w-3.5" /> 代理
-      </Button>
-    </div>
-  );
-}
+
+/* ---------- 行为模式分段切换（kumo Tabs segmented） ---------- */
+const BEHAVIOR_TABS = [
+  { value: 'ask', label: (<span className="inline-flex items-center gap-1"><Sparkle className="h-3 w-3" />询问</span>) },
+  { value: 'agent', label: (<span className="inline-flex items-center gap-1"><Terminal className="h-3 w-3" />代理</span>) },
+];
 
 /* ---------- @ 资源菜单（域列表面板） ---------- */
 function AtResourceMenu({ zones, error, loading, onInsert }) {
@@ -182,12 +163,11 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   });
   const [expanded, setExpanded] = useState(false);
   const [fullscreenSidebar, setFullscreenSidebar] = useState(true);
-  const [behaviorMenuOpen, setBehaviorMenuOpen] = useState(false);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false); // 管理视图（设置/频道/审计收进侧栏）
   const [pendingApproval, setPendingApproval] = useState(null); // 写操作审批弹窗（approval 事件触发）
   const [behavior, setBehavior] = useState(() => {
-    try { return localStorage.getItem('adminai-behavior') === 'agent' ? 'agent' : 'ask'; } catch { return 'ask'; }
+    try { return localStorage.getItem('adminai-behavior') === 'ask' ? 'ask' : 'agent'; } catch { return 'agent'; }
   });
 
   // 背景光斑（鼠标跟随橙色光斑）
@@ -347,13 +327,12 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [showAskAI, expanded, manageOpen, setShowAskAI]);
 
-  /* 菜单外部点击关闭（@ / 行为 / 会话） */
+  /* 菜单外部点击关闭（@ / 会话） */
   useEffect(() => {
     if (!showAskAI) return undefined;
     const onDown = (e) => {
       if (e.target && e.target.closest && e.target.closest('[data-askai-menu]')) return;
       setSessionMenuOpen(false);
-      setBehaviorMenuOpen(false);
       setAtMenuOpen(false);
     };
     window.addEventListener('mousedown', onDown);
@@ -474,13 +453,41 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
    const chooseBehavior = (mode) => {
     setBehavior(mode);
     try { localStorage.setItem('adminai-behavior', mode); } catch { }
-    setBehaviorMenuOpen(false);
   };
-   const handleSend = async (promptOverride) => {
+   /* 发起一轮执行：发送 prompt 并将流式响应挂到 assistantId 消息 */
+  const startRun = async (sessionId, trimmed, assistantId) => {
+    lastPromptRef.current = trimmed;
+    const failWith = (message) => {
+      setMessages((prev) => failMessage(prev, assistantId, message, trimmed));
+    };
+    try {
+      const res = await fetch('/api/admin-ai/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, prompt: trimmed }),
+      });
+      if (!res.ok) {
+        let msg = `发送失败（HTTP ${res.status}）`;
+        try {
+          const data = await res.json();
+          msg = (data?.error?.message) || msg;
+        } catch { }
+        failWith(msg);
+        return;
+      }
+      const data = await res.json();
+      const body = data && data.data ? data.data : data;
+      if (body.runId) startStream(body.runId, assistantId);
+      else failWith('未能启动执行，请重试');
+    } catch {
+      failWith('发送失败，请重试');
+    }
+  };
+
+  const handleSend = async (promptOverride) => {
     const trimmed = (promptOverride === undefined ? input : promptOverride).trim();
     if (!trimmed || streaming) return;
 
-    lastPromptRef.current = trimmed;
     if (promptOverride === undefined) setInput('');
     setAtMenuOpen(false);
     let sessionId = activeSessionId;
@@ -516,33 +523,21 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       createUserMessage(`user_${Date.now()}`, trimmed),
       createAssistantMessage(assistantMsgId),
     ]);
+    await startRun(sessionId, trimmed, assistantMsgId);
+  };
 
-    const failWith = (message) => {
-      setMessages((prev) => failMessage(prev, assistantMsgId, message, trimmed));
-    };
-
-    try {
-      const res = await fetch('/api/admin-ai/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, prompt: trimmed }),
-      });
-      if (!res.ok) {
-        let msg = `发送失败（HTTP ${res.status}）`;
-        try {
-          const data = await res.json();
-          msg = (data?.error?.message) || msg;
-        } catch { }
-        failWith(msg);
-        return;
-      }
-      const data = await res.json();
-      const body = data && data.data ? data.data : data;
-      if (body.runId) startStream(body.runId, assistantMsgId);
-      else failWith('未能启动执行，请重试');
-    } catch {
-      failWith('发送失败，请重试');
-    }
+  /* 编辑用户消息并重发：截断其后所有消息，更新文本后重新执行 */
+  const handleEditResend = async (messageId, newText) => {
+    const trimmed = newText.trim();
+    if (!trimmed || streaming) return;
+    const assistantMsgId = `assistant_${Date.now()}`;
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === messageId);
+      if (idx === -1) return [...prev, createAssistantMessage(assistantMsgId)];
+      const base = prev.slice(0, idx + 1).map((m, i) => (i === idx ? { ...m, content: trimmed } : m));
+      return [...base, createAssistantMessage(assistantMsgId)];
+    });
+    await startRun(activeSessionId, trimmed, assistantMsgId);
   };
 
   const handleCancel = async () => {
@@ -804,18 +799,18 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             </Button>
           </div>
            <div className="flex min-h-0 flex-1">
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-6 pt-6 pb-2 cq-md:px-8 cq-md:pt-8 cq-xl:px-10 cq-xl:pt-9">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-6 cq-md:px-8 cq-xl:px-10">
               <DotGrid />
-              <div className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-4">
+              <div className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
                   {messages.length === 0 ? (
                     <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
                   ) : (
-                    <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} />
+                    <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
                   )}
                 </div>
                 {/* 全屏输入区（实底不透明，与消息区无缝衔接） */}
-                <div className="z-10 shrink-0">
+                <div className="z-10 shrink-0 pb-2">
                   <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
               <Textarea
                 ref={textareaRef}
@@ -825,38 +820,31 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 onInput={resizeTextarea}
                 onKeyDown={handleTextareaKeyDown}
                 placeholder={placeholder}
-                className="h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
+                className="!ring-0 focus:!ring-0 h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
                 style={{ maxHeight: 256 }}
               />
               {atMenuOpen && (
                 <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
               )}
               <div className="flex items-center justify-between gap-1 p-4 pt-1.5">
-                              <div className="relative" data-askai-menu>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => { setSessionMenuOpen(false); setAtMenuOpen(false); setBehaviorMenuOpen(!behaviorMenuOpen); }} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs" aria-label="Edit behavior">
-                    {behavior === 'agent' ? <Bot className="h-3 w-3" /> : <Sparkle className="h-3 w-3" />}
-                    {behavior === 'agent' ? '代理' : '询问'}
-                  </Button>
-                  {behaviorMenuOpen && <BehaviorMenu behavior={behavior} onSelect={chooseBehavior} />}
-                </div>
+                <Tabs size="sm" variant="segmented" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
                 <div className="flex items-center gap-1">
                   <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => { setExpanded(false); setManageOpen(true); }} aria-label="设置">
                     <SettingsIcon className="h-3.5 w-3.5" />
                   </Button>
                 {streaming ? (
-                  <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleCancel} className="!rounded-full !bg-kumo-fill !text-kumo-danger !ring-1 !ring-kumo-line hover:!bg-kumo-danger/10" aria-label="停止生成">
+                  <Button type="button" size="sm" variant="secondary-destructive" shape="circle" onClick={handleCancel} aria-label="停止生成">
                     <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
                   </Button>
 ) : (
                   <Button
                     type="button"
-                    size="sm"
-                    variant="primary"
-                    shape="square"
-                    onClick={handleSend}
-                    disabled={!input.trim()}
-                    className="!rounded-full !bg-gradient-to-b !from-kumo-brand !to-kumo-brand-hover !text-white !shadow-sm hover:!shadow disabled:!cursor-not-allowed disabled:!opacity-40 disabled:!shadow-none"
-                    aria-label="发送"
+                        size="sm"
+                        variant="primary"
+                        shape="circle"
+                        onClick={handleSend}
+                        disabled={!input.trim()}
+                        aria-label="发送"
                   >
                     <Send className="h-3.5 w-3.5" />
                   </Button>
@@ -886,9 +874,14 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       {/* 写操作审批浮层：侧栏内滑出（输入区上方），不遮挡主画布 */}
       {pendingApproval && approvalOverlay('inset-x-3 bottom-[132px]')}
 
-      {manageOpen ? (
-        <>
-          {/* ===== 管理视图（设置/频道/审计收进侧栏） ===== */}
+      {/* 双视图滑动切换（对话 ⇄ 管理），避免生硬跳变 */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {/* ===== 管理视图（设置/频道/审计收进侧栏） ===== */}
+        <div
+          className={`absolute inset-0 flex flex-col transition-[transform,opacity,visibility] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] ${
+            manageOpen ? 'visible translate-x-0 opacity-100' : 'pointer-events-none invisible translate-x-8 opacity-0'
+          }`}
+        >
           <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
             <Button
               type="button"
@@ -915,17 +908,21 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4">
             <AdminConsole />
           </div>
-        </>
-      ) : (
-        <>
-      {/* ===== Header（58px） ===== */}
-      <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
+        </div>
+
+        {/* ===== 对话视图 ===== */}
+        <div
+          className={`absolute inset-0 flex flex-col transition-[transform,opacity,visibility] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] ${
+            manageOpen ? 'pointer-events-none invisible -translate-x-8 opacity-0' : 'visible translate-x-0 opacity-100'
+          }`}
+        >
+          <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
         <div className="relative flex items-center" data-askai-menu>
           <Button
             type="button"
             size="sm"
             variant="ghost"
-            onClick={() => { setBehaviorMenuOpen(false); setAtMenuOpen(false); setSessionMenuOpen(!sessionMenuOpen); }}
+            onClick={() => { setAtMenuOpen(false); setSessionMenuOpen(!sessionMenuOpen); }}
             className={`flex h-8 max-w-[200px] min-w-0 items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-medium ${
               sessionMenuOpen
                 ? 'bg-kumo-tint text-kumo-strong'
@@ -1023,13 +1020,13 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       {/* ===== Body + Footer（点阵背景；消息区与输入框上下无缝衔接） ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <DotGrid surfaceRef={spotlightSidebarRef} />
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-hidden px-4 pt-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-hidden px-4">
           <div className="relative flex min-h-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1 flex-col">
               {messages.length === 0 ? (
                 <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
               ) : (
-                <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} />
+                <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
               )}
             </div>
           </div>
@@ -1046,26 +1043,20 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
               onInput={resizeTextarea}
               onKeyDown={handleTextareaKeyDown}
               placeholder={placeholder}
-              className="h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
+              className="!ring-0 focus:!ring-0 h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
               style={{ maxHeight: 256 }}
             />
             {atMenuOpen && (
               <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
             )}
             <div className="flex items-center justify-between gap-1 p-4 pt-1.5">
-              <div className="relative" data-askai-menu>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { setSessionMenuOpen(false); setAtMenuOpen(false); setBehaviorMenuOpen(!behaviorMenuOpen); }} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs" aria-label="行为模式">
-                  {behavior === 'agent' ? <Bot className="h-3 w-3" /> : <Sparkle className="h-3 w-3" />}
-                  {behavior === 'agent' ? '代理' : '询问'}
-                </Button>
-                {behaviorMenuOpen && <BehaviorMenu behavior={behavior} onSelect={chooseBehavior} />}
-              </div>
+              <Tabs size="sm" variant="segmented" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
               <div className="flex items-center gap-1">
                 <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => setManageOpen(true)} aria-label="设置">
                   <SettingsIcon className="h-3.5 w-3.5" />
                 </Button>
                 {streaming ? (
-                  <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleCancel} className="!rounded-full !bg-kumo-fill !text-kumo-danger !ring-1 !ring-kumo-line hover:!bg-kumo-danger/10" aria-label="停止生成">
+                  <Button type="button" size="sm" variant="secondary-destructive" shape="circle" onClick={handleCancel} aria-label="停止生成">
                     <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
                   </Button>
                 ) : (
@@ -1073,9 +1064,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                     type="submit"
                     size="sm"
                     variant="primary"
-                    shape="square"
+                    shape="circle"
                     disabled={!input.trim()}
-                    className="!rounded-full !bg-gradient-to-b !from-kumo-brand !to-kumo-brand-hover !text-white !shadow-sm hover:!shadow disabled:!cursor-not-allowed disabled:!opacity-40 disabled:!shadow-none"
                     aria-label="发送"
                   >
                     <Send className="h-3.5 w-3.5" />
@@ -1087,8 +1077,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         </form>
         </div>
       </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 

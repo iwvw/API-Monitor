@@ -936,7 +936,7 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
             key={item.model}
             name={item.model}
             color={item.color}
-            value={item.total.toLocaleString()}
+            value={item.total.toLocaleString('en-US', { useGrouping: false })}
             unit="次"
             inactive={hiddenSeries[item.model] ?? false}
             onClick={() => handleClick(item.model)}
@@ -4560,7 +4560,7 @@ if (!response.ok) {
                           {key.expiresAt ? formatDateTime(key.expiresAt) : '永不过期'}
                         </Table.Cell>
                         <Table.Cell className="text-center font-mono text-[0.9em] text-kumo-strong">
-                          {(key.requestCount || 0).toLocaleString()}
+                          {(key.requestCount || 0).toLocaleString('en-US', { useGrouping: false })}
                         </Table.Cell>
                         <Table.Cell className="text-center font-mono text-[0.9em]">
                           {key.maxTokensQuota > 0 ? (
@@ -4572,15 +4572,15 @@ if (!response.ok) {
                                     : 'text-kumo-strong'
                                 }
                               >
-                                {(key.totalTokensUsed || 0).toLocaleString()}
+{(key.totalTokensUsed || 0).toLocaleString('en-US', { useGrouping: false })}
                               </span>
                               <span className="text-kumo-subtle">
-                                / {key.maxTokensQuota.toLocaleString()}
+                                / {key.maxTokensQuota.toLocaleString('en-US', { useGrouping: false })}
                               </span>
                             </span>
                           ) : (
                             <span className="text-kumo-subtle">
-                              {(key.totalTokensUsed || 0).toLocaleString()}
+                              {(key.totalTokensUsed || 0).toLocaleString('en-US', { useGrouping: false })}
                             </span>
                           )}
                         </Table.Cell>

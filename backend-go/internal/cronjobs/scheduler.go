@@ -25,6 +25,7 @@ type SchedulerTask struct {
 	MaxConcurrency       int     `json:"max_concurrency"`
 	NodeID               string  `json:"node_id"`
 	NodeSelector         string  `json:"node_selector"`
+	Config               string  `json:"config"` // AI 任务扩展配置（JSON：model/policy/channelId 等）
 	ScheduleSummary      string  `json:"schedule_summary"`
 	RecentStatus         *string `json:"recent_status,omitempty"`
 }
@@ -105,18 +106,19 @@ type SchedulerNode struct {
 }
 
 type schedulerTaskPayload struct {
-	Name                 *string `json:"name"`
-	Description          *string `json:"description"`
-	Schedule             *string `json:"schedule"`
-	Command              *string `json:"command"`
-	Type                 *string `json:"type"`
-	Enabled              *int    `json:"enabled"`
-	TimeoutSeconds       *int    `json:"timeout_seconds"`
-	RetryCount           *int    `json:"retry_count"`
-	RetryIntervalSeconds *int    `json:"retry_interval_seconds"`
-	MaxConcurrency       *int    `json:"max_concurrency"`
-	NodeID               *string `json:"node_id"`
-	NodeSelector         *string `json:"node_selector"`
+	Name                 *string     `json:"name"`
+	Description          *string     `json:"description"`
+	Schedule             *string     `json:"schedule"`
+	Command              *string     `json:"command"`
+	Type                 *string     `json:"type"`
+	Enabled              *intOrBool  `json:"enabled"`
+	TimeoutSeconds       *int        `json:"timeout_seconds"`
+	RetryCount           *int        `json:"retry_count"`
+	RetryIntervalSeconds *int        `json:"retry_interval_seconds"`
+	MaxConcurrency       *int        `json:"max_concurrency"`
+	NodeID               *string     `json:"node_id"`
+	NodeSelector         *string     `json:"node_selector"`
+	Config               *string     `json:"config"`
 }
 
 type workflowPayload struct {
@@ -135,6 +137,32 @@ type schedulerNodePayload struct {
 	Labels         []string `json:"labels"`
 	MaxConcurrency *int     `json:"max_concurrency"`
 	CapabilityNote *string  `json:"capability_note"`
+}
+
+// intOrBool 兼容 JSON 数字（0/1）与布尔值的 enabled 字段，
+// 使调用方按契约传 boolean 或按实现传 integer 都能正确解析。
+type intOrBool int
+
+func (v *intOrBool) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*v = 0
+		return nil
+	}
+	var integer int
+	if err := json.Unmarshal(data, &integer); err == nil {
+		*v = intOrBool(integer)
+		return nil
+	}
+	var boolean bool
+	if err := json.Unmarshal(data, &boolean); err == nil {
+		if boolean {
+			*v = 1
+		} else {
+			*v = 0
+		}
+		return nil
+	}
+	return fmt.Errorf("enabled 必须是布尔值或整数")
 }
 
 func (s *Service) serveSchedulerHTTP(w http.ResponseWriter, r *http.Request) {
@@ -836,7 +864,7 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 		task.Type = strings.TrimSpace(*payload.Type)
 	}
 	if payload.Enabled != nil {
-		task.Enabled = *payload.Enabled
+		task.Enabled = int(*payload.Enabled)
 	}
 	if payload.TimeoutSeconds != nil {
 		task.TimeoutSeconds = *payload.TimeoutSeconds
@@ -856,6 +884,12 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 	if payload.NodeSelector != nil {
 		task.NodeSelector = strings.TrimSpace(*payload.NodeSelector)
 	}
+	if payload.Config != nil {
+		task.Config = strings.TrimSpace(*payload.Config)
+	}
+	if task.Config != "" && !json.Valid([]byte(task.Config)) {
+		return SchedulerTask{}, fmt.Errorf("config 必须是合法 JSON 字符串")
+	}
 	if task.Name == "" {
 		return SchedulerTask{}, fmt.Errorf("任务名称不能为空")
 	}
@@ -866,9 +900,11 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 		return SchedulerTask{}, err
 	}
 	if task.Schedule != "" {
-		if _, err := cron.ParseStandard(task.Schedule); err != nil {
+		normalized, err := normalizeCronSchedule(task.Schedule)
+		if err != nil {
 			return SchedulerTask{}, fmt.Errorf("Cron 表达式无效: %w", err)
 		}
+		task.Schedule = normalized
 	}
 	if task.TimeoutSeconds <= 0 || task.TimeoutSeconds > 86400 {
 		return SchedulerTask{}, fmt.Errorf("超时时间必须在 1 到 86400 秒之间")
@@ -890,7 +926,7 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 
 func validateTaskType(taskType, command string) error {
 	switch taskType {
-	case "", "shell", "internal", "agent":
+	case "", "shell", "internal", "agent", "ai":
 	case "http":
 		if _, err := url.ParseRequestURI(command); err != nil || !strings.HasPrefix(command, "http") {
 			return fmt.Errorf("HTTP 任务需要有效 URL")
@@ -901,11 +937,18 @@ func validateTaskType(taskType, command string) error {
 	if taskType == "internal" && !strings.HasPrefix(command, "/") && !strings.Contains(command, " /") {
 		return fmt.Errorf("内部接口任务需要以 / 开头的路径，或 METHOD /path")
 	}
+	if taskType == "ai" && strings.TrimSpace(command) == "" {
+		return fmt.Errorf("AI 任务需要填写提示词")
+	}
 	return nil
 }
 
 func previewCronSchedule(schedule string, count int, start time.Time) ([]int64, string, error) {
-	parsed, err := cron.ParseStandard(strings.TrimSpace(schedule))
+	normalized, err := normalizeCronSchedule(schedule)
+	if err != nil {
+		return nil, "", fmt.Errorf("Cron 表达式无效: %w", err)
+	}
+	parsed, err := cron.ParseStandard(normalized)
 	if err != nil {
 		return nil, "", fmt.Errorf("Cron 表达式无效: %w", err)
 	}
@@ -915,7 +958,29 @@ func previewCronSchedule(schedule string, count int, start time.Time) ([]int64, 
 		cursor = parsed.Next(cursor)
 		next = append(next, cursor.Unix())
 	}
-	return next, cronSummary(schedule), nil
+	return next, cronSummary(normalized), nil
+}
+
+func normalizeCronSchedule(schedule string) (string, error) {
+	trimmed := strings.TrimSpace(schedule)
+	if trimmed == "" {
+		return "", nil
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 6 {
+		if fields[0] != "0" {
+			return "", fmt.Errorf("带秒的 Cron 仅支持秒段为 0（如 0 0 2 * * *），当前秒段为 %s", fields[0])
+		}
+		trimmed = strings.Join(fields[1:], " ")
+		fields = fields[1:]
+	}
+	if len(fields) != 5 {
+		return "", fmt.Errorf("expected exactly 5 fields, found %d", len(fields))
+	}
+	if _, err := cron.ParseStandard(trimmed); err != nil {
+		return "", err
+	}
+	return trimmed, nil
 }
 
 func cronSummary(schedule string) string {
@@ -930,14 +995,21 @@ func cronSummary(schedule string) string {
 	case hour == "*" && day == "*" && month == "*" && weekday == "*":
 		return fmt.Sprintf("每小时第 %s 分钟执行", minute)
 	case day == "*" && month == "*" && weekday == "*":
-		return fmt.Sprintf("每天 %s:%s 执行", hour, minute)
+		return fmt.Sprintf("每天 %s:%s 执行", padTwo(hour), padTwo(minute))
 	case day == "*" && month == "*":
-		return fmt.Sprintf("每周 %s %s:%s 执行", weekdayLabel(weekday), hour, minute)
+		return fmt.Sprintf("每周 %s %s:%s 执行", weekdayLabel(weekday), padTwo(hour), padTwo(minute))
 	case month == "*" && weekday == "*":
-		return fmt.Sprintf("每月 %s 日 %s:%s 执行", day, hour, minute)
+		return fmt.Sprintf("每月 %s 日 %s:%s 执行", day, padTwo(hour), padTwo(minute))
 	default:
 		return "自定义 Cron"
 	}
+}
+
+func padTwo(value string) string {
+	if len(value) == 1 && value[0] >= '0' && value[0] <= '9' {
+		return "0" + value
+	}
+	return value
 }
 
 func weekdayLabel(value string) string {
@@ -957,9 +1029,11 @@ func buildWorkflow(payload workflowPayload, id int64) (Workflow, error) {
 		return Workflow{}, fmt.Errorf("工作流至少需要一个节点")
 	}
 	if payload.Schedule != "" {
-		if _, err := cron.ParseStandard(payload.Schedule); err != nil {
+		normalized, err := normalizeCronSchedule(payload.Schedule)
+		if err != nil {
 			return Workflow{}, fmt.Errorf("Cron 表达式无效: %w", err)
 		}
+		payload.Schedule = normalized
 	}
 	workflow := Workflow{
 		ID:                id,

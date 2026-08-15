@@ -116,3 +116,9 @@ docs/archive/
 # 本地工具运行日志
 # ====================
 .playwright-cli/
+
+# ====================
+# 调试会话与工具生成物
+# ====================
+.dsh-session-inspect/
+rulesjs.json

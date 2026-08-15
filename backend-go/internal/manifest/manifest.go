@@ -374,6 +374,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/admin-ai/messages/stream", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseStream, Description: "管理 AI 推理事件流（SSE）", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/cancel", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 取消进行中的执行", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/cron/daily-briefing", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "定时任务 AI 站点简报（内部接口，仅供本机 cron 经 X-Internal-Cron 调用）", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/cron/task-run", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "定时任务 AI 执行（内部接口，仅供本机 cron 经 X-Internal-Cron 调用，策略默认完全允许写操作）", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channels", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道配置", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channels/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道更新/删除", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/approvals", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审批列表", MatchMode: MatchExact},

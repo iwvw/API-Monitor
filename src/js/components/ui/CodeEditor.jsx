@@ -51,7 +51,7 @@ export default function CodeEditor({
   placeholder = '',
   showLanguage = true,
   showHeader = true,
-  lineWrapping = false,
+  lineWrapping = true,
   variant = 'default',
 }) {
   const description = useMemo(() => findCodeLanguage({ fileName, language }), [fileName, language]);

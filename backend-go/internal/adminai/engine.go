@@ -1281,6 +1281,14 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 			return nil, err
 		}
 		if !autoApprove {
+			// 定时 AI 任务（X-Internal-Cron）策略「完全允许」：该次执行内写操作免审批，
+			// 仍受下方「写操作全局开关」硬约束（开关关闭时任何写操作都会被拒绝）。
+			s.mu.Lock()
+			runID := s.sessionRuns[sessionID]
+			autoApprove = s.runAutoApprove[runID]
+			s.mu.Unlock()
+		}
+		if !autoApprove {
 			// 会话级写授权（“允许此对话”）优先于全局开关，授权后本会话后续写操作免审批
 			sessionWrite, err := s.isSessionWriteEnabled(ctx, db, sessionID)
 			if err != nil {

@@ -206,7 +206,7 @@ const COMPACT_INLINE_SUBBOX_CLASS = 'border border-kumo-interact/70 shadow-none'
 const COMPACT_STICKY_ACTION_CLASS = 'border-l border-kumo-interact/60 before:!w-1 before:!-left-1';
 const COMPACT_ACTION_BUTTON_CLASS = '!shadow-none';
 const SERVER_SECTION_HEADER_CLASS = 'flex min-h-[56px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-4 py-3.5';
-const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-col gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 cq-lg:flex-row cq-lg:items-center cq-lg:justify-between';
+const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-wrap items-center gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 cq-lg:justify-between';
 const SERVER_SECONDARY_TABS_GROUP_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap p-0.5 scrollbar-thin cq-sm:gap-2';
 const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-kumo-brand';
 const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
@@ -7928,14 +7928,6 @@ function ServerPage() {
                 onClick={() => setServerMapOpen(prev => !prev)}
               />
             </div>
-
-            <ResponsiveSearchInput
-              value={serverSearchText}
-              onChange={e => setServerSearchText(e.target.value)}
-              placeholder="搜索主机名称、IP 或标签..."
-              ariaLabel="搜索主机"
-              className="cq-lg:w-72"
-            />
           </div>
 
           {/* 列表渲染 */}

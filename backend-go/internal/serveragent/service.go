@@ -2700,7 +2700,7 @@ func (s *Service) handleMonitor(w http.ResponseWriter, r *http.Request, db *sql.
 func (s *Service) getMonitorStatus(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	var interval int
 	var autoStart int
-	err := db.QueryRowContext(r.Context(), "SELECT metrics_collect_interval, auto_start FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart)
+	err := db.QueryRowContext(r.Context(), "SELECT COALESCE(metrics_collect_interval, 300), auto_start FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2807,7 +2807,7 @@ func (s *Service) startMetricsCollectorLoop(ctx context.Context) {
 		var interval int
 		var autoStart int
 		var retentionDays int
-		err = db.QueryRowContext(loopCtx, "SELECT metrics_collect_interval, auto_start, metrics_retention_days FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart, &retentionDays)
+		err = db.QueryRowContext(loopCtx, "SELECT COALESCE(metrics_collect_interval, 300), auto_start, COALESCE(metrics_retention_days, 30) FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart, &retentionDays)
 		if err != nil {
 			db.Close()
 			cancel()
@@ -2843,7 +2843,7 @@ func (s *Service) getMonitorConfig(w http.ResponseWriter, r *http.Request, db *s
 	var id, probeInterval, probeTimeout, logRetentionDays, maxConnections, sessionTimeout, autoStart, metricsCollectInterval, metricsRetentionDays int
 	var updatedAt string
 
-	err := db.QueryRowContext(r.Context(), "SELECT id, probe_interval, probe_timeout, log_retention_days, max_connections, session_timeout, auto_start, metrics_collect_interval, metrics_retention_days, updated_at FROM server_monitor_config WHERE id = 1").
+	err := db.QueryRowContext(r.Context(), "SELECT id, probe_interval, probe_timeout, log_retention_days, COALESCE(max_connections, 10), COALESCE(session_timeout, 1800), auto_start, COALESCE(metrics_collect_interval, 300), COALESCE(metrics_retention_days, 30), COALESCE(updated_at, '') FROM server_monitor_config WHERE id = 1").
 		Scan(&id, &probeInterval, &probeTimeout, &logRetentionDays, &maxConnections, &sessionTimeout, &autoStart, &metricsCollectInterval, &metricsRetentionDays, &updatedAt)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -2882,7 +2882,7 @@ func (s *Service) updateMonitorConfig(w http.ResponseWriter, r *http.Request, db
 		metricsCollectInterval int
 		metricsRetentionDays   int
 	}
-	err := db.QueryRowContext(r.Context(), "SELECT probe_interval, probe_timeout, log_retention_days, max_connections, session_timeout, auto_start, metrics_collect_interval, metrics_retention_days FROM server_monitor_config WHERE id = 1").
+	err := db.QueryRowContext(r.Context(), "SELECT probe_interval, probe_timeout, log_retention_days, COALESCE(max_connections, 10), COALESCE(session_timeout, 1800), auto_start, COALESCE(metrics_collect_interval, 300), COALESCE(metrics_retention_days, 30) FROM server_monitor_config WHERE id = 1").
 		Scan(&existing.probeInterval, &existing.probeTimeout, &existing.logRetentionDays, &existing.maxConnections, &existing.sessionTimeout, &existing.autoStart, &existing.metricsCollectInterval, &existing.metricsRetentionDays)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to get config: "+err.Error())

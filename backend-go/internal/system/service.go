@@ -670,6 +670,17 @@ func (s *Service) apiDocs() map[string]interface{} {
 func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 	paths := map[string]interface{}{}
 	for _, route := range s.apiDocs()["routes"].([]apiDocRoute) {
+		// 家族前缀聚合路由（MatchPrefix，如 /api/aliyun、/api/auth/2fa、/api/server/v2/docker）
+		// 仅作路由匹配声明，不是可调用端点：OpenAPI 不展开其操作，避免文档/巡检误报。
+		rest := strings.TrimPrefix(route.Prefix, "/api/")
+		if route.MatchMode == manifest.MatchPrefix && rest != route.Prefix && !strings.HasPrefix(route.Prefix, "/sub") && !strings.HasPrefix(route.Prefix, "/v1") {
+			continue
+		}
+		// 补充登记为 MatchPattern 的裸聚合入口同样无可调用语义，显式排除。
+		switch route.Prefix {
+		case "/api/auth/2fa", "/api/auth/webauthn/login", "/api/server/v2/docker", "/v1":
+			continue
+		}
 		methods := route.Methods
 		if len(methods) == 0 {
 			methods = []string{"GET"}
@@ -1041,6 +1052,31 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"GET"}
 	case "/api/admin-ai/cron/daily-briefing":
 		return []string{"GET"}
+	case "/api/admin-ai/cron/task-run":
+		return []string{"POST"}
+	// 操作型子路由：显式登记真实方法，避免 MatchPattern 默认推断 4 方法导致巡检/文档误报。
+	case "/api/openai/endpoints/{id}/proxy-state":
+		return []string{"GET"}
+	case "/api/prompts/entries/{id}/publish":
+		return []string{"POST"}
+	case "/api/onepanel/{serverId}/openresty/reload":
+		return []string{"POST"}
+	case "/api/server/agent/auto-install/{id}":
+		return []string{"POST"}
+	case "/api/server/agent/proxy/runtimes":
+		return []string{"GET", "POST"}
+	case "/api/server/agent/proxy/runtimes/{id}/{action}":
+		return []string{"POST"}
+	case "/api/server/public/status-page-by-domain", "/api/server/public/status-pages/{slug}":
+		return []string{"GET"}
+	case "/api/aliyun/accounts/{id}/metrics":
+		return []string{"POST"}
+	case "/api/aliyun/accounts/{id}/records/{recordId}/status":
+		return []string{"PUT"}
+	case "/api/tencent/accounts/{id}/domains/{domain}/records/{recordId}/status":
+		return []string{"PATCH"}
+	case "/api/server/monitor/collect":
+		return []string{"POST"}
 	}
 	description := strings.ToLower(route.Description)
 	switch {

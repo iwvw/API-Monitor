@@ -28,6 +28,7 @@ const (
 	httpTaskTimeout  = 30 * time.Second
 	shellTaskTimeout = 5 * time.Minute
 	internalTimeout  = time.Minute
+	aiTaskTimeout    = 5 * time.Minute
 	maxLogOutput     = 5000
 )
 
@@ -58,6 +59,7 @@ type Task struct {
 	LastRun   *int64 `json:"last_run"`
 	NextRun   *int64 `json:"next_run"`
 	CreatedAt int64  `json:"created_at"`
+	Config    string `json:"config"`
 }
 
 type Log struct {
@@ -72,13 +74,14 @@ type Log struct {
 }
 
 type taskPayload struct {
-	Name     *string `json:"name"`
-	Schedule *string `json:"schedule"`
-	Command  *string `json:"command"`
-	Type     *string `json:"type"`
-	Enabled  *int    `json:"enabled"`
-	LastRun  *int64  `json:"last_run"`
-	NextRun  *int64  `json:"next_run"`
+	Name     *string    `json:"name"`
+	Schedule *string    `json:"schedule"`
+	Command  *string    `json:"command"`
+	Type     *string    `json:"type"`
+	Enabled  *intOrBool `json:"enabled"`
+	LastRun  *int64     `json:"last_run"`
+	NextRun  *int64     `json:"next_run"`
+	Config   *string    `json:"config"`
 }
 
 func New(cfg config.Config) *Service {
@@ -219,10 +222,14 @@ func (s *Service) ReloadTask(ctx context.Context, id int64) error {
 }
 
 func (s *Service) scheduleTaskLocked(task Task) error {
-	if strings.TrimSpace(task.Schedule) == "" {
+	normalized, err := normalizeCronSchedule(task.Schedule)
+	if err != nil {
+		return err
+	}
+	if normalized == "" {
 		return fmt.Errorf("empty cron schedule")
 	}
-	entryID, err := s.scheduler.AddFunc(task.Schedule, func() {
+	entryID, err := s.scheduler.AddFunc(normalized, func() {
 		go s.ExecuteTask(context.Background(), task.ID)
 	})
 	if err != nil {
@@ -255,7 +262,11 @@ func (s *Service) ReloadWorkflow(ctx context.Context, id int64) error {
 }
 
 func (s *Service) scheduleWorkflowLocked(workflow Workflow) error {
-	entryID, err := s.scheduler.AddFunc(workflow.Schedule, func() {
+	normalized, err := normalizeCronSchedule(workflow.Schedule)
+	if err != nil {
+		return err
+	}
+	entryID, err := s.scheduler.AddFunc(normalized, func() {
 		go func(id int64) {
 			_, _ = s.executeWorkflow(context.Background(), id, "cron")
 		}(workflow.ID)
@@ -292,13 +303,26 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 		Schedule:  stringValue(payload.Schedule, ""),
 		Command:   stringValue(payload.Command, ""),
 		Type:      stringValue(payload.Type, "shell"),
-		Enabled:   intValue(payload.Enabled, 1),
+		Enabled:   intOrBoolValue(payload.Enabled, 1),
 		CreatedAt: time.Now().Unix(),
+	}
+	if payload.Config != nil {
+		task.Config = strings.TrimSpace(*payload.Config)
+	}
+	if task.Config != "" && !json.Valid([]byte(task.Config)) {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "config 必须是合法 JSON 字符串"})
+		return
 	}
 	if strings.TrimSpace(task.Name) == "" || strings.TrimSpace(task.Schedule) == "" || strings.TrimSpace(task.Command) == "" {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "name, schedule, and command are required"})
 		return
 	}
+	normalized, err := normalizeCronSchedule(task.Schedule)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid cron schedule")
+		return
+	}
+	task.Schedule = normalized
 
 	db, err := s.open(r.Context())
 	if err != nil {
@@ -324,6 +348,14 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request, idText stri
 	var payload taskPayload
 	if !decodeJSON(w, r, &payload) {
 		return
+	}
+	if payload.Schedule != nil {
+		normalized, err := normalizeCronSchedule(*payload.Schedule)
+		if err != nil {
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		payload.Schedule = &normalized
 	}
 	db, err := s.open(r.Context())
 	if err != nil {
@@ -526,6 +558,8 @@ func (s *Service) executeSchedulerTaskAttempt(ctx context.Context, task Schedule
 		return s.executeInternalTask(ctx, task.Command, timeout)
 	case "agent":
 		return s.executeAgentTask(ctx, task, timeout)
+	case "ai":
+		return s.executeAITask(ctx, task, timeout)
 	case "shell":
 		if !s.cfg.LocalShellTasksAllowed() {
 			return "", fmt.Errorf("本地 Shell 任务已在当前环境禁用，请显式设置 ALLOW_LOCAL_SHELL_TASKS=true")
@@ -545,6 +579,63 @@ func (s *Service) executeAgentTask(ctx context.Context, task SchedulerTask, time
 		return "", fmt.Errorf("Agent 任务需要选择在线 Agent 节点")
 	}
 	return s.agentRunner.RunCommandTaskAndWait(nodeID, task.Command, timeout)
+}
+
+// executeAITask 定时 AI 任务：经 X-Internal-Cron 调用管理 AI 内部接口，无头执行提示词
+// （默认策略「完全允许」写操作，仍受管理 AI 全局写开关约束），返回最终回复文本。
+func (s *Service) executeAITask(ctx context.Context, task SchedulerTask, timeout time.Duration) (string, error) {
+	cfg := map[string]interface{}{}
+	if strings.TrimSpace(task.Config) != "" {
+		_ = json.Unmarshal([]byte(task.Config), &cfg)
+	}
+	model, _ := cfg["model"].(string)
+	policy, _ := cfg["policy"].(string)
+	channelID, _ := cfg["channelId"].(string)
+	body, err := json.Marshal(map[string]interface{}{
+		"prompt":    task.Command,
+		"model":     model,
+		"policy":    policy, // 留空由接口回退默认 allow
+		"channelId": channelID,
+	})
+	if err != nil {
+		return "", err
+	}
+	target := "http://127.0.0.1:" + strconv.Itoa(s.cfg.Port) + "/api/admin-ai/cron/task-run"
+	if timeout <= 0 {
+		timeout = aiTaskTimeout
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-Internal-Cron", "true")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, maxLogOutput))
+
+	var payload struct {
+		Output string `json:"output"`
+		Error  string `json:"error"`
+	}
+	if json.Unmarshal(raw, &payload) == nil && (payload.Output != "" || payload.Error != "") {
+		if res.StatusCode >= 400 || payload.Error != "" {
+			if payload.Error != "" {
+				return "", fmt.Errorf("AI 任务失败: %s", payload.Error)
+			}
+			return "", fmt.Errorf("AI 任务返回 HTTP %d", res.StatusCode)
+		}
+		return payload.Output, nil
+	}
+	if res.StatusCode >= 400 {
+		return "", fmt.Errorf("AI 任务返回 HTTP %d: %s", res.StatusCode, formatBody(raw))
+	}
+	return formatBody(raw), nil
 }
 
 func (s *Service) executeHTTPTask(ctx context.Context, target string, timeout time.Duration) (string, error) {
@@ -752,6 +843,7 @@ func ensureCronTaskColumns(ctx context.Context, db *sql.DB) error {
 		{"max_concurrency", "ALTER TABLE cron_tasks ADD COLUMN max_concurrency INTEGER DEFAULT 1"},
 		{"node_id", "ALTER TABLE cron_tasks ADD COLUMN node_id TEXT DEFAULT 'local'"},
 		{"node_selector", "ALTER TABLE cron_tasks ADD COLUMN node_selector TEXT DEFAULT ''"},
+		{"config", "ALTER TABLE cron_tasks ADD COLUMN config TEXT DEFAULT ''"},
 	}
 	for _, column := range columns {
 		exists, err := hasColumn(ctx, db, "cron_tasks", column.name)
@@ -792,7 +884,7 @@ func hasColumn(ctx context.Context, db *sql.DB, tableName, columnName string) (b
 
 func loadTasks(ctx context.Context, db *sql.DB) ([]Task, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at
+		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at, config
 		FROM cron_tasks
 		ORDER BY created_at DESC
 	`)
@@ -813,7 +905,7 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]Task, error) {
 
 func findTask(ctx context.Context, db *sql.DB, id int64) (Task, bool, error) {
 	row := db.QueryRowContext(ctx, `
-		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at
+		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at, config
 		FROM cron_tasks
 		WHERE id = ?
 	`, id)
@@ -836,7 +928,8 @@ func scanTask(scanner taskScanner) (Task, error) {
 	var taskType sql.NullString
 	var enabled sql.NullInt64
 	var lastRun, nextRun sql.NullInt64
-	err := scanner.Scan(&task.ID, &task.Name, &task.Schedule, &task.Command, &taskType, &enabled, &lastRun, &nextRun, &task.CreatedAt)
+	var config sql.NullString
+	err := scanner.Scan(&task.ID, &task.Name, &task.Schedule, &task.Command, &taskType, &enabled, &lastRun, &nextRun, &task.CreatedAt, &config)
 	if err != nil {
 		return Task{}, err
 	}
@@ -844,14 +937,15 @@ func scanTask(scanner taskScanner) (Task, error) {
 	task.Enabled = int(int64OrDefault(enabled, 1))
 	task.LastRun = int64Ptr(lastRun)
 	task.NextRun = int64Ptr(nextRun)
+	task.Config = stringOrDefault(config, "")
 	return task, nil
 }
 
 func insertTask(ctx context.Context, db *sql.DB, task Task) (Task, error) {
 	result, err := db.ExecContext(ctx, `
-		INSERT INTO cron_tasks (name, schedule, command, type, enabled, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, task.Name, task.Schedule, task.Command, task.Type, task.Enabled, task.CreatedAt)
+		INSERT INTO cron_tasks (name, schedule, command, type, enabled, created_at, config)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, task.Name, task.Schedule, task.Command, task.Type, task.Enabled, task.CreatedAt, task.Config)
 	if err != nil {
 		return Task{}, fmt.Errorf("create cron task: %w", err)
 	}
@@ -884,7 +978,13 @@ func updateTaskFields(ctx context.Context, db *sql.DB, id int64, payload taskPay
 	}
 	if payload.Enabled != nil {
 		sets = append(sets, "enabled = ?")
-		args = append(args, *payload.Enabled)
+		args = append(args, int(*payload.Enabled))
+	}
+	if payload.Config != nil {
+		if cfg := strings.TrimSpace(*payload.Config); cfg == "" || json.Valid([]byte(cfg)) {
+			sets = append(sets, "config = ?")
+			args = append(args, cfg)
+		}
 	}
 	if payload.LastRun != nil {
 		sets = append(sets, "last_run = ?")
@@ -1025,6 +1125,13 @@ func intValue(value *int, fallback int) int {
 		return fallback
 	}
 	return *value
+}
+
+func intOrBoolValue(value *intOrBool, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return int(*value)
 }
 
 func int64Ptr(value sql.NullInt64) *int64 {

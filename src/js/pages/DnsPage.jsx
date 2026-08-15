@@ -2637,7 +2637,7 @@ function DnsPage() {
                     <div className="text-xs text-kumo-subtle">
                       {r2Buckets.length} 个 Bucket
                       {r2Metrics && (r2MetricsTotals.bytes > 0 || r2MetricsTotals.objects > 0) && (
-                        <span> · 已用 {formatBytes(r2MetricsTotals.bytes)} · {r2MetricsTotals.objects.toLocaleString()} 个对象</span>
+                        <span> · 已用 {formatBytes(r2MetricsTotals.bytes)} · {r2MetricsTotals.objects.toLocaleString('en-US', { useGrouping: false })} 个对象</span>
                       )}
                     </div>
                   </div>

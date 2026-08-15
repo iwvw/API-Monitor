@@ -14,7 +14,7 @@ func loadSchedulerTasks(ctx context.Context, db *sql.DB) ([]SchedulerTask, error
 			t.id, t.name, t.schedule, t.command, t.type, t.enabled, t.last_run, t.next_run, t.created_at,
 			COALESCE(t.description, ''), COALESCE(t.timeout_seconds, 300), COALESCE(t.retry_count, 0),
 			COALESCE(t.retry_interval_seconds, 30), COALESCE(t.max_concurrency, 1),
-			COALESCE(t.node_id, 'local'), COALESCE(t.node_selector, ''),
+			COALESCE(t.node_id, 'local'), COALESCE(t.node_selector, ''), COALESCE(t.config, ''),
 			(
 				SELECT l.status
 				FROM cron_logs l
@@ -46,7 +46,7 @@ func findSchedulerTask(ctx context.Context, db *sql.DB, id int64) (SchedulerTask
 			t.id, t.name, t.schedule, t.command, t.type, t.enabled, t.last_run, t.next_run, t.created_at,
 			COALESCE(t.description, ''), COALESCE(t.timeout_seconds, 300), COALESCE(t.retry_count, 0),
 			COALESCE(t.retry_interval_seconds, 30), COALESCE(t.max_concurrency, 1),
-			COALESCE(t.node_id, 'local'), COALESCE(t.node_selector, ''),
+			COALESCE(t.node_id, 'local'), COALESCE(t.node_selector, ''), COALESCE(t.config, ''),
 			(
 				SELECT l.status
 				FROM cron_logs l
@@ -72,7 +72,7 @@ func scanSchedulerTask(scanner taskScanner) (SchedulerTask, error) {
 	var taskType sql.NullString
 	var enabled sql.NullInt64
 	var lastRun, nextRun sql.NullInt64
-	var description, nodeID, nodeSelector sql.NullString
+	var description, nodeID, nodeSelector, config sql.NullString
 	var timeoutSeconds, retryCount, retryIntervalSeconds, maxConcurrency sql.NullInt64
 	var recentStatus sql.NullString
 	err := scanner.Scan(
@@ -92,6 +92,7 @@ func scanSchedulerTask(scanner taskScanner) (SchedulerTask, error) {
 		&maxConcurrency,
 		&nodeID,
 		&nodeSelector,
+		&config,
 		&recentStatus,
 	)
 	if err != nil {
@@ -108,6 +109,7 @@ func scanSchedulerTask(scanner taskScanner) (SchedulerTask, error) {
 	task.MaxConcurrency = int(int64OrDefault(maxConcurrency, 1))
 	task.NodeID = stringOrDefault(nodeID, "local")
 	task.NodeSelector = stringOrDefault(nodeSelector, "")
+	task.Config = stringOrDefault(config, "")
 	task.RecentStatus = stringPtr(recentStatus)
 	return task, nil
 }
@@ -117,11 +119,11 @@ func insertSchedulerTask(ctx context.Context, db *sql.DB, task SchedulerTask) (S
 		INSERT INTO cron_tasks (
 			name, schedule, command, type, enabled, created_at, description,
 			timeout_seconds, retry_count, retry_interval_seconds, max_concurrency,
-			node_id, node_selector
+			node_id, node_selector, config
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, task.Name, task.Schedule, task.Command, task.Type, task.Enabled, task.CreatedAt, task.Description,
-		task.TimeoutSeconds, task.RetryCount, task.RetryIntervalSeconds, task.MaxConcurrency, task.NodeID, task.NodeSelector)
+		task.TimeoutSeconds, task.RetryCount, task.RetryIntervalSeconds, task.MaxConcurrency, task.NodeID, task.NodeSelector, task.Config)
 	if err != nil {
 		return SchedulerTask{}, fmt.Errorf("create scheduler task: %w", err)
 	}
@@ -148,11 +150,12 @@ func updateSchedulerTaskRow(ctx context.Context, db *sql.DB, task SchedulerTask)
 			retry_interval_seconds = ?,
 			max_concurrency = ?,
 			node_id = ?,
-			node_selector = ?
+			node_selector = ?,
+			config = ?
 		WHERE id = ?
 	`, task.Name, task.Schedule, task.Command, task.Type, task.Enabled, task.Description,
 		task.TimeoutSeconds, task.RetryCount, task.RetryIntervalSeconds, task.MaxConcurrency,
-		task.NodeID, task.NodeSelector, task.ID)
+		task.NodeID, task.NodeSelector, task.Config, task.ID)
 	if err != nil {
 		return SchedulerTask{}, fmt.Errorf("update scheduler task: %w", err)
 	}
