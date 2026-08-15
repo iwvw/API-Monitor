@@ -182,6 +182,10 @@ class Sweeper {
         const filled = this.fillPathParams(path, raw);
         // 方法探测序列：GET → HEAD → POST → PUT → PATCH → DELETE（空体）。
         const order = readonly ? ['GET', 'HEAD'] : ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
+        if (readonly && !order.some((m) => methods.includes(m.toLowerCase()))) {
+          this.results.push({ path, method: 'skip', status: 'skipped_readonly_write', body: '', ms: 0 });
+          continue;
+        }
         const tried = [];
         let result = null;
         for (const method of order) {
@@ -201,6 +205,12 @@ class Sweeper {
           result = { ...(last || {}), method: last?.method || (methods[0] || 'GET'), tried: tried.map((t) => `${t.method}:${t.status}`) };
         } else {
           result.tried = tried.map((t) => `${t.method}:${t.status}`);
+        }
+        // readonly 下只探测了 GET/HEAD：若唯一尝试是 GET 且返回路由层 404，
+        // 无法确认"路由缺失"还是"仅写接口无 GET"——单独标记供人工复核。
+        if (readonly && tried.length === 1 && tried[0].method === 'GET' && !this.isRoutePresent(tried[0].status, tried[0].body) && tried[0].status === 404) {
+          this.results.push({ path, method: 'GET', status: 'readonly_maybe_write_only', body: result.body, ms: result.ms, tried: tried.map((t) => `${t.method}:${t.status}`) });
+          continue;
         }
         this.results.push({ path, method: result.method, status: result.status, body: result.body, ms: result.ms, tried: result.tried });
       }

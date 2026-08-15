@@ -2,6 +2,7 @@ package adminai
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -66,30 +67,34 @@ func (s *Service) handleDailyBriefing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(targets) == 0 {
-		response.Error(w, http.StatusBadRequest, "没有可推送的 Telegram 接收者，请先在「管理 AI → 频道配置」绑定用户")
-		return
-	}
-	// 按绑定频道解析注册实例（多频道：取第一个已启用的 telegram 频道）
-	var ch channel.Channel
-	var ok bool
-	for _, cand := range s.chanMgr.registry.All() {
-		if strings.HasPrefix(cand.ID(), "aac_") {
-			ch, ok = cand, true
-			break
-		}
-	}
-	if !ok {
-		response.Error(w, http.StatusInternalServerError, "Telegram 频道未注册，请先启动频道")
+		response.Error(w, http.StatusBadRequest, "没有可推送的简报目标：请在「管理 AI → 频道配置」选择带来源通知渠道的 AI 频道，或在通知中心配置 Telegram 渠道")
 		return
 	}
 
 	// 简报全文直接以富消息 Markdown 发送（Telegram 富消息原生支持 Markdown 结构，
-	// 无需再做特殊字符转义；换行归一化由频道发送层处理）。
-	sent := briefing
+	// 无需再做特殊字符转义；换行归一化由发送层处理）。
 	results := make([]map[string]interface{}, 0, len(targets))
-	for _, chat := range targets {
-		item := map[string]interface{}{"chatId": chat}
-		msgID, sendErr := ch.Send(ctx, chat, channel.OutboundMessage{Text: sent})
+	for _, target := range targets {
+		if target.NotificationChannelID != "" {
+			item := map[string]interface{}{"channelId": target.NotificationChannelID}
+			if s.src == nil {
+				item["error"] = "通知中心服务未注入"
+			} else if sendErr := s.src.SendToChannel(ctx, target.NotificationChannelID, "每日站点简报", briefing); sendErr != nil {
+				item["error"] = sendErr.Error()
+			} else {
+				item["ok"] = true
+			}
+			results = append(results, item)
+			continue
+		}
+		// 旧频道无来源：白名单用户经机器人实例发送
+		ch, ok := briefingLegacyInstance(s.chanMgr.registry)
+		if !ok {
+			results = append(results, map[string]interface{}{"chatId": target.ChatID, "error": "Telegram 频道未注册，请先启动频道"})
+			continue
+		}
+		item := map[string]interface{}{"chatId": target.ChatID}
+		msgID, sendErr := ch.Send(ctx, target.ChatID, channel.OutboundMessage{Text: briefing})
 		if sendErr != nil {
 			item["error"] = sendErr.Error()
 		} else {
@@ -101,7 +106,7 @@ func (s *Service) handleDailyBriefing(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, map[string]interface{}{
 		"ok":       true,
 		"model":    model,
-		"briefing": sent,
+		"briefing": briefing,
 		"targets":  results,
 	})
 }
@@ -166,22 +171,29 @@ func (s *Service) generateBriefing(ctx context.Context, model, snapshot string) 
 	return text, nil
 }
 
-// briefingTargets 解析推送目标：指定 chatId 时单发，否则推送给全部已绑定 Telegram 用户。
-func (s *Service) briefingTargets(ctx context.Context, chatID string) ([]string, error) {
-	if s.chanMgr == nil || s.chanMgr.registry == nil {
-		return nil, fmt.Errorf("频道未初始化")
+// briefingTarget 是简报的一个推送目标：经通知中心渠道直发（新语义），或经旧机器人实例发到白名单 chat。
+type briefingTarget struct {
+	NotificationChannelID string // 非空：调用通知中心 SendToChannel 直发该渠道的固定目标
+	ChatID                string // 非空：旧频道白名单目标（经注册实例发送）
+}
+
+// briefingLegacyInstance 返回注册表中第一个 adminai 电报频道实例（旧无来源频道的发送通道）。
+func briefingLegacyInstance(registry *channel.Registry) (channel.Channel, bool) {
+	if registry == nil {
+		return nil, false
 	}
-	if chatID != "" {
-		return []string{chatID}, nil
+	for _, cand := range registry.All() {
+		if strings.HasPrefix(cand.ID(), "aac_") {
+			return cand, true
+		}
 	}
-	db, err := s.open(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
+	return nil, false
+}
+
+// bindingUserIDs 返回某频道的白名单用户（channel_user_id，去重）。
+func bindingUserIDs(ctx context.Context, db *sql.DB, channelID string) ([]string, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT b.channel_user_id FROM admin_ai_channel_bindings b JOIN admin_ai_channels c ON c.id = b.channel_id
-		 WHERE c.type = 'telegram' AND c.enabled = 1 ORDER BY b.created_at DESC`)
+		`SELECT channel_user_id FROM admin_ai_channel_bindings WHERE channel_id = ? ORDER BY created_at DESC`, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -189,16 +201,83 @@ func (s *Service) briefingTargets(ctx context.Context, chatID string) ([]string,
 	seen := map[string]bool{}
 	out := make([]string, 0, 8)
 	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
 			continue
 		}
-		userID = strings.TrimSpace(userID)
-		if userID == "" || seen[userID] {
+		uid = strings.TrimSpace(uid)
+		if uid == "" || seen[uid] {
 			continue
 		}
-		seen[userID] = true
-		out = append(out, userID)
+		seen[uid] = true
+		out = append(out, uid)
 	}
 	return out, rows.Err()
+}
+
+// briefingTargets 解析简报推送目标：
+// - chatId 指定时：若为通知中心渠道则经其直发，否则视为旧单发 chat；
+// - 默认：每个启用的 AI 频道，有来源通知渠道 → 该渠道目标（同源去重）；旧频道无来源 → 其白名单用户。
+func (s *Service) briefingTargets(ctx context.Context, chatID string) ([]briefingTarget, error) {
+	if s.chanMgr == nil || s.chanMgr.registry == nil {
+		return nil, fmt.Errorf("频道未初始化")
+	}
+	if chatID != "" {
+		if s.src != nil {
+			if ch, ok, err := s.src.LoadChannel(ctx, chatID); err == nil && ok && ch.Type == "telegram" {
+				return []briefingTarget{{NotificationChannelID: chatID}}, nil
+			}
+		}
+		return []briefingTarget{{ChatID: chatID}}, nil
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, COALESCE(notification_channel_id,'') FROM admin_ai_channels WHERE type = 'telegram' AND enabled = 1 ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	// 先完整收集再关闭 rows，避免在 sqlite 单连接池上嵌套查询死锁
+	type channelRow struct{ id, sourceID string }
+	var channels []channelRow
+	for rows.Next() {
+		var row channelRow
+		if err := rows.Scan(&row.id, &row.sourceID); err != nil {
+			continue
+		}
+		row.sourceID = strings.TrimSpace(row.sourceID)
+		channels = append(channels, row)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	seenNotif := map[string]bool{}
+	targets := make([]briefingTarget, 0, 8)
+	for _, row := range channels {
+		if row.sourceID != "" {
+			if s.src == nil || seenNotif[row.sourceID] {
+				continue
+			}
+			ch, ok, err := s.src.LoadChannel(ctx, row.sourceID)
+			if err == nil && ok && ch.Type == "telegram" && ch.Enabled == 1 {
+				seenNotif[row.sourceID] = true
+				targets = append(targets, briefingTarget{NotificationChannelID: row.sourceID})
+			}
+			continue
+		}
+		users, err := bindingUserIDs(ctx, db, row.id)
+		if err != nil {
+			continue
+		}
+		for _, uid := range users {
+			targets = append(targets, briefingTarget{ChatID: uid})
+		}
+	}
+	return targets, nil
 }

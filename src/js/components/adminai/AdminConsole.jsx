@@ -4,7 +4,7 @@ import { Input } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Select } from '@cloudflare/kumo/components/select';
-import { Empty, Loader, SensitiveInput, Tabs } from '@cloudflare/kumo';
+import { Empty, Loader, Tabs } from '@cloudflare/kumo';
 import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Users } from '../Icons.jsx';
 
 /* ==================== 通用小组件 ==================== */
@@ -210,43 +210,18 @@ function SettingsCard() {
   );
 }
 
-/* ==================== 频道页（Telegram 频道 + 用户绑定） ==================== */
-
-const POLICY_OPTIONS = [
-  { value: 'allowlist', label: '白名单' },
-  { value: 'open', label: '开放' },
-];
-
-function PolicyToggle({ value, onChange }) {
-  return (
-    <div className="inline-flex overflow-hidden rounded-lg border border-kumo-line bg-kumo-control">
-      {POLICY_OPTIONS.map((opt) => (
-        <Button
-          key={opt.value}
-          size="sm"
-          variant={value === opt.value ? 'primary' : 'ghost'}
-          onClick={() => onChange(opt.value)}
-        >
-          {opt.label}
-        </Button>
-      ))}
-    </div>
-  );
-}
+/* ==================== 频道页（Telegram 频道 + 白名单） ==================== */
 
 const EMPTY_FORM = {
   id: '',
   name: '',
-  botToken: '',
-  dmPolicy: 'allowlist',
-  groupPolicy: 'allowlist',
-  allowFrom: '',
-  textChunkLimit: 4096,
+  notificationChannelId: '',
 };
 
 function ChannelsCard() {
   const [channels, setChannels] = useState([]);
   const [bindings, setBindings] = useState([]);
+  const [notificationOptions, setNotificationOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -254,18 +229,26 @@ function ChannelsCard() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [confirmDelete, setConfirmDelete] = useState('');
   const [bindingOpen, setBindingOpen] = useState(false);
-  const [bindingForm, setBindingForm] = useState({ channelId: '', channelUserId: '', username: '', panelUserId: '', role: 'admin' });
+  const [bindingForm, setBindingForm] = useState({ channelId: '', channelUserId: '', username: '' });
 
   const load = useCallback(async () => {
     try {
-      const [chRes, bdRes] = await Promise.all([
+      const [chRes, bdRes, ntRes] = await Promise.all([
         fetch('/api/admin-ai/channels'),
         fetch('/api/admin-ai/channel-bindings'),
+        fetch('/api/notification/channels'),
       ]);
       const chData = await chRes.json();
       const bdData = await bdRes.json();
+      const ntData = await ntRes.json();
       setChannels((chData.data || chData).channels || []);
       setBindings((bdData.data || bdData).bindings || []);
+      const ntChannels = (ntData.data || ntData) || [];
+      setNotificationOptions(
+        ntChannels
+          .filter((c) => c.type === 'telegram' && c.enabled)
+          .map((c) => ({ value: c.id, label: c.name || c.id }))
+      );
     } catch {
       setError('频道数据加载失败');
     } finally {
@@ -284,15 +267,10 @@ function ChannelsCard() {
   };
 
   const openEdit = (channel) => {
-    const cfg = channel.config || {};
     setForm({
       id: channel.id,
       name: channel.name,
-      botToken: '',
-      dmPolicy: cfg.dmPolicy === 'open' ? 'open' : 'allowlist',
-      groupPolicy: cfg.groupPolicy === 'open' ? 'open' : 'allowlist',
-      allowFrom: Array.isArray(cfg.allowFrom) ? cfg.allowFrom.join(', ') : '',
-      textChunkLimit: Number(cfg.textChunkLimit) || 4096,
+      notificationChannelId: channel.notificationChannelId || '',
     });
     setError('');
     setFormOpen(true);
@@ -305,24 +283,17 @@ function ChannelsCard() {
       setError('请填写频道名称');
       return;
     }
-    if (!form.id && !form.botToken.trim()) {
-      setError('请填写 botToken');
+    if (!form.id && !form.notificationChannelId) {
+      setError('请选择来源通知渠道（bot token 复用通知中心配置）');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      const config = {
-        dmPolicy: form.dmPolicy,
-        groupPolicy: form.groupPolicy,
-        allowFrom: form.allowFrom.split(',').map((s) => s.trim()).filter(Boolean),
-        textChunkLimit: Number(form.textChunkLimit) || 4096,
-      };
-      if (form.botToken.trim()) config.botToken = form.botToken.trim();
       const url = form.id ? `/api/admin-ai/channels/${form.id}` : '/api/admin-ai/channels';
       const payload = form.id
-        ? { name: form.name.trim(), config }
-        : { type: 'telegram', name: form.name.trim(), enabled: true, config };
+        ? { name: form.name.trim(), notificationChannelId: form.notificationChannelId }
+        : { type: 'telegram', name: form.name.trim(), enabled: true, notificationChannelId: form.notificationChannelId };
       const res = await fetch(url, {
         method: form.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -401,8 +372,6 @@ function ChannelsCard() {
           channelId: bindingForm.channelId,
           channelUserId: bindingForm.channelUserId.trim(),
           username: bindingForm.username.trim(),
-          panelUserId: bindingForm.panelUserId.trim(),
-          role: bindingForm.role,
         }),
       });
       const data = await res.json();
@@ -410,7 +379,7 @@ function ChannelsCard() {
         setError(((data.data || data).error) || '绑定失败');
         return;
       }
-      setBindingForm({ channelId: bindingForm.channelId, channelUserId: '', username: '', panelUserId: '', role: 'admin' });
+      setBindingForm({ channelId: bindingForm.channelId, channelUserId: '', username: '' });
       setBindingOpen(false);
       load();
     } catch {
@@ -448,7 +417,7 @@ function ChannelsCard() {
             </span>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-kumo-strong">频道</div>
-              <div className="truncate text-xs text-kumo-subtle">接入渠道（v1 支持 Telegram），写操作默认只读</div>
+              <div className="truncate text-xs text-kumo-subtle">从通知中心选择 Telegram 渠道作为 AI 机器人来源</div>
             </div>
           </div>
           {!formOpen && (
@@ -483,9 +452,7 @@ function ChannelsCard() {
                     )}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-kumo-subtle">
-                    {channel.config
-                      ? `${channel.config.dmPolicy === 'open' ? '私聊：开放' : '私聊：白名单'} · ${channel.config.groupPolicy === 'open' ? '群组：开放' : '群组：白名单'}`
-                      : '未配置'}
+                    来源：{channel.notificationChannelName || '旧 Token 配置（未选择来源）'}
                   </div>
                 </div>
               </div>
@@ -537,45 +504,21 @@ function ChannelsCard() {
               <Input className="w-full" placeholder="如：Telegram 主机器人" value={form.name} onChange={(e) => setFormField('name', e.target.value)} />
             </div>
             <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">botToken</div>
-              <SensitiveInput
+              <div className="mb-1 text-xs font-medium text-kumo-subtle">来源通知渠道</div>
+              <Select
+                size="sm"
                 className="w-full"
-                placeholder={form.id ? '留空保持原 Token' : '123456:ABC-DEF...'}
-                value={form.botToken}
-                onValueChange={(v) => setFormField('botToken', v)}
-              />
-            </div>
-            <div className="flex items-end justify-between gap-3">
-              <div>
-                <div className="mb-1 text-xs font-medium text-kumo-subtle">私聊策略</div>
-                <PolicyToggle value={form.dmPolicy} onChange={(v) => setFormField('dmPolicy', v)} />
-              </div>
-              <div>
-                <div className="mb-1 text-xs font-medium text-kumo-subtle">群组策略</div>
-                <PolicyToggle value={form.groupPolicy} onChange={(v) => setFormField('groupPolicy', v)} />
-              </div>
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">白名单用户 ID（逗号分隔）</div>
-              <Input
-                className="w-full"
-                placeholder="123456789, 987654321"
-                value={form.allowFrom}
-                onChange={(e) => setFormField('allowFrom', e.target.value)}
-              />
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">消息分片上限</div>
-              <Input
-                className="w-full"
-                type="number"
-                min={1}
-                max={4096}
-                value={form.textChunkLimit}
-                onChange={(e) => setFormField('textChunkLimit', e.target.value)}
+                placeholder={form.notificationChannelId ? undefined : (form.id ? '未选择（沿用旧 Token 配置）' : '选择通知中心的 Telegram 渠道')}
+                value={form.notificationChannelId}
+                onValueChange={(v) => setFormField('notificationChannelId', String(v))}
+                items={notificationOptions.length ? notificationOptions : [{ value: '__none__', label: '暂无可用通知渠道（请先到通知中心配置 Telegram 渠道）' }]}
+                disabled={notificationOptions.length === 0}
               />
             </div>
           </div>
+          <p className="mt-3 text-xs leading-5 text-kumo-subtle">
+            bot token 与推送目标均复用通知中心已配置的 Telegram 渠道（需含 bot_token 与 chat_id），无需在此填写；同一渠道只能被一个 AI 频道引用。
+          </p>
           <div className="mt-4 flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => { setFormOpen(false); setError(''); }}>
               取消
@@ -587,7 +530,7 @@ function ChannelsCard() {
         </div>
       )}
 
-      {/* ---- 用户绑定卡片 ---- */}
+      {/* ---- 白名单卡片 ---- */}
       <div className="overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none">
         <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -595,13 +538,13 @@ function ChannelsCard() {
               <Users className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-kumo-strong">用户绑定</div>
-              <div className="truncate text-xs text-kumo-subtle">绑定渠道用户后可绕过白名单策略直接授权</div>
+              <div className="text-sm font-semibold text-kumo-strong">白名单</div>
+              <div className="truncate text-xs text-kumo-subtle">留空 = 任何人可对话；填入后仅列表内用户可对话</div>
             </div>
           </div>
           {!bindingOpen && (
             <Button size="sm" variant="secondary" onClick={() => setBindingOpen(true)} disabled={channels.length === 0}>
-              <Plus className="h-3.5 w-3.5" /> 新增绑定
+              <Plus className="h-3.5 w-3.5" /> 新增
             </Button>
           )}
         </div>
@@ -612,19 +555,19 @@ function ChannelsCard() {
             <div>
               <div className="mb-1 text-xs font-medium text-kumo-subtle">频道</div>
               <Select
-                label="频道"
+                size="sm"
+                className="w-full"
                 placeholder="选择频道"
                 value={bindingForm.channelId}
                 onValueChange={(v) => setBindingForm((prev) => ({ ...prev, channelId: String(v) }))}
                 items={channelOptions}
-                size="sm"
               />
             </div>
             <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">渠道用户 ID *</div>
+              <div className="mb-1 text-xs font-medium text-kumo-subtle">Telegram 用户 ID *</div>
               <Input
                 className="w-full"
-                placeholder="Telegram 数字 ID"
+                placeholder="数字 ID"
                 value={bindingForm.channelUserId}
                 onChange={(e) => setBindingForm((prev) => ({ ...prev, channelUserId: e.target.value }))}
               />
@@ -633,36 +576,17 @@ function ChannelsCard() {
               <div className="mb-1 text-xs font-medium text-kumo-subtle">用户名</div>
               <Input
                 className="w-full"
-                placeholder="@username"
+                placeholder="@username（可选）"
                 value={bindingForm.username}
                 onChange={(e) => setBindingForm((prev) => ({ ...prev, username: e.target.value }))}
               />
             </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">面板用户 ID</div>
-              <Input
-                className="w-full"
-                placeholder="可选"
-                value={bindingForm.panelUserId}
-                onChange={(e) => setBindingForm((prev) => ({ ...prev, panelUserId: e.target.value }))}
-              />
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">角色</div>
-              <Select
-                label="角色"
-                value={bindingForm.role}
-                onValueChange={(v) => setBindingForm((prev) => ({ ...prev, role: String(v) }))}
-                items={[{ value: 'admin', label: 'admin' }, { value: 'user', label: 'user' }]}
-                size="sm"
-              />
-            </div>
-            <div className="flex items-end justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setBindingOpen(false)}>
+            <div className="flex items-end justify-end gap-2 cq-sm:col-span-3">
+              <Button size="sm" variant="ghost" onClick={() => { setBindingOpen(false); setBindingForm({ channelId: bindingForm.channelId, channelUserId: '', username: '' }); }}>
                 取消
               </Button>
               <Button size="sm" variant="primary" onClick={saveBinding} disabled={saving}>
-                绑定
+                添加
               </Button>
             </div>
           </div>
@@ -670,7 +594,9 @@ function ChannelsCard() {
       )}
 
       {bindings.length === 0 ? (
-        <p className="text-xs text-kumo-subtle">暂无绑定用户</p>
+        <p className="text-xs text-kumo-subtle">
+          {bindingOpen ? '' : '白名单为空，当前开放（任何人可对话）。'}
+        </p>
       ) : (
         <div className="space-y-2">
           {bindings.map((binding) => (
@@ -688,11 +614,9 @@ function ChannelsCard() {
                       {binding.channelUserId}
                     </span>
                     {binding.username && <span className="truncate text-xs text-kumo-subtle">{binding.username}</span>}
-                    <Badge variant="secondary">{binding.role || 'admin'}</Badge>
                   </div>
                   <div className="mt-0.5 truncate text-xs text-kumo-subtle">
                     {binding.channelName || binding.channelId}
-                    {binding.panelUserId ? ` · 面板用户 ${binding.panelUserId}` : ' · 未绑定面板用户'}
                   </div>
                 </div>
               </div>

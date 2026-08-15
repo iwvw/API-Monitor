@@ -454,7 +454,7 @@ func (t *TelegramChannel) handleUpdate(upd map[string]interface{}) {
 	}
 	if !allowed {
 		if env.ChatType == "dm" && env.ChatID != "" {
-			_, _ = t.Send(context.Background(), env.ChatID, OutboundMessage{Text: "⛔ 未授权。请先在面板中绑定你的 Telegram 用户。"})
+			_, _ = t.Send(context.Background(), env.ChatID, OutboundMessage{Text: "⛔ 未在 AI 频道白名单中，暂不可对话。请管理员在面板「管理 AI → 频道配置」的白名单中添加你的 Telegram 用户 ID。"})
 		}
 		return
 	}

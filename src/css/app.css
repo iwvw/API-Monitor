@@ -1315,10 +1315,34 @@ samp {
     32px 32px,
     32px 32px,
     auto;
+  cursor: grab;
+}
+
+/* 隐藏 Flow canvas 模式自绘的平移滚动条滑块（仍可拖拽平移画布）：
+   纵向滑块 absolute top-1 right-1 bottom-1 w-1.5，横向滑块 absolute right-1 bottom-1 left-1 h-1.5。 */
+.scheduler-workflow-canvas > div.absolute.top-1.right-1.bottom-1,
+.scheduler-workflow-canvas > div.absolute.right-1.bottom-1.left-1 {
+  display: none;
+}
+
+.scheduler-workflow-canvas:active {
+  cursor: grabbing;
+}
+
+/* 画布内的文字不可被选中（拖拽平移时不误选文本）。 */
+.scheduler-workflow-canvas,
+.scheduler-workflow-canvas * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .scheduler-workflow-canvas-compact {
   min-height: 14rem;
+}
+
+.scheduler-workflow-canvas-editor {
+  height: clamp(24rem, 48dvh, 34rem);
+  min-height: 24rem;
 }
 
 @media (min-width: 1024px) {
@@ -1335,11 +1359,6 @@ samp {
     height: 100%;
     min-height: 100%;
   }
-}
-
-.scheduler-workflow-canvas-editor {
-  height: clamp(24rem, 48dvh, 34rem);
-  min-height: 24rem;
 }
 
 /* Kumo Dialog 默认 size 变体带 sm:w-96 等媒体查询宽度，会覆盖调用方传入的 Tailwind 宽度类。

@@ -48,6 +48,7 @@ const getSourceModuleName = (module) => {
     system: '系统设置',
     filebox: '文件柜',
     totp: '双因子认证',
+    cron: '定时任务',
   };
   return names[module] || module;
 };
@@ -98,6 +99,10 @@ const getEventTypeName = (type) => {
     rate_limit_low: 'API 限额偏低',
     webhook_delivery_failed: 'Webhook 投递失败',
     webhook_ping: 'Webhook 连通成功',
+    'task.completed': '定时任务执行完成',
+    'task.failed': '定时任务执行失败',
+    'workflow.completed': '工作流执行完成',
+    'workflow.failed': '工作流执行失败',
     created: '已创建',
     updated: '已更新',
     deleted: '已删除',
@@ -115,27 +120,48 @@ const FALLBACK_EVENT_CATALOG = [
   { module: 'system', events: ['database.backup', 'database.import', 'log.cleanup', 'migration.failed', 'cpu_high', 'cpu_normal', 'memory_high', 'memory_normal', 'disk_high', 'disk_normal'], dynamic_events: ['cpu_high', 'cpu_normal', 'memory_high', 'memory_normal', 'disk_high', 'disk_normal'] },
   { module: 'filebox', events: ['resource.created', 'resource.deleted', 'cleanup'] },
   { module: 'totp', events: ['resource.created', 'resource.updated', 'resource.deleted', 'security.revealed', 'backup.imported', 'backup.exported'] },
+  { module: 'cron', events: ['task.completed', 'task.failed', 'workflow.completed', 'workflow.failed'] },
 ];
 
-const buildSampleEventData = (rule = {}) => ({
-  severity: rule.severity || 'warning',
-  eventType: rule.event_type || 'down',
-  monitorName: 'API Gateway',
-  serverName: 'prod-node-01',
-  url: 'https://api.example.com/health',
-  host: 'prod-node-01',
-  hostname: 'prod-node-01',
-  error: 'Connection timeout',
-  ping: 128,
-  cpu_usage: 92,
-  mem_percent: 84,
-  disk_usage: 91,
-  traffic_percent: 86.35,
-  traffic_used: '863.5 GB',
-  traffic_limit: '1 TB',
-  threshold: 90,
-  downDuration: '3 分钟',
-});
+const buildSampleEventData = (rule = {}) => {
+  if (rule.source_module === 'cron') {
+    const isWorkflow = (rule.event_type || '').startsWith('workflow');
+    return {
+      severity: rule.severity || 'info',
+      eventType: rule.event_type || 'task.completed',
+      taskId: 12,
+      taskName: '每日 Token 用量统计',
+      workflowId: 8,
+      workflowName: '每日Token用量分析',
+      status: 'success',
+      summary: '成功 3，失败 0，跳过 0',
+      output: '读取 GET /api/openai/analytics/summary 完成，总量 1,283,990 tokens',
+      duration: 11,
+      triggerType: 'cron',
+      time: new Date().toLocaleString('zh-CN'),
+      ...(isWorkflow ? { workflowId: 8, workflowName: '每日Token用量分析' } : { taskId: 12, taskName: '每日 Token 用量统计' }),
+    };
+  }
+  return {
+    severity: rule.severity || 'warning',
+    eventType: rule.event_type || 'down',
+    monitorName: 'API Gateway',
+    serverName: 'prod-node-01',
+    url: 'https://api.example.com/health',
+    host: 'prod-node-01',
+    hostname: 'prod-node-01',
+    error: 'Connection timeout',
+    ping: 128,
+    cpu_usage: 92,
+    mem_percent: 84,
+    disk_usage: 91,
+    traffic_percent: 86.35,
+    traffic_used: '863.5 GB',
+    traffic_limit: '1 TB',
+    threshold: 90,
+    downDuration: '3 分钟',
+  };
+};
 
 const parseNotificationPreviewLine = (line = '') => {
   const trimmed = line.trim();
@@ -1188,6 +1214,17 @@ function NotificationPage() {
                   resolve: '告警恢复',
                 }[lifecycleMeta.mutation] || lifecycleMeta.mutation) : null;
 
+                // 从 data JSON 提取来源模块与事件类型（历史行无独立列）
+                let logEventType = '';
+                let logSourceModule = '';
+                if (log.data) {
+                  try {
+                    const parsed = typeof log.data === 'string' ? JSON.parse(log.data) : log.data;
+                    logEventType = parsed.eventType || parsed.event_type || '';
+                    logSourceModule = parsed.sourceModule || parsed.source_module || '';
+                  } catch { /* ignore malformed data */ }
+                }
+
                 // 获取匹配的通知渠道名称
                 const matchedChannel = notificationChannels.find(c => String(c.id) === String(log.channel_id));
                 const channelDisplayName = log.channel_name || matchedChannel?.name || (log.channel_type ? getChannelTypeName(log.channel_type) : null);
@@ -1232,6 +1269,22 @@ function NotificationPage() {
                           <span className="rounded border border-kumo-line/60 bg-kumo-recessed/60 px-1.5 py-0.5 text-[10px] font-medium text-kumo-strong">
                             {channelDisplayName}
                           </span>
+                        </div>
+                      )}
+
+                      {/* 2.5 来源模块与事件类型标识（cron 等链路可溯源） */}
+                      {(logSourceModule || logEventType) && (
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                          {logSourceModule && (
+                            <Badge className="border border-kumo-brand/25 bg-kumo-brand/10 text-[10px] font-semibold text-kumo-brand py-0.5 px-2">
+                              {getSourceModuleName(logSourceModule)}
+                            </Badge>
+                          )}
+                          {logEventType && (
+                            <span className="rounded border border-kumo-line/60 bg-kumo-recessed/60 px-1.5 py-0.5 font-mono text-[10px] text-kumo-subtle">
+                              {getEventTypeName(logEventType.replace(/^cron\./, ''))}
+                            </span>
+                          )}
                         </div>
                       )}
 

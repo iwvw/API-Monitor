@@ -207,6 +207,10 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const lastPromptRef = useRef('');
   const skipLoadSessionRef = useRef(null);
   const streamTargetIdRef = useRef(null);
+  // 外部来源轮询：streamingRef 在面板自己的 run 流式输出时为 true（此时重拉会打断打字机）；
+  // lastActivityRef 记录各会话最近一次 lastActivityAt，轮询时比对变化判断是否需要重拉消息
+  const streamingRef = useRef(streaming);
+  const lastActivityRef = useRef(new Map());
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -218,7 +222,9 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       setSessions(list);
       setSessions((prev) => [...list, ...prev.filter((p) => !list.some((s) => s.id === p.id))]);
       if (list.length > 0 && !activeSessionIdRef.current) setActiveSessionId(list[0].id);
+      return list;
     } catch {
+      return [];
     } finally {
       setSessionsLoading(false);
     }
@@ -288,6 +294,37 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   }, []);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
+
+  useEffect(() => { streamingRef.current = streaming; }, [streaming]);
+
+  /* TG/定时任务等外部来源的对话没有推送到浏览器的通道（SSE 只覆盖面板自己发起的 run），
+     面板打开期间轮询会话活动时间：活跃会话 lastActivityAt 有变化则重拉消息，会话列表同步刷新。 */
+  useEffect(() => {
+    if (!showAskAI) return undefined;
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight || streamingRef.current || document.visibilityState !== 'visible') return;
+      inFlight = true;
+      try {
+        const list = await loadSessions();
+        const sid = activeSessionIdRef.current;
+        const cur = list.find((s) => s.id === sid);
+        if (cur) {
+          const prevAt = lastActivityRef.current.get(sid);
+          if (prevAt !== undefined && cur.lastActivityAt !== prevAt) {
+            loadMessages(sid);
+          }
+          lastActivityRef.current.set(sid, cur.lastActivityAt);
+        }
+      } catch {
+      } finally {
+        inFlight = false;
+      }
+    };
+    poll(); // 面板刚打开立即同步一次，避免等首个 3s 周期
+    const timer = window.setInterval(poll, 3000);
+    return () => window.clearInterval(timer);
+  }, [showAskAI, loadSessions, loadMessages]);
 
   const stopStream = useCallback(() => {
     if (eventSource.current) {

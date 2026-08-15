@@ -24,6 +24,97 @@ type channelManager struct {
 	cancels  map[string]context.CancelFunc // 频道配置 id -> 运行 cancel
 }
 
+// authorizeByWhitelist 判定频道白名单授权：无白名单条目 = 开放模式（任何人可对话）；
+// 有条目则仅 channel_user_id 命中者放行。
+func authorizeByWhitelist(db *sql.DB, channelID, userID string) bool {
+	var total int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM admin_ai_channel_bindings WHERE channel_id = ?`, channelID).Scan(&total); err != nil {
+		return false
+	}
+	if total == 0 {
+		return true
+	}
+	var hit int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM admin_ai_channel_bindings WHERE channel_id = ? AND channel_user_id = ?`,
+		channelID, userID).Scan(&hit); err != nil {
+		return false
+	}
+	return hit > 0
+}
+
+// resolveBotToken 解析频道的 bot token：优先取来源通知渠道（telegram 且启用）的 bot_token，
+// 否则沿用旧配置内联的 botToken（零迁移兼容：旧频道在重新选择来源前继续可用）。
+func (s *Service) resolveBotToken(ctx context.Context, notificationChannelID string, cfg channel.TelegramConfig) (string, error) {
+	if notificationChannelID != "" {
+		if s.src == nil {
+			return "", fmt.Errorf("通知中心服务未注入，无法解析来源渠道")
+		}
+		ch, ok, err := s.src.LoadChannel(ctx, notificationChannelID)
+		if err != nil {
+			return "", fmt.Errorf("读取来源通知渠道失败: %w", err)
+		}
+		if !ok {
+			return "", fmt.Errorf("来源通知渠道 %s 不存在", notificationChannelID)
+		}
+		if ch.Type != "telegram" {
+			return "", fmt.Errorf("来源通知渠道 %s 不是 Telegram 渠道", notificationChannelID)
+		}
+		if ch.Enabled != 1 {
+			return "", fmt.Errorf("来源通知渠道 %s 已停用", notificationChannelID)
+		}
+		token, _ := ch.Config["bot_token"].(string)
+		if strings.TrimSpace(token) == "" {
+			return "", fmt.Errorf("来源通知渠道 %s 缺少 bot_token 配置", notificationChannelID)
+		}
+		return strings.TrimSpace(token), nil
+	}
+	token := strings.TrimSpace(cfg.BotToken)
+	if token == "" {
+		return "", fmt.Errorf("频道未选择来源通知渠道，且无旧 Token 配置")
+	}
+	return token, nil
+}
+
+// validateNotificationSource 校验通知中心来源渠道可用（存在、telegram、启用），供创建/更新频道复用。
+func (s *Service) validateNotificationSource(ctx context.Context, notificationChannelID string) error {
+	if s.src == nil {
+		return fmt.Errorf("通知中心服务未注入")
+	}
+	if notificationChannelID == "" {
+		return fmt.Errorf("必须选择来源通知渠道")
+	}
+	ch, ok, err := s.src.LoadChannel(ctx, notificationChannelID)
+	if err != nil {
+		return fmt.Errorf("读取来源通知渠道失败: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("来源通知渠道 %s 不存在", notificationChannelID)
+	}
+	if ch.Type != "telegram" {
+		return fmt.Errorf("来源通知渠道 %s 不是 Telegram 渠道，无法作为 AI 机器人来源", notificationChannelID)
+	}
+	if ch.Enabled != 1 {
+		return fmt.Errorf("来源通知渠道 %s 已停用，请先在通知中心启用", notificationChannelID)
+	}
+	return nil
+}
+
+// sourceChannelInUse 判断该来源渠道是否已被其他 AI 频道引用（同源双长轮询会互相抢 getUpdates offset）。
+func (s *Service) sourceChannelInUse(ctx context.Context, sourceID, excludeChannelID string) (bool, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var count int
+	err = db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM admin_ai_channels WHERE notification_channel_id = ? AND id <> ?`,
+		sourceID, excludeChannelID).Scan(&count)
+	return count > 0, err
+}
+
 // SetupChannels 初始化频道注册表与入站回调（server 启动时调用）。
 func (s *Service) SetupChannels() {
 	if s.chanMgr != nil {
@@ -34,16 +125,27 @@ func (s *Service) SetupChannels() {
 		cancels:  make(map[string]context.CancelFunc),
 	}
 
+	// 全局兜底授权（仅注册表重建瞬间生效，随后被 per-channel authorize 覆盖）：
+	// 无任何白名单条目 = 开放模式，任何人可对话；有则仅命中者放行。
 	auth := func(userID, username, chatType string) bool {
 		db, err := s.open(context.Background())
 		if err != nil {
 			return false
 		}
 		defer db.Close()
+		var total int
+		if err := db.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM admin_ai_channel_bindings b JOIN admin_ai_channels c ON c.id = b.channel_id
+			 WHERE c.enabled = 1`).Scan(&total); err != nil {
+			return false
+		}
+		if total == 0 {
+			return true
+		}
 		var count int
 		err = db.QueryRowContext(context.Background(),
 			`SELECT COUNT(*) FROM admin_ai_channel_bindings b JOIN admin_ai_channels c ON c.id = b.channel_id
-			 WHERE c.type = 'telegram' AND c.enabled = 1 AND b.channel_user_id = ?`,
+			 WHERE c.enabled = 1 AND b.channel_user_id = ?`,
 			userID).Scan(&count)
 		return err == nil && count > 0
 	}
@@ -91,16 +193,16 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 	defer db.Close()
 
 	rows, err := db.QueryContext(context.Background(),
-		`SELECT id, type, name, enabled, config_encrypted FROM admin_ai_channels WHERE enabled = 1`)
+		`SELECT id, type, name, enabled, config_encrypted, COALESCE(notification_channel_id,'') FROM admin_ai_channels WHERE enabled = 1`)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var id, ctype, name, encrypted string
+		var id, ctype, name, encrypted, sourceID string
 		var enabled int
-		if err := rows.Scan(&id, &ctype, &name, &enabled, &encrypted); err != nil {
+		if err := rows.Scan(&id, &ctype, &name, &enabled, &encrypted, &sourceID); err != nil {
 			continue
 		}
 		if ctype != "telegram" {
@@ -110,6 +212,12 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 		if err := secure.DecryptJSON(encrypted, &cfg); err != nil {
 			continue
 		}
+		token, err := s.resolveBotToken(context.Background(), sourceID, cfg)
+		if err != nil {
+			slog.Warn("channel-load-token", "channelId", id, "err", err.Error())
+			continue
+		}
+		cfg.BotToken = token
 		tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
 		tg.SetAuthorize(auth)
 		s.chanMgr.registry.Register(tg)
@@ -129,9 +237,9 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	var ctype, encrypted string
+	var ctype, encrypted, sourceID string
 	err = db.QueryRowContext(ctx,
-		`SELECT type, config_encrypted FROM admin_ai_channels WHERE id = ? AND enabled = 1`, id).Scan(&ctype, &encrypted)
+		`SELECT type, config_encrypted, COALESCE(notification_channel_id,'') FROM admin_ai_channels WHERE id = ? AND enabled = 1`, id).Scan(&ctype, &encrypted, &sourceID)
 	db.Close()
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("频道不存在或未启用")
@@ -140,18 +248,14 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		return err
 	}
 
+	// per-channel 白名单授权：无条目=开放，有则仅命中者放行
 	auth := func(userID, username, chatType string) bool {
 		adb, aerr := s.open(context.Background())
 		if aerr != nil {
 			return false
 		}
 		defer adb.Close()
-		var count int
-		_ = adb.QueryRowContext(context.Background(),
-			`SELECT COUNT(*) FROM admin_ai_channel_bindings b JOIN admin_ai_channels c ON c.id = b.channel_id
-			 WHERE c.id = ? AND c.enabled = 1 AND b.channel_user_id = ?`,
-			id, userID).Scan(&count)
-		return count > 0
+		return authorizeByWhitelist(adb, id, userID)
 	}
 
 	var ch channel.Channel
@@ -161,6 +265,11 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		if err := secure.DecryptJSON(encrypted, &cfg); err != nil {
 			return fmt.Errorf("频道配置解密失败: %w", err)
 		}
+		token, err := s.resolveBotToken(ctx, sourceID, cfg)
+		if err != nil {
+			return err
+		}
+		cfg.BotToken = token
 		tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
 		tg.SetAuthorize(auth)
 		ch = tg
@@ -608,14 +717,16 @@ func (s *Service) sendChannelReply(env channel.InboundEnvelope, text string) (st
 /* ==================== HTTP 路由 ==================== */
 
 type channelItem struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Name      string                 `json:"name"`
-	Enabled   bool                   `json:"enabled"`
-	Config    map[string]interface{} `json:"config,omitempty"` // 解密后的配置（botToken 打码）
-	Status    string                 `json:"status,omitempty"`
-	CreatedAt string                 `json:"createdAt"`
-	UpdatedAt string                 `json:"updatedAt"`
+	ID                      string                 `json:"id"`
+	Type                    string                 `json:"type"`
+	Name                    string                 `json:"name"`
+	Enabled                 bool                   `json:"enabled"`
+	Config                  map[string]interface{} `json:"config,omitempty"` // 解密后的配置（旧 botToken 打码）
+	NotificationChannelID   string                 `json:"notificationChannelId,omitempty"`
+	NotificationChannelName string                 `json:"notificationChannelName,omitempty"`
+	Status                  string                 `json:"status,omitempty"`
+	CreatedAt               string                 `json:"createdAt"`
+	UpdatedAt               string                 `json:"updatedAt"`
 }
 
 func maskBotToken(cfg map[string]interface{}) map[string]interface{} {
@@ -635,7 +746,7 @@ func (s *Service) listChannels(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 
 	rows, err := db.QueryContext(r.Context(),
-		`SELECT id, type, name, enabled, config_encrypted, created_at, updated_at FROM admin_ai_channels ORDER BY created_at DESC`)
+		`SELECT id, type, name, enabled, config_encrypted, COALESCE(notification_channel_id,''), created_at, updated_at FROM admin_ai_channels ORDER BY created_at DESC`)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -647,13 +758,18 @@ func (s *Service) listChannels(w http.ResponseWriter, r *http.Request) {
 		var item channelItem
 		var enabled int
 		var encrypted string
-		if err := rows.Scan(&item.ID, &item.Type, &item.Name, &enabled, &encrypted, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Type, &item.Name, &enabled, &encrypted, &item.NotificationChannelID, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			continue
 		}
 		item.Enabled = enabled == 1
 		var cfg map[string]interface{}
 		if secure.DecryptJSON(encrypted, &cfg) == nil {
 			item.Config = maskBotToken(cfg)
+		}
+		if item.NotificationChannelID != "" && s.src != nil {
+			if ch, ok, err := s.src.LoadChannel(r.Context(), item.NotificationChannelID); err == nil && ok {
+				item.NotificationChannelName = ch.Name
+			}
 		}
 		if s.chanMgr != nil {
 			if _, running := s.chanMgr.cancels[item.ID]; running {
@@ -670,10 +786,11 @@ func (s *Service) listChannels(w http.ResponseWriter, r *http.Request) {
 // createChannel POST /api/admin-ai/channels
 func (s *Service) createChannel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Type    string                 `json:"type"`
-		Name    string                 `json:"name"`
-		Enabled bool                   `json:"enabled"`
-		Config  map[string]interface{} `json:"config"`
+		Type                  string                 `json:"type"`
+		Name                  string                 `json:"name"`
+		Enabled               bool                   `json:"enabled"`
+		NotificationChannelID string                 `json:"notificationChannelId"`
+		Config                map[string]interface{} `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -689,14 +806,24 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request) {
 	if req.Name == "" {
 		req.Name = "Telegram"
 	}
+	if err := s.validateNotificationSource(r.Context(), req.NotificationChannelID); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	inUse, err := s.sourceChannelInUse(r.Context(), req.NotificationChannelID, "")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if inUse {
+		response.Error(w, http.StatusBadRequest, "该通知渠道已被其他 AI 频道引用（同一 bot token 只能有一个长轮询实例）")
+		return
+	}
+	// 新频道只存运行期偏好，bot token 一律从来源通知渠道解析，不再落库
 	if req.Config == nil {
 		req.Config = map[string]interface{}{}
 	}
-	if token, _ := req.Config["botToken"].(string); token == "" {
-		response.Error(w, http.StatusBadRequest, "botToken 不能为空")
-		return
-	}
-
+	delete(req.Config, "botToken")
 	encrypted, err := secure.EncryptJSON(req.Config)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "配置加密失败")
@@ -721,8 +848,8 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request) {
 		enabled = 1
 	}
 	_, err = db.ExecContext(r.Context(),
-		`INSERT INTO admin_ai_channels (id, type, name, enabled, config_encrypted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, req.Type, req.Name, enabled, encrypted, now, now)
+		`INSERT INTO admin_ai_channels (id, type, name, enabled, config_encrypted, notification_channel_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, req.Type, req.Name, enabled, encrypted, req.NotificationChannelID, now, now)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -743,9 +870,10 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request) {
 // updateChannel PUT /api/admin-ai/channels/{id}
 func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id string) {
 	var req struct {
-		Name    *string                `json:"name"`
-		Enabled *bool                  `json:"enabled"`
-		Config  map[string]interface{} `json:"config"`
+		Name                  *string                `json:"name"`
+		Enabled               *bool                  `json:"enabled"`
+		NotificationChannelID *string                `json:"notificationChannelId"`
+		Config                map[string]interface{} `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -758,6 +886,36 @@ func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	defer db.Close()
+
+	if req.NotificationChannelID != nil {
+		sourceID := strings.TrimSpace(*req.NotificationChannelID)
+		if sourceID != "" {
+			if err := s.validateNotificationSource(r.Context(), sourceID); err != nil {
+				response.Error(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			inUse, err := s.sourceChannelInUse(r.Context(), sourceID, id)
+			if err != nil {
+				response.Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if inUse {
+				response.Error(w, http.StatusBadRequest, "该通知渠道已被其他 AI 频道引用（同一 bot token 只能有一个长轮询实例）")
+				return
+			}
+		} else {
+			// 清空来源：仅当频道存有旧 Token 配置时允许（否则启动后无 token 可用）
+			var oldEncrypted string
+			if err := db.QueryRowContext(r.Context(),
+				`SELECT config_encrypted FROM admin_ai_channels WHERE id = ?`, id).Scan(&oldEncrypted); err == nil {
+				var oldCfg channel.TelegramConfig
+				if secure.DecryptJSON(oldEncrypted, &oldCfg) == nil && strings.TrimSpace(oldCfg.BotToken) == "" {
+					response.Error(w, http.StatusBadRequest, "频道没有旧 Token 配置，清空来源后无法启动，请选择来源通知渠道")
+					return
+				}
+			}
+		}
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	updates := []string{}
@@ -775,20 +933,13 @@ func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id strin
 		}
 		args = append(args, enabled)
 	}
+	if req.NotificationChannelID != nil {
+		updates = append(updates, "notification_channel_id = ?")
+		args = append(args, strings.TrimSpace(*req.NotificationChannelID))
+	}
 	if req.Config != nil {
-		// 未提供 botToken 时保留原 Token（前端编辑表单拿不到明文，只回传打码值）
-		if _, hasToken := req.Config["botToken"]; !hasToken {
-			var oldEncrypted string
-			if err := db.QueryRowContext(r.Context(),
-				`SELECT config_encrypted FROM admin_ai_channels WHERE id = ?`, id).Scan(&oldEncrypted); err == nil {
-				var oldCfg map[string]interface{}
-				if secure.DecryptJSON(oldEncrypted, &oldCfg) == nil {
-					if t, ok := oldCfg["botToken"].(string); ok {
-						req.Config["botToken"] = t
-					}
-				}
-			}
-		}
+		// 新频道不再存 botToken：更新配置时剔除该键，token 始终从来源解析
+		delete(req.Config, "botToken")
 		encrypted, err := secure.EncryptJSON(req.Config)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, "配置加密失败")

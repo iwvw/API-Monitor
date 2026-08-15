@@ -1077,6 +1077,35 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"PATCH"}
 	case "/api/server/monitor/collect":
 		return []string{"POST"}
+	// 云厂商/托管面板的操作型子路由：真实仅 POST（或 GET+POST），
+	// 显式登记避免 MatchPattern 默认 4 方法导致 OpenAPI/巡检误报 GET。
+	case "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/purge",
+		"/api/cloudflare/accounts/{accountId}/zones/{zoneId}/batch",
+		"/api/cloudflare/accounts/{accountId}/zones/{zoneId}/switch",
+		"/api/cloudflare/accounts/{id}/verify",
+		"/api/cloudflare/templates/{templateId}/apply",
+		"/api/flyio/apps/{appName}/redeploy",
+		"/api/flyio/apps/{appName}/rename",
+		"/api/flyio/apps/{appName}/update-image",
+		"/api/flyio/accounts/{id}/update-all-images",
+		"/api/github/history/compact",
+		"/api/github/repositories/{id}/refresh",
+		"/api/github/repositories/{id}/webhook/configure",
+		"/api/koyeb/services/{serviceId}/redeploy",
+		"/api/koyeb/services/{serviceId}/pause",
+		"/api/koyeb/services/{serviceId}/restart",
+		"/api/onepanel/{serverId}/websites/{id}/operate",
+		"/api/onepanel/{serverId}/apps/install",
+		"/api/onepanel/{serverId}/containers/operate",
+		"/api/onepanel/{serverId}/ssl/obtain",
+		"/api/onepanel/{serverId}/upgrade",
+		"/api/onepanel/{serverId}/databases/{id}/password",
+		"/api/onepanel/{serverId}/websites/{id}/nginx",
+		"/api/onepanel/{serverId}/websites/{id}/https",
+		"/api/onepanel/{serverId}/websites/{id}/proxy":
+		return []string{"POST"}
+	case "/api/koyeb/data":
+		return []string{"GET"}
 	}
 	description := strings.ToLower(route.Description)
 	switch {

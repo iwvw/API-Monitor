@@ -16,6 +16,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
 )
@@ -32,20 +33,21 @@ type Service struct {
 	aiCaller   AICaller
 
 	mu          sync.Mutex
-	runs        map[string]chan SSEEvent // runId(execId) -> 事件通道
-	sessionRuns map[string]string        // sessionId -> runId，同一会话只允许一个活跃执行
-	cancels     map[string]context.CancelFunc // runId -> runCtx 取消函数（订阅后仍可真正终止执行）
+	runs        map[string]chan SSEEvent           // runId(execId) -> 事件通道
+	sessionRuns map[string]string                  // sessionId -> runId，同一会话只允许一个活跃执行
+	cancels     map[string]context.CancelFunc      // runId -> runCtx 取消函数（订阅后仍可真正终止执行）
 	approval    map[string]chan approvalResolution // approvalId -> 审批结果通道
-	runPolicy   map[string]string // runId -> 定时任务策略："" 普通 | "allow" 写操作免审批 | "readonly" 禁用写操作
+	runPolicy   map[string]string                  // runId -> 定时任务策略："" 普通 | "allow" 写操作免审批 | "readonly" 禁用写操作
 
-	catalogMu   sync.Mutex // 确定性接口清单缓存（apiCatalogText）
-	catalogText string
-	catalogDone bool
+	catalogMu    sync.Mutex // 确定性接口清单缓存（apiCatalogText）
+	catalogText  string
+	catalogDone  bool
 	catalogDescs map[string]string // path -> 中文描述（工具步骤展示用）
 
 	chanMgr     *channelManager // PRD-03 频道接入（channels.go）
 	cleanerOnce sync.Once       // PRD-04 审批超时清理 goroutine
 	stopCleaner chan struct{}
+	src         *notification.Service // 通知中心：AI 频道 bot token 来源 + 结果推送出口
 }
 
 func New(cfg config.Config) *Service {
@@ -62,6 +64,12 @@ func New(cfg config.Config) *Service {
 
 func (s *Service) SetAICaller(caller AICaller) {
 	s.aiCaller = caller
+}
+
+// SetNotificationSource 注入通知中心服务：AI 频道 bot token 复用通知渠道配置，
+// 定时任务/简报结果经通知中心渠道直发（出站不再依赖自建频道）。
+func (s *Service) SetNotificationSource(src *notification.Service) {
+	s.src = src
 }
 
 func (s *Service) open(ctx context.Context) (*sql.DB, error) {
@@ -176,6 +184,10 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	// 现有 ai_access_audit 表扩展 channel 列（PRD-04，不改既有行）
 	if err := ensureSQLiteColumn(ctx, db, "ai_access_audit", "channel", "TEXT"); err != nil {
 		return fmt.Errorf("adminai ensureSchema ai_access_audit: %w", err)
+	}
+	// admin_ai_channels 扩展 notification_channel_id 列（AI 频道 bot token 复用通知中心渠道；空=沿用旧 config token）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_channels", "notification_channel_id", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_channels.notification_channel_id: %w", err)
 	}
 	// admin_ai_messages 扩展 reasoning_content 列（推理模型要求回传思考内容）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_content", "TEXT DEFAULT ''"); err != nil {

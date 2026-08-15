@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/adminai/channel"
+	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
 )
 
@@ -49,7 +51,8 @@ func TestDailyBriefingRejectsNonCron(t *testing.T) {
 	}
 }
 
-// TestDailyBriefingTargetsDedup 验证简报目标解析：仅收已启用 telegram 频道的绑定用户，且去重。
+// TestDailyBriefingTargetsDedup 验证简报目标解析：
+// 旧频道（无来源）→ 白名单用户目标且去重；指定 chatId 时单发。
 func TestDailyBriefingTargetsDedup(t *testing.T) {
 	s := newTestService(t)
 	s.SetupChannels()
@@ -73,17 +76,75 @@ func TestDailyBriefingTargetsDedup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("briefingTargets: %v", err)
 	}
-	if len(targets) != 2 {
-		t.Fatalf("期望去重后 2 个目标，实际 %d: %v", len(targets), targets)
+	var legacyChats []string
+	for _, target := range targets {
+		if target.ChatID != "" {
+			legacyChats = append(legacyChats, target.ChatID)
+		}
+	}
+	if len(legacyChats) != 2 {
+		t.Fatalf("期望去重后 2 个白名单目标，实际 %d: %v", len(legacyChats), legacyChats)
 	}
 
-	// 指定 chatId 时单发
+	// 指定 chatId 时单发（非通知渠道 id 视为旧单发 chat）
 	one, err := s.briefingTargets(context.Background(), "999")
 	if err != nil {
 		t.Fatalf("briefingTargets single: %v", err)
 	}
-	if len(one) != 1 || one[0] != "999" {
+	if len(one) != 1 || one[0].ChatID != "999" {
 		t.Fatalf("单发目标异常: %v", one)
+	}
+}
+
+// TestBriefingSourceNotificationTarget 验证来源渠道目标：启用的 AI 频道引用了
+// 通知中心 Telegram 渠道时，简报目标为该通知渠道（同源去重）。
+func TestBriefingSourceNotificationTarget(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{Version: "test", Host: "127.0.0.1", Port: 0, DataDir: dir, DBName: "test.db"}
+	s := New(cfg)
+
+	ns := notification.New(cfg)
+	created, err := ns.CreateChannel(context.Background(), map[string]interface{}{
+		"name":    "TG 告警",
+		"type":    "telegram",
+		"enabled": true,
+		"config":  map[string]interface{}{"bot_token": "123:abc", "chat_id": "-100123"},
+	})
+	if err != nil {
+		t.Fatalf("create notification channel: %v", err)
+	}
+	s.SetNotificationSource(ns)
+	s.SetupChannels()
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_channels (id, type, name, enabled, config_encrypted, notification_channel_id, created_at, updated_at) VALUES ('aac_src', 'telegram', 'AI 机器人', 1, 'x', ?, ?, ?)`,
+		created.ID, now, now)
+	// 第二个频道引用同一来源 → 去重后仍只 1 个目标
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_channels (id, type, name, enabled, config_encrypted, notification_channel_id, created_at, updated_at) VALUES ('aac_src2', 'telegram', 'AI 机器人2', 1, 'x', ?, ?, ?)`,
+		created.ID, now, now)
+	db.Close()
+
+	targets, err := s.briefingTargets(context.Background(), "")
+	if err != nil {
+		t.Fatalf("briefingTargets: %v", err)
+	}
+	if len(targets) != 1 || targets[0].NotificationChannelID != created.ID {
+		t.Fatalf("期望 1 个来源渠道目标 %s，实际 %#v", created.ID, targets)
+	}
+
+	// 指定该通知渠道 id 时单发
+	one, err := s.briefingTargets(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("briefingTargets single source: %v", err)
+	}
+	if len(one) != 1 || one[0].NotificationChannelID != created.ID {
+		t.Fatalf("单发来源目标异常: %v", one)
 	}
 }
 

@@ -1263,6 +1263,27 @@ func (s *Service) loadStoredChannel(ctx context.Context, id string) (storedChann
 	return channel, true, nil
 }
 
+// SendToChannel 把一条消息直接投递到指定通知渠道的固定目标（bot token 与目标 chat 均取自渠道配置，
+// 不做规则匹配/生命周期跟踪）。用于管理 AI 等模块复用通知中心已配置的渠道做结果推送。
+func (s *Service) SendToChannel(ctx context.Context, channelID, title, message string) error {
+	channel, ok, err := s.loadStoredChannel(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("通知渠道 %s 不存在", channelID)
+	}
+	if channel.Enabled != 1 {
+		return fmt.Errorf("通知渠道 %s 已停用", channelID)
+	}
+	cfg := decryptConfig(channel.ConfigRaw)
+	if len(cfg) == 0 {
+		return fmt.Errorf("通知渠道 %s 配置为空", channelID)
+	}
+	_, err = s.sendToChannel(ctx, channel, cfg, title, message)
+	return err
+}
+
 func (s *Service) createHistory(ctx context.Context, ruleID, channelID, status, title, message string, data map[string]interface{}, errorMessage *string) (int64, error) {
 	db, err := s.open(ctx)
 	if err != nil {
@@ -2201,6 +2222,7 @@ func eventCatalog() []map[string]interface{} {
 		{"module": "github", "events": []string{"action_failed", "action_recovered", "release_published", "star_spike", "issue_opened", "pull_request_opened", "repository_unreachable", "token_invalid", "rate_limit_low", "webhook_delivery_failed", "webhook_ping"}, "dynamic_events": []string{"action_failed", "action_recovered"}},
 		{"module": "totp", "events": []string{"resource.created", "resource.updated", "resource.deleted", "security.revealed", "backup.imported", "backup.exported"}},
 		{"module": "openai", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
+		{"module": "cron", "events": []string{"task.completed", "task.failed", "workflow.completed", "workflow.failed"}, "dynamic_events": []string{}},
 	}
 }
 
@@ -2257,6 +2279,12 @@ func formatMessage(rule Rule, data map[string]interface{}, loc *time.Location) s
 	}
 	add("仓库", data["repositoryFullName"])
 	add("资源", firstNonEmpty(stringValue(data["resourceName"]), stringValue(data["name"])))
+	add("任务", data["taskName"])
+	add("工作流", data["workflowName"])
+	add("结果", data["summary"])
+	add("输出", data["output"])
+	add("耗时", data["duration"])
+	add("触发方式", data["triggerType"])
 
 	if data["url"] != nil {
 		add("地址", data["url"])
@@ -2424,6 +2452,8 @@ func notificationEventLabel(eventType string) string {
 		"resource.created": "资源已创建", "resource.updated": "资源已更新", "resource.deleted": "资源已删除", "cleanup": "清理任务",
 		"security.revealed": "敏感信息已查看", "backup.imported": "备份已导入", "backup.exported": "备份已导出",
 		"gateway_error_high": "网关错误率过高", "gateway_error_normal": "网关错误率恢复正常",
+		"task.completed": "定时任务执行完成", "task.failed": "定时任务执行失败",
+		"workflow.completed": "工作流执行完成", "workflow.failed": "工作流执行失败",
 	}
 	if label := labels[strings.ToLower(strings.TrimSpace(eventType))]; label != "" {
 		return label

@@ -656,3 +656,41 @@ func TestGlobalConfigMigrationAddsNewColumnsBeforeDefaultInsert(t *testing.T) {
 		t.Fatalf("notification_message_state.last_data migration exists=%v err=%v", exists, err)
 	}
 }
+
+// TestSendToChannelErrors 验证 SendToChannel 的错误分支（渠道不存在 / 停用 / 配置缺失），
+// 不触发真实网络发送。
+func TestSendToChannelErrors(t *testing.T) {
+	ctx := context.Background()
+	service := testNotificationService(t)
+
+	if err := service.SendToChannel(ctx, "notif_missing", "标题", "内容"); err == nil || !strings.Contains(err.Error(), "不存在") {
+		t.Fatalf("不存在渠道应报错，实际 err=%v", err)
+	}
+
+	created, err := service.CreateChannel(ctx, map[string]interface{}{
+		"name":    "TG 停用",
+		"type":    "telegram",
+		"enabled": false,
+		"config":  map[string]interface{}{"bot_token": "123:abc", "chat_id": "-100123"},
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if err := service.SendToChannel(ctx, created.ID, "标题", "内容"); err == nil || !strings.Contains(err.Error(), "停用") {
+		t.Fatalf("停用渠道应报错，实际 err=%v", err)
+	}
+
+	// 启用但配置为空：sendTelegram 内部会报 config incomplete（不经网络）
+	enabledChan, err := service.CreateChannel(ctx, map[string]interface{}{
+		"name":    "TG 缺配置",
+		"type":    "telegram",
+		"enabled": true,
+		"config":  map[string]interface{}{"bot_token": "", "chat_id": ""},
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if err := service.SendToChannel(ctx, enabledChan.ID, "标题", "内容"); err == nil || !strings.Contains(err.Error(), "config incomplete") {
+		t.Fatalf("配置缺失应报错，实际 err=%v", err)
+	}
+}

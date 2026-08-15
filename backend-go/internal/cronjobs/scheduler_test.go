@@ -190,6 +190,61 @@ func TestSchedulerWorkflowDagValidationAndRun(t *testing.T) {
 	}
 }
 
+func TestSchedulerWorkflowStartEndNodesAreMarkers(t *testing.T) {
+	service := newCronService(t)
+
+	body := `{
+		"name":"StartEnd Flow",
+		"enabled":1,
+		"nodes":[
+			{"id":"start","name":"开始","type":"start","enabled":1},
+			{"id":"work","name":"Work","command":"echo ok","enabled":1},
+			{"id":"tasked","name":"Tasked","type":"task","command":"echo tasked-ok","enabled":1},
+			{"id":"end","name":"结束","type":"end","enabled":1}
+		],
+		"edges":[
+			{"from":"start","to":"work","condition":"success"},
+			{"from":"work","to":"tasked","condition":"success"},
+			{"from":"tasked","to":"end","condition":"success"}
+		]
+	}`
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/workflows", body)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	workflow := decodeCronData[Workflow](t, res)
+	byID := map[string]WorkflowNode{}
+	for _, n := range workflow.Nodes {
+		byID[n.ID] = n
+	}
+	if byID["work"].Type != "shell" {
+		t.Fatalf("inline node without type should normalize to shell, got %q", byID["work"].Type)
+	}
+	if byID["tasked"].Type != "shell" {
+		t.Fatalf("explicit task node should normalize to shell, got %q", byID["tasked"].Type)
+	}
+
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/workflows/"+strconv.FormatInt(workflow.ID, 10)+"/run", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("run workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	run := decodeCronData[WorkflowRun](t, res)
+	if run.Status != "success" {
+		t.Fatalf("run should succeed with start/end markers, got status=%s summary=%s", run.Status, run.Summary)
+	}
+	if len(run.NodeRuns) != 4 {
+		t.Fatalf("expected 4 node runs, got %d", len(run.NodeRuns))
+	}
+	for _, nr := range run.NodeRuns {
+		if nr.Status != "success" {
+			t.Fatalf("node %s should succeed, got %s: %s", nr.NodeID, nr.Status, nr.Output)
+		}
+	}
+	if !strings.Contains(run.Summary, "成功 4") {
+		t.Fatalf("unexpected summary: %q", run.Summary)
+	}
+}
+
 func TestSchedulerWorkflowExportImportCancelAndRetry(t *testing.T) {
 	service := newCronService(t)
 

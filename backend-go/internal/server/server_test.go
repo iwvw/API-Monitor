@@ -1331,6 +1331,77 @@ func TestCronRoutesRequireSessionAndAreServedByGo(t *testing.T) {
 	}
 }
 
+func TestInternalCronReadonlyWhitelist(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "")
+	t.Setenv("DEMO_MODE", "")
+
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	cronReq := func(method, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("X-Internal-Cron", "true")
+		req.RemoteAddr = "127.0.0.1:12345"
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		return res
+	}
+
+	// 白名单内业务家族只读 GET 放行
+	for _, path := range []string{
+		"/api/system/host-metrics",
+		"/api/server/s",
+		"/api/cloudflare/zones",
+		"/api/openai/analytics/summary",
+		"/api/totp/accounts",
+		"/api/notification/channels",
+		"/api/drawio/documents",
+		"/api/prompts/entries",
+		"/api/aliyun/accounts",
+		"/api/koyeb/data",
+		"/api/github/tokens",
+	} {
+		res := cronReq(http.MethodGet, path)
+		if res.Code != http.StatusOK {
+			t.Fatalf("GET %s with internal cron header status = %d body=%s", path, res.Code, res.Body.String())
+		}
+	}
+
+	// 白名单内路径的写操作拒绝
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/scheduler/workflows"},
+		{http.MethodDelete, "/api/prompts/entries/1"},
+		{http.MethodPut, "/api/totp/accounts/1"},
+		{http.MethodPost, "/api/cloudflare/zones"},
+	} {
+		res := cronReq(tc.method, tc.path)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s with internal cron header status = %d (want 401) body=%s", tc.method, tc.path, res.Code, res.Body.String())
+		}
+	}
+
+	// 带模块级二次鉴权的模块不放行（uptime）
+	res := cronReq(http.MethodGet, "/api/uptime/monitors")
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/uptime/monitors with internal cron header status = %d (want 401) body=%s", res.Code, res.Body.String())
+	}
+
+	// 外部地址伪造 X-Internal-Cron 头不放行
+	req := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	req.Header.Set("X-Internal-Cron", "true")
+	req.RemoteAddr = "203.0.113.5:12345"
+	resFake := httptest.NewRecorder()
+	handler.ServeHTTP(resFake, req)
+	if resFake.Code != http.StatusUnauthorized {
+		t.Fatalf("external addr with internal cron header status = %d (want 401) body=%s", resFake.Code, resFake.Body.String())
+	}
+}
+
 func TestNotificationRoutesRequireSessionAndAreServedByGo(t *testing.T) {
 	t.Setenv("ADMIN_PASSWORD", "")
 	t.Setenv("DEMO_MODE", "")

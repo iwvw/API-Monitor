@@ -119,6 +119,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	serverAgentService.SetCloudflareTunnelManager(cloudflareService)
 	cronService := cronjobs.New(cfg)
 	cronService.SetAgentRunner(serverAgentService)
+	cronService.SetNotifier(notifyService)
 	uptimeService := uptime.New(cfg, authService, notifyService)
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
 	githubService := githubmodule.New(cfg)
@@ -132,6 +133,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	settingsService := settings.New(cfg)
 	settingsService.StartBackgroundCleanup()
 	adminaiService := adminai.New(cfg)
+	adminaiService.SetNotificationSource(notifyService)
 	server := &Server{
 		cfg:      cfg,
 		auth:     authService,
@@ -318,9 +320,10 @@ func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route manifest.Route) bool {
-	// 本机定时任务内部调用（cronjobs internal 任务）：仅放行明确登记的内部接口，
+	// 本机定时任务内部调用（cronjobs internal 任务）：仅放行登记的内部接口，
 	// 且来源必须是本机回环地址，防止外部伪造 X-Internal-Cron 头绕过会话鉴权。
-	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) {
+	// 方法级校验限制为只读动作（admin-ai cron 回调除外），杜绝无会话写操作。
+	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) {
 		return true
 	}
 	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible") {
@@ -414,8 +417,70 @@ func isLoopbackRemoteAddr(remoteAddr string) bool {
 }
 
 // isInternalCronRoute 判断路径是否为登记的本机定时任务内部接口。
+// 仅放行本机 cron 任务（经 loopback + X-Internal-Cron 防伪造）可读取的接口：
+//   - 精确登记的系统只读接口与 admin-ai cron 回调；
+//   - 带模块级二次鉴权的模块（uptime/filebox）不在白名单内，属预期安全边界。
+//
+// 该方法判定路径是否可放行；方法级校验（仅 GET 等只读动作）由调用方
+// internalCronAllowsMethod 完成，避免白名单接口被用于写操作。
 func isInternalCronRoute(path string) bool {
-	return path == "/api/admin-ai/cron/daily-briefing" || path == "/api/admin-ai/cron/task-run"
+	switch path {
+	case "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/cron/task-run",
+		"/api/system/host-metrics", "/api/system/api-stats",
+		"/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json",
+		"/api/migration/status", "/api/server/s":
+		return true
+	}
+	// 只读 GET 业务家族：无模块级二次鉴权，prefix 前缀 + 调用方 GET 校验兜底。
+	for _, prefix := range internalCronReadonlyPrefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// internalCronAllowsMethod 校验 cron 内部调用允许的方法：除 admin-ai cron 回调外，
+// 业务只读家族只放行 GET/HEAD（防止 cron 无会话写操作）。
+func (s *Server) internalCronAllowsMethod(r *http.Request) bool {
+	path := r.URL.Path
+	switch path {
+	case "/api/admin-ai/cron/task-run":
+		return r.Method == http.MethodPost
+	case "/api/admin-ai/cron/daily-briefing":
+		return r.Method == http.MethodGet
+	}
+	for _, prefix := range internalCronReadonlyPrefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return r.Method == http.MethodGet || r.Method == http.MethodHead
+		}
+	}
+	if isInternalCronRoute(path) {
+		return r.Method == http.MethodGet || r.Method == http.MethodHead
+	}
+	return false
+}
+
+// internalCronReadonlyPrefixes 是 cron 内部任务可只读访问的模块家族前缀。
+// 仅收录无模块级二次鉴权、GET 语义为读取/列表/统计的模块；uptime/filebox
+// 自带模块级会话校验，不在此列。
+var internalCronReadonlyPrefixes = []string{
+	"/api/system",
+	"/api/cloudflare/zones",
+	"/api/openai/analytics",
+	"/api/openai/endpoints",
+	"/api/totp",
+	"/api/notification",
+	"/api/scheduler",
+	"/api/backup",
+	"/api/aliyun",
+	"/api/tencent",
+	"/api/flyio",
+	"/api/koyeb",
+	"/api/github",
+	"/api/drawio",
+	"/api/prompts",
+	"/api/server",
 }
 
 func hasAPIKeyCredential(r *http.Request) bool {

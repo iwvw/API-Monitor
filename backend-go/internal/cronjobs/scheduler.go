@@ -56,6 +56,7 @@ type WorkflowNode struct {
 	NodeID         string `json:"node_id,omitempty"`
 	PositionX      int    `json:"x,omitempty"`
 	PositionY      int    `json:"y,omitempty"`
+	Config         string `json:"config,omitempty"`
 }
 
 type WorkflowEdge struct {
@@ -1065,7 +1066,11 @@ func normalizeWorkflowNodes(nodes []WorkflowNode) []WorkflowNode {
 			node.ID = fmt.Sprintf("node-%d", i+1)
 		}
 		node.Name = firstNonEmpty(strings.TrimSpace(node.Name), node.ID)
-		node.Type = firstNonEmpty(strings.TrimSpace(node.Type), "task")
+		node.Type = strings.TrimSpace(node.Type)
+		if node.Type == "" || node.Type == "task" {
+			// 内联 command 节点默认按 shell 执行；显式 task 同样归为 shell（与任务引擎合法类型一致）。
+			node.Type = "shell"
+		}
 		if node.Enabled != 0 {
 			node.Enabled = 1
 		}
@@ -1207,10 +1212,36 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 		return WorkflowRun{}, err
 	}
 	run, _, err := findRun(context.Background(), db, runID)
+	s.notifyWorkflowResult(ctx, workflow, finalStatus, summary, end-start, triggerType)
 	return run, err
 }
 
+// notifyWorkflowResult 工作流执行完成后触发通知中心事件（cron 源，workflow.completed / failed）。
+func (s *Service) notifyWorkflowResult(ctx context.Context, workflow Workflow, status, summary string, duration int64, triggerType string) {
+	if s.notifier == nil {
+		return
+	}
+	eventType := "workflow.completed"
+	if status != "success" {
+		eventType = "workflow.failed"
+	}
+	payload := map[string]interface{}{
+		"workflowId":   workflow.ID,
+		"workflowName": workflow.Name,
+		"status":       status,
+		"summary":      summary,
+		"duration":     duration,
+		"triggerType":  triggerType,
+		"eventType":    "cron." + eventType,
+	}
+	_ = s.notifier.Trigger(ctx, "cron", eventType, payload)
+}
+
 func (s *Service) executeWorkflowNode(ctx context.Context, db *sql.DB, node WorkflowNode) (string, error) {
+	// start / end 是 DAG 控制标记节点，无实际任务语义，直接视为成功。
+	if node.Type == "start" || node.Type == "end" {
+		return "", nil
+	}
 	if node.TaskID != 0 {
 		task, ok, err := findTask(ctx, db, node.TaskID)
 		if err != nil {
@@ -1226,6 +1257,7 @@ func (s *Service) executeWorkflowNode(ctx context.Context, db *sql.DB, node Work
 		Type:    firstNonEmpty(node.Type, "shell"),
 		Command: node.Command,
 		Enabled: 1,
+		Config:  node.Config,
 	}
 	return s.executeTaskCommand(ctx, task)
 }

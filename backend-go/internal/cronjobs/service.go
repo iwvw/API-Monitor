@@ -43,6 +43,16 @@ type Service struct {
 	mu              sync.Mutex
 	client          *http.Client
 	agentRunner     AgentRunner
+	notifier        Notifier
+}
+
+// Notifier 是通知中心的最小接口，供任务/工作流执行结果事件通知。
+type Notifier interface {
+	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
+}
+
+func (s *Service) SetNotifier(notifier Notifier) {
+	s.notifier = notifier
 }
 
 type AgentRunner interface {
@@ -505,6 +515,27 @@ func (s *Service) ExecuteTask(ctx context.Context, taskID int64) {
 		WHERE id = ?
 	`, status, output, endTime, duration, logID)
 	_, _ = db.ExecContext(context.Background(), `UPDATE cron_tasks SET last_run = ? WHERE id = ?`, endTime, task.ID)
+	s.notifyTaskResult(ctx, task, status, output, duration)
+}
+
+// notifyTaskResult 任务执行完成后触发通知中心事件（cron 源，task.completed / task.failed）。
+func (s *Service) notifyTaskResult(ctx context.Context, task SchedulerTask, status, output string, duration int64) {
+	if s.notifier == nil {
+		return
+	}
+	eventType := "task.completed"
+	if status != "success" {
+		eventType = "task.failed"
+	}
+	payload := map[string]interface{}{
+		"taskId":   task.ID,
+		"taskName": task.Name,
+		"status":   status,
+		"output":   truncateOutput(output),
+		"duration": duration,
+		"eventType": "cron." + eventType,
+	}
+	_ = s.notifier.Trigger(ctx, "cron", eventType, payload)
 }
 
 func (s *Service) executeTaskCommand(ctx context.Context, task Task) (string, error) {

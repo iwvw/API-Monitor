@@ -18,7 +18,7 @@ type cronTaskRunReq struct {
 	Prompt    string `json:"prompt"`    // AI 提示词（必填）
 	Model     string `json:"model"`     // 指定模型，留空回退默认模型
 	Policy    string `json:"policy"`    // allow（默认）| readonly
-	ChannelID string `json:"channelId"` // 可选：完成后把输出推送到该 Telegram 频道的绑定接收者
+	ChannelID string `json:"channelId"` // 可选：完成后把输出推送到该通知中心渠道目标（旧 aac_ 频道 id 兼容）
 	Title     string `json:"title"`     // 会话标题，留空取 prompt 摘要
 }
 
@@ -179,8 +179,25 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// pushCronTaskOutput 把定时 AI 任务结果推送到指定 Telegram 频道的绑定接收者。
+// pushCronTaskOutput 把定时 AI 任务结果推送到指定频道：
+// 优先按通知中心渠道直发（新语义，channelId 为 notif_ 前缀的通知渠道 id）；
+// 旧 aac_ 前缀的 adminai 频道 id 走注册表 + 白名单目标兼容（已保存任务不受影响）。
 func (s *Service) pushCronTaskOutput(ctx context.Context, channelID, title, prompt, output string, toolCalls int) ([]map[string]interface{}, error) {
+	sent := fmt.Sprintf("定时 AI 任务「%s」\n已调用 %d 次工具，输出：\n\n%s", title, toolCalls, output)
+
+	// 新路径：通知中心渠道直发（目标取渠道配置固定 chat_id）
+	if s.src != nil {
+		if _, ok, err := s.src.LoadChannel(ctx, channelID); err != nil {
+			return nil, fmt.Errorf("读取推送渠道失败: %w", err)
+		} else if ok {
+			if err := s.src.SendToChannel(ctx, channelID, "定时 AI 任务", sent); err != nil {
+				return nil, fmt.Errorf("推送到通知渠道失败: %w", err)
+			}
+			return []map[string]interface{}{{"channelId": channelID, "ok": true}}, nil
+		}
+	}
+
+	// 兼容旧路径：adminai 注册频道 + 白名单接收者
 	if s.chanMgr == nil || s.chanMgr.registry == nil {
 		return nil, fmt.Errorf("频道未初始化")
 	}
@@ -192,17 +209,7 @@ func (s *Service) pushCronTaskOutput(ctx context.Context, channelID, title, prom
 		}
 	}
 	if ch == nil {
-		// 不静默回退到其他频道：避免把 AI 输出推送到错误接收者；
-		// 明确列出当前已注册频道便于用户修正 channelId。
-		ids := make([]string, 0, 8)
-		for _, cand := range s.chanMgr.registry.All() {
-			ids = append(ids, cand.ID())
-		}
-		detail := ""
-		if len(ids) > 0 {
-			detail = "；已注册频道: " + strings.Join(ids, ", ")
-		}
-		return nil, fmt.Errorf("频道 %s 未注册，请先启动频道%s", channelID, detail)
+		return nil, fmt.Errorf("推送频道 %s 不存在，请从通知中心渠道重新选择", channelID)
 	}
 
 	db, err := s.open(ctx)
@@ -230,10 +237,9 @@ func (s *Service) pushCronTaskOutput(ctx context.Context, channelID, title, prom
 		targets = append(targets, userID)
 	}
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("频道 %s 没有绑定接收者", channelID)
+		return nil, fmt.Errorf("频道 %s 没有白名单接收者", channelID)
 	}
 
-	sent := fmt.Sprintf("定时 AI 任务「%s」\n已调用 %d 次工具，输出：\n\n%s", title, toolCalls, output)
 	results := make([]map[string]interface{}, 0, len(targets))
 	for _, chat := range targets {
 		item := map[string]interface{}{"chatId": chat}
