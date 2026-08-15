@@ -96,23 +96,18 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, err := s.RunLoop(ctx, "cron", sessionID, req.Prompt, "", model)
+	// 策略在 RunLoop 内注册（allow/readonly，先于执行 goroutine 生效避免竞态），
+	// 本处理器负责在运行结束后清理。
+	runID, err := s.RunLoop(ctx, "cron", sessionID, req.Prompt, "", model, policy)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "启动执行失败: "+err.Error())
 		return
 	}
-
-	// 策略 allow：本会话内写操作免审批（仍受全局写开关约束）
-	if policy == "allow" {
+	defer func() {
 		s.mu.Lock()
-		s.runAutoApprove[runID] = true
+		delete(s.runPolicy, runID)
 		s.mu.Unlock()
-		defer func() {
-			s.mu.Lock()
-			delete(s.runAutoApprove, runID)
-			s.mu.Unlock()
-		}()
-	}
+	}()
 
 	// 同步等待本轮执行收尾（done / error / 请求超时取消）
 	s.mu.Lock()
@@ -197,16 +192,17 @@ func (s *Service) pushCronTaskOutput(ctx context.Context, channelID, title, prom
 		}
 	}
 	if ch == nil {
-		// 兼容历史频道 ID 变化：未精确命中时回退第一个已注册 telegram 频道
+		// 不静默回退到其他频道：避免把 AI 输出推送到错误接收者；
+		// 明确列出当前已注册频道便于用户修正 channelId。
+		ids := make([]string, 0, 8)
 		for _, cand := range s.chanMgr.registry.All() {
-			if strings.HasPrefix(cand.ID(), "aac_") {
-				ch = cand
-				break
-			}
+			ids = append(ids, cand.ID())
 		}
-	}
-	if ch == nil {
-		return nil, fmt.Errorf("频道 %s 未注册，请先启动频道", channelID)
+		detail := ""
+		if len(ids) > 0 {
+			detail = "；已注册频道: " + strings.Join(ids, ", ")
+		}
+		return nil, fmt.Errorf("频道 %s 未注册，请先启动频道%s", channelID, detail)
 	}
 
 	db, err := s.open(ctx)

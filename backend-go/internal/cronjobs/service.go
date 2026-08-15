@@ -357,6 +357,12 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request, idText stri
 		}
 		payload.Schedule = &normalized
 	}
+	if payload.Config != nil {
+		if cfg := strings.TrimSpace(*payload.Config); cfg != "" && !json.Valid([]byte(cfg)) {
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "config 必须是合法 JSON 字符串"})
+			return
+		}
+	}
 	db, err := s.open(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -981,10 +987,8 @@ func updateTaskFields(ctx context.Context, db *sql.DB, id int64, payload taskPay
 		args = append(args, int(*payload.Enabled))
 	}
 	if payload.Config != nil {
-		if cfg := strings.TrimSpace(*payload.Config); cfg == "" || json.Valid([]byte(cfg)) {
-			sets = append(sets, "config = ?")
-			args = append(args, cfg)
-		}
+		sets = append(sets, "config = ?")
+		args = append(args, strings.TrimSpace(*payload.Config))
 	}
 	if payload.LastRun != nil {
 		sets = append(sets, "last_run = ?")

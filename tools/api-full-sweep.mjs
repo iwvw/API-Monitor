@@ -146,11 +146,6 @@ class Sweeper {
     return 'other';
   }
 
-  classifyWrite(op) {
-    if (!op) return false;
-    return ['post', 'put', 'patch', 'delete'].some((m) => op[m]);
-  }
-
   async run() {
     console.log(`[sweep] base=${base} readonly=${readonly} password=${password ? 'provided' : 'MISSING'}`);
     if (!password) {
@@ -165,7 +160,7 @@ class Sweeper {
     for (const p of paths) {
       const ops = doc.paths[p];
       const methods = Object.keys(ops).filter((m) => ['get', 'post', 'put', 'patch', 'delete', 'head'].includes(m));
-      targets.push({ path: p, methods, raw: ops[p] });
+      targets.push({ path: p, methods, raw: ops });
     }
     const slice = limit ? targets.slice(0, limit) : targets;
     console.log(`[sweep] probing ${slice.length} targets (concurrency=${concurrency})...`);
@@ -214,11 +209,15 @@ class Sweeper {
 
     // 分桶统计
     for (const r of this.results) {
-      const b = typeof r.status === 'number' ? this.bucket(r.status, undefined, r.body) : r.status;
+      const b = typeof r.status === 'number' ? this.bucket(r.status, this.isWriteMethod(r.method), r.body) : r.status;
       r.bucket = b;
       if (!this.buckets.has(b)) this.buckets.set(b, []);
       this.buckets.get(b).push(r);
     }
+  }
+
+  isWriteMethod(method) {
+    return typeof method === 'string' && ['post', 'put', 'patch', 'delete'].includes(method.toLowerCase());
   }
 
   isRoutePresent(status, body = '') {
@@ -282,11 +281,11 @@ sweep
     if (report.buckets.server_err?.length) {
       console.error(`[sweep] ${report.buckets.server_err.length} server_error —— 需要人工复核`);
     }
-    if (report.buckets.endpoint_missing?.length) {
-      console.error(`[sweep] ${report.buckets.endpoint_missing.length} endpoint_missing —— 可能路由未 dispatch`);
+    if (report.buckets.resource_missing?.length) {
+      console.error(`[sweep] ${report.buckets.resource_missing.length} resource_missing —— 可能路由未 dispatch 或资源不存在`);
     }
-    if (report.buckets.lost_write?.length) {
-      console.error(`[sweep] ${report.buckets.lost_write.length} 写接口探测返回 404 —— 确认路由是否注册`);
+    if (report.buckets.resource_missing_write?.length) {
+      console.error(`[sweep] ${report.buckets.resource_missing_write.length} 写接口探测返回 404 —— 确认路由是否注册`);
     }
     console.log(`[sweep] report saved to ${outPath}`);
   })

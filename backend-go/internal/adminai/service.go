@@ -36,7 +36,7 @@ type Service struct {
 	sessionRuns map[string]string        // sessionId -> runId，同一会话只允许一个活跃执行
 	cancels     map[string]context.CancelFunc // runId -> runCtx 取消函数（订阅后仍可真正终止执行）
 	approval    map[string]chan approvalResolution // approvalId -> 审批结果通道
-	runAutoApprove map[string]bool // runId -> 定时任务策略「完全允许」：该次执行写操作免审批
+	runPolicy   map[string]string // runId -> 定时任务策略："" 普通 | "allow" 写操作免审批 | "readonly" 禁用写操作
 
 	catalogMu   sync.Mutex // 确定性接口清单缓存（apiCatalogText）
 	catalogText string
@@ -56,7 +56,7 @@ func New(cfg config.Config) *Service {
 		sessionRuns: make(map[string]string),
 		cancels:     make(map[string]context.CancelFunc),
 		approval:    make(map[string]chan approvalResolution),
-		runAutoApprove: make(map[string]bool),
+		runPolicy:   make(map[string]string),
 	}
 }
 
@@ -540,7 +540,7 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
-	runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model)
+	runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "")
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return

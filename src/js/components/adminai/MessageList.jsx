@@ -418,6 +418,31 @@ function ThinkingBlock({ thinking, streaming }) {
   );
 }
 
+/* ---------- 助手消息底部反馈操作 ---------- */
+function FeedbackRow({ onCopy }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    await onCopy();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="mt-1 flex items-center gap-1 text-kumo-subtle">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        shape="square"
+        onClick={handleCopy}
+        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-kumo-tint"
+        aria-label="复制回答"
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </Button>
+    </div>
+  );
+}
+
 /* ---------- 消息定义块分发 ---------- */
 function MessageBlock({ block, streaming, onResolveApproval, onRetry }) {
   switch (block.type) {
@@ -617,6 +642,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   </div>
                   </div>
                   )}
+                  <FeedbackRow onCopy={() => navigator.clipboard.writeText(msg.content || msg.blocks?.map((b) => b.text || '').join('\n') || '')} />
                 </div>
               </div>
             )}

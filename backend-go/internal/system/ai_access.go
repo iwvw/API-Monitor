@@ -480,13 +480,14 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 	search = strings.ToLower(strings.TrimSpace(search))
 
 	limit := 30
-	if rawLimit, ok := args["limit"].(float64); ok {
-		if n := int(rawLimit); n > 0 && n <= 100 {
-			limit = n
+	if rawLimit, ok := args["limit"].(float64); ok && rawLimit > 0 && rawLimit <= 1000 {
+		limit = int(rawLimit)
+		if limit > 100 {
+			limit = 100
 		}
 	}
 	offset := 0
-	if rawOffset, ok := args["offset"].(float64); ok && rawOffset > 0 {
+	if rawOffset, ok := args["offset"].(float64); ok && rawOffset > 0 && rawOffset <= 1e6 {
 		offset = int(rawOffset)
 	}
 
@@ -550,9 +551,10 @@ func (s *Service) aiFindAPIs(args map[string]interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("intent is required")
 	}
 	limit := 5
-	if rawLimit, ok := args["limit"].(float64); ok {
-		if n := int(rawLimit); n > 0 && n <= 10 {
-			limit = n
+	if rawLimit, ok := args["limit"].(float64); ok && rawLimit > 0 && rawLimit <= 1000 {
+		limit = int(rawLimit)
+		if limit > 10 {
+			limit = 10
 		}
 	}
 	group, _ := args["group"].(string)

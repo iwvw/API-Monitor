@@ -7928,6 +7928,14 @@ function ServerPage() {
                 onClick={() => setServerMapOpen(prev => !prev)}
               />
             </div>
+
+            <ResponsiveSearchInput
+              value={serverSearchText}
+              onChange={e => setServerSearchText(e.target.value)}
+              placeholder="搜索主机名称、IP 或标签..."
+              ariaLabel="搜索主机"
+              className="cq-lg:w-72"
+            />
           </div>
 
           {/* 列表渲染 */}

@@ -257,7 +257,7 @@ func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 	}
 	slog.Info("channel-placeholder-sent", "channelId", env.ChannelID, "msgId", msgID)
 
-	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, string(identity), "")
+	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, string(identity), "", "")
 	if err != nil {
 		s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
 		return

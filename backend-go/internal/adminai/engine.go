@@ -139,7 +139,9 @@ type approvalResolution struct {
 
 // RunLoop 创建一个运行中的执行并立即返回 runId；推理过程在后台 goroutine 中执行，
 // 事件通过通道下推（由 stream.go 的 SSE handler 消费）。
-func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identityJSON, modelHint string) (string, error) {
+// policy 为定时任务（X-Internal-Cron）策略："" 普通（写操作走审批）、"allow" 写操作免审批、
+// "readonly" 禁用写操作；在 goroutine 启动前注册，避免首个工具调用竞态。
+func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identityJSON, modelHint, policy string) (string, error) {
 	if s.aiCaller == nil {
 		return "", fmt.Errorf("AI 调用器未配置，请检查服务接线")
 	}
@@ -151,6 +153,7 @@ func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identi
 
 	s.mu.Lock()
 	s.sessionRuns[sessionID] = runID
+	s.runPolicy[runID] = policy
 	s.mu.Unlock()
 
 	eventCh := make(chan SSEEvent, eventChBuffer)
@@ -1281,11 +1284,16 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 			return nil, err
 		}
 		if !autoApprove {
-			// 定时 AI 任务（X-Internal-Cron）策略「完全允许」：该次执行内写操作免审批，
-			// 仍受下方「写操作全局开关」硬约束（开关关闭时任何写操作都会被拒绝）。
+			// 定时 AI 任务（X-Internal-Cron）策略：readonly 时写操作直接拒绝，
+			// allow 时该次执行内写操作免审批（仍受下方「写操作全局开关」硬约束）。
 			s.mu.Lock()
 			runID := s.sessionRuns[sessionID]
-			autoApprove = s.runAutoApprove[runID]
+			policy := s.runPolicy[runID]
+			if policy == "readonly" {
+				s.mu.Unlock()
+				return nil, fmt.Errorf("readonly 策略禁止写操作")
+			}
+			autoApprove = policy == "allow"
 			s.mu.Unlock()
 		}
 		if !autoApprove {
