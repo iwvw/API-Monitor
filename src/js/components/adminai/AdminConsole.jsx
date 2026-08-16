@@ -685,6 +685,12 @@ function MemoriesCard() {
     load('');
   }, [load]);
 
+  // 搜索防抖：停止输入 250ms 后触发检索，避免每击键一次请求
+  useEffect(() => {
+    const t = window.setTimeout(() => load(q.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [q, load]);
+
   const handleAdd = async () => {
     const content = newContent.trim();
     if (!content) return;
@@ -786,10 +792,7 @@ function MemoriesCard() {
               className="w-full pl-8"
               placeholder="搜索记忆"
               value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                load(e.target.value.trim());
-              }}
+              onChange={(e) => setQ(e.target.value)}
             />
           </div>
           <Button size="sm" onClick={() => setAdding((v) => !v)}>

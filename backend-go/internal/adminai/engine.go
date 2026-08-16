@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,8 +64,9 @@ func toolCallIdempotent(toolName string, args map[string]interface{}) bool {
 	return toolIsCacheable(toolName, args)
 }
 
-// toolLoopFingerprint 计算工具调用指纹：call_api 仅取 method+path（剥离 body/headers——
-// 请求体每次必然变化，保留会漏掉"轮询同一接口"式风暴，同时不误伤写操作：写操作有审批兜底）。
+// toolLoopFingerprint 计算工具调用指纹：call_api 只读（GET/HEAD）仅取 method+path，
+// 用于捕获"轮询同一接口"式风暴；写操作（POST/PUT/PATCH/DELETE）纳入 body 摘要，
+// 不同诉求的重发不被误判成循环阻断（同 body 的同路径重复写仍视为循环）。
 func toolLoopFingerprint(toolName string, args map[string]interface{}) string {
 	if toolName == "call_api" {
 		method, _ := args["method"].(string)
@@ -73,7 +74,16 @@ func toolLoopFingerprint(toolName string, args map[string]interface{}) string {
 			method = "GET"
 		}
 		path, _ := args["path"].(string)
-		return "call_api|" + strings.ToUpper(method) + "|" + path
+		fp := "call_api|" + strings.ToUpper(method) + "|" + path
+		if method != "GET" && method != "HEAD" {
+			body, _ := args["body"].(map[string]interface{})
+			if body != nil {
+				if raw, err := json.Marshal(body); err == nil {
+					fp += "|body:" + string(raw)
+				}
+			}
+		}
+		return fp
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -138,7 +148,7 @@ func sanitizeToolError(err error) error {
 // 注意：接口目录不再以探查工具（list_apis/get_openapi）暴露——系统提示词已内置
 // 确定性接口清单（apiCatalogText），避免模型靠猜/试浪费词元；get_route 仅用于查请求体契约。
 var adminAITools = []map[string]interface{}{
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "get_route",
 		"description": "读取单个 API 接口的完整契约（请求体 schema、参数、示例）；仅在需要构造请求体时使用",
 		"parameters": map[string]interface{}{
@@ -149,12 +159,12 @@ var adminAITools = []map[string]interface{}{
 			"required": []string{"path"},
 		},
 	}},
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "get_system_status",
 		"description": "读取本机系统运行状态（CPU/内存/磁盘）；displayTime/serverTime 为站点当前时间（本地时区），回答时间/换算 cron 必须用 displayTime 或 serverTime.local，禁止用 timestamp（UTC）",
-		"parameters": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "required": []string{}},
+		"parameters":  map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "required": []string{}},
 	}},
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "call_api",
 		"description": "调用系统 API 接口；写操作（非 GET）会进入人工审批，需等待用户批准。写操作执行后必须立即回读 GET 验证真实生效，并检查 success/error 字段，不得凭 2xx 宣告成功",
 		"parameters": map[string]interface{}{
@@ -168,12 +178,12 @@ var adminAITools = []map[string]interface{}{
 			"required": []string{"path"},
 		},
 	}},
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "list_telegram_targets",
 		"description": "列出可接收消息的 Telegram 接收者（频道 + 已绑定用户），用于主动推送简报/通知",
-		"parameters": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "required": []string{}},
+		"parameters":  map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "required": []string{}},
 	}},
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "send_telegram_message",
 		"description": "向指定 Telegram 接收者发送消息（channelId + chatId 来自 list_telegram_targets）；用于主动推送简报",
 		"parameters": map[string]interface{}{
@@ -186,7 +196,7 @@ var adminAITools = []map[string]interface{}{
 			"required": []string{"channelId", "chatId", "text"},
 		},
 	}},
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "memory_search",
 		"description": "搜索长期记忆（跨会话持久事实、用户偏好、历史决策，支持中文模糊检索）；回答涉及历史决策、环境偏好、曾做过的配置或用户习惯之前，先调用它",
 		"parameters": map[string]interface{}{
@@ -198,7 +208,7 @@ var adminAITools = []map[string]interface{}{
 			"required": []string{"query"},
 		},
 	}},
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "memory_add",
 		"description": "写入一条长期记忆（跨会话保留的用户偏好/环境事实/重要决策）；用户说「记住…」时必须调用，内容要具体到名称/ID/取值；内容编辑重发等场景不适用",
 		"parameters": map[string]interface{}{
@@ -211,7 +221,7 @@ var adminAITools = []map[string]interface{}{
 			"required": []string{"content"},
 		},
 	}},
-	{ "type": "function", "function": map[string]interface{}{
+	{"type": "function", "function": map[string]interface{}{
 		"name":        "memory_delete",
 		"description": "删除一条长期记忆（按 id）；用户说「忘了/删掉那条记忆」时先用 memory_search 找到 id 再删除",
 		"parameters": map[string]interface{}{
@@ -226,11 +236,11 @@ var adminAITools = []map[string]interface{}{
 
 // system_config 键名（与 adminAISettingDefs 对齐，供 getIntSetting 读取）。
 const (
-	adminAIKeyToolCallLimit         = "admin_ai_tool_call_limit"
-	adminAIKeyTimeoutSeconds        = "admin_ai_timeout_seconds"
-	adminAIKeyMemoriesEnabled       = "admin_ai_memories_enabled"
+	adminAIKeyToolCallLimit          = "admin_ai_tool_call_limit"
+	adminAIKeyTimeoutSeconds         = "admin_ai_timeout_seconds"
+	adminAIKeyMemoriesEnabled        = "admin_ai_memories_enabled"
 	adminAIKeyMemoriesBootstrapChars = "admin_ai_memories_bootstrap_chars"
-	adminAIKeyContextWindow         = "admin_ai_context_window"
+	adminAIKeyContextWindow          = "admin_ai_context_window"
 )
 
 const defaultMemoriesBootstrapChars = 2000
@@ -576,42 +586,42 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 					cacheKey = toolCacheKey(tc.Function.Name, args)
 					cachedResult, hit = toolCache[cacheKey]
 				}
-var result interface{}
-			var callErr error
-			if hit {
-				result = cachedResult
-			} else {
-				// 工具循环检测：同执行内同指纹（跨轮）重复调用计数，越线阻断本轮继续执行
-				allowLoop, loopCount := s.toolLoopCheck(runID, tc.Function.Name, args)
-				if !allowLoop {
-					callErr = fmt.Errorf("工具调用循环检测：本执行中已重复调用 %s %d 次（参数相同），已阻断；请停止重复调用，先基于已有结果回答或改用其他方案", tc.Function.Name, loopCount)
-					slog.Warn("tool-loop-blocked", "run", runID, "tool", tc.Function.Name, "count", loopCount)
+				var result interface{}
+				var callErr error
+				if hit {
+					result = cachedResult
 				} else {
-					if loopCount >= toolLoopWarnThreshold {
-						slog.Warn("tool-loop", "run", runID, "tool", tc.Function.Name, "count", loopCount)
-					}
-					// 工具调用失败自动重试（最多重试 3 次）：审批拒绝/参数错误（4xx）不重试，
-					// 写操作不重试（避免重复副作用 / 重复挂起审批）；仅幂等的只读调用在 5xx/网络等
-					// 偶发故障且短暂退避后重试
-					for attempt := 0; attempt <= maxToolRetries; attempt++ {
-						result, callErr = s.executeToolCall(runCtx, db, tc.Function.Name, args, sessionID, tcID, eventCh)
-						callErr = sanitizeToolError(callErr)
-						if callErr == nil || !retryableToolError(callErr) || !toolCallIdempotent(tc.Function.Name, args) || attempt == maxToolRetries {
-							break
+					// 工具循环检测：同执行内同指纹（跨轮）重复调用计数，越线阻断本轮继续执行
+					allowLoop, loopCount := s.toolLoopCheck(runID, tc.Function.Name, args)
+					if !allowLoop {
+						callErr = fmt.Errorf("工具调用循环检测：本执行中已重复调用 %s %d 次（参数相同），已阻断；请停止重复调用，先基于已有结果回答或改用其他方案", tc.Function.Name, loopCount)
+						slog.Warn("tool-loop-blocked", "run", runID, "tool", tc.Function.Name, "count", loopCount)
+					} else {
+						if loopCount >= toolLoopWarnThreshold {
+							slog.Warn("tool-loop", "run", runID, "tool", tc.Function.Name, "count", loopCount)
 						}
-						slog.Warn("tool-retry", "tool", tc.Function.Name, "attempt", attempt+1, "err", callErr.Error())
-						select {
-						case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
-						case <-runCtx.Done():
-							break
+						// 工具调用失败自动重试（最多重试 3 次）：审批拒绝/参数错误（4xx）不重试，
+						// 写操作不重试（避免重复副作用 / 重复挂起审批）；仅幂等的只读调用在 5xx/网络等
+						// 偶发故障且短暂退避后重试
+						for attempt := 0; attempt <= maxToolRetries; attempt++ {
+							result, callErr = s.executeToolCall(runCtx, db, tc.Function.Name, args, sessionID, tcID, eventCh)
+							callErr = sanitizeToolError(callErr)
+							if callErr == nil || !retryableToolError(callErr) || !toolCallIdempotent(tc.Function.Name, args) || attempt == maxToolRetries {
+								break
+							}
+							slog.Warn("tool-retry", "tool", tc.Function.Name, "attempt", attempt+1, "err", callErr.Error())
+							select {
+							case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+							case <-runCtx.Done():
+								break
+							}
 						}
-					}
-					// 只缓存成功结果（含调用链上无副作用路径的 GET），后续同参调用直接复用
-					if callErr == nil {
-						toolCache[cacheKey] = result
+						// 只缓存成功结果（含调用链上无副作用路径的 GET），后续同参调用直接复用
+						if callErr == nil {
+							toolCache[cacheKey] = result
+						}
 					}
 				}
-			}
 				status := "success"
 				summary := ""
 				if callErr != nil {
@@ -668,10 +678,10 @@ var result interface{}
 		// 注意：不再重复 emit 完整 content 作为 delta —— 流式阶段 callLLMStream 已
 		// 逐 chunk 实时推送过。再 emit 一次会让侧栏/TG/频道消费端把同一段内容拼两遍。
 
-s.finishExecution(db, sessionID, runID, "completed", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "")
-	s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": assistantMsgID, "userMessageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
-	return
-}
+		s.finishExecution(db, sessionID, runID, "completed", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "")
+		s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": assistantMsgID, "userMessageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
+		return
+	}
 }
 
 func (s *Service) emit(ch chan<- SSEEvent, event SSEEvent) {
@@ -895,15 +905,15 @@ func (s *Service) callLLMWithBody(ctx context.Context, reqBody map[string]interf
 
 // streamDelta 是流式响应里每个 chunk 的增量字段。
 type streamDelta struct {
-	Content          string         `json:"content"`
-	ReasoningContent string         `json:"reasoning_content"`
-	Role             string         `json:"role"`
+	Content          string           `json:"content"`
+	ReasoningContent string           `json:"reasoning_content"`
+	Role             string           `json:"role"`
 	ToolCalls        []streamToolCall `json:"tool_calls"`
-	FinishReason     string         `json:"finish_reason"`
+	FinishReason     string           `json:"finish_reason"`
 }
 
 type streamToolCall struct {
-	Index    int `json:"index"`
+	Index    int    `json:"index"`
 	ID       string `json:"id"`
 	Function struct {
 		Name      string `json:"name"`
@@ -1177,10 +1187,11 @@ func compactSchemaSummary(r map[string]interface{}) string {
 				field += " 枚举[" + strings.Join(values, "|") + "]"
 			}
 			if d, ok := prop["description"].(string); ok && d != "" {
-				// 说明仅保留前 24 字符，避免长描述挤占字段列表导致关键字段被截断。
+				// 说明仅保留前 24 字符（按字符合计，避免截断 UTF-8 序列），
+				// 防止长描述挤占字段列表导致关键字段被截断。
 				const maxDesc = 24
-				if len(d) > maxDesc {
-					d = d[:maxDesc] + "…"
+				if runes := []rune(d); len(runes) > maxDesc {
+					d = string(runes[:maxDesc]) + "…"
 				}
 				field += " " + d
 			}
@@ -1842,7 +1853,8 @@ func (s *Service) getAutoApprove(ctx context.Context, db *sql.DB) (bool, error) 
 
 // getIntSetting 读取 system_config 的整数配置，缺失或非法时回默认值。
 // 与 adminAISettingDefs（approvals.go）共用键名。
-func (s *Service) getIntSetting(ctx context.Context, key string, def int) int {	db, err := s.open(ctx)
+func (s *Service) getIntSetting(ctx context.Context, key string, def int) int {
+	db, err := s.open(ctx)
 	if err != nil {
 		return def
 	}
@@ -1901,4 +1913,3 @@ func truncateContent(s string) string {
 	}
 	return s[:contentSizeLimit] + "...[已截断]"
 }
-

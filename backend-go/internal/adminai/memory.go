@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -13,6 +14,9 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
+
+// ErrMemoryNotFound 是记忆条目不存在时的哨兵错误（updateMemory/引用记忆更新共用）。
+var ErrMemoryNotFound = errors.New("记忆条目不存在")
 
 // MemoryItem 是长期记忆条目（跨会话持久事实/用户偏好/历史决策）。
 // 检索与排序参考 OpenClaw memory-core：bm25 基础分 × importance 乘数 × recency 半衰期衰减 × pinned 加成，
@@ -67,9 +71,14 @@ func (s *Service) handleListMemories(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			it, scanErr := scanMemoryItem(rows)
 			if scanErr != nil {
-				continue
+				response.Error(w, http.StatusInternalServerError, "读取记忆列表失败: "+scanErr.Error())
+				return
 			}
 			items = append(items, it)
+		}
+		if err := rows.Err(); err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 	} else {
 		items, err = s.searchMemories(r.Context(), db, q, 50)
@@ -150,7 +159,11 @@ func (s *Service) handleUpdateMemory(w http.ResponseWriter, r *http.Request, id 
 	defer db.Close()
 	it, err := s.updateMemory(r.Context(), db, id, memoryPatch{Content: req.Content, Importance: req.Importance, Triggers: req.Triggers, Pinned: req.Pinned})
 	if err != nil {
-		response.Error(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, ErrMemoryNotFound) {
+			response.Error(w, http.StatusNotFound, err.Error())
+		} else {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	response.OK(w, it)
@@ -208,7 +221,7 @@ func (s *Service) updateMemory(ctx context.Context, db *sql.DB, id string, patch
 		&existing.ID, &existing.Content, &existing.Importance, &existing.Triggers, &existing.Pinned, &existing.Source,
 		&existing.SessionID, &existing.AccessCount, &existing.LastAccessedAt, &existing.CreatedAt, &existing.UpdatedAt)
 	if err == sql.ErrNoRows {
-		return MemoryItem{}, fmt.Errorf("记忆条目不存在")
+		return MemoryItem{}, ErrMemoryNotFound
 	}
 	if err != nil {
 		return MemoryItem{}, err
@@ -398,6 +411,10 @@ func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limi
 				}
 				hitRanks[r] = rank
 			}
+			if rowsErr := rows.Err(); rowsErr != nil {
+				rows.Close()
+				return nil, rowsErr
+			}
 			rows.Close()
 			if len(rowIDs) > 0 {
 				marks := make([]string, len(rowIDs))
@@ -422,6 +439,10 @@ func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limi
 							continue
 						}
 						candidates = append(candidates, scored{item: it, score: memoryScore(hitRanks[rid], it.Importance, it.Pinned, it.UpdatedAt, now)})
+					}
+					if merr := mrows.Err(); merr != nil {
+						mrows.Close()
+						return nil, merr
 					}
 					mrows.Close()
 				}
@@ -448,6 +469,9 @@ func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limi
 				continue
 			}
 			candidates = append(candidates, scored{item: it, score: memoryScore(0, it.Importance, it.Pinned, it.UpdatedAt, now)})
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
 		}
 	}
 

@@ -176,6 +176,18 @@ function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
   );
 }
 
+/* 会话标题：有标题直接显示；空会话按实时时间兜底，时钟只重渲染本组件
+   （避免把每秒 setState 提到面板主组件导致整棵会话/消息树反复渲染） */
+function SessionTitleText({ title, active }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (title || !active) return undefined;
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, [title, active]);
+  return <>{title || (active ? new Date(now).toLocaleString('zh-CN') : '新对话')}</>;
+}
+
 /* ---------- 点阵背景（复用登录页 .cf-ai-background + surface 光斑） ---------- */
 function DotGrid({ surfaceRef }) {
   return (
@@ -226,7 +238,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [clock, setClock] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [runId, setRunId] = useState(null);
@@ -418,14 +429,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   }, [showAskAI]);
 
   useEffect(() => { streamingRef.current = streaming; }, [streaming]);
-
-  /* 顶部会话标题兜底时钟：面板打开期间每秒刷新（空会话标题按实时时间显示） */
-  useEffect(() => {
-    if (!showAskAI) return undefined;
-    setClock(Date.now());
-    const t = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(t);
-  }, [showAskAI]);
 
   /* TG/定时任务等外部来源的对话没有推送到浏览器的通道（SSE 只覆盖面板自己发起的 run），
      面板打开期间轮询会话活动时间：活跃会话 lastActivityAt 有变化则重拉消息，会话列表同步刷新。 */
@@ -856,9 +859,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   };
 
   const activeSessionRow = sessions.find((s) => s.id === activeSessionId);
-  // 标题兜底：空会话（还没生成标题）按实时时间走，顺带充当顶部时钟
-  const sessionTitle = activeSessionRow?.title
-    || (activeSessionId ? new Date(clock).toLocaleString('zh-CN') : '新对话');
   const placeholder = behavior === 'agent' ? '输入指令' : '输入消息，@ 引用资源';
   // 会话隔离：用户主动发起的（web）与机器人/自动化来源（cron/channel）分开管理，
   // 机器人会话只读（可查看历史，禁输入），避免用户消息污染机器人流程的上下文。
@@ -1109,7 +1109,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             aria-haspopup="menu"
             aria-expanded={sessionMenuOpen}
           >
-            <span className="truncate">{sessionTitle}</span>
+            <span className="truncate"><SessionTitleText title={activeSessionRow?.title} active={!!activeSessionId} /></span>
             <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${sessionMenuOpen ? 'rotate-180' : ''}`} />
           </Button>
           {sessionMenuOpen && (

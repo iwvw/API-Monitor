@@ -759,6 +759,11 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "error_message", "TEXT"); err != nil {
 		return err
 	}
+	// 错误明细保留清理（trimErrorDetailRetention）按 error_kind 定位待清空行：
+	// 部分索引只覆盖有错误详情的行，避免失败请求落库时全表扫描。
+	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_openai_gateway_analytics_error_kind ON openai_gateway_analytics(error_kind) WHERE error_kind IS NOT NULL AND error_kind != ''`); err != nil {
+		return fmt.Errorf("openai ensure schema error_kind index: %w", err)
+	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "route", "TEXT NOT NULL DEFAULT 'chat.completions'"); err != nil {
 		return err
 	}

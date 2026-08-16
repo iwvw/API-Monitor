@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -316,7 +317,7 @@ func (s *Service) applyMemoryCaptureOp(ctx context.Context, db *sql.DB, sessionI
 			patch.Triggers = &t
 		}
 		_, err := s.updateMemory(ctx, db, op.ID, patch)
-		if err != nil && err.Error() == "记忆条目不存在" {
+		if err != nil && errors.Is(err, ErrMemoryNotFound) {
 			// 引用记忆已被删除：忽略该更新
 			return nil
 		}
