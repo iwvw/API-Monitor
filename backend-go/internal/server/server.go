@@ -29,6 +29,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
+	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -900,10 +901,23 @@ func (s *Server) sameOriginRequest(r *http.Request) bool {
 	if strings.EqualFold(parsed.Host, s.originCheckHost(r)) {
 		return true
 	}
-	if !s.cfg.IsProduction() && s.trustForwardedHost(r) && isDevelopmentOriginHost(parsed.Hostname()) {
-		return true
+	if !s.cfg.IsProduction() && s.trustForwardedHost(r) {
+		// 开发模式下本机直接放行：包装 App / 内嵌 WebView 的本地开发来源
+		// （localhost、内网地址、初始化时的 5173 代理），避免本地联调受阻。
+		if originpkg.IsDevelopmentOriginHost(parsed.Hostname()) {
+			return true
+		}
+		// 包装环境来源（Origin: null、app:// 等自定义 scheme）只能由用户自己的
+		// 嵌入容器产生，公网站点无法伪造，放行不构成 CSRF 风险。
+		if originpkg.IsEmbeddedWrapperOrigin(origin) {
+			return true
+		}
 	}
-	return false
+	return s.originAllowedByConfig(origin)
+}
+
+func (s *Server) originAllowedByConfig(origin string) bool {
+	return originpkg.AllowedByConfig(s.cfg.CORSAllowedOrigins, origin)
 }
 
 func (s *Server) originCheckHost(r *http.Request) string {
@@ -985,21 +999,6 @@ func firstForwardedValue(value string) string {
 		return ""
 	}
 	return strings.TrimSpace(strings.Split(value, ",")[0])
-}
-
-func isDevelopmentOriginHost(host string) bool {
-	host = strings.TrimSpace(strings.Trim(host, "[]"))
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "localhost") || strings.EqualFold(host, "host.docker.internal") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {

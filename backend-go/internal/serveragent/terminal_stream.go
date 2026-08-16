@@ -191,7 +191,7 @@ func (s *Service) handleAgentTerminalStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	conn, err := sshTerminalUpgrader.Upgrade(w, r, nil)
+	conn, err := s.terminalUpgrader().Upgrade(w, r, nil)
 	if err != nil {
 		stream.close("terminal_agent_upgrade_failed")
 		return

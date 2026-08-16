@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"golang.org/x/crypto/ssh"
 )
@@ -31,8 +32,8 @@ const (
 	terminalPingInterval = 25 * time.Second
 )
 
-var sshTerminalUpgrader = websocket.Upgrader{
-	CheckOrigin: sameWebSocketOrigin,
+func (s *Service) terminalUpgrader() *websocket.Upgrader {
+	return &websocket.Upgrader{CheckOrigin: s.sameWebSocketOrigin}
 }
 
 func sameWebSocketOrigin(r *http.Request) bool {
@@ -42,6 +43,27 @@ func sameWebSocketOrigin(r *http.Request) bool {
 	}
 	parsed, err := url.Parse(origin)
 	return err == nil && strings.EqualFold(parsed.Host, r.Host)
+}
+
+// s.sameWebSocketOrigin 与包级 sameWebSocketOrigin 相比，额外放行开发模式下的
+// 本机包装环境来源（Origin: null、app:// 等自定义 scheme；与 API 层
+// sameOriginRequest 的豁免对齐，包装 App 内终端方可正常建立）以及
+// CORS_ALLOWED_ORIGINS 白名单来源；生产模式行为与严格版本一致。
+func (s *Service) sameWebSocketOrigin(r *http.Request) bool {
+	if sameWebSocketOrigin(r) {
+		return true
+	}
+	if !s.cfg.IsProduction() && originpkg.IsLoopbackClient(r.RemoteAddr) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		parsed, err := url.Parse(origin)
+		if err == nil && originpkg.IsDevelopmentOriginHost(parsed.Hostname()) {
+			return true
+		}
+		if originpkg.IsEmbeddedWrapperOrigin(origin) {
+			return true
+		}
+	}
+	return originpkg.AllowedByConfig(s.cfg.CORSAllowedOrigins, r.Header.Get("Origin"))
 }
 
 func (s *Service) handleSSHTerminal(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +88,7 @@ func (s *Service) handleSSHTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	_, agentOnline := s.registry.Get(serverID)
 
-	conn, err := sshTerminalUpgrader.Upgrade(w, r, nil)
+	conn, err := s.terminalUpgrader().Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
