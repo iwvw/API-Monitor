@@ -747,10 +747,15 @@ func init() {
 		"enabled":  {t: "boolean"},
 	})
 	routeRequestContracts["/api/scheduler/nodes/{id}"] = routeRequestContracts["/api/scheduler/nodes"]
-	routeRequestContracts["/api/scheduler/workflows"] = obj([]string{"name", "definition"}, map[string]prop{
-		"name":       {t: "string", req: true},
-		"definition": {t: "object", req: true, d: "工作流 JSON 定义"},
-		"enabled":    {t: "boolean"},
+	routeRequestContracts["/api/scheduler/workflows"] = obj([]string{"name", "nodes"}, map[string]prop{
+		"name":               {t: "string", req: true},
+		"description":        {t: "string"},
+		"schedule":           {t: "string"},
+		"enabled":            {t: "boolean"},
+		"concurrency_policy": {t: "string"},
+		"failure_policy":     {t: "string"},
+		"nodes":              {t: "array", req: true, d: "工作流节点（start/end 标记与任务节点）"},
+		"edges":              {t: "array", d: "节点连线（from/to/condition）"},
 	})
 	routeRequestContracts["/api/scheduler/workflows/import"] = obj([]string{"workflows"}, map[string]prop{
 		"workflows": {t: "array", req: true},
