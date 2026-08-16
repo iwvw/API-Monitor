@@ -1725,14 +1725,16 @@ function SettingsPage() {
             </div>
             {tableRows.length > DB_TABLES_VISIBLE_COUNT && (
               <div className="flex shrink-0 items-center justify-center border-t border-kumo-line bg-kumo-surface py-1.5">
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   onClick={() => setDbTablesExpanded((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-kumo-brand transition-colors hover:bg-kumo-brand/10"
+                  className="gap-1 text-xs font-medium text-kumo-brand"
                 >
                   {dbTablesExpanded ? '收起' : `展开全部（${tableRows.length} 张）`}
                   {dbTablesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
+                </Button>
               </div>
             )}
           </SectionCard>

@@ -873,7 +873,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   /* ---- 全屏扩展模式 ---- */
   const renderFullscreen = () => (
     <div
-      className="askai-expand-in group/sidebar fixed inset-0 z-[1150] flex flex-col p-2"
+      className="askai-expand-in group/sidebar fixed inset-x-0 top-0 z-[1150] flex h-dvh flex-col p-2"
       data-state="expanded"
       style={{
         '--sidebar-active-bg': 'var(--color-kumo-tint)',
@@ -1052,7 +1052,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const renderSidebar = () => (
     <div
       ref={panelRef}
-      className="@container fixed right-0 top-0 z-[1150] flex h-screen flex-col overflow-hidden border-l border-kumo-line bg-[var(--app-main-surface)] transition-[width,transform] duration-300 ease-in-out max-lg:!w-screen"
+      className="@container fixed right-0 top-0 z-[1150] flex h-dvh flex-col overflow-hidden border-l border-kumo-line bg-[var(--app-main-surface)] transition-[width,transform] duration-300 ease-in-out max-lg:!w-screen"
       style={{ width: 'var(--askai-panel-w)', transform: animated ? 'translateX(0)' : 'translateX(100%)', pointerEvents: animated ? 'auto' : 'none' }}
     >
       {/* 拖宽手柄 */}

@@ -90,7 +90,9 @@ const formatUptimePercent = (value, fallback = '100') => {
   if (value === null || value === undefined || value === '') return fallback;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
-  return String(Math.round(numeric));
+  if (numeric >= 100) return '100';
+  // 保留两位小数并去掉末尾多余的 0，避免 99.84% 被四舍五入成 100%
+  return String(Math.round(numeric * 100) / 100);
 };
 
 const formatChartTime = (timestamp) => {
@@ -310,6 +312,11 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
   const downCount = monitors.filter((item) => getStateMeta(item.state).tone === 'danger').length;
   const warningCount = monitors.filter((item) => getStateMeta(item.state).tone === 'warning').length;
   const operationalCount = monitors.length - downCount - warningCount;
+  // 数据最后刷新时间取各监测最新心跳时间，而非状态页配置的更新时间
+  const lastDataUpdate = monitors.reduce(
+    (latest, m) => (m.updatedAt && (!latest || m.updatedAt > latest) ? m.updatedAt : latest),
+    null
+  );
   const visibleMonitors = monitorFilter === 'up'
     ? monitors.filter((item) => getStateMeta(item.state).tone === 'success')
     : monitorFilter === 'down'
@@ -424,7 +431,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
             <section className="public-status-card overflow-hidden rounded-lg border border-kumo-interact/80 bg-kumo-base">
               <div className="flex items-center justify-between gap-3 border-b border-kumo-interact/70 px-4 py-3">
                 <h2 className="text-sm font-bold text-kumo-strong">服务状态</h2>
-                <span className="text-xs text-kumo-subtle">24h 可用率</span>
+                <span className="text-xs text-kumo-subtle">30天可用率</span>
               </div>
               {monitors.length === 0 ? (
                 <div className="p-8 text-center text-sm text-kumo-subtle">这个状态页还没有绑定监测目标。</div>
@@ -499,7 +506,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                 variant="secondary"
                                 className="h-7 w-[4.5rem] justify-center tabular-nums !text-[11px] font-semibold"
                               >
-                                {formatUptimePercent(monitor.uptime24h)}%
+                                {formatUptimePercent(monitor.uptime30d)}%
                               </Badge>
                             </div>
                           </div>
@@ -517,7 +524,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                 </div>
                                 <div className="rounded-md border border-kumo-interact/75 bg-kumo-base p-2">
                                   <div className="text-[10px] text-kumo-subtle">30天可用率</div>
-                                  <div className="mt-1 tabular-nums text-sm font-bold text-kumo-strong">{formatUptimePercent(monitor.uptime30d, '--')}%</div>
+                                  <div className="mt-1 tabular-nums text-sm font-bold text-kumo-strong">{monitor.uptime30d ? `${formatUptimePercent(monitor.uptime30d)}%` : '--'}</div>
                                 </div>
                               </div>
                             </div>
@@ -536,7 +543,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                 <Shield className="h-3.5 w-3.5" />
                 由 API Monitor 提供
               </span>
-              <span>最后更新：{formatDateTime(page.updatedAt || page.createdAt)}</span>
+              <span>最后更新：{formatDateTime(lastDataUpdate || page.updatedAt || page.createdAt)}</span>
             </footer>
           </div>
         )}

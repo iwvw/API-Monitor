@@ -11,7 +11,7 @@ import { Info } from '../IconsCore.jsx';
 import { MoreVertical, Search } from '../Icons.jsx';
 import { resolveTableColumns } from '../../modules/tableLayout.js';
 
-export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-6 cq-sm:pb-8';
+export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-4 cq-sm:pb-8';
 export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-0';
 export const pageToolbarClass =
   'flex min-w-0 flex-col items-stretch gap-3 border-b border-kumo-line pb-3 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-between [&>*]:min-w-0';

@@ -995,7 +995,10 @@ function UptimePage() {
 
   const formatUptimeRateCompact = (rateStr) => {
     const rate = Number(rateStr);
-    return Number.isFinite(rate) ? String(Math.round(rate)) : '--';
+    if (!Number.isFinite(rate)) return '--';
+    if (rate >= 100) return '100';
+    // 保留两位小数并去掉末尾多余的 0，避免 99.84% 被四舍五入成 100%
+    return String(Math.round(rate * 100) / 100);
   };
 
   // 格式化连接地址
@@ -1523,14 +1526,14 @@ function UptimePage() {
                           <div className="flex items-center gap-3 text-right">
                             <div className="flex flex-col">
                               <span className="text-[9px] text-kumo-subtle select-none">时延</span>
-                              <span className="text-xs font-bold tabular-nums text-kumo-strong">
+                              <span className="inline-block min-w-[6ch] text-right text-xs font-bold tabular-nums text-kumo-strong">
                                 {lastBeat && lastBeat.status === 'up' ? `${lastBeat.ping}ms` : '--'}
                               </span>
                             </div>
                             <div className="flex flex-col">
                               <span className="text-[9px] text-kumo-subtle select-none">可用率</span>
-                              <span className={`text-xs font-bold tabular-nums ${getUptimeRateClass(getUptimeRate(monitor.id, 1))}`}>
-                                {formatUptimeRateCompact(getUptimeRate(monitor.id, 1))}%
+                              <span className={`inline-block min-w-[6ch] text-right text-xs font-bold tabular-nums ${getUptimeRateClass(getUptimeRate(monitor.id, 30))}`}>
+                                {formatUptimeRateCompact(getUptimeRate(monitor.id, 30))}%
                               </span>
                             </div>
                           </div>
