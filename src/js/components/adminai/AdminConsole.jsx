@@ -954,7 +954,7 @@ const TAB_OPTIONS = [
     label: (
       <span className="inline-flex items-center gap-1.5">
         <Send className="h-3.5 w-3.5" />
-        <span className="hidden @[420px]:inline">频道配置</span>
+        <span className="hidden @[420px]:inline">配置</span>
       </span>
     ),
   },
@@ -972,7 +972,7 @@ const TAB_OPTIONS = [
     label: (
       <span className="inline-flex items-center gap-1.5">
         <Brain className="h-3.5 w-3.5" />
-        <span className="hidden @[420px]:inline">长期记忆</span>
+        <span className="hidden @[420px]:inline">记忆</span>
       </span>
     ),
   },
