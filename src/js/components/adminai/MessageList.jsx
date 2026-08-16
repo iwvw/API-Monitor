@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Loader, Textarea } from '@cloudflare/kumo';
-import { ChevronDown, Sparkle, Copy, Check, X, Edit } from '../Icons.jsx';
-import ToolCallCard from './ToolCallCard.jsx';
+import { ChevronDown, Sparkle, Terminal, Copy, Check, X, Edit } from '../Icons.jsx';
+import ToolCallCard, { toolLabel, toolPathLabel } from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { isStreaming } from '../../modules/adminAiMessages.js';
 
@@ -327,12 +327,17 @@ function ReasoningBlock({ text, summary, streaming }) {
 function ThinkingBlock({ thinking, streaming }) {
   const [open, setOpen] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState({});
+  // 工具步骤视图：语义描述（默认，不展示具体路径）⇄ 实际 API 路径
+  const [showPath, setShowPath] = useState(false);
   if (!thinking || thinking.length === 0) return null;
 
-  // 相同描述（desc 或工具名）的连续步骤折叠为一组，组标题显示 ×N
+  // 相同展示文本的连续步骤折叠为一组，组标题显示 ×N；分组键随视图模式切换
+  const stepKey = (step) => (showPath
+    ? toolPathLabel(step.toolName, step.args)
+    : (step.desc || toolLabel(step.toolName) || '未知工具'));
   const groups = [];
   for (const step of thinking) {
-    const key = step.desc || step.toolName || '未知工具';
+    const key = stepKey(step);
     const last = groups[groups.length - 1];
     if (last && last.key === key) {
       last.steps.push(step);
@@ -345,18 +350,48 @@ function ThinkingBlock({ thinking, streaming }) {
   return (
     <div className="mb-2 flex flex-col gap-1">
       {/* 标题行：箭头放进 16px 槽居中（中心 8px），与下面树的竖线/圆点同一垂直线 */}
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        onClick={() => setOpen(!open)}
-        className="flex w-max cursor-pointer items-center gap-1 text-[11px] text-kumo-subtle hover:text-kumo-default"
-      >
-        <span className="flex w-4 shrink-0 justify-center">
-          <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${open ? 'rotate-0' : '-rotate-90'}`} />
+      <div className="flex items-center gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setOpen(!open)}
+          className="flex w-max cursor-pointer items-center gap-1 text-[11px] text-kumo-subtle hover:text-kumo-default"
+        >
+          <span className="flex w-4 shrink-0 justify-center">
+            <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${open ? 'rotate-0' : '-rotate-90'}`} />
+          </span>
+          工具步骤
+        </Button>
+        <span
+          className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-kumo-tint px-1 text-[10px] font-medium leading-none text-kumo-subtle transition-colors hover:text-kumo-default"
+          title={`本轮共调用 ${thinking.length} 次工具`}
+        >
+          {thinking.length}
         </span>
-        工具步骤
-      </Button>
+        <div className="flex items-center gap-0.5 rounded-full bg-kumo-tint/70 p-0.5" role="group" aria-label="工具步骤显示模式">
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={() => setShowPath(false)}
+            title="显示语义化工具步骤描述"
+            className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${!showPath ? 'bg-kumo-base text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
+          >
+            语义
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={() => setShowPath(true)}
+            title="显示实际调用的 API 路径"
+            className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${showPath ? 'bg-kumo-base text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
+          >
+            路径
+          </Button>
+        </div>
+      </div>
       <div className="askai-collapse" data-open={open}>
         {/* 工具步骤列表：一条主竖线在 x=8px，标题箭头/各行内容起点对齐；层级靠二级文字 ml-4 缩进。
             统一 text-xs 覆盖外层 text-sm */}
@@ -381,14 +416,14 @@ function ThinkingBlock({ thinking, streaming }) {
                         className="flex w-full cursor-pointer items-center gap-1.5 rounded-md py-0.5 pl-4 pr-1 text-xs text-kumo-default hover:bg-kumo-tint/60"
                       >
                         <span className="truncate">{group.key}</span>
-                        <span className="ml-auto shrink-0 rounded-full bg-kumo-tint px-1.5 text-[10px] text-kumo-subtle">×{group.steps.length}</span>
+                        <span className="shrink-0 rounded-full bg-kumo-tint px-1.5 text-[10px] text-kumo-subtle">×{group.steps.length}</span>
                         {finalStatus === 'success' && <Check className="h-3 w-3 shrink-0 text-kumo-success" />}
                         {finalStatus === 'failed' && <X className="h-3 w-3 shrink-0 text-kumo-danger" />}
                         {finalStatus === 'running' && <Loader size={10} className="shrink-0 animate-spin text-kumo-brand" />}
                       </Button>
                     ) : (
                       <div className="pl-4">
-                        <ToolCallCard toolCall={group.steps[0]} inline />
+                        <ToolCallCard toolCall={group.steps[0]} inline showPath={showPath} />
                       </div>
                     )}
                   </div>
@@ -402,7 +437,7 @@ function ThinkingBlock({ thinking, streaming }) {
                           style={{ animationDelay: `${Math.min((gi + i) * 90, 1200)}ms` }}
                         >
                           <div className="ml-8 min-w-0 flex-1">
-                            <ToolCallCard toolCall={step} inline />
+                            <ToolCallCard toolCall={step} inline showPath={showPath} />
                           </div>
                         </div>
                       ))}
@@ -414,31 +449,6 @@ function ThinkingBlock({ thinking, streaming }) {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ---------- 助手消息底部反馈操作 ---------- */
-function FeedbackRow({ onCopy }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = async () => {
-    await onCopy();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <div className="mt-1 flex items-center gap-1 text-kumo-subtle">
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        shape="square"
-        onClick={handleCopy}
-        className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-kumo-tint"
-        aria-label="复制回答"
-      >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </Button>
     </div>
   );
 }
@@ -478,10 +488,25 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
   const [collapsedIds, setCollapsedIds] = useState({});
   // 用户消息编辑态：{ id, text }
   const [editing, setEditing] = useState(null);
+  const [copiedEdit, setCopiedEdit] = useState(false);
   const editRef = useRef(null);
 
   useEffect(() => {
     if (editing) editRef.current?.focus();
+  }, [editing]);
+
+  /* 编辑输入框按内容自适应宽高（上限对齐气泡 max-w-prose），
+     w-fit 容器下 w-full 会塌缩成 textarea 固有宽度导致宽度异常 */
+  const resizeEditBox = () => {
+    const el = editRef.current;
+    if (!el) return;
+    el.style.width = '0px';
+    el.style.width = `${Math.min(el.scrollWidth, 560)}px`;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
+  };
+  useEffect(() => {
+    if (editing) resizeEditBox();
   }, [editing]);
 
   const saveEdit = () => {
@@ -490,6 +515,15 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
     const id = editing.id;
     setEditing(null);
     onEditResend?.(id, text);
+  };
+
+  const handleCopyEdit = async () => {
+    try {
+      await navigator.clipboard.writeText(editing?.text || '');
+      setCopiedEdit(true);
+      setTimeout(() => setCopiedEdit(false), 2000);
+    } catch {
+    }
   };
 
   useEffect(() => {
@@ -532,27 +566,58 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
           >
             {msg.role === 'user' ? (
               editing && editing.id === msg.id ? (
-                <div className="w-fit max-w-prose">
-                  <div className="flex flex-col gap-2 rounded-2xl rounded-tr-md bg-kumo-base p-3 ring-1 ring-kumo-brand/40">
+                <div className="relative w-fit max-w-prose">
+                  <div className="flex flex-col gap-2 rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                     <Textarea
                       ref={editRef}
                       rows={1}
                       value={editing.text}
-                      onChange={(e) => setEditing((prev) => ({ ...prev, text: e.target.value }))}
+                      onChange={(e) => {
+                        setEditing((prev) => ({ ...prev, text: e.target.value }));
+                        resizeEditBox();
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                           e.preventDefault();
                           saveEdit();
                         }
                       }}
-                      className="!ring-0 max-h-48 w-full resize-none rounded-lg border-0 bg-transparent p-0 text-sm text-kumo-default outline-none"
-                      style={{ maxHeight: 220 }}
+                      className="!ring-0 max-h-48 resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
+                      style={{ maxHeight: 192, minWidth: 280 }}
                     />
                     <div className="flex items-center justify-end gap-1.5">
-                      <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>取消</Button>
-                      <Button type="button" size="sm" variant="primary" onClick={saveEdit} disabled={!editing.text.trim()}>保存并重发</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditing(null)}
+                        className="!text-white/80 hover:!bg-white/15 hover:!text-white"
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={saveEdit}
+                        disabled={!editing.text.trim()}
+                        className="!bg-white !text-kumo-brand hover:!bg-white/90"
+                      >
+                        发送
+                      </Button>
                     </div>
                   </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    shape="square"
+                    onClick={handleCopyEdit}
+                    className="absolute -left-8 top-1/2 z-10 !h-6 !w-6 -translate-y-1/2 !rounded-full !text-kumo-subtle hover:!bg-kumo-tint hover:!text-kumo-default"
+                    aria-label="复制消息"
+                    title="复制消息内容"
+                  >
+                    {copiedEdit ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  </Button>
                 </div>
               ) : (
                 <div className="group relative flex w-fit max-w-prose items-start gap-1.5">
@@ -565,7 +630,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                     variant="ghost"
                     shape="square"
                     onClick={() => setEditing({ id: msg.id, text: msg.content || '' })}
-                    className="absolute -left-8 top-1/2 z-10 !h-6 !w-6 -translate-y-1/2 !rounded-md !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
+                    className="absolute -left-8 top-1/2 z-10 !h-6 !w-6 -translate-y-1/2 !rounded-full !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
                     aria-label="编辑重发"
                   >
                     <Edit className="h-3 w-3" />
@@ -586,7 +651,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                       title={isCollapsed ? '展开回复' : '收起回复'}
                       className="flex cursor-pointer items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-kumo-default hover:bg-kumo-tint hover:text-kumo-strong"
                     >
-                      <Sparkle className="h-3 w-3 text-kumo-brand" />
+                      <Terminal className="h-3 w-3 text-kumo-brand" />
                       代理
                       {!streaming && hasLongText && (
                         <ChevronDown
@@ -642,7 +707,6 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   </div>
                   </div>
                   )}
-                  <FeedbackRow onCopy={() => navigator.clipboard.writeText(msg.content || msg.blocks?.map((b) => b.text || '').join('\n') || '')} />
                 </div>
               </div>
             )}

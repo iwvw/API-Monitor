@@ -91,9 +91,9 @@ export function normalizeAiEvent(raw) {
         bodySnapshot: raw.bodySnapshot || '',
       };
     case 'error':
-      return { type: 'error', message: raw.message || '发生错误' };
+      return { type: 'error', message: raw.message || '发生错误', userMessageId: raw.userMessageId || '' };
     case 'done':
-      return { type: 'done' };
+      return { type: 'done', userMessageId: raw.userMessageId || '' };
     case 'session_title':
       return { type: 'session_title', sessionId: raw.sessionId || '', title: raw.title || '' };
     default:
@@ -206,6 +206,16 @@ export function applyAiEvent(messages, event, targetId) {
 
   const next = messages.slice();
   next[idx] = msg;
+  // done/error 事件携带本轮用户消息的服务端 id（aam_…），记到其前一条用户消息上，
+  // 编辑重发时用它做服务端截断（删旧消息及其后所有消息）
+  if (event.userMessageId) {
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        next[i] = { ...messages[i], dbId: event.userMessageId };
+        break;
+      }
+    }
+  }
   return next;
 }
 

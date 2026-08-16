@@ -41,6 +41,14 @@ describe('normalizeAiEvent', () => {
     expect(normalizeAiEvent({ type: 'meta' })).toBeNull();
     expect(normalizeAiEvent(null)).toBeNull();
   });
+
+  it('done/error 透传 userMessageId（编辑重发截断依据）', () => {
+    expect(normalizeAiEvent({ type: 'done', userMessageId: 'aam_1' })).toEqual({ type: 'done', userMessageId: 'aam_1' });
+    expect(normalizeAiEvent({ type: 'done' })).toEqual({ type: 'done', userMessageId: '' });
+    expect(normalizeAiEvent({ type: 'error', message: 'x', userMessageId: 'aam_1' })).toEqual({
+      type: 'error', message: 'x', userMessageId: 'aam_1',
+    });
+  });
 });
 
 describe('applyAiEvent — 消息生命周期', () => {
@@ -68,6 +76,18 @@ describe('applyAiEvent — 消息生命周期', () => {
     const next = applyAiEvent(withTarget(), { type: 'done' }, 'a1');
     expect(next[1].status).toBe(MSG.COMPLETED);
     expect(next[1].active).toBe(false);
+  });
+
+  it('done 携带 userMessageId → 前一条用户消息记录 dbId（编辑重发截断）', () => {
+    const next = applyAiEvent(withTarget(), { type: 'done', userMessageId: 'aam_42' }, 'a1');
+    expect(next[1].status).toBe(MSG.COMPLETED);
+    expect(next[0]).toMatchObject({ id: 'u1', dbId: 'aam_42' });
+  });
+
+  it('error 携带 userMessageId 同样记录 dbId（失败轮也可编辑重发）', () => {
+    const next = applyAiEvent(withTarget(), { type: 'error', message: '崩了', userMessageId: 'aam_7' }, 'a1');
+    expect(next[1].status).toBe(MSG.ERROR);
+    expect(next[0]).toMatchObject({ id: 'u1', dbId: 'aam_7' });
   });
 
   it('error → error 状态 + 错误块 + inactive', () => {

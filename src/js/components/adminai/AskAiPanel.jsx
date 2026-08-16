@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChatsCircle } from '@phosphor-icons/react';
+import { ChatsCircle, Lock } from '@phosphor-icons/react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Textarea } from '@cloudflare/kumo/components/input';
@@ -102,6 +102,80 @@ function EmptyState({ onPrompt }) {
   );
 }
 
+/* ---------- 会话来源判定与分组 ---------- */
+// 机器人/自动化来源的会话（定时任务 cron、Telegram 频道 channel:*）由对应流程
+// 管理上下文，用户在前端只能查看（只读），不能继续对话，避免污染机器人上下文。
+function isBotSession(session) {
+  return !!session && !!session.source && session.source !== 'web';
+}
+
+function sessionSourceLabel(source) {
+  if (source === 'cron') return '任务';
+  if (source && source.startsWith('channel:')) return '频道';
+  return '机器人';
+}
+
+/* 会话列表条目（全屏侧栏与下拉菜单共用）：机器人会话带来源标签 */
+function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
+  const bot = isBotSession(s);
+  return (
+    <div className="group relative">
+      <Sidebar.MenuButton
+        active={active}
+        aria-current={active ? 'page' : undefined}
+        onClick={onSelect}
+        icon={
+          <ChatsCircle
+            weight="duotone"
+            className={`size-4 shrink-0 transition-all duration-200 ${
+              active
+                ? 'text-kumo-brand'
+                : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
+            }`}
+          />
+        }
+        className={`${active ? '!bg-kumo-brand/10' : ''} !px-2`}
+      >
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={`truncate text-xs transition-colors ${
+                active
+                  ? 'font-semibold text-kumo-default'
+                  : 'font-medium text-kumo-subtle group-hover:text-kumo-default'
+              }`}
+            >
+              {s.title || '新对话'}
+            </span>
+            {bot && (
+              <span className="shrink-0 rounded bg-kumo-warning/10 px-1 py-px text-[9px] font-semibold leading-4 text-kumo-warning">
+                {sessionSourceLabel(s.source)}
+              </span>
+            )}
+          </span>
+          <span className="truncate text-[10px] text-kumo-subtle/70">
+            {formatSessionDate(s.createdAt)}
+          </span>
+        </span>
+      </Sidebar.MenuButton>
+      <Button
+        size="sm"
+        shape="square"
+        variant={confirmDeleteId === s.id ? 'destructive' : 'ghost'}
+        aria-label="删除会话"
+        onClick={() => onDelete(s.id)}
+        className={`!absolute right-1.5 top-1/2 z-10 -translate-y-1/2 !h-6 !w-6 !rounded-md !shadow-sm opacity-0 transition-all duration-200 group-hover:opacity-100 ${
+          confirmDeleteId === s.id
+            ? '!opacity-100 !bg-kumo-danger !text-kumo-inverse'
+            : '!bg-kumo-base ring-1 ring-kumo-line hover:!bg-kumo-tint hover:!text-kumo-danger'
+        }`}
+      >
+        {confirmDeleteId === s.id ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
+      </Button>
+    </div>
+  );
+}
+
 /* ---------- 点阵背景（复用登录页 .cf-ai-background + surface 光斑） ---------- */
 function DotGrid({ surfaceRef }) {
   return (
@@ -152,11 +226,14 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [clock, setClock] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [runId, setRunId] = useState(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  // 会话列表 tab：切换查看用户对话（web）或机器人会话（cron/channel，只读）。
+  const [sessionListTab, setSessionListTab] = useState('web');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [panelWidth, setPanelWidth] = useState(() => {
     try { const v = Number(localStorage.getItem('adminai-sidebar-w')); return (v >= PANEL_MIN_WIDTH && v <= PANEL_MAX_WIDTH) ? v : PANEL_DEFAULT_WIDTH; } catch { return PANEL_DEFAULT_WIDTH; }
@@ -221,7 +298,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const list = body.sessions || [];
       setSessions(list);
       setSessions((prev) => [...list, ...prev.filter((p) => !list.some((s) => s.id === p.id))]);
-      if (list.length > 0 && !activeSessionIdRef.current) setActiveSessionId(list[0].id);
+      // 不在这里自动选中上次会话：首次打开面板时统一新建空会话（见 firstOpenRef 逻辑）
       return list;
     } catch {
       return [];
@@ -266,13 +343,14 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             } catch {
               rawArr = [];
             }
-            // 后端返回的 toolCallDesc 对应第一个工具调用；若数组多项则只有第一项有描述
+            // 后端已在 meta 里逐调用注入 desc（与实时 tool_start 一致），
+            // 无 desc 时回退首个调用的 toolCallDesc（兼容旧数据）
             const desc = m.toolCallDesc || '';
             return rawArr.map((tc, idx) => ({
               type: 'tool_call',
               toolName: tc.function?.name || tc.toolName || '未知工具',
               args: tc.function?.arguments || tc.args || '',
-              desc: idx === 0 ? desc : '',
+              desc: tc.desc || (idx === 0 ? desc : ''),
               status: 'success',
             }));
           });
@@ -295,7 +373,59 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
+  /* 首次打开面板：优先复用最近一个空会话（还没产生对话），没有则新建；
+       不再自动接续有内容的旧会话（旧会话可在会话列表切换找回） */
+  const firstOpenRef = useRef(false);
+  useEffect(() => {
+    if (!showAskAI || firstOpenRef.current) return;
+    firstOpenRef.current = true;
+    (async () => {
+      if (!activeSessionIdRef.current) {
+        try {
+          const res = await fetch('/api/admin-ai/sessions');
+          const data = await res.json();
+          const body = data.data || data;
+          const list = body.sessions || [];
+          // 列表按 lastActivityAt 倒序：取最近的空会话直接复用，避免空会话越积越多
+          const emptyLast = list.find((s) => !isBotSession(s) && !(s.messageCount > 0));
+          if (emptyLast) {
+            setSessions((prev) => (prev.some((p) => p.id === emptyLast.id) ? prev : [emptyLast, ...prev]));
+            skipLoadSessionRef.current = emptyLast.id;
+            setActiveSessionId(emptyLast.id);
+            setMessages([]);
+            return;
+          }
+        } catch {
+        }
+      }
+      try {
+        const res = await fetch('/api/admin-ai/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json();
+        const body = data.data || data;
+        const newId = body.id || body.session?.id;
+        if (!newId) return;
+        skipLoadSessionRef.current = newId;
+        setActiveSessionId(newId);
+        setSessions((prev) => [{ id: newId, title: new Date().toLocaleString('zh-CN') }, ...prev]);
+        setMessages([]);
+      } catch {
+      }
+    })();
+  }, [showAskAI]);
+
   useEffect(() => { streamingRef.current = streaming; }, [streaming]);
+
+  /* 顶部会话标题兜底时钟：面板打开期间每秒刷新（空会话标题按实时时间显示） */
+  useEffect(() => {
+    if (!showAskAI) return undefined;
+    setClock(Date.now());
+    const t = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [showAskAI]);
 
   /* TG/定时任务等外部来源的对话没有推送到浏览器的通道（SSE 只覆盖面板自己发起的 run），
      面板打开期间轮询会话活动时间：活跃会话 lastActivityAt 有变化则重拉消息，会话列表同步刷新。 */
@@ -491,8 +621,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     setBehavior(mode);
     try { localStorage.setItem('adminai-behavior', mode); } catch { }
   };
-   /* 发起一轮执行：发送 prompt 并将流式响应挂到 assistantId 消息 */
-  const startRun = async (sessionId, trimmed, assistantId) => {
+   /* 发起一轮执行：发送 prompt 并将流式响应挂到 assistantId 消息；rewindId 为编辑重发的服务端截断点 */
+  const startRun = async (sessionId, trimmed, assistantId, rewindId) => {
     lastPromptRef.current = trimmed;
     const failWith = (message) => {
       setMessages((prev) => failMessage(prev, assistantId, message, trimmed));
@@ -501,7 +631,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const res = await fetch('/api/admin-ai/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, prompt: trimmed }),
+        body: JSON.stringify({ sessionId, prompt: trimmed, ...(rewindId ? { rewindId } : {}) }),
       });
       if (!res.ok) {
         let msg = `发送失败（HTTP ${res.status}）`;
@@ -524,6 +654,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const handleSend = async (promptOverride) => {
     const trimmed = (promptOverride === undefined ? input : promptOverride).trim();
     if (!trimmed || streaming) return;
+    // 机器人会话只读：禁止继续对话，避免污染机器人流程的上下文。
+    if (botActive) return;
 
     if (promptOverride === undefined) setInput('');
     setAtMenuOpen(false);
@@ -567,6 +699,11 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const handleEditResend = async (messageId, newText) => {
     const trimmed = newText.trim();
     if (!trimmed || streaming) return;
+    // 机器人会话只读：禁止编辑重发。
+    if (botActive) return;
+    const target = messages.find((m) => m.id === messageId);
+    // 服务端截断依据：流事件已把真实消息 id（aam_…）记在 dbId 上；历史加载的消息 id 本身即 DB id
+    const rewindId = target?.dbId || (target?.id.startsWith('aam_') ? target.id : undefined);
     const assistantMsgId = `assistant_${Date.now()}`;
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === messageId);
@@ -574,7 +711,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const base = prev.slice(0, idx + 1).map((m, i) => (i === idx ? { ...m, content: trimmed } : m));
       return [...base, createAssistantMessage(assistantMsgId)];
     });
-    await startRun(activeSessionId, trimmed, assistantMsgId);
+    await startRun(activeSessionId, trimmed, assistantMsgId, rewindId);
   };
 
   const handleCancel = async () => {
@@ -718,9 +855,18 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     window.addEventListener('mouseup', onUp);
   };
 
-  const sessionTitle = sessions.find((s) => s.id === activeSessionId)?.title
-    || (activeSessionId ? new Date().toLocaleString('zh-CN') : '新对话');
+  const activeSessionRow = sessions.find((s) => s.id === activeSessionId);
+  // 标题兜底：空会话（还没生成标题）按实时时间走，顺带充当顶部时钟
+  const sessionTitle = activeSessionRow?.title
+    || (activeSessionId ? new Date(clock).toLocaleString('zh-CN') : '新对话');
   const placeholder = behavior === 'agent' ? '输入指令' : '输入消息，@ 引用资源';
+  // 会话隔离：用户主动发起的（web）与机器人/自动化来源（cron/channel）分开管理，
+  // 机器人会话只读（可查看历史，禁输入），避免用户消息污染机器人流程的上下文。
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const botActive = isBotSession(activeSession);
+  // 会话列表只展示已产生对话的会话：空会话是「新对话」占位，不进入下拉列表
+  const webSessions = sessions.filter((s) => !isBotSession(s) && (s.messageCount || 0) > 0);
+  const botSessions = sessions.filter((s) => isBotSession(s) && (s.messageCount || 0) > 0);
    /* ==================== 渲染 ==================== */
   const closeSidebar = () => { setShowAskAI(false); setExpanded(false); setManageOpen(false); };
 
@@ -760,63 +906,52 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             }
           />
         </div>
+            <div className="flex shrink-0 items-center gap-1 border-b border-kumo-line px-2 py-1.5">
+              <Tabs
+                size="sm"
+                variant="segmented"
+                value={sessionListTab}
+                onValueChange={setSessionListTab}
+                tabs={[
+                  { value: 'web', label: `用户 (${webSessions.length})` },
+                  { value: 'bot', label: `机器人 (${botSessions.length})` },
+                ]}
+              />
+            </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 scrollbar-thin">
               {sessions.length === 0 ? (
                 <Empty title="暂无会话" description="点击右上角新建会话开始对话" />
+              ) : sessionListTab === 'web' ? (
+                webSessions.length === 0 ? (
+                  <p className="px-2.5 py-6 text-center text-xs text-kumo-subtle">暂无用户对话</p>
+                ) : (
+                  <Sidebar.Menu>
+                    {webSessions.map((s) => (
+                      <SessionItem
+                        key={s.id}
+                        s={s}
+                        active={s.id === activeSessionId}
+                        confirmDeleteId={confirmDeleteId}
+                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                        onDelete={requestDelete}
+                      />
+                    ))}
+                  </Sidebar.Menu>
+                )
+              ) : botSessions.length === 0 ? (
+                <p className="px-2.5 py-6 text-center text-xs text-kumo-subtle">暂无机器人会话</p>
               ) : (
                 <Sidebar.Menu>
-                  {sessions.map((s) => {
-                    const active = s.id === activeSessionId;
-                    return (
-                      <div key={s.id} className="group relative">
-                        <Sidebar.MenuButton
-                          active={active}
-                          aria-current={active ? 'page' : undefined}
-                          onClick={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
-                          icon={
-                            <ChatsCircle
-                              weight="duotone"
-                              className={`size-4 shrink-0 transition-all duration-200 ${
-                                active
-                                  ? 'text-kumo-brand'
-                                  : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
-                              }`}
-                            />
-                          }
-                          className={`${active ? '!bg-kumo-brand/10' : ''} !px-2`}
-                        >
-                          <span className="flex min-w-0 flex-1 flex-col">
-                            <span
-                              className={`truncate text-xs transition-colors ${
-                                active
-                                  ? 'font-semibold text-kumo-default'
-                                  : 'font-medium text-kumo-subtle group-hover:text-kumo-default'
-                              }`}
-                            >
-                              {s.title || '新对话'}
-                            </span>
-                            <span className="truncate text-[10px] text-kumo-subtle/70">
-                              {formatSessionDate(s.createdAt)}
-                            </span>
-                          </span>
-                        </Sidebar.MenuButton>
-                        <Button
-                          size="sm"
-                          shape="square"
-                          variant={confirmDeleteId === s.id ? 'destructive' : 'ghost'}
-                          aria-label="删除会话"
-                          onClick={() => requestDelete(s.id)}
-                          className={`!absolute right-1.5 top-1/2 z-10 -translate-y-1/2 !h-6 !w-6 !rounded-md opacity-0 transition-all duration-200 group-hover:opacity-100 ${
-                            confirmDeleteId === s.id
-                              ? '!opacity-100 !bg-kumo-danger/10 !text-kumo-danger'
-                              : 'hover:!bg-kumo-tint hover:!text-kumo-default'
-                          }`}
-                        >
-                          {confirmDeleteId === s.id ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
-                        </Button>
-                      </div>
-                    );
-                  })}
+                  {botSessions.map((s) => (
+                    <SessionItem
+                      key={s.id}
+                      s={s}
+                      active={s.id === activeSessionId}
+                      confirmDeleteId={confirmDeleteId}
+                      onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                      onDelete={requestDelete}
+                    />
+                  ))}
                 </Sidebar.Menu>
               )}
             </div>
@@ -841,13 +976,27 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
               <div className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
                   {messages.length === 0 ? (
-                    <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
+                    botActive ? (
+                      <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-kumo-subtle">
+                        <Lock className="h-6 w-6 text-kumo-warning" />
+                        <p>该会话由机器人/自动化流程管理（只读）</p>
+                        <p className="text-xs text-kumo-subtle/70">可查看历史记录，不能在此继续对话</p>
+                      </div>
+                    ) : (
+                      <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
+                    )
                   ) : (
                     <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
                   )}
                 </div>
-                {/* 全屏输入区（实底不透明，与消息区无缝衔接） */}
+                {/* 全屏输入区（实底不透明，与消息区无缝衔接）；机器人会话只读不渲染输入框 */}
                 <div className="z-10 shrink-0 pb-2">
+                  {botActive ? (
+                    <div className="flex items-center justify-center gap-2 rounded-xl bg-kumo-recessed/40 px-4 py-3 text-xs text-kumo-subtle ring-1 ring-kumo-line">
+                      <Lock className="h-3.5 w-3.5 text-kumo-warning" />
+                      该会话由{activeSession?.source === 'cron' ? '定时任务' : '机器人'}管理，仅可查看；如需对话请新建会话
+                    </div>
+                  ) : (
                   <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
               <Textarea
                 ref={textareaRef}
@@ -889,6 +1038,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 </div>
               </div>
             </div>
+            )}
             </div>
           </div>
         </div>
@@ -920,16 +1070,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
           }`}
         >
           <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setManageOpen(false)}
-              className="flex h-7 items-center gap-1.5 rounded-md px-1 text-xs"
-              aria-label="返回对话"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" /> 对话
-            </Button>
+            <span className="w-7 shrink-0" aria-hidden />
             <span className="text-sm font-medium text-kumo-default">管理 AI</span>
             <Button
               type="button"
@@ -943,7 +1084,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4">
-            <AdminConsole />
+            <AdminConsole onBack={() => setManageOpen(false)} />
           </div>
         </div>
 
@@ -976,62 +1117,54 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
               className="absolute left-0 top-[calc(100%+4px)] z-40 w-64 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line"
               style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': '250ms' }}
             >
+              <div className="border-b border-kumo-line p-1.5">
+                <Tabs
+                  size="sm"
+                  variant="segmented"
+                  value={sessionListTab}
+                  onValueChange={setSessionListTab}
+                  tabs={[
+                    { value: 'web', label: `用户 (${webSessions.length})` },
+                    { value: 'bot', label: `机器人 (${botSessions.length})` },
+                  ]}
+                />
+              </div>
               <div className="max-h-72 overflow-y-auto p-1.5">
-                {sessions.length === 0 && <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无会话</p>}
-                <Sidebar.Menu>
-                  {sessions.map((s) => {
-                    const active = s.id === activeSessionId;
-                    return (
-                      <div key={s.id} className="group relative">
-                        <Sidebar.MenuButton
-                          active={active}
-                          aria-current={active ? 'page' : undefined}
-                          onClick={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); setSessionMenuOpen(false); }}
-                          icon={
-                            <ChatsCircle
-                              weight="duotone"
-                              className={`size-4 shrink-0 transition-all duration-200 ${
-                                active
-                                  ? 'text-kumo-brand'
-                                  : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
-                              }`}
-                            />
-                          }
-                          className={`${active ? '!bg-kumo-brand/10' : ''} !px-2`}
-                        >
-                          <span className="flex min-w-0 flex-1 flex-col">
-                            <span
-                              className={`truncate text-xs transition-colors ${
-                                active
-                                  ? 'font-semibold text-kumo-default'
-                                  : 'font-medium text-kumo-subtle group-hover:text-kumo-default'
-                              }`}
-                            >
-                              {s.title || '新对话'}
-                            </span>
-                            <span className="truncate text-[10px] text-kumo-subtle/70">
-                              {formatSessionDate(s.createdAt)}
-                            </span>
-                          </span>
-                        </Sidebar.MenuButton>
-                        <Button
-                          size="sm"
-                          shape="square"
-                          variant={confirmDeleteId === s.id ? 'destructive' : 'ghost'}
-                          aria-label="删除会话"
-                          onClick={() => requestDelete(s.id)}
-                          className={`!absolute right-1.5 top-1/2 z-10 -translate-y-1/2 !h-6 !w-6 !rounded-md opacity-0 transition-all duration-200 group-hover:opacity-100 ${
-                            confirmDeleteId === s.id
-                              ? '!opacity-100 !bg-kumo-danger/10 !text-kumo-danger'
-                              : 'hover:!bg-kumo-tint hover:!text-kumo-default'
-                          }`}
-                        >
-                          {confirmDeleteId === s.id ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </Sidebar.Menu>
+                {sessions.length === 0 ? (
+                  <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无会话</p>
+                ) : sessionListTab === 'web' ? (
+                  webSessions.length === 0 ? (
+                    <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无用户对话</p>
+                  ) : (
+                    <Sidebar.Menu>
+                      {webSessions.map((s) => (
+                        <SessionItem
+                          key={s.id}
+                          s={s}
+                          active={s.id === activeSessionId}
+                          confirmDeleteId={confirmDeleteId}
+                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                          onDelete={requestDelete}
+                        />
+                      ))}
+                    </Sidebar.Menu>
+                  )
+                ) : botSessions.length === 0 ? (
+                  <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无机器人会话</p>
+                ) : (
+                  <Sidebar.Menu>
+                    {botSessions.map((s) => (
+                      <SessionItem
+                        key={s.id}
+                        s={s}
+                        active={s.id === activeSessionId}
+                        confirmDeleteId={confirmDeleteId}
+                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                        onDelete={requestDelete}
+                      />
+                    ))}
+                  </Sidebar.Menu>
+                )}
               </div>
               <div className="flex items-center gap-1 border-t border-kumo-line p-1.5">
                 <Button type="button" size="sm" variant="ghost" onClick={handleNewSession} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-kumo-default hover:bg-kumo-tint">
@@ -1061,15 +1194,29 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
           <div className="relative flex min-h-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1 flex-col">
               {messages.length === 0 ? (
-                <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
+                botActive ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-kumo-subtle">
+                    <Lock className="h-6 w-6 text-kumo-warning" />
+                    <p>该会话由机器人/自动化流程管理（只读）</p>
+                    <p className="text-xs text-kumo-subtle/70">可查看历史记录，不能在此继续对话</p>
+                  </div>
+                ) : (
+                  <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
+                )
               ) : (
                 <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
               )}
             </div>
           </div>
         </div>
-        {/* ===== Footer（输入框：实底不透明，无上边距，与消息区相连） ===== */}
+        {/* ===== Footer（输入框：实底不透明，无上边距，与消息区相连）；机器人会话只读不渲染输入框 ===== */}
         <div className="relative shrink-0 px-4 pb-4">
+        {botActive ? (
+          <div className="flex items-center justify-center gap-2 rounded-xl bg-kumo-recessed/40 px-4 py-3 text-xs text-kumo-subtle ring-1 ring-kumo-line">
+            <Lock className="h-3.5 w-3.5 text-kumo-warning" />
+            该会话由{activeSession?.source === 'cron' ? '定时任务' : '机器人'}管理，仅可查看；如需对话请新建会话
+          </div>
+        ) : (
         <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
           <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
             <Textarea
@@ -1112,6 +1259,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             </div>
           </div>
         </form>
+        )}
         </div>
       </div>
         </div>
