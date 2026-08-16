@@ -21,6 +21,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 	"github.com/robfig/cron/v3"
 )
 
@@ -98,15 +99,42 @@ func New(cfg config.Config) *Service {
 	service := &Service{
 		cfg:             cfg,
 		store:           database.New(cfg),
-		scheduler:       cron.New(),
 		entries:         map[int64]cron.EntryID{},
 		workflowEntries: map[int64]cron.EntryID{},
 		activeRuns:      map[int64]int{},
 		client:          &http.Client{},
 	}
+	service.scheduler = cron.New(cron.WithLocation(service.settingsLocation()))
 	service.scheduler.Start()
 	_ = service.ReloadAll(context.Background())
 	return service
+}
+
+// settingsLocation 读取用户设置里的系统时区作为调度器时区，
+// 保证定时任务的执行时刻与站点设置一致（服务器部署海外时不再按服务器本地时间跑）。
+func (s *Service) settingsLocation() *time.Location {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return time.Local
+	}
+	defer db.Close()
+	return timeutil.LocationFromSettings(ctx, db)
+}
+
+// now 返回当前时间按设置时区的视角（与调度器同源），供预览/汇总等计算使用。
+func (s *Service) now() time.Time {
+	loc := s.schedulerLocation()
+	return time.Now().In(loc)
+}
+
+// schedulerLocation 优先取调度器已配置的时区；未初始化时回退服务器本地。
+func (s *Service) schedulerLocation() *time.Location {
+	if s == nil || s.scheduler == nil {
+		return time.Local
+	}
+	return s.scheduler.Location()
 }
 
 func (s *Service) SetAgentRunner(runner AgentRunner) {
@@ -630,6 +658,7 @@ func (s *Service) executeAITask(ctx context.Context, task SchedulerTask, timeout
 	channelID, _ := cfg["channelId"].(string)
 	body, err := json.Marshal(map[string]interface{}{
 		"prompt":    task.Command,
+		"title":     task.Name, // 会话标题按任务名命名，便于前端/审计区分机器人会话
 		"model":     model,
 		"policy":    policy, // 留空由接口回退默认 allow
 		"channelId": channelID,

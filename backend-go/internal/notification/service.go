@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"mime/quotedprintable"
 	"net/http"
 	"net/smtp"
@@ -21,10 +22,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iwvw/api-monitor/backend-go/internal/config"
+"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 const (
@@ -1284,6 +1286,66 @@ func (s *Service) SendToChannel(ctx context.Context, channelID, title, message s
 	return err
 }
 
+// SendRichToChannel 以富消息（GFM Markdown）直接投递到通知渠道，与 SendToChannel 相同定位，
+// 但保留 AI 简报的 Markdown 结构（标题/加粗/表格/代码块）——SendToChannel 的逐行转义
+// 是为键值式监控通知设计的，会把 AI 输出的 | 表格 |、### 标题、**加粗** 全部转义成字面量。
+// Telegram 走 sendRichMessage（Bot API 富消息扩展）；非 Telegram 渠道回退 sendToChannel。
+func (s *Service) SendRichToChannel(ctx context.Context, channelID, title, markdown string) error {
+	channel, ok, err := s.loadStoredChannel(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("通知渠道 %s 不存在", channelID)
+	}
+	if channel.Enabled != 1 {
+		return fmt.Errorf("通知渠道 %s 已停用", channelID)
+	}
+	cfg := decryptConfig(channel.ConfigRaw)
+	if len(cfg) == 0 {
+		return fmt.Errorf("通知渠道 %s 配置为空", channelID)
+	}
+	if channel.Type == "telegram" {
+		return s.sendTelegramRich(ctx, cfg, title, markdown)
+	}
+	_, err = s.sendToChannel(ctx, channel, cfg, title, markdown)
+	return err
+}
+
+// sendTelegramRich 用富消息（sendRichMessage + rich_message.markdown）发送，
+// 保留 GFM 表格/标题/加粗；不可用时降级为普通 sendMessage（无 parse_mode，纯文本不丢消息）。
+func (s *Service) sendTelegramRich(ctx context.Context, cfg map[string]interface{}, title, markdown string) error {
+	token := stringValue(cfg["bot_token"])
+	chatID := stringValue(cfg["chat_id"])
+	if token == "" || chatID == "" {
+		return errors.New("telegram channel config incomplete")
+	}
+	client, err := s.telegramHTTPClient(cfg)
+	if err != nil {
+		return err
+	}
+	text := strings.TrimSpace(markdown)
+	if title != "" {
+		text = "*" + telegramEscapeBold(title) + "*\n\n" + text
+	}
+	payload := map[string]interface{}{
+		"chat_id": chatID,
+		"rich_message": map[string]interface{}{
+			"markdown": text,
+		},
+	}
+	if _, err := s.callTelegram(ctx, client, token, "sendRichMessage", payload); err == nil {
+		return nil
+	} else {
+		// 降级：老 Bot API 服务器不支持 sendRichMessage 时以普通文本发送。
+		slog.Warn("telegram-send-rich-fallback", "chatId", chatID, "err", err.Error(), "textLen", len(text))
+	}
+	_, err = s.callTelegram(ctx, client, token, "sendMessage", map[string]interface{}{
+		"chat_id": chatID, "text": text, "disable_web_page_preview": true,
+	})
+	return err
+}
+
 func (s *Service) createHistory(ctx context.Context, ruleID, channelID, status, title, message string, data map[string]interface{}, errorMessage *string) (int64, error) {
 	db, err := s.open(ctx)
 	if err != nil {
@@ -1928,22 +1990,15 @@ func (s *Service) callTelegram(ctx context.Context, client *http.Client, token, 
 func (s *Service) systemLocation(ctx context.Context) (*time.Location, string) {
 	db, err := s.store.Open(ctx)
 	if err != nil {
-		return time.Local, "system"
+		return timeutil.LocationFromName(""), "system"
 	}
 	defer db.Close()
 
-	var zone sql.NullString
-	err = db.QueryRowContext(ctx, `SELECT time_zone FROM user_settings WHERE id = 1`).Scan(&zone)
-	if err != nil || !zone.Valid {
-		return time.Local, "system"
-	}
-	name := strings.TrimSpace(zone.String)
-	if name == "" || name == "system" {
-		return time.Local, "system"
-	}
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		return time.Local, "system"
+	zone := timeutil.ReadTimeZone(ctx, db)
+	loc := timeutil.LocationFromName(zone)
+	name := zone
+	if loc == time.Local || strings.TrimSpace(zone) == "" || strings.TrimSpace(zone) == "system" {
+		name = "system"
 	}
 	return loc, name
 }

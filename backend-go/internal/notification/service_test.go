@@ -694,3 +694,62 @@ func TestSendToChannelErrors(t *testing.T) {
 		t.Fatalf("配置缺失应报错，实际 err=%v", err)
 	}
 }
+
+// TestSendRichToChannelRichMessage 验证富消息路径：
+// telegram 渠道调用 sendRichMessage（保留 Markdown 结构），失败时降级 sendMessage 纯文本。
+func TestSendRichToChannelRichMessage(t *testing.T) {
+	ctx := context.Background()
+	service := testNotificationService(t)
+	var calls []string
+	service.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		payload := map[string]interface{}{}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode telegram request: %v", err)
+		}
+		method := strings.TrimPrefix(req.URL.Path, "/bot123456:test-token/")
+		calls = append(calls, method)
+		body := `{"ok":true,"result":{"message_id":1,"chat":{"id":10001}}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+
+	channel, err := service.CreateChannel(ctx, map[string]interface{}{
+		"name": "TG Rich", "type": "telegram", "enabled": true,
+		"config": map[string]interface{}{"bot_token": "123456:test-token", "chat_id": "10001"},
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	markdown := "### 简报\n\n| 指标 | 值 |\n| --- | --- |\n| CPU | 15% |\n\n**结论**：正常"
+	if err := service.SendRichToChannel(ctx, channel.ID, "每日简报", markdown); err != nil {
+		t.Fatalf("send rich: %v", err)
+	}
+	if len(calls) != 1 || calls[0] != "sendRichMessage" {
+		t.Fatalf("expected sendRichMessage, got calls=%v", calls)
+	}
+
+	// 富消息失败 -> 降级 sendMessage
+	service.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		payload := map[string]interface{}{}
+		_ = json.NewDecoder(req.Body).Decode(&payload)
+		method := strings.TrimPrefix(req.URL.Path, "/bot123456:test-token/")
+		calls = append(calls, method)
+		if method == "sendRichMessage" {
+			return &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{"ok":false,"description":"method not found"}`))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":2,"chat":{"id":10001}}}`))}, nil
+	})}
+	if err := service.SendRichToChannel(ctx, channel.ID, "每日简报", markdown); err != nil {
+		t.Fatalf("send rich fallback: %v", err)
+	}
+	if len(calls) < 3 || calls[len(calls)-1] != "sendMessage" {
+		t.Fatalf("expected fallback sendMessage, got calls=%v", calls)
+	}
+
+	// 渠道不存在报错而非 panic
+	if err := service.SendRichToChannel(ctx, "notif_missing", "标题", "内容"); err == nil || !strings.Contains(err.Error(), "不存在") {
+		t.Fatalf("missing channel should error, got %v", err)
+	}
+}

@@ -352,8 +352,15 @@ func (s *Service) createSchedulerTask(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.ReloadTask(context.Background(), created.ID)
-	response.OK(w, created)
+	if err := s.ReloadTask(context.Background(), created.ID); err != nil {
+		// 回滚已落库的任务，避免残留半生效行导致 AI 误判后重复创建。
+		_, _ = db.ExecContext(r.Context(), `DELETE FROM cron_tasks WHERE id = ?`, created.ID)
+		response.Error(w, http.StatusInternalServerError, "任务创建失败，调度注册失败: "+err.Error())
+		return
+	}
+	enriched := []SchedulerTask{created}
+	s.enrichTaskRuntime(enriched)
+	response.OK(w, enriched[0])
 }
 
 func (s *Service) updateSchedulerTask(w http.ResponseWriter, r *http.Request, idText string) {
@@ -392,8 +399,22 @@ func (s *Service) updateSchedulerTask(w http.ResponseWriter, r *http.Request, id
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.ReloadTask(context.Background(), id)
-	response.OK(w, updated)
+	if err := s.ReloadTask(context.Background(), id); err != nil {
+		// 任务已落库但调度注册失败：写回旧值并尝试恢复旧调度，保持 DB 与运行态一致。
+		if _, rollbackErr := updateSchedulerTaskRow(r.Context(), db, existing); rollbackErr != nil {
+			response.Error(w, http.StatusInternalServerError, "任务已更新但调度注册失败，旧值恢复也失败: "+err.Error())
+			return
+		}
+		if rollbackErr := s.ReloadTask(context.Background(), id); rollbackErr != nil {
+			response.Error(w, http.StatusInternalServerError, "任务已更新但调度注册失败（旧值已写回，调度恢复失败）: "+err.Error())
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, "任务已回滚，调度注册失败: "+err.Error())
+		return
+	}
+	enriched := []SchedulerTask{updated}
+	s.enrichTaskRuntime(enriched)
+	response.OK(w, enriched[0])
 }
 
 func (s *Service) previewCron(w http.ResponseWriter, r *http.Request) {
@@ -408,7 +429,7 @@ func (s *Service) previewCron(w http.ResponseWriter, r *http.Request) {
 	if count <= 0 || count > 20 {
 		count = 5
 	}
-	next, summary, err := previewCronSchedule(payload.Schedule, count, time.Now())
+	next, summary, err := previewCronSchedule(payload.Schedule, count, s.now())
 	if err != nil {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
 		return
