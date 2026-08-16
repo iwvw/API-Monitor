@@ -375,7 +375,12 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
-		s.RecordAnalytics(ctx, route, "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		return http.StatusBadRequest, nil, fmt.Errorf("request body is not valid JSON: %v", err)
 	}
 
@@ -384,7 +389,12 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 
 	db, err := s.open(ctx)
 	if err != nil {
-		s.RecordAnalytics(ctx, route, "", model, http.StatusInternalServerError, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusInternalServerError, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "gateway",
+			Message:  "open database failed: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusInternalServerError),
+		})
 		return http.StatusInternalServerError, nil, err
 	}
 	defer db.Close()
@@ -397,7 +407,18 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
 		})
-		// 候选池为空属网关自身状态，不写入调用日志；直接在网关拦截并告知外部。
+		// 候选池为空属网关自身状态，仍写入调用日志（含报错信息），便于日志与 AI 排障。
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{
+				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
+				"type":    "service_unavailable",
+			},
+		})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "no_endpoint",
+			Message:  fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
+			Response: errorResponseForLog(errBody, http.StatusServiceUnavailable),
+		})
 		return http.StatusServiceUnavailable, nil, fmt.Errorf("网关无可用渠道（模型 %s）", model)
 	}
 
@@ -415,7 +436,14 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 				ElapsedMs: time.Since(requestStarted).Milliseconds(),
 				Error:     limitErr,
 			})
-			s.RecordAnalytics(ctx, route, selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "")
+			errBody, _ := json.Marshal(map[string]interface{}{
+				"error": map[string]string{"message": limitErr, "type": "forbidden"},
+			})
+			s.recordAnalyticsKey(ctx, route, selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+				Kind:     "blocked",
+				Message:  limitErr,
+				Response: errorResponseForLog(errBody, http.StatusForbidden),
+			})
 			return http.StatusForbidden, nil, fmt.Errorf("%s", limitErr)
 		}
 	}
@@ -562,7 +590,14 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 		res.resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 	}
 	fp, _ := json.Marshal(failoverSteps)
-	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+	var errInfo *AnalyticsError
+	if res.resp.StatusCode >= 400 {
+		errInfo = &AnalyticsError{
+			Kind:    "upstream",
+			Message: fmt.Sprintf("upstream returned HTTP %d", res.resp.StatusCode),
+		}
+	}
+	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
 	return res.resp.StatusCode, res.resp, nil
 }
 func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request) {
@@ -588,6 +623,12 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "messages", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -595,16 +636,34 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	// 校验必填字段（Anthropic 格式）。
 	model, _ := anthropicBody["model"].(string)
 	if model == "" {
+		errBody, _ := json.Marshal(map[string]string{"error": "model: field required"})
+		s.recordAnalyticsKey(ctx, "messages", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "model: field required",
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", "model: field required")
 		return
 	}
 	if _, ok := anthropicBody["messages"]; !ok {
+		errBody, _ := json.Marshal(map[string]string{"error": "messages: field required"})
+		s.recordAnalyticsKey(ctx, "messages", "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "messages: field required",
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", "messages: field required")
 		return
 	}
 
 	openAIBody, err := anthropicToOpenAI(anthropicBody)
 	if err != nil {
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "messages", "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}

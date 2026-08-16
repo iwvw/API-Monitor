@@ -3063,3 +3063,129 @@ func TestNormalizeChatContentBlocksThinkingReset(t *testing.T) {
 		t.Error("thinking state should reset after a new user turn; assistant without thinking got injected")
 	}
 }
+
+// TestRecordAnalyticsErrorOnlyOnError 验证报错信息（kind/message/response）仅随失败请求
+// （>= 400）落库，成功请求不占空间；logs 接口能返回 errorKind/errorMessage/errorResponse
+// 字段供界面与 AI 排障读取。
+func TestRecordAnalyticsErrorOnlyOnError(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	ctx := context.Background()
+
+	errorJSON := `{"error":{"message":"insufficient balance","type":"insufficient_quota"}}`
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "m-1", http.StatusOK, 10, 0, 1, 2, 3, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", nil)
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "m-1", http.StatusInternalServerError, 20, 0, 0, 0, 0, 0, 0, 1, "10.0.0.1", "198.51.100.7", 0, "", &AnalyticsError{
+		Kind:     "upstream",
+		Message:  "insufficient balance",
+		Response: errorResponseForLog([]byte(errorJSON), http.StatusInternalServerError),
+	})
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var okKind, okResp, errKind, errMsg, errResp sql.NullString
+	if err := db.QueryRow(`SELECT error_kind, response_body FROM openai_gateway_analytics WHERE status_code = 200`).Scan(&okKind, &okResp); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT error_kind, error_message, response_body FROM openai_gateway_analytics WHERE status_code = 500`).Scan(&errKind, &errMsg, &errResp); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	if okKind.Valid && okKind.String != "" {
+		t.Fatalf("success request should not persist error info, got kind=%q resp=%q", okKind.String, okResp.String)
+	}
+	if !errKind.Valid || errKind.String != "upstream" {
+		t.Fatalf("error request should persist error kind, got %q", errKind.String)
+	}
+	if errMsg.String != "insufficient balance" {
+		t.Fatalf("error request should persist error message, got %q", errMsg.String)
+	}
+	if errResp.String != errorJSON {
+		t.Fatalf("error request should persist error response JSON, got %q", errResp.String)
+	}
+
+	// logs 接口应返回 errorKind/errorMessage/errorResponse 字段。
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil)
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("logs status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var result struct {
+		Records []struct {
+			StatusCode   int    `json:"statusCode"`
+			ErrorKind    string `json:"errorKind"`
+			ErrorMessage string `json:"errorMessage"`
+			ErrorResp    string `json:"errorResponse"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(result.Records))
+	}
+	for _, rec := range result.Records {
+		if rec.StatusCode == http.StatusInternalServerError {
+			if rec.ErrorKind != "upstream" || rec.ErrorMessage != "insufficient balance" || rec.ErrorResp != errorJSON {
+				t.Fatalf("logs should carry error info for error row, got %+v", rec)
+			}
+		}
+		if rec.StatusCode == http.StatusOK && (rec.ErrorKind != "" || rec.ErrorResp != "") {
+			t.Fatalf("logs should not carry error info for success row, got %+v", rec)
+		}
+	}
+}
+
+// TestErrorResponseForLogTruncatesHugeBody 验证超长报错 JSON 被截断并带标记。
+func TestErrorResponseForLogTruncatesHugeBody(t *testing.T) {
+	huge := strings.Repeat("x", relayErrorResponseLimit+1024)
+	out := errorResponseForLog([]byte(huge), http.StatusBadGateway)
+	if len(out) > relayErrorResponseLimit+len(" ...(truncated)") {
+		t.Fatalf("truncated body too long: %d", len(out))
+	}
+	if !strings.HasSuffix(out, "...(truncated)") {
+		t.Fatalf("truncated body should carry marker, got %q", out[len(out)-40:])
+	}
+	if errorResponseForLog([]byte(`{"a":1}`), http.StatusOK) != "" {
+		t.Fatal("success request should return empty error response")
+	}
+}
+
+// TestTrimErrorDetailRetention 验证超出保留上限的错误详情被清空：
+// 最新的 50 条保留 error_kind/error_message/response_body，更早的全部清空但行不删除。
+func TestTrimErrorDetailRetention(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	ctx := context.Background()
+
+	errInfo := &AnalyticsError{Kind: "upstream", Message: "boom", Response: `{"error":"boom"}`}
+	for i := 0; i < relayErrorResponseRetention+5; i++ {
+		service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "m-1", http.StatusInternalServerError, 10, 0, 0, 0, 0, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", errInfo)
+	}
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var kept, cleared, total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM openai_gateway_analytics WHERE error_kind IS NOT NULL AND error_kind != ''`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM openai_gateway_analytics WHERE error_kind IS NULL OR error_kind = ''`).Scan(&cleared); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM openai_gateway_analytics`).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if kept != relayErrorResponseRetention {
+		t.Fatalf("expected %d kept error details, got %d", relayErrorResponseRetention, kept)
+	}
+	if cleared != 5 {
+		t.Fatalf("expected 5 cleared error details, got %d", cleared)
+	}
+	if total != relayErrorResponseRetention+5 {
+		t.Fatalf("rows should be preserved, expected %d total, got %d", relayErrorResponseRetention+5, total)
+	}
+}

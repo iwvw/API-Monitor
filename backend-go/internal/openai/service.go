@@ -233,6 +233,14 @@ const relayErrorBufferSize = 200
 // relayErrorBodyLimit 是上游错误响应体写入日志/缓冲的最大字符数。
 const relayErrorBodyLimit = 300
 
+// relayErrorResponseLimit 是报错 JSON（错误响应体）写入调用日志的最大字符数。
+// 仅在请求失败（状态码 >= 400）时记录，成功请求不占空间。
+const relayErrorResponseLimit = 65536
+
+// relayErrorResponseRetention 是保留报错 JSON 的失败记录条数（按时间最新）。
+// 超出部分自动清空 response_body，只留下调用日志行与统计，控制表体积。
+const relayErrorResponseRetention = 50
+
 // RelayErrorRecord 是一条推理转发失败事件的明细记录。
 // Proxy 只存放脱敏后的 host:port，绝不包含代理 URL 中的凭据。
 // KeyIndex 是本次请求使用的 API Key 序号（0 = 主 key），用于日志定位。
@@ -742,6 +750,15 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "failover_path", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "response_body", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "error_kind", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "error_message", "TEXT"); err != nil {
+		return err
+	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "route", "TEXT NOT NULL DEFAULT 'chat.completions'"); err != nil {
 		return err
 	}
@@ -1102,6 +1119,36 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + " ...(truncated)"
+}
+
+// errorResponseForLog 决定错误响应体（报错 JSON）是否写入调用日志：
+// 仅当请求失败（状态码 >= 400）时返回截断后的报错 JSON，成功请求返回空串。
+func errorResponseForLog(body []byte, statusCode int) string {
+	if statusCode >= 200 && statusCode < 400 {
+		return ""
+	}
+	return truncateForLog(string(body), relayErrorResponseLimit)
+}
+
+// trimErrorDetailRetention 清空超出保留上限（relayErrorResponseRetention）的错误详情：
+// 只更新 error_kind/error_message/response_body 列，保留调用日志行（统计不受影响）。
+// 最新记录按 timestamp DESC, id DESC 判定（同秒多记录时 id 越新越靠前）。
+func (s *Service) trimErrorDetailRetention(ctx context.Context, db *sql.DB) {
+	if _, err := db.ExecContext(ctx, `
+		UPDATE openai_gateway_analytics
+		SET error_kind = '', error_message = '', response_body = ''
+		WHERE error_kind IS NOT NULL AND error_kind != ''
+		  AND id NOT IN (
+			SELECT id FROM (
+				SELECT id FROM openai_gateway_analytics
+				WHERE error_kind IS NOT NULL AND error_kind != ''
+				ORDER BY timestamp DESC, id DESC
+				LIMIT ?
+			)
+		  )
+	`, relayErrorResponseRetention); err != nil {
+		applog.Error(ctx, "openai", "Failed to trim error detail retention", "error", err.Error())
+	}
 }
 
 func (s *Service) endpointHasModel(ep Endpoint, requested string) bool {
@@ -4771,7 +4818,12 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				ElapsedMs: time.Since(p.requestStarted).Milliseconds(),
 				Error:     "build upstream request failed: " + err.Error(),
 			})
-			s.RecordAnalytics(ctx, p.route, selected.ID, p.model, http.StatusInternalServerError, time.Since(p.requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP)
+			errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+			s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusInternalServerError, time.Since(p.requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
+				Kind:     "gateway",
+				Message:  "build upstream request failed: " + err.Error(),
+				Response: errorResponseForLog(errBody, http.StatusInternalServerError),
+			})
 			return res
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
@@ -5027,7 +5079,12 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			ElapsedMs: time.Since(res.startTime).Milliseconds(),
 			Error:     lastErr.Error(),
 		})
-		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusBadGateway, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "")
+		errBody, _ := json.Marshal(map[string]string{"error": lastErr.Error()})
+		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusBadGateway, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
+			Kind:     "bad_gateway",
+			Message:  lastErr.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadGateway),
+		})
 		return res
 	}
 	// 防御：正常退出循环但未拿到响应（理论上只会在极端路径发生），兜底为 502，
@@ -5131,7 +5188,13 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
-		// 网关拦截（未到达上游）不写入调用日志。
+		// 网关拦截（未到达上游）也写入调用日志（含报错信息），便于日志与 AI 排障。
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "chat.completions", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -5157,7 +5220,18 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
 		})
-		// 候选池为空属网关自身状态，不写入调用日志；直接在网关拦截并告知外部。
+		// 候选池为空属网关自身状态，仍写入调用日志（含报错信息），便于日志与 AI 排障。
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{
+				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
+				"type":    "service_unavailable",
+			},
+		})
+		s.recordAnalyticsKey(ctx, "chat.completions", "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "no_endpoint",
+			Message:  fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
+			Response: errorResponseForLog(errBody, http.StatusServiceUnavailable),
+		})
 		response.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"error": map[string]string{
 				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
@@ -5184,7 +5258,14 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				ElapsedMs: time.Since(requestStarted).Milliseconds(),
 				Error:     limitErr,
 			})
-			s.RecordAnalytics(ctx, "chat.completions", selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "")
+			errBody, _ := json.Marshal(map[string]interface{}{
+				"error": map[string]string{"message": limitErr, "type": "forbidden"},
+			})
+			s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+				Kind:     "blocked",
+				Message:  limitErr,
+				Response: errorResponseForLog(errBody, http.StatusForbidden),
+			})
 			response.JSON(w, http.StatusForbidden, map[string]interface{}{
 				"error": map[string]string{
 					"message": limitErr,
@@ -5374,6 +5455,28 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
+		failStatus := http.StatusServiceUnavailable
+		allSame := true
+		first := failCodes[0]
+		for _, c := range failCodes[1:] {
+			if c != first {
+				allSame = false
+				break
+			}
+		}
+		msg := fmt.Sprintf("网关无可用渠道（模型 %s）", model)
+		if allSame && first >= 400 && first < 600 {
+			failStatus = first
+			msg = fmt.Sprintf("网关无可用渠道（模型 %s）：所有端点均返回 HTTP %d", model, first)
+		}
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{"message": msg, "type": "service_unavailable"},
+		})
+		s.recordAnalyticsKey(ctx, "chat.completions", "", model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "upstream",
+			Message:  msg,
+			Response: errorResponseForLog(errBody, failStatus),
+		})
 		writeRelayUnavailable(w, model, failCodes)
 		return
 	}
@@ -5467,7 +5570,14 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)
 		fp, _ := json.Marshal(failoverSteps)
-		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+		var errInfo *AnalyticsError
+		if res.resp.StatusCode >= 400 {
+			errInfo = &AnalyticsError{
+				Kind:    "upstream",
+				Message: fmt.Sprintf("upstream returned HTTP %d (stream)", res.resp.StatusCode),
+			}
+		}
+		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
@@ -5490,7 +5600,15 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, latencyMs)
 		fp, _ := json.Marshal(failoverSteps)
-		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.PromptTokens, usageInfo.Usage.CompletionTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.PromptTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+		var errInfo *AnalyticsError
+		if res.resp.StatusCode >= 400 {
+			errInfo = &AnalyticsError{
+				Kind:     "upstream",
+				Message:  upstreamErrorMessage(respBodyBytes),
+				Response: errorResponseForLog(respBodyBytes, res.resp.StatusCode),
+			}
+		}
+		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.PromptTokens, usageInfo.Usage.CompletionTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.PromptTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(usageInfo.Usage.TotalTokens))
@@ -6155,7 +6273,13 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
-		// 网关拦截（未到达上游）不写入调用日志。
+		// 网关拦截（未到达上游）也写入调用日志（含报错信息），便于日志与 AI 排障。
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "responses", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -6181,7 +6305,18 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
 		})
-		// 候选池为空属网关自身状态，不写入调用日志；直接在网关拦截并告知外部。
+		// 候选池为空属网关自身状态，仍写入调用日志（含报错信息），便于日志与 AI 排障。
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{
+				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
+				"type":    "service_unavailable",
+			},
+		})
+		s.recordAnalyticsKey(ctx, "responses", "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "no_endpoint",
+			Message:  fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
+			Response: errorResponseForLog(errBody, http.StatusServiceUnavailable),
+		})
 		response.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"error": map[string]string{
 				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
@@ -6208,7 +6343,17 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				ElapsedMs: time.Since(requestStarted).Milliseconds(),
 				Error:     limitErr,
 			})
-			s.RecordAnalytics(ctx, "responses", selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "")
+			errBody, _ := json.Marshal(map[string]interface{}{
+				"error": map[string]string{
+					"message": limitErr,
+					"type":    "forbidden",
+				},
+			})
+			s.recordAnalyticsKey(ctx, "responses", selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+				Kind:     "blocked",
+				Message:  limitErr,
+				Response: errorResponseForLog(errBody, http.StatusForbidden),
+			})
 			response.JSON(w, http.StatusForbidden, map[string]interface{}{
 				"error": map[string]string{
 					"message": limitErr,
@@ -6342,6 +6487,28 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
+		failStatus := http.StatusServiceUnavailable
+		allSame := true
+		first := failCodes[0]
+		for _, c := range failCodes[1:] {
+			if c != first {
+				allSame = false
+				break
+			}
+		}
+		msg := fmt.Sprintf("网关无可用渠道（模型 %s）", model)
+		if allSame && first >= 400 && first < 600 {
+			failStatus = first
+			msg = fmt.Sprintf("网关无可用渠道（模型 %s）：所有端点均返回 HTTP %d", model, first)
+		}
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{"message": msg, "type": "service_unavailable"},
+		})
+		s.recordAnalyticsKey(ctx, "responses", "", model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "upstream",
+			Message:  msg,
+			Response: errorResponseForLog(errBody, failStatus),
+		})
 		writeRelayUnavailable(w, model, failCodes)
 		return
 	}
@@ -6430,7 +6597,14 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)
 		fp, _ := json.Marshal(failoverSteps)
-		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+		var errInfo *AnalyticsError
+		if res.resp.StatusCode >= 400 {
+			errInfo = &AnalyticsError{
+				Kind:    "upstream",
+				Message: fmt.Sprintf("upstream returned HTTP %d (stream)", res.resp.StatusCode),
+			}
+		}
+		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
@@ -6453,7 +6627,15 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, latencyMs)
 		fp, _ := json.Marshal(failoverSteps)
-		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.InputTokens, usageInfo.Usage.OutputTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.InputTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp))
+		var errInfo *AnalyticsError
+		if res.resp.StatusCode >= 400 {
+			errInfo = &AnalyticsError{
+				Kind:     "upstream",
+				Message:  upstreamErrorMessage(respBodyBytes),
+				Response: errorResponseForLog(respBodyBytes, res.resp.StatusCode),
+			}
+		}
+		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.InputTokens, usageInfo.Usage.OutputTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.InputTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(usageInfo.Usage.TotalTokens))

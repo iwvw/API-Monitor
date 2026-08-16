@@ -13,24 +13,13 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
-// settingsLocationFromDB 读取用户设置中的系统时区；
-// 'system'/空/无效时回退 UTC（保持历史行为，与存储的 UTC 时间字符串一致）。
+// settingsLocationFromDB 读取用户设置中的系统时区（经统一 timeutil 门面）。
+// 'system'/空/无效时回退服务器本地时区（与通知中心一致）。
 func settingsLocationFromDB(ctx context.Context, db *sql.DB) *time.Location {
-	var zone sql.NullString
-	if err := db.QueryRowContext(ctx, `SELECT time_zone FROM user_settings WHERE id = 1`).Scan(&zone); err != nil || !zone.Valid {
-		return time.UTC
-	}
-	name := strings.TrimSpace(zone.String)
-	if name == "" || name == "system" {
-		return time.UTC
-	}
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		return time.UTC
-	}
-	return loc
+	return timeutil.LocationFromSettings(ctx, db)
 }
 
 // analyticsTimeWindow 按展示时区计算「近 N 天」过滤起点（转回 UTC 字符串用于与存储的 UTC 时间比较）。
@@ -53,15 +42,27 @@ func sqliteStrftimeOffset(loc *time.Location) (modifier string, offsetSec int) {
 	return modifier, offsetSec
 }
 
+// AnalyticsError 描述一次失败请求的结构化报错信息，与调用日志一同落库，
+// 供日志界面与 AI 排障直接读取：kind 指明错误环节，message 说明原因，
+// response 保存报错 JSON（上游错误响应体或网关构造的错误体）。
+type AnalyticsError struct {
+	Kind     string
+	Message  string
+	Response string
+}
+
 // RecordAnalytics saves a gateway proxy metric to the SQLite database
 func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string) {
-	s.recordAnalyticsKey(ctx, route, endpointID, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, -1, "")
+	s.recordAnalyticsKey(ctx, route, endpointID, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, -1, "", nil)
 }
 
 // recordAnalyticsKey 与 RecordAnalytics 相同，但附带本次实际使用的 API Key 序号
 // （keyIndex，0=主 key；-1 表示未知/未使用多 key），用于日志端点后的 key pill。
 // failoverPath 为 JSON 数组，记录本轮请求尝试过的端点与状态码，便于前端展示迁移趋势。
-func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int, failoverPath string) {
+// errInfo 仅在请求失败（statusCode >= 400）时由调用方传入：Kind 为错误环节
+// （no_endpoint/bad_request/gateway/blocked/upstream/bad_gateway 等），Message 为
+// 人类可读原因，Response 为报错 JSON（应经 errorResponseForLog 截断）。成功传 nil。
+func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int, failoverPath string, errInfo *AnalyticsError) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -75,13 +76,25 @@ func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, mod
 	}
 	defer db.Close()
 
+	errorKind, errorMessage, errorResponse := "", "", ""
+	if errInfo != nil {
+		errorKind = errInfo.Kind
+		errorMessage = errInfo.Message
+		errorResponse = errInfo.Response
+	}
 	result, err := db.ExecContext(writeCtx, `
-		INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, endpointID, gatewayKey.ID, route, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, keyIndex, failoverPath)
+		INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path, error_kind, error_message, response_body)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, endpointID, gatewayKey.ID, route, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, keyIndex, failoverPath, errorKind, errorMessage, errorResponse)
 
 	if err != nil {
 		applog.Error(writeCtx, "openai", "Failed to insert gateway analytics", "error", err.Error())
+	}
+
+	// 仅当本次写入报错信息（失败请求）时触发保留清理：超出保留上限的
+	// 更早错误详情立即清空，控制日志表体积；调用日志行与统计不受影响。
+	if err == nil && errInfo != nil {
+		s.trimErrorDetailRetention(writeCtx, db)
 	}
 
 	// 实时推送：网关出现请求即广播给日志页订阅者（SSE）。
@@ -120,6 +133,9 @@ func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, mod
 		"upstreamIp":       upstreamIP,
 		"keyIndex":         keyIndex,
 		"failoverPath":     failoverPath,
+		"errorKind":        errorKind,
+		"errorMessage":     errorMessage,
+		"errorResponse":    errorResponse,
 		"timestamp":        time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -560,7 +576,10 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			g.via_proxy,
 			g.key_index,
 			g.timestamp,
-			COALESCE(g.failover_path, '') as failover_path
+			COALESCE(g.failover_path, '') as failover_path,
+			COALESCE(g.error_kind, '') as error_kind,
+			COALESCE(g.error_message, '') as error_message,
+			COALESCE(g.response_body, '') as response_body
 		FROM openai_gateway_analytics g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_gateway_keys k ON g.gateway_key_id = k.id
@@ -595,6 +614,9 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		KeyIndex         int    `json:"keyIndex"`
 		Timestamp        string `json:"timestamp"`
 		FailoverPath     string `json:"failoverPath"`
+		ErrorKind        string `json:"errorKind"`
+		ErrorMessage     string `json:"errorMessage"`
+		ErrorResponse    string `json:"errorResponse"`
 	}
 
 	records := []LogRecord{}
@@ -621,6 +643,9 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			&rec.KeyIndex,
 			&rec.Timestamp,
 			&rec.FailoverPath,
+			&rec.ErrorKind,
+			&rec.ErrorMessage,
+			&rec.ErrorResponse,
 		); err == nil {
 			rec.Stream = streamVal == 1
 			rec.ViaProxy = viaProxyVal == 1

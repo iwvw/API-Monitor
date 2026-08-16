@@ -57,6 +57,36 @@ const ENDPOINT_PROTOCOL_OPTIONS = [
 ];
 // 大代理池（文件批量导入可达数千条）在表单/管理弹窗中只预览前 N 条，避免渲染卡顿。
 const PROXY_PREVIEW_LIMIT = 120;
+// 报错详情弹窗的超长折叠阈值：超过该字符数的报错 JSON 默认只显示前缀，可一键展开。
+const LOG_DETAIL_COLLAPSE_LIMIT = 8000;
+
+// formatErrorResponseForDisplay 把报错 JSON 转为可读文本：合法 JSON 格式化缩进；
+// 截断/非 JSON 内容还原字符串内的 \r\n、\n、\t 转义序列，避免挤成一行。
+function formatErrorResponseForDisplay(raw) {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '  ');
+  }
+}
+
+// errorKindLabel 把后端错误环节代号转成简短中文标签，供详情弹窗展示。
+function errorKindLabel(kind) {
+  const labels = {
+    no_endpoint: '无可用端点',
+    bad_request: '请求无效',
+    gateway: '网关故障',
+    blocked: '网关限制',
+    upstream: '上游报错',
+    bad_gateway: '上游不可达',
+    dial: '连接失败',
+    config: '端点配置错误',
+  };
+  return labels[kind] || kind || '未知';
+}
 import {
   DEFAULT_MODEL_HEALTH_CONCURRENCY,
   DEFAULT_MODEL_HEALTH_TIMEOUT_SECONDS,
@@ -442,6 +472,10 @@ function OpenAIPage() {
   const [logStatusFilter, setLogStatusFilter] = useState('');
   const [logModelFilter, setLogModelFilter] = useState('');
   const [logEndpointFilter, setLogEndpointFilter] = useState('');
+  // 日志行的报错详情弹窗（仅失败请求记录 errorKind/errorMessage/errorResponse）。
+  const [logDetail, setLogDetail] = useState(null);
+  // 超长请求体在弹窗内默认折叠，点击「展开全部」后显示完整内容。
+  const [logDetailExpanded, setLogDetailExpanded] = useState(false);
   const getAuthHeaders = useCallback(() => {
     return {
       'Content-Type': 'application/json',
@@ -5175,8 +5209,12 @@ if (!response.ok) {
                             </span>
                           </Table.Cell>
                           <Table.Cell
-                            className="truncate text-center font-mono font-medium text-kumo-strong"
-                            title={log.model}
+                            className={`truncate text-center font-mono font-medium ${log.statusCode >= 400 && log.errorResponse ? 'cursor-pointer text-kumo-danger' : 'text-kumo-strong'}`}
+                            title={log.statusCode >= 400 && log.errorResponse ? '点击查看报错详情' : log.model}
+                            onClick={log.statusCode >= 400 && log.errorResponse ? () => {
+                              setLogDetailExpanded(false);
+                              setLogDetail(log);
+                            } : undefined}
                           >
                             {log.model}
                           </Table.Cell>
@@ -5324,6 +5362,101 @@ if (!response.ok) {
       )}
 
       {/* ==================== dialogs & modals ==================== */}
+
+      {/* 0. 网关日志报错详情 Dialog（仅失败请求记录 errorKind/errorMessage/errorResponse） */}
+      <Dialog.Root open={!!logDetail} onOpenChange={open => !open && setLogDetail(null)}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(52rem,calc(100vw-2rem))] !max-w-[min(52rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 border-b border-kumo-line px-6 pt-5 pb-4">
+            <div className="mb-1 flex items-center gap-2">
+              <Dialog.Title className="text-sm font-semibold text-kumo-strong">
+                报错详情
+              </Dialog.Title>
+              {logDetail?.errorKind && (
+                <StatusBadge tone="danger" title={`错误环节：${logDetail.errorKind}`}>
+                  {errorKindLabel(logDetail.errorKind)}
+                </StatusBadge>
+              )}
+            </div>
+            <Dialog.Description className="text-xs text-kumo-subtle">
+              {logDetail && (
+                <>
+                  {formatDateTime(logDetail.timestamp)} · {logDetail.route || 'chat.completions'} ·{' '}
+                  {logDetail.model || '—'} · 状态 {logDetail.statusCode}
+                  {logDetail.endpointName ? ` · ${logDetail.endpointName}` : ''}
+                </>
+              )}
+            </Dialog.Description>
+            {logDetail?.errorMessage && (
+              <div className="mt-2 rounded-md border border-kumo-danger/25 bg-kumo-danger/5 px-3 py-2 text-xs font-medium text-kumo-danger">
+                {logDetail.errorMessage}
+              </div>
+            )}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto px-6 py-4 scrollbar-thin">
+            {(() => {
+              if (!logDetail?.errorResponse) {
+                return (
+                  <div className="text-xs text-kumo-subtle">
+                    该请求无报错 JSON 记录（如流式响应未采集响应体，可查看调用日志行与 relay-errors 接口）。
+                  </div>
+                );
+              }
+              let parses = true;
+              try {
+                JSON.parse(logDetail.errorResponse);
+              } catch {
+                parses = false;
+              }
+              const truncated = logDetail.errorResponse.includes('...(truncated)');
+              if (!parses || truncated) {
+                return (
+                  <div className="mb-3 rounded-md border border-kumo-warning/30 bg-kumo-warning/10 px-3 py-2 text-xs text-kumo-warning">
+                    {truncated
+                      ? '报错 JSON 超过记录上限（64KB）已截断，内容不完整'
+                      : '该内容不是标准 JSON，以下为原始内容排版'}
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            {logDetail?.errorResponse && (
+              <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-kumo-strong">
+                {(() => {
+                  const text = formatErrorResponseForDisplay(logDetail.errorResponse);
+                  if (logDetailExpanded || text.length <= LOG_DETAIL_COLLAPSE_LIMIT) return text;
+                  return `${text.slice(0, LOG_DETAIL_COLLAPSE_LIMIT)}…\n\n（内容较长，仅显示前 ${LOG_DETAIL_COLLAPSE_LIMIT} 字符，点击下方「展开全部」查看完整报错 JSON）`;
+                })()}
+              </pre>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line px-6 py-3">
+            {logDetail?.errorResponse && logDetail.errorResponse.length > LOG_DETAIL_COLLAPSE_LIMIT && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setLogDetailExpanded(v => !v)}
+                title={logDetailExpanded ? '折叠为预览内容' : '显示完整报错 JSON'}
+              >
+                {logDetailExpanded ? '收起' : '展开全部'}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!logDetail?.errorResponse}
+              onClick={() => {
+                navigator.clipboard
+                  .writeText(String(logDetail?.errorResponse || ''))
+                  .then(() => toast.success('报错 JSON 已复制'))
+                  .catch(() => toast.error('复制失败'));
+              }}
+            >
+              复制报错 JSON
+            </Button>
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
+          </div>
+        </Dialog>
+      </Dialog.Root>
 
       {/* 1. Endpoint Add/Edit Dialog */}
       <Dialog.Root
