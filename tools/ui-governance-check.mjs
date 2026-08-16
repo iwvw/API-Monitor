@@ -92,7 +92,7 @@ function isAllowedRawControl(tag, line, lines, index) {
   return null;
 }
 
-function allowedColorReason(rel, line, value) {
+function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/modules/pwa.js' && value.startsWith('#')) {
     return 'browser titlebar theme-color metadata';
   }
@@ -172,8 +172,12 @@ function allowedColorReason(rel, line, value) {
   if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'bg-black') {
     return 'Ask AI 侧栏半透明遮罩（PRD 指定 bg-black/30）';
   }
-  if (rel === 'src/js/components/adminai/MessageList.jsx' && value === 'text-white' && (line.includes('bg-kumo-brand') || line.includes('from-kumo-brand'))) {
-    return 'Ask AI 用户消息气泡对比文字';
+  if (rel === 'src/js/components/adminai/MessageList.jsx' && (value === 'text-white' || value === 'bg-white')) {
+    const blockStart = Math.max(0, index - 40);
+    const block = lines.slice(blockStart, index + 1).join('\n');
+    if (block.includes('from-kumo-brand') || block.includes('editing && editing.id === msg.id')) {
+      return 'Ask AI 用户消息气泡（含编辑态）对比文字';
+    }
   }
   if (rel === 'src/js/components/adminai/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
     return 'Ask AI 批准按钮白色对比文字';
@@ -211,7 +215,7 @@ function scanFile(rel) {
 
     for (const match of line.matchAll(hardcodedColorRe)) {
       const value = match[0];
-      const reason = allowedColorReason(rel, line, value);
+      const reason = allowedColorReason(rel, line, value, lines, index);
       if (reason) {
         noteAllowed(rel, lineNumber, value, reason);
       } else {

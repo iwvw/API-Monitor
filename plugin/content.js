@@ -264,7 +264,14 @@ function updateProgress(accounts) {
 function scanInputs() {
   if (!isContextValid()) return;
   document.querySelectorAll('input, div.hwid-input-area, div.sixInputArea').forEach(input => {
-    if (input.dataset.scanAdded === 'true') return;
+    if (input.dataset.scanAdded === 'true') {
+      // 首次扫描时 showFillButton 可能尚未从配置加载（GET_CONFIG 未返回），
+      // 这里为已识别但缺按钮的输入框补建按钮
+      if (showFillButton && input.dataset.apiMonitor2fa === 'true' && input.dataset.btnAdded !== 'true') {
+        createFillButton(input);
+      }
+      return;
+    }
     if (is2FAInput(input)) {
       input.dataset.scanAdded = 'true';
       const group = getDigitGroup(input);
