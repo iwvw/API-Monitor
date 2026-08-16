@@ -6,7 +6,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
-import { ClipboardText, Tabs } from '@cloudflare/kumo';
+import { ClipboardText, LayerCard, Tabs } from '@cloudflare/kumo';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
@@ -30,6 +30,9 @@ import {
   Activity,
   Bell,
   Check,
+  ChevronDown,
+  ChevronUp,
+  Columns,
   Database,
   Download,
   ExternalLink,
@@ -62,6 +65,7 @@ const SETTINGS_TABS = [
 ];
 
 const SECURITY_MASONRY_CARD_CLASS = 'mb-4 inline-block w-full align-top [break-inside:avoid] last:mb-0';
+const DB_TABLES_VISIBLE_COUNT = 10;
 
 const THEME_OPTIONS = [
   { value: 'auto', label: '跟随系统' },
@@ -184,6 +188,7 @@ function SettingsPage() {
   const [deprecatedTables, setDeprecatedTables] = useState(null);
   const [databaseBusy, setDatabaseBusy] = useState(false);
   const [databaseLoaded, setDatabaseLoaded] = useState(false);
+  const [dbTablesExpanded, setDbTablesExpanded] = useState(false);
   const [dbImportPreview, setDbImportPreview] = useState(null);
 
   const [logSettings, setLogSettings] = useState({
@@ -230,8 +235,14 @@ function SettingsPage() {
 
   const tableRows = useMemo(() => {
     if (dbAnalysis?.tables?.length) return dbAnalysis.tables;
-    return Object.entries(dbStats?.tables || {}).map(([table, rows]) => ({ table, rows }));
+    return Object.entries(dbStats?.tables || {})
+      .map(([table, rows]) => ({ table, rows }))
+      .sort((a, b) => Number(b.rows) - Number(a.rows));
   }, [dbAnalysis, dbStats]);
+  const dbTableDisplayRows = useMemo(
+    () => (dbTablesExpanded ? tableRows : tableRows.slice(0, DB_TABLES_VISIBLE_COUNT)),
+    [tableRows, dbTablesExpanded],
+  );
   const formatTableRows = useCallback((rows) => {
     const value = Number(rows);
     return Number.isFinite(value) && value >= 0 ? value : '-';
@@ -861,7 +872,11 @@ function SettingsPage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '启动数据库压缩失败');
       if (result.data?.running) {
-        toast.info('数据库压缩已开始，将在后台执行…');
+        if (result.data?.mode === 'migrate') {
+          toast.info('首次压缩需几分钟（数据库迁移到增量回收模式），期间部分请求可能短暂报错，请勿刷新或重启');
+        } else {
+          toast.info('数据库压缩已开始，将在后台执行…');
+        }
       } else {
         toast.success(result.message || '数据库已压缩');
       }
@@ -1049,6 +1064,18 @@ function SettingsPage() {
   });
 
   const databaseStorage = dbStats?.storage || dbAnalysis?.storage || null;
+  const databaseSegments = useMemo(() => {
+    if (!databaseStorage) return [];
+    const walShm = (databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0);
+    const freePage = databaseStorage.freePageBytes || 0;
+    const used = Math.max((databaseStorage.mainSizeBytes || 0) - freePage, 0);
+    const total = Math.max(used + freePage + walShm, 1);
+    return [
+      { label: '有效数据', value: used, barClass: 'bg-kumo-brand' },
+      { label: '空闲页', value: freePage, barClass: 'bg-kumo-info' },
+      { label: 'WAL / SHM', value: walShm, barClass: 'bg-kumo-warning' },
+    ].map((s) => ({ ...s, percent: (s.value / total) * 100 }));
+  }, [databaseStorage]);
   const databaseSizeBytes = dbStats?.totalSize ?? dbStats?.dbSize;
   const databaseSizeHint = databaseStorage
     ? `主库 ${formatFileSize(databaseStorage.mainSizeBytes)} · WAL ${formatFileSize(databaseStorage.walSizeBytes)} · 空闲 ${formatFileSize(databaseStorage.freePageBytes)}`
@@ -1610,7 +1637,6 @@ function SettingsPage() {
       {activeTab === 'database' && (
         <div className="grid items-start gap-3 cq-xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
           <SectionCard
-            className="flex h-full min-h-0 flex-1"
             title="数据库统计"
             description={dbStats?.dbPath || 'SQLite 数据文件'}
             icon={<Database className="h-4 w-4 text-kumo-brand" />}
@@ -1622,18 +1648,42 @@ function SettingsPage() {
           >
             {databaseStorage && (
               <div className="shrink-0 border-b border-kumo-line">
-                <FieldRow title="总占用" description="主库 + WAL/SHM + 空闲页合计">
-                  <span className="font-mono text-sm font-bold text-kumo-brand">{formatFileSize(databaseStorage.totalSizeBytes)}</span>
-                </FieldRow>
-                <FieldRow title="主库文件">
-                  <span className="font-mono text-sm font-medium text-kumo-strong">{formatFileSize(databaseStorage.mainSizeBytes)}</span>
-                </FieldRow>
-                <FieldRow title="WAL / SHM">
-                  <span className="font-mono text-sm font-medium text-kumo-warning">{formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0))}</span>
-                </FieldRow>
-                <FieldRow title="空闲页">
-                  <span className="font-mono text-sm font-medium text-kumo-info">{formatFileSize(databaseStorage.freePageBytes)}</span>
-                </FieldRow>
+                <div className="p-3.5">
+                  <div className="grid grid-cols-2 gap-2 cq-sm:grid-cols-4 cq-sm:gap-3">
+                  {[
+                    { title: '总占用', description: '主库 + WAL/SHM + 空闲页合计', value: formatFileSize(databaseStorage.totalSizeBytes), icon: <Database className="h-3.5 w-3.5 text-kumo-brand" />, valueClassName: 'text-kumo-brand' },
+                    { title: '主库文件', description: 'SQLite 主数据库', value: formatFileSize(databaseStorage.mainSizeBytes), icon: <FileText className="h-3.5 w-3.5 text-kumo-strong" />, valueClassName: 'text-kumo-strong' },
+                    { title: 'WAL / SHM', description: '预写日志与共享内存', value: formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0)), icon: <Activity className="h-3.5 w-3.5 text-kumo-warning" />, valueClassName: 'text-kumo-warning' },
+                    { title: '空闲页', description: '可直接回收的空间', value: formatFileSize(databaseStorage.freePageBytes), icon: <Columns className="h-3.5 w-3.5 text-kumo-info" />, valueClassName: 'text-kumo-info' },
+                  ].map((item) => (
+                    <LayerCard key={item.title} className="min-w-0 p-2.5 cq-sm:p-3">
+                      <div title={item.description} className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle cq-sm:gap-3 cq-sm:text-xs">
+                        <span className="truncate">{item.title}</span>
+                        <span className="shrink-0">{item.icon}</span>
+                      </div>
+                      <div className={`mt-1 truncate text-base font-bold tabular-nums ${item.valueClassName}`} title={item.value}>{item.value}</div>
+                    </LayerCard>
+                  ))}
+                  </div>
+                </div>
+                {databaseSegments.length > 0 && (
+                  <div className="flex flex-col gap-2 border-t border-kumo-line bg-kumo-surface px-3.5 py-3">
+                    <div className="flex h-1.5 w-full items-center overflow-hidden rounded-full bg-kumo-recessed">
+                      {databaseSegments.map((s) => (
+                        <div key={s.label} className={`h-full ${s.barClass}`} style={{ width: `${s.percent}%` }} title={`${s.label} ${formatFileSize(s.value)}`} />
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      {databaseSegments.map((s) => (
+                        <span key={s.label} className="inline-flex items-center gap-1.5 text-[10px] text-kumo-subtle">
+                          <span className={`h-2 w-2 rounded-full ${s.barClass}`} />
+                          {s.label}
+                          <span className="tabular-nums text-kumo-default">{formatFileSize(s.value)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
@@ -1661,7 +1711,7 @@ function SettingsPage() {
                         {databaseBusy ? '正在加载统计...' : '暂无统计数据'}
                       </Table.Cell>
                     </Table.Row>
-                  ) : tableRows.map((row) => (
+                  ) : dbTableDisplayRows.map((row) => (
                     <Table.Row key={row.table}>
                       <Table.Cell className="truncate font-mono text-xs text-kumo-strong" title={row.table}>{row.table}</Table.Cell>
                       <Table.Cell className="font-mono text-xs">{formatTableRows(row.rows)}</Table.Cell>
@@ -1673,12 +1723,23 @@ function SettingsPage() {
                 </Table.Body>
               </Table>
             </div>
+            {tableRows.length > DB_TABLES_VISIBLE_COUNT && (
+              <div className="flex shrink-0 items-center justify-center border-t border-kumo-line bg-kumo-surface py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDbTablesExpanded((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-kumo-brand transition-colors hover:bg-kumo-brand/10"
+                >
+                  {dbTablesExpanded ? '收起' : `展开全部（${tableRows.length} 张）`}
+                  {dbTablesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            )}
           </SectionCard>
 
           <div className="grid content-start gap-3">
             <SectionCard
               title="数据库导入导出"
-              description="导出数据库，或预检后替换。"
               icon={<Download className="h-4 w-4 text-kumo-brand" />}
               bodyPadding="sm"
               bodyClassName="space-y-3"
@@ -1776,7 +1837,7 @@ function SettingsPage() {
               icon={<HardDrive className="h-4 w-4 text-kumo-brand" />}
               bodyPadding="none"
             >
-              <FieldRow title="压缩数据库" description="回收空闲页空间，减小文件体积">
+              <FieldRow title="压缩数据库">
                 <Button
                   size="sm"
                   onClick={() => runDatabaseVacuum()}
@@ -1798,7 +1859,7 @@ function SettingsPage() {
                 </Button>
               </FieldRow>
 
-              <FieldRow title="清理废弃表" description="删除不再使用的旧表，回收空间">
+              <FieldRow title="清理废弃表">
                 <div className="flex items-center gap-2">
                   <Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>{deprecatedTableItems.length} 张</Badge>
                   <Button
@@ -1818,7 +1879,6 @@ function SettingsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-kumo-strong">废弃表候选</div>
-                    <div className="mt-1 text-xs text-kumo-subtle">显示可清理旧表与预计空间。</div>
                   </div>
                   <Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>
                     {deprecatedTableItems.length} 张

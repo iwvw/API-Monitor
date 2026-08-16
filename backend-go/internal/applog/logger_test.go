@@ -2,9 +2,12 @@ package applog
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -142,6 +145,62 @@ func TestMiddlewareLogsFailedSystemLogStreamRequest(t *testing.T) {
 	logLine := buf.String()
 	if !strings.Contains(logLine, "\"path\":\"/api/system/logs/stream\"") {
 		t.Fatalf("expected failed system log stream request log, got %q", logLine)
+	}
+}
+
+func TestPruneRotatedLogsKeepsNewest(t *testing.T) {
+	dir := t.TempDir()
+	current := filepath.Join(dir, "app.log")
+	previous := logPath
+	logPath = current
+	defer func() { logPath = previous }()
+
+	for i := 0; i < 15; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("app-2026080%d-%02d0000.log", 1+i/10, i%10))
+		if err := os.WriteFile(name, []byte("line\n"), 0o644); err != nil {
+			t.Fatalf("write rotated file %s: %v", name, err)
+		}
+		mt := time.Date(2026, 8, 1+i, 0, 0, 0, 0, time.UTC)
+		if err := os.Chtimes(name, mt, mt); err != nil {
+			t.Fatalf("set mtime %s: %v", name, err)
+		}
+	}
+	// 当前 app.log 不应被误删
+	if err := os.WriteFile(current, []byte("current\n"), 0o644); err != nil {
+		t.Fatalf("write current log: %v", err)
+	}
+
+	pruneRotatedLogs()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	rotated := 0
+	for _, entry := range entries {
+		if entry.Name() != "app.log" && strings.HasPrefix(entry.Name(), "app-") {
+			rotated++
+		}
+	}
+	if rotated != maxRotatedLogFiles {
+		t.Fatalf("rotated files after prune = %d, want %d", rotated, maxRotatedLogFiles)
+	}
+	if _, err := os.Stat(current); err != nil {
+		t.Fatalf("current app.log must be preserved, stat error: %v", err)
+	}
+	// 剩余文件应是最新的（时间最大的）那一批
+	var newest string
+	for i := 0; i < 15; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("app-2026080%d-%02d0000.log", 1+i/10, i%10))
+		if _, err := os.Stat(name); err == nil {
+			newest = name
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "app-20260801-000000.log")); err == nil {
+		t.Fatalf("oldest rotated file should have been pruned")
+	}
+	if newest == "" {
+		t.Fatalf("expected at least one newest rotated file to survive")
 	}
 }
 

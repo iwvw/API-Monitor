@@ -35,12 +35,20 @@ type Service struct {
 	cleanupWG      sync.WaitGroup
 	vacuumMu       sync.Mutex
 	vacuumRunning  bool
+	vacuumMode     string
 	vacuumStarted  time.Time
 	vacuumDone     time.Time
 	vacuumError    string
 	vacuumBefore   int64
 	vacuumAfter    int64
 }
+
+// 数据库压缩执行模式：migrate = 首次全量 VACUUM（建立 auto_vacuum
+// pointer-map，1 核机器需数分钟）；incremental = 分批增量回收（秒级）。
+const (
+	vacuumModeMigrate     = "migrate"
+	vacuumModeIncremental = "incremental"
+)
 
 type userSettingsRow struct {
 	CustomCSS             sql.NullString
@@ -958,10 +966,34 @@ func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 	s.vacuumError = ""
 	s.vacuumBefore = 0
 	s.vacuumAfter = 0
+
+	// 探测 auto_vacuum 模式决定压缩路径：NONE 需首次全量迁移（建立
+	// pointer-map，耗时数分钟），INCREMENTAL/FULL 走增量回收（秒级）。
+	mode, err := func() (int, error) {
+		db, openErr := s.store.Open(r.Context())
+		if openErr != nil {
+			return 0, openErr
+		}
+		defer db.Close()
+		return autoVacuumMode(r.Context(), db)
+	}()
+	if err != nil {
+		s.vacuumRunning = false
+		s.vacuumMu.Unlock()
+		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "读取数据库压缩模式失败: " + err.Error(),
+		})
+		return
+	}
+	s.vacuumMode = vacuumModeIncremental
+	if mode == 0 {
+		s.vacuumMode = vacuumModeMigrate
+	}
 	s.vacuumMu.Unlock()
 
 	s.cleanupWG.Add(1)
-	go s.runVacuum(r.Context())
+	go s.runVacuum(context.Background())
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -979,10 +1011,11 @@ func (s *Service) vacuumSnapshot() map[string]interface{} {
 	s.vacuumMu.Lock()
 	defer s.vacuumMu.Unlock()
 	return map[string]interface{}{
-		"running": s.vacuumRunning,
-		"started": s.vacuumStarted,
-		"done":    s.vacuumDone,
-		"error":   s.vacuumError,
+		"running":      s.vacuumRunning,
+		"mode":         s.vacuumMode,
+		"started":      s.vacuumStarted,
+		"done":         s.vacuumDone,
+		"error":        s.vacuumError,
 		"beforeSizeMB": sizeMBString(s.vacuumBefore),
 		"afterSizeMB":  sizeMBString(s.vacuumAfter),
 		"savedMB":      sizeMBString(s.vacuumBefore - s.vacuumAfter),
@@ -1007,19 +1040,42 @@ func (s *Service) runVacuum(ctx context.Context) {
 	}
 	defer db.Close()
 
-	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	before := databaseStorageStats(ctx, db, s.store.DatabasePath())
 	s.vacuumMu.Lock()
 	s.vacuumBefore = before.TotalSizeBytes
 	s.vacuumMu.Unlock()
 
-	if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
-		s.vacuumMu.Lock()
-		s.vacuumError = err.Error()
-		s.vacuumMu.Unlock()
-		return
+	s.vacuumMu.Lock()
+	mode := s.vacuumMode
+	s.vacuumMu.Unlock()
+
+	if mode == vacuumModeMigrate {
+		// 首次迁移：全量 VACUUM 建立 auto_vacuum pointer-map，之后才能
+		// 增量回收。256MB 小容器上 temp_store=MEMORY + 16MB 页缓存容易
+		// OOM，migrateAutoVacuumIncremental 内会临时切 FILE 并把页缓存
+		// 减半，结束后恢复连接级 PRAGMA。
+		if err := migrateAutoVacuumIncremental(ctx, db); err != nil {
+			s.vacuumMu.Lock()
+			s.vacuumError = err.Error()
+			s.vacuumMu.Unlock()
+			return
+		}
+	} else {
+		// 增量回收：分批回收 freelist，每批 4096 页（约 16MB），
+		// 每次持锁仅几十毫秒，1 核机器上对在线请求几乎无感。
+		for rounds := 0; rounds < 64; rounds++ {
+			if ctx.Err() != nil {
+				break
+			}
+			freePages, err := freelistPageCount(ctx, db)
+			if err != nil || freePages == 0 {
+				break
+			}
+			_, _ = db.ExecContext(ctx, `PRAGMA incremental_vacuum(4096)`)
+		}
 	}
-	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	after := databaseStorageStats(ctx, db, s.store.DatabasePath())
 	s.vacuumMu.Lock()
 	s.vacuumAfter = after.TotalSizeBytes
@@ -1695,7 +1751,9 @@ func autoVacuumMode(ctx context.Context, db *sql.DB) (int, error) {
 // migrateAutoVacuumIncremental 将数据库迁移到 auto_vacuum=INCREMENTAL：
 // 一次性全量 VACUUM 建立 pointer-map，此后 incremental_vacuum 可长期无痛回收空间。
 // 仅在模式为 NONE 时执行（FULL 已自动截断，无需迁移）。
-// 注意：全量 VACUUM 需要独占锁，应在低峰期/维护窗口执行一次。
+// 注意：全量 VACUUM 需要独占锁，应在低峰期/维护窗口执行一次；执行期间临时
+// 收紧内存参数（temp_store=FILE、页缓存减半）避免 256MB 小容器 OOM，完成后
+// 恢复连接级 PRAGMA（物理连接会被池化复用，必须还原以免污染后续连接）。
 func migrateAutoVacuumIncremental(ctx context.Context, db *sql.DB) error {
 	mode, err := autoVacuumMode(ctx, db)
 	if err != nil {
@@ -1704,6 +1762,17 @@ func migrateAutoVacuumIncremental(ctx context.Context, db *sql.DB) error {
 	if mode != 0 {
 		return nil
 	}
+	if _, err := db.ExecContext(ctx, `PRAGMA temp_store = FILE`); err != nil {
+		return fmt.Errorf("set temp_store file: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `PRAGMA cache_size = -8192`); err != nil {
+		return fmt.Errorf("set cache_size: %w", err)
+	}
+	defer func() {
+		bg := context.Background()
+		_, _ = db.ExecContext(bg, `PRAGMA cache_size = -16000`)
+		_, _ = db.ExecContext(bg, `PRAGMA temp_store = MEMORY`)
+	}()
 	if _, err := db.ExecContext(ctx, `PRAGMA auto_vacuum = INCREMENTAL`); err != nil {
 		return fmt.Errorf("enable auto_vacuum incremental: %w", err)
 	}
