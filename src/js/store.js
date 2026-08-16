@@ -404,6 +404,10 @@ export const FONT_OPTIONS = [
 ];
 
 const FONT_LINK_ID = 'lxgw-wenkai-font-link';
+const SERIF_FONT_LINK_ID = 'noto-serif-font-link';
+// 本地自托管：公共 CDN 在移动端网络中常加载失败导致字体静默回退系统字体
+const LXGW_WENKAI_CSS_URL = '/fonts/lxgw-wenkai-screen/lxgwwenkaiscreen.css';
+const NOTO_SERIF_CSS_URL = '/fonts/noto-serif-sc/notoserifsc.css';
 
 export const applyUIFont = (font) => {
   if (typeof document === 'undefined') return;
@@ -417,17 +421,19 @@ export const applyUIFont = (font) => {
 
   if (font === 'default' || !font) {
     if (existing) existing.remove();
+    document.getElementById(SERIF_FONT_LINK_ID)?.remove();
     if (document.body) document.body.style.removeProperty('font-family');
     root.style.removeProperty('--font-sans');
     return;
   }
 
   if (font === 'lxgw-wenkai-screen') {
+    document.getElementById(SERIF_FONT_LINK_ID)?.remove();
     if (!existing) {
       const link = document.createElement('link');
       link.id = FONT_LINK_ID;
       link.rel = 'stylesheet';
-      link.href = 'https://cdn.bootcdn.net/ajax/libs/lxgw-wenkai-screen-webfont/1.7.0/lxgwwenkaiscreen.css';
+      link.href = LXGW_WENKAI_CSS_URL;
       document.head.appendChild(link);
     }
     const fontStack = '"LXGW WenKai Screen", ui-sans-serif, system-ui, sans-serif';
@@ -439,12 +445,20 @@ export const applyUIFont = (font) => {
   if (existing) existing.remove();
 
   if (font === 'serif') {
-    const fontStack = 'Georgia, "Noto Serif SC", "Songti SC", "SimSun", serif';
+    if (!document.getElementById(SERIF_FONT_LINK_ID)) {
+      const link = document.createElement('link');
+      link.id = SERIF_FONT_LINK_ID;
+      link.rel = 'stylesheet';
+      link.href = NOTO_SERIF_CSS_URL;
+      document.head.appendChild(link);
+    }
+    const fontStack = '"Noto Serif SC", Georgia, "Songti SC", "SimSun", serif';
     if (document.body) document.body.style.setProperty('font-family', fontStack);
     root.style.setProperty('--font-sans', fontStack);
     return;
   }
 
+  document.getElementById(SERIF_FONT_LINK_ID)?.remove();
   if (document.body) document.body.style.removeProperty('font-family');
   root.style.removeProperty('--font-sans');
 };
