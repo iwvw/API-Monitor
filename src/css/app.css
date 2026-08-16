@@ -12,6 +12,7 @@
    凡在弹层内容里使用 cq-*，必须在该弹层根上声明 @container（如
    <Dialog className="@container ...">），否则断点永不匹配。 */
 @custom-variant cq-xs (@container (width >= 20rem));
+@custom-variant cq-tight (@container (width >= 28rem));
 @custom-variant cq-sm (@container (width >= 40rem));
 @custom-variant cq-md (@container (width >= 48rem));
 @custom-variant cq-lg (@container (width >= 64rem));
@@ -2548,4 +2549,19 @@ input[type='number'] {
 }
 .askai-tool-stagger {
   animation: askai-tool-in 0.25s ease-out both;
+}
+
+/* Shiki JSON 高亮块（JsonHighlight）：滚动 + 字体 + 主题色跟随 */
+.shiki-json-block {
+  overflow: auto;
+  max-height: 100%;
+}
+.shiki-json-block pre {
+  margin: 0;
+  padding: 0.75rem;
+  background: transparent !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-color-kumo-default, inherit);
 }

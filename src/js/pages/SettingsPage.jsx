@@ -22,7 +22,7 @@ import useStore, {
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import { APP_VERSION } from '../modules/appVersion.js';
 import { applySiteBrandFaviconHref, getDefaultSiteBrandPreviewUrl } from '../modules/siteBrand.js';
-import { AppCard, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, cx, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { AppCard, FieldRow, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, cx, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
 import { BackupPanel } from './BackupPage.jsx';
 import { browserSupportsWebAuthn, createPasskeyCredential } from '../modules/webauthn.js';
@@ -128,108 +128,6 @@ const moduleRows = DEFAULT_MODULE_ORDER.filter((moduleId) => moduleId !== 'promp
     config: MODULE_CONFIG[moduleId] || { name: moduleId },
   };
 });
-
-function FieldRow({ title, description, children }) {
-  return (
-    <div className="grid gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-md:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] cq-md:items-center">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-kumo-strong">{title}</div>
-        {description && <div className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</div>}
-      </div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, hint, icon: Icon }) {
-  return (
-    <AppCard padding="lg">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-normal text-kumo-subtle">{label}</div>
-          <div className="mt-2 truncate text-lg font-bold text-kumo-strong">{value}</div>
-          {hint && <div className="mt-1 text-xs text-kumo-subtle">{hint}</div>}
-        </div>
-        {Icon && (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-recessed text-kumo-brand">
-            <Icon className="h-4 w-4" />
-          </div>
-        )}
-      </div>
-    </AppCard>
-  );
-}
-
-function SummaryMetricCard({ label, value, hint, tone = 'default', compact = false }) {
-  const valueToneClass = {
-    default: 'text-kumo-strong',
-    brand: 'text-kumo-brand',
-    warning: 'text-kumo-warning',
-    info: 'text-kumo-info',
-    success: 'text-kumo-success',
-    danger: 'text-kumo-danger',
-  };
-
-  return (
-    <AppCard
-      padding={compact ? 'sm' : 'md'}
-      className={cx(
-        'flex min-w-0',
-        compact ? 'min-h-[4.5rem] flex-col items-start justify-center gap-1.5' : 'flex-col gap-1',
-      )}
-    >
-      <span className={cx('font-bold uppercase tracking-wider text-kumo-subtle', compact ? 'text-[11px] leading-none' : 'text-[10px]')}>
-        {label}
-      </span>
-      <span className={cx('font-mono font-bold leading-none', compact ? 'text-lg cq-sm:text-base' : 'text-xl', valueToneClass[tone] || valueToneClass.default)}>
-        {value}
-      </span>
-      {!compact && hint ? <span className="truncate text-[11px] text-kumo-subtle">{hint}</span> : null}
-    </AppCard>
-  );
-}
-
-function MaintenanceActionCard({
-  title,
-  description,
-  icon,
-  tone = 'default',
-  meta,
-  children,
-}) {
-  const toneClassName = {
-    default: 'border-kumo-line/80 bg-kumo-recessed/15',
-    brand: 'border-kumo-brand/15 bg-kumo-brand/5',
-    danger: 'border-kumo-danger/20 bg-kumo-danger/5',
-    warning: 'border-kumo-warning/20 bg-kumo-warning/5',
-  };
-  const compact = !description;
-
-  return (
-    <AppCard
-      padding="md"
-      className={cx(
-        'flex min-h-[102px] min-w-0 flex-col gap-2 border',
-        compact ? 'justify-center' : '',
-        toneClassName[tone] || toneClassName.default,
-      )}
-    >
-      <div className={cx('flex justify-between gap-3', compact ? 'items-center' : 'items-start')}>
-        <div className={cx('flex min-w-0 gap-3', compact ? 'items-center' : 'items-start')}>
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-kumo-line/70 bg-kumo-base text-kumo-brand">
-            {icon}
-          </div>
-          <div className={cx('min-w-0', compact ? 'flex min-h-7 items-center' : '')}>
-            <div className={cx('truncate text-sm font-semibold text-kumo-strong', compact ? 'leading-none' : '')}>{title}</div>
-            {description ? <div className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</div> : null}
-          </div>
-        </div>
-        {meta ? <div className={cx('shrink-0', compact ? 'flex min-h-7 items-center' : '')}>{meta}</div> : null}
-      </div>
-      <div className={cx(compact ? 'pt-0.5' : 'mt-auto')}>{children}</div>
-    </AppCard>
-  );
-}
 
 function SettingsPage() {
   const { isArmed, confirmPress } = useConfirmPress();
@@ -1196,12 +1094,25 @@ function SettingsPage() {
       <div className={contentViewportClassName}>
       {activeTab === 'general' && (
         <div className="grid min-h-0 items-start gap-4 cq-md:h-full cq-md:overflow-auto cq-xl:grid-cols-[minmax(16rem,1fr)_minmax(0,3fr)]">
-          <div className="grid min-h-0 gap-4">
-            <StatCard label="运行状态" value="正常" hint={settingsLoading ? '同步中' : '已连接后端'} icon={Check} />
-            <StatCard label="公网入口" value={settings.publicApiUrl || currentOrigin} hint="/api 自动拼接" icon={Globe} />
-            <StatCard label="数据库大小" value={formatFileSize(databaseSizeBytes)} hint={databaseSizeHint} icon={Database} />
-            <StatCard label="日志文件" value={logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB 上限`} hint="app.log" icon={FileText} />
-          </div>
+          <SectionCard
+            title="运行状态"
+            icon={<Check className="h-4 w-4 text-kumo-brand" />}
+            className="min-h-0 self-start"
+            bodyPadding="none"
+          >
+            <FieldRow title="运行状态" description={settingsLoading ? '同步中' : '已连接后端'}>
+              <span className="font-mono text-sm font-bold text-kumo-success">正常</span>
+            </FieldRow>
+            <FieldRow title="公网入口" description="/api 自动拼接">
+              <span className="truncate font-mono text-sm font-medium text-kumo-strong">{settings.publicApiUrl || currentOrigin}</span>
+            </FieldRow>
+            <FieldRow title="数据库大小" description={databaseSizeHint}>
+              <span className="font-mono text-sm font-medium text-kumo-strong">{formatFileSize(databaseSizeBytes)}</span>
+            </FieldRow>
+            <FieldRow title="日志文件" description="app.log">
+              <span className="font-mono text-sm font-medium text-kumo-strong">{logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB 上限`}</span>
+            </FieldRow>
+          </SectionCard>
 
           <SectionCard
             title="部署访问地址"
@@ -1710,33 +1621,19 @@ function SettingsPage() {
             bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
             {databaseStorage && (
-              <div className="shrink-0 border-b border-kumo-line px-3 py-3">
-                <div className="grid grid-cols-2 gap-2 cq-lg:grid-cols-4">
-                  <SummaryMetricCard
-                    label="总占用"
-                    value={formatFileSize(databaseStorage.totalSizeBytes)}
-                    tone="brand"
-                    compact
-                  />
-                  <SummaryMetricCard
-                    label="主库文件"
-                    value={formatFileSize(databaseStorage.mainSizeBytes)}
-                    tone="default"
-                    compact
-                  />
-                  <SummaryMetricCard
-                    label="WAL / SHM"
-                    value={formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0))}
-                    tone="warning"
-                    compact
-                  />
-                  <SummaryMetricCard
-                    label="空闲页"
-                    value={formatFileSize(databaseStorage.freePageBytes)}
-                    tone="info"
-                    compact
-                  />
-                </div>
+              <div className="shrink-0 border-b border-kumo-line">
+                <FieldRow title="总占用" description="主库 + WAL/SHM + 空闲页合计">
+                  <span className="font-mono text-sm font-bold text-kumo-brand">{formatFileSize(databaseStorage.totalSizeBytes)}</span>
+                </FieldRow>
+                <FieldRow title="主库文件">
+                  <span className="font-mono text-sm font-medium text-kumo-strong">{formatFileSize(databaseStorage.mainSizeBytes)}</span>
+                </FieldRow>
+                <FieldRow title="WAL / SHM">
+                  <span className="font-mono text-sm font-medium text-kumo-warning">{formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0))}</span>
+                </FieldRow>
+                <FieldRow title="空闲页">
+                  <span className="font-mono text-sm font-medium text-kumo-info">{formatFileSize(databaseStorage.freePageBytes)}</span>
+                </FieldRow>
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
@@ -1877,52 +1774,36 @@ function SettingsPage() {
             <SectionCard
               title="维护操作"
               icon={<HardDrive className="h-4 w-4 text-kumo-brand" />}
-              bodyPadding="sm"
-              bodyClassName="space-y-3"
+              bodyPadding="none"
             >
-              <div className="grid gap-3 cq-xl:grid-cols-3">
-                <MaintenanceActionCard
-                  title="压缩数据库"
-                  icon={<Database className="h-4 w-4" />}
-                  tone="brand"
+              <FieldRow title="压缩数据库" description="回收空闲页空间，减小文件体积">
+                <Button
+                  size="sm"
+                  onClick={() => runDatabaseVacuum()}
+                  loading={databaseBusy}
                 >
-                  <Button
-                    size="sm"
-                    className="w-full justify-center"
-                    onClick={() => runDatabaseVacuum()}
-                    loading={databaseBusy}
-                  >
-                    立即压缩
-                  </Button>
-                </MaintenanceActionCard>
+                  立即压缩
+                </Button>
+              </FieldRow>
 
-                <MaintenanceActionCard
-                  title="清理运行日志"
-                  icon={<FileText className="h-4 w-4" />}
-                  tone="danger"
-                >
-                  <Button
-                    size="sm"
-                    variant="secondary-destructive"
-                    className="w-full justify-center"
-                    onClick={() => postSettingsAction('/api/settings/clear-logs', '数据库日志已清理', fetchDbState)}
-                    loading={databaseBusy}
-                    icon={<Trash className="h-4 w-4" />}
-                  >
-                    清理日志
-                  </Button>
-                </MaintenanceActionCard>
-
-                <MaintenanceActionCard
-                  title="清理废弃表"
+              <FieldRow title="清理运行日志">
+                <Button
+                  size="sm"
+                  variant="secondary-destructive"
+                  onClick={() => postSettingsAction('/api/settings/clear-logs', '数据库日志已清理', fetchDbState)}
+                  loading={databaseBusy}
                   icon={<Trash className="h-4 w-4" />}
-                  tone="warning"
-                  meta={<Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>{deprecatedTableItems.length} 张</Badge>}
                 >
+                  清理日志
+                </Button>
+              </FieldRow>
+
+              <FieldRow title="清理废弃表" description="删除不再使用的旧表，回收空间">
+                <div className="flex items-center gap-2">
+                  <Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>{deprecatedTableItems.length} 张</Badge>
                   <Button
                     size="sm"
                     variant="secondary-destructive"
-                    className="w-full justify-center"
                     onClick={cleanupDeprecatedTables}
                     loading={databaseBusy}
                     disabled={deprecatedTableItems.length === 0}
@@ -1930,10 +1811,10 @@ function SettingsPage() {
                   >
                     清理废弃表
                   </Button>
-                </MaintenanceActionCard>
-              </div>
+                </div>
+              </FieldRow>
 
-              <div className="rounded-lg border border-kumo-line/80 bg-kumo-base px-3 pt-3 pb-2">
+              <div className="mx-4 mb-4 mt-3 rounded-lg border border-kumo-line/80 bg-kumo-base px-3 pt-3 pb-2">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-kumo-strong">废弃表候选</div>
@@ -2113,31 +1994,24 @@ function SettingsPage() {
             title={<span className="app-brand-wordmark">API Monitor</span>}
             description={APP_VERSION}
             icon={<img src="/logo.svg" alt="" className="h-6 w-6 object-contain" />}
-            bodyPadding="lg"
+            bodyPadding="none"
           >
-            <div className="grid gap-3 cq-sm:grid-cols-3">
-              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-3">
-                <div className="text-xs text-kumo-subtle">当前源</div>
-                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{currentOrigin}</div>
-              </div>
-              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-3">
-                <div className="text-xs text-kumo-subtle">API 地址</div>
-                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{`${currentOrigin}/api`}</div>
-              </div>
-              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-3">
-                <div className="text-xs text-kumo-subtle">仓库地址</div>
-                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">
-                  <a
-                    href="https://github.com/iwvw/API-Monitor"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:underline text-kumo-strong"
-                  >
-                    https://github.com/iwvw/API-Monitor
-                  </a>
-                </div>
-              </div>
-            </div>
+            <FieldRow title="当前源">
+              <span className="truncate font-mono text-sm text-kumo-strong">{currentOrigin}</span>
+            </FieldRow>
+            <FieldRow title="API 地址">
+              <span className="truncate font-mono text-sm text-kumo-strong">{`${currentOrigin}/api`}</span>
+            </FieldRow>
+            <FieldRow title="仓库地址">
+              <a
+                href="https://github.com/iwvw/API-Monitor"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="truncate font-mono text-sm text-kumo-strong hover:underline"
+              >
+                https://github.com/iwvw/API-Monitor
+              </a>
+            </FieldRow>
           </SectionCard>
 
           {/* <LayerCard className="p-6">

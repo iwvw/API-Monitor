@@ -26,6 +26,7 @@ import {
   Moon,
   Settings,
   Sparkle,
+  LayoutSidebar,
   MODULE_GROUP_ICON_MAP,
   getModuleIconComponent,
 } from './Icons.jsx';
@@ -211,6 +212,19 @@ const useMobileClosingNavigation = onNavigate => {
     if (isMobile) setOpenMobile(false);
   };
 };
+
+/* 左侧边栏开合桥：顶栏移动端按钮位于右侧 AskAI Provider 子树内，
+   Sidebar.Trigger 的上下文会解析到右侧面板（导致窄屏点左上角开错面板）。
+   这里在左侧 Provider 内注册 toggleSidebar，供顶栏按钮显式调用。 */
+const leftSidebarToggles = new Set();
+function LeftSidebarBridge() {
+  const { toggleSidebar } = useSidebar();
+  useEffect(() => {
+    leftSidebarToggles.add(toggleSidebar);
+    return () => leftSidebarToggles.delete(toggleSidebar);
+  }, [toggleSidebar]);
+  return null;
+}
 
 const SidebarTooltipMenuButton = ({ label, children, ...props }) => {
   const { isMobile, state } = useSidebar();
@@ -779,6 +793,9 @@ return (
           </Sidebar.Footer>
         </Sidebar>
 
+        {/* 顶栏移动端按钮的左侧 Provider 桥 */}
+        <LeftSidebarBridge />
+
         {/* ==================== 2. 主页面区 (Main Panel) + 右侧 Ask AI 侧栏 ==================== */}
         <Sidebar.Provider
           side="right"
@@ -799,7 +816,18 @@ return (
             }`}
           >
             <div className="flex h-full min-w-0 flex-1 items-center gap-3.5">
-              <Sidebar.Trigger className="lg:hidden" />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                shape="square"
+                className="lg:hidden h-8 w-8 shrink-0"
+                onClick={() => leftSidebarToggles.forEach((fn) => fn())}
+                aria-label="切换侧边栏"
+                title="侧边栏"
+              >
+                <LayoutSidebar className="h-4 w-4" />
+              </Button>
 
 <AppPageHeader
                 className="flex-row items-center justify-between"

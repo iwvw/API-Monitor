@@ -292,6 +292,18 @@ export function PageToolbar({ className = '', children }) {
   return <div className={cx(pageToolbarClass, className)}>{children}</div>;
 }
 
+export function FieldRow({ title, description, children }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-tight:grid cq-tight:grid-cols-[minmax(0,1fr)_max-content] cq-tight:items-center">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold text-kumo-strong">{title}</div>
+        {description && <div className="mt-1 hidden truncate text-xs leading-relaxed text-kumo-subtle cq-tight:block">{description}</div>}
+      </div>
+      <div className="flex min-w-0 max-w-[20rem] shrink-0 items-center justify-end gap-2 [&>*]:min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export function AppCard({
   className = '',
   padding = 'md',
@@ -389,7 +401,7 @@ export function SectionCard({
         )}
       </LayerCard.Secondary>
       <LayerCard.Primary
-        className={cx(cardPaddingClass[bodyPadding] || cardPaddingClass.md, bodyClassName)}
+        className={cx('gap-0', cardPaddingClass[bodyPadding] || cardPaddingClass.md, bodyClassName)}
       >
         {children}
       </LayerCard.Primary>
