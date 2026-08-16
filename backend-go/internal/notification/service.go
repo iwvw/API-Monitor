@@ -72,9 +72,10 @@ type deliveryResult struct {
 }
 
 type messageLifecycle struct {
-	ResourceKey string
-	Kind        string
-	Phase       string
+	SourceModule string
+	ResourceKey  string
+	Kind         string
+	Phase        string
 }
 
 type telegramMessageState struct {
@@ -1048,9 +1049,10 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 }
 
 // RefreshLifecycle updates an active Telegram lifecycle message without re-sending other channels.
+// 支持 open（刷新进行中事件）与 resolve（自愈恢复：把残留 open 消息编辑为恢复内容并清除状态）。
 func (s *Service) RefreshLifecycle(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error {
 	lifecycle, ok := notificationMessageLifecycle(sourceModule, eventType, eventData)
-	if !ok || lifecycle.Phase != "open" {
+	if !ok {
 		return nil
 	}
 	var err error
@@ -1058,7 +1060,9 @@ func (s *Service) RefreshLifecycle(ctx context.Context, sourceModule, eventType 
 	if err != nil {
 		return err
 	}
-	eventData["lifecycleMutation"] = "refresh"
+	if lifecycle.Phase == "open" {
+		eventData["lifecycleMutation"] = "refresh"
+	}
 	rules, err := s.loadEnabledRulesByEvent(ctx, sourceModule, eventType)
 	if err != nil {
 		return err
@@ -1091,22 +1095,69 @@ func (s *Service) RefreshLifecycle(ctx context.Context, sourceModule, eventType 
 			message := formatMessage(rule, eventData, loc)
 			config := decryptConfig(channel.ConfigRaw)
 			if err := s.editTelegram(ctx, config, state.ChatID, state.MessageID, title, message); err == nil {
-				_ = s.touchTelegramMessageState(ctx, state, eventType, eventData)
-				_ = s.recordLifecycleRefreshHistory(ctx, rule, channel.ID, title, message, eventData, loc)
+				s.completeLifecycleRefresh(ctx, lifecycle, state, eventType, eventData, title, message, rule, channel.ID, loc)
 				continue
 			}
 			delivery, sendErr := s.sendTelegram(ctx, config, title, message)
 			if sendErr != nil {
 				continue
 			}
+			s.completeLifecycleRefresh(ctx, lifecycle, state, eventType, eventData, title, message, rule, channel.ID, loc)
 			_ = s.upsertTelegramMessageState(ctx, telegramMessageState{
 				ChannelID: channel.ID, SourceModule: sourceModule, ResourceKey: lifecycle.ResourceKey,
 				Kind: lifecycle.Kind, ChatID: delivery.ChatID, MessageID: delivery.MessageID,
 			}, eventType, eventData)
-			_ = s.recordLifecycleRefreshHistory(ctx, rule, channel.ID, title, message, eventData, loc)
 		}
 	}
+	// resolve 兜底：后端重启后残留 open 状态且无恢复规则覆盖时，仍把动态消息编辑为恢复内容并清除状态。
+	// 顺带把上文规则循环中 edit/重发均失败的残留状态再尝试一次。
+	if lifecycle.Phase == "resolve" {
+		s.reconcileStaleLifecycleMessages(ctx, sourceModule, eventType, lifecycle, eventData, loc)
+	}
 	return nil
+}
+
+// completeLifecycleRefresh 记录一次生命周期刷新历史；resolve 场景同时清除该渠道的消息状态。
+func (s *Service) completeLifecycleRefresh(ctx context.Context, lifecycle messageLifecycle, state telegramMessageState, eventType string, eventData map[string]interface{}, title, message string, rule Rule, channelID string, loc *time.Location) {
+	_ = s.recordLifecycleRefreshHistory(ctx, rule, channelID, title, message, eventData, loc)
+	if lifecycle.Phase == "resolve" {
+		_ = s.deleteTelegramMessageStateForChannel(ctx, channelID, lifecycle.SourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+	} else {
+		_ = s.touchTelegramMessageState(ctx, state, eventType, eventData)
+	}
+}
+
+// reconcileStaleLifecycleMessages 处理规则未覆盖/刷新失败的残留生命周期状态：
+// 逐一编辑为恢复内容（失败则重发新消息），成功后按渠道清除状态。
+func (s *Service) reconcileStaleLifecycleMessages(ctx context.Context, sourceModule, eventType string, lifecycle messageLifecycle, eventData map[string]interface{}, loc *time.Location) {
+	states, err := s.listTelegramMessageStates(ctx, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+	if err != nil {
+		return
+	}
+	for _, state := range states {
+		channel, found, err := s.loadStoredChannel(ctx, state.ChannelID)
+		if err != nil || !found || channel.Enabled == 0 || channel.Type != "telegram" {
+			continue
+		}
+		config := decryptConfig(channel.ConfigRaw)
+		fallbackRule := Rule{
+			Name:      firstNonEmpty(notificationSubject(eventData), "恢复通知"),
+			EventType: eventType,
+			Severity:  "warning",
+		}
+		title := formatTitle(fallbackRule, eventData)
+		message := formatMessage(fallbackRule, eventData, loc)
+		if err := s.editTelegram(ctx, config, state.ChatID, state.MessageID, title, message); err == nil {
+			_ = s.deleteTelegramMessageStateForChannel(ctx, channel.ID, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+			_ = s.recordLifecycleRefreshHistory(ctx, fallbackRule, channel.ID, title, message, eventData, loc)
+			continue
+		}
+		if _, sendErr := s.sendTelegram(ctx, config, title, message); sendErr != nil {
+			continue
+		}
+		_ = s.deleteTelegramMessageStateForChannel(ctx, channel.ID, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+		_ = s.recordLifecycleRefreshHistory(ctx, fallbackRule, channel.ID, title, message, eventData, loc)
+	}
 }
 
 func (s *Service) enrichLifecycleEventData(ctx context.Context, sourceModule, eventType string, lifecycle messageLifecycle, eventData map[string]interface{}, now time.Time) (map[string]interface{}, error) {
@@ -1423,7 +1474,7 @@ func (s *Service) matchMaintenance(ctx context.Context, eventData map[string]int
 func notificationMessageLifecycle(sourceModule, eventType string, eventData map[string]interface{}) (messageLifecycle, bool) {
 	sourceModule = strings.ToLower(strings.TrimSpace(sourceModule))
 	eventType = strings.ToLower(strings.TrimSpace(eventType))
-	lifecycle := messageLifecycle{}
+	lifecycle := messageLifecycle{SourceModule: sourceModule}
 	switch sourceModule {
 	case "uptime":
 		lifecycle.ResourceKey = stringValue(eventData["monitorId"])
@@ -1539,30 +1590,44 @@ func (s *Service) loadTelegramMessageState(ctx context.Context, channelID, sourc
 }
 
 func (s *Service) loadAnyTelegramMessageState(ctx context.Context, sourceModule, resourceKey, kind string) (telegramMessageState, bool, error) {
-	db, err := s.open(ctx)
+	states, err := s.listTelegramMessageStates(ctx, sourceModule, resourceKey, kind)
 	if err != nil {
 		return telegramMessageState{}, false, err
 	}
+	if len(states) == 0 {
+		return telegramMessageState{}, false, nil
+	}
+	return states[0], true, nil
+}
+
+func (s *Service) listTelegramMessageStates(ctx context.Context, sourceModule, resourceKey, kind string) ([]telegramMessageState, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
 	defer db.Close()
-	state := telegramMessageState{}
-	err = db.QueryRowContext(ctx, `
+	rows, err := db.QueryContext(ctx, `
 		SELECT channel_id, source_module, resource_key, lifecycle_kind, chat_id, message_id,
 			event_type, COALESCE(last_data, '{}'), created_at, updated_at
 		FROM notification_message_state
 		WHERE source_module = ? AND resource_key = ? AND lifecycle_kind = ?
-		ORDER BY created_at ASC
-		LIMIT 1
-	`, sourceModule, resourceKey, kind).Scan(
-		&state.ChannelID, &state.SourceModule, &state.ResourceKey, &state.Kind, &state.ChatID, &state.MessageID,
-		&state.EventType, &state.LastData, &state.CreatedAt, &state.UpdatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return telegramMessageState{}, false, nil
-	}
+	`, sourceModule, resourceKey, kind)
 	if err != nil {
-		return telegramMessageState{}, false, fmt.Errorf("load telegram lifecycle state: %w", err)
+		return nil, fmt.Errorf("load telegram lifecycle states: %w", err)
 	}
-	return state, true, nil
+	defer rows.Close()
+	states := []telegramMessageState{}
+	for rows.Next() {
+		state := telegramMessageState{}
+		if err := rows.Scan(
+			&state.ChannelID, &state.SourceModule, &state.ResourceKey, &state.Kind, &state.ChatID, &state.MessageID,
+			&state.EventType, &state.LastData, &state.CreatedAt, &state.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, rows.Err()
 }
 
 func telegramLifecycleRefreshDue(updatedAt string, now time.Time) bool {
@@ -1626,6 +1691,19 @@ func (s *Service) deleteTelegramMessageStates(ctx context.Context, sourceModule,
 		DELETE FROM notification_message_state
 		WHERE source_module = ? AND resource_key = ? AND lifecycle_kind = ?
 	`, sourceModule, resourceKey, kind)
+	return err
+}
+
+func (s *Service) deleteTelegramMessageStateForChannel(ctx context.Context, channelID, sourceModule, resourceKey, kind string) error {
+	db, err := s.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM notification_message_state
+		WHERE channel_id = ? AND source_module = ? AND resource_key = ? AND lifecycle_kind = ?
+	`, channelID, sourceModule, resourceKey, kind)
 	return err
 }
 
@@ -1789,22 +1867,50 @@ func (s *Service) editTelegram(ctx context.Context, cfg map[string]interface{}, 
 	if token == "" || chatID == "" || messageID == 0 {
 		return errors.New("telegram message state incomplete")
 	}
-	payload := map[string]interface{}{
-		"chat_id":                  chatID,
-		"message_id":               messageID,
-		"text":                     telegramMessageText(title, message),
-		"parse_mode":               "MarkdownV2",
-		"disable_web_page_preview": true,
-	}
+	text := telegramMessageText(title, message)
 	client, err := s.telegramHTTPClient(cfg)
 	if err != nil {
 		return err
 	}
-	_, err = s.callTelegram(ctx, client, token, "editMessageText", payload)
-	if err != nil && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
+	// 富消息优先（editMessageText + rich_message.markdown，GFM 宽松解析）：
+	// 消息由 sendRichMessage 创建，只有用相同富格式编辑才能覆盖原内容；
+	// 旧实现用 MarkdownV2 编辑会解析失败，导致 RefreshLifecycle 回退重发新消息。
+	richPayload := map[string]interface{}{
+		"chat_id":     chatID,
+		"message_id":  messageID,
+		"rich_message": map[string]interface{}{"markdown": text},
+	}
+	_, err = s.callTelegram(ctx, client, token, "editMessageText", richPayload)
+	if err == nil {
 		return nil
 	}
-	return err
+	if telegramEditIgnore(err) {
+		return nil
+	}
+	slog.Warn("telegram-edit-rich-fallback", "chatId", chatID, "msgId", messageID, "err", err.Error(), "textLen", len(text))
+	// 降级：富消息不可用时以普通文本编辑（不带 parse_mode，避免 MarkdownV2 解析乱码）。
+	plainPayload := map[string]interface{}{
+		"chat_id":                  chatID,
+		"message_id":               messageID,
+		"text":                     text,
+		"disable_web_page_preview": true,
+	}
+	_, derr := s.callTelegram(ctx, client, token, "editMessageText", plainPayload)
+	if derr == nil || telegramEditIgnore(derr) {
+		return nil
+	}
+	return derr
+}
+
+// telegramEditIgnore 判断编辑失败是否可静默忽略：
+// "message is not modified"（内容一致）与 "canceled by new edit message request"（流式编辑竞争，
+// 后续编辑会覆盖）都不算真正的失败。
+func telegramEditIgnore(err error) bool {
+	if err == nil {
+		return true
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "message is not modified") || strings.Contains(low, "canceled by new edit")
 }
 
 // telegramMessageText 组装 Rich Markdown（GFM）消息体：标题加粗、键值行用

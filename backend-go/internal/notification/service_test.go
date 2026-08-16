@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -281,6 +282,156 @@ func TestNotificationMessageLifecyclePairs(t *testing.T) {
 	}
 }
 
+// TestTelegramLifecycleRecoversAfterRestartAndDeletion 验证两个自愈场景：
+// (1) 服务器重启后 state 从 SQLite 持久恢复，RefreshLifecycle 仍编辑原消息而非重发；
+// (2) TG 消息被删除后 editMessageText 失败，RefreshLifecycle 回退重发新消息并更新 state，
+//     后续刷新编辑新消息（不再每次刷新都新建）。
+func TestTelegramLifecycleRecoversAfterRestartAndDeletion(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+
+	deletedMessageIDs := map[int64]bool{}
+	var mu sync.Mutex
+	nextMessageID := int64(900)
+	var calls []string
+	markDeleted := func(id int64) {
+		mu.Lock()
+		defer mu.Unlock()
+		deletedMessageIDs[id] = true
+	}
+
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		payload := map[string]interface{}{}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			return nil, err
+		}
+		method := strings.TrimPrefix(req.URL.Path, "/bot123456:test-token/")
+		messageID := int64(intValue(payload["message_id"], 0))
+		mu.Lock()
+		calls = append(calls, fmt.Sprintf("%s:%d", method, messageID))
+		if method == "editMessageText" {
+			if deletedMessageIDs[messageID] {
+				mu.Unlock()
+				return &http.Response{
+					StatusCode: http.StatusBadRequest,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"ok":false,"description":"Bad Request: message to edit not found"}`)),
+				}, nil
+			}
+			mu.Unlock()
+		} else {
+			mu.Unlock()
+		}
+		resultMessageID := messageID
+		if method == "sendRichMessage" || method == "sendMessage" {
+			nextMessageID++
+			resultMessageID = nextMessageID
+		}
+return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, resultMessageID))),
+		}, nil
+	})
+
+	newService := func() *Service {
+		service := New(config.Config{
+			Version: "test", Host: "127.0.0.1", Port: 0,
+			DataDir: dataDir, DBName: "data.db",
+		})
+		service.client = &http.Client{Transport: transport}
+		return service
+	}
+
+	ageState := func(service *Service) {
+		db, err := service.open(ctx)
+		if err != nil {
+			t.Fatalf("open notification state: %v", err)
+		}
+		defer db.Close()
+		if _, err := db.ExecContext(ctx, `UPDATE notification_message_state SET updated_at = datetime('now', '-61 seconds')`); err != nil {
+			t.Fatalf("age notification state: %v", err)
+		}
+	}
+
+	// 第一段：首次宕机（服务 A），发送消息并落 state
+	serviceA := newService()
+	channelA, err := serviceA.CreateChannel(ctx, map[string]interface{}{
+		"name": "TG", "type": "telegram", "enabled": true,
+		"config": map[string]interface{}{"bot_token": "123456:test-token", "chat_id": "10001"},
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if _, err := serviceA.CreateRule(ctx, map[string]interface{}{
+		"name": "uptime down", "source_module": "uptime", "event_type": "down",
+		"channels": []string{channelA.ID},
+	}); err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	if err := serviceA.Trigger(ctx, "uptime", "down", map[string]interface{}{"monitorId": 7, "monitorName": "API"}); err != nil {
+		t.Fatalf("trigger down (A): %v", err)
+	}
+	mu.Lock()
+	if len(calls) != 1 || calls[0] != "sendRichMessage:0" {
+		mu.Unlock()
+		t.Fatalf("first down should send one message, got %#v", calls)
+	}
+	mu.Unlock()
+
+	// 第二段：模拟服务器重启 —— 新 Service 复用同一 SQLite，state 仍在。
+	ageState(serviceA)
+	serviceB := newService()
+	if err := serviceB.RefreshLifecycle(ctx, "uptime", "down", map[string]interface{}{"monitorId": 7, "monitorName": "API", "error": "refused"}); err != nil {
+		t.Fatalf("refresh after restart: %v", err)
+	}
+	mu.Lock()
+	if len(calls) != 2 || calls[1] != "editMessageText:901" {
+		mu.Unlock()
+		t.Fatalf("after restart should edit original message, got %#v", calls)
+	}
+	mu.Unlock()
+
+	db, err := serviceB.open(ctx)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	var stateMessageID int64
+	_ = db.QueryRowContext(ctx,
+		`SELECT message_id FROM notification_message_state WHERE source_module='uptime' AND resource_key='7' AND lifecycle_kind='availability'`).Scan(&stateMessageID)
+	db.Close()
+	if stateMessageID != 901 {
+		t.Fatalf("restart state message_id = %d, want 901", stateMessageID)
+	}
+
+	// 第三段：模拟 TG 消息被手动删除 —— 后续刷新 edit 失败，应重发新消息并更新 state。
+	markDeleted(901)
+	ageState(serviceB)
+	if err := serviceB.RefreshLifecycle(ctx, "uptime", "down", map[string]interface{}{"monitorId": 7, "monitorName": "API", "error": "timeout"}); err != nil {
+		t.Fatalf("refresh after tg deletion: %v", err)
+	}
+	mu.Lock()
+	got := append([]string{}, calls...)
+	mu.Unlock()
+	// 富格式编辑失败一次，再尝试普通文本编辑失败，最终回退重发一条新消息。
+	if len(got) != 5 || got[2] != "editMessageText:901" || got[3] != "editMessageText:901" || got[4] != "sendRichMessage:0" {
+		t.Fatalf("deleted message should trigger re-send via edit fallback, got %#v", got)
+	}
+
+	// 第四段：新消息建立 state 后，再刷新应编辑新消息（不再重发）。
+	ageState(serviceB)
+	if err := serviceB.RefreshLifecycle(ctx, "uptime", "down", map[string]interface{}{"monitorId": 7, "monitorName": "API", "error": "still down"}); err != nil {
+		t.Fatalf("refresh after recreate: %v", err)
+	}
+	mu.Lock()
+	got = append([]string{}, calls...)
+	mu.Unlock()
+	if len(got) != 6 || got[5] != "editMessageText:902" {
+		t.Fatalf("after recreate should edit new message, got %#v", got)
+	}
+}
+
+// TestTelegramProxyConfigAndTransportErrorsHideToken 验证 telegram 代理配置与传输错误不泄露 token。
 func TestTelegramProxyConfigAndTransportErrorsHideToken(t *testing.T) {
 	service := testNotificationService(t)
 	client, err := service.telegramHTTPClient(map[string]interface{}{"proxy_url": "http://127.0.0.1:7890"})
@@ -751,5 +902,256 @@ func TestSendRichToChannelRichMessage(t *testing.T) {
 	// 渠道不存在报错而非 panic
 	if err := service.SendRichToChannel(ctx, "notif_missing", "标题", "内容"); err == nil || !strings.Contains(err.Error(), "不存在") {
 		t.Fatalf("missing channel should error, got %v", err)
+	}
+}
+
+// TestTelegramLifecycleRefreshAfterMessageDeleted 复现「用户在 Telegram 删除动态消息后，
+// RefreshLifecycle 是否会自动补发新消息」：editMessageText 永久返回 400 message to edit not
+// found（消息不存在），动态更新应 fallback 重发新消息并更新状态指向。
+func TestTelegramLifecycleRefreshAfterMessageDeleted(t *testing.T) {
+	ctx := context.Background()
+	service := testNotificationService(t)
+	type tgCall struct {
+		method    string
+		messageID int64
+	}
+	var calls []tgCall
+	nextMessageID := int64(100)
+	service.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		payload := map[string]interface{}{}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode telegram request: %v", err)
+		}
+		method := strings.TrimPrefix(req.URL.Path, "/bot123456:test-token/")
+		resultMessageID := int64(intValue(payload["message_id"], 0))
+		if method == "sendMessage" || method == "sendRichMessage" {
+			nextMessageID++
+			resultMessageID = nextMessageID
+		}
+		calls = append(calls, tgCall{method: method, messageID: resultMessageID})
+		if method == "editMessageText" {
+			return &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{"ok":false,"description":"Bad Request: message to edit not found"}`))}, nil
+		}
+		body := fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, resultMessageID)
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+
+	channel, err := service.CreateChannel(ctx, map[string]interface{}{
+		"name": "Ops TG", "type": "telegram", "enabled": true,
+		"config": map[string]interface{}{"bot_token": "123456:test-token", "chat_id": "10001"},
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if _, err := service.CreateRule(ctx, map[string]interface{}{
+		"name": "uptime down", "source_module": "uptime", "event_type": "down",
+		"channels": []string{channel.ID},
+	}); err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	ageState := func(t *testing.T) {
+		t.Helper()
+		db, err := service.open(ctx)
+		if err != nil {
+			t.Fatalf("open state db: %v", err)
+		}
+		defer db.Close()
+		if _, err := db.ExecContext(ctx, `UPDATE notification_message_state SET updated_at = datetime('now', '-31 seconds')`); err != nil {
+			t.Fatalf("age notification state: %v", err)
+		}
+	}
+
+	uptimeData := map[string]interface{}{"monitorId": 7, "monitorName": "API", "error": "timeout"}
+	if err := service.Trigger(ctx, "uptime", "down", uptimeData); err != nil {
+		t.Fatalf("trigger uptime down: %v", err)
+	}
+	if len(calls) != 1 || calls[0].method != "sendRichMessage" {
+		t.Fatalf("expected initial sendRichMessage, got %#v", calls)
+	}
+	initialMessageID := calls[0].messageID
+	state, found, err := service.loadTelegramMessageState(ctx, channel.ID, "uptime", "7", "availability")
+	if err != nil || !found {
+		t.Fatalf("initial state found=%v err=%v", found, err)
+	}
+	if state.MessageID != initialMessageID {
+		t.Fatalf("state message id = %d want %d", state.MessageID, initialMessageID)
+	}
+
+	// 第一次 refresh：edit 失败（用户已删除消息）→ 应 fallback 重发新消息
+	ageState(t)
+	uptimeData["error"] = "connection refused"
+	if err := service.RefreshLifecycle(ctx, "uptime", "down", uptimeData); err != nil {
+		t.Fatalf("refresh after delete: %v", err)
+	}
+	callCount := len(calls)
+	if len(calls) < 2 || calls[len(calls)-1].method != "sendRichMessage" {
+		t.Fatalf("refresh after delete should fallback to sendRichMessage, got %#v", calls)
+	}
+	if calls[len(calls)-1].messageID == initialMessageID {
+		t.Fatalf("fallback message reused deleted message id: %#v", calls)
+	}
+	state, found, err = service.loadTelegramMessageState(ctx, channel.ID, "uptime", "7", "availability")
+	if err != nil || !found {
+		t.Fatalf("state after fallback found=%v err=%v", found, err)
+	}
+	if state.MessageID != calls[len(calls)-1].messageID {
+		t.Fatalf("state message id = %d, want fallback %d", state.MessageID, calls[len(calls)-1].messageID)
+	}
+
+	// 第二次 refresh（节流窗口内）：不应再发
+	if err := service.RefreshLifecycle(ctx, "uptime", "down", uptimeData); err != nil {
+		t.Fatalf("throttle refresh: %v", err)
+	}
+	if len(calls) != callCount {
+		t.Fatalf("refresh was not throttled: %#v", calls)
+	}
+}
+
+// TestRefreshLifecycleResolveRulePath 验证 resolve 阶段经 RefreshLifecycle 处理：
+// 残留 open 状态在资源恢复时被编辑为恢复内容并删除状态；状态不存在时静默跳过。
+func TestRefreshLifecycleResolveRulePath(t *testing.T) {
+	ctx := context.Background()
+	service := testNotificationService(t)
+	type tgCall struct {
+		method    string
+		messageID int64
+	}
+	var calls []tgCall
+	nextMessageID := int64(100)
+	service.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		payload := map[string]interface{}{}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode telegram request: %v", err)
+		}
+		method := strings.TrimPrefix(req.URL.Path, "/bot123456:test-token/")
+		resultMessageID := int64(intValue(payload["message_id"], 0))
+		if method == "sendMessage" || method == "sendRichMessage" {
+			nextMessageID++
+			resultMessageID = nextMessageID
+		}
+		calls = append(calls, tgCall{method: method, messageID: resultMessageID})
+		body := fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, resultMessageID)
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+
+	channel, err := service.CreateChannel(ctx, map[string]interface{}{
+		"name": "Ops TG", "type": "telegram", "enabled": true,
+		"config": map[string]interface{}{"bot_token": "123456:test-token", "chat_id": "10001"},
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	for _, event := range []string{"down", "up"} {
+		if _, err := service.CreateRule(ctx, map[string]interface{}{
+			"name": "uptime " + event, "source_module": "uptime", "event_type": event,
+			"channels": []string{channel.ID},
+		}); err != nil {
+			t.Fatalf("create %s rule: %v", event, err)
+		}
+	}
+
+	if err := service.Trigger(ctx, "uptime", "down", map[string]interface{}{"monitorId": 7, "monitorName": "API", "error": "timeout"}); err != nil {
+		t.Fatalf("trigger down: %v", err)
+	}
+	_, found, err := service.loadTelegramMessageState(ctx, channel.ID, "uptime", "7", "availability")
+	if err != nil || !found {
+		t.Fatalf("state after open found=%v err=%v", found, err)
+	}
+
+	if err := service.RefreshLifecycle(ctx, "uptime", "up", map[string]interface{}{"monitorId": 7, "monitorName": "API", "status": "up"}); err != nil {
+		t.Fatalf("resolve refresh: %v", err)
+	}
+	if len(calls) != 2 || calls[1].method != "editMessageText" || calls[1].messageID != calls[0].messageID {
+		t.Fatalf("resolve refresh should edit the open message, got %#v", calls)
+	}
+	if _, found, _ := service.loadTelegramMessageState(ctx, channel.ID, "uptime", "7", "availability"); found {
+		t.Fatal("state should be deleted after resolve refresh")
+	}
+
+	// 无残留状态时静默跳过，不发新消息
+	callCount := len(calls)
+	if err := service.RefreshLifecycle(ctx, "uptime", "up", map[string]interface{}{"monitorId": 7, "monitorName": "API", "status": "up"}); err != nil {
+		t.Fatalf("idle resolve refresh: %v", err)
+	}
+	if len(calls) != callCount {
+		t.Fatalf("idle resolve refresh should not send: %#v", calls)
+	}
+}
+
+// TestRefreshLifecycleResolveSelfHealsWithoutRule 验证后端重启后的自愈路径：
+// 存在残留 open 状态但没有对应恢复规则时（如未配置 server/online 规则），
+// RefreshLifecycle 仍应兜底把动态消息编辑为恢复内容并清除状态。
+func TestRefreshLifecycleResolveSelfHealsWithoutRule(t *testing.T) {
+	ctx := context.Background()
+	service := testNotificationService(t)
+	type tgCall struct {
+		method    string
+		messageID int64
+	}
+	var calls []tgCall
+	nextMessageID := int64(100)
+	service.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		payload := map[string]interface{}{}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode telegram request: %v", err)
+		}
+		method := strings.TrimPrefix(req.URL.Path, "/bot123456:test-token/")
+		resultMessageID := int64(intValue(payload["message_id"], 0))
+		if method == "sendMessage" || method == "sendRichMessage" {
+			nextMessageID++
+			resultMessageID = nextMessageID
+		}
+		calls = append(calls, tgCall{method: method, messageID: resultMessageID})
+		body := fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, resultMessageID)
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+
+	channel, err := service.CreateChannel(ctx, map[string]interface{}{
+		"name": "Ops TG", "type": "telegram", "enabled": true,
+		"config": map[string]interface{}{"bot_token": "123456:test-token", "chat_id": "10001"},
+	})
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	// 不创建任何规则：模拟重启后残留 open 状态且无恢复规则。
+
+	// 直接构造残留状态（模拟后端重启前 open 消息留下的 notification_message_state 行）
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open state db: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO notification_message_state (
+			channel_id, source_module, resource_key, lifecycle_kind, chat_id, message_id, event_type, last_data
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, channel.ID, "server", "srv-1", "availability", "10001", 101, "offline", `{"serverId":"srv-1","serverName":"Edge"}`)
+	db.Close()
+	if err != nil {
+		t.Fatalf("seed stale state: %v", err)
+	}
+
+	if err := service.RefreshLifecycle(ctx, "server", "online", map[string]interface{}{
+		"serverId": "srv-1", "serverName": "Edge", "status": "online",
+	}); err != nil {
+		t.Fatalf("self-heal resolve: %v", err)
+	}
+	if len(calls) != 1 || calls[0].method != "editMessageText" || calls[0].messageID != 101 {
+		t.Fatalf("self-heal should edit stale message, got %#v", calls)
+	}
+	if _, found, _ := service.loadTelegramMessageState(ctx, channel.ID, "server", "srv-1", "availability"); found {
+		t.Fatal("stale state should be removed after self-heal resolve")
+	}
+
+	// 再次刷新：残留已清理，应无任何调用
+	callCount := len(calls)
+	if err := service.RefreshLifecycle(ctx, "server", "online", map[string]interface{}{
+		"serverId": "srv-1", "serverName": "Edge", "status": "online",
+	}); err != nil {
+		t.Fatalf("idle self-heal: %v", err)
+	}
+	if len(calls) != callCount {
+		t.Fatalf("idle self-heal should not send: %#v", calls)
 	}
 }

@@ -1664,7 +1664,12 @@ func (s *Service) processState(ctx context.Context, db *sql.DB, monitor map[stri
 			started := parseTimeFallback(stringValue(incident["started_at"], ""), time.Now())
 			duration = time.Since(started).Milliseconds()
 		}
-		s.refreshNotification(ctx, monitor, beat, duration)
+		s.refreshNotification(ctx, "down", monitor, beat, duration)
+	}
+	if action == "" && stateText(next["state"]) == stateUp {
+		// 在线状态也周期触发 resolve 自愈：后端重启后残留的 down 生命周期消息
+		// （无 up 规则覆盖时）需要被编辑为恢复内容并清除。
+		s.refreshNotification(ctx, "up", monitor, beat, 0)
 	}
 	return nil
 }
@@ -1756,14 +1761,14 @@ func (s *Service) notify(ctx context.Context, eventType string, monitor, beat ma
 	_ = s.notifier.Trigger(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs))
 }
 
-func (s *Service) refreshNotification(ctx context.Context, monitor, beat map[string]interface{}, durationMs int64) {
+func (s *Service) refreshNotification(ctx context.Context, eventType string, monitor, beat map[string]interface{}, durationMs int64) {
 	updater, ok := s.notifier.(interface {
 		RefreshLifecycle(context.Context, string, string, map[string]interface{}) error
 	})
 	if !ok {
 		return
 	}
-	_ = updater.RefreshLifecycle(ctx, "uptime", "down", uptimeNotificationData("down", monitor, beat, durationMs))
+	_ = updater.RefreshLifecycle(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs))
 }
 
 func uptimeNotificationData(eventType string, monitor, beat map[string]interface{}, durationMs int64) map[string]interface{} {

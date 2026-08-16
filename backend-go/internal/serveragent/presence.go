@@ -283,6 +283,10 @@ func (p *agentPresenceManager) check() {
 			suspectIDs = append(suspectIDs, serverID)
 		} else if rec.Status == agentPresenceSuspect {
 			refreshTargets = append(refreshTargets, refreshTarget{serverID: serverID, status: "interrupted"})
+		} else {
+			// 在线状态也周期触发 resolve 自愈：后端重启后若无状态变化事件，
+			// 残留的 open 生命周期消息（隔离/离线通知）需要被编辑为恢复内容并清除。
+			refreshTargets = append(refreshTargets, refreshTarget{serverID: serverID, status: "online"})
 		}
 	}
 	p.mu.Unlock()
@@ -429,9 +433,12 @@ func (p *agentPresenceManager) refreshNotification(serverID, status string) {
 	updater, ok := p.service.notifier.(interface {
 		RefreshLifecycle(context.Context, string, string, map[string]interface{}) error
 	})
-	if !ok || p.notificationsSuppressed(serverID, time.Now()) {
+	if !ok {
 		return
 	}
+	// 刷新/自愈只编辑或补发已存在的生命周期消息（RefreshLifecycle 内部已有 30s 节流），
+	// 不产生新消息轰炸，因此不受 notificationsSuppressed（启动宽限）抑制；
+	// 新建 open 消息的 Trigger 路径仍受抑制。
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	db, err := p.service.open(ctx)
