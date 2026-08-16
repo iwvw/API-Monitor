@@ -50,7 +50,7 @@ type WorkflowNode struct {
 	TaskID         int64  `json:"task_id,omitempty"`
 	Type           string `json:"type,omitempty"`
 	Command        string `json:"command,omitempty"`
-	Enabled        int    `json:"enabled"`
+	Enabled        intOrBool `json:"enabled"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 	RetryCount     int    `json:"retry_count,omitempty"`
 	NodeID         string `json:"node_id,omitempty"`
@@ -126,7 +126,7 @@ type workflowPayload struct {
 	Name              string         `json:"name"`
 	Description       string         `json:"description"`
 	Schedule          string         `json:"schedule"`
-	Enabled           int            `json:"enabled"`
+	Enabled           intOrBool      `json:"enabled"`
 	Nodes             []WorkflowNode `json:"nodes"`
 	Edges             []WorkflowEdge `json:"edges"`
 	ConcurrencyPolicy string         `json:"concurrency_policy"`
@@ -1062,7 +1062,7 @@ func buildWorkflow(payload workflowPayload, id int64) (Workflow, error) {
 		Name:              name,
 		Description:       strings.TrimSpace(payload.Description),
 		Schedule:          strings.TrimSpace(payload.Schedule),
-		Enabled:           payload.Enabled,
+		Enabled:           int(payload.Enabled),
 		Nodes:             normalizeWorkflowNodes(payload.Nodes),
 		Edges:             normalizeWorkflowEdges(payload.Edges),
 		ConcurrencyPolicy: firstNonEmpty(payload.ConcurrencyPolicy, "skip"),

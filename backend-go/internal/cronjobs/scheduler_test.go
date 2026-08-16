@@ -241,6 +241,49 @@ func TestSchedulerWorkflowLegacyTaskNodeExecutesAsShell(t *testing.T) {
 	}
 }
 
+func TestSchedulerWorkflowPayloadAcceptsBooleanEnabled(t *testing.T) {
+	service := newCronService(t)
+
+	// 契约按 boolean 传 enabled（AI 工具按契约构造），后端 intOrBool 兼容解码。
+	body := `{
+		"name":"Boolean Enabled Flow",
+		"description":"boolean enabled",
+		"schedule":"*/5 * * * *",
+		"enabled":false,
+		"nodes":[
+			{"id":"start","name":"开始","type":"start","enabled":true},
+			{"id":"work","name":"Work","command":"echo ok","enabled":true},
+			{"id":"end","name":"结束","type":"end","enabled":true}
+		],
+		"edges":[
+			{"from":"start","to":"work","condition":"success"},
+			{"from":"work","to":"end","condition":"success"}
+		]
+	}`
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/workflows", body)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create workflow with boolean enabled status = %d body=%s", res.Code, res.Body.String())
+	}
+	workflow := decodeCronData[Workflow](t, res)
+	if workflow.Enabled != 0 {
+		t.Fatalf("enabled=false should decode to 0, got %d", workflow.Enabled)
+	}
+
+	res = performCronRequest(service, http.MethodPut, "/api/scheduler/workflows/"+strconv.FormatInt(workflow.ID, 10), `{
+		"name":"Boolean Enabled Flow",
+		"enabled":true,
+		"nodes":[{"id":"start","name":"开始","type":"start"},{"id":"end","name":"结束","type":"end"}],
+		"edges":[{"from":"start","to":"end","condition":"success"}]
+	}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("update workflow with boolean enabled status = %d body=%s", res.Code, res.Body.String())
+	}
+	updated := decodeCronData[Workflow](t, res)
+	if updated.Enabled != 1 {
+		t.Fatalf("enabled=true should decode to 1, got %d", updated.Enabled)
+	}
+}
+
 func TestSchedulerWorkflowStartEndNodesAreMarkers(t *testing.T) {
 	service := newCronService(t)
 
