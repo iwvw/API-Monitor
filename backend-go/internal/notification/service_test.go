@@ -119,7 +119,7 @@ func TestTelegramLifecycleMessagesForUptimeAndServer(t *testing.T) {
 		method := strings.TrimPrefix(req.URL.Path, "/bot123456:test-token/")
 		call := telegramCall{method: method, chatID: stringValue(payload["chat_id"]), messageID: int64(intValue(payload["message_id"], 0))}
 		resultMessageID := call.messageID
-		if method == "sendMessage" {
+		if method == "sendMessage" || method == "sendRichMessage" {
 			nextMessageID++
 			resultMessageID = nextMessageID
 			call.messageID = resultMessageID
@@ -204,7 +204,7 @@ func TestTelegramLifecycleMessagesForUptimeAndServer(t *testing.T) {
 		t.Fatalf("trigger next server outage: %v", err)
 	}
 
-	wantMethods := []string{"sendMessage", "editMessageText", "editMessageText", "sendMessage", "editMessageText", "editMessageText", "sendMessage"}
+	wantMethods := []string{"sendRichMessage", "editMessageText", "editMessageText", "sendRichMessage", "editMessageText", "editMessageText", "sendRichMessage"}
 	if len(calls) != len(wantMethods) {
 		t.Fatalf("telegram call count = %d, want %d: %#v", len(calls), len(wantMethods), calls)
 	}
@@ -320,8 +320,8 @@ func TestTelegramProxyConfigAndTransportErrorsHideToken(t *testing.T) {
 
 	formatted := telegramMessageText("<测试>", "状态: 离线\n地址: https://example.com?a=1&b=2\n错误: <timeout>")
 	for _, want := range []string{
-		"*<测试\\>*", "*状态:* 🔴 离线", "`https://example.com?a=1&b=2`",
-		"<timeout\\>", "_API Monitor_",
+		"<测试>", "状态: 🔴 离线", "`https://example.com?a=1&b=2`",
+		"<timeout>", "API Monitor",
 	} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("formatted Telegram message missing %q: %s", want, formatted)

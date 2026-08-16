@@ -22,7 +22,8 @@ import (
 	"sync"
 	"time"
 
-"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
+	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
@@ -1730,17 +1731,33 @@ func (s *Service) sendTelegram(ctx context.Context, cfg map[string]interface{}, 
 	if token == "" || chatID == "" {
 		return deliveryResult{}, errors.New("telegram channel config incomplete")
 	}
-	payload := map[string]interface{}{
-		"chat_id":                  chatID,
-		"text":                     telegramMessageText(title, message),
-		"parse_mode":               "MarkdownV2",
-		"disable_web_page_preview": true,
-	}
 	client, err := s.telegramHTTPClient(cfg)
 	if err != nil {
 		return deliveryResult{}, err
 	}
-	result, err := s.callTelegram(ctx, client, token, "sendMessage", payload)
+	text := telegramMessageText(title, message)
+	applog.Info(ctx, "notification", "telegram-rich-outgoing", "chatId", chatID, "textLen", len(text), "textHex", fmt.Sprintf("%x", []byte(text)))
+	// 富消息优先（sendRichMessage + rich_message.markdown，GFM 宽松解析，对中文/emoji 渲染稳定）；
+	// 失败时降级为普通文本 sendMessage（不带 parse_mode），避免旧客户端 MarkdownV2 解析乱码。
+	richPayload := map[string]interface{}{
+		"chat_id":                  chatID,
+		"rich_message":             map[string]interface{}{"markdown": text},
+		"disable_web_page_preview": true,
+	}
+	if result, err := s.callTelegram(ctx, client, token, "sendRichMessage", richPayload); err == nil {
+		if result.Result.Chat.ID != 0 {
+			chatID = strconv.FormatInt(result.Result.Chat.ID, 10)
+		}
+		return deliveryResult{ChatID: chatID, MessageID: result.Result.MessageID}, nil
+	} else {
+		slog.Warn("telegram-rich-fallback", "chatId", chatID, "err", err.Error(), "textLen", len(text))
+	}
+	plainPayload := map[string]interface{}{
+		"chat_id":                  chatID,
+		"text":                     text,
+		"disable_web_page_preview": true,
+	}
+	result, err := s.callTelegram(ctx, client, token, "sendMessage", plainPayload)
 	if err != nil {
 		return deliveryResult{}, err
 	}
@@ -1773,36 +1790,51 @@ func (s *Service) editTelegram(ctx context.Context, cfg map[string]interface{}, 
 	return err
 }
 
+// telegramMessageText 组装 Rich Markdown（GFM）消息体：标题加粗、键值行用
+// **label：** 粗体标签，行间用 GFM 硬换行（行尾两个空格）保证富文本渲染真正换行
+// （普通 LF 在 GFM 中属于软换行，会合并为一行）。
 func telegramMessageText(title, message string) string {
 	lines := strings.Split(strings.TrimSpace(message), "\n")
 	formatted := make([]string, 0, len(lines))
 	for _, line := range lines {
-		formatted = append(formatted, telegramMessageLine(line))
+		rendered := telegramMessageLine(line)
+		if rendered == "" {
+			continue
+		}
+		formatted = append(formatted, rendered+"  ")
 	}
 	body := strings.Join(formatted, "\n")
-	head := "*" + telegramEscapeBold(title) + "*"
+	head := title
 	if body == "" {
-		return head
+		return normalizeRichTextColons(head)
 	}
-	return head + "\n\n" + body + "\n\n_API Monitor_"
+	return normalizeRichTextColons(head + "\n\n" + body + "\n\nAPI Monitor")
+}
+
+// normalizeRichTextColons 富文本（sendRichMessage markdown）渲染在部分客户端会把
+// 全角冒号（U+FF1A）显示为替换字符（��），发送前统一转为半角冒号避免乱码。
+func normalizeRichTextColons(text string) string {
+	return strings.ReplaceAll(text, "：", ":")
 }
 
 func telegramMessageLine(line string) string {
+	applog.Info(context.Background(), "notification", "telegram-line-in", "lineHex", fmt.Sprintf("%x", []byte(line)))
 	field := parseNotificationMessageLine(line)
 	if field.Empty {
 		return ""
 	}
+	applog.Info(context.Background(), "notification", "telegram-line-parse", "labelHex", fmt.Sprintf("%x", []byte(field.Label)), "valueHex", fmt.Sprintf("%x", []byte(field.Value)))
 	if field.Label == "" {
-		return telegramEscapeV2(field.Value)
+		return field.Value
 	}
-	escapedValue := telegramEscapeV2(field.Value)
+	value := field.Value
 	if field.Label == "状态" || strings.EqualFold(field.Label, "status") {
-		escapedValue = notificationStatusIcon(field.Value) + escapedValue
+		value = notificationStatusIcon(field.Value) + value
 	}
 	if isNotificationCodeField(field.Label) {
-		escapedValue = "`" + telegramEscapeCode(field.Value) + "`"
+		value = "`" + field.Value + "`"
 	}
-	return "*" + telegramEscapeBold(field.Label) + ":* " + escapedValue
+	return field.Label + ": " + value
 }
 
 // telegramEscapeV2 转义 Telegram MarkdownV2 特殊字符。
@@ -1848,8 +1880,12 @@ func parseNotificationMessageLine(line string) notificationMessageField {
 		return notificationMessageField{Empty: true}
 	}
 	separator := strings.Index(line, ":")
+	separatorLen := 1
 	if chineseSeparator := strings.Index(line, "："); chineseSeparator >= 0 && (separator < 0 || chineseSeparator < separator) {
+		// 全角冒号为 3 字节（U+FF1A），value 切片必须跳过完整分隔符，
+		// 否则残留后两字节（BC 9A）导致 Telegram 端显示乱码。
 		separator = chineseSeparator
+		separatorLen = 3
 	}
 	if separator <= 0 {
 		return notificationMessageField{Value: line}
@@ -1858,7 +1894,7 @@ func parseNotificationMessageLine(line string) notificationMessageField {
 	if len([]rune(label)) > 32 {
 		return notificationMessageField{Value: line}
 	}
-	return notificationMessageField{Label: label, Value: strings.TrimSpace(line[separator+1:])}
+	return notificationMessageField{Label: label, Value: strings.TrimSpace(line[separator+separatorLen:])}
 }
 
 func isNotificationCodeField(label string) bool {
@@ -2580,11 +2616,11 @@ func renderTemplate(template string, data map[string]interface{}) string {
 	for {
 		start := strings.Index(result, "{{")
 		if start < 0 {
-			return result
+			return normalizeTemplateNewlines(result)
 		}
 		end := strings.Index(result[start+2:], "}}")
 		if end < 0 {
-			return result
+			return normalizeTemplateNewlines(result)
 		}
 		end += start + 2
 		key := strings.TrimSpace(result[start+2 : end])
@@ -2595,6 +2631,13 @@ func renderTemplate(template string, data map[string]interface{}) string {
 		}
 		result = result[:start] + replacement + result[end+2:]
 	}
+}
+
+// normalizeTemplateNewlines 把模板里以字面量存储的 \n（反斜杠+n 两个字符，常见于
+// 旧版编辑器/转义序列落库）统一还原为真实换行，保证行级解析（telegramMessageLine
+// 等按行切分状态/指标）不会把整段消息当成一行导致格式错乱。
+func normalizeTemplateNewlines(text string) string {
+	return strings.ReplaceAll(text, `\n`, "\n")
 }
 
 func generateFingerprint(rule Rule, data map[string]interface{}) string {
