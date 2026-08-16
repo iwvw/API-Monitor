@@ -236,6 +236,7 @@ function NotificationPage() {
 
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [ruleModalMode, setRuleModalMode] = useState('add');
+  const [ruleCreateIntent, setRuleCreateIntent] = useState(null); // 跨页意图：待预填的 cron 事件类型（如 workflow.completed）
   const [ruleForm, setRuleForm] = useState({
     id: null,
     name: '',
@@ -519,7 +520,7 @@ function NotificationPage() {
   };
 
   // ==================== 3. 告警规则 CRUD ====================
-  const handleOpenAddRule = () => {
+  const handleOpenAddRule = (overrides = {}) => {
     setRuleForm({
       id: null,
       name: '',
@@ -538,11 +539,37 @@ function NotificationPage() {
       backup_channels: [],
       quiet_until: '',
       enabled: true,
+      ...overrides,
     });
     setTemplatePreview(null);
     setRuleModalMode('add');
     setShowRuleModal(true);
   };
+
+  // ==================== 跨页意图：从定时任务卡片「配置通知规则」跳转而来 ====================
+  // 读取 ?newRule=<cron 事件类型> 并立即清理 URL，避免刷新或返回时重复触发。
+  useEffect(() => {
+    const eventType = new URLSearchParams(window.location.search).get('newRule');
+    if (!eventType) return;
+    setRuleCreateIntent(eventType);
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
+
+  // 等数据加载完成后跳转「规则」Tab、过滤 cron 源并预填新建规则弹窗。
+  useEffect(() => {
+    if (!ruleCreateIntent || notificationLoading) return;
+    const cronEvents = notificationEventCatalog.find(item => item.module === 'cron')?.events || [];
+    if (!cronEvents.includes(ruleCreateIntent)) return;
+    setNotificationCurrentTab('rules');
+    setNotificationRuleFilter('cron');
+    handleOpenAddRule({
+      name: `${getEventTypeName(ruleCreateIntent)}通知`,
+      source_module: 'cron',
+      event_type: ruleCreateIntent,
+      severity: ruleCreateIntent.includes('failed') ? 'critical' : 'info',
+    });
+    setRuleCreateIntent(null); // 只消费一次
+  }, [ruleCreateIntent, notificationLoading, notificationEventCatalog, handleOpenAddRule]);
 
   const handleOpenEditRule = (rule) => {
     let channels = rule.channels || [];
@@ -1105,43 +1132,44 @@ function NotificationPage() {
 
       {/* ==================== 事件目录 Tab ==================== */}
       {notificationCurrentTab === 'events' && (
-        <div className="grid grid-cols-1 items-start gap-4 cq-md:grid-cols-2 cq-xl:grid-cols-3">
-          <div className="col-span-full flex flex-wrap items-center gap-2 text-[10px] text-kumo-subtle">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-kumo-subtle">
             <Badge className="border border-kumo-brand/25 bg-kumo-brand/10 text-kumo-brand">↻ 动态消息</Badge>
             <span>同一 Telegram 消息会随告警打开、变化和恢复持续更新；每次变化仍会写入通知历史。</span>
           </div>
-          {notificationEventCatalog.map((item) => (
-            <SectionCard
-              key={item.module}
-              title={getSourceModuleName(item.module)}
-              icon={<Info className="w-4 h-4 text-kumo-brand" />}
-              meta={<span className="text-[10px] font-mono text-kumo-subtle">{item.events?.length || 0}</span>}
-              className="self-start"
-              bodyClassName="p-4"
-            >
-              <div className="flex flex-wrap gap-2">
-                {(item.events || []).map((eventName) => {
-                  const isDynamic = (item.dynamic_events || []).includes(eventName);
-                  return isDynamic ? (
-                    <Badge
-                      key={`${item.module}-${eventName}`}
-                      title="支持 Telegram 动态消息"
-                      className="border border-kumo-brand/25 bg-kumo-brand/10 text-[10px] font-semibold text-kumo-brand"
-                    >
-                      ↻ {getEventTypeName(eventName)}
-                    </Badge>
-                  ) : (
-                    <span
-                      key={`${item.module}-${eventName}`}
-                      className="rounded border border-kumo-line bg-kumo-recessed px-2 py-1 text-[10px] font-semibold text-kumo-subtle"
-                    >
-                      {getEventTypeName(eventName)}
-                    </span>
-                  );
-                })}
-              </div>
-            </SectionCard>
-          ))}
+          <div className="columns-1 gap-4 cq-md:columns-2 cq-xl:columns-3 [&>*]:mb-4 [&>*]:break-inside-avoid [&>*:last-child]:mb-0">
+            {notificationEventCatalog.map((item) => (
+              <SectionCard
+                key={item.module}
+                title={getSourceModuleName(item.module)}
+                icon={<Info className="w-4 h-4 text-kumo-brand" />}
+                meta={<span className="text-[10px] font-mono text-kumo-subtle">{item.events?.length || 0}</span>}
+                bodyClassName="p-4"
+              >
+                <div className="flex flex-wrap gap-2">
+                  {(item.events || []).map((eventName) => {
+                    const isDynamic = (item.dynamic_events || []).includes(eventName);
+                    return isDynamic ? (
+                      <Badge
+                        key={`${item.module}-${eventName}`}
+                        title="支持 Telegram 动态消息"
+                        className="border border-kumo-brand/25 bg-kumo-brand/10 text-[10px] font-semibold text-kumo-brand"
+                      >
+                        ↻ {getEventTypeName(eventName)}
+                      </Badge>
+                    ) : (
+                      <span
+                        key={`${item.module}-${eventName}`}
+                        className="rounded border border-kumo-line bg-kumo-recessed px-2 py-1 text-[10px] font-semibold text-kumo-subtle"
+                      >
+                        {getEventTypeName(eventName)}
+                      </span>
+                    );
+                  })}
+                </div>
+              </SectionCard>
+            ))}
+          </div>
         </div>
       )}
 

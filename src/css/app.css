@@ -1298,91 +1298,34 @@ samp {
   background-color: color-mix(in oklab, var(--color-kumo-recessed) 10%, transparent);
 }
 
-.scheduler-workflow-canvas {
-  min-height: 14rem;
-  background:
-    linear-gradient(
-      to right,
-      color-mix(in oklab, var(--color-kumo-line) 46%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(in oklab, var(--color-kumo-line) 46%, transparent) 1px,
-      transparent 1px
-    ),
-    color-mix(in oklab, var(--color-kumo-recessed) 18%, transparent);
-  background-size:
-    32px 32px,
-    32px 32px,
-    auto;
-  cursor: grab;
-}
-
-/* 隐藏 Flow canvas 模式自绘的平移滚动条滑块（仍可拖拽平移画布）：
-   纵向滑块 absolute top-1 right-1 bottom-1 w-1.5，横向滑块 absolute right-1 bottom-1 left-1 h-1.5。 */
-.scheduler-workflow-canvas > div.absolute.top-1.right-1.bottom-1,
-.scheduler-workflow-canvas > div.absolute.right-1.bottom-1.left-1 {
-  display: none;
-}
-
-.scheduler-workflow-canvas:active {
-  cursor: grabbing;
-}
-
-/* 画布内的文字不可被选中（拖拽平移时不误选文本）。 */
-.scheduler-workflow-canvas,
-.scheduler-workflow-canvas * {
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.scheduler-workflow-canvas-compact {
-  min-height: 14rem;
-}
-
-.scheduler-workflow-canvas-editor {
-  height: clamp(24rem, 48dvh, 34rem);
-  min-height: 24rem;
+.scheduler-workflow-canvas-editor-card {
+  min-height: 19rem;
 }
 
 @media (min-width: 1024px) {
   .scheduler-workflow-card {
     height: 100%;
   }
-
-  .scheduler-workflow-card > div {
-    height: 100%;
-    align-items: stretch;
-  }
-
-  .scheduler-workflow-card .scheduler-workflow-canvas-compact {
-    height: 100%;
-    min-height: 100%;
-  }
 }
 
-/* Kumo Dialog 默认 size 变体带 sm:w-96 等媒体查询宽度，会覆盖调用方传入的 Tailwind 宽度类。
+/* Kumo Dialog 默认 size 变体带 sm:w-96 等媒体查询宽度，会覆盖调用方传入的 Tailwind 宽度类；
    此处用未分层组件类（优先级高于 utilities layer）统一接管弹框宽度，
-   避免 <Dialog> 内容容器的 cq-* 断点因为自身宽度被压成 384px 而永不触发。 */
+   避免 <Dialog> 内容容器的 cq-* 断点因为自身宽度被压成 384px 而永不触发。
+   宽度上限取 calc(100vw - 2rem)：与 Dialog 内置 max-w-[calc(100vw-2rem)] 一致，
+   窄屏时左右各留 1rem 边距，不出现宽度被 max-width 二次钳制的假边距。 */
 .scheduler-task-dialog {
-  width: min(calc(100vw - 1rem), 56rem);
-}
-
-@container (width >= 40rem) {
-  .scheduler-task-dialog {
-    width: 56rem;
-  }
+  width: min(56rem, calc(100vw - 2rem));
 }
 
 .scheduler-workflow-dialog {
-  width: min(calc(100vw - 1rem), 92rem);
+  width: min(76rem, calc(100vw - 2rem));
 }
 
-@container (width >= 40rem) {
-  .scheduler-workflow-dialog {
-    width: 92rem;
-  }
+/* 调度弹窗高度上界与横向边距对称（垂直同样各 1rem），覆盖全局 [role='dialog']
+   的 100dvh-1rem（垂直仅 0.5rem，四边距不均，且视口不够高时内容易被裁断）。 */
+.scheduler-task-dialog[role='dialog'],
+.scheduler-workflow-dialog[role='dialog'] {
+  max-height: calc(100dvh - 2rem);
 }
 
 [role='dialog'] {

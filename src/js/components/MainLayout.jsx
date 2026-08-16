@@ -537,11 +537,12 @@ function MainLayout() {
     window.history.replaceState({ module: currentModule }, '', nextPath);
   }, []);
 
-  const navigateToModule = module => {
+  const navigateToModule = (module, query) => {
     triggerHaptic();
     setMainActiveTab(module);
-    const nextPath = MODULE_PATHS[module] || `/${module}`;
-    if (window.location.pathname !== nextPath) {
+    const basePath = MODULE_PATHS[module] || `/${module}`;
+    const nextPath = query ? `${basePath}?${new URLSearchParams(query).toString()}` : basePath;
+    if (window.location.pathname + window.location.search !== nextPath) {
       window.history.pushState({ module }, '', nextPath);
     }
   };
@@ -668,7 +669,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
       case 'settings':
         return <SettingsPage />;
       case 'scheduler':
-        return <SchedulerPage />;
+        return <SchedulerPage onNavigate={navigateToModule} />;
       case 'apidocs':
         return <ApiDocsPage />;
       case 'systemlogs':
@@ -711,7 +712,7 @@ return (
         '--sidebar-width': '11.5rem',
         '--sidebar-width-icon': '57px',
       }}
-      className="app-main-shell flex h-screen w-screen overflow-hidden text-kumo-default"
+      className="app-main-shell flex h-dvh w-screen overflow-hidden text-kumo-default"
     >
       <>
         {/* ==================== 1. 侧边栏 (Sidebar) ==================== */}
