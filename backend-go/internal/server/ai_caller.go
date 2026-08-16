@@ -48,10 +48,14 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	if len(call.Body) > 1024*1024 {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("Agent 调用请求体超过 1MB 限制")
 	}
-
 	parsed, err := url.ParseRequestURI(targetPath)
 	if err != nil {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("invalid path: %w", err)
+	}
+	if len(call.Body) > 0 {
+		if err := s.system.ValidateAICallBody(method, parsed.EscapedPath(), call.Body); err != nil {
+			return systemmetrics.AICallResponse{}, err
+		}
 	}
 	route, ok := manifest.Match(parsed.EscapedPath())
 	if !ok {
@@ -104,6 +108,11 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	}
 	if payload != nil {
 		response.Raw = ""
+	}
+	if result.StatusCode >= 200 && result.StatusCode < 300 {
+		if businessErr := systemmetrics.EnvelopeError(payload); businessErr != "" {
+			return systemmetrics.AICallResponse{}, fmt.Errorf("接口返回 HTTP %d 但业务失败: %s", result.StatusCode, businessErr)
+		}
 	}
 	return response, nil
 }

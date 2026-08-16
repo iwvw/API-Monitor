@@ -81,6 +81,25 @@ type AICallResponse struct {
 
 type AICaller func(context.Context, AICallRequest) (AICallResponse, error)
 
+// EnvelopeError 检查标准响应信封：body 为 {"success":false,"error":...} 时返回错误文本，
+// 用于 AI 工具调用层识别 HTTP 2xx 但业务失败的情况，防止把失败误判为成功。
+// 非信封结构（成功响应或裸 JSON）返回空字符串。
+func EnvelopeError(payload interface{}) string {
+	obj, ok := payload.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	success, ok := obj["success"].(bool)
+	if !ok || success {
+		return ""
+	}
+	msg, _ := obj["error"].(string)
+	if msg == "" {
+		msg = "未知业务错误"
+	}
+	return msg
+}
+
 type aiMCPRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      interface{}     `json:"id"`
@@ -954,6 +973,11 @@ func (s *Service) runSingleBatchOp(ctx context.Context, op batchOp, index int) b
 			}
 			return batchResult{index: index, name: op.name, path: op.path, method: op.method, err: fmt.Errorf("%s", msg)}
 		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if businessErr := EnvelopeError(resp.Body); businessErr != "" {
+				return batchResult{index: index, name: op.name, path: op.path, method: op.method, err: fmt.Errorf("business failure: %s", businessErr)}
+			}
+		}
 		return batchResult{index: index, name: op.name, path: op.path, method: op.method, response: resp.Body}
 	}
 	return batchResult{index: index, name: op.name, path: op.path, method: op.method, response: result}
@@ -999,9 +1023,9 @@ func (s *Service) aiTools() []map[string]interface{} {
 		{"name": "get_route", "description": "读取单个接口的完整契约（参数、请求体 schema、示例、鉴权）；调用 call_api 前必须先用本工具确认请求体结构", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string", "description": "接口路径，如 /api/flyio/apps/{appName}/update-image 或具体路径"}}, "required": []string{"path"}}},
 		{"name": "get_openapi", "description": "读取 OpenAPI 3.1 文档", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "get_ai_manifest", "description": "读取 AI 接入能力清单", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
-		{"name": "get_system_status", "description": "读取本机系统运行状态", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
-		{"name": "call_api", "description": "调用 API Monitor 内部接口，支持 GET/POST/PUT/PATCH/DELETE、请求头和 JSON 请求体；请求体结构先用 get_route 获取", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true, "description": "JSON 请求体，字段以 get_route 返回的 requestSchema/requestExample 为准"}}, "required": []string{"path"}}},
-		{"name": "run_batch", "description": "一次提交 1-20 个接口调用并聚合返回结果（串行或并行），减少多轮往返；每个操作复用 call_api 的鉴权与写权限约束", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"operations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string", "description": "操作名（便于阅读结果）"}, "method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true}}, "required": []string{"path"}}, "description": "要执行的接口调用数组"}, "mode": map[string]interface{}{"type": "string", "enum": []string{"serial", "parallel"}, "description": "执行模式（默认 serial）"}, "stopOnError": map[string]interface{}{"type": "boolean", "description": "serial 模式下遇到失败是否停止后续（默认 false）"}}, "required": []string{"operations"}}},
+		{"name": "get_system_status", "description": "读取本机系统运行状态（CPU/内存/磁盘）；displayTime/serverTime 为站点当前时间（本地时区），回答时间/换算 cron 必须用 displayTime 或 serverTime.local，禁止用 timestamp（UTC）", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
+		{"name": "call_api", "description": "调用 API Monitor 内部接口，支持 GET/POST/PUT/PATCH/DELETE、请求头和 JSON 请求体；请求体结构先用 get_route 获取。强制规则：写操作（POST/PUT/PATCH/DELETE）返回后必须立即用 GET 回读验证真实生效（如列表/详情确认状态、next_run 等），且必须检查响应中的 success/error 字段，发现 success=false 或 error 非空即视为失败，绝不向用户宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true, "description": "JSON 请求体，字段以 get_route 返回的 requestSchema/requestExample 为准"}}, "required": []string{"path"}}},
+		{"name": "run_batch", "description": "一次提交 1-20 个接口调用并聚合返回结果（串行或并行），减少多轮往返；每个操作复用 call_api 的鉴权与写权限约束。强制规则：含写操作（POST/PUT/PATCH/DELETE）的批次，完成后必须回读验证真实生效并检查每个子项的 ok/error 字段，任一子项 ok=false 或业务失败即视为整体未完成，绝不宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"operations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string", "description": "操作名（便于阅读结果）"}, "method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true}}, "required": []string{"path"}}, "description": "要执行的接口调用数组"}, "mode": map[string]interface{}{"type": "string", "enum": []string{"serial", "parallel"}, "description": "执行模式（默认 serial）"}, "stopOnError": map[string]interface{}{"type": "boolean", "description": "serial 模式下遇到失败是否停止后续（默认 false）"}}, "required": []string{"operations"}}},
 	}
 }
 
@@ -1062,6 +1086,11 @@ func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, key string, too
 4. 按契约用 call_api 调用；请求体字段以 get_route 返回的 requestSchema / requestExample 为准，不要猜。
 5. 默认只读；写操作（POST/PUT/PATCH/DELETE）会返回「写入未启用」提示，需管理员在「API 文档 → AI 接入」开启「允许写入」。
 6. 密钥可随时在「API 文档 → AI 接入」页面轮换；请勿将密钥写入公开仓库。
+
+## 强制验证规则（不可省略）
+1. 写操作（POST/PUT/PATCH/DELETE）调用返回后，必须立即回读验证真实生效：用 GET 列表/详情接口确认目标资源已存在且状态正确（如 enabled、next_run 等），仅凭创建接口自身返回 2xx 不算完成。
+2. 每次调用都必须检查响应：HTTP 非 2xx、或 body 中 success=false、或 error 字段非空，均视为失败；任一失败出现时，禁止向用户宣称任务完成，必须如实报告错误。
+3. 宁可多一次回读调用，也不要在未验证生效前宣告成功；无法验证时如实说明「未能验证」。
 `, s.cfg.Version, key, key, manifestURL, mcpURL, openAPIURL, mcpURL, key, mcpURL, key, toolsText)
 }
 

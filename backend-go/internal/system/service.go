@@ -18,6 +18,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
@@ -1287,6 +1288,7 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 	diskUsage := readDiskUsage()
 	currentProcess := readProcessInfo(s.startedAt)
 
+	authTime := s.authoritativeTime()
 	return map[string]interface{}{
 		"hostname":      hostname(),
 		"platform":      nodePlatformName(runtime.GOOS),
@@ -1301,11 +1303,37 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 			"model":         cpuInfo.model,
 			"loadAverage":   readLoadAverage(),
 		},
-		"memory":    virtualMemory,
-		"disk":      diskUsage,
-		"process":   currentProcess,
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"memory":      virtualMemory,
+		"disk":        diskUsage,
+		"process":     currentProcess,
+		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
+		"serverTime":  authTime,
+		"displayTime": fmt.Sprintf("%s (%s)", authTime["local"], authTime["timezone"]),
 	}, nil
+}
+
+// authoritativeTime 返回站点设置的权威时间信息（供 AI 工具读取，避免模型凭记忆编造时间）。
+// 含 UTC 时刻、站点时区名与站点本地时间；读设置失败时回退服务器本地时区。
+func (s *Service) authoritativeTime() map[string]interface{} {
+	now := time.Now().UTC()
+	loc := time.Local
+	zone := "system"
+	db, err := s.store.Open(context.Background())
+	if err == nil {
+		zone = timeutil.ReadTimeZone(context.Background(), db)
+		_ = db.Close()
+		loc = timeutil.LocationFromName(zone)
+	}
+	return map[string]interface{}{
+		"utc":        now.Format(time.RFC3339Nano),
+		"timezone":   zone,
+		"local":      now.In(loc).Format("2006-01-02 15:04:05"),
+		"localISO":   now.In(loc).Format(time.RFC3339),
+		"weekday":    now.In(loc).Weekday().String(),
+		"date":       now.In(loc).Format("2006-01-02"),
+		"clock":      now.In(loc).Format("15:04:05"),
+		"note":       "时间以 serverTime 为准，禁止凭训练记忆推测当前时间",
+	}
 }
 
 type cpuDetails struct {
