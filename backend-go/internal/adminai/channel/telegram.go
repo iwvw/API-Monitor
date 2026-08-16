@@ -1,19 +1,18 @@
 package channel
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/tgapi"
 )
 
 // TelegramConfig 是 Telegram 频道的明文配置（来自 admin_ai_channels.config_encrypted 解密后）。
@@ -379,36 +378,16 @@ func (t *TelegramChannel) getUpdates(ctx context.Context) ([]map[string]interfac
 	offset := t.offset
 	t.mu.Unlock()
 
-	body, _ := json.Marshal(map[string]interface{}{
+	env, err := tgapi.NewClient(t.cfg.BotToken, t.httpCli).Call(ctx, "getUpdates", map[string]interface{}{
 		"offset": offset, "timeout": 30, "allowed_updates": []string{"message"},
 	})
-	endpoint := "https://api.telegram.org/bot" + t.cfg.BotToken + "/getUpdates"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := t.httpCli.Do(req)
+	updates, err := tgapi.DecodeArray[map[string]interface{}](env)
 	if err != nil {
-		return nil, fmt.Errorf("telegram getUpdates 请求失败: %w", err)
+		return nil, err
 	}
-	defer res.Body.Close()
-	raw, _ := io.ReadAll(res.Body)
-
-	var envelope struct {
-		OK          bool                     `json:"ok"`
-		Description string                   `json:"description"`
-		Result      []map[string]interface{} `json:"result"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("telegram getUpdates 响应解析失败: %w", err)
-	}
-	if !envelope.OK {
-		return nil, fmt.Errorf("telegram getUpdates 错误: %s", envelope.Description)
-	}
-
-	updates := envelope.Result
-	out := make([]map[string]interface{}, 0, len(updates))
 	for _, upd := range updates {
 		if id, ok := upd["update_id"].(float64); ok {
 			newOffset := int64(id) + 1
@@ -418,9 +397,8 @@ func (t *TelegramChannel) getUpdates(ctx context.Context) ([]map[string]interfac
 			}
 			t.mu.Unlock()
 		}
-		out = append(out, upd)
 	}
-	return out, nil
+	return updates, nil
 }
 
 // handleUpdate 处理单条更新（只处理 message）。
@@ -526,45 +504,13 @@ func (t *TelegramChannel) envelopeFromMessage(msg map[string]interface{}) Inboun
 }
 
 // callAPI 调用 Telegram Bot API，返回 result 对象（对象形态；数组形态见 getUpdates）。
+// 底层复用 tgapi 共享客户端（与通知中心同一份 API 调用代码）。
 func (t *TelegramChannel) callAPI(ctx context.Context, method string, payload map[string]interface{}) (map[string]interface{}, error) {
-	body, _ := json.Marshal(payload)
-	endpoint := "https://api.telegram.org/bot" + t.cfg.BotToken + "/" + method
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	env, err := tgapi.NewClient(t.cfg.BotToken, t.httpCli).Call(ctx, method, payload)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := t.httpCli.Do(req)
-	if err != nil {
-		var urlErr *url.Error
-		if ok := asURLError(err, &urlErr); ok && urlErr != nil {
-			err = urlErr.Err
-		}
-		return nil, fmt.Errorf("telegram API 请求失败: %w", err)
-	}
-	defer res.Body.Close()
-	raw, _ := io.ReadAll(res.Body)
-
-	var envelope struct {
-		OK          bool                   `json:"ok"`
-		Description string                 `json:"description"`
-		Result      map[string]interface{} `json:"result"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("telegram API 响应解析失败: %w", err)
-	}
-	if !envelope.OK {
-		return nil, fmt.Errorf("telegram API 错误: %s", envelope.Description)
-	}
-	return envelope.Result, nil
-}
-
-func asURLError(err error, target **url.Error) bool {
-	u, ok := err.(*url.Error)
-	if ok {
-		*target = u
-	}
-	return ok
+	return tgapi.DecodeObject[map[string]interface{}](env)
 }
 
 // setError / setStopped 更新状态。

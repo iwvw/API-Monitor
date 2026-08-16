@@ -27,6 +27,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/iwvw/api-monitor/backend-go/internal/tgapi"
 	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
@@ -1725,6 +1726,22 @@ type telegramAPIResponse struct {
 	} `json:"result"`
 }
 
+// callTelegram 调用 Telegram Bot API，返回 result 对象。
+// 底层复用 tgapi 共享客户端（与 adminai 频道同一份 API 调用代码）。
+func (s *Service) callTelegram(ctx context.Context, client *http.Client, token, method string, payload map[string]interface{}) (telegramAPIResponse, error) {
+	env, err := tgapi.NewClient(token, client).Call(ctx, method, payload)
+	if err != nil {
+		return telegramAPIResponse{}, err
+	}
+	var result telegramAPIResponse
+	result.OK = env.OK
+	result.Description = env.Description
+	if err := json.Unmarshal(env.Result, &result.Result); err != nil {
+		return telegramAPIResponse{}, err
+	}
+	return result, nil
+}
+
 func (s *Service) sendTelegram(ctx context.Context, cfg map[string]interface{}, title, message string) (deliveryResult, error) {
 	token := stringValue(cfg["bot_token"])
 	chatID := stringValue(cfg["chat_id"])
@@ -1986,41 +2003,6 @@ func (s *Service) telegramHTTPClient(cfg map[string]interface{}) (*http.Client, 
 		timeout = requestTimeout
 	}
 	return &http.Client{Timeout: timeout, Transport: transport}, nil
-}
-
-func (s *Service) callTelegram(ctx context.Context, client *http.Client, token, method string, payload map[string]interface{}) (telegramAPIResponse, error) {
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/"+method, bytes.NewReader(body))
-	if err != nil {
-		return telegramAPIResponse{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := client.Do(req)
-	if err != nil {
-		var requestErr *url.Error
-		if errors.As(err, &requestErr) {
-			err = requestErr.Err
-		}
-		return telegramAPIResponse{}, fmt.Errorf("telegram API request failed: %w", err)
-	}
-	defer res.Body.Close()
-	var result telegramAPIResponse
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
-		if res.StatusCode < 200 || res.StatusCode >= 300 {
-			return telegramAPIResponse{}, fmt.Errorf("telegram API status %d", res.StatusCode)
-		}
-		return telegramAPIResponse{}, err
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		if result.Description != "" {
-			return telegramAPIResponse{}, fmt.Errorf("telegram API status %d: %s", res.StatusCode, result.Description)
-		}
-		return telegramAPIResponse{}, fmt.Errorf("telegram API status %d", res.StatusCode)
-	}
-	if !result.OK {
-		return telegramAPIResponse{}, fmt.Errorf("telegram API error: %s", result.Description)
-	}
-	return result, nil
 }
 
 func (s *Service) systemLocation(ctx context.Context) (*time.Location, string) {
