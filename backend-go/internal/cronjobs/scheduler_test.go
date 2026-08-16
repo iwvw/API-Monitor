@@ -190,6 +190,57 @@ func TestSchedulerWorkflowDagValidationAndRun(t *testing.T) {
 	}
 }
 
+func TestSchedulerWorkflowLegacyTaskNodeExecutesAsShell(t *testing.T) {
+	service := newCronService(t)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	// 模拟存量工作流：直插 DB 绕开 buildWorkflow 规范化，节点保持 type=task
+	// （旧画布默认类型），验证执行路径兜底按 shell 执行且不重存也可恢复。
+	legacy, err := insertWorkflow(context.Background(), db, Workflow{
+		Name:    "Legacy Task Nodes",
+		Schedule: "*/5 * * * *",
+		Enabled: 1,
+		Nodes: []WorkflowNode{
+			{ID: "start", Name: "开始", Type: "start", Enabled: 1},
+			{ID: "check", Name: "检查主机", Type: "task", Command: "echo legacy-ok", Enabled: 1},
+			{ID: "end", Name: "结束", Type: "end", Enabled: 1},
+		},
+		Edges: []WorkflowEdge{
+			{From: "start", To: "check", Condition: "success"},
+			{From: "check", To: "end", Condition: "success"},
+		},
+		ConcurrencyPolicy: "skip",
+		FailurePolicy:     "stop",
+	})
+	if err != nil {
+		t.Fatalf("insert legacy workflow: %v", err)
+	}
+	for _, n := range legacy.Nodes {
+		if n.Type != "task" && n.Type != "start" && n.Type != "end" {
+			t.Fatalf("fixture should keep raw node types, got %q", n.Type)
+		}
+	}
+
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/workflows/"+strconv.FormatInt(legacy.ID, 10)+"/run", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("run legacy workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	run := decodeCronData[WorkflowRun](t, res)
+	if run.Status != "success" {
+		t.Fatalf("legacy task node should fall back to shell, got status=%s summary=%s", run.Status, run.Summary)
+	}
+	for _, nr := range run.NodeRuns {
+		if nr.Status != "success" {
+			t.Fatalf("node %s should succeed, got %s: %s", nr.NodeID, nr.Status, nr.Output)
+		}
+	}
+}
+
 func TestSchedulerWorkflowStartEndNodesAreMarkers(t *testing.T) {
 	service := newCronService(t)
 

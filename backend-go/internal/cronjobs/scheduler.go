@@ -1273,9 +1273,15 @@ func (s *Service) executeWorkflowNode(ctx context.Context, db *sql.DB, node Work
 		}
 		return s.executeTaskCommand(ctx, task)
 	}
+	nodeType := node.Type
+	if nodeType == "" || nodeType == "task" {
+		// 存量工作流（旧画布默认类型）与内联 command 节点按 shell 执行，
+		// 与 buildWorkflow 的写入规范化一致；执行路径兜底保证老记录不手动重存也能恢复。
+		nodeType = "shell"
+	}
 	task := Task{
 		Name:    node.Name,
-		Type:    firstNonEmpty(node.Type, "shell"),
+		Type:    nodeType,
 		Command: node.Command,
 		Enabled: 1,
 		Config:  node.Config,
