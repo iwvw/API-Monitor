@@ -386,6 +386,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/admin-ai/channel-bindings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定列表/新增", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channel-bindings/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定删除", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/settings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 系统设置", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/memories", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 长期记忆列表/新增", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/memories/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 长期记忆更新/删除", MatchMode: MatchPattern},
 	}
 }
 

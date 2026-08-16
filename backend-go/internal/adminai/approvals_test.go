@@ -403,7 +403,7 @@ func TestToolDescTemplatePathMatch(t *testing.T) {
 		{"无参路径精确命中", `{"method":"GET","path":"/api/aliyun/accounts"}`, "列出或新增阿里云账号"},
 		{"具体 id 命中模板", `{"method":"GET","path":"/api/aliyun/accounts/1/domains"}`, "列出或添加域名"},
 		{"多层具体 id 命中模板", `{"method":"GET","path":"/api/cloudflare/zones/zone_abc/dns_records"}`, "管理 DNS 记录"},
-		{"未知路径回退方法+路径", `{"method":"POST","path":"/api/unknown"}`, "POST /api/unknown"},
+		{"未知路径不回退（语义视图只展示清单内动作描述）", `{"method":"POST","path":"/api/unknown"}`, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

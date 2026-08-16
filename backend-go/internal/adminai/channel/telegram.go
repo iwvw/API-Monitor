@@ -224,6 +224,25 @@ func (t *TelegramChannel) Edit(ctx context.Context, to, id string, msg OutboundM
 	return derr
 }
 
+// Delete 删除已有消息（"message to delete not found" 等视为已删除，静默忽略）。
+func (t *TelegramChannel) Delete(ctx context.Context, to, id string) error {
+	if id == "" {
+		return nil
+	}
+	_, err := t.callAPI(ctx, "deleteMessage", map[string]interface{}{
+		"chat_id": to, "message_id": id,
+	})
+	if err != nil {
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "not found") || strings.Contains(low, "can't delete message") {
+			return nil
+		}
+		slog.Warn("telegram-delete-failed", "chatId", to, "msgId", id, "err", err.Error())
+		return err
+	}
+	return nil
+}
+
 // renderBlocks 把结构化块渲染为 MarkdownV2 文本。
 func (t *TelegramChannel) renderBlocks(blocks []OutboundBlock, fallback string) string {
 	var sb strings.Builder

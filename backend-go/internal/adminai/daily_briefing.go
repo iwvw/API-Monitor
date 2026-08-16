@@ -15,9 +15,61 @@ import (
 )
 
 const (
-	adminAIKeyBriefingModel = "admin_ai_briefing_model" // 站点简报专用模型（留空回退默认模型）
-	briefingContextTimeout  = 600 * time.Second
+	adminAIKeyBriefingModel    = "admin_ai_briefing_model"   // 站点简报专用模型（留空回退默认模型）
+	adminAIKeyBriefingTemplate = "admin_ai_briefing_template" // 站点简报模板配置（JSON：{"type","custom"}）
+	briefingContextTimeout     = 600 * time.Second
 )
+
+// briefingTemplatePrompts 是简报模板库：type → 格式要求段落（追加到身份句之后）。
+// 前端设置页与这里保持一致的模板清单。
+var briefingTemplatePrompts = map[string]string{
+	"standard": "格式要求：包含标题与关键指标小节（系统资源 / API 调用 / 可用性），突出异常与健康风险，正常项一笔带过；全文不超过 400 字，适合在 Telegram 中阅读。",
+	"brief": "格式要求：极简风格——开头一句话结论，随后用项目符号列出关键指标与异常项，正常指标不逐项列出；全文不超过 150 字。",
+	"detailed": "格式要求：完整报告风格——标题、摘要、分节（系统资源 / API 调用 / 可用性 / 风险与建议），每个指标给出具体数值，结尾给出优化建议；全文不超过 800 字。",
+	"alert_only": "格式要求：仅报告异常——只有发现异常或风险时才输出内容，按严重度排序列出（每项包含影响与建议）；一切正常时仅输出一句“一切正常”。",
+}
+
+// defaultBriefingTemplateJSON 是简报模板配置的默认值（未配置时使用标准模板）。
+const defaultBriefingTemplateJSON = `{"type":"standard","custom":""}`
+
+// briefingTemplatePrompt 读取设置中的简报模板配置，返回拼入系统提示词的格式要求段落。
+func (s *Service) briefingTemplatePrompt(ctx context.Context) string {
+	db, err := s.open(ctx)
+	if err == nil {
+		var raw string
+		if err := db.QueryRowContext(ctx, `SELECT value FROM system_config WHERE key = ?`, adminAIKeyBriefingTemplate).Scan(&raw); err == nil && strings.TrimSpace(raw) != "" {
+			db.Close()
+			return resolveBriefingTemplatePrompt(raw)
+		}
+		db.Close()
+	}
+	return briefingTemplatePrompts["standard"]
+}
+
+// resolveBriefingTemplatePrompt 把模板配置 JSON 解析为格式要求段落（纯函数，便于测试）。
+// 未知类型、非法 JSON 一律回退标准模板；custom 类型使用用户自定义文本。
+func resolveBriefingTemplatePrompt(raw string) string {
+	var cfg struct {
+		Type   string `json:"type"`
+		Custom string `json:"custom"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return briefingTemplatePrompts["standard"]
+	}
+	switch cfg.Type {
+	case "custom":
+		custom := strings.TrimSpace(cfg.Custom)
+		if custom == "" {
+			return briefingTemplatePrompts["standard"]
+		}
+		return "格式要求（用户自定义）：\n" + custom
+	case "standard", "brief", "detailed", "alert_only":
+		if prompt, ok := briefingTemplatePrompts[cfg.Type]; ok {
+			return prompt
+		}
+	}
+	return briefingTemplatePrompts["standard"]
+}
 
 // handleDailyBriefing GET /api/admin-ai/cron/daily-briefing
 // 定时任务内部接口（本机 cron 经 X-Internal-Cron 调用）：收集站点实时状态，
@@ -55,7 +107,7 @@ func (s *Service) handleDailyBriefing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	briefing, err := s.generateBriefing(ctx, model, snapshot)
+	briefing, err := s.generateBriefing(ctx, model, s.briefingTemplatePrompt(ctx), snapshot)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "生成简报失败: "+err.Error())
 		return
@@ -79,7 +131,7 @@ func (s *Service) handleDailyBriefing(w http.ResponseWriter, r *http.Request) {
 			item := map[string]interface{}{"channelId": target.NotificationChannelID}
 			if s.src == nil {
 				item["error"] = "通知中心服务未注入"
-			} else if sendErr := s.src.SendToChannel(ctx, target.NotificationChannelID, "每日站点简报", briefing); sendErr != nil {
+			} else if sendErr := s.src.SendRichToChannel(ctx, target.NotificationChannelID, "每日站点简报", briefing); sendErr != nil {
 				item["error"] = sendErr.Error()
 			} else {
 				item["ok"] = true
@@ -151,12 +203,10 @@ func (s *Service) gatherSiteSnapshot(ctx context.Context) (string, error) {
 }
 
 // generateBriefing 调用 AI 生成简洁的中文站点每日简报。
-func (s *Service) generateBriefing(ctx context.Context, model, snapshot string) (string, error) {
-	systemPrompt := "你是 API Monitor 站点的运维简报生成器。请根据提供的站点实时状态数据，生成一份简洁的中文《站点每日简报》，要求：" +
-		"1. 使用 Telegram MarkdownV2 兼容的轻量 Markdown（粗体/项目符号/行内代码，避免复杂表格与嵌套）；" +
-		"2. 包含标题与关键指标小节（系统资源 / API 调用 / 可用性）；" +
-		"3. 突出异常与健康风险，正常项一笔带过；" +
-		"4. 全文不超过 400 字，适合在 Telegram 中阅读。"
+// templatePrompt 为设置中选定的简报模板格式要求（见 briefingTemplatePrompt）。
+func (s *Service) generateBriefing(ctx context.Context, model, templatePrompt, snapshot string) (string, error) {
+	systemPrompt := "你是 API Monitor 站点的运维简报生成器。请根据提供的站点实时状态数据，生成一份简洁的中文《站点简报》。" +
+		"使用 Telegram MarkdownV2 兼容的轻量 Markdown（粗体/项目符号/行内代码，避免复杂表格与嵌套）。\n" + templatePrompt
 	resp, err := s.callLLMPlain(ctx, model, []map[string]interface{}{
 		{"role": "system", "content": systemPrompt},
 		{"role": "user", "content": "站点实时状态数据：\n" + snapshot},

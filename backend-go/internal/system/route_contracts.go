@@ -1091,6 +1091,7 @@ func init() {
 		"prompt":    {t: "string", req: true, d: "用户消息"},
 		"model":     {t: "string", d: "指定模型"},
 		"source":    {t: "string", d: "会话来源"},
+		"rewindId":  {t: "string", d: "编辑重发：删除该消息及其后所有消息后再执行"},
 	})
 	routeRequestContracts["/api/admin-ai/cancel"] = obj([]string{"runId"}, map[string]prop{
 		"runId": {t: "string", req: true, d: "要取消的执行 ID"},
@@ -1122,6 +1123,18 @@ func init() {
 		"role":          {t: "string", d: "角色，默认 admin"},
 	})
 	routeRequestContracts["/api/admin-ai/channel-bindings/{id}"] = noBody
+	routeRequestContracts["/api/admin-ai/memories"] = obj([]string{"content"}, map[string]prop{
+		"content":    {t: "string", req: true, d: "记忆内容（最多 500 字）"},
+		"importance": {t: "number", d: "重要性 1-10，默认 5"},
+		"triggers":   {t: "string", d: "逗号分隔的触发词（选填）"},
+		"pinned":     {t: "boolean", d: "是否置顶"},
+	})
+	routeRequestContracts["/api/admin-ai/memories/{id}"] = obj(nil, map[string]prop{
+		"content":    {t: "string", d: "记忆内容（最多 500 字）"},
+		"importance": {t: "number", d: "重要性 1-10"},
+		"triggers":   {t: "string", d: "逗号分隔的触发词"},
+		"pinned":     {t: "boolean", d: "是否置顶"},
+	})
 	routeRequestContracts["/api/admin-ai/approvals/{id}"] = obj([]string{"action"}, map[string]prop{
 		"action":         {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
 		"applyToSession": {t: "boolean", d: "批准并授权本会话后续写操作免审批"},

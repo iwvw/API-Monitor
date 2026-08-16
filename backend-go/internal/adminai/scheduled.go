@@ -182,6 +182,8 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 // pushCronTaskOutput 把定时 AI 任务结果推送到指定频道：
 // 优先按通知中心渠道直发（新语义，channelId 为 notif_ 前缀的通知渠道 id）；
 // 旧 aac_ 前缀的 adminai 频道 id 走注册表 + 白名单目标兼容（已保存任务不受影响）。
+// 通知中心渠道走富消息（sendRichMessage），保留 AI 简报的 Markdown 结构
+// （标题/加粗/表格/代码块），避免逐行转义把简报破坏成纯文本。
 func (s *Service) pushCronTaskOutput(ctx context.Context, channelID, title, prompt, output string, toolCalls int) ([]map[string]interface{}, error) {
 	sent := fmt.Sprintf("定时 AI 任务「%s」\n已调用 %d 次工具，输出：\n\n%s", title, toolCalls, output)
 
@@ -190,7 +192,7 @@ func (s *Service) pushCronTaskOutput(ctx context.Context, channelID, title, prom
 		if _, ok, err := s.src.LoadChannel(ctx, channelID); err != nil {
 			return nil, fmt.Errorf("读取推送渠道失败: %w", err)
 		} else if ok {
-			if err := s.src.SendToChannel(ctx, channelID, "定时 AI 任务", sent); err != nil {
+			if err := s.src.SendRichToChannel(ctx, channelID, "定时 AI 任务", sent); err != nil {
 				return nil, fmt.Errorf("推送到通知渠道失败: %w", err)
 			}
 			return []map[string]interface{}{{"channelId": channelID, "ok": true}}, nil

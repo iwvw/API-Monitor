@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -17,13 +18,37 @@ const approvalTTL = 30 * time.Minute
 // approvalCleanerInterval 是后台清理 goroutine 的扫描间隔。
 const approvalCleanerInterval = 1 * time.Minute
 
-// StartBackground 启动 service 级后台任务（审批超时清理）。
+// StartBackground 启动 service 级后台任务（审批超时清理 + 自动记忆提炼）。
 // 由 server 初始化后调用；Stop 后 goroutine 退出。
 func (s *Service) StartBackground() {
 	s.cleanerOnce.Do(func() {
+		s.recoverStaleExecutions()
 		s.stopCleaner = make(chan struct{})
 		go s.approvalCleanerLoop()
 	})
+	s.startMemoryCapture()
+}
+
+// recoverStaleExecutions 启动恢复：上次进程中断残留的 running 执行统一标记为 error，
+// 避免前端永远看到"进行中"的假状态（executions 表无启动恢复前无自愈路径）。
+func (s *Service) recoverStaleExecutions() {
+	db, err := s.open(context.Background())
+	if err != nil {
+		slog.Warn("recover-executions", "err", err.Error())
+		return
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := db.ExecContext(context.Background(),
+		`UPDATE admin_ai_executions SET status = 'error', finished_at = ?, error = '进程中断：服务重启前的执行未完成' WHERE status = 'running'`,
+		now)
+	if err != nil {
+		slog.Warn("recover-executions", "err", err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Info("recover-executions", "recovered", n)
+	}
 }
 
 // StopBackground 停止后台任务（幂等）。
@@ -38,6 +63,14 @@ func (s *Service) StopBackground() {
 	}
 	close(s.stopCleaner)
 	s.stopCleaner = nil
+	if s.stopCapture != nil {
+		select {
+		case <-s.stopCapture:
+		default:
+			close(s.stopCapture)
+			s.stopCapture = nil
+		}
+	}
 }
 
 // approvalCleanerLoop 定时把已过期的 pending 审批标记为 expired。
@@ -182,12 +215,17 @@ var adminAISettingDefs = []struct {
 	{"admin_ai_enabled", "true", "管理 AI 总开关"},
 	{"admin_ai_default_model", "", "默认推理模型（endpointId/modelName）"},
 	{"admin_ai_briefing_model", "", "站点简报专用模型（留空回退默认模型）"},
+	{"admin_ai_briefing_template", `{"type":"standard","custom":""}`, "站点简报模板（JSON：{type,custom}，type: standard/brief/detailed/alert_only/custom）"},
 	{"admin_ai_write_enabled", "false", "写操作全局开关"},
 	{"admin_ai_auto_approve", "false", "完全批准模式（所有写操作免审批直接执行）"},
 	{"admin_ai_tool_call_limit", "12", "单轮最大工具调用次数"},
 	{"admin_ai_timeout_seconds", "300", "单轮执行超时秒数"},
 	{"admin_ai_context_window", "40000", "上下文窗口 token 上限"},
 	{"admin_ai_audit_retention_days", "90", "审计记录保留天数"},
+	{"admin_ai_memories_enabled", "true", "长期记忆总开关（跨会话持久事实与偏好）"},
+	{"admin_ai_memories_bootstrap_chars", "2000", "每轮对话注入系统提示词的长期记忆字符上限"},
+	{"admin_ai_memories_auto_capture", "true", "自动记忆提炼：会话空闲后后台总结值得长期记住的内容"},
+	{"admin_ai_memories_idle_minutes", "10", "会话空闲多少分钟后触发自动记忆提炼"},
 }
 
 // handleSettings GET/PUT /api/admin-ai/settings
@@ -271,3 +309,4 @@ func systemConfigKeyPlaceholders(defs []struct {
 	}
 	return placeholders
 }
+

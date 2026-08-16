@@ -205,3 +205,35 @@ func TestChannelCommandUnknownPassesThrough(t *testing.T) {
 		t.Fatal("/xyz 不应被命令处理，应交给 AI 对话")
 	}
 }
+
+// TestResolveBriefingTemplatePrompt 验证简报模板配置解析：
+// 各内置类型返回对应格式要求；custom 使用自定义文本；非法/未知回退标准模板。
+func TestResolveBriefingTemplatePrompt(t *testing.T) {
+	cases := []struct {
+		raw         string
+		contains    []string
+		notContains []string
+	}{
+		{`{"type":"standard"}`, []string{"格式要求：包含标题与关键指标小节"}, nil},
+		{`{"type":"brief"}`, []string{"格式要求：极简风格"}, nil},
+		{`{"type":"detailed"}`, []string{"格式要求：完整报告风格"}, nil},
+		{`{"type":"alert_only"}`, []string{"格式要求：仅报告异常"}, nil},
+		{`{"type":"custom","custom":"请用表格展示所有指标"}`, []string{"用户自定义", "请用表格展示所有指标"}, nil},
+		{`{"type":"custom","custom":""}`, []string{"格式要求：包含标题与关键指标小节"}, nil},
+		{"not-json", []string{"格式要求：包含标题与关键指标小节"}, nil},
+		{`{"type":"unknown"}`, []string{"格式要求：包含标题与关键指标小节"}, nil},
+	}
+	for _, c := range cases {
+		out := resolveBriefingTemplatePrompt(c.raw)
+		for _, want := range c.contains {
+			if !strings.Contains(out, want) {
+				t.Errorf("raw=%q 应包含 %q，实际: %s", c.raw, want, out)
+			}
+		}
+		for _, not := range c.notContains {
+			if strings.Contains(out, not) {
+				t.Errorf("raw=%q 不应包含 %q，实际: %s", c.raw, not, out)
+			}
+		}
+	}
+}

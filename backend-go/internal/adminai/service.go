@@ -43,10 +43,15 @@ type Service struct {
 	catalogText  string
 	catalogDone  bool
 	catalogDescs map[string]string // path -> 中文描述（工具步骤展示用）
+	catalogRoutes []map[string]interface{} // 完整路由契约缓存（get_route 用），与 catalogText 同锁
 
 	chanMgr     *channelManager // PRD-03 频道接入（channels.go）
 	cleanerOnce sync.Once       // PRD-04 审批超时清理 goroutine
 	stopCleaner chan struct{}
+	captureOnce sync.Once       // 自动记忆提炼 goroutine（memory_agent.go）
+	stopCapture chan struct{}
+	captureInFlight map[string]bool // 提炼防重：同会话同时只允许一次提炼（进程内）
+	toolLoops      map[string]int // 工具循环检测：runId|指纹 -> 累计调用次数（engine.go）
 	src         *notification.Service // 通知中心：AI 频道 bot token 来源 + 结果推送出口
 }
 
@@ -59,6 +64,8 @@ func New(cfg config.Config) *Service {
 		cancels:     make(map[string]context.CancelFunc),
 		approval:    make(map[string]chan approvalResolution),
 		runPolicy:   make(map[string]string),
+		captureInFlight: make(map[string]bool),
+		toolLoops:      make(map[string]int),
 	}
 }
 
@@ -88,6 +95,11 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 }
 
 func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
+	// FTS 触发器升级：旧版为全列 AFTER UPDATE（访问计数更新也会重插 FTS 索引），
+	// 新版仅 content 变更触发；DROP 后由下方 CREATE IF NOT EXISTS 重建，幂等。
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS trg_admin_ai_memories_au`); err != nil {
+		return fmt.Errorf("adminai ensureSchema drop trg: %w", err)
+	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS admin_ai_sessions (
 			id TEXT PRIMARY KEY,
@@ -167,6 +179,30 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at TEXT NOT NULL,
 			UNIQUE(channel_id, channel_user_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS admin_ai_memories (
+			id TEXT PRIMARY KEY,
+			content TEXT NOT NULL,
+			importance INTEGER NOT NULL DEFAULT 5,
+			triggers TEXT NOT NULL DEFAULT '',
+			pinned INTEGER NOT NULL DEFAULT 0,
+			source TEXT NOT NULL DEFAULT 'manual',
+			session_id TEXT,
+			access_count INTEGER NOT NULL DEFAULT 0,
+			last_accessed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS admin_ai_memories_fts USING fts5(content, id UNINDEXED, content='admin_ai_memories', content_rowid='rowid', tokenize='trigram case_sensitive 0')`,
+		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_ai AFTER INSERT ON admin_ai_memories BEGIN
+			INSERT INTO admin_ai_memories_fts(rowid, content, id) VALUES (new.rowid, new.content, new.id);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_ad AFTER DELETE ON admin_ai_memories BEGIN
+			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, id) VALUES ('delete', old.rowid, old.content, old.id);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_au AFTER UPDATE OF content ON admin_ai_memories BEGIN
+			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, id) VALUES ('delete', old.rowid, old.content, old.id);
+			INSERT INTO admin_ai_memories_fts(rowid, content, id) VALUES (new.rowid, new.content, new.id);
+		END`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_sessions_activity ON admin_ai_sessions(last_activity_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_messages_session ON admin_ai_messages(session_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_executions_session ON admin_ai_executions(session_id, started_at)`,
@@ -175,6 +211,8 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_approvals_status ON admin_ai_approvals(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_channels_type ON admin_ai_channels(type)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_bindings_user ON admin_ai_channel_bindings(channel_user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_ai_memories_updated ON admin_ai_memories(updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_ai_memories_importance ON admin_ai_memories(importance DESC)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -188,6 +226,10 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	// admin_ai_channels 扩展 notification_channel_id 列（AI 频道 bot token 复用通知中心渠道；空=沿用旧 config token）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_channels", "notification_channel_id", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_channels.notification_channel_id: %w", err)
+	}
+	// admin_ai_sessions 扩展 memory_extracted_at 列（自动记忆提炼游标：已提炼到的消息时间，空=尚未提炼）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_extracted_at", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.memory_extracted_at: %w", err)
 	}
 	// admin_ai_messages 扩展 reasoning_content 列（推理模型要求回传思考内容）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_content", "TEXT DEFAULT ''"); err != nil {
@@ -300,6 +342,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.deleteBinding(w, r, strings.TrimPrefix(path, "/channel-bindings/"))
 	case path == "/settings" && (r.Method == http.MethodGet || r.Method == http.MethodPut):
 		s.handleSettings(w, r)
+	case path == "/memories" && r.Method == http.MethodGet:
+		s.handleListMemories(w, r)
+	case path == "/memories" && r.Method == http.MethodPost:
+		s.handleCreateMemory(w, r)
+	case strings.HasPrefix(path, "/memories/") && r.Method == http.MethodPut:
+		s.handleUpdateMemory(w, r, strings.TrimPrefix(path, "/memories/"))
+	case strings.HasPrefix(path, "/memories/") && r.Method == http.MethodDelete:
+		s.handleDeleteMemory(w, r, strings.TrimPrefix(path, "/memories/"))
 	case path == "/cron/daily-briefing" && r.Method == http.MethodGet:
 		s.handleDailyBriefing(w, r)
 	case path == "/cron/task-run" && r.Method == http.MethodPost:
@@ -488,16 +538,34 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		// 工具调用行补中文动作描述（与实时 tool_start 事件的 desc 一致，保证刷新前后样式统一）
+		// 工具调用行补中文动作描述（与实时 tool_start 事件的 desc 一致，保证刷新前后样式统一）。
+		// 逐调用计算并注入 meta（不落库，仅响应层装饰）：前端按调用序号取描述，
+		// 刷新/轮询重拉后多轮 tool_calls 不再丢失各自描述。
 		if item.ToolCallMeta != "" {
-			var tcs []struct {
-				Function struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function"`
-			}
-			if json.Unmarshal([]byte(item.ToolCallMeta), &tcs) == nil && len(tcs) > 0 {
-				item.ToolCallDesc = s.toolDesc(tcs[0].Function.Name, tcs[0].Function.Arguments)
+			var raw []map[string]interface{}
+			if json.Unmarshal([]byte(item.ToolCallMeta), &raw) == nil && len(raw) > 0 {
+				for _, tc := range raw {
+					fn, _ := tc["function"].(map[string]interface{})
+					name, _ := fn["name"].(string)
+					argsJSON := ""
+					if a, ok := fn["arguments"].(string); ok {
+						argsJSON = a
+					}
+					if d := s.toolDesc(name, argsJSON); d != "" {
+						tc["desc"] = d
+					}
+				}
+				if b, err := json.Marshal(raw); err == nil {
+					item.ToolCallMeta = string(b)
+				}
+				if fn, _ := raw[0]["function"].(map[string]interface{}); fn != nil {
+					name, _ := fn["name"].(string)
+					argsJSON := ""
+					if a, ok := fn["arguments"].(string); ok {
+						argsJSON = a
+					}
+					item.ToolCallDesc = s.toolDesc(name, argsJSON)
+				}
 			}
 		}
 		items = append(items, item)
@@ -530,6 +598,7 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 		Prompt    string `json:"prompt"`
 		Model     string `json:"model"`
 		Source    string `json:"source"`
+		RewindID  string `json:"rewindId"` // 编辑重发：删除该消息及其后所有消息后再执行
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -551,6 +620,39 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Unlock()
+
+	// 编辑重发：先截断服务端历史（删除被编辑消息及其后所有消息），
+	// 新 prompt 由 runInference 写入为新用户消息行，保证重发后的上下文与界面一致、
+	// 不残留旧消息。删除顺序与 restoreSessionHistory 的 (created_at, id) 排序一致。
+	if req.RewindID != "" {
+		db, err := s.open(r.Context())
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var createdAt string
+		err = db.QueryRowContext(r.Context(),
+			`SELECT created_at FROM admin_ai_messages WHERE id = ? AND session_id = ?`,
+			req.RewindID, req.SessionID).Scan(&createdAt)
+		if err == sql.ErrNoRows {
+			db.Close()
+			response.Error(w, http.StatusBadRequest, "要编辑的消息不存在或已被清理")
+			return
+		}
+		if err != nil {
+			db.Close()
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		_, err = db.ExecContext(r.Context(),
+			`DELETE FROM admin_ai_messages WHERE session_id = ? AND (created_at > ? OR (created_at = ? AND id >= ?))`,
+			req.SessionID, createdAt, createdAt, req.RewindID)
+		db.Close()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 
 	runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "")
 	if err != nil {

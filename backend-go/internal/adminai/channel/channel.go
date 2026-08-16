@@ -21,6 +21,8 @@ type Channel interface {
 	Send(ctx context.Context, to string, msg OutboundMessage) (string, error)
 	// Edit 编辑已有消息（流式编辑预览）。
 	Edit(ctx context.Context, to, id string, msg OutboundMessage) error
+	// Delete 删除已有消息（如处理完的占位状态消息；消息不存在时静默忽略）。
+	Delete(ctx context.Context, to, id string) error
 	// Status 返回当前运行状态。
 	Status() ChannelStatus
 }

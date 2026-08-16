@@ -679,29 +679,50 @@ func formatUptime(seconds float64) string {
 	}
 }
 
-// channelBriefingReply 立即生成站点简报并发送到当前 chat。
+// channelBriefingReply 响应 /briefing 命令：先发送占位提示消息，再异步生成简报并发送，
+// 避免生成期间（可达数十秒）用户无任何反馈误以为机器人宕机。
 func (s *Service) channelBriefingReply(env channel.InboundEnvelope) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
-	defer cancel()
-	model := s.getBriefingModel(ctx)
-	if model == "" {
-		return "⚠️ 未配置简报模型，请在「管理 AI 设置」中配置默认模型。"
-	}
-	snapshot, err := s.gatherSiteSnapshot(ctx)
-	if err != nil {
-		return "⚠️ 收集站点状态失败：" + err.Error()
-	}
-	briefing, err := s.generateBriefing(ctx, model, snapshot)
-	if err != nil {
-		return "⚠️ 生成简报失败：" + err.Error()
-	}
 	ch, ok := s.chanMgr.registry.Get(env.ChannelID)
 	if !ok {
 		return "⚠️ 频道未注册：" + env.ChannelID
 	}
-	if _, err := ch.Send(ctx, env.ChatID, channel.OutboundMessage{Text: briefing}); err != nil {
-		return "⚠️ 发送简报失败：" + err.Error()
+	// 占位消息同步发出，保证用户立即看到处理状态；生成与发送在后台执行。
+	phID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在生成站点简报（约需 10-60 秒），请稍候…"})
+	if err != nil {
+		return "⚠️ 发送占位消息失败：" + err.Error()
 	}
+	// clearPlaceholder 在简报（或错误提示）发出后删除占位状态消息，避免聊天区残留状态。
+	clearPlaceholder := func() {
+		if phID != "" {
+			_ = ch.Delete(context.Background(), env.ChatID, phID)
+		}
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+		defer cancel()
+		model := s.getBriefingModel(ctx)
+		if model == "" {
+			_, _ = ch.Send(ctx, env.ChatID, channel.OutboundMessage{Text: "⚠️ 未配置简报模型，请在「管理 AI 设置」中配置默认模型。"})
+			clearPlaceholder()
+			return
+		}
+		snapshot, err := s.gatherSiteSnapshot(ctx)
+		if err != nil {
+			_, _ = ch.Send(ctx, env.ChatID, channel.OutboundMessage{Text: "⚠️ 收集站点状态失败：" + err.Error()})
+			clearPlaceholder()
+			return
+		}
+		briefing, err := s.generateBriefing(ctx, model, s.briefingTemplatePrompt(ctx), snapshot)
+		if err != nil {
+			_, _ = ch.Send(ctx, env.ChatID, channel.OutboundMessage{Text: "⚠️ 生成简报失败：" + err.Error()})
+			clearPlaceholder()
+			return
+		}
+		if _, err := ch.Send(ctx, env.ChatID, channel.OutboundMessage{Text: briefing}); err != nil {
+			slog.Warn("channel-briefing-send-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
+		}
+		clearPlaceholder()
+	}()
 	return ""
 }
 
