@@ -545,7 +545,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       }
     };
     poll(); // 面板刚打开立即同步一次，避免等首个 3s 周期
-    const timer = window.setInterval(poll, 3000);
+    const timer = window.setInterval(poll, 2000);
     return () => window.clearInterval(timer);
   }, [showAskAI, loadSessions, loadMessages]);
 
