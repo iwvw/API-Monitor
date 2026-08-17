@@ -1538,6 +1538,7 @@ function AIAuditConsole({
             placeholder="搜索时间、动作、目标、IP..."
             className="w-full pl-7"
             size="sm"
+            aria-label="搜索调用日志"
           />
         </div>
         {searchText || actionFilter ? (

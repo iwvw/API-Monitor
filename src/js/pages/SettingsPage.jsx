@@ -345,6 +345,30 @@ function SettingsPage() {
     }
   }, []);
 
+  const fetchRuntimeState = useCallback(async () => {
+    try {
+      const [statsResponse, logSettingsResponse] = await Promise.all([
+        fetch('/api/settings/database-stats', { headers: getAuthHeaders() }),
+        fetch('/api/settings/log-settings', { headers: getAuthHeaders() }),
+      ]);
+
+      const statsResult = await statsResponse.json();
+      if (statsResult.success) setDbStats(statsResult.data);
+
+      const logSettingsResult = await logSettingsResponse.json();
+      if (logSettingsResult.success) {
+        setLogSettings((prev) => ({
+          ...prev,
+          ...logSettingsResult.data,
+          autoCleanup: !!logSettingsResult.data?.autoCleanup,
+        }));
+        setLogFileInfo(logSettingsResult.fileInfo || null);
+      }
+    } catch (error) {
+      console.error('获取运行状态失败', error);
+    }
+  }, []);
+
   const fetchTwoFAStatus = useCallback(async () => {
     const response = await fetch('/api/auth/2fa/status', { headers: getAuthHeaders() });
     const result = await response.json();
@@ -440,6 +464,7 @@ function SettingsPage() {
     setSettingsLoading(true);
     try {
       await fetchSettings();
+      if (activeTab === 'general') await fetchRuntimeState();
       if (activeTab === 'appearance') await loadSiteBrandIcons();
       if (activeTab === 'database') await fetchDbState();
       if (activeTab === 'logs') await fetchLogState();
@@ -451,7 +476,13 @@ function SettingsPage() {
     } finally {
       setSettingsLoading(false);
     }
-  }, [activeTab, fetchDbState, fetchGitHubAuthConfig, fetchHealth, fetchLogState, fetchLoginSessions, fetchPasskeys, fetchSettings, fetchTwoFAStatus, loadSiteBrandIcons]);
+  }, [activeTab, fetchDbState, fetchGitHubAuthConfig, fetchHealth, fetchLogState, fetchLoginSessions, fetchPasskeys, fetchRuntimeState, fetchSettings, fetchTwoFAStatus, loadSiteBrandIcons]);
+
+  useEffect(() => {
+    if (activeTab === 'general') {
+      fetchRuntimeState();
+    }
+  }, [activeTab, fetchRuntimeState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1949,7 +1980,7 @@ function SettingsPage() {
             }
           >
             <div className="p-5">
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3 cq-xl:grid-cols-5">
                 <Input size="sm" label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
                 <Input size="sm" label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
                 <Input size="sm" label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
@@ -1973,7 +2004,7 @@ function SettingsPage() {
               bodyPadding="none"
               bodyClassName="min-h-0 flex-1 overflow-auto"
             >
-              <Table layout="fixed">
+              <Table layout="fixed" className="min-w-[700px]">
                 <colgroup>
                   <col className="w-[170px]" />
                   <col className="w-[220px]" />

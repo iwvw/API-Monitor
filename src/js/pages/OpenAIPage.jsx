@@ -4113,6 +4113,7 @@ if (!response.ok) {
                                     type="number"
                                     min={0}
                                     max={999}
+                                    aria-label="路由优先级"
                                     value={routingDraft}
                                     onChange={event => setRoutingDraft(event.target.value)}
                                     onKeyDown={event => {
@@ -4152,6 +4153,7 @@ if (!response.ok) {
                                     type="number"
                                     min={1}
                                     max={9999}
+                                    aria-label="路由权重"
                                     value={routingDraft}
                                     onChange={event => setRoutingDraft(event.target.value)}
                                     onKeyDown={event => {
@@ -4435,6 +4437,7 @@ if (!response.ok) {
                                           autoFocus
                                           size="sm"
                                           value={mappingDraft}
+                                          aria-label="模型对外映射名称"
                                           onChange={event => setMappingDraft(event.target.value)}
                                           onKeyDown={event => {
                                             event.stopPropagation();
@@ -5198,6 +5201,7 @@ if (!response.ok) {
               size="sm"
               className="w-52"
               value={logModelFilter}
+              aria-label="按模型筛选"
               onChange={e => {
                 setLogModelFilter(e.target.value);
                 setAnalyticsPage(1);
@@ -5209,6 +5213,7 @@ if (!response.ok) {
               size="sm"
               className="w-52"
               value={logEndpointFilter}
+              aria-label="按端点筛选"
               onChange={e => {
                 setLogEndpointFilter(e.target.value);
                 setAnalyticsPage(1);
@@ -5628,6 +5633,7 @@ if (!response.ok) {
                           size="sm"
                           type="text"
                           value={key}
+                          aria-label={`API Key K${rowIndex + 1}`}
                           onChange={e => {
                             const value = e.target.value;
                             setEndpointForm(current => {
@@ -5708,6 +5714,7 @@ if (!response.ok) {
                           size="sm"
                           type="text"
                           value={header.name}
+                          aria-label="Header 名称"
                           onChange={e => updateEndpointHeader(index, 'name', e.target.value)}
                           placeholder="Header 名称"
                           spellCheck={false}
@@ -5719,6 +5726,7 @@ if (!response.ok) {
                           size="sm"
                           type="text"
                           value={header.value}
+                          aria-label="Header 值"
                           onChange={e => updateEndpointHeader(index, 'value', e.target.value)}
                           placeholder="Header 值"
                           spellCheck={false}
@@ -5988,6 +5996,7 @@ if (!response.ok) {
                   size="sm"
                   type="url"
                   value={subscriptionUrl}
+                  aria-label="订阅 URL"
                   onChange={e => setSubscriptionUrl(e.target.value)}
                   placeholder="https://example.com/sub?token=xxx"
                   spellCheck={false}
@@ -6126,6 +6135,7 @@ if (!response.ok) {
                         size="sm"
                         type="text"
                         value={proxy}
+                        aria-label="代理地址"
                         onChange={e => updateEndpointProxy(index, e.target.value)}
                         onBlur={() => setEditingProxyIndex(-1)}
                         onKeyDown={e => {
@@ -6411,6 +6421,7 @@ if (!response.ok) {
                       type="number"
                       min="0"
                       value={gatewayKeyForm.maxTokensQuota}
+                      aria-label="Token 配额"
                       onChange={e =>
                         setGatewayKeyForm({ ...gatewayKeyForm, maxTokensQuota: e.target.value })
                       }

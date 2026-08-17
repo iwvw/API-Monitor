@@ -163,6 +163,7 @@ function SettingsCard({ form }) {
           className={field.kind === 'number' ? 'w-24' : 'w-full'}
           type={field.kind === 'number' ? 'number' : 'text'}
           placeholder={field.placeholder}
+          aria-label={field.label}
           value={value}
           onChange={(e) => setField(field.key, e.target.value)}
         />
@@ -472,7 +473,7 @@ function ChannelsCard() {
           <div className="grid gap-3 cq-sm:grid-cols-2">
             <div>
               <div className="mb-1 text-xs font-medium text-kumo-subtle">名称</div>
-              <Input size="sm" className="w-full" placeholder="如：Telegram 主机器人" value={form.name} onChange={(e) => setFormField('name', e.target.value)} />
+              <Input size="sm" className="w-full" placeholder="如：Telegram 主机器人" aria-label="频道名称" value={form.name} onChange={(e) => setFormField('name', e.target.value)} />
             </div>
             <div>
               <div className="mb-1 text-xs font-medium text-kumo-subtle">来源通知渠道</div>
@@ -523,6 +524,7 @@ function ChannelsCard() {
                   size="sm"
                   className="w-40"
                   placeholder="Telegram 用户 ID *"
+                  aria-label="Telegram 用户 ID"
                   value={bindInput.userId}
                   onChange={(e) => setBindInput((prev) => ({ ...prev, userId: e.target.value }))}
                 />
@@ -530,6 +532,7 @@ function ChannelsCard() {
                   size="sm"
                   className="w-36"
                   placeholder="@username（可选）"
+                  aria-label="Telegram 用户名"
                   value={bindInput.username}
                   onChange={(e) => setBindInput((prev) => ({ ...prev, username: e.target.value }))}
                 />
@@ -814,6 +817,7 @@ function MemoriesCard() {
               size="sm"
               className="w-full pl-8"
               placeholder="搜索记忆"
+              aria-label="搜索记忆"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -852,6 +856,7 @@ function MemoriesCard() {
                   size="sm"
                   className="min-w-40 flex-1"
                   value={newTriggers}
+                  aria-label="触发词"
                   onChange={(e) => setNewTriggers(e.target.value)}
                   placeholder="触发词（逗号分隔，选填）"
                 />
@@ -909,6 +914,7 @@ function MemoriesCard() {
                         size="sm"
                         className="min-w-40 flex-1"
                         value={editTriggers}
+                        aria-label="触发词"
                         onChange={(e) => setEditTriggers(e.target.value)}
                         placeholder="触发词（逗号分隔，选填）"
                       />

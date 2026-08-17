@@ -57,6 +57,7 @@ export default function DrawioSettingsView({
               min="300"
               max="30000"
               value={String(settings.autosave_debounce_ms || 2000)}
+              aria-label="自动保存延迟毫秒"
               onChange={event =>
                 patch({ autosave_debounce_ms: Math.max(300, Number(event.target.value) || 2000) })
               }
@@ -69,6 +70,7 @@ export default function DrawioSettingsView({
               min="1"
               max="1000"
               value={String(settings.version_soft_limit || 50)}
+              aria-label="版本软上限"
               onChange={event =>
                 patch({ version_soft_limit: Math.max(1, Number(event.target.value) || 50) })
               }
@@ -89,6 +91,7 @@ export default function DrawioSettingsView({
                     Math.max(1, Number(event.target.value) || 10) * 1048576,
                 })
               }
+              aria-label="文档大小上限"
             />
           </Field>
         </div>
@@ -135,6 +138,7 @@ export default function DrawioSettingsView({
               min="160"
               max="4096"
               value={String(settings.thumbnail_max_width || 640)}
+              aria-label="预览最大宽度"
               onChange={event =>
                 patch({ thumbnail_max_width: Math.max(160, Number(event.target.value) || 640) })
               }
@@ -147,6 +151,7 @@ export default function DrawioSettingsView({
               min="90"
               max="4096"
               value={String(settings.thumbnail_max_height || 360)}
+              aria-label="预览最大高度"
               onChange={event =>
                 patch({ thumbnail_max_height: Math.max(90, Number(event.target.value) || 360) })
               }
