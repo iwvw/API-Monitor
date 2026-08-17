@@ -375,9 +375,12 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const skipLoadSessionRef = useRef(null);
   const streamTargetIdRef = useRef(null);
   // 外部来源轮询：streamingRef 在面板自己的 run 流式输出时为 true（此时重拉会打断打字机）；
-  // lastActivityRef 记录各会话最近一次 lastActivityAt，轮询时比对变化判断是否需要重拉消息
+  // lastActivityRef 记录各会话最近一次 lastActivityAt，lastCountRef 记录 messageCount——
+  // 外部 run（MCP/API/BOT 发送）没有 SSE 通道，其思考/工具/回复逐条落库时
+  // messageCount 递增，轮询比对到变化即重拉消息，实现“逐步可见”而不必等 run 结束。
   const streamingRef = useRef(streaming);
   const lastActivityRef = useRef(new Map());
+  const lastCountRef = useRef(new Map());
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -523,10 +526,13 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         const cur = list.find((s) => s.id === sid);
         if (cur) {
           const prevAt = lastActivityRef.current.get(sid);
-          if (prevAt !== undefined && cur.lastActivityAt !== prevAt) {
+          const prevCount = lastCountRef.current.get(sid);
+          // 活动时间变化（run 起止）或消息数变化（外部 run 过程中逐条落库）→ 重拉消息
+          if (prevAt !== undefined && (cur.lastActivityAt !== prevAt || (prevCount !== undefined && cur.messageCount !== prevCount))) {
             loadMessages(sid);
           }
           lastActivityRef.current.set(sid, cur.lastActivityAt);
+          lastCountRef.current.set(sid, cur.messageCount);
         }
       } catch {
       } finally {
