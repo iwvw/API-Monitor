@@ -1,0 +1,26 @@
+# API Monitor
+
+> API Monitor 是一个自托管的统一监控与运维面板：主机与 Agent 监控、Cloudflare/阿里云/腾讯云/甲骨文云/M365 厂商控制台、GitHub 仓库与 Actions、PaaS 应用（Fly.io/Koyeb）、可用性监测、定时任务、模型网关与订阅分发。数据保存在本机 SQLite，不依赖第三方服务。
+> API Monitor is a self-hosted monitoring and operations dashboard covering hosts & agents, cloud vendor consoles, GitHub, PaaS apps, uptime checks, scheduled tasks, an OpenAI-compatible gateway, and subscription distribution. Data lives in local SQLite.
+
+## 主要链接
+
+- [登录 / 入口](.)
+- [API 接口文档](/apidocs)
+- [可用性监测公开页](/uptime)
+- [GitHub 公开统计页](/github)
+- [公开服务器状态页](/server)
+
+## 公开 API
+
+- GET /api/uptime/public/status-pages/{slug}：查询可用性监测公开状态页（需先在后台配置并公开）
+- GET /api/uptime/public/status-page-by-domain?domain={host}：按域名探测可用性公开页，未配置时返回 found:false
+- GET /api/server/public/status-page-by-domain?domain={host}：按域名探测服务器状态公开页，未配置时返回 found:false
+- GET /api/server/public/status-pages/{slug}：查询服务器状态公开页
+- GET /api/github/public/page-by-domain?domain={host}：按域名探测 GitHub 公开统计页，未配置时返回 found:false
+- GET /api/github/public/pages/{slug}：查询 GitHub 公开统计页
+
+## 说明
+
+- 本站为自托管部署，域名与配置随实例不同；除上述公开接口外，其余功能与数据均需要管理员登录后使用。
+- LLM 代理（/v1 等 OpenAI 兼容接口）仅对已配置的 API Key 开放。

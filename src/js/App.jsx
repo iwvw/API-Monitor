@@ -246,7 +246,8 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
       try {
         const uptimeResponse = await fetch(uptimeUrl, { cache: 'no-store' });
-        if (!cancelled && uptimeResponse.ok) {
+        const uptimeBody = uptimeResponse.ok ? await uptimeResponse.json().catch(() => null) : null;
+        if (!cancelled && uptimeBody?.data?.found) {
           onRouteChange('uptime');
           return;
         }
@@ -256,7 +257,8 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
       try {
         const serverResponse = await fetch(serverUrl, { cache: 'no-store' });
-        if (!cancelled && serverResponse.ok) {
+        const serverBody = serverResponse.ok ? await serverResponse.json().catch(() => null) : null;
+        if (!cancelled && serverBody?.data?.found) {
           onRouteChange('server');
           return;
         }
@@ -266,7 +268,8 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
       try {
         const githubResponse = await fetch(githubUrl, { cache: 'no-store' });
-        if (!cancelled && githubResponse.ok) {
+        const githubBody = githubResponse.ok ? await githubResponse.json().catch(() => null) : null;
+        if (!cancelled && githubBody?.data?.found) {
           onRouteChange('github');
           return;
         }

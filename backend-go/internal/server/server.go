@@ -790,6 +790,10 @@ func setStaticCacheHeaders(w http.ResponseWriter, cleanPath string) {
 	}
 	if strings.HasPrefix(cleanPath, "assets/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	if strings.HasPrefix(cleanPath, "fonts/") || cleanPath == "logo.svg" || cleanPath == "logo-default.svg" {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
 	}
 }
 

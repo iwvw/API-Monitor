@@ -1392,7 +1392,7 @@ func (s *Service) handlePublicStatusPageRoutes(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !ok {
-		response.Error(w, http.StatusNotFound, "Not found")
+		response.OK(w, map[string]interface{}{"found": false})
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

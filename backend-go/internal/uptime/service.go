@@ -2164,7 +2164,7 @@ func (s *Service) publicStatusPageByDomain(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !ok {
-		response.Error(w, http.StatusNotFound, "Not found")
+		response.OK(w, map[string]interface{}{"found": false})
 		return
 	}
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", intValue(page["cacheSeconds"], 300)))

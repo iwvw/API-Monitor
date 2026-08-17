@@ -343,7 +343,7 @@ func (s *Service) publicPageByDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		response.Error(w, http.StatusNotFound, "公开页不存在或未公开")
+		response.OK(w, map[string]interface{}{"found": false})
 		return
 	}
 
