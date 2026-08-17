@@ -12,7 +12,7 @@
 
 | 状态 | 日期 | 任务名 | Agent/窗口 | 文件域 | 分支 | 验证命令 |
 |---|---|---|---|---|---|---|
-| active | 2026-08-17 | 全仓代码审查+修复+提交推送+fly.io 部署 | opencode 本窗口 | 全仓（当前未提交工作区改动为主） | dev | npm run audit:fast、npm run backend-go:test、npm run lint、npm run ui:governance |
+| done | 2026-08-17 | 全仓代码审查+修复+提交推送+fly.io 部署 | opencode 本窗口 | 全仓（当前未提交工作区改动为主） | dev | npm run audit:fast、npm run backend-go:test、npm run lint、npm run ui:governance |
 | done | 2026-08-13 | 1Panel 快捷控制模块 onepanel | opencode 主窗口 | backend-go/internal/onepanel/（新建）、backend-go/internal/manifest/manifest.go、backend-go/internal/server/server.go、backend-go/internal/system/route_descriptions.go、backend-go/internal/system/route_contracts.go、src/js/modules/onepanel.js（新建）、src/js/pages/ApiDocsPage.jsx、docs/onepanel接口文档.md（新建）、docs/多Agent协作登记.md | dev | go test ./internal/onepanel/ ./internal/manifest/ ./internal/system/、npm run governance:check、npm run lint、node tools/backend-route-inventory.mjs |
 | done | 2026-08-12 | 远程桌面五要求硬性修复（M1-M4+剪贴板） | opencode 主窗口 | agent-rust/src/remote_desktop.rs、agent-rust/vendor/nvenc-0.1.0/（sys/structs.rs、sys/function_table.rs、safe/encoder.rs、safe/session.rs）、src/js/pages/RemoteDesktopPage.jsx、src/js/modules/remoteDesktopTouch.js、docs/多Agent协作登记.md | dev | cargo check/test、npm test、go test ./internal/serveragent/ |
 | done | 2026-08-14 | 管理 AI Web 侧栏前端 | opencode 主窗口 | src/js/components/adminai/（新建）、src/js/pages/AdminAIPage.jsx（新建）、src/js/modules/adminAiEvents.js（新建）、src/js/store.js、src/js/components/MainLayout.jsx、docs/重构验证与例外清单.md、tools/ui-governance-check.mjs | dev | npm run lint、npm run build、npm run test、npm run ui:governance |
