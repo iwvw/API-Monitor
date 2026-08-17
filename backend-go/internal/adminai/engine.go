@@ -395,20 +395,14 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 	}
 	_, _ = db.ExecContext(runCtx, "UPDATE admin_ai_sessions SET last_activity_at = ?, updated_at = ? WHERE id = ?", now, now, sessionID)
 
-	// 首条消息自动生成会话标题（仅当尚无标题时）：异步交给模型生成 ≤12 字标题，
-	// 不阻塞首条推理；生成失败回退为消息前 24 字截断。
-	runes := []rune(strings.TrimSpace(prompt))
-	if len(runes) > 24 {
-		runes = runes[:24]
-	}
-	if len(runes) > 0 {
-		fallbackTitle := string(runes)
-		titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer titleCancel()
-		// 标题写库需要独立连接：runInference 主流程持有 db（单连接池），
-		// goroutine 内并发使用同一 db 会自锁。
-		go s.generateSessionTitleAsync(titleCtx, sessionID, sessionModel, prompt, fallbackTitle, eventCh)
-	}
+	// 首条消息自动生成会话标题（仅当尚无标题时）：异步交给模型生成 ≤16 字标题，
+	// 不阻塞首条推理；生成失败回退为消息截断（同套长度治理，避免半截词）。
+	fallbackTitle := trimTitle(prompt)
+	titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer titleCancel()
+	// 标题写库需要独立连接：runInference 主流程持有 db（单连接池），
+	// goroutine 内并发使用同一 db 会自锁。
+	go s.generateSessionTitleAsync(titleCtx, sessionID, sessionModel, prompt, fallbackTitle, eventCh)
 
 	userMsgID, err := randomID("aam_")
 	if err != nil {
@@ -1547,13 +1541,13 @@ func (s *Service) generateSessionTitleAsync(ctx context.Context, sessionID, mode
 	s.emit(eventCh, SSEEvent{Type: "session_title", Fields: map[string]interface{}{"sessionId": sessionID, "title": title}})
 }
 
-// generateSessionTitle 用同一模型生成 ≤12 字的会话标题；失败返回空串（调用方回退截断）。
+// generateSessionTitle 用同一模型生成 ≤16 字的会话标题；失败返回空串（调用方回退截断）。
 func (s *Service) generateSessionTitle(ctx context.Context, model, prompt string) string {
 	if strings.TrimSpace(prompt) == "" {
 		return ""
 	}
 	messages := []map[string]interface{}{
-		{"role": "system", "content": "为下面的用户消息生成一个不超过 12 个字的简体中文对话标题。只输出标题本身，不要引号、冒号或任何解释。"},
+		{"role": "system", "content": "为下面的用户消息生成一个不超过 16 个字的简体中文对话标题。只输出标题本身，不要引号、冒号或任何解释。"},
 		{"role": "user", "content": truncateContent(prompt)},
 	}
 	resp, err := s.callLLMPlain(ctx, model, messages)
@@ -1566,10 +1560,36 @@ func (s *Service) generateSessionTitle(ctx context.Context, model, prompt string
 		text = strings.TrimSpace(resp.Choices[0].Message.Content)
 	}
 	text = strings.Trim(text, "\"'「」『』()（）:：")
-	if r := []rune(text); len(r) > 12 {
-		text = string(r[:12])
+	return trimTitle(text)
+}
+
+// 会话标题长度限制与智能截断：
+// 不超过 maxTitleRunes 直接保留；超长时优先在收尾词（状态/结果/详情等）的完整
+// 词尾截断，避免「…接口状」这类半截词标题。词尾最多放行 maxTitleRunes+2 字。
+const maxTitleRunes = 16
+
+var titleTrailingWords = []string{
+	"状态", "情况", "总览", "概览", "配置", "数量", "结果", "详情", "列表",
+	"记录", "汇总", "报告", "查询", "测试", "监控", "分析", "部署", "进度", "信息", "异常",
+}
+
+// trimTitle 对会话标题做长度治理：≤16 字原样返回；超长时若在截断点附近命中
+// 收尾词则延展到完整词尾（最多 18 字），否则硬切到 16 字。
+func trimTitle(text string) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= maxTitleRunes {
+		return string(runes)
 	}
-	return text
+	// 从截断点开始向后扫描最多 2 个字符，命中收尾词则保留完整词尾
+	for i := maxTitleRunes; i < len(runes) && i <= maxTitleRunes+2; i++ {
+		for _, w := range titleTrailingWords {
+			wr := []rune(w)
+			if i+len(wr) <= len(runes) && string(runes[i:i+len(wr)]) == w {
+				return string(runes[:i+len(wr)])
+			}
+		}
+	}
+	return string(runes[:maxTitleRunes])
 }
 
 // scheduleReasoningSummary 异步生成思维链摘要：独立超时上下文 + 独立 DB 连接，

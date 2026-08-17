@@ -213,6 +213,26 @@ func TestCallLLMStreamFirstTokenTimeout(t *testing.T) {
 	}
 }
 
+// --- 会话标题长度治理：≤16 保留；超长在收尾词完整处截断，避免半截词 ---
+
+func TestTrimTitle(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"并行查询系统及AI接口状态", "并行查询系统及AI接口状态"},     // 13 字 ≤16 原样
+		{"查询所有云服务器CPU使用率", "查询所有云服务器CPU使用率"},     // 14 字 ≤16 原样
+		{"ABCDEFGHIJKLMNOP状态详情报告", "ABCDEFGHIJKLMNOP状态"},   // 22 字，截断点后即收尾词"状态"：保留完整词尾（18 字）
+		{"今天下午三点检查所有域名解析记录和证书到期状态做个全面检查汇总", "今天下午三点检查所有域名解析记录"}, // 31 字，无词表命中硬切 16
+		{"", ""},
+		{"   ", ""},
+	}
+	for _, c := range cases {
+		if got := trimTitle(c.in); got != c.want {
+			t.Errorf("trimTitle(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // --- 只读工具并行 + 写操作串行：同轮 3 个慢 GET 并发执行，POST 在其后 ---
 
 func TestParallelReadonlyToolsThenWrite(t *testing.T) {
