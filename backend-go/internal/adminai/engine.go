@@ -306,6 +306,7 @@ func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identi
 	s.runs[runID] = eventCh
 	s.runBuffers[runID] = buf
 	s.chToBuf[eventCh] = buf
+	s.runPhase[runID] = "starting"
 	s.mu.Unlock()
 
 	go s.runInference(ctx, runID, sessionID, source, prompt, identityJSON, modelHint, eventCh)
@@ -317,6 +318,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 	defer func() {
 		s.mu.Lock()
 		s.runDone[runID] = true
+		delete(s.runPhase, runID)
 		if buf := s.runBuffers[runID]; buf != nil {
 			buf.markDone()
 		}
@@ -457,6 +459,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			return
 		default:
 		}
+		s.setRunPhase(runID, "thinking")
 
 		llmMessages := make([]map[string]interface{}, 0, len(messages)+1)
 
@@ -632,6 +635,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			// 阶段二：并行段 = 首个非并行安全工具（写操作/DB 工具）之前的连续
 			// 只读段，goroutine 并发执行（信号量限流）；写操作及之后的工具保持
 			// 严格串行（下游可能依赖上游结果，先读后写不产生竞态）。
+			s.setRunPhase(runID, "tooling")
 			parallelUntil := len(stages)
 			for i, st := range stages {
 				if st.hit || st.callErr != nil {
@@ -847,6 +851,13 @@ func (s *Service) bufferForRun(runID string) *runEventBuffer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.runBuffers[runID]
+}
+
+// setRunPhase 更新 run 的实时阶段（供会话列表 activeRun 展示：thinking/tooling）。
+func (s *Service) setRunPhase(runID, phase string) {
+	s.mu.Lock()
+	s.runPhase[runID] = phase
+	s.mu.Unlock()
 }
 
 // historyMsg 是恢复历史时的会话消息内存形态，与 admin_ai_messages 行对应。

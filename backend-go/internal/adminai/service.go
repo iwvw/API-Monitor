@@ -40,7 +40,8 @@ type Service struct {
 	runPolicy   map[string]string                          // runID → 定时任务写策略（"" / allow / readonly）
 	runBuffers  map[string]*runEventBuffer                 // runID → 事件环形缓冲（断线重连重放）
 	chToBuf     map[chan SSEEvent]*runEventBuffer          // 事件通道 → 缓冲（emit 时写缓冲）
-	runDone     map[string]bool                            // runID → 执行是否已结束（serveSSE 归还通道判定）                  // runId -> 定时任务策略："" 普通 | "allow" 写操作免审批 | "readonly" 禁用写操作
+	runDone     map[string]bool                            // runID → 执行是否已结束（serveSSE 归还通道判定）
+	runPhase    map[string]string                          // runID → 实时阶段（starting/thinking/tooling），供会话列表展示                  // runId -> 定时任务策略："" 普通 | "allow" 写操作免审批 | "readonly" 禁用写操作
 
 	catalogMu    sync.Mutex // 确定性接口清单缓存（apiCatalogText）
 	catalogText  string
@@ -70,6 +71,7 @@ func New(cfg config.Config) *Service {
 		runBuffers:      make(map[string]*runEventBuffer),
 		chToBuf:         make(map[chan SSEEvent]*runEventBuffer),
 		runDone:         make(map[string]bool),
+		runPhase:        make(map[string]string),
 		captureInFlight: make(map[string]bool),
 		toolLoops:       make(map[string]int),
 	}
@@ -389,9 +391,13 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
 		WriteEnabled   bool   `json:"writeEnabled"`
 		CreatedAt      string `json:"createdAt"`
 		UpdatedAt      string `json:"updatedAt"`
-		LastActivityAt string `json:"lastActivityAt"`
-		MessageCount   int    `json:"messageCount"`
-	}
+LastActivityAt string `json:"lastActivityAt"`
+	MessageCount   int    `json:"messageCount"`
+	ActiveRun      *struct {
+		RunID string `json:"runId"`
+		Phase string `json:"phase"`
+	} `json:"activeRun,omitempty"`
+}
 
 	sessions := make([]sessionItem, 0)
 	for rows.Next() {
@@ -406,8 +412,25 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = append(sessions, item)
 	}
 	rows.Close() // 先收行再查询：单连接池（SetMaxOpenConns(1)）下 rows 未关时同连接嵌套查询会自锁
+	// 活跃 run 快照：锁内一次读 sessionRuns + runPhase，前端据此展示「思考中/执行工具…」指示
+	s.mu.Lock()
+	activeSnapshot := map[string]struct{ runID, phase string }{}
+	for sid, rid := range s.sessionRuns {
+		phase := s.runPhase[rid]
+		if phase == "" {
+			phase = "starting"
+		}
+		activeSnapshot[sid] = struct{ runID, phase string }{rid, phase}
+	}
+	s.mu.Unlock()
 	for i := range sessions {
 		_ = db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM admin_ai_messages WHERE session_id = ?", sessions[i].ID).Scan(&sessions[i].MessageCount)
+		if ar, ok := activeSnapshot[sessions[i].ID]; ok {
+			sessions[i].ActiveRun = &struct {
+				RunID string `json:"runId"`
+				Phase string `json:"phase"`
+			}{RunID: ar.runID, Phase: ar.phase}
+		}
 	}
 	if err := rows.Err(); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

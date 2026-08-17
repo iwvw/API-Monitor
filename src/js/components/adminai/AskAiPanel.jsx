@@ -329,6 +329,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const [manageOpen, setManageOpen] = useState(false); // 管理视图（设置/频道/审计收进侧栏）
   const [adminTab, setAdminTab] = useState('settings'); // 管理视图 tab（与 AdminConsole 共享）
   const [pendingApproval, setPendingApproval] = useState(null); // 写操作审批弹窗（approval 事件触发）
+  const [externalRun, setExternalRun] = useState(null); // 外部来源（API/BOT）run 指示：{runId, phase}
   const [behavior, setBehavior] = useState(() => {
     try { return localStorage.getItem('adminai-behavior') === 'ask' ? 'ask' : 'agent'; } catch { return 'agent'; }
   });
@@ -531,8 +532,12 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
           if (prevAt !== undefined && (cur.lastActivityAt !== prevAt || (prevCount !== undefined && cur.messageCount !== prevCount))) {
             loadMessages(sid);
           }
+          // 外部 run 进行中：更新运行指示（思考中/执行工具…），run 结束自动消失
+          setExternalRun(cur.activeRun ? { runId: cur.activeRun.runId, phase: cur.activeRun.phase } : null);
           lastActivityRef.current.set(sid, cur.lastActivityAt);
           lastCountRef.current.set(sid, cur.messageCount);
+        } else {
+          setExternalRun(null);
         }
       } catch {
       } finally {
@@ -1392,6 +1397,37 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             </div>
           </div>
         </div>
+        {/* 外部来源 run 运行指示：思考/工具阶段渐进可见，出现即可感知“代理正在工作” */}
+        {externalRun && (
+          <div className="shrink-0 px-4 pb-2" data-external-run-indicator>
+            <div className="flex items-center gap-2 rounded-lg bg-kumo-recessed/60 px-3 py-2 text-xs text-kumo-subtle ring-1 ring-kumo-line">
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">
+                {externalRun.phase === 'tooling' ? '正在执行工具…' : externalRun.phase === 'starting' ? '正在启动…' : '正在思考…'}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={async () => {
+                  const runId = externalRun.runId;
+                  setExternalRun(null);
+                  try {
+                    await fetch('/api/admin-ai/cancel', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ runId }),
+                    });
+                  } catch {
+                  }
+                }}
+                aria-label="停止外部任务"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )}
         {/* ===== Footer（输入框：实底不透明，无上边距，与消息区相连）；机器人会话只读不渲染输入框 ===== */}
         <div className="relative shrink-0 px-4 pb-4">
         {botActive ? (

@@ -935,8 +935,8 @@ function MemoriesCard() {
                       <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
                         <Badge variant={item.importance >= 8 ? 'red' : 'neutral'}>{item.importance}</Badge>
                         <Badge variant="blue">{new Date(item.createdAt).toLocaleDateString()}</Badge>
-                        <Badge variant={item.source === 'agent' ? 'teal' : 'orange'}>
-                          {item.source === 'agent' ? '自动' : '手动'}
+                        <Badge variant={item.source === 'auto' ? 'orange' : 'teal'}>
+                          {item.source === 'auto' ? '自动提炼' : 'AI 记录'}
                         </Badge>
                       </div>
                       <div
