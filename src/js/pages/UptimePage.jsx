@@ -20,7 +20,8 @@ import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
-import { ChartPalette, ClipboardText, Loader, Tabs, TimeseriesChart, Toolbar } from '@cloudflare/kumo';
+import { ChartPalette, ClipboardText, Loader, Tabs, Toolbar } from '@cloudflare/kumo';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
 import { AppCard, ChartCard, ChartWarmupSkeleton, DataTableFrame, EmptyState, ResponsiveSearchInput, SectionCard, StatusBadge, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
@@ -382,7 +383,7 @@ function UptimeMonitorDetails({
         <ChartCard className="relative h-36 !border-kumo-interact/90 !bg-kumo-base">
           {(tooltipBoundary) => (
             <DeferredRender open={expanded} fallback={<ChartWarmupSkeleton height={120} />}>
-              <TimeseriesChart
+              <SiteFontTimeseriesChart
                 echarts={echarts}
                 data={chartData}
                 height={120}

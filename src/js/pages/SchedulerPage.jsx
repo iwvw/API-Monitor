@@ -726,7 +726,7 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
           height: rect.height,
           cursor: onSelectNode ? 'pointer' : 'default',
         }}
-        className={`absolute flex flex-col overflow-hidden rounded-md border bg-kumo-base text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand/45 ${compact ? 'px-2.5 py-2' : editor ? 'px-3.5 py-2.5' : 'px-4 py-3'} ${selected ? 'border-kumo-brand ring-2 ring-kumo-brand/25' : 'border-kumo-line hover:border-kumo-brand/50'} ${node.enabled === 0 ? 'opacity-60' : ''}`}
+        className={`absolute flex flex-col overflow-hidden rounded-md border bg-kumo-base text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand/45 ${compact ? 'px-2.5 py-2' : editor ? 'px-3.5 py-2.5' : 'px-4 py-3'} ${selected ? 'border-kumo-brand ring-2 ring-kumo-brand/25' : 'border-kumo-line hover:border-kumo-brand/50'} ${node.enabled === 0 ? 'opacity-60' : ''} ${status === 'running' ? 'scheduler-node-running' : ''}`}
       >
         <span className={`flex min-w-0 items-start justify-between ${compact ? 'gap-1.5' : editor ? 'gap-2.5' : 'gap-3'}`}>
           <span className="min-w-0">
@@ -759,7 +759,7 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
 
   return (
     <div
-      className={`${compact ? 'absolute inset-0' : 'relative h-full'} overflow-hidden rounded-md border border-kumo-line bg-kumo-base`}
+      className={`${compact ? 'absolute inset-0' : 'relative h-full border border-kumo-line'} overflow-hidden rounded-md bg-kumo-base`}
       style={cfg.fixedHeight ? { height: cfg.fixedHeight } : undefined}
     >
       <div
@@ -886,6 +886,10 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
 
 function SchedulerPage({ onNavigate = () => {} }) {
   const { isArmed, confirmPress } = useConfirmPress();
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
   const [activeTab, setActiveTab] = useState('tasks');
   const [tasks, setTasks] = useState([]);
   const [workflows, setWorkflows] = useState([]);
@@ -1326,8 +1330,44 @@ function SchedulerPage({ onNavigate = () => {} }) {
 
   const runWorkflow = async (workflow) => {
     try {
+      // 执行接口为同步阻塞（串行跑完整个 DAG 才返回）。期间并行轮询进度：
+      // 先从运行列表找到本次 run 的 id，再轮询详情接口拿 node_runs，更新画布。
+      const pollProgress = (async () => {
+        let runId = null;
+        for (let i = 0; i < 60 && !runId && mountedRef.current; i++) {
+          try {
+            const listRes = await fetch('/api/scheduler/runs', { headers: authHeaders() });
+            const listData = await listRes.json();
+            const list = Array.isArray(listData.data) ? listData.data : [];
+            runId = list.find((run) => run.workflow_id === workflow.id && run.status === 'running')?.id || null;
+          } catch {
+          }
+          if (!runId && mountedRef.current) await new Promise((resolve) => window.setTimeout(resolve, 300));
+        }
+        if (!runId) return;
+        for (let i = 0; i < 120 && mountedRef.current; i++) {
+          let done = false;
+          try {
+            const detailRes = await fetch(`/api/scheduler/runs/${runId}`, { headers: authHeaders() });
+            const detailData = await detailRes.json();
+            const detail = detailData.success ? detailData.data : null;
+            if (detail) {
+              setRuns((prev) => {
+                const next = prev.filter((run) => run.id !== detail.id);
+                return [detail, ...next];
+              });
+              done = detail.status !== 'running';
+            }
+          } catch {
+          }
+          if (done) break;
+          await new Promise((resolve) => window.setTimeout(resolve, 700));
+        }
+      })();
+
       const res = await fetch(`/api/scheduler/workflows/${workflow.id}/run`, { method: 'POST', headers: authHeaders() });
       const data = await res.json();
+      await pollProgress;
       if (!data.success) throw new Error(data.error || '运行工作流失败');
       toast.success('工作流运行完成');
       await loadAll();
@@ -1659,14 +1699,22 @@ function SchedulerPage({ onNavigate = () => {} }) {
                             <div className="mt-1 truncate font-mono text-xs text-kumo-strong">{workflow.schedule ? `Cron ${workflow.schedule}` : '手动触发'}</div>
                           </div>
                           <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2">
-                            <div className="text-[11px] text-kumo-subtle">节点规模</div>
-                            <div className="mt-1 text-xs font-semibold text-kumo-strong">{workflow.nodes?.length || 0} 个节点</div>
+                            <div className="text-[11px] text-kumo-subtle">下次运行</div>
+                            <div className="mt-1 truncate text-xs font-semibold text-kumo-strong">
+                              {workflow.enabled && workflow.schedule ? (
+                                workflow.next_run
+                                  ? new Date(workflow.next_run * 1000).toLocaleString()
+                                  : '等待调度'
+                              ) : (
+                                '手动触发'
+                              )}
+                            </div>
                           </div>
                         </div>
                         {/* 操作按钮单独一行 */}
                         <div className="mt-auto flex items-center gap-1">
                           <IconButton label="运行工作流" onClick={() => runWorkflow(workflow)} icon={<Play className="h-3.5 w-3.5" />} />
-                          <IconButton label="配置通知规则" onClick={() => onNavigate('notification', { newRule: 'workflow.completed' })} icon={<Bell className="h-3.5 w-3.5" />} />
+                          <IconButton label="配置通知规则" onClick={() => onNavigate('notification', { newRule: 'workflow.completed', workflowId: String(workflow.id), workflowName: workflow.name })} icon={<Bell className="h-3.5 w-3.5" />} />
                           <IconButton label="编辑工作流" onClick={() => openEditWorkflow(workflow)} icon={<Edit className="h-3.5 w-3.5" />} />
                           <IconButton label="删除工作流" variant={isArmed(`workflow:${workflow.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteWorkflow(workflow)} icon={<Trash className="h-3.5 w-3.5" />} />
                         </div>
@@ -1869,7 +1917,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                         <Input size="sm" label="名称" value={workflowForm.name} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, name: event.target.value }))} />
                         <Input size="sm" label="Cron（留空为手动）" value={workflowForm.schedule} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, schedule: event.target.value }))} />
                       </div>
-                      <div className="flex h-8 items-center justify-between gap-3 self-end rounded-md border border-kumo-line bg-kumo-base px-3">
+                      <div className="flex h-8 items-center justify-end gap-2 self-end">
                         <span className="text-sm font-medium text-kumo-strong">启用</span>
                         <Switch checked={workflowForm.enabled === 1} onCheckedChange={(checked) => setWorkflowForm((prev) => ({ ...prev, enabled: checked ? 1 : 0 }))} />
                       </div>
@@ -1898,7 +1946,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                 </div>
 
                 <div className="flex min-h-0 flex-col gap-3">
-                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2 pr-1">
                     <LayerCard className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
                       <LayerCard.Secondary className="my-0 flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                         <div className="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-kumo-strong">
@@ -1917,7 +1965,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                           <div className="grid gap-3 cq-sm:grid-cols-2">
                             <Input size="sm" label="节点名称" value={selectedWorkflowNode.name || ''} onChange={(event) => updateWorkflowNode(selectedWorkflowNode.id, { name: event.target.value })} />
                             {selectedWorkflowNode.type !== 'start' && (
-                              <div className="flex items-center justify-between rounded-md border border-kumo-line px-3 py-2">
+                              <div className="flex items-end justify-end gap-2 pb-0.5">
                                 <span className="text-sm font-medium text-kumo-strong">启用节点</span>
                                 <Switch checked={selectedWorkflowNode.enabled !== 0} onCheckedChange={(checked) => updateWorkflowNode(selectedWorkflowNode.id, { enabled: checked ? 1 : 0 })} />
                               </div>
@@ -1946,7 +1994,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                                       onValueChange={(value) => updateWorkflowNode(selectedWorkflowNode.id, { type: value })}
                                       items={TYPE_ITEMS}
                                     />
-                                    <div className="flex items-center justify-between rounded-md border border-kumo-line px-3 py-2">
+                                    <div className="flex items-end justify-end gap-2 pb-0.5">
                                       <span className="text-sm font-medium text-kumo-strong">启用节点</span>
                                       <Switch checked={selectedWorkflowNode.enabled !== 0} onCheckedChange={(checked) => updateWorkflowNode(selectedWorkflowNode.id, { enabled: checked ? 1 : 0 })} />
                                     </div>

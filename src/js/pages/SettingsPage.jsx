@@ -20,7 +20,7 @@ import useStore, {
   normalizeUserSettings,
 } from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
-import { APP_VERSION } from '../modules/appVersion.js';
+import { APP_BUILD_TIME, APP_VERSION, FRAMEWORK_VERSIONS } from '../modules/appVersion.js';
 import { applySiteBrandFaviconHref, getDefaultSiteBrandPreviewUrl } from '../modules/siteBrand.js';
 import { AppCard, FieldRow, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, cx, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
@@ -32,6 +32,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clock,
   Columns,
   Database,
   Download,
@@ -190,6 +191,7 @@ function SettingsPage() {
   const [databaseLoaded, setDatabaseLoaded] = useState(false);
   const [dbTablesExpanded, setDbTablesExpanded] = useState(false);
   const [dbImportPreview, setDbImportPreview] = useState(null);
+  const [healthInfo, setHealthInfo] = useState(null);
 
   const [logSettings, setLogSettings] = useState({
     days: 0,
@@ -418,6 +420,22 @@ function SettingsPage() {
 
 
 
+  const fetchHealth = useCallback(async () => {
+    try {
+      const response = await fetch('/health');
+      const result = await response.json();
+      if (response.ok) setHealthInfo(result);
+    } catch (error) {
+      console.error('获取后端健康信息失败', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'about' && !healthInfo) {
+      fetchHealth();
+    }
+  }, [activeTab, healthInfo, fetchHealth]);
+
   const refreshCurrent = useCallback(async (showFeedback = false) => {
     setSettingsLoading(true);
     try {
@@ -426,13 +444,14 @@ function SettingsPage() {
       if (activeTab === 'database') await fetchDbState();
       if (activeTab === 'logs') await fetchLogState();
       if (activeTab === 'security') await Promise.all([fetchTwoFAStatus(), fetchLoginSessions(), fetchGitHubAuthConfig(), fetchPasskeys()]);
+      if (activeTab === 'about') await fetchHealth();
       if (showFeedback) toast.success('设置已刷新');
     } catch (error) {
       toast.error(error.message || '加载设置失败');
     } finally {
       setSettingsLoading(false);
     }
-  }, [activeTab, fetchDbState, fetchGitHubAuthConfig, fetchLogState, fetchLoginSessions, fetchPasskeys, fetchSettings, fetchTwoFAStatus, loadSiteBrandIcons]);
+  }, [activeTab, fetchDbState, fetchGitHubAuthConfig, fetchHealth, fetchLogState, fetchLoginSessions, fetchPasskeys, fetchSettings, fetchTwoFAStatus, loadSiteBrandIcons]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2054,26 +2073,86 @@ function SettingsPage() {
         <div className="grid items-start gap-4 overflow-auto cq-lg:grid-cols-1">
           <SectionCard
             title={<span className="app-brand-wordmark">API Monitor</span>}
-            description={APP_VERSION}
             icon={<img src="/logo.svg" alt="" className="h-6 w-6 object-contain" />}
-            bodyPadding="none"
           >
-            <FieldRow title="当前源">
-              <span className="truncate font-mono text-sm text-kumo-strong">{currentOrigin}</span>
-            </FieldRow>
-            <FieldRow title="API 地址">
-              <span className="truncate font-mono text-sm text-kumo-strong">{`${currentOrigin}/api`}</span>
-            </FieldRow>
-            <FieldRow title="仓库地址">
-              <a
-                href="https://github.com/iwvw/API-Monitor"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="truncate font-mono text-sm text-kumo-strong hover:underline"
-              >
-                https://github.com/iwvw/API-Monitor
-              </a>
-            </FieldRow>
+            <div className="grid gap-3 cq-sm:grid-cols-2">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <HardDrive className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">当前版本</span>
+                </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{APP_VERSION}</span>
+              </div>
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <Clock className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">构建时间</span>
+                </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">
+                  {APP_BUILD_TIME ? new Date(APP_BUILD_TIME).toLocaleString() : '未知'}
+                </span>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+              {[
+                { label: 'React', value: FRAMEWORK_VERSIONS.react, icon: <Activity className="h-3.5 w-3.5" /> },
+                { label: 'Vite', value: FRAMEWORK_VERSIONS.vite, icon: <Terminal className="h-3.5 w-3.5" /> },
+                { label: 'Tailwind CSS', value: FRAMEWORK_VERSIONS.tailwind, icon: <Columns className="h-3.5 w-3.5" /> },
+                { label: 'Kumo', value: FRAMEWORK_VERSIONS.kumo, icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+                { label: 'Zustand', value: FRAMEWORK_VERSIONS.zustand, icon: <Database className="h-3.5 w-3.5" /> },
+                { label: 'Go 后端', value: healthInfo?.goVersion || '…', icon: <Globe className="h-3.5 w-3.5" /> },
+              ].map((item) => (
+                <div key={item.label} className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                      {item.icon}
+                    </span>
+                    <span className="text-xs font-medium text-kumo-subtle">{item.label}</span>
+                  </div>
+                  <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{item.value || '-'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 grid gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <Globe className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">当前源</span>
+                </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{currentOrigin}</span>
+              </div>
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <Terminal className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">API 地址</span>
+                </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{`${currentOrigin}/api`}</span>
+              </div>
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <GitHubBrand className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">仓库地址</span>
+                </div>
+                <a
+                  href="https://github.com/iwvw/API-Monitor"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="truncate font-mono text-sm leading-6 text-kumo-strong transition-colors hover:text-kumo-brand hover:underline"
+                >
+                  https://github.com/iwvw/API-Monitor
+                </a>
+              </div>
+            </div>
           </SectionCard>
 
           {/* <LayerCard className="p-6">

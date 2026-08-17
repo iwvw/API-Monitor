@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -500,6 +501,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 			"status":    "ok",
 			"service":   "api-monitor-go",
 			"version":   s.cfg.Version,
+			"goVersion": runtime.Version(),
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	case "/api/migration/status":
@@ -567,7 +569,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.server.ServeHTTP(w, r)
 	case "/socket.io/":
 		s.server.ServeHTTP(w, r)
-	case "/api/admin-ai", "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/cron/task-run", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/messages/stream", "/api/admin-ai/cancel", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings":
+	case "/api/admin-ai", "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/cron/task-run", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/messages/stream", "/api/admin-ai/cancel", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings", "/api/admin-ai/memories", "/api/admin-ai/memories/{id}":
 		s.adminai.ServeHTTP(w, r)
 	default:
 		if strings.HasPrefix(route.Prefix, "/sub/") || strings.HasPrefix(r.URL.Path, "/sub/") {

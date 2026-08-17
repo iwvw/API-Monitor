@@ -265,6 +265,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		"totalPromptTokens":     totalPromptTokens,
 		"totalCompletionTokens": totalCompletionTokens,
 		"errorRate":             errorRate,
+		"errorCount":            errorCount,
 	})
 }
 

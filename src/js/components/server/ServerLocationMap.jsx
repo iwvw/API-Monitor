@@ -3,6 +3,7 @@ import { BubbleMap } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
+import { createSiteFontEcharts } from '../../chartFont.js';
 import { Minus, Plus, RotateCw } from '../Icons.jsx';
 
 const rawWorldGeoJson = feature(worldCountries, worldCountries.objects.countries);
@@ -174,6 +175,7 @@ function ServerLocationMap({
 }) {
   const isDarkMode = useDocumentDarkMode();
   const chartRef = useRef(null);
+  const siteFontEcharts = useMemo(() => createSiteFontEcharts(echarts), [echarts]);
   const chartHeight = height ?? (aspectRatio ? undefined : 190);
   const points = useMemo(() => {
     const rawPoints = (Array.isArray(servers) ? servers : [])
@@ -275,7 +277,7 @@ function ServerLocationMap({
       <div className="bg-kumo-recessed/20 px-2 py-1.5">
         <BubbleMap
           ref={chartRef}
-          echarts={echarts}
+          echarts={siteFontEcharts}
           geoJson={WORLD_GEO_JSON}
           mapName="api-monitor-world-hosts"
           data={points}

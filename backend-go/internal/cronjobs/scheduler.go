@@ -42,6 +42,7 @@ type Workflow struct {
 	FailurePolicy     string         `json:"failure_policy"`
 	CreatedAt         int64          `json:"created_at"`
 	UpdatedAt         int64          `json:"updated_at"`
+	NextRun           *int64         `json:"next_run,omitempty"`
 }
 
 type WorkflowNode struct {
@@ -449,6 +450,7 @@ func (s *Service) listWorkflows(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.enrichWorkflowNextRuns(workflows)
 	response.OK(w, workflows)
 }
 
@@ -1200,6 +1202,7 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 			continue
 		}
 		nodeStart := time.Now().Unix()
+		_ = insertNodeRun(ctx, db, runID, node, "running", "", nodeStart, nodeStart)
 		status := "success"
 		output, execErr := s.executeWorkflowNode(ctx, db, node)
 		if execErr != nil {
@@ -1208,7 +1211,7 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 		}
 		output = truncateOutput(output)
 		nodeEnd := time.Now().Unix()
-		_ = insertNodeRun(ctx, db, runID, node, status, output, nodeStart, nodeEnd)
+		_ = updateNodeRun(ctx, db, runID, node.ID, status, output, nodeEnd)
 		statuses[node.ID] = status
 		outputs[node.ID] = output
 		if status == "failed" && workflow.FailurePolicy == "stop" {
@@ -1390,4 +1393,22 @@ func firstNonEmpty(values ...string) string {
 
 func int64Ref(value int64) *int64 {
 	return &value
+}
+
+// enrichWorkflowNextRuns 为工作流列表填充下次运行时间（依据调度器注册的 cron entry）。
+func (s *Service) enrichWorkflowNextRuns(workflows []Workflow) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range workflows {
+		if workflows[i].Enabled == 0 || strings.TrimSpace(workflows[i].Schedule) == "" {
+			continue
+		}
+		if entryID, ok := s.workflowEntries[workflows[i].ID]; ok {
+			entry := s.scheduler.Entry(entryID)
+			if !entry.Next.IsZero() {
+				next := entry.Next.Unix()
+				workflows[i].NextRun = &next
+			}
+		}
+	}
 }

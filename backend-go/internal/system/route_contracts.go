@@ -169,6 +169,9 @@ func init() {
 	})
 	routeRequestContracts["/api/system/api-keys"] = routeRequestContracts["/api/api-keys"]
 	routeRequestContracts["/api/system/api-keys/{id}"] = routeRequestContracts["/api/api-keys"]
+	routeRequestContracts["/api/system/api-stats"] = obj(nil, map[string]prop{
+		"days": {t: "integer", d: "统计天数（1-90，默认 14）"},
+	})
 	routeRequestContracts["/api/backup/configs"] = obj([]string{"provider"}, map[string]prop{
 		"provider":          {t: "string", req: true, e: []string{"local", "oss", "cos", "s3"}},
 		"local_dir":         {t: "string", d: "本地备份目录"},

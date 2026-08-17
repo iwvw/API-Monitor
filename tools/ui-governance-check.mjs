@@ -21,7 +21,7 @@ const legacyFrontendPatterns = [
   /from\s+['"][^'"]+\.vue['"]/,
   /from\s+['"]pinia['"]/,
   /from\s+['"][^'"]*pinia[^'"]*['"]/,
-  /chart\.js/i,
+  /chart\.js(?!x)/i,
 ];
 const hardcodedColorRe =
   /#[0-9A-Fa-f]{3,8}\b|\b(?:bg|text|border|ring|from|to|via)-(?:red|orange|amber|yellow|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone|black|white)(?:-[0-9]{2,3})?\b/g;

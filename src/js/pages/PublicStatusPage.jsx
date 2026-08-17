@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
-import { ChartPalette, TimeseriesChart } from '@cloudflare/kumo';
+import { ChartPalette } from '@cloudflare/kumo';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -183,7 +184,7 @@ function HeartbeatLatencyChart({ beats, isDarkMode }) {
         <span className="tabular-nums text-kumo-subtle">最近 {chartData[0].data.length} 次</span>
       </div>
       <div className="min-w-0 overflow-hidden" style={{ height: 96 }}>
-        <TimeseriesChart
+        <SiteFontTimeseriesChart
           echarts={echarts}
           data={chartData}
           height={96}

@@ -7,6 +7,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Autocomplete } from '@cloudflare/kumo/components/autocomplete';
 import {
@@ -41,6 +42,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { createSiteFontEcharts } from '../chartFont.js';
 
 echarts.use([
   BarChart,
@@ -50,6 +52,7 @@ echarts.use([
   AriaComponent,
   CanvasRenderer,
 ]);
+const siteFontEcharts = createSiteFontEcharts(echarts);
 const ENDPOINT_PROTOCOL_OPTIONS = [
   { value: 'auto', label: '自动（HTTP/2 优先）' },
   { value: 'http1', label: 'HTTP/1.1' },
@@ -306,7 +309,75 @@ function IpCell({ value, viaProxy, placeholder }) {
   );
 }
 
-// maskIp 压缩 IP 展示：去掉端口，仅保留首尾片段、中间用 ••• 隐藏，用于日志表格
+// MultiSelectPopover 下拉多选：Popover + Checkbox 列表 + 搜索过滤，
+// 用于 API 密钥编辑的「允许的模型 / 允许的端点」白名单选择。
+function MultiSelectPopover({ triggerLabel, options, selected, onToggle, onClear, searchPlaceholder, emptyText }) {
+  const [search, setSearch] = useState('');
+  const keyword = search.trim().toLowerCase();
+  const filtered = keyword
+    ? options.filter(o => String(o.value).toLowerCase().includes(keyword) || String(o.label).toLowerCase().includes(keyword))
+    : options;
+  return (
+    <Popover>
+      <Popover.Trigger
+        nativeButton={false}
+        render={
+          <Button type="button" size="sm" variant="secondary" className="flex items-center gap-1.5">
+            <Plus className="h-3 w-3" />
+            {triggerLabel}
+            {selected.length > 0 && <Badge variant="secondary">{selected.length}</Badge>}
+          </Button>
+        }
+      />
+      <Popover.Content side="bottom" align="start" className="w-72 p-2">
+        <Input
+          size="sm"
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder={searchPlaceholder}
+          className="w-full"
+          aria-label={searchPlaceholder}
+        />
+        <div className="mt-1.5 max-h-60 overflow-y-auto overscroll-contain scrollbar-thin">
+          {filtered.length === 0 ? (
+            <p className="px-2 py-4 text-center text-xs leading-normal text-kumo-subtle">{emptyText}</p>
+          ) : (
+            <div className="grid gap-0.5">
+              {filtered.map(option => (
+                <label
+                  key={option.value}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-recessed"
+                >
+                  <Checkbox
+                    checked={selected.includes(option.value)}
+                    onCheckedChange={checked => onToggle(option.value, !!checked)}
+                    aria-label={`选择 ${option.label}`}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm leading-normal text-kumo-strong">{option.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="mt-1.5 flex items-center justify-between border-t border-kumo-line pt-1.5">
+          <span className="text-xs leading-normal text-kumo-subtle">已选 {selected.length} 项</span>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={selected.length === 0}
+            onClick={onClear}
+          >
+            清空
+          </Button>
+        </div>
+      </Popover.Content>
+    </Popover>
+  );
+}
+
+// maskIp 压缩 IP 展示：去掉端口，仅保留首尾片段、中间用 *** 隐藏，用于日志表格
 // 减少宽度占用。IPv4 保留前 2 段 + 后 1 段；IPv6 保留前 2 段 + 后 2 段。
 function maskIp(raw) {
   if (!raw) return raw || '';
@@ -326,11 +397,11 @@ function maskIp(raw) {
     if (segments.length <= 2) return value;
     const head = segments.slice(0, 2).join(':');
     const tail = segments.slice(-2).join(':');
-    return `${head}•••${tail}`;
+    return `${head}***${tail}`;
   }
   const parts = value.split('.');
   if (parts.length === 4) {
-    return `${parts[0]}.•••.•••.${parts[3]}`;
+    return `${parts[0]}.***.***.${parts[3]}`;
   }
   return value;
 }
@@ -456,6 +527,7 @@ function OpenAIPage() {
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
     errorRate: 0,
+    errorCount: 0,
   });
   const [analyticsCharts, setAnalyticsCharts] = useState({
     models: [],
@@ -678,8 +750,6 @@ function OpenAIPage() {
     allowedEndpoints: [],
     maxTokensQuota: '',
   });
-  const [gatewayKeyModelInput, setGatewayKeyModelInput] = useState('');
-  const [gatewayKeyEndpointInput, setGatewayKeyEndpointInput] = useState('');
   const [gatewayKeyAdvancedOpen, setGatewayKeyAdvancedOpen] = useState(false);
   const [gatewayKeyFormError, setGatewayKeyFormError] = useState('');
   const [gatewayKeySaving, setGatewayKeySaving] = useState(false);
@@ -853,7 +923,7 @@ const TrendBarChart = memo(function TrendBarChart({
 
   if (!labels || labels.length === 0) return null;
 
-  return <Chart echarts={echarts} isDarkMode={isDarkMode} options={options} height={168} />;
+  return <Chart echarts={siteFontEcharts} isDarkMode={isDarkMode} options={options} height={168} />;
 });
 
 // 全宽「模型 × 时间」折线趋势：类别轴（每桶唯一刻度），稀疏段断线成 Trend；
@@ -889,7 +959,7 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const chart = echarts.init(el);
+    const chart = siteFontEcharts.init(el);
     chartRef.current = chart;
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(el);
@@ -977,7 +1047,7 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
           />
         ))}
       </div>
-      <div ref={containerRef} className="h-[280px] w-full" />
+      <div ref={containerRef} className="h-[240px] w-full" />
     </div>
   );
 });
@@ -1876,8 +1946,6 @@ const trendSeries = useMemo(() => {
       allowedEndpoints: [],
       maxTokensQuota: '',
     });
-    setGatewayKeyModelInput('');
-    setGatewayKeyEndpointInput('');
     setGatewayKeyFormError('');
     setGatewayKeyDialogOpen(true);
   };
@@ -1891,8 +1959,6 @@ const trendSeries = useMemo(() => {
       allowedEndpoints: Array.isArray(key.allowedEndpoints) ? key.allowedEndpoints : [],
       maxTokensQuota: key.maxTokensQuota ? String(key.maxTokensQuota) : '',
     });
-    setGatewayKeyModelInput('');
-    setGatewayKeyEndpointInput('');
     setGatewayKeyFormError('');
     setGatewayKeyDialogOpen(true);
   };
@@ -1911,17 +1977,13 @@ const trendSeries = useMemo(() => {
       : 0,
   });
 
-  // 白名单列表项添加/删除（模型与端点共用）。
-  const addGatewayKeyListItem = (field, value) => {
-    const trimmed = (value || '').trim();
-    if (!trimmed) return;
+  // 白名单列表项勾选/取消（模型与端点共用，下拉多选）。
+  const toggleGatewayKeyListItem = (field, value, checked) => {
     setGatewayKeyForm(current => {
       const list = Array.isArray(current[field]) ? current[field] : [];
-      if (list.includes(trimmed)) return current;
-      return { ...current, [field]: [...list, trimmed] };
+      const next = checked ? (list.includes(value) ? list : [...list, value]) : list.filter(item => item !== value);
+      return { ...current, [field]: next };
     });
-    if (field === 'allowedModels') setGatewayKeyModelInput('');
-    if (field === 'allowedEndpoints') setGatewayKeyEndpointInput('');
   };
 
   const removeGatewayKeyListItem = (field, value) => {
@@ -4027,13 +4089,13 @@ if (!response.ok) {
                                 <Table.Cell className="!px-2.5 !py-1.5">
                                   <div className="min-w-0">
                                     <div
-                                      className="truncate font-semibold text-kumo-strong"
+                                      className="truncate font-semibold leading-5 text-kumo-strong"
                                       title={item.name}
                                     >
                                       {item.name || '未命名端点'}
                                     </div>
                                     <div
-                                      className="truncate font-mono text-[10px] text-kumo-subtle"
+                                      className="truncate font-mono text-[10px] leading-4 text-kumo-subtle"
                                       title={item.baseUrl}
                                     >
                                       {item.baseUrl}
@@ -4361,7 +4423,7 @@ if (!response.ok) {
                                     </Table.Cell>
                                     <Table.Cell className="!px-2.5 !py-1.5">
                                       <span
-                                        className="block truncate font-medium text-kumo-strong"
+                                        className="block truncate font-medium leading-5 text-kumo-strong"
                                         title={modelId}
                                       >
                                         {modelId}
@@ -4705,9 +4767,42 @@ if (!response.ok) {
                   <SkeletonLine className="h-6 w-20" />
                 ) : (
                   <div className="flex min-w-0 items-baseline gap-1">
-                    <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-strong cq-sm:text-xl cq-xl:text-2xl">
-                      {String(analyticsSummary.totalRequests)}
-                    </span>
+                    <Popover>
+                      <Popover.Trigger
+                        nativeButton={false}
+                        title="查看成功/失败详情"
+                        render={
+                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-strong cq-sm:text-xl cq-xl:text-2xl">
+                            {String(analyticsSummary.totalRequests)}
+                          </span>
+                        }
+                      />
+                      <Popover.Content className="w-56 p-3">
+                        <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                          网关请求详情
+                        </Popover.Title>
+                        <div className="mt-2 flex flex-col gap-1.5 text-xs text-kumo-strong">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle">成功</span>
+                            <span className="font-mono">
+                              {String(Math.max(0, analyticsSummary.totalRequests - (analyticsSummary.errorCount || 0)))}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle">失败</span>
+                            <span className="font-mono">
+                              {String(analyticsSummary.errorCount || 0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 pt-1.5 border-t border-kumo-line text-kumo-strong">
+                            <span className="text-kumo-subtle">错误率</span>
+                            <span className="font-mono">
+                              {((analyticsSummary.errorRate || 0) * 100).toFixed(2)}%
+                            </span>
+                          </div>
+                        </div>
+                      </Popover.Content>
+                    </Popover>
                   </div>
                 )}
                 <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsDays} 天</span>
@@ -4931,9 +5026,9 @@ if (!response.ok) {
               <LayerCard.Secondary>模型调用趋势</LayerCard.Secondary>
               <LayerCard.Primary className="!p-3">
               {analyticsLoading && !analyticsCharts.daily?.length ? (
-                <SkeletonLine className="h-[280px] w-full" />
+                <SkeletonLine className="h-[240px] w-full" />
               ) : !Array.isArray(byModelTrend.labels) || byModelTrend.labels.length === 0 ? (
-                <div className="flex h-[280px] items-center justify-center text-sm text-kumo-subtle">
+                <div className="flex h-[240px] items-center justify-center text-sm text-kumo-subtle">
                   暂无数据
                 </div>
               ) : (
@@ -5146,9 +5241,9 @@ if (!response.ok) {
                   <col style={{ width: 80 }} />
                   <col style={{ width: 104 }} />
                   <col style={{ width: 140 }} />
-                  <col style={{ width: 132 }} />
-                  <col style={{ width: 120 }} />
-                  <col style={{ width: 40 }} />
+                  <col style={{ width: 100 }} />
+                  <col style={{ width: 100 }} />
+                  <col style={{ width: 64 }} />
                   <col style={{ width: 160 }} />
                   <col style={{ width: 132 }} />
                   <col style={{ width: 132 }} />
@@ -6241,6 +6336,15 @@ if (!response.ok) {
                       <span className="font-normal text-kumo-subtle">（可选）</span>
                     </Label>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      <MultiSelectPopover
+                        triggerLabel="选择模型"
+                        searchPlaceholder="搜索模型…"
+                        emptyText="暂无可用模型"
+                        options={allModels.map(m => ({ value: m.id, label: m.id }))}
+                        selected={gatewayKeyForm.allowedModels || []}
+                        onToggle={(value, checked) => toggleGatewayKeyListItem('allowedModels', value, checked)}
+                        onClear={() => setGatewayKeyForm(current => ({ ...current, allowedModels: [] }))}
+                      />
                       {(gatewayKeyForm.allowedModels || []).map(model => (
                         <Badge
                           key={model}
@@ -6258,20 +6362,6 @@ if (!response.ok) {
                           />
                         </Badge>
                       ))}
-                      <Input
-                        size="sm"
-                        type="text"
-                        value={gatewayKeyModelInput}
-                        onChange={e => setGatewayKeyModelInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addGatewayKeyListItem('allowedModels', gatewayKeyModelInput);
-                          }
-                        }}
-                        placeholder="输入模型名后回车"
-                        className="w-full font-mono text-[0.85em] text-kumo-strong"
-                      />
                     </div>
                   </div>
                   <div className="space-y-1.5">
@@ -6280,37 +6370,35 @@ if (!response.ok) {
                       <span className="font-normal text-kumo-subtle">（可选）</span>
                     </Label>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {(gatewayKeyForm.allowedEndpoints || []).map(endpointId => (
-                        <Badge
-                          key={endpointId}
-                          variant="outline"
-                          className="max-w-full gap-1 font-mono !text-[11px] font-medium"
-                        >
-                          <span className="truncate">{endpointId}</span>
-                          <Button
-                            size="xs"
-                            shape="square"
-                            variant="ghost"
-                            aria-label={`移除 ${endpointId}`}
-                            onClick={() => removeGatewayKeyListItem('allowedEndpoints', endpointId)}
-                            icon={<X className="h-3 w-3" />}
-                          />
-                        </Badge>
-                      ))}
-                      <Input
-                        size="sm"
-                        type="text"
-                        value={gatewayKeyEndpointInput}
-                        onChange={e => setGatewayKeyEndpointInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addGatewayKeyListItem('allowedEndpoints', gatewayKeyEndpointInput);
-                          }
-                        }}
-                        placeholder="输入端点 ID 后回车"
-                        className="w-full font-mono text-[0.85em] text-kumo-strong"
+                      <MultiSelectPopover
+                        triggerLabel="选择端点"
+                        searchPlaceholder="搜索端点…"
+                        emptyText="暂无可用端点"
+                        options={endpoints.map(ep => ({ value: ep.id, label: ep.name || ep.id }))}
+                        selected={gatewayKeyForm.allowedEndpoints || []}
+                        onToggle={(value, checked) => toggleGatewayKeyListItem('allowedEndpoints', value, checked)}
+                        onClear={() => setGatewayKeyForm(current => ({ ...current, allowedEndpoints: [] }))}
                       />
+                      {(gatewayKeyForm.allowedEndpoints || []).map(endpointId => {
+                        const endpointLabel = endpoints.find(ep => ep.id === endpointId)?.name || endpointId;
+                        return (
+                          <Badge
+                            key={endpointId}
+                            variant="outline"
+                            className="max-w-full gap-1 !text-[11px] font-medium"
+                          >
+                            <span className="truncate">{endpointLabel}</span>
+                            <Button
+                              size="xs"
+                              shape="square"
+                              variant="ghost"
+                              aria-label={`移除 ${endpointLabel}`}
+                              onClick={() => removeGatewayKeyListItem('allowedEndpoints', endpointId)}
+                              icon={<X className="h-3 w-3" />}
+                            />
+                          </Badge>
+                        );
+                      })}
                     </div>
                   </div>
                   <div className="space-y-1.5">

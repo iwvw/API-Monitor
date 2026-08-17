@@ -212,6 +212,7 @@ function NotificationPage() {
   // 过滤选项
   const [notificationRuleFilter, setNotificationRuleFilter] = useState(''); // '' | 'uptime' | 'server'
   const [notificationHistoryFilter, setNotificationHistoryFilter] = useState(''); // '' | 'sent' | 'failed' | 'pending'
+  const [highlightRuleId, setHighlightRuleId] = useState(null);
 
   // Modals 控制
   const [showChannelModal, setShowChannelModal] = useState(false);
@@ -237,6 +238,8 @@ function NotificationPage() {
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [ruleModalMode, setRuleModalMode] = useState('add');
   const [ruleCreateIntent, setRuleCreateIntent] = useState(null); // 跨页意图：待预填的 cron 事件类型（如 workflow.completed）
+  const [ruleCreateWorkflowId, setRuleCreateWorkflowId] = useState(''); // 跨页意图：目标工作流 ID（精确匹配用）
+  const [ruleCreateWorkflowName, setRuleCreateWorkflowName] = useState(''); // 跨页意图：目标工作流名称（写入规则名）
   const [ruleForm, setRuleForm] = useState({
     id: null,
     name: '',
@@ -254,6 +257,7 @@ function NotificationPage() {
     message_template: '',
     backup_channels: [],
     quiet_until: '',
+    conditions: [],
     enabled: true,
   });
 
@@ -547,29 +551,57 @@ function NotificationPage() {
   };
 
   // ==================== 跨页意图：从定时任务卡片「配置通知规则」跳转而来 ====================
-  // 读取 ?newRule=<cron 事件类型> 并立即清理 URL，避免刷新或返回时重复触发。
+  // 读取 ?newRule=<cron 事件类型>（可带 workflowId/workflowName）并立即清理 URL，避免刷新或返回时重复触发。
   useEffect(() => {
-    const eventType = new URLSearchParams(window.location.search).get('newRule');
+    const params = new URLSearchParams(window.location.search);
+    const eventType = params.get('newRule');
     if (!eventType) return;
     setRuleCreateIntent(eventType);
+    setRuleCreateWorkflowId(params.get('workflowId') || '');
+    setRuleCreateWorkflowName(params.get('workflowName') || '');
     window.history.replaceState({}, '', window.location.pathname);
   }, []);
 
-  // 等数据加载完成后跳转「规则」Tab、过滤 cron 源并预填新建规则弹窗。
+  // 等数据加载完成后跳转「规则」Tab、过滤 cron 源；已有匹配规则则定位高亮，否则预填新建弹窗。
+  // 带工作流 ID 时按 conditions 中的 workflowId 精确匹配，避免多个工作流互相误判为「已有」。
   useEffect(() => {
     if (!ruleCreateIntent || notificationLoading) return;
     const cronEvents = notificationEventCatalog.find(item => item.module === 'cron')?.events || [];
-    if (!cronEvents.includes(ruleCreateIntent)) return;
+    if (!cronEvents.includes(ruleCreateIntent)) {
+      setRuleCreateIntent(null); // 无法处理的意图立即消费，避免空转
+      return;
+    }
     setNotificationCurrentTab('rules');
     setNotificationRuleFilter('cron');
-    handleOpenAddRule({
-      name: `${getEventTypeName(ruleCreateIntent)}通知`,
-      source_module: 'cron',
-      event_type: ruleCreateIntent,
-      severity: ruleCreateIntent.includes('failed') ? 'critical' : 'info',
-    });
+    const matchesWorkflow = (rule) => {
+      if (!ruleCreateWorkflowId) return true;
+      const conditions = typeof rule.conditions === 'string' ? (() => { try { return JSON.parse(rule.conditions); } catch { return null; } })() : rule.conditions;
+      const items = Array.isArray(conditions) ? conditions : conditions?.items;
+      return Array.isArray(items) && items.some(item => item.field === 'workflowId' && String(item.value) === ruleCreateWorkflowId);
+    };
+    const existing = notificationRules.find(rule => rule.source_module === 'cron' && rule.event_type === ruleCreateIntent && matchesWorkflow(rule));
+    if (existing) {
+      setHighlightRuleId(existing.id);
+      const timer = window.setTimeout(() => setHighlightRuleId(null), 2500);
+      return () => window.clearTimeout(timer);
+    } else {
+      handleOpenAddRule({
+        name: ruleCreateWorkflowName
+          ? `${ruleCreateWorkflowName} - ${getEventTypeName(ruleCreateIntent)}通知`
+          : `${getEventTypeName(ruleCreateIntent)}通知`,
+        source_module: 'cron',
+        event_type: ruleCreateIntent,
+        severity: ruleCreateIntent.includes('failed') ? 'critical' : 'info',
+        ...(ruleCreateWorkflowId ? {
+          conditions: {
+            mode: 'all',
+            items: [{ field: 'workflowId', operator: 'equals', value: ruleCreateWorkflowId }],
+          },
+        } : {}),
+      });
+    }
     setRuleCreateIntent(null); // 只消费一次
-  }, [ruleCreateIntent, notificationLoading, notificationEventCatalog, handleOpenAddRule]);
+  }, [ruleCreateIntent, notificationLoading, notificationEventCatalog, notificationRules, handleOpenAddRule, ruleCreateWorkflowId, ruleCreateWorkflowName]);
 
   const handleOpenEditRule = (rule) => {
     let channels = rule.channels || [];
@@ -604,6 +636,7 @@ function NotificationPage() {
       message_template: rule.message_template || '',
       backup_channels: backupChannels.map(String),
       quiet_until: rule.quiet_until || '',
+      conditions: typeof rule.conditions === 'string' ? (() => { try { return JSON.parse(rule.conditions); } catch { return null; } })() : (rule.conditions || []),
       enabled: !!rule.enabled
     });
     setTemplatePreview(null);
@@ -1018,7 +1051,9 @@ function NotificationPage() {
                   key={rule.id}
                   padding="none"
                   interactive
-                  className="flex min-h-[148px] flex-col justify-between p-4 transition-all duration-200 hover:border-kumo-brand/50 hover:shadow-sm"
+                  className={`flex min-h-[148px] flex-col justify-between p-4 transition-all duration-200 hover:border-kumo-brand/50 hover:shadow-sm ${
+                    highlightRuleId === rule.id ? 'border-kumo-brand/60 ring-2 ring-kumo-brand/20' : ''
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     {/* Severity Indicator */}
@@ -1451,7 +1486,7 @@ function NotificationPage() {
 
       {/* ==================== 6. 弹窗 1: 添加/编辑通道 ==================== */}
       <Dialog.Root open={showChannelModal} onOpenChange={setShowChannelModal}>
-        <Dialog className="!w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
+        <Dialog className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
           <Dialog.Title className="text-base font-bold text-kumo-strong mb-1 select-none">
             {channelForm.id ? '编辑通知渠道' : '新建通知渠道'}
           </Dialog.Title>
@@ -1459,7 +1494,7 @@ function NotificationPage() {
             配置告警投递渠道
           </Dialog.Description>
 
-          <div className="-mx-1 space-y-4 max-h-[60vh] overflow-y-auto px-1 pr-2 scrollbar-thin">
+          <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-2 pr-2 scrollbar-thin">
             {/* Channel Type */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">渠道类型</label>
@@ -1690,7 +1725,7 @@ function NotificationPage() {
 
       {/* ==================== 7. 弹窗 2: 添加/编辑规则 ==================== */}
       <Dialog.Root open={showRuleModal} onOpenChange={setShowRuleModal}>
-        <Dialog className="!w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
+        <Dialog className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
           <Dialog.Title className="text-base font-bold text-kumo-strong mb-1 select-none">
             {ruleForm.id ? '编辑告警规则' : '添加告警规则'}
           </Dialog.Title>
@@ -1698,7 +1733,7 @@ function NotificationPage() {
             配置触发条件和投递渠道
           </Dialog.Description>
 
-          <div className="-mx-1 space-y-4 max-h-[60vh] overflow-y-auto px-1 pr-2 scrollbar-thin">
+          <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-2 pr-2 scrollbar-thin">
             {/* Rule Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">规则名称 *</label>
@@ -1713,7 +1748,7 @@ function NotificationPage() {
             </div>
 
             {/* Source & Event Type */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">来源模块</label>
                 <Select size="sm"
@@ -1735,22 +1770,21 @@ function NotificationPage() {
                   items={catalogEventItems}
                 />
               </div>
-            </div>
 
-            {/* Severity Level */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-kumo-subtle">告警级别</label>
-              <Select size="sm"
-                aria-label="告警紧急级别"
-                value={ruleForm.severity}
-                onValueChange={(value) => setRuleForm(prev => ({ ...prev, severity: String(value) }))}
-                className="w-full"
-                items={[
-                  { value: 'info', label: '常规（Info）' },
-                  { value: 'warning', label: '警告（Warning）' },
-                  { value: 'critical', label: '紧急（Critical）' },
-                ]}
-              />
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-kumo-subtle">告警级别</label>
+                <Select size="sm"
+                  aria-label="告警紧急级别"
+                  value={ruleForm.severity}
+                  onValueChange={(value) => setRuleForm(prev => ({ ...prev, severity: String(value) }))}
+                  className="w-full"
+                  items={[
+                    { value: 'info', label: '常规（Info）' },
+                    { value: 'warning', label: '警告（Warning）' },
+                    { value: 'critical', label: '紧急（Critical）' },
+                  ]}
+                />
+              </div>
             </div>
 
             {/* Target Delivery Channels Checkboxes */}
@@ -1910,28 +1944,30 @@ function NotificationPage() {
               />
             </div>
 
-            {/* Rule Status Switch */}
-            <div className="flex items-center justify-between border-t border-kumo-line pt-4 select-none">
-              <span className="text-xs font-semibold text-kumo-strong">启用规则</span>
+            </div>
+
+          <div className="flex items-center justify-between gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
+            <div className="flex items-center gap-2">
               <Switch
                 checked={!!ruleForm.enabled}
                 onCheckedChange={(checked) => setRuleForm(prev => ({ ...prev, enabled: checked }))}
                 size="sm"
+                aria-label="启用规则"
               />
+              <span className="text-xs font-semibold text-kumo-strong">启用规则</span>
             </div>
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
-            <Dialog.Close
-              render={(props) => (
-                <Button size="sm" {...props} variant="secondary">
-                  取消
-                </Button>
-              )}
-            />
-            <Button size="sm" variant="primary" onClick={handleSaveRule} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
-              保存规则
-            </Button>
+            <div className="flex gap-3">
+              <Dialog.Close
+                render={(props) => (
+                  <Button size="sm" {...props} variant="secondary">
+                    取消
+                  </Button>
+                )}
+              />
+              <Button size="sm" variant="primary" onClick={handleSaveRule} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
+                保存规则
+              </Button>
+            </div>
           </div>
         </Dialog>
       </Dialog.Root>

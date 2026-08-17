@@ -134,6 +134,21 @@ func TestAuthSubroutesAreForwarded(t *testing.T) {
 	}
 }
 
+func TestAdminAIMemoriesRouteForwarded(t *testing.T) {
+	handler := testServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/memories", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code == http.StatusNotFound {
+		t.Fatalf("/api/admin-ai/memories unexpectedly fell through router; body=%s", res.Body.String())
+	}
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("/api/admin-ai/memories status = %d, want 401 (session required); body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestAIMCPCallAPIUsesInternalRoutes(t *testing.T) {
 	handler := testServer(t)
 	cookie := loginServerForTest(t, handler)

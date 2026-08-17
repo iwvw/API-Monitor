@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +57,12 @@ type APICounters struct {
 	Audit int64 `json:"audit"`
 	Ops   int64 `json:"ops"`
 }
+
+const (
+	defaultApiStatsDays = 14
+	minApiStatsDays     = 1
+	maxApiStatsDays     = 90
+)
 
 func (s *Service) SetNotifier(n Notifier) {
 	s.notifier = n
@@ -333,7 +340,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		payload, err := s.apiStats()
+		days := defaultApiStatsDays
+		if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d >= minApiStatsDays && d <= maxApiStatsDays {
+			days = d
+		}
+		payload, err := s.apiStats(days)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1147,9 +1158,9 @@ func inferRouteMethods(route manifest.Route) []string {
 	return []string{"GET", "POST", "PUT", "DELETE"}
 }
 
-func (s *Service) apiStats() (map[string]interface{}, error) {
+func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 	now := time.Now()
-	startDateStr := now.AddDate(0, 0, -6).Format("2006-01-02")
+	startDateStr := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1179,12 +1190,12 @@ func (s *Service) apiStats() (map[string]interface{}, error) {
 		dbData[date] = &APICounters{Audit: audit, Ops: ops}
 	}
 
-	trend := make([]map[string]interface{}, 0, 7)
+	trend := make([]map[string]interface{}, 0, days)
 	var totalAudit, totalOps int64
 
 	s.mu.Lock()
-	for i := 0; i < 7; i++ {
-		day := now.AddDate(0, 0, -6+i).Format("2006-01-02")
+	for i := 0; i < days; i++ {
+		day := now.AddDate(0, 0, -(days-1)+i).Format("2006-01-02")
 
 		var auditVal, opsVal int64
 		if dbVal, exists := dbData[day]; exists {
@@ -1208,9 +1219,9 @@ func (s *Service) apiStats() (map[string]interface{}, error) {
 	}
 	s.mu.Unlock()
 
-	// 汇总最近 7 天的词元用量（OpenAI 网关）与订阅实际用量（流量），并按天对齐趋势桶。
+	// 汇总最近 days 天的词元用量（OpenAI 网关）与订阅实际用量（流量），并按天对齐趋势桶。
 	var totalTokens, totalTraffic int64
-	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, now)
+	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, now, days)
 	for _, item := range trend {
 		bucket := item["bucket"].(string)
 		tokens := tokensByDay[bucket]
@@ -1232,10 +1243,10 @@ func (s *Service) apiStats() (map[string]interface{}, error) {
 	}, nil
 }
 
-// systemUsageDaily 按天汇总最近 7 天的 OpenAI 网关词元消耗与订阅实际流量（上传+下载字节）。
+// systemUsageDaily 按天汇总最近 days 天的 OpenAI 网关词元消耗与订阅实际流量（上传+下载字节）。
 // 返回以 "2006-01-02" 为键的逐日用量表，缺失日期返回 0。
-func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time) (map[string]int64, map[string]int64) {
-	start := now.AddDate(0, 0, -6).Format("2006-01-02 15:04:05")
+func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) (map[string]int64, map[string]int64) {
+	start := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02 15:04:05")
 	tokensByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
 		SELECT strftime('%Y-%m-%d', timestamp) AS day, COALESCE(SUM(total_tokens), 0)

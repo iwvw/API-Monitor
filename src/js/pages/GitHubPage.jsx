@@ -8,7 +8,6 @@ import {
   LayerCard,
   Tabs,
   Text,
-  TimeseriesChart,
   Toolbar,
 } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
@@ -32,6 +31,7 @@ import { useDraggableScroll } from '../hooks/useDraggableScroll.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import useStore from '../store.js';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import { AppTable, ChartBoundaryBox, DataTableFrame, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import GitHubPublicPagesPanel from '../components/github/GitHubPublicPagesPanel.jsx';
 import {
@@ -2667,7 +2667,7 @@ function GitHubPage() {
                 {trends.length >= 2 ? (
                   <ChartBoundaryBox>
                     {(tooltipBoundary) => (
-                      <TimeseriesChart
+                      <SiteFontTimeseriesChart
                         echarts={echarts}
                         isDarkMode={isDarkMode}
                         type="line"

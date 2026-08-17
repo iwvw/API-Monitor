@@ -2508,3 +2508,32 @@ input[type='number'] {
   line-height: 1.6;
   color: var(--text-color-kumo-default, inherit);
 }
+
+/* Kumo Select 弹层：限制宽度并截断超长选项文本，避免弹层过宽压到旁边内容 */
+[data-kumo-component="Select"] [role="listbox"] {
+  max-width: min(24rem, calc(100vw - 2rem));
+}
+[data-kumo-component="Select"] [role="option"] {
+  min-width: 0;
+}
+[data-kumo-component="Select"] [role="option"] > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Kumo Select trigger：收起态按容器宽度截断，不被长文本撑宽（button 基础样式为 w-max） */
+[data-kumo-component="Select"][data-kumo-part="trigger"] {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* 工作流画布运行中节点：边框呼吸高亮提示执行中 */
+.scheduler-node-running {
+  border-color: var(--color-kumo-warning);
+  animation: scheduler-node-running-pulse 1.4s ease-in-out infinite;
+}
+@keyframes scheduler-node-running-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12); }
+}

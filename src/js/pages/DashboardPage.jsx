@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Chart, ChartLegend, ChartPalette, Meter } from '@cloudflare/kumo';
+import { Chart, ChartLegend, ChartPalette, Meter, Tabs } from '@cloudflare/kumo';
 import * as echarts from 'echarts/core';
 import { BarChart, LineChart } from 'echarts/charts';
 import {
@@ -13,6 +13,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { createSiteFontEcharts } from '../chartFont.js';
 import useStore from '../store.js';
 import { AppCard, PageStack, SectionCard } from '../components/ui/AppPrimitives.jsx';
 import { DASHBOARD_INVALIDATION_EVENT, readDashboardStatsInvalidatedAt } from '../modules/dashboardInvalidation.js';
@@ -68,6 +69,14 @@ const DASHBOARD_FETCH_TIMEOUT_MS = 6_000;
 const HOST_METRICS_POLL_MS = 2_000;
 const HOST_METRICS_FETCH_TIMEOUT_MS = 4_000;
 const DASHBOARD_SERVER_STATUS_LIMIT = 7;
+const API_TREND_DEFAULT_DAYS = 14;
+const API_TREND_NARROW_DAYS = 7;
+const API_TREND_MAX_DAYS = 30;
+const API_TREND_RANGE_TABS = [
+  { value: '7', label: '7 天' },
+  { value: '14', label: '14 天' },
+  { value: '30', label: '30 天' },
+];
 const SERVICE_TOOL_ITEM_CLASS = 'group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/45 px-2.5 py-1.5 transition-colors hover:border-kumo-brand/60 hover:bg-kumo-base cq-sm:h-12 cq-sm:px-3 cq-xl:h-auto cq-xl:min-h-12';
 const SERVICE_TOOL_ICON_CLASS = 'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm cq-sm:h-8 cq-sm:w-8';
 const SERVICE_TOOL_BADGE_CLASS = 'flex h-6 min-w-9 shrink-0 items-center justify-center gap-1 rounded-md border border-kumo-line bg-kumo-base px-1.5 text-[10px] font-semibold text-kumo-strong tabular-nums cq-sm:min-w-10 cq-sm:text-[11px]';
@@ -89,6 +98,8 @@ echarts.use([
   CanvasRenderer,
   AriaComponent,
 ]);
+
+const siteFontEcharts = createSiteFontEcharts(echarts);
 
 function useMediaQuery(query) {
   const getMatches = () => (
@@ -383,6 +394,7 @@ function DashboardPage({ onNavigate } = {}) {
   const { setMainActiveTab, setAppProcessUptimeSeconds, theme } = useStore();
   const isDarkMode = theme === 'dark';
   const isCompactViewport = useMediaQuery('(max-width: 640px)');
+  const isNarrowApiTrend = useMediaQuery('(max-width: 1279px)');
   const apiChartHeight = isCompactViewport ? 126 : 170;
   const navigateToModule = useCallback((module) => {
     if (typeof onNavigate === 'function') {
@@ -626,7 +638,7 @@ function DashboardPage({ onNavigate } = {}) {
 
     const fetchApiStats = async () => {
       try {
-        const data = await fetchJson('/api/system/api-stats');
+        const data = await fetchJson(`/api/system/api-stats?days=${API_TREND_MAX_DAYS}`);
         if (data.success && data.data) {
           const val = data.data;
           updateSegment('apiStats', val);
@@ -834,12 +846,19 @@ function DashboardPage({ onNavigate } = {}) {
   }, [setAppProcessUptimeSeconds]);
 
 
-  const apiTrend = stats.apiStats?.trend || [];
-  const apiTrendTotal = stats.apiStats?.total?.all || 0;
-  const apiTrendAudit = stats.apiStats?.total?.audit || 0;
-  const apiTrendOps = stats.apiStats?.total?.ops || 0;
+  // null = 跟随视口自适应（窄屏 7 天，否则 14 天）；数字 = 用户手动固定。
+  const [apiTrendRange, setApiTrendRange] = useState(null);
+  const apiTrendDays = apiTrendRange ?? (isNarrowApiTrend ? API_TREND_NARROW_DAYS : API_TREND_DEFAULT_DAYS);
+  const apiTrendRaw = stats.apiStats?.trend || [];
+  const apiTrend = useMemo(
+    () => (apiTrendDays < apiTrendRaw.length ? apiTrendRaw.slice(-apiTrendDays) : apiTrendRaw),
+    [apiTrendDays, apiTrendRaw],
+  );
+  const apiTrendAudit = apiTrend.reduce((sum, point) => sum + (Number(point.audit) || 0), 0);
+  const apiTrendOps = apiTrend.reduce((sum, point) => sum + (Number(point.ops) || 0), 0);
+  const apiTrendTotal = apiTrendAudit + apiTrendOps;
 
-  // 与模型趋势一致：三种量纲（请求/词元/流量）归一为各自 7 天峰值 0-100% 共享一轴，
+  // 与模型趋势一致：三种量纲（请求/词元/流量）归一为各自所选区间峰值 0-100% 共享一轴，
   // Legend 点击隔离某序列时改用该序列的原生单位与绝对量展示。
   const apiTrendSeries = useMemo(() => {
     const configs = [
@@ -934,7 +953,7 @@ function DashboardPage({ onNavigate } = {}) {
     return {
       aria: {
         enabled: true,
-        label: { description: '最近 7 天系统 API 调用 / 词元 / 订阅流量趋势' },
+        label: { description: `最近 ${apiTrendDays} 天系统 API 调用 / 词元 / 订阅流量趋势` },
       },
       backgroundColor: 'transparent',
       grid: { left: 8, right: 16, top: 28, bottom: 4, containLabel: true },
@@ -955,7 +974,7 @@ function DashboardPage({ onNavigate } = {}) {
       },
       series,
     };
-  }, [apiTrendSeries, apiTrendLabels, apiIsolatedSeries, isDarkMode]);
+  }, [apiTrendSeries, apiTrendLabels, apiIsolatedSeries, isDarkMode, apiTrendDays]);
 
   const handleApiLegendClick = (key) => {
     setApiIsolatedSeries((prev) => (prev === key ? null : key));
@@ -966,8 +985,8 @@ function DashboardPage({ onNavigate } = {}) {
     : '暂无系统 API 调用记录';
   const hasApiTrendCalls = apiTrendSeries.some((series) => series.data.length >= 2 && series.total > 0);
   const apiTrendStatusText = apiTrendTotal > 0
-    ? '最近 7 天系统 API 调用 / 词元 / 订阅流量趋势'
-    : '最近 7 天暂无系统 API 调用记录';
+    ? `最近 ${apiTrendDays} 天系统 API 调用 / 词元 / 订阅流量趋势`
+    : `最近 ${apiTrendDays} 天暂无系统 API 调用记录`;
 
   const hostCpuUsage = clampPercent(stats.host?.cpu?.usage);
   const hostMemoryUsage = clampPercent(stats.host?.memory?.usage);
@@ -1007,7 +1026,7 @@ function DashboardPage({ onNavigate } = {}) {
   return (
     <PageStack className="gap-3 cq-sm:gap-4">
       {/* ==================== Stats Grid (5 Cards) ==================== */}
-      <div className="grid w-full grid-cols-2 gap-2 cq-md:grid-cols-3 cq-2xl:grid-cols-5">
+      <div className="grid w-full grid-cols-2 gap-2 cq-sm:grid-cols-3 cq-xl:grid-cols-5">
         
         <DashboardOverviewCard
           onClick={() => navigateToModule('server')}
@@ -1087,6 +1106,15 @@ function DashboardPage({ onNavigate } = {}) {
         <SectionCard
           title="API 调用趋势"
           icon={<TrendingUp className="h-4 w-4 text-kumo-brand" />}
+          action={(
+            <Tabs
+              variant="segmented"
+              size="sm"
+              tabs={API_TREND_RANGE_TABS}
+              value={String(apiTrendDays)}
+              onValueChange={(value) => setApiTrendRange(Number(value))}
+            />
+          )}
           bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 cq-sm:p-5"
         >
           <div className="flex flex-nowrap gap-x-4 overflow-x-auto overscroll-x-contain px-1 pb-1 touch-pan-x scrollbar-thin">
@@ -1105,7 +1133,7 @@ function DashboardPage({ onNavigate } = {}) {
           <div className="min-w-0 overflow-hidden" style={{ height: apiChartHeight }}>
             {hasApiTrendCalls ? (
               <Chart
-                echarts={echarts}
+                echarts={siteFontEcharts}
                 isDarkMode={isDarkMode}
                 options={apiChartOptions}
                 height={apiChartHeight}

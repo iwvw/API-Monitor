@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatsCircle, Lock } from '@phosphor-icons/react';
 import { Button } from '@cloudflare/kumo/components/button';
@@ -11,7 +11,7 @@ import {
   Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Terminal,
 } from '../Icons.jsx';
 import MessageList from './MessageList.jsx';
-import AdminConsole from './AdminConsole.jsx';
+import AdminConsole, { TAB_OPTIONS } from './AdminConsole.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { parseAdminAiEvent } from '../../modules/adminAiEvents.js';
 import {
@@ -111,8 +111,7 @@ function isBotSession(session) {
 
 function sessionSourceLabel(source) {
   if (source === 'cron') return '任务';
-  if (source && source.startsWith('channel:')) return '频道';
-  return '机器人';
+  return 'BOT';
 }
 
 /* 会话列表条目（全屏侧栏与下拉菜单共用）：机器人会话带来源标签 */
@@ -173,6 +172,81 @@ function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
         {confirmDeleteId === s.id ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
       </Button>
     </div>
+  );
+}
+
+function sessionActivityTime(s) {
+  const value = s.lastActivityAt || s.createdAt;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+// 定时任务会话（source=cron）按会话标题（即任务名）合并成组，
+// 组内按最近活跃倒序，组间按组内最新活跃倒序。
+function groupCronSessions(sessions) {
+  const byTitle = new Map();
+  for (const s of sessions) {
+    const key = s.title || '未命名任务';
+    if (!byTitle.has(key)) byTitle.set(key, []);
+    byTitle.get(key).push(s);
+  }
+  const groups = [];
+  for (const [title, items] of byTitle) {
+    const sorted = [...items].sort((a, b) => sessionActivityTime(b) - sessionActivityTime(a));
+    groups.push({ title, items: sorted, latestAt: sessionActivityTime(sorted[0]) });
+  }
+  groups.sort((a, b) => b.latestAt - a.latestAt);
+  return groups;
+}
+
+/* 任务会话列表：定时任务（source=cron）按任务名分组，组默认折叠，点击组头展开 */
+function BotTaskList({
+  taskGroups,
+  collapsedTaskGroups,
+  onToggleTaskGroup,
+  activeSessionId,
+  confirmDeleteId,
+  onSelect,
+  onDelete,
+}) {
+  return (
+    <>
+      {taskGroups.map((group) => {
+        const collapsed = collapsedTaskGroups === null || collapsedTaskGroups.has(group.title);
+        return (
+          <div key={group.title}>
+            <Sidebar.MenuButton
+              active={!collapsed}
+              onClick={() => onToggleTaskGroup(group.title)}
+              icon={<Terminal className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
+              className="!px-2"
+            >
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-kumo-default">
+                {group.title}
+              </span>
+              <span className="shrink-0 text-[10px] text-kumo-subtle">{group.items.length} 次</span>
+              <ChevronDown
+                className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`}
+              />
+            </Sidebar.MenuButton>
+            {!collapsed && (
+              <div className="ml-2.5 border-l border-kumo-line pl-1.5">
+                {group.items.map((s) => (
+                  <SessionItem
+                    key={s.id}
+                    s={s}
+                    active={s.id === activeSessionId}
+                    confirmDeleteId={confirmDeleteId}
+                    onSelect={() => onSelect(s)}
+                    onDelete={onDelete}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -253,6 +327,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const [fullscreenSidebar, setFullscreenSidebar] = useState(true);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false); // 管理视图（设置/频道/审计收进侧栏）
+  const [adminTab, setAdminTab] = useState('settings'); // 管理视图 tab（与 AdminConsole 共享）
   const [pendingApproval, setPendingApproval] = useState(null); // 写操作审批弹窗（approval 事件触发）
   const [behavior, setBehavior] = useState(() => {
     try { return localStorage.getItem('adminai-behavior') === 'ask' ? 'ask' : 'agent'; } catch { return 'agent'; }
@@ -867,6 +942,24 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   // 会话列表只展示已产生对话的会话：空会话是「新对话」占位，不进入下拉列表
   const webSessions = sessions.filter((s) => !isBotSession(s) && (s.messageCount || 0) > 0);
   const botSessions = sessions.filter((s) => isBotSession(s) && (s.messageCount || 0) > 0);
+  // BOT（频道 channel:*）与任务（cron）分 tab 展示；任务按任务名合并成组。
+  const channelSessions = botSessions.filter((s) => s.source !== 'cron');
+  const taskGroups = useMemo(
+    () => groupCronSessions(sessions.filter((s) => isBotSession(s) && s.source === 'cron' && (s.messageCount || 0) > 0)),
+    [sessions],
+  );
+  // 任务分组折叠状态：null = 全部折叠（初始）；否则 Set 内的任务名收起
+  const [collapsedTaskGroups, setCollapsedTaskGroups] = useState(null);
+  const toggleTaskGroup = useCallback((title) => {
+    setCollapsedTaskGroups((prev) => {
+      if (prev === null) {
+        return new Set(taskGroups.filter((g) => g.title !== title).map((g) => g.title));
+      }
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title); else next.add(title);
+      return next;
+    });
+  }, [taskGroups]);
    /* ==================== 渲染 ==================== */
   const closeSidebar = () => { setShowAskAI(false); setExpanded(false); setManageOpen(false); };
 
@@ -914,7 +1007,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 onValueChange={setSessionListTab}
                 tabs={[
                   { value: 'web', label: `用户 (${webSessions.length})` },
-                  { value: 'bot', label: `机器人 (${botSessions.length})` },
+                  { value: 'bot', label: `BOT (${channelSessions.length})` },
+                  { value: 'cron', label: `任务 (${taskGroups.length})` },
                 ]}
               />
             </div>
@@ -938,20 +1032,36 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                     ))}
                   </Sidebar.Menu>
                 )
-              ) : botSessions.length === 0 ? (
-                <p className="px-2.5 py-6 text-center text-xs text-kumo-subtle">暂无机器人会话</p>
+              ) : sessionListTab === 'bot' ? (
+                channelSessions.length === 0 ? (
+                  <p className="px-2.5 py-6 text-center text-xs text-kumo-subtle">暂无 BOT 会话</p>
+                ) : (
+                  <Sidebar.Menu>
+                    {channelSessions.map((s) => (
+                      <SessionItem
+                        key={s.id}
+                        s={s}
+                        active={s.id === activeSessionId}
+                        confirmDeleteId={confirmDeleteId}
+                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                        onDelete={requestDelete}
+                      />
+                    ))}
+                  </Sidebar.Menu>
+                )
+              ) : taskGroups.length === 0 ? (
+                <p className="px-2.5 py-6 text-center text-xs text-kumo-subtle">暂无任务会话</p>
               ) : (
                 <Sidebar.Menu>
-                  {botSessions.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      s={s}
-                      active={s.id === activeSessionId}
-                      confirmDeleteId={confirmDeleteId}
-                      onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
-                      onDelete={requestDelete}
-                    />
-                  ))}
+                  <BotTaskList
+                    taskGroups={taskGroups}
+                    collapsedTaskGroups={collapsedTaskGroups}
+                    onToggleTaskGroup={toggleTaskGroup}
+                    activeSessionId={activeSessionId}
+                    confirmDeleteId={confirmDeleteId}
+                    onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                    onDelete={requestDelete}
+                  />
                 </Sidebar.Menu>
               )}
             </div>
@@ -979,7 +1089,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                     botActive ? (
                       <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-kumo-subtle">
                         <Lock className="h-6 w-6 text-kumo-warning" />
-                        <p>该会话由机器人/自动化流程管理（只读）</p>
+                        <p>该会话由 BOT/自动化流程管理（只读）</p>
                         <p className="text-xs text-kumo-subtle/70">可查看历史记录，不能在此继续对话</p>
                       </div>
                     ) : (
@@ -994,7 +1104,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                   {botActive ? (
                     <div className="flex items-center justify-center gap-2 rounded-xl bg-kumo-recessed/40 px-4 py-3 text-xs text-kumo-subtle ring-1 ring-kumo-line">
                       <Lock className="h-3.5 w-3.5 text-kumo-warning" />
-                      该会话由{activeSession?.source === 'cron' ? '定时任务' : '机器人'}管理，仅可查看；如需对话请新建会话
+                      该会话由{activeSession?.source === 'cron' ? '定时任务' : 'BOT'}管理，仅可查看；如需对话请新建会话
                     </div>
                   ) : (
                   <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
@@ -1069,22 +1179,21 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             manageOpen ? 'visible translate-x-0 opacity-100' : 'pointer-events-none invisible translate-x-8 opacity-0'
           }`}
         >
-          <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
-            <span className="w-7 shrink-0" aria-hidden />
-            <span className="text-sm font-medium text-kumo-default">管理 AI</span>
+          <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] pl-4 pr-3">
+            <Tabs value={adminTab} onValueChange={setAdminTab} tabs={TAB_OPTIONS} />
             <Button
               type="button"
-              size="sm"
               variant="ghost"
               shape="square"
               onClick={closeSidebar}
               aria-label="关闭侧栏"
+              title="关闭侧栏"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-4 w-4" />
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4">
-            <AdminConsole onBack={() => setManageOpen(false)} />
+            <AdminConsole hideTabs activeTab={adminTab} onTabChange={setAdminTab} onBack={() => setManageOpen(false)} />
           </div>
         </div>
 
@@ -1095,7 +1204,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
           }`}
         >
           <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
-        <div className="relative flex items-center" data-askai-menu>
+        <div className="relative flex items-center gap-1" data-askai-menu>
           <Button
             type="button"
             size="sm"
@@ -1112,6 +1221,9 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             <span className="truncate"><SessionTitleText title={activeSessionRow?.title} active={!!activeSessionId} /></span>
             <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${sessionMenuOpen ? 'rotate-180' : ''}`} />
           </Button>
+          <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleNewSession} aria-label="新对话" title="新对话">
+            <Plus className="h-4 w-4" />
+          </Button>
           {sessionMenuOpen && (
             <div
               className="absolute left-0 top-[calc(100%+4px)] z-40 w-64 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line"
@@ -1125,7 +1237,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                   onValueChange={setSessionListTab}
                   tabs={[
                     { value: 'web', label: `用户 (${webSessions.length})` },
-                    { value: 'bot', label: `机器人 (${botSessions.length})` },
+                    { value: 'bot', label: `BOT (${channelSessions.length})` },
+                    { value: 'cron', label: `任务 (${taskGroups.length})` },
                   ]}
                 />
               </div>
@@ -1149,20 +1262,36 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                       ))}
                     </Sidebar.Menu>
                   )
-                ) : botSessions.length === 0 ? (
-                  <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无机器人会话</p>
+                ) : sessionListTab === 'bot' ? (
+                  channelSessions.length === 0 ? (
+                    <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无 BOT 会话</p>
+                  ) : (
+                    <Sidebar.Menu>
+                      {channelSessions.map((s) => (
+                        <SessionItem
+                          key={s.id}
+                          s={s}
+                          active={s.id === activeSessionId}
+                          confirmDeleteId={confirmDeleteId}
+                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                          onDelete={requestDelete}
+                        />
+                      ))}
+                    </Sidebar.Menu>
+                  )
+                ) : taskGroups.length === 0 ? (
+                  <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无任务会话</p>
                 ) : (
                   <Sidebar.Menu>
-                    {botSessions.map((s) => (
-                      <SessionItem
-                        key={s.id}
-                        s={s}
-                        active={s.id === activeSessionId}
-                        confirmDeleteId={confirmDeleteId}
-                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
-                        onDelete={requestDelete}
-                      />
-                    ))}
+                    <BotTaskList
+                      taskGroups={taskGroups}
+                      collapsedTaskGroups={collapsedTaskGroups}
+                      onToggleTaskGroup={toggleTaskGroup}
+                      activeSessionId={activeSessionId}
+                      confirmDeleteId={confirmDeleteId}
+                      onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                      onDelete={requestDelete}
+                    />
                   </Sidebar.Menu>
                 )}
               </div>
@@ -1175,14 +1304,11 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
           )}
         </div>
          <div className="flex items-center gap-0.5">
-          <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleNewSession} aria-label="新对话">
-            <Plus className="h-3.5 w-3.5" />
+          <Button type="button" variant="ghost" shape="square" onClick={() => setExpanded(true)} aria-label="展开侧栏" title="展开侧栏">
+            <Maximize2 className="h-4 w-4" />
           </Button>
-          <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => setExpanded(true)} aria-label="展开侧栏">
-            <Maximize2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button type="button" size="sm" variant="ghost" shape="square" onClick={closeSidebar} aria-label="关闭侧栏">
-            <X className="h-3.5 w-3.5" />
+          <Button type="button" variant="ghost" shape="square" onClick={closeSidebar} aria-label="关闭侧栏" title="关闭侧栏">
+            <X className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -1197,7 +1323,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 botActive ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-kumo-subtle">
                     <Lock className="h-6 w-6 text-kumo-warning" />
-                    <p>该会话由机器人/自动化流程管理（只读）</p>
+                    <p>该会话由 BOT/自动化流程管理（只读）</p>
                     <p className="text-xs text-kumo-subtle/70">可查看历史记录，不能在此继续对话</p>
                   </div>
                 ) : (
@@ -1214,7 +1340,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         {botActive ? (
           <div className="flex items-center justify-center gap-2 rounded-xl bg-kumo-recessed/40 px-4 py-3 text-xs text-kumo-subtle ring-1 ring-kumo-line">
             <Lock className="h-3.5 w-3.5 text-kumo-warning" />
-            该会话由{activeSession?.source === 'cron' ? '定时任务' : '机器人'}管理，仅可查看；如需对话请新建会话
+            该会话由{activeSession?.source === 'cron' ? '定时任务' : 'BOT'}管理，仅可查看；如需对话请新建会话
           </div>
         ) : (
         <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChartPalette, ClipboardText, LayerCard, Popover, Tabs, TimeseriesChart, Toolbar } from '@cloudflare/kumo';
+import { ChartPalette, ClipboardText, LayerCard, Popover, Tabs, Toolbar } from '@cloudflare/kumo';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
@@ -2325,7 +2326,7 @@ function DnsPage() {
                           <div className="shrink-0 text-xs font-semibold text-kumo-subtle">{loading.analytics ? '加载中' : card.value}</div>
                         </div>
                         <div className="mt-2 min-w-0 overflow-hidden" style={{ height: 108 }}>
-                          <TimeseriesChart
+                          <SiteFontTimeseriesChart
                             echarts={echarts}
                             data={card.data}
                             height={108}

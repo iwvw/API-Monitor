@@ -1,5 +1,6 @@
 import { createLogger, defineConfig, loadEnv } from 'vite';
 import path from 'path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -9,6 +10,19 @@ import { resolveAppVersionFromEnvironment } from './tools/app-version.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const wsProxyAbortCodes = new Set(['ECONNABORTED']);
+
+const rootPackageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+
+function pkgVersion(name) {
+  const raw = rootPackageJson.dependencies?.[name] || rootPackageJson.devDependencies?.[name];
+  if (raw) return raw.replace(/^[\^~]/, '');
+  try {
+    const installed = JSON.parse(readFileSync(new URL(`./node_modules/${name}/package.json`, import.meta.url), 'utf8'));
+    return installed.version || '';
+  } catch {
+    return '';
+  }
+}
 
 function createDevLogger() {
   const logger = createLogger();
@@ -45,6 +59,14 @@ export default defineConfig(({ mode }) => {
     customLogger: createDevLogger(),
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+      'import.meta.env.VITE_BUILD_TIME': JSON.stringify(new Date().toISOString()),
+      'import.meta.env.VITE_FRAMEWORK_VERSIONS': JSON.stringify({
+        react: pkgVersion('react'),
+        vite: pkgVersion('vite'),
+        tailwind: pkgVersion('tailwindcss'),
+        kumo: pkgVersion('@cloudflare/kumo'),
+        zustand: pkgVersion('zustand'),
+      }),
     },
     plugins: [
       react(),
@@ -147,6 +169,10 @@ export default defineConfig(({ mode }) => {
         ],
       },
       proxy: {
+        '^/health(?:/|$)': {
+          target: `http://127.0.0.1:${env.PORT || 3000}`,
+          changeOrigin: true,
+        },
         '^/api(?:/|$)': {
           target: `http://127.0.0.1:${env.PORT || 3000}`,
           changeOrigin: true,

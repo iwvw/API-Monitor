@@ -530,7 +530,7 @@ func TestAPICallStats(t *testing.T) {
 	service.RecordAPICall(http.MethodGet, "/api/system/host-metrics")
 	service.RecordAPICall(http.MethodGet, "/api/system/api-stats")
 
-	stats, err := service.apiStats()
+	stats, err := service.apiStats(7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -554,7 +554,7 @@ func TestAPICallStats(t *testing.T) {
 	service.flushToDB()
 
 	// 再次查询看是否依然正确合并
-	stats2, err := service.apiStats()
+	stats2, err := service.apiStats(7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,6 +567,16 @@ func TestAPICallStats(t *testing.T) {
 	trend, ok := stats2["trend"].([]map[string]interface{})
 	if !ok || len(trend) != 7 {
 		t.Fatalf("expected 7 days of trend data, got %#v", stats2["trend"])
+	}
+
+	// 14 天窗口应返回 14 个趋势桶。
+	stats14, err := service.apiStats(14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trend14, ok := stats14["trend"].([]map[string]interface{})
+	if !ok || len(trend14) != 14 {
+		t.Fatalf("expected 14 days of trend data, got %#v", stats14["trend"])
 	}
 
 	// 每个趋势桶应带 tokens / traffic 字段（无数据时回落为 0）。

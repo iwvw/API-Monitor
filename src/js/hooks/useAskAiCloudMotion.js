@@ -4,13 +4,16 @@ import { useEffect, useRef } from 'react';
    在真实 dash.cloudflare.com 页面逐帧采样测定的行为模型：
    1. 拖链机制（官方手感）：鼠标只作用于主球（领队，小圆 pull + 速度前馈粘质）；
       小球不受鼠标直接作用，以「主球位移 × 层级比例」为目标柔顺尾随
-      （比例 0.95/0.75/0.56/0.42，尾随系数逐层减慢 → 拖链式延时，错落灵动）；
+      （比例 0.96/0.9/0.78/0.66，随主球走得足、延迟短 → 球团粘连紧，错落仍在）；
    2. 幅度轻微优雅：60px 处主球仅 ~4.4px，hover 中心 / 110px 外均静止；
       主球过阻尼（ζ≈0.68）无回弹，鼠标停后 ~150ms 内停住；
    3. scale 与位移耦合：位移 d 时 scale ≈ 1 + 0.001·|d|，叠加慢速呼吸正弦（±0.5%，
-      周期~9s，逐球相位差）；空闲时缓慢随机漂移 ±(2~3)px；
+      周期~12s，逐球相位差）；空闲时为连续低速「利萨茹」漂移（见 idleDrift）：
+      全体共舞（横漂 ~11.5s / 纵沉 ~14s，逐球错相）+ 每球低频微摆（~8s/~12s），
+      全频段 ≥6s、导函数连续 → 无方向突变、无高频频闪，呼吸般优雅；
    4. 鼠标作用域为以云为中心的小圆：0.6·d·e^(-d/33)，|d|>110px 完全无感
-      （hover 中心→0，60px→~5.4px）；作用时漂移弱化，球团保持安静；
+      （hover 中心→0，60px→~5.4px）；作用时漂移弱化（0.3 系数每帧平滑过渡，
+      进出无跳变），球团保持安静；
    5. 滤镜恒定：saturate(1) brightness(1)，模糊层 blur 固定（2.25/3.75/7.25px），
       不随速度/悬停变化（当前官方版本 --blur-multiplier 恒为 1）；
    6. 位移写入容器 CSS 变量 --node-N-x/y/scale（N=1..4，模糊层/阴影的 clip-path
@@ -20,10 +23,10 @@ import { useEffect, useRef } from 'react';
 
 const NODES = [
   { id: 1, lead: 1.0, phase: 0.0 }, // 主球（最大，左上 8%）完全跟手
-  { id: 2, lead: 0.75, phase: 2.5 },
-  { id: 3, lead: 0.95, phase: 0.7 }, // 右大球：几乎与主球同步
-  { id: 4, lead: 0.56, phase: 1.9 },
-  { id: 5, lead: 0.42, phase: 3.1 }, // 最小球：跟随最慢
+  { id: 2, lead: 0.9, phase: 2.5 },
+  { id: 3, lead: 0.96, phase: 0.7 }, // 右大球：几乎与主球同步
+  { id: 4, lead: 0.78, phase: 1.9 },
+  { id: 5, lead: 0.66, phase: 3.1 }, // 最小球：跟随最慢
 ];
 
 const FOLLOW_BLUR = { 2: 2.25, 1: 3.75 }; // 模糊层 blur px（与官方 CSS 一致）
@@ -36,14 +39,38 @@ const SPRING_DAMP = 0.74; // 主球 ζ≈0.68 过阻尼：无回弹，停止后 
 const DRAG_MAIN = 0.05; // 主球速度前馈（粘质：鼠标速度小比例被主球承接，仅作用圆内）
 const VEL_SMOOTH = 0.5; // 鼠标速度平滑（防抖动尖峰）
 const MAX_V = 2.5; // 主球速度上限（px/帧，防飞）
-const FOLLOW_EASE = [0, 0.12, 0.12, 0.11, 0.1]; // 小球尾随系数（一阶平滑）
+const FOLLOW_EASE = [0, 0.14, 0.14, 0.13, 0.12]; // 小球尾随系数（一阶平滑，稍快 → 粘连更紧）
 // 拖链历史：小球跟随主球 N 帧前的位移快照 × 比例（真正的「被拖着走」时序）
 const CHAIN_HIST = 60; // 历史深度（帧，1s）
-const CHAIN_DELAY = [0, 6, 4, 10, 14]; // 各球延迟帧数（越远拖得越久）
-// 独立微摆：每球两段不同频率正弦（各自呼吸晃动 → 灵动不死板），幅度轻微
-const WOBBLE_A = [0, 0.8, 0.7, 1.0, 1.1];
-const WOBBLE_F1 = (2 * Math.PI) / 1900; // ~1.9s 主摆
-const WOBBLE_F2 = (2 * Math.PI) / 3100; // ~3.1s 副摆
+const CHAIN_DELAY = [0, 3, 2, 6, 8]; // 各球延迟帧数（越近拖得越短 → 球团更黏、错落仍在）
+
+/* —— 空闲呼吸轨迹（无交互时的「呼吸感」）——
+   原先的高频微摆（1.9s/3.1s 正弦）叠加 4s 一跳的随机漂移目标 = 频闪 + 方向突变，
+   观感抽搐。改为连续慢速利萨茹：全体共舞（逐球错相 → 云团整体缓慢起伏、球球错落）
+   + 每球两段低频微摆（周期 ≥6s），全部正弦叠加、任意时刻导数连续 → 轨迹无拐点、
+   无频闪，只有缓慢优雅的呼吸漂移。 */
+const IDLE_SWAY_A = 1.9; // 全体横向飘幅（px，轻柔）
+const IDLE_SWAY_F = (2 * Math.PI) / 11500; // 横漂周期 ~11.5s
+const IDLE_BOB_A = 1.5; // 全体纵向沉浮（px，更缓）
+const IDLE_BOB_F = (2 * Math.PI) / 14000; // 纵浮周期 ~14s
+const IDLE_NODE_A = [0, 0.45, 0.4, 0.32, 0.28]; // 逐球微摆幅度（小，保持粘连；主球不单独摆，随团共舞）
+const IDLE_NODE_F1 = (2 * Math.PI) / 7800; // 主摆周期 ~7.8s
+const IDLE_NODE_F2 = (2 * Math.PI) / 12400; // 副摆周期 ~12.4s
+const IDLE_HOVER_FADE = 0.3; // 鼠标作用时漂移弱化系数（hover 时球团保持安静，官方特性）
+const IDLE_HOVER_SMOOTH = 0.035; // 弱化系数每帧平滑（进出无跳变）
+
+function idleDrift(t, i) {
+  // 连续慢飘：全体共舞（相位差收窄 → 球团同起同落，粘连感）+ 每球低频微摆，
+  // 均为光滑正弦（全程导数连续，无方向突变）
+  const gx = Math.sin(t * IDLE_SWAY_F + i * 0.35) * IDLE_SWAY_A * (i === 0 ? 1 : 0.92);
+  const gy = Math.cos(t * IDLE_BOB_F + i * 0.5) * IDLE_BOB_A * (i === 0 ? 1 : 0.92);
+  const nx = Math.sin(t * IDLE_NODE_F1 + i * 2.1) * IDLE_NODE_A[i] * 0.6
+    + Math.sin(t * IDLE_NODE_F2 + i * 1.7) * IDLE_NODE_A[i] * 0.4;
+  const ny = Math.cos(t * IDLE_NODE_F2 + i * 0.8) * IDLE_NODE_A[i] * 0.55
+    + Math.sin(t * IDLE_NODE_F1 + i * 3.3) * IDLE_NODE_A[i] * 0.3;
+  return { x: gx + nx, y: gy + ny };
+}
+
 const SCALE_K = 0.06; // scale 线性轻弹簧（缩放保持稳定，不弹）
 const SCALE_DAMP = 0.9;
 // 鼠标牵引：A·d·e^(-d/λ) · 硬截断。以云为中心的小圆作用域：
@@ -53,11 +80,7 @@ const MOUSE_LAMBDA = 33;
 const MOUSE_RANGE = 110; // 作用圆半径（px），靠近这个圆才被捕获
 const STRETCH = 0.001; // 位移 → 膨胀耦合（轻微）
 const BREATH_AMP = 0.005; // 呼吸缩放振幅（很轻）
-const BREATH_FREQ = (2 * Math.PI) / 9000; // 呼吸周期 ~9s（慢）
-const WANDER_X = 3; // 空闲漂移幅度（px，官方稳态漂移很小）
-const WANDER_Y = 2;
-const WANDER_RETARGET = 4000; // 每 4s 往新漂移目标小幅演化（无跳变）
-const WANDER_HOVER_FADE = 0.3; // 鼠标作用时漂移弱化系数（hover 时球团保持安静，官方特性）
+const BREATH_FREQ = (2 * Math.PI) / 12000; // 呼吸周期 ~12s（静、慢）
 
 function mousePull(d) {
   // 符号保留的距离衰减牵引；超范围截断。d=像素（相对云中心）
@@ -103,9 +126,8 @@ export function useAskAiCloudMotion(containerRef) {
 
     const init = stateRef.current || NODES.map(() => ({ x: 0, y: 0, vx: 0, vy: 0, s: 1, vs: 0 }));
     const leadHist = []; // 主球位移历史（拖链延迟源）
-    const wanderT = NODES.map(() => ({ x: 0, y: 0 }));
     const mouse = { x: 0, y: 0, lastX: 0, lastY: 0, sx: 0, sy: 0, active: false };
-    let lastPick = 0;
+    let hoverFade = 1; // 空闲漂移弱化系数（平滑过渡，进出无跳变）
 
     const onMove = (e) => {
       const cr = container.getBoundingClientRect();
@@ -126,17 +148,6 @@ export function useAskAiCloudMotion(containerRef) {
       raf = requestAnimationFrame(tick);
       const t = now - start;
 
-      // 空闲漂移目标：低频随机游走，小幅增量演化（无跳变，契合官方 slow drift）
-      if (now - lastPick > WANDER_RETARGET) {
-        lastPick = now;
-        for (let i = 0; i < NODES.length; i++) {
-          wanderT[i].x += (Math.random() * 2 - 1) * WANDER_X;
-          wanderT[i].y += (Math.random() * 2 - 1) * WANDER_Y;
-          wanderT[i].x = Math.max(-WANDER_X, Math.min(WANDER_X, wanderT[i].x));
-          wanderT[i].y = Math.max(-WANDER_Y, Math.min(WANDER_Y, wanderT[i].y));
-        }
-      }
-
       const px = new Array(NODES.length);
       const py = new Array(NODES.length);
       const ps = new Array(NODES.length);
@@ -156,16 +167,18 @@ export function useAskAiCloudMotion(containerRef) {
       mouse.lastX = mouse.x;
       mouse.lastY = mouse.y;
 
+      // 空闲漂移弱化：鼠标活跃时云团渐趋安静（0.3 倍），离开后缓慢恢复 —— 平滑过渡
+      hoverFade += ((mActive ? IDLE_HOVER_FADE : 1) - hoverFade) * IDLE_HOVER_SMOOTH;
+
       for (let i = 0; i < NODES.length; i++) {
         const st = init[i];
         const lead = NODES[i].lead;
+        const idle = idleDrift(t, i); // 空闲呼吸轨迹（连续慢速，见 idleDrift）
         if (i === 0) {
           // 主球：直接受鼠标作用（小圆 pull + 范围内速度前馈粘质），过阻尼回位 ——
-          let tx = wanderT[0].x;
-          let ty = wanderT[0].y;
+          let tx = idle.x * hoverFade;
+          let ty = idle.y * hoverFade;
           if (mActive) {
-            tx = tx * WANDER_HOVER_FADE;
-            ty = ty * WANDER_HOVER_FADE;
             tx += mousePull(mouse.x);
             ty += mousePull(mouse.y) * 0.55;
           }
@@ -177,17 +190,12 @@ export function useAskAiCloudMotion(containerRef) {
           st.x += st.vx;
           st.y += st.vy;
         } else {
-          // —— 小球：跟随主球 N 帧前的位移快照 × 比例（拖链时序）+ 独立微摆（灵动） ——
-          const fade = mActive ? WANDER_HOVER_FADE : 1;
+          // —— 小球：跟随主球 N 帧前的位移快照 × 比例（拖链时序）+ 空闲慢飘 ——
           const prev = leadHist[Math.max(0, leadHist.length - 1 - CHAIN_DELAY[i])];
           const px0 = prev ? prev.x : 0;
           const py0 = prev ? prev.y : 0;
-          const wobX = Math.sin(t * WOBBLE_F1 * (0.77 * i + 0.53)) * WOBBLE_A[i]
-            + Math.sin(t * WOBBLE_F2 * (1.31 * i + 0.2)) * WOBBLE_A[i] * 0.5;
-          const wobY = Math.cos(t * WOBBLE_F1 * (0.91 * i + 0.71)) * WOBBLE_A[i] * 0.7
-            + Math.sin(t * WOBBLE_F2 * (0.63 * i + 1.03)) * WOBBLE_A[i] * 0.35;
-          const tx = px0 * lead + wanderT[i].x * fade + wobX;
-          const ty = py0 * lead + wanderT[i].y * fade + wobY;
+          const tx = px0 * lead + idle.x * hoverFade;
+          const ty = py0 * lead + idle.y * hoverFade;
           st.x += (tx - st.x) * FOLLOW_EASE[i];
           st.y += (ty - st.y) * FOLLOW_EASE[i];
         }

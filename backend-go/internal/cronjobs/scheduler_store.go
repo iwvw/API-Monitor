@@ -291,6 +291,22 @@ func insertNodeRun(ctx context.Context, db *sql.DB, runID int64, node WorkflowNo
 	return err
 }
 
+func updateNodeRun(ctx context.Context, db *sql.DB, runID int64, nodeID, status, output string, end int64) error {
+	start := end
+	rows := db.QueryRowContext(ctx, `SELECT start_time FROM scheduler_node_runs WHERE run_id = ? AND node_id = ?`, runID, nodeID)
+	var startTime int64
+	if err := rows.Scan(&startTime); err == nil {
+		start = startTime
+	}
+	duration := end - start
+	_, err := db.ExecContext(ctx, `
+		UPDATE scheduler_node_runs
+		SET status = ?, output = ?, end_time = ?, duration = ?
+		WHERE run_id = ? AND node_id = ?
+	`, status, output, end, duration, runID, nodeID)
+	return err
+}
+
 func loadRuns(ctx context.Context, db *sql.DB, limit int) ([]WorkflowRun, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, workflow_id, workflow_name, trigger_type, status, start_time, end_time, duration, summary, created_at

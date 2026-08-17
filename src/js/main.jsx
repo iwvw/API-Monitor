@@ -5,12 +5,14 @@ import App from './App.jsx';
 import GlobalDialogHost from './components/GlobalDialogHost.jsx';
 import { setupPwa } from './modules/pwa.js';
 import { kumoToastManager } from './modules/toast.js';
+import { ensureSiteChartFont } from './chartFont.js';
 import '../css/app.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import '../css/simple-icons.css';
 import 'flag-icons/css/flag-icons.min.css';
 
 setupPwa();
+ensureSiteChartFont();
 
 const container = document.getElementById('root');
 if (container) {

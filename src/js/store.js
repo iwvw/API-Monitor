@@ -422,7 +422,10 @@ export const applyUIFont = (font) => {
   if (font === 'default' || !font) {
     if (existing) existing.remove();
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
-    if (document.body) document.body.style.removeProperty('font-family');
+    if (document.body) {
+      document.body.style.removeProperty('font-family');
+      document.body.style.removeProperty('font-weight');
+    }
     root.style.removeProperty('--font-sans');
     return;
   }
@@ -437,7 +440,10 @@ export const applyUIFont = (font) => {
       document.head.appendChild(link);
     }
     const fontStack = '"LXGW WenKai Screen", ui-sans-serif, system-ui, sans-serif';
-    if (document.body) document.body.style.setProperty('font-family', fontStack);
+    if (document.body) {
+      document.body.style.setProperty('font-family', fontStack);
+      document.body.style.removeProperty('font-weight');
+    }
     root.style.setProperty('--font-sans', fontStack);
     return;
   }
@@ -453,13 +459,19 @@ export const applyUIFont = (font) => {
       document.head.appendChild(link);
     }
     const fontStack = '"Noto Serif SC", Georgia, "Songti SC", "SimSun", serif';
-    if (document.body) document.body.style.setProperty('font-family', fontStack);
+    if (document.body) {
+      document.body.style.setProperty('font-family', fontStack);
+      document.body.style.setProperty('font-weight', '600');
+    }
     root.style.setProperty('--font-sans', fontStack);
     return;
   }
 
   document.getElementById(SERIF_FONT_LINK_ID)?.remove();
-  if (document.body) document.body.style.removeProperty('font-family');
+  if (document.body) {
+    document.body.style.removeProperty('font-family');
+    document.body.style.removeProperty('font-weight');
+  }
   root.style.removeProperty('--font-sans');
 };
 

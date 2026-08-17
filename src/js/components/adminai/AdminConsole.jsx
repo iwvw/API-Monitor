@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
@@ -409,6 +409,11 @@ function ChannelsCard() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-semibold text-kumo-strong">{channel.name}</span>
+                    <span className="truncate text-xs text-kumo-subtle">
+                      来源：{channel.notificationChannelName || '旧 Token 配置（未选择来源）'}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
                     <Badge variant="secondary">telegram</Badge>
                     <Badge variant={`${bindings.some((b) => b.channelId === channel.id) ? 'secondary' : 'warning'}`}>
                       {bindings.some((b) => b.channelId === channel.id)
@@ -421,15 +426,12 @@ function ChannelsCard() {
                       <Badge variant="secondary">已停止</Badge>
                     )}
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-kumo-subtle">
-                    来源：{channel.notificationChannelName || '旧 Token 配置（未选择来源）'}
-                  </div>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Switch checked={channel.enabled} onCheckedChange={() => toggleEnabled(channel)} aria-label="启用频道" />
                 {channel.status === 'running' ? (
-                  <Button size="sm" variant="ghost" onClick={() => runAction(channel, 'stop')}>
+                  <Button size="sm" variant="secondary" onClick={() => runAction(channel, 'stop')}>
                     停止
                   </Button>
                 ) : (
@@ -437,12 +439,12 @@ function ChannelsCard() {
                     <Play className="h-3 w-3" /> 启动
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => openEdit(channel)}>
+                <Button size="sm" variant="secondary" onClick={() => openEdit(channel)}>
                   编辑
                 </Button>
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant="secondary"
                   className={confirmDelete === channel.id ? '!text-kumo-danger' : ''}
                   onClick={() => deleteChannel(channel)}
                 >
@@ -509,7 +511,7 @@ function ChannelsCard() {
                         <span className="truncate font-mono text-xs font-medium text-kumo-strong">{binding.channelUserId}</span>
                         {binding.username && <span className="truncate text-xs text-kumo-subtle">{binding.username}</span>}
                       </div>
-                      <Button size="xs" variant="ghost" onClick={() => deleteBinding(binding)} aria-label="移除白名单成员">
+                      <Button size="sm" variant="secondary" onClick={() => deleteBinding(binding)} aria-label="移除白名单成员">
                         <X className="h-3 w-3" />
                       </Button>
                     </div>
@@ -666,6 +668,7 @@ function MemoriesCard() {
   const [confirmDelete, setConfirmDelete] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const memHoverRef = useRef(false);
 
   const load = useCallback(async (keyword = '') => {
     setLoading(true);
@@ -751,18 +754,6 @@ function MemoriesCard() {
     }
   };
 
-  const togglePinned = async (item) => {
-    try {
-      await fetch(`/api/admin-ai/memories/${item.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pinned: !item.pinned }),
-      });
-      await load(q);
-    } catch {
-    }
-  };
-
   const handleDelete = async (item) => {
     if (confirmDelete !== item.id) {
       setConfirmDelete(item.id);
@@ -777,14 +768,46 @@ function MemoriesCard() {
     }
   };
 
+  const MEM_COLLAPSED_H = 48;
+
+  const handleMemEnter = (e) => {
+    memHoverRef.current = true;
+    const wrap = e.currentTarget.querySelector('[data-mem-wrap]');
+    const inner = e.currentTarget.querySelector('[data-mem-content]');
+    if (!wrap || !inner) return;
+    inner.classList.remove('line-clamp-2');
+    const full = wrap.scrollHeight;
+    if (full <= MEM_COLLAPSED_H) {
+      inner.classList.add('line-clamp-2');
+      return;
+    }
+    wrap.style.maxHeight = `${full}px`;
+  };
+
+  const handleMemLeave = (e) => {
+    memHoverRef.current = false;
+    const wrap = e.currentTarget.querySelector('[data-mem-wrap]');
+    const inner = e.currentTarget.querySelector('[data-mem-content]');
+    if (!wrap || !inner) return;
+    wrap.style.maxHeight = `${MEM_COLLAPSED_H}px`;
+    const onEnd = (ev) => {
+      if (ev.propertyName !== 'max-height') return;
+      wrap.removeEventListener('transitionend', onEnd);
+      if (memHoverRef.current) return;
+      inner.classList.add('line-clamp-2');
+    };
+    wrap.addEventListener('transitionend', onEnd);
+  };
+
   return (
     <div className="space-y-4 pb-4">
       <SectionCard
         icon={<Brain className="h-4 w-4 text-kumo-brand" />}
         title="长期记忆"
         description="在对话中说「记住…」让 AI 写入"
+        bodyPadding="none"
       >
-        <div className="flex items-center gap-2 py-3.5">
+        <div className="flex items-center gap-2 border-b border-kumo-line px-4 py-3">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-kumo-subtle" />
             <Input
@@ -802,14 +825,14 @@ function MemoriesCard() {
         </div>
 
         {error && (
-          <div className="mt-3 mb-3">
+          <div className="border-b border-kumo-line px-4 py-3">
             <ErrorBanner message={error} />
           </div>
         )}
 
         {adding && (
-          <div className="mb-3.5 rounded-lg border border-kumo-line bg-kumo-recessed/40 p-3.5">
-            <div className="space-y-2.5">
+          <div className="border-b border-kumo-line px-4 py-3">
+            <div className="space-y-2.5 rounded-lg border border-kumo-line bg-kumo-recessed/40 p-3.5">
               <Textarea
                 rows={2}
                 value={newContent}
@@ -858,9 +881,14 @@ function MemoriesCard() {
             description={q ? '换个关键词试试' : '在对话中说「记住…」，或点「新增」记录一条'}
           />
         ) : (
-          <div className="divide-y divide-kumo-line">
+          <div>
             {items.map((item) => (
-              <div key={item.id} className="py-3">
+              <div
+                key={item.id}
+                className="group border-b border-kumo-line px-4 py-3 last:border-b-0"
+                onMouseEnter={editingId === item.id ? undefined : handleMemEnter}
+                onMouseLeave={editingId === item.id ? undefined : handleMemLeave}
+              >
                 {editingId === item.id ? (
                   <div className="space-y-2.5">
                     <Textarea
@@ -896,34 +924,51 @@ function MemoriesCard() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm leading-relaxed text-kumo-strong">{item.content}</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-kumo-subtle">
-                        <Badge tone={item.importance >= 8 ? 'danger' : 'neutral'}>{item.importance}</Badge>
-                        {item.triggers && (
-                          <span className="rounded bg-kumo-recessed/60 px-1.5 py-0.5">{item.triggers}</span>
-                        )}
-                        <span>{item.source === 'agent' ? 'AI 记录' : '手动'}</span>
-                        <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+                        <Badge variant={item.importance >= 8 ? 'red' : 'neutral'}>{item.importance}</Badge>
+                        <Badge variant="blue">{new Date(item.createdAt).toLocaleDateString()}</Badge>
+                        <Badge variant={item.source === 'agent' ? 'teal' : 'orange'}>
+                          {item.source === 'agent' ? '自动' : '手动'}
+                        </Badge>
                       </div>
+                      <div
+                        data-mem-wrap
+                        className="max-h-12 overflow-hidden transition-[max-height] duration-300 ease-out"
+                      >
+                        <div data-mem-content className="line-clamp-2 text-sm leading-relaxed text-kumo-strong">
+                          {item.content}
+                        </div>
+                      </div>
+                      {item.triggers && (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                          <Badge variant="outline" className="gap-1.5">
+                            {item.triggers
+                              .split(',')
+                              .map((t) => t.trim())
+                              .filter(Boolean)
+                              .map((t, i) => (
+                                <React.Fragment key={i}>
+                                  {i > 0 && <span className="h-3 w-px bg-kumo-line" aria-hidden />}
+                                  <span>{t}</span>
+                                </React.Fragment>
+                              ))}
+                          </Badge>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <Switch size="sm" checked={item.pinned} onCheckedChange={() => togglePinned(item)} aria-label="置顶" />
-                        <span className="text-[10px] text-kumo-subtle">置顶</span>
-                      </div>
-                      <Button size="sm" variant="ghost" className="!px-2" onClick={() => startEdit(item)} title="编辑">
+                    <div className="flex shrink-0 flex-col items-center justify-center gap-1">
+                      <Button size="sm" variant="secondary" className="!px-2" onClick={() => startEdit(item)} title="编辑">
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="secondary"
                         className={`!px-2 ${confirmDelete === item.id ? '!text-kumo-danger' : ''}`}
                         onClick={() => handleDelete(item)}
                       >
                         <Trash className="h-3.5 w-3.5" />
-                        {confirmDelete === item.id ? '确认删除' : ''}
                       </Button>
                     </div>
                   </div>
@@ -939,7 +984,7 @@ function MemoriesCard() {
 
 /* ==================== 管理面板（主页面与 Ask AI 侧栏共用） ==================== */
 
-const TAB_OPTIONS = [
+export const TAB_OPTIONS = [
   {
     value: 'settings',
     label: (
@@ -978,19 +1023,28 @@ const TAB_OPTIONS = [
   },
 ];
 
-export default function AdminConsole({ onBack }) {
-  const [activeTab, setActiveTab] = useState('settings');
+export default function AdminConsole({ onBack, hideTabs = false, activeTab: controlledTab, onTabChange }) {
+  const [internalTab, setInternalTab] = useState('settings');
+  const activeTab = controlledTab ?? internalTab;
+  const handleTabChange = (v) => {
+    if (onTabChange) onTabChange(v);
+    else setInternalTab(v);
+  };
   const form = useSettingsForm();
 
   return (
     <div className="flex min-h-full flex-col">
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        tabs={TAB_OPTIONS}
-      />
+      {!hideTabs && (
+        <div className="sticky top-0 z-10 -mx-4 border-b border-kumo-line bg-[var(--app-main-surface)] px-4 pb-3 pt-4">
+          <Tabs
+            value={activeTab}
+            onValueChange={handleTabChange}
+            tabs={TAB_OPTIONS}
+          />
+        </div>
+      )}
 
-      <div className="mt-4 space-y-4 pb-4">
+      <div className={`space-y-4 pb-4 ${hideTabs ? '' : 'mt-4'}`}>
         {activeTab === 'settings' && <SettingsCard form={form} />}
         {activeTab === 'channels' && <ChannelsCard />}
         {activeTab === 'templates' && <TemplatesCard />}
