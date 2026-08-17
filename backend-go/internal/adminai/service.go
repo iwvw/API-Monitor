@@ -37,7 +37,10 @@ type Service struct {
 	sessionRuns map[string]string                  // sessionId -> runId，同一会话只允许一个活跃执行
 	cancels     map[string]context.CancelFunc      // runId -> runCtx 取消函数（订阅后仍可真正终止执行）
 	approval    map[string]chan approvalResolution // approvalId -> 审批结果通道
-	runPolicy   map[string]string                  // runId -> 定时任务策略："" 普通 | "allow" 写操作免审批 | "readonly" 禁用写操作
+	runPolicy   map[string]string                          // runID → 定时任务写策略（"" / allow / readonly）
+	runBuffers  map[string]*runEventBuffer                 // runID → 事件环形缓冲（断线重连重放）
+	chToBuf     map[chan SSEEvent]*runEventBuffer          // 事件通道 → 缓冲（emit 时写缓冲）
+	runDone     map[string]bool                            // runID → 执行是否已结束（serveSSE 归还通道判定）                  // runId -> 定时任务策略："" 普通 | "allow" 写操作免审批 | "readonly" 禁用写操作
 
 	catalogMu    sync.Mutex // 确定性接口清单缓存（apiCatalogText）
 	catalogText  string
@@ -64,8 +67,11 @@ func New(cfg config.Config) *Service {
 		cancels:     make(map[string]context.CancelFunc),
 		approval:    make(map[string]chan approvalResolution),
 		runPolicy:   make(map[string]string),
+		runBuffers:      make(map[string]*runEventBuffer),
+		chToBuf:         make(map[chan SSEEvent]*runEventBuffer),
+		runDone:         make(map[string]bool),
 		captureInFlight: make(map[string]bool),
-		toolLoops:      make(map[string]int),
+		toolLoops:       make(map[string]int),
 	}
 }
 
@@ -668,21 +674,29 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "runId 不能为空")
 		return
 	}
+	resume := r.URL.Query().Get("resume") == "1"
+	fromSeq, _ := strconv.ParseInt(r.URL.Query().Get("fromSeq"), 10, 64)
 
 	s.mu.Lock()
 	ch, exists := s.runs[runID]
-	if exists {
-		// 订阅方领取通道独占消费，避免多个 SSE 读者互相竞争。
+	if exists && !resume {
+		// 首个订阅方领取通道独占消费，避免多个 SSE 读者互相竞争；
+		// resume 重连不领（serveSSE 断连时会归还，重连期间可再次取用）。
 		delete(s.runs, runID)
 	}
 	s.mu.Unlock()
 
 	if !exists {
+		if buf := s.bufferForRun(runID); buf != nil {
+			// run 已结束但缓冲仍在保留期内：重放尾部终态/状态事件后关闭
+			serveSSE(w, r, s, runID, nil, true, fromSeq)
+			return
+		}
 		slog.Warn("stream-not-found", "runId", runID, "activeRuns", len(s.runs))
 		response.Error(w, http.StatusNotFound, "执行不存在或已结束")
 		return
 	}
-	serveSSE(w, r, ch)
+	serveSSE(w, r, s, runID, ch, resume, fromSeq)
 }
 
 func (s *Service) cancelRun(w http.ResponseWriter, r *http.Request) {

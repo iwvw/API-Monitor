@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/adminai/channel"
@@ -28,6 +30,7 @@ const (
 	contentSizeLimit     = 64 * 1024
 	eventChBuffer        = 128
 	maxToolRetries       = 3 // 工具调用失败后的自动重试次数
+	maxParallelTools     = 8 // 同轮只读工具并行执行上限（信号量）
 
 	// toolLoopWarnThreshold/toolLoopBlockThreshold 是跨轮重复调用（工具循环）的风暴阈值：
 	// 同一执行内相同指纹调用 ≥5 次记日志警告，≥10 次阻断本轮继续执行（OpenClaw loop-detection 轻量版）。
@@ -36,6 +39,12 @@ const (
 
 	toolErrorMaxChars = 2000 // 进入 LLM 上下文/审计的错误文本上限
 )
+
+// firstTokenTimeout 是本机网关流式响应首块等待上限：网关侧自身有 10s 首字
+// 切代理逻辑，此值作为兜底，防止上游普遍限流/慢推理被 failover 放大到分钟级
+// 后超出整轮预算（实际表现为长时间无输出后「执行超时」）。
+// 用 var 以便测试注入短值（运行期只读，勿修改）。
+var firstTokenTimeout = 90 * time.Second
 
 // retryableToolError 决定工具调用失败是否值得重试：
 // 审批类（拒绝/未启用/超时）与参数类（4xx）是确定结果，重试无意义；网络/5xx 等偶发故障才重试。
@@ -292,8 +301,11 @@ func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identi
 	s.mu.Unlock()
 
 	eventCh := make(chan SSEEvent, eventChBuffer)
+	buf := newRunEventBuffer()
 	s.mu.Lock()
 	s.runs[runID] = eventCh
+	s.runBuffers[runID] = buf
+	s.chToBuf[eventCh] = buf
 	s.mu.Unlock()
 
 	go s.runInference(ctx, runID, sessionID, source, prompt, identityJSON, modelHint, eventCh)
@@ -304,12 +316,25 @@ func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identi
 func (s *Service) runInference(ctx context.Context, runID, sessionID, source, prompt, identityJSON, modelHint string, eventCh chan SSEEvent) {
 	defer func() {
 		s.mu.Lock()
+		s.runDone[runID] = true
+		if buf := s.runBuffers[runID]; buf != nil {
+			buf.markDone()
+		}
 		delete(s.sessionRuns, sessionID)
 		if ch, exists := s.runs[runID]; exists {
 			close(ch)
 			delete(s.runs, runID)
 		}
 		s.mu.Unlock()
+		// buffer 保留 runEventBufferRetention 供断线重连补收终态事件，之后清理
+		time.AfterFunc(runBufferRetention, func() {
+			s.mu.Lock()
+			if _, ok := s.runBuffers[runID]; ok {
+				delete(s.runBuffers, runID)
+				delete(s.chToBuf, eventCh)
+			}
+			s.mu.Unlock()
+		})
 		s.clearToolLoops(runID)
 	}()
 
@@ -538,11 +563,8 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 
 		totalPromptTokens += resp.Usage.PromptTokens
 		totalCompletionTokens += resp.Usage.CompletionTokens
-		// 流式调用已在过程中实时推送 reasoning / delta；此处仅为剩余思维链生成 ≤10 字摘要。
-		reasoningSummary := s.summarizeReasoning(runCtx, llmModel, resp.ReasoningContent)
-		if reasoningSummary != "" {
-			s.emit(eventCh, SSEEvent{Type: "reasoning_summary", Fields: map[string]interface{}{"text": reasoningSummary}})
-		}
+		// 思维链摘要已异步化（见 scheduleReasoningSummary）：不再每轮同步等待
+		// 一次额外的 LLM 往返（多轮工具循环会累积数秒～数十秒延迟）。
 
 		if len(resp.ToolCalls) > 0 {
 			if toolCount+len(resp.ToolCalls) > toolCallLimit {
@@ -556,10 +578,25 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			// 保证恢复历史时能按 ID 精确配对（并行多 tool_calls 不丢失、不串 ID）。
 			messages = append(messages, historyMsg{Role: "assistant", Content: "", ReasoningContent: resp.ReasoningContent, ToolCalls: resp.ToolCalls})
 			tcMeta, _ := json.Marshal(resp.ToolCalls)
+			assistantMsgID := nextID(runCtx, db, "aam_")
 			_, _ = db.ExecContext(runCtx,
-				`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, tool_call_meta, created_at) VALUES (?, ?, 'assistant', '', ?, ?, ?, ?)`,
-				nextID(runCtx, db, "aam_"), sessionID, resp.ReasoningContent, reasoningSummary, string(tcMeta), time.Now().UTC().Format(time.RFC3339))
+				`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, tool_call_meta, created_at) VALUES (?, ?, 'assistant', '', ?, '', ?, ?)`,
+				assistantMsgID, sessionID, resp.ReasoningContent, string(tcMeta), time.Now().UTC().Format(time.RFC3339))
+			s.scheduleReasoningSummary(llmModel, resp.ReasoningContent, assistantMsgID, eventCh)
 
+			// 阶段一：构建执行计划（顺序 emit tool_start + 落库 running 行 +
+			// 同轮去重缓存判定 + 工具循环检测），全部在主 goroutine 完成。
+			type toolStage struct {
+				tc        toolCall
+				args      map[string]interface{}
+				tcID      string
+				cacheKey  string
+				cachedRes interface{}
+				hit       bool
+				callErr   error
+				result    interface{}
+			}
+			stages := make([]*toolStage, 0, len(resp.ToolCalls))
 			for _, tc := range resp.ToolCalls {
 				toolCount++
 
@@ -578,74 +615,104 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 				var args map[string]interface{}
 				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 
+				st := &toolStage{tc: tc, args: args, tcID: tcID}
 				// 同轮去重：只读接口且与之前调用参数完全一致时直接复用结果，
 				// 并在 tool 消息里标注「结果已复用」，避免模型并行重复打同一接口。
-				var cachedResult interface{}
-				var hit bool
-				var cacheKey string
 				if toolIsCacheable(tc.Function.Name, args) {
-					cacheKey = toolCacheKey(tc.Function.Name, args)
-					cachedResult, hit = toolCache[cacheKey]
+					st.cacheKey = toolCacheKey(tc.Function.Name, args)
+					st.cachedRes, st.hit = toolCache[st.cacheKey]
 				}
-				var result interface{}
-				var callErr error
-				if hit {
-					result = cachedResult
-				} else {
+				if !st.hit {
 					// 工具循环检测：同执行内同指纹（跨轮）重复调用计数，越线阻断本轮继续执行
 					allowLoop, loopCount := s.toolLoopCheck(runID, tc.Function.Name, args)
 					if !allowLoop {
-						callErr = fmt.Errorf("工具调用循环检测：本执行中已重复调用 %s %d 次（参数相同），已阻断；请停止重复调用，先基于已有结果回答或改用其他方案", tc.Function.Name, loopCount)
+						st.callErr = fmt.Errorf("工具调用循环检测：本执行中已重复调用 %s %d 次（参数相同），已阻断；请停止重复调用，先基于已有结果回答或改用其他方案", tc.Function.Name, loopCount)
 						slog.Warn("tool-loop-blocked", "run", runID, "tool", tc.Function.Name, "count", loopCount)
-					} else {
-						if loopCount >= toolLoopWarnThreshold {
-							slog.Warn("tool-loop", "run", runID, "tool", tc.Function.Name, "count", loopCount)
-						}
-						// 工具调用失败自动重试（最多重试 3 次）：审批拒绝/参数错误（4xx）不重试，
-						// 写操作不重试（避免重复副作用 / 重复挂起审批）；仅幂等的只读调用在 5xx/网络等
-						// 偶发故障且短暂退避后重试
-						for attempt := 0; attempt <= maxToolRetries; attempt++ {
-							result, callErr = s.executeToolCall(runCtx, db, tc.Function.Name, args, sessionID, tcID, eventCh)
-							callErr = sanitizeToolError(callErr)
-							if callErr == nil || !retryableToolError(callErr) || !toolCallIdempotent(tc.Function.Name, args) || attempt == maxToolRetries {
-								break
-							}
-							slog.Warn("tool-retry", "tool", tc.Function.Name, "attempt", attempt+1, "err", callErr.Error())
-							select {
-							case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
-							case <-runCtx.Done():
-								break
-							}
-						}
-						// 只缓存成功结果（含调用链上无副作用路径的 GET），后续同参调用直接复用
-						if callErr == nil {
-							toolCache[cacheKey] = result
-						}
+					} else if loopCount >= toolLoopWarnThreshold {
+						slog.Warn("tool-loop", "run", runID, "tool", tc.Function.Name, "count", loopCount)
 					}
+				}
+				stages = append(stages, st)
+			}
+
+			// 阶段二：并行段 = 首个非并行安全工具（写操作/DB 工具）之前的连续
+			// 只读段，goroutine 并发执行（信号量限流）；写操作及之后的工具保持
+			// 严格串行（下游可能依赖上游结果，先读后写不产生竞态）。
+			parallelUntil := len(stages)
+			for i, st := range stages {
+				if st.hit || st.callErr != nil {
+					continue
+				}
+				if !toolParallelSafe(st.tc.Function.Name, st.args) {
+					parallelUntil = i
+					break
+				}
+			}
+			type execOutcome struct {
+				idx    int
+				result interface{}
+				err    error
+			}
+			outcomeCh := make(chan execOutcome, parallelUntil)
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, maxParallelTools)
+			for i := 0; i < parallelUntil; i++ {
+				st := stages[i]
+				if st.hit || st.callErr != nil {
+					continue
+				}
+				wg.Add(1)
+				go func(idx int, stage *toolStage) {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					result, callErr := s.runToolWithRetry(runCtx, db, stage.tc.Function.Name, stage.args, sessionID, stage.tcID, eventCh)
+					outcomeCh <- execOutcome{idx: idx, result: result, err: callErr}
+				}(i, st)
+			}
+			wg.Wait()
+			close(outcomeCh)
+			for o := range outcomeCh {
+				stages[o.idx].result = o.result
+				stages[o.idx].callErr = o.err
+			}
+			for i := parallelUntil; i < len(stages); i++ {
+				st := stages[i]
+				if st.hit || st.callErr != nil {
+					continue
+				}
+				st.result, st.callErr = s.runToolWithRetry(runCtx, db, st.tc.Function.Name, st.args, sessionID, st.tcID, eventCh)
+			}
+
+			// 阶段三：按原始顺序归位（emit tool_result + 落库 + 缓存写入）
+			for _, st := range stages {
+				// 只缓存成功结果（含调用链上无副作用路径的 GET），后续同参调用直接复用
+				if st.callErr == nil && !st.hit && st.cacheKey != "" {
+					toolCache[st.cacheKey] = st.result
 				}
 				status := "success"
 				summary := ""
-				if callErr != nil {
+				if st.callErr != nil {
 					status = "error"
-					summary = callErr.Error()
+					summary = st.callErr.Error()
 				} else {
-					summary = summarizeToolResult(result)
-					if hit {
+					summary = summarizeToolResult(st.result)
+					if st.hit {
 						summary = "（本轮已用相同参数调用过此接口，结果为：）" + summary
 					}
 				}
 
-				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": tc.Function.Name, "status": status, "summary": summary}})
+				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": st.tc.Function.Name, "status": status, "summary": summary}})
 
 				tcFinished := time.Now().UTC().Format(time.RFC3339)
 				_, _ = db.ExecContext(runCtx,
 					`UPDATE admin_ai_tool_calls SET status = ?, output_summary = ?, finished_at = ? WHERE id = ?`,
-					status, summary, tcFinished, tcID)
+					status, summary, tcFinished, st.tcID)
 
 				_, _ = db.ExecContext(runCtx,
 					`INSERT INTO admin_ai_messages (id, session_id, role, content, tool_call_id, created_at) VALUES (?, ?, 'tool', ?, ?, ?)`,
-					nextID(runCtx, db, "aam_"), sessionID, summary, tc.ID, tcFinished)
-				messages = append(messages, historyMsg{Role: "tool", Content: summary, ToolCallID: tc.ID})
+					nextID(runCtx, db, "aam_"), sessionID, summary, st.tc.ID, tcFinished)
+				messages = append(messages, historyMsg{Role: "tool", Content: summary, ToolCallID: st.tc.ID})
 			}
 			continue
 		}
@@ -673,8 +740,9 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 
 		assistantMsgID := nextID(runCtx, db, "aam_")
 		_, _ = db.ExecContext(runCtx,
-			`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, created_at) VALUES (?, ?, 'assistant', ?, ?, ?, ?)`,
-			assistantMsgID, sessionID, content, resp.ReasoningContent, reasoningSummary, time.Now().UTC().Format(time.RFC3339))
+			`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, created_at) VALUES (?, ?, 'assistant', ?, ?, '', ?)`,
+			assistantMsgID, sessionID, content, resp.ReasoningContent, time.Now().UTC().Format(time.RFC3339))
+		s.scheduleReasoningSummary(llmModel, resp.ReasoningContent, assistantMsgID, eventCh)
 
 		// 注意：不再重复 emit 完整 content 作为 delta —— 流式阶段 callLLMStream 已
 		// 逐 chunk 实时推送过。再 emit 一次会让侧栏/TG/频道消费端把同一段内容拼两遍。
@@ -685,11 +753,106 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 	}
 }
 
-func (s *Service) emit(ch chan<- SSEEvent, event SSEEvent) {
+func (s *Service) emit(ch chan SSEEvent, event SSEEvent) {
+	// 先写入 run 级环形缓冲（断线重连重放用）并打上自增 seq，再非阻塞尝试实时下发。
+	// defer recover 防异步生产者（会话标题/推理摘要）在 run 结束通道关闭后
+	// 补发事件时 send-on-closed panic。
+	defer func() { _ = recover() }()
+	if buf := s.bufferFor(ch); buf != nil {
+		buf.appendSeq(event)
+	}
 	select {
 	case ch <- event:
 	default:
 	}
+}
+
+// runEventBuffer 是 run 级 SSE 事件环形缓冲：run 结束后事件仍可重放一段时间，
+// 供断线重连的客户端补收 done/error 与工具状态事件（增量事件跳过，避免重复拼接）。
+const (
+	runEventBufferSize  = 4096
+	runBufferRetention  = 10 * time.Minute
+	runEventTypeSkipDLT = "delta"
+	runEventTypeSkipREA = "reasoning"
+)
+
+type bufferedEvent struct {
+	seq int64
+	ev  SSEEvent
+}
+
+type runEventBuffer struct {
+	mu     sync.Mutex
+	events []bufferedEvent
+	seq    int64
+	start  int
+	count  int
+	done   bool
+}
+
+func newRunEventBuffer() *runEventBuffer {
+	return &runEventBuffer{events: make([]bufferedEvent, runEventBufferSize)}
+}
+
+func (b *runEventBuffer) appendSeq(ev SSEEvent) int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.seq++
+	if ev.Fields == nil {
+		ev.Fields = map[string]interface{}{}
+	}
+	ev.Fields["__seq"] = b.seq
+	if b.count < len(b.events) {
+		idx := (b.start + b.count) % len(b.events)
+		b.events[idx] = bufferedEvent{seq: b.seq, ev: ev}
+		b.count++
+		return b.seq
+	}
+	b.events[b.start] = bufferedEvent{seq: b.seq, ev: ev}
+	b.start = (b.start + 1) % len(b.events)
+	return b.seq
+}
+
+// replayAfter 按 seq 升序回调 seq > fromSeq 且非增量类型的事件；跳过 delta/reasoning
+// （其内容由 DB 最终一致性兜底，重复重放会导致前端拼接重复文本）。
+// 遇到 done/error（run 终态事件）时停止并返回该事件。
+func (b *runEventBuffer) replayAfter(fromSeq int64, fn func(seq int64, ev SSEEvent)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := 0; i < b.count; i++ {
+		idx := (b.start + i) % len(b.events)
+		item := b.events[idx]
+		if item.seq <= fromSeq {
+			continue
+		}
+		if item.ev.Type == runEventTypeSkipDLT || item.ev.Type == runEventTypeSkipREA {
+			continue
+		}
+		if fn != nil {
+			fn(item.seq, item.ev)
+		}
+		if item.ev.Type == "done" || item.ev.Type == "error" {
+			break // run 已进入终态，其后不再有事件
+		}
+	}
+}
+
+func (b *runEventBuffer) markDone() {
+	b.mu.Lock()
+	b.done = true
+	b.mu.Unlock()
+}
+
+func (s *Service) bufferFor(ch chan SSEEvent) *runEventBuffer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.chToBuf[ch]
+}
+
+func (s *Service) bufferForRun(runID string) *runEventBuffer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runBuffers[runID]
 }
 
 // historyMsg 是恢复历史时的会话消息内存形态，与 admin_ai_messages 行对应。
@@ -925,7 +1088,7 @@ type streamToolCall struct {
 // callLLMStream 通过本机网关调用 chat/completions（stream=true），逐块解析 SSE，
 // 实时把 content / reasoning 增量推给 eventCh；返回完整响应（含 usage / tool_calls）。
 // 网关侧本身非流式时（上游不支持），返回单块但同样推一次 delta，行为无差异。
-func (s *Service) callLLMStream(ctx context.Context, model string, messages []map[string]interface{}, eventCh chan<- SSEEvent) (*llmResponse, error) {
+func (s *Service) callLLMStream(ctx context.Context, model string, messages []map[string]interface{}, eventCh chan SSEEvent) (*llmResponse, error) {
 	reqBody := map[string]interface{}{"model": model, "messages": messages, "stream": true, "tools": adminAITools}
 	bodyBytes, _ := json.Marshal(reqBody)
 
@@ -953,9 +1116,26 @@ func (s *Service) callLLMStream(ctx context.Context, model string, messages []ma
 	toolAcc := map[int]*toolCall{}
 	var lastToolOrder []int
 
+	// 首块等待护栏：流式响应首块（含网关 failover 重试总时长）超过
+	// firstTokenTimeout 未到达即中止，避免慢代理池放大后拖垮整轮预算。
+	var firstTimedOut atomic.Bool
+	firstData := make(chan struct{}, 1)
+	go func() {
+		select {
+		case <-time.After(firstTokenTimeout):
+			firstTimedOut.Store(true)
+			_ = resp.Body.Close()
+		case <-firstData:
+		}
+	}()
+
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		select {
+		case firstData <- struct{}{}:
+		default:
+		}
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data:") {
 			continue
@@ -1012,6 +1192,9 @@ func (s *Service) callLLMStream(ctx context.Context, model string, messages []ma
 			}
 			cur.Function.Arguments += tc.Function.Arguments
 		}
+	}
+	if firstTimedOut.Load() {
+		return nil, fmt.Errorf("LLM 调用超时：%.0f 秒内未收到首个数据块（网关或上游模型响应过慢，可稍后重试）", firstTokenTimeout.Seconds())
 	}
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("读取 LLM 流失败: %w", err)
@@ -1344,7 +1527,7 @@ func catalogTemplateMatches(template, path string) bool {
 // generateSessionTitleAsync 异步生成会话标题：模型生成 ≤12 字中文标题并写库，
 // 成功后下推 session_title 事件（前端实时更新会话列表）；失败回退消息截断。
 // 独立连接写库避免与 runInference 主流程的单连接池互锁。
-func (s *Service) generateSessionTitleAsync(ctx context.Context, sessionID, model, prompt, fallback string, eventCh chan<- SSEEvent) {
+func (s *Service) generateSessionTitleAsync(ctx context.Context, sessionID, model, prompt, fallback string, eventCh chan SSEEvent) {
 	title := s.generateSessionTitle(ctx, model, prompt)
 	if strings.TrimSpace(title) == "" {
 		title = fallback
@@ -1389,6 +1572,78 @@ func (s *Service) generateSessionTitle(ctx context.Context, model, prompt string
 	return text
 }
 
+// scheduleReasoningSummary 异步生成思维链摘要：独立超时上下文 + 独立 DB 连接，
+// 不阻塞 runInference 主循环的后续工具执行/下一轮 LLM 调用；摘要成功后
+// emit reasoning_summary 事件并回填该轮 assistant 消息行的 reasoning_summary 列。
+// 空推理/过短推理直接跳过（与同步版行为一致）。
+func (s *Service) scheduleReasoningSummary(model, reasoning, messageID string, eventCh chan SSEEvent) {
+	if strings.TrimSpace(reasoning) == "" {
+		return
+	}
+	if len([]rune(strings.TrimSpace(reasoning))) < 40 {
+		return
+	}
+	go func() {
+		sumCtx, sumCancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer sumCancel()
+		text := s.summarizeReasoning(sumCtx, model, reasoning)
+		if text == "" {
+			return
+		}
+		// send-on-closed 已在 emit 内部 recover 兜底，run 结束后补发不会 panic
+		s.emit(eventCh, SSEEvent{Type: "reasoning_summary", Fields: map[string]interface{}{"text": text}})
+		db, err := s.open(sumCtx)
+		if err != nil {
+			return
+		}
+		defer db.Close()
+		_, _ = db.ExecContext(sumCtx,
+			`UPDATE admin_ai_messages SET reasoning_summary = ? WHERE id = ? AND (reasoning_summary IS NULL OR reasoning_summary = '')`,
+			text, messageID)
+	}()
+}
+
+// runToolWithRetry 执行一次工具调用并应用失败重试（仅幂等只读工具在偶发故障时重试，
+// 写操作/审批拒绝/参数错误不重试）；与串行路径共用同一套重试语义。
+func (s *Service) runToolWithRetry(ctx context.Context, db *sql.DB, toolName string, args map[string]interface{}, sessionID, tcID string, eventCh chan SSEEvent) (interface{}, error) {
+	var result interface{}
+	var callErr error
+	for attempt := 0; attempt <= maxToolRetries; attempt++ {
+		result, callErr = s.executeToolCall(ctx, db, toolName, args, sessionID, tcID, eventCh)
+		callErr = sanitizeToolError(callErr)
+		if callErr == nil || !retryableToolError(callErr) || !toolCallIdempotent(toolName, args) || attempt == maxToolRetries {
+			break
+		}
+		slog.Warn("tool-retry", "tool", toolName, "attempt", attempt+1, "err", callErr.Error())
+		select {
+		case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+		case <-ctx.Done():
+			break
+		}
+	}
+	return result, callErr
+}
+
+// toolParallelSafe 判定工具调用可进入同轮并行段：纯内存只读（契约/清单缓存）
+// 与 call_api 的幂等 HTTP 方法；DB 工具（memory_*/telegram_*）与写操作
+// 保持串行，避免并发写库或副作用竞态。
+func toolParallelSafe(toolName string, args map[string]interface{}) bool {
+	if toolName == "call_api" {
+		method, _ := args["method"].(string)
+		switch strings.ToUpper(method) {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			return true
+		default:
+			return false
+		}
+	}
+	switch toolName {
+	case "list_apis", "get_route", "get_openapi", "get_ai_manifest", "get_system_status":
+		return true
+	}
+	return false
+}
+
 // summarizeReasoning 用同一模型生成 ≤10 字的思维链标题式摘要；失败返回空串（前端回退截断）。
 func (s *Service) summarizeReasoning(ctx context.Context, model, reasoning string) string {
 	if strings.TrimSpace(reasoning) == "" {
@@ -1422,7 +1677,7 @@ func (s *Service) summarizeReasoning(ctx context.Context, model, reasoning strin
 	return text
 }
 
-func (s *Service) executeToolCall(ctx context.Context, db *sql.DB, toolName string, args map[string]interface{}, sessionID, tcID string, eventCh chan<- SSEEvent) (interface{}, error) {
+func (s *Service) executeToolCall(ctx context.Context, db *sql.DB, toolName string, args map[string]interface{}, sessionID, tcID string, eventCh chan SSEEvent) (interface{}, error) {
 	switch toolName {
 	case "list_apis", "get_route", "get_openapi", "get_ai_manifest", "get_system_status":
 		return s.executeReadOnlyTool(ctx, toolName, args)
@@ -1662,7 +1917,7 @@ func catalogRouteMatches(prefix, mode, path string) bool {
 	}
 }
 
-func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[string]interface{}, sessionID, tcID string, eventCh chan<- SSEEvent) (interface{}, error) {
+func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[string]interface{}, sessionID, tcID string, eventCh chan SSEEvent) (interface{}, error) {
 	method, _ := args["method"].(string)
 	path, _ := args["path"].(string)
 	if method == "" {

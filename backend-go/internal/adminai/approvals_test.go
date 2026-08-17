@@ -376,8 +376,8 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("期望 enabled=true，实际 %q", resp.Data.Settings["admin_ai_enabled"])
 	}
 	// 未配置键回默认值
-	if resp.Data.Settings["admin_ai_timeout_seconds"] != "300" {
-		t.Fatalf("期望 timeout 默认 300，实际 %q", resp.Data.Settings["admin_ai_timeout_seconds"])
+	if resp.Data.Settings["admin_ai_timeout_seconds"] != "600" {
+		t.Fatalf("期望 timeout 默认 600，实际 %q", resp.Data.Settings["admin_ai_timeout_seconds"])
 	}
 }
 

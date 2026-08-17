@@ -363,6 +363,10 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   }, [showAskAI]);
 
   const eventSource = useRef(null);
+  const lastSeqRef = useRef(0); // SSE 最后收到的事件 seq（重连 fromSeq 依据）
+  const retryCountRef = useRef(0); // 断线重连次数（指数退避上限）
+  const retryTimerRef = useRef(null); // 重连定时器
+  const reconnectedRef = useRef(false); // 本轮 run 是否发生过重连（终态后拉历史兜底 full）
   const textareaRef = useRef(null);
   const dragState = useRef(null);
   const panelRef = useRef(null);
@@ -535,6 +539,10 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   }, [showAskAI, loadSessions, loadMessages]);
 
   const stopStream = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     if (eventSource.current) {
       eventSource.current.close();
       eventSource.current = null;
@@ -591,14 +599,32 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     return () => window.clearTimeout(t);
   }, [confirmDeleteId]);
 
-  const startStream = (newRunId, targetId) => {
-    stopStream();
-    streamTargetIdRef.current = targetId;
-    setRunId(newRunId);
-    setStreaming(true);
+  /* SSE 断线自动重连：网络抖动/代理切换/服务端释放连接时，后台 run 仍在执行，
+     凭 runId + fromSeq 指数退避重连恢复事件流（终态/工具状态事件由后端缓冲重放，
+     delta/reasoning 增量不重放避免文本重复拼接，最终内容由重连后拉取消息历史兜底）。
+     重试耗尽才回退「取消占位」旧行为，杜绝“没有回复/永远 streaming”。 */
+  const STREAM_RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000];
+  const STREAM_RECONNECT_MAX = 5;
 
-    const es = new EventSource(`/api/admin-ai/messages/stream?runId=${newRunId}`);
+  const openStream = (runId, targetId, resume) => {
+    if (eventSource.current) {
+      eventSource.current.close();
+      eventSource.current = null;
+    }
+    streamTargetIdRef.current = targetId;
+    if (!resume) {
+      retryCountRef.current = 0;
+      reconnectedRef.current = false;
+      setRunId(runId);
+      setStreaming(true);
+    }
+    const q = resume ? `&resume=1&fromSeq=${lastSeqRef.current || 0}` : '';
+    const es = new EventSource(`/api/admin-ai/messages/stream?runId=${runId}${q}`);
     eventSource.current = es;
+
+    es.onopen = () => {
+      retryCountRef.current = 0; // 连接成功，重置退避计数
+    };
 
     const applyEvent = (raw) => {
       const ev = normalizeAiEvent(raw);
@@ -617,24 +643,49 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const tid = streamTargetIdRef.current;
       setMessages((prev) => applyAiEvent(prev, ev, tid));
       if (ev.type === 'approval') setPendingApproval(ev); // 写操作请求：自动弹出审批弹窗
-      if (ev.type === 'done' || ev.type === 'error') stopStream();
+      if (ev.type === 'done' || ev.type === 'error') {
+        stopStream();
+        // 本轮发生过断线重连：增量内容可能缺失，拉取服务端完整历史替换占位消息
+        if (reconnectedRef.current) loadMessages(activeSessionIdRef.current);
+      }
     };
 
-    for (const t of STREAM_EVENTS) {
-      es.addEventListener(t, (e) => {
-        try {
-          applyEvent(parseAdminAiEvent(t, e.data));
-        } catch {
-        }
-      });
-    }
+    const wireEvent = (t) => es.addEventListener(t, (e) => {
+      try {
+        const seq = Number(e.lastEventId || 0);
+        if (seq > (lastSeqRef.current || 0)) lastSeqRef.current = seq;
+        applyEvent(parseAdminAiEvent(t, e.data));
+      } catch {
+      }
+    });
+    for (const t of STREAM_EVENTS) wireEvent(t);
 
     es.onerror = () => {
-      // 连接层失败（网络断开/服务端退出）：清理并取消当前流目标，避免卡死 streaming
+      // 连接层失败（网络断开/服务端退出）：先关闭当前 EventSource（避免浏览器
+      // 对同 URL 无限自动重连、走后端 404 循环），再手动指数退避重连。
+      if (!streamTargetIdRef.current) return; // stopStream 已清理（手动取消/切换会话）
       const tid = streamTargetIdRef.current;
-      stopStream();
-      if (tid) setMessages((prev) => cancelMessage(prev, tid));
+      es.close();
+      eventSource.current = null;
+      scheduleReconnect(runId, tid);
     };
+  };
+
+  /* 指数退避重连（1s→2s→4s→8s→15s，5 次封顶）；耗尽后回退旧行为：取消当前流目标 */
+  const scheduleReconnect = (runId, targetId) => {
+    const attempt = retryCountRef.current;
+    if (attempt >= STREAM_RECONNECT_MAX) {
+      stopStream();
+      if (targetId) setMessages((prev) => cancelMessage(prev, targetId));
+      return;
+    }
+    retryCountRef.current = attempt + 1;
+    reconnectedRef.current = true;
+    const delay = STREAM_RECONNECT_DELAYS[Math.min(attempt, STREAM_RECONNECT_DELAYS.length - 1)];
+    retryTimerRef.current = window.setTimeout(() => {
+      retryTimerRef.current = null;
+      openStream(runId, targetId, true);
+    }, delay);
   };
    /* @ 资源：懒加载 dnsZones（账户 → zones） */
   const loadDnsZones = useCallback(async () => {
@@ -722,7 +773,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       }
       const data = await res.json();
       const body = data && data.data ? data.data : data;
-      if (body.runId) startStream(body.runId, assistantId);
+      if (body.runId) openStream(body.runId, assistantId, false);
       else failWith('未能启动执行，请重试');
     } catch {
       failWith('发送失败，请重试');

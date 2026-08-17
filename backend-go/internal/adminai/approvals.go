@@ -219,7 +219,7 @@ var adminAISettingDefs = []struct {
 	{"admin_ai_write_enabled", "false", "写操作全局开关"},
 	{"admin_ai_auto_approve", "false", "完全批准模式（所有写操作免审批直接执行）"},
 	{"admin_ai_tool_call_limit", "12", "单轮最大工具调用次数"},
-	{"admin_ai_timeout_seconds", "300", "单轮执行超时秒数"},
+	{"admin_ai_timeout_seconds", "600", "单轮执行超时秒数"},
 	{"admin_ai_context_window", "40000", "上下文窗口 token 上限"},
 	{"admin_ai_audit_retention_days", "90", "审计记录保留天数"},
 	{"admin_ai_memories_enabled", "true", "长期记忆总开关（跨会话持久事实与偏好）"},
@@ -281,6 +281,7 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if !valid[key] {
 			continue
 		}
+		value = clampAISetting(key, value)
 		desc := key
 		for _, def := range adminAISettingDefs {
 			if def.Key == key {
@@ -293,6 +294,44 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 			key, value, desc, now)
 	}
 	response.OK(w, map[string]interface{}{"ok": true})
+}
+
+// clampAISetting 对关键数值设置做范围收敛，防止误配超大值拖垮执行（如把
+// context_window 配到 100 万导致单轮输入膨胀、回复明显变慢）。
+func clampAISetting(key, value string) string {
+	switch key {
+	case "admin_ai_timeout_seconds":
+		if n, err := strconv.Atoi(value); err == nil {
+			if n < 30 {
+				n = 30
+			}
+			if n > 3600 {
+				n = 3600
+			}
+			return strconv.Itoa(n)
+		}
+	case "admin_ai_context_window":
+		if n, err := strconv.Atoi(value); err == nil {
+			if n < 4000 {
+				n = 4000
+			}
+			if n > 200000 {
+				n = 200000
+			}
+			return strconv.Itoa(n)
+		}
+	case "admin_ai_tool_call_limit":
+		if n, err := strconv.Atoi(value); err == nil {
+			if n < 1 {
+				n = 1
+			}
+			if n > 100 {
+				n = 100
+			}
+			return strconv.Itoa(n)
+		}
+	}
+	return value
 }
 
 func systemConfigKeyPlaceholders(defs []struct {
