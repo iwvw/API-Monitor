@@ -21,9 +21,9 @@ function ErrorBanner({ message }) {
 
 const SETTING_FIELDS = [
   { key: 'admin_ai_enabled', kind: 'switch', group: 'basic', label: '管理 AI 总开关', description: '关闭后侧栏与 Telegram 不再受理对话' },
-  { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '默认推理模型', description: '模型来源：模型网关' },
-  { key: 'admin_ai_summary_model', kind: 'select', group: 'basic', label: '推理摘要模型', description: '思维链标题摘要专用，留空回退默认模型；可用轻量模型，逗号分隔多个候选自动失败回退' },
-  { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '站点简报模型', description: '每日站点简报专用模型，留空回退默认模型' },
+  { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '推理', description: '模型来源：模型网关' },
+  { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '推理摘要模型', description: '思维链标题摘要专用，留空回退默认模型；可多选多个候选，失败按顺序自动回退' },
+  { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '简报', description: '每日站点简报专用模型，留空回退默认模型' },
   { key: 'admin_ai_write_enabled', kind: 'switch', group: 'security', label: '写操作全局开关', description: '写操作需人工审批' },
   { key: 'admin_ai_auto_approve', kind: 'switch', group: 'security', label: '完全批准模式', description: '（危险：AI 可自主执行任何写操作）' },
   { key: 'admin_ai_tool_call_limit', kind: 'number', group: 'runtime', label: '工具调用上限', description: '单轮最多调用次数' },
@@ -140,7 +140,35 @@ function SettingsCard({ form }) {
       );
     }
     let control;
-    if (field.kind === 'select') {
+    if (field.kind === 'multi_select') {
+      // 多选模型：独立芯片切换，值存逗号串（后端按候选顺序逐个失败回退）
+      const selected = new Set((value || '').split(',').map((s) => s.trim()).filter(Boolean));
+      control = (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {modelOptions.map((opt) => {
+            const on = selected.has(opt.value);
+            return (
+              <Button
+                key={opt.value}
+                type="button"
+                size="sm"
+                variant={on ? 'primary' : 'secondary'}
+                onClick={() => {
+                  const next = new Set(selected);
+                  if (on) next.delete(opt.value);
+                  else next.add(opt.value);
+                  setField(field.key, [...next].join(','));
+                }}
+                className="!px-2 !py-1 !text-[11px]"
+                title={opt.label}
+              >
+                {opt.label}
+              </Button>
+            );
+          })}
+        </div>
+      );
+    } else if (field.kind === 'select') {
       control = (
         <Select
           placeholder={modelOptions.length ? '选择模型' : '模型网关无可用模型'}
