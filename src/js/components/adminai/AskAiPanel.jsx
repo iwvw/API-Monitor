@@ -24,6 +24,7 @@ import {
   cancelMessage,
   resolveApprovalPart,
   buildTimelineFromRows,
+  markLiveMessage,
 } from '../../modules/adminAiMessages.js';
 import { useCloudflareSpotlight } from '../../hooks/useCloudflareSpotlight.js';
 import { useAskAiCloudMotion } from '../../hooks/useAskAiCloudMotion.js';
@@ -316,6 +317,9 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [runId, setRunId] = useState(null);
+  // 外部来源 run 快照（MCP/API/BOT/定时任务，无 SSE）：{runId, phase}，
+  // 来自消息接口的 activeRun；SSE 活跃期间置空（面板自己的 run 走 streaming）
+  const [liveRun, setLiveRun] = useState(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   // 会话列表 tab：切换查看用户对话（web）或机器人会话（cron/channel，只读）。
@@ -411,7 +415,11 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const body = data.data || data;
       const items = body.items || body.messages || [];
       // DB 行 → timeline parts（推理/工具调用/工具结果/正文按时间序，一轮一条消息）
-      setMessages(buildTimelineFromRows(items));
+      const live = body.activeRun && body.activeRun.runId
+        ? { runId: body.activeRun.runId, phase: body.activeRun.phase || 'starting' }
+        : null;
+      setLiveRun(live);
+      setMessages(markLiveMessage(buildTimelineFromRows(items), live));
     } catch {
     }
   }, []);
@@ -512,6 +520,9 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     streamTargetIdRef.current = null;
     setStreaming(false);
     setRunId(null);
+    // 清掉外部 run 快照：SSE 收尾/取消后旧 liveRun 不得残留（切换会话时
+    // 随后 loadMessages 会重设，无副作用）
+    setLiveRun(null);
   }, []);
 
   useEffect(() => {
@@ -1173,7 +1184,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                       <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
                     )
                   ) : (
-                    <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                    <MessageList messages={messages} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
                   )}
                 </div>
                 {/* 全屏输入区（实底不透明，与消息区无缝衔接）；机器人会话只读不渲染输入框 */}
@@ -1409,7 +1420,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                   <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
                 )
               ) : (
-                <MessageList messages={messages} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                <MessageList messages={messages} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
               )}
             </div>
           </div>

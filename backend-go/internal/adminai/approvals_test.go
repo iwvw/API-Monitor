@@ -250,6 +250,81 @@ func TestListMessagesIncludesReasoning(t *testing.T) {
 	}
 }
 
+// 消息列表携带活跃 run 快照：外部 run（MCP/API/BOT/定时任务）无 SSE 通道，
+// 前端凭 activeRun 在轮询重拉时把最后一条助手消息标为 live，图标保持动态。
+func TestListMessagesIncludesActiveRun(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_live', 'web', '测试会话', 0, ?, ?, ?)`,
+		now, now, now)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_messages (id, session_id, role, content, created_at) VALUES ('aam_live', 'aas_live', 'assistant', '进行中输出', ?)`,
+		now)
+	db.Close()
+
+	s.mu.Lock()
+	s.sessionRuns["aas_live"] = "aae_live_run"
+	s.runPhase["aae_live_run"] = "tooling"
+	s.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/sessions/aas_live/messages", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []struct {
+				ID string `json:"id"`
+			} `json:"items"`
+			ActiveRun *struct {
+				RunID string `json:"runId"`
+				Phase string `json:"phase"`
+			} `json:"activeRun"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if resp.Data.ActiveRun == nil || resp.Data.ActiveRun.RunID != "aae_live_run" || resp.Data.ActiveRun.Phase != "tooling" {
+		t.Fatalf("期望 activeRun={aae_live_run, tooling}，实际 %+v", resp.Data.ActiveRun)
+	}
+	if len(resp.Data.Items) == 0 {
+		t.Fatal("期望消息列表非空")
+	}
+
+	// run 结束后（sessionRuns 清理）快照消失
+	s.mu.Lock()
+	delete(s.sessionRuns, "aas_live")
+	s.mu.Unlock()
+	req = httptest.NewRequest(http.MethodGet, "/api/admin-ai/sessions/aas_live/messages", nil)
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var after struct {
+		Data struct {
+			ActiveRun *struct {
+				RunID string `json:"runId"`
+				Phase string `json:"phase"`
+			} `json:"activeRun"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &after); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if after.Data.ActiveRun != nil {
+		t.Fatalf("run 结束后不应携带 activeRun，实际 %+v", after.Data.ActiveRun)
+	}
+}
+
 // 已 resolve 的审批不可重复操作（WHERE status='pending' 保护）。
 func TestResolveApprovalTwiceDenied(t *testing.T) {
 	s := newTestService(t)

@@ -2557,6 +2557,30 @@ input[type='number'] {
   animation: askai-external-run-fade 0.2s ease-out;
 }
 
+/* 实时环节图标脉冲（推理星形/工具 Terminal/代理 Terminal）：
+   挂类即代表「该环节正在执行」（流式 streaming 或外部 run live 轮询态），
+   完成/失败/取消后类移除自动静止；prefers-reduced-motion 下关闭 */
+@keyframes askai-live-pulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.18) rotate(8deg);
+    filter: brightness(1.35);
+  }
+}
+.askai-live-icon {
+  display: inline-block;
+  animation: askai-live-pulse 1s ease-in-out infinite;
+  will-change: transform, filter;
+}
+@media (prefers-reduced-motion: reduce) {
+  .askai-live-icon {
+    animation: none;
+  }
+}
+
 /* Shiki JSON 高亮块（JsonHighlight）：滚动 + 字体 + 主题色跟随 */
 .shiki-json-block {
   overflow: auto;

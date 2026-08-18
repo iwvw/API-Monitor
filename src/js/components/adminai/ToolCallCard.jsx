@@ -273,7 +273,8 @@ export function ToolSteps({ items, streaming }) {
   }
 
   const total = merged.reduce((s, m) => s + m.count, 0);
-  const isOpen = open || (streaming && merged.some((m) => m.hasRunning));
+  const anyRunning = merged.some((m) => m.hasRunning);
+  const isOpen = open || (streaming && anyRunning);
   const single = merged.length === 1 ? merged[0] : null;
 
   const handleCopy = async (key, text) => {
@@ -318,7 +319,7 @@ export function ToolSteps({ items, streaming }) {
         className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
         aria-expanded={isOpen}
       >
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-kumo-brand/10 text-kumo-brand">
+        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded bg-kumo-brand/10 text-kumo-brand ${anyRunning ? 'askai-live-icon' : ''}`}>
           <Terminal className="h-2.5 w-2.5" />
         </span>
         {single ? (

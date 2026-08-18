@@ -391,6 +391,29 @@ export function isStreaming(status) {
   return status === MSG.PENDING || status === MSG.STREAMING;
 }
 
+/* ---------- 外部 run live 标注 ----------
+ * 外部来源（MCP/API/BOT/定时任务）没有 SSE 通道，消息靠轮询从 DB 重拉，
+ * 加载时所有行都是终态快照（IDLE），无法体现「run 仍在执行」。
+ * 后端在消息响应携带 activeRun 时，把最后一条助手消息标为 STREAMING：
+ * - 末 part 恰为 tool_call 时置 RUNNING（该工具尚未落结果行）
+ * - 其余 part（reasoning/text/tool_result）保持终态，动态由图标/胶囊层表达
+ * 运行结束后 activeRun 消失，下一次重拉自然恢复静态。 */
+export function markLiveMessage(messages, live) {
+  if (!live || !live.runId) return messages;
+  const next = messages.map((m) => ({ ...m, parts: (m.parts || []).map((p) => ({ ...p })) }));
+  for (let i = next.length - 1; i >= 0; i--) {
+    const msg = next[i];
+    if (msg.role !== 'assistant') continue;
+    msg.status = MSG.STREAMING;
+    const parts = msg.parts || [];
+    if (parts.length > 0 && parts[parts.length - 1].type === 'tool_call') {
+      parts[parts.length - 1].status = STEP.RUNNING;
+    }
+    break;
+  }
+  return next;
+}
+
 // 汇总助手消息的可复制文本（text parts 全文）。
 export function collectAssistantText(msg) {
   const textParts = (msg.parts || []).filter((p) => p.type === 'text').map((p) => p.text || '');

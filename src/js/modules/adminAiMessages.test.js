@@ -4,6 +4,7 @@ import {
   createUserMessage, createAssistantMessage,
   normalizeAiEvent, applyAiEvent, failMessage, cancelMessage,
   resolveApprovalPart, buildTimelineFromRows, collectAssistantText, isStreaming,
+  markLiveMessage,
 } from './adminAiMessages.js';
 
 const tgt = () => createAssistantMessage('a1', 'run1');
@@ -285,5 +286,55 @@ describe('buildTimelineFromRows — 历史恢复为时间序 parts', () => {
     ];
     const msgs = buildTimelineFromRows(rows);
     expect(msgs).toHaveLength(0);
+  });
+});
+
+describe('markLiveMessage', () => {
+  const rows = (textLast) => [
+    { id: 'u1', role: 'user', content: '巡检' },
+    {
+      id: 'a1', role: 'assistant', content: textLast ? '部分正文' : '',
+      toolCallMeta: JSON.stringify([{ id: 'tc1', function: { name: 'call_api', arguments: '{}' } }]),
+    },
+    { id: 't1', role: 'tool', content: 'ok' },
+  ];
+
+  it('活跃 run 把最后一条助手消息标为 STREAMING，完成态 part 不回溯', () => {
+    const msgs = buildTimelineFromRows(rows(false));
+    const live = markLiveMessage(msgs, { runId: 'aae_x', phase: 'tooling' });
+    expect(live[1].status).toBe(MSG.STREAMING);
+    expect(isStreaming(live[1].status)).toBe(true);
+    // 末 part 是 tool_result（已配结果）：工具保持 SUCCESS，动态由图标层表达
+    expect(live[1].parts[0]).toMatchObject({ type: 'tool_call', status: STEP.SUCCESS });
+    // 末 part 是 text：图标层动态，part 状态保持终态
+    const liveText = markLiveMessage(msgs, { runId: 'aae_x', phase: 'thinking' });
+    expect(liveText[1].parts[0].status).toBe(STEP.SUCCESS);
+  });
+
+  it('未落结果行的 tool_call 置 RUNNING', () => {
+    const msgs = buildTimelineFromRows([{ id: 'u1', role: 'user', content: '问' }]);
+    msgs.push({
+      id: 'a1', role: 'assistant', parts: [
+        { type: 'tool_call', toolName: 'call_api', toolCallId: 'tc2', args: '', status: STEP.SUCCESS },
+      ], status: MSG.IDLE,
+    });
+    const live = markLiveMessage(msgs, { runId: 'aae_x', phase: 'tooling' });
+    expect(live[1].status).toBe(MSG.STREAMING);
+    expect(live[1].parts[0].status).toBe(STEP.RUNNING);
+  });
+
+  it('无生活跃 run 或直接不调用时原样返回', () => {
+    const msgs = buildTimelineFromRows(rows(false));
+    expect(markLiveMessage(msgs, null)).toBe(msgs);
+    expect(markLiveMessage(msgs, {})).toBe(msgs);
+    expect(markLiveMessage(msgs, { runId: 'x' })).not.toBe(msgs);
+    expect(markLiveMessage(msgs, { runId: 'x' })[1].status).toBe(MSG.STREAMING);
+  });
+
+  it('不修改原数组（不可变）', () => {
+    const msgs = buildTimelineFromRows(rows(false));
+    const snapshot = JSON.stringify(msgs);
+    markLiveMessage(msgs, { runId: 'x', phase: 'tooling' });
+    expect(JSON.stringify(msgs)).toBe(snapshot);
   });
 });

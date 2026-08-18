@@ -320,7 +320,7 @@ function ReasoningPart({ part, streaming }) {
         onClick={() => (streaming ? setTickerOn(!tickerOn) : setOpen(!open))}
         className="group flex w-max items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
       >
-        <Sparkle className="h-3 w-3 text-kumo-brand" />
+        <Sparkle className={`h-3 w-3 text-kumo-brand ${streaming ? 'askai-live-icon' : ''}`} />
         推理
         {streaming ? (
           <span className="ml-0.5 flex items-center gap-0.5 text-kumo-brand">
@@ -447,8 +447,9 @@ function TimelinePart({ part, streaming, onResolveApproval, onRetry, className }
 }
 
 /* ---------- 助手消息（timeline：推理/工具/正文按时间序） ---------- */
-function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollapsed, toggleCollapse }) {
+function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, isCollapsed, toggleCollapse }) {
   const parts = msg.parts || [];
+  const liveActive = !!live && !!live.runId;
   const pending = streaming && parts.length === 0;
   const hasText = parts.some((p) => p.type === 'text' && p.text);
   const textParts = parts.filter((p) => p.type === 'text');
@@ -483,7 +484,7 @@ function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollap
           title={isCollapsed ? '展开回复' : '收起回复'}
           className="flex cursor-pointer items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-kumo-default hover:bg-kumo-tint hover:text-kumo-strong"
         >
-          <Terminal className="h-3 w-3 text-kumo-brand" />
+          <Terminal className={`h-3 w-3 text-kumo-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
           代理
           {!streaming && hasLongText && (
             <ChevronDown
@@ -491,16 +492,18 @@ function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollap
             />
           )}
         </Button>
-        {streaming && !hasText && !pending && (
-          <>
-            <span className="flex items-center gap-0.5 text-kumo-brand">
+        {(streaming && !hasText && !pending) || liveActive ? (
+          <span className="flex items-center gap-1.5 text-kumo-brand">
+            <span className="flex items-center gap-0.5">
               <span className="askai-typing-dot" />
               <span className="askai-typing-dot" />
               <span className="askai-typing-dot" />
             </span>
-            <span className="text-[10px]">正在回复…</span>
-          </>
-        )}
+            <span className="text-[10px]">
+              {liveActive ? livePhaseLabel(live.phase) : '正在回复…'}
+            </span>
+          </span>
+        ) : null}
         {msg.status === 'cancelled' && (
           <span className="rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] text-kumo-subtle">已停止</span>
         )}
@@ -540,7 +543,7 @@ function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollap
                   <TimelinePart
                     key={`${si}-${part.type}`}
                     part={part}
-                    streaming={streaming && isText && textSeq === lastTextIdx && part.text === lastText}
+                    streaming={!liveActive && streaming && isText && textSeq === lastTextIdx && part.text === lastText}
                     className={prevIsTool && isText ? 'mt-1' : undefined}
                     onResolveApproval={onResolveApproval}
                     onRetry={onRetry}
@@ -557,8 +560,15 @@ function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollap
   );
 }
 
+// 外部 run 阶段文案（live 模式头部状态指示）
+function livePhaseLabel(phase) {
+  if (phase === 'tooling') return '正在执行工具…';
+  if (phase === 'thinking') return '正在思考…';
+  return '正在回复…';
+}
+
 /* ---------- 消息列表 ---------- */
-export default function MessageList({ messages, onResolveApproval, onRetry, onEditResend }) {
+export default function MessageList({ messages, live, onResolveApproval, onRetry, onEditResend }) {
   const listRef = useRef(null);
   const userScrolledUp = useRef(false);
   const [collapsedIds, setCollapsedIds] = useState({});
@@ -711,6 +721,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
               <AssistantMessage
                 msg={msg}
                 streaming={streaming}
+                live={live}
                 onResolveApproval={onResolveApproval}
                 onRetry={onRetry}
                 isCollapsed={isCollapsed}
