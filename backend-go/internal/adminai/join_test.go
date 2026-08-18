@@ -14,8 +14,6 @@ import (
 // seedSession 建会话行以满足 messages 的外键约束。
 func seedSession(t *testing.T, s *Service, id string) {
 	t.Helper()
-	sessionID := id
-	sessionID = sessionID
 	db, err := s.open(context.Background())
 	if err != nil {
 		t.Fatalf("open db: %v", err)

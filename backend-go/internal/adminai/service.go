@@ -256,6 +256,11 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "tool_call_id", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_messages.tool_call_id: %w", err)
 	}
+	// admin_ai_messages 扩展 tool_status 列（tool 结果行记录执行成败，历史恢复时
+	// 前端据此渲染红叉/绿勾，避免失败调用刷新后显示成功）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "tool_status", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_messages.tool_status: %w", err)
+	}
 	// admin_ai_approvals 扩展 reason 列（请求更改/拒绝原因）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_approvals", "reason", "TEXT"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_approvals.reason: %w", err)
@@ -541,6 +546,7 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 		ReasoningSummary string `json:"reasoning_summary,omitempty"`
 		ToolCallMeta     string `json:"toolCallMeta,omitempty"`
 		ToolCallDesc     string `json:"toolCallDesc,omitempty"`
+		ToolStatus       string `json:"toolStatus,omitempty"`
 		CreatedAt        string `json:"createdAt"`
 	}
 
@@ -552,11 +558,11 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 			return
 		}
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), created_at FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), created_at FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
 			sessionID, parts[0], parts[0], parts[1], limit+1)
 	} else {
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), created_at FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), created_at FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
 			sessionID, limit+1)
 	}
 	if err != nil {
@@ -568,7 +574,7 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 	items := make([]messageItem, 0, limit)
 	for rows.Next() {
 		var item messageItem
-		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ReasoningContent, &item.ReasoningSummary, &item.ToolCallMeta, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ReasoningContent, &item.ReasoningSummary, &item.ToolCallMeta, &item.ToolStatus, &item.CreatedAt); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}

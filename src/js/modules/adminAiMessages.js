@@ -324,7 +324,6 @@ export function buildTimelineFromRows(rows) {
           tcs = [];
         }
       }
-      const hasToolRound = tcs.length > 0;
       if (!current) {
         current = { id: row.id, role: 'assistant', parts: [], status: MSG.IDLE, active: false, roundUserMsgId: '' };
         messages.push(current);
@@ -335,7 +334,7 @@ export function buildTimelineFromRows(rows) {
       }
       const desc = row.toolCallDesc || '';
       tcs.forEach((tc, idx) => {
-        const id = tc.id || `tc_${toolIndex++}_${idx}`;
+        const id = tc.id || `tc_${toolIndex + idx}_${idx}`;
         current.parts.push({
           type: 'tool_call',
           toolName: tc.function?.name || tc.toolName || '未知工具',
@@ -344,26 +343,33 @@ export function buildTimelineFromRows(rows) {
           desc: tc.desc || (idx === 0 ? desc : ''),
           status: STEP.SUCCESS,
         });
-        toolIndex++;
       });
-      if (!hasToolRound && row.content) {
-        current.parts.push({ type: 'text', text: row.content });
-      }
-      if (hasToolRound && row.content) {
+      toolIndex += tcs.length;
+      if (row.content) {
         current.parts.push({ type: 'text', text: row.content });
       }
       continue;
     }
     if (row.role === 'tool') {
       if (!current) continue; // 无前置 assistant 的孤儿 tool 行：忽略
-      // 恢复场景工具均已执行完：tool_call part 默认 success（失败时 tool 行
-      // summary 已含错误文本，渲染层如实展示）
+      // 执行成败按后端落库的 tool_status 还原：失败时同步把最近的未配对
+      // tool_call part 标红，避免「失败动作显示绿勾」
+      const failed = row.toolStatus === 'error';
+      if (failed) {
+        for (let i = current.parts.length - 1; i >= 0; i--) {
+          const p = current.parts[i];
+          if (p.type === 'tool_call' && p.status === STEP.SUCCESS) {
+            p.status = STEP.FAILED;
+            break;
+          }
+        }
+      }
       current.parts.push({
         type: 'tool_result',
         toolName: row.toolName || '',
         toolCallId: row.toolCallId || '',
         summary: row.content || '',
-        status: STEP.SUCCESS,
+        status: failed ? STEP.FAILED : STEP.SUCCESS,
       });
     }
   }
