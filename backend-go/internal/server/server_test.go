@@ -286,6 +286,67 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 	}
 }
 
+func TestAIMCPCannotSelfApproveAdminRoutes(t *testing.T) {
+	handler := testServer(t)
+	cookie := loginServerForTest(t, handler)
+
+	keyReq := httptest.NewRequest(http.MethodGet, "/api/system/ai-access", nil)
+	keyReq.AddCookie(cookie)
+	keyRes := httptest.NewRecorder()
+	handler.ServeHTTP(keyRes, keyReq)
+	var keyPayload map[string]interface{}
+	if err := json.Unmarshal(keyRes.Body.Bytes(), &keyPayload); err != nil {
+		t.Fatal(err)
+	}
+	overview := keyPayload["data"].(map[string]interface{})
+	agentKey := overview["agentKey"].(map[string]interface{})["value"].(string)
+
+	// 启用写入，确保 admin-ai 屏蔽不是写开关的副作用
+	writeReq := httptest.NewRequest(http.MethodPut, "/api/system/ai-access/write", strings.NewReader(`{"writeEnabled":true}`))
+	writeReq.AddCookie(cookie)
+	writeReq.Header.Set("Content-Type", "application/json")
+	writeRes := httptest.NewRecorder()
+	handler.ServeHTTP(writeRes, writeReq)
+	if writeRes.Code != http.StatusOK {
+		t.Fatalf("enable write status = %d, body=%s", writeRes.Code, writeRes.Body.String())
+	}
+
+	callTools := func(name string, args map[string]interface{}) map[string]interface{} {
+		body := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "tools/call",
+			"params":  map[string]interface{}{"name": name, "arguments": args},
+		}
+		encoded, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, "/api/ai/mcp", bytes.NewReader(encoded))
+		req.Header.Set("Authorization", "Bearer "+agentKey)
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		var payload map[string]interface{}
+		if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode mcp response: %v body=%s", err, res.Body.String())
+		}
+		return payload
+	}
+
+	// 枚举待批项必须被拒
+	payload := callTools("call_api", map[string]interface{}{"method": "GET", "path": "/api/admin-ai/approvals"})
+	if payload["error"] == nil {
+		t.Fatalf("AI must not enumerate admin approvals, got %#v", payload)
+	}
+	if !strings.Contains(payload["error"].(map[string]interface{})["message"].(string), "不允许") {
+		t.Fatalf("unexpected block message: %#v", payload["error"])
+	}
+
+	// resolve 自批必须被拒
+	payload = callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/admin-ai/approvals/aaa_x/resolve", "body": map[string]interface{}{"action": "approve"}})
+	if payload["error"] == nil {
+		t.Fatalf("AI must not self-resolve approvals, got %#v", payload)
+	}
+}
+
 func TestStaticSpaRouteServesDistIndex(t *testing.T) {
 	distDir := t.TempDir()
 	indexHTML := "<!doctype html><div id=\"root\"></div>"

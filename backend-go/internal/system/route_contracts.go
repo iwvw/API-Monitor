@@ -160,6 +160,8 @@ func init() {
 	routeRequestContracts["/api/system/ai-access/skills/{id}"] = routeRequestContracts["/api/ai-access/skills"]
 	routeRequestContracts["/api/ai-access/write"] = obj([]string{"writeEnabled"}, map[string]prop{"writeEnabled": {t: "boolean", req: true, d: "是否允许 AI 写操作"}})
 	routeRequestContracts["/api/system/ai-access/write"] = routeRequestContracts["/api/ai-access/write"]
+	routeRequestContracts["/api/ai-access/policy"] = obj([]string{"policy"}, map[string]prop{"policy": {t: "string", req: true, e: []string{"minimal", "standard", "full"}, d: "AI 接入权限模式"}})
+	routeRequestContracts["/api/system/ai-access/policy"] = routeRequestContracts["/api/ai-access/policy"]
 	routeRequestContracts["/api/api-keys"] = obj([]string{"name"}, map[string]prop{
 		"name":      {t: "string", req: true, d: "密钥名称"},
 		"kind":      {t: "string", d: "用途类型"},
@@ -357,6 +359,7 @@ func init() {
 	routeRequestContracts["/api/github/tokens/{id}"] = obj(nil, map[string]prop{
 		"name": {t: "string"},
 	})
+	routeRequestContracts["/api/github/repositories"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/github/repositories/{id}/refresh"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/github/repositories/{id}/webhook/configure"] = obj(nil, map[string]prop{
 		"secret": {t: "string", d: "Webhook 密钥"},
@@ -531,7 +534,6 @@ func init() {
 	routeRequestContracts["/api/server/agent/batch-upgrade"] = routeRequestContracts["/api/server/agent/batch-install"]
 	routeRequestContracts["/api/server/agent/uninstall/{id}"] = obj(nil, map[string]prop{"force": {t: "boolean"}})
 	routeRequestContracts["/api/server/agent/install-script/{id}"] = noBody
-	routeRequestContracts["/api/server/agent/install/linux/{id}"] = noBody
 	routeRequestContracts["/api/server/agent/install/linux/{id}/{key}"] = noBody
 	routeRequestContracts["/api/server/agent/install/win/{id}/{key}"] = noBody
 	routeRequestContracts["/api/server/agent/key/generate"] = noBody
@@ -650,6 +652,9 @@ func init() {
 		"publicUploadEnabled": {t: "boolean"},
 		"maxSizeMb":           {t: "integer"},
 	})
+	routeRequestContracts["/api/filebox/shares"] = noBody
+	routeRequestContracts["/api/filebox/access-logs"] = noBody
+	routeRequestContracts["/api/m365/registrations"] = noBody
 	routeRequestContracts["/api/filebox/void/rooms"] = obj([]string{"name"}, map[string]prop{
 		"name":    {t: "string", req: true},
 		"expires": {t: "integer", d: "有效期秒"},

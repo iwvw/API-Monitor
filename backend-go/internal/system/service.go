@@ -51,6 +51,7 @@ type Service struct {
 	aiCaller   AICaller
 	apiKeys    *apikeys.Manager
 	alertState alertState
+	statusHub  *statusHub
 }
 
 type APICounters struct {
@@ -80,6 +81,7 @@ func New(cfg config.Config) *Service {
 		apiKeys:    apikeys.New(cfg),
 		statsCache: make(map[string]*APICounters),
 		stopChan:   make(chan struct{}),
+		statusHub:  newStatusHub(),
 	}
 
 	s.wg.Add(1)
@@ -87,6 +89,9 @@ func New(cfg config.Config) *Service {
 
 	s.wg.Add(1)
 	go s.runHostMonitorLoop()
+
+	s.wg.Add(1)
+	go s.runStatusBroadcastLoop()
 
 	return s
 }
@@ -350,6 +355,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response.OK(w, payload)
+	case "/api/system/status/stream":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.serveStatusStream(w, r)
 	case "/api/system/api-docs":
 		if r.Method != http.MethodGet {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -381,6 +392,28 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		payload, err := s.setAIAgentWriteEnabled(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/system/ai-access/policy":
+		if r.Method != http.MethodPut {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.setAIAgentAccessPolicy(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/ai-access/policy":
+		if r.Method != http.MethodPut {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.setAIAgentAccessPolicy(r)
 		if err != nil {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
@@ -676,6 +709,54 @@ func (s *Service) apiDocs() map[string]interface{} {
 				{"id": "audit", "name": "调用审计", "description": "记录模型请求、工具调用、Skill 执行、耗时和失败原因"},
 			},
 		},
+	}
+}
+
+// openapiCompactDocument 生成精简版 OpenAPI（MCP get_openapi 使用）：
+// 只保留 path → method → {summary, tags, auth}，剔除 schema/示例等大字段。
+// 完整文档仍可经 /api/system/openapi.json HTTP 面获取。
+// 用途：AI 在有限上下文中快速扫描全部接口而不被 600KB 文档撑爆。
+func (s *Service) openapiCompactDocument(r *http.Request) map[string]interface{} {
+	paths := map[string]interface{}{}
+	for _, route := range s.apiDocs()["routes"].([]apiDocRoute) {
+		rest := strings.TrimPrefix(route.Prefix, "/api/")
+		if route.MatchMode == manifest.MatchPrefix && rest != route.Prefix && !strings.HasPrefix(route.Prefix, "/sub") && !strings.HasPrefix(route.Prefix, "/v1") {
+			continue
+		}
+		switch route.Prefix {
+		case "/api/auth/2fa", "/api/auth/webauthn/login", "/api/server/v2/docker", "/v1":
+			continue
+		}
+		methods := route.Methods
+		if len(methods) == 0 {
+			methods = []string{"GET"}
+		}
+		operations := map[string]interface{}{}
+		for _, method := range methods {
+			operations[strings.ToLower(method)] = map[string]interface{}{
+				"summary": route.Description,
+			}
+		}
+		paths[route.Prefix] = operations
+	}
+
+	scheme := "http"
+	if r != nil && r.TLS != nil {
+		scheme = "https"
+	}
+	serverURL := "/"
+	if r != nil && r.Host != "" {
+		serverURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+	}
+	return map[string]interface{}{
+		"openapi": "3.1.0",
+		"info": map[string]interface{}{
+			"title":       "API Monitor",
+			"version":     s.cfg.Version,
+			"description": "精简接口清单（路径与方法）；完整契约请用 get_route 或 /api/system/openapi.json 获取",
+		},
+		"servers": []map[string]interface{}{{"url": serverURL}},
+		"paths":   paths,
 	}
 }
 
@@ -1147,7 +1228,9 @@ func inferRouteMethods(route manifest.Route) []string {
 			return []string{"GET"}
 		}
 	case manifest.MatchPattern:
-		return []string{"GET", "POST", "PUT", "DELETE"}
+		// 无法从描述推断的操作型子路由，保守只声明 GET：
+		// 全方法声明会让 AI 按错误方法调用（405），GET 至少可读。
+		return []string{"GET"}
 	}
 	if route.Owner == manifest.OwnerRetired {
 		return []string{"GET"}
@@ -1155,7 +1238,9 @@ func inferRouteMethods(route manifest.Route) []string {
 	if route.Auth == manifest.AuthPublic && (route.Prefix == "/health" || strings.Contains(route.Description, "status")) {
 		return []string{"GET"}
 	}
-	return []string{"GET", "POST", "PUT", "DELETE"}
+	// 兜底保守只读：宁可让写方法在真实调用时按 405 提示，
+	// 也不能让文档宣称的方法集合比实际大（AI 会照文档调用而失败）。
+	return []string{"GET"}
 }
 
 func (s *Service) apiStats(days int) (map[string]interface{}, error) {

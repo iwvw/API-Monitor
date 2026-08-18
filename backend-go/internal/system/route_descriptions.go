@@ -98,6 +98,7 @@ var routeDescriptions = map[string]string{
 
 	// ===== 文件柜 =====
 	"/api/filebox":                "文件柜上传、下载与条目管理总入口",
+	"/api/filebox/shares":         "查询当前用户的分享条目列表（含下载次数、有效期）",
 	"/api/filebox/settings":       "读取或更新文件柜设置（公开上传、大小限制）",
 	"/api/filebox/share":          "为文件生成分享链接",
 	"/api/filebox/void/rooms":     "创建空房间（匿名协作）",
@@ -226,6 +227,7 @@ var routeDescriptions = map[string]string{
 	// ===== 甲骨文云 / Microsoft 365 =====
 	"/api/oracle":                "Oracle OCI 账号与实例管理总入口",
 	"/api/m365":                  "Microsoft 365 租户、用户、组与许可证管理",
+	"/api/m365/registrations":    "查询公开注册记录（用户自助注册结果）",
 	"/api/m365/public/register":  "提交 Microsoft 365 公开注册申请",
 	"/api/m365/public/invites/{code}": "查询邀请码对应的注册详情",
 
@@ -316,6 +318,7 @@ var routeDescriptions = map[string]string{
 	"/api/github/public/pages/{slug}/repositories/{id}": "读取公开页关联仓库的详情",
 	"/api/github/tokens":             "列出或新增 GitHub Token",
 	"/api/github/tokens/{id}":        "更新、测试或删除 GitHub Token",
+	"/api/github/repositories":              "读取 GitHub 仓库列表（含刷新、webhook 配置入口）",
 	"/api/github/repositories/{id}/refresh": "刷新仓库的数据与权限检测",
 	"/api/github/repositories/{id}/webhook/configure": "配置仓库的 Webhook",
 	"/api/github/history/compact":    "压缩并清理 GitHub 历史事件",
@@ -457,7 +460,6 @@ var routeDescriptions = map[string]string{
 	"/api/server/agent/command/{id}":           "获取 Agent 安装命令（GET）或向 Agent 发送命令执行（POST）",
 	"/api/server/agent/install/win/{id}/{key}": "生成 Windows 安装脚本",
 	"/api/server/agent/install/linux/{id}/{key}": "生成 Linux 安装脚本",
-	"/api/server/agent/install/linux/{id}":     "生成 Linux 安装脚本",
 	"/api/server/agent/install-script/{id}":    "获取主机 Agent 安装脚本",
 	"/api/server/agent/heartbeat":              "接收 Agent 心跳上报",
 	"/api/server/agent/status/{id}":            "查询主机 Agent 状态",

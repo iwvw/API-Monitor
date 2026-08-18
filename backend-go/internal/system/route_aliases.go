@@ -3,6 +3,8 @@ package system
 import (
 	"sort"
 	"strings"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 )
 
 // routeAliases 为接口补充用户惯用说法（when_to_use 别名），
@@ -17,6 +19,7 @@ var routeAliases = map[string][]string{
 	"/api/auth/session":      {"当前登录态", "会话状态", "是否登录"},
 
 	"/api/settings":                           {"系统配置", "运行参数", "修改设置"},
+	"/api/settings/sys-logs":                  {"系统日志", "日志列表", "查看日志"},
 	"/api/settings/export-database":           {"导出数据库", "备份数据库文件"},
 	"/api/settings/import-database":           {"导入数据库", "替换数据库"},
 	"/api/settings/vacuum-database":           {"清理数据库", "压缩空间", "vacuum"},
@@ -28,7 +31,8 @@ var routeAliases = map[string][]string{
 	"/api/system/api-docs":     {"接口文档", "路由清单", "api 列表"},
 
 	"/api/cloudflare":          {"cf", "cloudflare", "域名服务"},
-	"/api/cloudflare/accounts": {"cf 账号", "cloudflare token", "CF 令牌"},
+	"/api/cloudflare/accounts": {"cf 账号", "cloudflare token", "CF 令牌", "删除 cf 账号", "删除cloudflare账户", "删除账户"},
+	"/api/cloudflare/accounts/{id}": {"删除cf账号", "删除账号", "删除账户"},
 	"/api/cloudflare/accounts/{accountId}/zones/{zoneId}/records":   {"DNS 记录", "解析记录", "域名解析", "添加解析", "dns", "解析列表", "cf dns"},
 	"/api/cloudflare/accounts/{accountId}/zones/{zoneId}/purge":     {"清除缓存", "刷新缓存", "purge"},
 	"/api/cloudflare/accounts/{accountId}/zones/{zoneId}/analytics": {"流量分析", "站点数据分析", "访问统计"},
@@ -62,18 +66,20 @@ var routeAliases = map[string][]string{
 	"/api/onepanel/{serverId}/websites":       {"网站列表", "建站"},
 	"/api/onepanel/{serverId}/containers":     {"容器列表", "docker 容器"},
 	"/api/onepanel/{serverId}/apps/installed": {"已安装应用", "应用市场"},
+	"/api/onepanel/{serverId}/apps/install":   {"安装应用", "应用安装"},
 	"/api/onepanel/{serverId}/databases":      {"数据库列表", "创建数据库"},
 	"/api/onepanel/{serverId}/runtimes":       {"运行环境", "php 环境"},
 	"/api/onepanel/{serverId}/ssl":            {"ssl 证书", "https 证书"},
 	"/api/onepanel/{serverId}/openresty":      {"openresty", "nginx", "反代配置"},
 
 	"/api/github":                 {"github", "github 仓库"},
+	"/api/github/repositories/{id}/refresh": {"刷新仓库", "仓库刷新", "刷新 github 仓库"},
 	"/api/github/tokens":          {"github token", "access token"},
 	"/api/github/webhook":         {"webhook", "钩子"},
 	"/api/github/history/compact": {"github 事件历史", "压缩事件"},
 
-	"/api/scheduler":              {"定时任务", "cron", "计划任务", "调度"},
-	"/api/scheduler/workflows":    {"工作流", "自动化流程"},
+	"/api/scheduler":              {"定时任务", "cron", "计划任务", "调度", "定时任务列表", "cron 任务"},
+	"/api/scheduler/workflows":    {"工作流", "自动化流程", "工作流列表"},
 	"/api/scheduler/cron/preview": {"cron 预览", "下次执行时间"},
 
 	"/api/uptime":          {"可用性监测", "站点监测", "状态页", "拨测"},
@@ -97,24 +103,35 @@ var routeAliases = map[string][]string{
 	"/api/subscription":        {"订阅分发", "订阅管理"},
 	"/api/sub/{token}":         {"clash 订阅", "v2ray 订阅", "订阅链接"},
 	"/api/m365":                {"microsoft 365", "m365", "office 365", "outlook"},
+	"/api/m365/registrations": {"注册记录", "m365 注册记录", "注册列表", "m365 注册"},
 	"/api/oracle":              {"oracle", "甲骨文", "oci", "oracle 云"},
 	"/api/uptime/status-pages": {"状态页", "公开展示页"},
 
 	"/api/server/info":            {"主机信息", "服务器信息"},
-	"/api/server/action":          {"重启主机", "关机主机", "开机"},
+	"/api/server/action":          {"重启主机", "关机主机", "开机", "重启", "重启服务器", "关机", "reboot", "shutdown", "重启机器"},
 	"/api/server/check-all":       {"批量检查", "在线状态"},
 	"/api/server/accounts":        {"主机账号", "服务器账号", "机器列表"},
 	"/api/server/credentials":     {"凭据", "连接凭据", "ssh 密钥"},
 	"/api/server/network-quality": {"网络测速", "测速", "网络质量"},
-	"/api/server/sftp":            {"sftp", "远程文件", "上传文件", "下载文件"},
+	"/api/server/sftp":            {"sftp", "远程文件", "上传文件", "下载文件", "sftp 列表"},
 	"/api/server/tasks":           {"主机任务", "批量任务"},
 	"/api/server/agent/proxy":     {"托管代理", "代理节点", "梯子", "节点配置"},
 	"/api/server/agent/heartbeat": {"agent 心跳"},
 	"/api/server/remote-desktop":  {"远程桌面"},
 
-	"/api/totp":    {"totp", "动态令牌", "一次性密码"},
-	"/api/filebox": {"文件柜", "文件上传", "文件分享"},
-	"/api/backup":  {"备份", "数据备份", "备份任务"},
+	"/api/totp":    {"totp", "动态令牌", "一次性密码", "创建 totp"},
+	"/api/totp/accounts": {"totp 账号", "动态口令账号", "创建 totp 账号", "totp 账号列表"},
+	"/api/filebox": {"文件柜", "文件上传", "文件分享", "文件列表"},
+	"/api/filebox/shares": {"分享列表", "文件列表", "文件柜列表", "我的分享"},
+	"/api/backup":        {"备份", "数据备份", "备份任务", "备份列表", "创建备份"},
+	"/api/backup/configs": {"备份配置列表", "备份配置", "备份列表"},
+	"/api/api-keys":       {"api 密钥", "apikey", "密钥列表", "api key", "密钥管理"},
+
+	"/api/openai/analytics/logs":  {"网关日志", "调用日志", "请求日志", "openai 日志"},
+	"/api/openai/analytics":       {"网关统计", "用量统计", "令牌统计"},
+	"/api/github/actions":         {"workflow 运行", "actions", "工作流运行", "github 运行"},
+	"/api/github/repositories":    {"仓库列表", "github 仓库列表"},
+	"/api/cron":                   {"定时任务列表", "cron 任务"},
 }
 
 // aliasesForPrefix 返回路由或其最近父前缀登记的别名列表。
@@ -339,6 +356,28 @@ func scoreRouteMatch(route apiDocRoute, signals intentSignals) (int, []matchReas
 	return score, reasons
 }
 
+// isAggregatePrefix 判断路由是否为聚合前缀（模块根/家族总入口，非可调用端点）。
+// 判定：MatchPrefix 且在目录中存在以它开头的更深子路由（如 /api/backup 下有
+// /api/backup/configs）。仅靠段数会把 /api/totp/accounts 这类 2 段具体端点误判。
+func isAggregatePrefix(prefix string, mode manifest.MatchMode, items []apiDocRoute) bool {
+	if mode != manifest.MatchPrefix {
+		return false
+	}
+	if !strings.HasPrefix(prefix, "/api/") {
+		return false
+	}
+	if strings.HasPrefix(prefix, "/sub") || strings.HasPrefix(prefix, "/v1") {
+		return false
+	}
+	childPrefix := strings.TrimRight(prefix, "/") + "/"
+	for _, other := range items {
+		if other.Prefix != prefix && strings.HasPrefix(other.Prefix, childPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // findTopRoutes 从路由清单中粗召回得分最高的 upTo 条路由（按分降序），
 // 返回带命中原因的 routeMatch 列表。
 func findTopRoutes(items []apiDocRoute, query string, upTo int) []routeMatch {
@@ -351,6 +390,14 @@ func findTopRoutes(items []apiDocRoute, query string, upTo int) []routeMatch {
 		s, reasons := scoreRouteMatch(item, signals)
 		if s <= 0 {
 			continue
+		}
+		// 聚合前缀降权（0.5）：其子路由才是可调用端点，
+		// 避免名称命中让聚合根压过具体接口（业界「减少干扰工具」原则）。
+		if isAggregatePrefix(item.Prefix, item.MatchMode, items) {
+			s = int(float64(s) * 0.5)
+			if s <= 0 {
+				s = 1
+			}
 		}
 		matched = append(matched, routeMatch{Route: item, Score: s, Reasons: reasons})
 	}

@@ -189,6 +189,10 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 	if err != nil {
 		return nil, err
 	}
+	accessPolicy, err := s.getAIAgentAccessPolicy(r.Context(), db)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]interface{}{
 		"agentKey": map[string]interface{}{
 			"value":     key,
@@ -209,6 +213,7 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 			"blockedModes":   []string{string(manifest.ResponseStream), string(manifest.ResponseWebSocket)},
 			"bodyLimitBytes": 1024 * 1024,
 			"writeEnabled":   writeEnabled,
+			"accessPolicy":   accessPolicy,
 			"auth":           "Agent Key 作为系统级接入密钥使用；默认只读，写入需在设置中开启，所有调用都会写入审计记录。",
 		},
 		"mcpServers": mcpServers,
@@ -247,6 +252,66 @@ func (s *Service) rotateAIAgentKey(r *http.Request) (map[string]interface{}, err
 }
 
 const aiAgentWriteEnabledKey = "ai_agent_write_enabled"
+
+// AI 接入权限模式：
+// minimal  - 只读（写方法一律拒绝）
+// standard - 默认：写操作需显式开关，管理 AI 路由（admin-ai）不可达
+// full     - 单用户自用最高权限：放开全部管理面与写操作，
+//            仅保留防自毁的两条拦截（AI 递归调用、密钥轮换）
+const (
+	aiAgentAccessPolicyKey = "ai_agent_access_policy"
+	AIAccessPolicyMinimal  = "minimal"
+	AIAccessPolicyStandard = "standard"
+	AIAccessPolicyFull     = "full"
+	AIAccessPolicyDefault  = AIAccessPolicyStandard
+)
+
+// AIAgentAccessPolicy 读取当前 AI 接入权限模式，缺省 standard。
+func (s *Service) AIAgentAccessPolicy(ctx context.Context) (string, error) {
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return AIAccessPolicyDefault, err
+	}
+	defer db.Close()
+	return s.getAIAgentAccessPolicy(ctx, db)
+}
+
+func (s *Service) getAIAgentAccessPolicy(ctx context.Context, db *sql.DB) (string, error) {
+	var value string
+	_ = db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = ?", aiAgentAccessPolicyKey).Scan(&value)
+	switch strings.TrimSpace(value) {
+	case AIAccessPolicyMinimal, AIAccessPolicyStandard, AIAccessPolicyFull:
+		return strings.TrimSpace(value), nil
+	default:
+		return AIAccessPolicyDefault, nil
+	}
+}
+
+func (s *Service) setAIAgentAccessPolicy(r *http.Request) (map[string]interface{}, error) {
+	var payload struct {
+		Policy string `json:"policy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	switch payload.Policy {
+	case AIAccessPolicyMinimal, AIAccessPolicyStandard, AIAccessPolicyFull:
+	default:
+		return nil, fmt.Errorf("policy 必须是 minimal / standard / full 之一")
+	}
+	db, err := s.store.Open(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.ExecContext(r.Context(), `INSERT OR REPLACE INTO system_config (key, value, description, updated_at) VALUES (?, ?, ?, ?)`,
+		aiAgentAccessPolicyKey, payload.Policy, "AI agent access policy", now); err != nil {
+		return nil, err
+	}
+	_ = s.insertAIAudit(r.Context(), db, "admin", "set_policy", aiAgentAccessPolicyKey, payload.Policy, 0, "AI 接入权限模式已设置为 "+payload.Policy, s.clientIP(r), r.UserAgent())
+	return s.aiAccessOverview(r)
+}
 
 func (s *Service) getOrCreateAIAgentKey(ctx context.Context, db *sql.DB) (string, string, error) {
 	var key string
@@ -413,7 +478,18 @@ func (s *Service) handleMCP(r *http.Request) (interface{}, int, error) {
 func (s *Service) dispatchMCPTool(r *http.Request, req aiMCPRequest) (interface{}, error) {
 	switch req.Method {
 	case "initialize":
-		return map[string]interface{}{"protocolVersion": "2024-11-05", "serverInfo": map[string]string{"name": "api-monitor", "version": s.cfg.Version}, "capabilities": map[string]interface{}{"tools": map[string]bool{"listChanged": true}, "resources": map[string]bool{"listChanged": false}}}, nil
+		return map[string]interface{}{
+			"protocolVersion": "2025-06-18",
+			"serverInfo":      map[string]string{"name": "api-monitor", "version": s.cfg.Version},
+			"capabilities": map[string]interface{}{
+				"tools":     map[string]bool{"listChanged": true},
+				"resources": map[string]bool{"listChanged": false},
+			},
+			"instructions": "这是 API Monitor 面板的 MCP 服务，可管理主机、DNS、模型网关、备份、定时任务等 400+ 内部接口。" +
+				"找接口：先用 find_api 用自然语言描述意图（如「给 flyio 应用更新镜像」），必要时用 list_apis 按 group（主机实例/Cloudflare/模型网关…）缩小；" +
+				"调用前必须用 get_route 确认该路径的真实可用方法与请求体结构，路径参数要用真实 ID 替换（先调用对应 list 接口获取）；" +
+				"prefixRoute=true 或描述含「聚合前缀」的条目不可直接调用。",
+		}, nil
 	case "ping":
 		return map[string]interface{}{}, nil
 	case "resources/list":
@@ -471,7 +547,7 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 	case "get_route":
 		return s.getRouteContract(args)
 	case "get_openapi":
-		return s.openapiDocument(r), nil
+		return s.openapiCompactDocument(r), nil
 	case "get_ai_manifest":
 		return s.aiManifestPayload(r), nil
 	case "get_system_status":
@@ -538,7 +614,12 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 		if desc == "" {
 			desc = item.Description
 		}
-		result = append(result, map[string]interface{}{
+		// 聚合前缀路由（模块根/总入口）不是可调用端点：标注给 AI，
+		// 提示应从其子路由中选择具体接口。
+		prefixRoute := item.MatchMode == manifest.MatchPrefix &&
+			strings.HasPrefix(item.Prefix, "/api/") &&
+			!strings.HasPrefix(item.Prefix, "/sub") && !strings.HasPrefix(item.Prefix, "/v1")
+		entry := map[string]interface{}{
 			"path":    item.Prefix,
 			"methods": item.Methods,
 			"group":   item.Group,
@@ -546,7 +627,12 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 			"auth":    string(item.Auth),
 			"desc":    desc,
 			"hasBody": hasBody,
-		})
+		}
+		if prefixRoute {
+			entry["prefixRoute"] = true
+			entry["desc"] = desc + "（聚合前缀，不可直接调用；请用其子路由）"
+		}
+		result = append(result, entry)
 	}
 	total := len(result)
 	if offset > total {
@@ -618,7 +704,7 @@ func (s *Service) aiFindAPIs(args map[string]interface{}) (interface{}, error) {
 				"weight": r.Weight,
 			})
 		}
-		contract := map[string]interface{}{
+contract := map[string]interface{}{
 			"path":               route.Prefix,
 			"methods":            route.Methods,
 			"group":              route.Group,
@@ -635,6 +721,11 @@ func (s *Service) aiFindAPIs(args map[string]interface{}) (interface{}, error) {
 			"requestContentType": route.RequestType,
 			"requestSchema":      route.RequestSchema,
 			"requestExample":     route.RequestBody,
+		}
+		if route.MatchMode == manifest.MatchPrefix && strings.HasPrefix(route.Prefix, "/api/") &&
+			!strings.HasPrefix(route.Prefix, "/sub") && !strings.HasPrefix(route.Prefix, "/v1") {
+			contract["prefixRoute"] = true
+			contract["desc"] = desc + "（聚合前缀，不可直接调用；请用其子路由）"
 		}
 		result = append(result, contract)
 	}
@@ -1018,9 +1109,9 @@ func (s *Service) readOnlyAICall(req AICallRequest) (interface{}, error) {
 
 func (s *Service) aiTools() []map[string]interface{} {
 	return []map[string]interface{}{
-		{"name": "list_apis", "description": "读取接口目录（紧凑版，支持 group/module/search 过滤），先扫目录再按需取详情", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"group": map[string]interface{}{"type": "string", "description": "按分组过滤（如 模型网关 / Cloudflare / 主机实例）"}, "module": map[string]interface{}{"type": "string", "description": "按模块过滤（如 flyio / cloudflare-dns）"}, "search": map[string]interface{}{"type": "string", "description": "按路径或描述关键词过滤"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 30，最大 100）"}, "offset": map[string]interface{}{"type": "number", "description": "分页偏移（默认 0）"}}}},
-		{"name": "find_api", "description": "按自然语言意图粗召回匹配的接口（top-k），返回契约摘要；优先用本工具定位接口，命中不确信时再结合 get_route/list_apis", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"intent": map[string]interface{}{"type": "string", "description": "意图描述，如“列出所有 DNS 解析记录”“给 flyio 应用更新镜像”“查看主机监控状态”"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 5，最大 10）"}, "group": map[string]interface{}{"type": "string", "description": "按分组过滤（可选）"}}, "required": []string{"intent"}}},
-		{"name": "get_route", "description": "读取单个接口的完整契约（参数、请求体 schema、示例、鉴权）；调用 call_api 前必须先用本工具确认请求体结构", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string", "description": "接口路径，如 /api/flyio/apps/{appName}/update-image 或具体路径"}}, "required": []string{"path"}}},
+		{"name": "list_apis", "description": "接口目录浏览：支持按 group（如 主机实例 / Cloudflare / 模型网关）或模块过滤、关键词 search、分页 offset/limit。返回的 prefixRoute=true 条目是聚合前缀（模块总入口），不可直接调用，请改用其子路由。先按 group 缩到 100 条以内再挑，效率最高；配合 find_api 定位更省 token。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"group": map[string]interface{}{"type": "string", "description": "按分组过滤（如 模型网关 / Cloudflare / 主机实例）"}, "module": map[string]interface{}{"type": "string", "description": "按模块过滤（如 flyio / cloudflare-dns）"}, "search": map[string]interface{}{"type": "string", "description": "按路径或描述关键词过滤"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 30，最大 100）"}, "offset": map[string]interface{}{"type": "number", "description": "分页偏移（默认 0）"}}}},
+		{"name": "find_api", "description": "自然语言意图定位接口（top-k 召回）。适用：知道想做什么但不确定接口路径/名称时，例如 intent=“给 flyio 应用更新镜像”。每个命中会给出 path/methods/desc 与命中原因；优先取 score 高且非 prefixRoute 的条目。不要用来列全量目录（那是 list_apis 的职责）；召回不满或低置信度时，结合 list_apis 的 group/search 兜底。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"intent": map[string]interface{}{"type": "string", "description": "意图描述，如“列出所有 DNS 解析记录”“给 flyio 应用更新镜像”“查看主机监控状态”"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 5，最大 10）"}, "group": map[string]interface{}{"type": "string", "description": "按分组过滤（可选）"}}, "required": []string{"intent"}}},
+		{"name": "get_route", "description": "读取单个接口的完整契约：真实可用方法（methods，已按 handler 校准）、鉴权、路径参数（含示例值）、查询参数、请求体 schema 与示例。调用 call_api 前必须先用本工具确认方法与请求体结构；路径参数要用实际资源 ID 替换占位符（先调用对应 list 接口获取真实 ID）。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string", "description": "接口路径，如 /api/flyio/apps/{appName}/update-image 或具体路径"}}, "required": []string{"path"}}},
 		{"name": "get_openapi", "description": "读取 OpenAPI 3.1 文档", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "get_ai_manifest", "description": "读取 AI 接入能力清单", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "get_system_status", "description": "读取本机系统运行状态（CPU/内存/磁盘）；displayTime/serverTime 为站点当前时间（本地时区），回答时间/换算 cron 必须用 displayTime 或 serverTime.local，禁止用 timestamp（UTC）", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
@@ -1129,7 +1220,7 @@ func (s *Service) mcpReadResource(r *http.Request, uri string) (interface{}, err
 		}
 		content = string(encoded)
 	case uri == "api-monitor://openapi":
-		encoded, err := json.Marshal(s.openapiDocument(r))
+		encoded, err := json.Marshal(s.openapiCompactDocument(r))
 		if err != nil {
 			return nil, err
 		}
