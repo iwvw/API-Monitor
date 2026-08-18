@@ -23,12 +23,15 @@ const (
 	// cgroup v1 的 memory.limit_in_bytes 在「未限制」时常返回 LONG_MAX 附近的
 	// 巨大值（实测 Fly.io 上读到 6.4EB），直接采用会把内存守卫变成形同虚设。
 	maxTrustedCgroupBytes = 1 << 40
-	// 水位归还（idle return）：RSS 比活跃堆高出该余量（32MB）且距上次归还
-	// 超过 60s 时，执行一次 GC+FreeOSMemory 把空闲页还给 OS。
+	// 水位归还（idle return）：RSS 比活跃堆高出该余量（48MB）且距上次归还
+	// 超过 5 分钟时，执行一次 GC+FreeOSMemory 把空闲页还给 OS。
 	// Go 默认不归还已释放的堆页（RSS 停在历史峰值），小内存主机上
 	// 高峰后的静态占用会持续占住预算，主动归还可为下一波高峰腾水位。
-	memoryReturnSlackBytes = 32 << 20
-	memoryReturnIntervalMs = 60 * time.Second
+	// 实测 RSS 常态比活跃堆高 ~40MB（运行时页缓存/元数据），48MB 余量
+	// 让常态不触发；间隔 5 分钟避免空闲期每 60 秒一次的 GC+FreeOSMemory
+	// 周期性开销与日志刷屏（线上实证：旧参数每 60 秒归还一次）。
+	memoryReturnSlackBytes = 48 << 20
+	memoryReturnInterval   = 5 * time.Minute
 )
 
 type Config struct {
@@ -81,7 +84,7 @@ func run(ctx context.Context, cfg Config) {
 				// 峰值）。高峰期过后堆已收缩但 RSS 仍远高于活跃堆时，主动
 				// GC+FreeOSMemory 把空闲页还给系统，为下一波高峰腾出水位；
 				// 带冷却避免频繁 syscall。
-				if time.Since(lastReturn) >= memoryReturnIntervalMs &&
+				if time.Since(lastReturn) >= memoryReturnInterval &&
 					rss > stats.HeapAlloc+memoryReturnSlackBytes {
 					beforeHeap := stats.HeapAlloc
 					beforeRSS := rss

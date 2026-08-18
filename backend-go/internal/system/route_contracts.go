@@ -444,6 +444,13 @@ func init() {
 		"params": {t: "object"},
 	})
 	routeRequestContracts["/api/server/check-all"] = noBody
+	routeRequestContracts["/api/server/v2/tasks"] = obj([]string{"serverId", "action"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"domain":   {t: "string", d: "动作域（docker/compose/image/network/volume 等），服务端以 action 前缀为准"},
+		"action": {t: "string", req: true,
+			d: "域内动作：container.start/stop/restart/delete/pull/logs/update/rename、compose.restart、image.list/delete、network.create/remove 等"},
+		"payload": {t: "object", d: "动作参数（containerId、image、project、configFiles 等）"},
+	})
 	routeRequestContracts["/api/server/status-pages"] = obj([]string{"title", "slug"}, map[string]prop{
 		"title":          {t: "string", req: true},
 		"slug":           {t: "string", req: true},
