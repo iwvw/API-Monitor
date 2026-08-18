@@ -22,6 +22,7 @@ function ErrorBanner({ message }) {
 const SETTING_FIELDS = [
   { key: 'admin_ai_enabled', kind: 'switch', group: 'basic', label: '管理 AI 总开关', description: '关闭后侧栏与 Telegram 不再受理对话' },
   { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '默认推理模型', description: '模型来源：模型网关' },
+  { key: 'admin_ai_summary_model', kind: 'select', group: 'basic', label: '推理摘要模型', description: '思维链标题摘要专用，留空回退默认模型；可用轻量模型，逗号分隔多个候选自动失败回退' },
   { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '站点简报模型', description: '每日站点简报专用模型，留空回退默认模型' },
   { key: 'admin_ai_write_enabled', kind: 'switch', group: 'security', label: '写操作全局开关', description: '写操作需人工审批' },
   { key: 'admin_ai_auto_approve', kind: 'switch', group: 'security', label: '完全批准模式', description: '（危险：AI 可自主执行任何写操作）' },

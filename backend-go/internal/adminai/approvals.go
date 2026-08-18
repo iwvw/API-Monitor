@@ -214,6 +214,7 @@ var adminAISettingDefs = []struct {
 }{
 	{"admin_ai_enabled", "true", "管理 AI 总开关"},
 	{"admin_ai_default_model", "", "默认推理模型（endpointId/modelName）"},
+	{"admin_ai_summary_model", "", "推理摘要专用模型（留空回退默认模型）"},
 	{"admin_ai_briefing_model", "", "站点简报专用模型（留空回退默认模型）"},
 	{"admin_ai_briefing_template", `{"type":"standard","custom":""}`, "站点简报模板（JSON：{type,custom}，type: standard/brief/detailed/alert_only/custom）"},
 	{"admin_ai_write_enabled", "false", "写操作全局开关"},

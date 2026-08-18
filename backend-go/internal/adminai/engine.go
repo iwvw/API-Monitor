@@ -249,7 +249,8 @@ const (
 	adminAIKeyTimeoutSeconds         = "admin_ai_timeout_seconds"
 	adminAIKeyMemoriesEnabled        = "admin_ai_memories_enabled"
 	adminAIKeyMemoriesBootstrapChars = "admin_ai_memories_bootstrap_chars"
-	adminAIKeyContextWindow          = "admin_ai_context_window"
+	adminAIKeyContextWindow        = "admin_ai_context_window"
+	adminAIKeySummaryModel         = "admin_ai_summary_model" // 推理摘要专用模型（留空回退默认模型）
 )
 
 const defaultMemoriesBootstrapChars = 2000
@@ -541,22 +542,43 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			llmMessages = append(llmMessages, item)
 		}
 
-		resp, err := s.callLLMStream(runCtx, llmModel, llmMessages, eventCh)
-		err = sanitizeToolError(err) // LLM 上游错误（含响应体）清洗后再进上下文/落库
-		if err != nil {
+		// 多模型失败回退：admin_ai_default_model 支持逗号分隔（如 "a,b,c"），
+		// 按序尝试；当前模型调用失败（非预算到期）时自动切换下一个，全部失败才报错。
+		llmModels := splitModelList(llmModel)
+		var resp *llmResponse
+		var respErr error
+		usedModel := ""
+		for i, m := range llmModels {
+			resp, respErr = s.callLLMStream(runCtx, m, llmMessages, eventCh)
+			if respErr == nil {
+				usedModel = m
+				break
+			}
+			// 预算到期/取消：回退无意义（会立刻再次失败），直接以当前错误收尾
+			if runCtx.Err() != nil || errors.Is(respErr, context.DeadlineExceeded) {
+				usedModel = m
+				break
+			}
+			if i < len(llmModels)-1 {
+				slog.Warn("llm-model-fallback", "from", m, "to", llmModels[i+1], "err", sanitizeToolError(respErr).Error())
+			}
+		}
+		if respErr != nil {
+			respErr = sanitizeToolError(respErr) // LLM 上游错误（含响应体）清洗后再进上下文/落库
 			// 整轮执行预算（admin_ai_timeout_seconds）到期会掐断正在进行的 LLM 请求，
 			// 归为「执行超时」而非通用调用失败，提示调大超时或减少请求规模。
-			if runCtx.Err() != nil || errors.Is(err, context.DeadlineExceeded) {
+			if runCtx.Err() != nil || errors.Is(respErr, context.DeadlineExceeded) {
 				msg := "执行超时：整轮任务超过了设置的时间上限（可在「管理 AI 设置」中调大「执行超时」，或让请求更聚焦）"
 				s.finishExecution(db, sessionID, runID, "cancelled", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, msg)
 				s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": msg, "userMessageId": userMsgID}})
 				s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": userMsgID, "userMessageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
 				return
 			}
-			s.finishExecution(db, sessionID, runID, "error", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, err.Error())
-			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": err.Error(), "userMessageId": userMsgID}})
+			s.finishExecution(db, sessionID, runID, "error", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, respErr.Error())
+			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": respErr.Error(), "userMessageId": userMsgID}})
 			return
 		}
+		llmModel = usedModel // 回退后以实际成功模型记账
 
 		totalPromptTokens += resp.Usage.PromptTokens
 		totalCompletionTokens += resp.Usage.CompletionTokens
@@ -579,7 +601,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			_, _ = db.ExecContext(runCtx,
 				`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, tool_call_meta, created_at) VALUES (?, ?, 'assistant', '', ?, '', ?, ?)`,
 				assistantMsgID, sessionID, resp.ReasoningContent, string(tcMeta), time.Now().UTC().Format(time.RFC3339))
-			s.scheduleReasoningSummary(llmModel, resp.ReasoningContent, assistantMsgID, eventCh)
+s.scheduleReasoningSummary(s.summaryModel(runCtx, db, sessionModel), resp.ReasoningContent, assistantMsgID, eventCh)
 
 			// 阶段一：构建执行计划（顺序 emit tool_start + 落库 running 行 +
 			// 同轮去重缓存判定 + 工具循环检测），全部在主 goroutine 完成。
@@ -1603,9 +1625,38 @@ func trimTitle(text string) string {
 	return string(runes[:maxTitleRunes])
 }
 
+// summaryModel 解析推理摘要专用模型：admin_ai_summary_model → session 模型 → 环境默认。
+func (s *Service) summaryModel(ctx context.Context, db *sql.DB, fallback string) string {
+	model := ""
+	_ = db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = ?", adminAIKeySummaryModel).Scan(&model)
+	if strings.TrimSpace(model) == "" {
+		return fallback
+	}
+	return model
+}
+
+// splitModelList 把逗号分隔的模型配置拆成有序列表（去空格、去空项、去重）。
+func splitModelList(spec string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, 3)
+	for _, part := range strings.Split(spec, ",") {
+		m := strings.TrimSpace(part)
+		if m == "" || m == "default" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	if len(out) == 0 {
+		return []string{"default"}
+	}
+	return out
+}
+
 // scheduleReasoningSummary 异步生成思维链摘要：独立超时上下文 + 独立 DB 连接，
 // 不阻塞 runInference 主循环的后续工具执行/下一轮 LLM 调用；摘要成功后
 // emit reasoning_summary 事件并回填该轮 assistant 消息行的 reasoning_summary 列。
+// model 支持逗号分隔多候选（如 "gemini-3.1-flash-lite,gpt-oss-120b"），失败自动回退。
 // 空推理/过短推理直接跳过（与同步版行为一致）。
 func (s *Service) scheduleReasoningSummary(model, reasoning, messageID string, eventCh chan SSEEvent) {
 	if strings.TrimSpace(reasoning) == "" {
@@ -1617,7 +1668,7 @@ func (s *Service) scheduleReasoningSummary(model, reasoning, messageID string, e
 	go func() {
 		sumCtx, sumCancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer sumCancel()
-		text := s.summarizeReasoning(sumCtx, model, reasoning)
+		text := s.summarizeReasoning(sumCtx, parseModelList(model), reasoning)
 		if text == "" {
 			return
 		}
@@ -1675,8 +1726,9 @@ func toolParallelSafe(toolName string, args map[string]interface{}) bool {
 	return false
 }
 
-// summarizeReasoning 用同一模型生成 ≤10 字的思维链标题式摘要；失败返回空串（前端回退截断）。
-func (s *Service) summarizeReasoning(ctx context.Context, model, reasoning string) string {
+// summarizeReasoning 按候选模型列表逐个尝试生成 ≤10 字思维链标题式摘要；
+// 某模型调用失败或返回空内容时自动回退到下一个候选；全部失败返回空串（前端回退截断）。
+func (s *Service) summarizeReasoning(ctx context.Context, models []string, reasoning string) string {
 	if strings.TrimSpace(reasoning) == "" {
 		return ""
 	}
@@ -1687,25 +1739,44 @@ func (s *Service) summarizeReasoning(ctx context.Context, model, reasoning strin
 	// 摘要使用独立短超时（父上下文仍受整轮预算约束），尽力而为，不显著占用整轮时间
 	sumCtx, sumCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer sumCancel()
-	messages := []map[string]interface{}{
-		{"role": "system", "content": "把用户的思考内容压缩为不超过 10 个字的标题式摘要，必须使用简体中文。只输出摘要本身，不要引号、冒号或任何解释。"},
-		{"role": "user", "content": truncateContent(reasoning)},
+	for _, model := range models {
+		messages := []map[string]interface{}{
+			{"role": "system", "content": "把用户的思考内容压缩为不超过 10 个字的标题式摘要，必须使用简体中文。只输出摘要本身，不要引号、冒号或任何解释。"},
+			{"role": "user", "content": truncateContent(reasoning)},
+		}
+		resp, err := s.callLLMPlain(sumCtx, model, messages)
+		if err != nil {
+			slog.Warn("reasoning-summary-failed", "model", model, "err", err.Error())
+			continue
+		}
+		text := strings.TrimSpace(resp.Content)
+		if text == "" && len(resp.Choices) > 0 {
+			text = strings.TrimSpace(resp.Choices[0].Message.Content)
+		}
+		// 结果清洗：去掉常见前后缀噪音，限制长度
+		text = strings.Trim(text, "\"'「」『』()（）:：")
+		if r := []rune(text); len(r) > 12 {
+			text = string(r[:12])
+		}
+		if text != "" {
+			return text
+		}
+		slog.Warn("reasoning-summary-empty", "model", model)
 	}
-	resp, err := s.callLLMPlain(sumCtx, model, messages)
-	if err != nil {
-		slog.Warn("reasoning-summary-failed", "err", err.Error())
-		return ""
+	return ""
+}
+
+// parseModelList 解析逗号分隔的模型候选列表（去空白与空项）。
+func parseModelList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
 	}
-	text := strings.TrimSpace(resp.Content)
-	if text == "" && len(resp.Choices) > 0 {
-		text = strings.TrimSpace(resp.Choices[0].Message.Content)
-	}
-	// 结果清洗：去掉常见前后缀噪音，限制长度
-	text = strings.Trim(text, "\"'「」『』()（）:：")
-	if r := []rune(text); len(r) > 12 {
-		text = string(r[:12])
-	}
-	return text
+	return out
 }
 
 func (s *Service) executeToolCall(ctx context.Context, db *sql.DB, toolName string, args map[string]interface{}, sessionID, tcID string, eventCh chan SSEEvent) (interface{}, error) {
@@ -2010,6 +2081,14 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 				approvalID, _ := randomID("aaa_")
 				expiresAt := time.Now().UTC().Add(approvalTTL).Format(time.RFC3339)
 				now := time.Now().UTC().Format(time.RFC3339)
+
+				// 先注册等待 channel 再落库/发事件：用户批准可能在任何时刻到达，
+				// 若注册在 INSERT 之后，期间的决议会被 resolveApproval 静默丢弃。
+				approvalCh := make(chan approvalResolution, 1)
+				s.mu.Lock()
+				s.approval[approvalID] = approvalCh
+				s.mu.Unlock()
+
 				_, _ = db.ExecContext(ctx,
 					`INSERT INTO admin_ai_approvals (id, session_id, tool_call_id, status, plan_summary, method, path, body_snapshot, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
 					approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now)
@@ -2022,11 +2101,6 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 					"path":         path,
 					"bodySnapshot": string(body),
 				}})
-
-				approvalCh := make(chan approvalResolution, 1)
-				s.mu.Lock()
-				s.approval[approvalID] = approvalCh
-				s.mu.Unlock()
 
 				defer func() {
 					s.mu.Lock()

@@ -2,6 +2,7 @@ package adminai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -210,6 +211,63 @@ func TestCallLLMStreamFirstTokenTimeout(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("first-token guard too slow: %v", elapsed)
+	}
+}
+
+// --- 摘要模型多候选回退：首个失败自动尝试下一个；逗号解析去空白 ---
+
+func TestParseModelList(t *testing.T) {
+	cases := []struct{ in string; want []string }{
+		{"gemini-3.1-flash-lite,gpt-oss-120b", []string{"gemini-3.1-flash-lite", "gpt-oss-120b"}},
+		{"  a , b ,, c ", []string{"a", "b", "c"}},
+		{"", nil},
+		{"single", []string{"single"}},
+	}
+	for _, c := range cases {
+		got := parseModelList(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("parseModelList(%q) = %v, want %v", c.in, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("parseModelList(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
+// summarizeReasoning 回退：mock 网关按模型名返回不同结果（首个 500，第二个成功）。
+func TestSummarizeReasoningFallback(t *testing.T) {
+	s := newTestService(t)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/chat/completions" {
+			body, _ := io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				Model string `json:"model"`
+			}
+			_ = json.Unmarshal(body, &req)
+			if req.Model == "slow-model" {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"状态总览"}}]}`)
+			return
+		}
+		http.Error(w, "no", http.StatusNotFound)
+	}))
+	defer ts.Close()
+	s.cfg.Port = ts.Listener.Addr().(*net.TCPAddr).Port
+
+	text := s.summarizeReasoning(context.Background(), []string{"slow-model", "fast-model"}, "这是一段足够长的推理内容用于生成标题式摘要，超过了四十个字符的门槛，应该可以被处理。")
+	if text != "状态总览" {
+		t.Fatalf("fallback summary = %q, want 状态总览", text)
+	}
+	// 全部失败 → 空串
+	text2 := s.summarizeReasoning(context.Background(), []string{"slow-model"}, "这是一段足够长的推理内容用于生成标题式摘要，超过了四十个字符的门槛，应该可以被处理。")
+	if text2 != "" {
+		t.Fatalf("all-fail summary = %q, want empty", text2)
 	}
 }
 
