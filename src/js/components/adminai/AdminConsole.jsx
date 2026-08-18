@@ -118,7 +118,7 @@ function MultiModelSelect({ options, value, onChange }) {
 const SETTING_FIELDS = [
   { key: 'admin_ai_enabled', kind: 'switch', group: 'basic', label: '管理 AI 总开关', description: '关闭后侧栏与 Telegram 不再受理对话' },
   { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '推理', description: '模型来源：模型网关' },
-  { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '推理摘要模型', description: '思维链标题摘要专用，留空回退默认模型；可多选多个候选，失败按顺序自动回退' },
+  { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '摘要', description: '思维链标题摘要专用，留空回退默认模型；可多选多个候选，失败按顺序自动回退' },
   { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '简报', description: '每日站点简报专用模型，留空回退默认模型' },
   { key: 'admin_ai_write_enabled', kind: 'switch', group: 'security', label: '写操作全局开关', description: '写操作需人工审批' },
   { key: 'admin_ai_auto_approve', kind: 'switch', group: 'security', label: '完全批准模式', description: '（危险：AI 可自主执行任何写操作）' },
@@ -180,7 +180,7 @@ function useSettingsForm() {
         const list = Array.isArray(data) ? data : (data.data || []);
         const options = (list || [])
           .filter((m) => m && m.id)
-          .map((m) => ({ value: m.id, label: `${m.owned_by || '网关'} / ${m.id}` }));
+          .map((m) => ({ value: m.id, label: m.id }));
         options.sort((a, b) => a.label.localeCompare(b.label));
         setModelOptions(options);
       } catch {
