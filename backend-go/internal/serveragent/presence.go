@@ -18,6 +18,9 @@ const (
 	agentPresenceOnline  agentPresenceStatus = "online"
 	agentPresenceSuspect agentPresenceStatus = "suspect"
 	agentPresenceOffline agentPresenceStatus = "offline"
+
+	// maxAcceptableAgentSampleIntervalMs 是 agent 上报采样间隔的采纳上限（5 分钟）。
+	maxAcceptableAgentSampleIntervalMs = 5 * 60 * 1000
 )
 
 type agentPresenceConfig struct {
@@ -305,7 +308,14 @@ func (p *agentPresenceManager) check() {
 func (p *agentPresenceManager) offlineAfterFor(rec *agentPresenceRecord) time.Duration {
 	offlineAfter := p.cfg.offlineAfter
 	if rec.SampleIntervalMs > 0 {
-		dynamic := time.Duration(rec.SampleIntervalMs*6) * time.Millisecond
+		// agent 上报的采样间隔仅用于推算离线阈值，必须钳制：
+		// 否则 agent 可上报任意大值让自身永不判定离线。上限 5 分钟采样间隔，
+		// 对应的动态离线阈值最多 30 分钟。
+		sample := rec.SampleIntervalMs
+		if sample > maxAcceptableAgentSampleIntervalMs {
+			sample = maxAcceptableAgentSampleIntervalMs
+		}
+		dynamic := time.Duration(sample*6) * time.Millisecond
 		if dynamic > offlineAfter {
 			offlineAfter = dynamic
 		}

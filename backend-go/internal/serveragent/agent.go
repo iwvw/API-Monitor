@@ -768,6 +768,12 @@ func (s *Service) handleAgentConnectionInfo(w http.ResponseWriter, r *http.Reque
 
 // handleAgentAutoInstall 自动安装 Agent (通过 SSH 或升级指令)
 func (s *Service) handleAgentAutoInstall(w http.ResponseWriter, r *http.Request, db *sql.DB, serverID string) {
+	// 服务器不存在时直接 404，避免后续脚本/SSH 阶段以 500 报错
+	var exists int
+	if err := db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM server_accounts WHERE id = ?`, serverID).Scan(&exists); err != nil || exists == 0 {
+		response.Error(w, http.StatusNotFound, "server not found")
+		return
+	}
 	var req struct {
 		ForceSSH bool   `json:"force_ssh"`
 		BaseURL  string `json:"base_url"`

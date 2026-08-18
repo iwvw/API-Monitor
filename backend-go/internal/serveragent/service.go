@@ -2807,7 +2807,8 @@ func (s *Service) startMetricsCollectorLoop(ctx context.Context) {
 		var interval int
 		var autoStart int
 		var retentionDays int
-		err = db.QueryRowContext(loopCtx, "SELECT COALESCE(metrics_collect_interval, 300), auto_start, COALESCE(metrics_retention_days, 30) FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart, &retentionDays)
+		var logRetentionDays int
+		err = db.QueryRowContext(loopCtx, "SELECT COALESCE(metrics_collect_interval, 300), auto_start, COALESCE(metrics_retention_days, 30), COALESCE(log_retention_days, 7) FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart, &retentionDays, &logRetentionDays)
 		if err != nil {
 			db.Close()
 			cancel()
@@ -2827,10 +2828,14 @@ func (s *Service) startMetricsCollectorLoop(ctx context.Context) {
 			s.runPeriodicCollection(loopCtx, db)
 			lastCollected = now
 
-			// Clean up old metrics
+			// 分批清理过期数据：单批上限避免大表上单次 DELETE 持写锁过久
+			// 阻塞其它模块写入（含检查循环自身的后续写入）。
 			if retentionDays > 0 {
-				_, _ = db.ExecContext(loopCtx, "DELETE FROM server_metrics_history WHERE recorded_at < datetime('now', '-' || ? || ' days')", retentionDays)
-				_, _ = db.ExecContext(loopCtx, "DELETE FROM server_network_quality_samples WHERE checked_at < datetime('now', '-' || ? || ' days')", retentionDays)
+				clearExpiredHistory(loopCtx, db, "server_metrics_history", "recorded_at", retentionDays)
+				clearExpiredHistory(loopCtx, db, "server_network_quality_samples", "checked_at", retentionDays)
+			}
+			if logRetentionDays > 0 {
+				clearExpiredHistory(loopCtx, db, "server_monitor_logs", "checked_at", logRetentionDays)
 			}
 		}
 

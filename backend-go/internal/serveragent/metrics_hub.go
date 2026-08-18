@@ -142,6 +142,10 @@ func (h *MetricsHub) broadcastPlainEvent(clients []*MetricsHubClient, event stri
 	h.broadcastSocketIOEvent(clients, "42", event, data)
 }
 
+// metricsHubWriteTimeout 单次广播写超时：不读数据的慢客户端最多阻塞
+// 广播者一小段时间即被淘汰，避免单个客户端卡死所有 Agent 状态处理。
+const metricsHubWriteTimeout = 3 * time.Second
+
 func (h *MetricsHub) broadcastSocketIOEvent(clients []*MetricsHubClient, prefix string, event string, data interface{}) {
 	payload := []interface{}{event, data}
 	jsonData, err := json.Marshal(payload)
@@ -173,8 +177,9 @@ func (h *MetricsHub) broadcastSocketIOEvent(clients []*MetricsHubClient, prefix 
 			continue
 		}
 
-		// 安全写入（加锁防并发写）
+		// 安全写入（加锁防并发写；带写超时防慢客户端无限阻塞广播）
 		session.mu.Lock()
+		_ = session.wsConn.SetWriteDeadline(time.Now().Add(metricsHubWriteTimeout))
 		err := session.wsConn.WriteMessage(websocket.TextMessage, []byte(message))
 		session.mu.Unlock()
 

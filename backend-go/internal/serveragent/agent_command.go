@@ -99,13 +99,14 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 	// base64 只含字母数字，可避免 cmd 解析管道符 / 引号导致命令被拆坏。
 	command = normalizeExecCommand(command)
 
-	// 超时：默认 30s，上限 300s
+	// 超时：默认 30s，上限 300s（先钳制再换算，防止巨大值溢出成负 duration）
 	timeout := defaultExecTimeout
 	if req.Timeout > 0 {
-		timeout = time.Duration(req.Timeout) * time.Second
-	}
-	if timeout > maxExecTimeout {
-		timeout = maxExecTimeout
+		seconds := int64(req.Timeout)
+		if seconds > int64(maxExecTimeout/time.Second) {
+			seconds = int64(maxExecTimeout / time.Second)
+		}
+		timeout = time.Duration(seconds) * time.Second
 	}
 
 	conn, online := s.registry.Get(serverID)
@@ -156,7 +157,9 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 func (s *Service) recordExecCommandHistory(ctx context.Context, db *sql.DB, serverID, command, status, output string) {
 	summary := output
 	if len(summary) > 500 {
-		summary = summary[:500]
+		// 按 rune 截断，避免从多字节 UTF-8 字符中间切断产生乱码
+		runes := []rune(summary)
+		summary = string(runes[:500])
 	}
 	_, _, _ = s.insertSnippetHistory(ctx, db, nil, &serverID, command, command, "api", status, &summary)
 }

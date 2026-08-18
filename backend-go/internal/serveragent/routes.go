@@ -68,11 +68,6 @@ func (s *Service) handleAgentRoutes(w http.ResponseWriter, r *http.Request, db *
 		agentKey := subparts[3]
 		s.getAgentInstallScriptWithKey(w, r, db, accountID, agentKey)
 
-	// GET /api/server/agent/install/linux/{id}
-	case len(subparts) == 3 && subparts[0] == "install" && subparts[1] == "linux" && r.Method == http.MethodGet:
-		accountID := subparts[2]
-		s.getAgentInstallScript(w, r, db, accountID)
-
 	// GET /api/server/agent/install-script/{id}
 	case len(subparts) == 2 && subparts[0] == "install-script" && r.Method == http.MethodGet:
 		accountID := subparts[1]

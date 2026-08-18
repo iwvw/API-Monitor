@@ -2213,6 +2213,84 @@ func TestAgentSocketAuthenticationRequiresValidServerAndKey(t *testing.T) {
 	}
 }
 
+func TestAnonymousSessionCannotForgeAgentState(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status) VALUES
+		('anon-agent', 'anon', '0.0.0.0', 'agent', 'password', 'offline')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	anonSession := &EngineIOSession{ID: "anon", PendingMessages: []string{}}
+	service.engineIO.mu.Lock()
+	service.engineIO.sessions[anonSession.ID] = anonSession
+	service.engineIO.mu.Unlock()
+
+	service.engineIO.handleSocketIOMessage(anonSession, `2["agent:state",{"server_id":"anon-agent","cpu":99,"memory":99,"disk_usage":99}]`)
+	service.engineIO.handleSocketIOMessage(anonSession, `2["agent:heartbeat",{"server_id":"anon-agent","ts":1}]`)
+	service.engineIO.handleSocketIOMessage(anonSession, `2["agent:host_info",{"server_id":"anon-agent","hostname":"spoofed"}]`)
+
+	var status, cachedInfo string
+	err = db.QueryRowContext(context.Background(), `SELECT status, COALESCE(cached_info,'') FROM server_accounts WHERE id = 'anon-agent'`).Scan(&status, &cachedInfo)
+	if err != nil {
+		t.Fatalf("lookup account: %v", err)
+	}
+	if status != "offline" {
+		t.Fatalf("anonymous agent:state must not mark host online, status=%q", status)
+	}
+	if cachedInfo != "" {
+		t.Fatalf("anonymous agent:state must not persist cached_info, got %q", cachedInfo)
+	}
+	if anonSession.Authenticated {
+		t.Fatal("anonymous session must stay unauthenticated")
+	}
+	if _, exists := service.registry.Get("anon-agent"); exists {
+		t.Fatal("anonymous session must not register an agent connection")
+	}
+}
+
+func TestAuthenticatedSessionStateUpdatesHost(t *testing.T) {
+	service, db := testService(t)
+	service.realtimePersistInterval = 50 * time.Millisecond
+	service.presence = nil
+	service.registry = NewConnectionRegistry()
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status) VALUES
+		('real-agent', 'real', '0.0.0.0', 'agent', 'password', 'offline')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES ('global_agent_key', 'good-key', datetime('now'))`); err != nil {
+		t.Fatalf("insert key: %v", err)
+	}
+
+	authSession := &EngineIOSession{ID: "auth", PendingMessages: []string{}}
+	service.engineIO.mu.Lock()
+	service.engineIO.sessions[authSession.ID] = authSession
+	service.engineIO.mu.Unlock()
+	service.engineIO.handleSocketIOMessage(authSession, `2["agent:connect",{"server_id":"real-agent","key":"good-key","hostname":"real"}]`)
+	if !authSession.Authenticated || authSession.ServerID != "real-agent" {
+		t.Fatalf("session should be authenticated: %#v", authSession)
+	}
+
+	service.engineIO.handleSocketIOMessage(authSession, `2["agent:state",{"server_id":"real-agent","cpu":42,"memory":50,"disk_usage":30}]`)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var status string
+		err := db.QueryRowContext(context.Background(), `SELECT status FROM server_accounts WHERE id = 'real-agent'`).Scan(&status)
+		if err != nil {
+			t.Fatalf("lookup account: %v", err)
+		}
+		if status == "online" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("authenticated agent:state should mark host online, status=%q", status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func TestAgentCredentialsAreScopedPerServer(t *testing.T) {
 	service, db := testService(t)
 	for _, id := range []string{"agent-a", "agent-b"} {
@@ -2613,6 +2691,14 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	res = perform(service, http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/bad-key", "")
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("bad keyed linux install status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	res = perform(service, http.MethodGet, "/api/server/agent/install/linux/"+serverID, "")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("keyless linux install must not exist: status=%d body=%s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "AGENT_KEY=") {
+		t.Fatalf("keyless linux install must not leak agent key: %s", res.Body.String())
 	}
 
 	var name, host, username, monitorMode string

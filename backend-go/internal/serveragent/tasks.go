@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/sseutil"
 )
 
 // TaskStatus 任务状态
@@ -607,6 +608,9 @@ func (s *Service) streamTask(w http.ResponseWriter, r *http.Request, taskRegistr
 	// between the initial status response and registration of the listener.
 	eventCh := task.Subscribe()
 	initialEvent := task.Snapshot()
+	if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+		return
+	}
 	s.writeSSE(w, initialEvent)
 	flusher.Flush()
 	if initialEvent.Status == TaskCompleted || initialEvent.Status == TaskFailed {
@@ -618,6 +622,9 @@ func (s *Service) streamTask(w http.ResponseWriter, r *http.Request, taskRegistr
 		select {
 		case event, ok := <-eventCh:
 			if !ok {
+				return
+			}
+			if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
 				return
 			}
 			s.writeSSE(w, event)

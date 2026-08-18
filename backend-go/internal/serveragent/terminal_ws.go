@@ -161,9 +161,14 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 	containerName := strings.TrimSpace(r.URL.Query().Get("container"))
 	if !attachOnly {
 		if capabilities := agentConn.GetCapabilities(); capabilities["terminal_stream_v2"] {
+			// v2 路径成败均在此结束：失败（发送失败/attach 超时）时不得
+			// 回退到下方的 legacy 分派，否则同一终端会被派发两次任务、
+			// agent 端双开 shell。
 			if s.runAgentTerminalSessionV2(r, conn, agentConn, serverID, writeJSON, closeDone, done) {
 				return
 			}
+			writeJSON(terminalWSMessage{Type: "error", Data: "TERMINAL_V2_FAILED: 终端会话建立超时或失败", Transport: "agent"})
+			return
 		}
 	}
 	if s.ptyHub == nil {
