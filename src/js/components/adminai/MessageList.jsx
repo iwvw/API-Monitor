@@ -620,7 +620,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                           }
                         }}
                         className="!ring-0 max-h-48 resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
-                        style={{ maxHeight: 192, minWidth: 280 }}
+                        style={{ maxHeight: 192, minWidth: 96, fieldSizing: 'content' }}
                       />
                     </div>
                     <div className="mt-1.5 flex items-center justify-end gap-1.5">
