@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Loader } from '@cloudflare/kumo';
-import { Copy, Check, ChevronDown, X } from '../Icons.jsx';
+import { Copy, Check, ChevronDown, X, Terminal } from '../Icons.jsx';
+import { STEP } from '../../modules/adminAiMessages.js';
 
 /* 工具名中文标识：折叠组标题与无描述回退共用 */
 export function toolLabel(toolName) {
@@ -49,7 +50,7 @@ export function toolPathLabel(toolName, args) {
 /* 工具调用卡片 — Cloudflare Agent「→ Running …」步骤行风格：
  * inline 模式用于 thinking 折叠区；完整模式带参数展开与错误复制。
  * 状态环：running=品牌蓝 spinner+脉冲边条 / success=绿对勾 / failed=红叉 */
-export default function ToolCallCard({ toolCall, inline, showPath }) {
+export default function ToolCallCard({ toolCall, inline }) {
   const [copied, setCopied] = useState(false);
   const [openArgs, setOpenArgs] = useState(false);
 
@@ -119,15 +120,17 @@ export default function ToolCallCard({ toolCall, inline, showPath }) {
     }
   };
 
-  /* 内联行：语义视图=中文动作描述（无 desc 时回退工具中文名，绝不显示路径）；
-     路径视图=方法+路径（showPath） */
+  /* 内联行：语义视图=中文动作描述（无 desc 时回退工具中文名）+ 灰色小字路径；
+     语义与路径分开显示，不再二选一切换 */
   if (inline) {
-    const label = showPath
-      ? toolPathLabel(toolName, args)
-      : (desc || toolLabel(toolName) || '未知工具');
+    const label = desc || toolLabel(toolName) || '未知工具';
+    const path = toolPathLabel(toolName, args);
     return (
       <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-kumo-default">
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 line-clamp-1 break-all">{label}</span>
+        {path !== label && (
+          <span className="min-w-0 line-clamp-1 break-all font-mono text-[10px] text-kumo-subtle/70">{path}</span>
+        )}
         {statusBadge()}
       </span>
     );
@@ -145,7 +148,7 @@ export default function ToolCallCard({ toolCall, inline, showPath }) {
         <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${status === 'running' ? 'bg-kumo-brand/10 text-kumo-brand' : status === 'success' ? 'bg-kumo-success/10 text-kumo-success' : status === 'failed' ? 'bg-kumo-danger/10 text-kumo-danger' : 'bg-kumo-tint text-kumo-subtle'}`}>
           <span className="text-[11px] font-semibold">{status === 'running' ? <Loader size={12} className="animate-spin" /> : '→'}</span>
         </span>
-        <span className="truncate font-medium text-kumo-default">{action || '未知工具'}</span>
+        <span className="min-w-0 line-clamp-1 break-all font-medium text-kumo-default">{action || '未知工具'}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {statusBadge()}
           {argSummary && (
@@ -174,6 +177,167 @@ export default function ToolCallCard({ toolCall, inline, showPath }) {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- 工具步骤组：连续 tool_call/tool_result 合并展示 ----------
+ * 默认折叠；相同调用（同工具+同方法路径）连续合并计数 ×N；
+ * 展开后每行同时显示语义（中文描述）与路径（灰色等宽小字），与推理/正文区分开。 */
+export function ToolSteps({ items, streaming }) {
+  const [open, setOpen] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(null);
+
+  const isRunning = (c) => c.call?.status === STEP.RUNNING || c.result?.status === STEP.RUNNING;
+  const isFailed = (c) => c.call?.status === STEP.FAILED || c.result?.status === STEP.FAILED;
+
+  // tool_call ↔ tool_result 按 toolCallId 配对（结果挂到最后一个未配对同 id 调用）
+  const calls = [];
+  for (const p of items) {
+    if (p.type === 'tool_call') {
+      calls.push({ call: p, result: null });
+    } else if (p.type === 'tool_result') {
+      const last = calls[calls.length - 1];
+      if (last && last.call && !last.result && (last.call.toolCallId === p.toolCallId || !p.toolCallId)) {
+        last.result = p;
+      } else {
+        calls.push({ call: null, result: p });
+      }
+    }
+  }
+
+  // 相同调用（同工具+同路径）连续合并 → 计数
+  const merged = [];
+  for (const c of calls) {
+    const sig = c.call
+      ? `${c.call.toolName}\u0000${toolPathLabel(c.call.toolName, c.call.args)}`
+      : `result\u0000${(c.result?.summary || '').slice(0, 120)}`;
+    const prev = merged[merged.length - 1];
+    if (prev && prev.sig === sig) {
+      prev.count += 1;
+      if (!prev.result && c.result) prev.result = c.result;
+      if (isRunning(c)) prev.hasRunning = true;
+      if (isFailed(c)) prev.hasFailed = true;
+    } else {
+      merged.push({
+        sig,
+        call: c.call,
+        result: c.result,
+        count: 1,
+        hasRunning: isRunning(c),
+        hasFailed: isFailed(c),
+      });
+    }
+  }
+
+  const total = merged.reduce((s, m) => s + m.count, 0);
+  const isOpen = open || (streaming && merged.some((m) => m.hasRunning));
+  const single = merged.length === 1 ? merged[0] : null;
+
+  const handleCopy = async (key, text) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    } catch {
+    }
+  };
+
+  const groupBadge = (m) => {
+    if (m.hasRunning) {
+      return (
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-brand/10 text-kumo-brand">
+          <Loader size={10} className="animate-spin" />
+        </span>
+      );
+    }
+    if (m.hasFailed) {
+      return (
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-danger/10 text-kumo-danger">
+          <X className="h-2.5 w-2.5" />
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-success/10 text-kumo-success">
+        <Check className="h-2.5 w-2.5" />
+      </span>
+    );
+  };
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onClick={() => setOpen(!open)}
+        className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
+        aria-expanded={isOpen}
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-kumo-brand/10 text-kumo-brand">
+          <Terminal className="h-2.5 w-2.5" />
+        </span>
+        {single ? (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="max-w-[240px] truncate leading-4">
+              {single.call ? (single.call.desc || toolLabel(single.call.toolName) || '未知工具') : '工具结果'}
+            </span>
+            {single.count > 1 && (
+              <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{single.count}</span>
+            )}
+          </span>
+        ) : (
+          <span className="shrink-0 leading-4">工具步骤 · {total} 次</span>
+        )}
+        <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </Button>
+      <div className="askai-collapse" data-open={isOpen}>
+        <div className="askai-tool-stagger flex min-w-0 flex-col gap-1.5 rounded-lg border border-kumo-line/50 bg-kumo-control/40 p-2">
+          {merged.map((m, i) => {
+            const label = m.call ? (m.call.desc || toolLabel(m.call.toolName) || '未知工具') : '工具结果';
+            const path = m.call ? toolPathLabel(m.call.toolName, m.call.args) : '';
+            const copyText = m.result?.summary || m.call?.error || '';
+            return (
+              <div key={`${m.sig}-${i}`} className="flex min-w-0 flex-col gap-0.5">
+                <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                  {groupBadge(m)}
+                  <span className="min-w-0 line-clamp-1 break-all font-medium text-kumo-default" title={label}>{label}</span>
+                  {path && path !== label && (
+                    <span className="min-w-0 line-clamp-1 break-all font-mono text-[10px] text-kumo-subtle/70" title={path}>{path}</span>
+                  )}
+                  {m.count > 1 && (
+                    <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{m.count}</span>
+                  )}
+                  {copyText && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      shape="square"
+                      onClick={() => handleCopy(`${i}`, copyText)}
+                      className="ml-auto !h-5 !w-5 shrink-0 !rounded !p-0 text-kumo-subtle hover:!bg-kumo-tint"
+                      aria-label="复制工具结果"
+                      title={m.result?.summary ? '复制工具结果' : '复制错误信息'}
+                    >
+                      {copiedKey === `${i}` ? <Check className="h-3 w-3 text-kumo-brand" /> : <Copy className="h-3 w-3" />}
+                    </Button>
+                  )}
+                </div>
+                {m.result?.summary && (
+                  <p className="min-w-0 line-clamp-1 break-all pl-[22px] text-[11px] leading-5 text-kumo-subtle/70" title={m.result.summary}>
+                    {m.result.summary}
+                  </p>
+                )}
+                {m.hasFailed && m.call?.error && (
+                  <p className="min-w-0 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger">{m.call.error}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

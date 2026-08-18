@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Loader, Textarea } from '@cloudflare/kumo';
 import { ChevronDown, Sparkle, Terminal, Copy, Check, X, Edit } from '../Icons.jsx';
-import ToolCallCard, { toolLabel, toolPathLabel } from './ToolCallCard.jsx';
+import ToolCallCard, { toolLabel, toolPathLabel, ToolSteps } from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { isStreaming } from '../../modules/adminAiMessages.js';
 import { typewriterFrame } from '../../modules/typewriter.js';
@@ -272,6 +272,26 @@ function RenderLines({ text }) {
 }
 
 /* ---------- 推理 part（timeline 行：胶囊 + 流式单行滚动 / 完成后折叠展开） ---------- */
+
+// 推理摘要按句子边界截断：优先句末标点（。！？；），其次句中停顿（，、：），
+// 避免在任意字符处断句导致语义被劈开；两行以内展示，完整内容点击展开。
+function summarizeByPunctuation(text, maxLen = 96) {
+  if (!text) return '';
+  const t = text.trim();
+  if (t.length <= maxLen) return t;
+  const head = t.slice(0, maxLen);
+  let idx = Math.max(
+    head.lastIndexOf('。'),
+    head.lastIndexOf('！'),
+    head.lastIndexOf('？'),
+    head.lastIndexOf('；'),
+  );
+  if (idx > maxLen * 0.4) return `${head.slice(0, idx + 1)}…`;
+  idx = Math.max(head.lastIndexOf('，'), head.lastIndexOf('、'), head.lastIndexOf(','), head.lastIndexOf('：'));
+  if (idx > maxLen * 0.4) return `${head.slice(0, idx + 1)}…`;
+  return `${head}…`;
+}
+
 function ReasoningPart({ part, streaming }) {
   const [open, setOpen] = useState(false);
   const [tickerOn, setTickerOn] = useState(true);
@@ -283,7 +303,7 @@ function ReasoningPart({ part, streaming }) {
   }, [part.text, tickerOn]);
   if (!part.text && !streaming) return null;
   const isCN = (s) => /[\u4e00-\u9fa5]/.test(s || '');
-  const displaySummary = isCN(part.summary) ? part.summary : '';
+  const displaySummary = isCN(part.summary) ? summarizeByPunctuation(part.summary) : '';
   return (
     <div className="flex flex-col gap-1">
       <Button
@@ -310,7 +330,7 @@ function ReasoningPart({ part, streaming }) {
       {streaming && tickerOn && (
         <div
           ref={scrollRef}
-          className="max-w-full overflow-x-auto whitespace-nowrap text-xs leading-5 text-kumo-subtle/70"
+          className="min-w-0 max-w-full overflow-x-auto whitespace-nowrap text-xs leading-5 text-kumo-subtle/70"
           title="推理进行中（可横向拖动查看）"
         >
           {part.text}
@@ -329,10 +349,11 @@ function ReasoningPart({ part, streaming }) {
           size="sm"
           variant="ghost"
           onClick={() => setOpen(true)}
-          className="askai-reason-fade flex w-max max-w-full cursor-pointer items-center gap-1.5 text-left"
+          className="askai-reason-fade flex w-full max-w-full cursor-pointer items-center gap-1.5 px-0.5 text-left"
           title="查看完整推理"
         >
-          <span className="truncate text-xs text-kumo-subtle/80">{displaySummary}</span>
+          <Sparkle className="h-3 w-3 shrink-0 text-kumo-subtle/60" />
+          <span className="line-clamp-2 min-w-0 text-xs text-kumo-subtle/80">{displaySummary}</span>
         </Button>
       )}
     </div>
@@ -365,7 +386,7 @@ function ToolResultLine({ part }) {
         <span className="mt-0.5 shrink-0">
           {failed ? <X className="h-3 w-3" /> : <Check className="h-3 w-3 text-kumo-success/80" />}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] leading-5">{part.summary}</span>
+        <span className="min-w-0 flex-1 line-clamp-1 break-all text-[11px] leading-5">{part.summary}</span>
         {copied ? <Check className="h-3 w-3 shrink-0 text-kumo-brand" /> : <Copy className="h-3 w-3 shrink-0 text-transparent group-hover:text-kumo-subtle" />}
       </Button>
     </div>
@@ -373,7 +394,7 @@ function ToolResultLine({ part }) {
 }
 
 /* ---------- timeline part 分发（按时间序逐行渲染） ---------- */
-function TimelinePart({ part, streaming, showPath, onResolveApproval, onRetry }) {
+function TimelinePart({ part, streaming, onResolveApproval, onRetry, className }) {
   switch (part.type) {
     case 'reasoning':
       return <ReasoningPart part={part} streaming={streaming} />;
@@ -382,14 +403,17 @@ function TimelinePart({ part, streaming, showPath, onResolveApproval, onRetry })
         <div className="flex items-center gap-1.5">
           <span className="askai-timeline-dot shrink-0" aria-hidden />
           <div className="min-w-0 flex-1">
-            <ToolCallCard toolCall={part} inline showPath={showPath} />
+            <ToolCallCard toolCall={part} inline />
           </div>
         </div>
       );
     case 'tool_result':
       return <ToolResultLine part={part} />;
-    case 'text':
-      return <TextBlock text={part.text} streaming={streaming} />;
+    case 'text': {
+      const content = <TextBlock text={part.text} streaming={streaming} />;
+      // 工具步骤/工具结果后的正文加顶部留白（卡片 gap-2 之上再补 mt-2），正文是主内容，需要呼吸空间
+      return className ? <div className={className}>{content}</div> : content;
+    }
     case 'approval':
       return <ApprovalCard approval={part} onResolve={onResolveApproval} />;
     case 'error':
@@ -410,16 +434,30 @@ function TimelinePart({ part, streaming, showPath, onResolveApproval, onRetry })
 
 /* ---------- 助手消息（timeline：推理/工具/正文按时间序） ---------- */
 function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollapsed, toggleCollapse }) {
-  const [showPath, setShowPath] = useState(false);
   const parts = msg.parts || [];
   const pending = streaming && parts.length === 0;
   const hasText = parts.some((p) => p.type === 'text' && p.text);
   const textParts = parts.filter((p) => p.type === 'text');
   const lastTextIdx = textParts.length - 1;
   const lastText = textParts.length > 0 ? textParts[textParts.length - 1].text : '';
-  const hasToolCalls = parts.some((p) => p.type === 'tool_call');
   const hasLongText = textParts.some((p) => (p.text || '').length > 800);
   let textSeq = -1;
+  // 连续工具 parts（tool_call/tool_result）合并成组，交给 ToolSteps 折叠展示；
+  // 其他类型保持逐行 timeline 渲染
+  const segments = [];
+  let toolGroup = null;
+  for (const p of parts) {
+    if (p.type === 'tool_call' || p.type === 'tool_result') {
+      if (!toolGroup) {
+        toolGroup = [];
+        segments.push(toolGroup);
+      }
+      toolGroup.push(p);
+    } else {
+      toolGroup = null;
+      segments.push(p);
+    }
+  }
   return (
     <div className="flex w-full flex-col gap-1">
       <div className="mb-1 flex items-center gap-1.5 text-xs text-kumo-subtle">
@@ -433,38 +471,6 @@ function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollap
         >
           <Terminal className="h-3 w-3 text-kumo-brand" />
           代理
-          {hasToolCalls && (
-            <>
-              <span
-                className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-kumo-base px-1 text-[10px] font-medium leading-none text-kumo-subtle"
-                title={`共调用 ${parts.filter((p) => p.type === 'tool_call').length} 次工具`}
-              >
-                {parts.filter((p) => p.type === 'tool_call').length}
-              </span>
-              <span className="flex items-center gap-0.5 rounded-full bg-kumo-base p-0.5" role="group" aria-label="工具步骤显示模式">
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setShowPath(false)}
-                  title="显示语义化工具步骤描述"
-                  className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${!showPath ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
-                >
-                  语义
-                </Button>
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setShowPath(true)}
-                  title="显示实际调用的 API 路径"
-                  className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${showPath ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
-                >
-                  路径
-                </Button>
-              </span>
-            </>
-          )}
           {!streaming && hasLongText && (
             <ChevronDown
               className={`h-3 w-3 text-kumo-subtle transition-transform duration-200 ${isCollapsed ? '' : 'rotate-180'}`}
@@ -505,15 +511,23 @@ function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollap
             </div>
           ) : parts.length === 0 ? null : (
             <div className="flex flex-col gap-2">
-              {parts.map((part, pi) => {
+              {segments.map((seg, si) => {
+                if (Array.isArray(seg)) {
+                  return <ToolSteps key={`tg-${si}`} items={seg} streaming={streaming} />;
+                }
+                const part = seg;
                 const isText = part.type === 'text';
                 if (isText) textSeq++;
+                // 前一段是工具步骤组（合并数组）或游离工具结果 → 正文加顶部留白（gap-2 之上补 mt-1，总 12px）
+                const prevIsTool =
+                  (si > 0 && Array.isArray(segments[si - 1])) ||
+                  (si > 0 && segments[si - 1]?.type === 'tool_result');
                 return (
                   <TimelinePart
-                    key={`${pi}-${part.type}`}
+                    key={`${si}-${part.type}`}
                     part={part}
                     streaming={streaming && isText && textSeq === lastTextIdx && part.text === lastText}
-                    showPath={showPath}
+                    className={prevIsTool && isText ? 'mt-1' : undefined}
                     onResolveApproval={onResolveApproval}
                     onRetry={onRetry}
                   />
@@ -602,7 +616,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
           >
             {msg.role === 'user' ? (
               editing && editing.id === msg.id ? (
-                <div className="flex w-fit max-w-prose items-end gap-1.5">
+                <div className="flex w-fit max-w-full items-end gap-1.5">
                   <Button
                     type="button"
                     size="sm"
@@ -615,7 +629,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   >
                     {copiedEdit ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </Button>
-                  <div className="w-fit max-w-prose" style={editWidth ? { width: editWidth } : undefined}>
+                  <div className="min-w-0 w-fit max-w-full" style={editWidth ? { width: editWidth } : undefined}>
                     <div className="w-full rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                       <Textarea
                         ref={editRef}
@@ -658,7 +672,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   </div>
                 </div>
               ) : (
-                <div className="group relative flex w-fit max-w-prose items-end gap-1.5">
+                <div className="group relative flex w-fit max-w-full items-end gap-1.5">
                   <Button
                     type="button"
                     size="sm"
@@ -674,7 +688,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   >
                     <Edit className="h-3 w-3" />
                   </Button>
-                  <div data-user-bubble className="rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                  <div data-user-bubble className="min-w-0 rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                     <TextBlock text={msg.content} />
                   </div>
                 </div>

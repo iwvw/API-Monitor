@@ -688,7 +688,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const handleInputChange = (e) => {
     const value = e.target.value;
     setInput(value);
-    resizeTextarea();
     const atIdx = value.lastIndexOf('@');
     if (atIdx >= 0) {
       const after = value.slice(atIdx + 1);
@@ -913,12 +912,16 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   );
 
   /* textarea 自动增高（最大 256px） */
-  const resizeTextarea = () => {
+  const resizeTextarea = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 256)}px`;
-  };
+  }, []);
+  // input 变化（含发送后清空）自动重算高度，避免发送后残留拉高不恢复
+  useEffect(() => {
+    resizeTextarea();
+  }, [input, resizeTextarea]);
 
   /* 回车发送，Shift+Enter 换行（中文输入法组词回车不发） */
   const handleTextareaKeyDown = (e) => {
@@ -1146,7 +1149,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 rows={2}
                 value={input}
                 onChange={handleInputChange}
-                onInput={resizeTextarea}
                 onKeyDown={handleTextareaKeyDown}
                 placeholder={placeholder}
                 className="!ring-0 focus:!ring-0 h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"
@@ -1204,8 +1206,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       {/* 写操作审批浮层：侧栏内滑出（输入区上方），不遮挡主画布 */}
       {pendingApproval && approvalOverlay('inset-x-3 bottom-[132px]')}
 
-      {/* 双视图滑动切换（对话 ⇄ 管理），避免生硬跳变 */}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+{/* 双视图滑动切换（对话 ⇄ 管理）；overflow-clip 避免滚动偏移 */}
+      <div className="relative min-h-0 flex-1 overflow-clip">
         {/* ===== 管理视图（设置/频道/审计收进侧栏） ===== */}
         <div
           className={`absolute inset-0 flex flex-col transition-[transform,opacity,visibility] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] ${
@@ -1414,7 +1416,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
               rows={2}
               value={input}
               onChange={handleInputChange}
-              onInput={resizeTextarea}
               onKeyDown={handleTextareaKeyDown}
               placeholder={placeholder}
               className="!ring-0 focus:!ring-0 h-auto w-full resize-none rounded-xl border-0 bg-transparent p-4 pb-0 text-sm text-kumo-default outline-none placeholder:text-kumo-subtle"

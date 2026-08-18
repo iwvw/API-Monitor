@@ -2500,22 +2500,32 @@ input[type='number'] {
   animation-duration: 0.9s;
 }
 
-/* 折叠区丝滑展开/收起：grid-rows 0fr→1fr + 透明度（工具步骤/推理/长文本共用） */
+/* 折叠区丝滑展开/收起：grid-rows 0fr→1fr + 透明度（工具步骤/推理/长文本共用）
+   注意 fr 只设上限、下限默认 auto（=内容 min-content），收起态必须显式 minmax(0, 0fr)
+   否则轨道缩不到 0，内容被 clip 后残留一条空白条 */
 .askai-collapse {
   display: grid;
-  grid-template-rows: 0fr;
+  grid-template-rows: minmax(0, 0fr);
+  grid-template-columns: minmax(0, 1fr); /* 列轨道下限归零：子内容 min-content（长 JSON/长路径）不再撑宽容器 */
   opacity: 0;
   transition:
     grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0.22s ease;
 }
 .askai-collapse[data-open='true'] {
-  grid-template-rows: 1fr;
+  grid-template-rows: minmax(0, 1fr);
   opacity: 1;
 }
+/* 动画裁剪放在子元素层：容器 clip 会裁掉子元素外扩的 box-shadow（卡片 ring），
+   子元素自己的 shadow 不受自身 overflow 影响 */
 .askai-collapse > * {
   min-height: 0;
-  overflow: hidden;
+  overflow: clip;
+}
+/* 推理展开块需要内部滚动：显式恢复（.askai-collapse > * 的 clip 只裁动画溢出） */
+.askai-collapse > .askai-reason-fade {
+  overflow-y: auto;
+  overflow-x: clip;
 }
 
 /* 工具步骤依次浮现：每行错峰滑入（index 决定 delay） */
