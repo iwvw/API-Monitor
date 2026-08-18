@@ -48,6 +48,34 @@ func TestInferRouteMethodsChinese(t *testing.T) {
 	}
 }
 
+// 定时任务（scheduler）子路由契约：工作流/任务的删除更新方法必须在文档可见
+// （此前漏登记 workflows/{id}，AI 据此误判「无删除接口」，实际 DELETE 存在）。
+func TestSchedulerWriteRouteMethodsExposed(t *testing.T) {
+	keyRoutes := []struct {
+		prefix string
+		want   []string
+	}{
+		{"/api/scheduler/tasks/{id}", []string{"GET", "PUT", "DELETE"}},
+		{"/api/scheduler/tasks/{id}/run", []string{"POST"}},
+		{"/api/scheduler/workflows/{id}", []string{"GET", "PUT", "DELETE"}},
+		{"/api/scheduler/runs", []string{"GET", "DELETE"}},
+		{"/api/scheduler/runs/{id}", []string{"GET"}},
+	}
+	for _, kr := range keyRoutes {
+		docs := routeDocs(manifest.Route{
+			Prefix:       kr.prefix,
+			Module:       "scheduler",
+			Owner:        manifest.OwnerGo,
+			Auth:         manifest.AuthSession,
+			ResponseMode: manifest.ResponseJSON,
+			MatchMode:    manifest.MatchPattern,
+		})
+		if !reflect.DeepEqual(docs.Methods, kr.want) {
+			t.Fatalf("%s methods = %v, want %v", kr.prefix, docs.Methods, kr.want)
+		}
+	}
+}
+
 // 无法推断的 MatchPattern 路由保守只读（防文档宣称方法比实际大）。
 func TestInferRouteMethodsConservativeFallback(t *testing.T) {
 	got := inferRouteMethods(manifest.Route{
@@ -76,6 +104,8 @@ func TestInferRouteMethodsAgentCommandRealDesc(t *testing.T) {
 // 关键 server 写路由契约：POST 方法必须在 api-docs 中可见
 // （AI 依赖该契约执行主机命令；此前只暴露 GET 导致命令下发被预检拒绝）。
 func TestServerWriteRouteMethodsExposed(t *testing.T) {
+	// 关键 server 写路由契约：POST 方法必须在 api-docs 中可见
+	// （AI 依赖该契约执行主机命令；此前只暴露 GET 导致命令下发被预检拒绝）。
 	keyRoutes := []struct {
 		prefix string
 		want   []string
