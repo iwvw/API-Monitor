@@ -590,75 +590,77 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
           >
             {msg.role === 'user' ? (
               editing && editing.id === msg.id ? (
-                <div className="relative w-fit max-w-prose">
-                  <div className="flex flex-col gap-2 rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
-                    <Textarea
-                      ref={editRef}
-                      rows={1}
-                      value={editing.text}
-                      onChange={(e) => {
-                        setEditing((prev) => ({ ...prev, text: e.target.value }));
-                        resizeEditBox();
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                          e.preventDefault();
-                          saveEdit();
-                        }
-                      }}
-                      className="!ring-0 max-h-48 resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
-                      style={{ maxHeight: 192, minWidth: 280 }}
-                    />
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditing(null)}
-                        className="!text-white/80 hover:!bg-white/15 hover:!text-white"
-                      >
-                        取消
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={saveEdit}
-                        disabled={!editing.text.trim()}
-                        className="!bg-white !text-kumo-brand hover:!bg-white/90"
-                      >
-                        发送
-                      </Button>
-                    </div>
-                  </div>
+                <div className="flex w-fit max-w-prose items-center gap-1.5">
                   <Button
                     type="button"
                     size="sm"
                     variant="ghost"
                     shape="square"
                     onClick={handleCopyEdit}
-                    className="absolute -left-8 top-1/2 z-10 !h-6 !w-6 -translate-y-1/2 !rounded-full !text-kumo-subtle hover:!bg-kumo-tint hover:!text-kumo-default"
+                    className="!h-6 !w-6 shrink-0 !rounded-full !text-kumo-subtle hover:!bg-kumo-tint hover:!text-kumo-default"
                     aria-label="复制消息"
                     title="复制消息内容"
                   >
                     {copiedEdit ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </Button>
+                  <div className="relative w-fit max-w-prose">
+                    <div className="flex flex-col gap-2 rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                      <Textarea
+                        ref={editRef}
+                        rows={1}
+                        value={editing.text}
+                        onChange={(e) => {
+                          setEditing((prev) => ({ ...prev, text: e.target.value }));
+                          resizeEditBox();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                            e.preventDefault();
+                            saveEdit();
+                          }
+                        }}
+                        className="!ring-0 max-h-48 resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
+                        style={{ maxHeight: 192, minWidth: 280 }}
+                      />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditing(null)}
+                          className="!text-white/80 hover:!bg-white/15 hover:!text-white"
+                        >
+                          取消
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={saveEdit}
+                          disabled={!editing.text.trim()}
+                          className="!bg-white !text-kumo-brand hover:!bg-white/90"
+                        >
+                          发送
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div className="group relative flex w-fit max-w-prose items-start gap-1.5">
-                  <div className="rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
-                    <TextBlock text={msg.content} />
-                  </div>
+                <div className="group relative flex w-fit max-w-prose items-center gap-1.5">
                   <Button
                     type="button"
                     size="sm"
                     variant="ghost"
                     shape="square"
                     onClick={() => setEditing({ id: msg.id, text: msg.content || '' })}
-                    className="absolute -left-8 top-1/2 z-10 !h-6 !w-6 -translate-y-1/2 !rounded-full !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
+                    className="!h-6 !w-6 shrink-0 !rounded-full !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
                     aria-label="编辑重发"
                   >
                     <Edit className="h-3 w-3" />
                   </Button>
+                  <div className="rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                    <TextBlock text={msg.content} />
+                  </div>
                 </div>
               )
             ) : (
