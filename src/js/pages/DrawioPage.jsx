@@ -744,7 +744,7 @@ export default function DrawioPage() {
           <div className="grid gap-2">
             <button
               type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-kumo-brand/35 hover:bg-kumo-recessed/40"
+              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-brand/35 hover:bg-kumo-recessed/40"
               onClick={() => copyCanvas('png')}
             >
               <div className="min-w-0 flex-1">
@@ -755,7 +755,7 @@ export default function DrawioPage() {
             </button>
             <button
               type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-kumo-brand/35 hover:bg-kumo-recessed/40"
+              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-brand/35 hover:bg-kumo-recessed/40"
               onClick={() => copyCanvas('svg')}
             >
               <div className="min-w-0 flex-1">

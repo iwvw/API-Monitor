@@ -284,7 +284,7 @@ export default function PublicPageIconPicker({
         triggerClassName,
         hasCustomIcon
           ? 'border-transparent bg-transparent shadow-none'
-          : 'transition-colors hover:border-kumo-brand/45',
+          : 'transition-colors hover:border-brand/45',
       )}
       onClick={() => setOpen(true)}
       aria-label="更换公开页图标"

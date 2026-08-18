@@ -317,7 +317,7 @@ export function AppCard({
       className={cx(
         'rounded-lg border border-kumo-line bg-kumo-base shadow-none ring-0',
         cardPaddingClass[padding] || cardPaddingClass.md,
-        interactive && 'transition-colors hover:border-kumo-brand/60',
+        interactive && 'transition-colors hover:border-brand/60',
         className
       )}
     >

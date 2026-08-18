@@ -84,7 +84,7 @@ function EmptyState({ onPrompt }) {
                 variant="ghost"
                 type="button"
                 onClick={() => onPrompt(p.subtitle || p.title)}
-                className="group relative flex !h-auto w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-kumo-brand/40 hover:bg-kumo-base hover:shadow-[0_0_12px_-2px_var(--color-kumo-shadow-drop)]"
+                className="group relative flex !h-auto w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-brand/40 hover:bg-kumo-base hover:shadow-[0_0_12px_-2px_var(--color-kumo-shadow-drop)]"
               >
                 <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-kumo-brand/80 to-kumo-brand transition-all duration-200 group-hover:h-5" />
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 transition-colors duration-200 group-hover:bg-kumo-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-kumo-brand/20">

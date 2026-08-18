@@ -31,6 +31,9 @@
 
 @theme inline {
   --font-mono: var(--font-sans);
+  /* 站点品牌色（品牌标识=橙色系：登录页品牌区 #dc7d40、AI 面板光斑 #fb923c；
+     kumo-brand 蓝紫仅为库默认强调色，非品牌色） */
+  --color-brand: #dc7d40;
 }
 
 /* ==================== Base Resets ==================== */

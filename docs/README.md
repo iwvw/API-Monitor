@@ -20,6 +20,7 @@
 
 - [前端开发最佳实践](./前端开发最佳实践.md)
 - [Kumo UI 规则](./Kumo%20UI%20规则.md)
+- [AI面板布局与交互规范](./AI面板布局与交互规范.md)
 - [重构验证与例外清单](./重构验证与例外清单.md)
 - [新模块接入指南](./新模块接入指南.md)
 - [Go 后端启动指南](./GO后端启动指南.md)
@@ -54,6 +55,9 @@
 - 表格/列表底部不留额外间隙：PageStack 使用 `viewport`（`pb-0`）变体 + 内容自然高度，不要再用 `h-full/flex-1` 撑满或内部 `overflow-auto` 制造填满视口的假象；底部被 content 自身内容决定，多余空白来自额外的底部 padding 或少显 `flex-1`。
 - 所有页面内容区四边距统一为 12px（`--app-canvas-gutter-x/top/bottom`），由 `MainLayout.jsx` 统一负责；viewport 工作区分支与普通滚动分支都使用同一套 gutter 变量，保证仪表盘、系统日志、Draw.io 等页面四边一致。页面内部不要额外叠加 `px-px/pt-px` 这类 padding 造成内外累计不均匀。
 - 改页面模板时必须同步检查 import（如 `stickyTabsBaseClass`、`TabBarOverflowActions`、`ResponsiveSearchInput`）；漏 import 会导致对应模块整页崩溃（`X is not defined`）。改动共享组件/常量（例如 `MODULE_TABS_PROPS`）会影响所有模块，需全局评估后再提交。修改后立即跑一次 `vite build` 兜底，能发现变量名笔误（如 `viewportWorkspace` 与 `viewportWorkspaceModule`）导致的构建失败。
+- 实现折叠/展开的 grid 容器，轨道必须写 `minmax(0, …)`（`fr` 下限默认 auto=内容 min-content）：列不归零会被长 JSON/长路径撑出横向滚动，行不归零收起后残留空白条。动画裁剪放子元素层（容器 `overflow: clip` 会裁掉子元素外扩的 ring 边框）；需要内部滚动的子元素用高特异性规则恢复 `overflow-y: auto`，不要挪 clip。
+- `overflow-hidden` 容器可被程序性横向滚动产生 `scrollLeft` 漂移（内容被 translate 撑宽时尤其容易），整体偏移排查优先查滚动容器，改用 `overflow-clip` 彻底禁止。
+- 站点品牌色是橙色（`--color-brand: #dc7d40`，见 [AI面板布局与交互规范](./AI面板布局与交互规范.md)）；`kumo-brand` 是 Kumo 库默认蓝紫，不是站点品牌色，品牌视觉（入口按钮、hover 边框）用 `brand` 不要用 `kumo-brand`。
 
 ## 参考资料
 

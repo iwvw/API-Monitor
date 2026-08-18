@@ -1628,7 +1628,7 @@ function TotpPage() {
                       onMouseEnter={() => handleCardMouseEnter(account.id)}
                       onMouseLeave={() => handleCardMouseLeave(account.id)}
                       onClick={() => copyCodeToClipboard(account)}
-                      className="group/card relative grid min-h-[96px] min-w-0 cursor-pointer grid-rows-[auto_1fr_auto] overflow-hidden p-0 transition-colors hover:border-kumo-brand cq-sm:min-h-[112px]"
+                      className="group/card relative grid min-h-[96px] min-w-0 cursor-pointer grid-rows-[auto_1fr_auto] overflow-hidden p-0 transition-colors hover:border-brand cq-sm:min-h-[112px]"
                     >
                       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 border-b border-kumo-line bg-kumo-recessed/35 px-2 py-1.5 cq-sm:gap-2 cq-sm:px-3 cq-sm:py-2">
                         <TotpBrandMark

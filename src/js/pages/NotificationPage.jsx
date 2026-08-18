@@ -938,7 +938,7 @@ function NotificationPage() {
                   key={channel.id}
                   padding="none"
                   interactive
-                  className="flex min-h-[128px] flex-col justify-between p-4 transition-all duration-200 hover:border-kumo-brand/50 hover:shadow-sm"
+                  className="flex min-h-[128px] flex-col justify-between p-4 transition-all duration-200 hover:border-brand/50 hover:shadow-sm"
                 >
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     {/* Icon */}
@@ -1060,7 +1060,7 @@ function NotificationPage() {
                   key={rule.id}
                   padding="none"
                   interactive
-                  className={`flex min-h-[148px] flex-col justify-between p-4 transition-all duration-200 hover:border-kumo-brand/50 hover:shadow-sm ${
+                  className={`flex min-h-[148px] flex-col justify-between p-4 transition-all duration-200 hover:border-brand/50 hover:shadow-sm ${
                     highlightRuleId === rule.id ? 'border-kumo-brand/60 ring-2 ring-kumo-brand/20' : ''
                   }`}
                 >
@@ -1305,7 +1305,7 @@ function NotificationPage() {
                   <AppCard
                     key={log.id}
                     padding="none"
-                    className="grid grid-cols-1 gap-3 p-3.5 transition-all duration-200 hover:border-kumo-brand/40 hover:shadow-sm cq-md:grid-cols-[280px_1fr] cq-md:items-start"
+                    className="grid grid-cols-1 gap-3 p-3.5 transition-all duration-200 hover:border-brand/40 hover:shadow-sm cq-md:grid-cols-[280px_1fr] cq-md:items-start"
                   >
                     {/* 左栏：状态与元数据快照 (固定 280px 宽度，饱满工整) */}
                     <div className="flex flex-col gap-2 min-w-0 pr-0 cq-md:pr-3.5 cq-md:border-r cq-md:border-kumo-line/50">

@@ -2168,7 +2168,7 @@ function SettingsPage() {
             icon={<img src="/logo.svg" alt="" className="h-6 w-6 object-contain" />}
           >
             <div className="grid gap-3 cq-sm:grid-cols-2">
-              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
                     <HardDrive className="h-3.5 w-3.5" />
@@ -2177,7 +2177,7 @@ function SettingsPage() {
                 </div>
                 <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{APP_VERSION}</span>
               </div>
-              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
                     <Clock className="h-3.5 w-3.5" />
@@ -2198,7 +2198,7 @@ function SettingsPage() {
                 { label: 'Zustand', value: FRAMEWORK_VERSIONS.zustand, icon: <Database className="h-3.5 w-3.5" /> },
                 { label: 'Go 后端', value: healthInfo?.goVersion || '…', icon: <Globe className="h-3.5 w-3.5" /> },
               ].map((item) => (
-                <div key={item.label} className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+                <div key={item.label} className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
                   <div className="flex items-center gap-2">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
                       {item.icon}
@@ -2210,7 +2210,7 @@ function SettingsPage() {
               ))}
             </div>
             <div className="mt-3 grid gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
-              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
                     <Globe className="h-3.5 w-3.5" />
@@ -2219,7 +2219,7 @@ function SettingsPage() {
                 </div>
                 <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{currentOrigin}</span>
               </div>
-              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
                     <Terminal className="h-3.5 w-3.5" />
@@ -2228,7 +2228,7 @@ function SettingsPage() {
                 </div>
                 <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{`${currentOrigin}/api`}</span>
               </div>
-              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-kumo-brand/50">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
                 <div className="flex items-center gap-2">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
                     <GitHubBrand className="h-3.5 w-3.5" />

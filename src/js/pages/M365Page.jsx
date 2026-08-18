@@ -1917,7 +1917,7 @@ function M365Page() {
                 tabIndex={0}
                 className={cx(
                   tenantCardFrameClass,
-                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left transition hover:border-kumo-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-kumo-brand/70',
+                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left transition hover:border-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-kumo-brand/70',
                   active ? 'border-kumo-brand/70 bg-kumo-brand/5' : 'border-kumo-line/80'
                 )}
                 onClick={() => setSelectedAccountId(String(account.id))}
@@ -2031,13 +2031,13 @@ function M365Page() {
             variant="secondary"
             className={cx(
               tenantCardFrameClass,
-              'group !h-full w-full justify-center border-dashed border-kumo-line/80 bg-kumo-base/35 text-kumo-subtle hover:border-kumo-brand/45 hover:bg-kumo-brand/5 hover:text-kumo-brand'
+              'group !h-full w-full justify-center border-dashed border-kumo-line/80 bg-kumo-base/35 text-kumo-subtle hover:border-brand/45 hover:bg-kumo-brand/5 hover:text-kumo-brand'
             )}
             onClick={openCreateAccount}
             aria-label="添加新租户"
           >
             <div className="flex flex-col items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle transition group-hover:border-kumo-brand/50 group-hover:text-kumo-brand">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle transition group-hover:border-brand/50 group-hover:text-kumo-brand">
                 <Plus className="h-5 w-5" />
               </div>
               <span className="text-xs font-medium opacity-0 transition group-hover:opacity-100">

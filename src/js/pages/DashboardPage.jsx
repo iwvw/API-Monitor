@@ -77,7 +77,7 @@ const API_TREND_RANGE_TABS = [
   { value: '14', label: '14 天' },
   { value: '30', label: '30 天' },
 ];
-const SERVICE_TOOL_ITEM_CLASS = 'group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/45 px-2.5 py-1.5 transition-colors hover:border-kumo-brand/60 hover:bg-kumo-base cq-sm:h-12 cq-sm:px-3 cq-xl:h-auto cq-xl:min-h-12';
+const SERVICE_TOOL_ITEM_CLASS = 'group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/45 px-2.5 py-1.5 transition-colors hover:border-brand/60 hover:bg-kumo-base cq-sm:h-12 cq-sm:px-3 cq-xl:h-auto cq-xl:min-h-12';
 const SERVICE_TOOL_ICON_CLASS = 'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm cq-sm:h-8 cq-sm:w-8';
 const SERVICE_TOOL_BADGE_CLASS = 'flex h-6 min-w-9 shrink-0 items-center justify-center gap-1 rounded-md border border-kumo-line bg-kumo-base px-1.5 text-[10px] font-semibold text-kumo-strong tabular-nums cq-sm:min-w-10 cq-sm:text-[11px]';
 
@@ -285,7 +285,7 @@ const getStatusPageUrl = (page) => {
   return `/status/${slug}`;
 };
 
-const STATUS_PAGE_SHORTCUT_ICON_CLASS = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-brand/10 text-kumo-brand';
+const STATUS_PAGE_SHORTCUT_ICON_CLASS = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand';
 
 function StatusPageShortcutCard({ page }) {
   const url = getStatusPageUrl(page);
@@ -301,22 +301,22 @@ function StatusPageShortcutCard({ page }) {
         <span className={STATUS_PAGE_SHORTCUT_ICON_CLASS}>
           <PublicPageBrandIcon pageKind={page.kind} config={page.config} iconClassName="h-4 w-4" customIconClassName="h-4 w-4" />
         </span>
-        <span className="min-w-0 truncate text-sm font-semibold text-kumo-strong group-hover:text-kumo-brand">
+        <span className="min-w-0 truncate text-sm font-semibold text-kumo-strong group-hover:text-brand">
           {page.title || page.slug}
         </span>
       </span>
-      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-kumo-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-kumo-brand" />
+      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-kumo-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-brand" />
     </AppCard>
   );
 }
 
 function MiniMeter({ label, value, detail, tone = 'brand' }) {
   const indicatorClassName = {
-    brand: 'bg-kumo-brand',
+    brand: 'bg-brand',
     info: 'bg-kumo-info',
     success: 'bg-kumo-success',
     warning: 'bg-kumo-warning',
-  }[tone] || 'bg-kumo-brand';
+  }[tone] || 'bg-brand';
 
   return (
     <Meter
@@ -1089,7 +1089,7 @@ function DashboardPage({ onNavigate } = {}) {
         <DashboardOverviewCard
           onClick={() => navigateToModule('settings')}
           icon={PieChart}
-          iconClassName="bg-kumo-brand/10 text-kumo-brand"
+          iconClassName="bg-brand/10 text-brand"
           badge="系统 API"
           badgeClassName="text-kumo-subtle bg-kumo-recessed border-kumo-line"
           label="系统 API 调用"
@@ -1105,7 +1105,7 @@ function DashboardPage({ onNavigate } = {}) {
         
         <SectionCard
           title="API 调用趋势"
-          icon={<TrendingUp className="h-4 w-4 text-kumo-brand" />}
+          icon={<TrendingUp className="h-4 w-4 text-brand" />}
           action={(
             <Tabs
               variant="segmented"
@@ -1153,7 +1153,7 @@ function DashboardPage({ onNavigate } = {}) {
         {/* Right Column: Services & Tools List */}
         <SectionCard
           title="模块入口"
-          icon={<Box className="h-4 w-4 text-kumo-brand" />}
+          icon={<Box className="h-4 w-4 text-brand" />}
           className="order-2 h-full min-w-0 cq-xl:col-start-2 cq-xl:row-span-2 cq-xl:row-start-1"
           bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 cq-sm:p-3"
         >
@@ -1168,7 +1168,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <KoyebBrand className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Koyeb</h4>
+                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">Koyeb</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">边缘计算应用服务</p>
                 </div>
               </div>
@@ -1184,11 +1184,11 @@ function DashboardPage({ onNavigate } = {}) {
               className={SERVICE_TOOL_ITEM_CLASS}
             >
               <div className="flex min-w-0 items-center gap-2.5 cq-sm:gap-3">
-                <div className={`${SERVICE_TOOL_ICON_CLASS} bg-kumo-brand/10 text-kumo-brand`}>
+                <div className={`${SERVICE_TOOL_ICON_CLASS} bg-brand/10 text-brand`}>
                   <FlyIoBrand className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Fly.io</h4>
+                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">Fly.io</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">全球微型虚拟机</p>
                 </div>
               </div>
@@ -1208,7 +1208,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <Activity className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">可用性监测</h4>
+                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">可用性监测</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">HTTP、TCP 与 Ping 监测</p>
                 </div>
               </div>
@@ -1228,7 +1228,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <Clock className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">定时任务</h4>
+                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">定时任务</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">任务、工作流与运行记录</p>
                 </div>
               </div>
@@ -1248,7 +1248,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <Shield className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">双因子认证</h4>
+                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">双因子认证</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">OTP 动态验证码账号</p>
                 </div>
               </div>
@@ -1268,7 +1268,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <FolderOpen className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">文件分享柜</h4>
+                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">文件分享柜</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">文件与片段分享柜</p>
                 </div>
               </div>
@@ -1283,7 +1283,7 @@ function DashboardPage({ onNavigate } = {}) {
         {dashboardStatusPages.length > 0 && (
           <SectionCard
             title="状态页"
-            icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+            icon={<Activity className="h-4 w-4 text-brand" />}
             className="order-3 min-w-0 cq-xl:col-span-2 cq-xl:row-start-3"
             bodyClassName="p-2.5 cq-sm:p-3"
           >

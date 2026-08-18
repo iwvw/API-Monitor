@@ -2681,7 +2681,7 @@ function DnsPage() {
                     return (
                       <div
                         key={bucket.name}
-                        className={`group rounded-md border p-2.5 transition ${isSelected ? 'border-kumo-brand/70 bg-kumo-brand/10 shadow-sm' : 'border-kumo-line bg-kumo-base hover:border-kumo-brand/50 hover:bg-kumo-recessed/40'}`}
+                        className={`group rounded-md border p-2.5 transition ${isSelected ? 'border-kumo-brand/70 bg-kumo-brand/10 shadow-sm' : 'border-kumo-line bg-kumo-base hover:border-brand/50 hover:bg-kumo-recessed/40'}`}
                       >
                         <Button
                           type="button"

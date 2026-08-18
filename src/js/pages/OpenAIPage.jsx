@@ -5669,9 +5669,11 @@ if (!response.ok) {
                               <span className="shrink-0 px-0.5 text-kumo-subtle">（</span>
                               <span className="text-left text-kumo-strong">
                                 {log.promptTokens > 0
-                                  ? `${((log.cachedTokens / log.promptTokens) * 100).toFixed(1)}%）`
-                                  : '0.0%）'}
+                                  ? ((log.cachedTokens / log.promptTokens) * 100).toFixed(1)
+                                  : '0.0'}
+                                %
                               </span>
+                              <span className="shrink-0 text-kumo-subtle">）</span>
                             </div>
                           </Table.Cell>
 <Table.Cell
@@ -5684,8 +5686,9 @@ if (!response.ok) {
                               </span>
                               <span className="shrink-0 px-0.5 leading-none text-kumo-subtle">（</span>
                               <span className="text-left font-mono leading-none text-kumo-subtle">
-                                {Math.max(0, log.totalTokens - log.cachedTokens)}）
+                                {Math.max(0, log.totalTokens - log.cachedTokens)}
                               </span>
+                              <span className="shrink-0 leading-none text-kumo-subtle">）</span>
                             </div>
                           </Table.Cell>
                         </Table.Row>
