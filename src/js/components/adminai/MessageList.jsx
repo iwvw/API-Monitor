@@ -590,14 +590,14 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
           >
             {msg.role === 'user' ? (
               editing && editing.id === msg.id ? (
-                <div className="flex w-fit max-w-prose items-center gap-1.5">
+                <div className="flex w-fit max-w-prose items-end gap-1.5">
                   <Button
                     type="button"
                     size="sm"
-                    variant="ghost"
+                    variant="secondary"
                     shape="square"
                     onClick={handleCopyEdit}
-                    className="!h-6 !w-6 shrink-0 !rounded-full !text-kumo-subtle hover:!bg-kumo-tint hover:!text-kumo-default"
+                    className="!h-6 !w-6 shrink-0 !rounded-full !p-0 !text-kumo-subtle"
                     aria-label="复制消息"
                     title="复制消息内容"
                   >
@@ -646,14 +646,14 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   </div>
                 </div>
               ) : (
-                <div className="group relative flex w-fit max-w-prose items-center gap-1.5">
+                <div className="group relative flex w-fit max-w-prose items-end gap-1.5">
                   <Button
                     type="button"
                     size="sm"
-                    variant="ghost"
+                    variant="secondary"
                     shape="square"
                     onClick={() => setEditing({ id: msg.id, text: msg.content || '' })}
-                    className="!h-6 !w-6 shrink-0 !rounded-full !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
+                    className="mb-0.5 !h-6 !w-6 shrink-0 !rounded-full !p-0 !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
                     aria-label="编辑重发"
                   >
                     <Edit className="h-3 w-3" />
