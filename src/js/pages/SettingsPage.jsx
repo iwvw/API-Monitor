@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -123,6 +123,56 @@ const toInt = (value, fallback = 0) => {
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+
+function MasonryGrid({ children, className = '' }) {
+  const containerRef = useRef(null);
+  const childArray = React.Children.toArray(children);
+  const childKeys = childArray.map((child, index) => child.key || index).join('|');
+  const [rowSpans, setRowSpans] = useState([]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    let frameId = null;
+    const items = Array.from(container.children);
+    const updateSpans = () => {
+      frameId = null;
+      const styles = getComputedStyle(container);
+      const rowHeight = Number.parseFloat(styles.gridAutoRows) || 1;
+      const rowGap = Number.parseFloat(styles.rowGap) || 0;
+      const nextSpans = items.map((item) => {
+        const content = item.firstElementChild || item;
+        const height = content.getBoundingClientRect().height || item.scrollHeight;
+        return Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
+      });
+      setRowSpans((previous) => previous.length === nextSpans.length && previous.every((value, index) => value === nextSpans[index]) ? previous : nextSpans);
+    };
+    const scheduleUpdate = () => {
+      if (frameId === null) frameId = requestAnimationFrame(updateSpans);
+    };
+
+    updateSpans();
+    const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleUpdate) : null;
+    items.forEach((item) => resizeObserver?.observe(item.firstElementChild || item));
+    resizeObserver?.observe(container);
+
+    return () => {
+      if (frameId !== null) cancelAnimationFrame(frameId);
+      resizeObserver?.disconnect();
+    };
+  }, [childKeys]);
+
+  return (
+    <div ref={containerRef} className={`grid grid-flow-row-dense grid-cols-1 items-start gap-3 cq-lg:grid-cols-2 ${className}`} style={{ gridAutoRows: '1px' }}>
+      {childArray.map((child, index) => (
+        <div key={child.key || index} className="min-w-0 self-start" style={rowSpans[index] ? { gridRowEnd: `span ${rowSpans[index]}` } : undefined}>
+          {child}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const moduleRows = DEFAULT_MODULE_ORDER.filter((moduleId) => moduleId !== 'prompts').map((moduleId) => {
   const group = MODULE_GROUPS.find((item) => getGroupModuleIds(item).includes(moduleId));
@@ -1698,7 +1748,99 @@ function SettingsPage() {
       )}
 
       {activeTab === 'database' && (
-        <div className="grid items-start gap-3 cq-xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
+        <MasonryGrid>
+          <SectionCard
+            title="数据库导入导出"
+            icon={<Download className="h-4 w-4 text-kumo-brand" />}
+            bodyPadding="sm"
+            bodyClassName="space-y-3"
+          >
+            <Input
+              ref={fileInputRef}
+              type="file"
+              accept=".db"
+              aria-label="选择数据库文件"
+              className="hidden"
+              onChange={previewDatabaseImport}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={exportDatabase}
+                aria-label="导出数据库"
+                title="导出数据库"
+                icon={<Upload className="h-3.5 w-3.5" />}
+              >
+                导出数据库
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={importDatabase}
+                loading={databaseBusy}
+                aria-label="导入数据库"
+                title="导入数据库"
+                icon={<Download className="h-3.5 w-3.5" />}
+              >
+                导入数据库
+              </Button>
+            </div>
+            {dbImportPreview && (
+              <AppCard padding="none" className="bg-kumo-recessed/40 p-3 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-kumo-strong truncate">{dbImportPreview.originalName}</span>
+                  <Badge variant={dbImportPreview.analysis?.integrity === 'ok' ? 'success' : 'warning'}>
+                    {dbImportPreview.analysis?.integrity || 'unknown'}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">大小</div>
+                    <div className="mt-1 font-mono text-kumo-strong">{formatFileSize(dbImportPreview.analysis?.sizeBytes)}</div>
+                  </div>
+                  <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">表数量</div>
+                    <div className="mt-1 font-mono text-kumo-strong">{dbImportPreview.analysis?.tableCount || 0}</div>
+                  </div>
+                </div>
+                {dbImportPreview.warnings?.length > 0 && (
+                  <div className="mt-2 space-y-1 rounded border border-kumo-warning/30 bg-kumo-warning/10 p-2 text-[11px] text-kumo-warning">
+                    {dbImportPreview.warnings.map((warning) => (
+                      <div key={warning}>{warning}</div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-3 max-h-44 overflow-y-auto rounded border border-kumo-line bg-kumo-base">
+                  <Table layout="fixed">
+                    <Table.Header variant="compact">
+                      <Table.Row>
+                        <Table.Head>表名</Table.Head>
+                        <Table.Head className="w-20">记录数</Table.Head>
+                      </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                      {(dbImportPreview.analysis?.tables || []).slice(0, 20).map((row) => (
+                        <Table.Row key={row.name}>
+                          <Table.Cell className="truncate font-mono text-[11px]">{row.name}</Table.Cell>
+                          <Table.Cell className="font-mono text-[11px]">{row.rows}</Table.Cell>
+                        </Table.Row>
+                      ))}
+                    </Table.Body>
+                  </Table>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" variant="primary" className="flex-1 justify-center" onClick={commitDatabaseImport} loading={databaseBusy}>
+                    确认导入
+                  </Button>
+                  <Button size="sm" variant="secondary" className="flex-1 justify-center" onClick={() => setDbImportPreview(null)}>
+                    取消
+                  </Button>
+                </div>
+              </AppCard>
+            )}
+          </SectionCard>
+
           <SectionCard
             title="数据库统计"
             description={dbStats?.dbPath || 'SQLite 数据文件'}
@@ -1802,103 +1944,10 @@ function SettingsPage() {
             )}
           </SectionCard>
 
-          <div className="grid content-start gap-3">
-            <SectionCard
-              title="数据库导入导出"
-              icon={<Download className="h-4 w-4 text-kumo-brand" />}
-              bodyPadding="sm"
-              bodyClassName="space-y-3"
-            >
-              <Input
-                ref={fileInputRef}
-                type="file"
-                accept=".db"
-                aria-label="选择数据库文件"
-                className="hidden"
-                onChange={previewDatabaseImport}
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={exportDatabase}
-                  aria-label="导出数据库"
-                  title="导出数据库"
-                  icon={<Upload className="h-3.5 w-3.5" />}
-                >
-                  导出数据库
-                </Button>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={importDatabase}
-                  loading={databaseBusy}
-                  aria-label="导入数据库"
-                  title="导入数据库"
-                  icon={<Download className="h-3.5 w-3.5" />}
-                >
-                  导入数据库
-                </Button>
-              </div>
-              {dbImportPreview && (
-                <AppCard padding="none" className="bg-kumo-recessed/40 p-3 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-kumo-strong truncate">{dbImportPreview.originalName}</span>
-                    <Badge variant={dbImportPreview.analysis?.integrity === 'ok' ? 'success' : 'warning'}>
-                      {dbImportPreview.analysis?.integrity || 'unknown'}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">大小</div>
-                      <div className="mt-1 font-mono text-kumo-strong">{formatFileSize(dbImportPreview.analysis?.sizeBytes)}</div>
-                    </div>
-                    <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">表数量</div>
-                      <div className="mt-1 font-mono text-kumo-strong">{dbImportPreview.analysis?.tableCount || 0}</div>
-                    </div>
-                  </div>
-                  {dbImportPreview.warnings?.length > 0 && (
-                    <div className="mt-2 space-y-1 rounded border border-kumo-warning/30 bg-kumo-warning/10 p-2 text-[11px] text-kumo-warning">
-                      {dbImportPreview.warnings.map((warning) => (
-                        <div key={warning}>{warning}</div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="mt-3 max-h-44 overflow-y-auto rounded border border-kumo-line bg-kumo-base">
-                    <Table layout="fixed">
-                      <Table.Header variant="compact">
-                        <Table.Row>
-                          <Table.Head>表名</Table.Head>
-                          <Table.Head className="w-20">记录数</Table.Head>
-                        </Table.Row>
-                      </Table.Header>
-                      <Table.Body>
-                        {(dbImportPreview.analysis?.tables || []).slice(0, 20).map((row) => (
-                          <Table.Row key={row.name}>
-                            <Table.Cell className="truncate font-mono text-[11px]">{row.name}</Table.Cell>
-                            <Table.Cell className="font-mono text-[11px]">{row.rows}</Table.Cell>
-                          </Table.Row>
-                        ))}
-                      </Table.Body>
-                    </Table>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="primary" className="flex-1 justify-center" onClick={commitDatabaseImport} loading={databaseBusy}>
-                      确认导入
-                    </Button>
-                    <Button size="sm" variant="secondary" className="flex-1 justify-center" onClick={() => setDbImportPreview(null)}>
-                      取消
-                    </Button>
-                  </div>
-                </AppCard>
-              )}
-            </SectionCard>
+          <BackupPanel embedded />
 
-            <BackupPanel embedded />
-
-            <SectionCard
-              title="维护操作"
+          <SectionCard
+            title="维护操作"
               icon={<HardDrive className="h-4 w-4 text-kumo-brand" />}
               bodyPadding="none"
             >
@@ -1973,8 +2022,7 @@ function SettingsPage() {
                 )}
               </div>
             </SectionCard>
-          </div>
-        </div>
+        </MasonryGrid>
       )}
 
       {activeTab === 'logs' && (
