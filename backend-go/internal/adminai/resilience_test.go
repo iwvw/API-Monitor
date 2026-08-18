@@ -238,6 +238,114 @@ func TestParseModelList(t *testing.T) {
 	}
 }
 
+// --- 摘要清洗与截断：删全部标点/空白；超长按量值边界与助词回退截断 ---
+
+func TestCleanSummaryText(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"检查主机状态。", "检查主机状态"},
+		{"「查看磁盘」与内存占用：", "查看磁盘与内存占用"},
+		{"摘要：正在检查所有节点。", "摘要正在检查所有节点"},
+		{"GPU-VRAM 占用 80%，正常。", "GPU-VRAM占用80%正常"},
+		{"，。！？：；·…—", ""},
+		{"", ""},
+		{"  　 ", ""},
+	}
+	for _, c := range cases {
+		if got := cleanSummaryText(c.in); got != c.want {
+			t.Errorf("cleanSummaryText(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCutSummaryRunes(t *testing.T) {
+	cases := []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"检查主机状态", 16, "检查主机状态"},
+		{"主机负载89%内存负载45%磁盘剩余12%", 10, "主机负载89%"},
+		{"查询全部云服务器CPU使用率和内存占用明细", 16, "查询全部云服务器CPU使用率"},
+		{"检查主机CPU占用52%内存占用48%", 16, "检查主机CPU占用52%内存占用"},
+		{"短", 16, "短"},
+		{"", 16, ""},
+		{"abcdefghijklmnopqrstuvwxyz", 8, "abcdefgh"},
+	}
+	for _, c := range cases {
+		if got := cutSummaryRunes(c.in, c.max); got != c.want {
+			t.Errorf("cutSummaryRunes(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
+		}
+	}
+}
+
+// --- 会话标题只生成一次：已有标题时后续消息不再触发标题 LLM 调用 ---
+
+func TestGenerateSessionTitleOnce(t *testing.T) {
+	s := newTestService(t)
+	var calls int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/chat/completions" {
+			atomic.AddInt32(&calls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"检查所有主机状态"}}]}`)
+			return
+		}
+		http.Error(w, "no", http.StatusNotFound)
+	}))
+	defer ts.Close()
+	s.cfg.Port = ts.Listener.Addr().(*net.TCPAddr).Port
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_sessions (id, source, title, model, created_at, updated_at, last_activity_at) VALUES ('aas_title1', 'web', '', 'default', ?, ?, ?)`,
+		now, now, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	db.Close()
+
+	eventCh := make(chan SSEEvent, 8)
+	s.generateSessionTitleAsync(context.Background(), "aas_title1", "default", "帮我查看所有主机状态", "查看主机状态", eventCh)
+	select {
+	case ev := <-eventCh:
+		if ev.Type != "session_title" {
+			t.Fatalf("first event = %s, want session_title", ev.Type)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("first title event timeout")
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("first call count = %d, want 1", atomic.LoadInt32(&calls))
+	}
+
+	// 第二条消息：标题已存在，不应再触发 LLM 调用，也不应再推送事件
+	s.generateSessionTitleAsync(context.Background(), "aas_title1", "default", "再帮我查一下磁盘占用", "查看主机状态", eventCh)
+	select {
+	case ev := <-eventCh:
+		t.Fatalf("second call emitted unexpected event: %s", ev.Type)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("second call count = %d, want still 1", atomic.LoadInt32(&calls))
+	}
+
+	db2, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer db2.Close()
+	var title string
+	if err := db2.QueryRowContext(context.Background(), `SELECT COALESCE(title,'') FROM admin_ai_sessions WHERE id = 'aas_title1'`).Scan(&title); err != nil {
+		t.Fatalf("query title: %v", err)
+	}
+	if title != "检查所有主机状态" {
+		t.Fatalf("db title = %q, want 检查所有主机状态", title)
+	}
+}
+
 // summarizeReasoning 回退：mock 网关按模型名返回不同结果（首个 500，第二个成功）。
 func TestSummarizeReasoningFallback(t *testing.T) {
 	s := newTestService(t)

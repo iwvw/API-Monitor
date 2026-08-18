@@ -292,6 +292,13 @@ function summarizeByPunctuation(text, maxLen = 96) {
   return `${head}…`;
 }
 
+// 摘要强制无标点：删除全部中文/英文标点与空白（后端生成时已清洗，这里兜底历史消息）。
+const SUMMARY_PUNCT_RE = /[\u3000-\u303f\uff00-\uffef"'(),.;:!?/\\\s]/g;
+function cleanSummaryText(text) {
+  if (!text) return '';
+  return text.replace(SUMMARY_PUNCT_RE, '');
+}
+
 function ReasoningPart({ part, streaming }) {
   const [open, setOpen] = useState(false);
   const [tickerOn, setTickerOn] = useState(true);
@@ -303,7 +310,7 @@ function ReasoningPart({ part, streaming }) {
   }, [part.text, tickerOn]);
   if (!part.text && !streaming) return null;
   const isCN = (s) => /[\u4e00-\u9fa5]/.test(s || '');
-  const displaySummary = isCN(part.summary) ? summarizeByPunctuation(part.summary) : '';
+  const displaySummary = isCN(part.summary) ? summarizeByPunctuation(cleanSummaryText(part.summary)) : '';
   return (
     <div className="flex flex-col gap-1">
       <Button

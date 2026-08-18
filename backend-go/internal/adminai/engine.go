@@ -17,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/adminai/channel"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
@@ -1732,20 +1733,27 @@ func catalogTemplateMatches(template, path string) bool {
 	return true
 }
 
-// generateSessionTitleAsync 异步生成会话标题：模型生成 ≤12 字中文标题并写库，
+// generateSessionTitleAsync 异步生成会话标题：仅当会话尚无标题时才发起模型调用
+// （避免每条新消息都触发一次标题生成），模型生成 ≤16 字中文标题并写库，
 // 成功后下推 session_title 事件（前端实时更新会话列表）；失败回退消息截断。
 // 独立连接写库避免与 runInference 主流程的单连接池互锁。
 func (s *Service) generateSessionTitleAsync(ctx context.Context, sessionID, model, prompt, fallback string, eventCh chan SSEEvent) {
-	title := s.generateSessionTitle(ctx, model, prompt)
-	if strings.TrimSpace(title) == "" {
-		title = fallback
-	}
 	db, err := s.open(ctx)
 	if err != nil {
 		slog.Warn("session-title-db", "err", err.Error())
 		return
 	}
 	defer db.Close()
+	// 标题已存在（含并发竞态下先写成功的）直接跳过：不再重复发起 LLM 调用
+	var existing string
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(title, '') FROM admin_ai_sessions WHERE id = ?`, sessionID).Scan(&existing); err != nil || existing != "" {
+		return
+	}
+	title := s.generateSessionTitle(ctx, model, prompt)
+	if strings.TrimSpace(title) == "" {
+		title = fallback
+	}
 	if _, err := db.ExecContext(ctx,
 		`UPDATE admin_ai_sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')`,
 		title, sessionID); err != nil {
@@ -1761,7 +1769,7 @@ func (s *Service) generateSessionTitle(ctx context.Context, model, prompt string
 		return ""
 	}
 	messages := []map[string]interface{}{
-		{"role": "system", "content": "为下面的用户消息生成一个不超过 16 个字的简体中文对话标题。只输出标题本身，不要引号、冒号或任何解释。"},
+		{"role": "system", "content": titleSystemPrompt},
 		{"role": "user", "content": truncateContent(prompt)},
 	}
 	resp, err := s.callLLMPlain(ctx, model, messages)
@@ -1907,8 +1915,9 @@ func toolParallelSafe(toolName string, args map[string]interface{}) bool {
 	return false
 }
 
-// summarizeReasoning 按候选模型列表逐个尝试生成 ≤10 字思维链标题式摘要；
+// summarizeReasoning 按候选模型列表逐个尝试生成 ≤maxSummaryRunes 字思维链标题式摘要；
 // 某模型调用失败或返回空内容时自动回退到下一个候选；全部失败返回空串（前端回退截断）。
+// 输出强制清洗：删除全部标点符号与空白（cleanSummaryText），即使模型未遵守提示词。
 func (s *Service) summarizeReasoning(ctx context.Context, models []string, reasoning string) string {
 	if strings.TrimSpace(reasoning) == "" {
 		return ""
@@ -1922,7 +1931,7 @@ func (s *Service) summarizeReasoning(ctx context.Context, models []string, reaso
 	defer sumCancel()
 	for _, model := range models {
 		messages := []map[string]interface{}{
-			{"role": "system", "content": "把用户的思考内容压缩为不超过 10 个字的标题式摘要，必须使用简体中文。只输出摘要本身，不要引号、冒号或任何解释。"},
+			{"role": "system", "content": summarySystemPrompt},
 			{"role": "user", "content": truncateContent(reasoning)},
 		}
 		resp, err := s.callLLMPlain(sumCtx, model, messages)
@@ -1934,17 +1943,91 @@ func (s *Service) summarizeReasoning(ctx context.Context, models []string, reaso
 		if text == "" && len(resp.Choices) > 0 {
 			text = strings.TrimSpace(resp.Choices[0].Message.Content)
 		}
-		// 结果清洗：去掉常见前后缀噪音，限制长度
-		text = strings.Trim(text, "\"'「」『』()（）:：")
-		if r := []rune(text); len(r) > 12 {
-			text = string(r[:12])
-		}
+		text = cleanSummaryText(text)
 		if text != "" {
 			return text
 		}
 		slog.Warn("reasoning-summary-empty", "model", model)
 	}
 	return ""
+}
+
+// maxSummaryRunes 推理摘要长度上限：与提示词要求一致，超长时按边界截断。
+const maxSummaryRunes = 16
+
+// titleSystemPrompt 会话标题提示词：≤16 字、简体中文、禁用标点与空白，附对照示例。
+const titleSystemPrompt = "为下面的用户消息生成一个不超过 16 个字的简体中文对话标题，" +
+	"禁止使用任何标点符号、引号或空格，只输出标题本身，不要任何解释。" +
+	"示例：用户消息「帮我查看所有主机状态并列出磁盘使用情况」应输出「查看主机与磁盘状态」。"
+
+// summarySystemPrompt 推理摘要提示词：标题式 ≤16 字、简体中文、禁用全部标点与空白，
+// 附带一个输入/输出对照示例，让模型理解「标题式」的具体形态。
+const summarySystemPrompt = "把用户的思考内容压缩成一个不超过 16 个字的标题式摘要，必须使用简体中文，" +
+	"禁止使用任何标点符号、引号、斜杠或空格，禁止添加解释性前缀。只输出摘要本身。" +
+	"示例：思考「先查看主机列表，再检查磁盘剩余空间」应输出「查看主机磁盘空间」。"
+
+// cleanSummaryText 强制清洗模型输出的摘要：删除全部标点符号（中文/英文/成对包裹符）、
+// 全部空白（摘要是单行无间隙标题文字），最后按 maxSummaryRunes 做边界截断。
+func cleanSummaryText(text string) string {
+	var b strings.Builder
+	b.Grow(len(text) + 1)
+	for _, r := range text {
+		switch r {
+		case '。', '！', '？', '；', '，', '、', '：', '·', '…', '—', '－',
+			'「', '」', '『', '』', '（', '）', '(', ')', '【', '】', '《', '》',
+			'“', '”', '‘', '’', '\u3000',
+			'"', '\'', ',', '.', ';', ':', '!', '?', '/', '\\',
+			' ', '\t', '\n', '\r':
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return cutSummaryRunes(strings.TrimSpace(b.String()), maxSummaryRunes)
+}
+
+// summaryTrailingParticles 中文助词/连接词：硬切兜底时避开它们，避免残句结尾。
+var summaryTrailingParticles = map[rune]bool{
+	'的': true, '了': true, '着': true, '过': true, '和': true, '与': true,
+	'及': true, '并': true, '且': true, '而': true, '在': true, '对': true,
+	'把': true, '到': true, '为': true, '被': true, '于': true, '从': true,
+	'向': true, '以': true, '会': true, '能': true, '要': true,
+}
+
+// cutSummaryRunes 把摘要截到 max 个 rune 内。优先停在数字量值短语边界（避免
+// 「…占用52%内」这类把数值与后续短语劈开的残句），其次避开助词/连接词结尾
+// （「…使用率和」回退成「…使用率」），无更优切点时退化为硬切。
+func cutSummaryRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	if max < 2 {
+		return string(runes[:max])
+	}
+	// 数字/百分号与其他字符的交界视为量值短语结束点，从右往左找最后一个
+	isNum := func(r rune) bool { return (r >= '0' && r <= '9') || r == '%' }
+	for i := max; i > max/2; i-- {
+		if isNum(runes[i-1]) != isNum(runes[i]) {
+			return string(runes[:i])
+		}
+	}
+	// 无量值边界：切点若落在助词/连接词上（含「助词+汉字」组合，如「…使用率和内」
+	// 切点虽为『内』，但紧邻的是连接词『和』），向前回退保留完整短语，避免残句结尾
+	cut := max
+	for cut > max/2 {
+		last := runes[cut-1]
+		if summaryTrailingParticles[last] {
+			cut--
+			continue
+		}
+		if cut >= 2 && summaryTrailingParticles[runes[cut-2]] && unicode.Is(unicode.Han, last) {
+			cut--
+			continue
+		}
+		break
+	}
+	return string(runes[:cut])
 }
 
 // parseModelList 解析逗号分隔的模型候选列表（去空白与空项）。

@@ -251,7 +251,7 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_content", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_messages.reasoning_content: %w", err)
 	}
-	// admin_ai_messages 扩展 reasoning_summary 列（AI 生成的 ≤10 字推理摘要，前端收起态展示）
+	// admin_ai_messages 扩展 reasoning_summary 列（AI 生成的 ≤16 字推理摘要，前端收起态展示）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_summary", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_messages.reasoning_summary: %w", err)
 	}
@@ -629,6 +629,19 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 	}
 
 	resp := map[string]interface{}{"items": items}
+	// 活跃 run 快照：与会话列表同源（锁内读 sessionRuns + runPhase）。
+	// 前端据此在无 SSE 通道的外部 run（MCP/API/BOT/定时任务）期间把最后一条
+	// 助手消息标为 live，推理/工具/代理图标继续动态化，而不是退化为静态终态。
+	s.mu.Lock()
+	activeRunID := s.sessionRuns[sessionID]
+	phase := s.runPhase[activeRunID]
+	s.mu.Unlock()
+	if activeRunID != "" {
+		if phase == "" {
+			phase = "starting"
+		}
+		resp["activeRun"] = map[string]interface{}{"runId": activeRunID, "phase": phase}
+	}
 	if nextCursor != "" {
 		resp["nextCursor"] = nextCursor
 	}
