@@ -18,7 +18,7 @@ function ErrorBanner({ message }) {
   );
 }
 
-/* 多选模型：已选显示为可移除标签 + 弹出面板勾选（收起态不含模型名） */
+/* 多选模型：悬浮面板勾选；收起态只显示已选数量（不显示具体模型名） */
 function MultiModelSelect({ options, value, onChange }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
@@ -37,41 +37,27 @@ function MultiModelSelect({ options, value, onChange }) {
     else next.add(v);
     onChange([...next].join(','));
   };
-  const labelOf = (v) => {
-    const opt = options.find((o) => o.value === v);
-    return opt ? opt.label : v;
-  };
   return (
-    <div ref={boxRef} className="flex w-full flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {[...selected].map((v) => (
-          <Badge key={v} variant="outline" className="max-w-full gap-1 !py-0.5 !text-[11px]">
-            <span className="truncate">{labelOf(v)}</span>
-            <button
-              type="button"
-              onClick={() => toggle(v)}
-              className="shrink-0 rounded-full p-0.5 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-danger"
-              aria-label={`移除 ${labelOf(v)}`}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </Badge>
-        ))}
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          onClick={() => setOpen(!open)}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          className="!px-2 !py-1 !text-[11px]"
-        >
-          <Plus className="h-3 w-3" />
-          选择模型
-        </Button>
-      </div>
+    <div ref={boxRef} className="relative w-full">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 !px-3 !py-1.5 !text-[11px]"
+      >
+        <span className="flex min-w-0 items-center gap-1.5 text-kumo-default">
+          <Plus className="h-3 w-3 shrink-0 text-kumo-subtle" />
+          摘要模型
+        </span>
+        <Badge variant={selected.size > 0 ? 'primary' : 'outline'} className="shrink-0 !py-0 !text-[10px]">
+          {selected.size > 0 ? `已选 ${selected.size} 个` : '未选择'}
+        </Badge>
+      </Button>
       {open && (
-        <div className="max-h-56 overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-lg ring-1 ring-kumo-line">
+        <div className="absolute left-0 top-full z-40 mt-1 w-full max-h-56 overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-lg ring-1 ring-kumo-line">
           {options.length === 0 ? (
             <p className="px-2.5 py-2 text-xs text-kumo-subtle">模型网关无可用模型</p>
           ) : (
