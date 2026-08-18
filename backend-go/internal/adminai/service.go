@@ -50,6 +50,7 @@ type Service struct {
 	catalogRoutes []map[string]interface{} // 完整路由契约缓存（get_route 用），与 catalogText 同锁
 
 	chanMgr     *channelManager // PRD-03 频道接入（channels.go）
+	channelQueueLocks map[string]*sync.Mutex // sessionId → 频道入站排队锁（channels.go，串行化同会话排队者）
 	cleanerOnce sync.Once       // PRD-04 审批超时清理 goroutine
 	stopCleaner chan struct{}
 	captureOnce sync.Once       // 自动记忆提炼 goroutine（memory_agent.go）
@@ -74,6 +75,7 @@ func New(cfg config.Config) *Service {
 		runPhase:        make(map[string]string),
 		captureInFlight: make(map[string]bool),
 		toolLoops:       make(map[string]int),
+		channelQueueLocks: make(map[string]*sync.Mutex),
 	}
 }
 

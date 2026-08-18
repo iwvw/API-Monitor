@@ -341,6 +341,8 @@ func (s *Service) handleChannelInbound(env channel.InboundEnvelope) {
 }
 
 // handleChannelConversation 异步执行频道普通消息对话（先发占位消息，再流式 Edit 增量呈现）。
+// 会话已有活跃 run（web/BOT/上一条频道消息执行中）时，消息进入 per-session 排队：
+// 等待当前 run 结束后自动启动新 run 消费，不再被互斥拒绝（对齐 web 的 join 语义）。
 func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 	slog.Info("channel-inbound-start", "channelId", env.ChannelID, "chatId", env.ChatID, "text", env.Text)
 	// 会话键：channels 用 chatID 派生（同一对话/群组共享上下文）
@@ -353,6 +355,14 @@ func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 		"username":  env.Username,
 		"chatId":    env.ChatID,
 	})
+
+	s.mu.Lock()
+	_, busy := s.sessionRuns[sessionID]
+	s.mu.Unlock()
+	if busy {
+		go s.queueChannelConversation(env, sessionID, source, string(identity))
+		return
+	}
 
 	ch, ok := s.chanMgr.registry.Get(env.ChannelID)
 	if !ok {
@@ -371,6 +381,64 @@ func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 		s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
 		return
 	}
+	s.streamChannelReply(env, runID, msgID)
+}
+
+// channelQueueTimeout 排队等待上限：超过即提示用户稍后重试，避免 goroutine 无限挂起。
+// 用 var 以便测试注入短值（运行期只读，勿修改）。
+var channelQueueTimeout = 5 * time.Minute
+
+// queueChannelConversation 会话繁忙时排队：per-session 互斥锁串行化排队者
+// （多排同会话时先到先处理，不会并发唤醒互相踩踏 RunLoop 互斥），
+// 当前 run 结束（sessionRuns 清空）后自动启动新 run 消费本条消息。
+func (s *Service) queueChannelConversation(env channel.InboundEnvelope, sessionID, source, identity string) {
+	// per-session 排队锁：无锁则建（锁表只增不减，会话级数量有限）
+	s.mu.Lock()
+	ql, exists := s.channelQueueLocks[sessionID]
+	if !exists {
+		ql = &sync.Mutex{}
+		s.channelQueueLocks[sessionID] = ql
+	}
+	s.mu.Unlock()
+	ql.Lock()
+	defer ql.Unlock()
+
+	ch, ok := s.chanMgr.registry.Get(env.ChannelID)
+	if !ok {
+		s.sendChannelReplyReport(env, "⚠️ 频道未就绪。")
+		return
+	}
+	msgID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在排队（上一条仍在执行），完成后自动继续…"})
+	if err != nil {
+		slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
+		return
+	}
+
+	deadline := time.Now().Add(channelQueueTimeout)
+	waited := time.Duration(0)
+	for {
+		s.mu.Lock()
+		_, busy := s.sessionRuns[sessionID]
+		s.mu.Unlock()
+		if !busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = s.sendChannelEdit(env, msgID, "⚠️ 排队超时，请稍后再试。")
+			slog.Warn("channel-queue-timeout", "channelId", env.ChannelID, "chatId", env.ChatID)
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+		waited += 500 * time.Millisecond
+	}
+
+	_ = s.sendChannelEdit(env, msgID, "⏳ 正在处理中…")
+	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, identity, "", "")
+	if err != nil {
+		_ = s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
+		return
+	}
+	slog.Info("channel-queued-run", "channelId", env.ChannelID, "chatId", env.ChatID, "runId", runID, "waitedMs", waited.Milliseconds())
 	s.streamChannelReply(env, runID, msgID)
 }
 
