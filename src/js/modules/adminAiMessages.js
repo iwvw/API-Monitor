@@ -57,6 +57,7 @@ export function createAssistantMessage(id, runId = null, status = MSG.PENDING) {
     status,
     runId,
     active: true, // active 的消息才会接收流事件
+    roundUserMsgId: '', // 本轮归属的服务端 user 消息 id：追问入队后事件按它分段
   };
 }
 
@@ -66,13 +67,13 @@ export function normalizeAiEvent(raw) {
   if (!raw || !raw.type) return null;
   switch (raw.type) {
     case 'reasoning':
-      return { type: 'reasoning', text: raw.text || '' };
+      return { type: 'reasoning', text: raw.text || '', userMessageId: raw.userMessageId || '' };
     case 'reasoning_summary':
       return { type: 'reasoning_summary', text: raw.text || '' };
     case 'delta':
-      return { type: 'delta', text: raw.text || '' };
+      return { type: 'delta', text: raw.text || '', userMessageId: raw.userMessageId || '' };
     case 'tool_start':
-      return { type: 'tool_start', toolName: raw.toolName || '', toolCallId: raw.toolCallId || '', args: raw.args, desc: raw.desc || '' };
+      return { type: 'tool_start', toolName: raw.toolName || '', toolCallId: raw.toolCallId || '', args: raw.args, desc: raw.desc || '', userMessageId: raw.userMessageId || '' };
     case 'tool_result':
       return {
         type: 'tool_result',
@@ -80,6 +81,7 @@ export function normalizeAiEvent(raw) {
         toolCallId: raw.toolCallId || '',
         status: raw.status === 'success' ? STEP.SUCCESS : STEP.FAILED,
         error: raw.error || '',
+        userMessageId: raw.userMessageId || '',
       };
     case 'approval_required':
       return {
@@ -158,12 +160,39 @@ function resolveToolStep(msg, event) {
 
 /* ---------- 主 reducer ---------- */
 
+// 轮次分段：后端 join 语义下，一次流里可能连续处理多轮追问（每轮事件带各自的
+// userMessageId）。目标占位已完结或事件归属新一轮时，为其新建独立段消息，
+// 避免多轮输出堆积在同一个气泡里（对齐 opencode 的逐轮 part 渲染）。
+function locateSegment(messages, event, targetId) {
+  let idx = findTarget(messages, targetId);
+  if (idx >= 0) {
+    const cur = messages[idx];
+    const round = event.userMessageId;
+    if (round && cur.roundUserMsgId && cur.roundUserMsgId !== round) {
+      idx = -1; // 事件归属新一轮
+    }
+  }
+  if (idx >= 0 || !event.userMessageId) return idx;
+  const sid = `assistant_${event.userMessageId}`;
+  const found = messages.findIndex((m) => m.role === 'assistant' && m.id === sid);
+  if (found >= 0) return found;
+  return -1;
+}
+
 export function applyAiEvent(messages, event, targetId) {
   if (!event) return messages;
-  const idx = findTarget(messages, targetId);
-  if (idx < 0) return messages;
-
-  let msg = cloneAt(messages, idx)[idx];
+  let idx = locateSegment(messages, event, targetId);
+  if (idx < 0) {
+    // 无匹配目标：只对带轮次归属的流事件落地（无 userMessageId 的离线事件不落）
+    if (!event.userMessageId) return messages;
+    idx = messages.length;
+    messages = [...messages, createAssistantMessage(`assistant_${event.userMessageId}`, null, MSG.STREAMING)];
+  }
+  messages = cloneAt(messages, idx);
+  let msg = messages[idx];
+  if (event.userMessageId && !msg.roundUserMsgId) {
+    msg.roundUserMsgId = event.userMessageId;
+  }
   switch (event.type) {
     case 'reasoning':
       msg = { ...msg, reasoning: (msg.reasoning || '') + event.text };

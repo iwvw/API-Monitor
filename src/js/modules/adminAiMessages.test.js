@@ -23,17 +23,17 @@ function withTarget(...msgs) {
 
 describe('normalizeAiEvent', () => {
   it('reasoning/delta 规范化', () => {
-    expect(normalizeAiEvent({ type: 'reasoning', text: '想' })).toEqual({ type: 'reasoning', text: '想' });
-    expect(normalizeAiEvent({ type: 'delta', text: '回答' })).toEqual({ type: 'delta', text: '回答' });
-    expect(normalizeAiEvent({ type: 'delta' })).toEqual({ type: 'delta', text: '' });
+    expect(normalizeAiEvent({ type: 'reasoning', text: '想' })).toEqual({ type: 'reasoning', text: '想', userMessageId: '' });
+    expect(normalizeAiEvent({ type: 'delta', text: '回答' })).toEqual({ type: 'delta', text: '回答', userMessageId: '' });
+    expect(normalizeAiEvent({ type: 'delta' })).toEqual({ type: 'delta', text: '', userMessageId: '' });
   });
 
   it('tool_result 状态归一为 success/failed', () => {
     expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', status: 'success' })).toEqual({
-      type: 'tool_result', toolName: 'get_x', toolCallId: '', status: STEP.SUCCESS, error: '',
+      type: 'tool_result', toolName: 'get_x', toolCallId: '', status: STEP.SUCCESS, error: '', userMessageId: '',
     });
     expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: 'error', error: 'boom' })).toEqual({
-      type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: STEP.FAILED, error: 'boom',
+      type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: STEP.FAILED, error: 'boom', userMessageId: '',
     });
   });
 
@@ -234,5 +234,46 @@ describe('并行同名工具调用', () => {
     const msg = applyAiEvent([msgWithTwoCalls()], { type: 'tool_result', toolName: 'call_api', status: 'success' }, 'm1');
     expect(msg[0].thinking[0].status).toBe(STEP.SUCCESS);
     expect(msg[0].thinking[1].status).toBe(STEP.RUNNING);
+  });
+});
+
+describe('join 语义：运行中追问的轮次分段', () => {
+  it('首轮事件归属占位；第二轮事件自动新建独立段消息', () => {
+    let list = withTarget();
+    // 首轮：user1 事件归并到占位并标定轮次归属
+    list = applyAiEvent(list, normalizeAiEvent({ type: 'reasoning', text: '第一轮思考', userMessageId: 'aam_u1' }), 'a1');
+    expect(list.length).toBe(2);
+    expect(list[1].reasoning).toBe('第一轮思考');
+    expect(list[1].roundUserMsgId).toBe('aam_u1');
+    // 首轮完成
+    list = applyAiEvent(list, normalizeAiEvent({ type: 'done', userMessageId: 'aam_u1' }), 'a1');
+    expect(list[1].status).toBe(MSG.COMPLETED);
+    // 追问入队后第二轮事件（user2）：目标段已完结且归属不同 → 新建独立段
+    list = applyAiEvent(list, normalizeAiEvent({ type: 'tool_start', toolName: 'call_api', toolCallId: 'c1', userMessageId: 'aam_u2' }), 'a1');
+    expect(list.length).toBe(3);
+    const seg = list[2];
+    expect(seg.id).toBe('assistant_aam_u2');
+    expect(seg.roundUserMsgId).toBe('aam_u2');
+    expect(seg.thinking[0].toolName).toBe('call_api');
+    // 第二轮 delta 归并到新段
+    list = applyAiEvent(list, normalizeAiEvent({ type: 'delta', text: '第二轮的正文', userMessageId: 'aam_u2' }), 'a1');
+    expect(list[2].blocks[0].text).toBe('第二轮的正文');
+    expect(list[2].reasoning).toBe('');
+  });
+
+  it('无 userMessageId 的旧式事件仍按 target 归并（兼容）', () => {
+    let list = withTarget();
+    list = applyAiEvent(list, { type: 'delta', text: '旧式' }, 'a1');
+    expect(list.length).toBe(2);
+    expect(list[1].blocks[0].text).toBe('旧式');
+  });
+
+  it('两轮且第二轮在首轮完成前到达：轮次变化即分段（不依赖 done）', () => {
+    let list = withTarget();
+    list = applyAiEvent(list, { type: 'tool_start', toolName: 'query', toolCallId: 'c1', userMessageId: 'aam_u1' }, 'a1');
+    list = applyAiEvent(list, { type: 'tool_start', toolName: 'query2', toolCallId: 'c2', userMessageId: 'aam_u2' }, 'a1');
+    expect(list.length).toBe(3);
+    expect(list[1].thinking[0].toolName).toBe('query');
+    expect(list[2].thinking[0].toolName).toBe('query2');
   });
 });

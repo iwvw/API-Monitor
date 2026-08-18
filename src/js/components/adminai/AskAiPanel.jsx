@@ -772,8 +772,9 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     setBehavior(mode);
     try { localStorage.setItem('adminai-behavior', mode); } catch { }
   };
-   /* 发起一轮执行：发送 prompt 并将流式响应挂到 assistantId 消息；rewindId 为编辑重发的服务端截断点 */
-  const startRun = async (sessionId, trimmed, assistantId, rewindId) => {
+   /* 发起一轮执行：发送 prompt 并将流式响应挂到 assistantId 消息；rewindId 为编辑重发的服务端截断点；
+      join 为运行中追问（join 语义）：服务端把消息入队由活跃 run 续跑，前端不重开流，轮次分段自动建段 */
+  const startRun = async (sessionId, trimmed, assistantId, rewindId, join) => {
     lastPromptRef.current = trimmed;
     const failWith = (message) => {
       setMessages((prev) => failMessage(prev, assistantId, message, trimmed));
@@ -795,8 +796,16 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       }
       const data = await res.json();
       const body = data && data.data ? data.data : data;
-      if (body.runId) openStream(body.runId, assistantId, false);
-      else failWith('未能启动执行，请重试');
+      if (body.runId) {
+        if (body.queued) {
+          // 追问已入队：占位无事件来源（轮次分段按 userMessageId 自动建段），先移除
+          if (join) setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+          // 旧流已结束（服务端 run 尚在收尾/已进入下一轮）→ 接流补收后续轮次事件
+          if (!streamingRef.current) openStream(body.runId, assistantId, false);
+        } else {
+          openStream(body.runId, assistantId, false);
+        }
+      } else failWith('未能启动执行，请重试');
     } catch {
       failWith('发送失败，请重试');
     }
@@ -804,9 +813,10 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
 
   const handleSend = async (promptOverride) => {
     const trimmed = (promptOverride === undefined ? input : promptOverride).trim();
-    if (!trimmed || streaming) return;
+    if (!trimmed || botActive) return;
     // 机器人会话只读：禁止继续对话，避免污染机器人流程的上下文。
-    if (botActive) return;
+    // 注意：streaming 期间允许发送（join 语义：追问入队，由当前执行续跑消费，不再 409）
+    const join = streaming;
 
     if (promptOverride === undefined) setInput('');
     setAtMenuOpen(false);
@@ -843,7 +853,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       createUserMessage(`user_${Date.now()}`, trimmed),
       createAssistantMessage(assistantMsgId),
     ]);
-    await startRun(sessionId, trimmed, assistantMsgId);
+    await startRun(sessionId, trimmed, assistantMsgId, undefined, join);
   };
 
   /* 编辑用户消息并重发：截断其后所有消息，更新文本后重新执行 */
