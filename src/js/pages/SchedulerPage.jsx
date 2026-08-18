@@ -1006,12 +1006,15 @@ function SchedulerPage({ onNavigate = () => {} }) {
         }
         if (cancelled) return;
         setAiModelOptions(options.length ? options : [{ value: '', label: '默认模型' }]);
-        const notifLabels = new Set(telegramChannels.map((c) => c.name || c.id));
+        // 用 bot token 判定同一 Telegram bot：同一 bot 在通知中心与 AI 频道各配
+        // 一份时加「（AI 频道）」后缀区分；同名但不同 bot（token 不同）不误标。
+        const notifTokens = new Set(telegramChannels.map((c) => c.config?.bot_token || c.config?.botToken || ''));
         setAiChannelOptions([
           ...telegramChannels.map((c) => ({ value: c.id, label: c.name || c.id })),
           ...aiTelegramChannels.map((c) => {
             const base = c.name || c.id;
-            return { value: c.id, label: notifLabels.has(base) ? `${base}（AI 频道）` : base };
+            const token = c.config?.botToken || c.config?.bot_token || '';
+            return { value: c.id, label: token && notifTokens.has(token) ? `${base}（AI 频道）` : base };
           }),
         ]);
       } catch {
