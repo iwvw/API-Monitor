@@ -320,6 +320,21 @@ var apiDocSeeds = []apiDocSeed{
 	{Route: manifest.Route{Prefix: "/api/backup/configs", Module: "backup", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Backup config list/create", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/backup/run", Module: "backup", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Backup job run", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/backup/restore", Module: "backup", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Backup restore", MatchMode: manifest.MatchExact}},
+	// 主机 Agent 操作型子路由：GET/POST 双方法无法从中文描述推断
+	// （「发送命令执行（POST）」标注可覆盖，此处显式登记双保险；
+	// 修复前契约只暴露 GET，导致 AI 无法向 Agent 下发命令执行）。
+	{
+		Route: manifest.Route{Prefix: "/api/server/agent/command/{id}", Module: "server-agent", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Get agent install command or send command execution to agent", MatchMode: manifest.MatchPattern},
+		Docs:  apiRouteDocs{Methods: []string{"GET", "POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/server/tasks", Module: "server-tasks", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "List or create host task", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET", "POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/server/v2/tasks", Module: "server-tasks-v2", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "List or create v2 host task", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET", "POST"}},
+	},
 }
 
 func supplementalRoutes() []manifest.Route {

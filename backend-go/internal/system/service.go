@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1136,6 +1137,11 @@ func inferRouteMethods(route manifest.Route) []string {
 		}
 		return []string{"GET"}
 	}
+	// 描述中显式标注的方法（如「获取安装命令（GET）或发送命令执行（POST）」）
+	// 优先于一切推断：这是路由作者写下的真实方法集合，中文描述也不会漏掉。
+	if annotated := methodsFromAnnotations(route.Description); len(annotated) > 0 {
+		return annotated
+	}
 	switch route.Prefix {
 	case "/api/settings":
 		return []string{"GET", "POST", "PATCH"}
@@ -1222,6 +1228,26 @@ func inferRouteMethods(route manifest.Route) []string {
 	case strings.Contains(description, "list"), strings.Contains(description, "status"), strings.Contains(description, "summary"), strings.Contains(description, "logs"), strings.Contains(description, "metrics"), strings.Contains(description, "history"), strings.Contains(description, "models"), strings.Contains(description, "analytics"), strings.Contains(description, "export"):
 		return []string{"GET"}
 	}
+	// 中文描述关键词：描述从英文迁到中文后英文匹配必然落空，需同步中文口径。
+	// 「列出」类基础 GET，叠加「新增/创建」得 GET+POST；纯「新增/创建/删除/
+	// 更新」各自归位。把握不大的词不放这里，交给显式标注或保守 GET 兜底。
+	zh := description
+	switch {
+	case strings.Contains(zh, "列出") || strings.Contains(zh, "查询列表"):
+		if strings.Contains(zh, "新增") || strings.Contains(zh, "创建") {
+			return []string{"GET", "POST"}
+		}
+		return []string{"GET"}
+	case strings.Contains(zh, "新增") || strings.Contains(zh, "创建"):
+		return []string{"POST"}
+	case strings.Contains(zh, "更新") || strings.Contains(zh, "修改"):
+		if strings.Contains(zh, "删除") || strings.Contains(zh, "清理") {
+			return []string{"PUT", "DELETE"}
+		}
+		return []string{"PUT"}
+	case strings.Contains(zh, "删除"):
+		return []string{"DELETE"}
+	}
 	switch route.MatchMode {
 	case manifest.MatchExact:
 		if strings.Contains(route.Description, "list") || strings.Contains(route.Description, "read") || strings.Contains(route.Description, "status") {
@@ -1241,6 +1267,25 @@ func inferRouteMethods(route manifest.Route) []string {
 	// 兜底保守只读：宁可让写方法在真实调用时按 405 提示，
 	// 也不能让文档宣称的方法集合比实际大（AI 会照文档调用而失败）。
 	return []string{"GET"}
+}
+
+// methodAnnotationPattern 匹配描述中的显式方法标注，
+// 如「获取安装命令（GET）或发送命令执行（POST）」，兼容全角/半角括号。
+var methodAnnotationPattern = regexp.MustCompile(`[（(](GET|POST|PUT|PATCH|DELETE)[）)]`)
+
+// methodsFromAnnotations 提取描述中显式标注的 HTTP 方法集合（去重保序）。
+// 空返回表示描述未标注任何方法。
+func methodsFromAnnotations(desc string) []string {
+	var methods []string
+	seen := map[string]bool{}
+	for _, match := range methodAnnotationPattern.FindAllStringSubmatch(desc, -1) {
+		up := strings.ToUpper(match[1])
+		if !seen[up] {
+			seen[up] = true
+			methods = append(methods, up)
+		}
+	}
+	return methods
 }
 
 func (s *Service) apiStats(days int) (map[string]interface{}, error) {
