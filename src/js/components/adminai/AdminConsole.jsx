@@ -18,19 +18,43 @@ function ErrorBanner({ message }) {
   );
 }
 
-/* 多选模型：悬浮面板勾选；收起态只显示已选数量（不显示具体模型名） */
+/* 多选模型：固定定位悬浮面板勾选；收起态只显示已选数量（不显示具体模型名） */
 function MultiModelSelect({ options, value, onChange }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
   const boxRef = useRef(null);
+  const btnRef = useRef(null);
   const selected = new Set((value || '').split(',').map((s) => s.trim()).filter(Boolean));
+  const close = () => setOpen(false);
   useEffect(() => {
     if (!open) return undefined;
     const onDown = (e) => {
-      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+      if (boxRef.current && !boxRef.current.contains(e.target)) close();
     };
     window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
   }, [open]);
+  const toggleOpen = () => {
+    if (open) {
+      close();
+      return;
+    }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) {
+      const w = 340;
+      setPos({
+        left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)),
+        top: r.bottom + 6,
+      });
+    }
+    setOpen(true);
+  };
   const toggle = (v) => {
     const next = new Set(selected);
     if (next.has(v)) next.delete(v);
@@ -40,10 +64,11 @@ function MultiModelSelect({ options, value, onChange }) {
   return (
     <div ref={boxRef} className="relative w-full">
       <Button
+        ref={btnRef}
         type="button"
         size="sm"
         variant="secondary"
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         aria-haspopup="dialog"
         aria-expanded={open}
         className="flex w-full items-center justify-between gap-2 !px-3 !py-1.5 !text-[11px]"
@@ -56,8 +81,11 @@ function MultiModelSelect({ options, value, onChange }) {
           {selected.size > 0 ? `已选 ${selected.size} 个` : '未选择'}
         </Badge>
       </Button>
-      {open && (
-        <div className="absolute left-0 top-full z-40 mt-1 w-full max-h-56 overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-lg ring-1 ring-kumo-line">
+      {open && pos && (
+        <div
+          className="fixed z-[9999] max-h-56 w-[340px] overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-xl ring-1 ring-kumo-line"
+          style={{ left: pos.left, top: pos.top }}
+        >
           {options.length === 0 ? (
             <p className="px-2.5 py-2 text-xs text-kumo-subtle">模型网关无可用模型</p>
           ) : (
