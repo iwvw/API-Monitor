@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
@@ -18,17 +19,21 @@ function ErrorBanner({ message }) {
   );
 }
 
-/* 多选模型：固定定位悬浮面板勾选；收起态只显示已选数量（不显示具体模型名） */
+/* 多选模型：portal 悬浮面板勾选（脱离 transform/overflow 父级，fixed 视口定位可靠）；
+ * 收起态只显示已选数量（不显示具体模型名） */
 function MultiModelSelect({ options, value, onChange }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const boxRef = useRef(null);
+  const panelRef = useRef(null);
   const selected = new Set((value || '').split(',').map((s) => s.trim()).filter(Boolean));
   const close = () => setOpen(false);
   useEffect(() => {
     if (!open) return undefined;
     const onDown = (e) => {
-      if (boxRef.current && !boxRef.current.contains(e.target)) close();
+      const inBox = boxRef.current && boxRef.current.contains(e.target);
+      const inPanel = panelRef.current && panelRef.current.contains(e.target);
+      if (!inBox && !inPanel) close();
     };
     window.addEventListener('mousedown', onDown);
     window.addEventListener('scroll', close, true);
@@ -79,10 +84,11 @@ function MultiModelSelect({ options, value, onChange }) {
           {selected.size > 0 ? `已选 ${selected.size} 个` : '未选择'}
         </Badge>
       </Button>
-      {open && pos && (
+      {open && pos && createPortal(
         <div
-          className="fixed z-[9999] max-h-56 w-[340px] overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-xl ring-1 ring-kumo-line"
-          style={{ left: pos.left, top: pos.top }}
+          ref={panelRef}
+          className="w-[340px] max-h-56 overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-xl ring-1 ring-kumo-line"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 9999 }}
         >
           {options.length === 0 ? (
             <p className="px-2.5 py-2 text-xs text-kumo-subtle">模型网关无可用模型</p>
@@ -101,7 +107,8 @@ function MultiModelSelect({ options, value, onChange }) {
               </label>
             ))
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
