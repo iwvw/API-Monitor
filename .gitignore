@@ -79,6 +79,7 @@ dist/
 build/
 out/
 coverage/
+backend-go/cover
 stats.html
 /public/
 /src/pwa-public/vendor/drawio/
