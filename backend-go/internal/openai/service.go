@@ -4363,7 +4363,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, status, enabled, models, created_at, last_used, last_checked, model_mappings FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, created_at, last_used, last_checked, model_mappings, priority, weight FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -4373,11 +4373,11 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	endpoints := []Endpoint{}
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, apiKeysRaw sql.NullString
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, apiKeysRaw, protocolRaw sql.NullString
 		var created, used, checked sql.NullString
-		var enabledInt, autoSwitchInt int
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, priority, weight int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &ep.Status, &enabledInt, &modelsRaw, &created, &used, &checked, &mappingsRaw)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &created, &used, &checked, &mappingsRaw, &priority, &weight)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -4386,6 +4386,11 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		ep.APIKey = secure.SecureDecrypt(ep.APIKey)
 		ep.Enabled = enabledInt == 1
 		ep.AutoSwitch = autoSwitchInt == 1
+		ep.ProxyEnabled = proxyEnabledInt == 1
+		ep.ForceProxy = forceProxyInt == 1
+		ep.Protocol = normalizeProtocol(protocolRaw.String)
+		ep.Priority = priority
+		ep.Weight = weight
 		if mappingsRaw.Valid && mappingsRaw.String != "" {
 			_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)
 		}
@@ -4417,6 +4422,10 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		ep.ProxyPool = []string{}
 		if proxyRaw.Valid && proxyRaw.String != "" {
 			_ = json.Unmarshal([]byte(proxyRaw.String), &ep.ProxyPool)
+		}
+		ep.ProxyBatches = []ProxyBatch{}
+		if proxyBatchesRaw.Valid && proxyBatchesRaw.String != "" {
+			_ = json.Unmarshal([]byte(proxyBatchesRaw.String), &ep.ProxyBatches)
 		}
 		endpoints = append(endpoints, ep)
 	}
@@ -4520,11 +4529,31 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		if len(ep.ProxyPool) > 0 {
 			proxyJSON, _ = json.Marshal(cleanProxyPool(ep.ProxyPool))
 		}
+		batchesJSON, _ := json.Marshal([]ProxyBatch{})
+		if len(ep.ProxyBatches) > 0 {
+			batchesJSON, _ = json.Marshal(ep.ProxyBatches)
+		}
+		mappingsJSON, _ := json.Marshal(map[string]string{})
+		if len(ep.ModelMappings) > 0 {
+			mappingsJSON, _ = json.Marshal(ep.ModelMappings)
+		}
+		apiKeysJSON, _ := json.Marshal([]string{})
+		if len(ep.APIKeys) > 0 {
+			encryptedKeys := make([]string, 0, len(ep.APIKeys))
+			for _, k := range ep.APIKeys {
+				if enc, encErr := secure.SecureEncrypt(strings.TrimSpace(k)); encErr == nil {
+					encryptedKeys = append(encryptedKeys, enc)
+				}
+			}
+			apiKeysJSON, _ = json.Marshal(encryptedKeys)
+		}
 		autoSwitchInt := boolToInt(ep.AutoSwitch)
+		proxyEnabledInt := boolToInt(ep.ProxyEnabled)
+		forceProxyInt := boolToInt(ep.ForceProxy)
 		_, err = tx.ExecContext(ctx, `
-			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, api_key, headers, disabled_models, proxy_pool, auto_switch, protocol, status, enabled, models, created_at, last_used, last_checked)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, ep.Name, ep.BaseURL, encryptedKey, string(headersJSON), string(disabledJSON), string(proxyJSON), autoSwitchInt, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), createdAt, ep.LastUsed, ep.LastChecked)
+			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, created_at, last_used, last_checked, priority, weight)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, ep.Name, ep.BaseURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(mappingsJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

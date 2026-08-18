@@ -3304,3 +3304,109 @@ func TestEndpointWeightIncludesPriority(t *testing.T) {
 		t.Fatalf("empty endpoint weight = %d, want 1", got)
 	}
 }
+
+func TestEndpointExportImportPreservesAllFields(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	db, err := service.open(context.Background())
+	if err != nil { t.Fatal(err) }
+	defer db.Close()
+
+	create := Endpoint{
+		Name:        "full-fields",
+		BaseURL:     "https://upstream.example.com/v1",
+		APIKey:      "main-key-123",
+		APIKeys:     []string{"extra-key-456", "extra-key-789"},
+		Enabled:     true,
+		Models:      []string{"gpt-4o", "gpt-4o-mini"},
+		Headers:     []HeaderItem{{Name: "X-Custom", Value: "hello"}},
+		DisabledModels: []string{"gpt-3.5-turbo"},
+		ProxyPool:   []string{"http://p1:8080", "socks5://p2:1080"},
+		ProxyBatches: []ProxyBatch{{ID: "b1", Name: "batch-a", CreatedAt: "2026-01-01T00:00:00Z", Proxies: []string{"http://p1:8080"}}},
+		ProxyEnabled: true,
+		AutoSwitch:   true,
+		ForceProxy:   true,
+		Protocol:     "http",
+		ModelMappings: map[string]string{"deepseek-chat": "deepseek-v3"},
+		Priority:     3,
+		Weight:       7,
+	}
+	modelsJSON, _ := json.Marshal(create.Models)
+	headersJSON, _ := json.Marshal(create.Headers)
+	disabledJSON, _ := json.Marshal(create.DisabledModels)
+	proxyJSON, _ := json.Marshal(create.ProxyPool)
+	batchesJSON, _ := json.Marshal(create.ProxyBatches)
+	mappingsJSON, _ := json.Marshal(create.ModelMappings)
+	apiKeysJSON, _ := json.Marshal(create.APIKeys)
+	id := "oai_full_fields"
+	_, err = db.ExecContext(context.Background(), `
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, priority, weight, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, '2026-01-01T00:00:00Z')`,
+		id, create.Name, create.BaseURL, create.APIKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), 1, 1, 1, create.Protocol, string(modelsJSON), string(mappingsJSON), create.Priority, create.Weight)
+	if err != nil {
+		t.Fatalf("insert full endpoint: %v", err)
+	}
+	_ = id
+
+	wExport := httptest.NewRecorder()
+	rExport, _ := http.NewRequest("GET", "/api/openai/export", nil)
+	service.ServeHTTP(wExport, rExport)
+	if wExport.Code != http.StatusOK {
+		t.Fatalf("export status=%d", wExport.Code)
+	}
+	var exported struct {
+		Endpoints []Endpoint `json:"endpoints"`
+	}
+	mustDecode(t, wExport.Body.String(), &exported)
+	if len(exported.Endpoints) != 1 {
+		t.Fatalf("export endpoints=%d", len(exported.Endpoints))
+	}
+	ep := exported.Endpoints[0]
+	if ep.Priority != 3 || ep.Weight != 7 {
+		t.Errorf("priority/weight lost: %d/%d", ep.Priority, ep.Weight)
+	}
+	if !ep.ProxyEnabled || !ep.ForceProxy || !ep.AutoSwitch {
+		t.Errorf("proxy flags lost: %#v", ep)
+	}
+	if len(ep.ProxyBatches) != 1 || ep.ProxyBatches[0].Name != "batch-a" || len(ep.ProxyBatches[0].Proxies) != 1 {
+		t.Errorf("proxy batches lost: %#v", ep.ProxyBatches)
+	}
+	if len(ep.APIKeys) != 2 {
+		t.Errorf("api keys lost: %#v", ep.APIKeys)
+	}
+	if ep.ModelMappings["deepseek-chat"] != "deepseek-v3" {
+		t.Errorf("model mappings lost: %#v", ep.ModelMappings)
+	}
+	if len(ep.Headers) != 1 || ep.Headers[0].Name != "X-Custom" {
+		t.Errorf("headers lost: %#v", ep.Headers)
+	}
+	if len(ep.Models) != 2 || len(ep.DisabledModels) != 1 {
+		t.Errorf("models/disabled lost: %#v %#v", ep.Models, ep.DisabledModels)
+	}
+
+	// 导入到全新实例（overwrite），再导出验证往返一致
+	service2 := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	impBody, _ := json.Marshal(map[string]interface{}{"endpoints": exported.Endpoints, "overwrite": true})
+	rImport, _ := http.NewRequest("POST", "/api/openai/import", bytes.NewReader(impBody))
+	wImport := httptest.NewRecorder()
+	service2.ServeHTTP(wImport, rImport)
+	if wImport.Code != http.StatusOK {
+		t.Fatalf("import status=%d body=%s", wImport.Code, wImport.Body.String())
+	}
+	rExport2, _ := http.NewRequest("GET", "/api/openai/export", nil)
+	wExport2 := httptest.NewRecorder()
+	service2.ServeHTTP(wExport2, rExport2)
+	var exported2 struct {
+		Endpoints []Endpoint `json:"endpoints"`
+	}
+	mustDecode(t, wExport2.Body.String(), &exported2)
+	if len(exported2.Endpoints) != 1 {
+		t.Fatalf("re-export endpoints=%d", len(exported2.Endpoints))
+	}
+	ep2 := exported2.Endpoints[0]
+	if ep2.Priority != 3 || ep2.Weight != 7 || len(ep2.ProxyBatches) != 1 || len(ep2.APIKeys) != 2 || ep2.ModelMappings["deepseek-chat"] != "deepseek-v3" || !ep2.ProxyEnabled || !ep2.ForceProxy {
+		t.Errorf("round-trip lost fields: %#v", ep2)
+	}
+	if ep2.APIKey != "main-key-123" {
+		t.Errorf("round-trip apiKey mismatch: %q", ep2.APIKey)
+	}
+}
