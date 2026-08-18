@@ -416,6 +416,13 @@ function TimelinePart({ part, streaming, onResolveApproval, onRetry, className }
     }
     case 'approval':
       return <ApprovalCard approval={part} onResolve={onResolveApproval} />;
+    case 'notice':
+      return (
+        <div className="flex items-center gap-1.5 text-[11px] text-kumo-subtle/70">
+          <Loader size={10} className="shrink-0 animate-spin text-kumo-brand" />
+          <span className="min-w-0 break-all">{part.text}</span>
+        </div>
+      );
     case 'error':
       return (
         <div className="my-2 rounded-xl border border-kumo-danger/30 bg-kumo-danger/10 p-3 text-xs text-kumo-danger">

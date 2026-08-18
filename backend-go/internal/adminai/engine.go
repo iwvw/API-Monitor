@@ -30,6 +30,9 @@ const (
 	contentSizeLimit     = 64 * 1024
 	eventChBuffer        = 128
 	maxToolRetries       = 3 // 工具调用失败后的自动重试次数
+	maxLLMRetries        = 10 // LLM 上游可恢复错误（网络/5xx/限流/超时）的单模型重试上限
+	llmRetryBaseDelayMs  = 500
+	llmRetryMaxDelayMs   = 8000
 	maxParallelTools     = 8 // 同轮只读工具并行执行上限（信号量）
 
 	// toolLoopWarnThreshold/toolLoopBlockThreshold 是跨轮重复调用（工具循环）的风暴阈值：
@@ -569,20 +572,51 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 		}
 
 		// 多模型失败回退：admin_ai_default_model 支持逗号分隔（如 "a,b,c"），
-		// 按序尝试；当前模型调用失败（非预算到期）时自动切换下一个，全部失败才报错。
+		// 按序尝试；当前模型调用失败（非预算到期）时自动切换下一个。
+		// 每个模型带重试：上游可恢复错误（网络/5xx/限流/上游超时）指数退避重试
+		// 最多 maxLLMRetries 次（对齐 opencode retry policy），期间通过 retry
+		// 事件告知前端，避免「静默等待/直接失败」。
 		llmModels := splitModelList(llmModel)
 		var resp *llmResponse
 		var respErr error
 		usedModel := ""
+	outer:
 		for i, m := range llmModels {
-			resp, respErr = s.callLLMStream(runCtx, m, llmMessages, eventCh, userMsgID)
+			for attempt := 0; attempt <= maxLLMRetries; attempt++ {
+				if attempt > 0 {
+					backoff := llmRetryDelay(attempt)
+					s.emit(eventCh, SSEEvent{Type: "retry", Fields: map[string]interface{}{
+						"attempt":       attempt,
+						"total":         maxLLMRetries,
+						"message":       "上游暂时不可用，正在重试",
+						"userMessageId": userMsgID,
+					}})
+					slog.Warn("llm-retry", "model", m, "attempt", attempt, "delayMs", backoff.Milliseconds(), "err", sanitizeToolError(respErr).Error())
+					select {
+					case <-runCtx.Done():
+						respErr = runCtx.Err()
+						break outer
+					case <-time.After(backoff):
+					}
+				}
+				resp, respErr = s.callLLMStream(runCtx, m, llmMessages, eventCh, userMsgID)
+				if respErr == nil {
+					usedModel = m
+					break outer
+				}
+				// 预算到期/取消：回退与重试都无意义（会立刻再次失败），直接以当前错误收尾
+				if runCtx.Err() != nil || errors.Is(respErr, context.DeadlineExceeded) {
+					usedModel = m
+					break outer
+				}
+				if !llmRetryableError(respErr) {
+					break // 参数类错误重试无意义：直接切换下一模型
+				}
+			}
 			if respErr == nil {
-				usedModel = m
 				break
 			}
-			// 预算到期/取消：回退无意义（会立刻再次失败），直接以当前错误收尾
 			if runCtx.Err() != nil || errors.Is(respErr, context.DeadlineExceeded) {
-				usedModel = m
 				break
 			}
 			if i < len(llmModels)-1 {
@@ -1076,6 +1110,39 @@ func (s *Service) syncPendingPrompt(ctx context.Context, db *sql.DB, sessionID, 
 	}
 	*messages = reloaded
 	return latest, nil
+}
+
+// llmRetryableError 判断 LLM 上游错误是否值得重试：网络/连接层、上游 5xx、
+// 限流 429、上游超时（首个数据块未到）等瞬时故障重试有意义；参数/鉴权类 4xx
+// （模型不存在、请求体非法、密钥无效）重试必败，直接切换模型或报错。
+func llmRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"429", "too many requests", "rate limit",
+		"500", "502", "503", "504", "server error", "bad gateway", "service unavailable",
+		"timeout", "timed out", "未收到首个数据块", "connection", "network", "reset",
+		"temporary", "temporarily", "overloaded", "backpressure", "upstream",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// llmRetryDelay 指数退避（500ms → 1s → 2s → 4s → 8s 封顶）。
+func llmRetryDelay(attempt int) time.Duration {
+	ms := llmRetryBaseDelayMs << uint(min(attempt-1, 4))
+	if ms > llmRetryMaxDelayMs {
+		ms = llmRetryMaxDelayMs
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // toolErrorText 提取工具错误的可读文本（教训沉淀用，去掉敏感参数与长堆栈）。

@@ -38,6 +38,7 @@ export const STREAM_EVENTS = [
   'error',
   'done',
   'session_title',
+  'retry',
 ];
 
 /* ---------- 构造器 ---------- */
@@ -94,6 +95,8 @@ export function normalizeAiEvent(raw) {
       };
     case 'error':
       return { type: 'error', message: raw.message || '发生错误', userMessageId: raw.userMessageId || '' };
+    case 'retry':
+      return { type: 'retry', attempt: Number(raw.attempt || 0), total: Number(raw.total || 0), message: raw.message || '', userMessageId: raw.userMessageId || '' };
     case 'done':
       return { type: 'done', userMessageId: raw.userMessageId || '' };
     case 'session_title':
@@ -229,6 +232,10 @@ export function applyAiEvent(messages, event, targetId) {
         bodySnapshot: event.bodySnapshot,
         status: APPROVAL.PENDING,
       });
+      break;
+    case 'retry':
+      // 上游瞬时故障重试提示：追加轻量 notice part（不打断主流程）
+      msg = appendPart(msg, { type: 'notice', text: `${event.message}（第 ${event.attempt}/${event.total || 10} 次）` });
       break;
     case 'error':
       msg = appendPart(msg, { type: 'error', message: event.message, retryable: true, retryPrompt: event.retryPrompt || '' });

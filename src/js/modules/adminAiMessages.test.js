@@ -111,6 +111,17 @@ describe('applyAiEvent — parts 生命周期', () => {
     const next = applyAiEvent(withTarget(), { type: 'approval', approvalId: 'ap1', planSummary: '删除', method: 'DELETE', path: 'resource/x' }, 'a1');
     expect(next[1].parts[0]).toMatchObject({ type: 'approval', approvalId: 'ap1', method: 'DELETE', path: 'resource/x', status: APPROVAL.PENDING });
   });
+
+  it('retry 事件 append notice part（不打断流）', () => {
+    let list = applyAiEvent(withTarget(), { type: 'delta', text: '正文' }, 'a1');
+    list = applyAiEvent(list, normalizeAiEvent({ type: 'retry', attempt: 2, message: '上游暂时不可用，正在重试', userMessageId: 'aam_u1' }), 'a1');
+    expect(list[1].status).toBe(MSG.STREAMING);
+    expect(list[1].parts[1]).toMatchObject({ type: 'notice' });
+    expect(list[1].parts[1].text).toContain('第 2/10 次');
+    // 重试后继续收到正文（notice 之后为新 text part），流不被中断
+    list = applyAiEvent(list, { type: 'delta', text: '更多' }, 'a1');
+    expect(list[1].parts[2].text).toBe('更多');
+  });
 });
 
 describe('applyAiEvent — 生命周期管理', () => {
