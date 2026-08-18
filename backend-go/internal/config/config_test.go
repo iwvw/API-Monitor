@@ -83,6 +83,21 @@ func TestLoadResolvesRelativeEnvPathsFromRepoRoot(t *testing.T) {
 	}
 }
 
+// GATEWAY_BODY_MAX_MB 配置网关请求体上限；未配置时默认 16MB。
+func TestGatewayBodyMaxConfig(t *testing.T) {
+	t.Setenv("GATEWAY_BODY_MAX_MB", "32")
+	cfg := Load("test")
+	if cfg.GatewayBodyMaxBytes != 32*1024*1024 {
+		t.Fatalf("GatewayBodyMaxBytes = %d, want %d", cfg.GatewayBodyMaxBytes, 32*1024*1024)
+	}
+
+	t.Setenv("GATEWAY_BODY_MAX_MB", "")
+	cfg = Load("test")
+	if cfg.GatewayBodyMaxBytes != 16*1024*1024 {
+		t.Fatalf("默认 GatewayBodyMaxBytes = %d, want %d", cfg.GatewayBodyMaxBytes, 16*1024*1024)
+	}
+}
+
 func TestProductionSecurityDefaults(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("NODE_ENV", "")

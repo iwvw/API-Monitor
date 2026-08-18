@@ -58,11 +58,20 @@ const (
 	// 即终止流，防止上游停滞时请求无限挂死。正常模型输出不会连续 90s 无字节；
 	// 需要长静默的本地推理场景可在端点配置中选用更长超时。
 	streamIdleTimeout = 90 * time.Second
-	// gatewayBodyMaxBytes 是网关可接受的请求体上限：全量读入内存（读 body →
-	// parsedBody map → 转发体 bytes，约 3 倍峰值），小内存主机上必须封顶，
-	// 超大（异常/恶意）请求体直接 413 拒绝，避免瞬时内存尖峰触发 OOM。
-	gatewayBodyMaxBytes = 16 * 1024 * 1024
+	// gatewayBodyDefaultMaxBytes 是网关请求体上限的兜底默认值（未配置
+	// GATEWAY_BODY_MAX_MB 时）：全量读入内存（读 body → parsedBody map →
+	// 转发体 bytes，约 3 倍峰值），小内存主机上必须封顶，超大（异常/恶意）
+	// 请求体直接 413 拒绝，避免瞬时内存尖峰触发 OOM。
+	gatewayBodyDefaultMaxBytes = 16 * 1024 * 1024
 )
+
+// gatewayBodyLimitBytes 返回当前生效的请求体上限（配置优先，零值回退默认）。
+func (s *Service) gatewayBodyLimitBytes() int64 {
+	if s.bodyMaxBytes > 0 {
+		return s.bodyMaxBytes
+	}
+	return gatewayBodyDefaultMaxBytes
+}
 
 // 热路径正则预编译：chat completion 每请求都会用到，避免逐请求编译。
 var (
@@ -206,6 +215,10 @@ type Service struct {
 	routeCache      []Endpoint
 	routeCacheAt    time.Time
 	routeCacheReady bool
+
+	// bodyMaxBytes 是网关请求体上限（来自配置 GATEWAY_BODY_MAX_MB，
+	// 零值时回退 gatewayBodyDefaultMaxBytes，兼容测试直构 Service 的空配置）。
+	bodyMaxBytes int64
 
 	// routeModelIndex 是「模型名 → 候选端点下标」的内存倒排索引，随 routeCache
 	// 一并重建，避免每次转发请求都遍历全部端点做模型匹配（Ability 物化索引）。
@@ -400,6 +413,7 @@ func New(cfg config.Config) *Service {
 		store:                database.New(cfg),
 		client:               &http.Client{Transport: tr},
 		apiKeys:              apikeys.New(cfg),
+		bodyMaxBytes:         cfg.GatewayBodyMaxBytes,
 		protocolClients:      map[string]*http.Client{},
 		proxyStateByEndpoint: make(map[string]*endpointProxyState),
 		keyStateByEndpoint:   make(map[string]*endpointKeyState),
@@ -5380,7 +5394,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	clientIP := s.resolveClientIP(r)
 	// 请求体上限（小内存主机防瞬时尖峰）：超限经 MaxBytesReader 截断读取，
 	// 由下方 err 分支返回 413，不会把超大 body 全量读入内存。
-	r.Body = http.MaxBytesReader(w, r.Body, gatewayBodyMaxBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, s.gatewayBodyLimitBytes())
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		// 请求体超限（MaxBytesReader 截断）应是客户端违约，返回 413；
@@ -6451,7 +6465,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	clientIP := s.resolveClientIP(r)
 	// 请求体上限（小内存主机防瞬时尖峰）：超限经 MaxBytesReader 截断读取，
 	// 由下方 err 分支返回 413，不会把超大 body 全量读入内存。
-	r.Body = http.MaxBytesReader(w, r.Body, gatewayBodyMaxBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, s.gatewayBodyLimitBytes())
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		// 请求体超限（MaxBytesReader 截断）应是客户端违约，返回 413；

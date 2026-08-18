@@ -24,6 +24,10 @@ type Config struct {
 	CORSAllowedOrigins   []string
 	TrustedProxyCIDRs    []string
 	AdminAIDefaultModel  string
+	// GatewayBodyMaxBytes 是模型网关（模型网关转发入口）可接受的请求体上限；
+	// 小内存主机上全量读入 body 会放大 3 倍内存，超限请求直接 413。
+	// 环境变量 GATEWAY_BODY_MAX_MB（默认 16）配置。
+	GatewayBodyMaxBytes int64
 }
 
 func Load(version string) Config {
@@ -44,6 +48,7 @@ func Load(version string) Config {
 		CORSAllowedOrigins:   envList("CORS_ALLOWED_ORIGINS"),
 		TrustedProxyCIDRs:    envList("TRUSTED_PROXY_CIDRS"),
 		AdminAIDefaultModel:  envString("ADMIN_AI_DEFAULT_MODEL", ""),
+		GatewayBodyMaxBytes:  int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
 	}
 }
 
