@@ -27,6 +27,8 @@ type auditItem struct {
 
 // handleAudit GET /api/admin-ai/audit?sessionId=&source=&limit=&offset=
 // 合并 executions 与 tool_calls 的审计视图（PRD-04 审计查询 API）。
+// 分页采用「两表各取 offset+limit 条 → 跨表归并排序 → 取目标窗口」，
+// 保证 offset 翻页在两类记录交替出现时依然正确，total 为真实匹配总数。
 func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("sessionId")
 	source := r.URL.Query().Get("source")
@@ -46,28 +48,51 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	// executions 分支
 	execWhere := "WHERE 1=1"
-	execArgs := []interface{}{}
+	var execArgs []interface{}
+	tcWhere := "WHERE 1=1"
+	var tcArgs []interface{}
 	if sessionID != "" {
 		execWhere += " AND session_id = ?"
 		execArgs = append(execArgs, sessionID)
+		tcWhere += " AND e.session_id = ?"
+		tcArgs = append(tcArgs, sessionID)
 	}
 	if source != "" {
 		execWhere += " AND source = ?"
 		execArgs = append(execArgs, source)
+		tcWhere += " AND e.source = ?"
+		tcArgs = append(tcArgs, source)
+	}
+
+	// 真实总数：executions + tool_calls 的匹配行数
+	var execCount, tcCount int
+	if err := db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM admin_ai_executions `+execWhere, execArgs...).Scan(&execCount); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM admin_ai_tool_calls t JOIN admin_ai_executions e ON e.id = t.execution_id `+tcWhere, tcArgs...).Scan(&tcCount); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	total := execCount + tcCount
+
+	fetch := offset + limit
+	if fetch <= 0 {
+		response.OK(w, map[string]interface{}{"items": []auditItem{}, "total": total, "offset": offset, "limit": limit})
+		return
 	}
 
 	execRows, err := db.QueryContext(r.Context(),
 		`SELECT id, session_id, source, status, llm_model, llm_prompt_tokens, llm_completion_tokens, started_at, COALESCE(finished_at,''), COALESCE(error,'') FROM admin_ai_executions `+execWhere+` ORDER BY started_at DESC LIMIT ?`,
-		append(execArgs, limit)...)
+		append(execArgs, fetch)...)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer execRows.Close()
 
-	execs := make([]*auditItem, 0, limit)
+	execs := make([]*auditItem, 0, fetch)
 	for execRows.Next() {
 		var item auditItem
 		if err := execRows.Scan(&item.ID, &item.SessionID, &item.Source, &item.Status,
@@ -88,16 +113,16 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 		`SELECT t.id, t.execution_id, e.session_id, t.tool_name, t.status, t.input_json, COALESCE(t.output_summary,''), COALESCE(e.source,''), t.started_at, COALESCE(t.finished_at,''), COALESCE(t.blocked_by_approval,'')
 		 FROM admin_ai_tool_calls t
 		 JOIN admin_ai_executions e ON e.id = t.execution_id
-		 WHERE (? = '' OR e.session_id = ?) AND (? = '' OR e.source = ?)
+		 `+tcWhere+`
 		 ORDER BY t.started_at DESC LIMIT ?`,
-		sessionID, sessionID, source, source, limit)
+		append(tcArgs, fetch)...)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer tcRows.Close()
 
-	toolCalls := make([]*auditItem, 0, limit)
+	toolCalls := make([]*auditItem, 0, fetch)
 	for tcRows.Next() {
 		var item auditItem
 		var execID, inputJSON, blockedBy string
@@ -122,21 +147,17 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 合并（按 started_at 倒序，应用 offset/limit）
+	// 归并排序（started_at 降序）后取目标窗口 [offset, offset+limit)
 	merged := make([]*auditItem, 0, len(execs)+len(toolCalls))
 	merged = append(merged, execs...)
 	merged = append(merged, toolCalls...)
-	// 简单稳定排序：started_at 降序（同表内已有序，此处做整体归并）
 	merged = mergeAuditByTime(merged)
 
-	total := len(merged)
-	if offset > total {
-		offset = total
+	end := offset + limit
+	if end > len(merged) {
+		end = len(merged)
 	}
-	page := merged[offset:]
-	if len(page) > limit {
-		page = page[:limit]
-	}
+	page := merged[offset:end]
 	items := make([]auditItem, 0, len(page))
 	for _, it := range page {
 		items = append(items, *it)

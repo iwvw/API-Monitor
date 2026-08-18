@@ -599,6 +599,12 @@ func (s *Service) executeSchedulerTaskCommand(ctx context.Context, task Schedule
 		}
 		lastErr = err
 		history = append(history, fmt.Sprintf("第 %d 次尝试失败:\n%s", attempt, err.Error()))
+		// AI 任务单次执行即可能已产生非幂等副作用（独立会话、工具调用写操作、频道推送），
+		// 重试会整体重放这些副作用造成重复执行，因此失败后不再整体重试，
+		// 由下一次调度（或人工重跑）重新执行。
+		if task.Type == "ai" {
+			break
+		}
 		if attempt < attempts && task.RetryIntervalSeconds > 0 {
 			timer := time.NewTimer(time.Duration(task.RetryIntervalSeconds) * time.Second)
 			select {

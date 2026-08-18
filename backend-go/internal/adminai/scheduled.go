@@ -10,6 +10,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/adminai/channel"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/sseutil"
 )
 
 // cronTaskRunReq 定时 AI 任务执行请求（内部接口，仅本机 cron 携带 X-Internal-Cron 调用）。
@@ -141,6 +142,7 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if runErr != "" {
+		_ = sseutil.RenewWriteDeadline(w, 0)
 		response.Error(w, http.StatusInternalServerError, runErr)
 		return
 	}
@@ -165,6 +167,10 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 			pushResults = []map[string]interface{}{{"error": err.Error()}}
 		}
 	}
+
+	// 长任务同步等待可能远超全局 WriteTimeout（60s），写响应前必须续期，
+	// 否则任务实际执行完成但响应写失败，上游会误判失败并可能重试。
+	_ = sseutil.RenewWriteDeadline(w, 0)
 
 	response.OK(w, map[string]interface{}{
 		"ok":        true,

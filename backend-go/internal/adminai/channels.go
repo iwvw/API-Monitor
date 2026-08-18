@@ -793,7 +793,10 @@ func (s *Service) listChannels(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if s.chanMgr != nil {
-			if _, running := s.chanMgr.cancels[item.ID]; running {
+			s.chanMgr.mu.Lock()
+			_, running := s.chanMgr.cancels[item.ID]
+			s.chanMgr.mu.Unlock()
+			if running {
 				item.Status = "running"
 			} else {
 				item.Status = "stopped"

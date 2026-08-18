@@ -1182,6 +1182,19 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 	if !ok {
 		return WorkflowRun{}, fmt.Errorf("工作流不存在")
 	}
+	// 并发策略评估：skip（默认）时若已有 run 在执行，本次触发直接跳过，
+	// 不创建新 run，避免同一工作流的并发执行相互踩踏。
+	if workflow.ConcurrencyPolicy == "skip" {
+		var running int
+		if err := db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM scheduler_workflow_runs WHERE workflow_id = ? AND status = 'running'`,
+			workflowID).Scan(&running); err != nil {
+			return WorkflowRun{}, err
+		}
+		if running > 0 {
+			return WorkflowRun{}, fmt.Errorf("工作流正在执行，按并发策略 skip 跳过本次触发")
+		}
+	}
 	start := time.Now().Unix()
 	runID, err := createWorkflowRun(ctx, db, workflow, triggerType, start)
 	if err != nil {

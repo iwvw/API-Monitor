@@ -239,6 +239,11 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_extracted_at", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.memory_extracted_at: %w", err)
 	}
+	// memory_extracted_msg_id：与 memory_extracted_at 组成 (created_at, id) 二元游标，
+	// 批内超限时不把游标跳到「当前时刻」，剩余消息不会因时间盲区被永久跳过。
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_extracted_msg_id", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.memory_extracted_msg_id: %w", err)
+	}
 	// admin_ai_messages 扩展 reasoning_content 列（推理模型要求回传思考内容）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_content", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_messages.reasoning_content: %w", err)
@@ -702,9 +707,11 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	ch, exists := s.runs[runID]
-	if exists && !resume {
-		// 首个订阅方领取通道独占消费，避免多个 SSE 读者互相竞争；
-		// resume 重连不领（serveSSE 断连时会归还，重连期间可再次取用）。
+	if exists {
+		// 原子领取通道：无论首连还是 resume 重连，同一 run 同一时刻只允许
+		// 一个 SSE 消费者。此前 resume 不领取会让断线重连期间的多个连接
+		// 同时读共享 channel，事件被分散到不同连接上。断连时 serveSSE 会
+		// 把通道归还到 s.runs（run 未结束的情况下），重连仍可再次取用。
 		delete(s.runs, runID)
 	}
 	s.mu.Unlock()
@@ -779,11 +786,16 @@ func (s *Service) resolveApproval(w http.ResponseWriter, r *http.Request, approv
 	defer db.Close()
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.ExecContext(r.Context(),
+	result, err := db.ExecContext(r.Context(),
 		`UPDATE admin_ai_approvals SET status = ?, resolved_at = ?, reason = ? WHERE id = ? AND status = 'pending'`,
 		req.Action, now, req.Reason, approvalID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		response.Error(w, http.StatusConflict, "该审批已过期或已处理")
 		return
 	}
 

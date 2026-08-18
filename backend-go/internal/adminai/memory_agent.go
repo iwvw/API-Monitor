@@ -84,7 +84,7 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 
 	idleBefore := time.Now().UTC().Add(-time.Duration(idleMinutes) * time.Minute).Format(time.RFC3339)
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, COALESCE(model,''), COALESCE(memory_extracted_at,'')
+		SELECT id, COALESCE(model,''), COALESCE(memory_extracted_at,''), COALESCE(memory_extracted_msg_id,'')
 		FROM admin_ai_sessions
 		WHERE source = 'web'
 		  AND last_activity_at <= ?
@@ -100,11 +100,12 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 		id        string
 		model     string
 		extracted string
+		msgID     string
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if rows.Scan(&c.id, &c.model, &c.extracted) == nil {
+		if rows.Scan(&c.id, &c.model, &c.extracted, &c.msgID) == nil {
 			candidates = append(candidates, c)
 		}
 	}
@@ -119,7 +120,7 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 		if running {
 			continue
 		}
-		if err := s.captureSessionMemory(ctx, db, c.id, c.model, c.extracted); err != nil {
+		if err := s.captureSessionMemory(ctx, db, c.id, c.model, c.extracted, c.msgID); err != nil {
 			slog.Warn("memory-capture", "session", c.id, "err", err.Error())
 			if firstErr == nil {
 				firstErr = err
@@ -130,9 +131,11 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 }
 
 // captureSessionMemory 提炼单个会话的新增对话：加载消息与现有记忆 → 调用 LLM 输出操作清单 → 落库。
-// 游标（memory_extracted_at）仅在成功完成后推进：中途进程崩溃/失败保留旧游标，消息不丢、下轮重试；
+// 游标是 (memory_extracted_at, memory_extracted_msg_id) 二元组，仅在成功完成后推进到
+// 本批最后一条消息的位置：中途进程崩溃/失败保留旧游标，消息不丢、下轮重试；
+// 批内消息超过上限时游标只推进到本批末尾，剩余消息下一轮继续，不会跳过。
 // 进程内 captureInFlight 防同一会话并发重复提炼。
-func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionID, model, oldExtracted string) error {
+func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionID, model, oldExtracted, oldMsgID string) error {
 	s.mu.Lock()
 	if s.captureInFlight[sessionID] {
 		s.mu.Unlock()
@@ -146,20 +149,22 @@ func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionI
 		s.mu.Unlock()
 	}()
 
-	// 本会话待提炼消息（用户 + 助手正文，排除 tool 行）
+	// 本会话待提炼消息（用户 + 助手正文，排除 tool 行）。
+	// 游标为 (created_at, id) 字典序：同一秒内的多条消息也不会漏或重复。
 	rows, err := db.QueryContext(ctx, `
-		SELECT role, content FROM admin_ai_messages
-		WHERE session_id = ? AND role IN ('user', 'assistant') AND content <> '' AND created_at > ?
-		ORDER BY created_at ASC LIMIT ?`,
-		sessionID, oldExtracted, memoryCaptureMaxMessages)
+		SELECT id, role, created_at, content FROM admin_ai_messages
+		WHERE session_id = ? AND role IN ('user', 'assistant') AND content <> ''
+		  AND (created_at > ? OR (created_at = ? AND id > ?))
+		ORDER BY created_at ASC, id ASC LIMIT ?`,
+		sessionID, oldExtracted, oldExtracted, oldMsgID, memoryCaptureMaxMessages)
 	if err != nil {
 		return err
 	}
-	type msgPair struct{ role, content string }
+	type msgPair struct{ id, role, content, createdAt string }
 	var msgs []msgPair
 	for rows.Next() {
 		var m msgPair
-		if rows.Scan(&m.role, &m.content) == nil {
+		if rows.Scan(&m.id, &m.role, &m.createdAt, &m.content) == nil {
 			msgs = append(msgs, m)
 		}
 	}
@@ -234,9 +239,11 @@ func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionI
 	if len(ops) > 0 {
 		slog.Info("memory-capture", "session", sessionID, "operations", len(ops))
 	}
-	// 全部操作落库成功后才推进游标（崩溃/失败保留旧游标，消息不丢）
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := db.ExecContext(ctx, `UPDATE admin_ai_sessions SET memory_extracted_at = ? WHERE id = ?`, now, sessionID); err != nil {
+	// 全部操作落库成功后才推进游标（崩溃/失败保留旧游标，消息不丢）。
+	// 游标推进到本批最后一条消息的 (created_at, id)：超批的剩余消息
+	// 满足「>」条件，下一轮继续处理，不会被跳过。
+	last := msgs[len(msgs)-1]
+	if _, err := db.ExecContext(ctx, `UPDATE admin_ai_sessions SET memory_extracted_at = ?, memory_extracted_msg_id = ? WHERE id = ?`, last.createdAt, last.id, sessionID); err != nil {
 		return err
 	}
 	return nil

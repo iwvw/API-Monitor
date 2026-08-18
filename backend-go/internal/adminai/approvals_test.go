@@ -260,8 +260,8 @@ func TestResolveApprovalTwiceDenied(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("状态码 %d", rec.Code)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("重复处理已生效审批应返回 409，状态码 %d body=%s", rec.Code, rec.Body.String())
 	}
 
 	db, err := s.open(context.Background())

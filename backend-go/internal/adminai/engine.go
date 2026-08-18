@@ -249,8 +249,8 @@ const (
 	adminAIKeyTimeoutSeconds         = "admin_ai_timeout_seconds"
 	adminAIKeyMemoriesEnabled        = "admin_ai_memories_enabled"
 	adminAIKeyMemoriesBootstrapChars = "admin_ai_memories_bootstrap_chars"
-	adminAIKeyContextWindow        = "admin_ai_context_window"
-	adminAIKeySummaryModel         = "admin_ai_summary_model" // 推理摘要专用模型（留空回退默认模型）
+	adminAIKeyContextWindow          = "admin_ai_context_window"
+	adminAIKeySummaryModel           = "admin_ai_summary_model" // 推理摘要专用模型（留空回退默认模型）
 )
 
 const defaultMemoriesBootstrapChars = 2000
@@ -323,7 +323,12 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 		if buf := s.runBuffers[runID]; buf != nil {
 			buf.markDone()
 		}
-		delete(s.sessionRuns, sessionID)
+		if rid, exists := s.sessionRuns[sessionID]; exists && rid == runID {
+			// 仅当本 run 仍是该会话的活跃注册时才删除：cancelRun 提前释放
+			// 注册后，会话可能已启动新 run，无条件的按会话删除会抹掉新 run
+			// 的注册，让第三条消息再次通过「会话已有执行」检查形成并发双 run。
+			delete(s.sessionRuns, sessionID)
+		}
 		if ch, exists := s.runs[runID]; exists {
 			close(ch)
 			delete(s.runs, runID)
@@ -601,7 +606,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			_, _ = db.ExecContext(runCtx,
 				`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, tool_call_meta, created_at) VALUES (?, ?, 'assistant', '', ?, '', ?, ?)`,
 				assistantMsgID, sessionID, resp.ReasoningContent, string(tcMeta), time.Now().UTC().Format(time.RFC3339))
-s.scheduleReasoningSummary(s.summaryModel(runCtx, db, sessionModel), resp.ReasoningContent, assistantMsgID, eventCh)
+			s.scheduleReasoningSummary(s.summaryModel(runCtx, db, sessionModel), resp.ReasoningContent, assistantMsgID, eventCh)
 
 			// 阶段一：构建执行计划（顺序 emit tool_start + 落库 running 行 +
 			// 同轮去重缓存判定 + 工具循环检测），全部在主 goroutine 完成。
@@ -619,13 +624,14 @@ s.scheduleReasoningSummary(s.summaryModel(runCtx, db, sessionModel), resp.Reason
 			for _, tc := range resp.ToolCalls {
 				toolCount++
 
+				tcID, _ := randomID("aatc_")
 				s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
-					"toolName": tc.Function.Name,
-					"args":     tc.Function.Arguments,
-					"desc":     s.toolDesc(tc.Function.Name, tc.Function.Arguments),
+					"toolName":   tc.Function.Name,
+					"toolCallId": tcID,
+					"args":       tc.Function.Arguments,
+					"desc":       s.toolDesc(tc.Function.Name, tc.Function.Arguments),
 				}})
 
-				tcID, _ := randomID("aatc_")
 				tcNow := time.Now().UTC().Format(time.RFC3339)
 				_, _ = db.ExecContext(runCtx,
 					`INSERT INTO admin_ai_tool_calls (id, execution_id, tool_name, input_json, status, started_at) VALUES (?, ?, ?, ?, 'running', ?)`,
@@ -714,7 +720,9 @@ s.scheduleReasoningSummary(s.summaryModel(runCtx, db, sessionModel), resp.Reason
 				summary := ""
 				if st.callErr != nil {
 					status = "error"
-					summary = st.callErr.Error()
+					// 错误文本附加可操作的修正引导（Anthropic 工具设计原则：错误回喂要
+					// 引导模型自纠，而不是只给错误码/原文），避免模型盲目重试同一参数。
+					summary = toolErrorHint(st.tc.Function.Name, st.args, st.callErr.Error())
 				} else {
 					summary = summarizeToolResult(st.result)
 					if st.hit {
@@ -722,7 +730,7 @@ s.scheduleReasoningSummary(s.summaryModel(runCtx, db, sessionModel), resp.Reason
 					}
 				}
 
-				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": st.tc.Function.Name, "status": status, "summary": summary}})
+				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": st.tc.Function.Name, "toolCallId": st.tcID, "status": status, "summary": summary}})
 
 				tcFinished := time.Now().UTC().Format(time.RFC3339)
 				_, _ = db.ExecContext(runCtx,
@@ -2173,6 +2181,7 @@ func aiCallResult(resp systemmetrics.AICallResponse) (interface{}, error) {
 }
 
 // summarizeToolResult 把工具返回值序列化为紧凑 JSON 文本（供 LLM 读取）。
+// 超长结果走 trimToolJSON 智能压缩（保标识字段 + 截断标注），不给模型残缺 JSON。
 func summarizeToolResult(v interface{}) string {
 	if v == nil {
 		return ""
@@ -2180,10 +2189,125 @@ func summarizeToolResult(v interface{}) string {
 	if s, ok := v.(string); ok {
 		return truncateContent(s)
 	}
-	if b, err := json.Marshal(v); err == nil {
-		return truncateContent(string(b))
+	text := toJSONText(v)
+	if len(text) > contentSizeLimit {
+		return trimToolJSON(v)
 	}
-	return truncateContent(fmt.Sprintf("%v", v))
+	return text
+}
+
+// trimToolJSON 把超长 JSON 结果压到 contentSizeLimit×3/4 预算内（Anthropic 工具
+// 结果治理原则：截断必须显式标注，且保留模型下轮调用所需的 id/name 标识字段）：
+// 顶层数组按序保留若干完整条目并标注总条数，条目内大对象由 compactToolEntry 压缩；
+// 顶层对象逐字段压缩；仍超预算才字符截断（此时 JSON 残缺，但标注可让模型知道要缩小范围）。
+// 只应在结果超预算时调用；输出始终是完整可读文本，不会超预算太多。
+func trimToolJSON(v interface{}) string {
+	budget := contentSizeLimit * 3 / 4
+	switch t := v.(type) {
+	case []interface{}:
+		total := len(t)
+		if total == 0 {
+			return "[]"
+		}
+		var kept []interface{}
+		size := 0
+		for _, it := range t {
+			entry := compactToolEntry(it)
+			b, err := json.Marshal(entry)
+			if err != nil {
+				continue
+			}
+			if len(kept) > 0 && size+len(b) > budget {
+				break
+			}
+			kept = append(kept, entry)
+			size += len(b)
+			if size > budget {
+				break
+			}
+		}
+		out, _ := json.Marshal(kept)
+		if len(kept) < total {
+			return string(out) + fmt.Sprintf("\n[已截断：共 %d 条，仅保留前 %d 条（条目含 id/name 标识，可直接作为后续调用的过滤/定位参数）；需要完整数据时可用筛选参数缩小范围]", total, len(kept))
+		}
+		return string(out)
+	case map[string]interface{}:
+		compressed := make(map[string]interface{}, len(t))
+		for k, val := range t {
+			compressed[k] = compactToolEntry(val)
+		}
+		if b, err := json.Marshal(compressed); err == nil && len(b) <= budget {
+			return string(b)
+		}
+		// 压缩后仍超预算：只保留顶层标识键（id/name…）并显式标注，不让字符截断把标识切掉。
+		top := compactToolEntry(t)
+		b, _ := json.Marshal(top)
+		return string(b) + "\n[已截断：结果过大，仅保留顶层标识字段]"
+	}
+	return truncateContent(toJSONText(v))
+}
+
+// compactToolEntry 压缩单个结果条目：对象保留 id/ID/name/host/type/status 等标识键
+// 完整不动（模型下轮要靠它们定位资源），其余字段被省略并显式标注；非对象原样返回。
+func compactToolEntry(v interface{}) interface{} {
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return v
+	}
+	out := make(map[string]interface{}, 6)
+	for _, k := range []string{"id", "ID", "name", "host", "type", "status"} {
+		if val, has := m[k]; has {
+			out[k] = val
+		}
+	}
+	if len(out) != len(m) {
+		out["_truncated"] = "该条大量字段已省略"
+	}
+	return out
+}
+
+// toJSONText 尽力把任意值序列化为 JSON，失败时回退 fmt 文本。
+func toJSONText(v interface{}) string {
+	if b, err := json.Marshal(v); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// toolErrorHint 给工具失败回喂附加修正引导（与 retryableToolError 的关键词判定解耦，
+// 只影响进入 LLM 上下文/审计的 summary，不影响失败重试逻辑）。审批类等待是正常流程，
+// 不加引导；参数类错误给出可执行动作，避免模型用相同参数盲目重试。
+func toolErrorHint(toolName string, args map[string]interface{}, msg string) string {
+	if msg == "" {
+		return msg
+	}
+	if strings.Contains(msg, "审批") || strings.Contains(msg, "未启用") {
+		return msg
+	}
+	hint := ""
+	switch toolName {
+	case "call_api":
+		switch {
+		case strings.Contains(msg, "HTTP 4"):
+			hint = "请求未通过校验：先调用 get_route 读取该接口契约（路径参数/请求体字段类型、必填项、枚举），修正后重试；确认 path 里的大括号参数已替换为真实值"
+		case strings.Contains(msg, "HTTP 5"), strings.Contains(msg, "连接"), strings.Contains(msg, "超时"):
+			hint = "服务端临时故障：可稍后重试，或换用同类聚合/状态接口确认结果"
+		case strings.Contains(msg, "业务失败"):
+			hint = "业务校验未通过：按错误信息修正参数（如 cron 需 5 段表达式、资源已存在/不存在、余额或配额不足），必要时先读一次对应资源状态再操作"
+		}
+	case "unknown tool":
+		hint = "工具名不存在：请改用系统提示词内置清单中的工具名"
+	default:
+		if strings.Contains(msg, "未知工具") {
+			hint = "工具名不存在：请改用系统提示词内置清单中的工具名"
+		} else {
+			hint = "请检查参数是否完整且符合工具 schema（必填项、类型、枚举）后重试；不确定时先调用 get_route 读取契约"
+		}
+	}
+	if hint == "" {
+		return msg
+	}
+	return msg + "\n[修正引导] " + hint
 }
 
 func (s *Service) getWriteEnabled(ctx context.Context, db *sql.DB) (bool, error) {
