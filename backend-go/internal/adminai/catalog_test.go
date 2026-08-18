@@ -152,3 +152,31 @@ func TestValidateCallAPIPath(t *testing.T) {
 		t.Fatalf("带 query 的真实路径应放行，got %q", hint)
 	}
 }
+
+// manifest 兜底：不在 JSON 清单但 manifest 真实存在的接口（ResponseProxy 等）
+// 保持旧行为放行；manifest 也查不到的臆造路径才拦截。
+func TestValidateCallAPIPathManifestFallback(t *testing.T) {
+	s := newTestService(t)
+	s.aiCaller = func(_ context.Context, req system.AICallRequest) (system.AICallResponse, error) {
+		return system.AICallResponse{
+			StatusCode: 200,
+			Body:       map[string]interface{}{"routes": catalogTestRoutes()},
+		}, nil
+	}
+	s.apiCatalogText(context.Background())
+
+	// R2 下载（ResponseProxy，不在 JSON 清单）→ manifest 兜底放行
+	if hint, ok := s.validateCallAPIPath("GET", "/api/cloudflare/accounts/a1/r2/buckets/b1/objects/k1/download"); !ok {
+		t.Fatalf("manifest 存在的代理接口应放行，got %q", hint)
+	}
+	// 带 query 的 manifest 路径 → 放行（query 已在匹配前剥离）
+	if hint, ok := s.validateCallAPIPath("GET", "/api/cloudflare/accounts/a1/r2/buckets/b1/objects/k1/download?expires=1"); !ok {
+		t.Fatalf("manifest 代理接口带 query 应放行，got %q", hint)
+	}
+	// manifest 不存在的臆造路径 → 拦截
+	if hint, ok := s.validateCallAPIPath("GET", "/api/cloudflare/definitely/not/a/route"); ok {
+		t.Fatal("manifest 之外的臆造路径应拦截")
+	} else if !strings.Contains(hint, "不在可调用接口清单") {
+		t.Fatalf("臆造路径拦截提示异常: %s", hint)
+	}
+}

@@ -2105,8 +2105,14 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 		}
 		// 聚合前缀（模块总入口）不可调用：直接报错并列出子路由，
 		// 避免返回「假契约」诱导模型据此发起调用（审计实证：GET /api/scheduler 404）。
-		if desc, ok := prefixes[path]; ok {
-			children := s.catalogChildrenOf(path)
+		// 与 validateCallAPIPath 保持一致：匹配前先剥离 query string，
+		// 避免模型按 call_api 习惯带 ?page=1 时误报「路径不存在」。
+		matchPath := path
+		if i := strings.IndexByte(matchPath, '?'); i >= 0 {
+			matchPath = matchPath[:i]
+		}
+		if desc, ok := prefixes[matchPath]; ok {
+			children := s.catalogChildrenOf(matchPath)
 			hint := "该路径是聚合前缀（模块总入口"
 			if desc != "" {
 				hint += "：" + desc
@@ -2119,7 +2125,7 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 			}
 			return nil, fmt.Errorf("路径 %s 未命中可调用接口：%s", path, hint)
 		}
-		contract := routeContractFromCache(routes, path)
+		contract := routeContractFromCache(routes, matchPath)
 		if contract == nil {
 			return nil, fmt.Errorf("API 路由不存在: %s（请对照系统提示词内置的接口清单选择真实路径，禁止猜测清单之外的路径）", path)
 		}
@@ -2170,9 +2176,10 @@ func (s *Service) catalogChildrenOf(prefix string) string {
 }
 
 // validateCallAPIPath 本地校验 call_api 的目标路径与方法是否在确定性清单中：
-// 清单外路径直接拒绝（聚合前缀给出子路由提示，其他给出「对照清单」引导），
-// 方法不匹配时返回该接口真实可用方法。清单未构建（catalogRoutes 为空）时放行，
-// 由真实 HTTP 层兜底校验。
+// 聚合前缀直接拒绝（给出子路由提示）；清单（JSON session 接口）内路径做方法
+// 校验；不在清单但 manifest 中存在（如 ResponseProxy 的 R2 下载、public 路由等
+// 非 JSON 接口）放行，保持旧行为由真实 HTTP 层兜底——预检只负责拦截「必 404」
+// 的臆造路径，不缩小合法调用面。清单未构建（catalogRoutes 为空）时也放行。
 func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 	s.catalogMu.Lock()
 	routes := s.catalogRoutes
@@ -2201,6 +2208,18 @@ func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 	}
 	best := routeContractFromCache(routes, p)
 	if best == nil {
+		// 不在清单但 manifest 中存在（非 JSON 响应接口，如 R2 下载代理/
+		// public 路由）：保留旧行为放行，由真实 HTTP 层校验（与 callAPIFromAI
+		// 的 manifest.Match + Owner/ResponseMode 限制一致）。
+		if route, ok := manifest.Match(p); ok {
+			if route.Owner != manifest.OwnerGo {
+				return "接口不可调用: " + p + "（非本端路由）", false
+			}
+			if route.ResponseMode == manifest.ResponseStream || route.ResponseMode == manifest.ResponseWebSocket {
+				return "流式或 WebSocket 接口不允许通过 AI 直接调用: " + p, false
+			}
+			return "", true
+		}
 		return "路径 " + path + " 不在可调用接口清单中（不存在或不可调用）：请对照系统提示词内置的接口清单选择真实路径与正确方法，禁止猜测或拼凑路径", false
 	}
 	if method == "" {
