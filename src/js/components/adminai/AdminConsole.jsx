@@ -36,11 +36,9 @@ function MultiModelSelect({ options, value, onChange }) {
       if (!inBox && !inPanel) close();
     };
     window.addEventListener('mousedown', onDown);
-    window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
     return () => {
       window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('scroll', close, true);
       window.removeEventListener('resize', close);
     };
   }, [open]);
