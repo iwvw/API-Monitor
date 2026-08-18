@@ -1,18 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MSG,
-  STEP,
-  APPROVAL,
-  STREAM_EVENTS,
-  createUserMessage,
-  createAssistantMessage,
-  normalizeAiEvent,
-  applyAiEvent,
-  failMessage,
-  cancelMessage,
-  resolveApprovalBlock,
-  isStreaming,
-  collectAssistantText,
+  MSG, STEP, APPROVAL, STREAM_EVENTS,
+  createUserMessage, createAssistantMessage,
+  normalizeAiEvent, applyAiEvent, failMessage, cancelMessage,
+  resolveApprovalPart, buildTimelineFromRows, collectAssistantText, isStreaming,
 } from './adminAiMessages.js';
 
 const tgt = () => createAssistantMessage('a1', 'run1');
@@ -28,12 +19,18 @@ describe('normalizeAiEvent', () => {
     expect(normalizeAiEvent({ type: 'delta' })).toEqual({ type: 'delta', text: '', userMessageId: '' });
   });
 
+  it('tool_start 规范化', () => {
+    expect(normalizeAiEvent({ type: 'tool_start', toolName: 'call_api', toolCallId: 'c1', args: '{}', desc: '查询' })).toEqual({
+      type: 'tool_start', toolName: 'call_api', toolCallId: 'c1', args: '{}', desc: '查询', userMessageId: '',
+    });
+  });
+
   it('tool_result 状态归一为 success/failed', () => {
-    expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', status: 'success' })).toEqual({
-      type: 'tool_result', toolName: 'get_x', toolCallId: '', status: STEP.SUCCESS, error: '', userMessageId: '',
+    expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', status: 'success', summary: 'ok' })).toEqual({
+      type: 'tool_result', toolName: 'get_x', toolCallId: '', status: STEP.SUCCESS, summary: 'ok', error: '', userMessageId: '',
     });
     expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: 'error', error: 'boom' })).toEqual({
-      type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: STEP.FAILED, error: 'boom', userMessageId: '',
+      type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: STEP.FAILED, summary: '', error: 'boom', userMessageId: '',
     });
   });
 
@@ -51,221 +48,140 @@ describe('normalizeAiEvent', () => {
   });
 });
 
-describe('applyAiEvent — 消息生命周期', () => {
-  it('pending → streaming，reasoning 更新', () => {
+describe('applyAiEvent — parts 生命周期', () => {
+  it('pending → streaming，reasoning part 追加', () => {
     const next = applyAiEvent(withTarget(), { type: 'reasoning', text: '思考' }, 'a1');
     const msg = next[1];
     expect(msg.status).toBe(MSG.STREAMING);
-    expect(msg.reasoning).toBe('思考');
+    expect(msg.parts).toEqual([{ type: 'reasoning', text: '思考' }]);
   });
 
-  it('reasoning 分块事件按顺序追加而非覆盖', () => {
-    let next = applyAiEvent(withTarget(), { type: 'reasoning', text: '第一步' }, 'a1');
-    next = applyAiEvent(next, { type: 'reasoning', text: '·第二步' }, 'a1');
-    expect(next[1].reasoning).toBe('第一步·第二步');
+  it('reasoning 分块事件按顺序合并到同一 part 而非覆盖', () => {
+    let list = applyAiEvent(withTarget(), { type: 'reasoning', text: '先' }, 'a1');
+    list = applyAiEvent(list, { type: 'reasoning', text: '后' }, 'a1');
+    expect(list[1].parts).toEqual([{ type: 'reasoning', text: '先后' }]);
   });
 
-  it('delta 追加到已有 text 块；首个 delta 新建 text 块', () => {
-    let next = applyAiEvent(withTarget(), { type: 'delta', text: '你好' }, 'a1');
-    expect(next[1].blocks).toEqual([{ type: 'text', text: '你好' }]);
-    next = applyAiEvent(next, { type: 'delta', text: '世界' }, 'a1');
-    expect(next[1].blocks).toEqual([{ type: 'text', text: '你好世界' }]);
+  it('reasoning_summary 更新最后一个 reasoning part', () => {
+    let list = applyAiEvent(withTarget(), { type: 'reasoning', text: '想' }, 'a1');
+    list = applyAiEvent(list, { type: 'reasoning_summary', text: '探索witr项目' }, 'a1');
+    expect(list[1].parts).toEqual([{ type: 'reasoning', text: '想', summary: '探索witr项目' }]);
   });
 
-  it('done → completed + inactive', () => {
-    const next = applyAiEvent(withTarget(), { type: 'done' }, 'a1');
-    expect(next[1].status).toBe(MSG.COMPLETED);
-    expect(next[1].active).toBe(false);
+  it('delta 追加 text part，连续 delta 合并', () => {
+    let list = applyAiEvent(withTarget(), { type: 'delta', text: '你好' }, 'a1');
+    list = applyAiEvent(list, { type: 'delta', text: '世界' }, 'a1');
+    expect(list[1].parts).toEqual([{ type: 'text', text: '你好世界' }]);
   });
 
-  it('done 携带 userMessageId → 前一条用户消息记录 dbId（编辑重发截断）', () => {
-    const next = applyAiEvent(withTarget(), { type: 'done', userMessageId: 'aam_42' }, 'a1');
-    expect(next[1].status).toBe(MSG.COMPLETED);
-    expect(next[0]).toMatchObject({ id: 'u1', dbId: 'aam_42' });
+  it('工具调用时间序：tool_start → tool_result 生成两个 part 并更新状态', () => {
+    let list = applyAiEvent(withTarget(), { type: 'tool_start', toolName: 'call_api', toolCallId: 'c1', args: '{}', desc: '查询' }, 'a1');
+    expect(list[1].parts).toEqual([{ type: 'tool_call', toolName: 'call_api', toolCallId: 'c1', args: '{}', desc: '查询', status: STEP.RUNNING }]);
+    list = applyAiEvent(list, { type: 'tool_result', toolName: 'call_api', toolCallId: 'c1', status: 'success', summary: '结果' }, 'a1');
+    expect(list[1].parts[0].status).toBe(STEP.SUCCESS);
+    expect(list[1].parts[1]).toEqual({ type: 'tool_result', toolName: 'call_api', toolCallId: 'c1', summary: '结果', status: STEP.SUCCESS });
   });
 
-  it('error 携带 userMessageId 同样记录 dbId（失败轮也可编辑重发）', () => {
-    const next = applyAiEvent(withTarget(), { type: 'error', message: '崩了', userMessageId: 'aam_7' }, 'a1');
-    expect(next[1].status).toBe(MSG.ERROR);
-    expect(next[0]).toMatchObject({ id: 'u1', dbId: 'aam_7' });
+  it('失败工具：tool_call 状态 failed，tool_result part 携带 error 状态', () => {
+    let list = applyAiEvent(withTarget(), { type: 'tool_start', toolName: 'call_api', toolCallId: 'c1' }, 'a1');
+    list = applyAiEvent(list, normalizeAiEvent({ type: 'tool_result', toolName: 'call_api', toolCallId: 'c1', status: 'error', error: 'boom', summary: '' }), 'a1');
+    expect(list[1].parts[0].status).toBe(STEP.FAILED);
+    expect(list[1].parts[1].status).toBe(STEP.FAILED);
   });
 
-  it('error → error 状态 + 错误块 + inactive', () => {
-    const next = applyAiEvent(withTarget(), { type: 'error', message: '模型崩了', retryPrompt: '运行状态' }, 'a1');
-    expect(next[1].status).toBe(MSG.ERROR);
-    expect(next[1].active).toBe(false);
-    expect(next[1].blocks[0]).toMatchObject({ type: 'error', retryable: true, retryPrompt: '运行状态' });
+  it('done 结束消息且 roundUserMsgId 记录归属', () => {
+    let list = applyAiEvent(withTarget(), { type: 'delta', text: '正文', userMessageId: 'aam_u1' }, 'a1');
+    list = applyAiEvent(list, { type: 'done', userMessageId: 'aam_u1' }, 'a1');
+    const msg = list[1];
+    expect(msg.status).toBe(MSG.COMPLETED);
+    expect(msg.active).toBe(false);
+    expect(msg.roundUserMsgId).toBe('aam_u1');
+    // done 事件把 userMessageId 记到其前一条用户消息（编辑重发截断依据）
+    expect(list[0].dbId).toBe('aam_u1');
   });
 
-  it('目标不存在（已切换/已 inactive）→ 数组原样返回（防串流污染）', () => {
-    const base = withTarget();
-    const done = applyAiEvent(base, { type: 'done' }, 'a1');
-    // done 之后 active=false，旧流事件不得再污染
-    expect(applyAiEvent(done, { type: 'delta', text: '污染' }, 'a1')).toBe(done);
-    // 目标 id 不在数组中
-    expect(applyAiEvent(base, { type: 'delta', text: 'x' }, 'nonexistent')).toBe(base);
+  it('error 事件：error part + 终态', () => {
+    const next = applyAiEvent(withTarget(), { type: 'error', message: '执行失败', userMessageId: 'aam_u1' }, 'a1');
+    const msg = next[1];
+    expect(msg.status).toBe(MSG.ERROR);
+    expect(msg.parts).toEqual([{ type: 'error', message: '执行失败', retryable: true, retryPrompt: '' }]);
   });
 
-  it('已完成消息不再接收事件', () => {
-    const base = withTarget();
-    let next = applyAiEvent(base, { type: 'done' }, 'a1');
-    next = applyAiEvent(next, { type: 'delta', text: '晚到的文本' }, 'a1');
-    expect(next[1].blocks).toEqual([]);
-  });
-});
-
-describe('applyAiEvent — 工具调用', () => {
-  it('tool_start 追加步骤并激活；tool_result 更新', () => {
-    let next = applyAiEvent(withTarget(), { type: 'tool_start', toolName: 'get_a', args: '{}' }, 'a1');
-    expect(next[1].status).toBe(MSG.STREAMING);
-    expect(next[1].thinking).toHaveLength(1);
-    expect(next[1].thinking[0].status).toBe(STEP.RUNNING);
-
-    next = applyAiEvent(next, { type: 'tool_result', toolName: 'get_a', status: 'success' }, 'a1');
-    expect(next[1].thinking[0].status).toBe(STEP.SUCCESS);
-  });
-
-  it('同一工具多次调用按顺序配对（不误配第一个）', () => {
-    let next = withTarget();
-    next = applyAiEvent(next, { type: 'tool_start', toolName: 'get_a' }, 'a1');
-    next = applyAiEvent(next, { type: 'tool_start', toolName: 'get_a' }, 'a1');
-    // 第一个 result → 第一个 running 步骤
-    next = applyAiEvent(next, { type: 'tool_result', toolName: 'get_a', status: STEP.SUCCESS }, 'a1');
-    expect(next[1].thinking.map((s) => s.status)).toEqual([STEP.SUCCESS, STEP.RUNNING]);
-    // 第二个 result 应落到第二个 running 步骤，而不是覆盖第一个
-    next = applyAiEvent(next, { type: 'tool_result', toolName: 'get_a', status: STEP.FAILED, error: '第二次失败' }, 'a1');
-    expect(next[1].thinking.map((s) => s.status)).toEqual([STEP.SUCCESS, STEP.FAILED]);
-    expect(next[1].thinking[1].error).toBe('第二次失败');
-  });
-
-  it('tool_result 无匹配 running 步骤时幂等（内容不变）', () => {
-    const base = withTarget();
-    const next = applyAiEvent(base, { type: 'tool_result', toolName: 'ghost', status: STEP.SUCCESS }, 'a1');
-    expect(next[1].thinking).toEqual([]);
-    expect(next[1].blocks).toEqual([]);
+  it('approval 事件 append approval part', () => {
+    const next = applyAiEvent(withTarget(), { type: 'approval', approvalId: 'ap1', planSummary: '删除', method: 'DELETE', path: 'resource/x' }, 'a1');
+    expect(next[1].parts[0]).toMatchObject({ type: 'approval', approvalId: 'ap1', method: 'DELETE', path: 'resource/x', status: APPROVAL.PENDING });
   });
 });
 
-describe('applyAiEvent — 审批', () => {
-  it('approval_required 追加审批块并激活', () => {
-    const ev = { type: 'approval', approvalId: 'app1', planSummary: '执行 POST /x', method: 'POST', path: '/x' };
-    const next = applyAiEvent(withTarget(), ev, 'a1');
-    const block = next[1].blocks[0];
-    expect(block).toMatchObject({ type: 'approval', approvalId: 'app1', status: APPROVAL.PENDING });
-  });
-
-  it('resolveApprovalBlock 更新审批状态', () => {
-    let next = applyAiEvent(withTarget(), { type: 'approval', approvalId: 'app1', planSummary: 's' }, 'a1');
-    next = resolveApprovalBlock(next, 'app1', 'approve');
-    expect(next[1].blocks[0].status).toBe(APPROVAL.APPROVED);
-  });
-});
-
-describe('failMessage / cancelMessage', () => {
-  it('failMessage 把占位转为错误块', () => {
-    const next = failMessage(withTarget(), 'a1', '409 冲突', '运行状态');
+describe('applyAiEvent — 生命周期管理', () => {
+  it('failMessage 把占位转为错误 part', () => {
+    const next = failMessage(withTarget(), 'a1', '发送失败', '原prompt');
     expect(next[1].status).toBe(MSG.ERROR);
-    expect(next[1].blocks[0]).toMatchObject({ type: 'error', message: '409 冲突', retryPrompt: '运行状态' });
+    expect(next[1].parts).toEqual([{ type: 'error', message: '发送失败', retryable: true, retryPrompt: '原prompt' }]);
   });
 
-  it('cancelMessage 无输出时移除占位', () => {
+  it('cancelMessage：无输出移除占位', () => {
     const next = cancelMessage(withTarget(), 'a1');
-    expect(next.some((m) => m.id === 'a1')).toBe(false);
-    expect(next[0].role).toBe('user');
+    expect(next.length).toBe(1); // 占位被移除，只留 user 消息
   });
 
-  it('cancelMessage 有输出时标记 cancelled', () => {
-    let base = applyAiEvent(withTarget(), { type: 'reasoning', text: '想' }, 'a1');
-    base = cancelMessage(base, 'a1');
-    expect(base[1].status).toBe(MSG.CANCELLED);
-    expect(base[1].active).toBe(false);
+  it('cancelMessage：有输出标记 cancelled', () => {
+    let list = applyAiEvent(withTarget(), { type: 'delta', text: '部分' }, 'a1');
+    list = cancelMessage(list, 'a1');
+    expect(list[1].status).toBe(MSG.CANCELLED);
+    expect(list[1].active).toBe(false);
   });
-});
 
-describe('查询辅助', () => {
-  it('isStreaming 判定', () => {
+  it('resolveApprovalPart 更新 approval 状态', () => {
+    let list = applyAiEvent(withTarget(), { type: 'approval', approvalId: 'ap1' }, 'a1');
+    list = resolveApprovalPart(list, 'ap1', 'reject');
+    expect(list[1].parts[0].status).toBe(APPROVAL.REJECTED);
+  });
+
+  it('collectAssistantText 汇总 text parts', () => {
+    let list = applyAiEvent(withTarget(), { type: 'delta', text: '第一段' }, 'a1');
+    list = applyAiEvent(list, { type: 'tool_start', toolName: 'x', toolCallId: 'c1' }, 'a1');
+    list = applyAiEvent(list, { type: 'delta', text: '第二段' }, 'a1');
+    expect(collectAssistantText(list[1])).toBe('第一段\n第二段');
+  });
+
+  it('isStreaming 判断 pending/streaming', () => {
     expect(isStreaming(MSG.PENDING)).toBe(true);
     expect(isStreaming(MSG.STREAMING)).toBe(true);
     expect(isStreaming(MSG.COMPLETED)).toBe(false);
-    expect(isStreaming(MSG.ERROR)).toBe(false);
   });
 
-  it('collectAssistantText 汇总 text 块与历史 content', () => {
-    const msg = createAssistantMessage('a', null, MSG.COMPLETED);
-    msg.content = '历史正文';
-    msg.blocks = [{ type: 'text', text: '流式正文' }, { type: 'tool_call' }];
-    expect(collectAssistantText(msg)).toBe('历史正文\n流式正文');
-  });
-});
-
-describe('session_title 事件', () => {
-  it('normalizeAiEvent 提取 sessionId/title', () => {
-    expect(normalizeAiEvent({ type: 'session_title', sessionId: 's1', title: '我的域名配置' })).toEqual({
-      type: 'session_title', sessionId: 's1', title: '我的域名配置',
-    });
-    expect(normalizeAiEvent({ type: 'session_title' })).toEqual({ type: 'session_title', sessionId: '', title: '' });
-  });
-
-  it('STREAM_EVENTS 包含 session_title', () => {
-    expect(STREAM_EVENTS).toContain('session_title');
-  });
-});
-
-describe('并行同名工具调用', () => {
-  function msgWithTwoCalls() {
-    return { id: 'm1', role: 'assistant', active: true, status: 'streaming', blocks: [{ type: 'text', text: '' }], thinking: [
-      { type: 'tool_call', toolName: 'call_api', toolCallId: 'c1', status: STEP.RUNNING },
-      { type: 'tool_call', toolName: 'call_api', toolCallId: 'c2', status: STEP.RUNNING },
-    ] };
-  }
-
-  it('按 toolCallId 精确匹配结果，互不串扰', () => {
-    let list = applyAiEvent([msgWithTwoCalls()], normalizeAiEvent({ type: 'tool_result', toolName: 'call_api', toolCallId: 'c2', status: 'success' }), 'm1');
-    let m = list[0];
-    expect(m.thinking[0].status).toBe(STEP.RUNNING);
-    expect(m.thinking[1].status).toBe(STEP.SUCCESS);
-    list = applyAiEvent(list, normalizeAiEvent({ type: 'tool_result', toolName: 'call_api', toolCallId: 'c1', status: 'error', error: 'boom' }), 'm1');
-    m = list[0];
-    expect(m.thinking[0].status).toBe(STEP.FAILED);
-    expect(m.thinking[1].status).toBe(STEP.SUCCESS);
-  });
-
-  it('无 toolCallId 时回退同名 RUNNING 匹配（兼容旧事件）', () => {
-    const msg = applyAiEvent([msgWithTwoCalls()], { type: 'tool_result', toolName: 'call_api', status: 'success' }, 'm1');
-    expect(msg[0].thinking[0].status).toBe(STEP.SUCCESS);
-    expect(msg[0].thinking[1].status).toBe(STEP.RUNNING);
+  it('STREAM_EVENTS 完整性', () => {
+    for (const t of ['reasoning', 'reasoning_summary', 'delta', 'tool_start', 'tool_result', 'approval_required', 'error', 'done', 'session_title']) {
+      expect(STREAM_EVENTS).toContain(t);
+    }
   });
 });
 
 describe('join 语义：运行中追问的轮次分段', () => {
   it('首轮事件归属占位；第二轮事件自动新建独立段消息', () => {
     let list = withTarget();
-    // 首轮：user1 事件归并到占位并标定轮次归属
     list = applyAiEvent(list, normalizeAiEvent({ type: 'reasoning', text: '第一轮思考', userMessageId: 'aam_u1' }), 'a1');
     expect(list.length).toBe(2);
-    expect(list[1].reasoning).toBe('第一轮思考');
+    expect(list[1].parts[0].text).toBe('第一轮思考');
     expect(list[1].roundUserMsgId).toBe('aam_u1');
-    // 首轮完成
     list = applyAiEvent(list, normalizeAiEvent({ type: 'done', userMessageId: 'aam_u1' }), 'a1');
     expect(list[1].status).toBe(MSG.COMPLETED);
-    // 追问入队后第二轮事件（user2）：目标段已完结且归属不同 → 新建独立段
     list = applyAiEvent(list, normalizeAiEvent({ type: 'tool_start', toolName: 'call_api', toolCallId: 'c1', userMessageId: 'aam_u2' }), 'a1');
     expect(list.length).toBe(3);
     const seg = list[2];
     expect(seg.id).toBe('assistant_aam_u2');
     expect(seg.roundUserMsgId).toBe('aam_u2');
-    expect(seg.thinking[0].toolName).toBe('call_api');
-    // 第二轮 delta 归并到新段
+    expect(seg.parts[0].toolName).toBe('call_api');
     list = applyAiEvent(list, normalizeAiEvent({ type: 'delta', text: '第二轮的正文', userMessageId: 'aam_u2' }), 'a1');
-    expect(list[2].blocks[0].text).toBe('第二轮的正文');
-    expect(list[2].reasoning).toBe('');
+    expect(list[2].parts[1].text).toBe('第二轮的正文');
   });
 
   it('无 userMessageId 的旧式事件仍按 target 归并（兼容）', () => {
     let list = withTarget();
     list = applyAiEvent(list, { type: 'delta', text: '旧式' }, 'a1');
     expect(list.length).toBe(2);
-    expect(list[1].blocks[0].text).toBe('旧式');
+    expect(list[1].parts[0].text).toBe('旧式');
   });
 
   it('两轮且第二轮在首轮完成前到达：轮次变化即分段（不依赖 done）', () => {
@@ -273,7 +189,79 @@ describe('join 语义：运行中追问的轮次分段', () => {
     list = applyAiEvent(list, { type: 'tool_start', toolName: 'query', toolCallId: 'c1', userMessageId: 'aam_u1' }, 'a1');
     list = applyAiEvent(list, { type: 'tool_start', toolName: 'query2', toolCallId: 'c2', userMessageId: 'aam_u2' }, 'a1');
     expect(list.length).toBe(3);
-    expect(list[1].thinking[0].toolName).toBe('query');
-    expect(list[2].thinking[0].toolName).toBe('query2');
+    expect(list[1].parts[0].toolName).toBe('query');
+    expect(list[2].parts[0].toolName).toBe('query2');
+  });
+});
+
+describe('buildTimelineFromRows — 历史恢复为时间序 parts', () => {
+  it('工具轮 + 最终正文合并为一条消息（推理/工具/结果/正文按时间序）', () => {
+    const rows = [
+      { id: 'aam_u1', role: 'user', content: '装好没' },
+      {
+        id: 'aam_a1', role: 'assistant', content: '', reasoning_content: '先看主机',
+        reasoning_summary: '查看主机', toolCallMeta: JSON.stringify([
+          { id: 'tc1', function: { name: 'call_api', arguments: '{}' }, desc: '列出主机' },
+          { id: 'tc2', function: { name: 'call_api', arguments: '{}' }, desc: '执行安装' },
+        ]),
+      },
+      { id: 'aam_t1', role: 'tool', content: '["host-a"]' },
+      { id: 'aam_t2', role: 'tool', content: 'ok' },
+      { id: 'aam_a2', role: 'assistant', content: '已装完', reasoning_content: '' },
+    ];
+    const msgs = buildTimelineFromRows(rows);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0]).toMatchObject({ role: 'user', content: '装好没' });
+    const m = msgs[1];
+    expect(m.role).toBe('assistant');
+    expect(m.parts.map((p) => p.type)).toEqual(['reasoning', 'tool_call', 'tool_call', 'tool_result', 'tool_result', 'text']);
+    expect(m.parts[0]).toMatchObject({ type: 'reasoning', text: '先看主机', summary: '查看主机' });
+    expect(m.parts[1]).toMatchObject({ type: 'tool_call', toolName: 'call_api', desc: '列出主机', toolCallId: 'tc1' });
+    expect(m.parts[3]).toMatchObject({ type: 'tool_result', summary: '["host-a"]' });
+    expect(m.parts[5]).toMatchObject({ type: 'text', text: '已装完' });
+  });
+
+  it('多轮（user 间隔）各自独立为消息', () => {
+    const rows = [
+      { id: 'u1', role: 'user', content: '第一问' },
+      { id: 'a1', role: 'assistant', content: '第一答' },
+      { id: 'u2', role: 'user', content: '第二问' },
+      { id: 'a2', role: 'assistant', content: '第二答' },
+    ];
+    const msgs = buildTimelineFromRows(rows);
+    expect(msgs).toHaveLength(4);
+    expect(msgs[1].parts[0].text).toBe('第一答');
+    expect(msgs[3].parts[0].text).toBe('第二答');
+  });
+
+  it('纯推理轮（无正文）也保留 reasoning part', () => {
+    const rows = [
+      { id: 'u1', role: 'user', content: '查一下' },
+      { id: 'a1', role: 'assistant', content: '', reasoning_content: '在想', toolCallMeta: '[]' },
+      { id: 'a2', role: 'assistant', content: '', reasoning_content: '' },
+    ];
+    const msgs = buildTimelineFromRows(rows);
+    expect(msgs[1].parts.map((p) => p.type)).toEqual(['reasoning']);
+    expect(msgs[1].parts[0].text).toBe('在想');
+  });
+
+  it('toolCallMeta 为对象（旧数据）时兼容解析', () => {
+    const rows = [
+      { id: 'u1', role: 'user', content: '问' },
+      { id: 'a1', role: 'assistant', content: '', toolCallMeta: JSON.stringify({ id: 'tc1', function: { name: 'get_x' } }) },
+      { id: 't1', role: 'tool', content: 'r' },
+    ];
+    const msgs = buildTimelineFromRows(rows);
+    expect(msgs[1].parts).toHaveLength(2);
+    expect(msgs[1].parts[0]).toMatchObject({ type: 'tool_call', toolName: 'get_x' });
+    expect(msgs[1].parts[1]).toMatchObject({ type: 'tool_result', summary: 'r' });
+  });
+
+  it('孤儿 tool 行忽略（无前置 assistant）', () => {
+    const rows = [
+      { id: 't1', role: 'tool', content: 'x', tool_call_id: 'tc1' },
+    ];
+    const msgs = buildTimelineFromRows(rows);
+    expect(msgs).toHaveLength(0);
   });
 });

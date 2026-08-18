@@ -106,8 +106,6 @@ function TableBlock({ rows }) {
 }
 
 /* ---------- 打字机输出：流式文本逐字揭示（内嵌 caret，保留 markdown 渲染） ---------- */
-// 固定步长匀速 reveal：后端 delta 可能是一大块（上游 chunk 粒度粗），
-// 若按剩余比例放大步长会「先蹦两字、剩余瞬间刷完」；固定小步长让大块也平滑打字。
 const TW_CURSOR_STEP = 2; // 每 tick 揭示字符数
 const TW_CURSOR_MS = 20; // tick 间隔（约 100 字符/秒）
 function TypewriterText({ text, streaming }) {
@@ -115,8 +113,6 @@ function TypewriterText({ text, streaming }) {
   const visibleRef = useRef(visible);
   const textRef = useRef(text);
 
-  // SSE delta 是追加（next 以 prev 开头）：保留揭示进度继续打字；
-  // 只有整体替换（同一组件实例承载新消息）才从头开始。
   useEffect(() => {
     const frame = typewriterFrame(textRef.current, text);
     if (frame.reset) {
@@ -208,7 +204,6 @@ function RenderLines({ text }) {
       continue;
     }
     const trimmed = line.trim();
-    // 表格行：标准 `| a | b |`，也容忍缺首/尾竖线的 `a | b |` / `| a | b` 输出
     if (/^\|/.test(trimmed) || (/\|/.test(trimmed) && /\|\s*$/.test(trimmed))) {
       flushCode();
       flushQuote();
@@ -242,7 +237,6 @@ function RenderLines({ text }) {
       elements.push(<h4 key={elements.length} className={`${cls} text-kumo-strong`}>{renderInline(heading[2])}</h4>);
       continue;
     }
-    // 缩进层级：`  - 子项` 这类嵌套列表按前导空格缩进展示
     const indent = line.match(/^\s*/)[0].length;
     const nestStyle = indent > 0 ? { paddingLeft: `${Math.min(indent, 6) * 10}px` } : undefined;
     const taskMatch = trimmed.match(/^[-*]\s+\[(x| )\]\s+(.*)$/i);
@@ -259,7 +253,6 @@ function RenderLines({ text }) {
     }
     const listMatch = trimmed.match(/^([-*]|\d+[.、)）])\s+(.*)$/);
     if (listMatch) {
-      // 无序列表（* / -）渲染为标准项目符号 •，有序列表保留数字
       const marker = listMatch[1];
       const bullet = /^[-*]$/.test(marker) ? '•' : marker;
       elements.push(
@@ -278,24 +271,21 @@ function RenderLines({ text }) {
   return <div className="space-y-1">{elements}</div>;
 }
 
-/* ---------- 思维链显示（reasoning） ----------
- * 推理过程中：胶囊 + 一行淡色滚动小字（追尾最新，仅证明「推理进行中」，不抢版面）；
- * 推理结束：默认折叠，胶囊点击展开查看全部推理内容；收起态显示中文标题摘要。 */
-function ReasoningBlock({ text, summary, streaming }) {
-  const [open, setOpen] = useState(false); // 结束后展开全文
-  const [tickerOn, setTickerOn] = useState(true); // 流式单行滚动开关
+/* ---------- 推理 part（timeline 行：胶囊 + 流式单行滚动 / 完成后折叠展开） ---------- */
+function ReasoningPart({ part, streaming }) {
+  const [open, setOpen] = useState(false);
+  const [tickerOn, setTickerOn] = useState(true);
   const scrollRef = useRef(null);
   useEffect(() => {
     if (tickerOn && scrollRef.current) {
       scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
     }
-  }, [text, tickerOn]);
-  if (!text && !streaming) return null;
-  // 收起状态只显示 AI 生成的中文标题摘要；无摘要/非中文时不显示摘要文本
+  }, [part.text, tickerOn]);
+  if (!part.text && !streaming) return null;
   const isCN = (s) => /[\u4e00-\u9fa5]/.test(s || '');
-  const displaySummary = isCN(summary) ? summary : '';
+  const displaySummary = isCN(part.summary) ? part.summary : '';
   return (
-    <div className="mb-1.5 flex flex-col gap-1">
+    <div className="flex flex-col gap-1">
       <Button
         type="button"
         size="sm"
@@ -323,13 +313,13 @@ function ReasoningBlock({ text, summary, streaming }) {
           className="max-w-full overflow-x-auto whitespace-nowrap text-xs leading-5 text-kumo-subtle/70"
           title="推理进行中（可横向拖动查看）"
         >
-          {text}
+          {part.text}
         </div>
       )}
       {!streaming && open && (
         <div className="askai-collapse" data-open={open}>
           <div className="askai-reason-fade max-h-[220px] overflow-y-auto overscroll-contain border-l-2 border-kumo-line pl-3 pr-1">
-            <p className="whitespace-pre-wrap break-words text-xs !leading-relaxed text-kumo-subtle/90">{text}</p>
+            <p className="whitespace-pre-wrap break-words text-xs !leading-relaxed text-kumo-subtle/90">{part.text}</p>
           </div>
         </div>
       )}
@@ -349,154 +339,66 @@ function ReasoningBlock({ text, summary, streaming }) {
   );
 }
 
-/* ---------- 思考过程折叠区（thinking 工具步骤，默认展开展示工具状态与作用） ---------- */
-function ThinkingBlock({ thinking, streaming }) {
-  const [open, setOpen] = useState(true);
-  const [expandedGroups, setExpandedGroups] = useState({});
-  // 工具步骤视图：语义描述（默认，不展示具体路径）⇄ 实际 API 路径
-  const [showPath, setShowPath] = useState(false);
-  if (!thinking || thinking.length === 0) return null;
-
-  // 相同展示文本的连续步骤折叠为一组，组标题显示 ×N；分组键随视图模式切换
-  const stepKey = (step) => (showPath
-    ? toolPathLabel(step.toolName, step.args)
-    : (step.desc || toolLabel(step.toolName) || '未知工具'));
-  const groups = [];
-  for (const step of thinking) {
-    const key = stepKey(step);
-    const last = groups[groups.length - 1];
-    if (last && last.key === key) {
-      last.steps.push(step);
-    } else {
-      groups.push({ key, steps: [step] });
+/* ---------- 工具结果 part（timeline 行：摘要灰字，点击复制原文） ---------- */
+function ToolResultLine({ part }) {
+  const [copied, setCopied] = useState(false);
+  if (!part.summary) return null;
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(part.summary);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
     }
-  }
-  const toggleGroup = (gi) => setExpandedGroups((prev) => ({ ...prev, [gi]: !prev[gi] }));
-
+  };
+  const failed = part.status === 'failed';
   return (
-    <div className="mb-2 flex flex-col gap-1">
-      {/* 标题行：箭头放进 16px 槽居中（中心 8px），与下面树的竖线/圆点同一垂直线 */}
-      <div className="flex items-center gap-1.5">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={() => setOpen(!open)}
-          className="flex w-max cursor-pointer items-center gap-1 text-[11px] text-kumo-subtle hover:text-kumo-default"
-        >
-          <span className="flex w-4 shrink-0 justify-center">
-            <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${open ? 'rotate-0' : '-rotate-90'}`} />
-          </span>
-          工具步骤
-        </Button>
-        <span
-          className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-kumo-tint px-1 text-[10px] font-medium leading-none text-kumo-subtle transition-colors hover:text-kumo-default"
-          title={`本轮共调用 ${thinking.length} 次工具`}
-        >
-          {thinking.length}
+    <div className="askai-tool-result">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onClick={handleCopy}
+        title="复制工具结果"
+        className={`group flex w-full items-start gap-2 text-left ${failed ? '!text-kumo-danger/90' : '!text-kumo-subtle/75'}`}
+      >
+        <span className="mt-0.5 shrink-0">
+          {failed ? <X className="h-3 w-3" /> : <Check className="h-3 w-3 text-kumo-success/80" />}
         </span>
-        <div className="flex items-center gap-0.5 rounded-full bg-kumo-tint/70 p-0.5" role="group" aria-label="工具步骤显示模式">
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            onClick={() => setShowPath(false)}
-            title="显示语义化工具步骤描述"
-            className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${!showPath ? 'bg-kumo-base text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
-          >
-            语义
-          </Button>
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            onClick={() => setShowPath(true)}
-            title="显示实际调用的 API 路径"
-            className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${showPath ? 'bg-kumo-base text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
-          >
-            路径
-          </Button>
-        </div>
-      </div>
-      <div className="askai-collapse" data-open={open}>
-        {/* 工具步骤列表：一条主竖线在 x=8px，标题箭头/各行内容起点对齐；层级靠二级文字 ml-4 缩进。
-            统一 text-xs 覆盖外层 text-sm */}
-        <div className="askai-reason-fade relative mt-1 text-xs">
-          <span className="absolute left-2 top-0 bottom-0 w-px bg-kumo-line" aria-hidden />
-          <div className="flex flex-col gap-1.5">
-            {groups.map((group, gi) => {
-              const multi = group.steps.length > 1;
-              const isOpen = !!expandedGroups[gi];
-              const finalStatus = group.steps[group.steps.length - 1].status;
-              return (
-                <div key={gi} className="flex flex-col gap-1.5">
-                  {/* 一级行：内容起点与竖线同一 x（标题槽占位保持对齐） */}
-                  <div className="askai-tool-stagger flex items-center" style={{ animationDelay: `${Math.min(gi * 90, 1200)}ms` }}>
-                    {multi ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => toggleGroup(gi)}
-                        title={isOpen ? '收起' : '展开'}
-                        className="flex w-full cursor-pointer items-center gap-1.5 rounded-md py-0.5 pl-4 pr-1 text-xs text-kumo-default hover:bg-kumo-tint/60"
-                      >
-                        <span className="truncate">{group.key}</span>
-                        <span className="shrink-0 rounded-full bg-kumo-tint px-1.5 text-[10px] text-kumo-subtle">×{group.steps.length}</span>
-                        {finalStatus === 'success' && <Check className="h-3 w-3 shrink-0 text-kumo-success" />}
-                        {finalStatus === 'failed' && <X className="h-3 w-3 shrink-0 text-kumo-danger" />}
-                        {finalStatus === 'running' && <Loader size={10} className="shrink-0 animate-spin text-kumo-brand" />}
-                      </Button>
-                    ) : (
-                      <div className="pl-4">
-                        <ToolCallCard toolCall={group.steps[0]} inline showPath={showPath} />
-                      </div>
-                    )}
-                  </div>
-                  {multi && isOpen && (
-                    /* 二级：文字 ml-4 缩进区分层级 */
-                    <div className="flex flex-col gap-1.5 pb-0.5">
-                      {group.steps.map((step, i) => (
-                        <div
-                          key={i}
-                          className="askai-tool-stagger flex items-center"
-                          style={{ animationDelay: `${Math.min((gi + i) * 90, 1200)}ms` }}
-                        >
-                          <div className="ml-8 min-w-0 flex-1">
-                            <ToolCallCard toolCall={step} inline showPath={showPath} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+        <span className="min-w-0 flex-1 truncate text-[11px] leading-5">{part.summary}</span>
+        {copied ? <Check className="h-3 w-3 shrink-0 text-kumo-brand" /> : <Copy className="h-3 w-3 shrink-0 text-transparent group-hover:text-kumo-subtle" />}
+      </Button>
     </div>
   );
 }
 
-/* ---------- 消息定义块分发 ---------- */
-function MessageBlock({ block, streaming, onResolveApproval, onRetry }) {
-  switch (block.type) {
-    case 'text':
-      return <TextBlock text={block.text} streaming={streaming} />;
-    case 'code_block':
-      return <CodeBlock code={block.code} language={block.language} />;
+/* ---------- timeline part 分发（按时间序逐行渲染） ---------- */
+function TimelinePart({ part, streaming, showPath, onResolveApproval, onRetry }) {
+  switch (part.type) {
+    case 'reasoning':
+      return <ReasoningPart part={part} streaming={streaming} />;
     case 'tool_call':
-      return <ToolCallCard toolCall={block} />;
+      return (
+        <div className="flex items-center gap-1.5">
+          <span className="askai-timeline-dot shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <ToolCallCard toolCall={part} inline showPath={showPath} />
+          </div>
+        </div>
+      );
+    case 'tool_result':
+      return <ToolResultLine part={part} />;
+    case 'text':
+      return <TextBlock text={part.text} streaming={streaming} />;
     case 'approval':
-      return <ApprovalCard approval={block} onResolve={onResolveApproval} />;
+      return <ApprovalCard approval={part} onResolve={onResolveApproval} />;
     case 'error':
       return (
         <div className="my-2 rounded-xl border border-kumo-danger/30 bg-kumo-danger/10 p-3 text-xs text-kumo-danger">
           <div className="flex items-center justify-between gap-2">
-            <span className="break-all">{block.message || '发生错误'}</span>
-            {block.retryable && onRetry && (
-              <Button size="xs" variant="secondary" onClick={() => onRetry(block.retryPrompt)}>重试</Button>
+            <span className="break-all">{part.message || '发生错误'}</span>
+            {part.retryable && onRetry && (
+              <Button size="xs" variant="secondary" onClick={() => onRetry(part.retryPrompt)}>重试</Button>
             )}
           </div>
         </div>
@@ -506,15 +408,134 @@ function MessageBlock({ block, streaming, onResolveApproval, onRetry }) {
   }
 }
 
+/* ---------- 助手消息（timeline：推理/工具/正文按时间序） ---------- */
+function AssistantMessage({ msg, streaming, onResolveApproval, onRetry, isCollapsed, toggleCollapse }) {
+  const [showPath, setShowPath] = useState(false);
+  const parts = msg.parts || [];
+  const pending = streaming && parts.length === 0;
+  const hasText = parts.some((p) => p.type === 'text' && p.text);
+  const textParts = parts.filter((p) => p.type === 'text');
+  const lastTextIdx = textParts.length - 1;
+  const lastText = textParts.length > 0 ? textParts[textParts.length - 1].text : '';
+  const hasToolCalls = parts.some((p) => p.type === 'tool_call');
+  const hasLongText = textParts.some((p) => (p.text || '').length > 800);
+  let textSeq = -1;
+  return (
+    <div className="flex w-full flex-col gap-1">
+      <div className="mb-1 flex items-center gap-1.5 text-xs text-kumo-subtle">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={toggleCollapse}
+          title={isCollapsed ? '展开回复' : '收起回复'}
+          className="flex cursor-pointer items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-kumo-default hover:bg-kumo-tint hover:text-kumo-strong"
+        >
+          <Terminal className="h-3 w-3 text-kumo-brand" />
+          代理
+          {hasToolCalls && (
+            <>
+              <span
+                className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-kumo-base px-1 text-[10px] font-medium leading-none text-kumo-subtle"
+                title={`共调用 ${parts.filter((p) => p.type === 'tool_call').length} 次工具`}
+              >
+                {parts.filter((p) => p.type === 'tool_call').length}
+              </span>
+              <span className="flex items-center gap-0.5 rounded-full bg-kumo-base p-0.5" role="group" aria-label="工具步骤显示模式">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setShowPath(false)}
+                  title="显示语义化工具步骤描述"
+                  className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${!showPath ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
+                >
+                  语义
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setShowPath(true)}
+                  title="显示实际调用的 API 路径"
+                  className={`!h-auto !rounded-full !px-2 !py-0.5 text-[10px] leading-none ${showPath ? 'bg-kumo-tint text-kumo-default' : 'text-kumo-subtle hover:text-kumo-default'}`}
+                >
+                  路径
+                </Button>
+              </span>
+            </>
+          )}
+          {!streaming && hasLongText && (
+            <ChevronDown
+              className={`h-3 w-3 text-kumo-subtle transition-transform duration-200 ${isCollapsed ? '' : 'rotate-180'}`}
+            />
+          )}
+        </Button>
+        {streaming && !hasText && !pending && (
+          <>
+            <span className="flex items-center gap-0.5 text-kumo-brand">
+              <span className="askai-typing-dot" />
+              <span className="askai-typing-dot" />
+              <span className="askai-typing-dot" />
+            </span>
+            <span className="text-[10px]">正在回复…</span>
+          </>
+        )}
+        {msg.status === 'cancelled' && (
+          <span className="rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] text-kumo-subtle">已停止</span>
+        )}
+        {msg.status === 'error' && (
+          <span className="rounded-full bg-kumo-danger/10 px-1.5 py-0.5 text-[10px] text-kumo-danger">出错了</span>
+        )}
+      </div>
+      <div className="w-full">
+        {!isCollapsed && (
+        <div className="askai-collapse" data-open={streaming || !isCollapsed}>
+        <div
+          className={`w-full max-w-full rounded-xl px-4 py-3 text-sm !leading-relaxed ${
+            streaming
+              ? 'bg-kumo-base ring-1 ring-kumo-brand/30'
+              : 'bg-kumo-base ring-1 ring-kumo-line'
+          }`}
+        >
+          {pending ? (
+            <div className="flex flex-col gap-2 py-0.5">
+              <div className="askai-skeleton-line w-11/12" />
+              <div className="askai-skeleton-line w-2/3" />
+            </div>
+          ) : parts.length === 0 ? null : (
+            <div className="flex flex-col gap-2">
+              {parts.map((part, pi) => {
+                const isText = part.type === 'text';
+                if (isText) textSeq++;
+                return (
+                  <TimelinePart
+                    key={`${pi}-${part.type}`}
+                    part={part}
+                    streaming={streaming && isText && textSeq === lastTextIdx && part.text === lastText}
+                    showPath={showPath}
+                    onResolveApproval={onResolveApproval}
+                    onRetry={onRetry}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+        </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- 消息列表 ---------- */
 export default function MessageList({ messages, onResolveApproval, onRetry, onEditResend }) {
   const listRef = useRef(null);
   const userScrolledUp = useRef(false);
-  // 超长回复折叠状态（按消息 id 独立记忆），由「代理」标签点击切换
   const [collapsedIds, setCollapsedIds] = useState({});
-  // 用户消息编辑态：{ id, text }
   const [editing, setEditing] = useState(null);
-  const [editWidth, setEditWidth] = useState(null); // 进入编辑时锁定的原气泡宽度（px）
+  const [editWidth, setEditWidth] = useState(null);
   const [copiedEdit, setCopiedEdit] = useState(false);
   const editRef = useRef(null);
 
@@ -522,7 +543,6 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
     if (editing) editRef.current?.focus();
   }, [editing]);
 
-  /* 编辑输入框高度自适应（宽度由外层锁定的 editWidth 控制，不在此改动） */
   const resizeEditBox = () => {
     const el = editRef.current;
     if (!el) return;
@@ -570,17 +590,9 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
       <div className="flex w-full flex-col gap-4">
         {messages.map((msg, idx) => {
           const streaming = isStreaming(msg.status);
-          const pending = streaming && !msg.reasoning && !msg.thinking?.length && !msg.blocks?.length && !msg.content;
-          const hasText = (msg.blocks || []).some((b) => b.type === 'text' && b.text);
-          // 正文卡只在有实际内容（文本/审批/错误/工具块）或等待首个事件时渲染，
-          // 推理/工具执行阶段不显示空白卡片
-          const hasCardContent = pending || !!msg.content || (msg.blocks && msg.blocks.length > 0);
-          // 打字机只作用于最后一个文本块（前面的文本块已定型）
-          let lastTextIdx = -1;
-          (msg.blocks || []).forEach((b, i) => { if (b.type === 'text') lastTextIdx = i; });
+          const parts = msg.parts || [];
+          const hasLongText = parts.some((p) => p.type === 'text' && (p.text || '').length > 800);
           const msgKey = msg.id || idx;
-          const hasLongText = (msg.blocks || []).some((b) => b.type === 'text' && (b.text || '').length > 800);
-          // 折叠只对超长文本生效：收起后整个正文卡不渲染（不留空白卡片）
           const isCollapsed = hasLongText && !!collapsedIds[msgKey];
           const toggleCollapse = () => setCollapsedIds((prev) => ({ ...prev, [msgKey]: !prev[msgKey] }));
           return (
@@ -668,77 +680,14 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                 </div>
               )
             ) : (
-              <div className="flex w-full flex-col gap-1">
-                <ReasoningBlock text={msg.reasoning} summary={msg.reasoningSummary} streaming={streaming && !hasText} />
-                <ThinkingBlock thinking={msg.thinking} streaming={streaming} />
-                <div className="w-full">
-                  <div className="mb-1 flex items-center gap-1.5 text-xs text-kumo-subtle">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={toggleCollapse}
-                      title={isCollapsed ? '展开回复' : '收起回复'}
-                      className="flex cursor-pointer items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-kumo-default hover:bg-kumo-tint hover:text-kumo-strong"
-                    >
-                      <Terminal className="h-3 w-3 text-kumo-brand" />
-                      代理
-                      {!streaming && hasLongText && (
-                        <ChevronDown
-                          className={`h-3 w-3 text-kumo-subtle transition-transform duration-200 ${isCollapsed ? '' : 'rotate-180'}`}
-                        />
-                      )}
-                    </Button>
-                    {streaming && !hasText && !pending && (
-                      <>
-                        <span className="flex items-center gap-0.5 text-kumo-brand">
-                          <span className="askai-typing-dot" />
-                          <span className="askai-typing-dot" />
-                          <span className="askai-typing-dot" />
-                        </span>
-                        <span className="text-[10px]">正在回复…</span>
-                      </>
-                    )}
-                    {msg.status === 'cancelled' && (
-                      <span className="rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] text-kumo-subtle">已停止</span>
-                    )}
-                    {msg.status === 'error' && (
-                      <span className="rounded-full bg-kumo-danger/10 px-1.5 py-0.5 text-[10px] text-kumo-danger">出错了</span>
-                    )}
-                  </div>
-                  {hasCardContent && (
-                  <div className="askai-collapse" data-open={streaming || !isCollapsed}>
-                  <div
-                    className={`w-full max-w-full rounded-xl px-4 py-3 text-sm !leading-relaxed ${
-                      streaming
-                        ? 'bg-kumo-base ring-1 ring-kumo-brand/30'
-                        : 'bg-kumo-base ring-1 ring-kumo-line'
-                    }`}
-                  >
-                    {pending ? (
-                      <div className="flex flex-col gap-2 py-0.5">
-                        <div className="askai-skeleton-line w-11/12" />
-                        <div className="askai-skeleton-line w-2/3" />
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {msg.blocks && msg.blocks.map((block, bi) => (
-                          <MessageBlock
-                            key={bi}
-                            block={block}
-                            streaming={streaming && block.type === 'text' && bi === lastTextIdx}
-                            onResolveApproval={onResolveApproval}
-                            onRetry={onRetry}
-                          />
-                        ))}
-                        {!msg.blocks && msg.content && <TextBlock text={msg.content} />}
-                      </div>
-                    )}
-                  </div>
-                  </div>
-                  )}
-                </div>
-              </div>
+              <AssistantMessage
+                msg={msg}
+                streaming={streaming}
+                onResolveApproval={onResolveApproval}
+                onRetry={onRetry}
+                isCollapsed={isCollapsed}
+                toggleCollapse={toggleCollapse}
+              />
             )}
           </article>
           );

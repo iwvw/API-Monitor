@@ -22,7 +22,8 @@ import {
   applyAiEvent,
   failMessage,
   cancelMessage,
-  resolveApprovalBlock,
+  resolveApprovalPart,
+  buildTimelineFromRows,
 } from '../../modules/adminAiMessages.js';
 import { useCloudflareSpotlight } from '../../hooks/useCloudflareSpotlight.js';
 import { useAskAiCloudMotion } from '../../hooks/useAskAiCloudMotion.js';
@@ -409,59 +410,8 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const data = await res.json();
       const body = data.data || data;
       const items = body.items || body.messages || [];
-      // 工具结果行（role='tool'）不渲染为独立消息：其内容已随对应 assistant 的
-      // tool_call 卡片展示（刷新后不出现 JSON 全文刷屏）
-      // 同一轮的连续 assistant 行（推理 + 多个工具调用 + 最终正文）合并为一条消息，
-      // 与实时流式显示结构一致（推理折叠区 + 工具步骤 + 正文卡片）
-      setMessages(items
-        .filter((m) => m.role !== 'tool')
-        .reduce((acc, m) => {
-          const last = acc[acc.length - 1];
-          if (m.role === 'assistant' && last && last.role === 'assistant') {
-            if (m.toolCallMeta) last.toolCalls.push(m.toolCallMeta);
-            if (m.content) last.content = (last.content || '') + m.content;
-            if (!last.reasoning_content && m.reasoning_content) last.reasoning_content = m.reasoning_content;
-            if (!last.reasoning_summary && m.reasoning_summary) last.reasoning_summary = m.reasoning_summary;
-            return acc;
-          }
-          acc.push({ ...m, toolCalls: m.toolCallMeta ? [m.toolCallMeta] : [] });
-          return acc;
-        }, [])
-        .map((m) => {
-          const isUser = m.role === 'user';
-          // 工具调用并入 thinking 步骤（与实时流式的事件结构一致：推理折叠 + 工具步骤 + 正文）
-          const thinking = (m.toolCalls || []).flatMap((raw) => {
-            let rawArr;
-            try {
-              const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-              rawArr = Array.isArray(parsed) ? parsed : [parsed];
-            } catch {
-              rawArr = [];
-            }
-            // 后端已在 meta 里逐调用注入 desc（与实时 tool_start 一致），
-            // 无 desc 时回退首个调用的 toolCallDesc（兼容旧数据）
-            const desc = m.toolCallDesc || '';
-            return rawArr.map((tc, idx) => ({
-              type: 'tool_call',
-              toolName: tc.function?.name || tc.toolName || '未知工具',
-              args: tc.function?.arguments || tc.args || '',
-              desc: tc.desc || (idx === 0 ? desc : ''),
-              status: 'success',
-            }));
-          });
-          const blocks = m.content ? [{ type: 'text', text: m.content }] : [];
-          return {
-            id: m.id,
-            role: m.role,
-            content: isUser ? m.content || '' : '',
-            reasoning: m.reasoning_content || '',
-            reasoningSummary: m.reasoning_summary || '',
-            thinking,
-            blocks,
-            status: 'idle',
-            active: false,
-          };
-        }));
+      // DB 行 → timeline parts（推理/工具调用/工具结果/正文按时间序，一轮一条消息）
+      setMessages(buildTimelineFromRows(items));
     } catch {
     }
   }, []);
@@ -938,7 +888,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         body: JSON.stringify({ action, applyToSession: !!applyToSession, reason: reason || '' }),
       });
       if (!res.ok) return;
-      setMessages((prev) => resolveApprovalBlock(prev, approvalId, action));
+      setMessages((prev) => resolveApprovalPart(prev, approvalId, action));
       setPendingApproval((p) => (p && p.approvalId === approvalId ? null : p));
     } catch {
     }

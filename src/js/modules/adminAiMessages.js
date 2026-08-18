@@ -1,5 +1,6 @@
 /* ==================== 管理 AI 消息状态机 ====================
- * 把 AskAiPanel 里散落在 SSE 监听器中的原地 mutate 收敛为纯函数状态机：
+ * 消息模型：assistant 消息持有按时间序排列的 parts（timeline，对齐 opencode 的
+ * part 渲染）：reasoning / tool_call / tool_result / text / approval / error。
  * - 消息生命周期：pending → streaming → completed / error / cancelled
  * - 事件通过 applyAiEvent(messages, event, targetId) 应用，targetId 隔离旧流
  * - 所有更新均为不可变操作（浅拷贝），便于 React 渲染与单测
@@ -49,11 +50,7 @@ export function createAssistantMessage(id, runId = null, status = MSG.PENDING) {
   return {
     id,
     role: 'assistant',
-    content: '',
-    reasoning: '',
-    reasoningSummary: '',
-    thinking: [],
-    blocks: [],
+    parts: [],
     status,
     runId,
     active: true, // active 的消息才会接收流事件
@@ -80,6 +77,7 @@ export function normalizeAiEvent(raw) {
         toolName: raw.toolName || '',
         toolCallId: raw.toolCallId || '',
         status: raw.status === 'success' ? STEP.SUCCESS : STEP.FAILED,
+        summary: raw.summary || '',
         error: raw.error || '',
         userMessageId: raw.userMessageId || '',
       };
@@ -92,6 +90,7 @@ export function normalizeAiEvent(raw) {
         method: raw.method || 'GET',
         path: raw.path || '',
         bodySnapshot: raw.bodySnapshot || '',
+        userMessageId: raw.userMessageId || '',
       };
     case 'error':
       return { type: 'error', message: raw.message || '发生错误', userMessageId: raw.userMessageId || '' };
@@ -113,7 +112,7 @@ function findTarget(messages, targetId) {
 
 function cloneAt(messages, idx) {
   const next = messages.slice();
-  next[idx] = { ...next[idx] };
+  next[idx] = { ...next[idx], parts: [...(next[idx].parts || [])] };
   return next;
 }
 
@@ -121,41 +120,37 @@ function activate(msg) {
   return msg.status === MSG.PENDING ? { ...msg, status: MSG.STREAMING } : msg;
 }
 
-/* ---------- 块操作 ---------- */
+/* ---------- part 操作（时间序追加/合并） ---------- */
 
-function appendTextBlock(msg, text) {
-  const blocks = msg.blocks || [];
-  const last = blocks[blocks.length - 1];
-  if (last && last.type === 'text') {
-    const updated = blocks.slice();
-    updated[updated.length - 1] = { ...last, text: (last.text || '') + text };
-    return { ...msg, blocks: updated };
+// 追加 part；若最后一个 part 与目标类型相同且满足合并条件则原地合并。
+function appendPart(msg, part, merge = false) {
+  const parts = msg.parts || [];
+  const last = parts[parts.length - 1];
+  if (merge && last && last.type === part.type) {
+    const merged = { ...last };
+    if (part.type === 'text') merged.text = (last.text || '') + (part.text || '');
+    if (part.type === 'reasoning') merged.text = (last.text || '') + (part.text || '');
+    const next = parts.slice();
+    next[next.length - 1] = merged;
+    return { ...msg, parts: next };
   }
-  return { ...msg, blocks: [...blocks, { type: 'text', text }] };
+  return { ...msg, parts: [...parts, part] };
 }
 
-function pushBlock(msg, block) {
-  return { ...msg, blocks: [...(msg.blocks || []), block] };
-}
-
-function pushThinkingStep(msg, step) {
-  return { ...msg, thinking: [...(msg.thinking || []), step] };
-}
-
-function resolveToolStep(msg, event) {
-  const steps = (msg.thinking || []).slice();
+// 更新最后一个匹配条件的 part（原地替换）。
+function updateLastPart(msg, predicate, update) {
+  const parts = msg.parts || [];
   let idx = -1;
-  if (event.toolCallId) {
-    // 并行同名工具调用：优先按调用身份精确匹配
-    idx = steps.findIndex((s) => s.type === 'tool_call' && s.toolCallId === event.toolCallId);
-  }
-  if (idx < 0) {
-    // 兼容旧事件/历史消息恢复：回退到同名 RUNNING 匹配（幂等）
-    idx = steps.findIndex((s) => s.type === 'tool_call' && s.toolName === event.toolName && s.status === STEP.RUNNING);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (predicate(parts[i])) {
+      idx = i;
+      break;
+    }
   }
   if (idx < 0) return msg;
-  steps[idx] = { ...steps[idx], status: event.status, error: event.error || '' };
-  return { ...msg, thinking: steps };
+  const next = parts.slice();
+  next[idx] = { ...next[idx], ...update };
+  return { ...msg, parts: next };
 }
 
 /* ---------- 主 reducer ---------- */
@@ -195,29 +190,36 @@ export function applyAiEvent(messages, event, targetId) {
   }
   switch (event.type) {
     case 'reasoning':
-      msg = { ...msg, reasoning: (msg.reasoning || '') + event.text };
+      msg = appendPart(msg, { type: 'reasoning', text: event.text || '' }, true);
       break;
     case 'reasoning_summary':
-      msg = { ...msg, reasoningSummary: event.text };
+      msg = updateLastPart(msg, (p) => p.type === 'reasoning', { summary: event.text });
       break;
     case 'delta':
-      msg = appendTextBlock(msg, event.text);
+      msg = appendPart(msg, { type: 'text', text: event.text || '' }, true);
       break;
     case 'tool_start':
-      msg = pushThinkingStep(msg, {
+      msg = appendPart(msg, {
         type: 'tool_call',
         toolName: event.toolName,
         toolCallId: event.toolCallId,
-        args: event.args,
+        args: event.args || '',
         desc: event.desc || '',
         status: STEP.RUNNING,
       });
       break;
     case 'tool_result':
-      msg = resolveToolStep(msg, event);
+      msg = updateLastPart(msg, (p) => p.type === 'tool_call' && p.toolCallId === event.toolCallId, { status: event.status, error: event.error || '' });
+      msg = appendPart(msg, {
+        type: 'tool_result',
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+        summary: event.summary || '',
+        status: event.status,
+      });
       break;
     case 'approval':
-      msg = pushBlock(msg, {
+      msg = appendPart(msg, {
         type: 'approval',
         approvalId: event.approvalId,
         planSummary: event.planSummary,
@@ -229,11 +231,8 @@ export function applyAiEvent(messages, event, targetId) {
       });
       break;
     case 'error':
-      msg = {
-        ...pushBlock(msg, { type: 'error', message: event.message, retryable: true, retryPrompt: event.retryPrompt || '' }),
-        status: MSG.ERROR,
-        active: false,
-      };
+      msg = appendPart(msg, { type: 'error', message: event.message, retryable: true, retryPrompt: event.retryPrompt || '' });
+      msg = { ...msg, status: MSG.ERROR, active: false };
       break;
     case 'done':
       msg = { ...msg, status: MSG.COMPLETED, active: false };
@@ -269,7 +268,7 @@ export function failMessage(messages, targetId, message, retryPrompt) {
     ...next[idx],
     status: MSG.ERROR,
     active: false,
-    blocks: [{ type: 'error', message: message || '发送失败，请重试', retryable: true, retryPrompt: retryPrompt || '' }],
+    parts: [{ type: 'error', message: message || '发送失败，请重试', retryable: true, retryPrompt: retryPrompt || '' }],
   };
   return next;
 }
@@ -279,9 +278,7 @@ export function cancelMessage(messages, targetId) {
   const idx = findTarget(messages, targetId);
   if (idx < 0) return messages;
   const msg = messages[idx];
-  const hasOutput = (msg.reasoning && msg.reasoning.length > 0)
-    || (msg.thinking && msg.thinking.length > 0)
-    || (msg.blocks && msg.blocks.length > 0);
+  const hasOutput = (msg.parts && msg.parts.length > 0);
   if (!hasOutput) {
     return messages.filter((m) => m.id !== targetId);
   }
@@ -290,16 +287,87 @@ export function cancelMessage(messages, targetId) {
   return next;
 }
 
-// 审批回调：更新 approval 块状态。
-export function resolveApprovalBlock(messages, approvalId, action) {
+// 审批回调：更新 approval part 状态。
+export function resolveApprovalPart(messages, approvalId, action) {
   const status = action === 'approve' ? APPROVAL.APPROVED : APPROVAL.REJECTED;
   return messages.map((m) => {
-    if (!m.blocks || !m.blocks.some((b) => b.type === 'approval' && b.approvalId === approvalId)) return m;
+    if (!m.parts || !m.parts.some((p) => p.type === 'approval' && p.approvalId === approvalId)) return m;
     return {
       ...m,
-      blocks: m.blocks.map((b) => (b.type === 'approval' && b.approvalId === approvalId ? { ...b, status } : b)),
+      parts: m.parts.map((p) => (p.type === 'approval' && p.approvalId === approvalId ? { ...p, status } : p)),
     };
   });
+}
+
+/* ---------- 历史恢复（DB 行 → timeline parts） ----------
+ * 服务端按 (created_at, id) 落库：assistant 行可能携带 tool_call_meta（JSON 数组，
+ * 含 desc）、reasoning_content；紧随其后的 tool 行是工具结果（tool_call_id 配对）；
+ * 最后的 assistant 纯文本行是最终正文。映射为一条消息的按时间序 parts。 */
+export function buildTimelineFromRows(rows) {
+  const messages = [];
+  let current = null; // 当前 assistant 消息（连续 assistant/tool 块合并）
+  let toolIndex = 0; // 当前消息内 tool_call 计数（配对未带 id 的旧数据）
+  for (const row of rows || []) {
+    if (row.role === 'user') {
+      messages.push({ id: row.id, role: 'user', content: row.content || '', status: MSG.IDLE });
+      current = null;
+      continue;
+    }
+    if (row.role === 'assistant') {
+      const reasoning = row.reasoning_content || '';
+      let tcs = [];
+      if (row.toolCallMeta) {
+        try {
+          const parsed = typeof row.toolCallMeta === 'string' ? JSON.parse(row.toolCallMeta) : row.toolCallMeta;
+          tcs = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          tcs = [];
+        }
+      }
+      const hasToolRound = tcs.length > 0;
+      if (!current) {
+        current = { id: row.id, role: 'assistant', parts: [], status: MSG.IDLE, active: false, roundUserMsgId: '' };
+        messages.push(current);
+        toolIndex = 0;
+      }
+      if (reasoning) {
+        current.parts.push({ type: 'reasoning', text: reasoning, summary: row.reasoning_summary || '' });
+      }
+      const desc = row.toolCallDesc || '';
+      tcs.forEach((tc, idx) => {
+        const id = tc.id || `tc_${toolIndex++}_${idx}`;
+        current.parts.push({
+          type: 'tool_call',
+          toolName: tc.function?.name || tc.toolName || '未知工具',
+          toolCallId: id,
+          args: tc.function?.arguments || tc.args || '',
+          desc: tc.desc || (idx === 0 ? desc : ''),
+          status: STEP.SUCCESS,
+        });
+        toolIndex++;
+      });
+      if (!hasToolRound && row.content) {
+        current.parts.push({ type: 'text', text: row.content });
+      }
+      if (hasToolRound && row.content) {
+        current.parts.push({ type: 'text', text: row.content });
+      }
+      continue;
+    }
+    if (row.role === 'tool') {
+      if (!current) continue; // 无前置 assistant 的孤儿 tool 行：忽略
+      // 恢复场景工具均已执行完：tool_call part 默认 success（失败时 tool 行
+      // summary 已含错误文本，渲染层如实展示）
+      current.parts.push({
+        type: 'tool_result',
+        toolName: row.toolName || '',
+        toolCallId: row.toolCallId || '',
+        summary: row.content || '',
+        status: STEP.SUCCESS,
+      });
+    }
+  }
+  return messages;
 }
 
 /* ---------- 查询辅助 ---------- */
@@ -308,9 +376,13 @@ export function isStreaming(status) {
   return status === MSG.PENDING || status === MSG.STREAMING;
 }
 
-// 汇总助手消息的可复制文本（text 块 + 历史 content）。
+// 汇总助手消息的可复制文本（text parts 全文）。
 export function collectAssistantText(msg) {
-  const textParts = (msg.blocks || []).filter((b) => b.type === 'text').map((b) => b.text || '');
-  if (msg.content) textParts.unshift(msg.content);
+  const textParts = (msg.parts || []).filter((p) => p.type === 'text').map((p) => p.text || '');
   return textParts.join('\n');
+}
+
+// 消息是否只有终态文本/工具输出之外的内容（用于 pending 骨架判断）。
+export function hasVisibleParts(msg) {
+  return !!(msg.parts && msg.parts.length > 0);
 }
