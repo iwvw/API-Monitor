@@ -438,8 +438,10 @@ func init() {
 	routeRequestContracts["/api/server/test-connection"] = obj([]string{"id"}, map[string]prop{"id": {t: "string", req: true}})
 	routeRequestContracts["/api/server/action"] = obj([]string{"serverId", "action"}, map[string]prop{
 		"serverId": {t: "string", req: true},
-		"action":   {t: "string", req: true},
-		"params":   {t: "object"},
+		"action": {t: "string", req: true,
+			e: []string{"reboot", "restart", "shutdown"},
+			d: "仅支持预设主机动作；执行任意命令（如关闭进程 taskkill）请改用 POST /api/server/agent/command/{id} 向在线 Agent 下发命令"},
+		"params": {t: "object"},
 	})
 	routeRequestContracts["/api/server/check-all"] = noBody
 	routeRequestContracts["/api/server/status-pages"] = obj([]string{"title", "slug"}, map[string]prop{

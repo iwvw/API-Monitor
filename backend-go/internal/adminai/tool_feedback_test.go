@@ -17,6 +17,7 @@ func TestToolErrorHint(t *testing.T) {
 		{"call_api 4xx → 契约引导", "call_api", "接口返回 HTTP 404: not found", "get_route", false},
 		{"call_api 5xx → 临时故障", "call_api", "接口返回 HTTP 502: bad gateway", "临时故障", false},
 		{"call_api 业务失败 → 业务校验", "call_api", "接口返回 HTTP 200 但业务失败: cron 格式错误", "业务校验未通过", false},
+		{"call_api unsupported action → 直达正确通道", "call_api", "接口返回 HTTP 400 但业务失败: unsupported action", "/api/server/agent/command/{id}", false},
 		{"审批等待 → 不加引导", "call_api", "写操作等待用户审批", "", true},
 		{"未启用 → 不加引导", "call_api", "AI 写操作功能未启用", "", true},
 		{"未知工具 → 提示用清单内工具", "no_such_tool", "未知工具: no_such_tool", "清单中的工具名", false},

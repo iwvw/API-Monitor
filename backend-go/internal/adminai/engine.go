@@ -210,7 +210,7 @@ var adminAITools = []map[string]interface{}{
 	}},
 	{"type": "function", "function": map[string]interface{}{
 		"name":        "memory_search",
-		"description": "搜索长期记忆（跨会话持久事实、用户偏好、历史决策，支持中文模糊检索）；回答涉及历史决策、环境偏好、曾做过的配置或用户习惯之前，先调用它",
+		"description": "搜索长期记忆（跨会话持久事实、用户偏好、历史决策，支持中文模糊检索）；回答涉及历史决策、环境偏好、曾做过的配置或用户习惯之前，先调用它；返回 0 命中即代表无相关记忆，不要更换关键词重复搜索，直接继续执行",
 		"parameters": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -2583,6 +2583,13 @@ func toolErrorHint(toolName string, args map[string]interface{}, msg string) str
 			msg += "（说明：本环境没有 find_api 工具，请忽略该建议；直接对照系统提示词内置的接口清单选择真实路径与方法，禁止猜测路径）"
 		}
 		switch {
+		case strings.Contains(msg, "unsupported action"):
+			// 主机预设动作接口不支持任意命令：比 HTTP 4 分支更具体，
+			// 必须在 HTTP 4 判定之前命中（真实错误文本形如
+			// "unsupported action (HTTP 400)"）。直接在引导中点名正确
+			// 通道，避免模型在多个候选接口间反复试错（审计实证：
+			// taskkill 在 /api/server/action 上撞墙多轮才放弃）。
+			hint = "该接口仅支持预设动作（reboot/restart/shutdown），不支持任意命令或进程操作；执行任意命令（如关闭进程、修改配置）请改用 POST /api/server/agent/command/{id} 向在线 Agent 下发命令，一次发一条命令并携带 timeout"
 		case strings.Contains(msg, "HTTP 4"):
 			hint = "请求未通过校验：先调用 get_route 读取该接口契约（路径参数/请求体字段类型、必填项、枚举），修正后重试；确认 path 里的大括号参数已替换为真实值；若返回是路径不存在（404），请对照系统提示词中的接口清单改用真实路径，不要继续猜测或拼凑路径"
 		case strings.Contains(msg, "HTTP 5"), strings.Contains(msg, "连接"), strings.Contains(msg, "超时"):
