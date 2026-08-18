@@ -520,13 +520,10 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
     if (editing) editRef.current?.focus();
   }, [editing]);
 
-  /* 编辑输入框按内容自适应宽高（上限对齐气泡 max-w-prose），
-     w-fit 容器下 w-full 会塌缩成 textarea 固有宽度导致宽度异常 */
+  /* 编辑输入框高度自适应（宽度由外层锁定的 editWidth 控制，不在此改动） */
   const resizeEditBox = () => {
     const el = editRef.current;
     if (!el) return;
-    el.style.width = '0px';
-    el.style.width = `${Math.min(el.scrollWidth, 560)}px`;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 192)}px`;
   };
@@ -621,7 +618,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                           }
                         }}
                         className="!ring-0 max-h-48 w-full resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
-                        style={{ maxHeight: 192, fieldSizing: 'content' }}
+                        style={{ maxHeight: 192 }}
                       />
                     </div>
                     <div className="mt-1.5 flex items-center justify-end gap-1.5">
