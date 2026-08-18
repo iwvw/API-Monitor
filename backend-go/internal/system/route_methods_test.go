@@ -60,6 +60,19 @@ func TestInferRouteMethodsConservativeFallback(t *testing.T) {
 	}
 }
 
+// 真实业务描述（此前 AI 命令下发失败场景）：中文描述 + (GET)/(POST)
+// 显式标注 → 方法集合必须完整暴露给 AI。
+func TestInferRouteMethodsAgentCommandRealDesc(t *testing.T) {
+	got := inferRouteMethods(manifest.Route{
+		Prefix:      "/api/server/agent/command/{id}",
+		Description: "获取 Agent 安装命令（GET）或向 Agent 发送命令执行（POST）",
+		MatchMode:   manifest.MatchPattern,
+	})
+	if !reflect.DeepEqual(got, []string{"GET", "POST"}) {
+		t.Fatalf("agent/command 契约应暴露 GET+POST（AI 依赖其下发命令），got %v", got)
+	}
+}
+
 // 关键 server 写路由契约：POST 方法必须在 api-docs 中可见
 // （AI 依赖该契约执行主机命令；此前只暴露 GET 导致命令下发被预检拒绝）。
 func TestServerWriteRouteMethodsExposed(t *testing.T) {
