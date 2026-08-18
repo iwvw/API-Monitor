@@ -163,7 +163,8 @@ func TestClampAISetting(t *testing.T) {
 	cases := []struct {
 		key, in, want string
 	}{
-		{"admin_ai_context_window", "1000000", "200000"},
+		{"admin_ai_context_window", "1000000", "1000000"},
+		{"admin_ai_context_window", "2000000", "1000000"},
 		{"admin_ai_context_window", "128000", "128000"},
 		{"admin_ai_context_window", "100", "4000"},
 		{"admin_ai_timeout_seconds", "300", "300"},

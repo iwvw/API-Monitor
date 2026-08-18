@@ -316,8 +316,8 @@ func clampAISetting(key, value string) string {
 			if n < 4000 {
 				n = 4000
 			}
-			if n > 200000 {
-				n = 200000
+			if n > 1000000 {
+				n = 1000000
 			}
 			return strconv.Itoa(n)
 		}
