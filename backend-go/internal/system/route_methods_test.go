@@ -76,6 +76,62 @@ func TestSchedulerWriteRouteMethodsExposed(t *testing.T) {
 	}
 }
 
+// 契约覆盖审计第二波（2026-08-19）：此前漏登记/错登的中文操作路由，
+// 抽查代表条目确保写方法在文档可见（AI 依赖契约调用）。
+func TestAuditWriteRouteMethodsExposed(t *testing.T) {
+	cases := []struct {
+		prefix string
+		mode   manifest.MatchMode
+		want   []string
+	}{
+		{"/api/server/agent/quick-install", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/agent/batch-upgrade", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/agent/uninstall/{id}", manifest.MatchPattern, []string{"POST"}},
+		{"/api/server/agent/proxy/nodes/{id}", manifest.MatchPattern, []string{"PUT", "DELETE"}},
+		{"/api/server/agent/proxy/tunnels/preflight", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/info", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/check-all", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/accounts/refresh-locations", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/accounts/{id}", manifest.MatchPattern, []string{"GET", "PUT", "DELETE"}},
+		{"/api/server/remote-desktop/sessions", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/remote-desktop/sessions/{id}/signals", manifest.MatchPattern, []string{"GET", "POST"}},
+		{"/api/server/v2/docker/{serverId}/containers/{containerId}", manifest.MatchPattern, []string{"DELETE"}},
+		{"/api/server/v2/docker/{serverId}/compose/{project}/{action}", manifest.MatchPattern, []string{"POST"}},
+		{"/api/scheduler/nodes/{id}", manifest.MatchPattern, []string{"PUT"}},
+		{"/api/cron/tasks/{id}/run", manifest.MatchPattern, []string{"POST"}},
+		{"/api/settings/clear-logs", manifest.MatchExact, []string{"POST"}},
+		{"/api/settings/enforce-log-limits", manifest.MatchExact, []string{"POST"}},
+		{"/api/settings/log-settings", manifest.MatchExact, []string{"GET", "POST"}},
+		{"/api/admin-ai/messages", manifest.MatchExact, []string{"POST"}},
+		{"/api/admin-ai/cancel", manifest.MatchExact, []string{"POST"}},
+		{"/api/admin-ai/settings", manifest.MatchExact, []string{"GET", "PUT"}},
+		{"/api/admin-ai/approvals/{id}/resolve", manifest.MatchPattern, []string{"POST"}},
+		{"/api/system/ai-access/write", manifest.MatchExact, []string{"PUT"}},
+		{"/api/system/ai-access/policy", manifest.MatchExact, []string{"PUT"}},
+		{"/api/system/ai-access/mcp-servers", manifest.MatchExact, []string{"POST"}},
+		{"/api/ai-access/audit/clear", manifest.MatchExact, []string{"POST"}},
+		{"/api/notification/channels/{id}/test", manifest.MatchPattern, []string{"POST"}},
+		{"/api/notification/history", manifest.MatchExact, []string{"GET", "DELETE"}},
+		{"/api/backup/records/{id}", manifest.MatchPattern, []string{"DELETE"}},
+		{"/api/github/tokens/{id}", manifest.MatchPattern, []string{"PUT", "PATCH", "DELETE"}},
+		{"/api/github/repositories/{id}/refresh", manifest.MatchPattern, []string{"POST"}},
+		{"/api/github/history", manifest.MatchExact, []string{"DELETE"}},
+		{"/api/github/collector/run", manifest.MatchExact, []string{"POST"}},
+	}
+	for _, c := range cases {
+		docs := routeDocs(manifest.Route{
+			Prefix:       c.prefix,
+			Owner:        manifest.OwnerGo,
+			Auth:         manifest.AuthSession,
+			ResponseMode: manifest.ResponseJSON,
+			MatchMode:    c.mode,
+		})
+		if !reflect.DeepEqual(docs.Methods, c.want) {
+			t.Fatalf("%s methods = %v, want %v", c.prefix, docs.Methods, c.want)
+		}
+	}
+}
+
 // 无法推断的 MatchPattern 路由保守只读（防文档宣称方法比实际大）。
 func TestInferRouteMethodsConservativeFallback(t *testing.T) {
 	got := inferRouteMethods(manifest.Route{

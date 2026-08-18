@@ -1172,4 +1172,92 @@ func init() {
 		"admin_ai_context_window":       {t: "string", d: "上下文窗口 token 上限"},
 		"admin_ai_audit_retention_days": {t: "string", d: "审计记录保留天数"},
 	})
+
+	// ---- 契约覆盖审计修复补登（2026-08-19）----
+	// 写路由必须登记请求契约，见 TestRouteContractCoverage。
+	routeRequestContracts["/api/server/snippets/history"] = obj(nil, map[string]prop{
+		"serverId": {t: "string", d: "目标主机 ID（可选）"},
+	})
+	routeRequestContracts["/api/scheduler/tasks/{id}/run"] = noBody
+	routeRequestContracts["/api/scheduler/workflows/{id}"] = obj([]string{"name", "nodes"}, map[string]prop{
+		"name":              {t: "string", req: true, d: "工作流名称"},
+		"nodes":             {t: "array", req: true, d: "工作流节点"},
+		"edges":             {t: "array", d: "节点连线"},
+		"schedule":          {t: "string", d: "cron 表达式"},
+		"enabled":           {t: "boolean", d: "是否启用"},
+		"concurrency_policy": {t: "string", d: "并发策略"},
+		"failure_policy":    {t: "string", d: "失败策略"},
+	})
+	routeRequestContracts["/api/server/accounts/refresh-locations"] = noBody
+	routeRequestContracts["/api/cron/tasks/{id}/run"] = noBody
+	routeRequestContracts["/api/admin-ai/approvals/{id}/resolve"] = obj([]string{"action"}, map[string]prop{
+		"action":         {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
+		"applyToSession": {t: "boolean", d: "批准并授权本会话后续写操作免审批"},
+		"reason":         {t: "string", d: "拒绝/请求更改的原因"},
+	})
+	routeRequestContracts["/api/notification/channels/{id}/test"] = obj(nil, map[string]prop{
+		"message": {t: "string", d: "测试消息内容（可选）"},
+	})
+	routeRequestContracts["/api/notification/rules/{id}/dry-run"] = obj(nil, map[string]prop{
+		"eventType": {t: "string", d: "模拟的事件类型"},
+		"context":   {t: "object", d: "模拟事件的上下文"},
+	})
+	routeRequestContracts["/api/notification/rules/{id}/enable"] = noBody
+	routeRequestContracts["/api/notification/rules/{id}/disable"] = noBody
+	routeRequestContracts["/api/notification/templates/preview"] = obj([]string{"template"}, map[string]prop{
+		"template":  {t: "string", req: true, d: "模板文本"},
+		"eventType": {t: "string", d: "事件类型"},
+		"context":   {t: "object", d: "渲染上下文"},
+	})
+	routeRequestContracts["/api/notification/config"] = obj(nil, map[string]prop{
+		"globalEnabled": {t: "boolean", d: "全局开关"},
+	})
+	routeRequestContracts["/api/notification/trigger"] = obj([]string{"eventType"}, map[string]prop{
+		"eventType": {t: "string", req: true, d: "事件类型"},
+		"serverId":  {t: "string", d: "目标主机 ID"},
+		"context":   {t: "object", d: "事件上下文"},
+	})
+	routeRequestContracts["/api/github/tokens/{id}/test"] = obj(nil, map[string]prop{
+		"repositoryId": {t: "integer", d: "可选的仓库 ID（同时探测该仓库权限）"},
+	})
+	routeRequestContracts["/api/github/tokens/{id}/rotate"] = noBody
+	routeRequestContracts["/api/github/repositories/parse-url"] = obj([]string{"url"}, map[string]prop{
+		"url": {t: "string", req: true, d: "仓库 URL，如 https://github.com/owner/repo"},
+	})
+	routeRequestContracts["/api/github/repositories/reorder"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true, d: "按新顺序排列的仓库 ID 数组"},
+	})
+	routeRequestContracts["/api/github/repositories/{id}"] = obj(nil, map[string]prop{
+		"name":        {t: "string", d: "仓库显示名称"},
+		"description": {t: "string", d: "仓库描述"},
+		"tags":        {t: "array", d: "标签"},
+		"clean":       {t: "boolean", d: "删除时是否同时清空历史（DELETE）"},
+	})
+	routeRequestContracts["/api/github/repositories/{id}/actions/runs/{runId}/rerun"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/runs/{runId}/rerun-failed-jobs"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/runs/{runId}/cancel"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/refresh"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/workflows/{workflowId}/dispatch"] = obj([]string{"ref"}, map[string]prop{
+		"ref":    {t: "string", req: true, d: "目标分支或 tag"},
+		"inputs": {t: "object", d: "workflow_dispatch 输入参数"},
+	})
+	routeRequestContracts["/api/github/settings"] = obj(nil, map[string]prop{
+		"intervalMinutes": {t: "number", d: "采集间隔（分钟）"},
+		"enabled":         {t: "boolean", d: "采集器开关"},
+	})
+	routeRequestContracts["/api/github/collector/run"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/containers/{containerId}/{action}"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/images/prune"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/networks/prune"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/volumes/prune"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/compose/{project}/{action}"] = obj(nil, map[string]prop{
+		"configFiles":  {t: "array", d: "compose 配置文件路径列表"},
+		"configFile":   {t: "string", d: "单配置文件路径"},
+		"wait":         {t: "boolean", d: "等待完成（默认 true）"},
+	})
+	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/sync"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/{project}/{action}"] = obj(nil, map[string]prop{
+		"configFiles": {t: "array", d: "compose 配置文件路径列表"},
+		"configFile":  {t: "string", d: "单配置文件路径"},
+	})
 }
