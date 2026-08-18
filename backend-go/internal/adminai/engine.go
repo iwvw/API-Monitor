@@ -317,6 +317,15 @@ func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identi
 	return runID, nil
 }
 
+// runTerminationMessage 按取消归因生成收尾文案：手动取消与整轮超时是两种体验，
+// 此前两者共用「执行超时」分支，用户在侧栏手动中断会被误报为超时告警。
+func runTerminationMessage(runErr error) string {
+	if errors.Is(runErr, context.DeadlineExceeded) {
+		return "执行超时：整轮任务超过了设置的时间上限（可在「管理 AI 设置」中调大「执行超时」，或让请求更聚焦）"
+	}
+	return "执行已取消"
+}
+
 // runInference 执行推理主循环（会话载入、历史收集、LLM 调用、工具调用、回填、落库与事件推送）。
 func (s *Service) runInference(ctx context.Context, runID, sessionID, source, prompt, identityJSON, modelHint string, eventCh chan SSEEvent) {
 	// 提前声明供 defer 捕获（工具教训沉淀用；run 中途失败也执行）
@@ -471,7 +480,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 	for {
 		select {
 		case <-runCtx.Done():
-			msg := "执行超时或已取消"
+			msg := runTerminationMessage(runCtx.Err())
 			s.finishExecution(db, sessionID, runID, "cancelled", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, msg)
 			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": msg}})
 			s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": userMsgID}})
@@ -626,9 +635,10 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 		if respErr != nil {
 			respErr = sanitizeToolError(respErr) // LLM 上游错误（含响应体）清洗后再进上下文/落库
 			// 整轮执行预算（admin_ai_timeout_seconds）到期会掐断正在进行的 LLM 请求，
-			// 归为「执行超时」而非通用调用失败，提示调大超时或减少请求规模。
+			// 归为「执行超时」而非通用调用失败，提示调大超时或减少请求规模；
+			// 手动取消（runCtx 被 cancel）归为「执行已取消」，不得误报为超时。
 			if runCtx.Err() != nil || errors.Is(respErr, context.DeadlineExceeded) {
-				msg := "执行超时：整轮任务超过了设置的时间上限（可在「管理 AI 设置」中调大「执行超时」，或让请求更聚焦）"
+				msg := runTerminationMessage(runCtx.Err())
 				s.finishExecution(db, sessionID, runID, "cancelled", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, msg)
 				s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": msg, "userMessageId": userMsgID}})
 				s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": userMsgID, "userMessageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})

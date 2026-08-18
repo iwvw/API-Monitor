@@ -143,6 +143,17 @@ describe('applyAiEvent — 生命周期管理', () => {
     expect(list[1].active).toBe(false);
   });
 
+  it('cancelMessage：后端 error 事件已落地（active=false）时仍覆盖为 cancelled', () => {
+    // 手动中断时序：取消的 POST 未返回前，SSE error 事件已把消息置为终态；
+    // 取消语义应覆盖为「已停止」，而不是停留在「出错了」。
+    let list = applyAiEvent(withTarget(), { type: 'delta', text: '部分输出' }, 'a1');
+    list = applyAiEvent(list, { type: 'error', message: '执行已取消' }, 'a1');
+    expect(list[1].status).toBe(MSG.ERROR);
+    list = cancelMessage(list, 'a1');
+    expect(list[1].status).toBe(MSG.CANCELLED);
+    expect(list[1].active).toBe(false);
+  });
+
   it('resolveApprovalPart 更新 approval 状态', () => {
     let list = applyAiEvent(withTarget(), { type: 'approval', approvalId: 'ap1' }, 'a1');
     list = resolveApprovalPart(list, 'ap1', 'reject');

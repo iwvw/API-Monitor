@@ -281,8 +281,10 @@ export function failMessage(messages, targetId, message, retryPrompt) {
 }
 
 // 取消：无任何输出时移除占位；有输出则标记 cancelled。
+// 定位不要求 active：手动中断时后端 error 事件可能已先落地（消息被置为终态
+// active=false），取消语义仍应覆盖为「已停止」，避免中断被误显示为「出错了」。
 export function cancelMessage(messages, targetId) {
-  const idx = findTarget(messages, targetId);
+  const idx = messages.findIndex((m) => m.role === 'assistant' && m.id === targetId);
   if (idx < 0) return messages;
   const msg = messages[idx];
   const hasOutput = (msg.parts && msg.parts.length > 0);
