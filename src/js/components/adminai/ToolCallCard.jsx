@@ -47,6 +47,43 @@ export function toolPathLabel(toolName, args) {
   return toolLabel(toolName) || toolName;
 }
 
+/* 调用关键参数指纹：从 args 提取标识性字段（hostId/id/name/action 等），
+ * 参数不同的调用不合并；行内展示时同样用它区分「当前确定使用的」调用内容。 */
+const ARG_KEY_FIELDS = ['hostId', 'host_id', 'id', 'name', 'action', 'zoneId', 'zone_id', 'accountId', 'account_id', 'appName', 'app_name', 'slug', 'taskId', 'task_id', 'runId', 'run_id', 'endpointId', 'endpoint_id'];
+export function callArgsKey(args) {
+  let a = null;
+  if (args) {
+    try {
+      a = typeof args === 'string' ? JSON.parse(args) : args;
+    } catch {
+      a = null;
+    }
+  }
+  if (!a || typeof a !== 'object') return '';
+  const grab = (o, keys) => {
+    for (const k of keys) {
+      const v = o[k];
+      if (v !== undefined && v !== null && v !== '') {
+        return typeof v === 'object' ? JSON.stringify(v) : String(v);
+      }
+    }
+    return null;
+  };
+  const direct = grab(a, ARG_KEY_FIELDS);
+  if (direct !== null) return direct;
+  const body = a.body;
+  if (body && typeof body === 'object') {
+    const inBody = grab(body, ARG_KEY_FIELDS);
+    if (inBody !== null) return inBody;
+  }
+  const query = a.query;
+  if (query && typeof query === 'object') {
+    const inQuery = grab(query, ARG_KEY_FIELDS);
+    if (inQuery !== null) return inQuery;
+  }
+  return '';
+}
+
 /* 工具调用卡片 — Cloudflare Agent「→ Running …」步骤行风格：
  * inline 模式用于 thinking 折叠区；完整模式带参数展开与错误复制。
  * 状态环：running=品牌蓝 spinner+脉冲边条 / success=绿对勾 / failed=红叉 */
@@ -182,8 +219,9 @@ export default function ToolCallCard({ toolCall, inline }) {
 }
 
 /* ---------- 工具步骤组：连续 tool_call/tool_result 合并展示 ----------
- * 默认折叠；相同调用（同工具+同方法路径）连续合并计数 ×N；
- * 展开后每行同时显示语义（中文描述）与路径（灰色等宽小字），与推理/正文区分开。 */
+ * 默认折叠；仅当「同工具+同路径+关键参数相同」的调用才连续合并计数 ×N——
+ * 参数不同的调用各自独立成行，行内显示该次调用真实使用的关键参数
+ * （hostId/action 等），running 行高亮 spinner，杜绝「复制上面内容」的观感。 */
 export function ToolSteps({ items, streaming }) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState(null);
@@ -206,18 +244,21 @@ export function ToolSteps({ items, streaming }) {
     }
   }
 
-  // 相同调用（同工具+同路径）连续合并 → 计数
+  // 相同调用（同工具+同路径+关键参数相同）连续合并 → 计数
   const merged = [];
   for (const c of calls) {
     const sig = c.call
-      ? `${c.call.toolName}\u0000${toolPathLabel(c.call.toolName, c.call.args)}`
+      ? `${c.call.toolName}\u0000${toolPathLabel(c.call.toolName, c.call.args)}\u0000${callArgsKey(c.call.args)}`
       : `result\u0000${(c.result?.summary || '').slice(0, 120)}`;
     const prev = merged[merged.length - 1];
     if (prev && prev.sig === sig) {
       prev.count += 1;
       if (!prev.result && c.result) prev.result = c.result;
       if (isRunning(c)) prev.hasRunning = true;
-      if (isFailed(c)) prev.hasFailed = true;
+      if (isFailed(c)) {
+        prev.hasFailed = true;
+        prev.failedCall = c.call;
+      }
     } else {
       merged.push({
         sig,
@@ -226,6 +267,7 @@ export function ToolSteps({ items, streaming }) {
         count: 1,
         hasRunning: isRunning(c),
         hasFailed: isFailed(c),
+        failedCall: isFailed(c) ? c.call : null,
       });
     }
   }
@@ -298,14 +340,27 @@ export function ToolSteps({ items, streaming }) {
           {merged.map((m, i) => {
             const label = m.call ? (m.call.desc || toolLabel(m.call.toolName) || '未知工具') : '工具结果';
             const path = m.call ? toolPathLabel(m.call.toolName, m.call.args) : '';
+            const argsKey = m.call ? callArgsKey(m.call.args) : '';
             const copyText = m.result?.summary || m.call?.error || '';
+            // 该行自己的状态（逐行真实状态，不依赖组级汇总）
+            const rowRunning = m.call?.status === STEP.RUNNING;
+            const rowFailed = isFailed(m);
             return (
-              <div key={`${m.sig}-${i}`} className="flex min-w-0 flex-col gap-0.5">
+              <div key={`${m.sig}-${i}`} className={`flex min-w-0 flex-col gap-0.5 rounded-md px-1 ${rowRunning ? 'bg-kumo-brand/5' : ''}`}>
                 <div className="flex min-w-0 items-center gap-1.5 text-xs">
-                  {groupBadge(m)}
+                  {rowRunning ? (
+                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-brand/10 text-kumo-brand">
+                      <Loader size={10} className="animate-spin" />
+                    </span>
+                  ) : groupBadge(m)}
                   <span className="min-w-0 line-clamp-1 break-all font-medium text-kumo-default" title={label}>{label}</span>
                   {path && path !== label && (
                     <span className="min-w-0 line-clamp-1 break-all font-mono text-[10px] text-kumo-subtle/70" title={path}>{path}</span>
+                  )}
+                  {argsKey && (
+                    <span className="min-w-0 line-clamp-1 break-all rounded bg-kumo-base/70 px-1 py-px font-mono text-[10px] text-kumo-brand/80" title={argsKey}>
+                      {argsKey}
+                    </span>
                   )}
                   {m.count > 1 && (
                     <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{m.count}</span>
@@ -330,8 +385,8 @@ export function ToolSteps({ items, streaming }) {
                     {m.result.summary}
                   </p>
                 )}
-                {m.hasFailed && m.call?.error && (
-                  <p className="min-w-0 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger">{m.call.error}</p>
+                {rowFailed && m.failedCall?.error && (
+                  <p className="min-w-0 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger">{m.failedCall.error}</p>
                 )}
               </div>
             );
