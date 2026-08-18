@@ -13,6 +13,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/sseutil"
 	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
@@ -51,6 +52,40 @@ type AnalyticsError struct {
 	Response string
 }
 
+// analyticsQueueSize 是异步落库队列的容量上限。满员时直接丢弃新增记录
+// （日志页短暂缺行，网关吞吐不受影响），丢弃计数见 analyticsDrop。
+const analyticsQueueSize = 512
+
+// analyticsBatchLimit 是 worker 每轮批量落库的最大记录数。
+const analyticsBatchLimit = 64
+
+// analyticsWriteItem 承载一次网关调用日志的落库数据与可选的 flush 哨兵。
+type analyticsWriteItem struct {
+	route, endpointID, model          string
+	gatewayKeyID, gatewayKeyName      string
+	statusCode                        int
+	latencyMs, ttfbMs                 int64
+	promptTokens, completionTokens    int
+	totalTokens, cachedTokens         int
+	stream, viaProxy                  int
+	clientIP, upstreamIP, failoverPath string
+	keyIndex                          int
+	errInfo                           *AnalyticsError
+	flush                             chan struct{}
+}
+
+// enqueueAnalytics 将调用日志投递到异步落库队列，队列满时丢弃并计数。
+func (s *Service) enqueueAnalytics(item analyticsWriteItem) {
+	select {
+	case s.analyticsQueue <- item:
+	default:
+		dropped := s.analyticsDrop.Add(1)
+		if dropped == 1 || dropped%100 == 0 {
+			applog.Warn(context.Background(), "openai", "gateway analytics queue full, dropping records", "dropped", dropped)
+		}
+	}
+}
+
 // RecordAnalytics saves a gateway proxy metric to the SQLite database
 func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string) {
 	s.recordAnalyticsKey(ctx, route, endpointID, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, -1, "", nil)
@@ -62,82 +97,242 @@ func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model 
 // errInfo 仅在请求失败（statusCode >= 400）时由调用方传入：Kind 为错误环节
 // （no_endpoint/bad_request/gateway/blocked/upstream/bad_gateway 等），Message 为
 // 人类可读原因，Response 为报错 JSON（应经 errorResponseForLog 截断）。成功传 nil。
+//
+// 本方法只做内存入队（毫秒级、无 DB 锁），真正的落库与 SSE 广播由常驻 worker
+// 批量执行（见 analyticsWorker），请求路径不再承担同步 INSERT。
 func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int, failoverPath string, errInfo *AnalyticsError) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	gatewayKey := gatewayKeyFromContext(ctx)
-	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	s.analyticsOnce.Do(func() {
+		go s.analyticsWorker()
+	})
+	s.enqueueAnalytics(analyticsWriteItem{
+		route:             route,
+		endpointID:        endpointID,
+		model:             model,
+		gatewayKeyID:      gatewayKey.ID,
+		gatewayKeyName:    gatewayKey.Name,
+		statusCode:        statusCode,
+		latencyMs:         latencyMs,
+		ttfbMs:            ttfbMs,
+		promptTokens:      promptTokens,
+		completionTokens:  completionTokens,
+		totalTokens:       totalTokens,
+		cachedTokens:      cachedTokens,
+		stream:            stream,
+		viaProxy:          viaProxy,
+		clientIP:          clientIP,
+		upstreamIP:        upstreamIP,
+		failoverPath:      failoverPath,
+		keyIndex:          keyIndex,
+		errInfo:           errInfo,
+	})
+}
+
+// analyticsWorker 常驻消费落库队列：批量取出记录，单事务逐条 INSERT
+// （合并 fsync 与连接获取，锁持有仍为毫秒级），随后统一执行错误详情
+// 保留清理并逐个 SSE 广播。flush 哨兵用于测试/优雅退出时的同步屏障。
+func (s *Service) analyticsWorker() {
+	for item := range s.analyticsQueue {
+		batch := make([]analyticsWriteItem, 1, analyticsBatchLimit)
+		batch[0] = item
+		for len(batch) < analyticsBatchLimit {
+			select {
+			case next := <-s.analyticsQueue:
+				batch = append(batch, next)
+			default:
+				goto done
+			}
+		}
+	done:
+		s.persistAnalyticsBatch(batch)
+	}
+}
+
+// persistAnalyticsBatch 将一批调用日志落库并按序广播。
+func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
+	writeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	db, err := s.open(writeCtx)
 	if err != nil {
 		applog.Error(writeCtx, "openai", "Failed to open db for recording analytics", "error", err.Error())
+		s.completeAnalyticsBatch(batch)
 		return
 	}
 	defer db.Close()
 
-	errorKind, errorMessage, errorResponse := "", "", ""
-	if errInfo != nil {
-		errorKind = errInfo.Kind
-		errorMessage = errInfo.Message
-		errorResponse = errInfo.Response
-	}
-	result, err := db.ExecContext(writeCtx, `
-		INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path, error_kind, error_message, response_body)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, endpointID, gatewayKey.ID, route, model, statusCode, latencyMs, ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, stream, viaProxy, clientIP, upstreamIP, keyIndex, failoverPath, errorKind, errorMessage, errorResponse)
-
+	tx, err := db.BeginTx(writeCtx, nil)
 	if err != nil {
-		applog.Error(writeCtx, "openai", "Failed to insert gateway analytics", "error", err.Error())
+		applog.Error(writeCtx, "openai", "Failed to begin analytics batch", "error", err.Error())
+		s.completeAnalyticsBatch(batch)
+		return
 	}
-
-	// 仅当本次写入报错信息（失败请求）时触发保留清理：超出保留上限的
-	// 更早错误详情立即清空，控制日志表体积；调用日志行与统计不受影响。
-	if err == nil && errInfo != nil {
-		s.trimErrorDetailRetention(writeCtx, db)
-	}
-
-	// 实时推送：网关出现请求即广播给日志页订阅者（SSE）。
-	// 字段与分页查询接口（getAnalyticsLogs）保持一致，保证实时插入顶部的行
-	// 各列（端点、调用密钥、出口 IP、首字等）都能即时显示。
-	recordID := int64(0)
-	if result != nil {
+	records := make([]map[string]interface{}, 0, len(batch))
+	hasError := false
+	for _, item := range batch {
+		if item.flush != nil {
+			continue
+		}
+		result, execErr := tx.ExecContext(writeCtx, `
+			INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path, error_kind, error_message, response_body)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, item.endpointID, item.gatewayKeyID, item.route, item.model, item.statusCode, item.latencyMs, item.ttfbMs, item.promptTokens, item.completionTokens, item.totalTokens, item.cachedTokens, item.stream, item.viaProxy, item.clientIP, item.upstreamIP, item.keyIndex, item.failoverPath, errorKindOf(item), errorMessageOf(item), errorResponseOf(item))
+		if execErr != nil {
+			_ = tx.Rollback()
+			applog.Error(writeCtx, "openai", "Failed to insert gateway analytics", "error", execErr.Error())
+			s.completeAnalyticsBatch(batch)
+			return
+		}
+		if item.errInfo != nil {
+			hasError = true
+		}
+		recordID := int64(0)
 		if id, idErr := result.LastInsertId(); idErr == nil {
 			recordID = id
 		}
+		records = append(records, map[string]interface{}{
+			"id":               recordID,
+			"route":            item.route,
+			"endpointId":       item.endpointID,
+			"endpointName":     "",
+			"gatewayKeyName":   item.gatewayKeyName,
+			"model":            item.model,
+			"statusCode":       item.statusCode,
+			"latencyMs":        item.latencyMs,
+			"ttfbMs":           item.ttfbMs,
+			"promptTokens":     item.promptTokens,
+			"completionTokens": item.completionTokens,
+			"totalTokens":      item.totalTokens,
+			"cachedTokens":     item.cachedTokens,
+			"stream":           item.stream == 1,
+			"viaProxy":         item.viaProxy == 1,
+			"clientIp":         item.clientIP,
+			"upstreamIp":       item.upstreamIP,
+			"keyIndex":         item.keyIndex,
+			"failoverPath":     item.failoverPath,
+			"errorKind":        errorKindOf(item),
+			"errorMessage":     errorMessageOf(item),
+			"errorResponse":    errorResponseOf(item),
+			"timestamp":        time.Now().UTC().Format(time.RFC3339),
+		})
 	}
-	endpointName := "unknown"
-	if endpointID != "" {
-		var name string
-		if err := db.QueryRowContext(writeCtx, `SELECT COALESCE(name, 'unknown') FROM openai_endpoints WHERE id = ?`, endpointID).Scan(&name); err == nil {
-			endpointName = name
+	if err := tx.Commit(); err != nil {
+		applog.Error(writeCtx, "openai", "Failed to commit analytics batch", "error", err.Error())
+		s.completeAnalyticsBatch(batch)
+		return
+	}
+
+	s.enrichAnalyticsRecords(writeCtx, db, records)
+	for _, record := range records {
+		s.publishAnalytics(record)
+	}
+	if hasError {
+		s.trimErrorDetailRetention(writeCtx, db)
+	}
+	s.completeAnalyticsBatch(batch)
+}
+
+// makePlaceholders 生成 n 个 SQL 占位符（用于 IN (...) 查询）。
+func makePlaceholders(n int) []string {
+	marks := make([]string, n)
+	for i := range marks {
+		marks[i] = "?"
+	}
+	return marks
+}
+
+// stringValue 取 map 值中的字符串，非字符串时返回 fallback。
+func stringValue(v interface{}, fallback string) string {
+	if text, ok := v.(string); ok {
+		return text
+	}
+	return fallback
+}
+
+func errorKindOf(item analyticsWriteItem) string {
+	if item.errInfo != nil {
+		return item.errInfo.Kind
+	}
+	return ""
+}
+
+func errorMessageOf(item analyticsWriteItem) string {
+	if item.errInfo != nil {
+		return item.errInfo.Message
+	}
+	return ""
+}
+
+func errorResponseOf(item analyticsWriteItem) string {
+	if item.errInfo != nil {
+		return item.errInfo.Response
+	}
+	return ""
+}
+
+// enrichAnalyticsRecords 批量补齐端点名称（日志页展示用），减少逐条查询。
+func (s *Service) enrichAnalyticsRecords(ctx context.Context, db *sql.DB, records []map[string]interface{}) {
+	idSet := map[string]bool{}
+	for _, record := range records {
+		if id := stringValue(record["endpointId"], ""); id != "" {
+			idSet[id] = true
 		}
 	}
-	s.publishAnalytics(map[string]interface{}{
-		"id":               recordID,
-		"route":            route,
-		"endpointId":       endpointID,
-		"endpointName":     endpointName,
-		"gatewayKeyName":   gatewayKey.Name,
-		"model":            model,
-		"statusCode":       statusCode,
-		"latencyMs":        latencyMs,
-		"ttfbMs":           ttfbMs,
-		"promptTokens":     promptTokens,
-		"completionTokens": completionTokens,
-		"totalTokens":      totalTokens,
-		"cachedTokens":     cachedTokens,
-		"stream":           stream == 1,
-		"viaProxy":         viaProxy == 1,
-		"clientIp":         clientIP,
-		"upstreamIp":       upstreamIP,
-		"keyIndex":         keyIndex,
-		"failoverPath":     failoverPath,
-		"errorKind":        errorKind,
-		"errorMessage":     errorMessage,
-		"errorResponse":    errorResponse,
-		"timestamp":        time.Now().UTC().Format(time.RFC3339),
+	if len(idSet) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	marks := strings.Join(makePlaceholders(len(ids)), ",")
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(name, 'unknown') FROM openai_endpoints WHERE id IN (`+marks+`)`, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	names := map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			break
+		}
+		names[id] = name
+	}
+	for _, record := range records {
+		if id := stringValue(record["endpointId"], ""); id != "" {
+			if name, ok := names[id]; ok {
+				record["endpointName"] = name
+			}
+		}
+	}
+}
+
+// completeAnalyticsBatch 唤醒等待 flush 哨兵的调用方；其余记录无等待者。
+func (s *Service) completeAnalyticsBatch(batch []analyticsWriteItem) {
+	for _, item := range batch {
+		if item.flush != nil {
+			close(item.flush)
+		}
+	}
+}
+
+// flushAnalyticsQueue 阻塞等待队列中已投递的记录全部落库。
+// 供测试与优雅关闭使用；超时后返回（不阻塞生产路径）。
+func (s *Service) flushAnalyticsQueue(timeout time.Duration) {
+	done := make(chan struct{})
+	s.analyticsOnce.Do(func() {
+		go s.analyticsWorker()
 	})
+	s.enqueueAnalytics(analyticsWriteItem{flush: done})
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
 }
 
 // subscribeAnalytics 注册一个网关日志实时订阅者，返回事件 channel 与取消函数。
@@ -183,6 +378,9 @@ func (s *Service) analyticsEventStream(w http.ResponseWriter, r *http.Request) {
 	ch, cancel := s.subscribeAnalytics()
 	defer cancel()
 	hello, _ := json.Marshal(map[string]interface{}{"connected": true})
+	if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+		return
+	}
 	fmt.Fprintf(w, "event: hello\ndata: %s\n\n", hello)
 	flusher.Flush()
 	for {
@@ -193,6 +391,9 @@ func (s *Service) analyticsEventStream(w http.ResponseWriter, r *http.Request) {
 			payload, err := json.Marshal(event)
 			if err != nil {
 				continue
+			}
+			if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+				return
 			}
 			fmt.Fprintf(w, "event: log\ndata: %s\n\n", payload)
 			flusher.Flush()
@@ -222,6 +423,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 
 	var totalRequests int
 	var avgLatency float64
+	var avgTtfbMs float64
 	var totalTokens int
 	var totalCachedTokens int
 	var totalPromptTokens int
@@ -232,6 +434,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		SELECT 
 			COUNT(*), 
 			COALESCE(AVG(latency_ms), 0.0), 
+			COALESCE(AVG(CASE WHEN ttfb_ms > 0 THEN ttfb_ms END), 0.0),
 			COALESCE(SUM(total_tokens), 0),
 			COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(cached_tokens), 0),
@@ -239,7 +442,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 			COALESCE(SUM(completion_tokens), 0)
 		FROM openai_gateway_analytics
 		WHERE timestamp >= ? AND route != 'models'
-	`, timeFilter).Scan(&totalRequests, &avgLatency, &totalTokens, &errorCount, &totalCachedTokens, &totalPromptTokens, &totalCompletionTokens)
+	`, timeFilter).Scan(&totalRequests, &avgLatency, &avgTtfbMs, &totalTokens, &errorCount, &totalCachedTokens, &totalPromptTokens, &totalCompletionTokens)
 
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -256,9 +459,46 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		cachedRatio = float64(totalCachedTokens) / float64(totalPromptTokens)
 	}
 
+	// 按渠道（endpoint）分组的请求/错误统计，供看板上游错误率详情展示。
+	type endpointErrorStat struct {
+		EndpointID   string  `json:"endpointId"`
+		EndpointName string  `json:"endpointName"`
+		Requests     int     `json:"requests"`
+		Errors       int     `json:"errors"`
+		ErrorRate    float64 `json:"errorRate"`
+	}
+	endpointStats := []endpointErrorStat{}
+	erRows, err := db.QueryContext(ctx, `
+		SELECT
+			COALESCE(g.endpoint_id, ''),
+			COALESCE(e.name, '未识别端点'),
+			COUNT(*),
+			SUM(CASE WHEN g.status_code >= 400 THEN 1 ELSE 0 END)
+		FROM openai_gateway_analytics g
+		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
+		WHERE g.timestamp >= ? AND g.route != 'models'
+		GROUP BY g.endpoint_id
+		ORDER BY COUNT(*) DESC
+	`, timeFilter)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer erRows.Close()
+	for erRows.Next() {
+		var st endpointErrorStat
+		if err := erRows.Scan(&st.EndpointID, &st.EndpointName, &st.Requests, &st.Errors); err == nil {
+			if st.Requests > 0 {
+				st.ErrorRate = float64(st.Errors) / float64(st.Requests)
+			}
+			endpointStats = append(endpointStats, st)
+		}
+	}
+
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"totalRequests":         totalRequests,
 		"avgLatency":            avgLatency,
+		"avgTtfbMs":             avgTtfbMs,
 		"totalTokens":           totalTokens,
 		"totalCachedTokens":     totalCachedTokens,
 		"cachedRatio":           cachedRatio,
@@ -266,6 +506,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		"totalCompletionTokens": totalCompletionTokens,
 		"errorRate":             errorRate,
 		"errorCount":            errorCount,
+		"endpointErrorRates":    endpointStats,
 	})
 }
 
@@ -314,6 +555,7 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 			`+tsExpr+` as ts_sec,
 			COUNT(*) as count, 
 			COALESCE(AVG(latency_ms), 0.0) as avg_latency, 
+			COALESCE(AVG(CASE WHEN ttfb_ms > 0 THEN ttfb_ms END), 0.0) as avg_ttfb,
 			COALESCE(SUM(total_tokens), 0) as tokens,
 			COALESCE(SUM(cached_tokens), 0) as cached,
 			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors
@@ -334,6 +576,7 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		TsSec       int64   `json:"tsSec"`
 		Count       int     `json:"count"`
 		AvgLatency  float64 `json:"avgLatency"`
+		AvgTtfbMs   float64 `json:"avgTtfbMs"`
 		Tokens      int     `json:"tokens"`
 		Cached      int     `json:"cachedTokens"`
 		Errors      int     `json:"errors"`
@@ -344,74 +587,63 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var p ChartPoint
 		var bucket string
-		if err := rows.Scan(&bucket, &p.TsSec, &p.Count, &p.AvgLatency, &p.Tokens, &p.Cached, &p.Errors); err == nil {
+		if err := rows.Scan(&bucket, &p.TsSec, &p.Count, &p.AvgLatency, &p.AvgTtfbMs, &p.Tokens, &p.Cached, &p.Errors); err == nil {
 			p.Day = bucket
 			p.Granularity = granularity
 			dailyPoints = append(dailyPoints, p)
 		}
 	}
 
-	// 2. Model distribution by both request count and token usage.
-	rowsModels, err := db.QueryContext(ctx, `
-		SELECT 
-			model,
-			COUNT(*) as count,
-			COALESCE(SUM(total_tokens), 0) as tokens
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models'
-		GROUP BY model
-		ORDER BY count DESC, tokens DESC
-	`, timeFilter)
-
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	defer rowsModels.Close()
-
+	// 2. Model/endpoint distribution by both request count and token usage.
 	type ModelShare struct {
 		Model  string `json:"model"`
 		Count  int    `json:"count"`
 		Tokens int    `json:"tokens"`
 	}
-
-	modelShares := []ModelShare{}
-	for rowsModels.Next() {
-		var m ModelShare
-		if err := rowsModels.Scan(&m.Model, &m.Count, &m.Tokens); err == nil {
-			// 过滤空白模型名（错误/异常请求可能未解析出 model）。
-			if strings.TrimSpace(m.Model) == "" {
-				continue
-			}
-			modelShares = append(modelShares, m)
+	buildShares := func(querySQL string) []ModelShare {
+		rows, err := db.QueryContext(ctx, querySQL, timeFilter)
+		if err != nil {
+			return nil
 		}
+		defer rows.Close()
+		shares := []ModelShare{}
+		for rows.Next() {
+			var m ModelShare
+			if err := rows.Scan(&m.Model, &m.Count, &m.Tokens); err == nil {
+				// 过滤空白维度名（错误/异常请求可能未解析出 model）。
+				if strings.TrimSpace(m.Model) == "" {
+					continue
+				}
+				shares = append(shares, m)
+			}
+		}
+		return shares
 	}
-
-	// 3. 按“模型 × 时段”展开调用量，供全宽趋势图多系列使用。
-	rowsByModel, err := db.QueryContext(ctx, `
-		SELECT 
-			model,
-			`+tsExpr+` as ts_sec,
-			COUNT(*) as count
+	modelShares := buildShares(`
+		SELECT model, COUNT(*) as count, COALESCE(SUM(total_tokens), 0) as tokens
 		FROM openai_gateway_analytics
 		WHERE timestamp >= ? AND route != 'models'
-		GROUP BY ts_sec, model
-		ORDER BY model ASC, ts_sec ASC
-	`, timeFilter)
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	defer rowsByModel.Close()
+		GROUP BY model
+		ORDER BY count DESC, tokens DESC
+	`)
+	endpointShares := buildShares(`
+		SELECT COALESCE(e.name, '未识别端点'), COUNT(*), COALESCE(SUM(g.total_tokens), 0)
+		FROM openai_gateway_analytics g
+		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
+		WHERE g.timestamp >= ? AND g.route != 'models'
+		GROUP BY g.endpoint_id
+		ORDER BY COUNT(*) DESC, SUM(g.total_tokens) DESC
+	`)
 
-	tsToLabel := make(map[int64]string, len(dailyPoints))
-	for _, point := range dailyPoints {
-		tsToLabel[point.TsSec] = point.Day
-	}
-
+	// 3. 按“维度 × 时段”展开调用量，供全宽趋势图多系列使用。
+	// querySQL 必须按 (name, ts_sec, count) 顺序返回；维度名即系列名。
 	type ModelSeriesGroup struct {
 		Model string `json:"model"`
 		Data  []int  `json:"data"`
+	}
+	tsToLabel := make(map[int64]string, len(dailyPoints))
+	for _, point := range dailyPoints {
+		tsToLabel[point.TsSec] = point.Day
 	}
 	bucketIndex := make(map[string]int, len(dailyPoints))
 	bucketLabels := make([]string, 0, len(dailyPoints))
@@ -421,48 +653,82 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 			bucketLabels = append(bucketLabels, point.Day)
 		}
 	}
-	byModelCounts := make(map[int64]map[string]int) // ts -> model -> count
-	for rowsByModel.Next() {
-		var modelName string
-		var tsBucket int64
-		var count int
-		if err := rowsByModel.Scan(&modelName, &tsBucket, &count); err == nil {
-			if byModelCounts[tsBucket] == nil {
-				byModelCounts[tsBucket] = map[string]int{}
-			}
-			byModelCounts[tsBucket][modelName] += count
+	buildDimensionTrends := func(querySQL string) ([]ModelSeriesGroup, error) {
+		rows, err := db.QueryContext(ctx, querySQL, timeFilter)
+		if err != nil {
+			return nil, err
 		}
-	}
-	modelOrder := make(map[string]bool)
-	for _, bucket := range byModelCounts {
-		for name := range bucket {
-			if strings.TrimSpace(name) == "" {
-				continue
+		defer rows.Close()
+		counts := make(map[int64]map[string]int) // ts -> dimension -> count
+		for rows.Next() {
+			var name string
+			var tsBucket int64
+			var count int
+			if err := rows.Scan(&name, &tsBucket, &count); err == nil {
+				if counts[tsBucket] == nil {
+					counts[tsBucket] = map[string]int{}
+				}
+				counts[tsBucket][name] += count
 			}
-			modelOrder[name] = true
 		}
-	}
-	byModel := make([]ModelSeriesGroup, 0, len(modelOrder))
-	for name := range modelOrder {
-		group := ModelSeriesGroup{Model: name, Data: make([]int, len(bucketLabels))}
-		for idx, label := range bucketLabels {
-			for ts, bucket := range byModelCounts {
-				if tsToLabel[ts] == label {
-					group.Data[idx] += bucket[name]
+		order := make(map[string]bool)
+		for _, bucket := range counts {
+			for name := range bucket {
+				if strings.TrimSpace(name) == "" {
+					continue
+				}
+				order[name] = true
+			}
+		}
+		groups := make([]ModelSeriesGroup, 0, len(order))
+		for name := range order {
+			group := ModelSeriesGroup{Model: name, Data: make([]int, len(bucketLabels))}
+			for idx, label := range bucketLabels {
+				for ts, bucket := range counts {
+					if tsToLabel[ts] == label {
+						group.Data[idx] += bucket[name]
+					}
 				}
 			}
+			groups = append(groups, group)
 		}
-		byModel = append(byModel, group)
+		// 输出顺序稳定：按维度名字母序排序。此前由 map 迭代生成，顺序每次随机，
+		// 前端相同调用次数的系列会在图例上来回换位。
+		sort.Slice(groups, func(i, j int) bool { return groups[i].Model < groups[j].Model })
+		return groups, nil
 	}
-	// 输出顺序稳定：按模型名字母序排序。此前由 map 迭代生成，顺序每次随机，
-	// 前端相同调用次数的模型会在图例上来回换位。
-	sort.Slice(byModel, func(i, j int) bool { return byModel[i].Model < byModel[j].Model })
+
+	byModel, err := buildDimensionTrends(`
+		SELECT model, ` + tsExpr + ` as ts_sec, COUNT(*) as count
+		FROM openai_gateway_analytics
+		WHERE timestamp >= ? AND route != 'models'
+		GROUP BY ts_sec, model
+		ORDER BY model ASC, ts_sec ASC
+	`)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	// 站点（endpoint）维度：与模型维度同构，供前端切换「模型 / 站点调用次数」。
+	byEndpoint, err := buildDimensionTrends(`
+		SELECT COALESCE(e.name, '未识别端点'), ` + tsExpr + ` as ts_sec, COUNT(*) as count
+		FROM openai_gateway_analytics g
+		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
+		WHERE g.timestamp >= ? AND g.route != 'models'
+		GROUP BY ts_sec, g.endpoint_id
+	`)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"daily":   dailyPoints,
-		"models":  modelShares,
-		"buckets": bucketLabels,
-		"byModel": byModel,
+		"daily":      dailyPoints,
+		"models":     modelShares,
+		"endpoints":  endpointShares,
+		"buckets":    bucketLabels,
+		"byModel":    byModel,
+		"byEndpoint": byEndpoint,
 	})
 }
 

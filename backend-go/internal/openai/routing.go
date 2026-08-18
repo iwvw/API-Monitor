@@ -119,11 +119,17 @@ func trimModelName(m string) string {
 
 // endpointWeight 返回端点在候选选择中的加权因子：优先使用管理员配置的 weight，
 // 未配置（默认 100）或非正值时退化为 1，避免配置缺失导致权重归零饿死。
+// 优先级档位（priority 越大越优先）按每档 50 叠加进权重，让高优先级端点
+// 在加权随机选路中显著占优（同时保留低优先级端点的后备可用性）。
 func endpointWeight(ep Endpoint) int64 {
+	w := int64(1)
 	if ep.Weight > 0 {
-		return int64(ep.Weight)
+		w = int64(ep.Weight)
 	}
-	return 1
+	if ep.Priority > 0 {
+		w += int64(ep.Priority) * 50
+	}
+	return w
 }
 
 // weightedEndpointPickWeighted 在全部已知延迟的候选端点中按「延迟 + 权重」综合加权选择。

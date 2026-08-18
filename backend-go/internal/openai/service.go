@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -22,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,6 +54,10 @@ const (
 	// SSE chunk / response.completed 事件里，只保留尾部即可，避免长对话把整个
 	// 流式响应累积在内存中。chat.completions 与 responses 两个流式入口共用。
 	usageTailLimit = 64 * 1024
+	// streamIdleTimeout 是流式中段空闲保护：上游超过该时长没有新字节（非结束）
+	// 即终止流，防止上游停滞时请求无限挂死。正常模型输出不会连续 90s 无字节；
+	// 需要长静默的本地推理场景可在端点配置中选用更长超时。
+	streamIdleTimeout = 90 * time.Second
 )
 
 // 热路径正则预编译：chat completion 每请求都会用到，避免逐请求编译。
@@ -177,6 +183,13 @@ type Service struct {
 	analyticsStreamMu   sync.Mutex
 	analyticsStreams    map[int]chan map[string]interface{}
 	analyticsStreamNext int
+
+	// analyticsQueue 是网关调用日志的异步落库队列：请求路径只投递，
+	// 由常驻 worker 批量写入，避免高流量下每次请求都在请求线程内
+	// 同步 INSERT 造成写锁竞争。队列满时丢弃并计数（日志页短暂缺行）。
+	analyticsQueue chan analyticsWriteItem
+	analyticsOnce  sync.Once
+	analyticsDrop  atomic.Uint64
 
 	// relayErrors 是推理转发失败事件的环形缓冲，供排障接口与详细日志排查。
 	relayErrMu  sync.Mutex
@@ -316,6 +329,50 @@ func newEndpointKeyState() *endpointKeyState {
 	return &endpointKeyState{}
 }
 
+// safeUploadPathJoin 将 /uploads/ 开头的图片 URL 解析为 DataDir/uploads 内的绝对路径。
+// 返回 false 表示路径穿越或越界（拒绝内联），防止读取 DataDir 之外的任意文件。
+func safeUploadPathJoin(dataDir, imgURL string) (string, bool) {
+	if dataDir == "" || !strings.HasPrefix(imgURL, "/uploads/") {
+		return "", false
+	}
+	uploadsRoot := filepath.Clean(filepath.Join(filepath.Clean(dataDir), "uploads"))
+	joined := filepath.Clean(filepath.Join(uploadsRoot, strings.TrimPrefix(imgURL, "/uploads/")))
+	expected := uploadsRoot
+	if !strings.HasSuffix(expected, string(os.PathSeparator)) {
+		expected += string(os.PathSeparator)
+	}
+	if joined != uploadsRoot && !strings.HasPrefix(joined, expected) {
+		return "", false
+	}
+	return joined, true
+}
+
+func (s *Service) inlineLocalUploadImage(imgURLMap map[string]interface{}, dataDir string) {
+	imgURL, ok := imgURLMap["url"].(string)
+	if !ok {
+		return
+	}
+	filePath, ok := safeUploadPathJoin(dataDir, imgURL)
+	if !ok {
+		return
+	}
+	if fileBytes, err := os.ReadFile(filePath); err == nil {
+		ext := strings.ToLower(filepath.Ext(filePath))
+		mimeType := "image/jpeg"
+		switch ext {
+		case ".png":
+			mimeType = "image/png"
+		case ".webp":
+			mimeType = "image/webp"
+		case ".gif":
+			mimeType = "image/gif"
+		}
+		b64 := base64.StdEncoding.EncodeToString(fileBytes)
+		imgURLMap["url"] = fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+		imgURLMap["_original_url"] = imgURL
+	}
+}
+
 func New(cfg config.Config) *Service {
 	tr := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -345,6 +402,7 @@ func New(cfg config.Config) *Service {
 		endpointLatency:      make(map[string]int64),
 		endpointLatencyOK:    make(map[string]bool),
 		analyticsStreams:     make(map[int]chan map[string]interface{}),
+		analyticsQueue:       make(chan analyticsWriteItem, analyticsQueueSize),
 		relayErrors:          make([]RelayErrorRecord, 0, relayErrorBufferSize),
 		routeModelIndex:      make(map[string][]int),
 		channelAffinity:      make(map[string]channelAffinityEntry),
@@ -2618,10 +2676,39 @@ func (s *Service) proxyClient(proxyURL string) (*http.Client, error) {
 	return c, nil
 }
 
-// isRateLimitResponse 判断上游响应是否命中限流（429/439/503/529 或正文含限流关键词）。
+// readWithIdleTimeout 为阻塞式上游读加中段空闲超时：idle 内无任何字节到达
+// 则返回 errStreamIdleTimeout，避免上游流中途停滞时请求无限挂死。
+// 超时后遗留的读取 goroutine 会在上游数据到达或连接关闭后自行退出。
+func readWithIdleTimeout(ctx context.Context, r io.Reader, p []byte, idle time.Duration) (int, error) {
+	type readResult struct {
+		n   int
+		err error
+	}
+	ch := make(chan readResult, 1)
+	go func() {
+		n, err := r.Read(p)
+		select {
+		case ch <- readResult{n: n, err: err}:
+		case <-ctx.Done():
+		}
+	}()
+	select {
+	case res := <-ch:
+		return res.n, res.err
+	case <-time.After(idle):
+		return 0, errStreamIdleTimeout
+	}
+}
+
+var errStreamIdleTimeout = errors.New("upstream stream idle timeout")
+
+// isRateLimitResponse 判断上游响应是否命中限流（429/439 或正文含限流关键词）。
+// 注意：503/529 是上游过载/停机信号，不属于客户端限流，不应计入「连续 429 冻结
+// 代理」的累计（否则瞬时过载会把一个健康代理冻结 30 分钟）；正文关键词仍能覆盖
+// 携带过载语义的 503 响应。
 func isRateLimitResponse(resp *http.Response, body []byte) bool {
 	switch resp.StatusCode {
-	case http.StatusTooManyRequests, 439, http.StatusServiceUnavailable, 529:
+	case http.StatusTooManyRequests, 439:
 		return true
 	}
 	if len(body) > 0 {
@@ -2693,7 +2780,8 @@ func isRetryableUpstreamResponse(resp *http.Response, body []byte) bool {
 		return true
 	}
 	switch resp.StatusCode {
-	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusGatewayTimeout, 599:
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusGatewayTimeout,
+		http.StatusServiceUnavailable, 529, 599:
 		return true
 	}
 	return false
@@ -5299,26 +5387,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 							if partMap, ok := part.(map[string]interface{}); ok {
 								if partMap["type"] == "image_url" {
 									if imgURLMap, ok := partMap["image_url"].(map[string]interface{}); ok {
-										if imgURL, ok := imgURLMap["url"].(string); ok && strings.HasPrefix(imgURL, "/uploads/") {
-											relativePath := strings.TrimPrefix(imgURL, "/")
-											filePath := filepath.Join(s.cfg.DataDir, relativePath)
-
-											if fileBytes, err := os.ReadFile(filePath); err == nil {
-												ext := strings.ToLower(filepath.Ext(filePath))
-												mimeType := "image/jpeg"
-												switch ext {
-												case ".png":
-													mimeType = "image/png"
-												case ".webp":
-													mimeType = "image/webp"
-												case ".gif":
-													mimeType = "image/gif"
-												}
-												b64 := base64.StdEncoding.EncodeToString(fileBytes)
-												imgURLMap["url"] = fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
-												imgURLMap["_original_url"] = imgURL
-											}
-										}
+										s.inlineLocalUploadImage(imgURLMap, s.cfg.DataDir)
 									}
 								}
 							}
@@ -5531,7 +5600,8 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for {
-			n, err := res.resp.Body.Read(buf)
+			// 上游流中段停滞保护：idle 内无数据则终止流，防止请求无限挂死。
+			n, err := readWithIdleTimeout(ctx, res.resp.Body, buf, streamIdleTimeout)
 			if n > 0 {
 				extendStreamDeadline()
 				sw.write(buf[:n])

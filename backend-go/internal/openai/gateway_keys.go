@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iwvw/api-monitor/backend-go/internal/apikeys"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
@@ -570,6 +571,8 @@ func (s *Service) enforceGatewayKeyLimits(ctx context.Context, identity gatewayK
 }
 
 // consumeGatewayKeyTokens 在请求完成后累加该密钥的 token 用量。
+// 扣减采用带配额条件的原子 UPDATE：并发请求同时结算时，超配额的更新
+// 不会生效（RowsAffected=0），杜绝「检查-后-扣减」竞态导致的任意超卖。
 func (s *Service) consumeGatewayKeyTokens(ctx context.Context, identity gatewayKeyIdentity, tokens int64) {
 	if identity.ID == "" || tokens <= 0 {
 		return
@@ -579,10 +582,22 @@ func (s *Service) consumeGatewayKeyTokens(ctx context.Context, identity gatewayK
 		return
 	}
 	defer db.Close()
-	_, _ = db.ExecContext(ctx, `
+	result, err := db.ExecContext(ctx, `
 		UPDATE openai_gateway_keys
 		SET total_tokens_used = total_tokens_used + ?
-		WHERE id = ?`, tokens, identity.ID)
+		WHERE id = ? AND (max_tokens_quota = 0 OR total_tokens_used + ? <= max_tokens_quota)`,
+		tokens, identity.ID, tokens)
+	if err != nil {
+		return
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		applog.Warn(ctx, "openai", "gateway key token quota exceeded during settle", "key_id", identity.ID, "tokens", tokens)
+	}
+}
+
+// FilterModelsListByKey 按当前请求网关密钥的白名单过滤模型列表（/v1/models 使用）。
+func (s *Service) FilterModelsListByKey(ctx context.Context, models []map[string]interface{}) []map[string]interface{} {
+	return filterModelsByKey(gatewayKeyFromContext(ctx), models)
 }
 
 // filterModelsByKey 按密钥白名单过滤模型列表；白名单为空时返回原列表。

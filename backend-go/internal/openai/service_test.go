@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -263,6 +265,7 @@ func TestRecordAnalyticsSurvivesCancelledRequestContext(t *testing.T) {
 	cancel()
 
 	service.RecordAnalytics(ctx, "chat.completions", "endpoint-1", "model-1", http.StatusBadGateway, 42, 0, 0, 0, 0, 0, 0, 0, "203.0.113.9", "198.51.100.7")
+	service.flushAnalyticsQueue(5 * time.Second)
 
 	db, err := service.open(context.Background())
 	if err != nil {
@@ -1679,6 +1682,7 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 	}
 
 	// 调用日志按实际出口记录：直连回退不应标「代」。
+	service.flushAnalyticsQueue(5 * time.Second)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -3078,6 +3082,7 @@ func TestRecordAnalyticsErrorOnlyOnError(t *testing.T) {
 		Message:  "insufficient balance",
 		Response: errorResponseForLog([]byte(errorJSON), http.StatusInternalServerError),
 	})
+	service.flushAnalyticsQueue(5 * time.Second)
 
 	db, err := service.open(context.Background())
 	if err != nil {
@@ -3163,6 +3168,7 @@ func TestTrimErrorDetailRetention(t *testing.T) {
 	for i := 0; i < relayErrorResponseRetention+5; i++ {
 		service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "m-1", http.StatusInternalServerError, 10, 0, 0, 0, 0, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", errInfo)
 	}
+	service.flushAnalyticsQueue(5 * time.Second)
 
 	db, err := service.open(context.Background())
 	if err != nil {
@@ -3187,5 +3193,114 @@ func TestTrimErrorDetailRetention(t *testing.T) {
 	}
 	if total != relayErrorResponseRetention+5 {
 		t.Fatalf("rows should be preserved, expected %d total, got %d", relayErrorResponseRetention+5, total)
+	}
+}
+
+func TestSafeUploadPathJoin(t *testing.T) {
+	dataDir := t.TempDir()
+	cases := []struct {
+		url      string
+		ok       bool
+		expected string
+	}{
+{"/uploads/a.png", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "a.png"},
+		{"/uploads/sub/dir/img.webp", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "sub" + string(os.PathSeparator) + "dir" + string(os.PathSeparator) + "img.webp"},
+		{"/uploads/../secret.txt", false, ""},
+		{"/uploads/../../data/api.db", false, ""},
+		{"/uploads/./../secret.txt", false, ""},
+		{"/uploads/../", false, ""},
+		{"/uploads", false, ""},
+		{"/uploads//tmp/evil", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "tmp" + string(os.PathSeparator) + "evil"},
+		{"/uploads/..%2f..%2fsecret", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "..%2f..%2fsecret"},
+		{"//uploads/a.png", false, ""},
+		{"/other/a.png", false, ""},
+		{"uploads/a.png", false, ""},
+		{"", false, ""},
+	}
+	for _, tc := range cases {
+		got, ok := safeUploadPathJoin(dataDir, tc.url)
+		if ok != tc.ok {
+			t.Errorf("safeUploadPathJoin(%q) ok=%v, want %v", tc.url, ok, tc.ok)
+			continue
+		}
+		if ok && got != tc.expected {
+			t.Errorf("safeUploadPathJoin(%q) = %q, want %q", tc.url, got, tc.expected)
+		}
+	}
+	if _, ok := safeUploadPathJoin("", "/uploads/a.png"); ok {
+		t.Error("empty dataDir must be rejected")
+	}
+}
+
+func TestInlineLocalUploadImageRejectsTraversal(t *testing.T) {
+	dataDir := t.TempDir()
+	uploadsDir := filepath.Join(dataDir, "uploads")
+	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secretPath := filepath.Join(dataDir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("TOP-SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	picPath := filepath.Join(uploadsDir, "pic.png")
+	if err := os.WriteFile(picPath, []byte("PNGDATA"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(config.Config{DataDir: dataDir})
+
+	traversal := map[string]interface{}{"url": "/uploads/../secret.txt"}
+	s.inlineLocalUploadImage(traversal, s.cfg.DataDir)
+	if traversal["url"] != "/uploads/../secret.txt" || traversal["_original_url"] != nil {
+		t.Fatalf("traversal must not be inlined: %#v", traversal)
+	}
+
+	valid := map[string]interface{}{"url": "/uploads/pic.png"}
+	s.inlineLocalUploadImage(valid, s.cfg.DataDir)
+	if !strings.HasPrefix(valid["url"].(string), "data:image/png;base64,") {
+		t.Fatalf("valid upload should be inlined, got %#v", valid)
+	}
+	if valid["_original_url"] != "/uploads/pic.png" {
+		t.Fatalf("original url should be preserved, got %#v", valid)
+	}
+}
+
+func TestIsRateLimitResponseExcludesOverloadCodes(t *testing.T) {
+	// 503/529 是过载信号而非客户端限流：不累计进「连续 429 冻结」，
+	// 但仍应可重试（isRetryableUpstreamResponse 单独兜底）。
+	for _, code := range []int{503, 529} {
+		resp := &http.Response{StatusCode: code}
+		if isRateLimitResponse(resp, nil) {
+			t.Fatalf("status %d must not count as rate limit", code)
+		}
+		if !isRetryableUpstreamResponse(resp, nil) {
+			t.Fatalf("status %d should still be retryable", code)
+		}
+	}
+	for _, code := range []int{429, 439} {
+		resp := &http.Response{StatusCode: code}
+		if !isRateLimitResponse(resp, nil) {
+			t.Fatalf("status %d should count as rate limit", code)
+		}
+	}
+	// 503 携限流关键词时仍应判定为限流
+	resp := &http.Response{StatusCode: 503}
+	if !isRateLimitResponse(resp, []byte("rate limit exceeded")) {
+		t.Fatal("rate limit keyword in body should still count")
+	}
+}
+
+func TestEndpointWeightIncludesPriority(t *testing.T) {
+	if got := endpointWeight(Endpoint{Weight: 100}); got != 100 {
+		t.Fatalf("default weight = %d, want 100", got)
+	}
+	if got := endpointWeight(Endpoint{Weight: 100, Priority: 2}); got != 200 {
+		t.Fatalf("priority-weighted = %d, want 200", got)
+	}
+	if got := endpointWeight(Endpoint{Weight: 0, Priority: 1}); got != 51 {
+		t.Fatalf("fallback weight = %d, want 51", got)
+	}
+	if got := endpointWeight(Endpoint{}); got != 1 {
+		t.Fatalf("empty endpoint weight = %d, want 1", got)
 	}
 }
