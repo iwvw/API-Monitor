@@ -1112,9 +1112,9 @@ func (s *Service) syncPendingPrompt(ctx context.Context, db *sql.DB, sessionID, 
 	return latest, nil
 }
 
-// llmRetryableError 判断 LLM 上游错误是否值得重试：网络/连接层、上游 5xx、
-// 限流 429、上游超时（首个数据块未到）等瞬时故障重试有意义；参数/鉴权类 4xx
-// （模型不存在、请求体非法、密钥无效）重试必败，直接切换模型或报错。
+// llmRetryableError 判断 LLM 上游错误是否值得重试：网络抖动（reset/network）、
+// 上游 5xx、限流 429、上游超时（首个数据块未到）等瞬时故障重试有意义；
+// 参数/鉴权类 4xx 与「connection refused」（本机网关未监听，确定性失败）不重试。
 func llmRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -1123,10 +1123,13 @@ func llmRetryableError(err error) bool {
 		return false
 	}
 	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "connection refused") {
+		return false
+	}
 	for _, marker := range []string{
 		"429", "too many requests", "rate limit",
 		"500", "502", "503", "504", "server error", "bad gateway", "service unavailable",
-		"timeout", "timed out", "未收到首个数据块", "connection", "network", "reset",
+		"timeout", "timed out", "未收到首个数据块", "network", "reset",
 		"temporary", "temporarily", "overloaded", "backpressure", "upstream",
 	} {
 		if strings.Contains(text, marker) {

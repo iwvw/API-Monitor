@@ -20,6 +20,7 @@ func TestLLMRetryableError(t *testing.T) {
 		{errors.New("400 invalid request body"), false},
 		{errors.New("401 unauthorized"), false},
 		{errors.New("model not found: gemini-x"), false},
+		{errors.New(`Post "http://127.0.0.1:0/v1/chat/completions": dial tcp 127.0.0.1:0: connect: connection refused`), false},
 		{contextDeadlineError(), false}, // DeadlineExceeded 不重试
 		{nil, false},
 	}
