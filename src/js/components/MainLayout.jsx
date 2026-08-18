@@ -845,14 +845,14 @@ return (
               <Button
                 onClick={() => store.toggleAskAI()}
                 className={`askai-entry-btn ml-auto h-8 w-8 transition-colors duration-200 focus:!ring-0 focus-visible:!ring-0 ${
-                  showAskAI ? '!bg-kumo-brand/10 ring-1 ring-kumo-brand/30' : ''
+                  showAskAI ? '!bg-[#dc7d40] ring-1 ring-[#dc7d40] shadow-[0_2px_8px_-2px_rgba(220,125,64,0.45)]' : ''
                 }`}
                 shape="square"
                 variant="ghost"
                 aria-label="Ask AI"
                 title="管理 AI"
               >
-                <Sparkle className="askai-entry-sparkle h-5 w-5 text-kumo-brand" />
+                <Sparkle className={`askai-entry-sparkle h-5 w-5 ${showAskAI ? 'text-white' : 'text-[#dc7d40]'}`} />
               </Button>
             </div>
             </header>

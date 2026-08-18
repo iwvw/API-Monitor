@@ -188,6 +188,12 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'text-white' && line.includes('from-kumo-brand')) {
     return 'Ask AI 发送按钮白色对比文字';
   }
+  if (
+    rel === 'src/js/components/MainLayout.jsx' &&
+    (value === '#dc7d40' || (value === 'text-white' && line.includes('askai-entry-sparkle')))
+  ) {
+    return 'Ask AI 入口按钮品牌橙（docs/重构验证与例外清单.md 登记）';
+  }
   if (rel === 'src/css/app.css' && (value === '#FFF' || value === '#FFEDDD' || value === '#FF9335' || value === '#FFB371')) {
     return 'Ask AI 云朵动画 Cloudflare 品牌色';
   }

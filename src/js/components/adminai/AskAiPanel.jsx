@@ -484,7 +484,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             loadMessages(sid);
           }
           // 外部 run 进行中：更新运行指示（思考中/执行工具…），run 结束自动消失
-          setExternalRun(cur.activeRun ? { runId: cur.activeRun.runId, phase: cur.activeRun.phase, title: cur.title } : null);
+          setExternalRun(cur.activeRun ? { runId: cur.activeRun.runId, phase: cur.activeRun.phase } : null);
           lastActivityRef.current.set(sid, cur.lastActivityAt);
           lastCountRef.current.set(sid, cur.messageCount);
         } else {
@@ -1009,7 +1009,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     >
       <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-kumo-warning" aria-hidden />
       <span key={externalRun.phase} className="askai-external-run-phase min-w-0 truncate">
-        {externalRun.title ? `${externalRun.title} · ` : ''}
         {externalRun.phase === 'tooling' ? '正在执行工具…' : externalRun.phase === 'starting' ? '正在启动…' : '正在思考…'}
       </span>
       <Button
@@ -1149,9 +1148,14 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 侧栏
               </Button>
             </div>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setExpanded(false)} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs" aria-label="Collapse to sidebar">
-              收回到侧栏
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button type="button" size="sm" variant="ghost" onClick={() => { setExpanded(false); setManageOpen(true); }} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs" aria-label="设置" title="设置">
+                <SettingsIcon className="h-3.5 w-3.5" />
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setExpanded(false)} className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs" aria-label="Collapse to sidebar">
+                收回到侧栏
+              </Button>
+            </div>
           </div>
            <div className="flex min-h-0 flex-1">
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-6 cq-md:px-8 cq-xl:px-10">
@@ -1200,9 +1204,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                   {externalRunIndicator}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => { setExpanded(false); setManageOpen(true); }} aria-label="设置">
-                    <SettingsIcon className="h-3.5 w-3.5" />
-                  </Button>
                 {streaming ? (
                   <Button type="button" size="sm" variant="secondary-destructive" shape="circle" onClick={handleCancel} aria-label="停止生成">
                     <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />
@@ -1260,9 +1261,9 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
               type="button"
               variant="ghost"
               shape="square"
-              onClick={closeSidebar}
-              aria-label="关闭侧栏"
-              title="关闭侧栏"
+              onClick={() => setManageOpen(false)}
+              aria-label="关闭设置"
+              title="关闭设置"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -1382,6 +1383,9 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
           <Button type="button" variant="ghost" shape="square" onClick={() => setExpanded(true)} aria-label="展开侧栏" title="展开侧栏">
             <Maximize2 className="h-4 w-4" />
           </Button>
+          <Button type="button" variant="ghost" shape="square" onClick={() => setManageOpen(true)} aria-label="设置" title="设置">
+            <SettingsIcon className="h-3.5 w-3.5" />
+          </Button>
           <Button type="button" variant="ghost" shape="square" onClick={closeSidebar} aria-label="关闭侧栏" title="关闭侧栏">
             <X className="h-4 w-4" />
           </Button>
@@ -1439,9 +1443,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 {externalRunIndicator}
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => setManageOpen(true)} aria-label="设置">
-                  <SettingsIcon className="h-3.5 w-3.5" />
-                </Button>
                 {streaming ? (
                   <Button type="button" size="sm" variant="secondary-destructive" shape="circle" onClick={handleCancel} aria-label="停止生成">
                     <span className="block h-2.5 w-2.5 rounded-[2px] bg-current" />

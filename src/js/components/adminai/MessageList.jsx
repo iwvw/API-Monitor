@@ -636,7 +636,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   >
                     {copiedEdit ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </Button>
-                  <div className="min-w-0 w-fit max-w-full" style={editWidth ? { width: editWidth } : undefined}>
+                  <div className="w-fit min-w-[10rem] max-w-full" style={editWidth ? { width: editWidth } : undefined}>
                     <div className="w-full rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                       <Textarea
                         ref={editRef}
