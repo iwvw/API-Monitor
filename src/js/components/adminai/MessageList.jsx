@@ -512,6 +512,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
   const [collapsedIds, setCollapsedIds] = useState({});
   // 用户消息编辑态：{ id, text }
   const [editing, setEditing] = useState(null);
+  const [editWidth, setEditWidth] = useState(null); // 进入编辑时锁定的原气泡宽度（px）
   const [copiedEdit, setCopiedEdit] = useState(false);
   const editRef = useRef(null);
 
@@ -603,8 +604,8 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                   >
                     {copiedEdit ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </Button>
-                  <div className="w-fit max-w-prose">
-                    <div className="rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                  <div className="w-fit max-w-prose" style={editWidth ? { width: editWidth } : undefined}>
+                    <div className="w-full rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                       <Textarea
                         ref={editRef}
                         rows={1}
@@ -619,8 +620,8 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                             saveEdit();
                           }
                         }}
-                        className="!ring-0 max-h-48 resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
-                        style={{ maxHeight: 192, minWidth: 96, fieldSizing: 'content' }}
+                        className="!ring-0 max-h-48 w-full resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
+                        style={{ maxHeight: 192, fieldSizing: 'content' }}
                       />
                     </div>
                     <div className="mt-1.5 flex items-center justify-end gap-1.5">
@@ -628,7 +629,7 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                         type="button"
                         size="sm"
                         variant="ghost"
-                        onClick={() => setEditing(null)}
+                        onClick={() => { setEditing(null); setEditWidth(null); }}
                         className="!text-kumo-subtle hover:!bg-kumo-tint hover:!text-kumo-default"
                       >
                         取消
@@ -652,13 +653,17 @@ export default function MessageList({ messages, onResolveApproval, onRetry, onEd
                     size="sm"
                     variant="secondary"
                     shape="square"
-                    onClick={() => setEditing({ id: msg.id, text: msg.content || '' })}
+                    onClick={(e) => {
+                      const bubble = e.currentTarget.closest('article')?.querySelector('[data-user-bubble]');
+                      setEditWidth(bubble ? bubble.getBoundingClientRect().width : null);
+                      setEditing({ id: msg.id, text: msg.content || '' });
+                    }}
                     className="mb-0.5 !h-6 !w-6 shrink-0 !rounded-full !p-0 !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
                     aria-label="编辑重发"
                   >
                     <Edit className="h-3 w-3" />
                   </Button>
-                  <div className="rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                  <div data-user-bubble className="rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                     <TextBlock text={msg.content} />
                   </div>
                 </div>
