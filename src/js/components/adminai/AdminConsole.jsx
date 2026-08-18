@@ -73,7 +73,8 @@ function useSettingsForm() {
     })();
   }, []);
 
-  // 模型下拉选项：模型网关端点（enabled）的模型合并；值为纯模型名（/v1 按模型名路由）
+  // 模型下拉选项：只列「启用端点中已启用的模型」，值取对外名（modelMappings 反转，
+  // 去端点前缀后经 /v1 调用可自动负载均衡到多个端点）；禁用模型与原生前缀名不出现。
   useEffect(() => {
     (async () => {
       try {
@@ -84,10 +85,14 @@ function useSettingsForm() {
         const options = [];
         for (const ep of eps) {
           if (!ep.enabled || !Array.isArray(ep.models)) continue;
+          const disabled = new Set(ep.disabledModels || []);
+          const maps = ep.modelMappings || {};
           for (const m of ep.models) {
-            if (seen.has(m)) continue;
-            seen.add(m);
-            options.push({ value: m, label: `${ep.name || ep.id} / ${m}` });
+            if (disabled.has(m)) continue;
+            const external = maps[m] || m; // 对外名（如 gcli-gemini-3.1-pro-preview → gemini-3.1-pro-preview）
+            if (seen.has(external)) continue;
+            seen.add(external);
+            options.push({ value: external, label: `${ep.name} / ${external}` });
           }
         }
         options.sort((a, b) => a.label.localeCompare(b.label));

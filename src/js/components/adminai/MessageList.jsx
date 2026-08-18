@@ -4,6 +4,7 @@ import { ChevronDown, Sparkle, Terminal, Copy, Check, X, Edit } from '../Icons.j
 import ToolCallCard, { toolLabel, toolPathLabel } from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { isStreaming } from '../../modules/adminAiMessages.js';
+import { typewriterFrame } from '../../modules/typewriter.js';
 
 /* ---------- 行内渲染（粗体/斜体/删除线/行内代码/链接）——TextBlock 与 TableBlock 共用 ---------- */
 function renderInline(text) {
@@ -112,12 +113,16 @@ function TypewriterText({ text, streaming }) {
   const visibleRef = useRef(visible);
   const textRef = useRef(text);
 
-  // 文本被整体替换（同一组件实例承载新消息）时从头开始
+  // SSE delta 是追加（next 以 prev 开头）：保留揭示进度继续打字；
+  // 只有整体替换（同一组件实例承载新消息）才从头开始。
   useEffect(() => {
-    if (!text.startsWith(textRef.current)) {
+    const frame = typewriterFrame(textRef.current, text);
+    if (frame.reset) {
       textRef.current = text;
       visibleRef.current = 0;
       setVisible(0);
+    } else {
+      textRef.current = text;
     }
   }, [text]);
 
@@ -271,12 +276,29 @@ function RenderLines({ text }) {
   return <div className="space-y-1">{elements}</div>;
 }
 
-/* ---------- 思维链折叠区（reasoning，CF 风格胶囊标签） ----------
- * 收起时显示摘要：优先 AI 生成的标题式摘要（≤10 字），未生成时回退截断；展开显示完整推理。 */
+/* ---------- 思维链显示（reasoning，CF 风格胶囊 + 单行滚动追尾） ----------
+ * 展开时推理以单行滚动条形式呈现（streaming 期间自动展开并持续追尾最新文本，
+ * 不打断阅读；不流式时点击胶囊展开/收起）。收起状态显示 AI 生成的标题摘要。 */
 function ReasoningBlock({ text, summary, streaming }) {
   const [open, setOpen] = useState(false);
+  const scrollRef = useRef(null);
+  const settledRef = useRef(false);
+  useEffect(() => {
+    if (streaming) {
+      settledRef.current = false;
+    } else if (!settledRef.current) {
+      settledRef.current = true;
+    }
+    if (open && scrollRef.current) {
+      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+    }
+  }, [text, streaming, open]);
+  // 流式期间推理正文出现即自动展开单行滚动区，让用户实时看到思考
+  useEffect(() => {
+    if (streaming && text) setOpen(true);
+  }, [streaming, text]);
   if (!text && !streaming) return null;
-  // 收起摘要只显示 AI 生成的中文标题摘要；无摘要/非中文时不显示摘要文本
+  // 收起状态只显示 AI 生成的中文标题摘要；无摘要/非中文时不显示摘要文本
   const isCN = (s) => /[\u4e00-\u9fa5]/.test(s || '');
   const displaySummary = isCN(summary) ? summary : '';
   return (
@@ -302,9 +324,13 @@ function ReasoningBlock({ text, summary, streaming }) {
           </span>
         )}
       </Button>
-            <div className="askai-collapse" data-open={open}>
-        <div className="askai-reason-fade max-h-[220px] overflow-y-auto overscroll-contain border-l-2 border-kumo-line pl-3 pr-1">
-          <p className="whitespace-pre-wrap break-words text-xs !leading-relaxed text-kumo-subtle/90">{text}</p>
+      <div className="askai-collapse" data-open={open}>
+        <div
+          ref={scrollRef}
+          className="askai-reason-ticker max-h-[1.6rem] overflow-x-auto overscroll-x-contain whitespace-nowrap border-l-2 border-kumo-line pl-3 pr-1 text-xs leading-[1.6rem] text-kumo-subtle/90"
+          title="推理（单行滚动，可横向拖动查看历史）"
+        >
+          {text}
         </div>
       </div>
       {!open && displaySummary && (
