@@ -8,6 +8,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Empty, Loader, Tabs } from '@cloudflare/kumo';
 import { SectionCard, FieldRow } from '../ui/AppPrimitives.jsx';
+import { toast } from '../../modules/toast.js';
 import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ArrowLeft, ChevronDown } from '../Icons.jsx';
 
 /* ==================== 通用小组件 ==================== */
@@ -205,8 +206,14 @@ function useSettingsForm() {
         body: JSON.stringify(values || {}),
       });
       const data = await res.json();
-      if ((data.data || data).ok) setSavedAt(Date.now());
+      if ((data.data || data).ok) {
+        setSavedAt(Date.now());
+        toast.success('设置已保存');
+      } else {
+        toast.error('保存失败');
+      }
     } catch {
+      toast.error('保存失败');
     } finally {
       setSaving(false);
     }
@@ -695,8 +702,14 @@ function TemplatesCard() {
         body: JSON.stringify({ admin_ai_briefing_template: JSON.stringify(cfg) }),
       });
       const data = await res.json();
-      if ((data.data || data).ok) setSavedAt(Date.now());
+      if ((data.data || data).ok) {
+        setSavedAt(Date.now());
+        toast.success('模板已保存');
+      } else {
+        toast.error('保存失败');
+      }
     } catch {
+      toast.error('保存失败');
     } finally {
       setSaving(false);
     }
