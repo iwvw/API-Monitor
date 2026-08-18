@@ -969,27 +969,21 @@ function SchedulerPage({ onNavigate = () => {} }) {
 
   useEffect(() => {
     if (!taskDialogOpen) return undefined;
-    // AI 任务选项懒加载：模型选项来自模型网关端点，推送目标来自已启用 Telegram 频道
+    // AI 任务选项懒加载：模型选项来自对外 /v1 暴露的模型（/api/openai/models 与 /v1/models 同源，
+    // 已过滤禁用模型并应用映射去前缀），推送目标来自已启用 Telegram 频道
     let cancelled = false;
     (async () => {
       try {
         const [epRes, chRes, aiChRes] = await Promise.all([
-          fetch('/api/openai/endpoints'),
+          fetch('/api/openai/models'),
           fetch('/api/notification/channels'),
           fetch('/api/admin-ai/channels'),
         ]);
         const epData = await epRes.json();
-        const eps = Array.isArray(epData) ? epData : (epData.data || []);
-        const seen = new Set();
-        const options = [];
-        for (const ep of eps) {
-          if (!ep.enabled || !Array.isArray(ep.models)) continue;
-          for (const m of ep.models) {
-            if (seen.has(m)) continue;
-            seen.add(m);
-            options.push({ value: m, label: `${ep.name || ep.id} / ${m}` });
-          }
-        }
+        const list = Array.isArray(epData) ? epData : (epData.data || []);
+        const options = (list || [])
+          .filter((m) => m && m.id)
+          .map((m) => ({ value: m.id, label: m.id }));
         options.sort((a, b) => a.label.localeCompare(b.label));
         // 结果推送目标：优先列通知中心已启用的 Telegram 渠道，并兼容旧版 AI 频道 id（aac_ 前缀）
         const chData = await chRes.json();
