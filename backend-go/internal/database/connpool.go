@@ -149,8 +149,11 @@ var connPragmas = []string{
 	// fsync for every transaction. Temporary sort/index data stays in memory.
 	"PRAGMA synchronous = NORMAL",
 	"PRAGMA temp_store = MEMORY",
-	// 约 16MB 页缓存（负值单位为 KB）。默认 ~2MB 对 metrics 历史等范围查询偏小。
-	"PRAGMA cache_size = -16000",
+	// 约 4MB 页缓存（负值单位为 KB）。页缓存按物理连接独立持有
+	// （最多 maxIdlePhysicalConns 个常驻连接 = 上限 16MB），WAL 下共享
+	// 场景数据量不大（百 MB 级库），4MB 对范围查询足够；小内存主机
+	// （Fly 256MB）上过大缓存会白白占住堆外内存预算。
+	"PRAGMA cache_size = -4096",
 	"PRAGMA wal_autocheckpoint = 256",
 	"PRAGMA journal_size_limit = 8388608",
 	"PRAGMA auto_vacuum = INCREMENTAL",

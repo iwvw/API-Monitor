@@ -23,6 +23,12 @@ const (
 	// cgroup v1 的 memory.limit_in_bytes 在「未限制」时常返回 LONG_MAX 附近的
 	// 巨大值（实测 Fly.io 上读到 6.4EB），直接采用会把内存守卫变成形同虚设。
 	maxTrustedCgroupBytes = 1 << 40
+	// 水位归还（idle return）：RSS 比活跃堆高出该余量（32MB）且距上次归还
+	// 超过 60s 时，执行一次 GC+FreeOSMemory 把空闲页还给 OS。
+	// Go 默认不归还已释放的堆页（RSS 停在历史峰值），小内存主机上
+	// 高峰后的静态占用会持续占住预算，主动归还可为下一波高峰腾水位。
+	memoryReturnSlackBytes = 32 << 20
+	memoryReturnIntervalMs = 60 * time.Second
 )
 
 type Config struct {
@@ -61,6 +67,7 @@ func run(ctx context.Context, cfg Config) {
 	ticker := time.NewTicker(cfg.CheckInterval)
 	defer ticker.Stop()
 
+	var lastReturn time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -70,6 +77,26 @@ func run(ctx context.Context, cfg Config) {
 			runtime.ReadMemStats(&stats)
 			rss := readProcessRSSBytes()
 			if stats.Sys < cfg.TriggerBytes && stats.HeapAlloc < cfg.TriggerBytes && rss < cfg.TriggerBytes {
+				// 水位归还：Go GC 不会把已释放的堆页归还 OS（RSS 停留在历史
+				// 峰值）。高峰期过后堆已收缩但 RSS 仍远高于活跃堆时，主动
+				// GC+FreeOSMemory 把空闲页还给系统，为下一波高峰腾出水位；
+				// 带冷却避免频繁 syscall。
+				if time.Since(lastReturn) >= memoryReturnIntervalMs &&
+					rss > stats.HeapAlloc+memoryReturnSlackBytes {
+					beforeHeap := stats.HeapAlloc
+					beforeRSS := rss
+					runtime.GC()
+					debug.FreeOSMemory()
+					lastReturn = time.Now()
+					runtime.ReadMemStats(&stats)
+					applog.Info(ctx, "memguard", "idle memory returned to OS",
+						"before_heap_bytes", beforeHeap,
+						"after_heap_bytes", stats.HeapAlloc,
+						"before_rss_bytes", beforeRSS,
+						"after_rss_bytes", readProcessRSSBytes(),
+						"limit_bytes", cfg.LimitBytes,
+					)
+				}
 				continue
 			}
 
@@ -78,6 +105,7 @@ func run(ctx context.Context, cfg Config) {
 			beforeRSS := rss
 			runtime.GC()
 			debug.FreeOSMemory()
+			lastReturn = time.Now()
 			runtime.ReadMemStats(&stats)
 
 			applog.Warn(ctx, "memguard", "memory pressure cleanup completed",
