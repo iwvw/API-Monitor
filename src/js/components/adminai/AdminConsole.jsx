@@ -4,9 +4,10 @@ import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Select } from '@cloudflare/kumo/components/select';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Empty, Loader, Tabs } from '@cloudflare/kumo';
 import { SectionCard, FieldRow } from '../ui/AppPrimitives.jsx';
-import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ArrowLeft } from '../Icons.jsx';
+import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ArrowLeft, ChevronDown } from '../Icons.jsx';
 
 /* ==================== 通用小组件 ==================== */
 
@@ -14,6 +15,66 @@ function ErrorBanner({ message }) {
   if (!message) return null;
   return (
     <div className="rounded-lg bg-kumo-danger/10 px-3 py-2 text-xs text-kumo-danger">{message}</div>
+  );
+}
+
+/* 多选下拉：显示启用模型，复选框多选（值存逗号串，后端按顺序失败回退） */
+function MultiModelSelect({ options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  const selected = new Set((value || '').split(',').map((s) => s.trim()).filter(Boolean));
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const toggle = (v) => {
+    const next = new Set(selected);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    onChange([...next].join(','));
+  };
+  return (
+    <div ref={boxRef} className="relative w-full">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 !px-3 !py-1.5 !font-normal"
+      >
+        <span className="min-w-0 truncate text-left text-xs text-kumo-default">
+          {selected.size > 0 ? [...selected].join('，') : '选择模型（可多选，按顺序回退）'}
+        </span>
+        <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </Button>
+      {open && (
+        <div className="absolute left-0 top-full z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-lg ring-1 ring-kumo-line">
+          {options.length === 0 ? (
+            <p className="px-2.5 py-2 text-xs text-kumo-subtle">模型网关无可用模型</p>
+          ) : (
+            options.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-kumo-tint"
+              >
+                <Checkbox
+                  checked={selected.has(opt.value)}
+                  onCheckedChange={() => toggle(opt.value)}
+                  aria-label={opt.label}
+                />
+                <span className="min-w-0 truncate text-xs text-kumo-default">{opt.label}</span>
+              </label>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -141,33 +202,8 @@ function SettingsCard({ form }) {
     }
     let control;
     if (field.kind === 'multi_select') {
-      // 多选模型：独立芯片切换，值存逗号串（后端按候选顺序逐个失败回退）
-      const selected = new Set((value || '').split(',').map((s) => s.trim()).filter(Boolean));
-      control = (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {modelOptions.map((opt) => {
-            const on = selected.has(opt.value);
-            return (
-              <Button
-                key={opt.value}
-                type="button"
-                size="sm"
-                variant={on ? 'primary' : 'secondary'}
-                onClick={() => {
-                  const next = new Set(selected);
-                  if (on) next.delete(opt.value);
-                  else next.add(opt.value);
-                  setField(field.key, [...next].join(','));
-                }}
-                className="!px-2 !py-1 !text-[11px]"
-                title={opt.label}
-              >
-                {opt.label}
-              </Button>
-            );
-          })}
-        </div>
-      );
+      // 多选模型：下拉框内复选框多选，值存逗号串（后端按候选顺序逐个失败回退）
+      control = <MultiModelSelect options={modelOptions} value={value} onChange={(v) => setField(field.key, v)} />;
     } else if (field.kind === 'select') {
       control = (
         <Select
