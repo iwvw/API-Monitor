@@ -91,6 +91,7 @@ func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_operation_logs_table ON operation_logs(table_name, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_operation_logs_created ON operation_logs(created_at)`,
 		`CREATE TABLE IF NOT EXISTS auth_flows (
 			id TEXT PRIMARY KEY,
 			flow_type TEXT NOT NULL,

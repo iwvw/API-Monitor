@@ -182,12 +182,18 @@ func (s *Service) autoCleanupOnce(ctx context.Context) {
 		return
 	}
 	defer db.Close()
-	if getConfigInt(ctx, db, "log_auto_cleanup", 0) == 0 {
+	// 总开关未显式关闭（system_config 中无该键）时默认启用自动清理。
+	// 显式写入 0 的用户仍可整体关闭。
+	if getConfigInt(ctx, db, "log_auto_cleanup", 1) == 0 {
 		return
 	}
-	days := getConfigInt(ctx, db, "log_retention_days", 0)
+	// 未显式配置时启用内置保护默认：日志表 30 天截断、库文件 500MB 空间红线
+	// （仅增量回收 freelist，绝不触发行删除）防生产库无界膨胀；统计表独立
+	// 长保留（statisticsRetentionDays）不受 days 影响。显式配置（含 0=不限）
+	// 优先。
+	days := getConfigInt(ctx, db, "log_retention_days", 30)
 	count := getConfigInt(ctx, db, "log_max_count", 0)
-	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", 0)
+	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", 500)
 	if days == 0 && count == 0 && dbSizeMB == 0 {
 		return
 	}
@@ -950,15 +956,36 @@ func (s *Service) clearAppLogs(w http.ResponseWriter, r *http.Request) {
 // 同步执行会阻塞单连接池（SetMaxOpenConns(1)）导致整个面板无响应，因此改为
 // 后台任务执行，请求立即返回，前端通过 GET 同路径轮询任务状态。
 func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
-	s.vacuumMu.Lock()
-	if s.vacuumRunning {
-		s.vacuumMu.Unlock()
+	queued, err := s.enqueueVacuumTask(r.Context())
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "读取数据库压缩模式失败: " + err.Error(),
+		})
+		return
+	}
+	if !queued {
 		response.JSON(w, http.StatusConflict, map[string]interface{}{
 			"success": false,
 			"message": "数据库压缩已在运行中",
 			"data":    s.vacuumSnapshot(),
 		})
 		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "数据库压缩已开始，将在后台执行",
+		"data":    s.vacuumSnapshot(),
+	})
+}
+
+// enqueueVacuumTask 探测 auto_vacuum 模式并排队后台压缩任务（互斥单例）。
+// 返回 queued=false 表示已有压缩任务在运行（非错误）。
+func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
+	s.vacuumMu.Lock()
+	defer s.vacuumMu.Unlock()
+	if s.vacuumRunning {
+		return false, nil
 	}
 	s.vacuumRunning = true
 	s.vacuumStarted = time.Now()
@@ -970,36 +997,25 @@ func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 	// 探测 auto_vacuum 模式决定压缩路径：NONE 需首次全量迁移（建立
 	// pointer-map，耗时数分钟），INCREMENTAL/FULL 走增量回收（秒级）。
 	mode, err := func() (int, error) {
-		db, openErr := s.store.Open(r.Context())
+		db, openErr := s.store.Open(ctx)
 		if openErr != nil {
 			return 0, openErr
 		}
 		defer db.Close()
-		return autoVacuumMode(r.Context(), db)
+		return autoVacuumMode(ctx, db)
 	}()
 	if err != nil {
 		s.vacuumRunning = false
-		s.vacuumMu.Unlock()
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"success": false,
-			"error":   "读取数据库压缩模式失败: " + err.Error(),
-		})
-		return
+		return false, err
 	}
 	s.vacuumMode = vacuumModeIncremental
 	if mode == 0 {
 		s.vacuumMode = vacuumModeMigrate
 	}
-	s.vacuumMu.Unlock()
 
 	s.cleanupWG.Add(1)
 	go s.runVacuum(context.Background())
-
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "数据库压缩已开始，将在后台执行",
-		"data":    s.vacuumSnapshot(),
-	})
+	return true, nil
 }
 
 // vacuumStatus 查询数据库压缩任务状态（GET /api/settings/vacuum-database）
@@ -2660,6 +2676,14 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 	s.importsMu.Lock()
 	defer s.importsMu.Unlock()
 
+	// 与后台数据库优化互斥：真空执行期间替换文件会相互破坏
+	s.vacuumMu.Lock()
+	vacuumRunning := s.vacuumRunning
+	s.vacuumMu.Unlock()
+	if vacuumRunning {
+		return "", fmt.Errorf("数据库正在执行优化任务（VACUUM），请稍后重试导入")
+	}
+
 	backupDir := s.backupDir()
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return "", fmt.Errorf("创建备份目录失败: %w", err)
@@ -2679,6 +2703,10 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 	}
 	defer os.Remove(tempTarget)
 
+	// 失效连接池：释放对旧文件的空闲句柄，替换后新连接的读写落到新文件。
+	// 注意：进程常驻句柄仍指向旧文件，导入成功后应尽快重启后端。
+	database.ResetPool(dbPath)
+
 	cleanupSQLiteSidecars(dbPath)
 	replaceErr := func() error {
 		if err := os.Remove(dbPath); err == nil || errors.Is(err, os.ErrNotExist) {
@@ -2689,10 +2717,14 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 		return copyFile(tempTarget, dbPath, 0o600)
 	}()
 	if replaceErr != nil {
+		database.ResetPool(dbPath)
 		_ = copyFile(backupPath, dbPath, 0o600)
 		return "", fmt.Errorf("替换数据库失败: %w", replaceErr)
 	}
 	cleanupSQLiteSidecars(dbPath)
+
+	// 替换完成后再失效一次，把替换间隙内可能打开旧文件的新连接也排除掉
+	database.ResetPool(dbPath)
 
 	db, err := s.store.Open(ctx)
 	if err != nil {

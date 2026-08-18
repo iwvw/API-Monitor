@@ -1155,3 +1155,33 @@ func TestRefreshLifecycleResolveSelfHealsWithoutRule(t *testing.T) {
 		t.Fatalf("idle self-heal should not send: %#v", calls)
 	}
 }
+
+func TestRenderTemplateTerminatesOnMissingKeys(t *testing.T) {
+	data := map[string]interface{}{"host": "web-1", "cpu": 42}
+	cases := []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{"normal", "{{host}} at {{cpu}}%", "web-1 at 42%"},
+		{"missing key terminates", "uptime {{host}} failed: {{error}}", "uptime web-1 failed: {{error}}"},
+		{"missing with spaces", "a {{ host }} b", "a web-1 b"},
+		{"missing key repeated", "{{a}} {{a}} {{host}}", "{{a}} {{a}} web-1"},
+		{"only missing keys", "<b>{{none}}</b>", "<b>{{none}}</b>"},
+		{"large template terminates", "fill " + strings.Repeat("{{hole}} ", 500), "fill " + strings.Repeat("{{hole}} ", 500)},
+	}
+	for _, tc := range cases {
+		done := make(chan string, 1)
+		go func() {
+			done <- renderTemplate(tc.template, data)
+		}()
+		select {
+		case got := <-done:
+			if got != tc.want {
+				t.Errorf("%s: renderTemplate(%q) = %q; want %q", tc.name, tc.template, got, tc.want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: renderTemplate(%q) hung", tc.name, tc.template)
+		}
+	}
+}

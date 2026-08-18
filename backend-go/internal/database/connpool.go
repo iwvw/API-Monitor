@@ -34,6 +34,7 @@ var (
 	pools   = map[string]*connPool{}
 )
 
+// poolFor 返回 dbPath 对应的连接池；已通过 ResetPool 失效的路径会被重建。
 func poolFor(dbPath string) *connPool {
 	poolsMu.Lock()
 	defer poolsMu.Unlock()
@@ -43,6 +44,30 @@ func poolFor(dbPath string) *connPool {
 	p := &connPool{dbPath: dbPath}
 	pools[dbPath] = p
 	return p
+}
+
+// ResetPool 使 dbPath 对应连接池失效：关闭所有空闲物理连接并从注册表移除。
+// 之后任何新的 Store.Open 都会重新建立连接、重新打开磁盘上的数据库文件。
+// 用于数据库文件被整体替换（导入）后，保证后续访问不会再读写旧文件句柄。
+// 已在使用的连接（包括进程常驻句柄）不受影响，仍指向替换前的旧文件，
+// 因此导入成功后应尽快重启后端，避免常驻句柄读到旧快照。
+func ResetPool(dbPath string) {
+	poolsMu.Lock()
+	p, ok := pools[dbPath]
+	if !ok {
+		poolsMu.Unlock()
+		return
+	}
+	delete(pools, dbPath)
+	poolsMu.Unlock()
+
+	p.mu.Lock()
+	drained := p.idle
+	p.idle = nil
+	p.mu.Unlock()
+	for _, conn := range drained {
+		_ = conn.Close()
+	}
 }
 
 type connPool struct {

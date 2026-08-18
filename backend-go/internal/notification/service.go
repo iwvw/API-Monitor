@@ -14,6 +14,7 @@ import (
 	"html"
 	"log/slog"
 	"mime/quotedprintable"
+	"net"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -1718,6 +1719,10 @@ func (s *Service) sendToChannel(ctx context.Context, channel storedChannel, cfg 
 	}
 }
 
+// smtpSendTimeout 是 SMTP 发送全链路的阻塞上限：网络连接、TLS 握手、
+// 认证与数据传输任何一步停滞都不会无限等待。
+const smtpSendTimeout = 30 * time.Second
+
 func sendEmail(cfg map[string]interface{}, title, message string) error {
 	host := stringValue(cfg["host"])
 	port := intValue(cfg["port"], 465)
@@ -1728,7 +1733,7 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 	if host == "" || user == "" || pass == "" || to == "" {
 		return errors.New("email channel config incomplete")
 	}
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	auth := smtp.PlainAuth("", user, pass, host)
 	from := user
 
@@ -1757,40 +1762,51 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 		"Content-Type: text/html; charset=UTF-8\r\n" +
 		"Content-Transfer-Encoding: quoted-printable\r\n\r\n" +
 		encodedBody.String() + "\r\n")
-	if boolValue(cfg["secure"], port == 465) {
-		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
-		client, err := smtp.NewClient(conn, host)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-		if err := client.Auth(auth); err != nil {
-			return err
-		}
-		if err := client.Mail(user); err != nil {
-			return err
-		}
-		if err := client.Rcpt(to); err != nil {
-			return err
-		}
-		writer, err := client.Data()
-		if err != nil {
-			return err
-		}
-		if _, err := writer.Write(messageBytes); err != nil {
-			_ = writer.Close()
-			return err
-		}
-		if err := writer.Close(); err != nil {
-			return err
-		}
-		return client.Quit()
+
+	// 全链路超时护栏：网络/认证/数据阶段的任何阻塞最多持续 smtpSendTimeout，
+	// 避免 SMTP 服务器不响应时通知轮询链路被无限卡死。
+	dialer := &net.Dialer{Timeout: smtpSendTimeout}
+	rawConn, err := dialer.Dial("tcp", addr)
+	if err != nil {
+		return err
 	}
-	return smtp.SendMail(addr, auth, user, []string{to}, messageBytes)
+	defer rawConn.Close()
+	_ = rawConn.SetDeadline(time.Now().Add(smtpSendTimeout))
+
+	var conn net.Conn = rawConn
+	if boolValue(cfg["secure"], port == 465) {
+		tlsConn := tls.Client(rawConn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		if err := tlsConn.Handshake(); err != nil {
+			return err
+		}
+		conn = tlsConn
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer client.Quit()
+	if err := client.Auth(auth); err != nil {
+		return err
+	}
+	if err := client.Mail(user); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(messageBytes); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 type telegramAPIResponse struct {
@@ -2699,26 +2715,37 @@ func formatNotificationPercent(value interface{}) interface{} {
 	return text + "%"
 }
 
+// renderTemplate 渲染通知模板。用游标式单遍扫描替换占位符：
+// 缺失 key 的占位符原样保留（便于用户定位），不重复扫描、不阻塞后续
+// 正常占位符，保证渲染必然终止（旧实现重建相同占位符导致死循环）。
 func renderTemplate(template string, data map[string]interface{}) string {
-	result := template
-	for {
-		start := strings.Index(result, "{{")
+	const maxKeys = 100
+	var b strings.Builder
+	b.Grow(len(template) + 32)
+	rest := template
+	for i := 0; i < maxKeys; i++ {
+		start := strings.Index(rest, "{{")
 		if start < 0 {
-			return normalizeTemplateNewlines(result)
+			b.WriteString(rest)
+			return normalizeTemplateNewlines(b.String())
 		}
-		end := strings.Index(result[start+2:], "}}")
+		end := strings.Index(rest[start+2:], "}}")
 		if end < 0 {
-			return normalizeTemplateNewlines(result)
+			b.WriteString(rest)
+			return normalizeTemplateNewlines(b.String())
 		}
 		end += start + 2
-		key := strings.TrimSpace(result[start+2 : end])
-		value, ok := data[key]
-		replacement := "{{" + key + "}}"
-		if ok {
-			replacement = stringValue(value)
+		b.WriteString(rest[:start])
+		key := strings.TrimSpace(rest[start+2 : end])
+		if value, ok := data[key]; ok {
+			b.WriteString(stringValue(value))
+		} else {
+			b.WriteString("{{" + key + "}}")
 		}
-		result = result[:start] + replacement + result[end+2:]
+		rest = rest[end+2:]
 	}
+	b.WriteString(rest)
+	return normalizeTemplateNewlines(b.String())
 }
 
 // normalizeTemplateNewlines 把模板里以字面量存储的 \n（反斜杠+n 两个字符，常见于

@@ -271,12 +271,22 @@ func (s *Service) cleanupDeprecatedTables(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
-	if _, err := db.ExecContext(r.Context(), `VACUUM`); err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "vacuum after cleanup failed: " + err.Error()})
-		return
+	// 回收空间：INCREMENTAL 库按批增量回收（每次持锁仅几十毫秒，对在线请求
+	// 几乎无感）；NONE 存量库无法增量回收，排队后台全量迁移压缩（复用既有
+	// 异步任务机制，请求不阻塞）。
+	mode, modeErr := autoVacuumMode(r.Context(), db)
+	if modeErr == nil && mode == 2 {
+		for rounds := 0; rounds < 64; rounds++ {
+			freePages, freeErr := freelistPageCount(r.Context(), db)
+			if freeErr != nil || freePages == 0 {
+				break
+			}
+			_, _ = db.ExecContext(r.Context(), `PRAGMA incremental_vacuum(4096)`)
+		}
+		_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
+	} else if modeErr == nil && mode == 0 {
+		_, _ = s.enqueueVacuumTask(r.Context())
 	}
-	_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
