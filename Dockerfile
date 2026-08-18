@@ -134,10 +134,18 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL maintainer="iwvw"
 
 # 安装运行时依赖
+# shell 任务常用工具：curl（HTTP 探测）、bind-tools（dig）、openssl、bash、jq、zip、openssh（ssh/scp）
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     tini \
+    curl \
+    bind-tools \
+    openssl \
+    bash \
+    jq \
+    zip \
+    openssh-client \
     && apk upgrade --no-cache \
     && addgroup -g 1001 appuser \
     && adduser -D -u 1001 -G appuser appuser
