@@ -23,6 +23,17 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// TestMain 固定候选选路为「第一个候选」：延迟加权选路基于 crypto/rand 随机
+// （无延迟记录时候选等权），而 failover/retry 测试都按「先创建的端点先被选中」
+// 构造场景，随机选路会让这批测试间歇性失败（B 被选中 → failover 断言落空）。
+// 需要验证真实加权行为的测试须显式覆盖/恢复该钩子。
+func TestMain(m *testing.M) {
+	endpointPickOverride = func([]Endpoint) int { return 0 }
+	code := m.Run()
+	endpointPickOverride = nil
+	os.Exit(code)
+}
+
 func TestOpenAINormalization(t *testing.T) {
 	s := New(config.Config{
 		DataDir: t.TempDir(),
@@ -2518,6 +2529,7 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 	db.Close()
 	service.invalidateRouteCache()
 
+	// 选路确定性由包级 TestMain 钩子保证（第一个候选 = 429 端点 A）。
 	// 流式请求：A(429, autoSwitch=false) → 应 failover 到 B 并成功返回 SSE。
 	wChat := httptest.NewRecorder()
 	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{

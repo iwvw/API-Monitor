@@ -1830,6 +1830,10 @@ var endpointRetryDelay = 500 * time.Millisecond
 // 用 var 而非 const 以便测试注入更小的值。
 var sessionProxyRequestLimit = 50
 
+// endpointPickOverride 是测试专用确定性选路钩子（生产恒为 nil）：
+// 覆盖延迟加权随机，供依赖「端点 A 先被选中」的 failover 测试消除 flake。
+var endpointPickOverride func(candidates []Endpoint) int
+
 // recordEndpointLatency 记录端点最近一次转发延迟（毫秒），供延迟加权分流使用。
 func (s *Service) recordEndpointLatency(endpointID string, latencyMs int64) {
 	if endpointID == "" || latencyMs <= 0 {
@@ -4867,6 +4871,13 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 		weights[i] = endpointWeight(ep)
 	}
 	chosenIndex = weightedEndpointPickWeighted(latencies, known, weights)
+	// 测试专用确定性选路钩子（生产恒为 nil）：覆盖延迟加权随机，
+	// 供依赖「端点 A 先被选中」的 failover 测试消除 flake。
+	if endpointPickOverride != nil {
+		if i := endpointPickOverride(candidates); i >= 0 && i < len(candidates) {
+			chosenIndex = i
+		}
+	}
 	chosen = candidates[chosenIndex]
 	if real, routable := s.resolveEndpointModel(chosen, model); routable {
 		selectedModel = real
