@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -805,6 +806,95 @@ func TestHealthCheckRejects200WithErrorBody(t *testing.T) {
 func mustDecode(t *testing.T, body string, v interface{}) {
 	if err := json.Unmarshal([]byte(body), v); err != nil {
 		t.Fatalf("json decode failed: %v body=%q", err, body)
+	}
+}
+
+func TestDeletedEndpointKeepsNameInAnalytics(t *testing.T) {
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, status, enabled)
+		VALUES ('ep-archived', '已删除站点A', 'https://example.com/v1', 'encrypted-placeholder', 'unknown', 1)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO openai_gateway_analytics (endpoint_id, model, status_code, latency_ms, total_tokens, timestamp)
+		VALUES
+			('ep-archived', 'model-a', 200, 10, 1000, datetime('now', '-1 day')),
+			('ep-archived', 'model-b', 200, 20, 2000, datetime('now', '-2 days'))
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	delRecorder := httptest.NewRecorder()
+	service.ServeHTTP(delRecorder, httptest.NewRequest(http.MethodDelete, "/api/openai/endpoints/ep-archived", nil))
+	if delRecorder.Code != http.StatusOK {
+		t.Fatalf("delete endpoint status = %d, body = %s", delRecorder.Code, delRecorder.Body.String())
+	}
+
+	chartsRecorder := httptest.NewRecorder()
+	service.ServeHTTP(chartsRecorder, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/charts?days=7&granularity=day", nil))
+	if chartsRecorder.Code != http.StatusOK {
+		t.Fatalf("charts status = %d, body = %s", chartsRecorder.Code, chartsRecorder.Body.String())
+	}
+	var charts struct {
+		Endpoints []struct {
+			Model  string `json:"model"`
+			Count  int    `json:"count"`
+			Tokens int    `json:"tokens"`
+		} `json:"endpoints"`
+	}
+	mustDecode(t, chartsRecorder.Body.String(), &charts)
+	if len(charts.Endpoints) != 1 || charts.Endpoints[0].Model != "已删除站点A" {
+		t.Fatalf("charts endpoints did not keep deleted name: %+v", charts.Endpoints)
+	}
+	if charts.Endpoints[0].Count != 2 || charts.Endpoints[0].Tokens != 3000 {
+		t.Fatalf("charts endpoints aggregates wrong: %+v", charts.Endpoints)
+	}
+
+	logsRecorder := httptest.NewRecorder()
+	service.ServeHTTP(logsRecorder, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil))
+	if logsRecorder.Code != http.StatusOK {
+		t.Fatalf("logs status = %d, body = %s", logsRecorder.Code, logsRecorder.Body.String())
+	}
+	var logs struct {
+		Total   int `json:"total"`
+		Records []struct {
+			EndpointName string `json:"endpointName"`
+		} `json:"records"`
+	}
+	mustDecode(t, logsRecorder.Body.String(), &logs)
+	if logs.Total != 2 || len(logs.Records) != 2 {
+		t.Fatalf("unexpected logs count: %+v", logs)
+	}
+	for _, rec := range logs.Records {
+		if rec.EndpointName != "已删除站点A" {
+			t.Fatalf("logs endpoint name not kept: %q", rec.EndpointName)
+		}
+	}
+
+	// 归档名称同样可用于日志按端点筛选（输入名称而非 ID）。
+	filterRecorder := httptest.NewRecorder()
+	service.ServeHTTP(filterRecorder, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20&endpoint="+url.QueryEscape("已删除站点A"), nil))
+	if filterRecorder.Code != http.StatusOK {
+		t.Fatalf("filtered logs status = %d, body = %s", filterRecorder.Code, filterRecorder.Body.String())
+	}
+	var filtered struct {
+		Total int `json:"total"`
+	}
+	mustDecode(t, filterRecorder.Body.String(), &filtered)
+	if filtered.Total != 2 {
+		t.Fatalf("filter by archived name failed: total = %d", filtered.Total)
 	}
 }
 

@@ -718,7 +718,13 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (endpoint_id) REFERENCES openai_endpoints(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS openai_endpoint_name_archive (
+			endpoint_id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_endpoints_status ON openai_endpoints(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_openai_archive_endpoint ON openai_endpoint_name_archive(endpoint_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_health_endpoint ON openai_health_history(endpoint_id, checked_at)`,
 		`CREATE TABLE IF NOT EXISTS openai_chat_personas (
 			id TEXT PRIMARY KEY,
@@ -2879,6 +2885,23 @@ func (s *Service) toggleEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "enabled": req.Enabled})
 }
 
+// archiveEndpointName 将端点名称写入历史归档表，删除后 analytics 等历史记录仍能展示原名称。
+// 幂等：同一 id 重复归档时更新为最近一次删除时的名称。exec 兼容 *sql.DB / *sql.Tx。
+func (s *Service) archiveEndpointName(ctx context.Context, exec sqlExec, id, name string) {
+	if id == "" || name == "" {
+		return
+	}
+	_, _ = exec.ExecContext(ctx, `
+		INSERT INTO openai_endpoint_name_archive (endpoint_id, name) VALUES (?, ?)
+		ON CONFLICT(endpoint_id) DO UPDATE SET name = excluded.name, deleted_at = CURRENT_TIMESTAMP
+	`, id, name)
+}
+
+// sqlExec 抽象 ExecContext，供事务与直连共用。
+type sqlExec interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
 func (s *Service) deleteEndpoint(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 	db, err := s.open(ctx)
@@ -2887,6 +2910,13 @@ func (s *Service) deleteEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	defer db.Close()
+
+	var name string
+	err = db.QueryRowContext(ctx, "SELECT name FROM openai_endpoints WHERE id = ?", id).Scan(&name)
+	if err != nil {
+		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
+		return
+	}
 
 	res, err := db.ExecContext(ctx, "DELETE FROM openai_endpoints WHERE id = ?", id)
 	if err != nil {
@@ -2899,6 +2929,7 @@ func (s *Service) deleteEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
+	s.archiveEndpointName(ctx, db, id, name)
 	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -4463,6 +4494,21 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	if req.Overwrite {
+		// 覆盖导入前先归档现有端点名称，保留被替换端点的历史名称展示。
+		if epRows, qErr := tx.QueryContext(ctx, "SELECT id, name FROM openai_endpoints"); qErr == nil {
+			type namedEndpoint struct{ id, name string }
+			all := []namedEndpoint{}
+			for epRows.Next() {
+				var ne namedEndpoint
+				if err := epRows.Scan(&ne.id, &ne.name); err == nil {
+					all = append(all, ne)
+				}
+			}
+			epRows.Close()
+			for _, ne := range all {
+				s.archiveEndpointName(ctx, tx, ne.id, ne.name)
+			}
+		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM openai_endpoints")
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

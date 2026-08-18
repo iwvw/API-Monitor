@@ -5307,14 +5307,15 @@ if (!response.ok) {
                     <SkeletonLine className="w-full h-4" />
                     <SkeletonLine className="w-full h-4" />
                   </div>
-                ) : !analyticsCharts.models || analyticsCharts.models.length === 0 ? (
-                  <div className="py-16 text-center text-sm text-kumo-subtle">暂无数据</div>
                 ) : (
                   (() => {
                     const shareData =
                       tokenShareMode === 'endpoint'
                         ? analyticsCharts.endpoints || []
-                        : analyticsCharts.models;
+                        : analyticsCharts.models || [];
+                    if (shareData.length === 0) {
+                      return <div className="py-16 text-center text-sm text-kumo-subtle">暂无数据</div>;
+                    }
                     const totalTokens =
                       shareData.reduce(
                         (sum, model) => sum + (Number(model.tokens) || 0),
@@ -5330,7 +5331,7 @@ if (!response.ok) {
                           const percent = (tokens / totalTokens) * 100;
                           return (
                             <div
-                              key={model.model}
+                              key={`${model.model}:${index}`}
                               className="flex items-center gap-2 text-xs"
                             >
                               <span
@@ -5388,14 +5389,15 @@ if (!response.ok) {
                     <SkeletonLine className="h-4 w-full" />
                     <SkeletonLine className="h-4 w-full" />
                   </div>
-                ) : !analyticsCharts.models || analyticsCharts.models.length === 0 ? (
-                  <div className="py-16 text-center text-sm text-kumo-subtle">暂无数据</div>
                 ) : (
                   (() => {
                     const shareData =
                       countShareMode === 'endpoint'
                         ? analyticsCharts.endpoints || []
-                        : analyticsCharts.models;
+                        : analyticsCharts.models || [];
+                    if (shareData.length === 0) {
+                      return <div className="py-16 text-center text-sm text-kumo-subtle">暂无数据</div>;
+                    }
                     const totalCount =
                       shareData.reduce(
                         (sum, model) => sum + (Number(model.count) || 0),
@@ -5411,7 +5413,7 @@ if (!response.ok) {
                           const percent = (count / totalCount) * 100;
                           return (
                             <div
-                              key={model.model}
+                              key={`${model.model}:${index}`}
                               className="flex items-center gap-2 text-xs"
                             >
                               <span
