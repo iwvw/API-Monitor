@@ -43,7 +43,10 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	policy := strings.ToLower(strings.TrimSpace(req.Policy))
-	if policy == "" {
+	if policy == "" || policy == "standard" {
+		// 空 = 默认 allow；"standard" 是早期版本/模型写入的历史非法值，
+		// 语义等同默认（cron 无头执行下唯一可写策略），归一化后不再拒绝
+		// 存量任务（调度器保存侧已做归一化，此处兜底存量运行数据）。
 		policy = "allow"
 	}
 	if policy != "allow" && policy != "readonly" {

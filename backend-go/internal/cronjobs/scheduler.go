@@ -914,6 +914,16 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 	if task.Config != "" && !json.Valid([]byte(task.Config)) {
 		return SchedulerTask{}, fmt.Errorf("config 必须是合法 JSON 字符串")
 	}
+	// AI 任务策略归一化：task-run 只接受 allow/readonly，但历史数据/模型
+	// 可能写入 illegal 值（如 "standard"）导致运行必失败。
+	// 本处把 AI 任务的 policy 收敛为合法集合：空与 unknown 均归为 allow
+	// （cron 无头执行下唯一可写的策略，与 /api/admin-ai/cron/task-run 的
+	// 默认语义一致），readonly 保持。
+	if task.Type == "ai" {
+		if normalized, ok := normalizeAIPolicyConfig(task.Config); ok {
+			task.Config = normalized
+		}
+	}
 	if task.Name == "" {
 		return SchedulerTask{}, fmt.Errorf("任务名称不能为空")
 	}
@@ -946,6 +956,36 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 		task.NodeID = "local"
 	}
 	return task, nil
+}
+
+// normalizeAIPolicyConfig 归一化 AI 任务的 config JSON：把 policy 字段收敛为
+// task-run 可接受的集合（"": 空、缺失、未知/历史非法值如 "standard" → "allow"；
+// "readonly" 保留）。返回（新 config, 是否变化）。
+func normalizeAIPolicyConfig(config string) (string, bool) {
+	trimmed := strings.TrimSpace(config)
+	if trimmed == "" {
+		return config, false
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+		return config, false
+	}
+	policy, _ := raw["policy"].(string)
+	policy = strings.ToLower(strings.TrimSpace(policy))
+	if policy == "readonly" {
+		return config, false
+	}
+	if policy == "allow" {
+		return config, false
+	}
+	// 其余（空/缺失/standard 等历史值）归一化：JSON 序列化顺序可能变化，
+	// 仅当确实需要改写时才重序列化（保持原始格式不必要）
+	raw["policy"] = "allow"
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return config, false
+	}
+	return string(out), true
 }
 
 func validateTaskType(taskType, command string) error {

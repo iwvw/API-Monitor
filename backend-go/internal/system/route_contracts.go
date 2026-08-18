@@ -263,7 +263,7 @@ func init() {
 		"max_concurrency":      {t: "integer"},
 		"node_id":              {t: "string"},
 		"node_selector":        {t: "string"},
-		"config":               {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}）"},
+		"config":               {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}，policy 仅支持 allow/readonly，默认 allow）"},
 	})
 	routeRequestContracts["/api/scheduler/tasks/{id}"] = routeRequestContracts["/api/scheduler/tasks"]
 	routeRequestContracts["/api/cron/tasks"] = routeRequestContracts["/api/scheduler/tasks"]
@@ -1122,7 +1122,7 @@ func init() {
 	routeRequestContracts["/api/admin-ai/cron/task-run"] = obj([]string{"prompt"}, map[string]prop{
 		"prompt":    {t: "string", req: true, d: "AI 提示词"},
 		"model":     {t: "string", d: "指定模型，留空回退默认模型"},
-		"policy":    {t: "string", d: "allow（默认，写操作免审批）| readonly"},
+		"policy":    {t: "string", e: []string{"allow", "readonly"}, d: "allow（默认，写操作免审批）| readonly"},
 		"channelId": {t: "string", d: "可选：完成后推送到绑定频道的接收者"},
 		"title":     {t: "string", d: "会话标题，留空取 prompt 摘要"},
 	})
