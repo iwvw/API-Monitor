@@ -790,6 +790,8 @@ func providerCodeInIntent(intent string) (string, bool) {
 }
 
 // getRouteContract 返回单个接口的完整契约；入参 path 可以是具体路径（会匹配到模式路由）。
+// 与 admin-ai 侧 get_route 对齐：匹配前剥离 query；命中聚合前缀（模块总入口）直接
+// 拒绝并给子路由提示，绝不返回「GET 可用」的假契约（实测 GET 聚合根 404）。
 func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, error) {
 	path, _ := args["path"].(string)
 	path = strings.TrimSpace(path)
@@ -799,16 +801,52 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
+	matchPath := path
+	if i := strings.IndexByte(matchPath, '?'); i >= 0 {
+		matchPath = matchPath[:i]
+	}
+	if len(matchPath) > 1 {
+		matchPath = strings.TrimRight(matchPath, "/")
+	}
 
 	items := s.apiDocs()["routes"].([]apiDocRoute)
 	best := (*apiDocRoute)(nil)
+	var prefixHit *apiDocRoute // 命中的聚合前缀（MatchPrefix）
 	for i := range items {
 		item := &items[i]
-		if routePrefixMatches(item.Prefix, item.MatchMode, path) {
+		if item.MatchMode == manifest.MatchPrefix && (item.Prefix == matchPath || strings.HasPrefix(matchPath, item.Prefix+"/")) {
+			if prefixHit == nil || len(item.Prefix) > len(prefixHit.Prefix) {
+				prefixHit = item
+			}
+			continue
+		}
+		if routePrefixMatches(item.Prefix, item.MatchMode, matchPath) {
 			if best == nil || len(item.Prefix) > len(best.Prefix) {
 				best = item
 			}
 		}
+	}
+	if best != nil {
+		// 具体路由胜出（pattern/exact 最长前缀）；即使父前缀存在也优先具体路由
+		_ = prefixHit
+	} else if prefixHit != nil {
+		children := make([]string, 0, 5)
+		for i := range items {
+			p := items[i].Prefix
+			if strings.HasPrefix(p, prefixHit.Prefix+"/") && items[i].MatchMode != manifest.MatchPrefix {
+				children = append(children, p)
+				if len(children) >= 5 {
+					break
+				}
+			}
+		}
+		hint := fmt.Sprintf("路径 %s 是聚合前缀（模块总入口%s），不可直接调用；请改用其具体子路由", matchPath, explainPrefixDesc(prefixHit.Detail, prefixHit.Description))
+		if len(children) > 0 {
+			hint += "，例如：" + strings.Join(children, "、")
+		} else {
+			hint += "（可用 list_apis 按 group/module 浏览具体接口）"
+		}
+		return nil, fmt.Errorf("%s", hint)
 	}
 	if best == nil {
 		return nil, fmt.Errorf("API 路由不存在: %s", path)
@@ -819,7 +857,7 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 	}
 	return map[string]interface{}{
 		"path":               best.Prefix,
-		"matchedPath":        path,
+		"matchedPath":        matchPath,
 		"methods":            best.Methods,
 		"group":              best.Group,
 		"module":             best.Module,
@@ -837,6 +875,20 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 		"responseExample":    best.ResponseBody,
 		"notes":              best.Notes,
 	}, nil
+}
+
+func explainPrefixDesc(detail, description string) string {
+	text := detail
+	if text == "" {
+		text = description
+	}
+	if text == "" {
+		return ""
+	}
+	if len([]rune(text)) > 40 {
+		text = string([]rune(text)[:40]) + "…"
+	}
+	return "：" + text
 }
 
 func routePrefixMatches(prefix string, mode manifest.MatchMode, path string) bool {

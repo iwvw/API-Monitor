@@ -1529,11 +1529,18 @@ func (s *Service) buildCatalogText(ctx context.Context) (string, error) {
 }
 
 // isCatalogMetaEndpoint 判断是否为文档类元接口：清单已完整覆盖接口，禁入清单，
-// 避免模型为省事拉全量 api-docs/openapi 造成信息重复与词元浪费。
+// 避免模型为省事拉全量 api-docs/openapi 造成信息重复与词元浪费；
+// ai-access 家族整体排除：其 overview 返回明文 Agent Key（密钥只应在
+// 「AI 接入」设置页对人工展示），进入模型上下文即构成凭据泄露面。
 func isCatalogMetaEndpoint(prefix string) bool {
 	switch prefix {
 	case "/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json":
 		return true
+	}
+	for _, family := range []string{"/api/system/ai-access", "/api/ai-access", "/api/ai/"} {
+		if prefix == family || strings.HasPrefix(prefix, family+"/") {
+			return true
+		}
 	}
 	return false
 }
@@ -2200,10 +2207,15 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 		// 避免返回「假契约」诱导模型据此发起调用（审计实证：GET /api/scheduler 404）。
 		// 与 validateCallAPIPath 保持一致：匹配前先剥离 query string，
 		// 避免模型按 call_api 习惯带 ?page=1 时误报「路径不存在」。
-		matchPath := path
-		if i := strings.IndexByte(matchPath, '?'); i >= 0 {
-			matchPath = matchPath[:i]
-		}
+matchPath := path
+	if i := strings.IndexByte(matchPath, '?'); i >= 0 {
+		matchPath = matchPath[:i]
+	}
+	// 尾斜杠归一化（保留根路径 "/"）：与 call_api 预检一致，
+	// 避免同一路径在 get_route 判「不存在」而 call_api 放行的矛盾。
+	if len(matchPath) > 1 {
+		matchPath = strings.TrimRight(matchPath, "/")
+	}
 		if desc, ok := prefixes[matchPath]; ok {
 			children := s.catalogChildrenOf(matchPath)
 			hint := "该路径是聚合前缀（模块总入口"
@@ -2284,6 +2296,10 @@ func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 	p := path
 	if i := strings.IndexByte(p, '?'); i >= 0 {
 		p = p[:i]
+	}
+	// 尾斜杠归一化（保留根路径 "/"）：与 get_route 一致
+	if len(p) > 1 {
+		p = strings.TrimRight(p, "/")
 	}
 	if desc, ok := prefixes[p]; ok {
 		children := s.catalogChildrenOf(p)

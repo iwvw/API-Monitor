@@ -733,9 +733,15 @@ func (s *Service) openapiCompactDocument(r *http.Request) map[string]interface{}
 			methods = []string{"GET"}
 		}
 		operations := map[string]interface{}{}
+		// summary 用分组名而非完整描述：路由补齐后描述文本会让 compact 文档
+		// 超 64KB 预算（撑爆 AI 上下文）。分组名保留「所属模块」语义且极短。
+		group := route.Group
+		if len([]rune(group)) > 24 {
+			group = string([]rune(group)[:24]) + "…"
+		}
 		for _, method := range methods {
 			operations[strings.ToLower(method)] = map[string]interface{}{
-				"summary": route.Description,
+				"summary": group,
 			}
 		}
 		paths[route.Prefix] = operations

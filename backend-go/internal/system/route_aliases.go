@@ -101,11 +101,11 @@ var routeAliases = map[string][]string{
 	"/api/openai/keys":                        {"网关 api key", "openai key"},
 
 	"/api/subscription":        {"订阅分发", "订阅管理"},
-	"/api/sub/{token}":         {"clash 订阅", "v2ray 订阅", "订阅链接"},
+	"/sub/{token}":             {"clash 订阅", "v2ray 订阅", "订阅链接"},
 	"/api/m365":                {"microsoft 365", "m365", "office 365", "outlook"},
 	"/api/m365/registrations": {"注册记录", "m365 注册记录", "注册列表", "m365 注册"},
 	"/api/oracle":              {"oracle", "甲骨文", "oci", "oracle 云"},
-	"/api/uptime/status-pages": {"状态页", "公开展示页"},
+	"/api/server/status-pages": {"状态页", "公开展示页"},
 
 	"/api/server/info":            {"主机信息", "服务器信息"},
 	"/api/server/action":          {"重启主机", "关机主机", "开机", "重启", "重启服务器", "关机", "reboot", "shutdown", "重启机器"},
