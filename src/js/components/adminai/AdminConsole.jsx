@@ -23,7 +23,6 @@ function MultiModelSelect({ options, value, onChange }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const boxRef = useRef(null);
-  const btnRef = useRef(null);
   const selected = new Set((value || '').split(',').map((s) => s.trim()).filter(Boolean));
   const close = () => setOpen(false);
   useEffect(() => {
@@ -45,7 +44,7 @@ function MultiModelSelect({ options, value, onChange }) {
       close();
       return;
     }
-    const r = btnRef.current?.getBoundingClientRect();
+    const r = boxRef.current?.getBoundingClientRect();
     if (r) {
       const w = 340;
       setPos({
@@ -64,7 +63,6 @@ function MultiModelSelect({ options, value, onChange }) {
   return (
     <div ref={boxRef} className="relative w-full">
       <Button
-        ref={btnRef}
         type="button"
         size="sm"
         variant="secondary"
