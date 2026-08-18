@@ -1237,7 +1237,7 @@ async fn run_client(
     });
 
     // Run both tasks concurrently until connection breaks
-    tokio::select! {
+    let conn_err = tokio::select! {
         result = &mut write_task => {
             read_task.abort();
             match result {
@@ -1254,7 +1254,20 @@ async fn run_client(
                 Err(err) => Err(format!("读取任务异常退出: {}", err)),
             }
         }
+    };
+
+    // 主连接断开：残留的 PTY shell 已无任何管理方（浏览器通道随连接失效），
+    // 全部终止，防止孤儿进程与泄漏（Drop 会 kill 子进程）。
+    let stale: Vec<String> = pty_sessions
+        .lock()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    for key in stale {
+        pty_sessions.lock().unwrap().remove(&key);
     }
+    conn_err
 }
 
 // Helpers
