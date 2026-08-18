@@ -276,27 +276,18 @@ function RenderLines({ text }) {
   return <div className="space-y-1">{elements}</div>;
 }
 
-/* ---------- 思维链显示（reasoning，CF 风格胶囊 + 单行滚动追尾） ----------
- * 展开时推理以单行滚动条形式呈现（streaming 期间自动展开并持续追尾最新文本，
- * 不打断阅读；不流式时点击胶囊展开/收起）。收起状态显示 AI 生成的标题摘要。 */
+/* ---------- 思维链显示（reasoning） ----------
+ * 推理过程中：胶囊 + 一行淡色滚动小字（追尾最新，仅证明「推理进行中」，不抢版面）；
+ * 推理结束：默认折叠，胶囊点击展开查看全部推理内容；收起态显示中文标题摘要。 */
 function ReasoningBlock({ text, summary, streaming }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false); // 结束后展开全文
+  const [tickerOn, setTickerOn] = useState(true); // 流式单行滚动开关
   const scrollRef = useRef(null);
-  const settledRef = useRef(false);
   useEffect(() => {
-    if (streaming) {
-      settledRef.current = false;
-    } else if (!settledRef.current) {
-      settledRef.current = true;
-    }
-    if (open && scrollRef.current) {
+    if (tickerOn && scrollRef.current) {
       scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
     }
-  }, [text, streaming, open]);
-  // 流式期间推理正文出现即自动展开单行滚动区，让用户实时看到思考
-  useEffect(() => {
-    if (streaming && text) setOpen(true);
-  }, [streaming, text]);
+  }, [text, tickerOn]);
   if (!text && !streaming) return null;
   // 收起状态只显示 AI 生成的中文标题摘要；无摘要/非中文时不显示摘要文本
   const isCN = (s) => /[\u4e00-\u9fa5]/.test(s || '');
@@ -307,7 +298,7 @@ function ReasoningBlock({ text, summary, streaming }) {
         type="button"
         size="sm"
         variant="ghost"
-        onClick={() => setOpen(!open)}
+        onClick={() => (streaming ? setTickerOn(!tickerOn) : setOpen(!open))}
         className="group flex w-max items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
       >
         <Sparkle className="h-3 w-3 text-kumo-brand" />
@@ -320,20 +311,27 @@ function ReasoningBlock({ text, summary, streaming }) {
           </span>
         ) : (
           <span className="text-[10px] transition-colors group-hover:text-kumo-default">
-            {open ? '隐藏' : '摘要'}
+            {open ? '收起' : '详情'}
           </span>
         )}
       </Button>
-      <div className="askai-collapse" data-open={open}>
+      {streaming && tickerOn && (
         <div
           ref={scrollRef}
-          className="askai-reason-ticker max-h-[1.6rem] overflow-x-auto overscroll-x-contain whitespace-nowrap border-l-2 border-kumo-line pl-3 pr-1 text-xs leading-[1.6rem] text-kumo-subtle/90"
-          title="推理（单行滚动，可横向拖动查看历史）"
+          className="max-w-full overflow-x-auto whitespace-nowrap text-xs leading-5 text-kumo-subtle/70"
+          title="推理进行中（可横向拖动查看）"
         >
           {text}
         </div>
-      </div>
-      {!open && displaySummary && (
+      )}
+      {!streaming && open && (
+        <div className="askai-collapse" data-open={open}>
+          <div className="askai-reason-fade max-h-[220px] overflow-y-auto overscroll-contain border-l-2 border-kumo-line pl-3 pr-1">
+            <p className="whitespace-pre-wrap break-words text-xs !leading-relaxed text-kumo-subtle/90">{text}</p>
+          </div>
+        </div>
+      )}
+      {!streaming && !open && displaySummary && (
         <Button
           type="button"
           size="sm"
