@@ -15,7 +15,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers';
 import { createSiteFontEcharts } from '../chartFont.js';
 import useStore from '../store.js';
-import { AppCard, PageStack, SectionCard } from '../components/ui/AppPrimitives.jsx';
+import { AppCard, ChartWarmupSkeleton, PageStack, SectionCard } from '../components/ui/AppPrimitives.jsx';
 import { DASHBOARD_INVALIDATION_EVENT, readDashboardStatsInvalidatedAt } from '../modules/dashboardInvalidation.js';
 import { parseDashboardTrendTimestamp } from '../modules/dashboardMetrics.js';
 import { formatFileSize, formatTokens } from '../modules/utils.js';
@@ -1127,6 +1127,7 @@ function DashboardPage({ onNavigate } = {}) {
                 unit={series.unit}
                 inactive={apiIsolatedSeries !== null && apiIsolatedSeries !== series.key}
                 onClick={() => handleApiLegendClick(series.key)}
+                loading={loading}
               />
             ))}
           </div>
@@ -1140,7 +1141,7 @@ function DashboardPage({ onNavigate } = {}) {
                 optionUpdateBehavior={{ notMerge: true }}
               />
             ) : loading ? (
-              <div className="flex h-full items-center justify-center text-xs text-kumo-subtle">加载中...</div>
+              <ChartWarmupSkeleton height={apiChartHeight} bars={8} />
             ) : (
               <div className="flex h-full items-center justify-center text-center text-xs text-kumo-subtle">
                 {apiTrendStatusText}

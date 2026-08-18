@@ -32,7 +32,7 @@ import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import useStore from '../store.js';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
-import { AppTable, ChartBoundaryBox, DataTableFrame, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { AppTable, ChartBoundaryBox, ChartWarmupSkeleton, DataTableFrame, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import GitHubPublicPagesPanel from '../components/github/GitHubPublicPagesPanel.jsx';
 import {
   Activity,
@@ -1715,6 +1715,7 @@ function GitHubPage() {
   const [collector, setCollector] = useState(null);
   const [selectedRepoId, setSelectedRepoId] = useState(null);
   const [trends, setTrends] = useState([]);
+  const [trendsLoading, setTrendsLoading] = useState(false);
   const [actions, setActions] = useState([]);
   const [selectedActionRunId, setSelectedActionRunId] = useState(null);
   const [collapsingActionRunId, setCollapsingActionRunId] = useState(null);
@@ -1877,6 +1878,7 @@ function GitHubPage() {
 
   const loadRepoDetails = useCallback(async (repoId = selectedRepo?.id) => {
     if (!repoId) return;
+    setTrendsLoading(true);
     try {
       const [trendData, actionData, eventData, trafficData, contributorData, workflowData, branchData] = await Promise.all([
         api(`/api/github/repositories/${repoId}/trends?days=${rangeDays}`),
@@ -1897,6 +1899,8 @@ function GitHubPage() {
       setDetailsRepoId(String(repoId));
     } catch (error) {
       toast.error(error.message || '加载仓库详情失败');
+    } finally {
+      setTrendsLoading(false);
     }
   }, [api, rangeDays, selectedRepo?.id]);
 
@@ -2664,7 +2668,9 @@ function GitHubPage() {
                   <Select size="sm" aria-label="趋势时间范围" value={rangeDays} onValueChange={setRangeDays} items={rangeOptions} />
                 </LayerCard.Secondary>
                 <LayerCard.Primary className="p-4">
-                {trends.length >= 2 ? (
+                {trendsLoading && trends.length < 2 ? (
+                  <ChartWarmupSkeleton height={320} bars={10} />
+                ) : trends.length >= 2 ? (
                   <ChartBoundaryBox>
                     {(tooltipBoundary) => (
                       <SiteFontTimeseriesChart
@@ -2673,6 +2679,7 @@ function GitHubPage() {
                         type="line"
                         data={chartData}
                         height={320}
+                        loading={trendsLoading}
                         xAxisName="时间"
                         yAxisName="指标"
                         xAxisTickCount={4}

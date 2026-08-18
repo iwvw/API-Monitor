@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import io from 'socket.io-client';
 import { Meter, Tabs } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { AlertTriangle, Globe, Home, LogIn, RefreshCw, Shield } from '../components/Icons.jsx';
 import PublicPageIconPicker from '../components/public/PublicPageIconPicker.jsx';
 import useStore from '../store.js';
@@ -734,14 +735,20 @@ function PublicServerStatusPage({ domainOnly = false, onDomainNotFound }) {
           <div className="flex flex-col gap-4">
             {mapOpen ? (
               <div className="w-full overflow-hidden rounded-lg border border-kumo-line bg-kumo-base max-h-[calc(100vh-140px)] flex items-center justify-center">
-                <div className="w-full max-h-[calc(100vh-140px)]">
-                  <ServerLocationMap
-                    echarts={echarts}
-                    servers={visibleServers}
-                    resolveStatus={(server) => (server?.online ? 'online' : 'offline')}
-                    aspectRatio={wideColumns === 4 ? '2.3 / 1' : '16 / 9'}
-                  />
-                </div>
+                {visibleServers.length === 0 ? (
+                  <div className="w-full" style={{ aspectRatio: wideColumns === 4 ? '2.3 / 1' : '16 / 9' }}>
+                    <SkeletonLine className="h-full w-full rounded-none" />
+                  </div>
+                ) : (
+                  <div className="w-full max-h-[calc(100vh-140px)]">
+                    <ServerLocationMap
+                      echarts={echarts}
+                      servers={visibleServers}
+                      resolveStatus={(server) => (server?.online ? 'online' : 'offline')}
+                      aspectRatio={wideColumns === 4 ? '2.3 / 1' : '16 / 9'}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <section>

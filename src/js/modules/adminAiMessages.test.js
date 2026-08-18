@@ -30,10 +30,10 @@ describe('normalizeAiEvent', () => {
 
   it('tool_result 状态归一为 success/failed', () => {
     expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', status: 'success' })).toEqual({
-      type: 'tool_result', toolName: 'get_x', status: STEP.SUCCESS, error: '',
+      type: 'tool_result', toolName: 'get_x', toolCallId: '', status: STEP.SUCCESS, error: '',
     });
-    expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', status: 'error', error: 'boom' })).toEqual({
-      type: 'tool_result', toolName: 'get_x', status: STEP.FAILED, error: 'boom',
+    expect(normalizeAiEvent({ type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: 'error', error: 'boom' })).toEqual({
+      type: 'tool_result', toolName: 'get_x', toolCallId: 'aatc_1', status: STEP.FAILED, error: 'boom',
     });
   });
 
@@ -208,5 +208,31 @@ describe('session_title 事件', () => {
 
   it('STREAM_EVENTS 包含 session_title', () => {
     expect(STREAM_EVENTS).toContain('session_title');
+  });
+});
+
+describe('并行同名工具调用', () => {
+  function msgWithTwoCalls() {
+    return { id: 'm1', role: 'assistant', active: true, status: 'streaming', blocks: [{ type: 'text', text: '' }], thinking: [
+      { type: 'tool_call', toolName: 'call_api', toolCallId: 'c1', status: STEP.RUNNING },
+      { type: 'tool_call', toolName: 'call_api', toolCallId: 'c2', status: STEP.RUNNING },
+    ] };
+  }
+
+  it('按 toolCallId 精确匹配结果，互不串扰', () => {
+    let list = applyAiEvent([msgWithTwoCalls()], normalizeAiEvent({ type: 'tool_result', toolName: 'call_api', toolCallId: 'c2', status: 'success' }), 'm1');
+    let m = list[0];
+    expect(m.thinking[0].status).toBe(STEP.RUNNING);
+    expect(m.thinking[1].status).toBe(STEP.SUCCESS);
+    list = applyAiEvent(list, normalizeAiEvent({ type: 'tool_result', toolName: 'call_api', toolCallId: 'c1', status: 'error', error: 'boom' }), 'm1');
+    m = list[0];
+    expect(m.thinking[0].status).toBe(STEP.FAILED);
+    expect(m.thinking[1].status).toBe(STEP.SUCCESS);
+  });
+
+  it('无 toolCallId 时回退同名 RUNNING 匹配（兼容旧事件）', () => {
+    const msg = applyAiEvent([msgWithTwoCalls()], { type: 'tool_result', toolName: 'call_api', status: 'success' }, 'm1');
+    expect(msg[0].thinking[0].status).toBe(STEP.SUCCESS);
+    expect(msg[0].thinking[1].status).toBe(STEP.RUNNING);
   });
 });

@@ -18,6 +18,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { ChartPalette, ClipboardText, Loader, Tabs, Toolbar } from '@cloudflare/kumo';
@@ -584,9 +585,13 @@ function UptimePage() {
       ]);
       const d1 = await res1.json();
       const d30 = await res30.json();
+      // 后端错误响应（无 uptime 字段）时显示 —，绝不退化为 100.000
       setUptimeRateCache(prev => ({
         ...prev,
-        [monitorId]: { 1: d1.uptime || '100.000', 30: d30.uptime || '100.000' }
+        [monitorId]: {
+          1: d1.error || d1.success === false ? '—' : (d1.uptime ?? '0.000'),
+          30: d30.error || d30.success === false ? '—' : (d30.uptime ?? '0.000'),
+        }
       }));
     } catch (e) {
       // 静默失败
@@ -1946,7 +1951,7 @@ function UptimePage() {
                   { value: 'keyword', label: '网页关键词' },
                   { value: 'json', label: 'JSON 查询' },
                   { value: 'tcp', label: 'TCP 端口' },
-                  { value: 'ping', label: 'ICMP Ping' },
+                  { value: 'ping', label: 'Ping（TCP 80/443/53）' },
                   { value: 'dns', label: 'DNS 解析' },
                   { value: 'push', label: 'Push' },
                 ]}
@@ -1988,7 +1993,7 @@ function UptimePage() {
               </div>
             ) : (
               <>
-                <div className={uptimeForm.type === 'tcp' ? 'cq-md:col-span-6' : 'cq-md:col-span-8'}>
+                <div className={['tcp', 'dns'].includes(uptimeForm.type) ? 'cq-md:col-span-6' : 'cq-md:col-span-8'}>
                   <Input
                     label="主机名 / IP *"
                     type="text" size="sm"
@@ -2009,6 +2014,37 @@ function UptimePage() {
                       className="w-full font-mono"
                     />
                   </div>
+                )}
+                {uptimeForm.type === 'dns' && (
+                  <>
+                    <div className="cq-md:col-span-2">
+                      <Select
+                        size="sm"
+                        label="解析类型"
+                        value={uptimeForm.dns_resolve_type}
+                        onValueChange={(value) => setUptimeForm(prev => ({ ...prev, dns_resolve_type: String(value) }))}
+                        items={[
+                          { value: 'A', label: 'A（IPv4）' },
+                          { value: 'AAAA', label: 'AAAA（IPv6）' },
+                          { value: 'MX', label: 'MX（邮件）' },
+                          { value: 'TXT', label: 'TXT' },
+                          { value: 'NS', label: 'NS（名称服务器）' },
+                          { value: 'CNAME', label: 'CNAME（别名）' },
+                        ]}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="cq-md:col-span-4">
+                      <Input
+                        label="DNS 服务器（可选）"
+                        type="text" size="sm"
+                        placeholder="如：8.8.8.8 或 127.0.0.1:5353"
+                        value={uptimeForm.dns_resolve_server}
+                        onChange={(e) => setUptimeForm(prev => ({ ...prev, dns_resolve_server: e.target.value }))}
+                        className="w-full font-mono"
+                      />
+                    </div>
+                  </>
                 )}
               </>
             )}
@@ -2075,6 +2111,19 @@ function UptimePage() {
                   label="关键字匹配 *"
                   type="text" size="sm"
                   placeholder="如：success 或 正常"
+                  value={uptimeForm.keyword}
+                  onChange={(e) => setUptimeForm(prev => ({ ...prev, keyword: e.target.value }))}
+                  className="w-full"
+                />
+              </div>
+            )}
+
+            {uptimeForm.type === 'dns' && (
+              <div className="cq-md:col-span-6">
+                <Input
+                  label="期望值（可选）"
+                  type="text" size="sm"
+                  placeholder="如：93.184.216 或 google.com. 10（MX）"
                   value={uptimeForm.keyword}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, keyword: e.target.value }))}
                   className="w-full"

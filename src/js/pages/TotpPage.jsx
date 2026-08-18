@@ -383,7 +383,13 @@ function TotpPage() {
   }, [totpFilterGroup, totpGroups]);
 
   useEffect(() => {
+    // 用真实流逝时间扣减剩余秒数：后台标签被浏览器节流时 tick 间隔
+    // 可能远超 1s，按 tick 数-1 会让倒计时慢于真实时间（漂移）。
+    let lastTickAt = Date.now();
     const timer = setInterval(() => {
+      const now = Date.now();
+      const elapsed = Math.max(1, Math.floor((now - lastTickAt) / 1000));
+      lastTickAt = now;
       setTotpCodes(prevCodes => {
         const updated = {};
         let needRefresh = false;
@@ -391,7 +397,7 @@ function TotpPage() {
         for (const id in prevCodes) {
           const item = prevCodes[id];
           if (item.remaining !== undefined && item.remaining > 0) {
-            const nextRemaining = item.remaining - 1;
+            const nextRemaining = Math.max(0, item.remaining - elapsed);
             updated[id] = { ...item, remaining: nextRemaining };
             changed = true;
             if (nextRemaining <= 0) {
@@ -692,7 +698,7 @@ function TotpPage() {
             name: accountForm.issuer || accountForm.account || '品牌',
           })
         );
-        toast.info(data.data?.message || '未检测到远程图标，已提供系统图标样式');
+        toast.info(data.data?.message || '未检测到远程图标，已提供系统图标样式', { isManual: true });
         return;
       }
       const baseOptions = buildBrandStyleOptions({
@@ -808,7 +814,7 @@ function TotpPage() {
 
   const handlePasteBrandIconFromClipboard = useCallback(async () => {
     if (!navigator.clipboard?.read) {
-      toast.info('当前环境不支持直接读取剪贴板，请在下方区域按 Ctrl+V 粘贴');
+      toast.info('当前环境不支持直接读取剪贴板，请在下方区域按 Ctrl+V 粘贴', { isManual: true });
       return;
     }
     setCustomBrandIconUploading(true);

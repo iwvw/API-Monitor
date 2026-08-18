@@ -3,6 +3,15 @@ import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { collapseNotificationHistory, parseLifecycleHistoryMeta } from '../modules/notificationHistory.js';
+
+// SQLite CURRENT_TIMESTAMP 是空格格式（'YYYY-MM-DD HH:mm:ss'），Safari 的
+// Date 无法直接解析；统一归一化为 ISO 后再格式化，解析失败返回原串。
+const formatHistoryDate = (raw) => {
+  if (!raw) return '';
+  const iso = String(raw).includes(' ') ? String(raw).replace(' ', 'T') : String(raw);
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? String(raw) : date.toLocaleString();
+};
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
@@ -493,7 +502,7 @@ function NotificationPage() {
   };
 
   const handleTestChannel = async (id) => {
-    toast.info('正在发送测试通知...');
+    toast.info('正在发送测试通知...', { isManual: true });
     try {
       const res = await fetch(`/api/notification/channels/${id}/test`, {
         method: 'POST',
@@ -1383,12 +1392,12 @@ function NotificationPage() {
                       {/* 4. 时间记录 */}
                       <div className="font-mono text-[11px] text-kumo-subtle select-none pt-0.5 flex items-center gap-1">
                         <span className="opacity-60">🕒</span>
-                        {new Date(log.created_at).toLocaleString()}
+                        {formatHistoryDate(log.created_at)}
                       </div>
                       {log.lifecycle_update_count > 1 && log.lifecycle_first_created_at && log.lifecycle_first_created_at !== log.created_at && (
                         <div className="font-mono text-[11px] text-kumo-subtle/80 select-none flex items-center gap-1">
                           <span className="opacity-50">↺</span>
-                          首次告警 {new Date(log.lifecycle_first_created_at).toLocaleString()}
+                          首次告警 {formatHistoryDate(log.lifecycle_first_created_at)}
                         </div>
                       )}
                     </div>

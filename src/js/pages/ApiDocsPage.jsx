@@ -1301,6 +1301,12 @@ function SnippetBox({ label, value, onCopy }) {
   );
 }
 
+const POLICY_CARDS = [
+  { value: 'minimal', title: '只读', Icon: Eye },
+  { value: 'standard', title: '标准', Icon: Shield },
+  { value: 'full', title: '全部权限', Icon: Key },
+];
+
 function AIAccessConsole({
   aiAccess,
   loading,
@@ -1310,6 +1316,7 @@ function AIAccessConsole({
   onRefresh,
   onRotateKey,
   onToggleWrite,
+  onSetPolicy,
   onCopy,
 }) {
   if (loading) {
@@ -1411,8 +1418,28 @@ function AIAccessConsole({
                 aria-label="允许 AI Agent 写入操作"
               />
             </div>
-            <div className="rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2 leading-relaxed">
-              {policy.auth || 'Agent Key 调用会写入审计记录。'}
+            <div className="grid gap-2 cq-md:grid-cols-3">
+              {POLICY_CARDS.map(({ value, title, Icon }) => {
+                const active = (policy.accessPolicy || 'standard') === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onSetPolicy(value)}
+                    aria-pressed={active}
+                    aria-label={`切换到 ${title} 权限模式`}
+className={cx(
+                      'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 transition-colors',
+                      active
+                        ? 'border-(--text-color-kumo-brand) bg-kumo-tint text-kumo-brand'
+                        : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'
+                    )}
+                  >
+                    <Icon className={cx('h-4 w-4', active ? 'text-kumo-brand' : 'text-kumo-strong')} />
+                    <span className="text-xs font-medium">{title}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </SectionCard>
@@ -2381,6 +2408,20 @@ function ApiDocsPage() {
     }
   };
 
+  const setAIAccessPolicy = async policy => {
+    try {
+      const payload = await apiRequest(`${AI_ACCESS_BASE}/policy`, {
+        method: 'PUT',
+        body: JSON.stringify({ policy }),
+      });
+      setAiAccess(payload);
+      const label = { minimal: '只读（minimal）', standard: '标准（standard）', full: '全部权限（full）' }[policy] || policy;
+      toast.success(`AI 接入权限模式已切换为 ${label}`);
+    } catch (error) {
+      toast.error(error.message || '切换失败');
+    }
+  };
+
   const clearAIAudit = async () => {
     try {
       const confirmed = await dialog.confirm('确认清空全部调用审计记录？此操作不可恢复。');
@@ -2704,6 +2745,7 @@ function ApiDocsPage() {
             onRefresh={refreshAIAccess}
             onRotateKey={rotateAIKey}
             onToggleWrite={toggleAIWrite}
+            onSetPolicy={setAIAccessPolicy}
             onCopy={copyText}
           />
         </div>

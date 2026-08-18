@@ -3240,7 +3240,7 @@ function ServerPage() {
       }
     } catch (e) {
       console.error('加载拨测目标失败:', e);
-      toast({ message: '加载拨测目标失败', variant: 'error' });
+      toast.show({ message: '加载拨测目标失败', variant: 'error' });
     }
   };
 
@@ -3258,15 +3258,15 @@ function ServerPage() {
       });
       const data = await response.json();
       if (data.success) {
-        toast({ message: networkTargetModalMode === 'add' ? '新增成功' : '保存成功', variant: 'success' });
+        toast.show({ message: networkTargetModalMode === 'add' ? '新增成功' : '保存成功', variant: 'success' });
         setShowNetworkTargetModal(false);
         loadNetworkTargets();
       } else {
-        toast({ message: data.message || '操作失败', variant: 'error' });
+        toast.show({ message: data.message || '操作失败', variant: 'error' });
       }
     } catch (err) {
       console.error('保存拨测目标失败:', err);
-      toast({ message: '保存拨测目标失败', variant: 'error' });
+      toast.show({ message: '保存拨测目标失败', variant: 'error' });
     }
   };
 
@@ -3278,14 +3278,14 @@ function ServerPage() {
       const response = await fetch(`/api/server/network-quality/targets/${id}`, { method: 'DELETE' });
       const data = await response.json();
       if (data.success) {
-        toast({ message: '删除成功', variant: 'success' });
+        toast.show({ message: '删除成功', variant: 'success' });
         loadNetworkTargets();
       } else {
-        toast({ message: data.message || '删除失败', variant: 'error' });
+        toast.show({ message: data.message || '删除失败', variant: 'error' });
       }
     } catch (err) {
       console.error('删除拨测目标失败:', err);
-      toast({ message: '删除拨测目标失败', variant: 'error' });
+      toast.show({ message: '删除拨测目标失败', variant: 'error' });
     }
   };
 
@@ -3308,11 +3308,11 @@ function ServerPage() {
       if (data.success) {
         loadNetworkTargets();
       } else {
-        toast({ message: data.message || '操作失败', variant: 'error' });
+        toast.show({ message: data.message || '操作失败', variant: 'error' });
       }
     } catch (err) {
       console.error('更新目标状态失败:', err);
-      toast({ message: '更新目标状态失败', variant: 'error' });
+      toast.show({ message: '更新目标状态失败', variant: 'error' });
     }
   };
 
@@ -7671,14 +7671,14 @@ function ServerPage() {
             if (value === 'status-pages') loadServerStatusPages();
           }}
           tabs={[
-            { value: 'list', label: <ServerModuleTabLabel icon={Server} short="主机">主机管理</ServerModuleTabLabel> },
-            { value: 'docker', label: <ServerModuleTabLabel icon={Box}>Docker</ServerModuleTabLabel> },
-            { value: 'status-pages', label: <ServerModuleTabLabel icon={Globe} short="状态">状态页</ServerModuleTabLabel> },
-            { value: 'management', label: <ServerModuleTabLabel icon={Settings} short="管理">后台管理</ServerModuleTabLabel> },
+            { value: 'list', label: <ServerModuleTabLabel icon={Server} short="主机">主机</ServerModuleTabLabel> },
+            { value: 'docker', label: <ServerModuleTabLabel icon={Box} short="容器">容器</ServerModuleTabLabel> },
+            { value: 'status-pages', label: <ServerModuleTabLabel icon={Globe} short="公开">公开</ServerModuleTabLabel> },
+            { value: 'management', label: <ServerModuleTabLabel icon={Settings} short="管理">管理</ServerModuleTabLabel> },
             ...(sshSessions.length > 0
               ? [{
                 value: 'terminal',
-                label: <ServerModuleTabLabel icon={TerminalIcon} short="SSH" badge={sshSessions.length}>SSH 终端</ServerModuleTabLabel>,
+                label: <ServerModuleTabLabel icon={TerminalIcon} short="终端" badge={sshSessions.length}>终端</ServerModuleTabLabel>,
               }]
               : []),
           ]}
@@ -7938,14 +7938,20 @@ function ServerPage() {
 
           {/* 列表渲染 */}
           {serverMapOpen ? (
-            <ServerLocationMap
-              echarts={echarts}
-              servers={filteredServers}
-              resolveStatus={(server) => resolveServerDisplayStatus(server).state}
-              title="主机地图"
-              subtitle="当前筛选中的主机地理分布"
-              height="calc(100vh - 260px)"
-            />
+            serverLoading && filteredServers.length === 0 ? (
+              <div className="w-full overflow-hidden rounded-lg border border-kumo-line/70 bg-kumo-base" style={{ height: 'calc(100vh - 260px)' }}>
+                <SkeletonLine className="h-full w-full rounded-none" />
+              </div>
+            ) : (
+              <ServerLocationMap
+                echarts={echarts}
+                servers={filteredServers}
+                resolveStatus={(server) => resolveServerDisplayStatus(server).state}
+                title="主机地图"
+                subtitle="当前筛选中的主机地理分布"
+                height="calc(100vh - 260px)"
+              />
+            )
           ) : serverLoading && serverList.length === 0 ? (
             <AppCard padding="none" className="flex flex-col items-center justify-center gap-2 p-12 text-kumo-subtle">
               <Loader size={24} />
@@ -8247,9 +8253,9 @@ function ServerPage() {
                                             className={getExpandedCardSpanClassName(0, 3)}
                                             legend={(
                                               <>
-                                                <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} />
-                                                <ChartLegend.SmallItem name="内存" color={memColor} value={`${Math.round(memUsage)}%`} />
-                                                <ChartLegend.SmallItem name="温度" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                                <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} loading={chartLoading} />
+                                                <ChartLegend.SmallItem name="内存" color={memColor} value={`${Math.round(memUsage)}%`} loading={chartLoading} />
+                                                <ChartLegend.SmallItem name="温度" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} loading={chartLoading} />
                                               </>
                                             )}
                                           >
@@ -8286,8 +8292,8 @@ function ServerPage() {
                                                 {hasGpuData && <TrendSeriesLabel name="显存" color={vramColor} />}
                                                 {hasGpuData && <TrendSeriesLabel name="功耗" color={powerColor} />}
                                                 {hasGpuData && <TrendSeriesLabel name="温度" color={gpuTempColor} />}
-                                                {!hasGpuData && <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />}
-                                                {!hasGpuData && <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />}
+                                                {!hasGpuData && <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} loading={chartLoading} />}
+                                                {!hasGpuData && <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} loading={chartLoading} />}
                                               </>
                                             )}
                                           >
@@ -8324,8 +8330,8 @@ function ServerPage() {
                                               className={getExpandedCardSpanClassName(2, 3)}
                                               legend={(
                                                 <>
-                                                  <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
-                                                  <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
+                                                  <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} loading={chartLoading} />
+                                                  <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} loading={chartLoading} />
                                                 </>
                                               )}
                                             >
@@ -8690,8 +8696,8 @@ function ServerPage() {
                                       className={getExpandedCardSpanClassName(1, 3)}
                                       legend={(
                                         <>
-                                          <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
-                                          <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
+                                          <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} loading={chartLoading} />
+                                          <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} loading={chartLoading} />
                                         </>
                                       )}
                                     >
@@ -8725,9 +8731,9 @@ function ServerPage() {
                                       className={getExpandedCardSpanClassName(0, hasGpuData ? 2 : 1)}
                                       legend={(
                                         <>
-                                          <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} />
-                                          <ChartLegend.SmallItem name="内存" color={memColor} value={`${Math.round(memUsage)}%`} />
-                                          <ChartLegend.SmallItem name="温度" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                          <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} loading={chartLoading} />
+                                          <ChartLegend.SmallItem name="内存" color={memColor} value={`${Math.round(memUsage)}%`} loading={chartLoading} />
+                                          <ChartLegend.SmallItem name="温度" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} loading={chartLoading} />
                                         </>
                                       )}
                                     >

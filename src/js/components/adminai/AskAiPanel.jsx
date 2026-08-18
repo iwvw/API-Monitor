@@ -367,6 +367,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   const lastSeqRef = useRef(0); // SSE 最后收到的事件 seq（重连 fromSeq 依据）
   const retryCountRef = useRef(0); // 断线重连次数（指数退避上限）
   const retryTimerRef = useRef(null); // 重连定时器
+  const healthTimerRef = useRef(null); // 连接健康确认定时器（稳定期后清零退避）
   const reconnectedRef = useRef(false); // 本轮 run 是否发生过重连（终态后拉历史兜底 full）
   const textareaRef = useRef(null);
   const dragState = useRef(null);
@@ -634,7 +635,13 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     eventSource.current = es;
 
     es.onopen = () => {
-      retryCountRef.current = 0; // 连接成功，重置退避计数
+      // 不立即清零退避计数：抖动场景（能连上又马上断开）下立即清零会
+      // 让重连永远停在 1s；连接稳定 30s 后才视为健康并重置退避。
+      if (healthTimerRef.current) clearTimeout(healthTimerRef.current);
+      healthTimerRef.current = window.setTimeout(() => {
+        healthTimerRef.current = null;
+        retryCountRef.current = 0;
+      }, 30000);
     };
 
     const applyEvent = (raw) => {
@@ -674,6 +681,10 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     es.onerror = () => {
       // 连接层失败（网络断开/服务端退出）：先关闭当前 EventSource（避免浏览器
       // 对同 URL 无限自动重连、走后端 404 循环），再手动指数退避重连。
+      if (healthTimerRef.current) {
+        clearTimeout(healthTimerRef.current);
+        healthTimerRef.current = null;
+      }
       if (!streamTargetIdRef.current) return; // stopStream 已清理（手动取消/切换会话）
       const tid = streamTargetIdRef.current;
       es.close();
@@ -1401,7 +1412,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         {externalRun && (
           <div className="shrink-0 px-4 pb-2" data-external-run-indicator>
             <div className="flex items-center gap-2 rounded-lg bg-kumo-recessed/60 px-3 py-2 text-xs text-kumo-subtle ring-1 ring-kumo-line">
-              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" aria-hidden />
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-kumo-warning" aria-hidden />
               <span className="min-w-0 flex-1 truncate">
                 {externalRun.phase === 'tooling' ? '正在执行工具…' : externalRun.phase === 'starting' ? '正在启动…' : '正在思考…'}
               </span>

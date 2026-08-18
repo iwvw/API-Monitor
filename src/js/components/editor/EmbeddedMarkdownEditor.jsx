@@ -49,10 +49,21 @@ export default function EmbeddedMarkdownEditor({
   const [mode, setMode] = useState(defaultMode === 'source' ? 'source' : 'visual');
   const adapterRef = useRef(null);
   const onChangeRef = useRef(onChange);
+  const lastValueRef = useRef(value);
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  // 受控值回写：外部 value 变化时同步到编辑器实例（本地编辑后父级回环的值
+  // 与 lastValueRef 相等，不会反复回写）。
+  useEffect(() => {
+    if (value === lastValueRef.current) return;
+    lastValueRef.current = value;
+    if (adapterRef.current) {
+      adapterRef.current.setMarkdown(String(value ?? ''));
+    }
+  }, [value]);
 
   const handleCreateAdapter = useCallback(({ root }) => {
     const adapter = createMilkdownAdapter({
@@ -60,6 +71,7 @@ export default function EmbeddedMarkdownEditor({
       defaultValue: String(value ?? ''),
     });
     adapter.onChange((markdown) => {
+      lastValueRef.current = markdown;
       onChangeRef.current?.(markdown);
     });
     return adapter;

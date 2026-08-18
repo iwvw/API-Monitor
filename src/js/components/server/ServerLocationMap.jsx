@@ -15,7 +15,9 @@ const WORLD_GEO_JSON = {
       if (f.properties?.name === 'Russia' || f.properties?.name === 'Fiji') {
         const cleanCoords = (coords) => {
           if (typeof coords[0] === 'number') {
-            const lon = coords[0] < 0 ? 180 : coords[0];
+            // 负经度（俄罗斯/斐济等跨反经线国家）平移 +360 保持几何连续，
+            // 直接锚定 180 会把整条边界压成反经线上的竖条。
+            const lon = coords[0] < 0 ? coords[0] + 360 : coords[0];
             const lat = coords[1];
             return [lon, lat];
           }

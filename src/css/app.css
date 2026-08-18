@@ -88,6 +88,39 @@ samp {
   font-family: var(--font-sans);
 }
 
+/* ==================== 字体下行笔画防裁切 ====================
+   自托管字体（Lora Variable / Noto Serif SC / LXGW WenKai Screen）
+   的下探墨迹（拉丁 g/j/p/q/y 及中文标点）远深于系统 UI 字体；而
+   truncate / line-clamp / overflow-hidden / 固定高度容器配合
+   leading-none / leading-tight 时行盒过矮，会把底部笔画裁掉
+   （衬线与楷体主题下全站可见）。此处为紧密行高统一设立 1.35
+   安全下限（≥ 各字体实际墨迹下探），一次性消除裁切，同时保持
+   紧凑观感。unlayered 规则优先于 Tailwind 工具类（@layer
+   utilities），故对所有用法全局生效。 */
+.leading-none,
+.leading-tight,
+.leading-\[1\.2\] {
+  line-height: 1.35;
+}
+
+/* 衬线主题（应用/设置里的「衬线字体」）：西文 Lora Variable + 中文 Noto Serif SC，
+   正文保留默认字重，标题 500 + 负字距，与 api.dsuk.top 的 serif 主题一致 */
+.app-serif {
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'tnum' 1;
+}
+
+.app-serif :is(h1, h2, h3, h4, h5, h6) {
+  letter-spacing: -0.012em;
+  font-weight: 500;
+}
+
+.app-serif h1,
+.app-serif .text-3xl,
+.app-serif .text-4xl,
+.app-serif .text-5xl {
+  letter-spacing: -0.02em;
+}
+
 :root[data-mode='dark'] body {
   background: var(--app-main-bg);
 }

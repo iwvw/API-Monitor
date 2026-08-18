@@ -7,7 +7,7 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Empty, Loader, Tabs } from '@cloudflare/kumo';
-import { SectionCard, FieldRow } from '../ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, cx } from '../ui/AppPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
 import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ArrowLeft, ChevronDown } from '../Icons.jsx';
 
@@ -232,6 +232,29 @@ function SettingsCard({ form }) {
   const renderField = (field) => {
     const value = (values && values[field.key]) || (field.kind === 'switch' ? 'false' : '');
     if (field.kind === 'switch') {
+      if (field.group === 'security') {
+        // 安全与审批：开关渲染为卡片风格（与 AI 接入权限卡片同款：图标+文本，
+        // 选中态=开关打开）；颜色统一：选中 border/kumo-brand + text/kumo-brand，
+        // 未选中 border/kumo-line + text/kumo-strong
+        const checked = value === 'true';
+        return (
+          <button
+            key={field.key}
+            type="button"
+            aria-pressed={checked}
+            onClick={() => setField(field.key, checked ? 'false' : 'true')}
+className={cx(
+              'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 transition-colors',
+              checked
+                ? 'border-(--text-color-kumo-brand) bg-kumo-tint text-kumo-brand'
+                : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'
+            )}
+          >
+            <ShieldCheck className={cx('h-4 w-4', checked ? 'text-kumo-brand' : 'text-kumo-strong')} />
+            <span className="text-xs font-medium">{field.label}</span>
+          </button>
+        );
+      }
       return (
         <FieldRow key={field.key} title={field.label} description={field.description}>
           <Switch
@@ -280,7 +303,13 @@ function SettingsCard({ form }) {
     <div className="space-y-4">
       {SETTING_SECTIONS.map((section) => (
         <SectionCard key={section.key} icon={section.icon} title={section.title} description={section.description} bodyPadding="none">
-          {SETTING_FIELDS.filter((field) => field.group === section.key).map(renderField)}
+          {section.key === 'security' ? (
+            <div className="grid gap-3 p-4 grid-cols-2">
+              {SETTING_FIELDS.filter((field) => field.group === section.key).map(renderField)}
+            </div>
+          ) : (
+            SETTING_FIELDS.filter((field) => field.group === section.key).map(renderField)
+          )}
         </SectionCard>
       ))}
     </div>

@@ -590,11 +590,14 @@ function DnsPage() {
     }
   }, [cfApi, selectedAccountId, setLoadingKey]);
 
+  const recordsSeqRef = useRef(0); // 切 zone/筛选竞态防护：过期响应直接丢弃
+
   const loadRecords = useCallback(async (zoneId = selectedZoneId, options = recordFilter) => {
     if (!selectedAccountId || !zoneId) {
       setRecords([]);
       return;
     }
+    const seq = ++recordsSeqRef.current;
     const params = new URLSearchParams();
     if (options.type) params.set('type', options.type);
     if (options.name) params.set('name', options.name);
@@ -605,12 +608,14 @@ function DnsPage() {
       const data = await cfApi(
         `/accounts/${selectedAccountId}/zones/${zoneId}/records${query ? `?${query}` : ''}`
       );
+      if (seq !== recordsSeqRef.current) return; // 已有更新的请求，丢弃本次结果
       setRecords(data.records || []);
       setSelectedRecordIds([]);
     } catch (error) {
+      if (seq !== recordsSeqRef.current) return;
       toast.error(`加载 DNS 记录失败：${error.message}`);
     } finally {
-      setLoadingKey('records', false);
+      if (seq === recordsSeqRef.current) setLoadingKey('records', false);
     }
   }, [cfApi, recordFilter, selectedAccountId, selectedZoneId, setLoadingKey]);
 

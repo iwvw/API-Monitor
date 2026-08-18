@@ -268,7 +268,7 @@ function PaasPage() {
 
   const downloadLogs = () => {
     if (logs.length === 0) {
-      toast.info('暂无日志可以下载');
+      toast.info('暂无日志可以下载', { isManual: true });
       return;
     }
     const content = logs
@@ -878,7 +878,7 @@ function PaasPage() {
 
     if (newImage === null || newImage.trim() === '') return;
 
-    toast.info('正在更新容器镜像，请稍候...');
+    toast.info('正在更新容器镜像，请稍候...', { isManual: true });
     try {
       const response = await fetch(`/api/flyio/apps/${app.name}/update-image`, {
         method: 'POST',
@@ -903,7 +903,7 @@ function PaasPage() {
           toast.warning('没有 Machine 被更新');
         }
         if (digestChangedCount === 0 && changedCount > 0) {
-          toast.info('Machine 配置/版本有变化，但镜像 digest 未变化');
+          toast.info('Machine 配置/版本有变化，但镜像 digest 未变化', { isManual: true });
         }
         loadFlyData(false);
       } else {
@@ -917,7 +917,7 @@ function PaasPage() {
 
   const updateAllFlyAppsImage = async (account) => {
     if (!(await dialog.confirm(`确定要为 Fly.io 账号 "${account.name}" 下的所有应用批量更新最新镜像吗？`))) return;
-    toast.info('正在提交批量更新，请稍候...');
+    toast.info('正在提交批量更新，请稍候...', { isManual: true });
     try {
       const response = await fetch(`/api/flyio/accounts/${account.id}/update-all-images`, {
         method: 'POST',
@@ -1923,7 +1923,6 @@ function PaasPage() {
 
                                           {service.domains?.length ? (
                                             <div className="space-y-1">
-                                              <Text as="div" variant="secondary" size="xs" bold>访问域名</Text>
                                               <div className="flex min-w-0 flex-wrap gap-1.5">
                                                 {service.domains.map((dom) => {
                                                   const domain = dom.domain || dom.name || String(dom);
@@ -2134,7 +2133,6 @@ function PaasPage() {
 
                               <LayerCard.Primary className="space-y-3">
                                 <div className="space-y-2">
-                                  <Text as="div" variant="secondary" size="xs" bold>访问域名</Text>
                                   <div className="flex min-w-0 flex-wrap gap-1.5">
                                     {app.hostname ? (
                                       <Link href={`https://${app.hostname}`} target="_blank" rel="noreferrer" variant="plain" className="min-w-0">

@@ -408,6 +408,8 @@ const SERIF_FONT_LINK_ID = 'noto-serif-font-link';
 // 本地自托管：公共 CDN 在移动端网络中常加载失败导致字体静默回退系统字体
 const LXGW_WENKAI_CSS_URL = '/fonts/lxgw-wenkai-screen/lxgwwenkaiscreen.css';
 const NOTO_SERIF_CSS_URL = '/fonts/noto-serif-sc/notoserifsc.css';
+const LORA_CSS_URL = '/fonts/lora/lora.css';
+const SERIF_CLASS = 'app-serif';
 
 export const applyUIFont = (font) => {
   if (typeof document === 'undefined') return;
@@ -422,6 +424,7 @@ export const applyUIFont = (font) => {
   if (font === 'default' || !font) {
     if (existing) existing.remove();
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
+    root.classList.remove(SERIF_CLASS);
     if (document.body) {
       document.body.style.removeProperty('font-family');
       document.body.style.removeProperty('font-weight');
@@ -432,6 +435,7 @@ export const applyUIFont = (font) => {
 
   if (font === 'lxgw-wenkai-screen') {
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
+    root.classList.remove(SERIF_CLASS);
     if (!existing) {
       const link = document.createElement('link');
       link.id = FONT_LINK_ID;
@@ -451,6 +455,8 @@ export const applyUIFont = (font) => {
   if (existing) existing.remove();
 
   if (font === 'serif') {
+    // 西文用 Lora Variable（400-700 可变），中文回退 Noto Serif SC，
+    // 与 api.dsuk.top 的 serif 主题保持一致：正文默认字重、标题 500 + 负字距
     if (!document.getElementById(SERIF_FONT_LINK_ID)) {
       const link = document.createElement('link');
       link.id = SERIF_FONT_LINK_ID;
@@ -458,15 +464,22 @@ export const applyUIFont = (font) => {
       link.href = NOTO_SERIF_CSS_URL;
       document.head.appendChild(link);
     }
-    const fontStack = '"Noto Serif SC", Georgia, "Songti SC", "SimSun", serif';
+    const loraLink = document.createElement('link');
+    loraLink.id = 'lora-font-link';
+    loraLink.rel = 'stylesheet';
+    loraLink.href = LORA_CSS_URL;
+    if (!document.getElementById('lora-font-link')) document.head.appendChild(loraLink);
+    const fontStack = '"Lora Variable", "Lora", "Noto Serif SC", "Songti SC", "SimSun", serif';
     if (document.body) {
       document.body.style.setProperty('font-family', fontStack);
-      document.body.style.setProperty('font-weight', '600');
+      document.body.style.removeProperty('font-weight');
     }
+    root.classList.add(SERIF_CLASS);
     root.style.setProperty('--font-sans', fontStack);
     return;
   }
 
+  root.classList.remove(SERIF_CLASS);
   document.getElementById(SERIF_FONT_LINK_ID)?.remove();
   if (document.body) {
     document.body.style.removeProperty('font-family');

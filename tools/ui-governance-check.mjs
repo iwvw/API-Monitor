@@ -79,6 +79,9 @@ function isAllowedRawControl(tag, line, lines, index) {
   if (tag === 'button' && /\brounded border px-2 py-0\.5/.test(block)) {
     return 'compact list row selectable button';
   }
+  if (tag === 'button' && /\bflex flex-col items-center gap-1\.5 rounded-lg border/.test(block)) {
+    return 'icon+label selectable card';
+  }
   if (tag === 'label' && /\bapp-file-dropzone\b/.test(block)) {
     return 'file dropzone label overlay';
   }

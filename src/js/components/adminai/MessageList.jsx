@@ -26,7 +26,9 @@ function renderInline(text) {
     }
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
-      return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-kumo-brand underline">{linkMatch[1]}</a>;
+      // 仅放行安全协议，javascript:/data: 等链接原样显示不渲染为可点击链接
+      const href = /^(https?:|mailto:|tel:)/i.test(linkMatch[2]) ? linkMatch[2] : '';
+      return <a key={i} href={href || undefined} target="_blank" rel="noopener noreferrer" className="text-kumo-brand underline">{linkMatch[1]}</a>;
     }
     return part;
   });

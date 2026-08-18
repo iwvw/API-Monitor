@@ -3,6 +3,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { ChartPalette } from '@cloudflare/kumo';
 import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
+import { ChartWarmupSkeleton } from '../components/ui/AppPrimitives.jsx';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -102,12 +103,7 @@ const formatChartTime = (timestamp) => {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
 
-const formatLatencyAxis = (value) => {
-  const latency = Number(value) || 0;
-  const abs = Math.abs(latency);
-  if (abs >= 1000) return `${(latency / 1000).toFixed(abs >= 10000 ? 0 : 1)}s`;
-  return `${Math.round(latency)}ms`;
-};
+const formatLatencyAxis = (value) => `${((Number(value) || 0) / 1000).toFixed(1)}s`;
 
 const getStateMeta = (state) => STATE_META[state] || STATE_META.unknown;
 
@@ -159,7 +155,7 @@ const heartbeatClass = (status) => {
 
 const isHttpUrl = (value) => /^https?:\/\//i.test(String(value || ''));
 
-function HeartbeatLatencyChart({ beats, isDarkMode }) {
+function HeartbeatLatencyChart({ beats, isDarkMode, loading = false }) {
   const chartData = useMemo(() => {
     const data = beats
       .slice(0, 60)
@@ -172,6 +168,10 @@ function HeartbeatLatencyChart({ beats, isDarkMode }) {
       data,
     }];
   }, [beats, isDarkMode]);
+
+  if (loading && chartData[0].data.length === 0) {
+    return <ChartWarmupSkeleton height={96} bars={10} />;
+  }
 
   if (chartData[0].data.length === 0) {
     return <div className="mt-2 text-xs text-kumo-subtle">暂无心跳记录</div>;
@@ -188,12 +188,11 @@ function HeartbeatLatencyChart({ beats, isDarkMode }) {
           echarts={echarts}
           data={chartData}
           height={96}
-          yAxisName="ms"
           isDarkMode={isDarkMode}
           xAxisTickCount={3}
           yAxisTickCount={3}
           yAxisTickFormat={formatLatencyAxis}
-          tooltipValueFormat={(value) => `${Math.round(value)} ms`}
+          tooltipValueFormat={(value) => `${((Number(value) || 0) / 1000).toFixed(1)}s`}
           xAxisTickFormat={formatChartTime}
           tooltipMode="single"
           gradient
@@ -516,7 +515,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                           <div className="border-t border-kumo-interact/70 bg-kumo-recessed/30 px-4 py-3">
                             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem]">
                               <div className="min-w-0">
-                                <HeartbeatLatencyChart beats={heartbeats} isDarkMode={isDarkMode} />
+                                <HeartbeatLatencyChart beats={heartbeats} isDarkMode={isDarkMode} loading={loading} />
                               </div>
                               <div className="grid grid-cols-2 gap-2 lg:grid-cols-1 lg:self-start">
                                 <div className="rounded-md border border-kumo-interact/75 bg-kumo-base p-2">

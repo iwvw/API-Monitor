@@ -153,6 +153,7 @@ function SettingsPage() {
   const fileInputRef = useRef(null);
   const siteBrandInputRef = useRef(null);
   const [activeTab, setActiveTab] = useState('general');
+  const [backendOnline, setBackendOnline] = useState(true);
   const [settings, setSettings] = useState(() => normalizeUserSettings());
   const [settingsPatch, setSettingsPatch] = useState({});
   const [settingsLoading, setSettingsLoading] = useState(true);
@@ -483,6 +484,18 @@ function SettingsPage() {
       fetchRuntimeState();
     }
   }, [activeTab, fetchRuntimeState]);
+
+  useEffect(() => {
+    if (activeTab !== 'general' || typeof window.EventSource !== 'function') {
+      setBackendOnline(true);
+      return undefined;
+    }
+    const source = new EventSource('/api/system/status/stream');
+    source.onopen = () => setBackendOnline(true);
+    source.onmessage = () => setBackendOnline(true);
+    source.onerror = () => setBackendOnline(false);
+    return () => source.close();
+  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1177,8 +1190,8 @@ function SettingsPage() {
             className="min-h-0 self-start"
             bodyPadding="none"
           >
-            <FieldRow title="运行状态" description={settingsLoading ? '同步中' : '已连接后端'}>
-              <span className="font-mono text-sm font-bold text-kumo-success">正常</span>
+            <FieldRow title="运行状态" description={settingsLoading ? '同步中' : (backendOnline ? '已连接后端' : '后端连接断开')}>
+              <span className={`font-mono text-sm font-bold ${backendOnline ? 'text-kumo-success' : 'text-kumo-danger'}`}>{backendOnline ? '正常' : '离线'}</span>
             </FieldRow>
             <FieldRow title="公网入口" description="/api 自动拼接">
               <span className="truncate font-mono text-sm font-medium text-kumo-strong">{settings.publicApiUrl || currentOrigin}</span>

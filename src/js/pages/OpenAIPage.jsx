@@ -281,7 +281,7 @@ function ProxyRuntimeMeta({ proxy, state }) {
 }
 
 // IpCell 展示脱敏 IP，点击弹出 Popover 显示完整 IP。
-function IpCell({ value, viaProxy, placeholder }) {
+function IpCell({ value, viaProxy, placeholder, v6EdgeOnly }) {
   if (!value) return <>{placeholder || '—'}</>;
   return (
     <Popover>
@@ -291,7 +291,7 @@ function IpCell({ value, viaProxy, placeholder }) {
           <span
             className={`cursor-pointer truncate ${viaProxy ? 'text-kumo-info' : ''}`}
           >
-            {maskIp(value)}
+            {maskIp(value, v6EdgeOnly)}
           </span>
         }
       />
@@ -378,8 +378,9 @@ function MultiSelectPopover({ triggerLabel, options, selected, onToggle, onClear
 }
 
 // maskIp 压缩 IP 展示：去掉端口，仅保留首尾片段、中间用 *** 隐藏，用于日志表格
-// 减少宽度占用。IPv4 保留前 2 段 + 后 1 段；IPv6 保留前 2 段 + 后 2 段。
-function maskIp(raw) {
+// 减少宽度占用。IPv4 保留前 2 段 + 后 1 段；IPv6 默认保留前 2 段 + 后 2 段，
+// v6EdgeOnly 时仅保留首尾各 1 段、中间 ***::***。
+function maskIp(raw, v6EdgeOnly = false) {
   if (!raw) return raw || '';
   let value = String(raw).trim();
   // 剥掉方括号包裹的 IPv6 端口：[2001:db8::1]:443 → 2001:db8::1。
@@ -395,6 +396,9 @@ function maskIp(raw) {
     // IPv6
     const segments = value.split(':');
     if (segments.length <= 2) return value;
+    if (v6EdgeOnly) {
+      return `${segments[0]}:***::***:${segments[segments.length - 1]}`;
+    }
     const head = segments.slice(0, 2).join(':');
     const tail = segments.slice(-2).join(':');
     return `${head}***${tail}`;
@@ -521,6 +525,7 @@ function OpenAIPage() {
   const [analyticsSummary, setAnalyticsSummary] = useState({
     totalRequests: 0,
     avgLatency: 0,
+    avgTtfbMs: 0,
     totalTokens: 0,
     totalCachedTokens: 0,
     cachedRatio: 0,
@@ -528,7 +533,19 @@ function OpenAIPage() {
     totalCompletionTokens: 0,
     errorRate: 0,
     errorCount: 0,
+    endpointErrorRates: [],
   });
+  // 词元趋势视角：all（全部词元）| uncached（未缓存词元）。
+  const [tokenTrendMode, setTokenTrendMode] = useState('all');
+  // 延迟趋势视角：total（端到端总耗时均值）| ttfb（首字延迟均值）。
+  const [latencyTrendMode, setLatencyTrendMode] = useState('total');
+  // 错误趋势视角：rate（错误率）| count（错误数）。
+  const [errorTrendMode, setErrorTrendMode] = useState('rate');
+  // 全宽趋势视角：model（按模型调用次数）| endpoint（按站点调用次数）。
+  const [modelTrendMode, setModelTrendMode] = useState('model');
+  // 排行视角：model（按模型）| endpoint（按站点），词元分布与调用次数两个排行独立切换。
+  const [tokenShareMode, setTokenShareMode] = useState('model');
+  const [countShareMode, setCountShareMode] = useState('model');
   const [analyticsCharts, setAnalyticsCharts] = useState({
     models: [],
   });
@@ -540,6 +557,8 @@ function OpenAIPage() {
   });
   const [analyticsTotal, setAnalyticsTotal] = useState(0);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  // 分析请求竞态防护：序号递增，过期响应（慢请求覆盖新筛选/新分页）直接丢弃。
+  const analyticsSeqRef = useRef(0);
   // 日志筛选：status(全部/成功/失败/429/5xx)、model、endpoint。
   const [logStatusFilter, setLogStatusFilter] = useState('');
   const [logModelFilter, setLogModelFilter] = useState('');
@@ -555,6 +574,7 @@ function OpenAIPage() {
   }, []);
 
   const fetchAnalytics = useCallback(async ({ silent = false, skipSummary = false } = {}) => {
+    const seq = ++analyticsSeqRef.current;
     if (!silent) setAnalyticsLoading(true);
     try {
       const headers = getAuthHeaders();
@@ -578,6 +598,8 @@ function OpenAIPage() {
             fetch(logsURL, { headers }),
           ]);
 
+      if (seq !== analyticsSeqRef.current) return; // 已有更新的请求，丢弃过期响应
+
       if (sumRes?.ok) {
         const data = await sumRes.json();
         setAnalyticsSummary(data);
@@ -592,10 +614,11 @@ function OpenAIPage() {
         setAnalyticsTotal(data.total || 0);
       }
     } catch (err) {
+      if (seq !== analyticsSeqRef.current) return;
       console.error('Failed to fetch analytics:', err);
       toast.error('获取分析数据失败');
     } finally {
-      if (!silent) setAnalyticsLoading(false);
+      if (seq === analyticsSeqRef.current && !silent) setAnalyticsLoading(false);
     }
   }, [analyticsDays, analyticsGranularity, analyticsPage, analyticsPageSize, logStatusFilter, logModelFilter, logEndpointFilter, getAuthHeaders]);
 
@@ -880,9 +903,11 @@ const TrendBarChart = memo(function TrendBarChart({
   values,
   color,
   isDarkMode,
+  loading = false,
   formatValue = value => (Number.isFinite(Number(value)) ? String(Number(value)) : String(value)),
   formatAxis = formatValue,
 }) {
+  const chartRef = useRef(null);
   const options = useMemo(() => {
     if (!labels || labels.length === 0) return null;
     const axisColor = kumoHex('--color-kumo-contrast');
@@ -921,14 +946,29 @@ const TrendBarChart = memo(function TrendBarChart({
     };
   }, [labels, values, color, isDarkMode, formatValue, formatAxis]);
 
-  if (!labels || labels.length === 0) return null;
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (loading) {
+      chart.showLoading({
+        text: '',
+        color: kumoHex('--color-kumo-brand'),
+        maskColor: 'rgba(0,0,0,0)',
+      });
+    } else {
+      chart.hideLoading();
+    }
+  }, [loading]);
 
-  return <Chart echarts={siteFontEcharts} isDarkMode={isDarkMode} options={options} height={168} />;
+  const hasData = !!(labels && labels.length > 0);
+  if (!hasData && !loading) return null;
+
+  return <Chart ref={chartRef} echarts={siteFontEcharts} isDarkMode={isDarkMode} options={hasData ? options : {}} height={168} />;
 });
 
 // 全宽「模型 × 时间」折线趋势：类别轴（每桶唯一刻度），稀疏段断线成 Trend；
 // 顶部图例按调用次数降序，颜色与折线同一份映射，点击隔离/恢复。
-const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMode }) {
+const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMode, loading = false }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const [hiddenSeries, setHiddenSeries] = useState({});
@@ -998,7 +1038,11 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
         yAxis: {
           type: 'value',
           splitLine: { lineStyle: { color: gridColor } },
-          axisLabel: { color: axisColor, fontSize: 10 },
+          axisLabel: {
+            color: axisColor,
+            fontSize: 10,
+            formatter: value => formatCompact(value, 0),
+          },
         },
         series: visibleSeries.map(item => ({
           type: 'line',
@@ -1018,6 +1062,20 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
       { replaceMerge: ['series'] }
     );
   }, [labels, visibleSeries, isDarkMode]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (loading) {
+      chart.showLoading({
+        text: '',
+        color: kumoHex('--color-kumo-brand'),
+        maskColor: 'rgba(0,0,0,0)',
+      });
+    } else {
+      chart.hideLoading();
+    }
+  }, [loading]);
 
   const handleClick = name => {
     setHiddenSeries(prev => {
@@ -1070,8 +1128,22 @@ const trendSeries = useMemo(() => {
         formatValue: formatTokensM,
         formatAxis: value => `${Math.round(Number(value) / 1e6)}M`,
       },
+      tokensUncached: {
+        ...build(
+          ChartPalette.categorical(1, isDarkMode),
+          p => Math.max(0, (Number(p.tokens) || 0) - (Number(p.cachedTokens) || 0)),
+          '未缓存词元 (M)'
+        ),
+        formatValue: formatTokensM,
+        formatAxis: value => `${Math.round(Number(value) / 1e6)}M`,
+      },
       latency: {
         ...build(ChartPalette.categorical(2, isDarkMode), p => p.avgLatency, '平均延迟 (s)'),
+        formatValue: value => `${(Number(value) / 1000).toFixed(2)} s`,
+        formatAxis: value => `${(Number(value) / 1000).toFixed(0)}`,
+      },
+      latencyTtfb: {
+        ...build(ChartPalette.categorical(2, isDarkMode), p => p.avgTtfbMs, '平均首字延迟 (s)'),
         formatValue: value => `${(Number(value) / 1000).toFixed(2)} s`,
         formatAxis: value => `${(Number(value) / 1000).toFixed(0)}`,
       },
@@ -1083,6 +1155,11 @@ const trendSeries = useMemo(() => {
         ),
         formatValue: value => `${Number(value).toFixed(2)}%`,
         formatAxis: value => `${Number(value).toFixed(0)}%`,
+      },
+      errorCount: {
+        ...build(ChartPalette.categorical(3, isDarkMode), p => p.errors, '错误数'),
+        formatValue: value => formatCompact(value, 0),
+        formatAxis: value => formatCompact(value, 0),
       },
     };
   }, [analyticsCharts, isDarkMode]);
@@ -1096,7 +1173,8 @@ const trendSeries = useMemo(() => {
         : trendSeries.requests.labels;
     const tsValues = daily.map(point => (Number(point.tsSec) || 0) * 1000);
     const models = Array.isArray(analyticsCharts.byModel) ? analyticsCharts.byModel : [];
-    return { labels, tsValues, models };
+    const endpoints = Array.isArray(analyticsCharts.byEndpoint) ? analyticsCharts.byEndpoint : [];
+    return { labels, tsValues, models, endpoints };
   }, [analyticsCharts, trendSeries]);
 
   const defaultGatewayKey = useMemo(
@@ -1123,7 +1201,7 @@ const trendSeries = useMemo(() => {
   // Endpoint Verification & Model Refresh
   const verifyEndpoint = async endpoint => {
     try {
-      toast.info(`正在验证 ${endpoint.name || '端点'}...`);
+      toast.info(`正在验证 ${endpoint.name || '端点'}...`, { isManual: true });
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
         method: 'POST',
         headers: getAuthHeaders(),
@@ -1452,7 +1530,7 @@ const trendSeries = useMemo(() => {
     }
     const added = addProxyBatch(`批量添加 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`, lines);
     if (added === 0) {
-      toast.info('粘贴的代理已全部属于其他批次，无需重复添加');
+      toast.info('粘贴的代理已全部属于其他批次，无需重复添加', { isManual: true });
       return;
     }
     setProxyBatchText('');
@@ -1518,13 +1596,13 @@ const trendSeries = useMemo(() => {
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
         const list = Array.isArray(data.proxies) ? data.proxies : [];
         if (list.length === 0) {
-          toast.info('文件中没有找到可导入的代理（支持 http(s)://、socks5://、host:port）');
+          toast.info('文件中没有找到可导入的代理（支持 http(s)://、socks5://、host:port）', { isManual: true });
           return;
         }
         const batchName = file.name || '代理列表';
         const added = addProxyBatch(batchName, list);
         if (added === 0) {
-          toast.info(`文件中的 ${list.length} 个代理已全部属于其他批次，无需重复导入`);
+          toast.info(`文件中的 ${list.length} 个代理已全部属于其他批次，无需重复导入`, { isManual: true });
           return;
         }
         const skipped = rawLineCount - list.length;
@@ -1702,7 +1780,7 @@ const trendSeries = useMemo(() => {
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       const list = Array.isArray(data.proxies) ? data.proxies : [];
       if (list.length === 0) {
-        toast.info(data.message || '订阅内容中没有找到 socks/http 节点');
+        toast.info(data.message || '订阅内容中没有找到 socks/http 节点', { isManual: true });
         return;
       }
       let batchName = url;
@@ -1713,7 +1791,7 @@ const trendSeries = useMemo(() => {
       }
       const added = addProxyBatch(batchName, list.map(item => item.proxy).filter(Boolean));
       if (added === 0) {
-        toast.info('订阅链接中的代理已全部属于其他批次，无需重复导入');
+        toast.info('订阅链接中的代理已全部属于其他批次，无需重复导入', { isManual: true });
       } else {
         toast.success(`已从订阅链接导入 ${added} 个代理`);
       }
@@ -1858,7 +1936,7 @@ const trendSeries = useMemo(() => {
   const deleteEndpoint = async endpoint => {
     if (!deleteEndpointConfirmActive(endpoint.id)) {
       setPendingDeleteEndpointId({ id: endpoint.id, expiresAt: Date.now() + DELETE_ENDPOINT_CONFIRM_MS });
-      toast.info(`删除端点 ${endpoint.name || endpoint.baseUrl}？请再次点击确认`);
+      toast.info(`删除端点 ${endpoint.name || endpoint.baseUrl}？请再次点击确认`, { isManual: true });
       return;
     }
     setPendingDeleteEndpointId(null);
@@ -2272,7 +2350,7 @@ const trendSeries = useMemo(() => {
       healthCheckForm.concurrency,
       allTargets.length
     );
-    toast.info(`正在按 ${concurrency} 并发批量检测 ${allTargets.length} 个模型...`);
+    toast.info(`正在按 ${concurrency} 并发批量检测 ${allTargets.length} 个模型...`, { isManual: true });
 
     try {
       const results = await runBatchHealthCheckRequest(allTargets, '批量检测失败');
@@ -2306,7 +2384,8 @@ const trendSeries = useMemo(() => {
     setHealthCheckProgress(createHealthCheckProgress(modelIds.length, true));
     const concurrency = resolveModelHealthConcurrency(healthCheckForm.concurrency, modelIds.length);
     toast.info(
-      `正在按 ${concurrency} 并发批量检测 ${ep.name || '端点'} 的 ${modelIds.length} 个模型...`
+      `正在按 ${concurrency} 并发批量检测 ${ep.name || '端点'} 的 ${modelIds.length} 个模型...`,
+      { isManual: true }
     );
 
     try {
@@ -2518,7 +2597,7 @@ const trendSeries = useMemo(() => {
       return health?.status !== 'healthy' && health?.status !== 'degraded';
     });
     if (targets.length === 0) {
-      toast.info('当前没有可批量关闭的模型（非有效模型均为空）');
+      toast.info('当前没有可批量关闭的模型（非有效模型均为空）', { isManual: true });
       return;
     }
     await batchToggleEndpointModels(endpoint, targets, false, `已关闭 ${targets.length} 个非有效模型`);
@@ -2531,7 +2610,7 @@ const trendSeries = useMemo(() => {
       modelEnabledForEndpoint(endpoint, modelId)
     );
     if (failed.length === 0) {
-      toast.info('当前端点没有检测失败的模型');
+      toast.info('当前端点没有检测失败的模型', { isManual: true });
       return;
     }
     await batchToggleEndpointModels(endpoint, failed, false, `已关闭 ${failed.length} 个检测失败的模型`);
@@ -2553,7 +2632,7 @@ const trendSeries = useMemo(() => {
     const entries = Object.values(byEndpoint);
     const total = entries.reduce((sum, entry) => sum + entry.models.length, 0);
     if (total === 0) {
-      toast.info('当前没有检测失败的模型');
+      toast.info('当前没有检测失败的模型', { isManual: true });
       return;
     }
     if (!(await dialog.confirm(`确认关闭全部 ${total} 个检测失败的模型吗？（仅停用对应模型）`))) {
@@ -4044,7 +4123,7 @@ if (!response.ok) {
                 : 0;
 
               return (
-                <div className="grid min-w-0 gap-3 cq-lg:grid-cols-[1fr_2fr]">
+                <div className="grid min-w-0 gap-3 cq-lg:grid-cols-[fit-content(28rem)_minmax(0,1fr)]">
                   <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[70px] cq-lg:self-start">
                     <div className="flex min-h-8 items-center justify-between gap-2 px-1">
                       <div className="flex items-center gap-2 text-xs text-kumo-subtle">
@@ -4055,9 +4134,9 @@ if (!response.ok) {
                     </div>
                     <LayerCard className="min-w-0 p-0 shadow-none">
                       <div className="overflow-x-auto overscroll-x-contain touch-pan-x scrollbar-thin">
-                        <Table layout="fixed" className="min-w-[500px] text-xs">
+                        <Table layout="fixed" className="w-full max-w-fit min-w-[420px] text-xs cq-lg:max-w-none">
                           <colgroup>
-                            <col style={{ minWidth: 140 }} />
+                            <col style={{ width: 176 }} />
                             <col style={{ width: 64 }} />
                             <col style={{ width: 64 }} />
                             <col style={{ width: 64 }} />
@@ -4766,6 +4845,7 @@ if (!response.ok) {
                     <Activity className="h-3.5 w-3.5" />
                   </span>
                 </div>
+                <div className="flex h-8 min-w-0 items-center">
                 {analyticsLoading ? (
                   <SkeletonLine className="h-6 w-20" />
                 ) : (
@@ -4808,6 +4888,7 @@ if (!response.ok) {
                     </Popover>
                   </div>
                 )}
+                </div>
                 <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsDays} 天</span>
               </AppCard>
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
@@ -4817,16 +4898,50 @@ if (!response.ok) {
                     <Clock className="h-3.5 w-3.5" />
                   </span>
                 </div>
-                <div className="flex min-w-0 items-baseline gap-1">
+                <div className="flex h-8 min-w-0 items-center">
                   {analyticsLoading ? (
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
-                    <>
-                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-warning cq-sm:text-xl cq-xl:text-2xl">
-                        {(analyticsSummary.avgLatency / 1000).toFixed(2)}
-                      </span>
-                      <span className="shrink-0 text-xs font-medium text-kumo-subtle">s</span>
-                    </>
+                    <Popover>
+                      <Popover.Trigger
+                        nativeButton={false}
+                        title="查看首字/总耗时详情"
+                        render={
+                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-warning cq-sm:text-xl cq-xl:text-2xl">
+                            {(analyticsSummary.avgLatency / 1000).toFixed(2)}
+                          </span>
+                        }
+                      />
+                      <Popover.Content className="w-64 p-3">
+                        <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                          延迟详情
+                        </Popover.Title>
+                        <div className="mt-2 flex flex-col gap-1.5 text-xs text-kumo-strong">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle">平均首字延迟</span>
+                            <span className="font-mono">
+                              {analyticsSummary.avgTtfbMs > 0
+                                ? `${(analyticsSummary.avgTtfbMs / 1000).toFixed(2)}s`
+                                : '—'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle">平均端到端耗时</span>
+                            <span className="font-mono">
+                              {(analyticsSummary.avgLatency / 1000).toFixed(2)}s
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 pt-1.5 border-t border-kumo-line text-kumo-strong">
+                            <span className="text-kumo-subtle">首字后耗时（输出+传输）</span>
+                            <span className="font-mono">
+                              {analyticsSummary.avgTtfbMs > 0 && analyticsSummary.avgLatency > 0
+                                ? `${(Math.max(0, analyticsSummary.avgLatency - analyticsSummary.avgTtfbMs) / 1000).toFixed(2)}s`
+                                : '—'}
+                            </span>
+                          </div>
+                        </div>
+                      </Popover.Content>
+                    </Popover>
                   )}
                 </div>
                 <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsDays} 天</span>
@@ -4838,6 +4953,7 @@ if (!response.ok) {
                     <Brain className="h-3.5 w-3.5" />
                   </span>
                 </div>
+                <div className="flex h-8 min-w-0 items-center">
                 {analyticsLoading ? (
                   <SkeletonLine className="h-6 w-24" />
                 ) : (
@@ -4886,6 +5002,7 @@ if (!response.ok) {
                     </Popover>
                   </div>
                 )}
+                </div>
                 <span
                   className="hidden truncate font-mono text-[11px] text-kumo-subtle cq-xl:block"
                   title="非缓存输入 = 输入（含缓存）− 缓存命中的词元"
@@ -4913,7 +5030,7 @@ if (!response.ok) {
                     <Cpu className="h-3.5 w-3.5" />
                   </span>
                 </div>
-                <div className="flex min-w-0 items-baseline gap-1">
+                <div className="flex h-8 min-w-0 items-center">
                   {analyticsLoading ? (
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
@@ -4934,7 +5051,7 @@ if (!response.ok) {
                     <TrendingUp className="h-3.5 w-3.5" />
                   </span>
                 </div>
-                <div className="flex min-w-0 items-baseline gap-1">
+                <div className="flex h-8 min-w-0 items-center">
                   {analyticsLoading ? (
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
@@ -4955,16 +5072,50 @@ if (!response.ok) {
                     <AlertTriangle className="h-3.5 w-3.5" />
                   </span>
                 </div>
-                <div className="flex min-w-0 items-baseline gap-1">
+                <div className="flex h-8 min-w-0 items-center">
                   {analyticsLoading ? (
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
-                    <>
-                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-danger cq-sm:text-xl cq-xl:text-2xl">
-                        {(analyticsSummary.errorRate * 100).toFixed(1)}
-                      </span>
-                      <span className="shrink-0 text-xs font-medium text-kumo-subtle">%</span>
-                    </>
+                    <Popover>
+                      <Popover.Trigger
+                        nativeButton={false}
+                        title="查看各渠道错误率"
+                        render={
+                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-danger cq-sm:text-xl cq-xl:text-2xl">
+                            {(analyticsSummary.errorRate * 100).toFixed(1)}
+                          </span>
+                        }
+                      />
+                      <Popover.Content className="w-72 p-3">
+                        <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                          各渠道错误率
+                        </Popover.Title>
+                        {analyticsSummary.endpointErrorRates?.length ? (
+                          <div className="mt-2 flex max-h-60 flex-col gap-1.5 overflow-y-auto pr-1 text-xs text-kumo-strong">
+                            {analyticsSummary.endpointErrorRates.map((item) => (
+                              <div
+                                key={item.endpointId || item.endpointName}
+                                className="flex items-center justify-between gap-3"
+                              >
+                                <span className="min-w-0 truncate text-kumo-subtle" title={item.endpointName}>
+                                  {item.endpointName}
+                                </span>
+                                <span className="flex shrink-0 items-baseline gap-1.5 font-mono">
+                                  <span className={item.errorRate > 0 ? 'text-kumo-danger' : 'text-kumo-strong'}>
+                                    {((item.errorRate || 0) * 100).toFixed(1)}%
+                                  </span>
+                                  <span className="text-[10px] text-kumo-subtle">
+                                    {item.errors}/{item.requests}
+                                  </span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-kumo-subtle">暂无渠道数据</div>
+                        )}
+                      </Popover.Content>
+                    </Popover>
                   )}
                 </div>
                 <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">请求失败占比</span>
@@ -4997,48 +5148,120 @@ if (!response.ok) {
                 title: '错误率趋势',
                 series: trendSeries.errorRate,
               },
-            ].map(card => (
+            ].map(card => {
+              const series =
+                card.key === 'tokens'
+                  ? tokenTrendMode === 'uncached'
+                    ? trendSeries.tokensUncached
+                    : trendSeries.tokens
+                  : card.key === 'latency'
+                    ? latencyTrendMode === 'ttfb'
+                      ? trendSeries.latencyTtfb
+                      : trendSeries.latency
+                    : card.key === 'errors'
+                      ? errorTrendMode === 'count'
+                        ? trendSeries.errorCount
+                        : trendSeries.errorRate
+                      : card.series;
+              const toggleTabs =
+                card.key === 'tokens' ? (
+                  <Tabs
+                    variant="segmented"
+                    size="sm"
+                    value={tokenTrendMode}
+                    onValueChange={setTokenTrendMode}
+                    tabs={[
+                      { value: 'all', label: '全部' },
+                      { value: 'uncached', label: '未缓存' },
+                    ]}
+                  />
+                ) : card.key === 'latency' ? (
+                  <Tabs
+                    variant="segmented"
+                    size="sm"
+                    value={latencyTrendMode}
+                    onValueChange={setLatencyTrendMode}
+                    tabs={[
+                      { value: 'total', label: '总耗时' },
+                      { value: 'ttfb', label: '首字' },
+                    ]}
+                  />
+                ) : card.key === 'errors' ? (
+                  <Tabs
+                    variant="segmented"
+                    size="sm"
+                    value={errorTrendMode}
+                    onValueChange={setErrorTrendMode}
+                    tabs={[
+                      { value: 'rate', label: '错误率' },
+                      { value: 'count', label: '错误数' },
+                    ]}
+                  />
+                ) : null;
+              return (
               <LayerCard key={card.key} className="min-w-0 p-0">
-                <LayerCard.Secondary>{card.title}</LayerCard.Secondary>
+                <LayerCard.Secondary>
+                  {toggleTabs ? (
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span>{card.title}</span>
+                      {toggleTabs}
+                    </div>
+                  ) : (
+                    card.title
+                  )}
+                </LayerCard.Secondary>
                 <LayerCard.Primary className="flex min-h-0 flex-col gap-2 !p-3">
                   <div className="min-h-0 w-full" style={{ height: 168 }}>
-                    {analyticsLoading && !analyticsCharts.daily?.length ? (
-                      <SkeletonLine className="h-full w-full" />
-                    ) : card.series.labels.length === 0 ? (
+                    {series.labels.length === 0 && !analyticsLoading ? (
                       <div className="flex h-full items-center justify-center text-sm text-kumo-subtle">
                         暂无数据
                       </div>
                     ) : (
                       <TrendBarChart
-                        labels={card.series.labels}
-                        values={card.series.values}
-                        color={card.series.color}
+                        labels={series.labels}
+                        values={series.values}
+                        color={series.color}
                         isDarkMode={isDarkMode}
-                        formatValue={card.series.formatValue}
-                        formatAxis={card.series.formatAxis}
+                        loading={analyticsLoading}
+                        formatValue={series.formatValue}
+                        formatAxis={series.formatAxis}
                       />
                     )}
                   </div>
                 </LayerCard.Primary>
               </LayerCard>
-            ))}
+              );
+            })}
           </div>
 
             <div className="grid">
             <LayerCard className="min-w-0 p-0">
-              <LayerCard.Secondary>模型调用趋势</LayerCard.Secondary>
+              <LayerCard.Secondary>
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span>模型调用趋势</span>
+                  <Tabs
+                    variant="segmented"
+                    size="sm"
+                    value={modelTrendMode}
+                    onValueChange={setModelTrendMode}
+                    tabs={[
+                      { value: 'model', label: '按模型' },
+                      { value: 'endpoint', label: '按站点' },
+                    ]}
+                  />
+                </div>
+              </LayerCard.Secondary>
               <LayerCard.Primary className="!p-3">
-              {analyticsLoading && !analyticsCharts.daily?.length ? (
-                <SkeletonLine className="h-[240px] w-full" />
-              ) : !Array.isArray(byModelTrend.labels) || byModelTrend.labels.length === 0 ? (
+              {(!Array.isArray(byModelTrend.labels) || byModelTrend.labels.length === 0) && !analyticsLoading ? (
                 <div className="flex h-[240px] items-center justify-center text-sm text-kumo-subtle">
                   暂无数据
                 </div>
               ) : (
                 <ModelTrendChart
                   labels={byModelTrend.labels}
-                  series={byModelTrend.models}
+                  series={modelTrendMode === 'endpoint' ? byModelTrend.endpoints : byModelTrend.models}
                   isDarkMode={isDarkMode}
+                  loading={analyticsLoading}
                 />
               )}
               </LayerCard.Primary>
@@ -5047,7 +5270,21 @@ if (!response.ok) {
 
             <div className="grid gap-3 cq-xl:grid-cols-2">
             <LayerCard className="min-w-0 p-0">
-              <LayerCard.Secondary>模型词元分布</LayerCard.Secondary>
+              <LayerCard.Secondary>
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span>模型词元分布</span>
+                  <Tabs
+                    variant="segmented"
+                    size="sm"
+                    value={tokenShareMode}
+                    onValueChange={setTokenShareMode}
+                    tabs={[
+                      { value: 'model', label: '按模型' },
+                      { value: 'endpoint', label: '按站点' },
+                    ]}
+                  />
+                </div>
+              </LayerCard.Secondary>
               <LayerCard.Primary className="!p-3">
                 <div className="min-h-0">
                 {analyticsLoading ? (
@@ -5056,15 +5293,19 @@ if (!response.ok) {
                     <SkeletonLine className="w-full h-4" />
                   </div>
                 ) : !analyticsCharts.models || analyticsCharts.models.length === 0 ? (
-                  <div className="py-16 text-center text-sm text-kumo-subtle">暂无模型数据</div>
+                  <div className="py-16 text-center text-sm text-kumo-subtle">暂无数据</div>
                 ) : (
                   (() => {
+                    const shareData =
+                      tokenShareMode === 'endpoint'
+                        ? analyticsCharts.endpoints || []
+                        : analyticsCharts.models;
                     const totalTokens =
-                      analyticsCharts.models.reduce(
+                      shareData.reduce(
                         (sum, model) => sum + (Number(model.tokens) || 0),
                         0
                       ) || 1;
-                    const sorted = [...analyticsCharts.models]
+                    const sorted = [...shareData]
                       .sort((a, b) => (Number(b.tokens) || 0) - (Number(a.tokens) || 0))
                       .slice(0, 20);
                     return (
@@ -5110,7 +5351,21 @@ if (!response.ok) {
             </LayerCard>
 
             <LayerCard className="min-w-0 p-0">
-              <LayerCard.Secondary>模型调用次数</LayerCard.Secondary>
+              <LayerCard.Secondary>
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span>模型调用次数</span>
+                  <Tabs
+                    variant="segmented"
+                    size="sm"
+                    value={countShareMode}
+                    onValueChange={setCountShareMode}
+                    tabs={[
+                      { value: 'model', label: '按模型' },
+                      { value: 'endpoint', label: '按站点' },
+                    ]}
+                  />
+                </div>
+              </LayerCard.Secondary>
               <LayerCard.Primary className="!p-3">
                 <div className="min-h-0">
                 {analyticsLoading ? (
@@ -5119,15 +5374,19 @@ if (!response.ok) {
                     <SkeletonLine className="h-4 w-full" />
                   </div>
                 ) : !analyticsCharts.models || analyticsCharts.models.length === 0 ? (
-                  <div className="py-16 text-center text-sm text-kumo-subtle">暂无模型数据</div>
+                  <div className="py-16 text-center text-sm text-kumo-subtle">暂无数据</div>
                 ) : (
                   (() => {
+                    const shareData =
+                      countShareMode === 'endpoint'
+                        ? analyticsCharts.endpoints || []
+                        : analyticsCharts.models;
                     const totalCount =
-                      analyticsCharts.models.reduce(
+                      shareData.reduce(
                         (sum, model) => sum + (Number(model.count) || 0),
                         0
                       ) || 1;
-                    const sorted = [...analyticsCharts.models]
+                    const sorted = [...shareData]
                       .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
                       .slice(0, 20);
                     return (
@@ -5333,7 +5592,7 @@ if (!response.ok) {
                             className="truncate text-center font-mono text-kumo-subtle"
                             title={log.clientIp || '无客户端 IP'}
                           >
-                            <IpCell value={log.clientIp} />
+                            <IpCell value={log.clientIp} v6EdgeOnly />
                           </Table.Cell>
                           <Table.Cell className="text-center">
                             <span className="inline-flex items-center gap-1">

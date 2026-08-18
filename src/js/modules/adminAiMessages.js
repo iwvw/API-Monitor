@@ -72,11 +72,12 @@ export function normalizeAiEvent(raw) {
     case 'delta':
       return { type: 'delta', text: raw.text || '' };
     case 'tool_start':
-      return { type: 'tool_start', toolName: raw.toolName || '', args: raw.args, desc: raw.desc || '' };
+      return { type: 'tool_start', toolName: raw.toolName || '', toolCallId: raw.toolCallId || '', args: raw.args, desc: raw.desc || '' };
     case 'tool_result':
       return {
         type: 'tool_result',
         toolName: raw.toolName || '',
+        toolCallId: raw.toolCallId || '',
         status: raw.status === 'success' ? STEP.SUCCESS : STEP.FAILED,
         error: raw.error || '',
       };
@@ -141,8 +142,16 @@ function pushThinkingStep(msg, step) {
 
 function resolveToolStep(msg, event) {
   const steps = (msg.thinking || []).slice();
-  const idx = steps.findIndex((s) => s.type === 'tool_call' && s.toolName === event.toolName && s.status === STEP.RUNNING);
-  if (idx < 0) return msg; // 无匹配运行步骤（幂等）
+  let idx = -1;
+  if (event.toolCallId) {
+    // 并行同名工具调用：优先按调用身份精确匹配
+    idx = steps.findIndex((s) => s.type === 'tool_call' && s.toolCallId === event.toolCallId);
+  }
+  if (idx < 0) {
+    // 兼容旧事件/历史消息恢复：回退到同名 RUNNING 匹配（幂等）
+    idx = steps.findIndex((s) => s.type === 'tool_call' && s.toolName === event.toolName && s.status === STEP.RUNNING);
+  }
+  if (idx < 0) return msg;
   steps[idx] = { ...steps[idx], status: event.status, error: event.error || '' };
   return { ...msg, thinking: steps };
 }
@@ -169,6 +178,7 @@ export function applyAiEvent(messages, event, targetId) {
       msg = pushThinkingStep(msg, {
         type: 'tool_call',
         toolName: event.toolName,
+        toolCallId: event.toolCallId,
         args: event.args,
         desc: event.desc || '',
         status: STEP.RUNNING,
