@@ -484,7 +484,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             loadMessages(sid);
           }
           // 外部 run 进行中：更新运行指示（思考中/执行工具…），run 结束自动消失
-          setExternalRun(cur.activeRun ? { runId: cur.activeRun.runId, phase: cur.activeRun.phase } : null);
+          setExternalRun(cur.activeRun ? { runId: cur.activeRun.runId, phase: cur.activeRun.phase, title: cur.title } : null);
           lastActivityRef.current.set(sid, cur.lastActivityAt);
           lastCountRef.current.set(sid, cur.messageCount);
         } else {
@@ -999,6 +999,43 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
    /* ==================== 渲染 ==================== */
   const closeSidebar = () => { setShowAskAI(false); setExpanded(false); setManageOpen(false); };
 
+  /* 外部来源 run 指示器：嵌入输入框工具行（模式切换右侧）。
+     runId 变化重挂载重播滑入动画；阶段切换时文案以 key 变化淡入 */
+  const externalRunIndicator = externalRun && (
+    <div
+      key={externalRun.runId}
+      className="askai-external-run flex min-w-0 items-center gap-1.5 text-[11px] text-kumo-subtle"
+      data-external-run-indicator
+    >
+      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-kumo-warning" aria-hidden />
+      <span key={externalRun.phase} className="askai-external-run-phase min-w-0 truncate">
+        {externalRun.title ? `${externalRun.title} · ` : ''}
+        {externalRun.phase === 'tooling' ? '正在执行工具…' : externalRun.phase === 'starting' ? '正在启动…' : '正在思考…'}
+      </span>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onClick={async () => {
+          const runId = externalRun.runId;
+          setExternalRun(null);
+          try {
+            await fetch('/api/admin-ai/cancel', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runId }),
+            });
+          } catch {
+          }
+        }}
+        aria-label="停止外部任务"
+        className="!h-5 shrink-0 !rounded !px-1 !text-kumo-subtle hover:!text-kumo-default hover:!bg-kumo-tint"
+      >
+        <X className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+
   /* ---- 全屏扩展模式 ---- */
   const renderFullscreen = () => (
     <div
@@ -1157,9 +1194,12 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
               {atMenuOpen && (
                 <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
               )}
-              <div className="flex items-center justify-between gap-1 p-4 pt-1.5">
-                <Tabs size="sm" variant="segmented" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
-                <div className="flex items-center gap-1">
+              <div className="flex items-center justify-between gap-1.5 p-4 pt-1.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Tabs size="sm" variant="segmented" className="shrink-0" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
+                  {externalRunIndicator}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
                   <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => { setExpanded(false); setManageOpen(true); }} aria-label="设置">
                     <SettingsIcon className="h-3.5 w-3.5" />
                   </Button>
@@ -1370,37 +1410,6 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             </div>
           </div>
         </div>
-        {/* 外部来源 run 运行指示：思考/工具阶段渐进可见，出现即可感知“代理正在工作” */}
-        {externalRun && (
-          <div className="shrink-0 px-4 pb-2" data-external-run-indicator>
-            <div className="flex items-center gap-2 rounded-lg bg-kumo-recessed/60 px-3 py-2 text-xs text-kumo-subtle ring-1 ring-kumo-line">
-              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-kumo-warning" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">
-                {externalRun.phase === 'tooling' ? '正在执行工具…' : externalRun.phase === 'starting' ? '正在启动…' : '正在思考…'}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  const runId = externalRun.runId;
-                  setExternalRun(null);
-                  try {
-                    await fetch('/api/admin-ai/cancel', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ runId }),
-                    });
-                  } catch {
-                  }
-                }}
-                aria-label="停止外部任务"
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-        )}
         {/* ===== Footer（输入框：实底不透明，无上边距，与消息区相连）；机器人会话只读不渲染输入框 ===== */}
         <div className="relative shrink-0 px-4 pb-4">
         {botActive ? (
@@ -1424,9 +1433,12 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
             {atMenuOpen && (
               <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
             )}
-            <div className="flex items-center justify-between gap-1 p-4 pt-1.5">
-              <Tabs size="sm" variant="segmented" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
-              <div className="flex items-center gap-1">
+            <div className="flex items-center justify-between gap-1.5 p-4 pt-1.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <Tabs size="sm" variant="segmented" className="shrink-0" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
+                {externalRunIndicator}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
                 <Button type="button" size="sm" variant="ghost" shape="square" onClick={() => setManageOpen(true)} aria-label="设置">
                   <SettingsIcon className="h-3.5 w-3.5" />
                 </Button>
