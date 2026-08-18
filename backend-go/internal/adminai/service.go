@@ -48,6 +48,7 @@ type Service struct {
 	catalogDone  bool
 	catalogDescs map[string]string // path -> 中文描述（工具步骤展示用）
 	catalogRoutes []map[string]interface{} // 完整路由契约缓存（get_route 用），与 catalogText 同锁
+	catalogPrefixes map[string]string // 聚合前缀（模块总入口） -> 描述；不可直接调用（buildCatalogText 构建）
 
 	chanMgr     *channelManager // PRD-03 频道接入（channels.go）
 	channelQueueLocks map[string]*sync.Mutex // sessionId → 频道入站排队锁（channels.go，串行化同会话排队者）

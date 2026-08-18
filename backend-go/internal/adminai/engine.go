@@ -162,7 +162,7 @@ func sanitizeToolError(err error) error {
 var adminAITools = []map[string]interface{}{
 	{"type": "function", "function": map[string]interface{}{
 		"name":        "get_route",
-		"description": "读取单个 API 接口的完整契约（请求体 schema、参数、示例）；仅在需要构造请求体时使用",
+		"description": "读取单个 API 接口的完整契约（请求体 schema、参数、示例）；仅在需要构造请求体时使用，且只能查询系统提示词内置接口清单中列出的路径，查询不存在的路径会直接报错",
 		"parameters": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -178,7 +178,7 @@ var adminAITools = []map[string]interface{}{
 	}},
 	{"type": "function", "function": map[string]interface{}{
 		"name":        "call_api",
-		"description": "调用系统 API 接口；写操作（非 GET）会进入人工审批，需等待用户批准。写操作执行后必须立即回读 GET 验证真实生效，并检查 success/error 字段，不得凭 2xx 宣告成功",
+		"description": "调用系统 API 接口；只能调用系统提示词接口清单中列出的路径与方法（清单已含全部可调用接口），清单之外的路径不存在或不可调用，禁止猜测、拼凑或修改路径，也禁止调用 api-docs/openapi 等文档接口；写操作（非 GET）会进入人工审批，需等待用户批准。写操作执行后必须立即回读 GET 验证真实生效，并检查 success/error 字段，不得凭 2xx 宣告成功",
 		"parameters": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -1429,7 +1429,9 @@ func (s *Service) apiCatalogText(ctx context.Context) string {
 }
 
 // buildCatalogText 从系统 auto-docs（含 Methods 与请求契约的确定性文档）生成紧凑清单。
-// 只保留 /api/ 下会话内可直接调用的 JSON 接口，排除流式/WebSocket/代理与公共路由。
+// 只保留 /api/ 下会话内可直接调用的 JSON 接口，排除流式/WebSocket/代理、公共路由、
+// 聚合前缀（matchMode=prefix 的模块总入口，不可直接调用）与文档类元接口
+// （api-docs/openapi 自身，避免模型拉全量文档重复浪费词元）。
 // 每条路由附带：请求体字段摘要（类型/必填/枚举）、废弃状态；完整契约缓存供 get_route 使用。
 func (s *Service) buildCatalogText(ctx context.Context) (string, error) {
 	if s.aiCaller == nil {
@@ -1455,6 +1457,7 @@ func (s *Service) buildCatalogText(ctx context.Context) (string, error) {
 	lines := make([]string, 0, len(rawRoutes))
 	descs := make(map[string]string, len(rawRoutes))
 	routes := make([]map[string]interface{}, 0, len(rawRoutes))
+	prefixes := make(map[string]string, 8)
 	for _, raw := range rawRoutes {
 		r, _ := raw.(map[string]interface{})
 		prefix, _ := r["prefix"].(string)
@@ -1469,6 +1472,19 @@ func (s *Service) buildCatalogText(ctx context.Context) (string, error) {
 		if mode != string(manifest.ResponseJSON) {
 			continue
 		}
+		if isCatalogMetaEndpoint(prefix) {
+			continue
+		}
+		desc, _ := r["detail"].(string)
+		if desc == "" {
+			desc, _ = r["description"].(string)
+		}
+		matchMode, _ := r["matchMode"].(string)
+		if matchMode == string(manifest.MatchPrefix) {
+			// 聚合前缀（模块总入口）：不可直接调用，单独记录供 get_route/call_api 提示子路由
+			prefixes[prefix] = desc
+			continue
+		}
 		rawMethods, _ := r["methods"].([]interface{})
 		if len(rawMethods) == 0 {
 			continue
@@ -1476,10 +1492,6 @@ func (s *Service) buildCatalogText(ctx context.Context) (string, error) {
 		methods := make([]string, 0, len(rawMethods))
 		for _, m := range rawMethods {
 			methods = append(methods, fmt.Sprint(m))
-		}
-		desc, _ := r["detail"].(string)
-		if desc == "" {
-			desc, _ = r["description"].(string)
 		}
 		status, _ := r["status"].(string)
 		descs[prefix] = desc
@@ -1500,8 +1512,19 @@ func (s *Service) buildCatalogText(ctx context.Context) (string, error) {
 	s.catalogMu.Lock()
 	s.catalogDescs = descs
 	s.catalogRoutes = routes
+	s.catalogPrefixes = prefixes
 	s.catalogMu.Unlock()
 	return strings.Join(lines, "\n"), nil
+}
+
+// isCatalogMetaEndpoint 判断是否为文档类元接口：清单已完整覆盖接口，禁入清单，
+// 避免模型为省事拉全量 api-docs/openapi 造成信息重复与词元浪费。
+func isCatalogMetaEndpoint(prefix string) bool {
+	switch prefix {
+	case "/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json":
+		return true
+	}
+	return false
 }
 
 // compactSchemaSummary 将请求体 JSON Schema 压缩成单行字段摘要：
@@ -2069,6 +2092,7 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 		}
 		s.catalogMu.Lock()
 		routes := s.catalogRoutes
+		prefixes := s.catalogPrefixes
 		s.catalogMu.Unlock()
 		if len(routes) == 0 {
 			if _, err := s.buildCatalogText(ctx); err != nil {
@@ -2076,11 +2100,28 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 			}
 			s.catalogMu.Lock()
 			routes = s.catalogRoutes
+			prefixes = s.catalogPrefixes
 			s.catalogMu.Unlock()
+		}
+		// 聚合前缀（模块总入口）不可调用：直接报错并列出子路由，
+		// 避免返回「假契约」诱导模型据此发起调用（审计实证：GET /api/scheduler 404）。
+		if desc, ok := prefixes[path]; ok {
+			children := s.catalogChildrenOf(path)
+			hint := "该路径是聚合前缀（模块总入口"
+			if desc != "" {
+				hint += "：" + desc
+			}
+			hint += "），不可直接调用；"
+			if children != "" {
+				hint += "请改用其具体子路由，例如：" + children
+			} else {
+				hint += "请从系统提示词接口清单中选择以该前缀开头的具体接口"
+			}
+			return nil, fmt.Errorf("路径 %s 未命中可调用接口：%s", path, hint)
 		}
 		contract := routeContractFromCache(routes, path)
 		if contract == nil {
-			return nil, fmt.Errorf("API 路由不存在: %s", path)
+			return nil, fmt.Errorf("API 路由不存在: %s（请对照系统提示词内置的接口清单选择真实路径，禁止猜测清单之外的路径）", path)
 		}
 		return contract, nil
 	}
@@ -2107,6 +2148,80 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 		return nil, err
 	}
 	return aiCallResult(resp)
+}
+
+// catalogChildrenOf 返回聚合前缀下的具体子路由提示（最多 5 条），
+// 用于 get_route/call_api 命中聚合前缀时纠正模型改用真实子接口。
+func (s *Service) catalogChildrenOf(prefix string) string {
+	s.catalogMu.Lock()
+	routes := s.catalogRoutes
+	s.catalogMu.Unlock()
+	var children []string
+	for _, r := range routes {
+		p, _ := r["prefix"].(string)
+		if strings.HasPrefix(p, prefix+"/") {
+			children = append(children, p)
+			if len(children) >= 5 {
+				break
+			}
+		}
+	}
+	return strings.Join(children, "、")
+}
+
+// validateCallAPIPath 本地校验 call_api 的目标路径与方法是否在确定性清单中：
+// 清单外路径直接拒绝（聚合前缀给出子路由提示，其他给出「对照清单」引导），
+// 方法不匹配时返回该接口真实可用方法。清单未构建（catalogRoutes 为空）时放行，
+// 由真实 HTTP 层兜底校验。
+func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
+	s.catalogMu.Lock()
+	routes := s.catalogRoutes
+	prefixes := s.catalogPrefixes
+	s.catalogMu.Unlock()
+	if len(routes) == 0 {
+		return "", true
+	}
+	p := path
+	if i := strings.IndexByte(p, '?'); i >= 0 {
+		p = p[:i]
+	}
+	if desc, ok := prefixes[p]; ok {
+		children := s.catalogChildrenOf(p)
+		hint := "路径 " + path + " 是聚合前缀（模块总入口"
+		if desc != "" {
+			hint += "：" + desc
+		}
+		hint += "），不可直接调用；"
+		if children != "" {
+			hint += "请改用其具体子路由，例如：" + children
+		} else {
+			hint += "请从接口清单中选择以该前缀开头的具体接口"
+		}
+		return hint, false
+	}
+	best := routeContractFromCache(routes, p)
+	if best == nil {
+		return "路径 " + path + " 不在可调用接口清单中（不存在或不可调用）：请对照系统提示词内置的接口清单选择真实路径与正确方法，禁止猜测或拼凑路径", false
+	}
+	if method == "" {
+		method = http.MethodGet
+	}
+	methods, _ := best["methods"].([]interface{})
+	methodOK := false
+	for _, m := range methods {
+		if strings.EqualFold(fmt.Sprint(m), method) {
+			methodOK = true
+			break
+		}
+	}
+	if !methodOK {
+		var list []string
+		for _, m := range methods {
+			list = append(list, fmt.Sprint(m))
+		}
+		return fmt.Sprintf("接口 %s 不支持 %s 方法；其真实可用方法为 %s，请改用正确方法（可先用 get_route 读取契约确认）", path, method, strings.Join(list, "/")), false
+	}
+	return "", true
 }
 
 // routeContractFromCache 从契约缓存中匹配具体路径，返回该路由的完整契约视图。
@@ -2175,6 +2290,12 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 	}
 	if path == "" {
 		return nil, fmt.Errorf("path 不能为空")
+	}
+
+	// 契约预检（防臆造路径）：本地清单校验路径与方法，不命中的请求不发起真实
+	// HTTP（省掉触发 404 的一整轮 LLM 往返），并给出可操作的修正路径/方法提示。
+	if hint, ok := s.validateCallAPIPath(method, path); !ok {
+		return nil, errors.New(hint)
 	}
 
 	headers := map[string]string{}
@@ -2427,9 +2548,14 @@ func toolErrorHint(toolName string, args map[string]interface{}, msg string) str
 	hint := ""
 	switch toolName {
 	case "call_api":
+		// 上游 ai_caller 的错误建议对「外部 MCP 客户端」写的是 find_api，
+		// 但本引擎没有该工具：显式澄清，避免模型照着不存在的工具继续绕路。
+		if strings.Contains(msg, "find_api") {
+			msg += "（说明：本环境没有 find_api 工具，请忽略该建议；直接对照系统提示词内置的接口清单选择真实路径与方法，禁止猜测路径）"
+		}
 		switch {
 		case strings.Contains(msg, "HTTP 4"):
-			hint = "请求未通过校验：先调用 get_route 读取该接口契约（路径参数/请求体字段类型、必填项、枚举），修正后重试；确认 path 里的大括号参数已替换为真实值"
+			hint = "请求未通过校验：先调用 get_route 读取该接口契约（路径参数/请求体字段类型、必填项、枚举），修正后重试；确认 path 里的大括号参数已替换为真实值；若返回是路径不存在（404），请对照系统提示词中的接口清单改用真实路径，不要继续猜测或拼凑路径"
 		case strings.Contains(msg, "HTTP 5"), strings.Contains(msg, "连接"), strings.Contains(msg, "超时"):
 			hint = "服务端临时故障：可稍后重试，或换用同类聚合/状态接口确认结果"
 		case strings.Contains(msg, "业务失败"):

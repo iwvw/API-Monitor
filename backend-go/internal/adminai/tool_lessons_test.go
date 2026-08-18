@@ -121,6 +121,60 @@ func TestCaptureToolLessonsGetRoute(t *testing.T) {
 	}
 }
 
+// 路径修正配对：猜错聚合前缀路径（404）→ 改用清单内真实子路由成功，
+// 应沉淀「勿猜聚合路径」教训（否则同一 404 会在每次执行里重犯）。
+func TestCaptureToolLessonsPathCorrection(t *testing.T) {
+	s := newTestService(t)
+	seedSession(t, s, "aas_lesson6")
+	db, _ := s.open(context.Background())
+	defer db.Close()
+
+	tracker := &toolLessonTracker{}
+	tracker.record("call_api", map[string]interface{}{"method": "GET", "path": "/api/scheduler"}, "scheduler route not implemented (HTTP 404)", false)
+	tracker.record("call_api", map[string]interface{}{"method": "GET", "path": "/api/scheduler/tasks"}, "", true)
+
+	s.captureToolLessons(context.Background(), db, "aas_lesson6", tracker)
+
+	var content string
+	err := db.QueryRowContext(context.Background(),
+		`SELECT content FROM admin_ai_memories ORDER BY created_at DESC LIMIT 1`).Scan(&content)
+	if err != nil {
+		t.Fatalf("query memory: %v", err)
+	}
+	for _, want := range []string{"/api/scheduler", "/api/scheduler/tasks", "勿再猜测"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("lesson content missing %q: %s", want, content)
+		}
+	}
+}
+
+// 路径修正配对的保守边界：错误不是「路径不存在」类、成功路径不是失败路径的
+// 子路由、或失败为 get_route 时，都不沉淀。
+func TestCaptureToolLessonsPathCorrectionSkips(t *testing.T) {
+	s := newTestService(t)
+	seedSession(t, s, "aas_lesson7")
+	db, _ := s.open(context.Background())
+	defer db.Close()
+
+	// 错误类型不符（业务失败而非 404）→ 不沉淀
+	tr := &toolLessonTracker{}
+	tr.record("call_api", map[string]interface{}{"method": "GET", "path": "/api/scheduler/status"}, "business failed: quota", false)
+	tr.record("call_api", map[string]interface{}{"method": "GET", "path": "/api/scheduler/tasks"}, "", true)
+	s.captureToolLessons(context.Background(), db, "aas_lesson7", tr)
+
+	// 失败 get_route + 成功 call_api（跨工具）→ 不沉淀
+	tr2 := &toolLessonTracker{}
+	tr2.record("get_route", map[string]interface{}{"path": "/api/scheduler"}, "route not found", false)
+	tr2.record("call_api", map[string]interface{}{"method": "GET", "path": "/api/scheduler/tasks"}, "", true)
+	s.captureToolLessons(context.Background(), db, "aas_lesson7", tr2)
+
+	var count int
+	_ = db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM admin_ai_memories`).Scan(&count)
+	if count != 0 {
+		t.Fatalf("expected no lessons, got %d", count)
+	}
+}
+
 // argsDiff：只列出差异字段。
 func TestArgsDiff(t *testing.T) {
 	diff := argsDiff(

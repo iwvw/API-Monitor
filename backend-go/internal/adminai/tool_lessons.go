@@ -72,6 +72,8 @@ func callKey(c lessonCall) string {
 
 // captureToolLessons run 收尾调用：失败→修正成功 模式沉淀为长期记忆。
 // 准入：同一指纹先失败后成功；错误与成功参数有实际差异；去重后插入。
+// 另含「路径修正」配对：猜错路径（404/不存在）后改用清单内真实子路由成功，
+// 同样沉淀（否则「别猜 /api/scheduler」这类教训永远不会进入长期记忆）。
 func (s *Service) captureToolLessons(ctx context.Context, db *sql.DB, sessionID string, t *toolLessonTracker) {
 	if t == nil || len(t.failures) == 0 || len(t.successes) == 0 {
 		return
@@ -104,6 +106,81 @@ func (s *Service) captureToolLessons(ctx context.Context, db *sql.DB, sessionID 
 			break
 		}
 	}
+	// 路径修正配对：失败错误表明「路径不存在/不可用」（404 类），本执行内
+	// 成功调用过以失败路径为前缀的具体子路由 → 沉淀「应改用子路由」。
+	// 只适用于 call_api 的路径猜测（get_route 的契约查询失败由错误提示引导即可）。
+	for _, f := range t.failures {
+		if f.toolName != "call_api" {
+			continue
+		}
+		key := callKey(f)
+		if _, done := paired[key]; done {
+			continue
+		}
+		if !lessonPathUnavailable(f.errText) {
+			continue
+		}
+		fPath := lessonCallPath(f)
+		if fPath == "" {
+			continue
+		}
+		for _, ok := range t.successes {
+			if ok.toolName != "call_api" {
+				continue
+			}
+			okPath := lessonCallPath(ok)
+			if okPath == "" || okPath == fPath || !strings.HasPrefix(okPath, fPath+"/") {
+				continue
+			}
+			errKey := strings.Join(strings.Fields(f.errText), " ")
+			if runes := []rune(errKey); len(runes) > lessonMaxErrChars {
+				errKey = string(runes[:lessonMaxErrChars])
+			}
+			text := fmt.Sprintf("工具教训：调用 %s %s 失败（%s）：该路径不存在或不可直接调用；应改用清单内的 %s。后续调用该接口直接使用真实子路径，勿再猜测聚合路径。",
+				strings.ToUpper(lessonCallMethod(f)), fPath, errKey, okPath)
+			if runes := []rune(text); len(runes) > 500 {
+				text = string(runes[:500])
+			}
+			paired[key] = ok
+			s.persistLesson(ctx, db, sessionID, text)
+			if len(paired) >= maxLessonsPerRun {
+				return
+			}
+			break
+		}
+	}
+}
+
+// lessonPathUnavailable 判断失败文本是否为「路径不存在/不可调用」类错误。
+func lessonPathUnavailable(errText string) bool {
+	lower := strings.ToLower(errText)
+	for _, kw := range []string{"不存在", "未能命中", "not implemented", "not found", "http 404", "api 路由不存在", "未命中可调用接口"} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// lessonCallPath 取调用参数里的 path（可能是模板或真实路径）。
+func lessonCallPath(c lessonCall) string {
+	if c.args == nil {
+		return ""
+	}
+	p, _ := c.args["path"].(string)
+	return p
+}
+
+// lessonCallMethod 取调用方法（call_api 无 method 时按 GET 计）。
+func lessonCallMethod(c lessonCall) string {
+	if c.args == nil {
+		return "GET"
+	}
+	m, _ := c.args["method"].(string)
+	if m == "" {
+		return "GET"
+	}
+	return m
 }
 
 // buildLessonText 生成经验文本：错误要点 + 修正后的关键参数。
