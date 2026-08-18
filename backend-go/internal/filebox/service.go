@@ -1099,6 +1099,13 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 		return
 	}
 
+	// 先原子占用下载名额（计数/烧毁删除）再发送内容：并发请求同时通过的
+	// MaxDownloads 检查不会全部放行，超卖窗口关闭。
+	if err := s.AccessEntry(context.Background(), entry.Code, metaFromRequest(r)); err != nil {
+		http.Error(w, "Download quota exceeded or entry expired", http.StatusForbidden)
+		return
+	}
+
 	if entry.Type == "text" {
 		contentType := "text/plain; charset=utf-8"
 		if entry.MIMEType != nil && *entry.MIMEType != "" {
@@ -1111,7 +1118,6 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 		if entry.Content != nil {
 			_, _ = io.WriteString(w, *entry.Content)
 		}
-		_ = s.AccessEntry(context.Background(), entry.Code, metaFromRequest(r))
 		return
 	}
 
@@ -1140,7 +1146,6 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 	}
 	http.ServeContent(w, r, name, stat.ModTime(), file)
 	_ = file.Close()
-	_ = s.AccessEntry(context.Background(), entry.Code, metaFromRequest(r))
 }
 
 func (s *Service) verifyPublicShare(w http.ResponseWriter, r *http.Request, code string) {
@@ -1167,7 +1172,7 @@ func (s *Service) createShare(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	payload, fileHeader, err := parseShareRequest(r, settings.MaxFileSize)
+	payload, fileHeader, err := parseShareRequest(w, r, settings.MaxFileSize)
 	if err != nil {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -1907,7 +1912,12 @@ func (s *Service) migrateJSONMetadata(ctx context.Context) error {
 	return tx.Commit()
 }
 
-func parseShareRequest(r *http.Request, maxFileSize int64) (sharePayload, *multipart.FileHeader, error) {
+func parseShareRequest(w http.ResponseWriter, r *http.Request, maxFileSize int64) (sharePayload, *multipart.FileHeader, error) {
+	// 流式请求体上限：先用 MaxBytesReader 卡住超限上传（不落盘），
+	// 再按 multipart 声明继续校验，双重防线。
+	if maxFileSize > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, maxFileSize+(1<<20))
+	}
 	contentType := strings.ToLower(r.Header.Get("Content-Type"))
 	if strings.HasPrefix(contentType, "application/json") {
 		defer r.Body.Close()
@@ -2035,9 +2045,16 @@ func parseExpiryHours(value string, fallback int) float64 {
 	return parsed
 }
 
+// maxShareExpiryHours 分享有效期上限（100 年）：防止超大值在 float→int64
+// 换算中溢出成负数，导致 isExpired 恒假而变成「永久分享」。
+const maxShareExpiryHours = 876000.0
+
 func expiryTime(now int64, expiryHours float64) int64 {
 	if expiryHours <= 0 {
 		return 0
+	}
+	if expiryHours > maxShareExpiryHours {
+		expiryHours = maxShareExpiryHours
 	}
 	return now + int64(expiryHours*float64(time.Hour/time.Millisecond))
 }

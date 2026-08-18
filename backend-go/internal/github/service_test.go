@@ -408,6 +408,18 @@ func TestDeleteHistoryVacuumShrinksDatabaseFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	// 新建库默认 auto_vacuum=NONE（连接级 PRAGMA 不改既有文件）；先迁移为
+	// INCREMENTAL（等价于设置页「数据库压缩」的迁移路径），使删除后的空间
+	// 可被增量回收（incremental_vacuum），这正是被替换的同步全量 VACUUM
+	// 原本的职责，这里改为在测试内显式完成迁移。
+	if _, err := db.Exec(`PRAGMA auto_vacuum = INCREMENTAL`); err != nil {
+		db.Close()
+		t.Fatalf("enable incremental auto_vacuum: %v", err)
+	}
+	if _, err := db.Exec(`VACUUM`); err != nil {
+		db.Close()
+		t.Fatalf("migrate auto_vacuum: %v", err)
+	}
 	result, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name) VALUES ('openai', 'codex', 'openai/codex')`)
 	if err != nil {
 		db.Close()
@@ -427,11 +439,6 @@ func TestDeleteHistoryVacuumShrinksDatabaseFile(t *testing.T) {
 	}
 	db.Close()
 
-	before, err := os.Stat(service.store.DatabasePath())
-	if err != nil {
-		t.Fatalf("stat database before cleanup: %v", err)
-	}
-
 	req := httptest.NewRequest(http.MethodDelete, "/api/github/history?days=1", nil)
 	rec := httptest.NewRecorder()
 	service.ServeHTTP(rec, req)
@@ -439,12 +446,19 @@ func TestDeleteHistoryVacuumShrinksDatabaseFile(t *testing.T) {
 		t.Fatalf("delete history status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	after, err := os.Stat(service.store.DatabasePath())
+	// 增量回收后空闲页应归零（全量 VACUUM 的副作用「文件必然变小」不适用
+	// 于分批回收，改为验证 freelist 已被回收到位）。
+	db, err = service.open(t.Context())
 	if err != nil {
-		t.Fatalf("stat database after cleanup: %v", err)
+		t.Fatalf("reopen database after cleanup: %v", err)
 	}
-	if after.Size() >= before.Size() {
-		t.Fatalf("expected database file to shrink after vacuum: before=%d after=%d", before.Size(), after.Size())
+	defer db.Close()
+	var freePages int64
+	if err := db.QueryRow(`PRAGMA freelist_count`).Scan(&freePages); err != nil {
+		t.Fatalf("read freelist count: %v", err)
+	}
+	if freePages != 0 {
+		t.Fatalf("expected freelist fully reclaimed after cleanup, got %d free pages", freePages)
 	}
 }
 

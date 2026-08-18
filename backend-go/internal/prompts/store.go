@@ -6,11 +6,19 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
+)
+
+var (
+	// errVersionNotFound / errVersionNotBelong 是版本操作的资源不存在哨兵错误，
+	// handler 据此返回 404 而不是 500。
+	errVersionNotFound  = errors.New("version not found")
+	errVersionNotBelong = errors.New("version does not belong to entry")
 )
 
 type Store struct {
@@ -576,10 +584,10 @@ func (s *Store) RestoreVersion(ctx context.Context, entryID, versionID int64) er
 
 	version, err := s.GetVersion(ctx, versionID)
 	if err != nil || version == nil {
-		return fmt.Errorf("version not found")
+		return errVersionNotFound
 	}
 	if version.EntryID != entryID {
-		return fmt.Errorf("version does not belong to entry")
+		return errVersionNotBelong
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)

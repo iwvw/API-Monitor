@@ -1341,7 +1341,7 @@ func TestLoadProfilesReturnsLibrariesWithCountsAndUpstream(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	if err := upsertProfile(ctx, db, "profile_one", Subscription{Name: "DSUK", Enabled: true, UpstreamURL: "https://example.com/sub", UpstreamEnabled: true, RateLimitEnabled: true}, defaultTemplateID, "manual", "none", 1, 30); err != nil {
+	if err := upsertProfile(ctx, db, "profile_one", Subscription{Name: "DSUK", Enabled: true, UpstreamURL: "https://example.com/sub", UpstreamEnabled: true, RateLimitEnabled: true}, defaultTemplateID, "manual", "none", 1, 30, "explicit", false); err != nil {
 		t.Fatalf("upsert profile: %v", err)
 	}
 	if err := upsertDefaultUpstream(ctx, db, "profile_one", Subscription{UpstreamURL: "https://example.com/sub", UpstreamEnabled: true}, 12); err != nil {
@@ -1392,7 +1392,7 @@ func TestDeleteProfileBlocksWhenNodesOrLinksExist(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	if err := upsertProfile(ctx, db, "profile_busy", Subscription{Name: "繁忙节点库", Enabled: true}, defaultTemplateID, "manual", "none", 1, 30); err != nil {
+	if err := upsertProfile(ctx, db, "profile_busy", Subscription{Name: "繁忙节点库", Enabled: true}, defaultTemplateID, "manual", "none", 1, 30, "explicit", false); err != nil {
 		t.Fatalf("upsert profile: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled) VALUES ('link_busy', 'profile_busy', '公开链接', 'token_busy', 1)`); err != nil {

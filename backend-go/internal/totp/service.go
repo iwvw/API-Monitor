@@ -1346,12 +1346,22 @@ func findSVGRepoBrandIconByKey(key string) (brandIconEntry, bool) {
 	return brandIconEntry{}, false
 }
 
+// svgEventAttrRegex 匹配所有 on* 事件属性（含 onerror/onload 变体，
+	// 以及 "onload =" 这类带空格变体），黑名单字符串匹配无法覆盖的注入面。
+var svgEventAttrRegex = regexp.MustCompile(`(?i)\son[a-z]+\s*=`)
+
+// svgScriptTagRegex 匹配 <script 及其空白变体。
+var svgScriptTagRegex = regexp.MustCompile(`(?i)<\s*script`)
+
 func isSafeSVG(data []byte) bool {
 	text := strings.ToLower(strings.TrimSpace(string(data)))
 	if !strings.Contains(text, "<svg") || !strings.Contains(text, "</svg>") {
 		return false
 	}
-	blocked := []string{"<script", "<foreignobject", " onload=", " onclick=", "javascript:", "data:text/html"}
+	if svgScriptTagRegex.MatchString(text) || svgEventAttrRegex.MatchString(text) {
+		return false
+	}
+	blocked := []string{"<foreignobject", "javascript:", "data:text/html"}
 	for _, item := range blocked {
 		if strings.Contains(text, item) {
 			return false
@@ -1951,6 +1961,10 @@ func hotpCode(secret string, counter uint64, digits int, algorithm string) (stri
 	}
 	if digits <= 0 {
 		digits = 6
+	}
+	// 位数钳制：超过 10 位时取模计算会溢出为 0（除零），且无实际用途
+	if digits > 10 {
+		digits = 10
 	}
 	var counterBytes [8]byte
 	binary.BigEndian.PutUint64(counterBytes[:], counter)

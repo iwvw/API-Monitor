@@ -3,6 +3,8 @@ package drawio
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -486,6 +488,13 @@ func (s *Store) SaveVersion(ctx context.Context, documentID int64, req SaveVersi
 	}, nil
 }
 
+var (
+	// errVersionNotFound / errVersionNotBelong 是版本操作的资源不存在哨兵错误，
+	// handler 据此返回 404 而不是 500。
+	errVersionNotFound  = errors.New("version not found")
+	errVersionNotBelong = errors.New("version does not belong to document")
+)
+
 func (s *Store) RestoreVersion(ctx context.Context, documentID, versionID int64) error {
 	db, err := s.open(ctx)
 	if err != nil {
@@ -495,11 +504,11 @@ func (s *Store) RestoreVersion(ctx context.Context, documentID, versionID int64)
 
 	version, err := s.GetVersion(ctx, versionID)
 	if err != nil || version == nil {
-		return fmt.Errorf("version not found")
+		return errVersionNotFound
 	}
 
 	if version.DocumentID != documentID {
-		return fmt.Errorf("version does not belong to document")
+		return errVersionNotBelong
 	}
 
 	// 将版本 XML 覆盖到草稿
@@ -590,22 +599,37 @@ func pagesToJSON(pages []PageInfo) string {
 	if len(pages) == 0 {
 		return "[]"
 	}
-	parts := make([]string, len(pages))
-	for i, p := range pages {
-		parts[i] = fmt.Sprintf(`{"id":"%s","name":"%s"}`, p.ID, p.Name)
+	type pageJSON struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	}
-	return "[" + joinStrings(parts) + "]"
+	out := make([]pageJSON, len(pages))
+	for i, p := range pages {
+		out[i] = pageJSON{ID: p.ID, Name: p.Name}
+	}
+	if encoded, err := json.Marshal(out); err == nil {
+		return string(encoded)
+	}
+	return "[]"
 }
 
 func assetsToJSON(assets []ExternalAsset) string {
 	if len(assets) == 0 {
 		return "[]"
 	}
-	parts := make([]string, len(assets))
-	for i, a := range assets {
-		parts[i] = fmt.Sprintf(`{"url":"%s","domain":"%s","asset_type":"%s"}`, a.URL, a.Domain, a.AssetType)
+	type assetJSON struct {
+		URL       string `json:"url"`
+		Domain    string `json:"domain"`
+		AssetType string `json:"asset_type"`
 	}
-	return "[" + joinStrings(parts) + "]"
+	out := make([]assetJSON, len(assets))
+	for i, a := range assets {
+		out[i] = assetJSON{URL: a.URL, Domain: a.Domain, AssetType: a.AssetType}
+	}
+	if encoded, err := json.Marshal(out); err == nil {
+		return string(encoded)
+	}
+	return "[]"
 }
 
 func joinStrings(parts []string) string {

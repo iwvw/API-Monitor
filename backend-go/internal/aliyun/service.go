@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -718,25 +719,47 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 			limit <- struct{}{}
 			defer func() { <-limit }()
 
-			payload, err := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
-				"RegionId":   regionID,
-				"PageSize":   options["PageSize"],
-				"PageNumber": options["PageNumber"],
-			})
-			if err != nil {
-				return
-			}
-			items := make([]interface{}, 0)
-			for _, item := range arrayAt(payload, "Instances", "Instance") {
+payload, err := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
+			"RegionId":   regionID,
+			"PageSize":   options["PageSize"],
+			"PageNumber": options["PageNumber"],
+		})
+		if err != nil {
+			applog.Warn(ctx, "aliyun", "failed to list instances for region", "region", regionID, "error", err.Error())
+			return
+		}
+		items := make([]interface{}, 0)
+		appendPage := func(page map[string]interface{}) {
+			for _, item := range arrayAt(page, "Instances", "Instance") {
 				instance := objectValue(item)
 				instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
 				instance["InstanceTypeFriendly"] = formatFlavor(stringValue(instance["InstanceType"], ""))
 				items = append(items, instance)
 			}
-			mu.Lock()
-			all = append(all, items...)
-			mu.Unlock()
-		}()
+		}
+		appendPage(payload)
+		// 翻页拉全（默认 PageSize=100，超出部分需要逐页请求）
+		pageSize := findNumStr(options["PageSize"], 100)
+		if pageSize > 0 {
+			pageNumber := findNumStr(options["PageNumber"], 1)
+			total := findNum(payload, "TotalCount")
+			for int64(pageNumber*pageSize) < total {
+				pageNumber++
+				page, perr := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
+					"RegionId":   regionID,
+					"PageSize":   strconv.Itoa(pageSize),
+					"PageNumber": strconv.Itoa(pageNumber),
+				})
+				if perr != nil {
+					break
+				}
+				appendPage(page)
+			}
+		}
+		mu.Lock()
+		all = append(all, items...)
+		mu.Unlock()
+	}()
 	}
 	wg.Wait()
 	return map[string]interface{}{"instances": all, "total": len(all)}, nil
@@ -1258,4 +1281,42 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// findNumStr 从 options 读分页数字（字符串/数字均可），非法或非正值回退默认。
+func findNumStr(value interface{}, fallback int) int {
+	switch v := value.(type) {
+	case string:
+		if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && parsed > 0 {
+			return parsed
+		}
+	case float64:
+		if parsed := int(v); parsed > 0 {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+// findNum 从响应 map 安全读取数值字段（TotalCount 等）。
+func findNum(value map[string]interface{}, key string) int64 {
+	raw, ok := value[key]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n
+		}
+	case string:
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+			return n
+		}
+	}
+	return 0
 }

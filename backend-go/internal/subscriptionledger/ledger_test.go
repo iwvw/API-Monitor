@@ -20,9 +20,10 @@ func ledgerTestDB(t *testing.T) *sql.DB {
 	statements := []string{
 		`PRAGMA foreign_keys=ON`,
 		`CREATE TABLE subscription_plans(id TEXT PRIMARY KEY,enabled INTEGER,total_bytes INTEGER,cycle_type TEXT,cycle_day INTEGER,selection_mode TEXT,include_internal_nodes INTEGER)`,
-		`CREATE TABLE subscription_subscriptions(id TEXT PRIMARY KEY,plan_id TEXT,enabled INTEGER,vless_uuid TEXT,hysteria2_password TEXT,created_at TEXT)`,
+		`CREATE TABLE subscription_subscriptions(id TEXT PRIMARY KEY,plan_id TEXT,profile_id TEXT,enabled INTEGER,vless_uuid TEXT,hysteria2_password TEXT,created_at TEXT)`,
 		`CREATE TABLE managed_proxy_nodes(id TEXT PRIMARY KEY,server_id TEXT,enabled INTEGER,apply_status TEXT,stats_port INTEGER)`,
 		`CREATE TABLE subscription_plan_nodes(plan_id TEXT,node_id TEXT,source TEXT,PRIMARY KEY(plan_id,node_id,source))`,
+		`CREATE TABLE subscription_profiles(id TEXT PRIMARY KEY,selection_mode TEXT,include_internal_nodes INTEGER)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -43,7 +44,7 @@ func TestRecordBatchIsAtomicIdempotentAndQueuesExhaustion(t *testing.T) {
 	db := ledgerTestDB(t)
 	ctx := context.Background()
 	_, _ = db.Exec(`INSERT INTO subscription_plans VALUES('plan',1,1000,'monthly',1,'explicit',1)`)
-	_, _ = db.Exec(`INSERT INTO subscription_subscriptions VALUES('sub','plan',1,'uuid','password','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('sub','plan',1,'uuid','password','2026-01-01 00:00:00')`)
 	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
 	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('plan','node','internal')`)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
@@ -70,7 +71,7 @@ func TestActiveCredentialsExcludeExhaustedSubscriber(t *testing.T) {
 	db := ledgerTestDB(t)
 	ctx := context.Background()
 	_, _ = db.Exec(`INSERT INTO subscription_plans VALUES('plan',1,100,'monthly',1,'explicit',1)`)
-	_, _ = db.Exec(`INSERT INTO subscription_subscriptions VALUES('active','plan',1,'uuid-a','pass-a','2026-01-01 00:00:00'),('spent','plan',1,'uuid-b','pass-b','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('active','plan',1,'uuid-a','pass-a','2026-01-01 00:00:00'),('spent','plan',1,'uuid-b','pass-b','2026-01-01 00:00:00')`)
 	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
 	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('plan','node','internal')`)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
@@ -86,7 +87,7 @@ func TestRecordBatchCanonicalizesCredentialAliasesAndClampsQuota(t *testing.T) {
 	db := ledgerTestDB(t)
 	ctx := context.Background()
 	_, _ = db.Exec(`INSERT INTO subscription_plans VALUES('plan',1,100,'monthly',1,'explicit',1)`)
-	_, _ = db.Exec(`INSERT INTO subscription_subscriptions VALUES('sub','plan',1,'uuid','password','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('sub','plan',1,'uuid','password','2026-01-01 00:00:00')`)
 	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
 	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('plan','node','internal')`)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
@@ -129,7 +130,7 @@ func TestPruneKeepsAggregatedUsageWhileDroppingOldRawRows(t *testing.T) {
 	db := ledgerTestDB(t)
 	ctx := context.Background()
 	_, _ = db.Exec(`INSERT INTO subscription_plans VALUES('plan',1,0,'monthly',1,'explicit',1)`)
-	_, _ = db.Exec(`INSERT INTO subscription_subscriptions VALUES('sub','plan',1,'uuid','password','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('sub','plan',1,'uuid','password','2026-01-01 00:00:00')`)
 	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
 	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('plan','node','internal')`)
 
@@ -169,7 +170,30 @@ func TestPruneKeepsAggregatedUsageWhileDroppingOldRawRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if usage.UploadBytes != 44 || usage.DownloadBytes != 66 {
+if usage.UploadBytes != 44 || usage.DownloadBytes != 66 {
 		t.Fatalf("usage=%#v", usage)
+	}
+}
+
+func TestRecordBatchAcceptsEnabledProfileSubscription(t *testing.T) {
+	db := ledgerTestDB(t)
+	ctx := context.Background()
+	_, _ = db.Exec(`INSERT INTO subscription_profiles VALUES('profile','all',1)`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,profile_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('profsub','','profile',1,'uuid','password','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
+	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('profile','node','internal')`)
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	report := Report{ServerID: "host", NodeID: "node", CredentialID: "profsub", BootID: "boot", Sequence: 1, UploadBytes: 100, DownloadBytes: 200}
+	accepted, duplicates, err := RecordBatch(ctx, db, []Report{report}, now)
+	if err != nil || accepted != 1 || duplicates != 0 {
+		t.Fatalf("enabled profile subscription must be accepted, accepted=%d duplicates=%d err=%v", accepted, duplicates, err)
+	}
+
+	// 开关关闭后同节点上报被忽略
+	_, _ = db.Exec(`UPDATE subscription_profiles SET include_internal_nodes = 0 WHERE id = 'profile'`)
+	report.Sequence = 2
+	accepted, _, err = RecordBatch(ctx, db, []Report{report}, now)
+	if err != nil || accepted != 0 {
+		t.Fatalf("disabled profile subscription must be ignored, accepted=%d err=%v", accepted, err)
 	}
 }

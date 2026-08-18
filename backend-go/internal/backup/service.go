@@ -232,7 +232,7 @@ func (s *Service) createBackup(ctx context.Context) (Record, error) {
 	if err := os.MkdirAll(cfg.LocalDir, 0o755); err != nil {
 		return Record{}, err
 	}
-	name := "api-monitor-backup-" + time.Now().Format("20060102-150405") + ".zip"
+	name := "api-monitor-backup-" + time.Now().Format("20060102-150405.000000") + ".zip"
 	target := filepath.Join(cfg.LocalDir, name)
 	file, err := os.Create(target)
 	if err != nil {

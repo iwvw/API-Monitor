@@ -899,6 +899,11 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if persistErr := persistPublicPageRegistration(r.Context(), db, inviteCode, target.ID, target.Name, displayName, userPrincipalName, graphUserID, status, errorMessage); persistErr != nil {
+		if errors.Is(persistErr, errInviteCodeExhausted) {
+			// 并发竞争的第二个注册：邀请码额度已被对方占用
+			response.Error(w, http.StatusConflict, "邀请码已被使用")
+			return
+		}
 		if warning != "" {
 			warning += "; "
 		}
@@ -1416,12 +1421,19 @@ func persistPublicPageRegistration(ctx context.Context, db *sql.DB, inviteCode i
 	defer tx.Rollback()
 
 	if status == "success" || status == "partial" {
-		if _, err := tx.ExecContext(
+		// 条件自增：可用性检查发生在 Graph 建号之前的窗口内，并发注册会
+		// 双双通过；此处把「已用完」的并发消耗用原子条件拒绝掉，防止双兑换。
+		result, err := tx.ExecContext(
 			ctx,
-			`UPDATE m365_invite_codes SET used_count = used_count + 1, last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			`UPDATE m365_invite_codes SET used_count = used_count + 1, last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+			 WHERE id = ? AND (max_uses = 0 OR used_count < max_uses)`,
 			inviteCode.ID,
-		); err != nil {
+		)
+		if err != nil {
 			return err
+		}
+		if changed, _ := result.RowsAffected(); changed == 0 {
+			return errInviteCodeExhausted
 		}
 	}
 	if _, err := tx.ExecContext(
@@ -1523,6 +1535,9 @@ func jsonString(value interface{}) (string, error) {
 	}
 	return string(raw), nil
 }
+
+// errInviteCodeExhausted 表示并发注册竞争下邀请码额度已被另一方占用。
+var errInviteCodeExhausted = errors.New("invite code exhausted")
 
 const publicPageSelectSQL = `SELECT p.id, p.name, p.account_id, COALESCE(a.name, ''), COALESCE(p.account_ids, ''), p.domain, COALESCE(p.domains, ''), COALESCE(p.usage_location, ''), COALESCE(p.sku_ids, ''), COALESCE(p.enabled, 1), COALESCE(p.force_change_password_next_sign_in, 0), COALESCE(p.expires_at, ''), p.created_at, p.updated_at, COALESCE(stats.code_count, 0), COALESCE(stats.used_code_count, 0)
 FROM m365_public_pages p

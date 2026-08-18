@@ -325,17 +325,35 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 			}
 			return result, fmt.Errorf("resolve subscriber credential: %w", err)
 		}
+		// 节点授权判定：plan 型与 profile 型订阅都需要被识别（profile 的
+		// include_internal_nodes/selection_mode 列由 subscription 模块
+		// ensureSchema 补齐，默认关闭，开启后 profile 订阅的 internal
+		// 节点流量才会记账）。
 		var entitled int
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-			SELECT 1 FROM managed_proxy_nodes n
-			JOIN subscription_subscriptions s ON s.id=?
-			JOIN subscription_plans p ON p.id=s.plan_id
-			WHERE n.id=? AND n.server_id=? AND n.enabled=1 AND n.apply_status='running'
-			AND s.enabled=1 AND p.enabled=1 AND p.include_internal_nodes=1
-			AND (COALESCE(p.selection_mode,'explicit')='all' OR EXISTS(
-				SELECT 1 FROM subscription_plan_nodes pn
-				WHERE pn.plan_id=p.id AND pn.node_id=n.id AND pn.source='internal'
-			))
+			SELECT 1
+			FROM subscription_subscriptions s
+			JOIN managed_proxy_nodes n ON n.enabled=1 AND n.apply_status='running'
+			WHERE s.id=? AND s.enabled=1 AND n.id=? AND n.server_id=?
+			AND (
+				(s.plan_id != '' AND EXISTS(
+					SELECT 1 FROM subscription_plans p
+					WHERE p.id=s.plan_id AND p.enabled=1 AND p.include_internal_nodes=1
+					AND (COALESCE(p.selection_mode,'explicit')='all' OR EXISTS(
+						SELECT 1 FROM subscription_plan_nodes pn
+						WHERE pn.plan_id=p.id AND pn.node_id=n.id AND pn.source='internal'
+					))
+				))
+				OR
+				(s.plan_id = '' AND s.profile_id != '' AND EXISTS(
+					SELECT 1 FROM subscription_profiles pf
+					WHERE pf.id=s.profile_id AND pf.include_internal_nodes=1
+					AND (COALESCE(pf.selection_mode,'explicit')='all' OR EXISTS(
+						SELECT 1 FROM subscription_plan_nodes pn
+						WHERE pn.plan_id=pf.id AND pn.node_id=n.id AND pn.source='internal'
+					))
+				))
+			)
 		)`, subscriptionID, report.NodeID, report.ServerID).Scan(&entitled); err != nil {
 			return result, fmt.Errorf("validate subscriber node entitlement: %w", err)
 		}

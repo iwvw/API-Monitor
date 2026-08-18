@@ -134,6 +134,8 @@ type NodeLibrary struct {
 	RateLimitPerMinute    int         `json:"rate_limit_per_minute"`
 	NodeFilterTags        string      `json:"node_filter_tags,omitempty"`
 	SortOrder             int         `json:"sort_order"`
+	SelectionMode         string      `json:"selection_mode,omitempty"`
+	IncludeInternalNodes  bool        `json:"include_internal_nodes"`
 	CreatedAt             string      `json:"created_at"`
 	UpdatedAt             string      `json:"updated_at"`
 	NodeCount             int         `json:"node_count"`
@@ -791,6 +793,13 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("create subscription Hysteria2 credential index: %w", err)
 	}
 	if err := ensureColumn(ctx, db, "subscription_plans", "selection_mode", "ALTER TABLE subscription_plans ADD COLUMN selection_mode TEXT NOT NULL DEFAULT 'explicit'"); err != nil {
+		return err
+	}
+	// profile 型订阅的内部节点记账开关（与 plan 语义一致，默认关闭兼容存量）
+	if err := ensureColumn(ctx, db, "subscription_profiles", "include_internal_nodes", "ALTER TABLE subscription_profiles ADD COLUMN include_internal_nodes INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "subscription_profiles", "selection_mode", "ALTER TABLE subscription_profiles ADD COLUMN selection_mode TEXT NOT NULL DEFAULT 'explicit'"); err != nil {
 		return err
 	}
 	if err := ensureColumn(ctx, db, "subscription_subscriptions", "plan_id", "ALTER TABLE subscription_subscriptions ADD COLUMN plan_id TEXT DEFAULT ''"); err != nil {
@@ -1608,7 +1617,7 @@ func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	if limitPerMin <= 0 {
 		limitPerMin = settings.DefaultRateLimitPerMin
 	}
-	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin); err != nil {
+	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1647,7 +1656,7 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	cycleType := normalizeCycleType(input.CycleType)
 	refreshHours := intDefault(input.UpstreamRefreshHours, defaultRefreshHours)
 	limitPerMin := intDefault(input.RateLimitPerMinute, defaultLimitPerMin)
-	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin); err != nil {
+	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1759,7 +1768,7 @@ func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db 
 	defer tx.Rollback()
 	if !profileExists(r.Context(), tx, profileID) {
 		library := Subscription{Name: "外部节点池", Remark: "系统统一外部节点池", Enabled: true}
-		if err := upsertProfile(r.Context(), tx, profileID, library, rawTemplateID, "manual", "none", 1, defaultLimitPerMin); err != nil {
+		if err := upsertProfile(r.Context(), tx, profileID, library, rawTemplateID, "manual", "none", 1, defaultLimitPerMin, "explicit", false); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -1977,7 +1986,7 @@ func (s *Service) deleteSubscription(w http.ResponseWriter, r *http.Request, db 
 	response.OK(w, map[string]bool{"deleted": true})
 }
 
-func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string, input Subscription, templateID, trafficSource, cycleType string, cycleDay, limitPerMin int) error {
+func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string, input Subscription, templateID, trafficSource, cycleType string, cycleDay, limitPerMin int, selectionMode string, includeInternal bool) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("profile id is required")
 	}
@@ -1985,8 +1994,8 @@ func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string
 			id, name, remark, enabled, template_id, traffic_source, traffic_server_id,
 			total_bytes, manual_upload_bytes, manual_download_bytes, expire_at, cycle_type,
 			cycle_day, cycle_start, cycle_end, baseline_upload_bytes, baseline_download_bytes,
-			rate_limit_enabled, rate_limit_per_minute, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+			rate_limit_enabled, rate_limit_per_minute, selection_mode, include_internal_nodes, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			remark = excluded.remark,
@@ -2006,11 +2015,13 @@ func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string
 			baseline_download_bytes = excluded.baseline_download_bytes,
 			rate_limit_enabled = excluded.rate_limit_enabled,
 			rate_limit_per_minute = excluded.rate_limit_per_minute,
+			selection_mode = excluded.selection_mode,
+			include_internal_nodes = excluded.include_internal_nodes,
 			updated_at = datetime('now')`,
 		id, input.Name, input.Remark, boolToInt(input.Enabled), templateID, trafficSource, nullString(input.TrafficServerID),
 		input.TotalBytes, input.ManualUploadBytes, input.ManualDownloadBytes, nullString(input.ExpireAt), cycleType,
 		cycleDay, nullString(input.CycleStart), nullString(input.CycleEnd), input.BaselineUploadBytes, input.BaselineDownloadBytes,
-		boolToInt(input.RateLimitEnabled), limitPerMin)
+		boolToInt(input.RateLimitEnabled), limitPerMin, normalizePlanSelectionMode(selectionMode), boolToInt(includeInternal))
 	if err != nil {
 		return fmt.Errorf("upsert subscription profile: %w", err)
 	}
@@ -3040,7 +3051,9 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 			p.total_bytes, p.manual_upload_bytes, p.manual_download_bytes, COALESCE(p.expire_at, ''),
 			COALESCE(p.cycle_type, 'none'), COALESCE(p.cycle_day, 1), COALESCE(p.cycle_start, ''), COALESCE(p.cycle_end, ''),
 			p.baseline_upload_bytes, p.baseline_download_bytes, p.rate_limit_enabled, COALESCE(p.rate_limit_per_minute, 30),
-			COALESCE(p.node_filter_tags, ''), COALESCE(p.sort_order, 0), p.created_at, p.updated_at
+			COALESCE(p.node_filter_tags, ''), COALESCE(p.sort_order, 0),
+			COALESCE(p.selection_mode, 'explicit'), COALESCE(p.include_internal_nodes, 0),
+			p.created_at, p.updated_at
 		FROM subscription_profiles p
 		LEFT JOIN subscription_upstreams u ON u.id = (
 			SELECT id FROM subscription_upstreams
@@ -3056,13 +3069,14 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 	items := []NodeLibrary{}
 	for rows.Next() {
 		var item NodeLibrary
-		var enabled, upstreamEnabled, rateEnabled int
-		if err := rows.Scan(&item.ID, &item.Name, &item.Remark, &enabled, &item.TemplateID, &item.TrafficSource, &item.TrafficServerID, &item.UpstreamURL, &upstreamEnabled, &item.UpstreamRefreshHours, &item.UpstreamStatus, &item.UpstreamLastError, &item.UpstreamLastRefreshAt, &item.UpstreamUserinfo, &item.TotalBytes, &item.ManualUploadBytes, &item.ManualDownloadBytes, &item.ExpireAt, &item.CycleType, &item.CycleDay, &item.CycleStart, &item.CycleEnd, &item.BaselineUploadBytes, &item.BaselineDownloadBytes, &rateEnabled, &item.RateLimitPerMinute, &item.NodeFilterTags, &item.SortOrder, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		var enabled, upstreamEnabled, rateEnabled, includeInternal int
+		if err := rows.Scan(&item.ID, &item.Name, &item.Remark, &enabled, &item.TemplateID, &item.TrafficSource, &item.TrafficServerID, &item.UpstreamURL, &upstreamEnabled, &item.UpstreamRefreshHours, &item.UpstreamStatus, &item.UpstreamLastError, &item.UpstreamLastRefreshAt, &item.UpstreamUserinfo, &item.TotalBytes, &item.ManualUploadBytes, &item.ManualDownloadBytes, &item.ExpireAt, &item.CycleType, &item.CycleDay, &item.CycleStart, &item.CycleEnd, &item.BaselineUploadBytes, &item.BaselineDownloadBytes, &rateEnabled, &item.RateLimitPerMinute, &item.NodeFilterTags, &item.SortOrder, &item.SelectionMode, &includeInternal, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled == 1
 		item.UpstreamEnabled = upstreamEnabled == 1
 		item.RateLimitEnabled = rateEnabled == 1
+		item.IncludeInternalNodes = includeInternal == 1
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

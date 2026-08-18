@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -570,20 +571,34 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 			limit <- struct{}{}
 			defer func() { <-limit }()
 
-			result, err := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{})
+			result, err := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{"Limit": 100, "Offset": 0})
 			if err != nil {
+				applog.Warn(ctx, "tencent", "failed to list instances for region", "region", region, "error", err.Error())
 				return
 			}
 			items := make([]map[string]interface{}, 0)
-			for _, item := range arrayValue(firstPresent(result, key, "instances")) {
-				instance := objectValue(item)
-				if len(instance) == 0 {
-					continue
+			appendPage := func(page map[string]interface{}) {
+				for _, item := range arrayValue(firstPresent(page, key, "instances")) {
+					instance := objectValue(item)
+					if len(instance) == 0 {
+						continue
+					}
+					instance["_Region"] = region
+					instance["Region"] = region
+					instance["RegionName"] = regionName(region)
+					items = append(items, instance)
 				}
-				instance["_Region"] = region
-				instance["Region"] = region
-				instance["RegionName"] = regionName(region)
-				items = append(items, instance)
+			}
+			appendPage(result)
+			// 翻页拉全（腾讯默认只返回 20 条/页）：按 TotalCount 逐页补齐
+			if totalCount := findNum(result, "TotalCount"); totalCount > 0 {
+				for offset := 100; int64(offset) < totalCount; offset += 100 {
+					page, perr := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{"Limit": 100, "Offset": offset})
+					if perr != nil {
+						break
+					}
+					appendPage(page)
+				}
 			}
 			mu.Lock()
 			instances = append(instances, items...)
@@ -592,6 +607,29 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 	}
 	wg.Wait()
 	return instances
+}
+
+// findNum 从响应 map 安全读取数值字段（兼容 float64/int64/json.Number/数字字符串）。
+func findNum(value map[string]interface{}, key string) int64 {
+	raw, ok := value[key]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n
+		}
+	case string:
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func (s *Service) callTencent(ctx context.Context, service, region, action, version string, payload map[string]interface{}) (map[string]interface{}, error) {

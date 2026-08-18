@@ -124,7 +124,8 @@ func NodeIDsForSubscription(ctx context.Context, queryer Queryer, subscriptionID
 	if planID != "" {
 		return NodeIDsForPlan(ctx, queryer, planID)
 	}
-	// For profile-based subscriptions
+	// For profile-based subscriptions（include_internal_nodes/selection_mode 列
+	// 由 subscription 模块 ensureSchema 补齐，默认关闭保持存量语义）
 	if profileID != "" {
 		nodeRows, err := queryer.QueryContext(ctx, `SELECT n.id
 			FROM managed_proxy_nodes n

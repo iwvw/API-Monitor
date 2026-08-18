@@ -2143,7 +2143,16 @@ func (s *Service) cfRawRequest(ctx context.Context, method, path string, headers
 		return nil, "", err
 	}
 	defer res.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(res.Body, 16<<20))
+	// cfRawRequest 通用请求读取上限：超过该大小的响应不再静默截断，
+	// 而是返回错误，避免大文件（如 R2 对象）被截断后以 200 交付损坏数据。
+	const maxCFResponseBytes = 16 << 20
+	raw, err := io.ReadAll(io.LimitReader(res.Body, maxCFResponseBytes+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(raw) > maxCFResponseBytes {
+		return nil, "", fmt.Errorf("response exceeds download limit of %d bytes", maxCFResponseBytes)
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		var payload map[string]interface{}
 		if json.Unmarshal(raw, &payload) == nil {

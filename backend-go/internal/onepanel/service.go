@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -441,6 +442,15 @@ func (s *Service) reloadOpenResty(w http.ResponseWriter, r *http.Request, server
 		response.Error(w, http.StatusServiceUnavailable, "agent runner not available")
 		return
 	}
+	// 服务器不存在时直接 404，避免 agent 任务阶段以 502 报错
+	if _, err := s.getConfig(r.Context(), serverID); err != nil {
+		if errors.Is(err, errPanelConfigNotFound) {
+			response.Error(w, http.StatusNotFound, "server not found")
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	// 容错：1Panel 默认的 OpenResty 容器名为 `openresty`。若节点重命名了容器，
 	// 会报错，需改用通用 proxy 或直接调整脚本。见 docs/onepanel接口文档.md。
 	out, err := s.runner.RunCommandTaskAndWait(serverID, "docker exec openresty nginx -t && docker exec openresty nginx -s reload", 15*time.Second)
@@ -556,6 +566,9 @@ type panelConfig struct {
 	BaseURL string
 }
 
+// errPanelConfigNotFound 是面板连接配置不存在的哨兵错误（handler 返回 404）。
+var errPanelConfigNotFound = errors.New("onepanel config not found")
+
 func (s *Service) getConfig(ctx context.Context, serverID string) (*panelConfig, error) {
 	db, err := s.open(ctx)
 	if err != nil {
@@ -568,7 +581,7 @@ func (s *Service) getConfig(ctx context.Context, serverID string) (*panelConfig,
 		`SELECT api_key, base_url FROM onepanel_connections WHERE server_id=?`, serverID).
 		Scan(&apiKey, &baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("onepanel config not found for server %s", serverID)
+		return nil, errPanelConfigNotFound
 	}
 	return &panelConfig{
 		APIKey:  secure.SecureDecrypt(apiKey),
