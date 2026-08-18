@@ -973,9 +973,10 @@ function SchedulerPage({ onNavigate = () => {} }) {
     let cancelled = false;
     (async () => {
       try {
-        const [epRes, chRes] = await Promise.all([
+        const [epRes, chRes, aiChRes] = await Promise.all([
           fetch('/api/openai/endpoints'),
           fetch('/api/notification/channels'),
+          fetch('/api/admin-ai/channels'),
         ]);
         const epData = await epRes.json();
         const eps = Array.isArray(epData) ? epData : (epData.data || []);
@@ -990,13 +991,29 @@ function SchedulerPage({ onNavigate = () => {} }) {
           }
         }
         options.sort((a, b) => a.label.localeCompare(b.label));
-        // 结果推送目标：复用通知中心已配置的 Telegram 渠道（bot token 与目标 chat 均取自渠道配置）
+        // 结果推送目标：优先列通知中心已启用的 Telegram 渠道，并兼容旧版 AI 频道 id（aac_ 前缀）
         const chData = await chRes.json();
         const channels = (chData.data || chData) || [];
         const telegramChannels = channels.filter((c) => c.type === 'telegram' && c.enabled);
+        let aiTelegramChannels = [];
+        try {
+          const aiChData = await aiChRes.json();
+          const aiRaw = (aiChData && aiChData.data) || aiChData || {};
+          const aiList = Array.isArray(aiRaw) ? aiRaw : (aiRaw.channels || []);
+          aiTelegramChannels = aiList.filter((c) => c && c.type === 'telegram' && c.enabled);
+        } catch {
+          // AI 频道列表不可用时仅展示通知中心渠道
+        }
         if (cancelled) return;
         setAiModelOptions(options.length ? options : [{ value: '', label: '默认模型' }]);
-        setAiChannelOptions(telegramChannels.map((c) => ({ value: c.id, label: c.name || c.id })));
+        const notifLabels = new Set(telegramChannels.map((c) => c.name || c.id));
+        setAiChannelOptions([
+          ...telegramChannels.map((c) => ({ value: c.id, label: c.name || c.id })),
+          ...aiTelegramChannels.map((c) => {
+            const base = c.name || c.id;
+            return { value: c.id, label: notifLabels.has(base) ? `${base}（AI 频道）` : base };
+          }),
+        ]);
       } catch {
         if (!cancelled) {
           setAiModelOptions([{ value: '', label: '默认模型' }]);
@@ -1629,7 +1646,9 @@ function SchedulerPage({ onNavigate = () => {} }) {
             bodyPadding="none"
           >
             {loading ? (
-              <div className="p-4"><SkeletonLine className="h-28" /></div>
+              <div className="space-y-2 p-4">
+                {Array.from({ length: 6 }).map((_, index) => <SkeletonLine key={index} className="h-11 w-full" />)}
+              </div>
             ) : tasks.length === 0 ? (
               <Empty size="sm" className="rounded-none border-0 bg-transparent" icon={<Clock className="h-8 w-8 text-kumo-inactive" />} title="暂无任务" description="创建后可作为定时任务或工作流节点。" contents={<Button size="sm" variant="primary" onClick={openCreateTask}><Plus className="h-3.5 w-3.5" />新建任务</Button>} />
             ) : (
@@ -1879,14 +1898,14 @@ function SchedulerPage({ onNavigate = () => {} }) {
             <div className="min-w-0 space-y-4">
 
               {taskForm.type === 'ai' && (
-                <FormCard icon={<Sparkle className="h-4 w-4" />} title="AI 执行配置" description="定时向管理 AI 发起提示词，可调用全部内部接口完成巡检/运维/报告">
+                <FormCard icon={<Sparkle className="h-4 w-4" />} title="AI 执行配置" description="可调用全部内部接口">
                   <div className="grid gap-3 py-4 cq-sm:grid-cols-2">
                     <Select size="sm" label="推理模型" className="w-full" value={taskForm.aiModel} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiModel: String(value) }))} items={aiModelOptions} />
                     <Select size="sm" label="写操作策略" className="w-full" value={taskForm.aiPolicy} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiPolicy: String(value) }))} items={AI_POLICY_ITEMS} />
                     <Select size="sm" label="结果推送" className="w-full cq-sm:col-span-2" value={taskForm.aiChannelId} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiChannelId: String(value) }))} items={[{ value: '', label: '不推送（仅记录到运行结果）' }, ...aiChannelOptions]} />
                   </div>
                   <div className="border-t border-kumo-line py-3 text-xs text-kumo-subtle">
-                    执行结果写入会话与审计；策略「完全允许」时写操作免审批执行（受管理 AI 写操作全局开关约束）。
+                    策略「完全允许」时写操作免审批执行。
                   </div>
                 </FormCard>
               )}
