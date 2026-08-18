@@ -58,6 +58,10 @@ const (
 	// 即终止流，防止上游停滞时请求无限挂死。正常模型输出不会连续 90s 无字节；
 	// 需要长静默的本地推理场景可在端点配置中选用更长超时。
 	streamIdleTimeout = 90 * time.Second
+	// gatewayBodyMaxBytes 是网关可接受的请求体上限：全量读入内存（读 body →
+	// parsedBody map → 转发体 bytes，约 3 倍峰值），小内存主机上必须封顶，
+	// 超大（异常/恶意）请求体直接 413 拒绝，避免瞬时内存尖峰触发 OOM。
+	gatewayBodyMaxBytes = 16 * 1024 * 1024
 )
 
 // 热路径正则预编译：chat completion 每请求都会用到，避免逐请求编译。
@@ -1211,6 +1215,16 @@ func errorResponseForLog(body []byte, statusCode int) string {
 		return ""
 	}
 	return truncateForLog(string(body), relayErrorResponseLimit)
+}
+
+// gatewayBodyReadStatus 判定请求体读取失败的类型：MaxBytesReader 超限
+// （*http.MaxBytesError）返回 413（客户端违约），其余读取失败返回 502。
+func gatewayBodyReadStatus(err error) (int, string) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return http.StatusRequestEntityTooLarge, "body_too_large"
+	}
+	return http.StatusBadGateway, "gateway"
 }
 
 // trimErrorDetailRetention 清空超出保留上限（relayErrorResponseRetention）的错误详情：
@@ -5364,17 +5378,21 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestStarted := time.Now()
 	clientIP := s.resolveClientIP(r)
+	// 请求体上限（小内存主机防瞬时尖峰）：超限经 MaxBytesReader 截断读取，
+	// 由下方 err 分支返回 413，不会把超大 body 全量读入内存。
+	r.Body = http.MaxBytesReader(w, r.Body, gatewayBodyMaxBytes)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		// 请求体读取失败（如客户端上传超时中断）：这是网关侧问题，用 502 表达，
-		// 避免与「请求体格式错误」的 400 语义混淆。
+		// 请求体超限（MaxBytesReader 截断）应是客户端违约，返回 413；
+		// 其他读取失败（如客户端上传超时中断）是网关侧问题，用 502 表达。
+		status, kind := gatewayBodyReadStatus(err)
 		s.recordRelayError(RelayErrorRecord{
-			Route: "chat.completions", Kind: "gateway",
+			Route: "chat.completions", Kind: kind,
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body read failed: " + err.Error(),
 		})
 		// 网关拦截（未到达上游）不写入调用日志。
-		response.JSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		response.JSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -6431,17 +6449,21 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	requestStarted := time.Now()
 	clientIP := s.resolveClientIP(r)
+	// 请求体上限（小内存主机防瞬时尖峰）：超限经 MaxBytesReader 截断读取，
+	// 由下方 err 分支返回 413，不会把超大 body 全量读入内存。
+	r.Body = http.MaxBytesReader(w, r.Body, gatewayBodyMaxBytes)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		// 请求体读取失败（如客户端上传超时中断）：这是网关侧问题，用 502 表达，
-		// 避免与「请求体格式错误」的 400 语义混淆。
+		// 请求体超限（MaxBytesReader 截断）应是客户端违约，返回 413；
+		// 其他读取失败（如客户端上传超时中断）是网关侧问题，用 502 表达。
+		status, kind := gatewayBodyReadStatus(err)
 		s.recordRelayError(RelayErrorRecord{
-			Route: "responses", Kind: "gateway",
+			Route: "responses", Kind: kind,
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body read failed: " + err.Error(),
 		})
 		// 网关拦截（未到达上游）不写入调用日志。
-		response.JSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		response.JSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 

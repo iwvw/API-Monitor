@@ -19,6 +19,10 @@ const (
 	defaultTriggerRatio   = 0.85
 	defaultCheckInterval  = 15 * time.Second
 	minContainerLimitByte = 64 * 1024 * 1024
+	// maxTrustedCgroupBytes 是可信的 cgroup 内存上限最大值（1TB）：
+	// cgroup v1 的 memory.limit_in_bytes 在「未限制」时常返回 LONG_MAX 附近的
+	// 巨大值（实测 Fly.io 上读到 6.4EB），直接采用会把内存守卫变成形同虚设。
+	maxTrustedCgroupBytes = 1 << 40
 )
 
 type Config struct {
@@ -92,11 +96,57 @@ func resolveConfig() Config {
 		return configForLimit(limit, "API_MONITOR_MEMORY_LIMIT_MB")
 	}
 
-	if limit, source := cgroupMemoryLimit(); limit >= minContainerLimitByte {
+	if limit, source := containerMemoryLimit(); limit >= minContainerLimitByte {
 		return configForLimit(int64(float64(limit)*defaultLimitRatio), source)
 	}
 
 	return Config{}
+}
+
+// containerMemoryLimit 读取容器内存上限：优先 cgroup；cgroup 上限缺失、
+// 读取失败或不可信（≥ maxTrustedCgroupBytes，即容器未对该文件设限）时，
+// 回退用 /proc/meminfo 的 MemTotal 估算，保证内存守卫在更多环境落地生效。
+func containerMemoryLimit() (uint64, string) {
+	if limit, source := cgroupMemoryLimit(); trustedCgroupLimit(limit) {
+		return limit, source
+	}
+	if total, ok := hostMemTotalBytes(); ok && total >= minContainerLimitByte {
+		return total, "meminfo_MemTotal"
+	}
+	return 0, ""
+}
+
+// trustedCgroupLimit 判断 cgroup 内存上限是否可信可采纳
+// （≥64MB 且未超过 1TB；超过即容器对该文件未设真实限制）。
+func trustedCgroupLimit(limit uint64) bool {
+	return limit >= minContainerLimitByte && limit <= maxTrustedCgroupBytes
+}
+
+// hostMemTotalBytes 解析 /proc/meminfo 的 MemTotal（KB → bytes）。
+func hostMemTotalBytes() (uint64, bool) {
+	raw, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, false
+	}
+	return parseMemTotal(string(raw))
+}
+
+func parseMemTotal(content string) (uint64, bool) {
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.HasPrefix(line, "MemTotal:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0, false
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return kb * 1024, true
+	}
+	return 0, false
 }
 
 func configForLimit(limit int64, source string) Config {
@@ -120,7 +170,9 @@ func configForLimit(limit int64, source string) Config {
 	}
 }
 
-func cgroupMemoryLimit() (uint64, string) {
+// cgroupMemoryLimit 读取容器 cgroup 内存上限（v2 优先、v1 兜底），
+// 包级变量便于测试替换注入。
+var cgroupMemoryLimit = func() (uint64, string) {
 	if value, ok := readCgroupLimitFile("/sys/fs/cgroup/memory.max"); ok {
 		return value, "cgroup_v2_memory_max"
 	}
@@ -130,7 +182,8 @@ func cgroupMemoryLimit() (uint64, string) {
 	return 0, ""
 }
 
-func readCgroupLimitFile(path string) (uint64, bool) {
+// readCgroupLimitFile 读取并解析单个 cgroup 限制文件，包级变量便于测试替换。
+var readCgroupLimitFile = func(path string) (uint64, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return 0, false
