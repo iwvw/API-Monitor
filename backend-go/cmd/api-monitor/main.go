@@ -16,6 +16,7 @@ import (
 var version = "2.0.0-go-shell"
 
 func main() {
+	config.LoadDotEnv()
 	cfg := config.Load(version)
 	if err := applog.Init(cfg.DataDir, 10); err != nil {
 		_, _ = os.Stderr.WriteString("failed to initialize logger: " + err.Error() + "\n")
