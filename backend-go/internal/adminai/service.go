@@ -647,18 +647,16 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 		source = "web"
 	}
 
-	s.mu.Lock()
-	if _, exists := s.sessionRuns[req.SessionID]; exists {
-		s.mu.Unlock()
-		response.Error(w, http.StatusConflict, "该会话已有执行进行中")
-		return
-	}
-	s.mu.Unlock()
-
-	// 编辑重发：先截断服务端历史（删除被编辑消息及其后所有消息），
-	// 新 prompt 由 runInference 写入为新用户消息行，保证重发后的上下文与界面一致、
-	// 不残留旧消息。删除顺序与 restoreSessionHistory 的 (created_at, id) 排序一致。
 	if req.RewindID != "" {
+		// 编辑重发是排他操作：运行中的 run 正在逐轮消费历史，此时截断会让其
+		// 上下文与落库错位，与 opencode 的 assertNotBusy（revert/delete）语义一致。
+		s.mu.Lock()
+		_, busy := s.sessionRuns[req.SessionID]
+		s.mu.Unlock()
+		if busy {
+			response.Error(w, http.StatusConflict, "该会话已有执行进行中，请稍候再编辑")
+			return
+		}
 		db, err := s.open(r.Context())
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
@@ -686,6 +684,45 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+	}
+
+	// join 语义：会话已有活跃 run 时，追问不再 409——直接入库，由活跃 run 在
+	// 每轮循环/最终落库前增量同步并续跑消费（对齐 opencode：运行中提交的消息
+	// 不会被拒绝，只会被当前执行在下一轮接住）。
+	s.mu.Lock()
+	activeRunID, _ := s.sessionRuns[req.SessionID]
+	s.mu.Unlock()
+	if activeRunID != "" {
+		db, err := s.open(r.Context())
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		newID := nextID(r.Context(), db, "aam_")
+		_, err = db.ExecContext(r.Context(),
+			`INSERT INTO admin_ai_messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`,
+			newID, req.SessionID, req.Prompt, time.Now().UTC().Format(time.RFC3339))
+		db.Close()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// 锁内复查：若活跃 run 恰在「最终检查→退场」窗口（检查先于入队），则由
+		// 本请求兜底启动新 run 消费；两处检查共用 s.mu 串行，不会双双错过。
+		s.mu.Lock()
+		if rid, still := s.sessionRuns[req.SessionID]; still {
+			s.mu.Unlock()
+			response.OK(w, map[string]interface{}{"sessionId": req.SessionID, "runId": rid, "queued": true})
+			return
+		}
+		s.mu.Unlock()
+		runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "")
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, map[string]interface{}{"sessionId": req.SessionID, "runId": runID, "queued": false})
+		return
 	}
 
 	runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "")

@@ -465,6 +465,16 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			return
 		default:
 		}
+
+		// 运行中追问入队（join 语义，对齐 opencode：会话执行期间提交的新消息不会被
+		// 409 拒绝）：每轮循环开头增量同步本会话最新 user 消息，有变化则重载历史继续。
+		if newUserID, syncErr := s.syncPendingPrompt(runCtx, db, sessionID, userMsgID, &messages); syncErr != nil {
+			s.finishExecution(db, sessionID, runID, "error", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, syncErr.Error())
+			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": syncErr.Error(), "userMessageId": userMsgID}})
+			return
+		} else if newUserID != userMsgID {
+			userMsgID = newUserID
+		}
 		s.setRunPhase(runID, "thinking")
 
 		llmMessages := make([]map[string]interface{}, 0, len(messages)+1)
@@ -554,7 +564,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 		var respErr error
 		usedModel := ""
 		for i, m := range llmModels {
-			resp, respErr = s.callLLMStream(runCtx, m, llmMessages, eventCh)
+			resp, respErr = s.callLLMStream(runCtx, m, llmMessages, eventCh, userMsgID)
 			if respErr == nil {
 				usedModel = m
 				break
@@ -625,11 +635,12 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 				toolCount++
 
 				tcID, _ := randomID("aatc_")
-				s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
+s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
 					"toolName":   tc.Function.Name,
 					"toolCallId": tcID,
 					"args":       tc.Function.Arguments,
 					"desc":       s.toolDesc(tc.Function.Name, tc.Function.Arguments),
+					"userMessageId": userMsgID,
 				}})
 
 				tcNow := time.Now().UTC().Format(time.RFC3339)
@@ -730,7 +741,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 					}
 				}
 
-				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": st.tc.Function.Name, "toolCallId": st.tcID, "status": status, "summary": summary}})
+				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": st.tc.Function.Name, "toolCallId": st.tcID, "status": status, "summary": summary, "userMessageId": userMsgID}})
 
 				tcFinished := time.Now().UTC().Format(time.RFC3339)
 				_, _ = db.ExecContext(runCtx,
@@ -774,6 +785,19 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 
 		// 注意：不再重复 emit 完整 content 作为 delta —— 流式阶段 callLLMStream 已
 		// 逐 chunk 实时推送过。再 emit 一次会让侧栏/TG/频道消费端把同一段内容拼两遍。
+
+		// 锁内最终检查：运行期间是否又有新追问入队（与 submitMessage 的入队+复查同
+		// 一把 s.mu 串行，保证「入队先于检查」或「入队后由提交方兜底启动新 run」，
+		// 不存在双双错过的窗口）。有则重载历史并续跑本轮追问，不让消息挂起。
+		s.mu.Lock()
+		rid, sessionActive := s.sessionRuns[sessionID]
+		s.mu.Unlock()
+		if sessionActive && rid == runID {
+			if newUserID, syncErr := s.syncPendingPrompt(runCtx, db, sessionID, userMsgID, &messages); syncErr == nil && newUserID != userMsgID {
+				userMsgID = newUserID
+				continue
+			}
+		}
 
 		s.finishExecution(db, sessionID, runID, "completed", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "")
 		s.emit(eventCh, SSEEvent{Type: "done", Fields: map[string]interface{}{"messageId": assistantMsgID, "userMessageId": userMsgID, "usage": map[string]int{"promptTokens": totalPromptTokens, "completionTokens": totalCompletionTokens}}})
@@ -1020,6 +1044,27 @@ func (s *Service) restoreSessionHistory(ctx context.Context, db *sql.DB, session
 	return messages, nil
 }
 
+// syncPendingPrompt 增量同步会话中新增的 user 消息：运行期间 submitMessage 把追问
+// 直接入队（不再 409），本 run 每轮循环开头与最终落库前调用它归并队列——有新 user
+// 行则重载历史（含新消息与已落库各轮次行）并返回最新 user 消息 id（即新的轮次归属）。
+func (s *Service) syncPendingPrompt(ctx context.Context, db *sql.DB, sessionID, curUserMsgID string, messages *[]historyMsg) (string, error) {
+	var latest string
+	if err := db.QueryRowContext(ctx,
+		`SELECT id FROM admin_ai_messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC, id DESC LIMIT 1`,
+		sessionID).Scan(&latest); err != nil && err != sql.ErrNoRows {
+		return curUserMsgID, err
+	}
+	if latest == "" || latest == curUserMsgID {
+		return curUserMsgID, nil
+	}
+	reloaded, err := s.restoreSessionHistory(ctx, db, sessionID)
+	if err != nil {
+		return curUserMsgID, err
+	}
+	*messages = reloaded
+	return latest, nil
+}
+
 func nextID(ctx context.Context, db *sql.DB, prefix string) string {
 	id, err := randomID(prefix)
 	if err != nil {
@@ -1123,7 +1168,7 @@ type streamToolCall struct {
 // callLLMStream 通过本机网关调用 chat/completions（stream=true），逐块解析 SSE，
 // 实时把 content / reasoning 增量推给 eventCh；返回完整响应（含 usage / tool_calls）。
 // 网关侧本身非流式时（上游不支持），返回单块但同样推一次 delta，行为无差异。
-func (s *Service) callLLMStream(ctx context.Context, model string, messages []map[string]interface{}, eventCh chan SSEEvent) (*llmResponse, error) {
+func (s *Service) callLLMStream(ctx context.Context, model string, messages []map[string]interface{}, eventCh chan SSEEvent, userMsgID string) (*llmResponse, error) {
 	reqBody := map[string]interface{}{"model": model, "messages": messages, "stream": true, "tools": adminAITools}
 	bodyBytes, _ := json.Marshal(reqBody)
 
@@ -1205,11 +1250,11 @@ func (s *Service) callLLMStream(ctx context.Context, model string, messages []ma
 		d := chunk.Choices[0].Delta
 		if d.ReasoningContent != "" {
 			reasoning.WriteString(d.ReasoningContent)
-			s.emit(eventCh, SSEEvent{Type: "reasoning", Fields: map[string]interface{}{"text": d.ReasoningContent}})
+			s.emit(eventCh, SSEEvent{Type: "reasoning", Fields: map[string]interface{}{"text": d.ReasoningContent, "userMessageId": userMsgID}})
 		}
 		if d.Content != "" {
 			content.WriteString(d.Content)
-			s.emit(eventCh, SSEEvent{Type: "delta", Fields: map[string]interface{}{"text": d.Content}})
+			s.emit(eventCh, SSEEvent{Type: "delta", Fields: map[string]interface{}{"text": d.Content, "userMessageId": userMsgID}})
 		}
 		for _, tc := range d.ToolCalls {
 			cur, exists := toolAcc[tc.Index]
