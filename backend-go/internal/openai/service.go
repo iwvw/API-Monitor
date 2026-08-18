@@ -1085,13 +1085,27 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// resolveEndpointModel 返回请求模型在该端点上实际使用的内部模型名，ok 表示该
+// 端点当前可路由此请求。多个内部模型映射到同一外部名时优先返回未被
+// disabled_models 禁用的别名，避免随机命中被禁用映射导致端点被整体过滤；
+// 命中映射但全部被禁用时不可路由；无映射命中时按请求名本身判定禁用。
 func (s *Service) resolveEndpointModel(ep Endpoint, requested string) (string, bool) {
+	first := ""
 	for real, alias := range ep.ModelMappings {
-		if alias == requested {
+		if alias != requested {
+			continue
+		}
+		if first == "" {
+			first = real
+		}
+		if !isModelDisabled(ep.DisabledModels, real) {
 			return real, true
 		}
 	}
-	return requested, false
+	if first != "" {
+		return "", false
+	}
+	return requested, !isModelDisabled(ep.DisabledModels, requested)
 }
 
 // normalizeReasoningEffort 将 OpenAI 标准枚举之外的 reasoning_effort 值归一到
@@ -4784,9 +4798,11 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 			Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw)
 		if err == nil {
 			loadEndpoint(&ep, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt)
-			if s.endpointHasModel(ep, model) && !isModelDisabled(ep.DisabledModels, model) {
-				selectedModel, _ = s.resolveEndpointModel(ep, model)
-				return []Endpoint{ep}, ep, 0, selectedModel, true
+			if s.endpointHasModel(ep, model) {
+				if real, routable := s.resolveEndpointModel(ep, model); routable {
+					selectedModel = real
+					return []Endpoint{ep}, ep, 0, selectedModel, true
+				}
 			}
 		}
 	}
@@ -4811,8 +4827,7 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 				continue
 			}
 			ep := endpoints[idx]
-			real, _ := s.resolveEndpointModel(ep, model)
-			if !isModelDisabled(ep.DisabledModels, real) {
+			if _, routable := s.resolveEndpointModel(ep, model); routable {
 				candidates = append(candidates, ep)
 			}
 		}
@@ -4820,9 +4835,10 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	if len(candidates) == 0 {
 		// 兜底：索引未命中（模型列表尚未刷新/模型名未收录）时按原逻辑遍历全部端点。
 		for _, ep := range endpoints {
-			real, _ := s.resolveEndpointModel(ep, model)
-			if s.endpointHasModel(ep, model) && !isModelDisabled(ep.DisabledModels, real) {
-				candidates = append(candidates, ep)
+			if s.endpointHasModel(ep, model) {
+				if _, routable := s.resolveEndpointModel(ep, model); routable {
+					candidates = append(candidates, ep)
+				}
 			}
 		}
 	}
@@ -4852,7 +4868,9 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	}
 	chosenIndex = weightedEndpointPickWeighted(latencies, known, weights)
 	chosen = candidates[chosenIndex]
-	selectedModel, _ = s.resolveEndpointModel(chosen, model)
+	if real, routable := s.resolveEndpointModel(chosen, model); routable {
+		selectedModel = real
+	}
 	return candidates, chosen, chosenIndex, selectedModel, true
 }
 

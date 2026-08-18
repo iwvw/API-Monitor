@@ -3500,3 +3500,121 @@ func TestEndpointExportImportPreservesAllFields(t *testing.T) {
 		t.Errorf("round-trip apiKey mismatch: %q", ep2.APIKey)
 	}
 }
+
+// TestResolveEndpointModelPrefersRoutableMapping 覆盖多个内部模型映射到同一
+// 外部名且部分被 disabled_models 禁用的场景：路由必须稳定选中未被禁用的别名，
+// 不能受 Go map 迭代顺序影响而间歇性不可路由。
+func TestResolveEndpointModelPrefersRoutableMapping(t *testing.T) {
+	s := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	testCases := []struct {
+		name      string
+		mappings  map[string]string
+		disabled  []string
+		requested string
+		wantReal  string
+		wantOK    bool
+	}{
+		{
+			name:      "dual mapping one disabled picks enabled",
+			mappings:  map[string]string{"gcli-gemini-3.1-pro-preview": "gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search": "gemini-3.1-pro-preview"},
+			disabled:  []string{"gcli-gemini-3.1-pro-preview"},
+			requested: "gemini-3.1-pro-preview",
+			wantReal:  "gcli-gemini-3.1-pro-preview-search",
+			wantOK:    true,
+		},
+		{
+			name:      "dual mapping all disabled not routable",
+			mappings:  map[string]string{"gcli-gemini-3.1-pro-preview": "gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search": "gemini-3.1-pro-preview"},
+			disabled:  []string{"gcli-gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search"},
+			requested: "gemini-3.1-pro-preview",
+			wantReal:  "",
+			wantOK:    false,
+		},
+		{
+			name:      "single mapping enabled",
+			mappings:  map[string]string{"deepseek-v4-flash-free": "deepseek-v4-flash"},
+			disabled:  []string{"big-pickle"},
+			requested: "deepseek-v4-flash",
+			wantReal:  "deepseek-v4-flash-free",
+			wantOK:    true,
+		},
+		{
+			name:      "single mapping disabled not routable",
+			mappings:  map[string]string{"deepseek-v4-flash-free": "deepseek-v4-flash"},
+			disabled:  []string{"deepseek-v4-flash-free"},
+			requested: "deepseek-v4-flash",
+			wantReal:  "",
+			wantOK:    false,
+		},
+		{
+			name:      "no mapping requested enabled",
+			mappings:  map[string]string{},
+			disabled:  []string{"gpt-4"},
+			requested: "gpt-4o",
+			wantReal:  "gpt-4o",
+			wantOK:    true,
+		},
+		{
+			name:      "no mapping requested disabled",
+			mappings:  map[string]string{},
+			disabled:  []string{"gpt-4"},
+			requested: "gpt-4",
+			wantReal:  "gpt-4",
+			wantOK:    false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ep := Endpoint{ModelMappings: tc.mappings, DisabledModels: tc.disabled}
+			for i := 0; i < 50; i++ {
+				real, ok := s.resolveEndpointModel(ep, tc.requested)
+				if real != tc.wantReal || ok != tc.wantOK {
+					t.Fatalf("iteration %d: resolveEndpointModel(%q) = (%q, %v); want (%q, %v)",
+						i, tc.requested, real, ok, tc.wantReal, tc.wantOK)
+				}
+			}
+		})
+	}
+}
+
+// TestSelectEndpointCandidatesDualMapping 验证双映射 + 部分禁用时端点稳定进入
+// 候选（模拟真实场景：gcli-gemini-3.1-pro-preview 被禁用、-search 已启用）。
+func TestSelectEndpointCandidatesDualMapping(t *testing.T) {
+	s := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	mappingsJSON, _ := json.Marshal(map[string]string{
+		"gcli-gemini-3.1-pro-preview":       "gemini-3.1-pro-preview",
+		"gcli-gemini-3.1-pro-preview-search": "gemini-3.1-pro-preview",
+	})
+	disabledJSON, _ := json.Marshal([]string{"gcli-gemini-3.1-pro-preview"})
+	modelsJSON, _ := json.Marshal([]string{"gcli-gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search"})
+	_, err = db.ExecContext(context.Background(), `
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, status, enabled, models, model_mappings, disabled_models)
+		VALUES ('oai_dual_mapping', 'catiecli', 'https://example.com/v1', 'sk-test', 'valid', 1, ?, ?, ?)`,
+		string(modelsJSON), string(mappingsJSON), string(disabledJSON))
+	if err != nil {
+		t.Fatalf("insert endpoint: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for i := 0; i < 20; i++ {
+		candidates, _, _, selectedModel, found := s.selectEndpointCandidates(context.Background(), db, "gemini-3.1-pro-preview", "", "")
+		if !found {
+			t.Fatalf("iteration %d: no candidate found", i)
+		}
+		if len(candidates) != 1 || candidates[0].ID != "oai_dual_mapping" {
+			t.Fatalf("iteration %d: candidates=%#v", i, candidates)
+		}
+		if selectedModel != "gcli-gemini-3.1-pro-preview-search" {
+			t.Fatalf("iteration %d: selectedModel=%q", i, selectedModel)
+		}
+		seen[selectedModel] = true
+	}
+	if len(seen) != 1 {
+		t.Fatalf("selected model unstable across iterations: %#v", seen)
+	}
+}
