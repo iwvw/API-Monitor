@@ -45,6 +45,13 @@ func Start(ctx context.Context) Config {
 		"trigger_bytes", cfg.TriggerBytes,
 		"source", cfg.Source,
 	)
+	// MemTotal 回退只发生在 cgroup 限制不可信/未生效的环境：多租户容器或
+	// 共享宿主机上宿主总内存可能远大于容器可用内存，估算值会高估软限。
+	// 这类环境建议显式配置 API_MONITOR_MEMORY_LIMIT_MB 锁定真实预算。
+	if cfg.Source == "meminfo_MemTotal" {
+		applog.Warn(ctx, "memguard", "cgroup 内存上限不可信，已回退宿主 MemTotal 估算；多租户容器建议显式设置 API_MONITOR_MEMORY_LIMIT_MB",
+			"limit_bytes", cfg.LimitBytes)
+	}
 
 	go run(ctx, cfg)
 	return cfg
