@@ -73,28 +73,17 @@ function useSettingsForm() {
     })();
   }, []);
 
-  // 模型下拉选项：只列「启用端点中已启用的模型」，值取对外名（modelMappings 反转，
-  // 去端点前缀后经 /v1 调用可自动负载均衡到多个端点）；禁用模型与原生前缀名不出现。
+  // 模型下拉选项：只列对外 /v1 暴露的模型（/api/openai/models 与 /v1/models 同源，
+  // 已过滤禁用模型并应用映射去前缀；经 /v1 调用自动多端点负载均衡）。
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/openai/endpoints');
+        const res = await fetch('/api/openai/models');
         const data = await res.json();
-        const eps = Array.isArray(data) ? data : (data.data || []);
-        const seen = new Set();
-        const options = [];
-        for (const ep of eps) {
-          if (!ep.enabled || !Array.isArray(ep.models)) continue;
-          const disabled = new Set(ep.disabledModels || []);
-          const maps = ep.modelMappings || {};
-          for (const m of ep.models) {
-            if (disabled.has(m)) continue;
-            const external = maps[m] || m; // 对外名（如 gcli-gemini-3.1-pro-preview → gemini-3.1-pro-preview）
-            if (seen.has(external)) continue;
-            seen.add(external);
-            options.push({ value: external, label: `${ep.name} / ${external}` });
-          }
-        }
+        const list = Array.isArray(data) ? data : (data.data || []);
+        const options = (list || [])
+          .filter((m) => m && m.id)
+          .map((m) => ({ value: m.id, label: `${m.owned_by || '网关'} / ${m.id}` }));
         options.sort((a, b) => a.label.localeCompare(b.label));
         setModelOptions(options);
       } catch {
