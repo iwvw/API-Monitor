@@ -738,7 +738,6 @@ function TemplatesCard() {
           <Button size="sm" variant="primary" onClick={handleSave} disabled={saving}>
             {saving ? '保存中...' : '保存'}
           </Button>
-          {savedAt ? <span className="text-xs text-kumo-success">已保存 ✓</span> : null}
         </div>
       </SectionCard>
     </div>
@@ -1162,7 +1161,6 @@ export default function AdminConsole({ onBack, hideTabs = false, activeTab: cont
         >
           <ArrowLeft className="h-3.5 w-3.5" /> 对话
         </Button>
-        {activeTab === 'settings' && form.savedAt ? <span className="text-xs text-kumo-success">已保存 ✓</span> : null}
         {activeTab === 'settings' && (
           <Button size="sm" variant="primary" onClick={form.save} disabled={form.saving || !form.values}>
             {form.saving ? '保存中...' : '保存'}
