@@ -726,7 +726,7 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
           height: rect.height,
           cursor: onSelectNode ? 'pointer' : 'default',
         }}
-        className={`absolute flex flex-col overflow-hidden rounded-md border bg-kumo-base text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand/45 ${compact ? 'px-2.5 py-2' : editor ? 'px-3.5 py-2.5' : 'px-4 py-3'} ${selected ? 'border-kumo-brand ring-2 ring-kumo-brand/25' : 'border-kumo-line hover:border-brand/50'} ${node.enabled === 0 ? 'opacity-60' : ''} ${status === 'running' ? 'scheduler-node-running' : ''}`}
+        className={`absolute flex flex-col overflow-hidden rounded-md border bg-kumo-base text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45 ${compact ? 'px-2.5 py-2' : editor ? 'px-3.5 py-2.5' : 'px-4 py-3'} ${selected ? 'border-brand ring-2 ring-brand/25' : 'border-kumo-line hover:border-brand/50'} ${node.enabled === 0 ? 'opacity-60' : ''} ${status === 'running' ? 'scheduler-node-running' : ''}`}
       >
         <span className={`flex min-w-0 items-start justify-between ${compact ? 'gap-1.5' : editor ? 'gap-2.5' : 'gap-3'}`}>
           <span className="min-w-0">

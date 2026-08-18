@@ -1917,8 +1917,8 @@ function M365Page() {
                 tabIndex={0}
                 className={cx(
                   tenantCardFrameClass,
-                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left transition hover:border-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-kumo-brand/70',
-                  active ? 'border-kumo-brand/70 bg-kumo-brand/5' : 'border-kumo-line/80'
+                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left transition hover:border-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-brand/70',
+                  active ? 'border-brand/70 bg-brand/5' : 'border-kumo-line/80'
                 )}
                 onClick={() => setSelectedAccountId(String(account.id))}
                 onKeyDown={event => {

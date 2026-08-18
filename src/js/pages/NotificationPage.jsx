@@ -1061,7 +1061,7 @@ function NotificationPage() {
                   padding="none"
                   interactive
                   className={`flex min-h-[148px] flex-col justify-between p-4 transition-all duration-200 hover:border-brand/50 hover:shadow-sm ${
-                    highlightRuleId === rule.id ? 'border-kumo-brand/60 ring-2 ring-kumo-brand/20' : ''
+                    highlightRuleId === rule.id ? 'border-brand/60 ring-2 ring-brand/20' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
