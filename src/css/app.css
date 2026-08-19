@@ -62,6 +62,9 @@ html {
 
 :root[data-mode='light'] {
   color-scheme: light;
+  /* Kumo 2.11 Table 奇数行底色使用 tint；库默认 light tint=neutral-100 与底色几乎
+     无差别（斑马纹不可见），本地覆盖为 neutral-150 保证可辨。 */
+  --color-kumo-tint: var(--color-neutral-150, oklch(93.5% 0 0));
 }
 
 :root[data-mode='dark'] {
@@ -69,6 +72,7 @@ html {
   --app-main-bg: color-mix(in oklab, var(--color-kumo-canvas) 90%, #0f172a 10%);
   --app-main-surface: color-mix(in oklab, var(--color-kumo-base) 88%, var(--color-kumo-canvas) 12%);
   background: var(--app-main-bg);
+  /* 深色下 tint=neutral-800 与底色（neutral-925）对比尚可，保持库默认。 */
 }
 
 body {
