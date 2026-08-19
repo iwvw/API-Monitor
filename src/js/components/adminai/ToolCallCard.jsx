@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button, Loader } from '@cloudflare/kumo';
-import { Copy, Check, ChevronDown, X, Terminal } from '../Icons.jsx';
+import { Copy, Check, ChevronDown, X, Wrench } from '../Icons.jsx';
 import { STEP } from '../../modules/adminAiMessages.js';
 
 /* 工具名中文标识：折叠组标题与无描述回退共用 */
@@ -82,6 +82,17 @@ export function callArgsKey(args) {
     if (inQuery !== null) return inQuery;
   }
   return '';
+}
+
+/* 工具动作描述：连同 desc 一起截取首个标点（接口清单描述常带「，镜像未变化时…」类
+ * 上下文后缀，只保留动作短句；不显示具体参数/ID。 */
+export function briefToolDesc(desc) {
+  if (!desc) return '';
+  for (const ch of ['，', '。', '；', '！', '？', ',', '.', ';']) {
+    const i = desc.indexOf(ch);
+    if (i > 0) return desc.slice(0, i);
+  }
+  return desc;
 }
 
 /* 工具调用卡片 — Cloudflare Agent「→ Running …」步骤行风格：
@@ -222,7 +233,7 @@ export default function ToolCallCard({ toolCall, inline }) {
  * 默认折叠；仅当「同工具+同路径+关键参数相同」的调用才连续合并计数 ×N——
  * 参数不同的调用各自独立成行，行内显示该次调用真实使用的关键参数
  * （hostId/action 等），running 行高亮 spinner，杜绝「复制上面内容」的观感。 */
-export function ToolSteps({ items, streaming }) {
+export function ToolSteps({ items, streaming, isLastPart }) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState(null);
 
@@ -274,7 +285,8 @@ export function ToolSteps({ items, streaming }) {
 
   const total = merged.reduce((s, m) => s + m.count, 0);
   const anyRunning = merged.some((m) => m.hasRunning);
-  const isOpen = open || (streaming && anyRunning);
+  // 流式中且本组是消息最后一个 part（下方尚无回复）→ 自动展开；已完成组自动收起
+  const isOpen = open || (streaming && isLastPart);
   const single = merged.length === 1 ? merged[0] : null;
 
   const handleCopy = async (key, text) => {
@@ -319,13 +331,11 @@ export function ToolSteps({ items, streaming }) {
         className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
         aria-expanded={isOpen}
       >
-        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded bg-kumo-brand/10 text-kumo-brand ${anyRunning ? 'askai-live-icon' : ''}`}>
-          <Terminal className="h-2.5 w-2.5" />
-        </span>
+        <Wrench className={`h-4 w-4 shrink-0 text-kumo-brand ${anyRunning ? 'askai-live-icon' : ''}`} />
         {single ? (
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="max-w-[240px] truncate leading-4">
-              {single.call ? (single.call.desc || toolLabel(single.call.toolName) || '未知工具') : '工具结果'}
+            <span className="min-w-0 break-words leading-4">
+              {single.call ? (briefToolDesc(single.call.desc) || toolLabel(single.call.toolName) || '未知工具') : '工具结果'}
             </span>
             {single.count > 1 && (
               <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{single.count}</span>
@@ -334,12 +344,12 @@ export function ToolSteps({ items, streaming }) {
         ) : (
           <span className="shrink-0 leading-4">工具步骤 · {total} 次</span>
         )}
-        <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} />
       </Button>
       <div className="askai-collapse" data-open={isOpen}>
         <div className="askai-tool-stagger flex min-w-0 flex-col gap-1.5 rounded-lg border border-kumo-line/50 bg-kumo-control/40 p-2">
           {merged.map((m, i) => {
-            const label = m.call ? (m.call.desc || toolLabel(m.call.toolName) || '未知工具') : '工具结果';
+            const label = m.call ? (briefToolDesc(m.call.desc) || toolLabel(m.call.toolName) || '未知工具') : '工具结果';
             const path = m.call ? toolPathLabel(m.call.toolName, m.call.args) : '';
             const argsKey = m.call ? callArgsKey(m.call.args) : '';
             const copyText = m.result?.summary || m.call?.error || '';
@@ -355,14 +365,6 @@ export function ToolSteps({ items, streaming }) {
                     </span>
                   ) : groupBadge(m)}
                   <span className="min-w-0 line-clamp-1 break-all font-medium text-kumo-default" title={label}>{label}</span>
-                  {path && path !== label && (
-                    <span className="min-w-0 line-clamp-1 break-all font-mono text-[10px] text-kumo-subtle/70" title={path}>{path}</span>
-                  )}
-                  {argsKey && (
-                    <span className="min-w-0 line-clamp-1 break-all rounded bg-kumo-base/70 px-1 py-px font-mono text-[10px] text-kumo-brand/80" title={argsKey}>
-                      {argsKey}
-                    </span>
-                  )}
                   {m.count > 1 && (
                     <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{m.count}</span>
                   )}
@@ -381,10 +383,10 @@ export function ToolSteps({ items, streaming }) {
                     </Button>
                   )}
                 </div>
-                {m.result?.summary && (
-                  <p className="min-w-0 line-clamp-1 break-all pl-[22px] text-[11px] leading-5 text-kumo-subtle/70" title={m.result.summary}>
-                    {m.result.summary}
-                  </p>
+                {path && path !== label && (
+                  <div className="min-w-0 pl-[22px]">
+                    <span className="min-w-0 line-clamp-1 break-all font-mono text-[10px] text-kumo-subtle/70" title={path}>{path}</span>
+                  </div>
                 )}
                 {rowFailed && m.failedCall?.error && (
                   <p className="min-w-0 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger">{m.failedCall.error}</p>

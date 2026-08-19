@@ -517,7 +517,10 @@ function OpenAIPage() {
   const [activeTab, setActiveTab] = useState('analytics'); // 'analytics' | 'endpoints' | 'keys' | 'logs'
 
   // Gateway Analytics States
-  const [analyticsDays, setAnalyticsDays] = useState(7);
+  const [analyticsDays, setAnalyticsDays] = useState(() => {
+    const stored = Number(localStorage.getItem('openai_analytics_days'));
+    return [1, 7, 30].includes(stored) ? stored : 7;
+  });
   const [analyticsGranularity, setAnalyticsGranularity] = useState(() => {
     const stored = localStorage.getItem('openai_analytics_granularity');
     return ['hour', 'day', 'week'].includes(stored) ? stored : 'day';
@@ -676,6 +679,11 @@ function OpenAIPage() {
   useEffect(() => {
     localStorage.setItem('openai_analytics_granularity', analyticsGranularity);
   }, [analyticsGranularity]);
+
+  // 记住数据看板/网关日志的分析范围（天数）与时间粒度。
+  useEffect(() => {
+    localStorage.setItem('openai_analytics_days', String(analyticsDays));
+  }, [analyticsDays]);
 
   const chatStorage = useMemo(() => {
     const personasKey = 'openai_chat_personas_v2';

@@ -318,7 +318,15 @@ export function buildTimelineFromRows(rows) {
   let toolIndex = 0; // 当前消息内 tool_call 计数（配对未带 id 的旧数据）
   for (const row of rows || []) {
     if (row.role === 'user') {
-      messages.push({ id: row.id, role: 'user', content: row.content || '', status: MSG.IDLE });
+      const mentions = [];
+      if (row.mentions) {
+        try {
+          const parsed = typeof row.mentions === 'string' ? JSON.parse(row.mentions) : row.mentions;
+          if (Array.isArray(parsed)) mentions.push(...parsed);
+        } catch {
+        }
+      }
+      messages.push({ id: row.id, role: 'user', content: row.content || '', status: MSG.IDLE, ...(mentions.length > 0 ? { mentions } : {}) });
       current = null;
       continue;
     }

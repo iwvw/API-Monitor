@@ -925,7 +925,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
       bodyClassName="flex min-w-0 flex-col"
     >
       {routes.length === 0 ? (
-        <AppCard padding="none" className="flex min-h-0">
+        <AppCard padding="none" className="flex min-h-0 items-center justify-center">
           <EmptyState
             icon={Search}
             title="没有匹配的接口"
@@ -1134,7 +1134,7 @@ function RouteDetail({ route, openapiRoute }) {
   if (!route) {
     return (
       <div>
-        <AppCard padding="none" className="flex min-h-0">
+        <AppCard padding="none" className="flex min-h-0 items-center justify-center">
           <EmptyState
             icon={FileText}
             title="选择一个接口"

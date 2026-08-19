@@ -3,12 +3,13 @@ import { createPortal } from 'react-dom';
 import { ChatsCircle, Lock } from '@phosphor-icons/react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
-import { Textarea } from '@cloudflare/kumo/components/input';
+import { Textarea, Input } from '@cloudflare/kumo/components/input';
 import { Empty, Sidebar, Tabs, Tooltip } from '@cloudflare/kumo';
 import useStore from '../../store.js';
 import {
   Sparkle, X, Send, Plus, ChevronDown, Settings as SettingsIcon,
-  Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Terminal,
+  Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Terminal, MessageSquare, Clock, Bell,
+  FlyIoBrand, KoyebBrand,
 } from '../Icons.jsx';
 import MessageList from './MessageList.jsx';
 import AdminConsole, { TAB_OPTIONS } from './AdminConsole.jsx';
@@ -275,34 +276,154 @@ function DotGrid({ surfaceRef }) {
 
 /* ---------- 行为模式分段切换（kumo Tabs segmented） ---------- */
 const BEHAVIOR_TABS = [
-  { value: 'ask', label: (<span className="inline-flex items-center gap-1"><Sparkle className="h-3 w-3" />询问</span>) },
   { value: 'agent', label: (<span className="inline-flex items-center gap-1"><Terminal className="h-3 w-3" />代理</span>) },
+  { value: 'ask', label: (<span className="inline-flex items-center gap-1"><MessageSquare className="h-3 w-3" />询问</span>) },
 ];
 
-/* ---------- @ 资源菜单（域列表面板） ---------- */
-function AtResourceMenu({ zones, error, loading, onInsert }) {
+/* ---------- @ 资源菜单（多类型：域名/主机/定时任务/CF 账号/Fly.io/Koyeb/调度节点/通知渠道） ---------- */
+const MENTION_GROUPS = [
+  { type: 'zone', label: '域名', icon: Globe },
+  { type: 'host', label: '主机', icon: Server },
+  { type: 'task', label: '定时任务', icon: Clock },
+  { type: 'account', label: 'CF 账号', icon: Cloud },
+  { type: 'flyio', label: 'Fly.io', icon: FlyIoBrand, sm: true },
+  { type: 'koyeb', label: 'Koyeb', icon: KoyebBrand, sm: true },
+  { type: 'node', label: '调度节点', icon: Sliders },
+  { type: 'channel', label: '通知渠道', icon: Bell },
+];
+
+// 数组元素是否带资源标识（id/_id/appName/name）：区分真正的资源列表与
+// 内部数据数组（如主机 info.disk），后者被拒绝，避免任意子值深入时被截胡
+function isResourceArray(arr) {
+  return arr.length > 0 && arr.every((el) => {
+    if (!el || typeof el !== 'object') return false;
+    return ['id', '_id', 'appName', 'name'].some((k) => el[k] !== undefined && el[k] !== null && el[k] !== '');
+  });
+}
+
+// 列表响应宽容解析：精确键、信封（data/items/list）、跨元素合并（多账号 apps 嵌套）、
+// 包裹穿透（koyeb accounts[].projects[].services）；内部数据数组会被过滤
+function extractResourceList(data, keys) {
+  if (!data) return [];
+  const walk = (v, depth) => {
+    if (depth > 4) return null;
+    if (Array.isArray(v)) {
+      if (v.length === 0 || typeof v[0] !== 'object') return null;
+      // 收集所有元素的嵌套资源数组（flyio data[].apps 多账号、koyeb projects[].services 多项目）
+      const gathered = [];
+      let hit = false;
+      for (const el of v) {
+        if (!el || typeof el !== 'object') continue;
+        for (const k of keys) {
+          if (Array.isArray(el[k]) && el[k].length > 0 && typeof el[k][0] === 'object') {
+            gathered.push(...el[k]);
+            hit = true;
+          }
+        }
+      }
+      if (hit) return gathered;
+      // 元素可能是包裹对象（account→projects），深入其子值找命中 keys 的数组
+      for (const el of v) {
+        for (const key of Object.keys(el)) {
+          if (el[key] && typeof el[key] === 'object') {
+            const r = walk(el[key], depth + 1);
+            if (r) return r;
+          }
+        }
+      }
+      // 兜底：仅当元素带资源标识时才视为资源列表（拒绝 disk/cpu 等内部数据数组）
+      return isResourceArray(v) ? v : null;
+    }
+    if (v && typeof v === 'object') {
+      for (const k of keys) {
+        if (Array.isArray(v[k])) return v[k];
+      }
+      for (const k of ['data', 'items', 'list', 'results']) {
+        if (v[k] && typeof v[k] === 'object') {
+          const hit = walk(v[k], depth + 1);
+          if (hit) return hit;
+        }
+      }
+      // 兜底：任意子值深入（如 koyeb data 形如 {accounts:[{projects:[{services}]}]}，
+      // accounts 不在信封键内，必须遍历任意子值才能触达 services）
+      for (const k of Object.keys(v)) {
+        if (v[k] && typeof v[k] === 'object') {
+          const hit = walk(v[k], depth + 1);
+          if (hit) return hit;
+        }
+      }
+    }
+    return null;
+  };
+  return walk(data, 0) || [];
+}
+
+function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onInsert }) {
+  const group = MENTION_GROUPS.find((g) => g.type === tab) || MENTION_GROUPS[0];
+  const Icon = group.icon;
+  const all = resources[tab] || [];
+  const list = q
+    ? all.filter((r) => (r.name || '').toLowerCase().includes(q.toLowerCase()))
+    : all;
   return (
-    <div className="absolute bottom-full left-2 z-40 mb-1 w-72 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line dark:bg-kumo-base">
-      <p className="border-b border-kumo-line px-3 py-2 text-xs font-medium text-kumo-subtle">引用资源</p>
-      <div className="max-h-60 overflow-y-auto p-1">
-        {loading && <p className="px-3 py-2 text-xs text-kumo-subtle">加载中…</p>}
-        {!loading && error && <p className="px-3 py-2 text-xs text-kumo-subtle">加载失败</p>}
-        {!loading && !error && zones.length === 0 && (
-          <p className="px-3 py-2 text-xs text-kumo-subtle">暂无可引用域名</p>
-        )}
-        {!loading && zones.map((z) => (
-          <Button
-            key={z.name || z.id}
+    <div className="absolute bottom-full left-2 z-40 mb-1 flex w-[22rem] overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line dark:bg-kumo-base">
+      {/* 左侧：资源类型导航（图标 + 名称）；minHeight 固定，不随右侧列表高度变化 */}
+      <div className="flex w-max shrink-0 flex-col gap-0.5 border-r border-kumo-line bg-kumo-recessed/30 p-1" style={{ minHeight: 300 }}>
+        {MENTION_GROUPS.map((g) => {
+          const GI = g.icon;
+          return (
+            <Button
+              key={g.type}
+              type="button"
+              size="sm"
+              variant="ghost"
+              title={g.label}
+              onClick={() => { setTab(g.type); setQ(''); }}
+              aria-label={g.label}
+              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors focus-visible:!outline-none ${
+                tab === g.type
+                  ? 'bg-brand/15 font-medium text-brand'
+                  : 'text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default'
+              }`}
+            >
+              <GI className={`${g.sm ? 'h-3 w-3' : 'h-3.5 w-3.5'} shrink-0`} style={g.sm ? { fontSize: '0.75rem' } : undefined} />
+              <span className="whitespace-nowrap">{g.label}</span>
+            </Button>
+          );
+        })}
+      </div>
+      {/* 右侧：当前类型资源列表（与左列等高，列表区占满剩余） */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="border-b border-kumo-line px-2 py-1.5">
+          <Input
             size="sm"
-            variant="ghost"
-            type="button"
-            onClick={() => onInsert(z.name)}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-kumo-default hover:bg-kumo-tint"
-          >
-            <Globe className="h-3.5 w-3.5 text-kumo-subtle" />
-            <span className="truncate">{z.name}</span>
-          </Button>
-        ))}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={`搜索${group.label}…`}
+            aria-label={`搜索${group.label}`}
+            className="w-full rounded-md border border-kumo-line/60 bg-kumo-recessed/60 px-2 py-1 text-[11px] text-kumo-default outline-none placeholder:text-kumo-subtle/60 focus:border-kumo-brand/60"
+          />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          {loading && <p className="px-3 py-2 text-xs text-kumo-subtle">加载中…</p>}
+          {!loading && !error && list.length === 0 && (
+            <p className="px-3 py-2 text-xs text-kumo-subtle">暂无{q ? '匹配结果' : `可引用${group.label}`}</p>
+          )}
+          {!loading && error && <p className="px-3 py-2 text-xs text-kumo-subtle">加载失败</p>}
+          {!loading && list.map((r) => (
+            <Button
+              key={r.id || r.name}
+              size="sm"
+              variant="ghost"
+              type="button"
+              onClick={() => onInsert(r)}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-kumo-default hover:bg-kumo-tint"
+            >
+              <Icon className={`${group.sm ? 'h-3 w-3' : 'h-3.5 w-3.5'} shrink-0 text-kumo-subtle`} style={group.sm ? { fontSize: '0.75rem' } : undefined} />
+              <span className="truncate">{r.name}</span>
+            </Button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -342,11 +463,15 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   // 背景光斑（鼠标跟随橙色光斑）
   const spotlightSidebarRef = useCloudflareSpotlight();
 
-  // @ 资源（DNS 域名）
-  const [dnsZones, setDnsZones] = useState([]);
+  // @ 资源（可引用资源列表：域名/主机/定时任务/CF 账号；懒加载一次）
+  const [resources, setResources] = useState({ zone: [], host: [], task: [], account: [], flyio: [], koyeb: [], node: [], channel: [] });
   const [atLoading, setAtLoading] = useState(false);
   const [atError, setAtError] = useState(false);
-  const dnsZonesRef = useRef([]);
+  const [atTab, setAtTab] = useState('zone');
+  const [atQuery, setAtQuery] = useState('');
+  const resourcesLoadedRef = useRef(false);
+  // 当前输入框已引用（插入了 @名称）的资源：chips 展示，发送时随消息携带 {type, id, name}
+  const [pendingMentions, setPendingMentions] = useState([]);
 
   // 侧栏打开时主内容让出宽度（MainLayout 主画布读 --askai-sidebar-w）；
   // --askai-panel-w 由拖拽/面板宽度驱动，re-render（如 SSE 流式）不会重置拖拽中的宽度
@@ -455,7 +580,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         const res = await fetch('/api/admin-ai/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ mode: behavior }),
         });
         const data = await res.json();
         const body = data.data || data;
@@ -463,7 +588,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         if (!newId) return;
         skipLoadSessionRef.current = newId;
         setActiveSessionId(newId);
-        setSessions((prev) => [{ id: newId, title: new Date().toLocaleString('zh-CN') }, ...prev]);
+        setSessions((prev) => [{ id: newId, title: new Date().toLocaleString('zh-CN'), mode: behavior }, ...prev]);
         setMessages([]);
       } catch {
       }
@@ -623,7 +748,10 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       setMessages((prev) => applyAiEvent(prev, ev, tid));
       if (ev.type === 'approval') setPendingApproval(ev); // 写操作请求：自动弹出审批弹窗
       if (ev.type === 'done' || ev.type === 'error') {
-        stopStream();
+        // 只允许「自己所属的活跃流」收尾时 stopStream：上一轮收尾瞬间新一轮已开流
+        // （openStream 已替换 eventSource.current）时，旧流残留的 done/error 事件
+        // 不得误杀新流，否则新一轮 WebSocket 事件全部丢失、消息像被吞掉。
+        if (es === eventSource.current) stopStream();
         // 本轮发生过断线重连：增量内容可能缺失，拉取服务端完整历史替换占位消息
         if (reconnectedRef.current) loadMessages(activeSessionIdRef.current);
       }
@@ -670,29 +798,47 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       openStream(runId, targetId, true);
     }, delay);
   };
-   /* @ 资源：懒加载 dnsZones（账户 → zones） */
-  const loadDnsZones = useCallback(async () => {
-    if (dnsZonesRef.current.length > 0 || atLoading) return;
+   /* @ 资源：懒加载四类引用资源（域名用聚合接口覆盖全部账号；单类失败不阻塞其他类） */
+  const loadResources = useCallback(async () => {
+    if (resourcesLoadedRef.current || atLoading) return;
     setAtLoading(true);
     setAtError(false);
-    try {
-      const accRes = await fetch('/api/cloudflare/accounts');
-      const accData = await accRes.json();
-      const accounts = Array.isArray(accData) ? accData : (accData.data || accData.accounts || []);
-      if (accounts.length === 0) { setAtError(true); return; }
-      const first = accounts[0];
-      const zoneRes = await fetch(`/api/cloudflare/accounts/${first.id}/zones`);
-      const zoneData = await zoneRes.json();
-      const body = zoneData.data || zoneData;
-      const zones = body.zones || [];
-      const names = zones.map((z) => ({ id: z.id, name: z.name })).filter((z) => z.name);
-      dnsZonesRef.current = names;
-      setDnsZones(names);
-    } catch {
-      setAtError(true);
-    } finally {
-      setAtLoading(false);
-    }
+    const fetchBucket = async (type, path, keys) => {
+      try {
+        const res = await fetch(path);
+        const data = await res.json();
+        const body = data && data.data !== undefined ? data.data : data;
+        const raw = extractResourceList(body, keys);
+        return raw
+          .map((r) => ({
+            type,
+            id: r.id ?? r._id ?? r.appName ?? r.channelId ?? r.name,
+            name: r.name ?? r.appName ?? r.title ?? r.hostname ?? r.domain ?? r.botUsername ?? '',
+          }))
+          .filter((r) => r.id && r.name);
+      } catch {
+        return null;
+      }
+    };
+    const [zones, hosts, tasks, accounts, flyioApps, koyebServices, nodes, channels] = await Promise.all([
+      fetchBucket('zone', '/api/cloudflare/zones', ['zones']),
+      fetchBucket('host', '/api/server/accounts', ['accounts']),
+      fetchBucket('task', '/api/scheduler/tasks', ['tasks']),
+      fetchBucket('account', '/api/cloudflare/accounts', ['accounts']),
+      fetchBucket('flyio', '/api/flyio/proxy/apps', ['apps', 'applications']),
+      fetchBucket('koyeb', '/api/koyeb/data', ['services']),
+      fetchBucket('node', '/api/scheduler/nodes', ['nodes']),
+      fetchBucket('channel', '/api/notification/channels', ['channels']),
+    ]);
+    const next = {};
+    let failed = false;
+    [['zone', zones], ['host', hosts], ['task', tasks], ['account', accounts], ['flyio', flyioApps], ['koyeb', koyebServices], ['node', nodes], ['channel', channels]].forEach(([k, v]) => {
+      if (v === null) { failed = true; next[k] = []; } else { next[k] = v; }
+    });
+    if (failed) setAtError(true);
+    setResources((prev) => ({ ...prev, ...next }));
+    resourcesLoadedRef.current = true;
+    setAtLoading(false);
   }, [atLoading]);
 
   /* 输入检测 @ 触发资源菜单 */
@@ -703,7 +849,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     if (atIdx >= 0) {
       const after = value.slice(atIdx + 1);
       if (!after.includes(' ')) {
-        loadDnsZones();
+        loadResources();
         setAtMenuOpen(true);
       } else {
         setAtMenuOpen(false);
@@ -713,20 +859,41 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     }
   };
 
-  const insertAtResource = (name) => {
+  const insertAtResource = (res) => {
+    const name = res?.name || '';
+    if (!name) return;
+    // 资源以 pill 形式驻留输入区（不可编辑的独立块），不写入可编辑文本：
+    // 光标保持在用户文本末尾，且清掉触发菜单的 @ 及未完成输入
     const atIdx = input.lastIndexOf('@');
     if (atIdx >= 0) {
-      const before = input.slice(0, atIdx);
-      const after = input.slice(atIdx + 1).replace(/^\S*/, '');
-      const next = before + name + (after ? ' ' + after : '');
+      const next = input.slice(0, atIdx);
       setInput(next);
-      setTimeout(() => { if (textareaRef.current) { textareaRef.current.value = next; resizeTextarea(); textareaRef.current.focus(); } }, 0);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.value = next;
+          resizeTextarea();
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(next.length, next.length);
+        }
+      }, 0);
     } else {
-      const next = input ? `${input} ${name}` : name;
-      setInput(next);
-      setTimeout(() => { if (textareaRef.current) { textareaRef.current.value = next; resizeTextarea(); textareaRef.current.focus(); } }, 0);
+      setTimeout(() => { if (textareaRef.current) { textareaRef.current.focus(); } }, 0);
+    }
+    // 记录结构化引用（type+id 随消息发送，服务端拉取实时快照注入上下文）
+    if (res.type && res.id) {
+      setPendingMentions((prev) => {
+        const next = prev.filter((m) => !(m.type === res.type && m.id === res.id));
+        return [...next, { type: res.type, id: res.id, name }];
+      });
     }
     setAtMenuOpen(false);
+    setAtQuery('');
+  };
+
+  /* 移除资源 pill：chips 为权威（文本中无对应片段，无需清理文本） */
+  const removeMention = (m) => {
+    setPendingMentions((prev) => prev.filter((x) => !(x.type === m.type && x.id === m.id)));
+    setTimeout(() => { if (textareaRef.current) textareaRef.current.focus(); }, 0);
   };
    const chooseBehavior = (mode) => {
     setBehavior(mode);
@@ -734,7 +901,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   };
    /* 发起一轮执行：发送 prompt 并将流式响应挂到 assistantId 消息；rewindId 为编辑重发的服务端截断点；
       join 为运行中追问（join 语义）：服务端把消息入队由活跃 run 续跑，前端不重开流，轮次分段自动建段 */
-  const startRun = async (sessionId, trimmed, assistantId, rewindId, join) => {
+  const startRun = async (sessionId, trimmed, assistantId, rewindId, join, mentions) => {
     lastPromptRef.current = trimmed;
     const failWith = (message) => {
       setMessages((prev) => failMessage(prev, assistantId, message, trimmed));
@@ -743,7 +910,13 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const res = await fetch('/api/admin-ai/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, prompt: trimmed, ...(rewindId ? { rewindId } : {}) }),
+        body: JSON.stringify({
+          sessionId,
+          prompt: trimmed,
+          mode: behavior,
+          ...(mentions && mentions.length > 0 ? { mentions } : {}),
+          ...(rewindId ? { rewindId } : {}),
+        }),
       });
       if (!res.ok) {
         let msg = `发送失败（HTTP ${res.status}）`;
@@ -787,7 +960,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         const res = await fetch('/api/admin-ai/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ mode: behavior }),
         });
         const data = await res.json();
         const body = data.data || data;
@@ -795,7 +968,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         if (!sessionId) return;
         skipLoadSessionRef.current = sessionId;
         setActiveSessionId(sessionId);
-        setSessions((prev) => [{ id: sessionId, title: new Date().toLocaleString('zh-CN') }, ...prev]);
+        setSessions((prev) => [{ id: sessionId, title: new Date().toLocaleString('zh-CN'), mode: behavior }, ...prev]);
       } catch {
         setMessages((prev) => [...prev, {
           id: `err_${Date.now()}`,
@@ -809,11 +982,13 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     }
 
     const assistantMsgId = `assistant_${Date.now()}`;
+    const mentions = pendingMentions;
+    setPendingMentions([]);
     setMessages((prev) => [...prev,
-      createUserMessage(`user_${Date.now()}`, trimmed),
+      { ...createUserMessage(`user_${Date.now()}`, trimmed), mentions: mentions.length > 0 ? mentions.map((m) => ({ ...m })) : undefined },
       createAssistantMessage(assistantMsgId),
     ]);
-    await startRun(sessionId, trimmed, assistantMsgId, undefined, join);
+    await startRun(sessionId, trimmed, assistantMsgId, undefined, join, mentions);
   };
 
   /* 编辑用户消息并重发：截断其后所有消息，更新文本后重新执行 */
@@ -825,6 +1000,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
     const target = messages.find((m) => m.id === messageId);
     // 服务端截断依据：流事件已把真实消息 id（aam_…）记在 dbId 上；历史加载的消息 id 本身即 DB id
     const rewindId = target?.dbId || (target?.id.startsWith('aam_') ? target.id : undefined);
+    const mentions = target?.mentions || [];
     const assistantMsgId = `assistant_${Date.now()}`;
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === messageId);
@@ -832,7 +1008,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
       const base = prev.slice(0, idx + 1).map((m, i) => (i === idx ? { ...m, content: trimmed } : m));
       return [...base, createAssistantMessage(assistantMsgId)];
     });
-    await startRun(activeSessionId, trimmed, assistantMsgId, rewindId);
+    await startRun(activeSessionId, trimmed, assistantMsgId, rewindId, false, mentions);
   };
 
   const handleCancel = async () => {
@@ -981,7 +1157,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
   };
 
   const activeSessionRow = sessions.find((s) => s.id === activeSessionId);
-  const placeholder = behavior === 'agent' ? '输入指令' : '输入消息，@ 引用资源';
+  const placeholder = behavior === 'ask' ? '输入指令' : '输入消息，@ 引用资源';
   // 会话隔离：用户主动发起的（web）与机器人/自动化来源（cron/channel）分开管理，
   // 机器人会话只读（可查看历史，禁输入），避免用户消息污染机器人流程的上下文。
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -1109,7 +1285,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                         s={s}
                         active={s.id === activeSessionId}
                         confirmDeleteId={confirmDeleteId}
-                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                         onDelete={requestDelete}
                       />
                     ))}
@@ -1126,7 +1302,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                         s={s}
                         active={s.id === activeSessionId}
                         confirmDeleteId={confirmDeleteId}
-                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                         onDelete={requestDelete}
                       />
                     ))}
@@ -1142,7 +1318,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                     onToggleTaskGroup={toggleTaskGroup}
                     activeSessionId={activeSessionId}
                     confirmDeleteId={confirmDeleteId}
-                    onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                    onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                     onDelete={requestDelete}
                   />
                 </Sidebar.Menu>
@@ -1184,7 +1360,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                       <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
                     )
                   ) : (
-                    <MessageList messages={messages} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
                   )}
                 </div>
                 {/* 全屏输入区（实底不透明，与消息区无缝衔接）；机器人会话只读不渲染输入框 */}
@@ -1196,6 +1372,33 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                     </div>
                   ) : (
                   <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
+              {pendingMentions.length > 0 && (
+                <div className="flex flex-wrap gap-1 px-4 pt-2.5">
+                  {pendingMentions.map((m) => {
+                    const MI = MENTION_GROUPS.find((g) => g.type === m.type)?.icon || Globe;
+                    return (
+                      <span
+                        key={`${m.type}-${m.id}`}
+                        title={`${m.type}: ${m.id}`}
+                        className="flex max-w-[220px] select-none items-center gap-1 rounded-full border border-kumo-line/60 bg-kumo-recessed/60 py-0.5 pl-2 pr-1 text-[11px] text-kumo-default"
+                      >
+                        <MI className="h-3 w-3 shrink-0 text-kumo-brand" />
+                        <span className="truncate">{m.name}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => removeMention(m)}
+                          aria-label={`移除引用 ${m.name}`}
+                          className="ml-0.5 rounded-sm p-0.5 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-danger"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
               <Textarea
                 ref={textareaRef}
                 rows={2}
@@ -1207,7 +1410,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                 style={{ maxHeight: 256 }}
               />
               {atMenuOpen && (
-                <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
+                <AtResourceMenu resources={resources} tab={atTab} setTab={setAtTab} q={atQuery} setQ={setAtQuery} error={atError} loading={atLoading} onInsert={insertAtResource} />
               )}
               <div className="flex items-center justify-between gap-1.5 p-4 pt-1.5">
                 <div className="flex min-w-0 items-center gap-2">
@@ -1343,7 +1546,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                           s={s}
                           active={s.id === activeSessionId}
                           confirmDeleteId={confirmDeleteId}
-                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                           onDelete={requestDelete}
                         />
                       ))}
@@ -1360,7 +1563,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                           s={s}
                           active={s.id === activeSessionId}
                           confirmDeleteId={confirmDeleteId}
-                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                           onDelete={requestDelete}
                         />
                       ))}
@@ -1376,7 +1579,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                       onToggleTaskGroup={toggleTaskGroup}
                       activeSessionId={activeSessionId}
                       confirmDeleteId={confirmDeleteId}
-                      onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); }}
+                      onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                       onDelete={requestDelete}
                     />
                   </Sidebar.Menu>
@@ -1420,7 +1623,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
                   <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
                 )
               ) : (
-                <MessageList messages={messages} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
               )}
             </div>
           </div>
@@ -1435,6 +1638,33 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
         ) : (
         <form onSubmit={(e) => { e.preventDefault(); handleSend(); }}>
           <div className="relative rounded-xl bg-kumo-base ring-1 ring-kumo-line transition-all has-[textarea:focus]:ring-[1.5px] has-[textarea:focus]:ring-kumo-brand/50" data-askai-menu>
+            {pendingMentions.length > 0 && (
+              <div className="flex flex-wrap gap-1 px-4 pt-2.5">
+                {pendingMentions.map((m) => {
+                  const MI = MENTION_GROUPS.find((g) => g.type === m.type)?.icon || Globe;
+                  return (
+                    <span
+                      key={`${m.type}-${m.id}`}
+                      title={`${m.type}: ${m.id}`}
+                      className="flex max-w-[220px] select-none items-center gap-1 rounded-full border border-kumo-line/60 bg-kumo-recessed/60 py-0.5 pl-2 pr-1 text-[11px] text-kumo-default"
+                    >
+                      <MI className="h-3 w-3 shrink-0 text-kumo-brand" />
+                      <span className="truncate">{m.name}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => removeMention(m)}
+                        aria-label={`移除引用 ${m.name}`}
+                        className="ml-0.5 rounded-sm p-0.5 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-danger"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
             <Textarea
               ref={textareaRef}
               rows={2}
@@ -1446,7 +1676,7 @@ function AtResourceMenu({ zones, error, loading, onInsert }) {
               style={{ maxHeight: 256 }}
             />
             {atMenuOpen && (
-              <AtResourceMenu zones={dnsZones} error={atError} loading={atLoading} onInsert={insertAtResource} />
+              <AtResourceMenu resources={resources} tab={atTab} setTab={setAtTab} q={atQuery} setQ={setAtQuery} error={atError} loading={atLoading} onInsert={insertAtResource} />
             )}
             <div className="flex items-center justify-between gap-1.5 p-4 pt-1.5">
               <div className="flex min-w-0 items-center gap-2">

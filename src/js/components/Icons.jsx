@@ -99,6 +99,7 @@ import {
   User as PhUser,
   Users as PhUsers,
   Warning,
+  Wrench as PhWrench,
   X as PhX,
 } from '@phosphor-icons/react';
 import { createFontIcon, GitHubBrand } from './IconsCore.jsx';
@@ -253,6 +254,7 @@ export const Maximize2 = createIcon(ArrowsOutSimple);
 export const ExternalLink = createIcon(ArrowSquareOut);
 export const ArrowLeft = createIcon(PhArrowLeft);
 export const Undo = createIcon(ArrowCounterClockwise);
+export const Wrench = createIcon(PhWrench);
 export const CloudflareBrand = createFontIcon('si si-cloudflare', 'Cloudflare');
 export const AlibabaCloudBrand = createFontIcon('si si-alibabacloud', 'AlibabaCloud');
 export const TencentCloudBrand = createAssetIcon(tencentCloudIcon, 'TencentCloud');

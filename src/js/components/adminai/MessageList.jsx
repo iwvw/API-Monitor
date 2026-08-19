@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Loader, Textarea } from '@cloudflare/kumo';
-import { ChevronDown, Sparkle, Terminal, Copy, Check, X, Edit } from '../Icons.jsx';
+import { ChevronDown, Sparkle, Terminal, MessageSquare, Globe, Server, Cloud, Clock, Sliders, Bell, FlyIoBrand, KoyebBrand, Copy, Check, X, Edit } from '../Icons.jsx';
 import ToolCallCard, { toolLabel, toolPathLabel, ToolSteps } from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { isStreaming } from '../../modules/adminAiMessages.js';
@@ -271,6 +271,38 @@ function RenderLines({ text }) {
   return <div className="space-y-1">{elements}</div>;
 }
 
+/* ---------- 资源引用 chips（user 消息下方：@ 选择的结构化引用） ---------- */
+const MENTION_ICONS = {
+  zone: Globe,
+  host: Server,
+  task: Clock,
+  account: Cloud,
+  flyio: FlyIoBrand,
+  koyeb: KoyebBrand,
+  node: Sliders,
+  channel: Bell,
+};
+function MentionChips({ mentions }) {
+  if (!mentions || mentions.length === 0) return null;
+  return (
+    <div className="mb-1 flex max-w-full flex-col items-end gap-1">
+      {mentions.map((m, i) => {
+        const Icon = MENTION_ICONS[m.type] || Globe;
+        return (
+          <span
+            key={`${m.type}-${m.id}-${i}`}
+            title={`${m.type}: ${m.id}`}
+            className="flex max-w-[240px] select-none items-center gap-1 rounded-full border border-kumo-line/60 bg-kumo-recessed/60 px-2 py-0.5 text-[11px] text-kumo-default"
+          >
+            <Icon className="h-3 w-3 shrink-0 text-kumo-brand" />
+            <span className="truncate">{m.name}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ---------- 推理 part（timeline 行：胶囊 + 流式单行滚动 / 完成后折叠展开） ---------- */
 
 // 推理摘要按句子边界截断：优先句末标点（。！？；），其次句中停顿（，、：），
@@ -299,70 +331,58 @@ function cleanSummaryText(text) {
   return text.replace(SUMMARY_PUNCT_RE, '');
 }
 
-function ReasoningPart({ part, streaming }) {
+function ReasoningPart({ part, streaming, isLastPart }) {
   const [open, setOpen] = useState(false);
-  const [tickerOn, setTickerOn] = useState(true);
+  const [followOn, setFollowOn] = useState(true);
   const scrollRef = useRef(null);
+  // 推理中：内容每次增量后自动滚动到底部（跟随最新进度）；点击药丸可暂停/恢复跟随
   useEffect(() => {
-    if (tickerOn && scrollRef.current) {
-      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+    if (followOn && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [part.text, tickerOn]);
+  }, [part.text, followOn]);
   if (!part.text && !streaming) return null;
-  const isCN = (s) => /[\u4e00-\u9fa5]/.test(s || '');
-  const displaySummary = isCN(part.summary) ? summarizeByPunctuation(cleanSummaryText(part.summary)) : '';
+  const displaySummary = summarizeByPunctuation(cleanSummaryText(part.summary));
   return (
     <div className="flex flex-col gap-1">
       <Button
         type="button"
         size="sm"
         variant="ghost"
-        onClick={() => (streaming ? setTickerOn(!tickerOn) : setOpen(!open))}
-        className="group flex w-max items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
+        onClick={() => (streaming ? setFollowOn(!followOn) : setOpen(!open))}
+        title={streaming ? (followOn ? '暂停跟随推理' : '恢复跟随推理') : (open ? '收起推理' : '查看完整推理')}
+        className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
       >
-        <Sparkle className={`h-3 w-3 text-kumo-brand ${streaming ? 'askai-live-icon' : ''}`} />
-        推理
-        {streaming ? (
+        <Sparkle weight="fill" className={`h-4 w-4 shrink-0 text-kumo-brand ${streaming && isLastPart ? 'askai-live-icon' : ''}`} />
+        {streaming || !displaySummary ? <span className="shrink-0">推理</span> : null}
+        {streaming && isLastPart ? (
           <span className="ml-0.5 flex items-center gap-0.5 text-kumo-brand">
             <span className="askai-typing-dot" />
             <span className="askai-typing-dot" />
             <span className="askai-typing-dot" />
           </span>
         ) : (
-          <span className="text-[10px] transition-colors group-hover:text-kumo-default">
-            {open ? '收起' : '详情'}
-          </span>
+          <>
+            {displaySummary && (
+              <span className="askai-reason-fade max-w-[240px] min-w-0 truncate leading-4">
+                {displaySummary}
+              </span>
+            )}
+            <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${open ? '' : '-rotate-90'}`} />
+          </>
         )}
       </Button>
-      {streaming && tickerOn && (
+      <div className="askai-collapse" data-open={(streaming && isLastPart) || open}>
         <div
           ref={scrollRef}
-          className="min-w-0 max-w-full overflow-x-auto whitespace-nowrap text-xs leading-5 text-kumo-subtle/70"
-          title="推理进行中（可横向拖动查看）"
+          className="askai-reason-fade max-h-[220px] overflow-y-auto overscroll-contain border-l-2 border-kumo-line pl-3 pr-1"
+          title={streaming ? '推理过程中（自动跟随最新内容）' : undefined}
         >
-          {part.text}
-        </div>
-      )}
-      {!streaming && open && (
-        <div className="askai-collapse" data-open={open}>
-          <div className="askai-reason-fade max-h-[220px] overflow-y-auto overscroll-contain border-l-2 border-kumo-line pl-3 pr-1">
-            <p className="whitespace-pre-wrap break-words text-xs !leading-relaxed text-kumo-subtle/90">{part.text}</p>
+          <div className="text-xs !leading-relaxed text-kumo-subtle/90">
+            <RenderLines text={part.text} />
           </div>
         </div>
-      )}
-      {!streaming && !open && displaySummary && (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={() => setOpen(true)}
-          className="askai-reason-fade flex w-full max-w-full cursor-pointer items-center gap-1.5 px-0.5 text-left"
-          title="查看完整推理"
-        >
-          <Sparkle className="h-3 w-3 shrink-0 text-kumo-subtle/60" />
-          <span className="line-clamp-2 min-w-0 text-xs text-kumo-subtle/80">{displaySummary}</span>
-        </Button>
-      )}
+      </div>
     </div>
   );
 }
@@ -401,10 +421,10 @@ function ToolResultLine({ part }) {
 }
 
 /* ---------- timeline part 分发（按时间序逐行渲染） ---------- */
-function TimelinePart({ part, streaming, onResolveApproval, onRetry, className }) {
+function TimelinePart({ part, streaming, isLastPart, onResolveApproval, onRetry, className }) {
   switch (part.type) {
     case 'reasoning':
-      return <ReasoningPart part={part} streaming={streaming} />;
+      return <ReasoningPart part={part} streaming={streaming} isLastPart={isLastPart} />;
     case 'tool_call':
       return (
         <div className="flex items-center gap-1.5">
@@ -447,7 +467,7 @@ function TimelinePart({ part, streaming, onResolveApproval, onRetry, className }
 }
 
 /* ---------- 助手消息（timeline：推理/工具/正文按时间序） ---------- */
-function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, isCollapsed, toggleCollapse }) {
+function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, isCollapsed, toggleCollapse, mode }) {
   const parts = msg.parts || [];
   const liveActive = !!live && !!live.runId;
   const pending = streaming && parts.length === 0;
@@ -455,7 +475,6 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
   const textParts = parts.filter((p) => p.type === 'text');
   const lastTextIdx = textParts.length - 1;
   const lastText = textParts.length > 0 ? textParts[textParts.length - 1].text : '';
-  const hasLongText = textParts.some((p) => (p.text || '').length > 800);
   let textSeq = -1;
   // 连续工具 parts（tool_call/tool_result）合并成组，交给 ToolSteps 折叠展示；
   // 其他类型保持逐行 timeline 渲染
@@ -482,14 +501,16 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
           variant="ghost"
           onClick={toggleCollapse}
           title={isCollapsed ? '展开回复' : '收起回复'}
-          className="flex cursor-pointer items-center gap-1 rounded-full bg-kumo-tint/70 py-0.5 pl-1.5 pr-2 text-[11px] font-medium text-kumo-default hover:bg-kumo-tint hover:text-kumo-strong"
+className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
         >
-          <Terminal className={`h-3 w-3 text-kumo-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
-          代理
-          {!streaming && hasLongText && (
-            <ChevronDown
-              className={`h-3 w-3 text-kumo-subtle transition-transform duration-200 ${isCollapsed ? '' : 'rotate-180'}`}
-            />
+          {mode === 'ask' ? (
+            <MessageSquare className={`h-4 w-4 shrink-0 text-kumo-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
+          ) : (
+            <Terminal className={`h-4 w-4 shrink-0 text-kumo-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
+          )}
+          {mode === 'ask' ? '询问' : '代理'}
+          {!streaming && (
+            <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`} />
           )}
         </Button>
         {(streaming && !hasText && !pending) || liveActive ? (
@@ -512,8 +533,7 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
         )}
       </div>
       <div className="w-full">
-        {!isCollapsed && (
-        <div className="askai-collapse" data-open={streaming || !isCollapsed}>
+        <div className="askai-collapse" data-open={!isCollapsed}>
         <div
           className={`w-full max-w-full rounded-xl px-4 py-3 text-sm !leading-relaxed ${
             streaming
@@ -530,7 +550,7 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
             <div className="flex flex-col gap-2">
               {segments.map((seg, si) => {
                 if (Array.isArray(seg)) {
-                  return <ToolSteps key={`tg-${si}`} items={seg} streaming={streaming} />;
+                  return <ToolSteps key={`tg-${si}`} items={seg} streaming={streaming} isLastPart={si === segments.length - 1} />;
                 }
                 const part = seg;
                 const isText = part.type === 'text';
@@ -543,7 +563,8 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
                   <TimelinePart
                     key={`${si}-${part.type}`}
                     part={part}
-                    streaming={!liveActive && streaming && isText && textSeq === lastTextIdx && part.text === lastText}
+                    isLastPart={si === segments.length - 1}
+                    streaming={!liveActive && streaming && (isText ? (textSeq === lastTextIdx && part.text === lastText) : true)}
                     className={prevIsTool && isText ? 'mt-1' : undefined}
                     onResolveApproval={onResolveApproval}
                     onRetry={onRetry}
@@ -554,7 +575,6 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
           )}
         </div>
         </div>
-        )}
       </div>
     </div>
   );
@@ -568,7 +588,7 @@ function livePhaseLabel(phase) {
 }
 
 /* ---------- 消息列表 ---------- */
-export default function MessageList({ messages, live, onResolveApproval, onRetry, onEditResend }) {
+export default function MessageList({ messages, mode, live, onResolveApproval, onRetry, onEditResend }) {
   const listRef = useRef(null);
   const userScrolledUp = useRef(false);
   const [collapsedIds, setCollapsedIds] = useState({});
@@ -628,10 +648,8 @@ export default function MessageList({ messages, live, onResolveApproval, onRetry
       <div className="flex w-full flex-col gap-4">
         {messages.map((msg, idx) => {
           const streaming = isStreaming(msg.status);
-          const parts = msg.parts || [];
-          const hasLongText = parts.some((p) => p.type === 'text' && (p.text || '').length > 800);
           const msgKey = msg.id || idx;
-          const isCollapsed = hasLongText && !!collapsedIds[msgKey];
+          const isCollapsed = !!collapsedIds[msgKey];
           const toggleCollapse = () => setCollapsedIds((prev) => ({ ...prev, [msgKey]: !prev[msgKey] }));
           return (
           <article
@@ -696,7 +714,9 @@ export default function MessageList({ messages, live, onResolveApproval, onRetry
                   </div>
                 </div>
               ) : (
-                <div className="group relative flex w-fit max-w-full items-end gap-1.5">
+                <div className="group relative flex w-fit max-w-full flex-col items-end">
+                  <MentionChips mentions={msg.mentions} />
+                  <div className="flex items-end gap-1.5">
                   <Button
                     type="button"
                     size="sm"
@@ -715,6 +735,7 @@ export default function MessageList({ messages, live, onResolveApproval, onRetry
                   <div data-user-bubble className="min-w-0 rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                     <TextBlock text={msg.content} />
                   </div>
+                  </div>
                 </div>
               )
             ) : (
@@ -726,6 +747,7 @@ export default function MessageList({ messages, live, onResolveApproval, onRetry
                 onRetry={onRetry}
                 isCollapsed={isCollapsed}
                 toggleCollapse={toggleCollapse}
+                mode={mode}
               />
             )}
           </article>
