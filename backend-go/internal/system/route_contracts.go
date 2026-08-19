@@ -1106,6 +1106,7 @@ func init() {
 		"title":  {t: "string", d: "会话标题"},
 		"model":  {t: "string", d: "LLM 模型"},
 		"source": {t: "string", d: "会话来源，如 web 或 channel:<id>"},
+		"mode":   {t: "string", e: []string{"agent", "ask"}, d: "会话模式：agent=代理（可调用工具）| ask=询问（纯问答）；缺省取管理设置 admin_ai_default_mode"},
 	})
 	routeRequestContracts["/api/admin-ai/sessions/{id}"] = noBody
 	routeRequestContracts["/api/admin-ai/messages"] = obj([]string{"sessionId", "prompt"}, map[string]prop{
@@ -1113,7 +1114,9 @@ func init() {
 		"prompt":    {t: "string", req: true, d: "用户消息"},
 		"model":     {t: "string", d: "指定模型"},
 		"source":    {t: "string", d: "会话来源"},
+		"mode":      {t: "string", e: []string{"agent", "ask"}, d: "本次消息使用的模式；非空时同步为会话模式（agent=代理可调用工具，ask=询问纯问答）"},
 		"rewindId":  {t: "string", d: "编辑重发：删除该消息及其后所有消息后再执行"},
+		"mentions":  {t: "array", d: "@ 引用的资源列表（type: zone/host/task/account/flyio/koyeb/node/channel，id: 资源 ID），服务端拉取实时快照注入本轮上下文；上限 10 条"},
 	})
 	routeRequestContracts["/api/admin-ai/cancel"] = obj([]string{"runId"}, map[string]prop{
 		"runId": {t: "string", req: true, d: "要取消的执行 ID"},
@@ -1166,6 +1169,7 @@ func init() {
 		"gatewayKey":                    {t: "string", d: "管理 AI 网关密钥"},
 		"admin_ai_enabled":              {t: "string", d: "管理 AI 总开关（true/false）"},
 		"admin_ai_default_model":        {t: "string", d: "默认推理模型"},
+		"admin_ai_default_mode":         {t: "string", e: []string{"agent", "ask"}, d: "新会话默认模式（agent=代理可调用工具，ask=询问纯问答）"},
 		"admin_ai_write_enabled":        {t: "string", d: "写操作全局开关（true/false）"},
 		"admin_ai_tool_call_limit":      {t: "string", d: "单轮最大工具调用次数"},
 		"admin_ai_timeout_seconds":      {t: "string", d: "单轮执行超时秒数"},

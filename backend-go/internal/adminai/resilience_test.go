@@ -203,7 +203,7 @@ func TestCallLLMStreamFirstTokenTimeout(t *testing.T) {
 	s.cfg.Port = port
 
 	start := time.Now()
-	_, err := s.callLLMStream(context.Background(), "test-model", []map[string]interface{}{{"role": "user", "content": "hi"}}, make(chan SSEEvent, 8), "aam_test_1")
+	_, err := s.callLLMStream(context.Background(), "test-model", []map[string]interface{}{{"role": "user", "content": "hi"}}, make(chan SSEEvent, 8), "aam_test_1", true)
 	if err == nil {
 		t.Fatalf("expected first-token timeout error")
 	}
@@ -476,7 +476,7 @@ body, _ := io.ReadAll(r.Body)
 	port := ts.Listener.Addr().(*net.TCPAddr).Port
 	s.cfg.Port = port
 
-	runID, err := s.RunLoop(context.Background(), "web", "aas_parallel", "并行执行三个只读查询后执行一次写操作", "", "", "")
+	runID, err := s.RunLoop(context.Background(), "web", "aas_parallel", "并行执行三个只读查询后执行一次写操作", "", "", "", nil)
 	if err != nil {
 		t.Fatalf("RunLoop: %v", err)
 	}

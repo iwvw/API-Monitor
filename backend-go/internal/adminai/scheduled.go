@@ -102,7 +102,7 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 
 	// 策略在 RunLoop 内注册（allow/readonly，先于执行 goroutine 生效避免竞态），
 	// 本处理器负责在运行结束后清理。
-	runID, err := s.RunLoop(ctx, "cron", sessionID, req.Prompt, "", model, policy)
+	runID, err := s.RunLoop(ctx, "cron", sessionID, req.Prompt, "", model, policy, nil)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "启动执行失败: "+err.Error())
 		return

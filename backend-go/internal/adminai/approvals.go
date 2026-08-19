@@ -214,6 +214,7 @@ var adminAISettingDefs = []struct {
 }{
 	{"admin_ai_enabled", "true", "管理 AI 总开关"},
 	{"admin_ai_default_model", "", "默认推理模型（经 /v1 网关负载均衡，支持逗号分隔按序回退）"},
+	{"admin_ai_default_mode", "agent", "新会话默认模式（agent=代理可调用工具，ask=询问纯问答）"},
 	{"admin_ai_summary_model", "", "推理摘要专用模型（留空回退默认模型）"},
 	{"admin_ai_briefing_model", "", "站点简报专用模型（留空回退默认模型）"},
 	{"admin_ai_briefing_template", `{"type":"standard","custom":""}`, "站点简报模板（JSON：{type,custom}，type: standard/brief/detailed/alert_only/custom）"},

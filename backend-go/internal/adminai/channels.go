@@ -376,7 +376,7 @@ func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 	}
 	slog.Info("channel-placeholder-sent", "channelId", env.ChannelID, "msgId", msgID)
 
-	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, string(identity), "", "")
+	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, string(identity), "", "", nil)
 	if err != nil {
 		s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
 		return
@@ -433,7 +433,7 @@ func (s *Service) queueChannelConversation(env channel.InboundEnvelope, sessionI
 	}
 
 	_ = s.sendChannelEdit(env, msgID, "⏳ 正在处理中…")
-	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, identity, "", "")
+	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, identity, "", "", nil)
 	if err != nil {
 		_ = s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
 		return

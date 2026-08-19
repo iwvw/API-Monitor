@@ -21,12 +21,12 @@ func TestRunLoopSessionMutex(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	runID, err := s.RunLoop(ctx, "web", "aas_mutex", "第一条消息", "", "", "")
+	runID, err := s.RunLoop(ctx, "web", "aas_mutex", "第一条消息", "", "", "", nil)
 	if err != nil || runID == "" {
 		t.Fatalf("first run should start: runID=%q err=%v", runID, err)
 	}
 	// 第一个 run 的 goroutine 尚未完成时再次提交同一会话 → 必须拒绝
-	runID2, err2 := s.RunLoop(ctx, "web", "aas_mutex", "第二条消息", "", "", "")
+	runID2, err2 := s.RunLoop(ctx, "web", "aas_mutex", "第二条消息", "", "", "", nil)
 	if err2 == nil {
 		t.Fatalf("second run on same session should conflict, got runID=%q", runID2)
 	}
@@ -35,7 +35,7 @@ func TestRunLoopSessionMutex(t *testing.T) {
 	}
 
 	// 不同会话不受影响
-	runID3, err3 := s.RunLoop(ctx, "web", "aas_mutex2", "另一会话", "", "", "")
+	runID3, err3 := s.RunLoop(ctx, "web", "aas_mutex2", "另一会话", "", "", "", nil)
 	if err3 != nil || runID3 == "" {
 		t.Fatalf("other session should start: runID=%q err=%v", runID3, err3)
 	}

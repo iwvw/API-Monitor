@@ -242,6 +242,11 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_extracted_at", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.memory_extracted_at: %w", err)
 	}
+	// admin_ai_sessions 扩展 mode 列（会话模式：agent=代理可调用工具，ask=询问纯问答；
+	// 缺省 agent，web 端每次发消息携带 mode 即切换当前会话模式）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "mode", "TEXT DEFAULT 'agent'"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.mode: %w", err)
+	}
 	// memory_extracted_msg_id：与 memory_extracted_at 组成 (created_at, id) 二元游标，
 	// 批内超限时不把游标跳到「当前时刻」，剩余消息不会因时间盲区被永久跳过。
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_extracted_msg_id", "TEXT DEFAULT ''"); err != nil {
@@ -263,6 +268,11 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	// 前端据此渲染红叉/绿勾，避免失败调用刷新后显示成功）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "tool_status", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_messages.tool_status: %w", err)
+	}
+	// admin_ai_messages 扩展 mentions 列（user 行记录 @ 引用资源 JSON：[{type,id,name}]，
+	// 刷新/重拉历史后引用 chips 不丢）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "mentions", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_messages.mentions: %w", err)
 	}
 	// admin_ai_approvals 扩展 reason 列（请求更改/拒绝原因）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_approvals", "reason", "TEXT"); err != nil {
@@ -388,7 +398,7 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(r.Context(), `SELECT id, source, COALESCE(channel_ref,''), COALESCE(title,''), COALESCE(model,''), write_enabled, COALESCE(identity_json,''), created_at, updated_at, last_activity_at FROM admin_ai_sessions ORDER BY last_activity_at DESC`)
+	rows, err := db.QueryContext(r.Context(), `SELECT id, source, COALESCE(channel_ref,''), COALESCE(title,''), COALESCE(model,''), write_enabled, COALESCE(identity_json,''), COALESCE(mode,'agent'), created_at, updated_at, last_activity_at FROM admin_ai_sessions ORDER BY last_activity_at DESC`)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -402,6 +412,7 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
 		Title          string `json:"title,omitempty"`
 		Model          string `json:"model,omitempty"`
 		WriteEnabled   bool   `json:"writeEnabled"`
+		Mode           string `json:"mode"`
 		CreatedAt      string `json:"createdAt"`
 		UpdatedAt      string `json:"updatedAt"`
 LastActivityAt string `json:"lastActivityAt"`
@@ -417,7 +428,7 @@ LastActivityAt string `json:"lastActivityAt"`
 		var item sessionItem
 		var we int
 		var identity string
-		if err := rows.Scan(&item.ID, &item.Source, &item.ChannelRef, &item.Title, &item.Model, &we, &identity, &item.CreatedAt, &item.UpdatedAt, &item.LastActivityAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Source, &item.ChannelRef, &item.Title, &item.Model, &we, &identity, &item.Mode, &item.CreatedAt, &item.UpdatedAt, &item.LastActivityAt); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -457,6 +468,7 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 		Title  string `json:"title"`
 		Model  string `json:"model"`
 		Source string `json:"source"`
+		Mode   string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -487,9 +499,20 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = s.cfg.AdminAIDefaultModel
 	}
+	mode := req.Mode
+	if mode == "" {
+		mode = "agent"
+		_ = db.QueryRowContext(r.Context(), "SELECT value FROM system_config WHERE key = 'admin_ai_default_mode'").Scan(&mode)
+		if mode == "" {
+			mode = "agent"
+		}
+	}
+	if mode != "agent" && mode != "ask" {
+		mode = "agent"
+	}
 	_, err = db.ExecContext(r.Context(),
-		`INSERT INTO admin_ai_sessions (id, source, title, model, write_enabled, created_at, updated_at, last_activity_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
-		id, req.Source, req.Title, model, now, now, now)
+		`INSERT INTO admin_ai_sessions (id, source, title, model, mode, write_enabled, created_at, updated_at, last_activity_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+		id, req.Source, req.Title, model, mode, now, now, now)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -499,6 +522,7 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 		"source":         req.Source,
 		"title":          req.Title,
 		"model":          model,
+		"mode":           mode,
 		"createdAt":      now,
 		"updatedAt":      now,
 		"lastActivityAt": now,
@@ -550,6 +574,7 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 		ToolCallMeta     string `json:"toolCallMeta,omitempty"`
 		ToolCallDesc     string `json:"toolCallDesc,omitempty"`
 		ToolStatus       string `json:"toolStatus,omitempty"`
+		Mentions         string `json:"mentions,omitempty"`
 		CreatedAt        string `json:"createdAt"`
 	}
 
@@ -561,11 +586,11 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 			return
 		}
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), created_at FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), COALESCE(mentions,''), created_at FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
 			sessionID, parts[0], parts[0], parts[1], limit+1)
 	} else {
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), created_at FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), COALESCE(mentions,''), created_at FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
 			sessionID, limit+1)
 	}
 	if err != nil {
@@ -577,7 +602,7 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 	items := make([]messageItem, 0, limit)
 	for rows.Next() {
 		var item messageItem
-		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ReasoningContent, &item.ReasoningSummary, &item.ToolCallMeta, &item.ToolStatus, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ReasoningContent, &item.ReasoningSummary, &item.ToolCallMeta, &item.ToolStatus, &item.Mentions, &item.CreatedAt); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -654,7 +679,9 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 		Prompt    string `json:"prompt"`
 		Model     string `json:"model"`
 		Source    string `json:"source"`
+		Mode      string `json:"mode"`
 		RewindID  string `json:"rewindId"` // 编辑重发：删除该消息及其后所有消息后再执行
+		Mentions  []Mention `json:"mentions"` // @ 引用的资源（type+id，服务端拉实时快照注入上下文）
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -668,6 +695,21 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 	if source == "" {
 		source = "web"
 	}
+
+	// 会话模式跟随最新消息：前端每次发消息带 mode（agent/ask），落库为会话模式；
+	// 空值不覆盖（channel/cron 等调用方不带 mode，保持会话既有模式）。
+	mode := req.Mode
+	if mode != "" && mode != "agent" && mode != "ask" {
+		mode = "agent"
+	}
+	if mode != "" {
+		db, err := s.open(r.Context())
+		if err == nil {
+			_, _ = db.ExecContext(r.Context(), "UPDATE admin_ai_sessions SET mode = ? WHERE id = ?", mode, req.SessionID)
+			db.Close()
+		}
+	}
+	mentions := normalizeMentions(req.Mentions)
 
 	if req.RewindID != "" {
 		// 编辑重发是排他操作：运行中的 run 正在逐轮消费历史，此时截断会让其
@@ -721,9 +763,15 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		newID := nextID(r.Context(), db, "aam_")
+		mentionsJSON := ""
+		if len(mentions) > 0 {
+			if b, err := json.Marshal(mentions); err == nil {
+				mentionsJSON = string(b)
+			}
+		}
 		_, err = db.ExecContext(r.Context(),
-			`INSERT INTO admin_ai_messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`,
-			newID, req.SessionID, req.Prompt, time.Now().UTC().Format(time.RFC3339))
+			`INSERT INTO admin_ai_messages (id, session_id, role, content, mentions, created_at) VALUES (?, ?, 'user', ?, ?, ?)`,
+			newID, req.SessionID, req.Prompt, mentionsJSON, time.Now().UTC().Format(time.RFC3339))
 		db.Close()
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
@@ -738,7 +786,7 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Unlock()
-		runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "")
+		runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "", mentions)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -747,7 +795,7 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "")
+	runID, err := s.RunLoop(context.Background(), source, req.SessionID, req.Prompt, "", req.Model, "", mentions)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
