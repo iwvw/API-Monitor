@@ -1701,7 +1701,7 @@ function SettingsPage() {
       )}
       {activeTab === 'database' && (
         <div className="grid min-w-0 items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
-          <div className="sticky top-[calc(var(--app-header-height)+0.5rem)] z-20 flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
           <SectionCard
             className="min-w-0"
             title="数据库导入导出"
