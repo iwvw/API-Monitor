@@ -2085,6 +2085,14 @@ table td > * {
   min-width: 0;
 }
 
+/* Kumo 2.11 Table.Row 默认变体新增偶数行斑马纹（even:bg-kumo-tint），
+   项目沿用 2.10 纯底色风格，此处恢复为透明行底（selected 变体除外）。
+   unlayered 规则优先于 Tailwind 工具类，故对全站 Kumo 表格生效。 */
+table.isolate tr:not(.bg-kumo-tint):nth-child(even) {
+  background-color: transparent;
+  --kumo-table-row-bg: var(--color-kumo-base);
+}
+
 /* Semantic table columns keep utility cells stable while content columns grow. */
 .app-semantic-table th,
 .app-semantic-table td {
