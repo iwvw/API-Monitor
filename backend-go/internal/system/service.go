@@ -53,6 +53,11 @@ type Service struct {
 	apiKeys    *apikeys.Manager
 	alertState alertState
 	statusHub  *statusHub
+
+	apiStatsMu        sync.Mutex
+	apiStatsCacheDays int
+	apiStatsCacheAt   time.Time
+	apiStatsCacheVal  map[string]interface{}
 }
 
 type APICounters struct {
@@ -64,6 +69,7 @@ const (
 	defaultApiStatsDays = 14
 	minApiStatsDays     = 1
 	maxApiStatsDays     = 90
+	apiStatsCacheTTL    = 60 * time.Second
 )
 
 func (s *Service) SetNotifier(n Notifier) {
@@ -1295,6 +1301,14 @@ func methodsFromAnnotations(desc string) []string {
 }
 
 func (s *Service) apiStats(days int) (map[string]interface{}, error) {
+	s.apiStatsMu.Lock()
+	if s.apiStatsCacheDays == days && time.Since(s.apiStatsCacheAt) < apiStatsCacheTTL {
+		cached := s.apiStatsCacheVal
+		s.apiStatsMu.Unlock()
+		return cached, nil
+	}
+	s.apiStatsMu.Unlock()
+
 	now := time.Now()
 	startDateStr := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
 
@@ -1357,7 +1371,7 @@ func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 
 	// 汇总最近 days 天的词元用量（OpenAI 网关）与订阅实际用量（流量），并按天对齐趋势桶。
 	var totalTokens, totalTraffic int64
-	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, now, days)
+	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, now.UTC(), days)
 	for _, item := range trend {
 		bucket := item["bucket"].(string)
 		tokens := tokensByDay[bucket]
@@ -1367,7 +1381,7 @@ func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 		totalTokens += tokens
 		totalTraffic += traffic
 	}
-	return map[string]interface{}{
+	payload := map[string]interface{}{
 		"total": map[string]interface{}{
 			"audit": totalAudit,
 			"ops":   totalOps,
@@ -1376,13 +1390,22 @@ func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 		"trend":   trend,
 		"tokens":  totalTokens,
 		"traffic": totalTraffic,
-	}, nil
+	}
+
+	s.apiStatsMu.Lock()
+	s.apiStatsCacheDays = days
+	s.apiStatsCacheAt = time.Now()
+	s.apiStatsCacheVal = payload
+	s.apiStatsMu.Unlock()
+	return payload, nil
 }
 
 // systemUsageDaily 按天汇总最近 days 天的 OpenAI 网关词元消耗与订阅实际流量（上传+下载字节）。
-// 返回以 "2006-01-02" 为键的逐日用量表，缺失日期返回 0。
+// now 须为 UTC：两表时间列均以 UTC 文本存储，直接与列比较可命中索引，
+// 避免 datetime() 函数包裹导致全表扫描。返回以 "2006-01-02"（UTC 日）为键的逐日用量表，缺失日期返回 0。
 func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) (map[string]int64, map[string]int64) {
 	start := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02 15:04:05")
+	startRFC3339 := now.AddDate(0, 0, -(days - 1)).Format(time.RFC3339)
 	tokensByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
 		SELECT strftime('%Y-%m-%d', timestamp) AS day, COALESCE(SUM(total_tokens), 0)
@@ -1405,8 +1428,8 @@ func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) 
 	if rows, err := db.QueryContext(ctx, `
 		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(upload_bytes + download_bytes), 0)
 		FROM subscription_usage_hourly
-		WHERE datetime(hour) >= datetime(?)
-		GROUP BY day`, start); err != nil {
+		WHERE hour >= ?
+		GROUP BY day`, startRFC3339); err != nil {
 		trafficByDay = nil
 	} else {
 		for rows.Next() {

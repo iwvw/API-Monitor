@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -601,6 +602,72 @@ func TestAPICallStats(t *testing.T) {
 	}
 	if !foundToday {
 		t.Error("expected today to be present in trend data")
+	}
+}
+
+func TestApiStatsCacheWithinTTL(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_apistats_cache_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	service := New(config.Config{DataDir: tempDir, DBName: "data.db"})
+	defer service.Shutdown()
+
+	service.RecordAPICall(http.MethodGet, "/api/totp/accounts")
+	service.RecordAPICall(http.MethodPost, "/api/auth/login")
+
+	first, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTotal := first["total"].(map[string]interface{})
+	if firstTotal["all"].(int64) != 2 {
+		t.Fatalf("expected 2 recorded calls, got %v", firstTotal["all"])
+	}
+
+	// TTL 内第二次查询应直接命中缓存：返回同一份 payload（指针恒等）。
+	second, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(second).Pointer() != reflect.ValueOf(first).Pointer() {
+		t.Error("expected apiStats(7) within TTL to serve the cached payload")
+	}
+
+	// 落盘后（内存计数已清空），不同 days 窗口绕过缓存重新计算，结果仍应合并正确。
+	service.flushToDB()
+	other, err := service.apiStats(14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(other).Pointer() == reflect.ValueOf(first).Pointer() {
+		t.Error("expected apiStats(14) to bypass the cached payload")
+	}
+	otherTotal := other["total"].(map[string]interface{})
+	if otherTotal["all"].(int64) != 2 {
+		t.Errorf("expected recomputed payload for different days, got %v", otherTotal["all"])
+	}
+	trend, ok := other["trend"].([]map[string]interface{})
+	if !ok || len(trend) != 14 {
+		t.Fatalf("expected 14 trend buckets, got %#v", other["trend"])
+	}
+
+	// 超过 TTL 后应重新计算而非返回旧缓存。
+	service.apiStatsMu.Lock()
+	service.apiStatsCacheAt = time.Now().Add(-2 * apiStatsCacheTTL)
+	service.apiStatsMu.Unlock()
+	fresh, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(fresh).Pointer() == reflect.ValueOf(first).Pointer() {
+		t.Error("expected apiStats(7) after TTL expiry to recompute")
+	}
+	freshTotal := fresh["total"].(map[string]interface{})
+	if freshTotal["all"].(int64) != 2 {
+		t.Errorf("expected recomputed payload after TTL expiry, got %v", freshTotal["all"])
 	}
 }
 

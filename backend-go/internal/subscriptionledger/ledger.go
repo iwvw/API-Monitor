@@ -98,6 +98,7 @@ func EnsureSchema(ctx context.Context, db *sql.DB) error {
 			FOREIGN KEY(subscription_id) REFERENCES subscription_subscriptions(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_subscription_usage_hourly_sub_time ON subscription_usage_hourly(subscription_id,hour)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_usage_hourly_hour ON subscription_usage_hourly(hour)`,
 		`CREATE INDEX IF NOT EXISTS idx_subscription_usage_reports_subscription_time ON subscription_usage_reports(subscription_id,reported_at)`,
 	}
 	for _, statement := range statements {
