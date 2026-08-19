@@ -268,6 +268,12 @@ const (
 	proxy429BanDuration  = 30 * time.Minute
 )
 
+// proxy429EarlyAbortHits 是同一出口主机（hostname）在一请求内连续 429 的提前
+// 收尾阈值：达到即认为该出口已被上游按 IP 限死。代理池里同主机的多个并行 slot
+// （如单 IP 100 槽的池）继续逐个扫描只是重复往返（8 次串行 429 约 20s），
+// 提前以 429 收尾，交给端点级聚合判断（全部限流时快速返回）。
+const proxy429EarlyAbortHits = 3
+
 // proxyAllFrozenRetryInterval 是「全部出口禁用时自动解冻全体代理」的节流间隔：
 // 距上次自动解冻不足该间隔时仍回退直连，避免上游 IP 级限流未恢复时反复
 // 「解冻→又全部冻结→又解冻」打满全池的限流风暴。
@@ -288,6 +294,13 @@ const proxyAttemptCap = 8
 const endpointRetryRounds = 3
 
 var endpointRetryDelay = 500 * time.Millisecond
+
+// attemptHeaderTimeout 是单次转发在「仍有可切换出口」时的响应头等待上限。
+// 可切换时，代理在期限内不返回响应头即视为该出口链路不可用，提前切下一个
+// （非流式此前只能等 transport 的 ResponseHeaderTimeout=180s，一个挂死的
+// 代理会把整条回退链拖住三分钟，「第一次访问等很久」的主要成因之一）。
+// 不可切换的终局尝试仍放行到 180s，避免误杀「排队很久但最终成功」的上游。
+var attemptHeaderTimeout = 20 * time.Second
 
 // sessionProxyRequestLimit 是同一会话在同一个出口 IP 上的请求数上限：
 // 达到上限后主动轮换到下一个代理。opencode 等上游按出口 IP 限额时，
@@ -331,6 +344,23 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// finalUpstreamRecorded 标记最后一次尝试的限流/5xx 是否已写入转发失败明细，
 	// 避免流式无切换路径与循环结束统一判定处重复记录同一次失败。
 	finalUpstreamRecorded := false
+	// 同一出口主机连续 429 计数：达到 proxy429EarlyAbortHits 视为该出口已被上游
+	// 按 IP 限死，提前收尾（不再把池内同主机 slot 全部扫一遍）。
+	sameHost429Hits := 0
+	var last429Host string
+	bump429 := func(proxy string) bool {
+		h := proxyHostOf(proxy)
+		if h == "" {
+			return false
+		}
+		if h == last429Host {
+			sameHost429Hits++
+		} else {
+			last429Host = h
+			sameHost429Hits = 1
+		}
+		return sameHost429Hits >= proxy429EarlyAbortHits
+	}
 
 	for attempt = 0; attempt < maxProxyAttempts; attempt++ {
 		// 客户端已断开（ctx 取消/超时）：立即结束尝试循环，不再发起新的
@@ -409,7 +439,53 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		}
 		httpReq.Header.Set("Authorization", "Bearer "+currentKey)
 
-		resp, lastErr = client.Do(httpReq)
+		// 逐跳响应头等待上限：仍有可切换出口时，代理在 attemptHeaderTimeout 内
+		// 不返回响应头即视为该出口链路不可用，立即切下一个，避免挂死代理拖住
+		// 整条回退链（非流式 transport 的 ResponseHeaderTimeout 高达 180s）。
+		canSwitch := selected.AutoSwitch && attempt+1 < maxProxyAttempts && currentProxy != ""
+		if canSwitch {
+			type doRes struct {
+				resp *http.Response
+				err  error
+			}
+			ch := make(chan doRes, 1)
+			go func() {
+				r, e := client.Do(httpReq)
+				ch <- doRes{r, e}
+			}()
+			select {
+			case d := <-ch:
+				resp, lastErr = d.resp, d.err
+			case <-time.After(attemptHeaderTimeout):
+				cancel()
+				// 吞掉晚到的 Do 结果：若其已成功打开响应体，ctx 取消会关闭连接。
+				select {
+				case d := <-ch:
+					if d.resp != nil {
+						d.resp.Body.Close()
+					}
+				default:
+				}
+				s.markProxyFailed(selected.ID, currentProxy)
+				s.recordRelayError(RelayErrorRecord{
+					Route: p.route, Kind: "timeout",
+					Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: currentKeyIndex,
+					Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
+					ClientIP: p.clientIP, Attempts: attempt + 1,
+					ElapsedMs: time.Since(res.startTime).Milliseconds(),
+					Error:     fmt.Sprintf("no response headers within %s", attemptHeaderTimeout),
+				})
+				res.retryableUpstream = true
+				lastErr = fmt.Errorf("上游响应头超时（超过 %s）", attemptHeaderTimeout)
+				resp = nil
+				if attempt+1 < maxProxyAttempts {
+					continue
+				}
+				break
+			}
+		} else {
+			resp, lastErr = client.Do(httpReq)
+		}
 		if lastErr != nil {
 			// 连接失败（例如该代理不可用）：key 不冻结，只标记代理失败，若有池则切下一个。
 			s.markProxyFailed(selected.ID, currentProxy)
@@ -425,7 +501,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			if currentProxy != "" && attempt+1 < maxProxyAttempts {
 				continue
 			}
-			// 直连（代理池全部冻结回退）没有可切换的出口，重试只是重复打同一条链路。
+			// 直连（代理池全部冻结回退）没有可切换的出口，重试只是重复打同一条链路；
+			// 但端点级还有别的候选可用，连接层失败同样交给 failover 尝试下一个端点，
+			// 而不是直接把 502 返回给客户端。
+			res.retryableUpstream = true
 			break
 		}
 
@@ -463,6 +542,15 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					Error:      "retryable upstream response",
 				})
 				if currentProxy != "" {
+					// 同一出口主机连续 429 达到阈值：上游按出口 IP 已限死，池内
+					// 同主机 slot 大概率同样被限，提前收尾（保留已读正文原样交给
+					// 统一判定记录，以 429 退出）。
+					if isRateLimitResponse(resp, bodyBytesRead) && bump429(currentProxy) {
+						resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
+						res.retryableUpstream = true
+						lastErr = fmt.Errorf("上游按出口限流（连续 %d 次 429）", proxy429EarlyAbortHits)
+						break
+					}
 					// 直连（池全部冻结回退）无处可切：保留已读正文原样返回给客户端。
 					continue
 				}
@@ -496,6 +584,12 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				Error:      "retryable upstream response",
 			})
 			if currentProxy != "" {
+				// 同一出口主机连续 429 达到阈值：上游按出口 IP 已限死，提前收尾。
+				if isRateLimitResponse(resp, nil) && bump429(currentProxy) {
+					res.retryableUpstream = true
+					lastErr = fmt.Errorf("上游按出口限流（连续 %d 次 429）", proxy429EarlyAbortHits)
+					break
+				}
 				continue
 			}
 			// 直连（代理池全部冻结回退）无处可切：标记上游可重试错误，交给端点级 failover。
@@ -632,20 +726,25 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 
 	if lastErr != nil && resp == nil {
 		res.lastErr = lastErr
-		s.recordRelayError(RelayErrorRecord{
-			Route: p.route, Kind: "bad_gateway",
-			Endpoint: selected.Name, EndpointID: selected.ID,
-			Model: p.model, Stream: stream, Proxy: hostFromProxyURL(lastProxy),
-			ClientIP: p.clientIP, Attempts: attempt + 1,
-			ElapsedMs: time.Since(res.startTime).Milliseconds(),
-			Error:     lastErr.Error(),
-		})
-		errBody, _ := json.Marshal(map[string]string{"error": lastErr.Error()})
-		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusBadGateway, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
-			Kind:     "bad_gateway",
-			Message:  lastErr.Error(),
-			Response: errorResponseForLog(errBody, http.StatusBadGateway),
-		})
+		if !res.retryableUpstream {
+			// 不可重试的终局失败（配置/网关侧错误）在此记录并直接返回；
+			// 可重试失败（429/5xx/首字或响应头超时/连接耗尽）已在循环内记录过，
+			// 由调用方 failover 处理下一个候选端点，避免重复记账和误回 502。
+			s.recordRelayError(RelayErrorRecord{
+				Route: p.route, Kind: "bad_gateway",
+				Endpoint: selected.Name, EndpointID: selected.ID,
+				Model: p.model, Stream: stream, Proxy: hostFromProxyURL(lastProxy),
+				ClientIP: p.clientIP, Attempts: attempt + 1,
+				ElapsedMs: time.Since(res.startTime).Milliseconds(),
+				Error:     lastErr.Error(),
+			})
+			errBody, _ := json.Marshal(map[string]string{"error": lastErr.Error()})
+			s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusBadGateway, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
+				Kind:     "bad_gateway",
+				Message:  lastErr.Error(),
+				Response: errorResponseForLog(errBody, http.StatusBadGateway),
+			})
+		}
 		return res
 	}
 	// 防御：正常退出循环但未拿到响应（理论上只会在极端路径发生），兜底为 502，
@@ -769,7 +868,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
+	endpointCandidates, selected, chosenIndex, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: "chat.completions", Kind: "no_endpoint",
@@ -888,6 +987,8 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	retryRoundFinished := false
 	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
 	var failoverSteps []map[string]interface{}
+	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
+	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -896,25 +997,28 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		failCodes = failCodes[:0]
 		retryRoundCancelled := false
-		for ci, cand := range endpointCandidates {
+		candCount := len(endpointCandidates)
+		for k := 0; k < candCount; k++ {
+			ci := (startIdx + k) % candCount
+			cand := endpointCandidates[ci]
 			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 			candModel, _ := s.resolveEndpointModel(cand, model)
 			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
 			// 候选归一化（写 reasoning_effort）。首个候选不复制、保持原样透传；
 			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
 			candBody := parsedBody
-			needCopy := ci > 0 || (candModel != model && candModel != "")
+			needCopy := k > 0 || (candModel != model && candModel != "")
 			if needCopy {
 				cp := make(map[string]interface{}, len(parsedBody))
-				for k, v := range parsedBody {
-					cp[k] = v
+				for k2, v := range parsedBody {
+					cp[k2] = v
 				}
 				candBody = cp
 			}
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
 			}
-			if ci > 0 {
+			if k > 0 {
 				normalizeReasoningEffort(candBody)
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
@@ -959,8 +1063,8 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if res.statusCode > 0 {
 				failCodes = append(failCodes, res.statusCode)
 			}
-			if ci+1 < len(endpointCandidates) {
-				selected = endpointCandidates[ci+1]
+			if k+1 < candCount {
+				selected = endpointCandidates[(k+1) % candCount]
 				failReason := "上游转发失败"
 				if res.lastErr != nil {
 					failReason = res.lastErr.Error()
@@ -976,6 +1080,23 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if retryRoundFinished {
+			break
+		}
+		// 限流风暴快速收尾：本轮全部候选都返回限流（429/439，而非 5xx 等瞬时故障）
+		// 时，重试整轮只会继续打同一批被限流的出口，且每轮都串行吃掉端点×代理的
+		// 全部耗时（此前单端点 8 代理 × 4 轮可拖到 30s+ 才把 429 还给客户端）。
+		// 直接聚合返回，不再等待/重试；代理池内的短冷却会自行让被限流出口陆续
+		// 退场，下个请求自然分散到健康出口。
+		allRateLimited := len(failCodes) == candCount
+		if allRateLimited {
+			for _, c := range failCodes {
+				if c != http.StatusTooManyRequests && c != 439 {
+					allRateLimited = false
+					break
+				}
+			}
+		}
+		if allRateLimited {
 			break
 		}
 		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。
@@ -1840,7 +1961,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
+	endpointCandidates, selected, chosenIndex, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: "responses", Kind: "no_endpoint",
@@ -1926,6 +2047,8 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	var lastRes *relayLoopResult
 	retryRoundFinished := false
 	var failoverSteps []map[string]interface{}
+	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
+	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -1934,25 +2057,28 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		}
 		failCodes = failCodes[:0]
 		retryRoundCancelled := false
-		for ci, cand := range endpointCandidates {
+		candCount := len(endpointCandidates)
+		for k := 0; k < candCount; k++ {
+			ci := (startIdx + k) % candCount
+			cand := endpointCandidates[ci]
 			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 			candModel, _ := s.resolveEndpointModel(cand, model)
 			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
 			// 候选归一化（写 reasoning.effort）。首个候选不复制、保持原样透传；
 			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
 			candBody := parsedBody
-			needCopy := ci > 0 || (candModel != model && candModel != "")
+			needCopy := k > 0 || (candModel != model && candModel != "")
 			if needCopy {
 				cp := make(map[string]interface{}, len(parsedBody))
-				for k, v := range parsedBody {
-					cp[k] = v
+				for k2, v := range parsedBody {
+					cp[k2] = v
 				}
 				candBody = cp
 			}
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
 			}
-			if ci > 0 {
+			if k > 0 {
 				normalizeReasoningEffort(candBody)
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
@@ -1996,8 +2122,8 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			if res.statusCode > 0 {
 				failCodes = append(failCodes, res.statusCode)
 			}
-			if ci+1 < len(endpointCandidates) {
-				selected = endpointCandidates[ci+1]
+			if k+1 < candCount {
+				selected = endpointCandidates[k+1]
 				failReason := "上游转发失败"
 				if res.lastErr != nil {
 					failReason = res.lastErr.Error()
@@ -2013,6 +2139,20 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if retryRoundFinished {
+			break
+		}
+		// 限流风暴快速收尾：本轮全部候选都返回限流（429/439）时，重试整轮只会继续
+		// 打同一批被限流的出口并串行吃掉全部耗时，直接聚合返回。
+		allRateLimited := len(failCodes) == candCount
+		if allRateLimited {
+			for _, c := range failCodes {
+				if c != http.StatusTooManyRequests && c != 439 {
+					allRateLimited = false
+					break
+				}
+			}
+		}
+		if allRateLimited {
 			break
 		}
 		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。

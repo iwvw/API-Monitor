@@ -1049,6 +1049,24 @@ func hostFromProxyURL(proxy string) string {
 	return u.Host
 }
 
+// proxyHostOf 提取代理 URL 的主机名（不含端口），供判断多个出口是否落在同一
+// 主机/IP：上游 429 按出口 IP 计，同一主机下的多个并行 slot 连续 429 视为
+// 同一个出口被限死。兼容 socks5://host:port、http(s):// 与裸 host:port。
+func proxyHostOf(proxy string) string {
+	u, err := url.Parse(strings.TrimSpace(proxy))
+	if err != nil {
+		return ""
+	}
+	if u.Hostname() != "" {
+		return u.Hostname()
+	}
+	raw := strings.TrimSpace(proxy)
+	if i := strings.LastIndexByte(raw, ':'); i > 0 {
+		return strings.TrimLeft(raw[:i], "[]")
+	}
+	return raw
+}
+
 // convertNodeToProxy 把订阅节点 raw URI 转换为网关可用的 socks5/http 代理 URL。
 // 优先复用 raw 中的用户凭据；raw 无法解析时回退为 server:port。
 func convertNodeToProxy(nodeType, raw, server string, port int, fallbackName string) (proxy, name string, ok bool) {

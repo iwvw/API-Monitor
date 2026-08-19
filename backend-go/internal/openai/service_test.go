@@ -1597,9 +1597,11 @@ func TestSessionProxyRotatesAfterRequestLimit(t *testing.T) {
 	}
 }
 
-func TestUpstream429DoesNotCoolProxy(t *testing.T) {
-	// 上游 429 是上游限额，不是代理故障：单次 429 不惩罚代理（无冷却、无失败计数），
-	// 只切换出口；但 429 会累计计数，达到阈值后触发禁用（见 TestProxy429BannedAfterThreshold）。
+func TestUpstream429ShortCooldown(t *testing.T) {
+	// 上游 429 是上游限额，不是代理连接故障：单次 429 不累计连接失败计数（不
+	// 指数冷却），但会把该出口短时间挪出候选，避免同一请求/临近请求反复打同一
+	// 个被限流的 IP；429 仍会累计计数，达到阈值后触发长禁用（见
+	// TestProxy429BannedAfterThreshold）。
 	service, endpointID, proxy1URL, _ := setupTwoProxyEndpoint(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -1615,25 +1617,38 @@ func TestUpstream429DoesNotCoolProxy(t *testing.T) {
 
 	service.proxyMu.Lock()
 	state := service.proxyStateByEndpoint[endpointID]
-	cooldownCount := len(state.cooldown)
 	failureCount := len(state.failures)
 	rateCount := state.rate429[proxy1URL]
 	limitedCount := len(state.rateLimited)
+	coolUntil, cooled := state.cooldown[proxy1URL]
 	service.proxyMu.Unlock()
-	if cooldownCount != 0 || failureCount != 0 {
-		t.Fatalf("429 must not penalize proxies: cooldown=%d failures=%d", cooldownCount, failureCount)
+	if failureCount != 0 {
+		t.Fatalf("429 must not count toward connection failures, got %d", failureCount)
 	}
 	if rateCount != 1 {
 		t.Fatalf("single 429 should count once toward ban, got %d", rateCount)
 	}
 	if limitedCount != 0 {
-		t.Fatalf("single 429 must not ban the proxy yet, got %d limited", limitedCount)
+		t.Fatalf("single 429 must not long-ban the proxy yet, got %d limited", limitedCount)
+	}
+	if !cooled {
+		t.Fatal("single 429 must short-cool the proxy so the same IP is not re-picked immediately")
+	}
+	expect := time.Now().Add(proxy429ShortCooldown).Add(-2 * time.Second)
+	if coolUntil.Before(expect.Add(-time.Second)) || coolUntil.After(expect.Add(3*time.Second)) {
+		t.Fatalf("short cool expiry = %v, want ~now+%v", coolUntil, proxy429ShortCooldown)
 	}
 }
 
 func TestProxy429BannedAfterThreshold(t *testing.T) {
 	// 同一代理累计 3 次 429 后禁用 30 分钟；禁用期内选择逻辑跳过它，
 	// 到期后自动释放（时间判断，无需主动清理）。
+	// 短冷却会延缓同一出口在冷却期内被再次选中（生产为 30s，这正是想要的分散
+	// 效果）：测试注入 50ms 短冷却 + 请求间等待 60ms（> 冷却、且远小于请求内
+	// 两次尝试的间隔），让每次请求都稳定命中 proxy1 且请求内稳定切到 proxy2。
+	oldCool := proxy429ShortCooldown
+	proxy429ShortCooldown = 50 * time.Millisecond
+	defer func() { proxy429ShortCooldown = oldCool }()
 	service, endpointID, proxy1URL, _ := setupTwoProxyEndpoint(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -1647,6 +1662,7 @@ func TestProxy429BannedAfterThreshold(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("attempt %d failed: %d %s", i+1, w.Code, w.Body.String())
 		}
+		time.Sleep(60 * time.Millisecond)
 	}
 
 	service.proxyMu.Lock()
@@ -1767,6 +1783,9 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 	}
 	state.rateLimited[proxy1URL] = time.Now().Add(proxy429BanDuration)
 	state.rateLimited[proxy2URL] = time.Now().Add(proxy429BanDuration)
+	// 标记最近一次自动解冻发生在现在：使本轮选择直接走「节流窗口内回退直连」，
+	// 不再触发自动解冻（限流风暴快速收尾后不再有多轮重试来兜底恢复直连）。
+	state.lastAllUnfrozen = time.Now()
 	service.proxyMu.Unlock()
 
 	w := chatRequest(t, service, endpointID, false, "")
@@ -2405,10 +2424,11 @@ func TestRetryRoundRecoversOnSubsequentRound(t *testing.T) {
 		first := calls
 		mu.Unlock()
 		if first <= 2 {
-			// 前两次调用返回 429（模拟首轮 + 首个重试轮仍限流）
+			// 前两次调用返回 503（模拟首轮 + 首个重试轮仍过载；503 是瞬时可恢复的
+			// 上游故障，可重试，因此重试轮仍会执行——与全 429 限流风暴快速收尾不同）
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":{"message":"rpm exhausted"}}`))
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":{"message":"server overloaded"}}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -2463,6 +2483,142 @@ func TestRetryRoundRecoversOnSubsequentRound(t *testing.T) {
 	defer mu.Unlock()
 	if calls < 3 {
 		t.Fatalf("expected at least 3 upstream calls across retry rounds, got %d", calls)
+	}
+}
+
+// TestAll429ReturnsFastWithoutRetryRounds 全部候选都被上游限流（429）时，网关不再
+// 无意义地重试整轮（原来多轮串行可把 429 拖到 30s+ 才返回），一轮试完即聚合返回 429。
+func TestAll429ReturnsFastWithoutRetryRounds(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rpm exhausted"}}`))
+	}))
+	defer rateLimited.Close()
+
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	createBody := fmt.Sprintf(`{"name":"Always429","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, rateLimited.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+
+	mu.Lock()
+	gotCalls := calls
+	mu.Unlock()
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 passthrough when all endpoints rate-limited, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if gotCalls != 1 {
+		t.Fatalf("all-429 must not re-run retry rounds, expected exactly 1 upstream call, got %d", gotCalls)
+	}
+}
+
+// TestSameHost429EarlyAbort 同一出口主机（hostname）连续 429 达到阈值后应提前
+// 收尾：不再把池内同主机的后续 slot 全部扫一遍（单 IP 多槽池里 8 次串行 429
+// 可达 20s+）。
+func TestSameHost429EarlyAbort(t *testing.T) {
+	var hits [4]int32
+	rateLimited := func(i int) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&hits[i], 1)
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+		}
+	}
+	servers := make([]*httptest.Server, 4)
+	pool := make([]string, 0, 4)
+	for i := 0; i < 4; i++ {
+		servers[i] = httptest.NewServer(rateLimited(i))
+		t.Cleanup(servers[i].Close)
+		pool = append(pool, servers[i].URL)
+	}
+	// 4 个代理均在本机（hostname 相同），与生产「单 IP 多槽代理池」同构。
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	t.Cleanup(mockUpstream.Close)
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	poolJSON, _ := json.Marshal(pool)
+	createBody := fmt.Sprintf(`{
+		"name":"SameHost429","baseUrl":"%s","apiKey":"k","skipVerify":true,
+		"proxyPool":%s,"proxyEnabled":true,"autoSwitch":true
+	}`, mockUpstream.URL, string(poolJSON))
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after same-host early abort, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if atomic.LoadInt32(&hits[3]) != 0 {
+		t.Fatalf("proxy4 must not be tried after same-host early abort, hits=%d", atomic.LoadInt32(&hits[3]))
+	}
+	for i := 0; i < 3; i++ {
+		if atomic.LoadInt32(&hits[i]) != 1 {
+			t.Fatalf("proxy%d should be hit exactly once, hits=%d", i+1, atomic.LoadInt32(&hits[i]))
+		}
 	}
 }
 

@@ -595,6 +595,7 @@ func (s *Service) warmProxyConnection(ctx context.Context, endpointID, baseURL, 
 	if err != nil {
 		return
 	}
+	start := time.Now()
 	fullURL := strings.TrimSuffix(baseURL, "/")
 	if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
 		fullURL += "/v1"
@@ -625,6 +626,9 @@ func (s *Service) warmProxyConnection(ctx context.Context, endpointID, baseURL, 
 	resp.Body.Close()
 	s.markProxySuccess(endpointID, proxyURL)
 	s.unsinkProxy(endpointID, proxyURL)
+	// 记录该代理到该端点的首字耗时，让池子速度过一次预热即可按延迟择优，
+	// 首个真实请求不必再走未知延迟的探索轮询。
+	s.recordProxyTTFB(endpointID, proxyURL, time.Since(start).Milliseconds())
 	s.probeProxyExitIP(endpointID, proxyURL)
 }
 

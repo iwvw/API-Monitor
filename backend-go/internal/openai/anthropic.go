@@ -399,7 +399,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, _, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
+	endpointCandidates, selected, chosenIndex, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: route, Kind: "no_endpoint",
@@ -461,6 +461,8 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	retryRoundFinished := false
 	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
 	var failoverSteps []map[string]interface{}
+	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
+	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -469,25 +471,28 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 		}
 		failCodes = failCodes[:0]
 		retryRoundCancelled := false
-		for ci, cand := range endpointCandidates {
+		candCount := len(endpointCandidates)
+		for k := 0; k < candCount; k++ {
+			ci := (startIdx + k) % candCount
+			cand := endpointCandidates[ci]
 			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 			candModel, _ := s.resolveEndpointModel(cand, model)
 			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
 			// 候选归一化（写 reasoning_effort）。首个候选不复制、保持原样透传；
 			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
 			candBody := parsedBody
-			needCopy := ci > 0 || (candModel != model && candModel != "")
+			needCopy := k > 0 || (candModel != model && candModel != "")
 			if needCopy {
 				cp := make(map[string]interface{}, len(parsedBody))
-				for k, v := range parsedBody {
-					cp[k] = v
+				for k2, v := range parsedBody {
+					cp[k2] = v
 				}
 				candBody = cp
 			}
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
 			}
-			if ci > 0 {
+			if k > 0 {
 				normalizeReasoningEffort(candBody)
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
@@ -531,8 +536,8 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			if res.statusCode > 0 {
 				failCodes = append(failCodes, res.statusCode)
 			}
-			if ci+1 < len(endpointCandidates) {
-				selected = endpointCandidates[ci+1]
+			if k+1 < candCount {
+				selected = endpointCandidates[k+1]
 				failReason := "上游转发失败"
 				if res.lastErr != nil {
 					failReason = res.lastErr.Error()
@@ -548,6 +553,20 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			}
 		}
 		if retryRoundFinished {
+			break
+		}
+		// 限流风暴快速收尾：本轮全部候选都返回限流（429/439）时，重试整轮只会继续
+		// 打同一批被限流的出口并串行吃掉全部耗时，直接聚合返回。
+		allRateLimited := len(failCodes) == candCount
+		if allRateLimited {
+			for _, c := range failCodes {
+				if c != http.StatusTooManyRequests && c != 439 {
+					allRateLimited = false
+					break
+				}
+			}
+		}
+		if allRateLimited {
 			break
 		}
 		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。

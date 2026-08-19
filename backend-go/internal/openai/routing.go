@@ -73,6 +73,26 @@ func affinityEndpointIndex(endpointID string, candidates []Endpoint) int {
 	return -1
 }
 
+// failoverStartIndex 计算一轮候选端点的尝试起始位置：
+//   - 会话亲和命中的端点已被 selectEndpointCandidates 提到候选首位，固定从它开始，
+//     保住「同会话复用同端点」的上下文缓存收益；
+//   - 否则从「延迟 + 配置权重」加权选中的 chosenIndex 起拼，让最优端点真正成为
+//     每次请求的第一次尝试（此前转发循环无视加权结果、永远从索引 0 开始）。
+func (s *Service) failoverStartIndex(chosenIndex int, candidates []Endpoint, sessionKey string) int {
+	if len(candidates) == 0 {
+		return 0
+	}
+	if sessionKey != "" {
+		if id := s.preferredAffinityEndpoint(sessionKey); id != "" && affinityEndpointIndex(id, candidates) == 0 {
+			return 0
+		}
+	}
+	if chosenIndex < 0 || chosenIndex >= len(candidates) {
+		return 0
+	}
+	return chosenIndex
+}
+
 // routeModelIndexes 从端点配置列表构建「模型名 → 候选端点下标」内存倒排索引。
 // 键同时收录端点自身声明的模型与 modelMappings 的别名（对外可用的模型名）。
 // 返回的映射为全新实例，不持有对端点切片的引用，调用方可直接缓存。

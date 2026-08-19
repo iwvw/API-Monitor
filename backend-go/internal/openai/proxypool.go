@@ -527,13 +527,20 @@ func (s *Service) markProxySuccess(endpointID, proxy string) {
 	s.persistProxyState(endpointID, proxy, "sunk", time.Time{})
 }
 
+// proxy429ShortCooldown 是单次 429 触发后对该出口的短冷却时长。
+// 任何一次 429 都把出口立即挪出候选：此前要累计满阈值才禁用，期间加权选路会
+// 反复选中「秒回 429 的（低 TTFB 高权重）出口」，浪费同一请求内的尝试次数。
+// 短冷却只影响选择，不破坏 429 累计（累计仍用于阈值长禁用）。
+var proxy429ShortCooldown = 30 * time.Second
+
 // markProxy429 记录代理的一次上游 429。与 markProxyFailed 的区别：
-// 429 是上游按出口 IP 的限流，单次不惩罚代理（避免上游故障污染整个池）；
-// 但同一代理累计 proxy429BanThreshold 次 429 说明该 IP 已被上游限死，
+// 429 是上游按出口 IP 的限流，单次不惩罚代理的连接质量（不累计连接失败计数），
+// 但立即给它一个短冷却，让同一请求/临近请求先避开这个刚被限流的出口；
+// 同一代理累计 proxy429BanThreshold 次 429 说明该 IP 已被上游限死，
 // 继续把它留在候选池只会让重试反复打同一个 IP，故临时禁用 proxy429BanDuration，
 // 到期自动释放回池。成功转发不解除禁用；触发禁用时清零累计计数（重新累计下一轮）。
-// retryAfter 非 nil 时优先用上游给出的 Retry-After 时长作为禁用期（封顶
-// proxy429BanDuration），更贴合上游的配额恢复窗口；nil 时退回默认禁用期。
+// retryAfter 非 nil 时优先用上游给出的 Retry-After 时长作为禁用/短冷却期（封顶
+// proxy429BanDuration），更贴合上游的配额恢复窗口；nil 时退回默认时长。
 // 触发禁用时打 WARN 日志（此前冻结完全静默，难以确认熔断是否生效）。
 func (s *Service) markProxy429(endpointID, proxy string, retryAfter *time.Duration) {
 	if proxy == "" {
@@ -548,6 +555,12 @@ func (s *Service) markProxy429(endpointID, proxy string, retryAfter *time.Durati
 		s.proxyStateByEndpoint[endpointID] = state
 	}
 	state.rate429[proxy]++
+	cool := proxy429ShortCooldown
+	if retryAfter != nil && *retryAfter > 0 && *retryAfter < cool {
+		cool = *retryAfter
+	}
+	state.cooldown[proxy] = time.Now().Add(cool)
+	s.persistProxyState(endpointID, proxy, "cooldown", state.cooldown[proxy])
 	if state.rate429[proxy] >= proxy429BanThreshold {
 		duration := proxy429BanDuration
 		if retryAfter != nil && *retryAfter > 0 {
