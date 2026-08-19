@@ -111,6 +111,9 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/css/app.css' && line.includes('--app-terminal-')) {
     return 'terminal fallback color';
   }
+  if (rel === 'src/css/app.css' && (line.includes('--color-brand') || line.includes('#dc7d40') || line.includes('#fb923c'))) {
+    return 'site brand token definition in @theme inline';
+  }
   if (rel === 'src/js/pages/ServerPage.jsx' && line.includes('--app-terminal-')) {
     return 'terminal fallback color';
   }
