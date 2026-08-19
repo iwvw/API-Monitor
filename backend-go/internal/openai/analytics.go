@@ -709,7 +709,10 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 					if tsToLabel[ts] == label {
 						group.Data[idx] += bucket[name]
 						group.Tokens[idx] += tokens[ts][name]
-						group.TokensUncached[idx] += tokens[ts][name] - cached[ts][name]
+						// 未缓存 = 全部 − 缓存命中；数据异常（cached > total）时钳制为 0，避免负值污染图表。
+						if uncached := tokens[ts][name] - cached[ts][name]; uncached > 0 {
+							group.TokensUncached[idx] += uncached
+						}
 					}
 				}
 			}
