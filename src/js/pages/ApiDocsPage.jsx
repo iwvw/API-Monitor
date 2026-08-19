@@ -729,7 +729,7 @@ function StatCard({ icon: Icon, label, value, tone = 'brand' }) {
       brand: 'bg-kumo-info/6 text-kumo-info',
       success: 'bg-kumo-success/6 text-kumo-success',
       warning: 'bg-kumo-warning/8 text-kumo-warning',
-      info: 'bg-kumo-brand/7 text-kumo-brand',
+      info: 'bg-brand/7 text-brand',
     }[tone] || 'bg-kumo-info/6 text-kumo-info';
 
   return (
@@ -907,7 +907,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
   return (
     <SectionCard
       title={`接口目录 (${routes.length})`}
-      icon={<Search className="h-4 w-4 text-kumo-brand" />}
+      icon={<Search className="h-4 w-4 text-brand" />}
       action={
         <div className="flex items-center gap-1">
           <Button size="sm" variant="ghost" onClick={expandAll} className="gap-1">
@@ -952,9 +952,9 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
                   )}
                   {sectionCollapsed(sectionItem.section) ? (
-                    <Folder className="h-4 w-4 shrink-0 text-kumo-brand/80" />
+                    <Folder className="h-4 w-4 shrink-0 text-brand/80" />
                   ) : (
-                    <FolderOpen className="h-4 w-4 shrink-0 text-kumo-brand" />
+                    <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
                   )}
                   <span className="truncate text-xs font-bold text-kumo-strong">
                     {sectionItem.section}
@@ -1023,7 +1023,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
                                         onClick={() => onSelect(route)}
                                         className={cx(
                                           'h-auto w-full min-w-0 flex-col items-stretch gap-1 rounded-none py-2 pl-14 pr-3 text-left',
-                                          active && 'bg-kumo-brand/10'
+                                          active && 'bg-brand/10'
                                         )}
                                       >
 <div className="flex min-w-0 items-center justify-between gap-2">
@@ -1152,7 +1152,7 @@ function RouteDetail({ route, openapiRoute }) {
   return (
     <SectionCard
       title={<span className="break-all font-mono text-base">{route.prefix}</span>}
-      icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+      icon={<FileText className="h-4 w-4 text-brand" />}
       meta={
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge tone={STATUS_TONE[route.status]}>
@@ -1353,7 +1353,7 @@ function AIAccessConsole({
       <div
         className={cx(fixedPanelClass, 'min-h-0 space-y-4 overflow-y-auto px-px pb-2 pr-1 pt-px')}
       >
-        <SectionCard title="Agent Key" icon={<Key className="h-4 w-4 text-kumo-brand" />}>
+        <SectionCard title="Agent Key" icon={<Key className="h-4 w-4 text-brand" />}>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1 truncate rounded-md border border-kumo-line bg-kumo-recessed/40 px-3 py-2 font-mono text-xs font-bold text-kumo-strong">
               {keyVisible ? agentKey.value : agentKey.masked}
@@ -1375,7 +1375,7 @@ function AIAccessConsole({
           </div>
         </SectionCard>
 
-        <SectionCard title="接入地址" icon={<Plug className="h-4 w-4 text-kumo-brand" />}>
+        <SectionCard title="接入地址" icon={<Plug className="h-4 w-4 text-brand" />}>
           <div className="space-y-2">
             {Object.entries(endpoints).map(([key, value]) => (
               <div key={key} className="grid min-w-0 gap-1">
@@ -1391,7 +1391,7 @@ function AIAccessConsole({
           </div>
         </SectionCard>
 
-        <SectionCard title="调用策略" icon={<Shield className="h-4 w-4 text-kumo-brand" />}>
+        <SectionCard title="调用策略" icon={<Shield className="h-4 w-4 text-brand" />}>
           <div className="grid gap-2 text-xs text-kumo-subtle">
             <div className="flex items-center justify-between gap-2 rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2">
               <span>允许方法</span>
@@ -1431,11 +1431,11 @@ function AIAccessConsole({
 className={cx(
                       'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 transition-colors',
                       active
-                        ? 'border-(--text-color-kumo-brand) bg-kumo-tint text-kumo-brand'
+                        ? 'border-(--text-color-brand) bg-kumo-tint text-brand'
                         : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'
                     )}
                   >
-                    <Icon className={cx('h-4 w-4', active ? 'text-kumo-brand' : 'text-kumo-strong')} />
+                    <Icon className={cx('h-4 w-4', active ? 'text-brand' : 'text-kumo-strong')} />
                     <span className="text-xs font-medium">{title}</span>
                   </button>
                 );
@@ -1450,7 +1450,7 @@ className={cx(
       >
         <SectionCard
           title="AI 接入指南"
-          icon={<Bot className="h-4 w-4 text-kumo-brand" />}
+          icon={<Bot className="h-4 w-4 text-brand" />}
           action={
             <Button size="sm" variant="secondary" onClick={onRefresh}>
               刷新
@@ -1481,7 +1481,7 @@ className={cx(
                 className="rounded-md border border-kumo-line/80 bg-kumo-recessed/25 p-3"
               >
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded border border-kumo-brand/30 bg-kumo-brand/10 font-mono text-[10px] font-bold text-kumo-brand">
+                  <span className="flex h-5 w-5 items-center justify-center rounded border border-brand/30 bg-brand/10 font-mono text-[10px] font-bold text-brand">
                     {item.step}
                   </span>
                   <div className="text-xs font-bold text-kumo-strong">{item.title}</div>
@@ -1897,7 +1897,7 @@ function APIKeyConsole({
 
         <SectionCard
           title={editingId ? '编辑密钥' : '生成密钥'}
-          icon={<Plus className="h-4 w-4 text-kumo-brand" />}
+          icon={<Plus className="h-4 w-4 text-brand" />}
           bodyClassName="space-y-3"
         >
           <Input
@@ -2063,7 +2063,7 @@ function APIKeyConsole({
 
       <SectionCard
         title="密钥与使用监控"
-        icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+        icon={<Activity className="h-4 w-4 text-brand" />}
         action={
           <Button size="sm" variant="secondary" onClick={onRefresh} loading={loading}>
             <RefreshCw className="h-3.5 w-3.5" />
@@ -2086,7 +2086,7 @@ function APIKeyConsole({
                   key={key.id}
                   className={cx(
                     'rounded-md border bg-kumo-recessed/20 p-3',
-                    editingId === key.id ? 'border-kumo-brand/70' : 'border-kumo-line/80'
+                    editingId === key.id ? 'border-brand/70' : 'border-kumo-line/80'
                   )}
                 >
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -2105,7 +2105,7 @@ function APIKeyConsole({
                         {(key.scopes || []).map(scope => (
                           <span
                             key={scope}
-                            className="rounded border border-kumo-brand/20 bg-kumo-brand/7 px-1.5 py-0.5 text-[10px] text-kumo-brand"
+                            className="rounded border border-brand/20 bg-brand/7 px-1.5 py-0.5 text-[10px] text-brand"
                           >
                             {API_SCOPE_LABELS[scope] || scope}
                           </span>

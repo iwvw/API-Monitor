@@ -77,7 +77,7 @@ function AuthTransitionScreen() {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(64,123,255,0.12),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(15,23,42,0.08),transparent_38%)]"
       />
       <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-5 rounded-2xl border border-kumo-line bg-kumo-base/95 px-8 py-10 text-center shadow-none">
-        <div className="flex size-14 items-center justify-center rounded-2xl border border-kumo-line bg-kumo-recessed text-kumo-brand">
+        <div className="flex size-14 items-center justify-center rounded-2xl border border-kumo-line bg-kumo-recessed text-brand">
           {isGitHub ? <GitHubBrand className="size-7" /> : <Shield className="size-7" />}
         </div>
         <div className="space-y-1">

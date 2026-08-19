@@ -191,7 +191,7 @@ export function BackupPanel({ embedded = false } = {}) {
         <SectionCard
           title="自动备份配置"
           description={scheduleSummary(schedule)}
-          icon={<Database className="h-4 w-4 text-kumo-brand" />}
+          icon={<Database className="h-4 w-4 text-brand" />}
           actions={(
             <>
               <Button size="sm" variant="secondary" onClick={load} disabled={loading}><RefreshCw className="h-3.5 w-3.5" />刷新备份</Button>
@@ -230,7 +230,7 @@ export function BackupPanel({ embedded = false } = {}) {
 
         <SectionCard
           title="备份历史"
-          icon={<Clock className="h-4 w-4 text-kumo-brand" />}
+          icon={<Clock className="h-4 w-4 text-brand" />}
           bodyPadding="none"
         >
           {records.length === 0 ? (

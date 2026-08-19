@@ -107,7 +107,7 @@ export default function ApprovalCard({ approval, onResolve }) {
             size="sm"
             variant="ghost"
             onClick={() => setShowDiff(!showDiff)}
-            className="flex items-center gap-1 text-xs !text-kumo-brand hover:!text-kumo-strong"
+            className="flex items-center gap-1 text-xs !text-brand hover:!text-kumo-strong"
           >
             {showDiff ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             {diffRows.length} 处更改

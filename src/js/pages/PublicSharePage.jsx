@@ -175,7 +175,7 @@ function PublicSharePage() {
 
         <SectionCard
           title={loading ? '正在读取分享' : title}
-          icon={<Icon className="h-4 w-4 text-kumo-brand" />}
+          icon={<Icon className="h-4 w-4 text-brand" />}
           className="min-h-0 flex-1"
           bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
         >

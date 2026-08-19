@@ -35,5 +35,6 @@ AI 侧栏/全屏对话面板（`src/js/components/adminai/`）的布局与交互
 
 - 站点品牌色 = **橙色系**：`--color-brand: #dc7d40`（登录页品牌区同款橙棕），光斑为 `#fb923c`。定义于 `app.css` 的 `@theme`。
 - `kumo-brand`（oklch 260° 蓝紫）只是 Kumo 库默认强调色，**不是站点品牌色**；涉及品牌视觉（入口按钮、hover 边框、强调图形）一律用 `brand`。
-- 已统一范围：Ask AI 入口按钮（打开态实底 `bg-brand ring-brand` + 白色图标）、全站卡片/按钮 `hover:border-brand/*`、仪表盘整套强调色。
+- 已统一范围：Ask AI 入口按钮（打开态实底 `bg-brand ring-brand` + 白色图标）、全站卡片/按钮 `hover:border-brand/*`、仪表盘整套强调色、**公开页全套**（`pages/Public*` 7 个页面 + `components/public/PublicPageIconPicker`，共 38 处：左侧列表选中态/卡片高亮/地图节点/图标选择/进度条 tone 等，含 1 处蓝色硬编码阴影 `rgba(59,130,246,0.08)` → 品牌橙）、**主程序全量品牌强调**（35 个文件 332 处：`text/bg/border/hover/ring/stroke` 等前缀统一 `kumo-brand` → `brand`；`to-kumo-brand-hover` 渐变 → `to-brand-hover`，配套新增 `--color-brand-hover: #c96a33`）。
+- **保留 `kumo-brand` 的地方 = 焦点态**（`focus:*`/`focus-visible:*`/`has-[…:focus]` 的 ring/border/text，共 15 处）：焦点环是键盘交互指示的库默认语义，非品牌视觉，勿改。
 - 全站仍大量用 `kumo-brand` 做普通强调色（图标、链接、焦点环），属库默认行为，与品牌色共存，勿混用语义。

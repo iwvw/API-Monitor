@@ -367,7 +367,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
               config={page?.config}
               isAuthenticated={isAuthenticated}
               onChange={updatePageIcon}
-              triggerClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-interact/80 bg-kumo-base text-kumo-brand"
+              triggerClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-interact/80 bg-kumo-base text-brand"
               iconClassName="h-5 w-5"
             />
             <div className="min-w-0">
@@ -464,7 +464,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                   href={targetUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="truncate text-base font-bold text-kumo-strong hover:text-kumo-brand hover:underline"
+                                  className="truncate text-base font-bold text-kumo-strong hover:text-brand hover:underline"
                                   onClick={(event) => event.stopPropagation()}
                                 >
                                   {monitor.name}

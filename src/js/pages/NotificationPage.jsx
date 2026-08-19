@@ -943,7 +943,7 @@ function NotificationPage() {
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     {/* Icon */}
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-kumo-inverse text-base flex-shrink-0 shadow-xs ${
-                      channel.type === 'email' ? 'bg-kumo-info' : 'bg-kumo-brand'
+                      channel.type === 'email' ? 'bg-kumo-info' : 'bg-brand'
                     }`}>
                       {channel.type === 'email' ? <Mail className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                     </div>
@@ -1178,7 +1178,7 @@ function NotificationPage() {
       {notificationCurrentTab === 'events' && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2 text-[10px] text-kumo-subtle">
-            <Badge className="border border-kumo-brand/25 bg-kumo-brand/10 text-kumo-brand">↻ 动态消息</Badge>
+            <Badge className="border border-brand/25 bg-brand/10 text-brand">↻ 动态消息</Badge>
             <span>同一 Telegram 消息会随告警打开、变化和恢复持续更新；每次变化仍会写入通知历史。</span>
           </div>
           <div className="columns-1 gap-4 cq-md:columns-2 cq-xl:columns-3 [&>*]:mb-4 [&>*]:break-inside-avoid [&>*:last-child]:mb-0">
@@ -1186,7 +1186,7 @@ function NotificationPage() {
               <SectionCard
                 key={item.module}
                 title={getSourceModuleName(item.module)}
-                icon={<Info className="w-4 h-4 text-kumo-brand" />}
+                icon={<Info className="w-4 h-4 text-brand" />}
                 meta={<span className="text-[10px] font-mono text-kumo-subtle">{item.events?.length || 0}</span>}
                 bodyClassName="p-4"
               >
@@ -1197,7 +1197,7 @@ function NotificationPage() {
                       <Badge
                         key={`${item.module}-${eventName}`}
                         title="支持 Telegram 动态消息"
-                        className="border border-kumo-brand/25 bg-kumo-brand/10 text-[10px] font-semibold text-kumo-brand"
+                        className="border border-brand/25 bg-brand/10 text-[10px] font-semibold text-brand"
                       >
                         ↻ {getEventTypeName(eventName)}
                       </Badge>
@@ -1348,7 +1348,7 @@ function NotificationPage() {
                       {(logSourceModule || logEventType) && (
                         <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                           {logSourceModule && (
-                            <Badge className="border border-kumo-brand/25 bg-kumo-brand/10 text-[10px] font-semibold text-kumo-brand py-0.5 px-2">
+                            <Badge className="border border-brand/25 bg-brand/10 text-[10px] font-semibold text-brand py-0.5 px-2">
                               {getSourceModuleName(logSourceModule)}
                             </Badge>
                           )}
@@ -1363,7 +1363,7 @@ function NotificationPage() {
                       {/* 3. 动态生命周期 Badges & 细节 */}
                       {lifecycleMeta && (
                         <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                          <Badge className="border border-kumo-brand/25 bg-kumo-brand/10 text-[10px] font-semibold text-kumo-brand py-0.5 px-2">
+                          <Badge className="border border-brand/25 bg-brand/10 text-[10px] font-semibold text-brand py-0.5 px-2">
                             ↻ {mutationLabel}
                           </Badge>
                           {lifecycleMeta.kind && (
@@ -1372,7 +1372,7 @@ function NotificationPage() {
                             </span>
                           )}
                           {log.lifecycle_update_count > 1 && (
-                            <span className="rounded border border-kumo-brand/20 bg-kumo-brand/5 px-1.5 py-0.5 text-[10px] font-medium text-kumo-subtle">
+                            <span className="rounded border border-brand/20 bg-brand/5 px-1.5 py-0.5 text-[10px] font-medium text-kumo-subtle">
                               更新 {log.lifecycle_update_count - 1} 次
                             </span>
                           )}
@@ -1437,7 +1437,7 @@ function NotificationPage() {
       {notificationCurrentTab === 'settings' && (
         <SectionCard
           title="全局配置选项"
-          icon={<Settings className="w-4 h-4 text-kumo-brand" />}
+          icon={<Settings className="w-4 h-4 text-brand" />}
           bodyPadding="sm"
           bodyClassName="space-y-4"
         >
@@ -1913,11 +1913,11 @@ function NotificationPage() {
 
             {templatePreview && (
               <div className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base">
-                <div className="h-1 bg-kumo-brand" />
+                <div className="h-1 bg-brand" />
                 <div className="p-3.5">
-                  <div className="text-[9px] font-bold uppercase text-kumo-brand">API Monitor</div>
+                  <div className="text-[9px] font-bold uppercase text-brand">API Monitor</div>
                   <div className="mt-1 text-xs font-bold text-kumo-strong">{templatePreview.title}</div>
-                  <div className="mt-3 max-h-36 space-y-1 overflow-y-auto border-l-2 border-kumo-brand bg-kumo-recessed/60 px-3 py-2">
+                  <div className="mt-3 max-h-36 space-y-1 overflow-y-auto border-l-2 border-brand bg-kumo-recessed/60 px-3 py-2">
                     {(templatePreview.message || '').split('\n').map((line, index) => {
                       const item = parseNotificationPreviewLine(line);
                       if (item.empty) return <div key={`empty-${index}`} className="h-1.5" />;

@@ -1692,7 +1692,7 @@ function PaasPage() {
             value={activeTab}
             onValueChange={setActiveTab}
             tabs={[
-              { value: 'fly', label: <span className="inline-flex items-center gap-1.5"><FlyIoBrand className="size-3.5 text-kumo-brand" />Fly.io</span> },
+              { value: 'fly', label: <span className="inline-flex items-center gap-1.5"><FlyIoBrand className="size-3.5 text-brand" />Fly.io</span> },
               { value: 'koyeb', label: <span className="inline-flex items-center gap-1.5"><KoyebBrand className="size-3.5 text-kumo-info" />Koyeb</span> },
               { value: 'config', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4 text-kumo-success" />配置</span> },
             ]}
@@ -2005,14 +2005,14 @@ function PaasPage() {
           {flyLoading && flyAccounts.length === 0 ? (
             <Empty
               size="base"
-              icon={<Loader size={32} className="text-kumo-brand" />}
+              icon={<Loader size={32} className="text-brand" />}
               title="正在加载 Fly.io"
               description="同步应用和域名状态"
             />
           ) : flyAccounts.length === 0 ? (
             <Empty
               size="base"
-              icon={<FlyIoBrand className="h-8 w-8 text-kumo-brand" />}
+              icon={<FlyIoBrand className="h-8 w-8 text-brand" />}
               title="暂无 Fly.io 账号"
               description="需先添加 Fly.io API Token"
             />
@@ -2047,7 +2047,7 @@ function PaasPage() {
                           icon={<ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />}
                         >
                           <span className="flex min-w-0 items-center gap-2 text-left">
-                            <FlyIoBrand className="h-4 w-4 shrink-0 text-kumo-brand" />
+                            <FlyIoBrand className="h-4 w-4 shrink-0 text-brand" />
                             <Text as="span" bold truncate>{account.name}</Text>
                           </span>
                         </Button>
@@ -2075,7 +2075,7 @@ function PaasPage() {
                       ) : !account.projects || account.projects.length === 0 ? (
                         <Empty
                           size="sm"
-                          icon={<FlyIoBrand className="h-8 w-8 text-kumo-brand" />}
+                          icon={<FlyIoBrand className="h-8 w-8 text-brand" />}
                           title="暂无应用"
                           description="此账号暂无 Fly.io 应用。"
                           contents={<Button size="sm" variant="primary" onClick={() => createFlyApp(account)} icon={<Plus className="h-3.5 w-3.5" />}>新建应用</Button>}
@@ -2117,7 +2117,7 @@ function PaasPage() {
                                       onDoubleClick={() => startEditFlyAppName(app)}
                                       className="min-w-0 justify-start px-0"
                                       title="双击重命名"
-                                      icon={<FlyIoBrand className="h-4 w-4 text-kumo-brand" />}
+                                      icon={<FlyIoBrand className="h-4 w-4 text-brand" />}
                                     >
                                       <Text as="span" bold truncate>{app.name}</Text>
                                     </Button>
@@ -2227,7 +2227,7 @@ function PaasPage() {
         <div className="grid min-w-0 gap-3 cq-xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] cq-xl:items-start">
           <SectionCard
             title="自动刷新"
-            icon={<Settings className="h-4 w-4 text-kumo-brand" />}
+            icon={<Settings className="h-4 w-4 text-brand" />}
             actions={(
               <Button size="sm" onClick={saveSettings} icon={<Save className="h-3.5 w-3.5" />}>
                 保存配置
@@ -2254,7 +2254,7 @@ function PaasPage() {
             </div>
             <div className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/20 px-3 py-2">
               <div className="flex w-20 shrink-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
-                <FlyIoBrand className="h-3.5 w-3.5 text-kumo-brand" />
+                <FlyIoBrand className="h-3.5 w-3.5 text-brand" />
                 Fly.io
               </div>
               <Input
@@ -2339,7 +2339,7 @@ function PaasPage() {
                         <Table.Row key={`fly-${account.id}`} className="hover:bg-kumo-recessed/25">
                           <Table.Cell>
                             <Badge variant="outline" className="inline-flex items-center gap-1">
-                              <FlyIoBrand className="h-3.5 w-3.5 text-kumo-brand" />
+                              <FlyIoBrand className="h-3.5 w-3.5 text-brand" />
                               Fly.io
                             </Badge>
                           </Table.Cell>

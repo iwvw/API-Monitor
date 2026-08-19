@@ -1029,7 +1029,7 @@ export default function RemoteDesktopPage() {
     <div className="flex h-dvh min-h-0 flex-col bg-kumo-recessed text-kumo-default">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <DesktopDisplay className="h-5 w-5 text-kumo-brand" />
+          <DesktopDisplay className="h-5 w-5 text-brand" />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-kumo-strong">{serverName || 'Windows 远程桌面'}</div>
           </div>
@@ -1121,7 +1121,7 @@ export default function RemoteDesktopPage() {
               className="pointer-events-none absolute z-20 drop-shadow-[0_1px_1px_rgba(0,0,0,0.75)]"
               style={{ left: `${cursorDisplayPoint.x}px`, top: `${cursorDisplayPoint.y}px` }}
             >
-              <Cursor size={18} weight="fill" className="text-kumo-brand" />
+              <Cursor size={18} weight="fill" className="text-brand" />
             </div>
           )}
         </div>

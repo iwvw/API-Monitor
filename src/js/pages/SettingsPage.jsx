@@ -1184,7 +1184,7 @@ function SettingsPage() {
     const used = Math.max((databaseStorage.mainSizeBytes || 0) - freePage, 0);
     const total = Math.max(used + freePage + walShm, 1);
     return [
-      { label: '有效数据', value: used, barClass: 'bg-kumo-brand' },
+      { label: '有效数据', value: used, barClass: 'bg-brand' },
       { label: '空闲页', value: freePage, barClass: 'bg-kumo-info' },
       { label: 'WAL / SHM', value: walShm, barClass: 'bg-kumo-warning' },
     ].map((s) => ({ ...s, percent: (s.value / total) * 100 }));
@@ -1236,7 +1236,7 @@ function SettingsPage() {
         <div className="grid min-h-0 items-start gap-4 cq-md:h-full cq-md:overflow-auto cq-xl:grid-cols-[minmax(16rem,1fr)_minmax(0,3fr)]">
           <SectionCard
             title="运行状态"
-            icon={<Check className="h-4 w-4 text-kumo-brand" />}
+            icon={<Check className="h-4 w-4 text-brand" />}
             className="min-h-0 self-start"
             bodyPadding="none"
           >
@@ -1256,7 +1256,7 @@ function SettingsPage() {
 
           <SectionCard
             title="部署访问地址"
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             className="min-h-0 self-start"
             bodyPadding="none"
           >
@@ -1289,7 +1289,7 @@ function SettingsPage() {
           className="flex min-h-0 cq-md:h-full"
           headerClassName="max-sm:min-h-12 max-sm:flex-row max-sm:items-center max-sm:px-3 max-sm:py-2"
           title="功能模块"
-          icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+          icon={<Activity className="h-4 w-4 text-brand" />}
           actionsClassName="max-sm:ml-auto max-sm:w-auto max-sm:gap-1.5"
           actions={
               <>
@@ -1323,7 +1323,7 @@ function SettingsPage() {
 
                       return (
                         <div key={row.id} className={cx('flex min-h-15 items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors cq-sm:min-h-16 cq-sm:gap-3 cq-sm:px-3', isVisible ? 'border-kumo-line bg-kumo-base' : 'border-kumo-line/70 bg-kumo-recessed/35 opacity-75')}>
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-kumo-brand">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-brand">
                             <ModuleIcon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1356,7 +1356,7 @@ function SettingsPage() {
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="管理员密码"
-            icon={<Lock className="h-4 w-4 text-kumo-brand" />}
+            icon={<Lock className="h-4 w-4 text-brand" />}
             bodyPadding="none"
           >
             <div className="flex w-full flex-col gap-4 p-5">
@@ -1417,7 +1417,7 @@ function SettingsPage() {
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="双因子认证与通行密钥"
-            icon={<Shield className="h-4 w-4 text-kumo-brand" />}
+            icon={<Shield className="h-4 w-4 text-brand" />}
             meta={(
               <div className="flex items-center gap-2">
                 <Badge variant={twoFA.enabled ? 'success' : 'warning'}>
@@ -1570,7 +1570,7 @@ function SettingsPage() {
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="GitHub 一键登录"
-            icon={<GitHubBrand className="h-4 w-4 text-kumo-brand" />}
+            icon={<GitHubBrand className="h-4 w-4 text-brand" />}
             meta={(
               <Badge variant={githubAuth.enabled ? 'success' : 'secondary'}>
                 {githubAuth.enabled ? '已启用' : '未启用'}
@@ -1582,7 +1582,7 @@ function SettingsPage() {
               <div className="grid gap-4 border-b border-kumo-line/70 pb-4 cq-xl:grid-cols-2 cq-xl:gap-0">
                   <div className="grid gap-2 cq-xl:pr-5">
                     <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-kumo-brand/10 text-xs font-bold text-kumo-brand">1</span>
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-xs font-bold text-brand">1</span>
                       <span>创建 OAuth App</span>
                     </div>
                     <div className="text-xs leading-relaxed text-kumo-subtle">
@@ -1606,7 +1606,7 @@ function SettingsPage() {
 
                   <div className="grid gap-2 border-t border-kumo-line/70 pt-4 cq-xl:border-l cq-xl:border-t-0 cq-xl:pl-5 cq-xl:pt-0">
                     <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-kumo-brand/10 text-xs font-bold text-kumo-brand">2</span>
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-xs font-bold text-brand">2</span>
                       <span>填回调并保存到下方</span>
                     </div>
                     <div className="text-xs leading-relaxed text-kumo-subtle">
@@ -1694,7 +1694,7 @@ function SettingsPage() {
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="登录设备"
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             actions={(
               <div className="flex items-center gap-2">
                 <Button
@@ -1751,7 +1751,7 @@ function SettingsPage() {
         <MasonryGrid>
           <SectionCard
             title="数据库导入导出"
-            icon={<Download className="h-4 w-4 text-kumo-brand" />}
+            icon={<Download className="h-4 w-4 text-brand" />}
             bodyPadding="sm"
             bodyClassName="space-y-3"
           >
@@ -1844,7 +1844,7 @@ function SettingsPage() {
           <SectionCard
             title="数据库统计"
             description={dbStats?.dbPath || 'SQLite 数据文件'}
-            icon={<Database className="h-4 w-4 text-kumo-brand" />}
+            icon={<Database className="h-4 w-4 text-brand" />}
             actions={
                 <Button size="sm" onClick={() => fetchDbState().catch((error) => toast.error(error.message || '加载数据库统计失败'))} loading={databaseBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新统计</Button>
             }
@@ -1856,7 +1856,7 @@ function SettingsPage() {
                 <div className="p-3.5">
                   <div className="grid grid-cols-2 gap-2 cq-sm:grid-cols-4 cq-sm:gap-3">
                   {[
-                    { title: '总占用', description: '主库 + WAL/SHM + 空闲页合计', value: formatFileSize(databaseStorage.totalSizeBytes), icon: <Database className="h-3.5 w-3.5 text-kumo-brand" />, valueClassName: 'text-kumo-brand' },
+                    { title: '总占用', description: '主库 + WAL/SHM + 空闲页合计', value: formatFileSize(databaseStorage.totalSizeBytes), icon: <Database className="h-3.5 w-3.5 text-brand" />, valueClassName: 'text-brand' },
                     { title: '主库文件', description: 'SQLite 主数据库', value: formatFileSize(databaseStorage.mainSizeBytes), icon: <FileText className="h-3.5 w-3.5 text-kumo-strong" />, valueClassName: 'text-kumo-strong' },
                     { title: 'WAL / SHM', description: '预写日志与共享内存', value: formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0)), icon: <Activity className="h-3.5 w-3.5 text-kumo-warning" />, valueClassName: 'text-kumo-warning' },
                     { title: '空闲页', description: '可直接回收的空间', value: formatFileSize(databaseStorage.freePageBytes), icon: <Columns className="h-3.5 w-3.5 text-kumo-info" />, valueClassName: 'text-kumo-info' },
@@ -1935,7 +1935,7 @@ function SettingsPage() {
                   size="sm"
                   variant="ghost"
                   onClick={() => setDbTablesExpanded((v) => !v)}
-                  className="gap-1 text-xs font-medium text-kumo-brand"
+                  className="gap-1 text-xs font-medium text-brand"
                 >
                   {dbTablesExpanded ? '收起' : `展开全部（${tableRows.length} 张）`}
                   {dbTablesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -1948,7 +1948,7 @@ function SettingsPage() {
 
           <SectionCard
             title="维护操作"
-              icon={<HardDrive className="h-4 w-4 text-kumo-brand" />}
+              icon={<HardDrive className="h-4 w-4 text-brand" />}
               bodyPadding="none"
             >
               <FieldRow title="压缩数据库">
@@ -2030,7 +2030,7 @@ function SettingsPage() {
           <SectionCard
             className="shrink-0"
             title="审计与保留"
-            icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+            icon={<FileText className="h-4 w-4 text-brand" />}
             bodyPadding="none"
             actions={
               <Switch
@@ -2061,7 +2061,7 @@ function SettingsPage() {
               className="min-h-0 flex-1"
               title="审计记录"
               description="最近 100 条记录"
-              icon={<Database className="h-4 w-4 text-kumo-brand" />}
+              icon={<Database className="h-4 w-4 text-brand" />}
               bodyPadding="none"
               bodyClassName="min-h-0 flex-1 overflow-auto"
             >
@@ -2105,7 +2105,7 @@ function SettingsPage() {
         <div className="grid min-h-0 items-start gap-3 overflow-auto cq-xl:grid-cols-[minmax(20rem,0.82fr)_minmax(0,1.18fr)]">
           <SectionCard
             title="界面外观"
-            icon={<Sun className="h-4 w-4 text-kumo-brand" />}
+            icon={<Sun className="h-4 w-4 text-brand" />}
             bodyPadding="none"
           >
             <FieldRow title="主题模式" description="切换后立即生效">
@@ -2134,7 +2134,7 @@ function SettingsPage() {
 
           <SectionCard
             title="自定义 CSS"
-            icon={<Terminal className="h-4 w-4 text-kumo-brand" />}
+            icon={<Terminal className="h-4 w-4 text-brand" />}
             actions={
                 <>
                   <Button size="sm" onClick={() => applyCustomCss(settings.customCss)}>预览</Button>
@@ -2239,7 +2239,7 @@ function SettingsPage() {
                   href="https://github.com/iwvw/API-Monitor"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="truncate font-mono text-sm leading-6 text-kumo-strong transition-colors hover:text-kumo-brand hover:underline"
+                  className="truncate font-mono text-sm leading-6 text-kumo-strong transition-colors hover:text-brand hover:underline"
                 >
                   https://github.com/iwvw/API-Monitor
                 </a>

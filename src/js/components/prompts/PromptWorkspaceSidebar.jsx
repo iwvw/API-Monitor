@@ -119,7 +119,7 @@ export default function PromptWorkspaceSidebar({
                 aria-label={item.starred ? `取消收藏 ${item.title}` : `收藏 ${item.title}`}
                 icon={
                   <Star
-                    className={`h-3.5 w-3.5 ${item.starred ? 'fill-current text-kumo-brand' : ''}`}
+                    className={`h-3.5 w-3.5 ${item.starred ? 'fill-current text-brand' : ''}`}
                   />
                 }
                 onClick={() => onToggleEntryStar(item)}

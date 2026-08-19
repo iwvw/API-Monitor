@@ -410,7 +410,7 @@ function FormCard({ icon, title, description, children }) {
   return (
     <LayerCard className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
       <LayerCard.Secondary className="my-0 flex items-center gap-2.5 border-b border-kumo-line px-4 py-3">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-brand">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-brand">
           {icon}
         </span>
         <div className="min-w-0">
@@ -786,7 +786,7 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
                   <path d={edge.path} stroke="var(--color-kumo-line)" strokeOpacity="0.9" strokeWidth="2" />
                   <path
                     d={edge.path}
-                    stroke="var(--color-kumo-brand)"
+                    stroke="var(--color-brand)"
                     strokeOpacity="0.3"
                     strokeWidth="2.5"
                     pathLength="1"
@@ -871,9 +871,9 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
                 y={visY}
                 width={Math.max(12, visW)}
                 height={Math.max(8, visH)}
-                fill="var(--color-kumo-brand)"
+                fill="var(--color-brand)"
                 fillOpacity="0.12"
-                stroke="var(--color-kumo-brand)"
+                stroke="var(--color-brand)"
                 strokeWidth="1.5"
               />
             </svg>
@@ -1533,8 +1533,8 @@ function SchedulerPage({ onNavigate = () => {} }) {
       {
         label: '总并发',
         value: stats.totalNodeConcurrency,
-        icon: <Activity className="h-5 w-5 text-kumo-brand" />,
-        cardClassName: 'bg-kumo-brand/7',
+        icon: <Activity className="h-5 w-5 text-brand" />,
+        cardClassName: 'bg-brand/7',
       },
     ]
     : [
@@ -1639,7 +1639,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
         {activeTab === 'tasks' && (
           <SectionCard
             title="任务列表"
-            icon={<Clock className="h-4 w-4 text-kumo-brand" />}
+            icon={<Clock className="h-4 w-4 text-brand" />}
             bodyPadding="none"
           >
             {loading ? (
@@ -1691,7 +1691,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
         {activeTab === 'workflows' && (
           <SectionCard
             title="工作流编排"
-            icon={<GitBranch className="h-4 w-4 text-kumo-brand" />}
+            icon={<GitBranch className="h-4 w-4 text-brand" />}
             bodyClassName={workflows.length === 0 ? '' : 'space-y-3'}
             bodyPadding={workflows.length === 0 ? 'none' : 'md'}
           >
@@ -1752,7 +1752,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
         {activeTab === 'runs' && (
           <SectionCard
             title="运行记录"
-            icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+            icon={<Activity className="h-4 w-4 text-brand" />}
             actions={(
               <>
                 <Button size="sm" variant={isArmed('runs:clear-old') ? 'destructive' : 'secondary-destructive'} onClick={clearOldRuns}><Trash className="h-3.5 w-3.5" />清理 30 天前</Button>
@@ -1793,7 +1793,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
         {activeTab === 'nodes' && (
           <SectionCard
             title="执行节点"
-            icon={<Server className="h-4 w-4 text-kumo-brand" />}
+            icon={<Server className="h-4 w-4 text-brand" />}
             bodyPadding="none"
           >
             {nodes.length === 0 ? (
@@ -1815,7 +1815,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                       <Table.Row key={node.id}>
                         <Table.Cell>
                           <div className="flex min-w-0 items-center gap-2">
-                            <Server className="h-4 w-4 shrink-0 text-kumo-brand" />
+                            <Server className="h-4 w-4 shrink-0 text-brand" />
                             <div className="min-w-0">
                               <div className="truncate font-semibold text-kumo-strong">{node.name}</div>
                               <div className="truncate text-xs text-kumo-subtle">{node.id}</div>
@@ -1945,7 +1945,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                   <LayerCard className="scheduler-workflow-canvas-editor-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
                     <LayerCard.Secondary className="my-0 flex shrink-0 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                       <div className="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-kumo-strong">
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-brand">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-brand">
                           <GitBranch className="h-4 w-4" />
                         </span>
                         <span className="truncate">流程画布</span>
@@ -1966,7 +1966,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                     <LayerCard className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
                       <LayerCard.Secondary className="my-0 flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                         <div className="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-kumo-strong">
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-brand">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-brand">
                             <Layers className="h-4 w-4" />
                           </span>
                           <span className="truncate">节点设置</span>
@@ -2046,7 +2046,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                     <LayerCard className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
                       <LayerCard.Secondary className="my-0 flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                         <div className="flex items-center gap-2.5 text-sm font-semibold text-kumo-strong">
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-brand">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-brand">
                             <Sliders className="h-4 w-4" />
                           </span>
                           依赖规则
@@ -2104,7 +2104,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                         key={logItem.id}
                         variant="ghost"
                         size="sm"
-                        className={`h-10 w-full justify-start rounded-md px-3 ${isActive ? 'bg-kumo-brand/15' : ''}`}
+                        className={`h-10 w-full justify-start rounded-md px-3 ${isActive ? 'bg-brand/15' : ''}`}
                         onClick={() => setTaskLogsSelectedId(logItem.id)}
                       >
                         <span className="flex w-full min-w-0 items-center justify-between gap-2">
@@ -2160,7 +2160,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                       <LayerCard key={nodeRun.id} className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
                         <LayerCard.Secondary className="my-0 flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                           <div className="flex min-w-0 items-center gap-2.5">
-                            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isAi ? 'bg-kumo-brand/10 text-kumo-brand' : 'bg-kumo-fill text-kumo-brand'}`}>
+                            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isAi ? 'bg-brand/10 text-brand' : 'bg-kumo-fill text-brand'}`}>
                               {isAi ? <Sparkle className="h-4 w-4" /> : <Activity className="h-4 w-4" />}
                             </span>
                             <div className="min-w-0">

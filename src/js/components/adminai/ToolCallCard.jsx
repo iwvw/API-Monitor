@@ -147,7 +147,7 @@ export default function ToolCallCard({ toolCall, inline }) {
     switch (status) {
       case 'running':
         return (
-          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-brand/10 text-kumo-brand">
+          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
             <Loader size={10} className="animate-spin" />
           </span>
         );
@@ -193,7 +193,7 @@ export default function ToolCallCard({ toolCall, inline }) {
         onClick={() => argSummary && setOpenArgs(!openArgs)}
         className="flex w-full items-center gap-2 text-left"
       >
-        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${status === 'running' ? 'bg-kumo-brand/10 text-kumo-brand' : status === 'success' ? 'bg-kumo-success/10 text-kumo-success' : status === 'failed' ? 'bg-kumo-danger/10 text-kumo-danger' : 'bg-kumo-tint text-kumo-subtle'}`}>
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${status === 'running' ? 'bg-brand/10 text-brand' : status === 'success' ? 'bg-kumo-success/10 text-kumo-success' : status === 'failed' ? 'bg-kumo-danger/10 text-kumo-danger' : 'bg-kumo-tint text-kumo-subtle'}`}>
           <span className="text-[11px] font-semibold">{status === 'running' ? <Loader size={12} className="animate-spin" /> : '→'}</span>
         </span>
         <span className="min-w-0 line-clamp-1 break-all font-medium text-kumo-default">{action || '未知工具'}</span>
@@ -302,7 +302,7 @@ export function ToolSteps({ items, streaming, isLastPart }) {
   const groupBadge = (m) => {
     if (m.hasRunning) {
       return (
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-brand/10 text-kumo-brand">
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
           <Loader size={10} className="animate-spin" />
         </span>
       );
@@ -331,7 +331,7 @@ export function ToolSteps({ items, streaming, isLastPart }) {
         className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
         aria-expanded={isOpen}
       >
-        <Wrench className={`h-4 w-4 shrink-0 text-kumo-brand ${anyRunning ? 'askai-live-icon' : ''}`} />
+        <Wrench className={`h-4 w-4 shrink-0 text-brand ${anyRunning ? 'askai-live-icon' : ''}`} />
         {single ? (
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 break-words leading-4">
@@ -357,10 +357,10 @@ export function ToolSteps({ items, streaming, isLastPart }) {
             const rowRunning = m.call?.status === STEP.RUNNING;
             const rowFailed = isFailed(m);
             return (
-              <div key={`${m.sig}-${i}`} className={`flex min-w-0 flex-col gap-0.5 rounded-md px-1 ${rowRunning ? 'bg-kumo-brand/5' : ''}`}>
+              <div key={`${m.sig}-${i}`} className={`flex min-w-0 flex-col gap-0.5 rounded-md px-1 ${rowRunning ? 'bg-brand/5' : ''}`}>
                 <div className="flex min-w-0 items-center gap-1.5 text-xs">
                   {rowRunning ? (
-                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-brand/10 text-kumo-brand">
+                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
                       <Loader size={10} className="animate-spin" />
                     </span>
                   ) : groupBadge(m)}
@@ -379,7 +379,7 @@ export function ToolSteps({ items, streaming, isLastPart }) {
                       aria-label="复制工具结果"
                       title={m.result?.summary ? '复制工具结果' : '复制错误信息'}
                     >
-                      {copiedKey === `${i}` ? <Check className="h-3 w-3 text-kumo-brand" /> : <Copy className="h-3 w-3" />}
+                      {copiedKey === `${i}` ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
                     </Button>
                   )}
                 </div>

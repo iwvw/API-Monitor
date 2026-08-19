@@ -120,7 +120,7 @@ function EntryName({ entry }) {
   const isFile = entry.type === 'file';
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${isFile ? 'border-kumo-brand/20 bg-kumo-brand/10 text-kumo-brand' : 'border-kumo-success/20 bg-kumo-success/10 text-kumo-success'}`}>{isFile ? <FolderOpen className="h-4 w-4" /> : <FileText className="h-4 w-4" />}</div>
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${isFile ? 'border-brand/20 bg-brand/10 text-brand' : 'border-kumo-success/20 bg-kumo-success/10 text-kumo-success'}`}>{isFile ? <FolderOpen className="h-4 w-4" /> : <FileText className="h-4 w-4" />}</div>
       <div className="min-w-0">
         <div className="truncate text-xs font-semibold text-kumo-strong">{isFile ? entry.originalName || entry.filename || '文件分享' : entry.preview || entry.content || '文本分享'}</div>
         <div className="mt-0.5 text-[11px] text-kumo-subtle">{isFile ? formatFileSize(entry.size || 0) : entry.textFormat === 'markdown' ? 'Markdown 内容' : '文本内容'}</div>
@@ -467,7 +467,7 @@ function FileboxPage() {
         <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1fr)_minmax(22rem,1fr)]">
           <SectionCard
             title="创建分享"
-            icon={<Send className="h-4 w-4 text-kumo-brand" />}
+            icon={<Send className="h-4 w-4 text-brand" />}
             action={
               <Tabs
                 {...TOOL_TABS_PROPS}
@@ -545,7 +545,7 @@ function FileboxPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="分享结果" icon={<FileText className="h-4 w-4 text-kumo-brand" />}>
+          <SectionCard title="分享结果" icon={<FileText className="h-4 w-4 text-brand" />}>
             {!result ? (
               <div className="space-y-3">
                 <div className="rounded-md border border-dashed border-kumo-line p-8 text-center text-xs text-kumo-subtle">显示链接、二维码和取用信息。</div>
@@ -584,7 +584,7 @@ function FileboxPage() {
                   {qrCode && <img src={qrCode} alt="分享二维码" className="h-32 w-32 rounded-md border border-kumo-line bg-white p-2" />}
                   <div className="space-y-2 text-xs text-kumo-subtle">
                     <div>
-                      <span className="font-semibold text-kumo-strong">分享码:</span> <span className="font-mono text-kumo-brand">{result.code}</span>
+                      <span className="font-semibold text-kumo-strong">分享码:</span> <span className="font-mono text-brand">{result.code}</span>
                     </div>
                     <div>链接可直接打开；需要密码时浏览器会提示输入。</div>
                     <div>有效期: {expiryLabel(expiry)}</div>
@@ -601,7 +601,7 @@ function FileboxPage() {
         <div className="grid gap-4">
           <SectionCard
             title="分享记录"
-            icon={<History className="h-4 w-4 text-kumo-brand" />}
+            icon={<History className="h-4 w-4 text-brand" />}
             actions={
               <>
                 <Button size="sm" variant="secondary" onClick={loadServerHistory} loading={historyLoading} icon={<RefreshCw className="h-4 w-4" />}>
@@ -653,7 +653,7 @@ function FileboxPage() {
                       <Table.Cell>
                         <EntryName entry={entry} />
                       </Table.Cell>
-                      <Table.Cell className="font-mono text-xs font-semibold text-kumo-brand">{entry.code}</Table.Cell>
+                      <Table.Cell className="font-mono text-xs font-semibold text-brand">{entry.code}</Table.Cell>
                       <Table.Cell className="text-xs text-kumo-subtle">
                         {entry.downloads || 0}
                         {entry.maxDownloads ? ` / ${entry.maxDownloads}` : ' / 不限'}
@@ -677,7 +677,7 @@ function FileboxPage() {
           </SectionCard>
 
           <div className="grid items-start gap-4 cq-xl:grid-cols-2">
-            <SectionCard title="本地最近创建" icon={<History className="h-4 w-4 text-kumo-brand" />} bodyPadding="none">
+            <SectionCard title="本地最近创建" icon={<History className="h-4 w-4 text-brand" />} bodyPadding="none">
               <div className="divide-y divide-kumo-line">
                 {localHistory.length === 0 ? (
                   <div className="py-8 text-center text-xs text-kumo-subtle">暂无本地记录</div>
@@ -686,7 +686,7 @@ function FileboxPage() {
                     <div key={entry.code} className="flex items-center justify-between gap-3 px-4 py-2.5">
                       <EntryName entry={entry} />
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="font-mono text-xs text-kumo-brand">{entry.code}</span>
+                        <span className="font-mono text-xs text-brand">{entry.code}</span>
                         <Button size="sm" variant="secondary" onClick={() => copyLink(entry.code)}>
                           复制
                         </Button>
@@ -697,14 +697,14 @@ function FileboxPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title="访问日志" icon={<Clock className="h-4 w-4 text-kumo-brand" />} bodyPadding="none">
+            <SectionCard title="访问日志" icon={<Clock className="h-4 w-4 text-brand" />} bodyPadding="none">
               <div className="max-h-72 overflow-auto divide-y divide-kumo-line">
                 {accessLogs.length === 0 ? (
                   <div className="py-8 text-center text-xs text-kumo-subtle">暂无访问日志</div>
                 ) : (
                   accessLogs.slice(0, 20).map((log) => (
                     <div key={log.id} className="grid grid-cols-[5rem_5rem_minmax(0,1fr)_9rem] gap-2 px-4 py-2 text-xs">
-                      <span className="font-mono text-kumo-brand">{log.code}</span>
+                      <span className="font-mono text-brand">{log.code}</span>
                       <span className="text-kumo-strong">{log.action}</span>
                       <span className="truncate text-kumo-subtle">{log.ipAddress || log.userAgent || '-'}</span>
                       <span className="text-right text-kumo-subtle">{formatDateTime(log.createdAt)}</span>
@@ -720,7 +720,7 @@ function FileboxPage() {
       {activeTab === 'settings' && (
         <SectionCard
           title="文件柜策略"
-          icon={<Settings className="h-4 w-4 text-kumo-brand" />}
+          icon={<Settings className="h-4 w-4 text-brand" />}
           action={
             <Button size="sm" variant="secondary" onClick={loadSettings} loading={settingsLoading} icon={<RefreshCw className="h-4 w-4" />}>
               刷新
@@ -777,7 +777,7 @@ function FileboxPage() {
         <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)]">
           <SectionCard
             title="房间管理"
-            icon={<Send className="h-4 w-4 text-kumo-brand" />}
+            icon={<Send className="h-4 w-4 text-brand" />}
             action={
               <Button size="sm" variant="secondary" onClick={loadVoidRooms} loading={voidRoomsLoading} icon={<RefreshCw className="h-4 w-4" />}>
                 刷新
@@ -856,7 +856,7 @@ function FileboxPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="传输边界" icon={<Lock className="h-4 w-4 text-kumo-brand" />} bodyClassName="grid gap-3 text-xs">
+          <SectionCard title="传输边界" icon={<Lock className="h-4 w-4 text-brand" />} bodyClassName="grid gap-3 text-xs">
             <div className="flex justify-between gap-3 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
               <span className="text-kumo-subtle">传输内容</span>
               <span className="font-semibold text-kumo-strong">浏览器直连</span>

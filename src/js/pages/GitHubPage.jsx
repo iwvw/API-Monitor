@@ -1280,7 +1280,7 @@ function ActionFlowNode({
   return (
     <div
       ref={nodeRef}
-      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-kumo-brand/60 shadow-lg shadow-kumo-brand/10 ring-2 ring-kumo-brand/20' : 'z-20 shadow-sm'} ${active && !spotlighted ? 'border-kumo-brand/45 ring-1 ring-kumo-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
+      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-brand/60 shadow-lg shadow-brand/10 ring-2 ring-brand/20' : 'z-20 shadow-sm'} ${active && !spotlighted ? 'border-brand/45 ring-1 ring-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
       onMouseEnter={onFocus}
@@ -1604,7 +1604,7 @@ function ActionWorkflowCanvas({ workflow, jobs, now }) {
                 {layout.edges.filter((edge) => !hasExpandedNode && edge.highlighted).map((edge) => (
                   <path
                     key={`${edge.from}-${edge.to}-active`}
-                    className="stroke-kumo-brand transition-[stroke,stroke-opacity,stroke-width] duration-150"
+                    className="stroke-brand transition-[stroke,stroke-opacity,stroke-width] duration-150"
                     d={edge.path}
                     pathLength="1"
                     strokeDasharray="1"
@@ -1616,7 +1616,7 @@ function ActionWorkflowCanvas({ workflow, jobs, now }) {
                   </path>
                 ))}
               </g>
-              <g className="fill-kumo-base stroke-kumo-brand" strokeWidth="2">
+              <g className="fill-kumo-base stroke-brand" strokeWidth="2">
                 {activeConnectorPoints.map((point) => (
                   <circle key={point.key} cx={point.x} cy={point.y} r="4">
                     <animate attributeName="opacity" from="0" to="1" dur="140ms" fill="freeze" />
@@ -2415,7 +2415,7 @@ function GitHubPage() {
           <LayerCard className="p-0 shadow-none">
             <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <GitBranch className="h-4 w-4 text-kumo-brand" />
+                <GitBranch className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold>仓库列表</Text>
                 <Badge variant="neutral">{repositories.length} 个仓库</Badge>
                 <Badge variant={collector?.running ? 'success' : 'neutral'}>
@@ -2473,7 +2473,7 @@ function GitHubPage() {
                       onDragOver={handleRepositoryDragOver}
                       onDrop={(event) => handleRepositoryDrop(repo.id, event)}
                       onDragEnd={() => setDraggedRepositoryId(null)}
-                      className={`min-w-0 cursor-move p-0 shadow-none transition-[opacity,transform,border-color] duration-160 ${isSelected ? 'ring-1 ring-kumo-brand/50' : ''} ${draggedRepositoryId === String(repo.id) ? 'scale-[0.99] opacity-50' : ''}`}
+                      className={`min-w-0 cursor-move p-0 shadow-none transition-[opacity,transform,border-color] duration-160 ${isSelected ? 'ring-1 ring-brand/50' : ''} ${draggedRepositoryId === String(repo.id) ? 'scale-[0.99] opacity-50' : ''}`}
                     >
                       <LayerCard.Primary className="grid gap-3 p-3">
                         <div className="flex min-w-0 items-start justify-between gap-2">
@@ -2535,7 +2535,7 @@ function GitHubPage() {
           <LayerCard className="p-0 shadow-none">
             <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <GitHubBrand className="h-4 w-4 text-kumo-brand" />
+                <GitHubBrand className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold truncate>{selectedRepo.full_name}</Text>
               </div>
               <div className="flex flex-wrap items-end gap-2">
@@ -2572,7 +2572,7 @@ function GitHubPage() {
             <LayerCard className="p-0 shadow-none">
               <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-kumo-brand" />
+                  <Activity className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>Actions 活动</Text>
                 </div>
                 {canAttemptActionOperations ? (
@@ -2662,7 +2662,7 @@ function GitHubPage() {
               <LayerCard className="p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-kumo-brand" />
+                    <TrendingUp className="h-4 w-4 text-brand" />
                     <Text variant="body" size="sm" bold>仓库趋势</Text>
                   </div>
                   <Select size="sm" aria-label="趋势时间范围" value={rangeDays} onValueChange={setRangeDays} items={rangeOptions} />
@@ -2697,7 +2697,7 @@ function GitHubPage() {
               </LayerCard>
               <LayerCard className="self-start p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center gap-2 border-b border-kumo-line px-4 py-3">
-                  <Users className="h-4 w-4 text-kumo-brand" />
+                  <Users className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>流量与贡献者</Text>
                 </LayerCard.Secondary>
                 <LayerCard.Primary className="grid content-start gap-3 p-4">
@@ -2713,7 +2713,7 @@ function GitHubPage() {
             <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
               <LayerCard className="p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center gap-2 border-b border-kumo-line px-4 py-3">
-                  <Bell className="h-4 w-4 text-kumo-brand" />
+                  <Bell className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>事件与通知源</Text>
                 </LayerCard.Secondary>
                 <LayerCard.Primary className="p-0">
@@ -2747,7 +2747,7 @@ function GitHubPage() {
               <LayerCard className="self-start p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <Key className="h-4 w-4 text-kumo-brand" />
+                    <Key className="h-4 w-4 text-brand" />
                     <Text variant="body" size="sm" bold>Webhook 配置</Text>
                   </div>
                   <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} onClick={configureWebhook} loading={saving}>自动配置</Button>
@@ -2778,7 +2778,7 @@ function GitHubPage() {
           <LayerCard className="self-start p-0 shadow-none">
             <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <Key className="h-4 w-4 text-kumo-brand" />
+                <Key className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold>GitHub Token</Text>
               </div>
               <Button
@@ -2837,7 +2837,7 @@ function GitHubPage() {
             <LayerCard className="self-start p-0 shadow-none">
               <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Settings className="h-4 w-4 text-kumo-brand" />
+                  <Settings className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>采集与保留</Text>
                 </div>
                 {settings && (
@@ -2862,7 +2862,7 @@ function GitHubPage() {
             <LayerCard className="self-start p-0 shadow-none">
               <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Activity className="h-4 w-4 text-kumo-brand" />
+                  <Activity className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>历史维护</Text>
                 </div>
                 <Badge variant={historyScope === 'current' ? 'info' : 'secondary'}>{historyScope === 'current' ? '当前仓库' : '全部仓库'}</Badge>

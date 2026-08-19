@@ -687,7 +687,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
             padding="none"
             className="mx-auto flex h-[60vh] max-w-xl flex-col items-center justify-center p-6 text-center"
           >
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-kumo-line bg-kumo-recessed text-kumo-brand shadow-none">
+            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-kumo-line bg-kumo-recessed text-brand shadow-none">
               <ActiveIcon className="w-7 h-7" />
             </div>
             <h2 className="text-base font-bold text-kumo-strong mb-2.5">

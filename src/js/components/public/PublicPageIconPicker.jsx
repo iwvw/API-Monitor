@@ -107,7 +107,7 @@ function PublicPageIconOption({
         </div>
         {description ? <div className="mt-1 text-xs leading-5 text-kumo-subtle">{description}</div> : null}
       </div>
-      {active ? <Check className="h-4 w-4 shrink-0 text-kumo-brand" /> : null}
+      {active ? <Check className="h-4 w-4 shrink-0 text-brand" /> : null}
     </>
   );
 
@@ -120,7 +120,7 @@ function PublicPageIconOption({
         className={cx(
           'flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
-          active ? 'border-kumo-brand bg-kumo-brand/8' : 'border-kumo-line bg-kumo-base',
+          active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
       >
         {content}
@@ -137,7 +137,7 @@ function PublicPageIconOption({
         className={cx(
           'flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
-          active ? 'border-kumo-brand bg-kumo-brand/8' : 'border-kumo-line bg-kumo-base',
+          active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
       >
         {content}

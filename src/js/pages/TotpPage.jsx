@@ -1840,7 +1840,7 @@ function TotpPage() {
           {/* Settings Options (Span 2) */}
           <SectionCard
             title="安全与显示配置"
-            icon={<Shield className="h-4 w-4 text-kumo-brand" />}
+            icon={<Shield className="h-4 w-4 text-brand" />}
             className="cq-lg:col-span-2"
             bodyPadding="md"
             bodyClassName="divide-y divide-kumo-line/80"
@@ -2020,7 +2020,7 @@ function TotpPage() {
           {/* Right Column: Browser Extension Helper Card */}
           <SectionCard
             title="浏览器插件助手"
-            icon={<Bot className="h-4 w-4 text-kumo-brand" />}
+            icon={<Bot className="h-4 w-4 text-brand" />}
             className="cq-lg:self-start"
             bodyPadding="md"
             bodyClassName="flex flex-col gap-3"
@@ -2089,7 +2089,7 @@ function TotpPage() {
                       点击<strong>加载已解压的扩展程序</strong>，选择刚才解压的目录文件夹。
                     </li>
                   </ol>
-                  <div className="bg-kumo-brand/10 text-kumo-brand p-2 rounded border border-kumo-brand/20 mt-1 font-medium select-all">
+                  <div className="bg-brand/10 text-brand p-2 rounded border border-brand/20 mt-1 font-medium select-all">
                     配置插件地址: {window.location.origin}
                   </div>
                   <p>

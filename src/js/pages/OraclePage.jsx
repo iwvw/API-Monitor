@@ -959,7 +959,7 @@ function OraclePage() {
             className="min-h-0"
             bodyPadding="none"
             bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
-            icon={<Server className="h-4 w-4 text-kumo-brand" />}
+            icon={<Server className="h-4 w-4 text-brand" />}
             actions={(
               <>
                 <ResponsiveSearchInput
@@ -1090,7 +1090,7 @@ function OraclePage() {
         <div className="grid min-h-0 flex-1 gap-4 cq-xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
           <SectionCard
             title="创建控制台连接"
-            icon={<Terminal className="h-4 w-4 text-kumo-brand" />}
+            icon={<Terminal className="h-4 w-4 text-brand" />}
             className="min-h-0"
             bodyClassName="flex min-h-0 flex-1 flex-col gap-4"
             action={<Button type="button" size="sm" onClick={createConsoleConnection} disabled={!selectedInstance || !consolePublicKey.trim()}><Plus className="mr-2 h-4 w-4" />创建连接</Button>}
@@ -1187,7 +1187,7 @@ function OraclePage() {
       {activeTab === 'accounts' && (
         <SectionCard
           title="Oracle 账号"
-          icon={<Key className="h-4 w-4 text-kumo-brand" />}
+          icon={<Key className="h-4 w-4 text-brand" />}
           description={accounts.length > 0 ? `${accounts.length} 个已配置账号` : '管理 OCI 凭证和默认 Compartment'}
           className="min-h-0 flex-1"
           bodyPadding="none"

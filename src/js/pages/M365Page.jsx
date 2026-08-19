@@ -1931,7 +1931,7 @@ function M365Page() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kumo-recessed/60 text-kumo-brand">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kumo-recessed/60 text-brand">
                         <Cloud className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
@@ -1992,7 +1992,7 @@ function M365Page() {
                   <span
                     className={cx(
                       'text-[11px] font-medium',
-                      active ? 'text-kumo-brand' : 'text-kumo-subtle'
+                      active ? 'text-brand' : 'text-kumo-subtle'
                     )}
                   >
                     {active ? '已选中' : '选择'}
@@ -2031,13 +2031,13 @@ function M365Page() {
             variant="secondary"
             className={cx(
               tenantCardFrameClass,
-              'group !h-full w-full justify-center border-dashed border-kumo-line/80 bg-kumo-base/35 text-kumo-subtle hover:border-brand/45 hover:bg-kumo-brand/5 hover:text-kumo-brand'
+              'group !h-full w-full justify-center border-dashed border-kumo-line/80 bg-kumo-base/35 text-kumo-subtle hover:border-brand/45 hover:bg-brand/5 hover:text-brand'
             )}
             onClick={openCreateAccount}
             aria-label="添加新租户"
           >
             <div className="flex flex-col items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle transition group-hover:border-brand/50 group-hover:text-kumo-brand">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle transition group-hover:border-brand/50 group-hover:text-brand">
                 <Plus className="h-5 w-5" />
               </div>
               <span className="text-xs font-medium opacity-0 transition group-hover:opacity-100">
@@ -2639,7 +2639,7 @@ function M365Page() {
                   ? '!bg-kumo-danger'
                   : usagePct >= 70
                     ? '!bg-kumo-warning'
-                    : '!bg-kumo-brand';
+                    : '!bg-brand';
               const lifecycleText = getSkuLifecycleText(sku);
               return (
                 <div
@@ -2933,7 +2933,7 @@ function M365Page() {
                       <Table.Row
                         key={group.id}
                         className={
-                          String(group.id) === String(selectedGroupId) ? 'bg-kumo-brand/5' : ''
+                          String(group.id) === String(selectedGroupId) ? 'bg-brand/5' : ''
                         }
                         onClick={() => setSelectedGroupId(String(group.id))}
                       >

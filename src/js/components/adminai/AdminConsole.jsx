@@ -133,10 +133,10 @@ const SETTING_FIELDS = [
 ];
 
 const SETTING_SECTIONS = [
-  { key: 'basic', title: '基础设置', description: '总开关与模型选择', icon: <Bot className="h-4 w-4 text-kumo-brand" /> },
-  { key: 'security', title: '安全与审批', description: '写操作与审批策略', icon: <ShieldCheck className="h-4 w-4 text-kumo-brand" /> },
-  { key: 'runtime', title: '运行参数', description: '工具调用上限与超时', icon: <Sliders className="h-4 w-4 text-kumo-brand" /> },
-  { key: 'retention', title: '数据保留', description: '审计记录保留时长', icon: <Database className="h-4 w-4 text-kumo-brand" /> },
+  { key: 'basic', title: '基础设置', description: '总开关与模型选择', icon: <Bot className="h-4 w-4 text-brand" /> },
+  { key: 'security', title: '安全与审批', description: '写操作与审批策略', icon: <ShieldCheck className="h-4 w-4 text-brand" /> },
+  { key: 'runtime', title: '运行参数', description: '工具调用上限与超时', icon: <Sliders className="h-4 w-4 text-brand" /> },
+  { key: 'retention', title: '数据保留', description: '审计记录保留时长', icon: <Database className="h-4 w-4 text-brand" /> },
 ];
 
 // 站点简报模板清单（与后端 briefingTemplatePrompts 保持一致）。
@@ -234,7 +234,7 @@ function SettingsCard({ form }) {
     if (field.kind === 'switch') {
       if (field.group === 'security') {
         // 安全与审批：开关渲染为卡片风格（与 AI 接入权限卡片同款：图标+文本，
-        // 选中态=开关打开）；颜色统一：选中 border/kumo-brand + text/kumo-brand，
+        // 选中态=开关打开）；颜色统一：选中 border/brand + text/brand，
         // 未选中 border/kumo-line + text/kumo-strong
         const checked = value === 'true';
         return (
@@ -246,11 +246,11 @@ function SettingsCard({ form }) {
 className={cx(
               'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 transition-colors',
               checked
-                ? 'border-(--text-color-kumo-brand) bg-kumo-tint text-kumo-brand'
+                ? 'border-(--text-color-brand) bg-kumo-tint text-brand'
                 : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'
             )}
           >
-            <ShieldCheck className={cx('h-4 w-4', checked ? 'text-kumo-brand' : 'text-kumo-strong')} />
+            <ShieldCheck className={cx('h-4 w-4', checked ? 'text-brand' : 'text-kumo-strong')} />
             <span className="text-xs font-medium">{field.label}</span>
           </button>
         );
@@ -515,7 +515,7 @@ function ChannelsCard() {
       {/* ---- 频道卡片 ---- */}
       <SectionCard
         title="频道"
-        icon={<Send className="h-4 w-4 text-kumo-brand" />}
+        icon={<Send className="h-4 w-4 text-brand" />}
         actions={!formOpen && (
           <Button size="sm" variant="secondary" onClick={openCreate}>
             <Plus className="h-3.5 w-3.5" /> 新建频道
@@ -751,7 +751,7 @@ function TemplatesCard() {
   return (
     <div className="space-y-4 pb-4">
       <SectionCard
-        icon={<MessageSquare className="h-4 w-4 text-kumo-brand" />}
+        icon={<MessageSquare className="h-4 w-4 text-brand" />}
         title="站点简报模板"
         description="/briefing"
         bodyPadding="none"
@@ -939,7 +939,7 @@ function MemoriesCard() {
   return (
     <div className="space-y-4 pb-4">
       <SectionCard
-        icon={<Brain className="h-4 w-4 text-kumo-brand" />}
+        icon={<Brain className="h-4 w-4 text-brand" />}
         title="长期记忆"
         description="在对话中说「记住…」让 AI 写入"
         bodyPadding="none"

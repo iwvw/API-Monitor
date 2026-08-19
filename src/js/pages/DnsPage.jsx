@@ -2052,7 +2052,7 @@ function DnsPage() {
         {!selectedAccountId && !['accounts', 'templates'].includes(activeTab) ? (
           <SectionCard
             title="Cloudflare 账号"
-            icon={<Cloud className="h-4 w-4 text-kumo-brand" />}
+            icon={<Cloud className="h-4 w-4 text-brand" />}
             bodyPadding="xl"
           >
             <div className="flex flex-col items-center gap-3 text-center text-sm text-kumo-subtle">
@@ -2099,7 +2099,7 @@ function DnsPage() {
                 ) : zones.map((zone) => (
                   <LayerCard
                     key={zone.id}
-                    className={`min-w-0 cursor-pointer p-2 transition-colors ${zone.id === selectedZoneId ? 'border-kumo-brand/60 bg-kumo-brand/5 ring-1 ring-kumo-brand/35' : ''}`}
+                    className={`min-w-0 cursor-pointer p-2 transition-colors ${zone.id === selectedZoneId ? 'border-brand/60 bg-brand/5 ring-1 ring-brand/35' : ''}`}
                     onClick={() => selectZone(zone)}
                   >
                     <div className="min-w-0">
@@ -2407,7 +2407,7 @@ function DnsPage() {
                     ) : records.map((record) => (
                       <LayerCard
                         key={record.id}
-                        className={`p-3 ${selectedRecordIds.includes(record.id) ? 'ring-1 ring-kumo-brand/35' : ''}`}
+                        className={`p-3 ${selectedRecordIds.includes(record.id) ? 'ring-1 ring-brand/35' : ''}`}
                         onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openRecordModal(record))}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -2530,7 +2530,7 @@ function DnsPage() {
             <SectionCard
               title="Workers"
               description={workerSubdomain ? <>默认子域名：<span className="font-mono text-kumo-strong">{workerSubdomain}.workers.dev</span></> : 'Workers 默认子域名未返回'}
-              icon={<Terminal className="h-4 w-4 text-kumo-brand" />}
+              icon={<Terminal className="h-4 w-4 text-brand" />}
               action={(
                 <Button size="sm" onClick={() => openWorkerModal()} icon={<Plus className="h-4 w-4" />}>
                   新建 Worker
@@ -2584,7 +2584,7 @@ function DnsPage() {
           {activeTab === 'pages' && (
             <SectionCard
               title="Pages 项目"
-              icon={<Layers className="h-4 w-4 text-kumo-brand" />}
+              icon={<Layers className="h-4 w-4 text-brand" />}
               bodyPadding="none"
               bodyClassName="overflow-x-auto"
             >
@@ -2690,9 +2690,9 @@ function DnsPage() {
                           className="h-auto w-full min-w-0 items-start justify-start gap-2 px-0 py-0 text-left bg-transparent! hover:bg-transparent! active:bg-transparent! data-[active=true]:bg-transparent! data-[selected=true]:bg-transparent! focus-visible:bg-transparent!"
                           onClick={() => selectR2Bucket(bucket)}
                         >
-                          <Box className={`mt-0.5 h-4 w-4 shrink-0 ${isSelected ? 'text-kumo-brand' : 'text-kumo-subtle'}`} />
+                          <Box className={`mt-0.5 h-4 w-4 shrink-0 ${isSelected ? 'text-brand' : 'text-kumo-subtle'}`} />
                           <span className="min-w-0 flex-1">
-                            <span className={`block truncate text-sm font-medium ${isSelected ? 'text-kumo-brand' : 'text-kumo-strong'}`}>{bucket.name}</span>
+                            <span className={`block truncate text-sm font-medium ${isSelected ? 'text-brand' : 'text-kumo-strong'}`}>{bucket.name}</span>
                             <span className="mt-1 block truncate text-xs text-kumo-subtle" title={`创建于 ${formatDate(bucket.creation_date || bucket.created_at)}`}>
                               {formatDate(bucket.creation_date || bucket.created_at)}
                             </span>
@@ -2735,7 +2735,7 @@ function DnsPage() {
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2 py-1.5 text-sm">
-                            <Database className="h-4 w-4 shrink-0 text-kumo-brand" />
+                            <Database className="h-4 w-4 shrink-0 text-brand" />
                             <Button type="button" size="xs" variant="ghost" className="h-auto max-w-48 truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => loadR2Objects(r2SelectedBucket.name, '')}>
                               {r2SelectedBucket.name}
                             </Button>
@@ -2884,7 +2884,7 @@ function DnsPage() {
                                         size="xs"
                                         shape="square"
                                         variant="ghost"
-                                        className="h-6 w-6 shrink-0 bg-transparent! text-kumo-subtle hover:bg-transparent! active:bg-transparent! hover:text-kumo-brand! focus-visible:bg-transparent!"
+                                        className="h-6 w-6 shrink-0 bg-transparent! text-kumo-subtle hover:bg-transparent! active:bg-transparent! hover:text-brand! focus-visible:bg-transparent!"
                                         onClick={(event) => { event.stopPropagation(); toggleR2FolderExpanded(row.key); }}
                                         aria-label={r2ExpandedPrefixes.includes(row.key) ? `折叠目录 ${row.name}` : `展开目录 ${row.name}`}
                                         title={r2ExpandedPrefixes.includes(row.key) ? '折叠目录' : '展开目录'}
@@ -2896,7 +2896,7 @@ function DnsPage() {
                                       type="button"
                                       size="xs"
                                       variant="ghost"
-                                      className={`h-auto min-w-0 flex-1 justify-start gap-2 px-0 py-0 text-left bg-transparent! hover:bg-transparent! active:bg-transparent! focus-visible:bg-transparent! ${row.isFolder ? 'font-medium text-kumo-strong hover:text-kumo-brand!' : 'text-kumo-strong'}`}
+                                      className={`h-auto min-w-0 flex-1 justify-start gap-2 px-0 py-0 text-left bg-transparent! hover:bg-transparent! active:bg-transparent! focus-visible:bg-transparent! ${row.isFolder ? 'font-medium text-kumo-strong hover:text-brand!' : 'text-kumo-strong'}`}
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         if (row.isLoading) return;
@@ -2905,7 +2905,7 @@ function DnsPage() {
                                       }}
                                       title={row.key}
                                     >
-                                      {row.isLoading ? <SkeletonLine className="h-3.5 w-3.5" /> : row.isFolder ? <Folder className="h-4 w-4 shrink-0 text-kumo-brand" /> : <FileText className="h-4 w-4 shrink-0 text-kumo-subtle" />}
+                                      {row.isLoading ? <SkeletonLine className="h-3.5 w-3.5" /> : row.isFolder ? <Folder className="h-4 w-4 shrink-0 text-brand" /> : <FileText className="h-4 w-4 shrink-0 text-kumo-subtle" />}
                                       <span className="truncate">{row.isLoading ? '加载中…' : (row.name || row.key)}</span>
                                     </Button>
                                       </>
@@ -2942,7 +2942,7 @@ function DnsPage() {
           {activeTab === 'tunnels' && (
             <SectionCard
               title="Tunnel"
-              icon={<Lock className="h-4 w-4 text-kumo-brand" />}
+              icon={<Lock className="h-4 w-4 text-brand" />}
               action={(
                 <Button size="sm" onClick={() => { setTunnelForm({ name: '' }); setModal({ type: 'tunnelCreate', data: null }); }} icon={<Plus className="h-4 w-4" />}>
                   创建 Tunnel
@@ -2997,7 +2997,7 @@ function DnsPage() {
           {activeTab === 'templates' && (
             <SectionCard
               title="DNS 模板"
-              icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+              icon={<FileText className="h-4 w-4 text-brand" />}
               actions={(
                 <>
                 <Toolbar size="sm" aria-label="导出导入模板" className="shrink-0">
@@ -3056,7 +3056,7 @@ function DnsPage() {
           {activeTab === 'accounts' && (
             <SectionCard
               title="Cloudflare 账号"
-              icon={<Settings className="h-4 w-4 text-kumo-brand" />}
+              icon={<Settings className="h-4 w-4 text-brand" />}
               actions={(
                 <>
                 <Toolbar size="sm" aria-label="导出导入账号" className="shrink-0">

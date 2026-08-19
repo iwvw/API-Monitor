@@ -210,7 +210,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
     <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(24rem,0.92fr)_minmax(0,1.08fr)]">
       <SectionCard
         title={form.id ? '编辑 GitHub 公开页' : '新建 GitHub 公开页'}
-        icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+        icon={<Globe className="h-4 w-4 text-brand" />}
         action={form.id ? (
           <Button size="sm" variant="secondary" shape="square" icon={<X className="h-3.5 w-3.5" />} onClick={resetForm} aria-label="取消编辑" />
         ) : null}
@@ -335,7 +335,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
 
       <SectionCard
         title="已发布公开页"
-        icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+        icon={<Globe className="h-4 w-4 text-brand" />}
         className="self-start"
         actions={(
           <Button size="sm" variant="secondary" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={loadPages} loading={loading}>
@@ -368,7 +368,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
                   <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-brand/10 text-kumo-brand">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
                           <PublicPageBrandIcon pageKind="github" config={page.config} iconClassName="h-4 w-4" customIconClassName="h-4 w-4" />
                         </span>
                         <span className="truncate text-sm font-bold text-kumo-strong">{page.title || page.slug}</span>

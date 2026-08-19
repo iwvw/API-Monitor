@@ -123,7 +123,7 @@ function InstanceActions({ disabled, onAction }) {
     <div className="flex w-full justify-end gap-1">
       <Button size="sm" shape="square" variant="secondary" disabled={disabled.start} onClick={() => onAction('START')} aria-label="启动" title="启动" icon={<Play className="h-3.5 w-3.5 text-kumo-success" />} />
       <Button size="sm" shape="square" variant="secondary" disabled={disabled.stop} onClick={() => onAction('STOP')} aria-label="停止" title="停止" icon={<Square className="h-3.5 w-3.5 text-kumo-danger" />} />
-      <Button size="sm" shape="square" variant="secondary" onClick={() => onAction('REBOOT')} aria-label="重启" title="重启" icon={<RotateCw className="h-3.5 w-3.5 text-kumo-brand" />} />
+      <Button size="sm" shape="square" variant="secondary" onClick={() => onAction('REBOOT')} aria-label="重启" title="重启" icon={<RotateCw className="h-3.5 w-3.5 text-brand" />} />
     </div>
   );
 }
@@ -352,7 +352,7 @@ function TencentPage() {
   };
 
   const renderDns = () => (
-    <SectionCard title="DNS 域名" icon={<Globe className="h-4 w-4 text-kumo-brand" />} bodyPadding="none">
+    <SectionCard title="DNS 域名" icon={<Globe className="h-4 w-4 text-brand" />} bodyPadding="none">
       <DataTableFrame variant="embedded" density="compact">
         <AppTable layout="fixed" widths={dnsColWidths}>
           <colgroup>{dnsColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
@@ -387,7 +387,7 @@ function TencentPage() {
     const items = kind === 'cvm' ? cvmInstances : lighthouseInstances;
     const title = kind === 'cvm' ? 'CVM 实例' : '轻量应用服务器';
     return (
-      <SectionCard title={title} icon={<Server className="h-4 w-4 text-kumo-brand" />} bodyPadding="none">
+      <SectionCard title={title} icon={<Server className="h-4 w-4 text-brand" />} bodyPadding="none">
         <DataTableFrame variant="embedded" density="compact">
           <AppTable tableId={`tencent-${kind}-instances`} columns={TENCENT_INSTANCE_COLUMNS}>
             <Table.Header sticky variant="compact">
@@ -441,7 +441,7 @@ function TencentPage() {
     <SectionCard
       title="腾讯云账号"
       description="Secret 保存后不回显"
-      icon={<Cloud className="h-4 w-4 text-kumo-brand" />}
+      icon={<Cloud className="h-4 w-4 text-brand" />}
       action={(
         <div className="flex shrink-0 items-center gap-2">
           <Input

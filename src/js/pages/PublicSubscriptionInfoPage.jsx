@@ -99,7 +99,7 @@ function PublicSubscriptionInfoPage() {
 
         <SectionCard
           title={loading ? '正在读取订阅' : data?.name || '订阅'}
-          icon={<Plug className="h-4 w-4 text-kumo-brand" />}
+          icon={<Plug className="h-4 w-4 text-brand" />}
           bodyClassName="flex flex-col gap-4"
         >
           {loading ? (

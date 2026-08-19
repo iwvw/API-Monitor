@@ -24,10 +24,10 @@ const baseEditorTheme = EditorView.theme({
   },
   // 选中区域：跟随主题语义色，避免默认浏览器蓝与亮/暗主题冲突
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'color-mix(in oklab, var(--color-kumo-brand) 25%, transparent)',
+    backgroundColor: 'color-mix(in oklab, var(--color-brand) 25%, transparent)',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: 'var(--color-kumo-brand)',
+    borderLeftColor: 'var(--color-brand)',
   },
   '&.cm-focused': { outline: 'none' },
 }, { dark: false });
@@ -35,7 +35,7 @@ const baseEditorTheme = EditorView.theme({
 // 行高亮背景（默认开；查看类只读场景可关闭）
 const activeLineTheme = EditorView.theme({
   '.cm-activeLine, .cm-activeLineGutter': {
-    backgroundColor: 'color-mix(in oklab, var(--color-kumo-brand) 7%, transparent)',
+    backgroundColor: 'color-mix(in oklab, var(--color-brand) 7%, transparent)',
   },
 }, { dark: false });
 
@@ -50,7 +50,7 @@ const gutterBorderTheme = EditorView.theme({
 // 经 syntaxHighlighting(HighlightStyle) 注入，生成 tok-* 类并替换默认配色。
 const syntaxHighlightStyle = HighlightStyle.define([
   // 关键字/控制流
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword], color: 'var(--color-kumo-brand)', fontWeight: '600' },
+  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword], color: 'var(--color-brand)', fontWeight: '600' },
   // 类型/类/命名空间
   { tag: [t.typeName, t.className, t.namespace, t.tagName], color: 'var(--color-kumo-info)' },
   // 函数/宏

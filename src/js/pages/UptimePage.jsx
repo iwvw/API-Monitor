@@ -1380,7 +1380,7 @@ function UptimePage() {
 
           {uptimeLoading && uptimeMonitors.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
-              <Loader size={32} className="text-kumo-brand mb-4" />
+              <Loader size={32} className="text-brand mb-4" />
               <span>载入监控目标中...</span>
             </div>
           ) : filteredMonitors.length === 0 ? (
@@ -1587,7 +1587,7 @@ function UptimePage() {
         <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(24rem,0.9fr)_minmax(0,1.1fr)]">
           <SectionCard
             title={statusPageForm.id ? '编辑状态页' : '新建状态页'}
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             action={statusPageForm.id ? (
               <Button size="sm" variant="secondary" shape="square" icon={<X className="h-3.5 w-3.5" />} onClick={resetStatusPageForm} aria-label="取消编辑" />
             ) : null}
@@ -1725,7 +1725,7 @@ function UptimePage() {
 
           <SectionCard
             title="已发布状态页"
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             className="self-start"
             actions={(
               <>
@@ -1757,7 +1757,7 @@ function UptimePage() {
                       <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-brand/10 text-kumo-brand">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
                               <PublicPageBrandIcon pageKind="uptime" config={page.config} iconClassName="h-4 w-4" customIconClassName="h-4 w-4" />
                             </span>
                             <span className="truncate text-sm font-bold text-kumo-strong">{page.title || page.slug}</span>
@@ -1796,7 +1796,7 @@ function UptimePage() {
         <SectionCard
           title="维护窗口"
           description="维护期内抑制告警"
-          icon={<Shield className="h-4 w-4 text-kumo-brand" />}
+          icon={<Shield className="h-4 w-4 text-brand" />}
           actions={(
             <>
               <Button
@@ -1933,7 +1933,7 @@ function UptimePage() {
       {uptimeCurrentTab === 'add' && (
         <SectionCard
           title={uptimeForm.id ? '编辑监测目标' : '新建监测目标'}
-          icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+          icon={<Activity className="h-4 w-4 text-brand" />}
           bodyPadding="xl"
           bodyClassName="space-y-6"
         >
@@ -2243,7 +2243,7 @@ function UptimePage() {
         <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1fr)_24rem]">
           <SectionCard
             title="配置导入预览"
-            icon={<Upload className="h-4 w-4 text-kumo-brand" />}
+            icon={<Upload className="h-4 w-4 text-brand" />}
             actions={(
               <>
                 <Input
@@ -2349,7 +2349,7 @@ function UptimePage() {
 
           <SectionCard
             title="导入执行"
-            icon={<Download className="h-4 w-4 text-kumo-brand" />}
+            icon={<Download className="h-4 w-4 text-brand" />}
             className="self-start"
             bodyPadding="lg"
             bodyClassName="space-y-3.5"

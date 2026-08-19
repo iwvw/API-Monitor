@@ -88,9 +88,9 @@ function EmptyState({ onPrompt }) {
                 onClick={() => onPrompt(p.subtitle || p.title)}
                 className="group relative flex !h-auto w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-brand/40 hover:bg-kumo-base hover:shadow-[0_0_12px_-2px_var(--color-kumo-shadow-drop)]"
               >
-                <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-kumo-brand/80 to-kumo-brand transition-all duration-200 group-hover:h-5" />
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 transition-colors duration-200 group-hover:bg-kumo-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-kumo-brand/20">
-                  <PromptIcon className="h-3.5 w-3.5 text-kumo-subtle transition-colors duration-200 group-hover:text-kumo-brand" />
+                <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-brand/80 to-brand transition-all duration-200 group-hover:h-5" />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 transition-colors duration-200 group-hover:bg-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-brand/20">
+                  <PromptIcon className="h-3.5 w-3.5 text-kumo-subtle transition-colors duration-200 group-hover:text-brand" />
                 </span>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-xs font-medium text-kumo-subtle transition-colors group-hover:text-kumo-default">{p.title}</span>
@@ -131,12 +131,12 @@ function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
             weight="duotone"
             className={`size-4 shrink-0 transition-all duration-200 ${
               active
-                ? 'text-kumo-brand'
+                ? 'text-brand'
                 : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
             }`}
           />
         }
-        className={`${active ? '!bg-kumo-brand/10' : ''} !px-2`}
+        className={`${active ? '!bg-brand/10' : ''} !px-2`}
       >
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
@@ -1234,7 +1234,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
         '--sidebar-easing': 'cubic-bezier(0.77, 0, 0.175, 1)',
       }}
     >
-      <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-kumo-brand/80 bg-kumo-canvas shadow-2xl">
+      <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-brand/80 bg-kumo-canvas shadow-2xl">
         <div
           className={`flex h-full shrink-0 flex-col overflow-hidden bg-kumo-base transition-[width] duration-300 ease-in-out ${fullscreenSidebar ? 'w-64 border-r border-kumo-line' : 'w-0'}`}
           aria-hidden={!fullscreenSidebar}
@@ -1242,7 +1242,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
           <div className="flex h-full w-64 shrink-0 flex-col">
             <div className="flex h-[58px] shrink-0 items-center justify-between gap-2 border-b border-kumo-line px-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-brand/10 text-kumo-brand">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
               <Sparkle className="h-4 w-4" />
             </span>
             <span className="truncate text-sm font-bold text-kumo-strong">会话</span>
@@ -1382,7 +1382,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                         title={`${m.type}: ${m.id}`}
                         className="flex max-w-[220px] select-none items-center gap-1 rounded-full border border-kumo-line/60 bg-kumo-recessed/60 py-0.5 pl-2 pr-1 text-[11px] text-kumo-default"
                       >
-                        <MI className="h-3 w-3 shrink-0 text-kumo-brand" />
+                        <MI className="h-3 w-3 shrink-0 text-brand" />
                         <span className="truncate">{m.name}</span>
                         <Button
                           type="button"
@@ -1648,7 +1648,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                       title={`${m.type}: ${m.id}`}
                       className="flex max-w-[220px] select-none items-center gap-1 rounded-full border border-kumo-line/60 bg-kumo-recessed/60 py-0.5 pl-2 pr-1 text-[11px] text-kumo-default"
                     >
-                      <MI className="h-3 w-3 shrink-0 text-kumo-brand" />
+                      <MI className="h-3 w-3 shrink-0 text-brand" />
                       <span className="truncate">{m.name}</span>
                       <Button
                         type="button"

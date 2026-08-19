@@ -338,8 +338,8 @@ function AuthStatusNotice({ statusKey, message }) {
       {message ? (
         <AuthErrorBanner message={message} />
       ) : status ? (
-        <div className="flex w-full items-center gap-2.5 rounded-lg border border-kumo-brand/35 bg-kumo-brand/10 p-3 text-kumo-brand">
-          <Loader size={16} className="shrink-0 text-kumo-brand" />
+        <div className="flex w-full items-center gap-2.5 rounded-lg border border-brand/35 bg-brand/10 p-3 text-brand">
+          <Loader size={16} className="shrink-0 text-brand" />
           <div className="text-xs font-bold leading-tight">{status}</div>
         </div>
       ) : null}

@@ -67,7 +67,7 @@ export function PromptCollectionsView({
               <LayerCard.Primary className="p-4">
                 <div className="flex items-start gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed/40">
-                    <Folder className="h-4 w-4 text-kumo-brand" />
+                    <Folder className="h-4 w-4 text-brand" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-kumo-strong">
@@ -134,7 +134,7 @@ export function PromptPublishedView({ entries, onOpen, onDelete, deleteIsArmed =
                 <div key={item.id} className="flex flex-col gap-3 p-4 cq-sm:flex-row cq-sm:items-center">
                   <div className="flex min-w-0 flex-1 items-start gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed/40">
-                      <FileText className="h-4 w-4 text-kumo-brand" />
+                      <FileText className="h-4 w-4 text-brand" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -142,7 +142,7 @@ export function PromptPublishedView({ entries, onOpen, onDelete, deleteIsArmed =
                           {item.title}
                         </span>
                         {item.starred && (
-                          <Star className="h-3.5 w-3.5 fill-current text-kumo-brand" />
+                          <Star className="h-3.5 w-3.5 fill-current text-brand" />
                         )}
                         <Badge variant="success">v{item.latest_published_version_no}</Badge>
                       </div>

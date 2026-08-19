@@ -208,7 +208,7 @@ const COMPACT_ACTION_BUTTON_CLASS = '!shadow-none';
 const SERVER_SECTION_HEADER_CLASS = 'flex min-h-[56px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-4 py-3.5';
 const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-wrap items-center gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 cq-lg:justify-between';
 const SERVER_SECONDARY_TABS_GROUP_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap p-0.5 scrollbar-thin cq-sm:gap-2';
-const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-kumo-brand';
+const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-brand';
 const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
 const COMPACT_EXPAND_EXIT_MS = 230;
 const SERVER_CHART_SERIES_DEFER_MS = 44;
@@ -394,7 +394,7 @@ function ServerModuleTabLabel({ icon: Icon, children, short, badge = null }) {
       <span className="hidden cq-sm:inline">{children}</span>
       <span className="cq-sm:hidden">{short || children}</span>
       {badge !== null && (
-        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-kumo-brand/10 px-1 text-[10px] font-bold leading-none text-kumo-brand">
+        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-brand/10 px-1 text-[10px] font-bold leading-none text-brand">
           {badge}
         </span>
       )}
@@ -472,7 +472,7 @@ const CompactMetricBar = React.memo(CompactMetricBarComponent, (prev, next) => (
   && prev.width === next.width
 ));
 
-function DenseUsageMeterComponent({ label, value, detail, indicatorClassName = '!bg-none !bg-kumo-brand', muted = false }) {
+function DenseUsageMeterComponent({ label, value, detail, indicatorClassName = '!bg-none !bg-brand', muted = false }) {
   const percent = clampPercent(toNumber(value, 0));
   const resolvedIndicatorClassName = muted ? '!bg-none !bg-kumo-subtle/55' : indicatorClassName;
   return (
@@ -567,7 +567,7 @@ function DenseDetailChip({ label, value, className = '', valueClassName = 'text-
 }
 
 const EXPANDED_SECTION_ACCENTS = {
-  brand: 'bg-kumo-brand',
+  brand: 'bg-brand',
   success: 'bg-kumo-success',
   warning: 'bg-kumo-warning',
   info: 'bg-kumo-info',
@@ -576,7 +576,7 @@ const EXPANDED_SECTION_ACCENTS = {
 
 const EXPANDED_VALUE_TONES = {
   default: 'text-kumo-strong',
-  brand: 'text-kumo-brand',
+  brand: 'text-brand',
   success: 'text-kumo-success',
   warning: 'text-kumo-warning',
   info: 'text-kumo-info',
@@ -603,7 +603,7 @@ function ExpandedProgressMetricComponent({
   value,
   detail,
   caption,
-  indicatorClassName = '!bg-none !bg-kumo-brand',
+  indicatorClassName = '!bg-none !bg-brand',
   valueClassName = 'text-kumo-strong',
   muted = false,
 }) {
@@ -888,7 +888,7 @@ function NetworkQualityPanel({
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className={`flex min-w-0 flex-wrap items-center justify-between gap-2 ${compact ? 'min-h-2' : ''}`}>
             <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
-              <span className="h-3 w-1 shrink-0 rounded-full bg-kumo-brand"></span>
+              <span className="h-3 w-1 shrink-0 rounded-full bg-brand"></span>
               <span className="truncate">网络波动 24h</span>
             </h4>
             <div className="flex shrink-0 items-center gap-2">
@@ -1146,7 +1146,7 @@ const getKumoToken = (tokenName, fallback) => {
 const getKumoTerminalTheme = () => ({
   background: getKumoToken('--app-terminal-bg', getKumoToken('--color-kumo-neutral-1000', '#050505')),
   foreground: getKumoToken('--app-terminal-fg', getKumoToken('--color-kumo-neutral-50', '#f8f8f8')),
-  cursor: getKumoToken('--color-kumo-brand', 'Highlight'),
+  cursor: getKumoToken('--color-brand', 'Highlight'),
 });
 
 const toNumber = (value, fallback = 0) => {
@@ -5971,7 +5971,7 @@ function ServerPage() {
       <LayerCard className={`overflow-hidden p-0 ${className}`}>
         <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
           <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
-            <Activity className="h-4 w-4 shrink-0 text-kumo-brand" />
+            <Activity className="h-4 w-4 shrink-0 text-brand" />
             日志
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
@@ -6010,7 +6010,7 @@ function ServerPage() {
                         <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-kumo-strong" title={getDockerTaskDisplayTitle(task)}>
                           {getDockerTaskDisplayTitle(task)}
                         </span>
-                        {showProgress && <span className="shrink-0 text-[10px] font-semibold text-kumo-brand">{progress}%</span>}
+                        {showProgress && <span className="shrink-0 text-[10px] font-semibold text-brand">{progress}%</span>}
                       </div>
                       {showProgress && (
                         <Meter
@@ -6019,7 +6019,7 @@ function ServerPage() {
                           showValue={false}
                           className="mt-1.5 gap-0"
                           trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-base"
-                          indicatorClassName="!h-full !bg-none !bg-kumo-brand"
+                          indicatorClassName="!h-full !bg-none !bg-brand"
                         />
                       )}
                       {summary && (
@@ -6040,7 +6040,7 @@ function ServerPage() {
 
   const renderDockerResourceSideRail = ({
     title,
-    icon = <Settings className="h-4 w-4 shrink-0 text-kumo-brand" />,
+    icon = <Settings className="h-4 w-4 shrink-0 text-brand" />,
     hosts = [],
     totalCount = 0,
     countLabel = '数量',
@@ -6060,7 +6060,7 @@ function ServerPage() {
         <LayerCard className="overflow-hidden p-0">
           <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
             <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
-              <Settings className="h-4 w-4 shrink-0 text-kumo-brand" />
+              <Settings className="h-4 w-4 shrink-0 text-brand" />
               管理
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
@@ -6093,7 +6093,7 @@ function ServerPage() {
                 const isOpen = isDockerHostExpanded(server.id, hosts[0]?.id);
                 const hostBadges = getHostBadges(server);
                 return (
-                  <div key={`${title}-${server.id}`} className={`overflow-hidden rounded-md border ${isOpen ? 'border-kumo-brand/55 bg-kumo-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}>
+                  <div key={`${title}-${server.id}`} className={`overflow-hidden rounded-md border ${isOpen ? 'border-brand/55 bg-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}>
                       <div
                         role="button"
                         tabIndex={0}
@@ -6107,7 +6107,7 @@ function ServerPage() {
                         className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-2.5 py-2"
                       >
                         <span className="flex min-w-0 items-center gap-2">
-                          {React.cloneElement(icon, { className: 'h-3.5 w-3.5 shrink-0 text-kumo-brand' })}
+                          {React.cloneElement(icon, { className: 'h-3.5 w-3.5 shrink-0 text-brand' })}
                           <span className="min-w-0 truncate text-xs font-bold text-kumo-strong">{server.name}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">
@@ -7852,7 +7852,7 @@ function ServerPage() {
                       <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-brand/10 text-kumo-brand">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
                               <PublicPageBrandIcon pageKind="server" config={page.config} iconClassName="h-4 w-4" customIconClassName="h-4 w-4" />
                             </span>
                             <span className="truncate text-sm font-bold text-kumo-strong">{page.title || page.slug}</span>
@@ -7919,7 +7919,7 @@ function ServerPage() {
                 size="sm"
                 shape="square"
                 variant="secondary"
-                className={serverMapOpen ? 'border-kumo-brand/50 text-kumo-brand' : ''}
+                className={serverMapOpen ? 'border-brand/50 text-brand' : ''}
                 icon={<Globe className="h-3.5 w-3.5" />}
                 aria-label={serverMapOpen ? '切回主机列表' : '切换到主机地图'}
                 title={serverMapOpen ? '切回主机列表' : '切换到主机地图'}
@@ -8465,7 +8465,7 @@ function ServerPage() {
                         onDragOver={handleServerDragOver}
                         onDrop={(event) => handleServerDrop(server.id, event)}
                         onDragEnd={() => setDraggedServerId(null)}
-                        className={`bg-kumo-base border rounded-lg transition-all duration-200 ${isExpanded ? 'border-kumo-brand/70  ring-1 ring-kumo-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
+                        className={`bg-kumo-base border rounded-lg transition-all duration-200 ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
                       >
                         <div
                           onClick={() => toggleServerExpand(server.id)}
@@ -8485,7 +8485,7 @@ function ServerPage() {
                                     e.stopPropagation();
                                     startRenameServer(server);
                                   }}
-                                  className="text-xs font-bold text-kumo-strong truncate hover:text-kumo-brand"
+                                  className="text-xs font-bold text-kumo-strong truncate hover:text-brand"
                                 >
                                   {country && (
                                     <CountryFlag countryCode={country} className="mr-1.5 h-3 w-4 align-[-1px] text-xs" />
@@ -8862,7 +8862,7 @@ function ServerPage() {
                                                     {(updateCheck || updateChecking || updatePending) && (
                                                       <div className="mt-1">
                                                         {updatePending ? (
-                                                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-kumo-brand">
+                                                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand">
                                                             <RefreshCw className="h-3 w-3 animate-spin" />
                                                             更新中{updateProgress > 0 ? ` ${updateProgress}%` : ''}
                                                           </span>
@@ -9057,8 +9057,8 @@ function ServerPage() {
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2">
-                          <Activity className="h-3.5 w-3.5 shrink-0 text-kumo-brand" />
-                          <span className="shrink-0 font-bold text-kumo-brand">Docker 任务</span>
+                          <Activity className="h-3.5 w-3.5 shrink-0 text-brand" />
+                          <span className="shrink-0 font-bold text-brand">Docker 任务</span>
                           <Badge variant={stateVariant} appearance="dot">{getDockerTaskStateLabel(latestTask.state)}</Badge>
                           <span className="min-w-0 truncate text-kumo-subtle">{getDockerTaskActionLabel(latestTask.action)}</span>
                           <span className="min-w-0 truncate text-kumo-subtle">{summarizeDockerTaskMessage(latestTask)}</span>
@@ -9079,7 +9079,7 @@ function ServerPage() {
                           showValue={false}
                           className="mt-2 gap-0"
                           trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-base"
-                          indicatorClassName="!h-full !bg-none !bg-kumo-brand"
+                          indicatorClassName="!h-full !bg-none !bg-brand"
                         />
                       )}
                     </>
@@ -9151,7 +9151,7 @@ function ServerPage() {
                               className="flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 border-b border-kumo-line/70 px-3 py-3.5"
                             >
                               <div className="flex min-w-0 items-center gap-2">
-                                <Box className="h-4 w-4 shrink-0 text-kumo-brand" />
+                                <Box className="h-4 w-4 shrink-0 text-brand" />
                                 <span className="truncate text-xs font-bold text-kumo-strong">{server.name}</span>
                                 {renderDockerFilterChip(server.id, 'all', `${summary.total} 容器`, 'neutral', `${server.name} 全部容器`)}
                                 {renderDockerFilterChip(server.id, 'running', `${summary.running} 运行`, 'success', `${server.name} 运行容器`)}
@@ -9233,7 +9233,7 @@ function ServerPage() {
                                       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
                                         <Badge variant={stateBadge.variant} appearance="dot">{stateBadge.label}</Badge>
                                         {updatePending ? (
-                                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-kumo-brand">
+                                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand">
                                             <RefreshCw className="h-3 w-3 animate-spin" />
                                             更新中{updateProgress > 0 ? ` ${updateProgress}%` : ''}
                                           </span>
@@ -9256,7 +9256,7 @@ function ServerPage() {
                                           showValue={false}
                                           className="mt-1.5 w-28 gap-0"
                                           trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
-                                          indicatorClassName="!h-full !bg-none !bg-kumo-brand"
+                                          indicatorClassName="!h-full !bg-none !bg-brand"
                                         />
                                       )}
                                     </div>
@@ -9316,7 +9316,7 @@ function ServerPage() {
                     <LayerCard className="order-1 overflow-hidden p-0">
                       <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
                         <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
-                          <Settings className="h-4 w-4 shrink-0 text-kumo-brand" />
+                          <Settings className="h-4 w-4 shrink-0 text-brand" />
                           管理
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">
@@ -9376,7 +9376,7 @@ function ServerPage() {
                             const managementHostUpdateTargets = getUpdatableDockerContainers([server], server.id);
                             const managementHostUpdateConfirmKey = `management.host.update::${server.id}::${managementHostUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
                             return (
-                              <div key={`management-${server.id}`} className={`overflow-hidden rounded-md border ${isOpen ? 'border-kumo-brand/55 bg-kumo-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}>
+                              <div key={`management-${server.id}`} className={`overflow-hidden rounded-md border ${isOpen ? 'border-brand/55 bg-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}>
                                   <div
                                     role="button"
                                     tabIndex={0}
@@ -9390,7 +9390,7 @@ function ServerPage() {
                                     className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-2.5 py-2"
                                   >
                                     <span className="flex min-w-0 items-center gap-2">
-                                      <Box className="h-3.5 w-3.5 shrink-0 text-kumo-brand" />
+                                      <Box className="h-3.5 w-3.5 shrink-0 text-brand" />
                                       <span className="min-w-0 truncate text-xs font-bold text-kumo-strong">{server.name}</span>
                                     </span>
                                     <span className="flex shrink-0 items-center gap-1.5">
@@ -9448,7 +9448,7 @@ function ServerPage() {
                   <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: 'Compose 项目',
-                      icon: <FolderOpen className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                      icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
                       hosts,
                       totalCount: dockerComposeProjects.length,
                       countLabel: '项目',
@@ -9473,7 +9473,7 @@ function ServerPage() {
                           return renderDockerHostResourceSection({
                             server,
                             isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <FolderOpen className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                            icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
                             count: projects.length,
                             countLabel: '项目',
                             badges: running > 0 ? [{ label: `${running} 运行`, variant: 'success', appearance: 'dot' }] : [],
@@ -9593,7 +9593,7 @@ function ServerPage() {
                   <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '镜像',
-                      icon: <HardDrive className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                      icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
                       hosts,
                       totalCount: dockerImages.length,
                       countLabel: '镜像',
@@ -9654,7 +9654,7 @@ function ServerPage() {
                           return renderDockerHostResourceSection({
                             server,
                             isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <HardDrive className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                            icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
                             count: images.length,
                             countLabel: '镜像',
                             badges: images.length > 0 ? [
@@ -9733,7 +9733,7 @@ function ServerPage() {
                   <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '网络',
-                      icon: <Globe className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                      icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
                       hosts,
                       totalCount: dockerNetworks.length,
                       countLabel: '网络',
@@ -9788,7 +9788,7 @@ function ServerPage() {
                           return renderDockerHostResourceSection({
                             server,
                             isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <Globe className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                            icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
                             count: networks.length,
                             countLabel: '网络',
                             badges: networks.length > 0 ? [{ label: `${new Set(networks.map(network => getDockerNetworkDriver(network))).size} 驱动` }] : [],
@@ -9863,7 +9863,7 @@ function ServerPage() {
                   <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '存储卷',
-                      icon: <Database className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                      icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
                       hosts,
                       totalCount: dockerVolumes.length,
                       countLabel: '存储卷',
@@ -9905,7 +9905,7 @@ function ServerPage() {
                           return renderDockerHostResourceSection({
                             server,
                             isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <Database className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                            icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
                             count: volumes.length,
                             countLabel: '存储卷',
                             badges: volumes.length > 0 ? [{ label: `${new Set(volumes.map(volume => getDockerVolumeDriver(volume))).size} 驱动` }] : [],
@@ -9977,7 +9977,7 @@ function ServerPage() {
                   <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                     {renderDockerResourceSideRail({
                       title: '实时统计',
-                      icon: <Activity className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                      icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
                       hosts,
                       totalCount: dockerStats.length,
                       countLabel: '容器',
@@ -10073,7 +10073,7 @@ function ServerPage() {
                           return renderDockerHostResourceSection({
                             server,
                             isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <Activity className="h-4 w-4 shrink-0 text-kumo-brand" />,
+                            icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
                             count: currentStats.length,
                             countLabel: '容器',
                             badges: currentStats.length > 0 ? [
@@ -10500,7 +10500,7 @@ function ServerPage() {
                       setDropHint('');
                     }}
                     className={`flex h-7 shrink-0 items-center rounded-md border ${activeSSHSessionId === sess.id
-                      ? 'border-kumo-brand/60 bg-kumo-recessed text-kumo-strong'
+                      ? 'border-brand/60 bg-kumo-recessed text-kumo-strong'
                       : 'border-kumo-line bg-kumo-base text-kumo-subtle'
                       }`}
                   >
@@ -10629,7 +10629,7 @@ function ServerPage() {
                           <div id={`ssh-slot-idx-${index}`} className="app-terminal-surface min-h-0 flex-1 overflow-hidden" />
                           {showDropPreview && (
                             <div
-                              className="pointer-events-none absolute z-20 rounded-md border border-dashed border-kumo-brand bg-kumo-brand/10 ring-1 ring-kumo-brand/25"
+                              className="pointer-events-none absolute z-20 rounded-md border border-dashed border-brand bg-brand/10 ring-1 ring-brand/25"
                               style={getTerminalDropPreviewStyle(dropHint)}
                             />
                           )}
@@ -11708,7 +11708,7 @@ function ServerPage() {
                             : result.status === 'verifying'
                               ? 'bg-kumo-warning/10 text-kumo-warning'
                               : result.status === 'processing'
-                                ? 'bg-kumo-brand/10 text-kumo-brand'
+                                ? 'bg-brand/10 text-brand'
                                 : 'bg-kumo-recessed text-kumo-subtle'
                           }`}>
                           {result.status === 'waiting'
@@ -11918,7 +11918,7 @@ function ServerPage() {
         <Dialog size="xl" className="@container flex h-[min(78dvh,760px)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[56rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/35 px-4 py-3">
             <Dialog.Title className="flex min-w-0 items-center gap-2 truncate text-sm font-bold text-kumo-strong">
-              <FolderOpen className="h-4 w-4 shrink-0 text-kumo-brand" />
+              <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
               <span className="truncate">{dockerComposeEditor?.mode === 'edit' ? '修改 Compose 配置' : '查看 Compose 配置'}</span>
             </Dialog.Title>
             <Dialog.Close
@@ -11940,7 +11940,7 @@ function ServerPage() {
             <LayerCard className="flex min-h-0 flex-col overflow-hidden p-0">
               <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
                 <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
-                  <Settings className="h-4 w-4 shrink-0 text-kumo-brand" />
+                  <Settings className="h-4 w-4 shrink-0 text-brand" />
                   项目信息
                 </span>
                 <Badge variant={dockerComposeEditor?.status?.includes('运行') ? 'success' : 'neutral'} appearance="dot">
@@ -12058,7 +12058,7 @@ function ServerPage() {
         <Dialog size="lg" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[48rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong flex items-center gap-2">
-              <FileText className="h-4 w-4 text-kumo-brand" />
+              <FileText className="h-4 w-4 text-brand" />
               <span>容器日志: {dockerLogsContainer ? getDockerContainerName(dockerLogsContainer) : ''}</span>
             </Dialog.Title>
             <Dialog.Close

@@ -40,7 +40,7 @@ const tableDensityClass = {
 
 const pillToneClass = {
   neutral: 'bg-kumo-recessed text-kumo-subtle border-kumo-line',
-  brand: 'bg-kumo-brand/10 text-kumo-brand border-kumo-brand/20',
+  brand: 'bg-brand/10 text-brand border-brand/20',
   info: 'bg-kumo-info/10 text-kumo-info border-kumo-info/20',
   success: 'bg-kumo-success/10 text-kumo-success border-kumo-success/20',
   warning: 'bg-kumo-warning/10 text-kumo-warning border-kumo-warning/20',

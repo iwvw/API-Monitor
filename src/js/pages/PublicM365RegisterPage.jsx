@@ -292,7 +292,7 @@ function PublicM365RegisterPage() {
       <div className="mx-auto mt-10 w-full max-w-5xl">
         <SectionCard
           title="Microsoft 365 注册中"
-          icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+          icon={<Globe className="h-4 w-4 text-brand" />}
           bodyPadding="lg"
         >
           <div className="py-10 text-center text-sm text-kumo-subtle">正在加载注册链接信息…</div>
@@ -338,7 +338,7 @@ function PublicM365RegisterPage() {
           bodyPadding="lg"
           title={invite?.publicPageName || '注册链接'}
           description="填写前缀后创建账号"
-          icon={<User className="h-4 w-4 text-kumo-brand" />}
+          icon={<User className="h-4 w-4 text-brand" />}
         >
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <Input
@@ -419,7 +419,7 @@ function PublicM365RegisterPage() {
           bodyClassName="flex min-h-0 flex-1 flex-col"
           bodyPadding="lg"
           title="注册链接信息"
-          icon={<Shield className="h-4 w-4 text-kumo-brand" />}
+          icon={<Shield className="h-4 w-4 text-brand" />}
         >
           <div className="grid gap-3 text-sm">
             <div className="grid gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs sm:grid-cols-2">

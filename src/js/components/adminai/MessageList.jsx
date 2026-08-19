@@ -28,7 +28,7 @@ function renderInline(text) {
     if (linkMatch) {
       // 仅放行安全协议，javascript:/data: 等链接原样显示不渲染为可点击链接
       const href = /^(https?:|mailto:|tel:)/i.test(linkMatch[2]) ? linkMatch[2] : '';
-      return <a key={i} href={href || undefined} target="_blank" rel="noopener noreferrer" className="text-kumo-brand underline">{linkMatch[1]}</a>;
+      return <a key={i} href={href || undefined} target="_blank" rel="noopener noreferrer" className="text-brand underline">{linkMatch[1]}</a>;
     }
     return part;
   });
@@ -243,7 +243,7 @@ function RenderLines({ text }) {
     if (taskMatch) {
       elements.push(
         <div key={elements.length} className="flex items-start gap-1.5" style={nestStyle}>
-          <span className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${taskMatch[1].toLowerCase() === 'x' ? 'border-kumo-brand bg-kumo-brand/15 text-kumo-brand' : 'border-kumo-line text-transparent'}`}>
+          <span className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${taskMatch[1].toLowerCase() === 'x' ? 'border-brand bg-brand/15 text-brand' : 'border-kumo-line text-transparent'}`}>
             {taskMatch[1].toLowerCase() === 'x' ? <Check className="h-2.5 w-2.5" /> : ''}
           </span>
           <span className={`min-w-0 ${taskMatch[1].toLowerCase() === 'x' ? 'text-kumo-subtle line-through' : ''}`}>{renderInline(taskMatch[2])}</span>
@@ -294,7 +294,7 @@ function MentionChips({ mentions }) {
             title={`${m.type}: ${m.id}`}
             className="flex max-w-[240px] select-none items-center gap-1 rounded-full border border-kumo-line/60 bg-kumo-recessed/60 px-2 py-0.5 text-[11px] text-kumo-default"
           >
-            <Icon className="h-3 w-3 shrink-0 text-kumo-brand" />
+            <Icon className="h-3 w-3 shrink-0 text-brand" />
             <span className="truncate">{m.name}</span>
           </span>
         );
@@ -353,10 +353,10 @@ function ReasoningPart({ part, streaming, isLastPart }) {
         title={streaming ? (followOn ? '暂停跟随推理' : '恢复跟随推理') : (open ? '收起推理' : '查看完整推理')}
         className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
       >
-        <Sparkle weight="fill" className={`h-4 w-4 shrink-0 text-kumo-brand ${streaming && isLastPart ? 'askai-live-icon' : ''}`} />
+        <Sparkle weight="fill" className={`h-4 w-4 shrink-0 text-brand ${streaming && isLastPart ? 'askai-live-icon' : ''}`} />
         {streaming || !displaySummary ? <span className="shrink-0">推理</span> : null}
         {streaming && isLastPart ? (
-          <span className="ml-0.5 flex items-center gap-0.5 text-kumo-brand">
+          <span className="ml-0.5 flex items-center gap-0.5 text-brand">
             <span className="askai-typing-dot" />
             <span className="askai-typing-dot" />
             <span className="askai-typing-dot" />
@@ -414,7 +414,7 @@ function ToolResultLine({ part }) {
           {failed ? <X className="h-3 w-3" /> : <Check className="h-3 w-3 text-kumo-success/80" />}
         </span>
         <span className="min-w-0 flex-1 line-clamp-1 break-all text-[11px] leading-5">{part.summary}</span>
-        {copied ? <Check className="h-3 w-3 shrink-0 text-kumo-brand" /> : <Copy className="h-3 w-3 shrink-0 text-transparent group-hover:text-kumo-subtle" />}
+        {copied ? <Check className="h-3 w-3 shrink-0 text-brand" /> : <Copy className="h-3 w-3 shrink-0 text-transparent group-hover:text-kumo-subtle" />}
       </Button>
     </div>
   );
@@ -446,7 +446,7 @@ function TimelinePart({ part, streaming, isLastPart, onResolveApproval, onRetry,
     case 'notice':
       return (
         <div className="flex items-center gap-1.5 text-[11px] text-kumo-subtle/70">
-          <Loader size={10} className="shrink-0 animate-spin text-kumo-brand" />
+          <Loader size={10} className="shrink-0 animate-spin text-brand" />
           <span className="min-w-0 break-all">{part.text}</span>
         </div>
       );
@@ -504,9 +504,9 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
 className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
         >
           {mode === 'ask' ? (
-            <MessageSquare className={`h-4 w-4 shrink-0 text-kumo-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
+            <MessageSquare className={`h-4 w-4 shrink-0 text-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
           ) : (
-            <Terminal className={`h-4 w-4 shrink-0 text-kumo-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
+            <Terminal className={`h-4 w-4 shrink-0 text-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
           )}
           {mode === 'ask' ? '询问' : '代理'}
           {!streaming && (
@@ -514,7 +514,7 @@ className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg 
           )}
         </Button>
         {(streaming && !hasText && !pending) || liveActive ? (
-          <span className="flex items-center gap-1.5 text-kumo-brand">
+          <span className="flex items-center gap-1.5 text-brand">
             <span className="flex items-center gap-0.5">
               <span className="askai-typing-dot" />
               <span className="askai-typing-dot" />
@@ -537,7 +537,7 @@ className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg 
         <div
           className={`w-full max-w-full rounded-xl px-4 py-3 text-sm !leading-relaxed ${
             streaming
-              ? 'bg-kumo-base ring-1 ring-kumo-brand/30'
+              ? 'bg-kumo-base ring-1 ring-brand/30'
               : 'bg-kumo-base ring-1 ring-kumo-line'
           }`}
         >
@@ -672,7 +672,7 @@ export default function MessageList({ messages, mode, live, onResolveApproval, o
                     {copiedEdit ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </Button>
                   <div className="w-fit min-w-[10rem] max-w-full" style={editWidth ? { width: editWidth } : undefined}>
-                    <div className="w-full rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                    <div className="w-full rounded-2xl rounded-tr-md bg-gradient-to-b from-brand to-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                       <Textarea
                         ref={editRef}
                         rows={1}
@@ -732,7 +732,7 @@ export default function MessageList({ messages, mode, live, onResolveApproval, o
                   >
                     <Edit className="h-3 w-3" />
                   </Button>
-                  <div data-user-bubble className="min-w-0 rounded-2xl rounded-tr-md bg-gradient-to-b from-kumo-brand to-kumo-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                  <div data-user-bubble className="min-w-0 rounded-2xl rounded-tr-md bg-gradient-to-b from-brand to-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                     <TextBlock text={msg.content} />
                   </div>
                   </div>

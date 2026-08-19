@@ -1154,7 +1154,7 @@ function ActionFlowNode({
   return (
     <div
       ref={nodeRef}
-      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-kumo-brand/60 shadow-lg shadow-kumo-brand/10 ring-2 ring-kumo-brand/20' : 'z-20 shadow-sm'} ${active && !spotlighted ? 'border-kumo-brand/45 ring-1 ring-kumo-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
+      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-brand/60 shadow-lg shadow-brand/10 ring-2 ring-brand/20' : 'z-20 shadow-sm'} ${active && !spotlighted ? 'border-brand/45 ring-1 ring-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
       onMouseEnter={onFocus}
@@ -1478,7 +1478,7 @@ function ActionWorkflowCanvas({ workflow, jobs, now }) {
                 {layout.edges.filter((edge) => !hasExpandedNode && edge.highlighted).map((edge) => (
                   <path
                     key={`${edge.from}-${edge.to}-active`}
-                    className="stroke-kumo-brand transition-[stroke,stroke-opacity,stroke-width] duration-150"
+                    className="stroke-brand transition-[stroke,stroke-opacity,stroke-width] duration-150"
                     d={edge.path}
                     pathLength="1"
                     strokeDasharray="1"
@@ -1490,7 +1490,7 @@ function ActionWorkflowCanvas({ workflow, jobs, now }) {
                   </path>
                 ))}
               </g>
-              <g className="fill-kumo-base stroke-kumo-brand" strokeWidth="2">
+              <g className="fill-kumo-base stroke-brand" strokeWidth="2">
                 {activeConnectorPoints.map((point) => (
                   <circle key={point.key} cx={point.x} cy={point.y} r="4">
                     <animate attributeName="opacity" from="0" to="1" dur="140ms" fill="freeze" />
@@ -1646,13 +1646,13 @@ function RepositoryCard({ item, now, config, detailLoading = false, onSelectRun 
           <div className="grid gap-1.5">
             <div className="flex min-w-0 items-center justify-between gap-2">
               <div className="flex min-w-0 items-start gap-2">
-              <GitHubBrand className="mt-0.5 h-4 w-4 shrink-0 text-kumo-brand" />
+              <GitHubBrand className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
               {canLinkRepo ? (
                 <a
                   href={item.html_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block min-w-0 flex-1 truncate pb-px text-sm font-bold leading-5 text-kumo-strong decoration-current [text-underline-offset:3px] hover:text-kumo-brand hover:underline"
+                  className="block min-w-0 flex-1 truncate pb-px text-sm font-bold leading-5 text-kumo-strong decoration-current [text-underline-offset:3px] hover:text-brand hover:underline"
                 >
                   {item.full_name}
                 </a>
@@ -1725,7 +1725,7 @@ function RepositoryCard({ item, now, config, detailLoading = false, onSelectRun 
               <span className="font-bold text-kumo-strong text-[11px] flex items-center gap-1">
                 <span>⚡ Actions</span>
                 {sameCommitRuns.length > 1 && (
-                  <span className="rounded bg-kumo-brand/10 text-kumo-brand px-1 py-0.2 text-[9px] font-mono font-semibold">
+                  <span className="rounded bg-brand/10 text-brand px-1 py-0.2 text-[9px] font-mono font-semibold">
                     {activeRunIndex + 1}/{sameCommitRuns.length}
                   </span>
                 )}
@@ -1753,11 +1753,11 @@ function RepositoryCard({ item, now, config, detailLoading = false, onSelectRun 
                       }}
                       className={`w-full flex items-center justify-between gap-1.5 rounded border px-2 py-0.5 text-left text-[10.5px] transition-[background-color,border-color,transform,box-shadow,color] duration-200 ${
                         isPending
-                          ? 'border-kumo-brand/45 bg-kumo-brand/12 text-kumo-brand shadow-[0_0_0_1px_rgba(59,130,246,0.08)]'
+                          ? 'border-brand/45 bg-brand/12 text-brand shadow-[0_0_0_1px_rgba(220,125,64,0.08)]'
                           : ''
                       } ${
                         isSelected
-                          ? 'bg-kumo-brand/15 text-kumo-brand font-semibold border-kumo-brand/30'
+                          ? 'bg-brand/15 text-brand font-semibold border-brand/30'
                           : 'bg-kumo-base/60 text-kumo-subtle hover:bg-kumo-base hover:text-kumo-strong border-transparent'
                       }`}
                       disabled={isPending}
@@ -1770,7 +1770,7 @@ function RepositoryCard({ item, now, config, detailLoading = false, onSelectRun 
                       </div>
                       <span className="shrink-0 text-[9px] font-mono opacity-80">
                         {isPending ? (
-                          <span className="inline-flex items-center gap-1 text-kumo-brand">
+                          <span className="inline-flex items-center gap-1 text-brand">
                             <Loader size={12} />
                             切换中
                           </span>
@@ -1802,7 +1802,7 @@ function RepositoryCard({ item, now, config, detailLoading = false, onSelectRun 
         } : undefined}
       >
         {isSwitchingRun && (
-          <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex items-center justify-between rounded-md border border-kumo-brand/30 bg-kumo-base/88 px-3 py-2 text-[11px] text-kumo-brand shadow-sm backdrop-blur-sm">
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex items-center justify-between rounded-md border border-brand/30 bg-kumo-base/88 px-3 py-2 text-[11px] text-brand shadow-sm backdrop-blur-sm">
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <Loader size={14} />
               <span className="truncate">正在切换到 {pendingRunName}</span>
@@ -2136,7 +2136,7 @@ function PublicGitHubPage({ domainOnly = false, onDomainNotFound }) {
               config={page?.config}
               isAuthenticated={isAuthenticated}
               onChange={updatePageIcon}
-              triggerClassName="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-kumo-interact/80 bg-kumo-base text-kumo-brand"
+              triggerClassName="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-kumo-interact/80 bg-kumo-base text-brand"
               iconClassName="h-5 w-5"
             />
             <div className="min-w-0">

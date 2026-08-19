@@ -975,7 +975,7 @@ const TrendBarChart = memo(function TrendBarChart({
     if (loading) {
       chart.showLoading({
         text: '',
-        color: kumoHex('--color-kumo-brand'),
+        color: kumoHex('--color-brand'),
         maskColor: 'rgba(0,0,0,0)',
       });
     } else {
@@ -1092,7 +1092,7 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
     if (loading) {
       chart.showLoading({
         text: '',
-        color: kumoHex('--color-kumo-brand'),
+        color: kumoHex('--color-brand'),
         maskColor: 'rgba(0,0,0,0)',
       });
     } else {
@@ -4568,7 +4568,7 @@ if (!response.ok) {
                                           }}
                                         >
                                           {endpoint.modelMappings?.[modelId] ? (
-                                            <span className="text-kumo-brand">
+                                            <span className="text-brand">
                                               {endpoint.modelMappings[modelId]}
                                             </span>
                                           ) : (
@@ -4804,7 +4804,7 @@ if (!response.ok) {
                               aria-label={key.isDefault ? '默认密钥' : '设为默认密钥'}
                               onClick={() => setDefaultGatewayKey(key)}
                               disabled={key.isDefault}
-                              className={key.isDefault ? undefined : 'text-kumo-subtle hover:text-kumo-brand'}
+                              className={key.isDefault ? undefined : 'text-kumo-subtle hover:text-brand'}
                               title={key.isDefault ? '当前为默认密钥' : '设为默认密钥'}
                             >
                               <Star className="w-3.5 h-3.5" />
@@ -4815,7 +4815,7 @@ if (!response.ok) {
                               variant="outline"
                               aria-label="轮换密钥"
                               onClick={() => rotateGatewayKey(key)}
-                              className="text-kumo-subtle hover:text-kumo-brand"
+                              className="text-kumo-subtle hover:text-brand"
                               title="轮换密钥"
                             >
                               <RotateCw className="w-3.5 h-3.5" />
@@ -4826,7 +4826,7 @@ if (!response.ok) {
                               variant="outline"
                               aria-label="编辑密钥"
                               onClick={() => openEditGatewayKeyModal(key)}
-                              className="hover:text-kumo-brand text-kumo-subtle"
+                              className="hover:text-brand text-kumo-subtle"
                               title="编辑密钥"
                             >
                               <Edit className="w-3.5 h-3.5" />
@@ -4864,7 +4864,7 @@ if (!response.ok) {
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[11px] font-medium text-kumo-subtle cq-sm:text-xs">网关请求</span>
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-brand">
                     <Activity className="h-3.5 w-3.5" />
                   </span>
                 </div>
@@ -4972,7 +4972,7 @@ if (!response.ok) {
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[11px] font-medium text-kumo-subtle cq-sm:text-xs">词元用量</span>
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-brand">
                     <Brain className="h-3.5 w-3.5" />
                   </span>
                 </div>
@@ -4986,7 +4986,7 @@ if (!response.ok) {
                         nativeButton={false}
                         title="查看输入/输出详情"
                         render={
-                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-brand cq-sm:text-xl cq-xl:text-2xl">
+                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-brand cq-sm:text-xl cq-xl:text-2xl">
                             {formatTokensM(analyticsSummary.totalTokens)}
                           </span>
                         }
@@ -5049,7 +5049,7 @@ if (!response.ok) {
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[11px] font-medium text-kumo-subtle cq-sm:text-xs">平均 TPM</span>
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-brand">
                     <Cpu className="h-3.5 w-3.5" />
                   </span>
                 </div>
@@ -5058,7 +5058,7 @@ if (!response.ok) {
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-brand cq-sm:text-xl cq-xl:text-2xl">
+                      <span className="truncate font-mono text-lg font-semibold leading-none text-brand cq-sm:text-xl cq-xl:text-2xl">
                         {((analyticsSummary.totalTokens || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
@@ -5070,7 +5070,7 @@ if (!response.ok) {
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[11px] font-medium text-kumo-subtle cq-sm:text-xs">平均 RPM</span>
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-kumo-brand">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-brand">
                     <TrendingUp className="h-3.5 w-3.5" />
                   </span>
                 </div>
@@ -5079,7 +5079,7 @@ if (!response.ok) {
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-lg font-semibold leading-none text-kumo-brand cq-sm:text-xl cq-xl:text-2xl">
+                      <span className="truncate font-mono text-lg font-semibold leading-none text-brand cq-sm:text-xl cq-xl:text-2xl">
                         {((analyticsSummary.totalRequests || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
@@ -5149,13 +5149,13 @@ if (!response.ok) {
             {[
               {
                 key: 'requests',
-                icon: <Activity className="h-4 w-4 text-kumo-brand" />,
+                icon: <Activity className="h-4 w-4 text-brand" />,
                 title: '请求量趋势',
                 series: trendSeries.requests,
               },
               {
                 key: 'tokens',
-                icon: <Brain className="h-4 w-4 text-kumo-brand" />,
+                icon: <Brain className="h-4 w-4 text-brand" />,
                 title: '词元趋势',
                 series: trendSeries.tokens,
               },
@@ -5689,7 +5689,7 @@ if (!response.ok) {
                             title="总消耗（实际消耗 = 总消耗 − 缓存）"
                           >
                             <div className="flex w-full items-baseline justify-start whitespace-nowrap">
-                              <span className="text-right font-semibold leading-none text-kumo-brand">
+                              <span className="text-right font-semibold leading-none text-brand">
                                 {log.totalTokens}
                               </span>
                               <span className="shrink-0 px-0.5 leading-none text-kumo-subtle">（</span>
