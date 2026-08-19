@@ -48,7 +48,7 @@ export function PromptCollectionsView({
           className="min-h-72"
           icon={<Folder className="h-10 w-10 text-kumo-inactive" />}
           title="还没有集合"
-          description="创建集合，将同一工作流的提示词放在一起。"
+          description="将同一工作流的提示词放在一起。"
           contents={
             <Button
               size="sm"

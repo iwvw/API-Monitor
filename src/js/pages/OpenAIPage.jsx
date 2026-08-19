@@ -2589,7 +2589,7 @@ function OpenAIPage() {
                 setLogEndpointFilter(e.target.value);
                 setAnalyticsPage(1);
               }}
-              placeholder="按端点筛选（完整名称或 ID）"
+              placeholder="端点名称或 ID"
               spellCheck={false}
             />
             {(logStatusFilter || logModelFilter || logEndpointFilter) && (
@@ -2838,7 +2838,7 @@ function OpenAIPage() {
           <div className="grid gap-1 px-6 pt-5 pb-4">
             <Dialog.Title className="text-sm font-semibold text-kumo-strong">导入端点</Dialog.Title>
             <Dialog.Description className="text-xs text-kumo-subtle">
-              共 {importModeDialog?.count ?? 0} 个端点，请选择导入方式（文件包含完整配置：密钥、模型、映射、请求头、代理池与订阅、优先级权重）
+              共 {importModeDialog?.count ?? 0} 个端点，选择导入方式（文件包含完整配置：密钥、模型、映射、请求头、代理池与订阅、优先级权重）
             </Dialog.Description>
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-kumo-line px-6 py-4">
@@ -2912,7 +2912,7 @@ function OpenAIPage() {
                 {(() => {
                   const text = formatErrorResponseForDisplay(logDetail.errorResponse);
                   if (logDetailExpanded || text.length <= LOG_DETAIL_COLLAPSE_LIMIT) return text;
-                  return `${text.slice(0, LOG_DETAIL_COLLAPSE_LIMIT)}…\n\n（内容较长，仅显示前 ${LOG_DETAIL_COLLAPSE_LIMIT} 字符，点击下方「展开全部」查看完整报错 JSON）`;
+                  return `${text.slice(0, LOG_DETAIL_COLLAPSE_LIMIT)}…\n\n（内容较长，仅显示前 ${LOG_DETAIL_COLLAPSE_LIMIT} 字符）`;
                 })()}
               </pre>
             )}
@@ -2960,7 +2960,7 @@ function OpenAIPage() {
               {editingEndpoint ? '编辑端点' : '添加 API 端点'}
             </Dialog.Title>
             <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
-              配置 OpenAI 兼容的 API 端点以供中转或对话使用。
+              配置 OpenAI 兼容 API 端点，用于中转或对话。
             </Dialog.Description>
           </div>
 
@@ -3560,7 +3560,7 @@ function OpenAIPage() {
                             <ProxyRuntimeMeta proxy={proxy} state={proxyRuntimeStates[proxy]} />
                           </div>
                         ) : (
-                          <div className={`truncate text-sm ${disabled ? 'text-kumo-danger' : 'text-kumo-subtle'}`}>空代理（点击编辑）</div>
+                          <div className={`truncate text-sm ${disabled ? 'text-kumo-danger' : 'text-kumo-subtle'}`}>空代理</div>
                         )}
                       </div>
                     )}
@@ -3587,7 +3587,7 @@ function OpenAIPage() {
               })}
               {!endpointForm.proxyPool?.length && (
                 <div className="rounded-md border border-dashed border-kumo-line py-8 text-center text-xs text-kumo-subtle">
-                  暂无代理。点击上方「添加代理」「导入文件」或「订阅链接导入」开始配置。
+                  暂无代理。
                 </div>
               )}
               {manualProxyEntries.length > PROXY_PREVIEW_LIMIT && (

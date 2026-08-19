@@ -444,7 +444,7 @@ function CronEditor({ form, setForm, preview, previewError }) {
       <div className="flex items-center justify-between gap-3 rounded-md border border-kumo-line p-3">
         <div>
           <div className="text-sm font-medium text-kumo-strong">可视化 Cron 编辑器</div>
-          <div className="text-xs text-kumo-subtle">简易周期自动生成表达式。</div>
+          <div className="text-xs text-kumo-subtle">按周期自动生成表达式。</div>
         </div>
         <Switch
           checked={form.useCustom}
@@ -1647,7 +1647,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                 {Array.from({ length: 6 }).map((_, index) => <SkeletonLine key={index} className="h-11 w-full" />)}
               </div>
             ) : tasks.length === 0 ? (
-              <Empty size="sm" className="rounded-none border-0 bg-transparent" icon={<Clock className="h-8 w-8 text-kumo-inactive" />} title="暂无任务" description="创建后可作为定时任务或工作流节点。" contents={<Button size="sm" variant="primary" onClick={openCreateTask}><Plus className="h-3.5 w-3.5" />新建任务</Button>} />
+              <Empty size="sm" className="rounded-none border-0 bg-transparent" icon={<Clock className="h-8 w-8 text-kumo-inactive" />} title="暂无任务" description="创建后可被工作流引用。" contents={<Button size="sm" variant="primary" onClick={openCreateTask}><Plus className="h-3.5 w-3.5" />新建任务</Button>} />
             ) : (
               <div className="overflow-x-auto">
                 <Table layout="fixed" className="min-w-[1080px]">
@@ -2020,7 +2020,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                                     language="shell"
                                     value={selectedWorkflowNode.command || ''}
                                     onChange={(command) => updateWorkflowNode(selectedWorkflowNode.id, { command })}
-                                    placeholder={selectedWorkflowNode.type === 'ai' ? '请描述 AI 任务提示词' : 'echo workflow-inline-step'}
+                                    placeholder={selectedWorkflowNode.type === 'ai' ? undefined : 'echo workflow-inline-step'}
                                     minHeight="8rem"
                                   />
                                   {selectedWorkflowNode.type === 'ai' && (
@@ -2038,7 +2038,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                           )}
                         </div>
                       ) : (
-                        <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-4 text-center text-xs text-kumo-subtle">请从画布中选择一个节点。</div>
+                        <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-4 text-center text-xs text-kumo-subtle">从画布中选择一个节点。</div>
                       )}
                       </LayerCard.Primary>
                     </LayerCard>

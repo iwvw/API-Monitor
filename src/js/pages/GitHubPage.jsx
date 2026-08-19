@@ -1669,7 +1669,7 @@ function PermissionChecks({ token }) {
     if (token.last_test_status === 'success' && token.last_test_at) {
       return <Text variant="secondary" size="xs">基础认证通过。选择仓库后再次检测可验证 Actions 和 Traffic 权限。检测时间：{formatDateTime(token.last_test_at)}</Text>;
     }
-    return <Text variant="secondary" size="xs">尚未检测。点击“检测权限”验证 Token；选择仓库后可同时验证仓库权限。</Text>;
+    return <Text variant="secondary" size="xs">点击“检测权限”验证 Token；选择仓库后可同时验证仓库权限。</Text>;
   }
   return (
     <div className="grid gap-2">
@@ -1993,7 +1993,7 @@ function GitHubPage() {
 
   const createToken = async () => {
     if (!tokenForm.name.trim() || !tokenForm.token.trim()) {
-      toast.warning('请填写 Token 名称和 Token');
+      toast.warning('请填写 Token 名称和值');
       return;
     }
     setSaving(true);
@@ -2586,7 +2586,7 @@ function GitHubPage() {
                 )}
               </LayerCard.Secondary>
               <LayerCard.Primary className="p-0">
-              {actions.length === 0 ? <FillEmpty title="暂无 Actions 记录" description="刷新后显示 Actions 记录" /> : (
+              {actions.length === 0 ? <FillEmpty title="暂无 Actions 记录" description="刷新后显示" /> : (
                 <DataTableFrame variant="embedded" density="compact" className="min-w-0 overflow-x-auto overflow-y-visible scrollbar-thin">
                   <AppTable layout="fixed" widths={GITHUB_ACTIONS_TABLE_WIDTHS}>
                     <colgroup>
@@ -2761,7 +2761,7 @@ function GitHubPage() {
                     <Text variant="secondary" size="xs">Secret</Text>
                     <ClipboardText size="sm" text={selectedRepo.webhook_secret || '-'} />
                   </div>
-                  <Text variant="secondary" size="xs">GitHub Webhook 选择 application/json，并启用 workflow_run、release、issues、pull_request、star 和 ping 事件。</Text>
+                  <Text variant="secondary" size="xs">选择 application/json，启用 workflow_run、release、issues、pull_request、star 和 ping 事件。</Text>
                 </LayerCard.Primary>
               </LayerCard>
             </div>
@@ -2792,7 +2792,7 @@ function GitHubPage() {
             </LayerCard.Secondary>
             <LayerCard.Primary className="grid gap-3 p-4">
               <Text variant="secondary" size="xs">
-                组织仓库请在 GitHub 创建页将 Resource owner 设为仓库所属组织，并等待组织审批；仓库 Webhook 使用仓库级 Webhooks: read/write，无需申请组织级权限。
+                组织仓库请将 Resource owner 设为仓库所属组织，并等待组织审批；仓库 Webhook 使用仓库级 Webhooks: read/write，无需组织级权限。
               </Text>
               <Input size="sm" label="Token 名称" value={tokenForm.name} onChange={(e) => setTokenForm((p) => ({ ...p, name: e.target.value }))} placeholder="生产账号" />
               <Input size="sm" label="Token" value={tokenForm.token} onChange={(e) => setTokenForm((p) => ({ ...p, token: e.target.value }))} placeholder="github_pat_..." autoComplete="off" spellCheck={false} className="font-mono" />
@@ -2884,9 +2884,6 @@ function GitHubPage() {
                   onChange={(e) => setHistoryRetentionDays(e.target.value)}
                 />
                 <Text variant="secondary" size="xs">
-                  默认按全部仓库执行。当前作用范围：{historyScopeLabel}。
-                </Text>
-                <Text variant="secondary" size="xs">
                   “清理历史”删除旧的趋势、Actions、事件、Webhook 和审计记录；“压缩 Payload”将旧的大 JSON 改写为摘要，并在结束后回收数据库空间。
                 </Text>
                 <div className="flex flex-wrap gap-2">
@@ -2926,7 +2923,7 @@ function GitHubPage() {
           <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
             <Dialog.Title className="text-base font-semibold text-kumo-strong">添加 GitHub 仓库</Dialog.Title>
             <Dialog.Description className="mt-1 text-xs text-kumo-subtle">
-              支持 GitHub URL、owner/repo、公开仓库和私有仓库。
+              支持公开和私有仓库。
             </Dialog.Description>
           </div>
           <form

@@ -295,7 +295,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
           </div>
           <div className="max-h-72 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-2 scrollbar-thin">
             {repositories.length === 0 ? (
-              <div className="p-4 text-center text-xs text-kumo-subtle">暂无 GitHub 仓库，请先添加仓库。</div>
+              <div className="p-4 text-center text-xs text-kumo-subtle">暂无 GitHub 仓库，请先添加。</div>
             ) : (
               <div className="grid gap-1.5">
                 {repositories.map((repo) => (

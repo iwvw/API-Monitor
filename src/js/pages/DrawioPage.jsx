@@ -523,7 +523,7 @@ export default function DrawioPage() {
             <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-3 scrollbar-thin">
               {!selectedId && <Empty size="sm" title="尚未选择图表" />}
               {selectedId && versions.length === 0 && (
-                <Empty size="sm" title="暂无版本" description="保存版本后会显示在这里。" />
+                <Empty size="sm" title="暂无版本" />
               )}
               {versions.map(version => (
                 <div
@@ -890,7 +890,7 @@ variant="primary"
             <Dialog.Title>草稿冲突</Dialog.Title>
           </div>
           <Dialog.Description className="mt-3 text-kumo-subtle">
-            另一会话已保存更新版本。可复制本地 XML，或加载数据库中的最新草稿。
+            另一会话已保存更新版本。
           </Dialog.Description>
           <div className="mt-6 flex justify-end gap-2">
             <Button

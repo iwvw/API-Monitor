@@ -4019,7 +4019,7 @@ function ServerPage() {
     }
     setServerModalSaving(true);
     setServerModalError('');
-    toast.info('正在测试连接中...');
+    toast.info('正在测试连接...');
 
     try {
       const response = await fetch('/api/server/test-connection', {
@@ -4439,7 +4439,7 @@ function ServerPage() {
   const uninstallAgent = async (serverId) => {
     if (!(await dialog.confirm({
       title: '卸载 Agent',
-      message: '确定要从目标主机上卸载 Agent 吗？',
+      message: '从目标主机上卸载 Agent？',
       confirmText: '卸载',
       cancelText: '取消',
     }))) return;
@@ -4542,8 +4542,8 @@ function ServerPage() {
     const confirmed = await dialog.confirm({
       title: `${actionText}主机`,
       message: action === 'shutdown'
-        ? '确定要关闭这台主机吗？此操作不可逆，请确认当前没有关键任务。'
-        : '确定要重启这台主机吗？',
+        ? '此操作不可逆，请确认当前没有关键任务。'
+        : '重启过程中连接会短暂中断。',
       confirmText: actionText,
       cancelText: '取消',
       variant: action === 'shutdown' ? 'destructive' : 'default',
@@ -4925,7 +4925,7 @@ function ServerPage() {
       return true;
     }
     setDockerUpdateConfirm({ key, expiresAt: Date.now() + DOCKER_UPDATE_CONFIRM_MS });
-    toast.info(`${label}，请再次点击确认`);
+    toast.info(`${label}，再次点击确认`);
     return false;
   };
 
@@ -5532,44 +5532,44 @@ function ServerPage() {
     const confirmations = {
       'container.stop': {
         title: '停止容器',
-        message: `确定要停止容器 ${targetName} 吗？正在运行的服务会中断。`,
+        message: `停止容器 ${targetName}？正在运行的服务会中断。`,
         confirmText: '停止',
         variant: 'danger',
       },
       'container.restart': {
         title: '重启容器',
-        message: `确定要重启容器 ${targetName} 吗？服务会短暂中断。`,
+        message: `重启容器 ${targetName}？服务会短暂中断。`,
         confirmText: '重启',
         variant: 'danger',
       },
       'container.delete': {
         title: '\u5220\u9664\u5bb9\u5668',
-        message: `\u786e\u5b9a\u8981\u6c38\u4e45\u5220\u9664\u5bb9\u5668 ${targetName} \u5417\uff1f\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002`,
+        message: `\u6c38\u4e45\u5220\u9664\u5bb9\u5668 ${targetName}\uff1f\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002`,
         confirmText: '\u5220\u9664',
         variant: 'danger',
         deleteResource: true,
       },
       'compose.down': {
         title: '停止 Compose 项目',
-        message: `确定要停止 Compose 项目 ${targetName} 吗？相关服务会中断。`,
+        message: `停止 Compose 项目 ${targetName}？相关服务会中断。`,
         confirmText: '停止项目',
         variant: 'danger',
       },
       'image.prune': {
         title: '清理未使用镜像',
-        message: '确定要清理该主机上未被容器引用的 Docker 镜像吗？',
+        message: '清理该主机上未被容器引用的 Docker 镜像？',
         confirmText: '清理镜像',
         variant: 'danger',
       },
       'network.prune': {
         title: '清理未使用网络',
-        message: '确定要清理该主机上未被容器使用的自定义 Docker 网络吗？',
+        message: '清理该主机上未被容器使用的自定义 Docker 网络？',
         confirmText: '清理网络',
         variant: 'danger',
       },
       'volume.prune': {
         title: '清理未使用存储卷',
-        message: '确定要清理该主机上未被容器使用的 Docker 数据卷吗？',
+        message: '清理该主机上未被容器使用的 Docker 数据卷？',
         confirmText: '清理存储卷',
         variant: 'danger',
       },
@@ -6694,7 +6694,7 @@ function ServerPage() {
     if (dockerComposeEditor?.mode === 'edit' && dockerComposeEditor.content !== dockerComposeEditor.originalContent) {
       const ok = await dialog.confirm({
         title: '放弃未保存修改',
-        message: `Compose 配置 ${dockerComposeEditor.path || ''} 还有未保存内容，确定关闭吗？`,
+        message: `Compose 配置 ${dockerComposeEditor.path || ''} 还有未保存内容。`,
         confirmText: '放弃修改',
         cancelText: '继续编辑',
         variant: 'danger',
@@ -6808,7 +6808,7 @@ function ServerPage() {
     const containerName = getDockerContainerName(container);
 
     setDockerLogsLoading(true);
-    setDockerLogsContent('\u6b63\u5728\u8fde\u63a5\u4e3b\u673a\u5e76\u83b7\u53d6\u5bb9\u5668\u65e5\u5fd7\uff0c\u8bf7\u7a0d\u5019...\n');
+    setDockerLogsContent('\u6b63\u5728\u8fde\u63a5\u4e3b\u673a\u5e76\u83b7\u53d6\u5bb9\u5668\u65e5\u5fd7...\n');
 
     try {
       const params = new URLSearchParams();
@@ -7688,10 +7688,10 @@ function ServerPage() {
         <div className="flex shrink-0 items-center gap-2">
           {serverCurrentTab === 'list' && (
             <Toolbar size="sm" aria-label="导出导入主机配置" className="shrink-0">
-              <Toolbar.Button onClick={exportServers} aria-label="导出主机配置" title="导出主机配置" icon={<Upload className="h-3.5 w-3.5" />}>
+              <Toolbar.Button onClick={exportServers} aria-label="导出主机配置" icon={<Upload className="h-3.5 w-3.5" />}>
                 <span className="hidden cq-sm:inline">导出</span>
               </Toolbar.Button>
-              <Toolbar.Button onClick={openImportServerModal} aria-label="导入主机配置" title="导入主机配置" icon={<Download className="h-3.5 w-3.5" />}>
+              <Toolbar.Button onClick={openImportServerModal} aria-label="导入主机配置" icon={<Download className="h-3.5 w-3.5" />}>
                 <span className="hidden cq-sm:inline">导入</span>
               </Toolbar.Button>
             </Toolbar>
@@ -7955,7 +7955,7 @@ function ServerPage() {
           ) : serverLoading && serverList.length === 0 ? (
             <AppCard padding="none" className="flex flex-col items-center justify-center gap-2 p-12 text-kumo-subtle">
               <Loader size={24} />
-              <p className="text-xs">正在连接并加载主机结构中...</p>
+              <p className="text-xs">正在加载主机列表...</p>
             </AppCard>
           ) : filteredServers.length === 0 ? (
             <AppCard padding="none" className="flex flex-col items-center justify-center gap-1.5 p-16 text-kumo-subtle">
@@ -9172,7 +9172,7 @@ function ServerPage() {
                                       });
                                     }}
                                   >
-                                    {isDockerUpdateConfirmActive(hostUpdateConfirmKey) ? '再次确认' : '更新可更新'}
+                                    {isDockerUpdateConfirmActive(hostUpdateConfirmKey) ? '再次确认' : '一键更新'}
                                   </Button>
                                 )}
                                 <Button
@@ -10252,7 +10252,6 @@ function ServerPage() {
                   <Toolbar.Button
                     onClick={exportServers}
                     aria-label="导出主机配置备份"
-                    title="导出主机配置备份"
                     icon={<Upload className="h-3.5 w-3.5" />}
                     className="w-full cq-sm:w-auto"
                   >
@@ -10261,7 +10260,6 @@ function ServerPage() {
                   <Toolbar.Button
                     onClick={openImportServerModal}
                     aria-label="导入主机配置"
-                    title="导入主机配置"
                     icon={<Download className="h-3.5 w-3.5" />}
                     className="w-full cq-sm:w-auto"
                   >
@@ -11246,7 +11244,7 @@ function ServerPage() {
                 disabled={serverModalSaving}
                 className={`w-full px-4 py-1.5 text-kumo-inverse text-xs font-bold cq-sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
-                {serverModalSaving ? '保存中...' : '确认保存'}
+                {serverModalSaving ? '保存中...' : '保存'}
               </Button>
             </div>
           </div>
@@ -11324,7 +11322,6 @@ function ServerPage() {
                     type="text"
                     value={credForm.password}
                     onChange={e => setCredForm(prev => ({ ...prev, password: e.target.value }))}
-                    placeholder="输入密码"
                     autoComplete="off"
                     data-1p-ignore
                     data-lpignore="true"
@@ -11370,7 +11367,7 @@ function ServerPage() {
 
             <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs cq-sm:flex-row cq-sm:justify-end">
               <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="w-full cq-sm:w-auto">取消</Button>
-              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-bold cq-sm:w-auto">确认保存</Button>
+              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-bold cq-sm:w-auto">保存</Button>
             </div>
           </div>
         </Dialog>

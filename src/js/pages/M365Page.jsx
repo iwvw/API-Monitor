@@ -237,7 +237,7 @@ function GroupsTabSkeleton() {
         className="flex min-h-0 flex-col"
         bodyClassName={panelBodyClass}
         title="组成员"
-        description="输入成员对象 ID 添加成员"
+        description="输入成员对象 ID"
         icon={<Users className="h-4 w-4" />}
         bodyPadding="sm"
         action={
@@ -2122,7 +2122,7 @@ function M365Page() {
                 <EmptyState
                   icon={Globe}
                   title="还没有公开页"
-                  description="先创建公开页模板"
+                  description="点击右上角新建公开页"
                   card={false}
                 />
               ) : (
@@ -2448,7 +2448,6 @@ function M365Page() {
                 <EmptyState
                   icon={Users}
                   title="暂无注册记录"
-                  description="显示注册结果"
                   card={false}
                 />
               ) : (
@@ -2613,14 +2612,13 @@ function M365Page() {
         }
       >
         {!selectedAccountId ? (
-          <EmptyState icon={Database} title="请先选择租户" description="需先选择租户" />
+          <EmptyState icon={Database} title="请先选择租户" />
         ) : skuLoading ? (
           <SkuGridSkeleton />
         ) : skus.length === 0 ? (
           <EmptyState
             icon={Database}
             title="暂无 SKU 数据"
-            description="当前租户没有 SKU"
           />
         ) : (
           <div
@@ -2731,7 +2729,6 @@ function M365Page() {
             <EmptyState
               icon={Users}
               title="请先选择租户"
-              description="需先选择租户"
             />
           </div>
         ) : usersLoading ? (
@@ -2907,7 +2904,7 @@ function M365Page() {
         }
       >
         {!selectedAccountId ? (
-          <EmptyState icon={Folder} title="请先选择租户" description="需先选择租户" />
+          <EmptyState icon={Folder} title="请先选择租户" />
         ) : groupsLoading ? (
           <GroupsTabSkeleton />
         ) : groups.length === 0 ? (
@@ -2956,7 +2953,7 @@ function M365Page() {
               className="flex min-h-0 flex-col"
               bodyClassName={panelBodyClass}
               title={selectedGroup ? selectedGroup.displayName : '组成员'}
-              description="输入成员对象 ID 添加成员"
+              description="输入成员对象 ID"
               icon={<Users className="h-4 w-4" />}
               bodyPadding="sm"
               action={
@@ -2978,7 +2975,6 @@ function M365Page() {
                 <EmptyState
                   icon={Users}
                   title="请选择一个组"
-                  description="先选择左侧组"
                   card={false}
                 />
               ) : groupMembersLoading ? (
@@ -3220,7 +3216,7 @@ function M365Page() {
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-kumo-strong">上传文件或直接粘贴</div>
                   <div className="text-xs text-kumo-subtle">
-                    可导入 `.json`，也可直接粘贴租户 JSON。
+                    仅支持 .json 格式。
                   </div>
                 </div>
                 <Button
@@ -3628,7 +3624,7 @@ function M365Page() {
                 <div className="rounded-lg border border-kumo-line/80 bg-kumo-recessed/10 p-3">
                   <div className="text-sm font-medium text-kumo-strong">目标租户与域名</div>
                   <div className="text-xs text-kumo-subtle">
-                    先勾选租户，再展开其全部域名做收缩选择。未取消的域名都会被允许注册。
+                    先勾选租户，再展开域名做选择。未取消的域名都会允许注册。
                   </div>
                   <div className="mt-3 grid gap-2">
                     {accounts.map(account => {
@@ -3743,7 +3739,7 @@ function M365Page() {
                       setPublicPageForm(current => ({ ...current, enabled: !!checked }))
                     }
                   />
-                  启用这个公开页
+                  启用公开页
                 </label>
                 <label className="flex items-center gap-2 text-xs text-kumo-subtle">
                   <Checkbox

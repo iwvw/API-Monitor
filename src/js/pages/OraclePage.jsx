@@ -679,7 +679,7 @@ function OraclePage() {
       !accountForm.fingerprint ||
       (!editingAccount && (!accountForm.tenancyOcid || !accountForm.userOcid || !accountForm.privateKeyPem));
     if (missingRequired) {
-      toast.warning(editingAccount ? '请填写账号名称、Region 和 Fingerprint' : '请填写必填的 OCI 账号信息和私钥');
+      toast.warning(editingAccount ? '请填写账号名称、Region 和 Fingerprint' : '请填写 OCI 账号信息和私钥');
       return;
     }
     setSubmittingAccount(true);
@@ -1125,18 +1125,17 @@ function OraclePage() {
                   language="text"
                   value={consolePublicKey}
                   onChange={setConsolePublicKey}
-                  placeholder="粘贴控制台连接 SSH 公钥"
+                  placeholder="粘贴 SSH 公钥"
                   minHeight="10rem"
                 />
                 <div className="text-xs leading-5 text-kumo-subtle">
-                  使用本地 SSH 公钥创建连接，创建后可在右侧查看连接串和指纹。
+                  创建后可在右侧查看连接串和指纹。
                 </div>
               </>
             ) : (
               <EmptyState
                 icon={Terminal}
                 title="请先选择实例"
-                description="先选实例，再来这里创建连接。"
                 card={false}
                 className="min-h-[18rem]"
               />
@@ -1154,7 +1153,7 @@ function OraclePage() {
               <EmptyState
                 icon={Terminal}
                 title="暂无可展示连接"
-                description="选中实例后，这里显示现有连接。"
+                description="选中实例后显示现有连接。"
                 card={false}
                 className="min-h-[20rem]"
               />
@@ -1372,7 +1371,7 @@ function OraclePage() {
                     </div>
                   ) : (
                     <div className="mt-4 text-xs text-kumo-subtle">
-                      该规格为固定规格，只需切换 shape，无需填写 OCPU / 内存。
+                      固定规格，只需切换 shape，无需填写 OCPU / 内存。
                     </div>
                   )}
                 </InsetPanel>

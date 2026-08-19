@@ -477,7 +477,7 @@ export default function PromptLibraryPage() {
             <Dialog.Title>草稿冲突</Dialog.Title>
           </div>
           <Dialog.Description className="mt-3 text-kumo-subtle">
-            另一会话已更新此草稿。加载最新内容后再继续编辑。
+            另一会话已更新此草稿。
           </Dialog.Description>
           <div className="mt-6 flex justify-end">
             <Button

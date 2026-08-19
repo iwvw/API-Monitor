@@ -987,11 +987,11 @@ function DashboardPage({ onNavigate } = {}) {
 
   const apiStatsDetailText = apiTrendTotal > 0
     ? `读取 ${formatKCount(apiTrendAudit)}次 / 变更 ${formatKCount(apiTrendOps)}次`
-    : '暂无系统 API 调用记录';
+    : '暂无调用记录';
   const hasApiTrendCalls = apiTrendSeries.some((series) => series.data.length >= 2 && series.total > 0);
   const apiTrendStatusText = apiTrendTotal > 0
     ? `最近 ${apiTrendDays} 天系统 API 调用 / 词元 / 订阅流量趋势`
-    : `最近 ${apiTrendDays} 天暂无系统 API 调用记录`;
+    : `最近 ${apiTrendDays} 天暂无调用记录`;
 
   const hostCpuUsage = clampPercent(stats.host?.cpu?.usage);
   const hostMemoryUsage = clampPercent(stats.host?.memory?.usage);
@@ -1274,7 +1274,7 @@ function DashboardPage({ onNavigate } = {}) {
                 </div>
                 <div className="min-w-0">
                   <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">文件分享柜</h4>
-                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">文件与片段分享柜</p>
+                  <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">文件与片段</p>
                 </div>
               </div>
               <div className={SERVICE_TOOL_BADGE_CLASS}>

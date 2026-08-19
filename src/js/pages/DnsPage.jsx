@@ -2057,9 +2057,9 @@ function DnsPage() {
           >
             <div className="flex flex-col items-center gap-3 text-center text-sm text-kumo-subtle">
               <Cloud className="h-10 w-10 text-kumo-subtle" />
-              <div>尚未配置 Cloudflare 账号。</div>
+              <div>尚未配置账号。</div>
               <Button size="sm" onClick={() => setActiveTab('accounts')}>
-                去添加账号
+                添加账号
               </Button>
             </div>
           </SectionCard>
@@ -2518,7 +2518,7 @@ function DnsPage() {
                 <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-kumo-line bg-kumo-base p-8 shadow-none">
                   <div className="flex flex-col items-center gap-3 text-center text-sm text-kumo-subtle">
                     <Globe className="h-10 w-10 text-kumo-subtle" />
-                    <div>请选择左侧域名后管理 DNS 记录。</div>
+                    <div>选择左侧域名后管理记录。</div>
                   </div>
                 </div>
               )}
@@ -2529,7 +2529,7 @@ function DnsPage() {
           {activeTab === 'workers' && (
             <SectionCard
               title="Workers"
-              description={workerSubdomain ? <>默认子域名：<span className="font-mono text-kumo-strong">{workerSubdomain}.workers.dev</span></> : 'Workers 默认子域名未返回'}
+              description={workerSubdomain ? <>默认子域名：<span className="font-mono text-kumo-strong">{workerSubdomain}.workers.dev</span></> : '默认子域名未返回'}
               icon={<Terminal className="h-4 w-4 text-brand" />}
               action={(
                 <Button size="sm" onClick={() => openWorkerModal()} icon={<Plus className="h-4 w-4" />}>
@@ -2715,8 +2715,8 @@ function DnsPage() {
                   <div className="flex min-h-72 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
                     <Database className="h-8 w-8 text-kumo-subtle" />
                     <div>
-                      <div className="font-medium text-kumo-strong">选择一个存储桶开始管理</div>
-                      <div className="mt-1 text-sm text-kumo-subtle">左侧可以创建、搜索并进入 Bucket。</div>
+                      <div className="font-medium text-kumo-strong">选择一个存储桶</div>
+                      <div className="mt-1 text-sm text-kumo-subtle">左侧可搜索并进入 Bucket。</div>
                     </div>
                     <Button size="sm" disabled={!selectedAccountId} onClick={() => { setR2BucketForm({ name: '', location: 'auto' }); setModal({ type: 'r2Bucket', data: null }); }} icon={<Plus className="h-4 w-4" />}>
                       创建存储桶
@@ -2872,7 +2872,7 @@ function DnsPage() {
                                         title={`重试加载 ${row.prefix}`}
                                       >
                                         <AlertTriangle className="h-4 w-4 shrink-0 text-kumo-warning" />
-                                        <span className="truncate text-kumo-danger">加载失败，点击重试</span>
+                                        <span className="truncate text-kumo-danger">加载失败，重试</span>
                                       </Button>
                                     ) : row.isLoading ? (
                                       <span className="inline-flex items-center gap-2 px-1 text-xs text-kumo-subtle"><SkeletonLine className="h-3.5 w-3.5" />加载中…</span>
@@ -3146,7 +3146,6 @@ function DnsPage() {
                 label="Account ID"
                 value={accountForm.cfAccountId}
                 onChange={(event) => setAccountForm((prev) => ({ ...prev, cfAccountId: event.target.value }))}
-                placeholder="输入 Cloudflare Account ID"
                 className="font-mono"
               />
               <Input size="sm"
@@ -3227,7 +3226,7 @@ function DnsPage() {
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
                 <Button size="sm" onClick={saveRecord} disabled={loading.saveRecord} icon={<Save className="h-4 w-4" />}>
-                  保存记录
+                  保存
                 </Button>
               </div>
             </div>
@@ -3262,7 +3261,7 @@ function DnsPage() {
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
                 <Button size="sm" onClick={saveTemplate} disabled={loading.saveTemplate} icon={<Save className="h-4 w-4" />}>
-                  保存模板
+                  保存
                 </Button>
               </div>
             </div>
@@ -3291,7 +3290,7 @@ function DnsPage() {
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
                 <Button size="sm" onClick={saveWorker} disabled={loading.saveWorker} icon={<Save className="h-4 w-4" />}>
-                  保存 Worker
+                  保存
                 </Button>
               </div>
             </div>
@@ -3470,7 +3469,7 @@ function DnsPage() {
               <div>
                 <Dialog.Title className="text-base font-semibold text-kumo-strong">新建文件夹</Dialog.Title>
                 <Dialog.Description className="mt-1 text-xs text-kumo-subtle">
-                  将在当前路径 {r2CurrentPrefix || '/'} 下创建文件夹。
+                  在当前路径 {r2CurrentPrefix || '/'} 下创建文件夹。
                 </Dialog.Description>
               </div>
               <Input
@@ -3527,7 +3526,7 @@ function DnsPage() {
                     <FileText className="h-8 w-8 text-kumo-subtle" />
                       <div>
                         <div className="font-medium text-kumo-strong">该类型暂不支持内嵌预览</div>
-                        <div className="mt-1 text-sm text-kumo-subtle">可在新窗口打开，由浏览器按文件类型处理。</div>
+                        <div className="mt-1 text-sm text-kumo-subtle">由浏览器按文件类型处理。</div>
                       </div>
                     <Button size="sm" onClick={() => window.open(modal.data?.url, '_blank', 'noopener,noreferrer')} icon={<ExternalLink className="h-4 w-4" />}>
                       打开对象
@@ -3620,7 +3619,7 @@ function DnsPage() {
               )}
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
-                <Button size="sm" onClick={saveTunnelConfig} icon={<Save className="h-4 w-4" />}>保存配置</Button>
+                <Button size="sm" onClick={saveTunnelConfig} icon={<Save className="h-4 w-4" />}>保存</Button>
               </div>
             </div>
           )}

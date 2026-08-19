@@ -268,7 +268,7 @@ function PaasPage() {
 
   const downloadLogs = () => {
     if (logs.length === 0) {
-      toast.info('暂无日志可以下载', { isManual: true });
+      toast.info('暂无日志', { isManual: true });
       return;
     }
     const content = logs
@@ -427,7 +427,7 @@ function PaasPage() {
   };
 
   const redeployKoyebService = async (account, app, service) => {
-    if (!(await dialog.confirm(`确认重新部署 Koyeb 服务 "${service.name}" 吗？`))) return;
+    if (!(await dialog.confirm(`重新部署 Koyeb 服务 "${service.name}"？`))) return;
     try {
       const response = await fetch(`/api/koyeb/services/${service._id}/redeploy`, {
         method: 'POST',
@@ -834,7 +834,7 @@ function PaasPage() {
 
   // Fly.io Service Operations
   const redeployFlyApp = async (account, app) => {
-    if (!(await dialog.confirm(`确认重启 Fly.io 应用 "${app.name}" 吗？（触发一次重新部署）`))) return;
+    if (!(await dialog.confirm(`重启 Fly.io 应用 "${app.name}"？（触发一次重新部署）`))) return;
     try {
       const response = await fetch(`/api/flyio/apps/${app.name}/redeploy`, {
         method: 'POST',
@@ -916,7 +916,7 @@ function PaasPage() {
   };
 
   const updateAllFlyAppsImage = async (account) => {
-    if (!(await dialog.confirm(`确定要为 Fly.io 账号 "${account.name}" 下的所有应用批量更新最新镜像吗？`))) return;
+    if (!(await dialog.confirm(`为 Fly.io 账号 "${account.name}" 下的所有应用批量更新最新镜像？`))) return;
     toast.info('正在提交批量更新，请稍候...', { isManual: true });
     try {
       const response = await fetch(`/api/flyio/accounts/${account.id}/update-all-images`, {
@@ -1799,7 +1799,6 @@ function PaasPage() {
                           size="sm"
                           icon={<KoyebBrand className="h-8 w-8 text-kumo-info" />}
                           title="暂无应用"
-                          description="此账号暂无 Koyeb 应用。"
                         />
                       ) : (
                         <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3 cq-lg:grid-cols-4">
@@ -1860,7 +1859,6 @@ function PaasPage() {
                                       size="sm"
                                       icon={<Server className="h-7 w-7 text-kumo-subtle" />}
                                       title="暂无服务"
-                                      description="此应用还没有可管理的服务。"
                                     />
                                   ) : (
                                     <div className="space-y-3">
@@ -2077,7 +2075,6 @@ function PaasPage() {
                           size="sm"
                           icon={<FlyIoBrand className="h-8 w-8 text-brand" />}
                           title="暂无应用"
-                          description="此账号暂无 Fly.io 应用。"
                           contents={<Button size="sm" variant="primary" onClick={() => createFlyApp(account)} icon={<Plus className="h-3.5 w-3.5" />}>新建应用</Button>}
                         />
                       ) : (
@@ -2370,7 +2367,7 @@ function PaasPage() {
             添加 Koyeb 账号
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            请输入您的 Koyeb API 令牌。建议以备注名区分。
+            以备注名区分。
           </Dialog.Description>
           <div className="space-y-4">
             <div className="space-y-1">
@@ -2433,7 +2430,7 @@ function PaasPage() {
             添加 Fly.io 账号
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            请输入您的 Fly.io API 令牌（以 flyv1_ 开头）。
+            请输入 Fly.io API 令牌（以 flyv1_ 开头）。
           </Dialog.Description>
           <div className="space-y-4">
             <div className="space-y-1">

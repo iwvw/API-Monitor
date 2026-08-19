@@ -780,7 +780,7 @@ function VoidRoomPage() {
               <div className="flex flex-wrap justify-end gap-2">
                 <Input ref={fileInputRef} type="file" aria-label="选择文件" className="hidden" onChange={handleFileChange} />
                 <Button size="sm" variant="secondary" disabled={!canSend || sending} loading={sending} onClick={() => fileInputRef.current?.click()} icon={<Paperclip className="h-4 w-4" />}>文件</Button>
-                <Button size="sm" variant="primary" disabled={!canSend || !text.trim()} onClick={sendText} icon={<Send className="h-4 w-4" />}>发送文字</Button>
+                <Button size="sm" variant="primary" disabled={!canSend || !text.trim()} onClick={sendText} icon={<Send className="h-4 w-4" />}>发送</Button>
               </div>
             </div>
           </SectionCard>

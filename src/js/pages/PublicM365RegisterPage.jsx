@@ -365,7 +365,6 @@ function PublicM365RegisterPage() {
                     onChange={event =>
                       setForm(current => ({ ...current, mailNickname: event.target.value }))
                     }
-                    placeholder="账户名"
                   />
                   <InputGroup.Suffix>{loginSuffix}</InputGroup.Suffix>
                 </InputGroup>
@@ -468,7 +467,7 @@ function PublicM365RegisterPage() {
           >
             <div className="grid gap-4">
               <div className="rounded-md border border-kumo-success/30 bg-kumo-success/10 p-4 text-sm text-kumo-success">
-                账号已创建成功，请保存下方登录账号和初始密码。
+                请保存下方登录账号和初始密码。
               </div>
               <div className="grid gap-3 rounded-md border border-kumo-line bg-kumo-recessed/30 p-4 text-sm md:grid-cols-2">
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-base/70 p-3">

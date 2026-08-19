@@ -136,7 +136,7 @@ const updateGatewayKeyExpiryTime = (part, value) => {
 const saveGatewayKey = async () => {
   const payload = normalizeGatewayKeyForm();
   if (!payload.name) {
-    setGatewayKeyFormError('请填写密钥名称');
+    setGatewayKeyFormError('填写密钥名称');
     return;
   }
   setGatewayKeySaving(true);

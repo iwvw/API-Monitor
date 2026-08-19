@@ -656,7 +656,6 @@ function AuthPage() {
             size="base"
             type="password"
             label="新密码"
-            placeholder="设置管理员密码"
             value={newPassword}
             onChange={event => {
               setSetupError('');
@@ -725,7 +724,7 @@ function AuthPage() {
           type={requiresSecondStep ? 'text' : 'password'}
           inputMode={requiresSecondStep ? 'numeric' : undefined}
           aria-label={requiresSecondStep ? '双因素验证码' : '管理员密码'}
-          placeholder={requiresSecondStep ? '000000' : '请输入管理员密码'}
+          placeholder={requiresSecondStep ? '000000' : undefined}
           maxLength={requiresSecondStep ? 6 : undefined}
           value={requiresSecondStep ? loginTotpToken : loginPassword}
           onChange={event => {

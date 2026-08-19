@@ -1426,7 +1426,6 @@ function SettingsPage() {
                   label="Client ID"
                   value={githubAuth.clientId}
                   onChange={(event) => setGitHubAuth((prev) => ({ ...prev, clientId: event.target.value }))}
-                  placeholder="GitHub OAuth App Client ID"
                 />
                 <Input
                   size="sm"
@@ -1434,7 +1433,6 @@ function SettingsPage() {
                   type="password"
                   value={githubAuth.clientSecret}
                   onChange={(event) => setGitHubAuth((prev) => ({ ...prev, clientSecret: event.target.value }))}
-                  placeholder={githubAuth.hasClientSecret ? '如需替换再填写' : 'GitHub OAuth App Client Secret'}
                   autoComplete="off"
                   data-1p-ignore
                   data-lpignore="true"

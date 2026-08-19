@@ -45,7 +45,7 @@ if (container) {
     } else {
       const loader = document.getElementById('app-loading');
       if (loader) {
-        loader.textContent = '启动失败，请刷新重试';
+        loader.textContent = '启动失败，刷新重试';
       }
     }
   }

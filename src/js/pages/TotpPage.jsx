@@ -1563,7 +1563,7 @@ function TotpPage() {
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle app-empty-panel">
               <Shield className="w-12 h-12 opacity-30 mb-4" />
               <div className="text-sm">
-                {totpSearchQuery ? '没有找到匹配的账号' : '暂无 2FA 账号，快来添加第一个吧'}
+                {totpSearchQuery ? '没有找到匹配的账号' : '暂无 2FA 账号'}
               </div>
               {!totpSearchQuery && (
                 <Button size="sm" variant="primary" className="mt-4" onClick={handleOpenAddAccount}>
@@ -1751,7 +1751,7 @@ function TotpPage() {
           {totpGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
               <FolderOpen className="w-12 h-12 opacity-30 mb-4" />
-              <span>暂无分组，创建一个吧</span>
+              <span>暂无分组</span>
               <Button size="sm" variant="primary" className="mt-4" onClick={handleOpenAddGroup}>
                 创建分组
               </Button>
@@ -2027,7 +2027,7 @@ function TotpPage() {
           >
             <div className="space-y-3.5">
               <p className="text-xs text-kumo-subtle leading-relaxed">
-                下载安装 2FA 浏览器插件，在 PC 端登录账号需要验证码时可一键自动检索与快捷填充。
+                下载安装 2FA 浏览器插件，PC 端登录账号需要验证码时可自动检索并快捷填充。
               </p>
 
               <div className="p-3 bg-kumo-recessed/60 border border-kumo-line rounded-lg flex items-start gap-3 mt-3">

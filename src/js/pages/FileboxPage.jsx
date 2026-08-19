@@ -823,7 +823,7 @@ function FileboxPage() {
                   </div>
                 ))
               ) : voidRooms.length === 0 ? (
-                <div className="p-6 text-center text-xs text-kumo-subtle">暂无虚空房间</div>
+                <div className="p-6 text-center text-xs text-kumo-subtle">暂无房间</div>
               ) : (
                 voidRooms.map((room) => {
                   const roomId = room.roomId || room.id;

@@ -105,7 +105,7 @@ class ModuleErrorBoundary extends React.Component {
           className="max-w-xl"
           icon={<AlertTriangle size={32} />}
           title="模块加载失败"
-          description="前端资源已更新或缓存过期，请重新加载页面。"
+          description="前端已更新或缓存过期。"
           contents={
             <div className="flex flex-col items-center gap-3">
               <ClipboardText
@@ -694,7 +694,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
               {getModuleName(mainActiveTab)} 模块重构中
             </h2>
             <p className="text-xs text-kumo-subtle max-w-sm leading-relaxed">
-              页面正在使用 React + Kumo + Tailwind v4 重构，原有逻辑暂时不可用。
+              原逻辑暂不可用。
             </p>
           </AppCard>
         );

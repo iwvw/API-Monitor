@@ -486,7 +486,7 @@ const saveProxyBatch = () => {
     .map(line => line.trim())
     .filter(Boolean);
   if (lines.length === 0) {
-    toast.warning('请粘贴至少一个代理地址');
+    toast.warning('粘贴至少一个代理地址');
     return;
   }
   const added = addProxyBatch(`批量添加 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`, lines);
@@ -726,7 +726,7 @@ const removeProxyFromBatch = (batch, proxy) => {
 const resolveSubscriptionProxies = async () => {
   const url = subscriptionUrl.trim();
   if (!url) {
-    toast.warning('请填写订阅链接');
+    toast.warning('填写订阅链接');
     return;
   }
   if (proxyImportLoading) return;
@@ -790,7 +790,7 @@ const removeEndpointHeader = index => {
 
 const saveEndpoint = async () => {
   if (!endpointForm.baseUrl) {
-    setEndpointFormError('请填写 API 地址');
+    setEndpointFormError('填写 API 地址');
     return;
   }
   setEndpointSaving(true);
@@ -897,7 +897,7 @@ const deleteEndpointConfirmActive = id =>
 const deleteEndpoint = async endpoint => {
   if (!deleteEndpointConfirmActive(endpoint.id)) {
     setPendingDeleteEndpointId({ id: endpoint.id, expiresAt: Date.now() + DELETE_ENDPOINT_CONFIRM_MS });
-    toast.info(`删除端点 ${endpoint.name || endpoint.baseUrl}？请再次点击确认`, { isManual: true });
+    toast.info(`删除端点 ${endpoint.name || endpoint.baseUrl}？再次点击确认`, { isManual: true });
     return;
   }
   setPendingDeleteEndpointId(null);

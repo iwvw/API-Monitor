@@ -1635,7 +1635,6 @@ function UptimePage() {
                   label="说明"
                   value={statusPageForm.description}
                   onChange={(event) => setStatusPageForm(prev => ({ ...prev, description: event.target.value }))}
-                  placeholder="可选说明"
                   rows={3}
                 />
               </div>

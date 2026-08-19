@@ -191,7 +191,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     if (hasUnsavedEdit) {
       const ok = await dialog.confirm({
         title: '放弃未保存修改',
-        message: `文件 ${editFile?.name || ''} 还有未保存内容，确定关闭编辑器吗？`,
+        message: `文件 ${editFile?.name || ''} 有未保存内容，确定关闭？`,
         confirmText: '放弃修改',
         cancelText: '继续编辑',
         variant: 'danger',
@@ -218,7 +218,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     }
     event.target.value = '';
     setUploading(false);
-    toast.success(`上传完成：成功 ${ok} 个，失败 ${failed} 个`);
+    toast.success(`上传完成：成功 ${ok}，失败 ${failed}`);
     loadDirectory(currentPath);
   };
 

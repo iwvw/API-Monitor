@@ -21,7 +21,7 @@ export const MODULE_CONFIG = {
     name: '系统设置',
     shortName: '设置',
     icon: 'fa-cog',
-    description: '系统设置',
+    description: '全局偏好',
   },
   openai: {
     name: '模型网关',
@@ -64,7 +64,7 @@ export const MODULE_CONFIG = {
     name: '定时任务',
     shortName: '任务',
     icon: 'fa-clock',
-    description: '定时任务管理',
+    description: '周期执行',
   },
   github: {
     name: 'GitHub',
@@ -88,7 +88,7 @@ export const MODULE_CONFIG = {
     name: '主机实例',
     shortName: '主机',
     icon: 'fa-server',
-    description: '主机与终端',
+    description: '实例与终端',
   },
   totp: {
     name: '双因子认证',
@@ -100,7 +100,7 @@ export const MODULE_CONFIG = {
     name: '可用性监测',
     shortName: '监控',
     icon: 'fa-heartbeat',
-    description: '站点监测',
+    description: '站点状态',
   },
   filebox: {
     name: '文件柜',
@@ -112,13 +112,13 @@ export const MODULE_CONFIG = {
     name: '通知中心',
     shortName: '通知中心',
     icon: 'fa-bell',
-    description: '通知中心',
+    description: '告警与推送',
   },
   apidocs: {
     name: 'API 接口',
     shortName: '接口',
     icon: 'fa-file-code',
-    description: '接口与密钥',
+    description: '密钥与文档',
   },
   systemlogs: {
     name: '系统日志',
@@ -136,13 +136,13 @@ export const MODULE_CONFIG = {
     name: '提示词库',
     shortName: '提示词',
     icon: 'fa-message',
-    description: '提示词管理与发布',
+    description: '管理与发布',
   },
   adminai: {
     name: '管理 AI',
     shortName: 'AI',
     icon: 'fa-robot',
-    description: '管理 AI 助手',
+    description: '智能助手',
   },
 };
 

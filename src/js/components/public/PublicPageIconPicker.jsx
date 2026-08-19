@@ -364,7 +364,6 @@ export default function PublicPageIconPicker({
                 <PublicPageIconOption
                   active={!selectedIconId}
                   title="默认图标"
-                  description="恢复该公开页的默认图标。"
                   onClick={() => commitChange('')}
                   disabled={saving}
                   preview={<PublicPageBrandIcon pageKind={pageKind} config={{}} iconClassName="h-6 w-6" />}
@@ -396,7 +395,7 @@ export default function PublicPageIconPicker({
               {loading ? <div className="mt-3 text-xs text-kumo-subtle">正在加载已上传图标...</div> : null}
               {!loading && loaded && items.length === 0 ? (
                 <div className="mt-3 rounded-lg border border-dashed border-kumo-line px-3 py-4 text-xs text-kumo-subtle">
-                  还没有上传过图标。支持 svg/png/jpg/webp/gif，建议使用方形图标。
+                  支持 svg/png/jpg/webp/gif，建议使用方形图标。
                 </div>
               ) : null}
             </div>

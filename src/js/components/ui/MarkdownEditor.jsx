@@ -86,7 +86,7 @@ function VisualMarkdownEditor({ value, onChange, readOnly, label, placeholder })
       ) : null}
       {status === 'error' ? (
         <div className="app-markdown-editor-state text-kumo-error">
-          编辑器加载失败，请切换到源码模式
+          编辑器加载失败，切换源码模式
         </div>
       ) : null}
     </div>

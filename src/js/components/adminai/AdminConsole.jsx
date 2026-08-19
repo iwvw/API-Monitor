@@ -118,18 +118,18 @@ function MultiModelSelect({ options, value, onChange }) {
 const SETTING_FIELDS = [
   { key: 'admin_ai_enabled', kind: 'switch', group: 'basic', label: '管理 AI 总开关', description: '关闭后侧栏与 Telegram 不再受理对话' },
   { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '推理', description: '模型来源：模型网关' },
-  { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '摘要', description: '思维链标题摘要专用，留空回退默认模型；可多选多个候选，失败按顺序自动回退' },
-  { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '简报', description: '每日站点简报专用模型，留空回退默认模型' },
+  { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '摘要', description: '思维链标题摘要专用，留空回退默认；可多选候选，失败按序回退' },
+  { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '简报', description: '每日站点简报专用，留空回退默认' },
   { key: 'admin_ai_write_enabled', kind: 'switch', group: 'security', label: '写操作全局开关', description: '写操作需人工审批' },
   { key: 'admin_ai_auto_approve', kind: 'switch', group: 'security', label: '完全批准模式', description: '（危险：AI 可自主执行任何写操作）' },
   { key: 'admin_ai_tool_call_limit', kind: 'number', group: 'runtime', label: '工具调用上限', description: '单轮最多调用次数' },
   { key: 'admin_ai_timeout_seconds', kind: 'number', group: 'runtime', label: '执行超时（秒）' },
   { key: 'admin_ai_context_window', kind: 'number', group: 'runtime', label: '上下文窗口（token）' },
   { key: 'admin_ai_memories_enabled', kind: 'switch', group: 'runtime', label: '长期记忆总开关', description: '记忆检索/记录工具' },
-  { key: 'admin_ai_memories_bootstrap_chars', kind: 'number', group: 'runtime', label: '记忆注入上限（字符）', description: '长期记忆字符上限' },
-  { key: 'admin_ai_memories_auto_capture', kind: 'switch', group: 'runtime', label: '自动记忆提炼', description: '空闲后自动提炼' },
-  { key: 'admin_ai_memories_idle_minutes', kind: 'number', group: 'runtime', label: '提炼空闲分钟数', description: '会话闲置多少分钟后触发自动提炼' },
-  { key: 'admin_ai_audit_retention_days', kind: 'number', group: 'retention', label: '审计保留天数', description: '审计记录保留天数' },
+  { key: 'admin_ai_memories_bootstrap_chars', kind: 'number', group: 'runtime', label: '记忆注入上限（字符）' },
+  { key: 'admin_ai_memories_auto_capture', kind: 'switch', group: 'runtime', label: '自动记忆提炼' },
+  { key: 'admin_ai_memories_idle_minutes', kind: 'number', group: 'runtime', label: '提炼空闲分钟数' },
+  { key: 'admin_ai_audit_retention_days', kind: 'number', group: 'retention', label: '审计保留天数' },
 ];
 
 const SETTING_SECTIONS = [
@@ -145,7 +145,7 @@ const BRIEFING_TEMPLATE_OPTIONS = [
   { value: 'brief', label: '简洁版', description: '一句话结论 + 关键指标与异常项目符号，全文 ≤ 150 字' },
   { value: 'detailed', label: '详细版', description: '摘要 / 分节指标 / 风险建议，全文 ≤ 800 字' },
   { value: 'alert_only', label: '仅异常', description: '只报告异常与风险（按严重度排序）；一切正常时仅输出一句"一切正常"' },
-  { value: 'custom', label: '自定义', description: '自行编写简报格式要求，内容将直接作为格式指令注入' },
+  { value: 'custom', label: '自定义', description: '内容直接作为格式指令注入' },
 ];
 
 /* 设置表单状态（吸底保存栏与设置卡共用，确保保存动作始终可达） */
@@ -386,11 +386,11 @@ function ChannelsCard() {
 
   const saveChannel = async () => {
     if (!form.name.trim()) {
-      setError('请填写频道名称');
+      setError('填写频道名称');
       return;
     }
     if (!form.id && !form.notificationChannelId) {
-      setError('请选择来源通知渠道（bot token 复用通知中心配置）');
+      setError('选择来源通知渠道（bot token 复用通知中心配置）');
       return;
     }
     setSaving(true);
@@ -466,7 +466,7 @@ function ChannelsCard() {
   const addBinding = async () => {
     const userId = bindInput.userId.trim();
     if (!form.id || !userId) {
-      setError('请填写 Telegram 用户 ID');
+      setError('填写 Telegram 用户 ID');
       return;
     }
     setSaving(true);
@@ -618,7 +618,7 @@ function ChannelsCard() {
             </div>
           </div>
           <p className="mt-3 text-xs leading-5 text-kumo-subtle">
-            bot token 与推送目标均复用通知中心已配置的 Telegram 渠道（需含 bot_token 与 chat_id），无需在此填写；同一渠道只能被一个 AI 频道引用。
+            复用通知中心已配置的 Telegram 渠道（需含 bot_token 与 chat_id），无需在此填写；同一渠道只能被一个 AI 频道引用。
           </p>
 
           {/* 白名单管理（并入频道编辑设置）：仅编辑已有频道时显示 */}
@@ -629,7 +629,7 @@ function ChannelsCard() {
                 <span className="text-[11px] text-kumo-subtle">留空 = 任何人可对话</span>
               </div>
               {bindings.filter((b) => b.channelId === form.id).length === 0 ? (
-                <p className="text-xs text-kumo-subtle">当前开放，任何人可对话（加入成员后仅列表内用户可对话）</p>
+                <p className="text-xs text-kumo-subtle">加入成员后仅列表内用户可对话</p>
               ) : (
                 <div className="space-y-1.5">
                   {bindings.filter((b) => b.channelId === form.id).map((binding) => (

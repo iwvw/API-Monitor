@@ -1354,7 +1354,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                       <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-kumo-subtle">
                         <Lock className="h-6 w-6 text-kumo-warning" />
                         <p>该会话由 BOT/自动化流程管理（只读）</p>
-                        <p className="text-xs text-kumo-subtle/70">可查看历史记录，不能在此继续对话</p>
+                        <p className="text-xs text-kumo-subtle/70">可查看历史记录</p>
                       </div>
                     ) : (
                       <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
@@ -1617,7 +1617,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-kumo-subtle">
                     <Lock className="h-6 w-6 text-kumo-warning" />
                     <p>该会话由 BOT/自动化流程管理（只读）</p>
-                    <p className="text-xs text-kumo-subtle/70">可查看历史记录，不能在此继续对话</p>
+                    <p className="text-xs text-kumo-subtle/70">可查看历史记录</p>
                   </div>
                 ) : (
                   <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
