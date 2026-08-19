@@ -463,6 +463,8 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	var failoverSteps []map[string]interface{}
 	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
 	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
+	// lastTried 记录最后一次真实转发的端点：整链失败时以真实端点记账，而非 unknown。
+	var lastTried *Endpoint
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -517,6 +519,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 				requestStarted: requestStarted,
 			})
 			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			lastTried = &cand
 			stepStatus := res.statusCode
 			if stepStatus == 0 && res.resp != nil {
 				stepStatus = res.resp.StatusCode
@@ -538,18 +541,6 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			}
 			if k+1 < candCount {
 				selected = endpointCandidates[k+1]
-				failReason := "上游转发失败"
-				if res.lastErr != nil {
-					failReason = res.lastErr.Error()
-				}
-				s.recordRelayError(RelayErrorRecord{
-					Route: route, Kind: "endpoint_failover",
-					Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
-					Stream: stream, ClientIP: clientIP,
-					Attempts:  res.attempt + 1,
-					ElapsedMs: time.Since(requestStarted).Milliseconds(),
-					Error:     failReason,
-				})
 			}
 		}
 		if retryRoundFinished {
@@ -584,7 +575,39 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	}
 	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
-		return unavailableStatusCode(model, failCodes), nil, fmt.Errorf("网关无可用渠道（模型 %s）", model)
+		status := unavailableStatusCode(model, failCodes)
+		msg := fmt.Sprintf("网关无可用渠道（模型 %s）", model)
+		// 整链失败：切换过程不落日志，这里按「最终结果」聚合为一条，
+		// 端点取最后一次真实转发的候选（而非 unknown），模型与状态码齐备。
+		lastEpID, lastEpName := "", ""
+		if lastTried != nil {
+			lastEpID = lastTried.ID
+			lastEpName = lastTried.Name
+		}
+		attempts := 0
+		lastProxy := ""
+		if res != nil {
+			attempts = res.attempt + 1
+			lastProxy = hostFromProxyURL(res.lastProxy)
+		}
+		s.recordRelayError(RelayErrorRecord{
+			Route: route, Kind: "failover",
+			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
+			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
+			Attempts:  attempts,
+			ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			StatusCode: status,
+			Error:     msg,
+		})
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{"message": msg, "type": "service_unavailable"},
+		})
+		s.recordAnalyticsKey(ctx, route, lastEpID, model, status, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "upstream",
+			Message:  msg,
+			Response: errorResponseForLog(errBody, status),
+		})
+		return status, nil, err
 	}
 	if lastRes != nil && lastRes.resp != nil {
 		_ = lastRes.resp.Body.Close()

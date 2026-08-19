@@ -294,7 +294,7 @@ func (s *Service) enrichAnalyticsRecords(ctx context.Context, db *sql.DB, record
 		args = append(args, id)
 	}
 	rows, err := db.QueryContext(ctx, `
-		SELECT u.id, COALESCE(e.name, a.name, 'unknown')
+		SELECT u.id, CASE WHEN u.id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END
 		FROM (SELECT id FROM openai_endpoints WHERE id IN (`+marks+`)
 			UNION SELECT endpoint_id AS id FROM openai_endpoint_name_archive WHERE endpoint_id IN (`+marks+`)) u
 		LEFT JOIN openai_endpoints e ON e.id = u.id
@@ -480,7 +480,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 	erRows, err := db.QueryContext(ctx, `
 		SELECT
 			COALESCE(g.endpoint_id, ''),
-			COALESCE(e.name, a.name, '未识别端点'),
+			CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END,
 			COUNT(*),
 			SUM(CASE WHEN g.status_code >= 400 THEN 1 ELSE 0 END)
 		FROM openai_gateway_analytics g
@@ -637,7 +637,7 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		ORDER BY count DESC, tokens DESC
 	`)
 	endpointShares := buildShares(`
-		SELECT COALESCE(e.name, a.name, '未识别端点'), COUNT(*), COALESCE(SUM(g.total_tokens), 0)
+		SELECT CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END, COUNT(*), COALESCE(SUM(g.total_tokens), 0)
 		FROM openai_gateway_analytics g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id
@@ -739,7 +739,7 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	}
 	// 站点（endpoint）维度：与模型维度同构，供前端切换「模型 / 站点调用次数」。
 	byEndpoint, err := buildDimensionTrends(`
-		SELECT COALESCE(e.name, a.name, '未识别端点'), ` + tsExpr + ` as ts_sec, COUNT(*) as count,
+		SELECT CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END, ` + tsExpr + ` as ts_sec, COUNT(*) as count,
 			COALESCE(SUM(g.total_tokens), 0) as tokens,
 			COALESCE(SUM(g.cached_tokens), 0) as cached
 		FROM openai_gateway_analytics g
@@ -858,7 +858,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		SELECT 
 			g.id,
 			g.route,
-			COALESCE(e.name, a.name, 'unknown') as endpoint_name,
+			CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END as endpoint_name,
 			COALESCE(k.name, '未识别密钥') as gateway_key_name,
 			g.model,
 			g.status_code,

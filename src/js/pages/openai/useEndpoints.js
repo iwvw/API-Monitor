@@ -789,8 +789,8 @@ const removeEndpointHeader = index => {
 };
 
 const saveEndpoint = async () => {
-  if (!endpointForm.baseUrl || !endpointForm.apiKey) {
-    setEndpointFormError('请填写 API 地址和 API Key');
+  if (!endpointForm.baseUrl) {
+    setEndpointFormError('请填写 API 地址');
     return;
   }
   setEndpointSaving(true);

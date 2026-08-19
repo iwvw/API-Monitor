@@ -260,20 +260,21 @@ const (
 	proxyCooldownShift = 5
 )
 
-// proxy429BanThreshold 是同一代理累计 429 次数的阈值；达到后禁用 proxy429BanDuration。// opencode.ai/zen 按出口 IP 限流：连续 429 说明该 IP 已被上游限死，
-// 若仍把它留在候选池内，重试循环会反复打到同一个 IP，白白消耗尝试次数。
-// 禁用到期后自动释放回池（时间判断，无需主动清理）。
-const (
-	proxy429BanThreshold = 3
-	proxy429BanDuration  = 30 * time.Minute
-)
+// proxy429Cooldown 是 429 出口的冷却时长：每次上游 429 都立即按出口 IP 组冻结
+// 该出口 1 小时（opencode 免密钥、按出口 IP 限流：429 即该 IP 已被上游限死，
+// 1 小时内不会再次被选为候选，随机换代理也不会抽回刚 429 过的 IP）。
+const proxy429Cooldown = time.Hour
 
-// proxy429EarlyAbortHits 是一请求内「不同出口 IP」连续 429 的提前收尾阈值。
-// 代理池的每一条目是独立出口 IP：当已有 N 个不同出口 IP 都返回 429，说明上游
-// 对该请求的限流已扩散到整池（而非单个 IP 被限），继续换 IP 只会空转；达到阈值
-// 提前以 429 收尾，交给端点级聚合判断（全部限流时快速返回）。同一出口 IP 的
-// 重复 429 不增加计数（组冷却已保证同 IP 的 slot 不会被选中两次）。
-const proxy429EarlyAbortHits = 3
+// proxyRateLimitPicks 是一请求内「不同出口 IP」连续 429 的提前收尾阈值。
+// 首个 429 后从可用候选（未冷却/未沉淀/本请求未试过）中随机抽新出口继续尝试；
+// 已有 5 个不同出口 IP 都返回 429，说明上游限流已扩散到整池，提前以 429 收尾，
+// 交给端点级聚合判断（全部限流时快速返回，不再浪费尝试轮）。
+const proxyRateLimitPicks = 5
+
+// stickyTTFBMax 是池级粘性代理的延迟上限：成功转发且首字耗时低于该值才记录为
+// 粘性出口（一个出口有效就持续用，直到下一个 429）。过慢的出口不值得粘住，
+// 继续交给池内择优逻辑。
+const stickyTTFBMax = 10 * time.Second
 
 // proxyAllFrozenRetryInterval 是「全部出口禁用时自动解冻全体代理」的节流间隔：
 // 距上次自动解冻不足该间隔时仍回退直连，避免上游 IP 级限流未恢复时反复
@@ -287,6 +288,10 @@ const proxyAllFrozenRetryInterval = 10 * time.Minute
 // 与 firstTokenTimeout 配合构成单次转发最坏耗时预算：10s × cap，避免
 // 池过大 / 出口过慢时把请求拖到客户端超时断开（回 502）。
 const proxyAttemptCap = 8
+
+// endpointVerifyTimeout 是端点保存时「验证 Key + 拉取模型列表」的总超时上限。
+// 代理池很大或所选出口挂死时，验证请求不应把保存动作拖成「等超时」。
+const endpointVerifyTimeout = 8 * time.Second
 
 // endpointRetryRounds 是全部候选端点均失败后，网关在内部重试整轮候选的
 // 最大次数。对齐 New API 的 RetryTimes 语义：让客户端保持等待状态，网关
@@ -342,11 +347,8 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// triedKeys 记录本轮请求内已尝试失败的 key（key 永不冻结，仅请求内去重），
 	// 避免单 key 场景 401 后对同一 key 无限重试。
 	triedKeys := map[string]bool{}
-	// finalUpstreamRecorded 标记最后一次尝试的限流/5xx 是否已写入转发失败明细，
-	// 避免流式无切换路径与循环结束统一判定处重复记录同一次失败。
-	finalUpstreamRecorded := false
-	// 不同出口 IP 的 429 计数：达到 proxy429EarlyAbortHits 视为上游限流已扩散到
-	// 整池，提前收尾（单 IP 被限时组冷却已让候选自动跳到其他 IP，不在此计数）。
+	// 不同出口 IP 的 429 计数：达到 proxyRateLimitPicks 视为上游限流已扩散到
+	// 整池，提前收尾（单 IP 被限时组冻结已让候选自动跳到其他 IP，不在此计数）。
 	observed429IPs := map[string]bool{}
 	bump429 := func(proxy string) bool {
 		// 优先用探测到的出口公网 IP 区分；未探测（冷启动）时退化为按 slot 计。
@@ -355,8 +357,12 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			key = proxy
 		}
 		observed429IPs[key] = true
-		return len(observed429IPs) >= proxy429EarlyAbortHits
+		return len(observed429IPs) >= proxyRateLimitPicks
 	}
+	// triedProxies 记录本轮请求内已尝试过（含 429）的代理，随机换出口时绝不会
+	// 重复抽到已试出口；retryProxy 由 429 分支随机选定后强制作为下一跳。
+	triedProxies := map[string]bool{}
+	retryProxy := ""
 
 	for attempt = 0; attempt < maxProxyAttempts; attempt++ {
 		// 客户端已断开（ctx 取消/超时）：立即结束尝试循环，不再发起新的
@@ -372,7 +378,17 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		}
 		attemptCtx, cancel := context.WithCancel(ctx)
 		res.cancel = cancel
-		client, currentProxy, clientErr := s.clientForEndpoint(selected.ID, selected.ProxyPool, selected.ProxyEnabled, selected.ForceProxy, p.sessionKey, selected.Protocol)
+		var client *http.Client
+		var currentProxy string
+		var clientErr error
+		if retryProxy != "" {
+			// 429 后的随机换出口：强制使用随机选定的下一跳，不再走择优（已试出口
+			// 与已冻结出口都会被跳过，绝不再打同一个 IP）。
+			client, clientErr = s.proxyClient(retryProxy)
+			currentProxy = retryProxy
+		} else {
+			client, currentProxy, clientErr = s.clientForEndpoint(selected.ID, selected.ProxyPool, selected.ProxyEnabled, selected.ForceProxy, p.sessionKey, selected.Protocol)
+		}
 		if clientErr != nil {
 			cancel()
 			lastErr = clientErr
@@ -390,6 +406,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			lastProxy = currentProxy
 			res.egressIP = proxyEndpointAddr(currentProxy)
 		}
+		triedProxies[currentProxy] = true
 
 		httpReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, p.fullURL, bytes.NewReader(p.body))
 		if err != nil {
@@ -463,14 +480,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				default:
 				}
 				s.markProxyFailed(selected.ID, currentProxy)
-				s.recordRelayError(RelayErrorRecord{
-					Route: p.route, Kind: "timeout",
-					Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: currentKeyIndex,
-					Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-					ClientIP: p.clientIP, Attempts: attempt + 1,
-					ElapsedMs: time.Since(res.startTime).Milliseconds(),
-					Error:     fmt.Sprintf("no response headers within %s", attemptHeaderTimeout),
-				})
 				res.retryableUpstream = true
 				lastErr = fmt.Errorf("上游响应头超时（超过 %s）", attemptHeaderTimeout)
 				resp = nil
@@ -485,14 +494,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		if lastErr != nil {
 			// 连接失败（例如该代理不可用）：key 不冻结，只标记代理失败，若有池则切下一个。
 			s.markProxyFailed(selected.ID, currentProxy)
-			s.recordRelayError(RelayErrorRecord{
-				Route: p.route, Kind: "dial",
-				Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: currentKeyIndex,
-				Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-				ClientIP: p.clientIP, Attempts: attempt + 1,
-				ElapsedMs: time.Since(res.startTime).Milliseconds(),
-				Error:     lastErr.Error(),
-			})
 			cancel()
 			if currentProxy != "" && attempt+1 < maxProxyAttempts {
 				continue
@@ -523,29 +524,36 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			resp.Body.Close()
 			cancel()
 			if readErr != nil || isRetryableUpstreamResponse(resp, bodyBytesRead) {
-				if isRateLimitResponse(resp, bodyBytesRead) {
+				is429 := isRateLimitResponse(resp, bodyBytesRead)
+				if is429 {
 					s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
-				}
-				s.clearSessionBinding(selected.ID, p.sessionKey)
-				s.recordRelayError(RelayErrorRecord{
-					Route: p.route, Kind: "upstream",
-					Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: currentKeyIndex,
-					Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-					ClientIP: p.clientIP, Attempts: attempt + 1,
-					ElapsedMs:  time.Since(res.startTime).Milliseconds(),
-					StatusCode: resp.StatusCode,
-					Upstream:   truncateForLog(string(bodyBytesRead), relayErrorBodyLimit),
-					Error:      "retryable upstream response",
-				})
-				if currentProxy != "" {
-					// 不同出口 IP 连续 429 达到阈值：限流已扩散到整池，提前收尾
-					// （保留已读正文原样交给统一判定记录，以 429 退出）。
-					if isRateLimitResponse(resp, bodyBytesRead) && bump429(currentProxy) {
+					// 随机换出口：已试出口与组冻结出口都会跳过，绝不重复打同一 IP。
+					if bump429(currentProxy) {
+						// 5 个不同出口 IP 均 429：限流已扩散到整池，提前收尾
+						// （保留已读正文原样交给统一判定记录，以 429 退出）。
 						resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
 						res.retryableUpstream = true
-						lastErr = fmt.Errorf("上游按出口限流（连续 %d 次 429）", proxy429EarlyAbortHits)
+						lastErr = fmt.Errorf("上游按出口限流（连续 %d 个出口 429）", proxyRateLimitPicks)
 						break
 					}
+					if currentProxy != "" {
+						next := s.pickRandomAvailableProxy(selected.ID, cleanProxyPool(selected.ProxyPool), triedProxies, currentProxy)
+						if next == "" {
+							// 全部出口已试/已冻结：无可换出口，提前收尾。
+							resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
+							res.retryableUpstream = true
+							lastErr = fmt.Errorf("上游按出口限流（出口已耗尽，%d 个出口均 429）", proxyRateLimitPicks)
+							break
+						}
+						lastProxy = next
+						res.egressIP = proxyEndpointAddr(next)
+						retryProxy = next
+						s.clearSessionBinding(selected.ID, p.sessionKey)
+						continue
+					}
+				}
+				s.clearSessionBinding(selected.ID, p.sessionKey)
+				if currentProxy != "" {
 					// 直连（池全部冻结回退）无处可切：保留已读正文原样返回给客户端。
 					continue
 				}
@@ -560,31 +568,38 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			break
 		}
 
-		// 流式：仅按状态码判断，限流或 5xx 时切换代理重试一次（同样不惩罚代理，
-		// 但限流会累计计数，达到阈值后禁用该代理）。
+		// 流式：仅按状态码判断，限流或 5xx 时切换代理重试一次（429 立即组冻结出口）。
 		if stream && selected.AutoSwitch && attempt+1 < maxProxyAttempts && isRetryableUpstreamResponse(resp, nil) {
-			if isRateLimitResponse(resp, nil) {
+			is429 := isRateLimitResponse(resp, nil)
+			if is429 {
 				s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
 			}
 			resp.Body.Close()
 			cancel()
-			s.clearSessionBinding(selected.ID, p.sessionKey)
-			s.recordRelayError(RelayErrorRecord{
-				Route: p.route, Kind: "upstream",
-				Endpoint: selected.Name, EndpointID: selected.ID,
-				Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-				ClientIP: p.clientIP, Attempts: attempt + 1,
-				ElapsedMs:  time.Since(res.startTime).Milliseconds(),
-				StatusCode: resp.StatusCode,
-				Error:      "retryable upstream response",
-			})
-			if currentProxy != "" {
-				// 不同出口 IP 连续 429 达到阈值：上游限流已扩散到整池，提前收尾。
-				if isRateLimitResponse(resp, nil) && bump429(currentProxy) {
+			if is429 && currentProxy != "" {
+				// 随机换出口：已试出口与组冻结出口都会跳过，绝不重复打同一 IP。
+				if bump429(currentProxy) {
+					// 5 个不同出口 IP 均 429：上游限流已扩散到整池，提前收尾。
 					res.retryableUpstream = true
-					lastErr = fmt.Errorf("上游按出口限流（连续 %d 次 429）", proxy429EarlyAbortHits)
+					lastErr = fmt.Errorf("上游按出口限流（连续 %d 个出口 429）", proxyRateLimitPicks)
 					break
 				}
+				next := s.pickRandomAvailableProxy(selected.ID, cleanProxyPool(selected.ProxyPool), triedProxies, currentProxy)
+				if next == "" {
+					// 全部出口已试/已冻结：无可换出口，提前收尾。
+					res.retryableUpstream = true
+					lastErr = fmt.Errorf("上游按出口限流（出口已耗尽，%d 个出口均 429）", proxyRateLimitPicks)
+					break
+				}
+				lastProxy = next
+				res.egressIP = proxyEndpointAddr(next)
+				retryProxy = next
+				s.clearSessionBinding(selected.ID, p.sessionKey)
+				continue
+			}
+			s.clearSessionBinding(selected.ID, p.sessionKey)
+			if currentProxy != "" {
+				// 非 429 的可重试错误（5xx/首字超时外的连接类）：交给择优换下一个出口。
 				continue
 			}
 			// 直连（代理池全部冻结回退）无处可切：标记上游可重试错误，交给端点级 failover。
@@ -616,14 +631,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					cancel()
 					resp.Body.Close()
 					s.markProxyFailed(selected.ID, currentProxy)
-					s.recordRelayError(RelayErrorRecord{
-						Route: p.route, Kind: "timeout",
-						Endpoint: selected.Name, EndpointID: selected.ID,
-						Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-						ClientIP: p.clientIP, Attempts: attempt + 1,
-						ElapsedMs: time.Since(res.startTime).Milliseconds(),
-						Error:     fmt.Sprintf("no first byte within %s", firstTokenTimeout),
-					})
 					if currentProxy != "" && attempt+1 < maxProxyAttempts {
 						continue
 					}
@@ -650,14 +657,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					if lastErr == nil {
 						lastErr = io.EOF
 					}
-					s.recordRelayError(RelayErrorRecord{
-						Route: p.route, Kind: "stream_closed",
-						Endpoint: selected.Name, EndpointID: selected.ID,
-						Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-						ClientIP: p.clientIP, Attempts: attempt + 1,
-						ElapsedMs: time.Since(res.startTime).Milliseconds(),
-						Error:     "upstream closed stream before first byte: " + lastErr.Error(),
-					})
 				}
 				break
 			}
@@ -675,16 +674,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					if lastErr == nil {
 						lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误，无切换机会）", resp.StatusCode)
 					}
-					s.recordRelayError(RelayErrorRecord{
-						Route: p.route, Kind: "upstream",
-						Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: currentKeyIndex,
-						Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-						ClientIP: p.clientIP, Attempts: attempt + 1,
-						ElapsedMs:  time.Since(res.startTime).Milliseconds(),
-						StatusCode: resp.StatusCode,
-						Error:      "retryable upstream response",
-					})
-					finalUpstreamRecorded = true
 					break
 				}
 				firstChunk = append([]byte(nil), tmp[:n]...)
@@ -698,14 +687,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			if lastErr == nil {
 				lastErr = io.EOF
 			}
-			s.recordRelayError(RelayErrorRecord{
-				Route: p.route, Kind: "stream_closed",
-				Endpoint: selected.Name, EndpointID: selected.ID,
-				Model: p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
-				ClientIP: p.clientIP, Attempts: attempt + 1,
-				ElapsedMs: time.Since(res.startTime).Milliseconds(),
-				Error:     "upstream closed stream before first byte: " + lastErr.Error(),
-			})
 			break
 		}
 		break
@@ -722,9 +703,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	if lastErr != nil && resp == nil {
 		res.lastErr = lastErr
 		if !res.retryableUpstream {
-			// 不可重试的终局失败（配置/网关侧错误）在此记录并直接返回；
-			// 可重试失败（429/5xx/首字或响应头超时/连接耗尽）已在循环内记录过，
-			// 由调用方 failover 处理下一个候选端点，避免重复记账和误回 502。
+			// 不可重试的终局失败（配置/网关侧错误）在此记录并直接返回。
 			s.recordRelayError(RelayErrorRecord{
 				Route: p.route, Kind: "bad_gateway",
 				Endpoint: selected.Name, EndpointID: selected.ID,
@@ -739,6 +718,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				Message:  lastErr.Error(),
 				Response: errorResponseForLog(errBody, http.StatusBadGateway),
 			})
+		} else {
+			// 可重试失败（429/5xx/首字或响应头超时/连接耗尽）：循环内不逐次记日志，
+			// 也不在此记账——端点级 failover 聚合会按「最终结果」记一条（含尝试次数
+			// 与出口代理），保证整条回退链只落一条终局日志。
 		}
 		return res
 	}
@@ -775,17 +758,8 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		if lastErr == nil {
 			lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误）", resp.StatusCode)
 		}
-		if !finalUpstreamRecorded {
-			s.recordRelayError(RelayErrorRecord{
-				Route: p.route, Kind: "upstream",
-				Endpoint: selected.Name, EndpointID: selected.ID, KeyIndex: lastKeyIndex,
-				Model: p.model, Stream: stream, Proxy: hostFromProxyURL(lastProxy),
-				ClientIP: p.clientIP, Attempts: attempt + 1,
-				ElapsedMs:  time.Since(res.startTime).Milliseconds(),
-				StatusCode: resp.StatusCode,
-				Error:      "retryable upstream response",
-			})
-		}
+		// 不在此记账：失败按「最终结果」由端点级 failover 聚合为一条，
+		// 保证整条回退链在 relay-errors 中只出现一次（Attempts 体现尝试次数）。
 	}
 	res.lastErr = lastErr
 	// 单 key 健康统计：成功（2xx）清连续失败；发送了 key 但上游返回限流/错误不冻结，
@@ -800,9 +774,13 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	}
 	_, _ = p.db.ExecContext(ctx, "UPDATE openai_endpoints SET last_used = ? WHERE id = ?", time.Now().Format(time.RFC3339), selected.ID)
 	res.statusCode = resp.StatusCode
-	// 成功转发：记录池级粘性出口（健康代理持续复用，直到被冷却/冻结才换）。
+	// 成功转发：记录池级粘性出口（健康且 TTFB<10s 的代理持续复用，直到被冷却/冻结才换）。
 	if resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 400 && res.lastProxy != "" {
-		s.recordActiveProxy(selected.ID, res.lastProxy)
+		stickyTTFB := res.ttfbMs
+		if stickyTTFB <= 0 {
+			stickyTTFB = time.Since(res.startTime).Milliseconds()
+		}
+		s.recordActiveProxy(selected.ID, res.lastProxy, stickyTTFB)
 	}
 	return res
 }
@@ -988,6 +966,9 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var failoverSteps []map[string]interface{}
 	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
 	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
+	// lastTried 记录最后一次真实转发的端点：整链失败时调用日志以此展示真实端点，
+	// 而不是「unknown」（切换过程本身不落日志，只落最终结果）。
+	var lastTried *Endpoint
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -1042,6 +1023,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				requestStarted: requestStarted,
 			})
 			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			lastTried = &cand
 			stepStatus := res.statusCode
 			if stepStatus == 0 && res.resp != nil {
 				stepStatus = res.resp.StatusCode
@@ -1064,18 +1046,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			if k+1 < candCount {
 				selected = endpointCandidates[(k+1) % candCount]
-				failReason := "上游转发失败"
-				if res.lastErr != nil {
-					failReason = res.lastErr.Error()
-				}
-				s.recordRelayError(RelayErrorRecord{
-					Route: "chat.completions", Kind: "endpoint_failover",
-					Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
-					Stream: stream, ClientIP: clientIP,
-					Attempts:  res.attempt + 1,
-					ElapsedMs: time.Since(requestStarted).Milliseconds(),
-					Error:     failReason,
-				})
 			}
 		}
 		if retryRoundFinished {
@@ -1130,7 +1100,29 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		errBody, _ := json.Marshal(map[string]interface{}{
 			"error": map[string]string{"message": msg, "type": "service_unavailable"},
 		})
-		s.recordAnalyticsKey(ctx, "chat.completions", "", model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+		// 整链失败：切换过程不落日志，这里按「最终结果」聚合为一条——
+		// 端点取最后一次真实转发的候选（而非 unknown），模型与状态码齐备。
+		lastEpID, lastEpName := "", ""
+		if lastTried != nil {
+			lastEpID = lastTried.ID
+			lastEpName = lastTried.Name
+		}
+		attempts := 0
+		lastProxy := ""
+		if res != nil {
+			attempts = res.attempt + 1
+			lastProxy = hostFromProxyURL(res.lastProxy)
+		}
+		s.recordRelayError(RelayErrorRecord{
+			Route: "chat.completions", Kind: "failover",
+			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
+			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
+			Attempts:  attempts,
+			ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			StatusCode: failStatus,
+			Error:     msg,
+		})
+		s.recordAnalyticsKey(ctx, "chat.completions", lastEpID, model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
 			Kind:     "upstream",
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
@@ -2048,6 +2040,9 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	var failoverSteps []map[string]interface{}
 	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
 	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
+	// lastTried 记录最后一次真实转发的端点：整链失败时调用日志以此展示真实端点，
+	// 而不是「unknown」（切换过程本身不落日志，只落最终结果）。
+	var lastTried *Endpoint
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -2102,6 +2097,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				requestStarted: requestStarted,
 			})
 			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			lastTried = &cand
 			stepStatus := res.statusCode
 			if stepStatus == 0 && res.resp != nil {
 				stepStatus = res.resp.StatusCode
@@ -2123,18 +2119,6 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			}
 			if k+1 < candCount {
 				selected = endpointCandidates[k+1]
-				failReason := "上游转发失败"
-				if res.lastErr != nil {
-					failReason = res.lastErr.Error()
-				}
-				s.recordRelayError(RelayErrorRecord{
-					Route: "responses", Kind: "endpoint_failover",
-					Endpoint: cand.Name, EndpointID: cand.ID, Model: model,
-					Stream: stream, ClientIP: clientIP,
-					Attempts:  res.attempt + 1,
-					ElapsedMs: time.Since(requestStarted).Milliseconds(),
-					Error:     failReason,
-				})
 			}
 		}
 		if retryRoundFinished {
@@ -2186,7 +2170,29 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		errBody, _ := json.Marshal(map[string]interface{}{
 			"error": map[string]string{"message": msg, "type": "service_unavailable"},
 		})
-		s.recordAnalyticsKey(ctx, "responses", "", model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+		// 整链失败：切换过程不落日志，这里按「最终结果」聚合为一条，
+		// 端点取最后一次真实转发的候选（而非 unknown），模型与状态码齐备。
+		lastEpID, lastEpName := "", ""
+		if lastTried != nil {
+			lastEpID = lastTried.ID
+			lastEpName = lastTried.Name
+		}
+		attempts := 0
+		lastProxy := ""
+		if res != nil {
+			attempts = res.attempt + 1
+			lastProxy = hostFromProxyURL(res.lastProxy)
+		}
+		s.recordRelayError(RelayErrorRecord{
+			Route: "responses", Kind: "failover",
+			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
+			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
+			Attempts:  attempts,
+			ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			StatusCode: failStatus,
+			Error:     msg,
+		})
+		s.recordAnalyticsKey(ctx, "responses", lastEpID, model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
 			Kind:     "upstream",
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),

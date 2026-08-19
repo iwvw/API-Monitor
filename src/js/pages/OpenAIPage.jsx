@@ -2711,11 +2711,6 @@ function OpenAIPage() {
                               <StatusBadge tone={statusCodeTone(log.statusCode)}>
                                 {log.statusCode}
                               </StatusBadge>
-                              {log.statusCode === 429 && (
-                                <StatusBadge tone="warning" title="上游限流或网关无可用渠道">
-                                  限
-                                </StatusBadge>
-                              )}
                               {log.statusCode === 503 && (
                                 <StatusBadge tone="warning" title="网关无可用渠道">
                                   无

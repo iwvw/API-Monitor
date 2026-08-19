@@ -1597,11 +1597,10 @@ func TestSessionProxyRotatesAfterRequestLimit(t *testing.T) {
 	}
 }
 
-func TestUpstream429ShortCooldown(t *testing.T) {
-	// 上游 429 是上游限额，不是代理连接故障：单次 429 不累计连接失败计数（不
-	// 指数冷却），但会把该出口短时间挪出候选，避免同一请求/临近请求反复打同一
-	// 个被限流的 IP；429 仍会累计计数，达到阈值后触发长禁用（见
-	// TestProxy429BannedAfterThreshold）。
+func TestUpstream429GroupFrozen(t *testing.T) {
+	// 上游 429 是上游按出口 IP 的限流：单次 429 不累计连接失败计数（不指数冷却），
+	// 但每次 429 都立即按出口 IP 组冻结该出口 proxy429Cooldown（1 小时），
+	// 随机换代理也不会再抽回该 IP；rate429 仅保留计数供前端展示。
 	service, endpointID, proxy1URL, _ := setupTwoProxyEndpoint(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -1610,6 +1609,7 @@ func TestUpstream429ShortCooldown(t *testing.T) {
 		okHandler,
 	)
 
+	// 请求内：p1 429 → 组冻结 → 随机换到 p2 成功，p1 不再被选。
 	w := chatRequest(t, service, endpointID, false, "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("request failed: %d %s", w.Code, w.Body.String())
@@ -1619,30 +1619,26 @@ func TestUpstream429ShortCooldown(t *testing.T) {
 	state := service.proxyStateByEndpoint[endpointID]
 	failureCount := len(state.failures)
 	rateCount := state.rate429[proxy1URL]
-	limitedCount := len(state.rateLimited)
-	coolUntil, cooled := state.cooldown[proxy1URL]
+	limitedUntil, limited := state.rateLimited[proxy1URL]
 	service.proxyMu.Unlock()
 	if failureCount != 0 {
 		t.Fatalf("429 must not count toward connection failures, got %d", failureCount)
 	}
 	if rateCount != 1 {
-		t.Fatalf("single 429 should count once toward ban, got %d", rateCount)
+		t.Fatalf("single 429 should count once for display, got %d", rateCount)
 	}
-	if limitedCount != 0 {
-		t.Fatalf("single 429 must not long-ban the proxy yet, got %d limited", limitedCount)
+	if !limited {
+		t.Fatal("single 429 must immediately group-frozen the proxy (1h)")
 	}
-	if !cooled {
-		t.Fatal("single 429 must short-cool the proxy so the same IP is not re-picked immediately")
-	}
-	expect := time.Now().Add(proxy429ShortCooldown).Add(-2 * time.Second)
-	if coolUntil.Before(expect.Add(-time.Second)) || coolUntil.After(expect.Add(3*time.Second)) {
-		t.Fatalf("short cool expiry = %v, want ~now+%v", coolUntil, proxy429ShortCooldown)
+	expect := time.Now().Add(proxy429Cooldown).Add(-2 * time.Second)
+	if limitedUntil.Before(expect.Add(-time.Second)) || limitedUntil.After(expect.Add(3*time.Second)) {
+		t.Fatalf("group-frozen expiry = %v, want ~now+%v", limitedUntil, proxy429Cooldown)
 	}
 }
 
 // TestSameExitIPGroupCooled 代理池是「同入口、多出口 IP」的槽池：探测到出口 IP
-// 后，同一出口 IP 的任一个 slot 被 429 冷却，整组都应让出候选（把尝试预算留给
-// 其他出口 IP），而不同出口 IP 不受影响。
+// 后，同一出口 IP 的任一个 slot 被 429 冻结（组感知 rateLimited），整组都应让出
+// 候选（把尝试预算留给其他出口 IP），而不同出口 IP 不受影响。
 func TestSameExitIPGroupCooled(t *testing.T) {
 	newOk := func(name string) *httptest.Server {
 		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1707,21 +1703,21 @@ func TestSameExitIPGroupCooled(t *testing.T) {
 	state.lastExitIP[okOtherIP.URL] = "198.51.100.7"
 	service.proxyMu.Unlock()
 
-	// 触发 fail 槽 429：将先命中 fail（探索序首位）→ 组冷却同 exitIP 的 okSameIP。
+	// 触发 fail 槽 429：请求内 fail → 组冻结同 exitIP 的 okSameIP，换 okOtherIP 成功。
 	w := chatRequest(t, service, created.Endpoint.ID, false, "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("request failed: %d %s", w.Code, w.Body.String())
 	}
 
 	service.proxyMu.Lock()
-	sameCooled := proxyGroupCooled(state, okSameIP.URL, time.Now())
-	otherCooled := proxyGroupCooled(state, okOtherIP.URL, time.Now())
+	sameFrozen := proxyRateLimited(state, okSameIP.URL, time.Now())
+	otherFrozen := proxyRateLimited(state, okOtherIP.URL, time.Now())
 	service.proxyMu.Unlock()
-	if !sameCooled {
-		t.Fatal("same-exit-IP slot must be grouped-cooled after a sibling slot got 429")
+	if !sameFrozen {
+		t.Fatal("same-exit-IP slot must be group-frozen after a sibling slot got 429")
 	}
-	if otherCooled {
-		t.Fatal("different-exit-IP slot must NOT be cooled by a sibling's 429")
+	if otherFrozen {
+		t.Fatal("different-exit-IP slot must NOT be frozen by a sibling's 429")
 	}
 }
 
@@ -1810,15 +1806,9 @@ func TestActiveProxySticky(t *testing.T) {
 	}
 }
 
-func TestProxy429BannedAfterThreshold(t *testing.T) {
-	// 同一代理累计 3 次 429 后禁用 30 分钟；禁用期内选择逻辑跳过它，
-	// 到期后自动释放（时间判断，无需主动清理）。
-	// 短冷却会延缓同一出口在冷却期内被再次选中（生产为 30s，这正是想要的分散
-	// 效果）：测试注入 50ms 短冷却 + 请求间等待 60ms（> 冷却、且远小于请求内
-	// 两次尝试的间隔），让每次请求都稳定命中 proxy1 且请求内稳定切到 proxy2。
-	oldCool := proxy429ShortCooldown
-	proxy429ShortCooldown = 50 * time.Millisecond
-	defer func() { proxy429ShortCooldown = oldCool }()
+func TestProxy429FrozenOnFirstHit(t *testing.T) {
+	// 新策略：单次 429 即立即按出口 IP 组冻结 proxy429Cooldown（1 小时），
+	// 无需累计阈值；冻结期内选择逻辑跳过它，到期自动释放（时间判断）。
 	service, endpointID, proxy1URL, _ := setupTwoProxyEndpoint(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -1827,9 +1817,8 @@ func TestProxy429BannedAfterThreshold(t *testing.T) {
 		okHandler,
 	)
 
-	for i := 0; i < proxy429BanThreshold; i++ {
-		// 清除池级粘性出口：该测试要验证的是 429 累计冻结机制，不能让健康代理
-		// 的粘性把被限代理晾在一边（那正是生产想要的分散效果）。
+	// 第一次调用就应触发冻结：p1 429 → 组冻结 → 请求内随机换到 p2 成功。
+	for i := 0; i < 3; i++ {
 		service.proxyMu.Lock()
 		if st, ok := service.proxyStateByEndpoint[endpointID]; ok {
 			st.activeProxy = ""
@@ -1839,23 +1828,21 @@ func TestProxy429BannedAfterThreshold(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("attempt %d failed: %d %s", i+1, w.Code, w.Body.String())
 		}
-		time.Sleep(60 * time.Millisecond)
 	}
 
 	service.proxyMu.Lock()
 	state := service.proxyStateByEndpoint[endpointID]
-	until, banned := state.rateLimited[proxy1URL]
+	until, frozen := state.rateLimited[proxy1URL]
 	service.proxyMu.Unlock()
-	if !banned {
-		t.Fatal("expected proxy1 banned after 3×429")
+	if !frozen {
+		t.Fatal("expected proxy1 frozen after first 429")
 	}
-	expect := time.Now().Add(proxy429BanDuration)
+	expect := time.Now().Add(proxy429Cooldown)
 	if until.Before(expect.Add(-5*time.Second)) || until.After(expect.Add(5*time.Second)) {
-		t.Fatalf("ban expiry = %v, want ~%v", until, expect)
+		t.Fatalf("freeze expiry = %v, want ~%v", until, expect)
 	}
-	// 禁用期内：选择应跳过 proxy1（此时 state.cursor 已推进，proxy2 可正常服务）。
 	if !proxyRateLimited(state, proxy1URL, time.Now()) {
-		t.Fatal("proxyRateLimited should report banned while within duration")
+		t.Fatal("proxyRateLimited should report frozen while within duration")
 	}
 	if proxyRateLimited(state, proxy1URL, until.Add(time.Second)) {
 		t.Fatal("proxyRateLimited should release after expiry")
@@ -1958,8 +1945,8 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 		state = newEndpointProxyState()
 		service.proxyStateByEndpoint[endpointID] = state
 	}
-	state.rateLimited[proxy1URL] = time.Now().Add(proxy429BanDuration)
-	state.rateLimited[proxy2URL] = time.Now().Add(proxy429BanDuration)
+	state.rateLimited[proxy1URL] = time.Now().Add(proxy429Cooldown)
+	state.rateLimited[proxy2URL] = time.Now().Add(proxy429Cooldown)
 	// 标记最近一次自动解冻发生在现在：使本轮选择直接走「节流窗口内回退直连」，
 	// 不再触发自动解冻（限流风暴快速收尾后不再有多轮重试来兜底恢复直连）。
 	state.lastAllUnfrozen = time.Now()
@@ -2789,8 +2776,9 @@ func TestDistinctProxy429EarlyAbort(t *testing.T) {
 	if wChat.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 after distinct-proxy early abort, got code=%d body=%s", wChat.Code, wChat.Body.String())
 	}
-	// 选路游标在「未冷却候选」内按序取 slot，命中顺序不定（如 p1→p3→p4），
-	// 但同一出口主机连续 3 次 429 必须提前收尾：总尝试数 = 3，且每 slot 至多一次。
+	// 429 后随机换出口：每次 429 冻结该出口并从「未试过/未冻结」候选随机抽下一个。
+	// 池仅 4 个 slot（小于 proxyRateLimitPicks=5），全部试完后以「出口耗尽」收尾：
+	// 总尝试数 = 4（每 slot 恰好一次），不会重复打同一 slot。
 	total := int32(0)
 	for i := 0; i < 4; i++ {
 		total += atomic.LoadInt32(&hits[i])
@@ -2798,8 +2786,8 @@ func TestDistinctProxy429EarlyAbort(t *testing.T) {
 			t.Fatalf("proxy%d should be tried at most once, hits=%d", i+1, h)
 		}
 	}
-	if total != 3 {
-		t.Fatalf("distinct-proxy early abort must stop after %d attempts, got %d total hits", proxy429EarlyAbortHits, total)
+	if total != 4 {
+		t.Fatalf("all 4 proxies must be exhausted exactly once, got %d total hits", total)
 	}
 }
 
@@ -2882,7 +2870,8 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 		t.Fatalf("expected SSE [DONE], got body=%s", wChat.Body.String())
 	}
 
-	// 无切换机会路径的最后一次 429 也应写入转发失败明细（fix：以前该事件不记录）。
+	// 切换过程不落日志：请求最终由健康端点 B 成功返回，relay-errors 不应出现
+// 端点 A 的 429 上游记录（网关内部切换只反映在最终结果里，不逐跳记明细）。
 	wRelay := httptest.NewRecorder()
 	rRelay, _ := http.NewRequest("GET", "/api/openai/relay-errors?limit=20", nil)
 	service.ServeHTTP(wRelay, rRelay)
@@ -2893,15 +2882,10 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 		Records []RelayErrorRecord `json:"records"`
 	}
 	mustDecode(t, wRelay.Body.String(), &relayResp)
-	foundFinal := false
 	for _, rec := range relayResp.Records {
 		if rec.Kind == "upstream" && rec.StatusCode == http.StatusTooManyRequests && rec.Stream {
-			foundFinal = true
-			break
+			t.Fatalf("internal 429 switch must not be logged when the request ultimately succeeded, got %+v", rec)
 		}
-	}
-	if !foundFinal {
-		t.Fatalf("expected no-switch stream 429 to be recorded in relay-errors, records=%+v", relayResp.Records)
 	}
 }
 

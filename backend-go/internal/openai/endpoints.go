@@ -201,8 +201,8 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if req.Name == "" || req.BaseURL == "" || req.APIKey == "" {
-		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "名称、API 地址和 API Key 必填"})
+	if req.Name == "" || req.BaseURL == "" {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "名称与 API 地址必填"})
 		return
 	}
 
@@ -227,15 +227,17 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	modelsList := []string{}
 	var verification map[string]interface{}
 
-	if !req.SkipVerify {
-		vOk, count, err := s.verifyAPIKeyRaw(ctx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), cleanHeaders(req.Headers))
+	if !req.SkipVerify && req.APIKey != "" {
+		// 验证与拉取模型加总超时：挂死的出口/上游不能把保存拖成「等超时」。
+		verifyCtx, cancelVerify := context.WithTimeout(ctx, endpointVerifyTimeout)
+		vOk, count, err := s.verifyAPIKeyRaw(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), cleanHeaders(req.Headers))
 		if err == nil && vOk {
 			status = "valid"
 			verification = map[string]interface{}{
 				"valid":       true,
 				"modelsCount": count,
 			}
-			mList, mErr := s.listModelsRaw(ctx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), cleanHeaders(req.Headers))
+			mList, mErr := s.listModelsRaw(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), cleanHeaders(req.Headers))
 			if mErr == nil {
 				modelsList = mList
 			}
@@ -250,6 +252,7 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 				"error": errMsg,
 			}
 		}
+		cancelVerify()
 	}
 
 	modelsJSON, _ := json.Marshal(modelsList)

@@ -1056,7 +1056,7 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	var req struct {
 		Name         string        `json:"name"`
 		BaseURL      string        `json:"baseUrl"`
-		APIKey       string        `json:"apiKey"`
+		APIKey       *string       `json:"apiKey"`
 		APIKeys      []string      `json:"apiKeys"`
 		Notes        string        `json:"notes"`
 		Headers      *[]HeaderItem `json:"headers"`
@@ -1093,8 +1093,10 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		targetBaseURL = s.normalizeBaseURL(req.BaseURL)
 	}
 	targetAPIKey := currentAPIKey
-	if req.APIKey != "" {
-		targetAPIKey = req.APIKey
+	keyChanged := false
+	if req.APIKey != nil {
+		targetAPIKey = *req.APIKey
+		keyChanged = true
 	}
 	headersJSON, _ := json.Marshal([]HeaderItem{})
 	headersChanged := false
@@ -1173,7 +1175,9 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		protocolChanged = true
 	}
 
-	if req.APIKey != "" || req.BaseURL != "" {
+	// 仅当 API Key 或地址发生变化时才重新验证/拉模型：纯改代理池、开关等
+	// 局部保存不应触发上游请求（大池端点保存慢的主要成因其一）。
+	if keyChanged || req.BaseURL != "" {
 		status := "unknown"
 		modelsList := []string{}
 
@@ -1186,15 +1190,21 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 			verifyPool = cleanProxyPool(*req.ProxyPool)
 		}
 
-		vOk, _, err := s.verifyAPIKeyRaw(ctx, targetBaseURL, targetAPIKey, id, verifyPool, verifyHeaders)
-		if err == nil && vOk {
-			status = "valid"
-			mList, mErr := s.listModelsRaw(ctx, targetBaseURL, targetAPIKey, id, verifyPool, verifyHeaders)
-			if mErr == nil {
-				modelsList = mList
+		// 空 API Key（新建或显式清空）无法验证：状态置 unknown，不发起上游请求。
+		// 验证与拉取模型加总超时：挂死的出口/上游不能把保存拖成「等超时」。
+		if targetAPIKey != "" {
+			verifyCtx, cancelVerify := context.WithTimeout(ctx, endpointVerifyTimeout)
+			vOk, _, err := s.verifyAPIKeyRaw(verifyCtx, targetBaseURL, targetAPIKey, id, verifyPool, verifyHeaders)
+			if err == nil && vOk {
+				status = "valid"
+				mList, mErr := s.listModelsRaw(verifyCtx, targetBaseURL, targetAPIKey, id, verifyPool, verifyHeaders)
+				if mErr == nil {
+					modelsList = mList
+				}
+			} else {
+				status = "invalid"
 			}
-		} else {
-			status = "invalid"
+			cancelVerify()
 		}
 
 		modelsJSON, _ := json.Marshal(modelsList)
