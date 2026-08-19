@@ -39,7 +39,7 @@
     "clean:workspace": "node tools/workspace-cleanup.mjs --apply"
   },
   "dependencies": {
-    "@cloudflare/kumo": "^2.10.0",
+    "@cloudflare/kumo": "^2.11.0",
     "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",

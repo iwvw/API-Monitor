@@ -181,7 +181,7 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/components/adminai/MessageList.jsx' && (value === 'text-white' || value === 'bg-white')) {
     const blockStart = Math.max(0, index - 40);
     const block = lines.slice(blockStart, index + 1).join('\n');
-    if (block.includes('from-kumo-brand') || block.includes('editing && editing.id === msg.id')) {
+    if (block.includes('from-brand') || block.includes('from-kumo-brand') || block.includes('editing && editing.id === msg.id')) {
       return 'Ask AI 用户消息气泡（含编辑态）对比文字';
     }
   }
