@@ -636,22 +636,28 @@ function DashboardPage({ onNavigate } = {}) {
       return previousStats.scheduler || { total: 0, enabled: 0 };
     };
 
+    // API 调用趋势卡片只等自身数据：loading 状态在 fetchApiStats 结束时清除，
+    // 不被其余八路接口（cloudflare/uptime/server 等）的耗时拖住。
     const fetchApiStats = async () => {
       try {
-        const data = await fetchJson(`/api/system/api-stats?days=${API_TREND_MAX_DAYS}`);
-        if (data.success && data.data) {
-          const val = data.data;
-          updateSegment('apiStats', val);
-          return val;
+        try {
+          const data = await fetchJson(`/api/system/api-stats?days=${API_TREND_MAX_DAYS}`);
+          if (data.success && data.data) {
+            const val = data.data;
+            updateSegment('apiStats', val);
+            return val;
+          }
+        } catch (e) {
+          if (!isAbortError(e)) {
+            console.error('[Dashboard] API stats fetch failed:', e);
+          }
         }
-      } catch (e) {
-        if (!isAbortError(e)) {
-          console.error('[Dashboard] API stats fetch failed:', e);
-        }
+        const fallback = previousStats.apiStats || DEFAULT_DASHBOARD_STATS.apiStats;
+        updateSegment('apiStats', fallback);
+        return fallback;
+      } finally {
+        setLoading(false);
       }
-      const fallback = previousStats.apiStats || DEFAULT_DASHBOARD_STATS.apiStats;
-      updateSegment('apiStats', fallback);
-      return fallback;
     };
 
     const fetchServers = async () => {
@@ -749,8 +755,7 @@ function DashboardPage({ onNavigate } = {}) {
       if (dashboardStatsFetchPromise === request) {
         dashboardStatsFetchPromise = null;
       }
-
-      setLoading(false);
+      // loading 由 fetchApiStats 的 finally 负责收尾（趋势卡只等自身数据）。
     }
   }, []);
 
