@@ -2085,12 +2085,21 @@ table td > * {
   min-width: 0;
 }
 
-/* Kumo 2.11 Table.Row 默认变体新增偶数行斑马纹（even:bg-kumo-tint），
-   项目沿用 2.10 纯底色风格，此处恢复为透明行底（selected 变体除外）。
+/* Kumo 2.11 Table.Row 默认变体新增偶数行斑马纹（even:bg-kumo-tint），并移除了
+   2.10 的行分隔线（td border-b）。项目沿用 2.10 纯底色 + 分隔线风格：偶数行恢复
+   透明行底（selected 变体除外），td 补回底部边框（末行不描边）。
    unlayered 规则优先于 Tailwind 工具类，故对全站 Kumo 表格生效。 */
 table.isolate tr:not(.bg-kumo-tint):nth-child(even) {
   background-color: transparent;
   --kumo-table-row-bg: var(--color-kumo-base);
+}
+
+table.isolate td {
+  border-bottom: 1px solid var(--color-kumo-fill);
+}
+
+table.isolate tr:last-child td {
+  border-bottom: 0;
 }
 
 /* Semantic table columns keep utility cells stable while content columns grow. */
