@@ -1052,12 +1052,14 @@ func routeDocs(route manifest.Route) apiRouteDocs {
 		Headers:    authHeaders(route.Auth),
 		Notes:      defaultRouteNotes(route),
 	}
+	// 合并同 Prefix 的全部种子：数组早期存在「无 Methods 的占位条目」
+	// （方法靠 infer 兜底），修复契约的补充条目追加在数组后部；
+	// 依次 merge、后者覆盖前者，确保带显式 Methods 的修正生效。
 	for _, seed := range apiDocSeeds {
 		if seed.Route.Prefix != route.Prefix {
 			continue
 		}
 		docs = mergeRouteDocs(docs, seed.Docs)
-		break
 	}
 	if len(docs.Methods) == 0 {
 		docs.Methods = inferRouteMethods(route)
