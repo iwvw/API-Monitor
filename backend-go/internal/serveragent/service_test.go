@@ -3433,6 +3433,14 @@ func TestDetectDangerousCommandVariants(t *testing.T) {
 		"rm -i -rf /tmp/x",
 		"rm --recursive --force /tmp/x",
 		"rm --force --recursive /tmp/x",
+		// 主机级关机/重启命令（作为命令名时应拦截）
+		"shutdown -h now",
+		"sudo shutdown now",
+		"reboot",
+		"/sbin/poweroff",
+		"systemctl halt",
+		"&& shutdown",
+		"Stop-Computer -Force",
 	}
 	shouldAllow := []string{
 		"echo hello",
@@ -3442,6 +3450,10 @@ func TestDetectDangerousCommandVariants(t *testing.T) {
 		"ls -la",
 		"systemctl status sshd",
 		"uname -a",
+		// WSL 子系统操作不应误判为主机级关机
+		"wsl --shutdown",
+		"wsl.exe --shutdown",
+		"wsl --terminate Debian-13",
 	}
 	for _, c := range shouldBlock {
 		if !DetectDangerousCommand(c).Dangerous {
