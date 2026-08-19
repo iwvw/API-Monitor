@@ -724,7 +724,7 @@ function AuthPage() {
           type={requiresSecondStep ? 'text' : 'password'}
           inputMode={requiresSecondStep ? 'numeric' : undefined}
           aria-label={requiresSecondStep ? '双因素验证码' : '管理员密码'}
-          placeholder={requiresSecondStep ? '000000' : undefined}
+          placeholder={requiresSecondStep ? '000000' : '密码'}
           maxLength={requiresSecondStep ? 6 : undefined}
           value={requiresSecondStep ? loginTotpToken : loginPassword}
           onChange={event => {

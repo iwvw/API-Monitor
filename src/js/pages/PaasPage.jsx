@@ -2367,7 +2367,7 @@ function PaasPage() {
             添加 Koyeb 账号
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            以备注名区分。
+            请输入 Koyeb API 令牌。以备注名区分。
           </Dialog.Description>
           <div className="space-y-4">
             <div className="space-y-1">
