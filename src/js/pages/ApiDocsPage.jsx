@@ -920,7 +920,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
           </Button>
         </div>
       }
-      className="min-h-0"
+      className="min-h-0 self-start"
       bodyPadding="none"
       bodyClassName="flex min-w-0 flex-col"
     >
