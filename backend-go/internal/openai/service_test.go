@@ -2612,13 +2612,17 @@ func TestSameHost429EarlyAbort(t *testing.T) {
 	if wChat.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 after same-host early abort, got code=%d body=%s", wChat.Code, wChat.Body.String())
 	}
-	if atomic.LoadInt32(&hits[3]) != 0 {
-		t.Fatalf("proxy4 must not be tried after same-host early abort, hits=%d", atomic.LoadInt32(&hits[3]))
-	}
-	for i := 0; i < 3; i++ {
-		if atomic.LoadInt32(&hits[i]) != 1 {
-			t.Fatalf("proxy%d should be hit exactly once, hits=%d", i+1, atomic.LoadInt32(&hits[i]))
+	// 选路游标在「未冷却候选」内按序取 slot，命中顺序不定（如 p1→p3→p4），
+	// 但同一出口主机连续 3 次 429 必须提前收尾：总尝试数 = 3，且每 slot 至多一次。
+	total := int32(0)
+	for i := 0; i < 4; i++ {
+		total += atomic.LoadInt32(&hits[i])
+		if h := atomic.LoadInt32(&hits[i]); h > 1 {
+			t.Fatalf("proxy%d should be tried at most once, hits=%d", i+1, h)
 		}
+	}
+	if total != 3 {
+		t.Fatalf("same-host early abort must stop after %d attempts, got %d total hits", proxy429EarlyAbortHits, total)
 	}
 }
 
