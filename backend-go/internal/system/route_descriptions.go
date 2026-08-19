@@ -388,12 +388,6 @@ var routeDescriptions = map[string]string{
 	"/api/openai/keys/{id}/default":  "设为默认网关 API Key",
 	"/api/openai/proxies/subscription-nodes": "读取订阅板块可用的 socks/http 代理节点",
 	"/api/openai/proxies/resolve-subscription": "解析订阅链接并提取 socks/http 代理节点",
-	"/api/openai/personas":           "列出或新增角色预设",
-	"/api/openai/personas/{id}":      "更新或删除角色预设",
-	"/api/openai/sessions":           "列出、创建或清空会话",
-	"/api/openai/sessions/{id}":      "更新或删除会话",
-	"/api/openai/sessions/{id}/messages": "读取、发送或清空会话消息",
-	"/api/openai/sessions/{id}/messages/{messageId}": "删除单条会话消息",
 	"/v1":                            "OpenAI 兼容的 /v1 推理网关入口",
 
 	// ===== 订阅分发 =====

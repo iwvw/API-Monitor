@@ -223,10 +223,6 @@ func init() {
 		"skipVerify":   {t: "boolean"},
 	})
 	routeRequestContracts["/api/openai/endpoints/{id}"] = routeRequestContracts["/api/openai/endpoints"]
-	routeRequestContracts["/api/openai/sessions"] = obj(nil, map[string]prop{
-		"title":   {t: "string"},
-		"modelId": {t: "string"},
-	})
 
 	// ===== 通知中心 =====
 	routeRequestContracts["/api/notification/channels"] = obj([]string{"name", "type"}, map[string]prop{
@@ -831,23 +827,6 @@ func init() {
 	routeRequestContracts["/api/openai/health-check-all"] = noBody
 	routeRequestContracts["/api/openai/import"] = obj([]string{"endpoints"}, map[string]prop{
 		"endpoints": {t: "array", req: true},
-	})
-	routeRequestContracts["/api/openai/personas"] = obj([]string{"name"}, map[string]prop{
-		"name":        {t: "string", req: true},
-		"description": {t: "string"},
-		"prompt":      {t: "string"},
-	})
-	routeRequestContracts["/api/openai/personas/{id}"] = routeRequestContracts["/api/openai/personas"]
-	routeRequestContracts["/api/openai/sessions/{id}"] = obj(nil, map[string]prop{
-		"title": {t: "string"},
-	})
-	routeRequestContracts["/api/openai/sessions/{id}/messages"] = obj([]string{"role", "content"}, map[string]prop{
-		"role":    {t: "string", req: true, e: []string{"user", "assistant", "system"}},
-		"content": {t: "string", req: true},
-	})
-	routeRequestContracts["/api/openai/sessions"] = obj(nil, map[string]prop{
-		"title":   {t: "string"},
-		"modelId": {t: "string"},
 	})
 
 	// ===== 认证 auth =====
