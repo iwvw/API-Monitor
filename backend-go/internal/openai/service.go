@@ -311,6 +311,10 @@ type endpointProxyState struct {
 	// lastAllUnfrozen 记录最近一次「全部出口禁用时自动解冻全体代理」的时间，
 	// 用于节流：防止上游限流未恢复时出现「解冻→再全部冻结→又解冻」的限流风暴。
 	lastAllUnfrozen time.Time
+	// activeProxy 记录该端点最近一次成功转发的代理（池级粘性出口）。
+	// 不带会话 ID 的请求优先复用它：有效就一直用，直到被冷却/429 冻结/沉淀才换，
+	// 减少每请求换 IP 的冷启动与随机撞限。不持久化（进程重启后重新学习）。
+	activeProxy string
 }
 
 // sessionBinding 是某会话在某出口 IP（代理）上的粘性绑定。

@@ -268,10 +268,11 @@ const (
 	proxy429BanDuration  = 30 * time.Minute
 )
 
-// proxy429EarlyAbortHits 是同一出口主机（hostname）在一请求内连续 429 的提前
-// 收尾阈值：达到即认为该出口已被上游按 IP 限死。代理池里同主机的多个并行 slot
-// （如单 IP 100 槽的池）继续逐个扫描只是重复往返（8 次串行 429 约 20s），
-// 提前以 429 收尾，交给端点级聚合判断（全部限流时快速返回）。
+// proxy429EarlyAbortHits 是一请求内「不同出口 IP」连续 429 的提前收尾阈值。
+// 代理池的每一条目是独立出口 IP：当已有 N 个不同出口 IP 都返回 429，说明上游
+// 对该请求的限流已扩散到整池（而非单个 IP 被限），继续换 IP 只会空转；达到阈值
+// 提前以 429 收尾，交给端点级聚合判断（全部限流时快速返回）。同一出口 IP 的
+// 重复 429 不增加计数（组冷却已保证同 IP 的 slot 不会被选中两次）。
 const proxy429EarlyAbortHits = 3
 
 // proxyAllFrozenRetryInterval 是「全部出口禁用时自动解冻全体代理」的节流间隔：
@@ -344,22 +345,17 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// finalUpstreamRecorded 标记最后一次尝试的限流/5xx 是否已写入转发失败明细，
 	// 避免流式无切换路径与循环结束统一判定处重复记录同一次失败。
 	finalUpstreamRecorded := false
-	// 同一出口主机连续 429 计数：达到 proxy429EarlyAbortHits 视为该出口已被上游
-	// 按 IP 限死，提前收尾（不再把池内同主机 slot 全部扫一遍）。
-	sameHost429Hits := 0
-	var last429Host string
+	// 不同出口 IP 的 429 计数：达到 proxy429EarlyAbortHits 视为上游限流已扩散到
+	// 整池，提前收尾（单 IP 被限时组冷却已让候选自动跳到其他 IP，不在此计数）。
+	observed429IPs := map[string]bool{}
 	bump429 := func(proxy string) bool {
-		h := proxyHostOf(proxy)
-		if h == "" {
-			return false
+		// 优先用探测到的出口公网 IP 区分；未探测（冷启动）时退化为按 slot 计。
+		key := s.proxyExitIPOf(selected.ID, proxy)
+		if key == "" {
+			key = proxy
 		}
-		if h == last429Host {
-			sameHost429Hits++
-		} else {
-			last429Host = h
-			sameHost429Hits = 1
-		}
-		return sameHost429Hits >= proxy429EarlyAbortHits
+		observed429IPs[key] = true
+		return len(observed429IPs) >= proxy429EarlyAbortHits
 	}
 
 	for attempt = 0; attempt < maxProxyAttempts; attempt++ {
@@ -542,9 +538,8 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					Error:      "retryable upstream response",
 				})
 				if currentProxy != "" {
-					// 同一出口主机连续 429 达到阈值：上游按出口 IP 已限死，池内
-					// 同主机 slot 大概率同样被限，提前收尾（保留已读正文原样交给
-					// 统一判定记录，以 429 退出）。
+					// 不同出口 IP 连续 429 达到阈值：限流已扩散到整池，提前收尾
+					// （保留已读正文原样交给统一判定记录，以 429 退出）。
 					if isRateLimitResponse(resp, bodyBytesRead) && bump429(currentProxy) {
 						resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
 						res.retryableUpstream = true
@@ -584,7 +579,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				Error:      "retryable upstream response",
 			})
 			if currentProxy != "" {
-				// 同一出口主机连续 429 达到阈值：上游按出口 IP 已限死，提前收尾。
+				// 不同出口 IP 连续 429 达到阈值：上游限流已扩散到整池，提前收尾。
 				if isRateLimitResponse(resp, nil) && bump429(currentProxy) {
 					res.retryableUpstream = true
 					lastErr = fmt.Errorf("上游按出口限流（连续 %d 次 429）", proxy429EarlyAbortHits)
@@ -805,6 +800,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	}
 	_, _ = p.db.ExecContext(ctx, "UPDATE openai_endpoints SET last_used = ? WHERE id = ?", time.Now().Format(time.RFC3339), selected.ID)
 	res.statusCode = resp.StatusCode
+	// 成功转发：记录池级粘性出口（健康代理持续复用，直到被冷却/冻结才换）。
+	if resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 400 && res.lastProxy != "" {
+		s.recordActiveProxy(selected.ID, res.lastProxy)
+	}
 	return res
 }
 

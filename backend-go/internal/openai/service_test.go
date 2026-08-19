@@ -1640,6 +1640,176 @@ func TestUpstream429ShortCooldown(t *testing.T) {
 	}
 }
 
+// TestSameExitIPGroupCooled 代理池是「同入口、多出口 IP」的槽池：探测到出口 IP
+// 后，同一出口 IP 的任一个 slot 被 429 冷却，整组都应让出候选（把尝试预算留给
+// 其他出口 IP），而不同出口 IP 不受影响。
+func TestSameExitIPGroupCooled(t *testing.T) {
+	newOk := func(name string) *httptest.Server {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+		}))
+		t.Cleanup(s.Close)
+		return s
+	}
+	okSameIP := newOk("ok-same-ip")
+	okOtherIP := newOk("ok-other-ip")
+	failSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+	}))
+	t.Cleanup(failSrv.Close)
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	t.Cleanup(mockUpstream.Close)
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	// 池序：[fail, okSameIP, okOtherIP]——fail 与 okSameIP 预置为同一出口 IP。
+	poolURLs := []string{failSrv.URL, okSameIP.URL, okOtherIP.URL}
+	poolJSON, _ := json.Marshal(poolURLs)
+	createBody := fmt.Sprintf(`{
+		"name":"GroupCool","baseUrl":"%s","apiKey":"k","skipVerify":true,
+		"proxyPool":%s,"proxyEnabled":true,"autoSwitch":true
+	}`, mockUpstream.URL, string(poolJSON))
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 预置出口 IP：fail 与 okSameIP 同 IP（模拟同入口多出口的真实槽池）。
+	service.proxyMu.Lock()
+	state, ok := service.proxyStateByEndpoint[created.Endpoint.ID]
+	if !ok {
+		state = newEndpointProxyState()
+		service.proxyStateByEndpoint[created.Endpoint.ID] = state
+	}
+	state.lastExitIP[failSrv.URL] = "203.0.113.1"
+	state.lastExitIP[okSameIP.URL] = "203.0.113.1"
+	state.lastExitIP[okOtherIP.URL] = "198.51.100.7"
+	service.proxyMu.Unlock()
+
+	// 触发 fail 槽 429：将先命中 fail（探索序首位）→ 组冷却同 exitIP 的 okSameIP。
+	w := chatRequest(t, service, created.Endpoint.ID, false, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("request failed: %d %s", w.Code, w.Body.String())
+	}
+
+	service.proxyMu.Lock()
+	sameCooled := proxyGroupCooled(state, okSameIP.URL, time.Now())
+	otherCooled := proxyGroupCooled(state, okOtherIP.URL, time.Now())
+	service.proxyMu.Unlock()
+	if !sameCooled {
+		t.Fatal("same-exit-IP slot must be grouped-cooled after a sibling slot got 429")
+	}
+	if otherCooled {
+		t.Fatal("different-exit-IP slot must NOT be cooled by a sibling's 429")
+	}
+}
+
+// TestActiveProxySticky 池级粘性：无会话 ID 的请求复用最近一次成功转发的代理，
+// 直到它被 429 冷却才换下一个出口（「有效就一直用，用到不能用为止」）。
+func TestActiveProxySticky(t *testing.T) {
+	var p1Fail atomic.Bool
+	var p1Hits, p2Hits int32
+	okBody := []byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	p1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&p1Hits, 1)
+		if p1Fail.Load() {
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(okBody)
+	}))
+	t.Cleanup(p1.Close)
+	p2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&p2Hits, 1)
+		w.WriteHeader(http.StatusOK)
+		w.Write(okBody)
+	}))
+	t.Cleanup(p2.Close)
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	t.Cleanup(mockUpstream.Close)
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createBody := fmt.Sprintf(`{
+		"name":"Sticky","baseUrl":"%s","apiKey":"k","skipVerify":true,
+		"proxyPool":["%s","%s"],"proxyEnabled":true,"autoSwitch":true
+	}`, mockUpstream.URL, p1.URL, p2.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 1) 首次：无 activeProxy，探索选中 p1 → 成功 → 记为粘性出口。
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req1 failed: %d %s", w.Code, w.Body.String())
+	}
+	// 2) 无会话再次请求：应粘住 p1，p2 不被触碰。
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req2 failed: %d %s", w.Code, w.Body.String())
+	}
+	if p1Hits < 2 || p2Hits != 0 {
+		t.Fatalf("sticky reuse expected p1 only, p1Hits=%d p2Hits=%d", p1Hits, p2Hits)
+	}
+
+	// 3) p1 开始 429：当前请求先打 p1（仍未被冷却）→ 429 → 组冷却 p1 → 换 p2 成功。
+	p1Fail.Store(true)
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req3 failed: %d %s", w.Code, w.Body.String())
+	}
+	if p1Hits != 3 || p2Hits != 1 {
+		t.Fatalf("expected p1 429 then switch to p2, p1Hits=%d p2Hits=%d", p1Hits, p2Hits)
+	}
+	// 新粘性出口为 p2：再次请求应粘 p2（p1 仍被冷却 30s 内不会被选中）。
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req4 failed: %d %s", w.Code, w.Body.String())
+	}
+	if p2Hits != 2 || p1Hits != 3 {
+		t.Fatalf("active proxy should switch to p2 and stay, p1Hits=%d p2Hits=%d", p1Hits, p2Hits)
+	}
+}
+
 func TestProxy429BannedAfterThreshold(t *testing.T) {
 	// 同一代理累计 3 次 429 后禁用 30 分钟；禁用期内选择逻辑跳过它，
 	// 到期后自动释放（时间判断，无需主动清理）。
@@ -1658,6 +1828,13 @@ func TestProxy429BannedAfterThreshold(t *testing.T) {
 	)
 
 	for i := 0; i < proxy429BanThreshold; i++ {
+		// 清除池级粘性出口：该测试要验证的是 429 累计冻结机制，不能让健康代理
+		// 的粘性把被限代理晾在一边（那正是生产想要的分散效果）。
+		service.proxyMu.Lock()
+		if st, ok := service.proxyStateByEndpoint[endpointID]; ok {
+			st.activeProxy = ""
+		}
+		service.proxyMu.Unlock()
 		w := chatRequest(t, service, endpointID, false, "")
 		if w.Code != http.StatusOK {
 			t.Fatalf("attempt %d failed: %d %s", i+1, w.Code, w.Body.String())
@@ -2547,10 +2724,9 @@ func TestAll429ReturnsFastWithoutRetryRounds(t *testing.T) {
 	}
 }
 
-// TestSameHost429EarlyAbort 同一出口主机（hostname）连续 429 达到阈值后应提前
-// 收尾：不再把池内同主机的后续 slot 全部扫一遍（单 IP 多槽池里 8 次串行 429
-// 可达 20s+）。
-func TestSameHost429EarlyAbort(t *testing.T) {
+// TestDistinctProxy429EarlyAbort 不同出口 IP（探测无 lastExitIP 时按 slot 计）连续
+// 429 达到阈值后应提前收尾：不再把池内后续 slot 全部扫一遍，直接以 429 返回。
+func TestDistinctProxy429EarlyAbort(t *testing.T) {
 	var hits [4]int32
 	rateLimited := func(i int) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -2566,7 +2742,8 @@ func TestSameHost429EarlyAbort(t *testing.T) {
 		t.Cleanup(servers[i].Close)
 		pool = append(pool, servers[i].URL)
 	}
-	// 4 个代理均在本机（hostname 相同），与生产「单 IP 多槽代理池」同构。
+	// 4 个代理均在本机（hostname 相同，与生产「同入口多出口槽池」同构；
+	// 测试未预置 lastExitIP，提前收尾按 slot 计数）。
 
 	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -2577,7 +2754,7 @@ func TestSameHost429EarlyAbort(t *testing.T) {
 	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
 	poolJSON, _ := json.Marshal(pool)
 	createBody := fmt.Sprintf(`{
-		"name":"SameHost429","baseUrl":"%s","apiKey":"k","skipVerify":true,
+		"name":"Distinct429","baseUrl":"%s","apiKey":"k","skipVerify":true,
 		"proxyPool":%s,"proxyEnabled":true,"autoSwitch":true
 	}`, mockUpstream.URL, string(poolJSON))
 	wC := httptest.NewRecorder()
@@ -2610,7 +2787,7 @@ func TestSameHost429EarlyAbort(t *testing.T) {
 	service.ServeHTTP(wChat, rChat)
 
 	if wChat.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429 after same-host early abort, got code=%d body=%s", wChat.Code, wChat.Body.String())
+		t.Fatalf("expected 429 after distinct-proxy early abort, got code=%d body=%s", wChat.Code, wChat.Body.String())
 	}
 	// 选路游标在「未冷却候选」内按序取 slot，命中顺序不定（如 p1→p3→p4），
 	// 但同一出口主机连续 3 次 429 必须提前收尾：总尝试数 = 3，且每 slot 至多一次。
@@ -2622,7 +2799,7 @@ func TestSameHost429EarlyAbort(t *testing.T) {
 		}
 	}
 	if total != 3 {
-		t.Fatalf("same-host early abort must stop after %d attempts, got %d total hits", proxy429EarlyAbortHits, total)
+		t.Fatalf("distinct-proxy early abort must stop after %d attempts, got %d total hits", proxy429EarlyAbortHits, total)
 	}
 }
 

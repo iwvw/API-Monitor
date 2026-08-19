@@ -175,6 +175,45 @@ func newEndpointProxyState() *endpointProxyState {
 	}
 }
 
+// recordActiveProxy 记录该端点最近一次成功转发的代理（池级粘性出口）。
+// 不带会话 ID 的请求据此优先复用同一代理：一个出口有效就持续用，直到它被
+// 冷却/429 冻结/沉淀（选择时自然跳过）才换下一个，减少每请求换 IP 带来的
+// 冷启动与随机撞限。
+func (s *Service) recordActiveProxy(endpointID, proxy string) {
+	if proxy == "" {
+		return
+	}
+	s.proxyMu.Lock()
+	defer s.proxyMu.Unlock()
+	state, ok := s.proxyStateByEndpoint[endpointID]
+	if !ok {
+		state = newEndpointProxyState()
+		s.proxyStateByEndpoint[endpointID] = state
+	}
+	state.activeProxy = proxy
+}
+
+// activeProxyHonored 返回池级粘性出口是否仍可复用：在池内、未冷却（含同 IP 组的
+// 冷却）、未被 429 冻结（含同 IP 组冻结）、未被沉淀。调用方需持有 proxyMu。
+func activeProxyHonored(state *endpointProxyState, activeProxy string, cleaned []string, now time.Time) bool {
+	if activeProxy == "" {
+		return false
+	}
+	if _, inPool := poolIndex(activeProxy, cleaned); !inPool {
+		return false
+	}
+	if proxyGroupCooled(state, activeProxy, now) {
+		return false
+	}
+	if proxyRateLimited(state, activeProxy, now) {
+		return false
+	}
+	if until, sunk := state.sunk[activeProxy]; sunk && now.Before(until) {
+		return false
+	}
+	return true
+}
+
 // clientForEndpoint 按端点代理池选择下一个可用代理，返回绑定该代理的 http.Client。
 // 规则：
 //   - proxyEnabled 关闭：忽略代理池，返回按端点 protocol 配置的直连客户端
@@ -210,7 +249,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 	if sessionKey != "" {
 		if binding, bound := state.sessionBindings[sessionKey]; bound {
 			bindingOK := false
-			if until, cooled := state.cooldown[binding.proxy]; !cooled || now.After(until) {
+			if !proxyGroupCooled(state, binding.proxy, now) {
 				if !proxyRateLimited(state, binding.proxy, now) {
 					if _, sunk := state.sunk[binding.proxy]; !sunk || now.After(state.sunk[binding.proxy]) {
 						if binding.count < sessionProxyRequestLimit {
@@ -237,10 +276,30 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 		}
 	}
 
+	// 池级粘性：该端点最近一次成功转发的代理若仍可用，直接复用（会话粘性更高优先，
+	// 已在上方处理）。一个出口有效就持续用，直到被冷却/冻结/沉淀才由下方候选逻辑
+	// 自动换到下一个出口。
+	if state.activeProxy != "" && activeProxyHonored(state, state.activeProxy, cleaned, now) {
+		selectedProxy := state.activeProxy
+		state.cursor = (indexOfProxy(selectedProxy, cleaned) + 1) % len(cleaned)
+		if sessionKey != "" {
+			state.sessionBindings[sessionKey] = &sessionBinding{proxy: selectedProxy, count: 1}
+		}
+		s.proxyMu.Unlock()
+		client, err := s.proxyClient(selectedProxy)
+		if err != nil {
+			return s.client, selectedProxy, err
+		}
+		return client, selectedProxy, nil
+	}
+
 	// 可用代理：未在冷却中、且未处于 429 禁用期、未被沉淀为坏代理的代理集合。
+	// 冷却与 429 禁用均按出口 IP 聚合：同一出口 IP 的任一个 slot 命中后，该 IP 的
+	// 全部 slot 一起让出候选，让本请求的尝试预算花在不同的出口 IP 上（代理池换 IP
+	// 规避上游按 IP 限流的核心价值）。
 	candidates := []proxyCandidate{}
 	for i := range cleaned {
-		if until, cooled := state.cooldown[cleaned[i]]; cooled && !now.After(until) {
+		if proxyGroupCooled(state, cleaned[i], now) {
 			continue
 		}
 		if proxyRateLimited(state, cleaned[i], now) {
@@ -535,10 +594,10 @@ var proxy429ShortCooldown = 30 * time.Second
 
 // markProxy429 记录代理的一次上游 429。与 markProxyFailed 的区别：
 // 429 是上游按出口 IP 的限流，单次不惩罚代理的连接质量（不累计连接失败计数），
-// 但立即给它一个短冷却，让同一请求/临近请求先避开这个刚被限流的出口；
-// 同一代理累计 proxy429BanThreshold 次 429 说明该 IP 已被上游限死，
-// 继续把它留在候选池只会让重试反复打同一个 IP，故临时禁用 proxy429BanDuration，
-// 到期自动释放回池。成功转发不解除禁用；触发禁用时清零累计计数（重新累计下一轮）。
+// 但立即给它的出口 IP 一个短冷却（同 IP 的全部 slot 一起让出候选），让同一请求/
+// 临近请求优先打其他出口 IP；同一代理累计 proxy429BanThreshold 次 429 说明该 IP
+// 已被上游限死，整组临时禁用 proxy429BanDuration，到期自动释放回池。
+// 成功转发不解除禁用；触发禁用时清零累计计数（重新累计下一轮）。
 // retryAfter 非 nil 时优先用上游给出的 Retry-After 时长作为禁用/短冷却期（封顶
 // proxy429BanDuration），更贴合上游的配额恢复窗口；nil 时退回默认时长。
 // 触发禁用时打 WARN 日志（此前冻结完全静默，难以确认熔断是否生效）。
@@ -559,8 +618,8 @@ func (s *Service) markProxy429(endpointID, proxy string, retryAfter *time.Durati
 	if retryAfter != nil && *retryAfter > 0 && *retryAfter < cool {
 		cool = *retryAfter
 	}
-	state.cooldown[proxy] = time.Now().Add(cool)
-	s.persistProxyState(endpointID, proxy, "cooldown", state.cooldown[proxy])
+	// 组聚合冷却：同一出口 IP 的所有 slot 一并冷却，尝试预算花在不同 IP 上。
+	s.coolProxyGroupLocked(endpointID, state, proxy, time.Now().Add(cool))
 	if state.rate429[proxy] >= proxy429BanThreshold {
 		duration := proxy429BanDuration
 		if retryAfter != nil && *retryAfter > 0 {
@@ -568,15 +627,15 @@ func (s *Service) markProxy429(endpointID, proxy string, retryAfter *time.Durati
 				duration = *retryAfter
 			}
 		}
-		state.rateLimited[proxy] = time.Now().Add(duration)
-		delete(state.rate429, proxy)
+		// 组聚合长冻结：同一出口 IP 的全部 slot 一起冻结。
+		s.banProxyGroupLocked(endpointID, state, proxy, time.Now().Add(duration))
 		applog.Warn(context.Background(), "openai",
 			"proxy frozen after repeated upstream 429s",
 			"endpoint_id", endpointID,
 			"proxy", hostFromProxyURL(proxy),
+			"exit_ip", state.lastExitIP[proxy],
 			"duration", duration.String(),
 		)
-		s.persistProxyState(endpointID, proxy, "rate_limited", state.rateLimited[proxy])
 	}
 }
 
@@ -758,9 +817,104 @@ func (s *Service) autoUnfreezeAllLocked(endpointID string, pool []string, now ti
 }
 
 // proxyRateLimited 判断代理是否处于 429 累计触发的禁用期（禁用中不可被选中）。
+// 按出口 IP 聚合：同一出口 IP 的任一个 slot 被长冻结后，该 IP 的全部 slot 都视为
+// 禁用（被限死的 IP 不再占用候选位，把尝试预算留给健康 IP）。
 func proxyRateLimited(state *endpointProxyState, proxy string, now time.Time) bool {
-	until, banned := state.rateLimited[proxy]
-	return banned && now.Before(until)
+	if until, banned := state.rateLimited[proxy]; banned && now.Before(until) {
+		return true
+	}
+	exitIP := state.lastExitIP[proxy]
+	if exitIP == "" {
+		return false
+	}
+	for p, ip := range state.lastExitIP {
+		if ip != exitIP {
+			continue
+		}
+		if until, banned := state.rateLimited[p]; banned && now.Before(until) {
+			return true
+		}
+	}
+	return false
+}
+
+// proxyGroupCooled 判断代理是否处于短冷却中。按出口 IP 聚合：同 IP 的任一个 slot
+// 冷却即视为整组冷却（被限 IP 的槽位全部让出候选）；出口 IP 未知（尚未探测）时
+// 只看当前 slot 自身。
+func proxyGroupCooled(state *endpointProxyState, proxy string, now time.Time) bool {
+	if until, cooled := state.cooldown[proxy]; cooled && !now.After(until) {
+		return true
+	}
+	exitIP := state.lastExitIP[proxy]
+	if exitIP == "" {
+		return false
+	}
+	for p, ip := range state.lastExitIP {
+		if ip != exitIP {
+			continue
+		}
+		if until, cooled := state.cooldown[p]; cooled && !now.After(until) {
+			return true
+		}
+	}
+	return false
+}
+
+// coolProxyGroupLocked 给代理设置短冷却，并扩大到同一出口 IP 的全部 slot
+// （由 lastExitIP 反查）。出口 IP 未知时退化为只冷却当前 slot。
+// 调用方需持有 proxyMu。
+func (s *Service) coolProxyGroupLocked(endpointID string, state *endpointProxyState, proxy string, until time.Time) {
+	exitIP := state.lastExitIP[proxy]
+	if exitIP == "" {
+		state.cooldown[proxy] = until
+		s.persistProxyState(endpointID, proxy, "cooldown", until)
+		return
+	}
+	for p := range state.lastExitIP {
+		if state.lastExitIP[p] != exitIP {
+			continue
+		}
+		state.cooldown[p] = until
+		s.persistProxyState(endpointID, p, "cooldown", until)
+	}
+	state.cooldown[proxy] = until
+	s.persistProxyState(endpointID, proxy, "cooldown", until)
+}
+
+// banProxyGroupLocked 把代理长冻结（429 累计达阈值），并扩大到同一出口 IP 的
+// 全部 slot，同时清零组内累计计数。出口 IP 未知时退化为只冻结当前 slot。
+// 调用方需持有 proxyMu。
+func (s *Service) banProxyGroupLocked(endpointID string, state *endpointProxyState, proxy string, until time.Time) {
+	ban := func(p string) {
+		state.rateLimited[p] = until
+		delete(state.rate429, p)
+		s.persistProxyState(endpointID, p, "rate_limited", until)
+	}
+	exitIP := state.lastExitIP[proxy]
+	if exitIP == "" {
+		ban(proxy)
+		return
+	}
+	for p := range state.lastExitIP {
+		if state.lastExitIP[p] != exitIP {
+			continue
+		}
+		ban(p)
+	}
+	ban(proxy)
+}
+
+// proxyExitIPOf 返回代理最近探测到的出口公网 IP；未探测过返回空串。
+func (s *Service) proxyExitIPOf(endpointID, proxy string) string {
+	if proxy == "" {
+		return ""
+	}
+	s.proxyMu.Lock()
+	defer s.proxyMu.Unlock()
+	if state, ok := s.proxyStateByEndpoint[endpointID]; ok {
+		return state.lastExitIP[proxy]
+	}
+	return ""
 }
 
 // pickKey 从端点全部 key 中按轮询选出一个 key，返回 (key, index)。
