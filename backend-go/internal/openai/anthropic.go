@@ -451,6 +451,14 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
 	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
 
+	// 请求体归一化在循环前统一执行（reasoning_effort max→high、带 tool_calls 的
+	// assistant 历史补推理内容）：会话亲和会把某候选提升为首选（k=0），归一化
+	// 只发生在 failover 副本时首选请求会拿到未归一化请求体而被枚举更窄的上游 400。
+	normalizeReasoningEffort(parsedBody)
+	if s.shouldNormalizeToolReasoningForCandidates(endpointCandidates, model, parsedBody) {
+		normalizeChatToolReasoningHistory(parsedBody)
+	}
+
 	// 正文由调用方读取：把 attempt context 的释放挂到 Body.Close 上，
 	// 避免在正文未读完时提前 cancel 掐断响应（非流式且未启用 AutoSwitch 时
 	// 对齐 New API 的 RetryTimes：全部候选失败后不立即返回，等待 interval 后
@@ -493,12 +501,6 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			}
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
-			}
-			if k > 0 {
-				normalizeReasoningEffort(candBody)
-				if shouldNormalizeToolReasoning(candModel, cand.BaseURL, candBody) {
-					normalizeChatToolReasoningHistory(candBody)
-				}
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 

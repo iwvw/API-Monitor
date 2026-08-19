@@ -99,6 +99,21 @@ func shouldNormalizeToolReasoning(model, baseURL string, body map[string]interfa
 	return requestEnablesReasoning(body)
 }
 
+// shouldNormalizeToolReasoningForCandidates 让任意候选命中推理厂商标识即启用
+// 工具历史归一化（body 在候选循环前统一归一化，候选级模型映射不影响判定）。
+func (s *Service) shouldNormalizeToolReasoningForCandidates(candidates []Endpoint, model string, body map[string]interface{}) bool {
+	if requestEnablesReasoning(body) {
+		return true
+	}
+	for _, cand := range candidates {
+		candModel, _ := s.resolveEndpointModel(cand, model)
+		if shouldNormalizeToolReasoning(candModel, cand.BaseURL, body) {
+			return true
+		}
+	}
+	return false
+}
+
 // normalizeChatToolReasoningHistory 给所有「带 tool_calls 的 assistant 历史回合」
 // 补齐 reasoning_content：客户端常丢弃该非标准字段却保留 tool_calls，使下一次
 // thinking 模式请求在需要重放推理的厂商端点（DeepSeek/Kimi/MiMo 等）上被 400
@@ -158,6 +173,17 @@ func normalizeReasoningEffort(body map[string]interface{}) {
 // 避免把代理凭据写进日志文件或接口响应。
 func (s *Service) recordRelayError(rec RelayErrorRecord) {
 	rec.Time = time.Now().UTC()
+	// 按环节粗分类失败结果（对齐 opencode2api 上游账本的 outcome 语义
+	// success/rejected/retryable_failure/transport_error；成功无记录，
+	// 故此处只出现三种失败分类）。
+	switch rec.Kind {
+	case "dial", "timeout", "stream_closed":
+		rec.Outcome = "transport_error"
+	case "upstream", "failover", "bad_gateway":
+		rec.Outcome = "retryable_failure"
+	default:
+		rec.Outcome = "rejected"
+	}
 
 	s.relayErrMu.Lock()
 	s.relayErrors = append(s.relayErrors, rec)
@@ -1040,6 +1066,15 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 透传后 opencode.ai/zen 的 "Input should be a valid string" 错误）。
 	normalizeChatContentBlocks(parsedBody)
 
+	// 请求体归一化在循环前统一执行一次（reasoning_effort max→high、带 tool_calls
+	// 的 assistant 历史补推理内容）。不能只在 failover 副本（k>0）里做：会话亲和
+	// 会把某候选端点提升为首选（k=0），亲和路径的首选请求会拿到未归一化请求体
+	// 而被枚举更窄的上游 400。high 属 OpenAI 标准枚举，对全部端点安全。
+	normalizeReasoningEffort(parsedBody)
+	if s.shouldNormalizeToolReasoningForCandidates(endpointCandidates, model, parsedBody) {
+		normalizeChatToolReasoningHistory(parsedBody)
+	}
+
 	// 多端点 failover：按侧栏 sort_order 顺序逐个尝试候选端点。
 	// 端点「不可用」时切换到下一个候选，保证单端点故障不影响可用性，包括：
 	//   - endpointExhausted：本轮全部 API Key 尝试失败（key 问题）
@@ -1075,9 +1110,8 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			cand := endpointCandidates[ci]
 			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
 			candModel, _ := s.resolveEndpointModel(cand, model)
-			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
-			// 候选归一化（写 reasoning_effort）。首个候选不复制、保持原样透传；
-			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
+			// 需要独立副本的情形：模型映射改写（写 model 字段）。归一化在循环前
+			// 已对 parsedBody 统一执行（见调用处），副本不再承担归一化职责。
 			candBody := parsedBody
 			needCopy := k > 0 || (candModel != model && candModel != "")
 			if needCopy {
@@ -1089,12 +1123,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
-			}
-			if k > 0 {
-				normalizeReasoningEffort(candBody)
-				if shouldNormalizeToolReasoning(candModel, cand.BaseURL, candBody) {
-					normalizeChatToolReasoningHistory(candBody)
-				}
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
@@ -2126,6 +2154,10 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	normalizeResponsesTools(parsedBody)
 	normalizeResponsesInput(parsedBody)
 
+	// 请求体归一化在循环前统一执行（reasoning_effort max→high）；responses 无
+	// messages 结构，工具历史推理补齐不适用（no-op 由实现自动跳过）。
+	normalizeReasoningEffort(parsedBody)
+
 	// 对齐 New API 的 RetryTimes：全部候选失败后不立即返回，等待 interval 后
 	// 重试整轮，最多 endpointRetryRounds 轮，期间客户端保持等待状态。
 	var res *relayLoopResult
@@ -2166,12 +2198,6 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			}
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
-			}
-			if k > 0 {
-				normalizeReasoningEffort(candBody)
-				if shouldNormalizeToolReasoning(candModel, cand.BaseURL, candBody) {
-					normalizeChatToolReasoningHistory(candBody)
-				}
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 

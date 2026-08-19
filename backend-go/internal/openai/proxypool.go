@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math/big"
 	"net"
@@ -427,7 +428,9 @@ func (s *Service) clearSessionBinding(endpointID, sessionKey string) {
 
 // resolveSessionKey 从请求头或请求体中提取会话标识：
 // 依次取 X-OpenCode-Session-ID / X-Opencode-Session-ID / X-Relay-Session-ID / X-Session-ID，
-// 再回退到请求体 user 字段；都没有时返回空串（退化为池内轮询）。
+// 再回退到请求体 user 字段，最后用首条 user 消息内容生成稳定种子（对齐
+// opencode2api 的 conversationSeed：多轮对话的历史增长不改变首条消息，
+// 同一会话的后续请求据此保持同一出口亲和，规避上游按出口 IP 的限额）。
 func resolveSessionKey(r *http.Request, parsedBody map[string]interface{}) string {
 	for _, h := range []string{"X-OpenCode-Session-ID", "X-Opencode-Session-ID", "X-Relay-Session-ID", "X-Session-ID"} {
 		if v := strings.TrimSpace(r.Header.Get(h)); v != "" {
@@ -437,6 +440,44 @@ func resolveSessionKey(r *http.Request, parsedBody map[string]interface{}) strin
 	if user, ok := parsedBody["user"].(string); ok {
 		if user = strings.TrimSpace(user); user != "" {
 			return "user:" + user
+		}
+	}
+	if seed := conversationSeedFromBody(parsedBody); seed != "" {
+		return seed
+	}
+	return ""
+}
+
+// conversationSeedFromBody 用首条 user 消息的文字内容生成稳定会话种子：
+// FNV-1a 摘要避免把用户消息全文作为会话键（日志/内存不落明文）。
+// content 为 string 或 text block 数组（Claude 风格）时均可提取。
+func conversationSeedFromBody(parsedBody map[string]interface{}) string {
+	messages, ok := parsedBody["messages"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, raw := range messages {
+		m, ok := raw.(map[string]interface{})
+		if !ok || m["role"] != "user" {
+			continue
+		}
+		content := ""
+		switch c := m["content"].(type) {
+		case string:
+			content = c
+		case []interface{}:
+			for _, part := range c {
+				if pm, ok := part.(map[string]interface{}); ok && pm["type"] == "text" {
+					if s, ok := pm["text"].(string); ok {
+						content += s
+					}
+				}
+			}
+		}
+		if strings.TrimSpace(content) != "" {
+			h := fnv.New32a()
+			_, _ = h.Write([]byte(content))
+			return fmt.Sprintf("seed:%x", h.Sum32())
 		}
 	}
 	return ""

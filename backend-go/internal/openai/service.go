@@ -198,6 +198,7 @@ type Service struct {
 	analyticsStartMu sync.Mutex
 	analyticsStarted bool
 	analyticsDone    chan struct{}
+	shutdownOnce     sync.Once
 	analyticsDrop    atomic.Uint64
 
 	// relayErrors 是推理转发失败事件的环形缓冲，供排障接口与详细日志排查。
@@ -271,21 +272,28 @@ const relayErrorResponseRetention = 50
 // Proxy 只存放脱敏后的 host:port，绝不包含代理 URL 中的凭据。
 // KeyIndex 是本次请求使用的 API Key 序号（0 = 主 key），用于日志定位。
 type RelayErrorRecord struct {
-	Time       time.Time `json:"time"`
-	Route      string    `json:"route"`
-	Kind       string    `json:"kind"`
-	Endpoint   string    `json:"endpoint"`
-	EndpointID string    `json:"endpointId"`
-	KeyIndex   int       `json:"keyIndex,omitempty"`
-	Model      string    `json:"model"`
-	Stream     bool      `json:"stream"`
-	Proxy      string    `json:"proxy"`
-	ClientIP   string    `json:"clientIp"`
-	Attempts   int       `json:"attempts"`
-	ElapsedMs  int64     `json:"elapsedMs"`
-	StatusCode int       `json:"statusCode,omitempty"`
-	Upstream   string    `json:"upstream,omitempty"`
-	Error      string    `json:"error"`
+	Time  time.Time `json:"time"`
+	Route string    `json:"route"`
+	Kind  string    `json:"kind"`
+	// Outcome 是失败结果的粗粒度分类（对齐 opencode2api 上游账本语义）：
+	//   transport_error  — 传输层失败（dial/首字或响应头超时/流中断）
+	//   retryable_failure — 上游可重试错误（429/5xx/限流）
+	//   rejected         — 上游或网关确定性拒绝（no_endpoint/blocked/bad_request/
+	//                      配置错误等，重试无意义）
+	// 成功请求不产生记录（relay-errors 只承载失败）。
+	Outcome    string `json:"outcome,omitempty"`
+	Endpoint   string `json:"endpoint"`
+	EndpointID string `json:"endpointId"`
+	KeyIndex   int    `json:"keyIndex,omitempty"`
+	Model      string `json:"model"`
+	Stream     bool   `json:"stream"`
+	Proxy      string `json:"proxy"`
+	ClientIP   string `json:"clientIp"`
+	Attempts   int    `json:"attempts"`
+	ElapsedMs  int64  `json:"elapsedMs"`
+	StatusCode int    `json:"statusCode,omitempty"`
+	Upstream   string `json:"upstream,omitempty"`
+	Error      string `json:"error"`
 }
 
 type endpointProxyState struct {

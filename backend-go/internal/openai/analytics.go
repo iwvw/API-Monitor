@@ -61,17 +61,17 @@ const analyticsBatchLimit = 64
 
 // analyticsWriteItem 承载一次网关调用日志的落库数据与可选的 flush 哨兵。
 type analyticsWriteItem struct {
-	route, endpointID, model          string
-	gatewayKeyID, gatewayKeyName      string
-	statusCode                        int
-	latencyMs, ttfbMs                 int64
-	promptTokens, completionTokens    int
-	totalTokens, cachedTokens         int
-	stream, viaProxy                  int
+	route, endpointID, model           string
+	gatewayKeyID, gatewayKeyName       string
+	statusCode                         int
+	latencyMs, ttfbMs                  int64
+	promptTokens, completionTokens     int
+	totalTokens, cachedTokens          int
+	stream, viaProxy                   int
 	clientIP, upstreamIP, failoverPath string
-	keyIndex                          int
-	errInfo                           *AnalyticsError
-	flush                             chan struct{}
+	keyIndex                           int
+	errInfo                            *AnalyticsError
+	flush                              chan struct{}
 }
 
 // enqueueAnalytics 将调用日志投递到异步落库队列，队列满时丢弃并计数。
@@ -115,25 +115,25 @@ func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, mod
 	gatewayKey := gatewayKeyFromContext(ctx)
 	s.ensureAnalyticsWorker()
 	s.enqueueAnalytics(analyticsWriteItem{
-		route:             route,
-		endpointID:        endpointID,
-		model:             model,
-		gatewayKeyID:      gatewayKey.ID,
-		gatewayKeyName:    gatewayKey.Name,
-		statusCode:        statusCode,
-		latencyMs:         latencyMs,
-		ttfbMs:            ttfbMs,
-		promptTokens:      promptTokens,
-		completionTokens:  completionTokens,
-		totalTokens:       totalTokens,
-		cachedTokens:      cachedTokens,
-		stream:            stream,
-		viaProxy:          viaProxy,
-		clientIP:          clientIP,
-		upstreamIP:        upstreamIP,
-		failoverPath:      failoverPath,
-		keyIndex:          keyIndex,
-		errInfo:           errInfo,
+		route:            route,
+		endpointID:       endpointID,
+		model:            model,
+		gatewayKeyID:     gatewayKey.ID,
+		gatewayKeyName:   gatewayKey.Name,
+		statusCode:       statusCode,
+		latencyMs:        latencyMs,
+		ttfbMs:           ttfbMs,
+		promptTokens:     promptTokens,
+		completionTokens: completionTokens,
+		totalTokens:      totalTokens,
+		cachedTokens:     cachedTokens,
+		stream:           stream,
+		viaProxy:         viaProxy,
+		clientIP:         clientIP,
+		upstreamIP:       upstreamIP,
+		failoverPath:     failoverPath,
+		keyIndex:         keyIndex,
+		errInfo:          errInfo,
 	})
 }
 
@@ -168,20 +168,22 @@ func (s *Service) analyticsWorker() {
 }
 
 // Shutdown 优雅停止异步落库 worker：关闭队列并等待在途批次落库后再返回。
-// 调用后不应再投递 analytics 记录（服务即将退出）。幂等；从未启用 worker 时
-// 直接放行。供测试（避免 TempDir 清理竞态）与进程优雅停机使用。
+// 调用后不应再投递 analytics 记录（服务即将退出）。幂等（重复调用直接放行）。
+// 供测试（避免 TempDir 清理竞态）与进程优雅停机使用。
 func (s *Service) Shutdown() {
-	s.analyticsStartMu.Lock()
-	started := s.analyticsStarted
-	if !started {
-		s.analyticsStarted = true
-		go s.analyticsWorker()
-	}
-	s.analyticsStartMu.Unlock()
-	close(s.analyticsQueue)
-	if started {
-		<-s.analyticsDone
-	}
+	s.shutdownOnce.Do(func() {
+		s.analyticsStartMu.Lock()
+		started := s.analyticsStarted
+		if !started {
+			s.analyticsStarted = true
+			go s.analyticsWorker()
+		}
+		s.analyticsStartMu.Unlock()
+		close(s.analyticsQueue)
+		if started {
+			<-s.analyticsDone
+		}
+	})
 }
 
 // persistAnalyticsBatch 将一批调用日志落库并按序广播。

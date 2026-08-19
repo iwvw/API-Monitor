@@ -2889,7 +2889,7 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 	}
 
 	// 切换过程不落日志：请求最终由健康端点 B 成功返回，relay-errors 不应出现
-// 端点 A 的 429 上游记录（网关内部切换只反映在最终结果里，不逐跳记明细）。
+	// 端点 A 的 429 上游记录（网关内部切换只反映在最终结果里，不逐跳记明细）。
 	wRelay := httptest.NewRecorder()
 	rRelay, _ := http.NewRequest("GET", "/api/openai/relay-errors?limit=20", nil)
 	service.ServeHTTP(wRelay, rRelay)
@@ -2916,7 +2916,7 @@ func TestNormalizeChatToolReasoningHistory(t *testing.T) {
 		"messages": []interface{}{
 			map[string]interface{}{"role": "user", "content": "hi"},
 			map[string]interface{}{
-				"role":   "assistant",
+				"role":    "assistant",
 				"content": "",
 				"tool_calls": []interface{}{
 					map[string]interface{}{"id": "call_1", "type": "function", "function": map[string]interface{}{"name": "f", "arguments": "{}"}},
@@ -2924,9 +2924,9 @@ func TestNormalizeChatToolReasoningHistory(t *testing.T) {
 			},
 			map[string]interface{}{"role": "tool", "tool_call_id": "call_1", "content": "ok"},
 			map[string]interface{}{
-				"role":             "assistant",
-				"content":          "done",
-				"tool_calls":       []interface{}{map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "g", "arguments": "{}"}}},
+				"role":              "assistant",
+				"content":           "done",
+				"tool_calls":        []interface{}{map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "g", "arguments": "{}"}}},
 				"reasoning_content": "已有思考",
 			},
 		},
@@ -2956,7 +2956,7 @@ func TestNormalizeChatToolReasoningHistory(t *testing.T) {
 		"model": "gpt-4",
 		"messages": []interface{}{
 			map[string]interface{}{
-				"role":   "assistant",
+				"role":    "assistant",
 				"content": "",
 				"tool_calls": []interface{}{
 					map[string]interface{}{"id": "call_3", "type": "function", "function": map[string]interface{}{"name": "h", "arguments": "{}"}},
@@ -2985,11 +2985,11 @@ func TestNormalizeReasoningEffort(t *testing.T) {
 		{
 			name: "chat max normalized to high",
 			input: map[string]interface{}{
-				"model":           "deepseek-v4-flash",
+				"model":            "deepseek-v4-flash",
 				"reasoning_effort": "max",
 			},
 			want: map[string]interface{}{
-				"model":           "deepseek-v4-flash",
+				"model":            "deepseek-v4-flash",
 				"reasoning_effort": "high",
 			},
 		},
@@ -3124,7 +3124,10 @@ func TestFailoverNormalizesReasoningEffort(t *testing.T) {
 
 // TestFirstCandidateKeepsReasoningEffort 首个候选应原样透传客户端的 reasoning_effort，
 // 保证主链路行为不变（只有 failover 候选才归一化）。
-func TestFirstCandidateKeepsReasoningEffort(t *testing.T) {
+func TestFirstCandidateGetsNormalizedReasoningEffort(t *testing.T) {
+	// reasoning_effort 归一化（max→high）在候选循环前对请求体统一执行：
+	// 会话亲和会把某候选提升为首选（k=0），若归一化只发生在 failover 副本上，
+	// 亲和路径的首选请求会拿到未归一化的 max 而被枚举更窄的上游 400。
 	var receivedEffort string
 	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
@@ -3174,10 +3177,10 @@ func TestFirstCandidateKeepsReasoningEffort(t *testing.T) {
 	}`))
 	service.ServeHTTP(wChat, rChat)
 	if wChat.Code != http.StatusOK {
-		t.Fatalf("first candidate should succeed as-is: code=%d body=%s", wChat.Code, wChat.Body.String())
+		t.Fatalf("first candidate should succeed: code=%d body=%s", wChat.Code, wChat.Body.String())
 	}
-	if receivedEffort != "max" {
-		t.Fatalf("expected first candidate to receive reasoning_effort=max unchanged, got %q", receivedEffort)
+	if receivedEffort != "high" {
+		t.Fatalf("expected first candidate to receive normalized reasoning_effort=high, got %q", receivedEffort)
 	}
 }
 
@@ -3189,11 +3192,11 @@ func TestFirstCandidateKeepsReasoningEffort(t *testing.T) {
 //  3. 主端点稳定收到 429，切换确实发生
 func TestStressEndpointSwitchNormalizesEffort(t *testing.T) {
 	var (
-		mu          sync.Mutex
-		rateHit     int
-		strictMax   int
-		strictHigh  int
-		nonMaxSeen  map[string]int
+		mu         sync.Mutex
+		rateHit    int
+		strictMax  int
+		strictHigh int
+		nonMaxSeen map[string]int
 	)
 	nonMaxSeen = make(map[string]int)
 
@@ -3713,7 +3716,7 @@ func TestSafeUploadPathJoin(t *testing.T) {
 		ok       bool
 		expected string
 	}{
-{"/uploads/a.png", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "a.png"},
+		{"/uploads/a.png", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "a.png"},
 		{"/uploads/sub/dir/img.webp", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "sub" + string(os.PathSeparator) + "dir" + string(os.PathSeparator) + "img.webp"},
 		{"/uploads/../secret.txt", false, ""},
 		{"/uploads/../../data/api.db", false, ""},
@@ -3818,27 +3821,29 @@ func TestEndpointWeightIncludesPriority(t *testing.T) {
 func TestEndpointExportImportPreservesAllFields(t *testing.T) {
 	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
 	db, err := service.open(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer db.Close()
 
 	create := Endpoint{
-		Name:        "full-fields",
-		BaseURL:     "https://upstream.example.com/v1",
-		APIKey:      "main-key-123",
-		APIKeys:     []string{"extra-key-456", "extra-key-789"},
-		Enabled:     true,
-		Models:      []string{"gpt-4o", "gpt-4o-mini"},
-		Headers:     []HeaderItem{{Name: "X-Custom", Value: "hello"}},
+		Name:           "full-fields",
+		BaseURL:        "https://upstream.example.com/v1",
+		APIKey:         "main-key-123",
+		APIKeys:        []string{"extra-key-456", "extra-key-789"},
+		Enabled:        true,
+		Models:         []string{"gpt-4o", "gpt-4o-mini"},
+		Headers:        []HeaderItem{{Name: "X-Custom", Value: "hello"}},
 		DisabledModels: []string{"gpt-3.5-turbo"},
-		ProxyPool:   []string{"http://p1:8080", "socks5://p2:1080"},
-		ProxyBatches: []ProxyBatch{{ID: "b1", Name: "batch-a", CreatedAt: "2026-01-01T00:00:00Z", Proxies: []string{"http://p1:8080"}}},
-		ProxyEnabled: true,
-		AutoSwitch:   true,
-		ForceProxy:   true,
-		Protocol:     "http",
-		ModelMappings: map[string]string{"deepseek-chat": "deepseek-v3"},
-		Priority:     3,
-		Weight:       7,
+		ProxyPool:      []string{"http://p1:8080", "socks5://p2:1080"},
+		ProxyBatches:   []ProxyBatch{{ID: "b1", Name: "batch-a", CreatedAt: "2026-01-01T00:00:00Z", Proxies: []string{"http://p1:8080"}}},
+		ProxyEnabled:   true,
+		AutoSwitch:     true,
+		ForceProxy:     true,
+		Protocol:       "http",
+		ModelMappings:  map[string]string{"deepseek-chat": "deepseek-v3"},
+		Priority:       3,
+		Weight:         7,
 	}
 	modelsJSON, _ := json.Marshal(create.Models)
 	headersJSON, _ := json.Marshal(create.Headers)
@@ -4007,7 +4012,7 @@ func TestSelectEndpointCandidatesDualMapping(t *testing.T) {
 	}
 	defer db.Close()
 	mappingsJSON, _ := json.Marshal(map[string]string{
-		"gcli-gemini-3.1-pro-preview":       "gemini-3.1-pro-preview",
+		"gcli-gemini-3.1-pro-preview":        "gemini-3.1-pro-preview",
 		"gcli-gemini-3.1-pro-preview-search": "gemini-3.1-pro-preview",
 	})
 	disabledJSON, _ := json.Marshal([]string{"gcli-gemini-3.1-pro-preview"})
