@@ -461,6 +461,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			if readErr != nil || isRetryableUpstreamResponse(resp, bodyBytesRead) {
 				if isRateLimitResponse(resp, bodyBytesRead) {
 					s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
+					if ra := retryAfterFromHeader(resp); ra != nil && (res.retryAfter == nil || *ra > *res.retryAfter) {
+						res.retryAfter = ra
+					}
 				}
 				s.clearSessionBinding(selected.ID, p.sessionKey)
 				s.recordRelayError(RelayErrorRecord{
@@ -493,6 +496,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		if stream && selected.AutoSwitch && attempt+1 < maxProxyAttempts && isRetryableUpstreamResponse(resp, nil) {
 			if isRateLimitResponse(resp, nil) {
 				s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
+				if ra := retryAfterFromHeader(resp); ra != nil && (res.retryAfter == nil || *ra > *res.retryAfter) {
+					res.retryAfter = ra
+				}
 			}
 			resp.Body.Close()
 			cancel()
@@ -706,6 +712,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// 最后一次尝试（无重试机会）返回限流：同样累计计数，供 429 熔断使用。
 	if resp != nil && isRateLimitResponse(resp, nil) {
 		s.markProxy429(selected.ID, lastProxy, retryAfterFromHeader(resp))
+		if ra := retryAfterFromHeader(resp); ra != nil && (res.retryAfter == nil || *ra > *res.retryAfter) {
+			res.retryAfter = ra
+		}
 	}
 	// 统一判定「上游可重试错误」：无论是否启用 AutoSwitch / 是否有代理池，
 	// 只要最终响应是限流或 5xx（且流式尚未写出首字节），都交给端点级 failover
@@ -951,6 +960,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var res *relayLoopResult
 	failCodes := []int{}
 	var lastRes *relayLoopResult
+	var retryAfter *time.Duration
 	retryRoundFinished := false
 	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
 	var failoverSteps []map[string]interface{}
@@ -1025,6 +1035,9 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if res.statusCode > 0 {
 				failCodes = append(failCodes, res.statusCode)
 			}
+			if res.retryAfter != nil && (retryAfter == nil || *res.retryAfter > *retryAfter) {
+				retryAfter = res.retryAfter
+			}
 			if ci+1 < len(endpointCandidates) {
 				selected = endpointCandidates[ci+1]
 				failReason := "上游转发失败"
@@ -1081,7 +1094,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
 		})
-		writeRelayUnavailable(w, model, failCodes)
+		writeRelayUnavailable(w, model, failCodes, retryAfter)
 		return
 	}
 	if lastRes != nil && lastRes.resp != nil {
@@ -1112,6 +1125,38 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		sw := newSSEStreamWriter(w)
 		buf := make([]byte, 4096)
 		tail := make([]byte, 0, usageTailLimit)
+		promptTokens := 0
+		completionTokens := 0
+		totalTokens := 0
+		cachedTokens := 0
+
+		// 流式 usage 逐块收集：只处理含 "usage" 标记的块，取最后一次出现值。
+		// 相比「保留 64KB 尾部再统一正则」，超大响应/长输出不会把 usage 挤出窗口。
+		collectStreamUsage := func(chunk []byte) {
+			if !bytes.Contains(chunk, []byte(`"usage"`)) {
+				return
+			}
+			if matches := completionTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					completionTokens = v
+				}
+			}
+			if matches := promptTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					promptTokens = v
+				}
+			}
+			if matches := totalTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					totalTokens = v
+				}
+			}
+			if matches := cachedTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					cachedTokens = v
+				}
+			}
+		}
 
 		// 每次写前延长写超时，避免 http.Server.WriteTimeout 掐断长流式响应。
 		extendStreamDeadline := func() {
@@ -1127,6 +1172,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			extendStreamDeadline()
 			sw.write(res.firstChunk)
 			tail = append(tail, res.firstChunk...)
+			collectStreamUsage(res.firstChunk)
 		}
 
 		for {
@@ -1139,6 +1185,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				if len(tail) > usageTailLimit {
 					tail = tail[len(tail)-usageTailLimit:]
 				}
+				collectStreamUsage(buf[:n])
 			}
 			if err != nil {
 				break
@@ -1154,25 +1201,8 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
-		promptTokens := 0
-		completionTokens := 0
-		totalTokens := 0
-		cachedTokens := 0
-
-		accumulatedStr := string(tail)
-		if matches := promptTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			promptTokens, _ = strconv.Atoi(matches[1])
-		}
-		if matches := completionTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			completionTokens, _ = strconv.Atoi(matches[1])
-		}
-		if matches := totalTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			totalTokens, _ = strconv.Atoi(matches[1])
-		} else if promptTokens > 0 || completionTokens > 0 {
+		if totalTokens == 0 && (promptTokens > 0 || completionTokens > 0) {
 			totalTokens = promptTokens + completionTokens
-		}
-		if matches := cachedTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			cachedTokens, _ = strconv.Atoi(matches[1])
 		}
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)
@@ -2025,6 +2055,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	var res *relayLoopResult
 	failCodes := []int{}
 	var lastRes *relayLoopResult
+	var retryAfter *time.Duration
 	retryRoundFinished := false
 	var failoverSteps []map[string]interface{}
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
@@ -2097,6 +2128,9 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			if res.statusCode > 0 {
 				failCodes = append(failCodes, res.statusCode)
 			}
+			if res.retryAfter != nil && (retryAfter == nil || *res.retryAfter > *retryAfter) {
+				retryAfter = res.retryAfter
+			}
 			if ci+1 < len(endpointCandidates) {
 				selected = endpointCandidates[ci+1]
 				failReason := "上游转发失败"
@@ -2153,7 +2187,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
 		})
-		writeRelayUnavailable(w, model, failCodes)
+		writeRelayUnavailable(w, model, failCodes, retryAfter)
 		return
 	}
 	if lastRes != nil && lastRes.resp != nil {
@@ -2197,9 +2231,38 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		if res.firstWritten && len(res.firstChunk) > 0 {
 			streamReader = bufio.NewReader(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 		}
-		// usage 信息总在最后的 response.completed 事件里，只保留流尾部即可，
-		// 避免长对话把整个流式响应累积在内存中。
+		// usage 信息总在最后的 response.completed 事件里，但同样逐块收集（见 collectResponsesUsage），
+		// 避免长对话把整个流式响应累积在内存中 / 超长响应把 usage 挤出尾部窗口。
 		tail := make([]byte, 0, usageTailLimit)
+		promptTokens := 0
+		completionTokens := 0
+		totalTokens := 0
+		cachedTokens := 0
+		collectResponsesUsage := func(block []byte) {
+			if !bytes.Contains(block, []byte(`"usage"`)) {
+				return
+			}
+			if matches := outputTokensRegex.FindSubmatch(block); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					completionTokens = v
+				}
+			}
+			if matches := inputTokensRegex.FindSubmatch(block); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					promptTokens = v
+				}
+			}
+			if matches := totalTokensRegex.FindSubmatch(block); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					totalTokens = v
+				}
+			}
+			if matches := cachedTokensRegex.FindSubmatch(block); len(matches) > 1 {
+				if v, err := strconv.Atoi(string(matches[1])); err == nil {
+					cachedTokens = v
+				}
+			}
+		}
 		for {
 			block, readErr := readSSEBlock(streamReader)
 			if len(block) > 0 {
@@ -2211,6 +2274,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 					extendStreamDeadline()
 					sw.write(out)
 				}
+				collectResponsesUsage(block)
 			}
 			if readErr != nil {
 				break
@@ -2218,25 +2282,8 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
-		// 从尾部 response.completed 事件解析 usage（Responses 用 input/output_tokens）。
-		promptTokens := 0
-		completionTokens := 0
-		totalTokens := 0
-		cachedTokens := 0
-		accumulatedStr := string(tail)
-		if matches := inputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			promptTokens, _ = strconv.Atoi(matches[1])
-		}
-		if matches := outputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			completionTokens, _ = strconv.Atoi(matches[1])
-		}
-		if matches := totalTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			totalTokens, _ = strconv.Atoi(matches[1])
-		} else if promptTokens > 0 || completionTokens > 0 {
+		if totalTokens == 0 && (promptTokens > 0 || completionTokens > 0) {
 			totalTokens = promptTokens + completionTokens
-		}
-		if matches := cachedTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			cachedTokens, _ = strconv.Atoi(matches[1])
 		}
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)

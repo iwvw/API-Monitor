@@ -135,9 +135,9 @@ export function useAnalytics(activeTab) {
           const log = JSON.parse(event.data);
           setAnalyticsLogs(prev => {
             if (!prev || prev.length === 0) return [log, ...prev];
-            const existing = new Set(prev.map(item => `${item.timestamp}:${item.model}:${item.clientIp ?? ''}:${item.latencyMs ?? ''}`));
-            const key = `${log.timestamp}:${log.model ?? ''}:${log.clientIp ?? ''}:${log.latencyMs ?? ''}`;
-            if (existing.has(key)) return prev;
+            const dedupOf = item => `${item.timestamp}|${item.model ?? ''}|${item.statusCode ?? ''}|${item.endpoint ?? ''}|${item.clientIp ?? ''}|${item.latencyMs ?? ''}|${item.completionTokens ?? ''}`;
+            const existing = new Set(prev.map(dedupOf));
+            if (existing.has(dedupOf(log))) return prev;
             return [log, ...prev].slice(0, analyticsPageSize);
           });
         } catch {

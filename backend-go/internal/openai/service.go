@@ -1527,6 +1527,7 @@ type relayLoopResult struct {
 	lastErr           error
 	endpointExhausted bool // 本轮全部 API Key 尝试失败，应切换到下一个候选端点
 	retryableUpstream bool // 上游返回 429/5xx 且代理重试耗尽，应切换到下一个候选端点
+	retryAfter        *time.Duration // 各尝试中上游 429 携带的最大 Retry-After（全渠道耗尽时透传客户端）
 	firstChunk        []byte
 	firstWritten      bool
 	ttfbMs            int64

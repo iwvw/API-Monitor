@@ -767,9 +767,10 @@ func proxyRateLimited(state *endpointProxyState, proxy string, now time.Time) bo
 }
 
 // pickKey 从端点全部 key 中按轮询选出一个 key，返回 (key, index)。
-// key 永不冻结：triedKeys 记录本次请求内已尝试失败的 key，跳过它们避免无限重试；
-// 全部 key 均已在本轮尝试失败时返回 ("", -1)，由调用方触发端点级切换。
-// 429 绝不冻结 key，只靠轮询天然分散 RPM 压力。
+// key 轮询选择：triedKeys 记录本次请求内已尝试失败的 key，跳过它们避免无限重试；
+// 冷却中的 key（连续失败达阈值，见 markKeyFailure）在轮询时跳过，让故障 key 喘息；
+// 全部候选均冷却或已尝试时返回首个未尝试 key 兜底（不冻结），或 ("", -1) 触发端点级切换。
+// 429 绝不冷却 key，只靠轮询天然分散 RPM 压力。
 func (s *Service) pickKey(endpointID string, keys []string, triedKeys map[string]bool) (string, int) {
 	cleaned := cleanKeyList(keys)
 	if len(cleaned) == 0 {
@@ -786,13 +787,28 @@ func (s *Service) pickKey(endpointID string, keys []string, triedKeys map[string
 		state.cursor = 0
 	}
 	start := state.cursor
+	now := time.Now()
+	var fallback string
+	fallbackIdx := -1
 	for i := 0; i < len(cleaned); i++ {
 		idx := (start + i) % len(cleaned)
-		if triedKeys != nil && triedKeys[cleaned[idx]] {
+		key := cleaned[idx]
+		if triedKeys != nil && triedKeys[key] {
+			continue
+		}
+		if fallbackIdx == -1 {
+			// 记录首个未尝试 key（即便在冷却中）：全冷时兜底保证可用性。
+			fallback, fallbackIdx = key, idx
+		}
+		if entry, ok := state.health[key]; ok && entry.cooldownUntil.After(now) {
 			continue
 		}
 		state.cursor = (idx + 1) % len(cleaned)
-		return cleaned[idx], idx
+		return key, idx
+	}
+	if fallbackIdx != -1 {
+		state.cursor = (fallbackIdx + 1) % len(cleaned)
+		return fallback, fallbackIdx
 	}
 	return "", -1
 }
@@ -979,11 +995,12 @@ func unavailableStatusCode(model string, failCodes []int) int {
 }
 
 // writeRelayUnavailable 在所有候选端点均失败后，聚合各端点失败状态码决定返回给客户端的错误：
-//   - 所有端点失败码一致（如全部 429）→ 透传该码，并说明网关无可用渠道。
+//   - 所有端点失败码一致（如全部 429）→ 透传该码，并说明网关无可用渠道；
+//     属于限流族（429/439/529）且上游给出 Retry-After 时，透传 Retry-After 头。
 //   - 失败码不一致或不在 4xx/5xx 内 → 返回 503 网关无可用渠道。
 //
 // 这类「所有渠道耗尽」属于网关自身状态，不额外写入调用日志（各尝试已在 relayLoop 内记录）。
-func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int) {
+func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int, retryAfter *time.Duration) {
 	if len(failCodes) > 0 {
 		first := failCodes[0]
 		allSame := true
@@ -994,6 +1011,13 @@ func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int)
 			}
 		}
 		if allSame && first >= 400 && first < 600 {
+			if isRateLimitStatus(first) && retryAfter != nil && *retryAfter > 0 {
+				seconds := int((*retryAfter + time.Second - 1) / time.Second)
+				if seconds < 1 {
+					seconds = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(seconds))
+			}
 			msg := fmt.Sprintf("网关无可用渠道（模型 %s）：所有端点均返回 HTTP %d", model, first)
 			response.JSON(w, first, map[string]interface{}{
 				"error": map[string]string{"message": msg, "type": "service_unavailable"},
@@ -1007,6 +1031,15 @@ func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int)
 			"type":    "service_unavailable",
 		},
 	})
+}
+
+// isRateLimitStatus 判定状态码是否属于限流族（透传 Retry-After 的适用场景）。
+func isRateLimitStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests, 439, 529:
+		return true
+	}
+	return false
 }
 
 // isRetryableUpstreamResponse 判断上游响应是否值得切换到下一个代理重试：
