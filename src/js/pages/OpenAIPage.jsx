@@ -53,43 +53,8 @@ echarts.use([
   CanvasRenderer,
 ]);
 const siteFontEcharts = createSiteFontEcharts(echarts);
-const ENDPOINT_PROTOCOL_OPTIONS = [
-  { value: 'auto', label: '自动（HTTP/2 优先）' },
-  { value: 'http1', label: 'HTTP/1.1' },
-  { value: 'h2', label: 'HTTP/2' },
-];
-// 大代理池（文件批量导入可达数千条）在表单/管理弹窗中只预览前 N 条，避免渲染卡顿。
-const PROXY_PREVIEW_LIMIT = 120;
-// 报错详情弹窗的超长折叠阈值：超过该字符数的报错 JSON 默认只显示前缀，可一键展开。
-const LOG_DETAIL_COLLAPSE_LIMIT = 8000;
 
-// formatErrorResponseForDisplay 把报错 JSON 转为可读文本：合法 JSON 格式化缩进；
-// 截断/非 JSON 内容还原字符串内的 \r\n、\n、\t 转义序列，避免挤成一行。
-function formatErrorResponseForDisplay(raw) {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw
-      .replace(/\\r\\n/g, '\n')
-      .replace(/\\n/g, '\n')
-      .replace(/\\t/g, '  ');
-  }
-}
-
-// errorKindLabel 把后端错误环节代号转成简短中文标签，供详情弹窗展示。
-function errorKindLabel(kind) {
-  const labels = {
-    no_endpoint: '无可用端点',
-    bad_request: '请求无效',
-    gateway: '网关故障',
-    blocked: '网关限制',
-    upstream: '上游报错',
-    bad_gateway: '上游不可达',
-    dial: '连接失败',
-    config: '端点配置错误',
-  };
-  return labels[kind] || kind || '未知';
-}
+// formatErrorResponseForDisplay 与 errorKindLabel 已迁至 ./openai/utils.js（报错展示工具）。
 import {
   DEFAULT_MODEL_HEALTH_CONCURRENCY,
   DEFAULT_MODEL_HEALTH_TIMEOUT_SECONDS,
@@ -147,119 +112,32 @@ import {
   Sliders,
   ChevronDown,
 } from '../components/Icons.jsx';
-
-// 从 Kumo CSS 变量读取主题色，供 ECharts 等需要真实颜色值的场景使用。
-const kumoHex = name => {
-  try {
-    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return value || undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-// 大数字压缩为「万 / 亿」单位；小数位默认 2 位。
-const formatCompact = (value, decimals = 2) => {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value);
-  const abs = Math.abs(num);
-  if (abs >= 1e8) return `${(num / 1e8).toFixed(decimals)}亿`;
-  if (abs >= 1e4) return `${(num / 1e4).toFixed(decimals)}万`;
-  if (Number.isInteger(num)) return String(num);
-  return num.toFixed(decimals);
-};
-
-// 词元统一以百万（M）为单位，保留 2 位小数。
-const formatTokensM = value => `${(Number(value) / 1e6).toFixed(2)}M`;
-
-function createHealthCheckProgress(total = 0, running = false) {  return { running, total, completed: 0, healthy: 0, degraded: 0, failed: 0 };
-}
-
-// parseProxyEntry 解析代理 URL 为可读摘要与完整值：
-// 返回 { label, full, host, ip }。label 为友好名称（优先 # 后的节点名），
-// ip 为纯主机地址（不含端口与用户信息），host 为 host:port 或 user:pass@host:port。
-function parseProxyEntry(raw) {
-  const value = String(raw || '').trim();
-  if (!value) return { label: '', full: value, host: '', ip: '' };
-  let label = value;
-  let host = '';
-  let ip = '';
-  try {
-    let rest = value;
-    let hash = '';
-    const hashIndex = rest.indexOf('#');
-    if (hashIndex !== -1) {
-      hash = rest.slice(hashIndex);
-      rest = rest.slice(0, hashIndex);
-    }
-    // 去掉 scheme://，兼容 socks/http/https 等自定义协议（new URL 对 socks 不解析 host）。
-    const schemeEnd = rest.indexOf('://');
-    if (schemeEnd !== -1) rest = rest.slice(schemeEnd + 3);
-    // 去掉 userinfo，得到 host:port。
-    const atIndex = rest.lastIndexOf('@');
-    const authority = atIndex !== -1 ? rest.slice(atIndex + 1) : rest;
-    host = authority;
-    // 去掉端口得到纯 IP/主机名。
-    ip = authority.replace(/:\d+$/, '');
-    // # 后的 fragment 通常是节点名。
-    const fallback = hash ? decodeURIComponent(hash.slice(1)) : '';
-    label = fallback || authority || value;
-  } catch {
-    // 解析失败时展示原文。
-  }
-  return { label, full: value, host, ip };
-}
+import {
+  ENDPOINT_PROTOCOL_OPTIONS,
+  PROXY_PREVIEW_LIMIT,
+  LOG_DETAIL_COLLAPSE_LIMIT,
+  GATEWAY_EXPIRY_HOURS,
+  GATEWAY_EXPIRY_MINUTES,
+} from './openai/constants.js';
+import {
+  formatErrorResponseForDisplay,
+  errorKindLabel,
+  kumoHex,
+  formatCompact,
+  formatTokensM,
+  createHealthCheckProgress,
+  parseProxyEntry,
+  activeModelIdsForEndpoint,
+  resultTone,
+  ttfbTone,
+  statusCodeTone,
+  maskIp,
+  toLocalDateTimeValue,
+  parseLocalDateTime,
+} from './openai/utils.js';
 
 // 自绘 ECharts 柱状时间桶：每个桶(小时/天/周)一根柱，类目轴标签 = 桶名，避免时间轴重复标签。
 
-function activeModelIdsForEndpoint(endpoint) {
-  const disabled = Array.isArray(endpoint?.disabledModels) ? endpoint.disabledModels : [];
-  return Array.from(
-    new Set(
-      (Array.isArray(endpoint?.models) ? endpoint.models : [])
-        .map(model => (typeof model === 'string' ? model.trim() : (model?.id || '').trim()))
-        .filter(id => id && !disabled.includes(id))
-    )
-  );
-}
-
-// 按请求结果给 pill 上色：先看状态码（失败语义优先），成功再看总耗时。
-// 耗时档位相对首字放宽（总耗时含上传+推理+输出）：绿 < 15s，蓝 15-45s，
-// 黄 45-120s，红 >= 120s；成功但无输出的低完成度请求保持黄，提醒关注。
-function resultTone(statusCode, completionTokens, latencyMs) {
-  const status = Number(statusCode) || 0;
-  const ms = Number(latencyMs) || 0;
-  if (status === 429) return 'warning';
-  if (status >= 500) return 'danger';
-  if (status >= 400) return 'warning';
-  if (!(Number(completionTokens) > 0)) return 'warning';
-  if (ms >= 120000) return 'danger';
-  if (ms >= 45000) return 'warning';
-  if (ms >= 15000) return 'info';
-  return 'success';
-}
-
-// ttfbTone 根据首字耗时（毫秒）返回色阶。相对当前网关实际分布（响应常见
-// 5-130s，空闲时可低至 1-3s）取档：绿 < 5s 正常，蓝 5-15s 偏慢，黄 15-45s
-// 很慢，红 >= 45s 异常/接近超时；无数据（'—'）用灰 neutral 与蓝色区分。
-function ttfbTone(ms) {
-  if (ms <= 0) return 'neutral';
-  if (ms < 5000) return 'success';
-  if (ms < 15000) return 'info';
-  if (ms < 45000) return 'warning';
-  return 'danger';
-}
-
-function statusCodeTone(code) {
-  if (code === 429) return 'warning';
-  if (code >= 500) return 'danger';
-  if (code >= 400) return 'warning';
-  return 'success';
-}
-
-// ProxyRuntimeMeta 展示单个代理的运行时观测信息：出口公网 IP 与最近首字延迟。
-// state 来自 /proxy-state 的 proxyRuntimeStateItem；两者皆可缺省（尚未产生探活
-// 记录时静默不渲染，保持列表紧凑）。
 function ProxyRuntimeMeta({ proxy, state }) {
   const hasExit = state && state.lastExitIP;
   const hasTTFB = state && Number(state.lastTTFB) > 0;
@@ -380,36 +258,6 @@ function MultiSelectPopover({ triggerLabel, options, selected, onToggle, onClear
 // maskIp 压缩 IP 展示：去掉端口，仅保留首尾片段、中间用 *** 隐藏，用于日志表格
 // 减少宽度占用。IPv4 保留前 2 段 + 后 1 段；IPv6 默认保留前 2 段 + 后 2 段，
 // v6EdgeOnly 时仅保留首尾各 1 段、中间 ***::***。
-function maskIp(raw, v6EdgeOnly = false) {
-  if (!raw) return raw || '';
-  let value = String(raw).trim();
-  // 剥掉方括号包裹的 IPv6 端口：[2001:db8::1]:443 → 2001:db8::1。
-  const bracketed = value.match(/^\[(.+)\]:\d+$/);
-  if (bracketed) value = bracketed[1];
-  const colonIdx = value.lastIndexOf(':');
-  // 形如 1.2.3.4:5678 时去掉端口；IPv6（含 :: 分隔）不剥端口。
-  if (/^\d{1,3}(\.\d{1,3}){3}/.test(value) && colonIdx > -1) {
-    value = value.slice(0, colonIdx);
-  }
-  value = value.replace('[', '').replace(']', '');
-  if (value.includes(':')) {
-    // IPv6
-    const segments = value.split(':');
-    if (segments.length <= 2) return value;
-    if (v6EdgeOnly) {
-      return `${segments[0]}:***::***:${segments[segments.length - 1]}`;
-    }
-    const head = segments.slice(0, 2).join(':');
-    const tail = segments.slice(-2).join(':');
-    return `${head}***${tail}`;
-  }
-  const parts = value.split('.');
-  if (parts.length === 4) {
-    return `${parts[0]}.***.***.${parts[3]}`;
-  }
-  return value;
-}
-
 // FailoverPathBadge 在端点列展示渠道迁移标记：当一次请求经历过多个端点尝试时，
 // 端点名以橙色高亮，点击弹出完整迁移路径。
 function FailoverPathBadge({ path, endpointName }) {
@@ -476,30 +324,6 @@ function KeyStatusBadge({ check }) {
       {props.label}
     </StatusBadge>
   );
-}
-
-const GATEWAY_EXPIRY_HOURS = Array.from({ length: 24 }, (_, hour) => {
-  const value = String(hour).padStart(2, '0');
-  return { value, label: value };
-});
-
-const GATEWAY_EXPIRY_MINUTES = Array.from({ length: 60 }, (_, minute) => {
-  const value = String(minute).padStart(2, '0');
-  return { value, label: value };
-});
-
-function toLocalDateTimeValue(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
-  const pad = value => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`;
-}
-
-function parseLocalDateTime(value) {
-  if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
   // 时间序列（小时/天/周粒度）：为每根柱提供独立可对齐的类目轴。
