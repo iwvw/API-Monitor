@@ -2317,16 +2317,18 @@ function OpenAIPage() {
                 <div className="flex w-full flex-wrap items-center justify-between gap-2">
                   <span>模型调用趋势</span>
                   <div className="flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain scrollbar-thin">
-                    <Tabs
-                      variant="segmented"
-                      size="sm"
-                      value={modelTrendMode}
-                      onValueChange={setModelTrendMode}
-                      tabs={[
-                        { value: 'model', label: '按模型' },
-                        { value: 'endpoint', label: '按站点' },
-                      ]}
-                    />
+                    {modelTrendMetric === 'tokens' && (
+                      <Tabs
+                        variant="segmented"
+                        size="sm"
+                        value={modelTrendCache}
+                        onValueChange={setModelTrendCache}
+                        tabs={[
+                          { value: 'uncached', label: '未缓存' },
+                          { value: 'all', label: '全部' },
+                        ]}
+                      />
+                    )}
                     <Tabs
                       variant="segmented"
                       size="sm"
@@ -2337,18 +2339,16 @@ function OpenAIPage() {
                         { value: 'tokens', label: '词元' },
                       ]}
                     />
-                    {modelTrendMetric === 'tokens' && (
-                      <Tabs
-                        variant="segmented"
-                        size="sm"
-                        value={modelTrendCache}
-                        onValueChange={setModelTrendCache}
-                        tabs={[
-                          { value: 'all', label: '全部' },
-                          { value: 'uncached', label: '未缓存' },
-                        ]}
-                      />
-                    )}
+                    <Tabs
+                      variant="segmented"
+                      size="sm"
+                      value={modelTrendMode}
+                      onValueChange={setModelTrendMode}
+                      tabs={[
+                        { value: 'model', label: '按模型' },
+                        { value: 'endpoint', label: '按站点' },
+                      ]}
+                    />
                   </div>
                 </div>
               </LayerCard.Secondary>

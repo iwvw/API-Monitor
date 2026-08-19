@@ -1120,7 +1120,7 @@ function DashboardPage({ onNavigate } = {}) {
               onValueChange={(value) => setApiTrendRange(Number(value))}
             />
           )}
-          bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 cq-sm:p-5"
+          bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 cq-sm:p-3"
         >
           <div className="flex flex-nowrap gap-x-4 overflow-x-auto overscroll-x-contain px-1 pb-1 touch-pan-x scrollbar-thin">
             {apiTrendSeries.map((series) => (
