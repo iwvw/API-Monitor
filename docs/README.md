@@ -53,6 +53,7 @@
 - tab 栏右侧的搜索框用 `ResponsiveSearchInput`：宽屏展示输入框，窄屏折叠为搜索图标 Popover（内部输入 + 可选搜索按钮）。所有搜索框在移动端都应折叠为搜索按钮，不要占整行宽度。
 - 双列表格布局（如 DNS 域名+记录、模型网关端点+模型）依赖祖先 `container-type` 容器与 `@container` 断点切换两列。改造页面时不要把容器类（如 `dns-workspace`）一并删掉，否则双列退回单列。两列都保持自然高、一起滚动，某列内容较短时直接变短，不强行拉平。
 - 双列内容高度不均且需要短列常驻可视时（如系统设置·审计/安全/数据库的「左配置 + 右列表」）：父级 `grid items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]`，左侧配置卡（或多卡分组容器）加 `cq-xl:sticky top-[calc(var(--app-header-height)+0.5rem)] z-20`（吸顶时贴在页面吸顶 tab 栏下方）；`cq-xl:` 前缀保证吸顶只在双列断点生效——窄屏单列布局回到普通文档流，避免移动端滚动时卡片悬空。列内保持自然高，不额外引入表格内部滚动的混合模式。
+- 双列中某一侧需要「sticky + 限高内部滚动」（如 API 接口文档的右侧接口详情：`cq-xl:sticky cq-xl:top-[70px] cq-xl:max-h-[calc(100vh-82px)] cq-xl:overflow-y-auto cq-xl:self-start`）时，另一侧（如接口目录）必须加 `self-start`，否则会被行高拉伸、内容短时底部留白；目录树自身保持自然高随页滚动。
 - 表格/列表底部不留额外间隙：PageStack 使用 `viewport`（`pb-0`）变体 + 内容自然高度，不要再用 `h-full/flex-1` 撑满或内部 `overflow-auto` 制造填满视口的假象；底部被 content 自身内容决定，多余空白来自额外的底部 padding 或少显 `flex-1`。
 - 所有页面内容区四边距统一为 12px（`--app-canvas-gutter-x/top/bottom`），由 `MainLayout.jsx` 统一负责；viewport 工作区分支与普通滚动分支都使用同一套 gutter 变量，保证仪表盘、系统日志、Draw.io 等页面四边一致。页面内部不要额外叠加 `px-px/pt-px` 这类 padding 造成内外累计不均匀。
 - 改页面模板时必须同步检查 import（如 `stickyTabsBaseClass`、`TabBarOverflowActions`、`ResponsiveSearchInput`）；漏 import 会导致对应模块整页崩溃（`X is not defined`）。改动共享组件/常量（例如 `MODULE_TABS_PROPS`）会影响所有模块，需全局评估后再提交。修改后立即跑一次 `vite build` 兜底，能发现变量名笔误（如 `viewportWorkspace` 与 `viewportWorkspaceModule`）导致的构建失败。
