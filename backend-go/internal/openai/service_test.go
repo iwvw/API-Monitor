@@ -3784,3 +3784,66 @@ func TestPickKeySkipsCooledKeyWithFallback(t *testing.T) {
 		t.Fatal("expected k-bad to be pickable again after success")
 	}
 }
+
+func TestAnalyticsChartsByDimensionCarryTokenSeries(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO openai_gateway_analytics (endpoint_id, route, model, status_code, latency_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, timestamp)
+		VALUES
+			('ep1', 'chat.completions', 'model-a', 200, 100, 500, 1000, 1500, 300, datetime('now', '-1 day')),
+			('ep1', 'chat.completions', 'model-a', 200, 200, 200, 800, 1000, 700, datetime('now', '-2 days')),
+			('ep1', 'chat.completions', 'model-b', 200, 150, 100, 100, 200, 0, datetime('now', '-1 day'))
+	`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/charts?days=7&granularity=day", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("charts status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var charts struct {
+		ByModel []struct {
+			Model          string  `json:"model"`
+			Data           []int   `json:"data"`
+			Tokens         []int64 `json:"tokens"`
+			TokensUncached []int64 `json:"tokensUncached"`
+		} `json:"byModel"`
+	}
+	mustDecode(t, rec.Body.String(), &charts)
+
+	idx := -1
+	for i := range charts.ByModel {
+		if charts.ByModel[i].Model == "model-a" {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		t.Fatalf("byModel series missing model-a: %+v", charts.ByModel)
+	}
+	var totalTokens, totalData int64
+	for i := range charts.ByModel[idx].Tokens {
+		totalData += int64(charts.ByModel[idx].Data[i])
+		totalTokens += charts.ByModel[idx].Tokens[i]
+	}
+	if totalData != 2 {
+		t.Fatalf("model-a count series wrong: %+v", charts.ByModel[idx].Data)
+	}
+	if totalTokens != 2500 {
+		t.Fatalf("model-a tokens series wrong: %+v", charts.ByModel[idx].Tokens)
+	}
+	totalUncached := int64(0)
+	for _, v := range charts.ByModel[idx].TokensUncached {
+		totalUncached += v
+	}
+	// 1500 + 1000 全部词元中，300 + 700 为缓存命中，未缓存应为 2500-1000=1500。
+	if totalUncached != 1500 {
+		t.Fatalf("model-a tokensUncached series wrong: %+v", charts.ByModel[idx].TokensUncached)
+	}
+}

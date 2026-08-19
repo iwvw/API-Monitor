@@ -402,27 +402,38 @@ const TrendBarChart = memo(function TrendBarChart({
 });
 
 // 全宽「模型 × 时间」折线趋势：类别轴（每桶唯一刻度），稀疏段断线成 Trend；
-// 顶部图例按调用次数降序，颜色与折线同一份映射，点击隔离/恢复。
-const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMode, loading = false }) {
+// 顶部图例按指标值降序，颜色与折线同一份映射，点击隔离/恢复。
+// metric: 'count'（调用量）| 'tokens'（全部词元）| 'tokensUncached'（未缓存词元）。
+const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMode, loading = false, metric = 'count' }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const [hiddenSeries, setHiddenSeries] = useState({});
+  const tokensMetric = metric !== 'count';
 
-  // 排序必须完全确定：调用次数降序、相同次数按模型名升序，避免图例顺序
+  const pickValues = item => {
+    if (metric === 'tokens') return item.tokens || [];
+    if (metric === 'tokensUncached') return item.tokensUncached || [];
+    return item.data || [];
+  };
+
+  // 排序必须完全确定：指标值降序、相同值按模型名升序，避免图例顺序
   // 随接口返回顺序（后端 map 迭代随机）漂移；颜色在排序后按固定位次分配，
   // 保证同一模型始终同色。
   const ordered = useMemo(() => {
-    const withMeta = (series || []).map(item => ({
-      model: item.model,
-      total: (item.data || []).reduce((sum, value) => sum + (Number(value) || 0), 0),
-      values: (item.data || []).map(value => Number(value) || 0),
-    }));
+    const withMeta = (series || []).map(item => {
+      const values = pickValues(item).map(value => Number(value) || 0);
+      return {
+        model: item.model,
+        total: values.reduce((sum, value) => sum + value, 0),
+        values,
+      };
+    });
     withMeta.sort((a, b) => b.total - a.total || (a.model < b.model ? -1 : a.model > b.model ? 1 : 0));
     return withMeta.map((item, index) => ({
       ...item,
       color: ChartPalette.categorical(index, isDarkMode),
     }));
-  }, [series, isDarkMode]);
+  }, [series, isDarkMode, metric]);
 
   const visibleSeries = useMemo(
     () => ordered.filter(item => !hiddenSeries[item.model]),
@@ -461,6 +472,9 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
           appendTo: 'body',
           backgroundColor: kumoHex('--color-kumo-base'),
           textStyle: { color: axisColor, fontSize: 11 },
+          valueFormatter: tokensMetric
+            ? value => `${(Number(value) / 1e6).toFixed(2)}M`
+            : undefined,
         },
         xAxis: {
           type: 'category',
@@ -476,7 +490,9 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
           axisLabel: {
             color: axisColor,
             fontSize: 10,
-            formatter: value => formatCompact(value, 0),
+            formatter: tokensMetric
+              ? value => `${(Number(value) / 1e6).toFixed(1)}M`
+              : value => formatCompact(value, 0),
           },
         },
         series: visibleSeries.map(item => ({
@@ -496,7 +512,7 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
       //「新 series 数组变短 → 按 index 合并」导致被隐藏的旧系列残留、颜色错位。
       { replaceMerge: ['series'] }
     );
-  }, [labels, visibleSeries, isDarkMode]);
+  }, [labels, visibleSeries, isDarkMode, metric, tokensMetric]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -533,8 +549,8 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
             key={item.model}
             name={item.model}
             color={item.color}
-            value={item.total.toLocaleString('en-US', { useGrouping: false })}
-            unit="次"
+            value={tokensMetric ? formatTokensM(item.total) : formatCompact(item.total, 0)}
+            unit={tokensMetric ? '' : '次'}
             inactive={hiddenSeries[item.model] ?? false}
             onClick={() => handleClick(item.model)}
           />
@@ -568,6 +584,8 @@ function OpenAIPage() {
     latencyTrendMode, setLatencyTrendMode,
     errorTrendMode, setErrorTrendMode,
     modelTrendMode, setModelTrendMode,
+    modelTrendMetric, setModelTrendMetric,
+    modelTrendCache, setModelTrendCache,
     tokenShareMode, setTokenShareMode,
     countShareMode, setCountShareMode,
     analyticsCharts,
@@ -2288,18 +2306,42 @@ function OpenAIPage() {
             <div className="grid">
             <LayerCard className="min-w-0 p-0">
               <LayerCard.Secondary>
-                <div className="flex w-full items-center justify-between gap-2">
+                <div className="flex w-full flex-wrap items-center justify-between gap-2">
                   <span>模型调用趋势</span>
-                  <Tabs
-                    variant="segmented"
-                    size="sm"
-                    value={modelTrendMode}
-                    onValueChange={setModelTrendMode}
-                    tabs={[
-                      { value: 'model', label: '按模型' },
-                      { value: 'endpoint', label: '按站点' },
-                    ]}
-                  />
+                  <div className="flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain scrollbar-thin">
+                    <Tabs
+                      variant="segmented"
+                      size="sm"
+                      value={modelTrendMode}
+                      onValueChange={setModelTrendMode}
+                      tabs={[
+                        { value: 'model', label: '按模型' },
+                        { value: 'endpoint', label: '按站点' },
+                      ]}
+                    />
+                    <Tabs
+                      variant="segmented"
+                      size="sm"
+                      value={modelTrendMetric}
+                      onValueChange={setModelTrendMetric}
+                      tabs={[
+                        { value: 'count', label: '调用量' },
+                        { value: 'tokens', label: '词元' },
+                      ]}
+                    />
+                    {modelTrendMetric === 'tokens' && (
+                      <Tabs
+                        variant="segmented"
+                        size="sm"
+                        value={modelTrendCache}
+                        onValueChange={setModelTrendCache}
+                        tabs={[
+                          { value: 'all', label: '全部' },
+                          { value: 'uncached', label: '未缓存' },
+                        ]}
+                      />
+                    )}
+                  </div>
                 </div>
               </LayerCard.Secondary>
               <LayerCard.Primary className="!p-3">
@@ -2311,6 +2353,13 @@ function OpenAIPage() {
                 <ModelTrendChart
                   labels={byModelTrend.labels}
                   series={modelTrendMode === 'endpoint' ? byModelTrend.endpoints : byModelTrend.models}
+                  metric={
+                    modelTrendMetric === 'tokens'
+                      ? modelTrendCache === 'uncached'
+                        ? 'tokensUncached'
+                        : 'tokens'
+                      : 'count'
+                  }
                   isDarkMode={isDarkMode}
                   loading={analyticsLoading}
                 />

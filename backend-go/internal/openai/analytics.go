@@ -647,10 +647,13 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	`)
 
 	// 3. 按“维度 × 时段”展开调用量，供全宽趋势图多系列使用。
-	// querySQL 必须按 (name, ts_sec, count) 顺序返回；维度名即系列名。
+	// 同时聚合词元（全部/未缓存），供「调用量 / 词元」切换展示。
+	// querySQL 必须按 (name, ts_sec, count, tokens, cached) 顺序返回；维度名即系列名。
 	type ModelSeriesGroup struct {
-		Model string `json:"model"`
-		Data  []int  `json:"data"`
+		Model          string  `json:"model"`
+		Data           []int   `json:"data"`
+		Tokens         []int64 `json:"tokens"`
+		TokensUncached []int64 `json:"tokensUncached"`
 	}
 	tsToLabel := make(map[int64]string, len(dailyPoints))
 	for _, point := range dailyPoints {
@@ -670,16 +673,23 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		defer rows.Close()
-		counts := make(map[int64]map[string]int) // ts -> dimension -> count
+		counts := make(map[int64]map[string]int)   // ts -> dimension -> count
+		tokens := make(map[int64]map[string]int64) // ts -> dimension -> tokens
+		cached := make(map[int64]map[string]int64) // ts -> dimension -> cached tokens
 		for rows.Next() {
 			var name string
 			var tsBucket int64
 			var count int
-			if err := rows.Scan(&name, &tsBucket, &count); err == nil {
+			var tok, cachedTok int64
+			if err := rows.Scan(&name, &tsBucket, &count, &tok, &cachedTok); err == nil {
 				if counts[tsBucket] == nil {
 					counts[tsBucket] = map[string]int{}
+					tokens[tsBucket] = map[string]int64{}
+					cached[tsBucket] = map[string]int64{}
 				}
 				counts[tsBucket][name] += count
+				tokens[tsBucket][name] += tok
+				cached[tsBucket][name] += cachedTok
 			}
 		}
 		order := make(map[string]bool)
@@ -693,11 +703,13 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		}
 		groups := make([]ModelSeriesGroup, 0, len(order))
 		for name := range order {
-			group := ModelSeriesGroup{Model: name, Data: make([]int, len(bucketLabels))}
+			group := ModelSeriesGroup{Model: name, Data: make([]int, len(bucketLabels)), Tokens: make([]int64, len(bucketLabels)), TokensUncached: make([]int64, len(bucketLabels))}
 			for idx, label := range bucketLabels {
 				for ts, bucket := range counts {
 					if tsToLabel[ts] == label {
 						group.Data[idx] += bucket[name]
+						group.Tokens[idx] += tokens[ts][name]
+						group.TokensUncached[idx] += tokens[ts][name] - cached[ts][name]
 					}
 				}
 			}
@@ -710,7 +722,9 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	byModel, err := buildDimensionTrends(`
-		SELECT model, ` + tsExpr + ` as ts_sec, COUNT(*) as count
+		SELECT model, ` + tsExpr + ` as ts_sec, COUNT(*) as count,
+			COALESCE(SUM(total_tokens), 0) as tokens,
+			COALESCE(SUM(cached_tokens), 0) as cached
 		FROM openai_gateway_analytics
 		WHERE timestamp >= ? AND route != 'models'
 		GROUP BY ts_sec, model
@@ -722,7 +736,9 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	}
 	// 站点（endpoint）维度：与模型维度同构，供前端切换「模型 / 站点调用次数」。
 	byEndpoint, err := buildDimensionTrends(`
-		SELECT COALESCE(e.name, a.name, '未识别端点'), ` + tsExpr + ` as ts_sec, COUNT(*) as count
+		SELECT COALESCE(e.name, a.name, '未识别端点'), ` + tsExpr + ` as ts_sec, COUNT(*) as count,
+			COALESCE(SUM(g.total_tokens), 0) as tokens,
+			COALESCE(SUM(g.cached_tokens), 0) as cached
 		FROM openai_gateway_analytics g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id

@@ -33,6 +33,9 @@ export function useAnalytics(activeTab) {
   const [errorTrendMode, setErrorTrendMode] = useState('rate');
   // 全宽趋势视角：model（按模型调用次数）| endpoint（按站点调用次数）。
   const [modelTrendMode, setModelTrendMode] = useState('model');
+  // 模型调用趋势指标：调用量（count）| 词元（tokens），词元下再分全部/未缓存。
+  const [modelTrendMetric, setModelTrendMetric] = useState('count');
+  const [modelTrendCache, setModelTrendCache] = useState('all');
   // 排行视角：model（按模型）| endpoint（按站点），词元分布与调用次数两个排行独立切换。
   const [tokenShareMode, setTokenShareMode] = useState('model');
   const [countShareMode, setCountShareMode] = useState('model');
@@ -192,6 +195,8 @@ export function useAnalytics(activeTab) {
     latencyTrendMode, setLatencyTrendMode,
     errorTrendMode, setErrorTrendMode,
     modelTrendMode, setModelTrendMode,
+    modelTrendMetric, setModelTrendMetric,
+    modelTrendCache, setModelTrendCache,
     tokenShareMode, setTokenShareMode,
     countShareMode, setCountShareMode,
     analyticsCharts,
