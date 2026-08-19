@@ -59,10 +59,14 @@ const (
 	// 需要长静默的本地推理场景可在端点配置中选用更长超时。
 	streamIdleTimeout = 90 * time.Second
 	// gatewayBodyDefaultMaxBytes 是网关请求体上限的兜底默认值（未配置
-	// GATEWAY_BODY_MAX_MB 时）：全量读入内存（读 body → parsedBody map →
+	// GATEWAY_BODY_MAX_MB 时)：全量读入内存（读 body → parsedBody map →
 	// 转发体 bytes，约 3 倍峰值），小内存主机上必须封顶，超大（异常/恶意）
 	// 请求体直接 413 拒绝，避免瞬时内存尖峰触发 OOM。
 	gatewayBodyDefaultMaxBytes = 16 * 1024 * 1024
+	// upstreamBodyLimit 是非流式上游响应体的读取上限。网关对上游只读正文与
+	// 错误消息（正常 completion 响应远小于该值），超限截断，防止异常上游
+	// （或被劫持的代理）返回超大 body 造成内存尖峰。
+	upstreamBodyLimit = 4 << 20
 )
 
 // gatewayBodyLimitBytes 返回当前生效的请求体上限（配置优先，零值回退默认）。
@@ -324,9 +328,11 @@ type endpointProxyState struct {
 
 // sessionBinding 是某会话在某出口 IP（代理）上的粘性绑定。
 // count 为该代理已承载的请求数；超过 sessionProxyRequestLimit 后换新代理并重置。
+// updatedAt 为最近一次使用时间，驱动过期清理（见 sessionBindingTTL）。
 type sessionBinding struct {
-	proxy string
-	count int
+	proxy     string
+	count     int
+	updatedAt time.Time
 }
 
 // endpointKeyState 记录端点多 API Key 的轮询游标。
@@ -1858,6 +1864,31 @@ var endpointRetryDelay = 500 * time.Millisecond
 // 用 var 而非 const 以便测试注入更小的值。
 var sessionProxyRequestLimit = 50
 
+// sessionBindingMax 是每个端点代理状态中会话绑定条目的容量上限。session key
+// 来自客户端可控请求头（X-Session-ID 等），不做上限会让绑定 map 无限增长
+// （内存泄漏/DoS）。达到上限时先清除过期条目，仍超限则整体重建。
+const sessionBindingMax = 4096
+
+// sessionBindingTTL 是会话绑定条目的空闲过期时长：超过该时长未复用的绑定
+// 在容量清理时被移除，避免僵尸会话永久占据绑定表。
+const sessionBindingTTL = 10 * time.Minute
+
+// trimSessionBindings 在容量超限时清理会话绑定：先剔除过期条目，仍超限则
+// 整体重建。调用方必须持有 proxyMu。
+func (s *Service) trimSessionBindings(state *endpointProxyState, now time.Time) {
+	if len(state.sessionBindings) < sessionBindingMax {
+		return
+	}
+	for k, v := range state.sessionBindings {
+		if now.Sub(v.updatedAt) > sessionBindingTTL {
+			delete(state.sessionBindings, k)
+		}
+	}
+	if len(state.sessionBindings) >= sessionBindingMax {
+		state.sessionBindings = make(map[string]*sessionBinding)
+	}
+}
+
 // endpointPickOverride 是测试专用确定性选路钩子（生产恒为 nil）：
 // 覆盖延迟加权随机，供依赖「端点 A 先被选中」的 failover 测试消除 flake。
 var endpointPickOverride func(candidates []Endpoint) int
@@ -2035,6 +2066,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 		state = newEndpointProxyState()
 		s.proxyStateByEndpoint[endpointID] = state
 	}
+	s.trimSessionBindings(state, now)
 	if state.cursor >= len(cleaned) || state.cursor < 0 {
 		state.cursor = 0
 	}
@@ -2047,12 +2079,13 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 			if until, cooled := state.cooldown[binding.proxy]; !cooled || now.After(until) {
 				if !proxyRateLimited(state, binding.proxy, now) {
 					if _, sunk := state.sunk[binding.proxy]; !sunk || now.After(state.sunk[binding.proxy]) {
-						if binding.count < sessionProxyRequestLimit {
-							if _, inPool := poolIndex(binding.proxy, cleaned); inPool {
-								binding.count++
-								bindingOK = true
-							}
+if binding.count < sessionProxyRequestLimit {
+						if _, inPool := poolIndex(binding.proxy, cleaned); inPool {
+							binding.count++
+							binding.updatedAt = now
+							bindingOK = true
 						}
+					}
 					}
 				}
 			}
@@ -2154,7 +2187,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 
 	// 新出口绑定到会话（从 1 次计数开始），后续请求在此计数内保持同一出口。
 	if sessionKey != "" {
-		state.sessionBindings[sessionKey] = &sessionBinding{proxy: selectedProxy, count: 1}
+		state.sessionBindings[sessionKey] = &sessionBinding{proxy: selectedProxy, count: 1, updatedAt: now}
 	}
 	s.proxyMu.Unlock()
 
@@ -2730,6 +2763,7 @@ func (s *Service) proxyClient(proxyURL string) (*http.Client, error) {
 
 // readWithIdleTimeout 为阻塞式上游读加中段空闲超时：idle 内无任何字节到达
 // 则返回 errStreamIdleTimeout，避免上游流中途停滞时请求无限挂死。
+// 客户端断开（ctx 取消）时同样立即返回，避免断连后继续拉流浪费上游配额。
 // 超时后遗留的读取 goroutine 会在上游数据到达或连接关闭后自行退出。
 func readWithIdleTimeout(ctx context.Context, r io.Reader, p []byte, idle time.Duration) (int, error) {
 	type readResult struct {
@@ -2747,6 +2781,8 @@ func readWithIdleTimeout(ctx context.Context, r io.Reader, p []byte, idle time.D
 	select {
 	case res := <-ch:
 		return res.n, res.err
+	case <-ctx.Done():
+		return 0, ctx.Err()
 	case <-time.After(idle):
 		return 0, errStreamIdleTimeout
 	}
@@ -4879,12 +4915,14 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	}
 
 	// 会话亲和（Channel Affinity）：同一会话上次成功使用的端点优先复用（若仍在候选池）。
+	affinityHead := 0
 	if sessionKey != "" {
 		if affinityID := s.preferredAffinityEndpoint(sessionKey); affinityID != "" {
 			if idx := affinityEndpointIndex(affinityID, candidates); idx > 0 {
 				cand := candidates[idx]
 				candidates = append(candidates[:idx], candidates[idx+1:]...)
 				candidates = append([]Endpoint{cand}, candidates...)
+				affinityHead = 1
 			}
 		}
 	}
@@ -4909,6 +4947,20 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	chosen = candidates[chosenIndex]
 	if real, routable := s.resolveEndpointModel(chosen, model); routable {
 		selectedModel = real
+	}
+	// 加权首选提升为实际的首次尝试端点：会话亲和端点（若有）保持首位（会话一致性
+	// 优先），加权首选紧随其后，其余候选维持原顺序作为 failover 后备。此前调用方
+	// 一律忽略 chosen，导致 weight/priority/延迟择优从未生效，多端点流量永远打向
+	// 排序第一的端点。
+	if chosenIndex > affinityHead {
+		cand := candidates[chosenIndex]
+		rest := append(append([]Endpoint{}, candidates[:chosenIndex]...), candidates[chosenIndex+1:]...)
+		ordered := make([]Endpoint, 0, len(candidates))
+		ordered = append(ordered, rest[:affinityHead]...)
+		ordered = append(ordered, cand)
+		ordered = append(ordered, rest[affinityHead:]...)
+		candidates = ordered
+		chosenIndex = affinityHead
 	}
 	return candidates, chosen, chosenIndex, selectedModel, true
 }
@@ -5286,6 +5338,23 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		break
 	}
 
+	// 401/403 鉴权失败兜底：循环内每轮已把无效 key 记入 triedKeys 并尝试下一个，
+	// 但当尝试次数与 key 数相等（单 key 单代理等常见配置）时，最后一次 401
+	// 会以「最终响应」形式漏出循环。此时该端点的 key 已全部失效，绝不能透传
+	// 401——流式请求会以 text/event-stream 头写出 401 并补发 [DONE]，
+	// 客户端只会看到 "Unauthorized: data: [DONE]" 这类畸形错误。
+	// 改为标记 key 耗尽（resp 置空），交给端点级 failover 尝试下一个候选端点，
+	// 无候选时由聚合错误分支返回规范的 JSON 错误。
+	if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+		resp.Body.Close()
+		resp = nil
+		res.endpointExhausted = true
+		res.statusCode = http.StatusUnauthorized
+		if lastErr == nil {
+			lastErr = fmt.Errorf("端点 %s 全部 API Key 均鉴权失败", selected.Name)
+		}
+	}
+
 	res.resp = resp
 	res.lastProxy = lastProxy
 	res.lastKeyIndex = lastKeyIndex
@@ -5296,8 +5365,16 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 
 	if lastErr != nil && resp == nil {
 		res.lastErr = lastErr
+		failStatus := res.statusCode
+		if failStatus == 0 {
+			failStatus = http.StatusBadGateway
+		}
+		breakKind := "bad_gateway"
+		if res.endpointExhausted && failStatus == http.StatusUnauthorized {
+			breakKind = "key_exhausted"
+		}
 		s.recordRelayError(RelayErrorRecord{
-			Route: p.route, Kind: "bad_gateway",
+			Route: p.route, Kind: breakKind,
 			Endpoint: selected.Name, EndpointID: selected.ID,
 			Model: p.model, Stream: stream, Proxy: hostFromProxyURL(lastProxy),
 			ClientIP: p.clientIP, Attempts: attempt + 1,
@@ -5305,10 +5382,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			Error:     lastErr.Error(),
 		})
 		errBody, _ := json.Marshal(map[string]string{"error": lastErr.Error()})
-		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusBadGateway, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
-			Kind:     "bad_gateway",
+		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, failStatus, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
+			Kind:     breakKind,
 			Message:  lastErr.Error(),
-			Response: errorResponseForLog(errBody, http.StatusBadGateway),
+			Response: errorResponseForLog(errBody, failStatus),
 		})
 		return res
 	}
@@ -5475,6 +5552,36 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	viaProxy := 0
 	if len(selected.ProxyPool) > 0 {
 		viaProxy = 1
+	}
+
+	// 网关密钥端点白名单候选过滤：failover 循环逐个尝试候选端点时不会再校验
+	// 白名单，必须在候选组装阶段过滤，防止白名单内端点故障时 failover 打到
+	// 白名单外端点（授权绕过）。白名单为空时原样保留全部候选。
+	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
+		endpointCandidates = filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates)
+		if len(endpointCandidates) == 0 {
+			limitErr := "端点不在该密钥的允许列表中"
+			s.recordRelayError(RelayErrorRecord{
+				Route: "chat.completions", Kind: "blocked",
+				Endpoint: "", EndpointID: "",
+				Model: model, Stream: stream, ClientIP: clientIP,
+				ElapsedMs: time.Since(requestStarted).Milliseconds(),
+				Error:     limitErr,
+			})
+			errBody, _ := json.Marshal(map[string]interface{}{
+				"error": map[string]string{"message": limitErr, "type": "forbidden"},
+			})
+			s.recordAnalyticsKey(ctx, "chat.completions", "", model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+				Kind:     "blocked",
+				Message:  limitErr,
+				Response: errorResponseForLog(errBody, http.StatusForbidden),
+			})
+			response.JSON(w, http.StatusForbidden, map[string]interface{}{
+				"error": map[string]string{"message": limitErr, "type": "forbidden"},
+			})
+			return
+		}
+		selected = endpointCandidates[0]
 	}
 
 	// 网关密钥限制：模型白名单 / 端点白名单 / token 配额。
@@ -5751,8 +5858,10 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// 对齐 new-api：首字节后的流式中断也静默收尾，绝不向客户端报错。
-		// 若上游未发送结束标记（[DONE]），补发收尾，保证前端对话正常结束。
-		if !bytes.Contains(tail, []byte("[DONE]")) {
+		// 仅 2xx 时若上游未发送结束标记（[DONE]），补发收尾，保证前端对话正常结束；
+		// 非 2xx 的错误体原样透传，不掺 SSE 杂质（否则客户端在解析错误时
+		// 会看到 "data: [DONE]" 混入 JSON 错误体）。
+		if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 && !bytes.Contains(tail, []byte("[DONE]")) {
 			extendStreamDeadline()
 			sw.write([]byte("data: [DONE]\n\n"))
 		}
@@ -5794,7 +5903,10 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
 		}
 	} else {
-		respBodyBytes, _ := io.ReadAll(res.resp.Body)
+		respBodyBytes, _ := io.ReadAll(io.LimitReader(res.resp.Body, upstreamBodyLimit+1))
+		if len(respBodyBytes) > upstreamBodyLimit {
+			respBodyBytes = respBodyBytes[:upstreamBodyLimit]
+		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
 		var usageInfo struct {
@@ -6548,6 +6660,36 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		viaProxy = 1
 	}
 
+	// 网关密钥端点白名单候选过滤：failover 循环逐个尝试候选端点时不会再校验
+	// 白名单，必须在候选组装阶段过滤，防止白名单内端点故障时 failover 打到
+	// 白名单外端点（授权绕过）。白名单为空时原样保留全部候选。
+	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
+		endpointCandidates = filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates)
+		if len(endpointCandidates) == 0 {
+			limitErr := "端点不在该密钥的允许列表中"
+			s.recordRelayError(RelayErrorRecord{
+				Route: "responses", Kind: "blocked",
+				Endpoint: "", EndpointID: "",
+				Model: model, Stream: stream, ClientIP: clientIP,
+				ElapsedMs: time.Since(requestStarted).Milliseconds(),
+				Error:     limitErr,
+			})
+			errBody, _ := json.Marshal(map[string]interface{}{
+				"error": map[string]string{"message": limitErr, "type": "forbidden"},
+			})
+			s.recordAnalyticsKey(ctx, "responses", "", model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+				Kind:     "blocked",
+				Message:  limitErr,
+				Response: errorResponseForLog(errBody, http.StatusForbidden),
+			})
+			response.JSON(w, http.StatusForbidden, map[string]interface{}{
+				"error": map[string]string{"message": limitErr, "type": "forbidden"},
+			})
+			return
+		}
+		selected = endpointCandidates[0]
+	}
+
 	// 网关密钥限制：模型白名单 / 端点白名单 / token 配额。
 	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
@@ -6825,7 +6967,10 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
 		}
 	} else {
-		respBodyBytes, _ := io.ReadAll(res.resp.Body)
+		respBodyBytes, _ := io.ReadAll(io.LimitReader(res.resp.Body, upstreamBodyLimit+1))
+		if len(respBodyBytes) > upstreamBodyLimit {
+			respBodyBytes = respBodyBytes[:upstreamBodyLimit]
+		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
 		var usageInfo struct {
