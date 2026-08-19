@@ -427,32 +427,6 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 		viaProxy = 1
 	}
 
-	// 网关密钥端点白名单候选过滤：failover 循环逐个尝试候选端点时不会再校验
-	// 白名单，必须在候选组装阶段过滤，防止白名单内端点故障时 failover 打到
-	// 白名单外端点（授权绕过）。白名单为空时原样保留全部候选。
-	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
-		endpointCandidates = filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates)
-		if len(endpointCandidates) == 0 {
-			limitErr := "端点不在该密钥的允许列表中"
-			s.recordRelayError(RelayErrorRecord{
-				Route: route, Kind: "blocked",
-				Model: model, Stream: stream, ClientIP: clientIP,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     limitErr,
-			})
-			errBody, _ := json.Marshal(map[string]interface{}{
-				"error": map[string]string{"message": limitErr, "type": "forbidden"},
-			})
-			s.recordAnalyticsKey(ctx, route, "", model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
-				Kind:     "blocked",
-				Message:  limitErr,
-				Response: errorResponseForLog(errBody, http.StatusForbidden),
-			})
-			return http.StatusForbidden, nil, fmt.Errorf("%s", limitErr)
-		}
-		selected = endpointCandidates[0]
-	}
-
 	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
 			s.recordRelayError(RelayErrorRecord{
@@ -631,18 +605,14 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	requestStarted := time.Now()
 	clientIP := s.resolveClientIP(r)
 
-	// 请求体上限（小内存主机防瞬时尖峰）：超限经 MaxBytesReader 截断读取，
-	// 由下方 err 分支返回 413，不会把超大 body 全量读入内存。
-	r.Body = http.MaxBytesReader(w, r.Body, s.gatewayBodyLimitBytes())
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		status, kind := gatewayBodyReadStatus(err)
 		s.recordRelayError(RelayErrorRecord{
-			Route: "messages", Kind: kind,
+			Route: "messages", Kind: "gateway",
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body read failed: " + err.Error(),
 		})
-		response.JSON(w, status, map[string]string{"error": err.Error()})
+		response.JSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -718,10 +688,7 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	defer oaiResp.Body.Close()
 
 	if !stream {
-		respBodyBytes, readErr := io.ReadAll(io.LimitReader(oaiResp.Body, upstreamBodyLimit+1))
-		if len(respBodyBytes) > upstreamBodyLimit {
-			respBodyBytes = respBodyBytes[:upstreamBodyLimit]
-		}
+		respBodyBytes, readErr := io.ReadAll(oaiResp.Body)
 		if readErr != nil {
 			anthropicError(w, http.StatusBadGateway, "api_error", readErr.Error())
 			return
@@ -744,10 +711,7 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 
 	// 流式：OpenAI SSE → Anthropic SSE。非 200 先判状态码，避免双写 header。
 	if oaiResp.StatusCode != http.StatusOK {
-		respBodyBytes, _ := io.ReadAll(io.LimitReader(oaiResp.Body, upstreamBodyLimit+1))
-		if len(respBodyBytes) > upstreamBodyLimit {
-			respBodyBytes = respBodyBytes[:upstreamBodyLimit]
-		}
+		respBodyBytes, _ := io.ReadAll(oaiResp.Body)
 		anthropicError(w, oaiResp.StatusCode, "api_error", upstreamErrorMessage(respBodyBytes))
 		return
 	}

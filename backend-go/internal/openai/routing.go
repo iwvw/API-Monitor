@@ -177,27 +177,18 @@ func weightedEndpointPickWeighted(latencies []int64, known []bool, weights []int
 	return len(latencies) - 1
 }
 
-// keyHealthEntry 记录单 API Key 的独立健康状态。key 不冻结（全部冷却时兜底
-// 照常选择），保留连续失败计数、短期冷却窗口与最近失败原因/时间，供排障与轮询跳过。
+// keyHealthEntry 记录单 API Key 的独立健康状态。key 永不冻结，但保留
+// 连续失败计数与最近失败原因/时间，供排障接口与前端展示。
 type keyHealthEntry struct {
-	failCount     int       // 连续失败次数（成功转发后清零）
-	lastStatus    int       // 最近一次失败状态码（0=尚无失败）
-	lastError     string    // 最近一次失败原因（脱敏）
-	lastFailAt    time.Time // 最近一次失败时间
-	lastSuccess   time.Time // 最近一次成功转发时间
-	cooldownUntil time.Time // 冷却截止（期间 pickKey 跳过该 key；零值=无冷却）
+	failCount   int       // 连续失败次数（成功转发后清零）
+	lastStatus  int       // 最近一次失败状态码（0=尚无失败）
+	lastError   string    // 最近一次失败原因（脱敏）
+	lastFailAt  time.Time // 最近一次失败时间
+	lastSuccess time.Time // 最近一次成功转发时间
 }
 
-// keyFailureCooldownThreshold 是 key 进入短期冷却的连续失败阈值。
-const keyFailureCooldownThreshold = 3
-
-// keyCooldownDuration 是 key 冷却时长：期间轮询选择跳过该 key，让故障 key 喘息、
-// 减少无效请求（如持续 401 的坏 key 被反复命中）。冷却仅存内存：key 属敏感数据
-// 不落盘，且任一 key 冷却不影响其他 key 的可用性；全部 key 同时冷却时兜底照常选择。
-const keyCooldownDuration = 60 * time.Second
-
 // keyHealthByEndpoint 返回指定端点全部 API Key 的健康快照（key → 健康记录）。
-// 仅供排障接口展示；冷却只影响轮询跳过，不冻结 key（全冷时兜底照常选择）。
+// 仅供排障接口展示，不影响请求路由（key 永不冻结）。
 func (s *Service) keyHealthByEndpoint(endpointID string) map[string]keyHealthEntry {
 	s.keyMu.Lock()
 	defer s.keyMu.Unlock()
@@ -215,9 +206,8 @@ func (s *Service) keyHealthByEndpoint(endpointID string) map[string]keyHealthEnt
 	return out
 }
 
-// markKeyFailure 记录某个 key 的一次失败（原因与状态码）。连续失败达到阈值后
-// 该 key 进入短期冷却（轮询跳过，见 pickKey）；不冻结，任一 key 的失败
-// 不影响其他 key 的可用性。
+// markKeyFailure 记录某个 key 的一次失败（原因与状态码）。key 不冻结，
+// 仅累计健康统计。任一 key 的失败不会影响其他 key 的可用性。
 func (s *Service) markKeyFailure(endpointID, key string, status int, reason string) {
 	if key == "" {
 		return
@@ -241,12 +231,9 @@ func (s *Service) markKeyFailure(endpointID, key string, status int, reason stri
 	entry.lastStatus = status
 	entry.lastError = reason
 	entry.lastFailAt = time.Now()
-	if entry.failCount >= keyFailureCooldownThreshold {
-		entry.cooldownUntil = time.Now().Add(keyCooldownDuration)
-	}
 }
 
-// markKeySuccess 记录某个 key 的一次成功转发，清零连续失败计数并解除冷却。
+// markKeySuccess 记录某个 key 的一次成功转发，清零连续失败计数。
 func (s *Service) markKeySuccess(endpointID, key string) {
 	if key == "" {
 		return
@@ -259,7 +246,6 @@ func (s *Service) markKeySuccess(endpointID, key string) {
 	}
 	if entry, ok := state.health[key]; ok {
 		entry.failCount = 0
-		entry.cooldownUntil = time.Time{}
 		entry.lastSuccess = time.Now()
 	}
 }

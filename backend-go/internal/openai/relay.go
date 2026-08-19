@@ -295,17 +295,6 @@ var endpointRetryDelay = 500 * time.Millisecond
 // 用 var 而非 const 以便测试注入更小的值。
 var sessionProxyRequestLimit = 50
 
-// sessionBindingMax 是每个端点代理状态中会话绑定条目的容量上限。session key
-// 来自客户端可控请求头（X-Session-ID 等），不做上限会让绑定 map 无限增长
-// （内存泄漏/DoS）。达到上限时先清除过期条目，仍超限则整体重建。
-const sessionBindingMax = 4096
-
-// sessionBindingTTL 是会话绑定条目的空闲过期时长：超过该时长未复用的绑定
-// 在容量清理时被移除，避免僵尸会话永久占据绑定表。
-const sessionBindingTTL = 10 * time.Minute
-
-// trimSessionBindings 在容量超限时清理会话绑定：先剔除过期条目，仍超限则
-// 整体重建。调用方必须持有 proxyMu。
 func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	res := &relayLoopResult{
 		statusCode: http.StatusBadGateway,
@@ -461,9 +450,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			if readErr != nil || isRetryableUpstreamResponse(resp, bodyBytesRead) {
 				if isRateLimitResponse(resp, bodyBytesRead) {
 					s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
-					if ra := retryAfterFromHeader(resp); ra != nil && (res.retryAfter == nil || *ra > *res.retryAfter) {
-						res.retryAfter = ra
-					}
 				}
 				s.clearSessionBinding(selected.ID, p.sessionKey)
 				s.recordRelayError(RelayErrorRecord{
@@ -496,9 +482,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		if stream && selected.AutoSwitch && attempt+1 < maxProxyAttempts && isRetryableUpstreamResponse(resp, nil) {
 			if isRateLimitResponse(resp, nil) {
 				s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
-				if ra := retryAfterFromHeader(resp); ra != nil && (res.retryAfter == nil || *ra > *res.retryAfter) {
-					res.retryAfter = ra
-				}
 			}
 			resp.Body.Close()
 			cancel()
@@ -639,23 +622,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		break
 	}
 
-	// 401/403 鉴权失败兜底：循环内每轮已把无效 key 记入 triedKeys 并尝试下一个，
-	// 但当尝试次数与 key 数相等（单 key 单代理等常见配置）时，最后一次 401
-	// 会以「最终响应」形式漏出循环。此时该端点的 key 已全部失效，绝不能透传
-	// 401——流式请求会以 text/event-stream 头写出 401 并补发 [DONE]，
-	// 客户端只会看到 "Unauthorized: data: [DONE]" 这类畸形错误。
-	// 改为标记 key 耗尽（resp 置空），交给端点级 failover 尝试下一个候选端点，
-	// 无候选时由聚合错误分支返回规范的 JSON 错误。
-	if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
-		resp.Body.Close()
-		resp = nil
-		res.endpointExhausted = true
-		res.statusCode = http.StatusUnauthorized
-		if lastErr == nil {
-			lastErr = fmt.Errorf("端点 %s 全部 API Key 均鉴权失败", selected.Name)
-		}
-	}
-
 	res.resp = resp
 	res.lastProxy = lastProxy
 	res.lastKeyIndex = lastKeyIndex
@@ -666,16 +632,8 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 
 	if lastErr != nil && resp == nil {
 		res.lastErr = lastErr
-		failStatus := res.statusCode
-		if failStatus == 0 {
-			failStatus = http.StatusBadGateway
-		}
-		breakKind := "bad_gateway"
-		if res.endpointExhausted && failStatus == http.StatusUnauthorized {
-			breakKind = "key_exhausted"
-		}
 		s.recordRelayError(RelayErrorRecord{
-			Route: p.route, Kind: breakKind,
+			Route: p.route, Kind: "bad_gateway",
 			Endpoint: selected.Name, EndpointID: selected.ID,
 			Model: p.model, Stream: stream, Proxy: hostFromProxyURL(lastProxy),
 			ClientIP: p.clientIP, Attempts: attempt + 1,
@@ -683,10 +641,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			Error:     lastErr.Error(),
 		})
 		errBody, _ := json.Marshal(map[string]string{"error": lastErr.Error()})
-		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, failStatus, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
-			Kind:     breakKind,
+		s.recordAnalyticsKey(ctx, p.route, selected.ID, p.model, http.StatusBadGateway, time.Since(res.startTime).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), p.clientIP, res.egressIP, res.lastKeyIndex, "", &AnalyticsError{
+			Kind:     "bad_gateway",
 			Message:  lastErr.Error(),
-			Response: errorResponseForLog(errBody, failStatus),
+			Response: errorResponseForLog(errBody, http.StatusBadGateway),
 		})
 		return res
 	}
@@ -712,9 +670,6 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// 最后一次尝试（无重试机会）返回限流：同样累计计数，供 429 熔断使用。
 	if resp != nil && isRateLimitResponse(resp, nil) {
 		s.markProxy429(selected.ID, lastProxy, retryAfterFromHeader(resp))
-		if ra := retryAfterFromHeader(resp); ra != nil && (res.retryAfter == nil || *ra > *res.retryAfter) {
-			res.retryAfter = ra
-		}
 	}
 	// 统一判定「上游可重试错误」：无论是否启用 AutoSwitch / 是否有代理池，
 	// 只要最终响应是限流或 5xx（且流式尚未写出首字节），都交给端点级 failover
@@ -850,36 +805,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		viaProxy = 1
 	}
 
-	// 网关密钥端点白名单候选过滤：failover 循环逐个尝试候选端点时不会再校验
-	// 白名单，必须在候选组装阶段过滤，防止白名单内端点故障时 failover 打到
-	// 白名单外端点（授权绕过）。白名单为空时原样保留全部候选。
-	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
-		endpointCandidates = filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates)
-		if len(endpointCandidates) == 0 {
-			limitErr := "端点不在该密钥的允许列表中"
-			s.recordRelayError(RelayErrorRecord{
-				Route: "chat.completions", Kind: "blocked",
-				Endpoint: "", EndpointID: "",
-				Model: model, Stream: stream, ClientIP: clientIP,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     limitErr,
-			})
-			errBody, _ := json.Marshal(map[string]interface{}{
-				"error": map[string]string{"message": limitErr, "type": "forbidden"},
-			})
-			s.recordAnalyticsKey(ctx, "chat.completions", "", model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
-				Kind:     "blocked",
-				Message:  limitErr,
-				Response: errorResponseForLog(errBody, http.StatusForbidden),
-			})
-			response.JSON(w, http.StatusForbidden, map[string]interface{}{
-				"error": map[string]string{"message": limitErr, "type": "forbidden"},
-			})
-			return
-		}
-		selected = endpointCandidates[0]
-	}
-
 	// 网关密钥限制：模型白名单 / 端点白名单 / token 配额。
 	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
@@ -960,7 +885,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var res *relayLoopResult
 	failCodes := []int{}
 	var lastRes *relayLoopResult
-	var retryAfter *time.Duration
 	retryRoundFinished := false
 	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
 	var failoverSteps []map[string]interface{}
@@ -1035,9 +959,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if res.statusCode > 0 {
 				failCodes = append(failCodes, res.statusCode)
 			}
-			if res.retryAfter != nil && (retryAfter == nil || *res.retryAfter > *retryAfter) {
-				retryAfter = res.retryAfter
-			}
 			if ci+1 < len(endpointCandidates) {
 				selected = endpointCandidates[ci+1]
 				failReason := "上游转发失败"
@@ -1094,7 +1015,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
 		})
-		writeRelayUnavailable(w, model, failCodes, retryAfter)
+		writeRelayUnavailable(w, model, failCodes)
 		return
 	}
 	if lastRes != nil && lastRes.resp != nil {
@@ -1125,38 +1046,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		sw := newSSEStreamWriter(w)
 		buf := make([]byte, 4096)
 		tail := make([]byte, 0, usageTailLimit)
-		promptTokens := 0
-		completionTokens := 0
-		totalTokens := 0
-		cachedTokens := 0
-
-		// 流式 usage 逐块收集：只处理含 "usage" 标记的块，取最后一次出现值。
-		// 相比「保留 64KB 尾部再统一正则」，超大响应/长输出不会把 usage 挤出窗口。
-		collectStreamUsage := func(chunk []byte) {
-			if !bytes.Contains(chunk, []byte(`"usage"`)) {
-				return
-			}
-			if matches := completionTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					completionTokens = v
-				}
-			}
-			if matches := promptTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					promptTokens = v
-				}
-			}
-			if matches := totalTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					totalTokens = v
-				}
-			}
-			if matches := cachedTokensRegex.FindSubmatch(chunk); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					cachedTokens = v
-				}
-			}
-		}
 
 		// 每次写前延长写超时，避免 http.Server.WriteTimeout 掐断长流式响应。
 		extendStreamDeadline := func() {
@@ -1172,7 +1061,6 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			extendStreamDeadline()
 			sw.write(res.firstChunk)
 			tail = append(tail, res.firstChunk...)
-			collectStreamUsage(res.firstChunk)
 		}
 
 		for {
@@ -1185,24 +1073,38 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				if len(tail) > usageTailLimit {
 					tail = tail[len(tail)-usageTailLimit:]
 				}
-				collectStreamUsage(buf[:n])
 			}
 			if err != nil {
 				break
 			}
 		}
 		// 对齐 new-api：首字节后的流式中断也静默收尾，绝不向客户端报错。
-		// 仅 2xx 时若上游未发送结束标记（[DONE]），补发收尾，保证前端对话正常结束；
-		// 非 2xx 的错误体原样透传，不掺 SSE 杂质（否则客户端在解析错误时
-		// 会看到 "data: [DONE]" 混入 JSON 错误体）。
-		if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 && !bytes.Contains(tail, []byte("[DONE]")) {
+		// 若上游未发送结束标记（[DONE]），补发收尾，保证前端对话正常结束。
+		if !bytes.Contains(tail, []byte("[DONE]")) {
 			extendStreamDeadline()
 			sw.write([]byte("data: [DONE]\n\n"))
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
-		if totalTokens == 0 && (promptTokens > 0 || completionTokens > 0) {
+		promptTokens := 0
+		completionTokens := 0
+		totalTokens := 0
+		cachedTokens := 0
+
+		accumulatedStr := string(tail)
+		if matches := promptTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			promptTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := completionTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			completionTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := totalTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			totalTokens, _ = strconv.Atoi(matches[1])
+		} else if promptTokens > 0 || completionTokens > 0 {
 			totalTokens = promptTokens + completionTokens
+		}
+		if matches := cachedTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			cachedTokens, _ = strconv.Atoi(matches[1])
 		}
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)
@@ -1220,10 +1122,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
 		}
 	} else {
-		respBodyBytes, _ := io.ReadAll(io.LimitReader(res.resp.Body, upstreamBodyLimit+1))
-		if len(respBodyBytes) > upstreamBodyLimit {
-			respBodyBytes = respBodyBytes[:upstreamBodyLimit]
-		}
+		respBodyBytes, _ := io.ReadAll(res.resp.Body)
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
 		var usageInfo struct {
@@ -1977,36 +1876,6 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		viaProxy = 1
 	}
 
-	// 网关密钥端点白名单候选过滤：failover 循环逐个尝试候选端点时不会再校验
-	// 白名单，必须在候选组装阶段过滤，防止白名单内端点故障时 failover 打到
-	// 白名单外端点（授权绕过）。白名单为空时原样保留全部候选。
-	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
-		endpointCandidates = filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates)
-		if len(endpointCandidates) == 0 {
-			limitErr := "端点不在该密钥的允许列表中"
-			s.recordRelayError(RelayErrorRecord{
-				Route: "responses", Kind: "blocked",
-				Endpoint: "", EndpointID: "",
-				Model: model, Stream: stream, ClientIP: clientIP,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     limitErr,
-			})
-			errBody, _ := json.Marshal(map[string]interface{}{
-				"error": map[string]string{"message": limitErr, "type": "forbidden"},
-			})
-			s.recordAnalyticsKey(ctx, "responses", "", model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
-				Kind:     "blocked",
-				Message:  limitErr,
-				Response: errorResponseForLog(errBody, http.StatusForbidden),
-			})
-			response.JSON(w, http.StatusForbidden, map[string]interface{}{
-				"error": map[string]string{"message": limitErr, "type": "forbidden"},
-			})
-			return
-		}
-		selected = endpointCandidates[0]
-	}
-
 	// 网关密钥限制：模型白名单 / 端点白名单 / token 配额。
 	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
@@ -2055,7 +1924,6 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	var res *relayLoopResult
 	failCodes := []int{}
 	var lastRes *relayLoopResult
-	var retryAfter *time.Duration
 	retryRoundFinished := false
 	var failoverSteps []map[string]interface{}
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
@@ -2128,9 +1996,6 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			if res.statusCode > 0 {
 				failCodes = append(failCodes, res.statusCode)
 			}
-			if res.retryAfter != nil && (retryAfter == nil || *res.retryAfter > *retryAfter) {
-				retryAfter = res.retryAfter
-			}
 			if ci+1 < len(endpointCandidates) {
 				selected = endpointCandidates[ci+1]
 				failReason := "上游转发失败"
@@ -2187,7 +2052,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
 		})
-		writeRelayUnavailable(w, model, failCodes, retryAfter)
+		writeRelayUnavailable(w, model, failCodes)
 		return
 	}
 	if lastRes != nil && lastRes.resp != nil {
@@ -2231,38 +2096,9 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		if res.firstWritten && len(res.firstChunk) > 0 {
 			streamReader = bufio.NewReader(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 		}
-		// usage 信息总在最后的 response.completed 事件里，但同样逐块收集（见 collectResponsesUsage），
-		// 避免长对话把整个流式响应累积在内存中 / 超长响应把 usage 挤出尾部窗口。
+		// usage 信息总在最后的 response.completed 事件里，只保留流尾部即可，
+		// 避免长对话把整个流式响应累积在内存中。
 		tail := make([]byte, 0, usageTailLimit)
-		promptTokens := 0
-		completionTokens := 0
-		totalTokens := 0
-		cachedTokens := 0
-		collectResponsesUsage := func(block []byte) {
-			if !bytes.Contains(block, []byte(`"usage"`)) {
-				return
-			}
-			if matches := outputTokensRegex.FindSubmatch(block); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					completionTokens = v
-				}
-			}
-			if matches := inputTokensRegex.FindSubmatch(block); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					promptTokens = v
-				}
-			}
-			if matches := totalTokensRegex.FindSubmatch(block); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					totalTokens = v
-				}
-			}
-			if matches := cachedTokensRegex.FindSubmatch(block); len(matches) > 1 {
-				if v, err := strconv.Atoi(string(matches[1])); err == nil {
-					cachedTokens = v
-				}
-			}
-		}
 		for {
 			block, readErr := readSSEBlock(streamReader)
 			if len(block) > 0 {
@@ -2274,7 +2110,6 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 					extendStreamDeadline()
 					sw.write(out)
 				}
-				collectResponsesUsage(block)
 			}
 			if readErr != nil {
 				break
@@ -2282,8 +2117,25 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
-		if totalTokens == 0 && (promptTokens > 0 || completionTokens > 0) {
+		// 从尾部 response.completed 事件解析 usage（Responses 用 input/output_tokens）。
+		promptTokens := 0
+		completionTokens := 0
+		totalTokens := 0
+		cachedTokens := 0
+		accumulatedStr := string(tail)
+		if matches := inputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			promptTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := outputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			completionTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := totalTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			totalTokens, _ = strconv.Atoi(matches[1])
+		} else if promptTokens > 0 || completionTokens > 0 {
 			totalTokens = promptTokens + completionTokens
+		}
+		if matches := cachedTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			cachedTokens, _ = strconv.Atoi(matches[1])
 		}
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)
@@ -2301,10 +2153,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
 		}
 	} else {
-		respBodyBytes, _ := io.ReadAll(io.LimitReader(res.resp.Body, upstreamBodyLimit+1))
-		if len(respBodyBytes) > upstreamBodyLimit {
-			respBodyBytes = respBodyBytes[:upstreamBodyLimit]
-		}
+		respBodyBytes, _ := io.ReadAll(res.resp.Body)
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
 		var usageInfo struct {

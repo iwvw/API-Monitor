@@ -595,28 +595,6 @@ func (s *Service) consumeGatewayKeyTokens(ctx context.Context, identity gatewayK
 	}
 }
 
-// filterCandidatesByKeyIdentity 按网关密钥的端点白名单过滤候选端点列表。
-// 触发时机：failover 循环逐个尝试候选端点时不会再校验白名单，若不在候选
-// 组装阶段过滤，白名单内的端点一旦故障就会 failover 到白名单外的端点
-// （授权绕过：key 被限制只能使用特定端点，实际请求却打到了别的端点）。
-// 白名单为空（未限制端点）时原样返回。
-func filterCandidatesByKeyIdentity(identity gatewayKeyIdentity, candidates []Endpoint) []Endpoint {
-	if len(identity.AllowedEndpoints) == 0 {
-		return candidates
-	}
-	allowed := make(map[string]bool, len(identity.AllowedEndpoints))
-	for _, id := range identity.AllowedEndpoints {
-		allowed[id] = true
-	}
-	out := candidates[:0]
-	for _, ep := range candidates {
-		if allowed[ep.ID] {
-			out = append(out, ep)
-		}
-	}
-	return out
-}
-
 // FilterModelsListByKey 按当前请求网关密钥的白名单过滤模型列表（/v1/models 使用）。
 func (s *Service) FilterModelsListByKey(ctx context.Context, models []map[string]interface{}) []map[string]interface{} {
 	return filterModelsByKey(gatewayKeyFromContext(ctx), models)

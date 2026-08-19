@@ -54,10 +54,6 @@ const (
 	// 转发体 bytes，约 3 倍峰值），小内存主机上必须封顶，超大（异常/恶意）
 	// 请求体直接 413 拒绝，避免瞬时内存尖峰触发 OOM。
 	gatewayBodyDefaultMaxBytes = 16 * 1024 * 1024
-	// upstreamBodyLimit 是非流式上游响应体的读取上限。网关对上游只读正文与
-	// 错误消息（正常 completion 响应远小于该值），超限截断，防止异常上游
-	// （或被劫持的代理）返回超大 body 造成内存尖峰。
-	upstreamBodyLimit = 4 << 20
 )
 
 // gatewayBodyLimitBytes 返回当前生效的请求体上限（配置优先，零值回退默认）。
@@ -319,11 +315,9 @@ type endpointProxyState struct {
 
 // sessionBinding 是某会话在某出口 IP（代理）上的粘性绑定。
 // count 为该代理已承载的请求数；超过 sessionProxyRequestLimit 后换新代理并重置。
-// updatedAt 为最近一次使用时间，驱动过期清理（见 sessionBindingTTL）。
 type sessionBinding struct {
-	proxy     string
-	count     int
-	updatedAt time.Time
+	proxy string
+	count int
 }
 
 // endpointKeyState 记录端点多 API Key 的轮询游标。
@@ -1445,14 +1439,12 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	}
 
 	// 会话亲和（Channel Affinity）：同一会话上次成功使用的端点优先复用（若仍在候选池）。
-	affinityHead := 0
 	if sessionKey != "" {
 		if affinityID := s.preferredAffinityEndpoint(sessionKey); affinityID != "" {
 			if idx := affinityEndpointIndex(affinityID, candidates); idx > 0 {
 				cand := candidates[idx]
 				candidates = append(candidates[:idx], candidates[idx+1:]...)
 				candidates = append([]Endpoint{cand}, candidates...)
-				affinityHead = 1
 			}
 		}
 	}
@@ -1477,20 +1469,6 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	chosen = candidates[chosenIndex]
 	if real, routable := s.resolveEndpointModel(chosen, model); routable {
 		selectedModel = real
-	}
-	// 加权首选提升为实际的首次尝试端点：会话亲和端点（若有）保持首位（会话一致性
-	// 优先），加权首选紧随其后，其余候选维持原顺序作为 failover 后备。此前调用方
-	// 一律忽略 chosen，导致 weight/priority/延迟择优从未生效，多端点流量永远打向
-	// 排序第一的端点。
-	if chosenIndex > affinityHead {
-		cand := candidates[chosenIndex]
-		rest := append(append([]Endpoint{}, candidates[:chosenIndex]...), candidates[chosenIndex+1:]...)
-		ordered := make([]Endpoint, 0, len(candidates))
-		ordered = append(ordered, rest[:affinityHead]...)
-		ordered = append(ordered, cand)
-		ordered = append(ordered, rest[affinityHead:]...)
-		candidates = ordered
-		chosenIndex = affinityHead
 	}
 	return candidates, chosen, chosenIndex, selectedModel, true
 }
@@ -1527,7 +1505,6 @@ type relayLoopResult struct {
 	lastErr           error
 	endpointExhausted bool // 本轮全部 API Key 尝试失败，应切换到下一个候选端点
 	retryableUpstream bool // 上游返回 429/5xx 且代理重试耗尽，应切换到下一个候选端点
-	retryAfter        *time.Duration // 各尝试中上游 429 携带的最大 Retry-After（全渠道耗尽时透传客户端）
 	firstChunk        []byte
 	firstWritten      bool
 	ttfbMs            int64
