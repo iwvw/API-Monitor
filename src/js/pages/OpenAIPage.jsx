@@ -2049,9 +2049,17 @@ function OpenAIPage() {
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-kumo-subtle">缓存命中</span>
+                            <span className="text-kumo-subtle" title="非缓存输入 = 输入（含缓存）− 缓存命中的词元">缓存命中</span>
                             <span className="font-mono">
                               {formatTokensM(analyticsSummary.totalCachedTokens || 0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-kumo-subtle" title="非缓存输入 = 输入（含缓存）− 缓存命中的词元">未缓存输入</span>
+                            <span className="font-mono">
+                              {formatTokensM(
+                                Math.max(0, (analyticsSummary.totalPromptTokens || 0) - (analyticsSummary.totalCachedTokens || 0))
+                              )}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
