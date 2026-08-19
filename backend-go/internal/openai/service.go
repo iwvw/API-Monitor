@@ -1096,7 +1096,10 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	keyChanged := false
 	if req.APIKey != nil {
 		targetAPIKey = *req.APIKey
-		keyChanged = true
+		// 仅当提交值与当前存储值不同才算「Key 变化」：前端保存时总是把表单里的
+		// 原 key 原样发回，若按是否提供字段判定，纯改代理池/开关也会触发上游
+		// 验证（大池端点保存慢的主要成因其一）。同值提交视为未变更，不验证。
+		keyChanged = *req.APIKey != currentAPIKey
 	}
 	headersJSON, _ := json.Marshal([]HeaderItem{})
 	headersChanged := false
