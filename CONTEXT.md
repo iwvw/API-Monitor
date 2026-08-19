@@ -150,6 +150,7 @@ Applies when multiple Agent windows run different tasks against this repo at the
 
 - Commit as soon as an independently verifiable step is done; do not accumulate uncommitted changes.
 - Check `git status` before starting; if someone else has uncommitted changes, coordinate or wait for their commit instead of stacking on top.
+- **工作区仍有未提交更改（任何任务留下）时，禁止推送（git push）**：只可提交自己域的改动，推送必须等到工作区干净、且经确认无他人未提交内容后进行。误推送他人未完成的工作会造成跨窗口污染。
 - Follow the existing commit message style in `git log`.
 
 ### Single Integrator
