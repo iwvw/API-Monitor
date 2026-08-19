@@ -1455,6 +1455,7 @@ func init() {
 	routeRequestContracts["/api/subscription/subscriptions/{id}/reset-token"] = noBody
 	routeRequestContracts["/api/subscription/subscriptions/{id}/rotate-address"] = noBody
 	routeRequestContracts["/api/subscription/subscriptions/{id}/refresh-upstream"] = noBody
+	routeRequestContracts["/api/subscription/subscriptions/{id}/usage"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/subscription/nodes/reorder"] = obj([]string{"ids"}, map[string]prop{
 		"ids": {t: "array", req: true},
 	})

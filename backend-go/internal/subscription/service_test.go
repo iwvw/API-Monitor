@@ -2220,3 +2220,98 @@ func TestImportCommitReadsSettingsThroughOpenTransaction(t *testing.T) {
 		t.Fatalf("refreshHours = %d, want 24", refreshHours)
 	}
 }
+
+// TestGetSubscriptionUsage 验证订阅流量明细接口：周期累计（cycles，面板口径）+
+// 逐日明细（hourly）一并返回，percent 按套餐总量计算。
+func TestGetSubscriptionUsage(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// ledger 表由 subscriptionledger.EnsureSchema 建，测试按同构列自行建。
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_cycles (
+		subscription_id TEXT NOT NULL, cycle_start TEXT NOT NULL, cycle_end TEXT NOT NULL DEFAULT '',
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(subscription_id, cycle_start))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_hourly (
+		server_id TEXT NOT NULL, node_id TEXT NOT NULL, subscription_id TEXT NOT NULL, hour TEXT NOT NULL,
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		reported_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(server_id,node_id,subscription_id,hour))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_plans(id,name,enabled,total_bytes,cycle_type,cycle_day,selection_mode,include_internal_nodes,include_external_nodes)
+		VALUES('plan-u','UsagePlan',1,500,'monthly',1,'explicit',1,0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,vless_uuid,hysteria2_password,enabled,created_at,traffic_source)
+		VALUES('sub-u','sub_default_nodes','plan-u','UsageSub','tok-u','uuid-u','pwd-u',1,'2026-08-01 00:00:00','panel')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)
+		VALUES('sub-u','2026-08-01T00:00:00Z','2026-09-01T00:00:00Z',10,20,datetime('now'))`); err != nil {
+		t.Fatal(err)
+	}
+	hour := time.Now().UTC().Truncate(time.Hour).Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes,reported_at)
+		VALUES('srv','node','sub-u',?,5,7,datetime('now'))`, hour); err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(config.Config{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/subscription/subscriptions/sub-u/usage?days=30", nil)
+	service.getSubscriptionUsage(rec, req, db, "sub-u")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			CycleUploadBytes   int64   `json:"cycleUploadBytes"`
+			CycleDownloadBytes int64   `json:"cycleDownloadBytes"`
+			CycleUsedBytes     int64   `json:"cycleUsedBytes"`
+			TotalBytes         int64   `json:"totalBytes"`
+			Percent            float64 `json:"percent"`
+			Granularity        string  `json:"granularity"`
+			Points             []struct {
+				Bucket        string `json:"bucket"`
+				UploadBytes   int64  `json:"uploadBytes"`
+				DownloadBytes int64  `json:"downloadBytes"`
+			} `json:"points"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success {
+		t.Fatalf("success=false body=%s", rec.Body.String())
+	}
+	if resp.Data.CycleUsedBytes != 30 {
+		t.Fatalf("cycle used = %d, want 30", resp.Data.CycleUsedBytes)
+	}
+	if resp.Data.CycleUploadBytes != 10 || resp.Data.CycleDownloadBytes != 20 {
+		t.Fatalf("cycle components = %d/%d, want 10/20", resp.Data.CycleUploadBytes, resp.Data.CycleDownloadBytes)
+	}
+	if resp.Data.TotalBytes != 500 {
+		t.Fatalf("total = %d, want 500", resp.Data.TotalBytes)
+	}
+	if resp.Data.Percent <= 0 {
+		t.Fatalf("percent = %v, want > 0", resp.Data.Percent)
+	}
+	if resp.Data.Granularity != "day" {
+		t.Fatalf("granularity = %q, want day", resp.Data.Granularity)
+	}
+	if len(resp.Data.Points) != 1 {
+		t.Fatalf("points len = %d, want 1", len(resp.Data.Points))
+	}
+	if resp.Data.Points[0].UploadBytes != 5 || resp.Data.Points[0].DownloadBytes != 7 {
+		t.Fatalf("hourly point mismatch: %+v", resp.Data.Points[0])
+	}
+}

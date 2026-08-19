@@ -885,6 +885,11 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/subscription/subscriptions/{id}/refresh-upstream", Module: "subscription", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Subscription refresh upstream", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/subscription/subscriptions/{id}/usage", Module: "subscription", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Subscription usage detail (cycle totals + hourly daily/hourly breakdown)", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "granularity", Description: "day|hour，默认 day"},
+			{Name: "days", Description: "窗口天数，默认 30、上限 90"},
+		}}},
 	{Route: manifest.Route{Prefix: "/api/subscription/nodes/reorder", Module: "subscription", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Subscription nodes reorder", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/subscription/nodes/{id}", Module: "subscription", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Subscription node update/delete", MatchMode: manifest.MatchPattern},

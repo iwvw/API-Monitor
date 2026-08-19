@@ -1085,3 +1085,77 @@ func TestAIRouteIndexResource(t *testing.T) {
 		t.Fatal("expected error for empty group resource uri")
 	}
 }
+
+// TestApiStatsTrafficCycleMatchesPanel 验证仪表盘 API 趋势的顶层 traffic 采用
+// 「当前周期 cycles 累计」（与订阅面板同口径），而 trend 逐日仍来自 hourly：
+// 即便 30 天 hourly 窗口只有部分数据，顶部总额也不与订阅面板打架。
+func TestApiStatsTrafficCycleMatchesPanel(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_traffic_cycle_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	service := New(config.Config{DataDir: tempDir, DBName: "data.db"})
+	defer service.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_cycles (
+		subscription_id TEXT NOT NULL, cycle_start TEXT NOT NULL, cycle_end TEXT NOT NULL DEFAULT '',
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(subscription_id, cycle_start))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_hourly (
+		server_id TEXT NOT NULL, node_id TEXT NOT NULL, subscription_id TEXT NOT NULL, hour TEXT NOT NULL,
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		reported_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(server_id,node_id,subscription_id,hour))`); err != nil {
+		t.Fatal(err)
+	}
+	// 周期累计（面板口径）：未来月窗口覆盖 now，总额 upload10+download20=30。
+	nowUTC := time.Now().UTC()
+	cycleStart := nowUTC.AddDate(0, -1, 0).Format(time.RFC3339)
+	cycleEnd := nowUTC.AddDate(0, 1, 0).Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)
+		VALUES('sub-1',?,?,10,20,datetime('now'))`, cycleStart, cycleEnd); err != nil {
+		t.Fatal(err)
+	}
+	// 今日 hourly（趋势口径）：upload5+download7=12，远小于周期累计。
+	hour := nowUTC.Truncate(time.Hour).Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes,reported_at)
+		VALUES('srv','node','sub-1',?,5,7,datetime('now'))`, hour); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	stats, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 顶层 traffic = 当前周期累计 30（与订阅面板一致），而不是 hourly 窗口合计 12。
+	if got := stats["traffic"].(int64); got != 30 {
+		t.Fatalf("top-level traffic = %d, want cycle total 30", got)
+	}
+	// trend 逐日仍来自 hourly：今天桶 = 12。
+	trend, ok := stats["trend"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("trend type = %T", stats["trend"])
+	}
+	foundToday := false
+	for _, item := range trend {
+		if item["bucket"] == nowUTC.Format("2006-01-02") {
+			foundToday = true
+			if got := item["traffic"].(int64); got != 12 {
+				t.Fatalf("today trend traffic = %d, want hourly 12", got)
+			}
+		}
+	}
+	if !foundToday {
+		t.Fatal("today bucket missing from trend")
+	}
+}

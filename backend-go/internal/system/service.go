@@ -1371,7 +1371,8 @@ func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 
 	// 汇总最近 days 天的词元用量（OpenAI 网关）与订阅实际用量（流量），并按天对齐趋势桶。
 	var totalTokens, totalTraffic int64
-	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, now.UTC(), days)
+	nowUTC := time.Now().UTC()
+	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, nowUTC, days)
 	for _, item := range trend {
 		bucket := item["bucket"].(string)
 		tokens := tokensByDay[bucket]
@@ -1380,6 +1381,18 @@ func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 		item["traffic"] = traffic
 		totalTokens += tokens
 		totalTraffic += traffic
+	}
+	// 订阅流量的「主口径」= 全部订阅当前结算周期的累计用量（与订阅分发面板
+	// subscription_usage_cycles 同源），避免仪表盘顶部数字与订阅面板对不上。
+	// 逐日 trend 仍来自 subscription_usage_hourly（近 days 天窗口；hourly 聚合自
+	// 2026-08-13 新版 ledger 起才采集，更早的周期只有 cycles 累计、无逐日明细，
+	// 趋势图上缺失的早期日期属预期，顶部周期总量不受影响）。
+	var cycleTraffic int64
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(upload_bytes+download_bytes),0) FROM subscription_usage_cycles WHERE cycle_start <= ? AND cycle_end > ?`,
+		nowUTC.Format(time.RFC3339), nowUTC.Format(time.RFC3339)).Scan(&cycleTraffic); err == nil && cycleTraffic > 0 {
+		totalTraffic = cycleTraffic
+	} else if err != nil {
+		// 查询失败（如表尚未创建）不惩罚趋势图，保留 hourly 口径合计。
 	}
 	payload := map[string]interface{}{
 		"total": map[string]interface{}{
