@@ -496,6 +496,9 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			}
 			if k > 0 {
 				normalizeReasoningEffort(candBody)
+				if shouldNormalizeToolReasoning(candModel, cand.BaseURL, candBody) {
+					normalizeChatToolReasoningHistory(candBody)
+				}
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
@@ -594,10 +597,10 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			Route: route, Kind: "failover",
 			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
 			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
-			Attempts:  attempts,
-			ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			Attempts:   attempts,
+			ElapsedMs:  time.Since(requestStarted).Milliseconds(),
 			StatusCode: status,
-			Error:     msg,
+			Error:      msg,
 		})
 		errBody, _ := json.Marshal(map[string]interface{}{
 			"error": map[string]string{"message": msg, "type": "service_unavailable"},

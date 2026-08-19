@@ -1726,9 +1726,26 @@ func TestSameExitIPGroupCooled(t *testing.T) {
 func TestActiveProxySticky(t *testing.T) {
 	var p1Fail atomic.Bool
 	var p1Hits, p2Hits int32
+	type hitInfo struct {
+		path string
+		ua   string
+	}
+	var hitsMu sync.Mutex
+	var hitLog []hitInfo
+	note := func(p string, r *http.Request) {
+		hitsMu.Lock()
+		hitLog = append(hitLog, hitInfo{path: r.URL.Path, ua: r.Header.Get("User-Agent")})
+		hitsMu.Unlock()
+	}
+	dumpHits := func() string {
+		hitsMu.Lock()
+		defer hitsMu.Unlock()
+		return fmt.Sprintf("p1Hits=%d p2Hits=%d log=%v", p1Hits, p2Hits, hitLog)
+	}
 	okBody := []byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
 	p1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&p1Hits, 1)
+		note("p1", r)
 		if p1Fail.Load() {
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte(`{"error":{"message":"rate limit"}}`))
@@ -1740,6 +1757,7 @@ func TestActiveProxySticky(t *testing.T) {
 	t.Cleanup(p1.Close)
 	p2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&p2Hits, 1)
+		note("p2", r)
 		w.WriteHeader(http.StatusOK)
 		w.Write(okBody)
 	}))
@@ -1786,7 +1804,7 @@ func TestActiveProxySticky(t *testing.T) {
 		t.Fatalf("req2 failed: %d %s", w.Code, w.Body.String())
 	}
 	if p1Hits < 2 || p2Hits != 0 {
-		t.Fatalf("sticky reuse expected p1 only, p1Hits=%d p2Hits=%d", p1Hits, p2Hits)
+		t.Fatalf("sticky reuse expected p1 only, %s", dumpHits())
 	}
 
 	// 3) p1 开始 429：当前请求先打 p1（仍未被冷却）→ 429 → 组冷却 p1 → 换 p2 成功。
@@ -2886,6 +2904,75 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 		if rec.Kind == "upstream" && rec.StatusCode == http.StatusTooManyRequests && rec.Stream {
 			t.Fatalf("internal 429 switch must not be logged when the request ultimately succeeded, got %+v", rec)
 		}
+	}
+}
+
+// TestNormalizeChatToolReasoningHistory 验证「带 tool_calls 的 assistant 历史回合
+// 补齐推理内容」：仅对命中推理厂商标识或显式开启推理的请求启用；已有
+// reasoning_content 或非 assistant 回合不动（对齐 opencode2api 兼容策略）。
+func TestNormalizeChatToolReasoningHistory(t *testing.T) {
+	body := map[string]interface{}{
+		"model": "deepseek-chat",
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "hi"},
+			map[string]interface{}{
+				"role":   "assistant",
+				"content": "",
+				"tool_calls": []interface{}{
+					map[string]interface{}{"id": "call_1", "type": "function", "function": map[string]interface{}{"name": "f", "arguments": "{}"}},
+				},
+			},
+			map[string]interface{}{"role": "tool", "tool_call_id": "call_1", "content": "ok"},
+			map[string]interface{}{
+				"role":             "assistant",
+				"content":          "done",
+				"tool_calls":       []interface{}{map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "g", "arguments": "{}"}}},
+				"reasoning_content": "已有思考",
+			},
+		},
+	}
+	if !shouldNormalizeToolReasoning("deepseek-chat", "https://api.deepseek.com/v1", body) {
+		t.Fatal("deepseek model must enable tool reasoning normalization")
+	}
+	if !normalizeChatToolReasoningHistory(body) {
+		t.Fatal("expected a change for the empty-reasoning tool-call turn")
+	}
+	messages := body["messages"].([]interface{})
+	m0 := messages[0].(map[string]interface{})
+	if _, has := m0["reasoning_content"]; has {
+		t.Fatal("user turn must not gain reasoning_content")
+	}
+	m1 := messages[1].(map[string]interface{})
+	if got := m1["reasoning_content"].(string); got != toolReasoningPlaceholder {
+		t.Fatalf("assistant tool-call turn reasoning_content = %q, want placeholder", got)
+	}
+	m3 := messages[3].(map[string]interface{})
+	if got := m3["reasoning_content"].(string); got != "已有思考" {
+		t.Fatalf("existing reasoning_content must be kept, got %q", got)
+	}
+
+	// 非推理厂商 + 未显式启用推理：不启用、不改动。
+	plain := map[string]interface{}{
+		"model": "gpt-4",
+		"messages": []interface{}{
+			map[string]interface{}{
+				"role":   "assistant",
+				"content": "",
+				"tool_calls": []interface{}{
+					map[string]interface{}{"id": "call_3", "type": "function", "function": map[string]interface{}{"name": "h", "arguments": "{}"}},
+				},
+			},
+		},
+	}
+	if shouldNormalizeToolReasoning("gpt-4", "https://api.openai.com/v1", plain) {
+		t.Fatal("generic model must not enable tool reasoning normalization")
+	}
+	// 显式 reasoning_effort 时启用。
+	if !requestEnablesReasoning(map[string]interface{}{"reasoning_effort": "high"}) {
+		t.Fatal("reasoning_effort=high must enable reasoning detection")
+	}
+	if requestEnablesReasoning(map[string]interface{}{"reasoning_effort": "none"}) {
+		t.Fatal("reasoning_effort=none must not enable reasoning detection")
 	}
 }
 

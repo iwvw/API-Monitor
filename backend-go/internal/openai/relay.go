@@ -39,6 +39,98 @@ func (s *Service) resolveEndpointModel(ep Endpoint, requested string) (string, b
 	return requested, !isModelDisabled(ep.DisabledModels, requested)
 }
 
+// reasoningVendorHints 是「要求带工具调用的 assistant 历史回合携带推理内容」的
+// 厂商标识。DeepSeek/Kimi/Moonshot/MiMo 等兼容端点的 thinking 模式下，历史回合
+// 若只带 tool_calls 而没有 reasoning 内容（客户端丢弃了非标准字段），下一轮
+// 请求会被上游 400 拒绝。命中方式：模型名或端点地址含这些标识，或请求显式开启
+// 推理（对齐 opencode2api 的 normalizeToolReasoningHistory 兼容策略）。
+var reasoningVendorHints = []string{"moonshot", "kimi", "deepseek", "mimo", "xiaomimimo"}
+
+// toolReasoningPlaceholder 是给「只带工具调用、缺推理文本」的历史回合补的
+// 推理占位文本（上游仅校验存在性，内容不解读）。
+const toolReasoningPlaceholder = "tool call"
+
+// requestEnablesReasoning 判断请求是否显式启用了推理（reasoning_effort /
+// reasoning / thinking / effort 非 absent、非 none/disabled）。
+func requestEnablesReasoning(body map[string]interface{}) bool {
+	for _, key := range []string{"reasoning_effort", "reasoning", "thinking", "effort"} {
+		raw, exists := body[key]
+		if !exists || raw == nil {
+			continue
+		}
+		switch v := raw.(type) {
+		case string:
+			mode := strings.ToLower(strings.TrimSpace(v))
+			if mode != "" && mode != "none" && mode != "disabled" {
+				return true
+			}
+		case bool:
+			if v {
+				return true
+			}
+		case map[string]interface{}:
+			mode := ""
+			if t, ok := v["type"].(string); ok {
+				mode = t
+			} else if e, ok := v["effort"].(string); ok {
+				mode = e
+			}
+			mode = strings.ToLower(strings.TrimSpace(mode))
+			if mode == "none" || mode == "disabled" {
+				continue
+			}
+			return true
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// shouldNormalizeToolReasoning 判定请求是否需要做工具历史推理兼容：
+// 模型名 / 端点地址命中 reasoningVendorHints，或请求显式启用了推理。
+func shouldNormalizeToolReasoning(model, baseURL string, body map[string]interface{}) bool {
+	haystack := strings.ToLower(model + " " + baseURL)
+	for _, hint := range reasoningVendorHints {
+		if strings.Contains(haystack, hint) {
+			return true
+		}
+	}
+	return requestEnablesReasoning(body)
+}
+
+// normalizeChatToolReasoningHistory 给所有「带 tool_calls 的 assistant 历史回合」
+// 补齐 reasoning_content：客户端常丢弃该非标准字段却保留 tool_calls，使下一次
+// thinking 模式请求在需要重放推理的厂商端点（DeepSeek/Kimi/MiMo 等）上被 400
+// 拒绝。优先提升已有的 reasoning 字符串，否则用 toolReasoningPlaceholder。
+func normalizeChatToolReasoningHistory(body map[string]interface{}) bool {
+	messages, ok := body["messages"].([]interface{})
+	if !ok {
+		return false
+	}
+	changed := false
+	for _, raw := range messages {
+		m, ok := raw.(map[string]interface{})
+		if !ok || m["role"] != "assistant" {
+			continue
+		}
+		tools, ok := m["tool_calls"].([]interface{})
+		if !ok || len(tools) == 0 {
+			continue
+		}
+		if rc, ok := m["reasoning_content"].(string); ok && strings.TrimSpace(rc) != "" {
+			continue
+		}
+		reasoning, _ := m["reasoning"].(string)
+		if strings.TrimSpace(reasoning) == "" {
+			reasoning = toolReasoningPlaceholder
+		}
+		m["reasoning_content"] = reasoning
+		changed = true
+	}
+	return changed
+}
+
 // normalizeReasoningEffort 将 OpenAI 标准枚举之外的 reasoning_effort 值归一到
 // 兼容值，避免 failover 到枚举更窄的上游（如部分仅接受 low/medium/high 的
 // 服务）时被 400 拒绝。当前仅收敛 max -> high；其余值保持透传，最小侵入。
@@ -1000,6 +1092,9 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			if k > 0 {
 				normalizeReasoningEffort(candBody)
+				if shouldNormalizeToolReasoning(candModel, cand.BaseURL, candBody) {
+					normalizeChatToolReasoningHistory(candBody)
+				}
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
@@ -1045,7 +1140,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				failCodes = append(failCodes, res.statusCode)
 			}
 			if k+1 < candCount {
-				selected = endpointCandidates[(k+1) % candCount]
+				selected = endpointCandidates[(k+1)%candCount]
 			}
 		}
 		if retryRoundFinished {
@@ -1117,10 +1212,10 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Route: "chat.completions", Kind: "failover",
 			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
 			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
-			Attempts:  attempts,
-			ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			Attempts:   attempts,
+			ElapsedMs:  time.Since(requestStarted).Milliseconds(),
 			StatusCode: failStatus,
-			Error:     msg,
+			Error:      msg,
 		})
 		s.recordAnalyticsKey(ctx, "chat.completions", lastEpID, model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
 			Kind:     "upstream",
@@ -2074,6 +2169,9 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			}
 			if k > 0 {
 				normalizeReasoningEffort(candBody)
+				if shouldNormalizeToolReasoning(candModel, cand.BaseURL, candBody) {
+					normalizeChatToolReasoningHistory(candBody)
+				}
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
@@ -2187,10 +2285,10 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			Route: "responses", Kind: "failover",
 			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
 			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
-			Attempts:  attempts,
-			ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			Attempts:   attempts,
+			ElapsedMs:  time.Since(requestStarted).Milliseconds(),
 			StatusCode: failStatus,
-			Error:     msg,
+			Error:      msg,
 		})
 		s.recordAnalyticsKey(ctx, "responses", lastEpID, model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
 			Kind:     "upstream",

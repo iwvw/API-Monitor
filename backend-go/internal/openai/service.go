@@ -192,8 +192,13 @@ type Service struct {
 	// 由常驻 worker 批量写入，避免高流量下每次请求都在请求线程内
 	// 同步 INSERT 造成写锁竞争。队列满时丢弃并计数（日志页短暂缺行）。
 	analyticsQueue chan analyticsWriteItem
-	analyticsOnce  sync.Once
-	analyticsDrop  atomic.Uint64
+	// analyticsStartMu/started/done 管理常驻 worker 的生命周期：
+	// 首条记录或显式 Shutdown 时启动，Shutdown 关闭队列后等 worker 退出，
+	// 避免测试 TempDir 清理时后台线程仍占用 SQLite 文件。
+	analyticsStartMu sync.Mutex
+	analyticsStarted bool
+	analyticsDone    chan struct{}
+	analyticsDrop    atomic.Uint64
 
 	// relayErrors 是推理转发失败事件的环形缓冲，供排障接口与详细日志排查。
 	relayErrMu  sync.Mutex
@@ -416,6 +421,7 @@ func New(cfg config.Config) *Service {
 		endpointLatencyOK:    make(map[string]bool),
 		analyticsStreams:     make(map[int]chan map[string]interface{}),
 		analyticsQueue:       make(chan analyticsWriteItem, analyticsQueueSize),
+		analyticsDone:        make(chan struct{}),
 		relayErrors:          make([]RelayErrorRecord, 0, relayErrorBufferSize),
 		routeModelIndex:      make(map[string][]int),
 		channelAffinity:      make(map[string]channelAffinityEntry),

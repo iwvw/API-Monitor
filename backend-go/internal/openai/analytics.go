@@ -76,6 +76,7 @@ type analyticsWriteItem struct {
 
 // enqueueAnalytics 将调用日志投递到异步落库队列，队列满时丢弃并计数。
 func (s *Service) enqueueAnalytics(item analyticsWriteItem) {
+	s.ensureAnalyticsWorker()
 	select {
 	case s.analyticsQueue <- item:
 	default:
@@ -83,6 +84,16 @@ func (s *Service) enqueueAnalytics(item analyticsWriteItem) {
 		if dropped == 1 || dropped%100 == 0 {
 			applog.Warn(context.Background(), "openai", "gateway analytics queue full, dropping records", "dropped", dropped)
 		}
+	}
+}
+
+// ensureAnalyticsWorker 幂等启动常驻落库 worker（首条记录 / flush / Shutdown 时）。
+func (s *Service) ensureAnalyticsWorker() {
+	s.analyticsStartMu.Lock()
+	defer s.analyticsStartMu.Unlock()
+	if !s.analyticsStarted {
+		s.analyticsStarted = true
+		go s.analyticsWorker()
 	}
 }
 
@@ -102,9 +113,7 @@ func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model 
 // 批量执行（见 analyticsWorker），请求路径不再承担同步 INSERT。
 func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int, failoverPath string, errInfo *AnalyticsError) {
 	gatewayKey := gatewayKeyFromContext(ctx)
-	s.analyticsOnce.Do(func() {
-		go s.analyticsWorker()
-	})
+	s.ensureAnalyticsWorker()
 	s.enqueueAnalytics(analyticsWriteItem{
 		route:             route,
 		endpointID:        endpointID,
@@ -131,13 +140,23 @@ func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, mod
 // analyticsWorker 常驻消费落库队列：批量取出记录，单事务逐条 INSERT
 // （合并 fsync 与连接获取，锁持有仍为毫秒级），随后统一执行错误详情
 // 保留清理并逐个 SSE 广播。flush 哨兵用于测试/优雅退出时的同步屏障。
+// 队列被 Shutdown 关闭后，处理完当前批次即退出并通知（不残留 goroutine，
+// 避免测试 TempDir 清理时后台线程仍占用 SQLite 文件）。
 func (s *Service) analyticsWorker() {
-	for item := range s.analyticsQueue {
+	defer close(s.analyticsDone)
+	for {
+		item, ok := <-s.analyticsQueue
+		if !ok {
+			return
+		}
 		batch := make([]analyticsWriteItem, 1, analyticsBatchLimit)
 		batch[0] = item
 		for len(batch) < analyticsBatchLimit {
 			select {
-			case next := <-s.analyticsQueue:
+			case next, open := <-s.analyticsQueue:
+				if !open {
+					goto done
+				}
 				batch = append(batch, next)
 			default:
 				goto done
@@ -145,6 +164,23 @@ func (s *Service) analyticsWorker() {
 		}
 	done:
 		s.persistAnalyticsBatch(batch)
+	}
+}
+
+// Shutdown 优雅停止异步落库 worker：关闭队列并等待在途批次落库后再返回。
+// 调用后不应再投递 analytics 记录（服务即将退出）。幂等；从未启用 worker 时
+// 直接放行。供测试（避免 TempDir 清理竞态）与进程优雅停机使用。
+func (s *Service) Shutdown() {
+	s.analyticsStartMu.Lock()
+	started := s.analyticsStarted
+	if !started {
+		s.analyticsStarted = true
+		go s.analyticsWorker()
+	}
+	s.analyticsStartMu.Unlock()
+	close(s.analyticsQueue)
+	if started {
+		<-s.analyticsDone
 	}
 }
 
@@ -334,9 +370,7 @@ func (s *Service) completeAnalyticsBatch(batch []analyticsWriteItem) {
 // 供测试与优雅关闭使用；超时后返回（不阻塞生产路径）。
 func (s *Service) flushAnalyticsQueue(timeout time.Duration) {
 	done := make(chan struct{})
-	s.analyticsOnce.Do(func() {
-		go s.analyticsWorker()
-	})
+	s.ensureAnalyticsWorker()
 	s.enqueueAnalytics(analyticsWriteItem{flush: done})
 	select {
 	case <-done:
