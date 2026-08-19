@@ -205,7 +205,7 @@ export default function ToolCallCard({ toolCall, inline }) {
         </span>
       </Button>
       {openArgs && argSummary && (
-        <div className="mt-2 rounded-lg bg-kumo-base p-2 font-mono text-[11px] break-all text-kumo-subtle ring-1 ring-kumo-line">
+        <div className="mt-2 line-clamp-1 break-all rounded-lg bg-kumo-base p-2 font-mono text-[11px] text-kumo-subtle ring-1 ring-kumo-line" title={argSummary}>
           {argSummary}
         </div>
       )}
@@ -288,6 +288,12 @@ export function ToolSteps({ items, streaming, isLastPart }) {
   // 流式中且本组是消息最后一个 part（下方尚无回复）→ 自动展开；已完成组自动收起
   const isOpen = open || (streaming && isLastPart);
   const single = merged.length === 1 ? merged[0] : null;
+  let singleLabel = '';
+  if (single) {
+    singleLabel = single.call
+      ? briefToolDesc(single.call.desc) || toolLabel(single.call.toolName) || '未知工具'
+      : '工具结果';
+  }
 
   const handleCopy = async (key, text) => {
     if (!text) return;
@@ -334,8 +340,8 @@ export function ToolSteps({ items, streaming, isLastPart }) {
         <Wrench className={`h-4 w-4 shrink-0 text-brand ${anyRunning ? 'askai-live-icon' : ''}`} />
         {single ? (
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 break-words leading-4">
-              {single.call ? (briefToolDesc(single.call.desc) || toolLabel(single.call.toolName) || '未知工具') : '工具结果'}
+            <span className="min-w-0 line-clamp-1 break-all leading-4" title={singleLabel}>
+              {singleLabel}
             </span>
             {single.count > 1 && (
               <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{single.count}</span>
@@ -389,7 +395,7 @@ export function ToolSteps({ items, streaming, isLastPart }) {
                   </div>
                 )}
                 {rowFailed && m.failedCall?.error && (
-                  <p className="min-w-0 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger">{m.failedCall.error}</p>
+                  <p className="min-w-0 line-clamp-1 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger" title={m.failedCall.error}>{m.failedCall.error}</p>
                 )}
               </div>
             );
