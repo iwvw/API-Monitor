@@ -2173,7 +2173,7 @@ function OpenAIPage() {
               </AppCard>
             </div>
 
-            <div className="grid gap-3 cq-xl:grid-cols-2">
+            <div className="grid items-start gap-3 cq-xl:grid-cols-2">
             {[
               {
                 key: 'requests',
@@ -2319,7 +2319,7 @@ function OpenAIPage() {
             </LayerCard>
           </div>
 
-            <div className="grid gap-3 cq-xl:grid-cols-2">
+            <div className="grid items-start gap-3 cq-xl:grid-cols-2">
             <LayerCard className="min-w-0 p-0">
               <LayerCard.Secondary>
                 <div className="flex w-full items-center justify-between gap-2">
@@ -2368,7 +2368,8 @@ function OpenAIPage() {
                           return (
                             <div
                               key={`${model.model}:${index}`}
-                              className="flex items-center gap-2 text-xs"
+                              className="rank-row-enter flex items-center gap-2 text-xs"
+                              style={{ animationDelay: `${Math.min(index * 40, 400)}ms` }}
                             >
                               <span
                                 className="w-40 shrink-0 truncate font-medium text-kumo-strong"
@@ -2378,7 +2379,7 @@ function OpenAIPage() {
                               </span>
                               <div className="h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-kumo-recessed">
                                 <div
-                                  className="h-full rounded-full"
+                                  className="h-full rounded-full transition-[width] duration-500 ease-out"
                                   style={{
                                     width: `${Math.max(2, Math.min(100, percent))}%`,
                                     background: ChartPalette.categorical(index, isDarkMode),
@@ -2450,7 +2451,8 @@ function OpenAIPage() {
                           return (
                             <div
                               key={`${model.model}:${index}`}
-                              className="flex items-center gap-2 text-xs"
+                              className="rank-row-enter flex items-center gap-2 text-xs"
+                              style={{ animationDelay: `${Math.min(index * 40, 400)}ms` }}
                             >
                               <span
                                 className="w-40 shrink-0 truncate font-medium text-kumo-strong"
@@ -2460,7 +2462,7 @@ function OpenAIPage() {
                               </span>
                               <div className="h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-kumo-recessed">
                                 <div
-                                  className="h-full rounded-full"
+                                  className="h-full rounded-full transition-[width] duration-500 ease-out"
                                   style={{
                                     width: `${Math.max(2, Math.min(100, percent))}%`,
                                     background: ChartPalette.categorical(index, isDarkMode),
