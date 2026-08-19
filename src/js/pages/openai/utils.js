@@ -1,3 +1,8 @@
+// 统一鉴权头：面板走会话 Cookie，仅需 JSON 内容类型。
+export const getAuthHeaders = () => ({
+  'Content-Type': 'application/json',
+});
+
 // formatErrorResponseForDisplay 把报错 JSON 转为可读文本：合法 JSON 格式化缩进；
 // 截断/非 JSON 内容还原字符串内的 \r\n、\n、\t 转义序列，避免挤成一行。
 export function formatErrorResponseForDisplay(raw) {
