@@ -254,6 +254,16 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_extracted_msg_id", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.memory_extracted_msg_id: %w", err)
 	}
+	// admin_ai_sessions 扩展 memory_capture_failed_at + memory_capture_fail_count 列：
+	// 自动记忆提炼的失败冷却与连续失败计数（DB 持久化，重启后冷却窗口仍生效）。
+	// 提炼失败写入失败时间并递增计数；命中冷却窗口的会话本轮跳过，避免模型不可用时
+	// 每 60s 对同一会话无限重试硬循环。
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_capture_failed_at", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.memory_capture_failed_at: %w", err)
+	}
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "memory_capture_fail_count", "INTEGER DEFAULT 0"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.memory_capture_fail_count: %w", err)
+	}
 	// admin_ai_messages 扩展 reasoning_content 列（推理模型要求回传思考内容）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "reasoning_content", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_messages.reasoning_content: %w", err)

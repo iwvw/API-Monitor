@@ -304,6 +304,36 @@ func TestParseModelList(t *testing.T) {
 	}
 }
 
+// --- 自动记忆提炼失败冷却：连续失败指数退避，冷却期内跳过、到期放行，杜绝 60s 硬循环 ---
+
+func TestMemoryCaptureCooldownElapsed(t *testing.T) {
+	now := time.Now().UTC()
+	base := memoryCaptureCooldownBase // 5min
+
+	cases := []struct {
+		name      string
+		failedAt  string
+		failCount int
+		want      bool
+	}{
+		{"无失败记录可直接重试", "", 0, true},
+		{"坏时间戳防御性放行", "not-a-time", 3, true},
+		{"首次失败 1 分钟内冷却中", now.Add(-1 * time.Minute).Format(time.RFC3339), 1, false},
+		{"首次失败 4 分钟仍冷却中", now.Add(-4 * time.Minute).Format(time.RFC3339), 1, false},
+		{"首次失败满 5 分钟可重试", now.Add(-base).Format(time.RFC3339), 1, true},
+		{"首次失败 6 分钟放行", now.Add(-6 * time.Minute).Format(time.RFC3339), 1, true},
+		{"连续 2 次失败 8 分钟仍冷却中", now.Add(-8 * time.Minute).Format(time.RFC3339), 2, false},
+		{"连续 2 次失败满 10 分钟放行", now.Add(-10 * time.Minute).Format(time.RFC3339), 2, true},
+		{"连续失败计数超上限按封顶窗口（count=99 等同 5）", now.Add(-base * 8).Format(time.RFC3339), 99, false},
+		{"超上限且已过封顶窗口放行", now.Add(-base * 24).Format(time.RFC3339), 99, true},
+	}
+	for _, c := range cases {
+		got := memoryCaptureCooldownElapsed(c.failedAt, c.failCount)
+		if got != c.want {
+			t.Errorf("%s: memoryCaptureCooldownElapsed(%q,%d) = %v, want %v", c.name, c.failedAt, c.failCount, got, c.want)
+		}
+	}
+}
 // --- 摘要清洗与截断：删全部标点/空白；超长按量值边界与助词回退截断 ---
 
 func TestCleanSummaryText(t *testing.T) {

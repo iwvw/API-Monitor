@@ -18,6 +18,13 @@ const (
 
 const memoryCaptureInterval = 60 * time.Second
 
+// memoryCaptureCooldown 是单次提炼失败后的最短重试间隔，指数退避（首失败后最短，
+// 连续失败越多间隔越长），避免模型不可用时每 60s 无限重试同一会话。
+const memoryCaptureCooldownBase = 5 * time.Minute
+
+// memoryCaptureFailLimit 连续失败超过该次数后，冷却窗口封顶（不再继续拉长）。
+const memoryCaptureFailLimit = 5
+
 // memoryCaptureLimits 提炼输入预算（防超长会话撑爆 prompt）。
 const (
 	memoryCaptureMaxMessages     = 30
@@ -84,7 +91,8 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 
 	idleBefore := time.Now().UTC().Add(-time.Duration(idleMinutes) * time.Minute).Format(time.RFC3339)
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, COALESCE(model,''), COALESCE(memory_extracted_at,''), COALESCE(memory_extracted_msg_id,'')
+		SELECT id, COALESCE(model,''), COALESCE(memory_extracted_at,''), COALESCE(memory_extracted_msg_id,''),
+		       COALESCE(memory_capture_failed_at,''), COALESCE(memory_capture_fail_count,0)
 		FROM admin_ai_sessions
 		WHERE source = 'web'
 		  AND last_activity_at <= ?
@@ -97,15 +105,19 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 		return err
 	}
 	type candidate struct {
-		id        string
-		model     string
-		extracted string
-		msgID     string
+		id         string
+		model      string
+		extracted  string
+		msgID      string
+		failedAt   string
+		failCount  int
+		cooldownOk bool
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if rows.Scan(&c.id, &c.model, &c.extracted, &c.msgID) == nil {
+		if rows.Scan(&c.id, &c.model, &c.extracted, &c.msgID, &c.failedAt, &c.failCount) == nil {
+			c.cooldownOk = memoryCaptureCooldownElapsed(c.failedAt, c.failCount)
 			candidates = append(candidates, c)
 		}
 	}
@@ -114,6 +126,11 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 
 	var firstErr error
 	for _, c := range candidates {
+		// 失败冷却窗口内跳过：连续失败时指数拉长窗口，杜绝 60s 硬循环；
+		// 冷却状态持久化在 DB，重启进程后依旧生效。
+		if !c.cooldownOk {
+			continue
+		}
 		s.mu.Lock()
 		_, running := s.sessionRuns[c.id]
 		s.mu.Unlock()
@@ -122,12 +139,46 @@ func (s *Service) runMemoryCaptureWithIdle(idleMinutes int) error {
 		}
 		if err := s.captureSessionMemory(ctx, db, c.id, c.model, c.extracted, c.msgID); err != nil {
 			slog.Warn("memory-capture", "session", c.id, "err", err.Error())
+			s.markMemoryCaptureFailed(ctx, db, c.id)
 			if firstErr == nil {
 				firstErr = err
 			}
 		}
 	}
 	return firstErr
+}
+
+// memoryCaptureCooldownElapsed 返回该会话的失败冷却是否已到期（true=可以重试；false=冷却中跳过）。
+// 无失败记录的直接可重试；有失败记录时按连续失败次数指数退避：base × 2^(count-1)，上限随
+// memoryCaptureFailLimit 封顶。时间解析失败按可重试处理（防御性放行，避免陈旧坏数据永久卡死提炼）。
+func memoryCaptureCooldownElapsed(failedAt string, failCount int) bool {
+	if failedAt == "" {
+		return true
+	}
+	parseAt, err := time.Parse(time.RFC3339, failedAt)
+	if err != nil {
+		return true
+	}
+	count := failCount
+	if count < 1 {
+		count = 1
+	}
+	if count > memoryCaptureFailLimit {
+		count = memoryCaptureFailLimit
+	}
+	cooldown := memoryCaptureCooldownBase << uint(count-1)
+	return time.Since(parseAt) >= cooldown
+}
+
+// markMemoryCaptureFailed 记录一次提炼失败：写入失败时间并递增连续失败计数。
+// 与游标推进（成功清零）共用存储层，失败计数在 DB 持久化，重启后冷却窗口依然有效。
+func (s *Service) markMemoryCaptureFailed(ctx context.Context, db *sql.DB, sessionID string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.ExecContext(ctx,
+		`UPDATE admin_ai_sessions SET memory_capture_failed_at = ?, memory_capture_fail_count = memory_capture_fail_count + 1 WHERE id = ?`,
+		now, sessionID); err != nil {
+		slog.Warn("memory-capture-failed-mark", "session", sessionID, "err", err.Error())
+	}
 }
 
 // captureSessionMemory 提炼单个会话的新增对话：加载消息与现有记忆 → 调用 LLM 输出操作清单 → 落库。
@@ -188,6 +239,11 @@ func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionI
 		}
 	}
 
+	// 专用提炼模型最高优先：admin_ai_memories_model → 会话模型 → 默认推理模型。
+	// 专用模型一旦在设置中配置立即生效（每轮循环重新读取，无需重启），下一轮提炼即采用。
+	if configured := s.getSetting(ctx, adminAIKeyMemoriesModel, ""); configured != "" {
+		model = configured
+	}
 	if model == "" {
 		_ = db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = 'admin_ai_default_model'").Scan(&model)
 	}
@@ -242,8 +298,9 @@ func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionI
 	// 全部操作落库成功后才推进游标（崩溃/失败保留旧游标，消息不丢）。
 	// 游标推进到本批最后一条消息的 (created_at, id)：超批的剩余消息
 	// 满足「>」条件，下一轮继续处理，不会被跳过。
+	// 成功同时清零失败冷却计数：提炼恢复后不再受退避窗口阻碍。
 	last := msgs[len(msgs)-1]
-	if _, err := db.ExecContext(ctx, `UPDATE admin_ai_sessions SET memory_extracted_at = ?, memory_extracted_msg_id = ? WHERE id = ?`, last.createdAt, last.id, sessionID); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE admin_ai_sessions SET memory_extracted_at = ?, memory_extracted_msg_id = ?, memory_capture_failed_at = '', memory_capture_fail_count = 0 WHERE id = ?`, last.createdAt, last.id, sessionID); err != nil {
 		return err
 	}
 	return nil

@@ -290,6 +290,7 @@ const (
 	adminAIKeyTimeoutSeconds         = "admin_ai_timeout_seconds"
 	adminAIKeyMemoriesEnabled        = "admin_ai_memories_enabled"
 	adminAIKeyMemoriesBootstrapChars = "admin_ai_memories_bootstrap_chars"
+	adminAIKeyMemoriesModel          = "admin_ai_memories_model" // 自动记忆提炼专用模型（留空回退会话模型/默认模型）
 	adminAIKeyContextWindow          = "admin_ai_context_window"
 
 	adminAIKeyMaxConcurrentRuns = "admin_ai_max_concurrent_runs" // 全局并发执行上限

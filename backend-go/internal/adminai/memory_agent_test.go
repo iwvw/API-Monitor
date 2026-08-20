@@ -202,6 +202,32 @@ func TestMemoryCaptureRollbackOnLLMFailure(t *testing.T) {
 	if extracted != "" {
 		t.Fatalf("extracted_at should be rolled back on failure, got %q", extracted)
 	}
+
+	// 失败标记已持久化：failed_at 非空、fail_count 递增（冷却生效，重启后依旧）。
+	var failedAt string
+	var failCount int
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT COALESCE(memory_capture_failed_at, ''), COALESCE(memory_capture_fail_count, 0) FROM admin_ai_sessions WHERE id = 'aas_roll'`).Scan(&failedAt, &failCount); err != nil {
+		t.Fatalf("query fail marker: %v", err)
+	}
+	if failedAt == "" {
+		t.Fatalf("memory_capture_failed_at should be set after failure")
+	}
+	if failCount != 1 {
+		t.Fatalf("memory_capture_fail_count should be 1 after first failure, got %d", failCount)
+	}
+
+	// 冷却窗口内再次扫描：跳过该会话（不再发起调用，不产生错误、轮到次数不增）。
+	if err := s.runMemoryCaptureOnce(); err != nil {
+		t.Fatalf("cooldown should skip session without error, got %v", err)
+	}
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT COALESCE(memory_capture_fail_count, 0) FROM admin_ai_sessions WHERE id = 'aas_roll'`).Scan(&failCount); err != nil {
+		t.Fatalf("query fail count2: %v", err)
+	}
+	if failCount != 1 {
+		t.Fatalf("fail count should stay 1 while cooling down, got %d", failCount)
+	}
 }
 
 // 提炼输出容错解析。

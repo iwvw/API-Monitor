@@ -259,6 +259,7 @@ var adminAISettingDefs = []struct {
 	{"admin_ai_memories_bootstrap_chars", "2000", "每轮对话注入系统提示词的长期记忆字符上限"},
 	{"admin_ai_memories_auto_capture", "true", "自动记忆提炼：会话空闲后后台总结值得长期记住的内容"},
 	{"admin_ai_memories_idle_minutes", "10", "会话空闲多少分钟后触发自动记忆提炼"},
+	{"admin_ai_memories_model", "", "自动记忆提炼专用模型（留空回退会话模型/默认模型，配置即刻生效）"},
 }
 
 // handleSettings GET/PUT /api/admin-ai/settings
