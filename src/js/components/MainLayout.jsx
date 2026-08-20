@@ -215,14 +215,24 @@ const useMobileClosingNavigation = onNavigate => {
 
 /* 左侧边栏开合桥：顶栏移动端按钮位于右侧 AskAI Provider 子树内，
    Sidebar.Trigger 的上下文会解析到右侧面板（导致窄屏点左上角开错面板）。
-   这里在左侧 Provider 内注册 toggleSidebar，供顶栏按钮显式调用。 */
+   这里在左侧 Provider 内注册 toggleSidebar，供顶栏按钮显式调用。
+
+   移动端额外强制桌面展开态：Provider 的 state 由 open（桌面开合偏好）推导，
+   与 openMobile（移动抽屉）无关。若用户曾在桌面端收起侧栏（sidebarCollapsed=true），
+   窄屏上 open 会回落到 internalOpen=false → state="collapsed"，
+   导致 SidebarCollapsibleContent 以 state!=="collapsed" 为闸门拒绝展开分组。
+   这里在 isMobile 时显式置 open=true，让移动抽屉内分组可正常展开，
+   且不会污染桌面偏好（handleSidebarOpenChange 在窄屏不持久化）。 */
 const leftSidebarToggles = new Set();
 function LeftSidebarBridge() {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, isMobile, setOpen } = useSidebar();
   useEffect(() => {
     leftSidebarToggles.add(toggleSidebar);
     return () => leftSidebarToggles.delete(toggleSidebar);
   }, [toggleSidebar]);
+  useEffect(() => {
+    if (isMobile) setOpen(true);
+  }, [isMobile, setOpen]);
   return null;
 }
 
