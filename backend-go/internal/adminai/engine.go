@@ -471,7 +471,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 	sessionMode := "agent"
 	err = db.QueryRowContext(runCtx, "SELECT COALESCE(model,''), COALESCE(mode,'agent') FROM admin_ai_sessions WHERE id = ?", sessionID).Scan(&existingModel, &sessionMode)
 	if err == sql.ErrNoRows {
-		_, err = db.ExecContext(runCtx,
+		err = execBusyRetry(runCtx, db,
 			`INSERT INTO admin_ai_sessions (id, source, title, model, mode, write_enabled, identity_json, created_at, updated_at, last_activity_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
 			sessionID, source, "", sessionModel, sessionMode, identityJSON, now, now, now)
 		if err != nil {
@@ -509,7 +509,9 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			mentionsJSON = string(b)
 		}
 	}
-	_, err = db.ExecContext(runCtx,
+	// 用户消息是「不丢失」的硬保证：busy 锁窗口内重试，彻底失败才上报，
+	// 避免前端看到「AI 对话凭空消失」。
+	err = execBusyRetry(runCtx, db,
 		`INSERT INTO admin_ai_messages (id, session_id, role, content, mentions, created_at) VALUES (?, ?, 'user', ?, ?, ?)`,
 		userMsgID, sessionID, prompt, mentionsJSON, now)
 	if err != nil {
@@ -521,7 +523,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 	if llmModel == "" {
 		llmModel = "default"
 	}
-	_, err = db.ExecContext(runCtx,
+	err = execBusyRetry(runCtx, db,
 		`INSERT INTO admin_ai_executions (id, session_id, source, status, llm_model, started_at) VALUES (?, ?, ?, 'running', ?, ?)`,
 		runID, sessionID, source, llmModel, now)
 	if err != nil {

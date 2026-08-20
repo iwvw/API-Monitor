@@ -147,7 +147,7 @@ func (p *connPool) put(conn driver.Conn) error {
 // 连接打开阶段不再触碰。
 var connPragmas = []string{
 	"PRAGMA foreign_keys = ON",
-	"PRAGMA busy_timeout = 5000",
+	"PRAGMA busy_timeout = 30000",
 	"PRAGMA journal_mode = WAL",
 	// NORMAL keeps WAL commits durable across process crashes while avoiding an
 	// fsync for every transaction. Temporary sort/index data stays in memory.

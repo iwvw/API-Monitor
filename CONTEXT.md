@@ -42,6 +42,10 @@ Touch these files only for focused reasons. Avoid broad formatting or opportunis
 - Managed internal proxy nodes use panel-assigned ports in the inclusive range `45654-55654`; never assume port 443. Allocation is unique per server, Agent bind-checked before apply, and does not alter imported external-node ports.
 - Do not optimize performance proactively when current performance is acceptable. Prefer governance, clarity, and low-risk locality improvements.
 - Do not revert existing uncommitted user or AI changes unless explicitly asked.
+- SQLite 周期 WAL 维护只做 PASSIVE（`wal_checkpoint(PASSIVE)`）。禁止在自动路径
+  使用 TRUNCATE/RESTART 重置型 checkpoint：面板有常驻轮询读者，modernc 驱动下它们在
+  读者存续时会无视 busy_timeout 与 ctx 无限阻塞，是周期性 `database is locked`
+  风暴的根因。主动截断/回收磁盘只走设置页「数据库压缩」或 GitHub 历史清理等用户动作。
 
 ## AI Maintenance Commands
 

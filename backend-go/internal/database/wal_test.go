@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
@@ -56,8 +57,9 @@ func TestWALCheckpointTruncateShrinksWal(t *testing.T) {
 	}
 }
 
-// WALMaintenance 应先 PASSIVE 推进、再 TRUNCATE，把整个 WAL 文件截断。
-func TestWALMaintenancePassiveThenTruncate(t *testing.T) {
+// WALMaintenance 只做 PASSIVE：在写满 WAL 后应能正常完成一轮（不报错），
+// 且在有活跃读者时同样不被阻塞（PASSIVE 不要求"零读者"，这是结构选型的核心）。
+func TestWALMaintenancePassiveCompactsWithReaders(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "wal-maintenance.db"}
 	store := New(cfg)
 	db, err := store.Open(context.Background())
@@ -82,16 +84,32 @@ func TestWALMaintenancePassiveThenTruncate(t *testing.T) {
 		t.Fatal("expected a non-empty WAL file before maintenance")
 	}
 
-	attemptCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	truncated, err := WALMaintenance(context.Background(), store.DatabasePath(), attemptCtx)
+	// 活跃读者存在时 PASSIVE 也必须能完成（不得阻塞/超时）。
+	reader, err := sql.Open("sqlite", store.DatabasePath())
 	if err != nil {
-		t.Fatalf("WALMaintenance: %v", err)
+		t.Fatal(err)
 	}
-	if !truncated {
-		t.Fatal("expected WALMaintenance to truncate the idle WAL")
+	defer reader.Close()
+	tx, err := reader.Begin()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if after := walFileSize(store.DatabasePath()); after > 0 {
-		t.Fatalf("expected WAL truncated to zero, got %d bytes", after)
+	defer tx.Rollback()
+	if _, err := tx.Query(`SELECT COUNT(*) FROM t`); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := WALMaintenance(context.Background(), store.DatabasePath())
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("WALMaintenance: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("WALMaintenance PASSIVE blocked or timed out with an active reader")
 	}
 }

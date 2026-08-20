@@ -188,7 +188,9 @@ func (s *Service) Shutdown() {
 
 // persistAnalyticsBatch 将一批调用日志落库并按序广播。
 func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
-	writeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 写 ctx 需 ≥ 连接级 busy_timeout（30s），否则维护窗口内 busy 等待还没获得
+	// 锁，ctx 先到期导致整批分析记录被放弃。
+	writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	db, err := s.open(writeCtx)

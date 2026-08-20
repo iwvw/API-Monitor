@@ -124,16 +124,15 @@ const (
 	autoCleanupTimeout      = 2 * time.Minute
 )
 
-// 周期 WAL 维护参数。WAL 会随持续写入膨胀（PASSIVE checkpoint 在活跃读者
-// 存在时无法复位/截断文件），通过定期 PRAGMA wal_checkpoint(TRUNCATE) 回收。
-// TRUNCATE 需要无读者的瞬时窗口，真正的空闲低峰更容易成功。固定短周期检查，
-// 只在 WAL 超过阈值时才尝试 TRUNCATE，把峰值增长控制在两次检查之间的写入量。
+// 周期 WAL 维护参数。面板有常驻轮询读者，重置型 checkpoint（TRUNCATE/RESTART）
+// 会无限阻塞并拖死读写，因此维护只做 PASSIVE（见 database.WALMaintenance）；
+// WAL 文件收敛在高水位附近，不主动截断。固定短周期检查，只在 WAL 超过阈值时
+// 触发 PASSIVE 推进，把峰值增长控制在两次检查之间的写入量。
 const (
-	walMaintenanceInterval      = 5 * time.Minute
-	walMaintenanceQuietWindow   = time.Minute
-	walMaintenanceSmallBytes    = int64(8 << 20)
-	walMaintenanceAttemptWindow = 3 * time.Minute
-	walMaintenanceRetryFailed   = 30 * time.Second
+	walMaintenanceInterval    = 5 * time.Minute
+	walMaintenanceQuietWindow = time.Minute
+	walMaintenanceSmallBytes  = int64(8 << 20)
+	walMaintenanceRetryFailed = 30 * time.Second
 )
 
 // StartBackgroundCleanup launches the periodic log-retention enforcement loop.
@@ -177,8 +176,8 @@ func (s *Service) StartWALMaintenance() {
 	}()
 }
 
-// runWALMaintenance periodically checkpoints and truncates the WAL so it cannot
-// grow without bound under sustained write + reader traffic. It first waits a
+// runWALMaintenance periodically checkpoints the WAL（PASSIVE-only）so its
+// frames stay bounded under sustained write + reader traffic. It first waits a
 // quiet window (server boot), then checkpoints on an adaptive interval:
 // success -> every walMaintenanceInterval; failure -> retry sooner.
 func (s *Service) runWALMaintenance(ctx context.Context) {
@@ -207,8 +206,8 @@ func (s *Service) runWALMaintenance(ctx context.Context) {
 }
 
 // walMaintenanceOnce runs one WAL maintenance pass: it checks the current WAL
-// size and, when it has grown, runs PASSIVE-then-TRUNCATE maintenance. Returns
-// true when the WAL was confirmed truncated or already small.
+// size and, when it has grown, runs a PASSIVE checkpoint pass. Returns true
+// when the pass completed (WAL was already small or successfully PASSIVE-compacted).
 func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
 	path := s.store.DatabasePath()
 	before := fileSizeIfExists(path + "-wal")
@@ -216,25 +215,17 @@ func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
 		return true
 	}
 
-	// PASSIVE 先行 + 长窗口 TRUNCATE（见 database.WALMaintenance）：不占池化
-	// 连接，busy_timeout=60s 能在读者间隙等出完成机会。面板持续被 AI 高频读写
-	// 时"完全零读者"窗口极短，需要给到分钟级尝试窗口而非一次性 30s。
-	attemptCtx, cancel := context.WithTimeout(ctx, walMaintenanceAttemptWindow)
-	defer cancel()
-	truncated, err := database.WALMaintenance(ctx, path, attemptCtx)
+	// 只做 PASSIVE（见 database.WALMaintenance）：重置型 checkpoint（RESTART/
+	// TRUNCATE）在读者存续时会无限阻塞并把读者/写者一并拖死，是此前周期
+	// SQLITE_BUSY 的根因；PASSIVE 从不阻塞，帧会被回写复用，WAL 文件收录在
+	// 高水位附近。主动回收磁盘走设置页数据库压缩。
+	ok, err := database.WALMaintenance(ctx, path)
 	if err != nil {
 		applog.Warn(ctx, "settings", "wal maintenance failed", "error", err.Error())
 		return false
 	}
-	if truncated {
-		applog.Info(ctx, "settings", fmt.Sprintf("wal checkpoint truncated (wal before=%s)", sizeMBString(before)))
-		return true
-	}
-	applog.Warn(ctx, "settings", "wal checkpoint deferred (readers busy)")
-
-	// 未截断不一定失败——WAL 可能已被 PASSIVE 显著压缩。返回 false 让上层
-	// 更快重试，直到确认文件回落。
-	return false
+	applog.Info(ctx, "settings", fmt.Sprintf("wal checkpoint passived (wal before=%s)", sizeMBString(before)))
+	return ok
 }
 
 func (s *Service) runBackgroundCleanup(ctx context.Context) {
