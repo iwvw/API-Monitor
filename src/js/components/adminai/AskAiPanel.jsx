@@ -609,10 +609,17 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     if (!showAskAI) return undefined;
     let inFlight = false;
     const poll = async () => {
-      if (inFlight || streamingRef.current || document.visibilityState !== 'visible') return;
+      // 面板自己刚发起的 run 正在流式时禁止重拉：loadMessages 会用数据库快照
+      // 覆盖乐观 UI（含 assistant 占位/进行中正文），把正在打字机的回复冲掉。
+      // 用 streamTargetIdRef 而非 streamingRef 判活：streamingRef 靠 useEffect
+      // 异步同步，存在一帧空窗，SSE 打开后首个 2s 轮询会漏过闸门（曾实测命中）。
+      // 根因：调 loadSessions 期间流已经打开，晚到的 loadMessages 仍会触发。
+      if (inFlight || streamTargetIdRef.current || document.visibilityState !== 'visible') return;
       inFlight = true;
       try {
         const list = await loadSessions();
+        // 二次校验：await 期间新 run 已开流（streamTargetIdRef 同步置位）→ 放弃本轮重拉
+        if (streamTargetIdRef.current) return;
         const sid = activeSessionIdRef.current;
         const cur = list.find((s) => s.id === sid);
         if (cur) {

@@ -2,6 +2,7 @@ package adminai
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,6 +77,71 @@ func TestRunEventBufferAppendAndReplay(t *testing.T) {
 	if len(got) != 2 || got[0] != "tool_start" || got[1] != "done" {
 		t.Fatalf("expect [tool_start done], got %v", got)
 	}
+}
+
+// fakeBusyExec：按次数注入 SQLite 忙锁，随后放行，验证 execBusyRetry 的重试语义。
+type fakeBusyExec struct {
+	busyLeft  int
+	execCalls int
+}
+
+func (f *fakeBusyExec) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	f.execCalls++
+	if f.busyLeft > 0 {
+		f.busyLeft--
+		return driverResult{}, fmt.Errorf("database is locked")
+	}
+	return driverResult{}, nil
+}
+
+// 用 database/sql 的 Result 接口实现，避免额外依赖。
+type driverResult struct{}
+
+func (driverResult) LastInsertId() (int64, error) { return 0, nil }
+func (driverResult) RowsAffected() (int64, error) { return 1, nil }
+
+func TestExecBusyRetrySucceedsAfterBusy(t *testing.T) {
+	f := &fakeBusyExec{busyLeft: 3}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := execBusyRetry(ctx, f, "INSERT", 1); err != nil {
+		t.Fatalf("expected success after transient busy, got %v", err)
+	}
+	if f.execCalls != 4 {
+		t.Fatalf("exec calls = %d, want 4 (3 busy + 1 ok)", f.execCalls)
+	}
+}
+
+func TestExecBusyRetryGivesUpAfterMaxAttempts(t *testing.T) {
+	f := &fakeBusyExec{busyLeft: 99}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := execBusyRetry(ctx, f, "INSERT", 1)
+	if err == nil || !strings.Contains(err.Error(), "database is locked") {
+		t.Fatalf("expected busy error after max attempts, got %v", err)
+	}
+	if f.execCalls != 5 {
+		t.Fatalf("exec calls = %d, want 5 (max attempts)", f.execCalls)
+	}
+}
+
+func TestExecBusyRetryNonBusyErrorPassesThrough(t *testing.T) {
+	f := &fakeBusyExec{busyLeft: 0}
+	f2 := &hardFailExec{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := execBusyRetry(ctx, f, "INSERT", 1); err != nil {
+		t.Fatalf("clean exec should succeed, got %v", err)
+	}
+	if err := execBusyRetry(ctx, f2, "INSERT", 1); err == nil || !strings.Contains(err.Error(), "constraint") {
+		t.Fatalf("expected constraint error passthrough, got %v", err)
+	}
+}
+
+type hardFailExec struct{}
+
+func (hardFailExec) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return driverResult{}, fmt.Errorf("constraint failed")
 }
 
 // emit 写入缓冲的事件必须携带 __seq，且 buffer/replay 与通道事件一致。

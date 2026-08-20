@@ -53,6 +53,40 @@ const (
 // 用 var 以便测试注入短值（运行期只读，勿修改）。
 var firstTokenTimeout = 90 * time.Second
 
+// sqlExecer 抽象 *sql.DB 的执行能力，供 execBusyRetry 在测试中注入瞬时忙锁故障。
+type sqlExecer interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
+// execBusyRetry 执行落库写入并对 SQLite 忙锁（database is locked）做有限重试。
+// 进程级连接池最多 4 条物理连接共享同一库，写高峰期（多 run + 会话标题异步写 +
+// WAL 周期 TRUNCATE）可能瞬时击穿 busy_timeout 阈值；这类偶发锁冲突重试即可，
+// 不必把错误一路顶到用户。超过重试上限返回最后一次错误，由调用方决定上报方式。
+func execBusyRetry(ctx context.Context, db sqlExecer, query string, args ...interface{}) error {
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		_, lastErr = db.ExecContext(ctx, query, args...)
+		if lastErr == nil {
+			return nil
+		}
+		msg := lastErr.Error()
+		if !strings.Contains(msg, "database is locked") && !strings.Contains(msg, "SQLITE_BUSY") {
+			return lastErr
+		}
+		if attempt+1 >= maxAttempts {
+			break
+		}
+		slog.Warn("adminai-exec-busy-retry", "attempt", attempt+1, "query", query, "err", lastErr.Error())
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(150*(1<<attempt)) * time.Millisecond):
+		}
+	}
+	return lastErr
+}
+
 // retryableToolError 决定工具调用失败是否值得重试：
 // 审批类（拒绝/未启用/超时）与参数类（4xx）是确定结果，重试无意义；网络/5xx 等偶发故障才重试。
 // 注意：是否重试还需同时满足幂等（toolCallIdempotent），写操作不因偶发故障重试。
@@ -745,7 +779,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			messages = append(messages, historyMsg{Role: "assistant", Content: "", ReasoningContent: resp.ReasoningContent, ToolCalls: resp.ToolCalls})
 			tcMeta, _ := json.Marshal(resp.ToolCalls)
 			assistantMsgID := nextID(runCtx, db, "aam_")
-			_, _ = db.ExecContext(runCtx,
+			_ = execBusyRetry(runCtx, db,
 				`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, tool_call_meta, created_at) VALUES (?, ?, 'assistant', '', ?, '', ?, ?)`,
 				assistantMsgID, sessionID, resp.ReasoningContent, string(tcMeta), time.Now().UTC().Format(time.RFC3339))
 			s.scheduleReasoningSummary(s.summaryModel(runCtx, db, sessionModel), resp.ReasoningContent, assistantMsgID, eventCh)
@@ -877,14 +911,14 @@ s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
 
 				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": st.tc.Function.Name, "toolCallId": st.tcID, "status": status, "summary": summary, "userMessageId": userMsgID}})
 
-				tcFinished := time.Now().UTC().Format(time.RFC3339)
-				_, _ = db.ExecContext(runCtx,
-					`UPDATE admin_ai_tool_calls SET status = ?, output_summary = ?, finished_at = ? WHERE id = ?`,
-					status, summary, tcFinished, st.tcID)
+tcFinished := time.Now().UTC().Format(time.RFC3339)
+			_, _ = db.ExecContext(runCtx,
+				`UPDATE admin_ai_tool_calls SET status = ?, output_summary = ?, finished_at = ? WHERE id = ?`,
+				status, summary, tcFinished, st.tcID)
 
-				_, _ = db.ExecContext(runCtx,
-					`INSERT INTO admin_ai_messages (id, session_id, role, content, tool_call_id, tool_status, created_at) VALUES (?, ?, 'tool', ?, ?, ?, ?)`,
-					nextID(runCtx, db, "aam_"), sessionID, summary, st.tc.ID, status, tcFinished)
+			_ = execBusyRetry(runCtx, db,
+				`INSERT INTO admin_ai_messages (id, session_id, role, content, tool_call_id, tool_status, created_at) VALUES (?, ?, 'tool', ?, ?, ?, ?)`,
+				nextID(runCtx, db, "aam_"), sessionID, summary, st.tc.ID, status, tcFinished)
 				messages = append(messages, historyMsg{Role: "tool", Content: summary, ToolCallID: st.tc.ID})
 			}
 			continue
@@ -912,9 +946,17 @@ s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
 		}
 
 		assistantMsgID := nextID(runCtx, db, "aam_")
-		_, _ = db.ExecContext(runCtx,
+		// 落库最终回复是「回复不会消失」的硬保证：busy 锁冲突重试；彻底失败
+		// 仍要 emit error，让前端/频道能感知内容丢失而非静默 done（否则刷新后
+		// 历史只剩 user/tool 行，看起来像「AI 回复后又消失了」）。
+		if err := execBusyRetry(runCtx, db,
 			`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, reasoning_summary, created_at) VALUES (?, ?, 'assistant', ?, ?, '', ?)`,
-			assistantMsgID, sessionID, content, resp.ReasoningContent, time.Now().UTC().Format(time.RFC3339))
+			assistantMsgID, sessionID, content, resp.ReasoningContent, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			slog.Error("adminai-assistant-insert-failed", "runId", runID, "sessionId", sessionID, "err", err.Error())
+			s.finishExecution(db, sessionID, runID, "error", toolCount, llmModel, totalPromptTokens, totalCompletionTokens, "回复落库失败")
+			s.emit(eventCh, SSEEvent{Type: "error", Fields: map[string]interface{}{"message": "回复生成完成但保存失败，请刷新后重试", "userMessageId": userMsgID}})
+			return
+		}
 		s.scheduleReasoningSummary(llmModel, resp.ReasoningContent, assistantMsgID, eventCh)
 
 		// 注意：不再重复 emit 完整 content 作为 delta —— 流式阶段 callLLMStream 已
