@@ -131,8 +131,9 @@ const (
 const (
 	walMaintenanceInterval      = 5 * time.Minute
 	walMaintenanceQuietWindow   = time.Minute
-	walMaintenanceSmallBytes    = int64(4 << 20)
-	walMaintenanceAttemptWindow = 30 * time.Second
+	walMaintenanceSmallBytes    = int64(8 << 20)
+	walMaintenanceAttemptWindow = 3 * time.Minute
+	walMaintenanceRetryFailed   = 30 * time.Second
 )
 
 // StartBackgroundCleanup launches the periodic log-retention enforcement loop.
@@ -178,7 +179,8 @@ func (s *Service) StartWALMaintenance() {
 
 // runWALMaintenance periodically checkpoints and truncates the WAL so it cannot
 // grow without bound under sustained write + reader traffic. It first waits a
-// quiet window (server boot), then checkpoints on a fixed interval.
+// quiet window (server boot), then checkpoints on an adaptive interval:
+// success -> every walMaintenanceInterval; failure -> retry sooner.
 func (s *Service) runWALMaintenance(ctx context.Context) {
 	initial := time.NewTimer(walMaintenanceQuietWindow)
 	defer initial.Stop()
@@ -188,52 +190,51 @@ func (s *Service) runWALMaintenance(ctx context.Context) {
 	case <-initial.C:
 	}
 
-	ticker := time.NewTicker(walMaintenanceInterval)
-	defer ticker.Stop()
+	timer := time.NewTimer(walMaintenanceInterval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			s.walMaintenanceOnce(ctx)
+		case <-timer.C:
+			if s.walMaintenanceOnce(ctx) {
+				timer.Reset(walMaintenanceInterval)
+			} else {
+				timer.Reset(walMaintenanceRetryFailed)
+			}
 		}
 	}
 }
 
 // walMaintenanceOnce runs one WAL maintenance pass: it checks the current WAL
-// size and attempts a TRUNCATE checkpoint when the WAL has grown, backing off
-// when the checkpoint cannot complete (readers busy).
-func (s *Service) walMaintenanceOnce(ctx context.Context) {
+// size and, when it has grown, runs PASSIVE-then-TRUNCATE maintenance. Returns
+// true when the WAL was confirmed truncated or already small.
+func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
 	path := s.store.DatabasePath()
 	before := fileSizeIfExists(path + "-wal")
 	if before <= walMaintenanceSmallBytes {
-		return
+		return true
 	}
 
-	// 用独立维护连接执行 TRUNCATE（见 database.WALCheckpointTruncate）：不占池化
-	// 连接，busy_timeout=15s 能为读者退出多等一段时间。写入高峰时存在活跃读事务，
-	// checkpoint 会因 busy 不完成；低峰瞬时无读者时即可成功并截断 WAL 文件。
+	// PASSIVE 先行 + 长窗口 TRUNCATE（见 database.WALMaintenance）：不占池化
+	// 连接，busy_timeout=60s 能在读者间隙等出完成机会。面板持续被 AI 高频读写
+	// 时"完全零读者"窗口极短，需要给到分钟级尝试窗口而非一次性 30s。
 	attemptCtx, cancel := context.WithTimeout(ctx, walMaintenanceAttemptWindow)
 	defer cancel()
-	for {
-		busy, _, _, err := database.WALCheckpointTruncate(attemptCtx, path)
-		if err != nil {
-			applog.Warn(ctx, "settings", "wal checkpoint failed", "error", err.Error())
-			return
-		}
-		if !busy {
-			applog.Info(ctx, "settings", fmt.Sprintf("wal checkpoint truncated %s wal", sizeMBString(before)))
-			return
-		}
-		timer := time.NewTimer(3 * time.Second)
-		select {
-		case <-attemptCtx.Done():
-			timer.Stop()
-			applog.Warn(ctx, "settings", "wal checkpoint deferred (readers busy)", "wal_bytes", fileSizeIfExists(path+"-wal"))
-			return
-		case <-timer.C:
-		}
+	truncated, err := database.WALMaintenance(ctx, path, attemptCtx)
+	if err != nil {
+		applog.Warn(ctx, "settings", "wal maintenance failed", "error", err.Error())
+		return false
 	}
+	if truncated {
+		applog.Info(ctx, "settings", fmt.Sprintf("wal checkpoint truncated (wal before=%s)", sizeMBString(before)))
+		return true
+	}
+	applog.Warn(ctx, "settings", "wal checkpoint deferred (readers busy)")
+
+	// 未截断不一定失败——WAL 可能已被 PASSIVE 显著压缩。返回 false 让上层
+	// 更快重试，直到确认文件回落。
+	return false
 }
 
 func (s *Service) runBackgroundCleanup(ctx context.Context) {
