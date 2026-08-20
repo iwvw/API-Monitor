@@ -48,14 +48,11 @@ const destructiveWritePrefixes = [
   '/api/settings/clear-app-logs',
   '/api/settings/database/import/commit',
   '/api/settings/database/import',
-  '/api/settings/import-database',
   '/api/settings/export-database',
   '/api/backup/restore',
   '/api/backup/run',
   '/api/auth/change-password',
   '/api/auth/set-password',
-  '/api/notsure-clear-chat-messages',
-  '/api/settings/clear-chat-messages',
 ];
 
 // 会破坏当前登录会话或修改核心凭据的接口：一律跳过探测，仅记录。
