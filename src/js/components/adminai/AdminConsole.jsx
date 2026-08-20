@@ -126,6 +126,7 @@ const SETTING_FIELDS = [
   { key: 'admin_ai_timeout_seconds', kind: 'number', group: 'runtime', label: '执行超时（秒）' },
   { key: 'admin_ai_context_window', kind: 'number', group: 'runtime', label: '上下文窗口（token）' },
   { key: 'admin_ai_memories_enabled', kind: 'switch', group: 'runtime', label: '长期记忆总开关'},
+  { key: 'admin_ai_memories_model', kind: 'select', group: 'runtime', label: '记忆提炼模型', description: '自动记忆提炼专用模型，选后即刻生效；留空则回退会话/默认模型' },
   { key: 'admin_ai_memories_bootstrap_chars', kind: 'number', group: 'runtime', label: '记忆注入上限（字符）' },
   { key: 'admin_ai_memories_auto_capture', kind: 'switch', group: 'runtime', label: '自动记忆提炼' },
   { key: 'admin_ai_memories_idle_minutes', kind: 'number', group: 'runtime', label: '提炼空闲分钟数' },
