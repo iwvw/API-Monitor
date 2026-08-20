@@ -35,6 +35,10 @@ type Service struct {
 	walCancel      context.CancelFunc
 	cleanupWG      sync.WaitGroup
 	vacuumMu       sync.Mutex
+	// swapMu 串行化「数据库整体替换（导入）」与后台周期 DB 任务（WAL 维护 /
+	// 自动清理 / 数据库压缩）。replaceDatabase 全持有；后台任务用 TryLock，
+	// 换库窗口内跳过当轮，避免并发连接在换库瞬间读写被移动/替换的库文件。
+	swapMu         sync.Mutex
 	vacuumRunning  bool
 	vacuumMode     string
 	vacuumStarted  time.Time
@@ -209,6 +213,13 @@ func (s *Service) runWALMaintenance(ctx context.Context) {
 // size and, when it has grown, runs a PASSIVE checkpoint pass. Returns true
 // when the pass completed (WAL was already small or successfully PASSIVE-compacted).
 func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
+	// 数据库整体替换（导入）进行中时跳过本轮：换库瞬间并发连接打开/写库文件
+	// 会与文件移动互踩（曾导致导入回滚后库仍损坏）。TryLock 失败即跳过。
+	if !s.swapMu.TryLock() {
+		return true
+	}
+	defer s.swapMu.Unlock()
+
 	path := s.store.DatabasePath()
 	before := fileSizeIfExists(path + "-wal")
 	if before <= walMaintenanceSmallBytes {
@@ -256,6 +267,11 @@ func (s *Service) autoCleanupInterval(ctx context.Context) int {
 }
 
 func (s *Service) autoCleanupOnce(ctx context.Context) {
+	if !s.swapMu.TryLock() {
+		return
+	}
+	defer s.swapMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(ctx, autoCleanupTimeout)
 	defer cancel()
 	db, err := s.store.Open(ctx)
@@ -2642,6 +2658,11 @@ func (s *Service) cleanupExpiredImportsLocked(now time.Time) {
 func (s *Service) replaceDatabase(ctx context.Context, importPath string) (string, error) {
 	s.importsMu.Lock()
 	defer s.importsMu.Unlock()
+
+	// 换库全程持有 swapMu：阻断后台 WAL 维护/自动清理并发（它们 TryLock 失败即跳过当轮），
+	// 避免换库瞬间并发连接打开/写被移动或替换的库文件。
+	s.swapMu.Lock()
+	defer s.swapMu.Unlock()
 
 	// 与后台数据库优化互斥：真空执行期间替换文件会相互破坏
 	s.vacuumMu.Lock()
