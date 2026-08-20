@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
-import { ArrowDown, ArrowUp, CalendarDotsIcon } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp, CalendarDotsIcon, Info } from '@phosphor-icons/react';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { Button, RefreshButton } from '@cloudflare/kumo/components/button';
@@ -2612,10 +2612,9 @@ function OpenAIPage() {
           {/* Logs table and pagination */}
           <LayerCard className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
-              <Table layout="fixed" className="min-w-[1380px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
+              <Table layout="fixed" className="min-w-[1300px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
 <colgroup>
                   <col style={{ width: 120 }} />
-                  <col style={{ width: 80 }} />
                   <col style={{ width: 104 }} />
                   <col style={{ width: 64 }} />
                   <col style={{ width: 140 }} />
@@ -2630,7 +2629,6 @@ function OpenAIPage() {
                 <Table.Header sticky variant="compact">
                   <Table.Row>
                     <Table.Head className="text-left">时间</Table.Head>
-                    <Table.Head className="text-left">路由</Table.Head>
                     <Table.Head className="text-left">端点</Table.Head>
                     <Table.Head className="text-center">状态</Table.Head>
                     <Table.Head className="text-left">模型</Table.Head>
@@ -2646,13 +2644,13 @@ function OpenAIPage() {
                 <Table.Body>
                   {analyticsLoading && analyticsLogs.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={12} className="text-center py-8">
+                      <Table.Cell colSpan={11} className="text-center py-8">
                         <Loader size={20} className="mx-auto text-kumo-subtle" />
                       </Table.Cell>
                     </Table.Row>
                   ) : analyticsLogs.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={12} className="text-center py-8 text-kumo-subtle text-sm">
+                      <Table.Cell colSpan={11} className="text-center py-8 text-kumo-subtle text-sm">
                         暂无网关日志记录
                       </Table.Cell>
                     </Table.Row>
@@ -2662,12 +2660,6 @@ function OpenAIPage() {
                         <Table.Row key={log.id} className="text-sm">
                           <Table.Cell className="truncate text-left font-mono text-kumo-subtle" title={formatDateTime(log.timestamp)}>
                             {formatDateTime(log.timestamp)}
-                          </Table.Cell>
-                          <Table.Cell
-                            className="truncate text-left font-mono text-kumo-subtle"
-                            title={log.route}
-                          >
-                            {!log.route ? '-' : log.route.replace(/^chat\./, '')}
                           </Table.Cell>
                           <Table.Cell
                             className="break-all text-left font-semibold text-kumo-strong"
@@ -2702,7 +2694,44 @@ function OpenAIPage() {
                               setLogDetail(log);
                             } : undefined}
                           >
-                            {log.model}
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              <span className="truncate">{log.model}</span>
+                              {log.realModel && log.realModel !== log.model && (
+                                <Popover>
+                                  <Popover.Trigger
+                                    nativeButton={false}
+                                    render={
+                                      <span
+                                        className="shrink-0 cursor-pointer font-sans text-kumo-subtle hover:text-kumo-strong"
+                                        title="查看映射前实际模型"
+                                        onClick={e => e.stopPropagation()}
+                                      >
+                                        <Info className="h-3.5 w-3.5 align-middle" />
+                                      </span>
+                                    }
+                                  />
+                                  <Popover.Content className="p-3 max-w-xs">
+                                    <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                                      实际模型
+                                    </Popover.Title>
+                                    <div className="mt-2 grid gap-1.5 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <span className="shrink-0 text-kumo-subtle">对外名称</span>
+                                        <code className="truncate rounded bg-kumo-surface-2 px-2 py-0.5 font-mono text-kumo-strong select-all">
+                                          {log.model}
+                                        </code>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="shrink-0 text-kumo-subtle">实际模型</span>
+                                        <code className="truncate rounded bg-kumo-surface-2 px-2 py-0.5 font-mono text-kumo-strong select-all">
+                                          {log.realModel}
+                                        </code>
+                                      </div>
+                                    </div>
+                                  </Popover.Content>
+                                </Popover>
+                              )}
+                            </span>
                           </Table.Cell>
                           <Table.Cell
                             className="text-left font-mono text-kumo-subtle"
