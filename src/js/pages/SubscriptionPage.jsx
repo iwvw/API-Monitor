@@ -8,7 +8,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { Badge, ClipboardText, Code, DropdownMenu, LayerCard, Meter, Tabs } from '@cloudflare/kumo';
+import { Badge, ClipboardText, DropdownMenu, LayerCard, Meter, Tabs } from '@cloudflare/kumo';
 import { AppTable, DataTableFrame, PageStack, SectionCard, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -53,40 +53,40 @@ const SUBSCRIPTION_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'subscription', role: 'primary', minWidth: 176, maxWidth: 220, grow: 0 },
   { id: 'status', role: 'status' },
-  { id: 'traffic', role: 'content', minWidth: 220, verticalAlign: 'middle' },
-  { id: 'access', role: 'meta', grow: 1, minWidth: 176 },
+  { id: 'traffic', role: 'content', grow: 1, minWidth: 200, align: 'center', verticalAlign: 'middle' },
+  { id: 'access', role: 'meta', grow: 1, minWidth: 200, align: 'center' },
   { id: 'actions', role: 'actions-lg', width: 208, maxWidth: 220 },
 ];
 
 const PLAN_COLUMNS = [
   { id: 'enabled', role: 'control' },
-  { id: 'plan', role: 'primary' },
+  { id: 'plan', role: 'primary', minWidth: 176, maxWidth: 220, grow: 0 },
   { id: 'status', role: 'status' },
-  { id: 'quota', role: 'number', grow: 1, minWidth: 176 },
-  { id: 'reset', role: 'date', grow: 1, minWidth: 176 },
-  { id: 'nodes', role: 'meta', grow: 1, minWidth: 176 },
-  { id: 'subscriptions', role: 'count' },
+  { id: 'quota', role: 'number', grow: 1, minWidth: 176, align: 'center' },
+  { id: 'reset', role: 'date', grow: 1, minWidth: 176, align: 'center' },
+  { id: 'nodes', role: 'meta', grow: 1, minWidth: 176, align: 'center' },
+  { id: 'subscriptions', role: 'count', grow: 1, minWidth: 176, align: 'center' },
   { id: 'actions', role: 'actions-md' },
 ];
 
 const NODE_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'name', role: 'primary', minWidth: 176, maxWidth: 200, grow: 0 },
-  { id: 'type', role: 'type' },
-  { id: 'connection', role: 'content', minWidth: 240 },
-  { id: 'host', role: 'meta', grow: 1, minWidth: 176 },
+  { id: 'type', role: 'type', grow: 1, minWidth: 160 },
+  { id: 'connection', role: 'content', grow: 1, minWidth: 216, align: 'center', verticalAlign: 'middle' },
+  { id: 'host', role: 'meta', grow: 1, minWidth: 200, align: 'center' },
   { id: 'actions', role: 'actions-lg', width: 160, maxWidth: 200 },
 ];
 
 const RUNTIME_HOST_COLUMNS = [
   { id: 'check', role: 'check' },
-  { id: 'status', role: 'status' },
   { id: 'name', role: 'primary', minWidth: 120, width: 120, grow: 0 },
-  { id: 'location', role: 'meta', grow: 1, minWidth: 104, align: 'center' },
-  { id: 'online', role: 'count', grow: 1, minWidth: 104 },
-  { id: 'agentVersion', role: 'meta', grow: 1, minWidth: 104, align: 'center' },
-  { id: 'proxy', role: 'content', grow: 0, width: 180, align: 'center', verticalAlign: 'middle' },
-  { id: 'nodeType', role: 'type', grow: 1, minWidth: 120 },
+  { id: 'status', role: 'status', grow: 1, minWidth: 150, align: 'center' },
+  { id: 'location', role: 'meta', grow: 1, minWidth: 150, align: 'center' },
+  { id: 'online', role: 'count', grow: 1, minWidth: 150, align: 'center' },
+  { id: 'agentVersion', role: 'meta', grow: 1, minWidth: 150, align: 'center' },
+  { id: 'proxy', role: 'content', grow: 1, minWidth: 150, align: 'center', verticalAlign: 'middle' },
+  { id: 'nodeType', role: 'type', grow: 1, minWidth: 150 },
   { id: 'actions', role: 'actions-xl', width: 320 },
 ];
 
@@ -1957,8 +1957,8 @@ function SubscriptionPage() {
                 <Table.Head className="text-center">启用</Table.Head>
                 <Table.Head>订阅链接</Table.Head>
                 <Table.Head className="text-center">状态</Table.Head>
-                <Table.Head>流量</Table.Head>
-                <Table.Head>访问</Table.Head>
+                <Table.Head className="text-center">流量</Table.Head>
+                <Table.Head className="text-center">访问</Table.Head>
                 <Table.Head className="app-table-action">操作</Table.Head>
               </Table.Row>
             </Table.Header>
@@ -2056,7 +2056,7 @@ function SubscriptionPage() {
     <SectionCard title={`套餐管理 (${plans.length})`} bodyPadding="none" actions={<Button size="sm" variant="primary" onClick={openCreatePlan}><Plus className="h-3.5 w-3.5" />新建套餐</Button>}>
       <DataTableFrame variant="embedded">
         <AppTable tableId="subscription-plans" columns={PLAN_COLUMNS}>
-          <Table.Header sticky variant="compact"><Table.Row><Table.Head className="text-center">启用</Table.Head><Table.Head>套餐</Table.Head><Table.Head className="text-center">状态</Table.Head><Table.Head>单订阅额度</Table.Head><Table.Head className="text-center">重置</Table.Head><Table.Head>节点范围</Table.Head><Table.Head className="text-center">订阅</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
+          <Table.Header sticky variant="compact"><Table.Row><Table.Head className="text-center">启用</Table.Head><Table.Head>套餐</Table.Head><Table.Head className="text-center">状态</Table.Head><Table.Head className="text-center">单订阅额度</Table.Head><Table.Head className="text-center">重置</Table.Head><Table.Head className="text-center">节点范围</Table.Head><Table.Head className="text-center">订阅</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
           <Table.Body>
             {plans.map((plan) => {
 			  const externalCount = plan.selection_mode === 'all' ? (plan.include_external_nodes ? nodes.length : 0) : (plan.node_ids || []).filter((id) => nodes.some((node) => node.id === id)).length;
@@ -2089,7 +2089,7 @@ function SubscriptionPage() {
     >
       <DataTableFrame variant="embedded">
         <AppTable tableId="internal-proxy-nodes" columns={NODE_COLUMNS}>
-          <Table.Header sticky variant="compact"><Table.Row><Table.Head className="text-center">状态</Table.Head><Table.Head>节点名称</Table.Head><Table.Head className="text-center">类型</Table.Head><Table.Head>连接</Table.Head><Table.Head>主机 / 延迟</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
+          <Table.Header sticky variant="compact"><Table.Row><Table.Head className="text-center">状态</Table.Head><Table.Head>节点名称</Table.Head><Table.Head className="text-center">类型</Table.Head><Table.Head className="text-center">连接</Table.Head><Table.Head className="text-center">主机 / 延迟</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
           <Table.Body>
             {internalNodes.map((node) => {
               const server = servers.find((item) => item.id === node.server_id);
@@ -2160,8 +2160,8 @@ function SubscriptionPage() {
               <Table.Head className="text-center">状态</Table.Head>
               <Table.Head>节点名称</Table.Head>
               <Table.Head className="text-center">类型</Table.Head>
-              <Table.Head>连接</Table.Head>
-              <Table.Head>主机 / 延迟</Table.Head>
+              <Table.Head className="text-center">连接</Table.Head>
+              <Table.Head className="text-center">主机 / 延迟</Table.Head>
               <Table.Head className="app-table-action">操作</Table.Head>
             </Table.Row>
           </Table.Header>
@@ -2251,8 +2251,8 @@ function SubscriptionPage() {
           <Table.Header sticky variant="compact">
             <Table.Row>
               <Table.CheckHead checked={runtimeLifecycleServers.length > 0 && selectedRuntimeHosts.size === runtimeLifecycleServers.length} indeterminate={selectedRuntimeHosts.size > 0 && selectedRuntimeHosts.size < runtimeLifecycleServers.length} onCheckedChange={(checked) => setSelectedRuntimeHosts(checked ? new Set(runtimeLifecycleServers.map((server) => server.id)) : new Set())} />
-              <Table.Head className="text-center">状态</Table.Head>
               <Table.Head className="text-left">名称</Table.Head>
+              <Table.Head className="text-center">状态</Table.Head>
               <Table.Head className="text-center">位置</Table.Head>
               <Table.Head className="text-center">在线</Table.Head>
               <Table.Head className="text-center">Agent 版本</Table.Head>
@@ -2272,8 +2272,8 @@ function SubscriptionPage() {
               return (
                 <Table.Row key={server.id}>
                   <Table.CheckCell disabled={!supportsRuntimeLifecycle || server.status !== 'online'} checked={selectedRuntimeHosts.has(server.id)} onCheckedChange={(checked) => setSelectedRuntimeHosts((previous) => { const next = new Set(previous); if (checked) next.add(server.id); else next.delete(server.id); return next; })} />
-					<Table.Cell className="text-center"><Badge variant={server.status === 'online' ? 'success' : server.status === 'offline' ? 'error' : 'neutral'} appearance="dot">{server.status === 'online' ? '在线' : server.status === 'offline' ? '离线' : '未知'}</Badge></Table.Cell>
-                  <Table.Cell><div className="flex min-w-0 items-center gap-2"><i className={getOSIconClass(getServerPlatformLabel(server), { offline: server.status !== 'online' })} title={getServerPlatformLabel(server) || 'Linux'} /><span className={`truncate font-bold ${server.status === 'online' ? 'text-kumo-strong' : 'text-kumo-subtle'}`} title={server.name}>{server.name}</span></div></Table.Cell>
+<Table.Cell><div className="flex min-w-0 items-center gap-2"><i className={getOSIconClass(getServerPlatformLabel(server), { offline: server.status !== 'online' })} title={getServerPlatformLabel(server) || 'Linux'} /><span className={`truncate font-bold ${server.status === 'online' ? 'text-kumo-strong' : 'text-kumo-subtle'}`} title={server.name}>{server.name}</span></div></Table.Cell>
+						<Table.Cell className="text-center"><Badge variant={server.status === 'online' ? 'success' : server.status === 'offline' ? 'error' : 'neutral'} appearance="dot">{server.status === 'online' ? '在线' : server.status === 'offline' ? '离线' : '未知'}</Badge></Table.Cell>
                   <Table.Cell className="text-center"><div className="mx-auto flex w-[64px] items-center justify-center gap-1.5">{countryCode && <CountryFlag preferSvg countryCode={countryCode} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />}<span className="truncate font-semibold uppercase text-kumo-strong" title={server.location || locationLabel}>{locationLabel}</span></div></Table.Cell>
                   <Table.Cell className="text-center"><span className="font-semibold tabular-nums text-kumo-strong">{formatInstanceUptime(server.uptime)}</span></Table.Cell>
                   <Table.Cell className="text-center"><span className="font-mono text-xs">{server.agent_version && server.agent_version !== '<nil>' ? server.agent_version : '未报告'}</span></Table.Cell>
@@ -2392,8 +2392,8 @@ function SubscriptionPage() {
               <Table.Head className="text-center">状态</Table.Head>
               <Table.Head>节点名称</Table.Head>
               <Table.Head className="text-center">类型</Table.Head>
-              <Table.Head>连接</Table.Head>
-              <Table.Head>主机 / 延迟</Table.Head>
+              <Table.Head className="text-center">连接</Table.Head>
+              <Table.Head className="text-center">主机 / 延迟</Table.Head>
               <Table.Head className="app-table-action">操作</Table.Head>
             </Table.Row>
           </Table.Header>
@@ -2438,11 +2438,26 @@ function SubscriptionPage() {
         </div>
         {selectedTemplateSubscription && (
           <div className="mt-4 grid gap-2 border-t border-kumo-line pt-4 cq-sm:grid-cols-2">
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription)} tooltip={{ text: '复制自适应订阅链接（按客户端自动识别）', copiedText: '自适应订阅链接已复制' }} labels={{ copyAction: '复制自适应订阅' }} />
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'clash')} tooltip={{ text: '复制 Mihomo / Clash 链接', copiedText: 'Mihomo / Clash 链接已复制' }} labels={{ copyAction: '复制 Clash（YAML）' }} />
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'base64')} tooltip={{ text: '复制 Base64 链接（sing-box 官方 / v2rayN）', copiedText: 'Base64 链接已复制' }} labels={{ copyAction: '复制 Base64' }} />
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'raw')} tooltip={{ text: '复制 Raw 链接', copiedText: 'Raw 链接已复制' }} labels={{ copyAction: '复制 Raw' }} />
-            <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'info')} tooltip={{ text: '复制订阅信息页链接（浏览器打开）', copiedText: '订阅信息页链接已复制' }} labels={{ copyAction: '复制信息页' }} />
+            <div className="flex min-w-0 flex-col gap-1 cq-sm:flex-row cq-sm:items-center cq-sm:gap-2">
+              <Label className="text-xs font-semibold text-kumo-subtle cq-sm:w-20 cq-sm:shrink-0">自适应</Label>
+              <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription)} className="min-w-0 flex-1" tooltip={{ text: '复制自适应订阅链接（按客户端自动识别）', copiedText: '自适应订阅链接已复制' }} labels={{ copyAction: '复制自适应订阅' }} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 cq-sm:flex-row cq-sm:items-center cq-sm:gap-2">
+              <Label className="text-xs font-semibold text-kumo-subtle cq-sm:w-20 cq-sm:shrink-0">Clash (YAML)</Label>
+              <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'clash')} className="min-w-0 flex-1" tooltip={{ text: '复制 Mihomo / Clash 链接', copiedText: 'Mihomo / Clash 链接已复制' }} labels={{ copyAction: '复制 Clash（YAML）' }} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 cq-sm:flex-row cq-sm:items-center cq-sm:gap-2">
+              <Label className="text-xs font-semibold text-kumo-subtle cq-sm:w-20 cq-sm:shrink-0">Base64</Label>
+              <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'base64')} className="min-w-0 flex-1" tooltip={{ text: '复制 Base64 链接（sing-box 官方 / v2rayN）', copiedText: 'Base64 链接已复制' }} labels={{ copyAction: '复制 Base64' }} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 cq-sm:flex-row cq-sm:items-center cq-sm:gap-2">
+              <Label className="text-xs font-semibold text-kumo-subtle cq-sm:w-20 cq-sm:shrink-0">Raw</Label>
+              <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'raw')} className="min-w-0 flex-1" tooltip={{ text: '复制 Raw 链接', copiedText: 'Raw 链接已复制' }} labels={{ copyAction: '复制 Raw' }} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 cq-sm:flex-row cq-sm:items-center cq-sm:gap-2">
+              <Label className="text-xs font-semibold text-kumo-subtle cq-sm:w-20 cq-sm:shrink-0">信息页</Label>
+              <ClipboardText size="sm" text={subscriptionURL(publicBase, selectedTemplateSubscription, 'info')} className="min-w-0 flex-1" tooltip={{ text: '复制订阅信息页链接（浏览器打开）', copiedText: '订阅信息页链接已复制' }} labels={{ copyAction: '复制信息页' }} />
+            </div>
           </div>
         )}
       </SectionCard>
@@ -2468,7 +2483,7 @@ function SubscriptionPage() {
             <LayerCard.Primary>
               <div className={`mb-3 text-xs ${tpl.valid === false ? 'text-kumo-danger' : 'text-kumo-subtle'}`}>{tpl.validation_error || tpl.description || tpl.format}</div>
               <div className="max-h-44 overflow-auto">
-                <Code lang={tpl.format === 'clash' ? 'yaml' : 'text'} code={tpl.content} />
+                <pre className="m-0 w-auto rounded-none border-none bg-transparent p-0 font-mono text-sm leading-[20px] text-kumo-subtle">{tpl.content}</pre>
               </div>
             </LayerCard.Primary>
           </LayerCard>

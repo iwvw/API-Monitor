@@ -274,13 +274,13 @@ function FailoverPathBadge({ path, endpointName }) {
       if (Array.isArray(parsed)) steps = parsed;
     } catch (e) {}
   }
-  if (steps.length < 2) return <span className="truncate">{endpointName}</span>;
+  if (steps.length < 2) return <span className="break-all">{endpointName}</span>;
   return (
     <Popover>
       <Popover.Trigger
         nativeButton={false}
         render={
-          <span className="cursor-pointer truncate font-medium text-kumo-warning">
+          <span className="cursor-pointer break-all font-medium text-kumo-warning">
             {endpointName}
           </span>
         }
@@ -1711,7 +1711,7 @@ function OpenAIPage() {
         <div className="flex grow flex-col gap-3">
           <LayerCard className="w-full min-w-0 overflow-hidden p-0 shadow-none">
             <div className="min-w-0 overflow-x-auto scrollbar-thin">
-              <Table layout="fixed" className="min-w-[1200px]">
+              <Table layout="fixed" className="min-w-[1200px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
                 <colgroup>
                   <col style={{ width: 180 }} />
                   <col style={{ width: 240 }} />
@@ -1812,7 +1812,7 @@ function OpenAIPage() {
                         </Table.Cell>
                         <Table.Cell className="text-center font-mono text-[0.9em]">
                           {key.maxTokensQuota > 0 ? (
-                            <span className="inline-flex items-center gap-1">
+                            <span className="inline-flex items-center gap-2">
                               <span
                                 className={
                                   (key.totalTokensUsed || 0) >= key.maxTokensQuota
@@ -1833,7 +1833,7 @@ function OpenAIPage() {
                           )}
                         </Table.Cell>
                         <Table.Cell>
-                          <div className="flex justify-center gap-1.5">
+                          <div className="flex justify-center gap-2">
                             <Button
                               shape="square"
                               size="sm"
@@ -2617,10 +2617,10 @@ function OpenAIPage() {
                   <col style={{ width: 120 }} />
                   <col style={{ width: 80 }} />
                   <col style={{ width: 104 }} />
+                  <col style={{ width: 64 }} />
                   <col style={{ width: 140 }} />
                   <col style={{ width: 100 }} />
                   <col style={{ width: 100 }} />
-                  <col style={{ width: 64 }} />
                   <col style={{ width: 160 }} />
                   <col style={{ width: 132 }} />
                   <col style={{ width: 132 }} />
@@ -2632,15 +2632,15 @@ function OpenAIPage() {
                     <Table.Head className="text-left">时间</Table.Head>
                     <Table.Head className="text-left">路由</Table.Head>
                     <Table.Head className="text-left">端点</Table.Head>
-                    <Table.Head className="text-left">模型</Table.Head>
-                    <Table.Head className="text-center">出口 IP</Table.Head>
-                    <Table.Head className="text-center">客户端 IP</Table.Head>
                     <Table.Head className="text-center">状态</Table.Head>
-                    <Table.Head className="text-center">耗时/首字</Table.Head>
+                    <Table.Head className="text-left">模型</Table.Head>
+                    <Table.Head className="text-left">出口 IP</Table.Head>
+                    <Table.Head className="text-left">客户端 IP</Table.Head>
+                    <Table.Head className="text-left">耗时/首字</Table.Head>
                     <Table.Head className="text-left">输入 / 输出</Table.Head>
                     <Table.Head className="text-left">缓存</Table.Head>
                     <Table.Head className="text-left">总消耗</Table.Head>
-                    <Table.Head className="text-left" title="输出速度（输出词元/秒）">TPS</Table.Head>
+                    <Table.Head className="text-left" title="输出速度（输出词元/秒）">T/S</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -2670,14 +2670,26 @@ function OpenAIPage() {
                             {!log.route ? '-' : log.route.replace(/^chat\./, '')}
                           </Table.Cell>
                           <Table.Cell
-                            className="truncate text-left font-semibold text-kumo-strong"
+                            className="break-all text-left font-semibold text-kumo-strong"
                             title={log.endpointName}
                           >
-                            <span className="inline-flex items-center justify-center gap-1.5">
+                            <span className="inline-flex min-w-0 items-center gap-2">
                               <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
                               {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
                                 <StatusBadge tone="info" title={`使用的 API Key 序号（0=主 key）`}>
                                   K{log.keyIndex + 1}
+                                </StatusBadge>
+                              )}
+                            </span>
+                          </Table.Cell>
+                          <Table.Cell className="text-center">
+                            <span className="inline-flex items-center gap-2">
+                              <StatusBadge tone={statusCodeTone(log.statusCode)}>
+                                {log.statusCode}
+                              </StatusBadge>
+                              {log.statusCode === 503 && (
+                                <StatusBadge tone="warning" title="网关无可用渠道">
+                                  无
                                 </StatusBadge>
                               )}
                             </span>
@@ -2693,37 +2705,25 @@ function OpenAIPage() {
                             {log.model}
                           </Table.Cell>
                           <Table.Cell
-                            className="text-center font-mono text-kumo-subtle"
+                            className="text-left font-mono text-kumo-subtle"
                             title={log.upstreamIp || '本机出口'}
                           >
                             <div
-                              className="inline-flex items-center justify-center gap-1"
+                              className="inline-flex items-center gap-2"
                               title="经代理池出口"
                             >
                               <IpCell value={log.upstreamIp} viaProxy={log.viaProxy} />
                             </div>
                           </Table.Cell>
                           <Table.Cell
-                            className="truncate text-center font-mono text-kumo-subtle"
+                            className="truncate text-left font-mono text-kumo-subtle"
                             title={log.clientIp || '无客户端 IP'}
                           >
                             <IpCell value={log.clientIp} v6EdgeOnly />
                           </Table.Cell>
-                          <Table.Cell className="text-center">
-                            <span className="inline-flex items-center gap-1">
-                              <StatusBadge tone={statusCodeTone(log.statusCode)}>
-                                {log.statusCode}
-                              </StatusBadge>
-                              {log.statusCode === 503 && (
-                                <StatusBadge tone="warning" title="网关无可用渠道">
-                                  无
-                                </StatusBadge>
-                              )}
-                            </span>
-                          </Table.Cell>
-                          <Table.Cell className="text-center">
+                          <Table.Cell className="text-left">
                             <div
-                              className="inline-flex items-center gap-1"
+                              className="inline-flex items-center gap-2"
                               title={log.stream ? '流式响应' : '非流式响应'}
                             >
                               <StatusBadge tone={resultTone(log.statusCode, log.completionTokens, log.latencyMs)}>
@@ -2790,7 +2790,7 @@ function OpenAIPage() {
                               logOutputSpeedText(log) != null
                                 ? (() => {
                                     const genSec = Math.max(0, (Number(log.latencyMs) || 0) - (Number(log.ttfbMs) || 0)) / 1000;
-                                    return `输出速度 ${logOutputSpeedText(log)}（输出词元 ${log.completionTokens} ÷ 输出耗时 ${genSec.toFixed(1)}s）`;
+                                    return `输出速度 ${logOutputSpeedText(log)} T/S（输出词元 ${log.completionTokens} ÷ 输出耗时 ${genSec.toFixed(1)}s）`;
                                   })()
                                 : '无输出或无法计时'
                             }

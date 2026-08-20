@@ -34,6 +34,17 @@ const PANEL_MIN_WIDTH = 320;
 const PANEL_MAX_WIDTH = 800;
 const PANEL_DEFAULT_WIDTH = 450;
 
+const ACTIVE_SESSION_STORAGE_KEY = 'adminai-active-session';
+
+function readStoredActiveSession() {
+  try { return localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) || ''; } catch { return ''; }
+}
+function storeActiveSession(id) {
+  try {
+    if (id) localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, id);
+  } catch { }
+}
+
 // 会话时间格式化：后端返回 RFC3339 字符串（字段名 createdAt，注意勿用 created_at）
 function formatSessionDate(value) {
   if (!value) return '';
@@ -570,6 +581,17 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
           const data = await res.json();
           const body = data.data || data;
           const list = body.sessions || [];
+          // 恢复上次打开的会话（localStorage 记忆）：刷新后面板重开直接回到原对话（需真实存在且非只读机器人会话）
+          const storedId = readStoredActiveSession();
+          if (storedId) {
+            const saved = list.find((s) => s.id === storedId && !isBotSession(s));
+            if (saved) {
+              setSessions((prev) => (prev.some((p) => p.id === saved.id) ? prev : [saved, ...prev]));
+              setActiveSessionId(saved.id);
+              setMessages([]);
+              return;
+            }
+          }
           // 列表按 lastActivityAt 倒序：取最近的空会话直接复用，避免空会话越积越多
           const emptyLast = list.find((s) => !isBotSession(s) && !(s.messageCount > 0));
           if (emptyLast) {
@@ -687,6 +709,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   useEffect(() => {
     if (activeSessionId) {
       activeSessionIdRef.current = activeSessionId;
+      storeActiveSession(activeSessionId);
       if (runIdRef.current) cancelBackendRun();
       stopStream();
       setPendingApprovals([]); // 清掉旧会话遗留的审批浮层（切走即失效）
@@ -1619,7 +1642,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4">
-            <AdminConsole hideTabs activeTab={adminTab} onTabChange={setAdminTab} onBack={() => setManageOpen(false)} />
+            <AdminConsole hideTabs activeTab={adminTab} onTabChange={setAdminTab} />
           </div>
         </div>
 

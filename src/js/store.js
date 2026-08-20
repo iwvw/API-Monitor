@@ -232,6 +232,7 @@ const UI_FONT_SIZE_STORAGE_KEY = 'app_ui_font_size';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'app_sidebar_collapsed';
 const DASHBOARD_FOOTER_VISIBLE_STORAGE_KEY = 'app_dashboard_footer_visible';
 const DASHBOARD_FOOTER_RECORD_NUMBER_STORAGE_KEY = 'app_dashboard_footer_record_number';
+const ASKAI_OPEN_STORAGE_KEY = 'app_askai_open';
 const AUTH_LOGGED_OUT_STORAGE_KEY = 'auth_explicitly_logged_out';
 const AUTH_PENDING_PROVIDER_STORAGE_KEY = 'auth_pending_provider';
 
@@ -438,13 +439,20 @@ export const applyUIFont = (font) => {
   if (font === 'default' || !font) {
     if (existing) existing.remove();
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
-    document.getElementById(SORA_FONT_LINK_ID)?.remove();
     root.classList.remove(SERIF_CLASS, SORA_CLASS);
+    if (!document.getElementById(SORA_FONT_LINK_ID)) {
+      const link = document.createElement('link');
+      link.id = SORA_FONT_LINK_ID;
+      link.rel = 'stylesheet';
+      link.href = SORA_CSS_URL;
+      document.head.appendChild(link);
+    }
+    const fontStack = '"Sora", "HarmonyOS Sans SC", ui-sans-serif, system-ui, sans-serif';
     if (document.body) {
-      document.body.style.removeProperty('font-family');
+      document.body.style.setProperty('font-family', fontStack);
       document.body.style.removeProperty('font-weight');
     }
-    root.style.removeProperty('--font-sans');
+    root.style.setProperty('--font-sans', fontStack);
     return;
   }
 
@@ -714,6 +722,25 @@ const getInitialDashboardFooterRecordNumber = () => {
 
 const initialDashboardFooterRecordNumber = getInitialDashboardFooterRecordNumber();
 
+const getInitialAskAIOpen = () => {
+  try {
+    return localStorage.getItem(ASKAI_OPEN_STORAGE_KEY) === '1';
+  } catch (e) {
+    console.error('Failed to get initial ask ai open state:', e);
+  }
+  return false;
+};
+
+const initialAskAIOpen = getInitialAskAIOpen();
+
+const persistAskAIOpen = (open) => {
+  try {
+    localStorage.setItem(ASKAI_OPEN_STORAGE_KEY, open ? '1' : '0');
+  } catch (e) {
+    console.error('Failed to save ask ai open state:', e);
+  }
+};
+
 const useStore = create((set, get) => ({
   // --- 1. 认证状态 ---
   isAuthenticated: false,
@@ -758,7 +785,7 @@ const useStore = create((set, get) => ({
   koyebRefreshInterval: 30000,
   flyRefreshInterval: 30000,
 
-  showAskAI: false,
+  showAskAI: initialAskAIOpen,
 
   showAlert: (message, title) => dialog.alert(message, title),
   showConfirm: (options) => dialog.confirm(options),
@@ -881,8 +908,16 @@ const useStore = create((set, get) => ({
     set({ vibrationEnabled: nextEnabled });
   },
 
-  toggleAskAI: () => set((state) => ({ showAskAI: !state.showAskAI })),
-  setShowAskAI: (show) => set({ showAskAI: Boolean(show) }),
+  toggleAskAI: () => set((state) => {
+    const next = !state.showAskAI;
+    persistAskAIOpen(next);
+    return { showAskAI: next };
+  }),
+  setShowAskAI: (show) => {
+    const next = Boolean(show);
+    persistAskAIOpen(next);
+    set({ showAskAI: next });
+  },
 
   triggerHaptic: (type = 'selection') => {
     if (!get().vibrationEnabled) return false;

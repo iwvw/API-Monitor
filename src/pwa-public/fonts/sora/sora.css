@@ -2962,7 +2962,3 @@ unicode-range:U+3041-3094,U+309b-309e,U+30a1-30fe;
 
 @font-face { font-family: 'Manrope'; font-style: normal; font-weight: 400 700; font-display: swap; src: url(./files/Manrope-latin-ext.woff2) format('woff2-variations'); }
 
-@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 700; font-display: swap; src: url(./files/JetBrains-Mono-latin.woff2) format('woff2-variations'); }
-
-@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 700; font-display: swap; src: url(./files/JetBrains-Mono-latin-ext.woff2) format('woff2-variations'); }
-

@@ -234,10 +234,14 @@ export function applyAiEvent(messages, event, targetId) {
         status: APPROVAL.PENDING,
       });
       break;
-    case 'retry':
-      // 上游瞬时故障重试提示：追加轻量 notice part（不打断主流程）
-      msg = appendPart(msg, { type: 'notice', text: `${event.message}（第 ${event.attempt}/${event.total || 10} 次）` });
+    case 'retry': {
+      // 上游瞬时故障重试提示：就地更新最近一条 notice，让次数在同一行滚动，避免逐次堆行
+      const notice = { type: 'notice', text: `${event.message}（第 ${event.attempt}/${event.total || 10} 次）` };
+      msg = (msg.parts || []).some((p) => p.type === 'notice')
+        ? updateLastPart(msg, (p) => p.type === 'notice', notice)
+        : appendPart(msg, notice);
       break;
+    }
     case 'error':
       msg = appendPart(msg, { type: 'error', message: event.message, retryable: true, retryPrompt: event.retryPrompt || '' });
       msg = { ...msg, status: MSG.ERROR, active: false };

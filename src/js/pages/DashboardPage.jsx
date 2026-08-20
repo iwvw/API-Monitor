@@ -947,10 +947,11 @@ function DashboardPage({ onNavigate } = {}) {
       if (!Array.isArray(params)) return '';
       const lines = params.map((param) => {
         const match = visibleSeries.find((item) => item.name === param.seriesName);
-        const value = Number(param.value) || 0;
-        const text = !normalized && match
+        const rawValue = Number(param.value) || 0;
+        const value = normalized && match && match.max > 0 ? (rawValue / 100) * match.max : rawValue;
+        const text = match
           ? (match.unit ? `${match.formatValue(value)} ${match.unit}` : match.formatValue(value))
-          : `${value.toFixed(1)}%`;
+          : `${rawValue.toFixed(1)}%`;
         return `${param.marker}${param.seriesName}: ${text}`;
       });
       return lines.join('<br/>');

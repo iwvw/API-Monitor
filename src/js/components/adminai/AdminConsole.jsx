@@ -9,7 +9,7 @@ import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Empty, Loader, Tabs } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, cx } from '../ui/AppPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
-import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ArrowLeft, ChevronDown } from '../Icons.jsx';
+import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ChevronDown } from '../Icons.jsx';
 
 /* ==================== 通用小组件 ==================== */
 
@@ -116,22 +116,21 @@ function MultiModelSelect({ options, value, onChange }) {
 /* ==================== 设置页（多键表单） ==================== */
 
 const SETTING_FIELDS = [
-  { key: 'admin_ai_enabled', kind: 'switch', group: 'basic', label: '管理 AI 总开关', description: '关闭后侧栏与 Telegram 不再受理对话' },
-  { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '推理', description: '模型来源：模型网关' },
-  { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '摘要', description: '思维链标题摘要专用，留空回退默认；可多选候选，失败按序回退' },
-  { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '简报', description: '每日站点简报专用，留空回退默认' },
-  { key: 'admin_ai_write_enabled', kind: 'switch', group: 'security', label: '写操作全局开关', description: '写操作需人工审批' },
-  { key: 'admin_ai_auto_approve', kind: 'switch', group: 'security', label: '完全批准模式', description: '（危险：AI 可自主执行任何写操作）' },
-  { key: 'admin_ai_tool_call_limit', kind: 'number', group: 'runtime', label: '工具调用上限', description: '单轮最多调用次数' },
+  { key: 'admin_ai_enabled', kind: 'switch', group: 'basic', label: '管理 AI 总开关'},
+  { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '推理模型'},
+  { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '摘要模型' },
+  { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '简报模型'},
+  { key: 'admin_ai_write_enabled', kind: 'switch', group: 'security', label: '写操作全局开关'},
+  { key: 'admin_ai_auto_approve', kind: 'switch', group: 'security', label: '完全批准模式' },
+  { key: 'admin_ai_tool_call_limit', kind: 'number', group: 'runtime', label: '工具调用上限'},
   { key: 'admin_ai_timeout_seconds', kind: 'number', group: 'runtime', label: '执行超时（秒）' },
   { key: 'admin_ai_context_window', kind: 'number', group: 'runtime', label: '上下文窗口（token）' },
-  { key: 'admin_ai_memories_enabled', kind: 'switch', group: 'runtime', label: '长期记忆总开关', description: '记忆检索/记录工具' },
+  { key: 'admin_ai_memories_enabled', kind: 'switch', group: 'runtime', label: '长期记忆总开关'},
   { key: 'admin_ai_memories_bootstrap_chars', kind: 'number', group: 'runtime', label: '记忆注入上限（字符）' },
   { key: 'admin_ai_memories_auto_capture', kind: 'switch', group: 'runtime', label: '自动记忆提炼' },
   { key: 'admin_ai_memories_idle_minutes', kind: 'number', group: 'runtime', label: '提炼空闲分钟数' },
   { key: 'admin_ai_audit_retention_days', kind: 'number', group: 'retention', label: '审计保留天数' },
-  { key: 'admin_ai_session_write_ttl_hours', kind: 'number', group: 'security', label: '会话写授权时效（小时）', description: '「允许此对话」授权的有效期，0 = 不自动过期' },
-  { key: 'admin_ai_max_concurrent_runs', kind: 'number', group: 'runtime', label: '全局并发执行上限', description: '同时进行的 AI 执行数上限（防 TG/Web 并发打爆上游）' },
+  { key: 'admin_ai_max_concurrent_runs', kind: 'number', group: 'runtime', label: '全局并发执行上限' },
 ];
 
 const SETTING_SECTIONS = [
@@ -1165,7 +1164,7 @@ export const TAB_OPTIONS = [
   },
 ];
 
-export default function AdminConsole({ onBack, hideTabs = false, activeTab: controlledTab, onTabChange }) {
+export default function AdminConsole({ hideTabs = false, activeTab: controlledTab, onTabChange }) {
   const [internalTab, setInternalTab] = useState('settings');
   const activeTab = controlledTab ?? internalTab;
   const handleTabChange = (v) => {
@@ -1195,16 +1194,6 @@ export default function AdminConsole({ onBack, hideTabs = false, activeTab: cont
 
       {/* 吸底栏：mt-auto 让内容不满一屏时仍贴住底边；滚动时 sticky 保持可见 */}
       <div className="sticky bottom-0 z-10 mt-auto -mx-4 flex h-12 shrink-0 items-center justify-end gap-3 border-t border-kumo-line bg-[var(--app-main-surface)] px-4">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={onBack}
-          className="flex h-7 items-center gap-1.5 rounded-md px-1 text-xs"
-          aria-label="返回对话"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> 对话
-        </Button>
         {activeTab === 'settings' && (
           <Button size="sm" variant="primary" onClick={form.save} disabled={form.saving || !form.values}>
             {form.saving ? '保存中...' : '保存'}

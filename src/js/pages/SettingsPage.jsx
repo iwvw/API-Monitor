@@ -2079,7 +2079,7 @@ function SettingsPage() {
             <FieldRow title="界面字体">
               <Select size="sm" value={settings.uiFont || 'default'} onValueChange={handleUIFontChange} items={FONT_OPTIONS} />
             </FieldRow>
-            <FieldRow title="界面字号">
+            <FieldRow title="字号与布局">
               <Select size="sm" value={uiFontSize} onValueChange={handleUIFontSizeChange} items={FONT_SIZE_OPTIONS} />
             </FieldRow>
             <FieldRow title="显示首页页脚">

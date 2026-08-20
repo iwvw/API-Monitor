@@ -150,7 +150,7 @@ export function logOutputSpeedText(log) {
   const genMs = Math.max(0, latency - ttfb);
   if (genMs <= 0) return null;
   const tps = (tokens / genMs) * 1000;
-  return `${tps >= 100 ? tps.toFixed(0) : tps.toFixed(1)} t/s`;
+  return `${tps >= 100 ? tps.toFixed(0) : tps.toFixed(1)}`;
 }
 
 export function maskIp(raw, v6EdgeOnly = false) {

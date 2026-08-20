@@ -21,9 +21,9 @@ const PROVIDERS = [
 const DEFAULT_CONFIG = { provider: 'local', local_dir: '', cron: '', endpoint: '', bucket: '', access_key_id: '', access_key_secret: '', max_records: 0 };
 
 const BACKUP_RECORD_COLUMNS = [
-  { id: 'file', role: 'primary', minWidth: 200 },
-  { id: 'size', role: 'number' },
-  { id: 'createdAt', role: 'datetime', grow: 1, minWidth: 200 },
+  { id: 'file', role: 'primary', grow: 1, minWidth: 200 },
+  { id: 'size', role: 'number', grow: 1, minWidth: 200, align: 'center' },
+  { id: 'createdAt', role: 'datetime', grow: 1, minWidth: 200, align: 'center' },
   { id: 'actions', role: 'actions-lg', width: 200, maxWidth: 220 },
 ];
 

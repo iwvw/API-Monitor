@@ -35,6 +35,13 @@
      kumo-brand 蓝紫仅为库默认强调色，非品牌色） */
   --color-brand: #dc7d40;
   --color-brand-hover: #c96a33;
+  /* Kumo 主题把 --text-xs/sm/base/lg 定义为固定 px（12/13/14/16px），
+     不受 html 根字号缩放影响，导致「界面字号」只撑开 rem 布局间距、文字纹丝不动。
+     此处改为等值 rem，让文字与间距一起随根字号缩放。默认缩放(16px)下数值不变。 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
 }
 
 /* ==================== Base Resets ==================== */
@@ -2612,23 +2619,24 @@ input[type='number'] {
   animation: askai-external-run-fade 0.2s ease-out;
 }
 
-/* 实时环节图标脉冲（推理星形/工具 Terminal/代理 Terminal）：
+/* 实时环节图标呼吸（推理星形/工具 Terminal/代理 Terminal）：
    挂类即代表「该环节正在执行」（流式 streaming 或外部 run live 轮询态），
-   完成/失败/取消后类移除自动静止；prefers-reduced-motion 下关闭 */
+   完成/失败/取消后类移除自动静止；只做明暗呼吸，不做位移/缩放；
+   prefers-reduced-motion 下关闭 */
 @keyframes askai-live-pulse {
   0%, 100% {
-    transform: scale(1) rotate(0deg);
-    filter: brightness(1);
+    filter: brightness(1.9);
+    opacity: 1;
   }
   50% {
-    transform: scale(1.18) rotate(8deg);
-    filter: brightness(1.35);
+    filter: brightness(0.35);
+    opacity: 0.5;
   }
 }
 .askai-live-icon {
   display: inline-block;
-  animation: askai-live-pulse 1s ease-in-out infinite;
-  will-change: transform, filter;
+  animation: askai-live-pulse 1.2s ease-in-out infinite;
+  will-change: filter, opacity;
 }
 @media (prefers-reduced-motion: reduce) {
   .askai-live-icon {

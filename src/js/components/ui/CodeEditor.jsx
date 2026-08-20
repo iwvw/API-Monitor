@@ -21,6 +21,10 @@ const baseEditorTheme = EditorView.theme({
   '.cm-gutters': {
     backgroundColor: 'color-mix(in oklab, var(--color-kumo-base) 88%, var(--color-kumo-overlay))',
     color: 'var(--text-color-kumo-subtle)',
+    // 抹掉 CodeMirror 基座主题自带的行号右 border（.cm-gutters-before）：
+    // 仅改背景不足以移除它，必须显式清除左右 border（风格 none）。
+    borderLeft: 'none',
+    borderRight: 'none',
   },
   // 选中区域：跟随主题语义色，避免默认浏览器蓝与亮/暗主题冲突
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
@@ -101,8 +105,8 @@ export default function CodeEditor({
   showHeader = true,
   lineWrapping = true,
   variant = 'default',
-  showActiveLine = true,
-  showGutterBorder = true,
+  showActiveLine = false,
+  showGutterBorder = false,
 }) {
   const description = useMemo(() => findCodeLanguage({ fileName, language }), [fileName, language]);
   const [languageSupport, setLanguageSupport] = useState(description?.support || null);
@@ -173,8 +177,8 @@ export default function CodeEditor({
           bracketMatching: true,
           closeBrackets: !readOnly,
           foldGutter: true,
-          highlightActiveLine: !readOnly,
-          highlightActiveLineGutter: !readOnly,
+          highlightActiveLine: showActiveLine && !readOnly,
+          highlightActiveLineGutter: showActiveLine && !readOnly,
           highlightSelectionMatches: true,
           lineNumbers: true,
           searchKeymap: true,
