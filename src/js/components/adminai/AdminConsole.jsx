@@ -130,6 +130,8 @@ const SETTING_FIELDS = [
   { key: 'admin_ai_memories_auto_capture', kind: 'switch', group: 'runtime', label: '自动记忆提炼' },
   { key: 'admin_ai_memories_idle_minutes', kind: 'number', group: 'runtime', label: '提炼空闲分钟数' },
   { key: 'admin_ai_audit_retention_days', kind: 'number', group: 'retention', label: '审计保留天数' },
+  { key: 'admin_ai_session_write_ttl_hours', kind: 'number', group: 'security', label: '会话写授权时效（小时）', description: '「允许此对话」授权的有效期，0 = 不自动过期' },
+  { key: 'admin_ai_max_concurrent_runs', kind: 'number', group: 'runtime', label: '全局并发执行上限', description: '同时进行的 AI 执行数上限（防 TG/Web 并发打爆上游）' },
 ];
 
 const SETTING_SECTIONS = [

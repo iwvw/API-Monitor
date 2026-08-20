@@ -131,6 +131,7 @@ import {
   resultTone,
   ttfbTone,
   statusCodeTone,
+  logOutputSpeedText,
   maskIp,
   toLocalDateTimeValue,
   parseLocalDateTime,
@@ -2613,7 +2614,7 @@ function OpenAIPage() {
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
               <Table layout="fixed" className="min-w-[1380px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
 <colgroup>
-                  <col style={{ width: 140 }} />
+                  <col style={{ width: 120 }} />
                   <col style={{ width: 80 }} />
                   <col style={{ width: 104 }} />
                   <col style={{ width: 140 }} />
@@ -2624,13 +2625,14 @@ function OpenAIPage() {
                   <col style={{ width: 132 }} />
                   <col style={{ width: 132 }} />
                   <col style={{ width: 132 }} />
+                  <col style={{ width: 88 }} />
                 </colgroup>
                 <Table.Header sticky variant="compact">
                   <Table.Row>
-                    <Table.Head className="text-center">时间</Table.Head>
-                    <Table.Head className="text-center">路由</Table.Head>
-                    <Table.Head className="text-center">端点</Table.Head>
-                    <Table.Head className="text-center">模型</Table.Head>
+                    <Table.Head className="text-left">时间</Table.Head>
+                    <Table.Head className="text-left">路由</Table.Head>
+                    <Table.Head className="text-left">端点</Table.Head>
+                    <Table.Head className="text-left">模型</Table.Head>
                     <Table.Head className="text-center">出口 IP</Table.Head>
                     <Table.Head className="text-center">客户端 IP</Table.Head>
                     <Table.Head className="text-center">状态</Table.Head>
@@ -2638,18 +2640,19 @@ function OpenAIPage() {
                     <Table.Head className="text-left">输入 / 输出</Table.Head>
                     <Table.Head className="text-left">缓存</Table.Head>
                     <Table.Head className="text-left">总消耗</Table.Head>
+                    <Table.Head className="text-left" title="输出速度（输出词元/秒）">TPS</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
                   {analyticsLoading && analyticsLogs.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={11} className="text-center py-8">
+                      <Table.Cell colSpan={12} className="text-center py-8">
                         <Loader size={20} className="mx-auto text-kumo-subtle" />
                       </Table.Cell>
                     </Table.Row>
                   ) : analyticsLogs.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={11} className="text-center py-8 text-kumo-subtle text-sm">
+                      <Table.Cell colSpan={12} className="text-center py-8 text-kumo-subtle text-sm">
                         暂无网关日志记录
                       </Table.Cell>
                     </Table.Row>
@@ -2657,17 +2660,17 @@ function OpenAIPage() {
                     analyticsLogs.map(log => {
                       return (
                         <Table.Row key={log.id} className="text-sm">
-                          <Table.Cell className="truncate text-center font-mono text-kumo-subtle">
+                          <Table.Cell className="truncate text-left font-mono text-kumo-subtle" title={formatDateTime(log.timestamp)}>
                             {formatDateTime(log.timestamp)}
                           </Table.Cell>
                           <Table.Cell
-                            className="truncate text-center font-mono text-kumo-subtle"
+                            className="truncate text-left font-mono text-kumo-subtle"
                             title={log.route}
                           >
                             {!log.route ? '-' : log.route.replace(/^chat\./, '')}
                           </Table.Cell>
                           <Table.Cell
-                            className="truncate text-center font-semibold text-kumo-strong"
+                            className="truncate text-left font-semibold text-kumo-strong"
                             title={log.endpointName}
                           >
                             <span className="inline-flex items-center justify-center gap-1.5">
@@ -2680,7 +2683,7 @@ function OpenAIPage() {
                             </span>
                           </Table.Cell>
                           <Table.Cell
-                            className={`truncate text-center font-mono font-medium ${log.statusCode >= 400 && log.errorResponse ? 'cursor-pointer text-kumo-danger' : 'text-kumo-strong'}`}
+                            className={`truncate text-left font-mono font-medium ${log.statusCode >= 400 && log.errorResponse ? 'cursor-pointer text-kumo-danger' : 'text-kumo-strong'}`}
                             title={log.statusCode >= 400 && log.errorResponse ? '点击查看报错详情' : log.model}
                             onClick={log.statusCode >= 400 && log.errorResponse ? () => {
                               setLogDetailExpanded(false);
@@ -2780,6 +2783,19 @@ function OpenAIPage() {
                               </span>
                               <span className="shrink-0 leading-none text-kumo-subtle">）</span>
                             </div>
+                          </Table.Cell>
+                          <Table.Cell
+                            className="text-left font-mono text-kumo-strong"
+                            title={
+                              logOutputSpeedText(log) != null
+                                ? (() => {
+                                    const genSec = Math.max(0, (Number(log.latencyMs) || 0) - (Number(log.ttfbMs) || 0)) / 1000;
+                                    return `输出速度 ${logOutputSpeedText(log)}（输出词元 ${log.completionTokens} ÷ 输出耗时 ${genSec.toFixed(1)}s）`;
+                                  })()
+                                : '无输出或无法计时'
+                            }
+                          >
+                            {logOutputSpeedText(log) || '—'}
                           </Table.Cell>
                         </Table.Row>
                       );

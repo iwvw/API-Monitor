@@ -7899,6 +7899,8 @@ function ServerPage() {
             <div className={SERVER_SECONDARY_TABS_GROUP_CLASS}>
               <Tabs
                 {...TOOL_TABS_PROPS}
+                className="w-auto cq-sm:w-fit"
+                listClassName="w-auto cq-sm:w-fit"
                 value={serverStatusFilter === 'offline' ? 'offline' : 'all'}
                 onValueChange={setServerStatusFilter}
                 tabs={[
@@ -7908,6 +7910,8 @@ function ServerPage() {
               />
               <Tabs
                 {...TOOL_TABS_PROPS}
+                className="w-auto cq-sm:w-fit"
+                listClassName="w-auto cq-sm:w-fit"
                 value={serverListViewMode}
                 onValueChange={setServerListViewMode}
                 tabs={[
@@ -10163,9 +10167,6 @@ function ServerPage() {
                 <div className="grid gap-3 px-4 py-3.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] cq-lg:items-center">
                   <div className="min-w-0">
                     <div className="text-xs font-semibold leading-5 text-kumo-strong">主机地址显示</div>
-                    <div className="mt-0.5 text-[11px] leading-4 text-kumo-subtle">
-                      控制主机列表和详情展开区里的地址展示方式。
-                    </div>
                   </div>
                   <div className="flex justify-start cq-lg:justify-end">
                     <Select

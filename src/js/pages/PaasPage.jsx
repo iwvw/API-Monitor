@@ -1740,8 +1740,6 @@ function PaasPage() {
             <div className="space-y-5">
               {koyebAccounts.map((account) => {
                 const expanded = isKoyebAccountExpanded(account.name);
-                const projectCount = account.projects?.length || 0;
-                const serviceCount = (account.projects || []).reduce((total, project) => total + (project.services?.length || 0), 0);
                 const balance = Number(account.data?.balance ?? account.balance ?? 0);
                 return (
                   <section key={account.name} className="space-y-3">
@@ -1750,7 +1748,7 @@ function PaasPage() {
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
-                        className="flex min-w-0 cursor-pointer flex-col gap-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between"
+                        className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 cq-sm:justify-between"
                         onClick={() => toggleKoyebAccount(account.name)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -1764,7 +1762,7 @@ function PaasPage() {
                           variant="ghost"
                           size="sm"
                           tabIndex={-1}
-                          className="w-full min-w-0 justify-start px-0 text-left cq-sm:w-auto"
+                          className="min-w-0 flex-1 justify-start px-0 text-left"
                           icon={<ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />}
                         >
                           <span className="flex min-w-0 items-center gap-2 text-left">
@@ -1772,15 +1770,13 @@ function PaasPage() {
                             <Text as="span" bold truncate>{account.name}</Text>
                           </span>
                         </Button>
-                        <div className="flex w-full flex-wrap items-center justify-end gap-2 cq-sm:w-auto">
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           {account.data?.email ? (
                             <Badge variant="outline" className="max-w-full">
                               <Mail className="h-3 w-3 shrink-0" />
                               <span className="truncate">{account.data.email}</span>
                             </Badge>
                           ) : null}
-                          <Badge variant="neutral">{projectCount} 应用</Badge>
-                          <Badge variant="neutral">{serviceCount} 服务</Badge>
                           <Badge variant="info">${Number.isFinite(balance) ? balance.toFixed(2) : '0.00'}</Badge>
                         </div>
                       </LayerCard.Secondary>
@@ -1972,7 +1968,7 @@ function PaasPage() {
                                             </div>
                                           ) : null}
 
-                                          <div className="flex flex-wrap justify-end gap-1">
+                                          <div className="flex flex-wrap justify-start gap-1">
                                             <Button shape="square" size="sm" variant="secondary" aria-label="重启服务" onClick={() => restartKoyebService(account, app, service)} title={service.status === 'SUSPENDED' ? '启动服务' : '重启服务'} icon={<RefreshCw className="h-3.5 w-3.5" />} />
                                             <Button shape="square" size="sm" variant="secondary" aria-label="重新部署服务" onClick={() => redeployKoyebService(account, app, service)} title="重新部署" icon={<Rocket className="h-3.5 w-3.5" />} />
                                             <Button shape="square" size="sm" variant="secondary" aria-label="查看服务实例" onClick={() => fetchKoyebServiceInstances(account, service)} title="查看实例" loading={service.loadingInstances} icon={<Server className="h-3.5 w-3.5" />} />
@@ -2018,8 +2014,6 @@ function PaasPage() {
             <div className="space-y-5">
               {flyAccounts.map((account) => {
                 const expanded = isFlyAccountExpanded(account.name);
-                const appCount = account.projects?.length || 0;
-                const machineCount = (account.projects || []).reduce((total, project) => total + (project.machines?.length || 0), 0);
                 return (
                   <section key={account.name} className="space-y-3">
                     <LayerCard className="self-start">
@@ -2027,7 +2021,7 @@ function PaasPage() {
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
-                        className="flex min-w-0 cursor-pointer flex-col gap-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between"
+                        className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 cq-sm:justify-between"
                         onClick={() => toggleFlyAccount(account.name)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -2041,7 +2035,7 @@ function PaasPage() {
                           variant="ghost"
                           size="sm"
                           tabIndex={-1}
-                          className="w-full min-w-0 justify-start px-0 text-left cq-sm:w-auto"
+                          className="min-w-0 flex-1 justify-start px-0 text-left"
                           icon={<ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />}
                         >
                           <span className="flex min-w-0 items-center gap-2 text-left">
@@ -2049,9 +2043,7 @@ function PaasPage() {
                             <Text as="span" bold truncate>{account.name}</Text>
                           </span>
                         </Button>
-                        <div className="flex w-full flex-wrap items-center justify-end gap-2 cq-sm:w-auto">
-                          <Badge variant="neutral">{appCount} 应用</Badge>
-                          <Badge variant="neutral">{machineCount} 机器</Badge>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); updateAllFlyAppsImage(account); }} icon={<Rocket className="h-3.5 w-3.5" />}>
                             批量更新
                           </Button>
@@ -2196,7 +2188,7 @@ function PaasPage() {
                                   </div>
                                 ) : null}
 
-                                <div className="flex flex-wrap justify-end gap-1">
+                                <div className="flex flex-wrap justify-start gap-1">
                                     <Button shape="square" size="sm" variant="secondary" aria-label="重启应用" onClick={() => redeployFlyApp(account, app)} title="重启应用" icon={<RefreshCw className="h-3.5 w-3.5" />} />
                                     <Button shape="square" size="sm" variant="secondary" aria-label="更新容器镜像" onClick={() => updateFlyAppImage(account, app)} title="更新容器镜像" icon={<Rocket className="h-3.5 w-3.5" />} />
                                     <Button shape="square" size="sm" variant="secondary" aria-label="创建机器" onClick={() => createFlyMachine(account, app)} title="创建机器" icon={<Plus className="h-3.5 w-3.5" />} />

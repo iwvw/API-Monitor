@@ -296,6 +296,7 @@ function ServerLocationMap({
           aspectRatio={chartHeight === undefined ? aspectRatio : undefined}
           zoom={1.15}
           roam
+          projection={null}
           isDarkMode={isDarkMode}
           tooltipFormatter={formatServerListTooltip}
         />

@@ -454,7 +454,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false); // 管理视图（设置/频道/审计收进侧栏）
   const [adminTab, setAdminTab] = useState('settings'); // 管理视图 tab（与 AdminConsole 共享）
-  const [pendingApproval, setPendingApproval] = useState(null); // 写操作审批弹窗（approval 事件触发）
+  const [pendingApprovals, setPendingApprovals] = useState([]); // 写操作审批浮层队列（approval 事件触发，多条排队不覆盖）
   const [externalRun, setExternalRun] = useState(null); // 外部来源（API/BOT）run 指示：{runId, phase}
   const [behavior, setBehavior] = useState(() => {
     try { return localStorage.getItem('adminai-behavior') === 'ask' ? 'ask' : 'agent'; } catch { return 'agent'; }
@@ -499,8 +499,11 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const retryTimerRef = useRef(null); // 重连定时器
   const healthTimerRef = useRef(null); // 连接健康确认定时器（稳定期后清零退避）
   const reconnectedRef = useRef(false); // 本轮 run 是否发生过重连（终态后拉历史兜底 full）
+  const runIdRef = useRef(null); // 当前活跃 runId（跨渲染同步，取消/停止路径读取）
+  const parseFailRef = useRef(0); // SSE 事件解析连续失败计数（防静默吞事件）
   const textareaRef = useRef(null);
   const dragState = useRef(null);
+  const dragCleanupRef = useRef(null); // 拖拽监听器清理（unmount 兜底）
   const panelRef = useRef(null);
   const activeSessionIdRef = useRef(activeSessionId);
   const lastPromptRef = useRef('');
@@ -537,6 +540,9 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     try {
       const res = await fetch(`/api/admin-ai/sessions/${sessionId}/messages`);
       const data = await res.json();
+      // 会话守卫：await 期间用户可能已快速切换会话（A→B），晚到的
+      // A 响应不得覆盖 B 的消息列表。此守卫也作用于轮询重拉路径。
+      if (activeSessionIdRef.current !== sessionId) return;
       const body = data.data || data;
       const items = body.items || body.messages || [];
       // DB 行 → timeline parts（推理/工具调用/工具结果/正文按时间序，一轮一条消息）
@@ -643,6 +649,10 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
       eventSource.current = null;
     }
     streamTargetIdRef.current = null;
+    lastSeqRef.current = 0; // 跨 run 复位：同类 runId 的 resume 重连不再误跳过旧 seq
+    reconnectedRef.current = false;
+    retryCountRef.current = 0;
+    runIdRef.current = null;
     setStreaming(false);
     setRunId(null);
     // 清掉外部 run 快照：SSE 收尾/取消后旧 liveRun 不得残留（切换会话时
@@ -650,10 +660,29 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     setLiveRun(null);
   }, []);
 
+  /* 停止路径统一走后端取消：关侧栏/Esc/切会话/unmount 都只在前端关 EventSource
+     会让后端 run 继续执行（含写工具），且审批事件随连接关闭永久丢失。
+     本函数以「当前激活 run」为准发起 POST /cancel，之后再由调用方 stopStream 收尾。 */
+  const cancelBackendRun = useCallback(async () => {
+    const rid = runIdRef.current;
+    if (!rid) return;
+    try {
+      await fetch('/api/admin-ai/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: rid }),
+      });
+    } catch {
+    }
+  }, []);
+
+  /* 切会话：先取消旧 run（防后台静默执行/审批丢失），再加载新会话消息。 */
   useEffect(() => {
     if (activeSessionId) {
       activeSessionIdRef.current = activeSessionId;
+      if (runIdRef.current) cancelBackendRun();
       stopStream();
+      setPendingApprovals([]); // 清掉旧会话遗留的审批浮层（切走即失效）
       if (skipLoadSessionRef.current === activeSessionId) {
         skipLoadSessionRef.current = null;
         return undefined;
@@ -661,9 +690,12 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
       loadMessages(activeSessionId);
     }
     return undefined;
-  }, [activeSessionId, loadMessages, stopStream]);
+  }, [activeSessionId, loadMessages, stopStream, cancelBackendRun]);
 
-  useEffect(() => () => stopStream(), [stopStream]);
+  useEffect(() => {
+    const kill = () => { if (runIdRef.current) cancelBackendRun(); stopStream(); };
+    return kill;
+  }, [stopStream, cancelBackendRun]);
    /* Esc 关闭侧栏（管理视图先返回对话，全屏模式先收回侧栏形态） */
   useEffect(() => {
     if (!showAskAI) return undefined;
@@ -671,12 +703,12 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
       if (e.key === 'Escape') {
         if (manageOpen) setManageOpen(false);
         else if (expanded) setExpanded(false);
-        else setShowAskAI(false);
+        else { if (runIdRef.current) cancelBackendRun(); stopStream(); setShowAskAI(false); }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showAskAI, expanded, manageOpen, setShowAskAI]);
+  }, [showAskAI, expanded, manageOpen, setShowAskAI, cancelBackendRun, stopStream]);
 
   /* 菜单外部点击关闭（@ / 会话） */
   useEffect(() => {
@@ -705,6 +737,13 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const STREAM_RECONNECT_MAX = 5;
 
   const openStream = (runId, targetId, resume) => {
+    // 先清掉带触发中的重连定时器：上一 run 挂起的重连定时器若不清理，
+    // 会在新 run 打开流后 1-15s 内触发 openStream 并替换新 EventSource，
+    // 导致 run2 事件整体丢失、消息永远停在 streaming。
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     if (eventSource.current) {
       eventSource.current.close();
       eventSource.current = null;
@@ -713,7 +752,9 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     if (!resume) {
       retryCountRef.current = 0;
       reconnectedRef.current = false;
+      parseFailRef.current = 0;
       setRunId(runId);
+      runIdRef.current = runId;
       setStreaming(true);
     }
     const q = resume ? `&resume=1&fromSeq=${lastSeqRef.current || 0}` : '';
@@ -746,7 +787,12 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
       // 消息永远停留在 streaming（正文/完成态丢失）
       const tid = streamTargetIdRef.current;
       setMessages((prev) => applyAiEvent(prev, ev, tid));
-      if (ev.type === 'approval') setPendingApproval(ev); // 写操作请求：自动弹出审批弹窗
+      if (ev.type === 'approval') {
+        // 入队而非覆盖：多个写操作并发审批时全部展示，逐条处理，避免静默漏批
+        setPendingApprovals((prev) => (prev.some((a) => a.approvalId === ev.approvalId)
+          ? prev
+          : [...prev, ev]));
+      }
       if (ev.type === 'done' || ev.type === 'error') {
         // 只允许「自己所属的活跃流」收尾时 stopStream：上一轮收尾瞬间新一轮已开流
         // （openStream 已替换 eventSource.current）时，旧流残留的 done/error 事件
@@ -761,8 +807,17 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
       try {
         const seq = Number(e.lastEventId || 0);
         if (seq > (lastSeqRef.current || 0)) lastSeqRef.current = seq;
-        applyEvent(parseAdminAiEvent(t, e.data));
-      } catch {
+        const ev = parseAdminAiEvent(t, e.data);
+        parseFailRef.current = 0;
+        applyEvent(ev);
+      } catch (err) {
+        // 不静默吞：单条坏事件记录；连续多次解析失败说明流已损坏，
+        // 主动回退拉历史兜底，避免「看似无响应」但毫无提示。
+        parseFailRef.current += 1;
+        if (parseFailRef.current >= 3) {
+          parseFailRef.current = 0;
+          if (streamTargetIdRef.current) loadMessages(activeSessionIdRef.current);
+        }
       }
     });
     for (const t of STREAM_EVENTS) wireEvent(t);
@@ -1073,9 +1128,39 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, applyToSession: !!applyToSession, reason: reason || '' }),
       });
-      if (!res.ok) return;
+      // 400/409：读取后端原因回显（过期/已处理/执行已结束），不静默消失，并出队
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error?.message || data?.error || `审批操作失败（HTTP ${res.status}）`;
+        setMessages((prev) => prev.map((m) => {
+          if (!m.parts || !m.parts.some((p) => p.type === 'approval' && p.approvalId === approvalId)) return m;
+          return {
+            ...m,
+            parts: m.parts.map((p) => (p.type === 'approval' && p.approvalId === approvalId
+              ? { ...p, status: 'error', errorMessage: msg }
+              : p)),
+          };
+        }));
+        setPendingApprovals((prev) => prev.filter((p) => p.approvalId !== approvalId));
+        return;
+      }
       setMessages((prev) => resolveApprovalPart(prev, approvalId, action));
-      setPendingApproval((p) => (p && p.approvalId === approvalId ? null : p));
+      setPendingApprovals((prev) => prev.filter((p) => p.approvalId !== approvalId));
+      loadSessions();
+    } catch {
+    }
+  };
+
+  /* 撤销当前会话的「允许此对话」写授权（后端写入即清 write_enabled 与有效期） */
+  const handleRevokeSessionWrite = async (sessionId) => {
+    if (!sessionId) return;
+    try {
+      await fetch(`/api/admin-ai/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ writeEnabled: false }),
+      });
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, writeEnabled: false } : s)));
     } catch {
     }
   };
@@ -1091,12 +1176,16 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     status: 'pending',
   });
 
-  /* 审批浮层（侧栏/全屏各一份，出现在 AI 面板内部） */
-  const approvalOverlay = (positionClass) => (
-    <div className={`askai-modal-in absolute z-40 ${positionClass}`}>
-      <ApprovalCard approval={approvalProps(pendingApproval)} onResolve={handleResolveApproval} />
-    </div>
-  );
+  /* 审批浮层（侧栏/全屏各一份，出现在 AI 面板内部）；多条审批排队，逐条展示队首 */
+  const approvalOverlay = (positionClass) => {
+    const current = pendingApprovals[0];
+    if (!current) return null;
+    return (
+      <div className={`askai-modal-in absolute z-40 ${positionClass}`}>
+        <ApprovalCard approval={approvalProps(current)} onResolve={handleResolveApproval} remaining={pendingApprovals.length} />
+      </div>
+    );
+  };
 
   /* textarea 自动增高（最大 256px） */
   const resizeTextarea = useCallback(() => {
@@ -1129,6 +1218,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
 
   const startDrag = (e) => {
     e.preventDefault();
+    if (dragState.current) return; // 拖拽进行中防重入
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
     if (panelRef.current) panelRef.current.style.transition = 'none'; // 拖拽中禁用宽度过渡
@@ -1152,9 +1242,20 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
+    // 引用挂到 ref，卸载时也能移除（避免残留监听器每帧写 style.width/锁 body 光标）
+    dragCleanupRef.current = () => {
+      dragState.current = null;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      if (panelRef.current) panelRef.current.style.transition = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
+
+  useEffect(() => () => { if (dragCleanupRef.current) dragCleanupRef.current(); }, []);
 
   const activeSessionRow = sessions.find((s) => s.id === activeSessionId);
   const placeholder = behavior === 'ask' ? '输入指令' : '输入消息，@ 引用资源';
@@ -1184,7 +1285,15 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     });
   }, [taskGroups]);
    /* ==================== 渲染 ==================== */
-  const closeSidebar = () => { setShowAskAI(false); setExpanded(false); setManageOpen(false); };
+  const closeSidebar = () => {
+    // 关闭侧栏不等同停止：run 仍在后台执行（含写工具）会造成「关掉还在跑」，
+    // 先发起后端取消（恢复正常路径），再收起面板。
+    if (runIdRef.current) cancelBackendRun();
+    stopStream();
+    setShowAskAI(false);
+    setExpanded(false);
+    setManageOpen(false);
+  };
 
   /* 外部来源 run 指示器：嵌入输入框工具行（模式切换右侧）。
      runId 变化重挂载重播滑入动画；阶段切换时文案以 key 变化淡入 */
@@ -1220,6 +1329,25 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
         <X className="h-3 w-3" />
       </Button>
     </div>
+  );
+
+  /* 会话写授权指示 + 撤销（“允许此对话”授予后展示，撤销走 PATCH sessions/{id}） */
+  const writeGrantChip = activeSessionRow?.writeEnabled && !botActive && (
+    <span className="askai-write-grant inline-flex shrink-0 items-center gap-1.5 rounded-full bg-kumo-success/10 px-2.5 py-1 text-[11px] text-kumo-success">
+      <ShieldCheck className="h-3 w-3" />
+      <span className="hidden min-w-0 truncate @[420px]:inline">本会话已授权写操作</span>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onClick={() => handleRevokeSessionWrite(activeSessionRow.id)}
+        aria-label="撤销本会话写权限"
+        title="撤销本会话写权限"
+        className="!h-5 !rounded-full !px-2 !py-0 !text-[10px] text-kumo-warning hover:!bg-kumo-warning/10"
+      >
+        撤销
+      </Button>
+    </span>
   );
 
   /* ---- 全屏扩展模式 ---- */
@@ -1416,6 +1544,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                 <div className="flex min-w-0 items-center gap-2">
                   <Tabs size="sm" variant="segmented" className="shrink-0" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
                   {externalRunIndicator}
+                  {writeGrantChip}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                 {streaming ? (
@@ -1442,7 +1571,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
             </div>
           </div>
         </div>
-        {pendingApproval && approvalOverlay('bottom-[150px] left-1/2 w-full max-w-4xl -translate-x-1/2 px-6')}
+        {approvalOverlay('bottom-[150px] left-1/2 w-full max-w-4xl -translate-x-1/2 px-6')}
       </div>
       </div>
     </div>
@@ -1459,7 +1588,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
       <div className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize" onMouseDown={startDrag} aria-hidden />
 
       {/* 写操作审批浮层：侧栏内滑出（输入区上方），不遮挡主画布 */}
-      {pendingApproval && approvalOverlay('inset-x-3 bottom-[132px]')}
+      {approvalOverlay('inset-x-3 bottom-[132px]')}
 
 {/* 双视图滑动切换（对话 ⇄ 管理）；overflow-clip 避免滚动偏移 */}
       <div className="relative min-h-0 flex-1 overflow-clip">
@@ -1682,6 +1811,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
               <div className="flex min-w-0 items-center gap-2">
                 <Tabs size="sm" variant="segmented" className="shrink-0" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
                 {externalRunIndicator}
+                {writeGrantChip}
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {streaming ? (

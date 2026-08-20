@@ -2086,7 +2086,7 @@ function DnsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 @[430px]:grid-cols-3 cq-md:hidden">
+              <div className="grid grid-cols-2 gap-2 @[370px]:grid-cols-3 cq-md:hidden">
                 {loading.zones ? (
                   Array.from({ length: 4 }).map((_, index) => (
                     <LayerCard key={index} className="min-w-0 p-2">
@@ -2103,7 +2103,7 @@ function DnsPage() {
                     onClick={() => selectZone(zone)}
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-kumo-strong" title={zone.name}>{zone.name}</div>
+                      <div className="truncate text-sm font-bold leading-[1.35] text-kumo-strong" title={zone.name}>{zone.name}</div>
                       <div className="mt-2 flex items-center gap-1.5">
                         <Badge variant={statusVariant(zone.status)} className="text-[10px] leading-4">{zoneStatusLabel(zone.status)}</Badge>
                         <Badge variant="secondary" className="text-[10px] leading-4">{zoneTypeLabel(zone.type)}</Badge>

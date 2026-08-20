@@ -47,6 +47,16 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 全局字号缩放时保持品牌 logo 固定尺寸（侧栏 28px / 顶栏 20px） */
+:root[data-font-size] .sidebar-brand-logo {
+  width: 28px;
+  height: 28px;
+}
+:root[data-font-size] .topbar-brand-logo {
+  width: 20px;
+  height: 20px;
+}
+
 :root {
   color-scheme: light dark;
   --app-terminal-bg: var(--color-kumo-neutral-1000, #050505);
@@ -123,6 +133,25 @@ samp {
 .app-serif .text-4xl,
 .app-serif .text-5xl {
   letter-spacing: -0.02em;
+}
+
+/* 组合字体主题（设置里「Sora 圆润现代」）：标题 Sora、正文 Manrope、
+   中文 HarmonyOS Sans SC、代码 JetBrains Mono。font-stack 由 store.js 注入 */
+.app-sora :is(h1, h2, h3, h4, h5, h6) {
+  font-family: 'Sora', 'HarmonyOS Sans SC', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+.app-sora :is(pre, code, kbd, samp) {
+  font-family: 'JetBrains Mono', 'HarmonyOS Sans SC', ui-monospace, monospace;
+}
+
+/* 弹窗底部操作区（flex-col-reverse 窄屏纵向堆叠）：Kumo Button 基础样式缺
+   justify-center，被 w-full 拉伸后内容靠左、右侧留白；定向该容器内的按钮
+   在窄屏堆叠时内容居中，宽屏（cq-sm 切回 flex-row）恢复默认左对齐。 */
+.flex-col-reverse > button {
+  justify-content: center;
 }
 
 :root[data-mode='dark'] body {
@@ -2510,7 +2539,7 @@ input[type='number'] {
   animation: askai-expand-in 0.15s ease-out;
 }
 
-/* AI 入口按钮：闲置呼吸（星形微缩放+转动+亮度闪亮，无模糊），hover 提速，打开态常亮 */
+/* AI 入口按钮：闲置静止，hover/focus 时呼吸（星形微缩放+转动+亮度闪亮，无模糊） */
 @keyframes askai-entry-twinkle {
   0%, 100% {
     transform: scale(1) rotate(0deg);
@@ -2522,12 +2551,11 @@ input[type='number'] {
   }
 }
 .askai-entry-sparkle {
-  animation: askai-entry-twinkle 3s ease-in-out infinite;
   will-change: transform, filter;
 }
 .askai-entry-btn:hover .askai-entry-sparkle,
 .askai-entry-btn:focus-visible .askai-entry-sparkle {
-  animation-duration: 0.9s;
+  animation: askai-entry-twinkle 3s ease-in-out infinite;
 }
 
 /* 折叠区丝滑展开/收起：grid-rows 0fr→1fr + 透明度（工具步骤/推理/长文本共用）

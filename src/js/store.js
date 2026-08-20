@@ -228,6 +228,7 @@ export function getModuleIcon(moduleId) {
 const THEME_STORAGE_KEY = 'app_theme_mode';
 const LEGACY_THEME_STORAGE_KEY = 'app_theme';
 const UI_FONT_STORAGE_KEY = 'app_ui_font';
+const UI_FONT_SIZE_STORAGE_KEY = 'app_ui_font_size';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'app_sidebar_collapsed';
 const DASHBOARD_FOOTER_VISIBLE_STORAGE_KEY = 'app_dashboard_footer_visible';
 const DASHBOARD_FOOTER_RECORD_NUMBER_STORAGE_KEY = 'app_dashboard_footer_record_number';
@@ -401,15 +402,28 @@ export const FONT_OPTIONS = [
   { value: 'default', label: '系统默认' },
   { value: 'serif', label: '衬线字体' },
   { value: 'lxgw-wenkai-screen', label: '霞鹜文楷屏幕阅读版' },
+  { value: 'sora', label: 'Sora 圆润现代' },
 ];
+
+export const FONT_SIZE_OPTIONS = [
+  { value: 'small', label: '小' },
+  { value: 'default', label: '默认' },
+  { value: 'large', label: '大' },
+  { value: 'xlarge', label: '特大' },
+];
+
+export const FONT_SIZE_SCALE = { small: 0.875, default: 1, large: 1.125, xlarge: 1.25 };
 
 const FONT_LINK_ID = 'lxgw-wenkai-font-link';
 const SERIF_FONT_LINK_ID = 'noto-serif-font-link';
+const SORA_FONT_LINK_ID = 'sora-font-link';
 // 本地自托管：公共 CDN 在移动端网络中常加载失败导致字体静默回退系统字体
 const LXGW_WENKAI_CSS_URL = '/fonts/lxgw-wenkai-screen/lxgwwenkaiscreen.css';
 const NOTO_SERIF_CSS_URL = '/fonts/noto-serif-sc/notoserifsc.css';
 const LORA_CSS_URL = '/fonts/lora/lora.css';
+const SORA_CSS_URL = '/fonts/sora/sora.css';
 const SERIF_CLASS = 'app-serif';
+const SORA_CLASS = 'app-sora';
 
 export const applyUIFont = (font) => {
   if (typeof document === 'undefined') return;
@@ -424,7 +438,8 @@ export const applyUIFont = (font) => {
   if (font === 'default' || !font) {
     if (existing) existing.remove();
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
-    root.classList.remove(SERIF_CLASS);
+    document.getElementById(SORA_FONT_LINK_ID)?.remove();
+    root.classList.remove(SERIF_CLASS, SORA_CLASS);
     if (document.body) {
       document.body.style.removeProperty('font-family');
       document.body.style.removeProperty('font-weight');
@@ -435,7 +450,8 @@ export const applyUIFont = (font) => {
 
   if (font === 'lxgw-wenkai-screen') {
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
-    root.classList.remove(SERIF_CLASS);
+    document.getElementById(SORA_FONT_LINK_ID)?.remove();
+    root.classList.remove(SERIF_CLASS, SORA_CLASS);
     if (!existing) {
       const link = document.createElement('link');
       link.id = FONT_LINK_ID;
@@ -457,6 +473,8 @@ export const applyUIFont = (font) => {
   if (font === 'serif') {
     // 西文用 Lora Variable（400-700 可变），中文回退 Noto Serif SC，
     // 与 api.dsuk.top 的 serif 主题保持一致：正文默认字重、标题 500 + 负字距
+    document.getElementById(SORA_FONT_LINK_ID)?.remove();
+    root.classList.remove(SORA_CLASS);
     if (!document.getElementById(SERIF_FONT_LINK_ID)) {
       const link = document.createElement('link');
       link.id = SERIF_FONT_LINK_ID;
@@ -479,13 +497,50 @@ export const applyUIFont = (font) => {
     return;
   }
 
-  root.classList.remove(SERIF_CLASS);
+  if (font === 'sora') {
+    // 组合字体：西文标题 Sora + 正文 Manrope，中文 HarmonyOS Sans SC，
+    // 代码 JetBrains Mono，均本地自托管（含按需汉字子集）
+    document.getElementById(SERIF_FONT_LINK_ID)?.remove();
+    root.classList.remove(SERIF_CLASS);
+    const soraLink = document.createElement('link');
+    soraLink.id = SORA_FONT_LINK_ID;
+    soraLink.rel = 'stylesheet';
+    soraLink.href = SORA_CSS_URL;
+    if (!document.getElementById(SORA_FONT_LINK_ID)) document.head.appendChild(soraLink);
+    const fontStack = '"Manrope", "HarmonyOS Sans SC", ui-sans-serif, system-ui, sans-serif';
+    if (document.body) {
+      document.body.style.setProperty('font-family', fontStack);
+      document.body.style.removeProperty('font-weight');
+    }
+    root.classList.add(SORA_CLASS);
+    root.style.setProperty('--font-sans', fontStack);
+    return;
+  }
+
+  root.classList.remove(SERIF_CLASS, SORA_CLASS);
   document.getElementById(SERIF_FONT_LINK_ID)?.remove();
+  document.getElementById(SORA_FONT_LINK_ID)?.remove();
   if (document.body) {
     document.body.style.removeProperty('font-family');
     document.body.style.removeProperty('font-weight');
   }
   root.style.removeProperty('--font-sans');
+};
+
+export const applyUIFontSize = (size) => {
+  if (typeof document === 'undefined') return;
+
+  const root = document.documentElement;
+  const scale = FONT_SIZE_SCALE[size];
+  if (!scale || scale === 1) {
+    root.style.removeProperty('font-size');
+    root.removeAttribute('data-font-size');
+    return;
+  }
+  // 全局 rem 基准缩放：Tailwind/Kumo 的 text-*、间距等均基于 rem，
+  // 调整 html 根字号即可全站统一缩放；品牌 logo/图表等固定 px 不受影响。
+  root.style.fontSize = `${16 * scale}px`;
+  root.dataset.fontSize = size;
 };
 
 export const normalizeUserSettings = (settings = {}) => {
@@ -614,6 +669,18 @@ const getInitialThemeMode = () => {
 
 const initialThemeMode = getInitialThemeMode();
 
+const getInitialUIFontSize = () => {
+  try {
+    const saved = localStorage.getItem(UI_FONT_SIZE_STORAGE_KEY);
+    if (saved && FONT_SIZE_SCALE[saved]) return saved;
+  } catch (e) {
+    console.error('Failed to get initial ui font size:', e);
+  }
+  return 'default';
+};
+
+const initialUIFontSize = getInitialUIFontSize();
+
 const getInitialSidebarCollapsed = () => {
   try {
     return normalizeSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY), false);
@@ -675,6 +742,7 @@ const useStore = create((set, get) => ({
   userSettingsLoading: false,
   customCss: '',
   uiFont: 'default',
+  uiFontSize: initialUIFontSize,
   moduleVisibility: DEFAULT_MODULE_VISIBILITY,
   moduleOrder: DEFAULT_MODULE_ORDER,
   channelEnabled: DEFAULT_CHANNEL_ENABLED,
@@ -790,6 +858,19 @@ const useStore = create((set, get) => ({
       console.error('Failed to persist ui font:', error);
     }
     set({ uiFont: normalized });
+  },
+
+  setUIFontSize: (uiFontSize, persist = true) => {
+    const normalized = FONT_SIZE_OPTIONS.some(o => o.value === uiFontSize) ? uiFontSize : 'default';
+    applyUIFontSize(normalized);
+    if (persist) {
+      try {
+        localStorage.setItem(UI_FONT_SIZE_STORAGE_KEY, normalized);
+      } catch (error) {
+        console.error('Failed to persist ui font size:', error);
+      }
+    }
+    set({ uiFontSize: normalized });
   },
 
   setVibrationEnabled: (enabled, persist = true) => {

@@ -13,6 +13,7 @@ import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import useStore, {
   DEFAULT_MODULE_ORDER,
   FONT_OPTIONS,
+  FONT_SIZE_OPTIONS,
   MODULE_CONFIG,
   MODULE_GROUPS,
   applyCustomCss,
@@ -66,7 +67,6 @@ const SETTINGS_TABS = [
 ];
 
 const SECURITY_MASONRY_CARD_CLASS = '';
-const DB_TABLES_VISIBLE_COUNT = 10;
 
 const THEME_OPTIONS = [
   { value: 'auto', label: '跟随系统' },
@@ -144,6 +144,8 @@ function SettingsPage() {
     setDashboardFooterRecordNumber,
     setVibrationEnabled,
     setUIFont,
+    uiFontSize,
+    setUIFontSize,
     applyUserSettings,
     loadUserSettings,
     logout,
@@ -243,7 +245,7 @@ function SettingsPage() {
       .sort((a, b) => Number(b.rows) - Number(a.rows));
   }, [dbAnalysis, dbStats]);
   const dbTableDisplayRows = useMemo(
-    () => (dbTablesExpanded ? tableRows : tableRows.slice(0, DB_TABLES_VISIBLE_COUNT)),
+    () => (dbTablesExpanded ? tableRows : []),
     [tableRows, dbTablesExpanded],
   );
   const formatTableRows = useCallback((rows) => {
@@ -276,6 +278,10 @@ function SettingsPage() {
     setUIFont(nextFont);
     patchSettings({ uiFont: nextFont });
   }, [patchSettings, setUIFont]);
+
+  const handleUIFontSizeChange = useCallback((value) => {
+    setUIFontSize(String(value));
+  }, [setUIFontSize]);
 
   const handleDashboardFooterVisibleChange = useCallback((checked) => {
     setDashboardFooterVisible(checked);
@@ -1190,17 +1196,17 @@ function SettingsPage() {
             className="min-h-0 self-start"
             bodyPadding="none"
           >
-            <FieldRow title="运行状态" description={settingsLoading ? '同步中' : (backendOnline ? '已连接后端' : '后端连接断开')}>
+            <FieldRow title="运行状态">
               <span className={`font-mono text-sm font-bold ${backendOnline ? 'text-kumo-success' : 'text-kumo-danger'}`}>{backendOnline ? '正常' : '离线'}</span>
             </FieldRow>
-            <FieldRow title="公网入口" description="/api 自动拼接">
+            <FieldRow title="公网入口" >
               <span className="truncate font-mono text-sm font-medium text-kumo-strong">{settings.publicApiUrl || currentOrigin}</span>
             </FieldRow>
-            <FieldRow title="数据库大小" description={databaseSizeHint}>
+            <FieldRow title="数据库大小">
               <span className="font-mono text-sm font-medium text-kumo-strong">{formatFileSize(databaseSizeBytes)}</span>
             </FieldRow>
-            <FieldRow title="日志文件" description="app.log">
-              <span className="font-mono text-sm font-medium text-kumo-strong">{logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB 上限`}</span>
+            <FieldRow title="日志文件">
+              <span className="font-mono text-sm font-medium text-kumo-strong">上限 {logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB`}</span>
             </FieldRow>
           </SectionCard>
 
@@ -1212,7 +1218,6 @@ function SettingsPage() {
           >
             <FieldRow title="公网 API 地址" description="公网可访问时填写，留空用当前来源。">
               <Input size="sm"
-                label="公网 API 地址"
                 value={settings.publicApiUrl}
                 onChange={(e) => patchSettings({ publicApiUrl: e.target.value })}
                 placeholder="https://monitor.example.com"
@@ -1221,7 +1226,6 @@ function SettingsPage() {
             <FieldRow title="系统时区" description="本地化时间；跟随服务器用默认时区。">
               <Select
                 size="sm"
-                label="系统时区"
                 value={settings.timezone}
                 onValueChange={(value) => patchSettings({ timezone: value })}
                 items={TIMEZONE_OPTIONS}
@@ -1508,7 +1512,7 @@ function SettingsPage() {
               <AppCard padding="md" className="flex h-auto flex-col gap-4 self-start border border-kumo-line/80">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-kumo-strong">验证器</div>
-                  <div className="text-xs leading-relaxed text-kumo-subtle">为密码和 GitHub 登录增加 6 位验证码；通行密钥不依赖 TOTP。</div>
+                  <div className="text-xs leading-relaxed text-kumo-subtle">为密码和 GitHub 登录增加 6 位验证码</div>
                 </div>
 
                 {twoFA.error && (
@@ -1795,6 +1799,8 @@ function SettingsPage() {
 
           <BackupPanel embedded />
 
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
           <SectionCard
             title="维护操作"
               icon={<HardDrive className="h-4 w-4 text-brand" />}
@@ -1871,8 +1877,7 @@ function SettingsPage() {
                 )}
               </div>
             </SectionCard>
-          </div>
-          <div className="flex min-w-0 flex-col gap-4">
+
           <SectionCard
             title="数据库统计"
             description={dbStats?.dbPath || 'SQLite 数据文件'}
@@ -1923,6 +1928,21 @@ function SettingsPage() {
                 )}
               </div>
             )}
+            {tableRows.length > 0 && (
+              <div className="flex shrink-0 items-center justify-between border-b border-kumo-line bg-kumo-surface px-3.5 py-1.5">
+                <span className="text-xs font-semibold text-kumo-strong">数据库表（{tableRows.length} 张）</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setDbTablesExpanded((v) => !v)}
+                  className="gap-1 text-xs font-medium text-brand"
+                >
+                  {dbTablesExpanded ? '收起' : '展开全部'}
+                  {dbTablesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            )}
             <div className="min-h-0 flex-1 overflow-auto">
               <Table layout="fixed">
                 <colgroup>
@@ -1948,6 +1968,12 @@ function SettingsPage() {
                         {databaseBusy ? '正在加载统计...' : '暂无统计数据'}
                       </Table.Cell>
                     </Table.Row>
+                  ) : !dbTablesExpanded ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">
+                        已折叠 {tableRows.length} 张表，点击上方展开全部
+                      </Table.Cell>
+                    </Table.Row>
                   ) : dbTableDisplayRows.map((row) => (
                     <Table.Row key={row.table}>
                       <Table.Cell className="truncate font-mono text-xs text-kumo-strong" title={row.table}>{row.table}</Table.Cell>
@@ -1960,20 +1986,6 @@ function SettingsPage() {
                 </Table.Body>
               </Table>
             </div>
-            {tableRows.length > DB_TABLES_VISIBLE_COUNT && (
-              <div className="flex shrink-0 items-center justify-center border-t border-kumo-line bg-kumo-surface py-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setDbTablesExpanded((v) => !v)}
-                  className="gap-1 text-xs font-medium text-brand"
-                >
-                  {dbTablesExpanded ? '收起' : `展开全部（${tableRows.length} 张）`}
-                  {dbTablesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-            )}
           </SectionCard>
           </div>
         </div>
@@ -2061,16 +2073,19 @@ function SettingsPage() {
             icon={<Sun className="h-4 w-4 text-brand" />}
             bodyPadding="none"
           >
-            <FieldRow title="主题模式" description="切换后立即生效">
-              <Select size="sm" label="主题模式" value={themeMode} onValueChange={handleThemeModeChange} items={THEME_OPTIONS} />
+            <FieldRow title="主题模式">
+              <Select size="sm" value={themeMode} onValueChange={handleThemeModeChange} items={THEME_OPTIONS} />
             </FieldRow>
-            <FieldRow title="界面字体" description="选择个性化字体，保存后全站生效">
-              <Select size="sm" label="界面字体" value={settings.uiFont || 'default'} onValueChange={handleUIFontChange} items={FONT_OPTIONS} />
+            <FieldRow title="界面字体">
+              <Select size="sm" value={settings.uiFont || 'default'} onValueChange={handleUIFontChange} items={FONT_OPTIONS} />
             </FieldRow>
-            <FieldRow title="显示首页页脚" description="控制仪表盘底部页脚">
+            <FieldRow title="界面字号">
+              <Select size="sm" value={uiFontSize} onValueChange={handleUIFontSizeChange} items={FONT_SIZE_OPTIONS} />
+            </FieldRow>
+            <FieldRow title="显示首页页脚">
               <Switch aria-label="显示首页页脚" checked={settings.dashboardFooterVisible} onCheckedChange={handleDashboardFooterVisibleChange} />
             </FieldRow>
-            <FieldRow title="备案号" description="显示在首页页脚右侧；留空不显示。">
+            <FieldRow title="备案号">
               <Input
                 size="sm"
                 aria-label="首页页脚备案号"
@@ -2080,7 +2095,7 @@ function SettingsPage() {
                 className="w-full min-w-52"
               />
             </FieldRow>
-            <FieldRow title="触感反馈" description="移动端振动反馈。">
+            <FieldRow title="触感反馈">
               <Switch checked={settings.vibrationEnabled} onCheckedChange={handleVibrationEnabledChange} />
             </FieldRow>
           </SectionCard>

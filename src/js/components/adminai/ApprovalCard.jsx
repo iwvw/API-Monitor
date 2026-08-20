@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Check } from '../Icons.jsx';
 
 /* 审批卡片 — Cloudflare Agent 风格：
  * 计划摘要 + 参数 code 高亮 + 「N 处更改」展开 diff + 4 操作按钮 + 请求更改输入 */
-export default function ApprovalCard({ approval, onResolve }) {
+export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
   const {
     id,
     planSummary,
@@ -14,12 +14,14 @@ export default function ApprovalCard({ approval, onResolve }) {
     bodySnapshot,
     expiresAt,
     status,
+    errorMessage,
   } = approval || {};
   const [countdown, setCountdown] = useState('');
   const [resolving, setResolving] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [requestText, setRequestText] = useState('');
   const [requestOpen, setRequestOpen] = useState(false);
+  const [confirmAllow, setConfirmAllow] = useState(false); // 「允许此对话」二次确认
 
   useEffect(() => {
     if (!expiresAt || status !== 'pending') return;
@@ -73,7 +75,7 @@ export default function ApprovalCard({ approval, onResolve }) {
     }
   };
 
-  if (status === 'approved' || status === 'rejected') {
+  if (status === 'approved' || status === 'rejected' || status === 'error') {
     return (
       <div className="rounded-xl bg-kumo-base px-4 py-3 ring-1 ring-kumo-line">
         <div className="mb-1.5 flex items-center gap-2 text-xs">
@@ -81,11 +83,17 @@ export default function ApprovalCard({ approval, onResolve }) {
             <span className="flex items-center gap-1 font-medium text-kumo-success">
               <Check className="h-3.5 w-3.5" /> 已批准
             </span>
+          ) : status === 'error' ? (
+            <span className="font-medium text-kumo-warning">处理失败</span>
           ) : (
             <span className="font-medium text-kumo-danger">已拒绝</span>
           )}
         </div>
-        {planSummary && <div className="text-xs text-kumo-subtle">{planSummary}</div>}
+        {errorMessage ? (
+          <div className="text-xs text-kumo-warning">{errorMessage}</div>
+        ) : planSummary ? (
+          <div className="text-xs text-kumo-subtle">{planSummary}</div>
+        ) : null}
       </div>
     );
   }
@@ -164,31 +172,38 @@ export default function ApprovalCard({ approval, onResolve }) {
         </div>
       )}
 
-      {/* 操作按钮：允许此对话 / 仅此次 / 拒绝 / 请求更改 */}
+      {/* 操作按钮：仅此次（主）/ 允许此对话（需二次确认）/ 拒绝 / 请求更改 */}
       {!requestOpen && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="primary"
-            disabled={resolving}
-            onClick={() => handleResolve('approve', true)}
-            className="!bg-kumo-success !text-white hover:!opacity-90"
-          >
-            {resolving ? <Loader size={12} /> : null}
-            允许此对话
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={resolving}
+            disabled={resolving || countdown === '已过期'}
             onClick={() => handleResolve('approve', false)}
           >
+            {resolving ? <Loader size={12} /> : null}
             仅此次
           </Button>
           <Button
             size="sm"
+            variant="secondary"
+            disabled={resolving || countdown === '已过期'}
+            onClick={() => {
+              if (!confirmAllow) {
+                setConfirmAllow(true);
+                window.setTimeout(() => setConfirmAllow(false), 5000);
+                return;
+              }
+              handleResolve('approve', true);
+              setConfirmAllow(false);
+            }}
+          >
+            {confirmAllow ? '确认允许本会话全部写操作？' : '允许此对话'}
+          </Button>
+          <Button
+            size="sm"
             variant="ghost"
-            disabled={resolving}
+            disabled={resolving || countdown === '已过期'}
             onClick={() => handleResolve('reject')}
             className="!text-kumo-danger hover:!bg-kumo-danger/10"
           >
@@ -197,13 +212,16 @@ export default function ApprovalCard({ approval, onResolve }) {
           <Button
             size="sm"
             variant="ghost"
-            disabled={resolving}
+            disabled={resolving || countdown === '已过期'}
             onClick={() => setRequestOpen(true)}
             className="!text-kumo-subtle hover:!text-kumo-default"
           >
             请求更改
           </Button>
         </div>
+      )}
+      {remaining > 1 && (
+        <div className="mt-2 text-[10px] text-kumo-subtle">还有 {remaining - 1} 条待审批</div>
       )}
     </div>
   );

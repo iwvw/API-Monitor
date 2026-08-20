@@ -3,12 +3,12 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
-import { DropdownMenu, Popover } from '@cloudflare/kumo';
+import { Popover } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { Info } from '../IconsCore.jsx';
-import { MoreVertical, Search } from '../Icons.jsx';
+import { Menu, Search } from '../Icons.jsx';
 import { resolveTableColumns } from '../../modules/tableLayout.js';
 
 export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-4 cq-sm:pb-8';
@@ -55,7 +55,7 @@ export function TabBarOverflowActions({
   items = [],
   className = '',
   buttonClassName = '',
-  menuClassName = 'w-60',
+  menuClassName = 'min-w-56 max-w-80',
 }) {
   const wideActions = (
     <div
@@ -98,46 +98,42 @@ export function TabBarOverflowActions({
     </div>
   );
 
-  const renderMenuItem = item => {
+  const renderPopupItem = item => {
     if (item.type === 'select') {
       return (
-        <DropdownMenu.Sub key={item.key}>
-          <DropdownMenu.SubTrigger className="flex items-center gap-2 px-2 py-1.5 text-sm">
+        <div key={item.key} className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-2 px-1 text-xs font-medium text-kumo-subtle">
             {item.icon}
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            <span className="max-w-28 truncate text-xs text-kumo-subtle">
-              {item.options.find(option => String(option.value) === String(item.value))?.label || ''}
-            </span>
-          </DropdownMenu.SubTrigger>
-          <DropdownMenu.SubContent className="w-56">
-            <DropdownMenu.RadioGroup
-              value={item.value}
-              onValueChange={item.onValueChange}
-            >
-              {item.options.map(option => (
-                <DropdownMenu.RadioItem key={option.value} value={option.value}>
-                  {option.label}
-                </DropdownMenu.RadioItem>
-              ))}
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.SubContent>
-        </DropdownMenu.Sub>
+            {item.label}
+          </span>
+          <Select
+            size="sm"
+            aria-label={item.label}
+            value={item.value}
+            onValueChange={item.onValueChange}
+            disabled={item.disabled}
+            items={item.options}
+            className="w-full"
+          />
+        </div>
       );
     }
     return (
-      <DropdownMenu.Item
+      <Button
         key={item.key}
+        size="sm"
+        variant={item.danger ? 'destructive' : item.variant || 'secondary'}
         icon={item.icon}
         onClick={item.onClick}
         disabled={item.disabled}
-        variant={item.danger ? 'danger' : 'default'}
+        loading={item.loading}
+        title={item.title || item.label}
+        className="w-full justify-start"
       >
         {item.label}
-      </DropdownMenu.Item>
+      </Button>
     );
   };
-
-  const menuItems = items.map(renderMenuItem);
 
   if (items.length === 0) return null;
 
@@ -145,24 +141,26 @@ export function TabBarOverflowActions({
     <>
       {wideActions}
       <div className="shrink-0 cq-md:hidden">
-        <DropdownMenu>
-          <DropdownMenu.Trigger
+        <Popover>
+          <Popover.Trigger
             render={
               <Button
                 size="sm"
                 shape="square"
                 variant="secondary"
-                icon={<MoreVertical className="h-4 w-4" />}
+                icon={<Menu className="h-4 w-4" />}
                 aria-label="更多操作"
                 title="更多操作"
-                className={cx('h-9 w-9 shrink-0 !rounded-lg', buttonClassName)}
+                className={cx('h-8 w-8 shrink-0 !rounded-lg', buttonClassName)}
               />
             }
           />
-          <DropdownMenu.Content align="end" side="bottom" className={menuClassName}>
-            {menuItems}
-          </DropdownMenu.Content>
-        </DropdownMenu>
+          <Popover.Content side="bottom" align="end" className={`${menuClassName} p-2`}>
+            <div className="flex flex-col gap-1">
+              {items.map(renderPopupItem)}
+            </div>
+          </Popover.Content>
+        </Popover>
       </div>
     </>
   );

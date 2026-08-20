@@ -344,13 +344,14 @@ function DashboardOverviewCard({
   detailClassName = '',
   statusVisual,
   onClick,
+  className = '',
 }) {
   return (
     <AppCard
       onClick={onClick}
       padding="none"
       interactive
-      className="group grid min-h-[92px] cursor-pointer grid-rows-[auto_1fr_auto] gap-1.5 overflow-hidden p-2.5 cq-sm:min-h-[112px] cq-sm:p-3.5"
+      className={`group grid min-h-[92px] cursor-pointer grid-rows-[auto_1fr_auto] gap-1.5 overflow-hidden px-2.5 pb-1.5 pt-2.5 cq-sm:min-h-[112px] cq-sm:p-3.5 ${className}`}
     >
       <div className="flex min-w-0 items-center justify-between gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5 cq-sm:gap-2">
@@ -380,7 +381,7 @@ function DashboardOverviewCard({
         )}
       </div>
 
-      <div className="flex min-h-5 items-center justify-between gap-1.5 border-t border-kumo-line pt-1.5 text-[10px] leading-tight text-kumo-subtle transition-colors group-hover:text-kumo-strong cq-sm:min-h-6 cq-sm:pt-2 cq-sm:text-[11px]">
+      <div className="hidden min-h-5 items-center justify-between gap-1.5 border-t border-kumo-line pt-1.5 text-[10px] leading-tight text-kumo-subtle transition-colors group-hover:text-kumo-strong cq-sm:flex cq-sm:min-h-6 cq-sm:pt-2 cq-sm:text-[11px]">
         <span className={`min-w-0 truncate ${detailClassName}`}>
           {detail}
         </span>
@@ -1101,6 +1102,7 @@ function DashboardPage({ onNavigate } = {}) {
           value={formatKCount(apiTrendTotal)}
           unit="次"
           detail={apiStatsDetailText}
+          className="hidden cq-sm:block"
         />
 
       </div>
@@ -1122,7 +1124,7 @@ function DashboardPage({ onNavigate } = {}) {
           )}
           bodyClassName="flex min-h-0 flex-1 flex-col p-2.5 cq-sm:p-3"
         >
-          <div className="flex flex-nowrap gap-x-4 overflow-x-auto overscroll-x-contain px-1 pb-1 touch-pan-x scrollbar-thin">
+          <div className="flex flex-nowrap gap-x-0.5 overflow-x-auto overscroll-x-contain px-1 pb-1 touch-pan-x scrollbar-thin">
             {apiTrendSeries.map((series) => (
               <ChartLegend.LargeItem
                 key={series.key}

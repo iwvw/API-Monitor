@@ -139,6 +139,20 @@ export function statusCodeTone(code) {
   return 'success';
 }
 
+// logOutputSpeedText 计算单次请求的输出速度（TPS，输出词元/秒）：
+// 输出词元数 ÷ 实际输出耗时（总耗时 − 首字耗时）。非流式无首字（ttfb=0）即用总
+// 耗时；输出为 0 或无法计时时返回 null。整数取整、小数保留 1 位。
+export function logOutputSpeedText(log) {
+  const tokens = Number(log?.completionTokens) || 0;
+  const latency = Number(log?.latencyMs) || 0;
+  const ttfb = Number(log?.ttfbMs) || 0;
+  if (!(tokens > 0)) return null;
+  const genMs = Math.max(0, latency - ttfb);
+  if (genMs <= 0) return null;
+  const tps = (tokens / genMs) * 1000;
+  return `${tps >= 100 ? tps.toFixed(0) : tps.toFixed(1)} t/s`;
+}
+
 export function maskIp(raw, v6EdgeOnly = false) {
   if (!raw) return raw || '';
   let value = String(raw).trim();

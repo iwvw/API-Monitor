@@ -1,14 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
+import { Collapsible, Toolbar } from '@cloudflare/kumo';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { AppTable, SectionCard } from '../components/ui/AppPrimitives.jsx';
-import { Clock, Database, Download, Play, RefreshCw, Save, Trash } from '../components/Icons.jsx';
+import { Clock, Database, Download, Play, RefreshCw, Save, Trash, Upload } from '../components/Icons.jsx';
 
 const PROVIDERS = [
   { value: 'local', label: '本地目录' },
@@ -17,7 +18,7 @@ const PROVIDERS = [
   { value: 's3', label: 'S3 / R2' },
 ];
 
-const DEFAULT_CONFIG = { provider: 'local', local_dir: '', cron: '', endpoint: '', bucket: '', access_key_id: '', access_key_secret: '' };
+const DEFAULT_CONFIG = { provider: 'local', local_dir: '', cron: '', endpoint: '', bucket: '', access_key_id: '', access_key_secret: '', max_records: 0 };
 
 const BACKUP_RECORD_COLUMNS = [
   { id: 'file', role: 'primary', minWidth: 200 },
@@ -133,15 +134,51 @@ export function BackupPanel({ embedded = false } = {}) {
 
   useEffect(() => { load(); }, []);
 
-  const save = async () => {
-    const payload = { ...config, cron: buildSchedule(schedule) };
+  const fileInputRef = useRef(null);
+
+  const save = async (override) => {
+    const payload = override || { ...config, cron: buildSchedule(schedule) };
     const res = await fetch('/api/backup/configs', { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
     const data = await res.json();
-    if (!data.success) return toast.error(data.error || '保存失败');
+    if (!data.success) { toast.error(data.error || '保存失败'); return false; }
     const nextConfig = { ...DEFAULT_CONFIG, ...(data.data || {}) };
     setConfig(nextConfig);
     setSchedule(parseSchedule(nextConfig.cron));
     toast.success('备份配置已保存');
+    return true;
+  };
+
+  const exportConfig = () => {
+    const payload = { ...config };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `api-monitor-backup-config-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast.success('备份配置已导出');
+  };
+
+  const importConfig = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const raw = JSON.parse(await file.text());
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw) || typeof raw.provider !== 'string' || !['local', 'oss', 'cos', 's3'].includes(raw.provider)) {
+        throw new Error('unsupported backup config file');
+      }
+      const next = { ...DEFAULT_CONFIG, ...raw };
+      setConfig(next);
+      setSchedule(parseSchedule(next.cron || ''));
+      const ok = await save(next);
+      if (ok) toast.success('备份配置已导入并保存');
+    } catch {
+      toast.error('导入失败：文件不是有效的备份配置');
+    }
   };
 
   const run = async () => {
@@ -194,6 +231,15 @@ export function BackupPanel({ embedded = false } = {}) {
           icon={<Database className="h-4 w-4 text-brand" />}
           actions={(
             <>
+              <Input ref={fileInputRef} type="file" accept=".json,application/json" aria-label="导入备份配置" className="hidden" onChange={importConfig} />
+              <Toolbar size="sm" aria-label="导出导入配置" className="shrink-0">
+                <Toolbar.Button onClick={exportConfig} aria-label="导出配置" title="导出备份配置" icon={<Upload className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导出</span>
+                </Toolbar.Button>
+                <Toolbar.Button onClick={() => fileInputRef.current?.click()} aria-label="导入配置" title="导入备份配置" icon={<Download className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导入</span>
+                </Toolbar.Button>
+              </Toolbar>
               <Button size="sm" variant="secondary" onClick={load} disabled={loading}><RefreshCw className="h-3.5 w-3.5" />刷新备份</Button>
               <Button size="sm" variant="primary" onClick={run} disabled={running}><Play className="h-3.5 w-3.5" />立即备份</Button>
             </>
@@ -202,10 +248,22 @@ export function BackupPanel({ embedded = false } = {}) {
         >
           <div className="space-y-3">
             <Select size="sm" label="存储渠道" className="w-full" value={config.provider} onValueChange={(value) => setConfig((prev) => ({ ...prev, provider: value }))} items={PROVIDERS} />
+            {cloudMode && (
+              <Collapsible.Root>
+                <Collapsible.DefaultTrigger>渠道配置</Collapsible.DefaultTrigger>
+                <Collapsible.DefaultPanel className="flex flex-col gap-3 pt-2">
+                  <Input size="sm" label="服务端点" value={config.endpoint || ''} onChange={(event) => setConfig((prev) => ({ ...prev, endpoint: event.target.value }))} />
+                  <Input size="sm" label="存储桶" value={config.bucket || ''} onChange={(event) => setConfig((prev) => ({ ...prev, bucket: event.target.value }))} />
+                  <Input size="sm" label="访问密钥 ID" value={config.access_key_id || ''} onChange={(event) => setConfig((prev) => ({ ...prev, access_key_id: event.target.value }))} />
+                  <Input size="sm" type="text" label="访问密钥 Secret" value={config.access_key_secret || ''} onChange={(event) => setConfig((prev) => ({ ...prev, access_key_secret: event.target.value }))} autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" spellCheck={false} />
+                </Collapsible.DefaultPanel>
+              </Collapsible.Root>
+            )}
             <Input size="sm" label="本地目录" value={config.local_dir || ''} onChange={(event) => setConfig((prev) => ({ ...prev, local_dir: event.target.value }))} />
+            <Input size="sm" type="number" min="0" label="最大保留数量（0=不限制）" value={config.max_records ?? 0} onChange={(event) => { const parsed = Number.parseInt(event.target.value, 10); setConfig((prev) => ({ ...prev, max_records: Number.isFinite(parsed) && parsed > 0 ? parsed : 0 })); }} />
             <div className="grid gap-2 rounded-md border border-kumo-line p-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong"><Clock className="h-3.5 w-3.5" />自动备份计划</div>
-              <Select size="sm" label="频率" className="w-full" value={schedule.type} onValueChange={(value) => setSchedule((prev) => ({ ...prev, type: value }))} items={SCHEDULE_TYPES} />
+              <Select size="sm" className="w-full" aria-label="自动备份频率" value={schedule.type} onValueChange={(value) => setSchedule((prev) => ({ ...prev, type: value }))} items={SCHEDULE_TYPES} />
               {['daily', 'weekly', 'monthly'].includes(schedule.type) && (
                 <div className="grid gap-2 cq-sm:grid-cols-2">
                   <Input size="sm" type="number" label="小时" min="0" max="23" value={schedule.hour} onChange={(event) => setSchedule((prev) => ({ ...prev, hour: event.target.value }))} />
@@ -214,17 +272,9 @@ export function BackupPanel({ embedded = false } = {}) {
                   {schedule.type === 'monthly' && <Select size="sm" label="每月日期" value={String(schedule.day)} onValueChange={(value) => setSchedule((prev) => ({ ...prev, day: value }))} items={MONTH_DAY_OPTIONS} />}
                 </div>
               )}
-              {schedule.type === 'custom' && <Input size="sm" label="Cron 表达式" value={schedule.custom} onChange={(event) => setSchedule((prev) => ({ ...prev, custom: event.target.value }))} />}
+{schedule.type === 'custom' && <Input size="sm" label="Cron 表达式" value={schedule.custom} onChange={(event) => setSchedule((prev) => ({ ...prev, custom: event.target.value }))} />}
             </div>
-            {cloudMode && (
-              <>
-                <Input size="sm" label="服务端点" value={config.endpoint || ''} onChange={(event) => setConfig((prev) => ({ ...prev, endpoint: event.target.value }))} />
-                <Input size="sm" label="存储桶" value={config.bucket || ''} onChange={(event) => setConfig((prev) => ({ ...prev, bucket: event.target.value }))} />
-                <Input size="sm" label="访问密钥 ID" value={config.access_key_id || ''} onChange={(event) => setConfig((prev) => ({ ...prev, access_key_id: event.target.value }))} />
-                <Input size="sm" type="text" label="访问密钥 Secret" value={config.access_key_secret || ''} onChange={(event) => setConfig((prev) => ({ ...prev, access_key_secret: event.target.value }))} autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" spellCheck={false} />
-              </>
-            )}
-            <Button size="sm" variant="primary" onClick={save}><Save className="h-3.5 w-3.5" />保存配置</Button>
+            <Button size="sm" variant="primary" onClick={() => save()}><Save className="h-3.5 w-3.5" />保存配置</Button>
           </div>
         </SectionCard>
 
@@ -242,13 +292,13 @@ export function BackupPanel({ embedded = false } = {}) {
           ) : (
             <div className="max-h-80 overflow-auto">
             <AppTable tableId="backup-records" columns={BACKUP_RECORD_COLUMNS}>
-              <Table.Header><Table.Row><Table.Head>文件</Table.Head><Table.Head>大小</Table.Head><Table.Head>时间</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
+              <Table.Header><Table.Row><Table.Head>文件</Table.Head><Table.Head style={{ textAlign: 'center' }}>大小</Table.Head><Table.Head style={{ textAlign: 'center' }}>时间</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
               <Table.Body>
                 {records.map((record) => (
                   <Table.Row key={record.id}>
-                    <Table.Cell><div className="truncate font-mono text-xs text-kumo-strong">{record.file_name}</div><div className="mt-1 flex gap-1"><Badge variant="orange">本地</Badge>{record.remote_url && <Badge variant="teal">云端</Badge>}</div></Table.Cell>
-                    <Table.Cell className="text-xs">{formatSize(record.size)}</Table.Cell>
-                    <Table.Cell className="text-xs text-kumo-subtle">{formatTime(record.created_at)}</Table.Cell>
+                    <Table.Cell><div className="truncate font-mono text-xs text-kumo-strong">{record.file_name}</div><div className="mt-1 flex gap-1"><Badge variant="orange">本地</Badge>{record.remote_url && <Badge variant="teal" title={record.remote_url}>云端</Badge>}</div></Table.Cell>
+                    <Table.Cell style={{ textAlign: 'center' }} className="text-xs">{formatSize(record.size)}</Table.Cell>
+                    <Table.Cell style={{ textAlign: 'center' }} className="text-xs text-kumo-subtle">{formatTime(record.created_at)}</Table.Cell>
                     <Table.Cell><div className="flex justify-center gap-1"><Button size="sm" variant="secondary" onClick={() => { window.location.href = `/api/backup/records/${encodeURIComponent(record.id)}/download`; }}><Download className="h-3.5 w-3.5" />下载</Button><Button size="sm" variant="secondary" onClick={() => restore(record)}><RefreshCw className="h-3.5 w-3.5" />恢复</Button><Button size="sm" variant={isArmed(`backup-record:${record.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => remove(record)}><Trash className="h-3.5 w-3.5" />删除</Button></div></Table.Cell>
                   </Table.Row>
                 ))}

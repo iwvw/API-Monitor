@@ -25,6 +25,7 @@ export const APPROVAL = {
   PENDING: 'pending',
   APPROVED: 'approved',
   REJECTED: 'rejected',
+  ERROR: 'error', // 决议失败（过期/已处理/执行已结束），保留原因供展示
 };
 
 // SSE 自定义事件名（与后端 SSEEvent.Type 对齐）。

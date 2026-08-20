@@ -363,7 +363,7 @@ const SidebarBrand = ({ onHome }) => (
     aria-label="返回首页"
   >
     <span className="flex size-10 shrink-0 items-center justify-center transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)]">
-      <img src="/logo.svg" className="size-7 shrink-0 object-contain" alt="" />
+      <img src="/logo.svg" className="app-logo-img sidebar-brand-logo size-7 shrink-0 object-contain" alt="" />
     </span>
     <span className="app-brand-wordmark min-w-0 max-w-48 overflow-hidden truncate whitespace-nowrap text-xl font-semibold text-kumo-strong opacity-100 transition-[max-width,opacity] duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] group-data-[state=collapsed]/sidebar:max-w-0 group-data-[state=collapsed]/sidebar:opacity-0">
       API Monitor
@@ -868,7 +868,7 @@ return (
           {mainActiveTab === 'dashboard' && dashboardFooterVisible && (
             <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle @[450px]:px-4 cq-md:px-6 transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)]">
               <div className="flex min-w-0 items-center gap-2">
-                <img src="/logo.svg" alt="" className="h-5 w-5 shrink-0 object-contain" />
+                <img src="/logo.svg" alt="" className="app-logo-img topbar-brand-logo h-5 w-5 shrink-0 object-contain" />
                 <span className="app-brand-wordmark truncate font-semibold text-kumo-strong">API Monitor</span>
                 <span className="hidden shrink-0 text-kumo-subtle @[520px]:inline">
                   · 已运行{' '}

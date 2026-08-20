@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Loader } from '@cloudflare/kumo';
-import useStore, { applyThemeMode, applyUIFont, getPendingAuthProvider } from './store.js';
+import useStore, { applyThemeMode, applyUIFont, applyUIFontSize, getPendingAuthProvider } from './store.js';
 import AuthPage from './pages/AuthPage.jsx';
 import { GitHubBrand, Shield } from './components/IconsCore.jsx';
 
@@ -135,6 +135,17 @@ function App() {
       /* ignore */
     }
     if (stored) applyUIFont(stored);
+  }, []);
+
+  // 未认证页面同样应用本地字号缩放；登录后 applyUserSettings 不会覆盖该偏好。
+  useEffect(() => {
+    let stored = null;
+    try {
+      stored = localStorage.getItem('app_ui_font_size');
+    } catch (e) {
+      /* ignore */
+    }
+    if (stored) applyUIFontSize(stored);
   }, []);
 
   // 监听系统主题变化（仅在用户未锁定自定义主题时生效）
