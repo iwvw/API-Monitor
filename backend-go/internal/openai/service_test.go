@@ -1636,6 +1636,183 @@ func TestUpstream429GroupFrozen(t *testing.T) {
 	}
 }
 
+// TestClientDisconnectSkips502Record 客户端在请求挂起（等待上游首字节）期间主动断开
+// （点击停止/关闭连接）时，网关应像「流式输出首字节后静默收尾」一样静默收尾：
+// 不写 502 调用日志、不写 relay 错误、不回写错误响应。此前会把「context canceled」
+// 视作终局失败同时写入 bad_gateway（尝试级）+ failover（聚合级）两条 502。
+func TestClientDisconnectSkips502Record(t *testing.T) {
+	var hold atomic.Bool
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			if hold.Load() {
+				// 上游挂起：迟迟不返回首字节。等客户端断开或兜底超时后自行退出，
+				// 不把清理依赖于客户端关闭连接（避免残留连接让 httptest.Close 挂起）。
+				select {
+				case <-r.Context().Done():
+				case <-time.After(3 * time.Second):
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	defer func() {
+		// 被取消的请求会在客户端连接池留下残留连接，先断开再关闭，避免 Close 挂起。
+		mockUpstream.CloseClientConnections()
+		mockUpstream.Close()
+	}()
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createPayload := fmt.Sprintf(`{
+		"name": "Slow Upstream",
+		"baseUrl": "%s",
+		"apiKey": "test-api-key"
+	}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+	hold.Store(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}`))
+	r = r.WithContext(ctx)
+	r.Header.Set("x-endpoint-id", createRes.Endpoint.ID)
+
+	// 请求已发给上游、仍挂起时，客户端断开连接。
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	service.ServeHTTP(w, r)
+
+	if w.Body.Len() != 0 {
+		t.Fatalf("client disconnect should return empty body (silent), got: %q", w.Body.String())
+	}
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var c502, cAll int
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM openai_gateway_analytics WHERE status_code = 502").Scan(&c502); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM openai_gateway_analytics").Scan(&cAll); err != nil {
+		t.Fatal(err)
+	}
+	if c502 != 0 || cAll != 0 {
+		t.Fatalf("client disconnect must not be recorded as failure: 502=%d all=%d", c502, cAll)
+	}
+
+	service.relayErrMu.Lock()
+	relayErrCount := len(service.relayErrors)
+	service.relayErrMu.Unlock()
+	if relayErrCount != 0 {
+		t.Fatalf("client disconnect must not write relay errors, got %d: %+v", relayErrCount, service.relayErrors)
+	}
+}
+
+// TestRefreshAllModelsUpdatesEndpointModels 人工刷新与后台每小时自动刷新共用的
+// refreshAllModels 应：验证 API Key → 拉取 /v1/models → 写回端点 models；上游模型
+// 变化后能反映到库中（后台自动刷新依赖同一逻辑）。
+func TestRefreshAllModelsUpdatesEndpointModels(t *testing.T) {
+	var modelIDs atomic.Value
+	modelIDs.Store("gpt-4")
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"data":[{"id":"` + modelIDs.Load().(string) + `","object":"model"}]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer mockUpstream.Close()
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createPayload := fmt.Sprintf(`{
+		"name": "Auto Refresh Mock",
+		"baseUrl": "%s",
+		"apiKey": "test-api-key"
+	}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rawBefore string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&rawBefore); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	if !strings.Contains(rawBefore, "gpt-4") {
+		t.Fatalf("expected gpt-4 before refresh, got %q", rawBefore)
+	}
+
+	// 上游新增模型后，refreshAllModels 应把新列表写回（幂等，失败保留旧模型）。
+	modelIDs.Store("gpt-5")
+	results, rerr := service.refreshAllModels(context.Background())
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(results) != 1 {
+		t.Fatalf("refresh results = %+v, want 1 entry", results)
+	}
+	if ok, _ := results[0]["success"].(bool); !ok {
+		t.Fatalf("refresh should succeed, got %+v", results[0])
+	}
+	if results[0]["modelsCount"] != 1 {
+		t.Fatalf("modelsCount = %v, want 1", results[0]["modelsCount"])
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var rawAfter string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&rawAfter); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rawAfter, "gpt-5") {
+		t.Fatalf("models not refreshed to gpt-5: %q", rawAfter)
+	}
+	if strings.Contains(rawAfter, "gpt-4") {
+		t.Fatalf("stale gpt-4 still present after refresh: %q", rawAfter)
+	}
+}
+
 // TestSameExitIPGroupCooled 代理池是「同入口、多出口 IP」的槽池：探测到出口 IP
 // 后，同一出口 IP 的任一个 slot 被 429 冻结（组感知 rateLimited），整组都应让出
 // 候选（把尝试预算留给其他出口 IP），而不同出口 IP 不受影响。

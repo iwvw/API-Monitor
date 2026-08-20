@@ -447,8 +447,6 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/settings/clear-app-logs", Module: "settings-logs", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Clear app logs", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/settings/clear-chat-messages", Module: "settings-database", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Clear chat message history", MatchMode: manifest.MatchExact},
-		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/settings/enforce-log-limits", Module: "settings-logs", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Enforce log size limits now", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/settings/log-settings", Module: "settings-logs", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Log retention settings read/update", MatchMode: manifest.MatchExact},
@@ -462,8 +460,8 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"GET"}}},
 
 	// ---- admin-ai 管理接口（修正误登方法 + 补缺失写路由）----
-	{Route: manifest.Route{Prefix: "/api/admin-ai/sessions/{id}", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI session delete", MatchMode: manifest.MatchPattern},
-		Docs: apiRouteDocs{Methods: []string{"DELETE"}}},
+	{Route: manifest.Route{Prefix: "/api/admin-ai/sessions/{id}", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI session update/delete", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"PATCH", "DELETE"}}},
 	{Route: manifest.Route{Prefix: "/api/admin-ai/messages", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI message send（历史读取经 /sessions/{id}/messages）", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/admin-ai/cancel", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI run cancel", MatchMode: manifest.MatchExact},

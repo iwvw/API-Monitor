@@ -50,10 +50,8 @@ var routeDescriptions = map[string]string{
 	"/api/settings/database/import/preview": "上传数据库文件并生成导入分析结果，不覆盖当前库",
 	"/api/settings/database/import/commit":  "根据 preview 返回的导入令牌提交数据库替换",
 	"/api/settings/export-database":    "导出当前数据库文件",
-	"/api/settings/import-database":    "导入数据库文件并替换当前库",
 	"/api/settings/migration-self-check": "执行数据库迁移自检",
 	"/api/settings/vacuum-database":    "对数据库执行 VACUUM 压缩回收空间",
-	"/api/settings/clear-chat-messages": "清空历史聊天消息记录",
 
 	// ===== 系统 =====
 	"/api/system/host-metrics":     "读取本机 CPU / 内存 / 磁盘实时指标",

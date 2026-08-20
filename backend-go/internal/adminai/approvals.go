@@ -76,13 +76,17 @@ func (s *Service) StopBackground() {
 // approvalCleanerLoop 定时把已过期的 pending 审批标记为 expired。
 func (s *Service) approvalCleanerLoop() {
 	ticker := time.NewTicker(approvalCleanerInterval)
+	retentionTicker := time.NewTicker(60 * time.Minute)
 	defer ticker.Stop()
+	defer retentionTicker.Stop()
 	for {
 		select {
 		case <-s.stopCleaner:
 			return
 		case <-ticker.C:
 			s.expireOverdueApprovals()
+		case <-retentionTicker.C:
+			s.purgeRetainedAudit()
 		}
 	}
 }
@@ -97,6 +101,31 @@ func (s *Service) expireOverdueApprovals() {
 	_, _ = db.ExecContext(context.Background(),
 		`UPDATE admin_ai_approvals SET status = 'expired', resolved_at = ? WHERE status = 'pending' AND expires_at < ?`,
 		now, now)
+}
+
+// purgeRetainedAudit 按 admin_ai_audit_retention_days 清理过期审计数据：
+// executions / tool_calls / 已终结的 approvals（messages/sessions 属用户对话，
+// 视为业务数据保留，不自动删除；用户可手动删除会话）。防止审计表无限增长。
+func (s *Service) purgeRetainedAudit() {
+	db, err := s.open(context.Background())
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	days, _ := strconv.Atoi(s.getSetting(context.Background(), "admin_ai_audit_retention_days", "90"))
+	if days <= 0 {
+		days = 90
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339)
+	// 清理顺序：先 executions（tool_calls 外键级联），后独立 approvals。
+	if _, err := db.ExecContext(context.Background(),
+		`DELETE FROM admin_ai_executions WHERE started_at < ?`, cutoff); err != nil {
+		slog.Warn("purge-audit-executions", "err", err.Error())
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`DELETE FROM admin_ai_approvals WHERE status != 'pending' AND (created_at < ? OR resolved_at < ?)`, cutoff, cutoff); err != nil {
+		slog.Warn("purge-audit-approvals", "err", err.Error())
+	}
 }
 
 type approvalItem struct {
@@ -224,6 +253,8 @@ var adminAISettingDefs = []struct {
 	{"admin_ai_timeout_seconds", "600", "单轮执行超时秒数"},
 	{"admin_ai_context_window", "40000", "上下文窗口 token 上限"},
 	{"admin_ai_audit_retention_days", "90", "审计记录保留天数"},
+	{"admin_ai_session_write_ttl_hours", "24", "会话级写授权时效（小时），0 表示不自动过期"},
+	{"admin_ai_max_concurrent_runs", "8", "管理 AI 全局并发执行上限"},
 	{"admin_ai_memories_enabled", "true", "长期记忆总开关（跨会话持久事实与偏好）"},
 	{"admin_ai_memories_bootstrap_chars", "2000", "每轮对话注入系统提示词的长期记忆字符上限"},
 	{"admin_ai_memories_auto_capture", "true", "自动记忆提炼：会话空闲后后台总结值得长期记住的内容"},
@@ -329,6 +360,26 @@ func clampAISetting(key, value string) string {
 			}
 			if n > 100 {
 				n = 100
+			}
+			return strconv.Itoa(n)
+		}
+	case "admin_ai_max_concurrent_runs":
+		if n, err := strconv.Atoi(value); err == nil {
+			if n < 1 {
+				n = 1
+			}
+			if n > 64 {
+				n = 64
+			}
+			return strconv.Itoa(n)
+		}
+	case "admin_ai_session_write_ttl_hours":
+		if n, err := strconv.Atoi(value); err == nil {
+			if n < 0 {
+				n = 0
+			}
+			if n > 720 {
+				n = 720
 			}
 			return strconv.Itoa(n)
 		}

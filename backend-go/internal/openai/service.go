@@ -235,6 +235,8 @@ type Service struct {
 	notifier Notifier
 	// alertOnce 保护告警监测 goroutine 只启动一次。
 	alertOnce sync.Once
+	// modelRefreshOnce 保护上游模型自动刷新 goroutine 只启动一次。
+	modelRefreshOnce sync.Once
 	// alertState 记录告警边沿状态，避免同状态反复触发通知。
 	alertMu    sync.Mutex
 	alertState gatewayAlertState
@@ -494,6 +496,52 @@ func (s *Service) StartAlertMonitor(ctx context.Context) {
 			}
 		}()
 	})
+}
+
+// modelAutoRefreshInterval 是上游模型列表自动刷新的周期。后台默认开启、无需前端
+// 展示：每隔一小时重取所有启用端点的 /v1/models 并写库，让上游新增模型自动可用。
+const modelAutoRefreshInterval = time.Hour
+
+// modelAutoRefreshCycleTimeout 是单轮自动刷新的整体预算：超时即中止，不阻塞下一轮。
+const modelAutoRefreshCycleTimeout = 6 * time.Minute
+
+// StartModelAutoRefresh 在后台每小时刷新一次所有启用端点的上游模型列表。
+// 默认开启、无前端开关；端点验证/取模型失败时保留旧模型列表（对齐刷新路由语义）。
+// 进程结束（ctx 取消）时退出。
+func (s *Service) StartModelAutoRefresh(ctx context.Context) {
+	s.modelRefreshOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(modelAutoRefreshInterval)
+			defer ticker.Stop()
+			s.modelAutoRefreshOnceNow(ctx)
+			for {
+				select {
+				case <-ticker.C:
+					s.modelAutoRefreshOnceNow(ctx)
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	})
+}
+
+// modelAutoRefreshOnceNow 执行一轮上游模型列表刷新，并在轮询间隙记录失败数（不打扰通知）。
+func (s *Service) modelAutoRefreshOnceNow(ctx context.Context) {
+	cycleCtx, cancel := context.WithTimeout(ctx, modelAutoRefreshCycleTimeout)
+	defer cancel()
+	results, _ := s.refreshAllModels(cycleCtx)
+	s.invalidateRouteCache()
+	if len(results) == 0 {
+		return
+	}
+	failed := 0
+	for _, r := range results {
+		if ok, _ := r["success"].(bool); !ok {
+			failed++
+		}
+	}
+	applog.Info(cycleCtx, "openai", "model auto refresh finished", "endpoints", len(results), "failed", failed)
 }
 
 // gatewayAlertInterval 是网关健康告警的评估周期。
@@ -1540,6 +1588,7 @@ type relayLoopResult struct {
 	lastErr           error
 	endpointExhausted bool // 本轮全部 API Key 尝试失败，应切换到下一个候选端点
 	retryableUpstream bool // 上游返回 429/5xx 且代理重试耗尽，应切换到下一个候选端点
+	clientCancelled   bool // 客户端已断开（请求上下文被取消）：应静默收尾，不记账、不回写错误
 	firstChunk        []byte
 	firstWritten      bool
 	ttfbMs            int64

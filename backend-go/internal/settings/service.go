@@ -32,6 +32,7 @@ type Service struct {
 	pendingImports map[string]pendingDatabaseImport
 	importsMu      sync.Mutex
 	cleanupCancel  context.CancelFunc
+	walCancel      context.CancelFunc
 	cleanupWG      sync.WaitGroup
 	vacuumMu       sync.Mutex
 	vacuumRunning  bool
@@ -123,6 +124,17 @@ const (
 	autoCleanupTimeout      = 2 * time.Minute
 )
 
+// 周期 WAL 维护参数。WAL 会随持续写入膨胀（PASSIVE checkpoint 在活跃读者
+// 存在时无法复位/截断文件），通过定期 PRAGMA wal_checkpoint(TRUNCATE) 回收。
+// TRUNCATE 需要无读者的瞬时窗口，真正的空闲低峰更容易成功。固定短周期检查，
+// 只在 WAL 超过阈值时才尝试 TRUNCATE，把峰值增长控制在两次检查之间的写入量。
+const (
+	walMaintenanceInterval      = 5 * time.Minute
+	walMaintenanceQuietWindow   = time.Minute
+	walMaintenanceSmallBytes    = int64(4 << 20)
+	walMaintenanceAttemptWindow = 30 * time.Second
+)
+
 // StartBackgroundCleanup launches the periodic log-retention enforcement loop.
 // It is idempotent and safe to call once at server startup.
 func (s *Service) StartBackgroundCleanup() {
@@ -140,11 +152,88 @@ func (s *Service) StartBackgroundCleanup() {
 
 // Stop cancels the background cleanup loop and waits for it to exit.
 func (s *Service) Stop() {
-	if s.cleanupCancel == nil {
+	if s.cleanupCancel != nil {
+		s.cleanupCancel()
+	}
+	if s.walCancel != nil {
+		s.walCancel()
+	}
+	s.cleanupWG.Wait()
+}
+
+// StartWALMaintenance launches the periodic SQLite WAL checkpoint loop.
+// It is idempotent and safe to call once at server startup.
+func (s *Service) StartWALMaintenance() {
+	if s.walCancel != nil {
 		return
 	}
-	s.cleanupCancel()
-	s.cleanupWG.Wait()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.walCancel = cancel
+	s.cleanupWG.Add(1)
+	go func() {
+		defer s.cleanupWG.Done()
+		s.runWALMaintenance(ctx)
+	}()
+}
+
+// runWALMaintenance periodically checkpoints and truncates the WAL so it cannot
+// grow without bound under sustained write + reader traffic. It first waits a
+// quiet window (server boot), then checkpoints on a fixed interval.
+func (s *Service) runWALMaintenance(ctx context.Context) {
+	initial := time.NewTimer(walMaintenanceQuietWindow)
+	defer initial.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-initial.C:
+	}
+
+	ticker := time.NewTicker(walMaintenanceInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.walMaintenanceOnce(ctx)
+		}
+	}
+}
+
+// walMaintenanceOnce runs one WAL maintenance pass: it checks the current WAL
+// size and attempts a TRUNCATE checkpoint when the WAL has grown, backing off
+// when the checkpoint cannot complete (readers busy).
+func (s *Service) walMaintenanceOnce(ctx context.Context) {
+	path := s.store.DatabasePath()
+	before := fileSizeIfExists(path + "-wal")
+	if before <= walMaintenanceSmallBytes {
+		return
+	}
+
+	// 用独立维护连接执行 TRUNCATE（见 database.WALCheckpointTruncate）：不占池化
+	// 连接，busy_timeout=15s 能为读者退出多等一段时间。写入高峰时存在活跃读事务，
+	// checkpoint 会因 busy 不完成；低峰瞬时无读者时即可成功并截断 WAL 文件。
+	attemptCtx, cancel := context.WithTimeout(ctx, walMaintenanceAttemptWindow)
+	defer cancel()
+	for {
+		busy, _, _, err := database.WALCheckpointTruncate(attemptCtx, path)
+		if err != nil {
+			applog.Warn(ctx, "settings", "wal checkpoint failed", "error", err.Error())
+			return
+		}
+		if !busy {
+			applog.Info(ctx, "settings", fmt.Sprintf("wal checkpoint truncated %s wal", sizeMBString(before)))
+			return
+		}
+		timer := time.NewTimer(3 * time.Second)
+		select {
+		case <-attemptCtx.Done():
+			timer.Stop()
+			applog.Warn(ctx, "settings", "wal checkpoint deferred (readers busy)", "wal_bytes", fileSizeIfExists(path+"-wal"))
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 func (s *Service) runBackgroundCleanup(ctx context.Context) {
@@ -279,24 +368,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.exportDatabase(w, r)
-	case "/api/settings/database/import/preview", "/api/settings/import-database/preview":
+	case "/api/settings/database/import/preview":
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		s.previewDatabaseImport(w, r)
-	case "/api/settings/database/import/commit", "/api/settings/import-database/commit":
+	case "/api/settings/database/import/commit":
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		s.commitDatabaseImport(w, r)
-	case "/api/settings/import-database":
-		if r.Method != http.MethodPost {
-			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		s.importDatabaseLegacy(w, r)
 	case "/api/settings/operation-logs":
 		if r.Method != http.MethodGet {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -351,12 +434,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.enforceLogLimits(w, r)
-	case "/api/settings/clear-chat-messages":
-		if r.Method != http.MethodPost {
-			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		s.clearChatMessages(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "settings route not implemented")
 	}
@@ -697,41 +774,6 @@ func (s *Service) commitDatabaseImport(w http.ResponseWriter, r *http.Request) {
 		"message":    "数据库导入成功，原数据库已备份",
 		"backupPath": backupPath,
 		"analysis":   pending.Analysis,
-	})
-}
-
-func (s *Service) importDatabaseLegacy(w http.ResponseWriter, r *http.Request) {
-	uploaded, err := s.saveUploadedDatabase(r)
-	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, errDatabaseImportTooLarge) {
-			status = http.StatusRequestEntityTooLarge
-		}
-		response.JSON(w, status, map[string]interface{}{"success": false, "error": err.Error()})
-		return
-	}
-	defer os.Remove(uploaded.Path)
-
-	analysis, err := analyzeDatabaseFile(r.Context(), uploaded.Path)
-	if err != nil {
-		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "数据库完整性检查失败: " + err.Error()})
-		return
-	}
-	if analysis.Integrity != "ok" {
-		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "数据库完整性检查失败: " + analysis.Integrity})
-		return
-	}
-
-	backupPath, err := s.replaceDatabase(r.Context(), uploaded.Path)
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "数据库导入失败: " + err.Error()})
-		return
-	}
-
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success":    true,
-		"message":    "数据库导入成功，原数据库已备份",
-		"backupPath": backupPath,
 	})
 }
 
@@ -1192,73 +1234,6 @@ func (s *Service) enforceLogLimits(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": fmt.Sprintf("log cleanup completed, removed %d records", result["deleted"]),
 		"data":    result,
-	})
-}
-
-func (s *Service) clearChatMessages(w http.ResponseWriter, r *http.Request) {
-	payload, ok := decodeOptionalObject(w, r)
-	if !ok {
-		return
-	}
-	keepDays, ok := toInt(payload["keepDays"])
-	if !ok {
-		keepDays = 7
-	}
-	keepSessions, ok := toInt(payload["keepSessions"])
-	if !ok {
-		keepSessions = 10
-	}
-	if keepDays < 0 {
-		keepDays = 0
-	}
-	if keepSessions < 0 {
-		keepSessions = 0
-	}
-
-	db, err := s.store.Open(r.Context())
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer db.Close()
-
-	hasSessions, err := tableExists(r.Context(), db, "chat_sessions")
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	hasMessages, err := tableExists(r.Context(), db, "chat_messages")
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !hasSessions || !hasMessages {
-		response.JSON(w, http.StatusOK, map[string]interface{}{
-			"success":         true,
-			"message":         "旧聊天表不存在，无需清理",
-			"deletedMessages": int64(0),
-			"deletedSessions": int64(0),
-			"newSizeMB":       0,
-		})
-		return
-	}
-
-	result, err := clearLegacyChatMessages(r.Context(), db, keepDays, keepSessions)
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
-		return
-	}
-	_, _ = db.ExecContext(r.Context(), `VACUUM`)
-	newSize, _ := fileSize(s.store.DatabasePath())
-
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "清理完成",
-		"data": map[string]interface{}{
-			"deletedMessages": result["deletedMessages"],
-			"deletedSessions": result["deletedSessions"],
-			"newDbSizeMB":     sizeMBString(newSize),
-		},
 	})
 }
 
@@ -2791,110 +2766,6 @@ func copyFile(src, dst string, perm os.FileMode) error {
 		return err
 	}
 	return out.Sync()
-}
-
-func clearLegacyChatMessages(ctx context.Context, db *sql.DB, keepDays, keepSessions int) (map[string]int64, error) {
-	if keepSessions < 1 {
-		return map[string]int64{"deletedMessages": 0, "deletedSessions": 0}, nil
-	}
-	orderColumn, err := firstExistingColumn(ctx, db, "chat_sessions", []string{"updated_at", "created_at", "id"})
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT id FROM chat_sessions
-		ORDER BY `+quoteIdentifier(orderColumn)+` DESC
-		LIMIT ?
-	`, keepSessions)
-	if err != nil {
-		return nil, fmt.Errorf("query recent chat sessions: %w", err)
-	}
-	defer rows.Close()
-
-	ids := make([]interface{}, 0, keepSessions)
-	for rows.Next() {
-		var value interface{}
-		if err := rows.Scan(&value); err != nil {
-			return nil, fmt.Errorf("scan recent chat session: %w", err)
-		}
-		ids = append(ids, normalizeSQLValue(value))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate recent chat sessions: %w", err)
-	}
-	if len(ids) == 0 {
-		return map[string]int64{"deletedMessages": 0, "deletedSessions": 0}, nil
-	}
-
-	cutoff := time.Now().UTC().AddDate(0, 0, -keepDays).Format(time.RFC3339)
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin chat cleanup: %w", err)
-	}
-	defer tx.Rollback()
-
-	args := append([]interface{}{}, ids...)
-	args = append(args, cutoff)
-	msgResult, err := tx.ExecContext(ctx, `
-		DELETE FROM chat_messages
-		WHERE session_id NOT IN (`+placeholders(len(ids))+`)
-		AND created_at < ?
-	`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("delete old chat messages: %w", err)
-	}
-	deletedMessages, _ := msgResult.RowsAffected()
-
-	args = append([]interface{}{}, ids...)
-	args = append(args, cutoff)
-	sessionResult, err := tx.ExecContext(ctx, `
-		DELETE FROM chat_sessions
-		WHERE id NOT IN (`+placeholders(len(ids))+`)
-		AND created_at < ?
-		AND id NOT IN (SELECT DISTINCT session_id FROM chat_messages)
-	`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("delete empty chat sessions: %w", err)
-	}
-	deletedSessions, _ := sessionResult.RowsAffected()
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit chat cleanup: %w", err)
-	}
-	return map[string]int64{"deletedMessages": deletedMessages, "deletedSessions": deletedSessions}, nil
-}
-
-func firstExistingColumn(ctx context.Context, db *sql.DB, table string, candidates []string) (string, error) {
-	columns, err := tableColumns(ctx, db, table)
-	if err != nil {
-		return "", err
-	}
-	for _, candidate := range candidates {
-		if columns[candidate] {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("%s does not contain any supported ordering column", table)
-}
-
-func placeholders(count int) string {
-	if count <= 0 {
-		return ""
-	}
-	values := make([]string, count)
-	for i := range values {
-		values[i] = "?"
-	}
-	return strings.Join(values, ",")
-}
-
-func normalizeSQLValue(value interface{}) interface{} {
-	switch typed := value.(type) {
-	case []byte:
-		return string(typed)
-	default:
-		return typed
-	}
 }
 
 func randomToken() (string, error) {

@@ -134,6 +134,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	backupService.SetNotifier(notifyService)
 	settingsService := settings.New(cfg)
 	settingsService.StartBackgroundCleanup()
+	settingsService.StartWALMaintenance()
 	adminaiService := adminai.New(cfg)
 	adminaiService.SetNotificationSource(notifyService)
 	server := &Server{
@@ -177,6 +178,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
+	// 启动上游模型列表每小时自动刷新（后台默认开启，无需前端展示）。
+	server.openai.StartModelAutoRefresh(warmupCtx)
 	return server, nil
 }
 
@@ -400,7 +403,6 @@ func apiKeyRequiresSession(path string) bool {
 	}
 	protectedSettings := map[string]bool{
 		"/api/settings/database/import":           true,
-		"/api/settings/import-database":           true,
 		"/api/settings/export-database":           true,
 		"/api/settings/cleanup-deprecated-tables": true,
 	}
@@ -513,7 +515,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 			"routes":        manifest.Routes(),
 			"retired":       []string{},
 		})
-	case "/api/settings", "/api/settings/site-brand/icons", "/api/settings/site-brand/icons/{id}", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/deprecated-tables", "/api/settings/cleanup-deprecated-tables", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/import-database", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits", "/api/settings/clear-chat-messages":
+	case "/api/settings", "/api/settings/site-brand/icons", "/api/settings/site-brand/icons/{id}", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/deprecated-tables", "/api/settings/cleanup-deprecated-tables", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits":
 		s.settings.ServeHTTP(w, r)
 	case "/api/system/host-metrics", "/api/system/api-stats", "/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json", "/api/system/status/stream", "/api/api-keys", "/api/system/api-keys", "/api/system/ai-access/key/rotate", "/api/system/ai-access/write", "/api/system/ai-access/policy", "/api/system/ai-access/audit", "/api/system/ai-access/mcp-servers/{id}", "/api/system/ai-access/mcp-servers", "/api/system/ai-access/skills/{id}", "/api/system/ai-access/skills", "/api/system/ai-access/audit/clear", "/api/system/ai-access", "/api/ai-access/key/rotate", "/api/ai-access/write", "/api/ai-access/policy", "/api/ai-access/audit", "/api/ai-access/mcp-servers/{id}", "/api/ai-access/mcp-servers", "/api/ai-access/skills/{id}", "/api/ai-access/skills", "/api/ai-access/audit/clear", "/api/ai-access", "/api/ai/manifest", "/api/ai/mcp":
 		s.system.ServeHTTP(w, r)

@@ -82,6 +82,11 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	if route.ResponseMode == manifest.ResponseWebSocket || route.ResponseMode == manifest.ResponseStream {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("流式或 WebSocket 接口不允许通过 Agent 直接调用")
 	}
+	// 密钥鉴权路由（AuthAPIKey/AuthAgent）不允许 Agent 调用：serveGoRoute 不再
+	// 重新鉴权，这类端点（如 agent heartbeat）凭据语义与 Agent 会话不同，放行即越权。
+	if route.Auth == manifest.AuthAPIKey || route.Auth == manifest.AuthAgent {
+		return systemmetrics.AICallResponse{}, fmt.Errorf("接口需要专用密钥鉴权，不允许通过 Agent 调用")
+	}
 
 	var body io.Reader
 	if len(call.Body) > 0 {

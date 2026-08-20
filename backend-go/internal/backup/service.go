@@ -38,6 +38,7 @@ type Service struct {
 	scheduler *cron.Cron
 	entry     cron.EntryID
 	mu        sync.Mutex
+	indexMu   sync.Mutex
 	client    *http.Client
 	notifier  Notifier
 }
@@ -50,6 +51,7 @@ type Config struct {
 	Bucket          string `json:"bucket"`
 	AccessKeyID     string `json:"access_key_id"`
 	AccessKeySecret string `json:"access_key_secret,omitempty"`
+	MaxRecords      int    `json:"max_records"`
 }
 
 type Record struct {
@@ -113,7 +115,6 @@ func (s *Service) getConfig(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	cfg.AccessKeySecret = ""
 	response.OK(w, cfg)
 }
 
@@ -135,6 +136,9 @@ func (s *Service) saveConfig(w http.ResponseWriter, r *http.Request) {
 	if cfg.Provider != "local" && cfg.Provider != "oss" && cfg.Provider != "cos" && cfg.Provider != "s3" {
 		response.Error(w, http.StatusBadRequest, "unsupported backup provider")
 		return
+	}
+	if cfg.MaxRecords < 0 {
+		cfg.MaxRecords = 0
 	}
 	if strings.TrimSpace(cfg.AccessKeySecret) == "" {
 		if existing, err := s.loadConfig(r.Context()); err == nil {
@@ -184,6 +188,7 @@ func (s *Service) deleteRecord(w http.ResponseWriter, r *http.Request, id string
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.forgetRecords(id)
 	response.JSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -274,6 +279,10 @@ func (s *Service) createBackup(ctx context.Context) (Record, error) {
 			return Record{}, err
 		}
 		record.RemoteURL = remoteURL
+		s.recordUploaded(name, remoteURL)
+	}
+	if cfg.MaxRecords > 0 {
+		s.pruneRecords(ctx, cfg, cfg.MaxRecords)
 	}
 	return record, nil
 }
@@ -333,13 +342,18 @@ func (s *Service) records(ctx context.Context) ([]Record, error) {
 		return nil, err
 	}
 	records := []Record{}
+	index := s.loadIndex()
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".zip") {
 			continue
 		}
 		info, err := entry.Info()
 		if err == nil {
-			records = append(records, recordFromInfo(info, cfg.LocalDir))
+			record := recordFromInfo(info, cfg.LocalDir)
+			if remote, ok := index[entry.Name()]; ok {
+				record.RemoteURL = remote.RemoteURL
+			}
+			records = append(records, record)
 		}
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].CreatedAt > records[j].CreatedAt })
@@ -553,8 +567,183 @@ func (s *Service) recordPath(ctx context.Context, id string) (string, bool) {
 func (s *Service) configPath() string { return filepath.Join(s.cfg.DataDir, "backup", "config.json") }
 func (s *Service) recordsDir() string { return filepath.Join(s.cfg.DataDir, "backup", "records") }
 
+const indexFileName = "records-index.json"
+
+type recordMeta struct {
+	RemoteURL  string `json:"remote_url,omitempty"`
+	UploadedAt int64  `json:"uploaded_at,omitempty"`
+}
+
+func (s *Service) indexPath() string { return filepath.Join(s.recordsDir(), indexFileName) }
+
+func (s *Service) loadIndex() map[string]recordMeta {
+	data, err := os.ReadFile(s.indexPath())
+	if err != nil {
+		return map[string]recordMeta{}
+	}
+	index := map[string]recordMeta{}
+	if err := json.Unmarshal(data, &index); err != nil {
+		return map[string]recordMeta{}
+	}
+	return index
+}
+
+func (s *Service) saveIndex(index map[string]recordMeta) error {
+	if err := os.MkdirAll(s.recordsDir(), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.indexPath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.indexPath())
+}
+
+func (s *Service) recordUploaded(name, remoteURL string) {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	index := s.loadIndex()
+	index[name] = recordMeta{RemoteURL: remoteURL, UploadedAt: time.Now().Unix()}
+	_ = s.saveIndex(index)
+}
+
+func (s *Service) forgetRecords(names ...string) {
+	if len(names) == 0 {
+		return
+	}
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	index := s.loadIndex()
+	changed := false
+	for _, name := range names {
+		if _, ok := index[name]; ok {
+			delete(index, name)
+			changed = true
+		}
+	}
+	if changed {
+		_ = s.saveIndex(index)
+	}
+}
+
+func (s *Service) pruneRecords(ctx context.Context, cfg Config, max int) {
+	if max <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(cfg.LocalDir)
+	if err != nil {
+		return
+	}
+	type item struct {
+		name string
+		mod  time.Time
+	}
+	items := []item{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".zip") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		items = append(items, item{name: entry.Name(), mod: info.ModTime()})
+	}
+	if len(items) <= max {
+		return
+	}
+	sort.Slice(items, func(i, j int) bool {
+		ti := recordTimestamp(items[i].name)
+		tj := recordTimestamp(items[j].name)
+		if !ti.IsZero() && !tj.IsZero() && !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return items[i].mod.After(items[j].mod)
+	})
+	s.indexMu.Lock()
+	index := s.loadIndex()
+	type target struct {
+		name     string
+		meta     recordMeta
+		hasCloud bool
+	}
+	targets := []target{}
+	changed := false
+	for i := max; i < len(items); i++ {
+		name := items[i].name
+		if err := os.Remove(filepath.Join(cfg.LocalDir, name)); err != nil {
+			continue
+		}
+		meta, ok := index[name]
+		if ok {
+			delete(index, name)
+			changed = true
+			targets = append(targets, target{name: name, meta: meta, hasCloud: meta.RemoteURL != ""})
+		}
+	}
+	if changed {
+		_ = s.saveIndex(index)
+	}
+	s.indexMu.Unlock()
+	for _, t := range targets {
+		if cfg.Provider != "local" && t.hasCloud {
+			_ = s.deleteRemoteObject(ctx, cfg, t.meta.RemoteURL)
+		}
+	}
+}
+
+func (s *Service) deleteRemoteObject(ctx context.Context, cfg Config, remoteURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, remoteURL, nil)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	switch cfg.Provider {
+	case "oss":
+		signOSSRequest(req, cfg, now)
+	case "cos":
+		signCOSRequest(req, cfg, now)
+	default:
+		req.Header.Set("X-Amz-Content-Sha256", sha256HexBytes(nil))
+		req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
+		signS3Request(req, cfg, now, "auto")
+	}
+	res, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("%s delete failed: status %d", strings.ToUpper(cfg.Provider), res.StatusCode)
+	}
+	return nil
+}
+
 func recordFromInfo(info os.FileInfo, dir string) Record {
 	return Record{ID: info.Name(), FileName: info.Name(), Size: info.Size(), CreatedAt: info.ModTime().Unix(), Location: filepath.Join(dir, info.Name())}
+}
+
+func recordTimestamp(name string) time.Time {
+	const prefix = "api-monitor-backup-"
+	if !strings.HasPrefix(name, prefix) {
+		return time.Time{}
+	}
+	ts := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".zip")
+	parsed, err := time.Parse("20060102-150405.000000", ts)
+	if err != nil {
+		parsed, err = time.Parse("20060102-150405", ts)
+		if err != nil {
+			return time.Time{}
+		}
+	}
+	return parsed
 }
 
 func addDir(zipw *zip.Writer, root, prefix string) error {

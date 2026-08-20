@@ -540,23 +540,17 @@ func (s *Service) sendChannelReplyReport(env channel.InboundEnvelope, text strin
 	slog.Info("channel-reply-sent", "channelId", env.ChannelID, "chatId", env.ChatID, "msgId", msgID, "preview", preview)
 }
 
-// subscribeRunLive 订阅 runId 的事件通道直至关闭，把每个事件实时回调给 onEvent。返回事件总数。
-// 注意：不能从 s.runs 中 delete —— runInference 结束时由 defer 统一 close 通道并清理，
-// 若在此抢先删除，runInference 的 deferred close 会因找不到条目而跳过，导致 for range 永久阻塞。
+// subscribeRunLive 订阅 runId 的事件流直至终态，把每个事件实时回调给 onEvent。返回事件总数。
+// 通过 drainRunEvents 同时兼容：通道仍可实时读（电视流式增量）与已被 SSE 领走/run 已结束
+// （回退环形缓冲补收终态，不会遗漏 done/error）。返回事件总数。
 func (s *Service) subscribeRunLive(runID string, onEvent func(SSEEvent)) int {
-	s.mu.Lock()
-	ch, exists := s.runs[runID]
-	s.mu.Unlock()
-	if !exists {
-		return 0
-	}
 	count := 0
-	for event := range ch {
+	s.drainRunEvents(context.Background(), runID, func(ev SSEEvent) {
 		count++
 		if onEvent != nil {
-			onEvent(event)
+			onEvent(ev)
 		}
-	}
+	})
 	return count
 }
 

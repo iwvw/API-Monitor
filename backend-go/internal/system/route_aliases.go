@@ -21,7 +21,6 @@ var routeAliases = map[string][]string{
 	"/api/settings":                           {"系统配置", "运行参数", "修改设置"},
 	"/api/settings/sys-logs":                  {"系统日志", "日志列表", "查看日志"},
 	"/api/settings/export-database":           {"导出数据库", "备份数据库文件"},
-	"/api/settings/import-database":           {"导入数据库", "替换数据库"},
 	"/api/settings/vacuum-database":           {"清理数据库", "压缩空间", "vacuum"},
 	"/api/settings/cleanup-deprecated-tables": {"废弃表", "清理旧表"},
 

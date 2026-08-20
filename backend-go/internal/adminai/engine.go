@@ -35,6 +35,9 @@ const (
 	llmRetryBaseDelayMs  = 500
 	llmRetryMaxDelayMs   = 8000
 	maxParallelTools     = 8 // 同轮只读工具并行执行上限（信号量）
+	// 全局并发上限：同时存在的 runInference 数量，防 TG 洪峰/多 Web 同时打爆上游。
+	// 可经设置 admin_ai_max_concurrent_runs 调整（RunLoop 时读取）。
+	maxConcurrentRunsDefault = 8
 
 	// toolLoopWarnThreshold/toolLoopBlockThreshold 是跨轮重复调用（工具循环）的风暴阈值：
 	// 同一执行内相同指纹调用 ≥5 次记日志警告，≥10 次阻断本轮继续执行（OpenClaw loop-detection 轻量版）。
@@ -254,6 +257,8 @@ const (
 	adminAIKeyMemoriesEnabled        = "admin_ai_memories_enabled"
 	adminAIKeyMemoriesBootstrapChars = "admin_ai_memories_bootstrap_chars"
 	adminAIKeyContextWindow          = "admin_ai_context_window"
+
+	adminAIKeyMaxConcurrentRuns = "admin_ai_max_concurrent_runs" // 全局并发执行上限
 	adminAIKeySummaryModel           = "admin_ai_summary_model" // 推理摘要专用模型（留空回退默认模型）
 )
 
@@ -294,15 +299,25 @@ func (s *Service) RunLoop(ctx context.Context, source, sessionID, prompt, identi
 		return "", err
 	}
 
+	limit := s.getIntSetting(ctx, adminAIKeyMaxConcurrentRuns, maxConcurrentRunsDefault)
+	if limit < 1 {
+		limit = maxConcurrentRunsDefault
+	}
+
 	s.mu.Lock()
-	// 同一会话只允许一个活跃执行（web 路径在 submitMessage 已有 409，频道/cron 入站
-	// 都经 RunLoop，此处锁内检查+注册保证并发双 run 不再覆盖 sessionRuns）。
+	// 同会话单飞（web/channel/cron 入站都经 RunLoop，锁内检查+注册防并发双 run）。
 	if _, exists := s.sessionRuns[sessionID]; exists {
 		s.mu.Unlock()
 		return "", fmt.Errorf("该会话已有执行进行中")
 	}
+	// 全局并发上限：超过即拒绝，防止 TG 洪峰/多 Web 同时打爆上游与 SQLite 写锁。
+	if len(s.activeRuns) >= limit {
+		s.mu.Unlock()
+		return "", fmt.Errorf("管理 AI 并发执行数已达上限（%d），请稍后再试", limit)
+	}
 	s.sessionRuns[sessionID] = runID
 	s.runPolicy[runID] = policy
+	s.activeRuns[runID] = true
 	s.mu.Unlock()
 
 	eventCh := make(chan SSEEvent, eventChBuffer)
@@ -347,9 +362,17 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 			// 的注册，让第三条消息再次通过「会话已有执行」检查形成并发双 run。
 			delete(s.sessionRuns, sessionID)
 		}
+		// 无条件关闭事件通道：无论是否被 streamEvents 领走（领走时 s.runs
+		// 中已删除），runInference 是通道唯一持有者，必须负责 close，否则
+		// 被领走后的实流（consumeRunLive / streamEvents）永久阻塞读不到关闭。
 		if ch, exists := s.runs[runID]; exists {
-			close(ch)
 			delete(s.runs, runID)
+			_ = ch
+		}
+		close(eventCh)
+		delete(s.runPolicy, runID)
+		if _, ok := s.activeRuns[runID]; ok {
+			delete(s.activeRuns, runID)
 		}
 		s.mu.Unlock()
 		// buffer 保留 runEventBufferRetention 供断线重连补收终态事件，之后清理
@@ -359,6 +382,8 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 				delete(s.runBuffers, runID)
 				delete(s.chToBuf, eventCh)
 			}
+			// runDone 无界增长治理：缓冲期过后不再有 resume/复读需求，一并回收
+			delete(s.runDone, runID)
 			s.mu.Unlock()
 		})
 		s.clearToolLoops(runID)
@@ -929,6 +954,74 @@ func (s *Service) emit(ch chan SSEEvent, event SSEEvent) {
 	select {
 	case ch <- event:
 	default:
+	}
+}
+
+// drainRunEvents 消费 run 的事件流并回调解调器，直到收到终态（done/error）或 run 结束。
+// 兼容「实时通道存在」（cron/频道同源订阅）与「已被 SSE 领走/已结束」（回退环形缓冲重放）：
+// - 实时通道存在时优先实时读取，通道由 runInference 无条件关闭，读完即返回；
+// - 通道缺失（被 streamEvents 领走）时退化为缓冲尾部轮询，终态仍可拿到，
+//   避免 cron/频道等非 SSE 消费端因拿不到通道而永久挂起或误报「执行不存在」。
+// 返回是否读取到终态事件。
+func (s *Service) drainRunEvents(ctx context.Context, runID string, onEvent func(SSEEvent)) (terminal bool) {
+	s.mu.Lock()
+	eventCh, live := s.runs[runID]
+	done := s.runDone[runID]
+	_, hasBuf := s.runBuffers[runID]
+	s.mu.Unlock()
+
+	if !live && !done && !hasBuf {
+		return false // run 不存在或已过保留期彻底清理，无事件可收
+	}
+
+	if live && eventCh != nil {
+		for {
+			select {
+			case ev, ok := <-eventCh:
+				if !ok {
+					return false
+				}
+				if onEvent != nil {
+					onEvent(ev)
+				}
+				if ev.Type == "done" || ev.Type == "error" {
+					return true
+				}
+			case <-ctx.Done():
+				return false
+			}
+		}
+	}
+
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if done {
+			buf := s.bufferForRun(runID)
+			if buf != nil {
+				replayedTerminal := false
+				buf.replayAfter(0, func(_ int64, ev SSEEvent) {
+					if onEvent != nil {
+						onEvent(ev)
+					}
+					if ev.Type == "done" || ev.Type == "error" {
+						replayedTerminal = true
+					}
+				})
+				if replayedTerminal {
+					return true
+				}
+			}
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+			s.mu.Lock()
+			done = s.runDone[runID]
+			s.mu.Unlock()
+		}
 	}
 }
 
@@ -2394,9 +2487,17 @@ func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 			if route.ResponseMode == manifest.ResponseStream || route.ResponseMode == manifest.ResponseWebSocket {
 				return "流式或 WebSocket 接口不允许通过 AI 直接调用: " + p, false
 			}
+			if route.Auth == manifest.AuthAPIKey || route.Auth == manifest.AuthAgent {
+				return "该接口需要专用密钥鉴权（" + string(route.Auth) + "），不允许通过 AI 直接调用: " + p, false
+			}
 			return "", true
 		}
 		return "路径 " + path + " 不在可调用接口清单中（不存在或不可调用）：请对照系统提示词内置的接口清单选择真实路径与正确方法，禁止猜测或拼凑路径", false
+	}
+	// 契约命中但属密钥鉴权路由（AuthAPIKey/AuthAgent）：AI 无对应凭据，
+	// 且触发仅限本机/网关专用端点有越权风险，一律拒绝。
+	if auth, _ := best["auth"].(string); auth == string(manifest.AuthAPIKey) || auth == string(manifest.AuthAgent) {
+		return "该接口需要专用密钥鉴权，不允许通过 AI 直接调用: " + p, false
 	}
 	if method == "" {
 		method = http.MethodGet
@@ -2601,16 +2702,28 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 }
 
 // isSessionWriteEnabled 读取会话级写授权标记（“允许此对话”授予后为 1）。
+// 带时效：write_enabled_until 早于当前时间时视为未授权并幂等清零
+// （admin_ai_session_write_ttl_hours 控制；0=不自动过期）。
 func (s *Service) isSessionWriteEnabled(ctx context.Context, db *sql.DB, sessionID string) (bool, error) {
 	var value int
-	err := db.QueryRowContext(ctx, "SELECT write_enabled FROM admin_ai_sessions WHERE id = ?", sessionID).Scan(&value)
+	var until string
+	err := db.QueryRowContext(ctx, "SELECT write_enabled, COALESCE(write_enabled_until,'') FROM admin_ai_sessions WHERE id = ?", sessionID).Scan(&value, &until)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return value == 1, nil
+	if value != 1 {
+		return false, nil
+	}
+	if until != "" {
+		if deadline, perr := time.Parse(time.RFC3339, until); perr == nil && time.Now().After(deadline) {
+			_, _ = db.ExecContext(ctx, "UPDATE admin_ai_sessions SET write_enabled = 0, write_enabled_until = '' WHERE id = ?", sessionID)
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // aiCallResult 把 AICallResponse 转换为模型友好的工具结果：
@@ -2823,6 +2936,20 @@ func (s *Service) getIntSetting(ctx context.Context, key string, def int) int {
 	return def
 }
 
+// getSetting 读取 system_config 的字符串配置，缺失时回默认值。
+func (s *Service) getSetting(ctx context.Context, key, def string) string {
+	db, err := s.open(ctx)
+	if err != nil {
+		return def
+	}
+	defer db.Close()
+	var value string
+	if err := db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = ?", key).Scan(&value); err != nil || value == "" {
+		return def
+	}
+	return value
+}
+
 // getBoolSetting 读取 system_config 的布尔配置，缺失或非法时回默认值。
 func (s *Service) getBoolSetting(ctx context.Context, key string, def bool) bool {
 	db, err := s.open(ctx)
@@ -2845,24 +2972,35 @@ func (s *Service) getBoolSetting(ctx context.Context, key string, def bool) bool
 }
 
 func (s *Service) finishExecution(db *sql.DB, sessionID, execID, status string, toolCount int, llmModel string, promptTokens, completionTokens int, errMsg string) {
+	// 独立短超时上下文落库：不依赖 run 的 ctx（结束瞬间可能已取消），
+	// 也不无界阻塞；失败不再静默吞掉，写日志便于排查「执行状态不及时收口」。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	now := time.Now().UTC().Format(time.RFC3339)
 	var errField interface{}
 	if errMsg != "" {
 		errField = errMsg
 	}
-	_, _ = db.ExecContext(context.Background(),
+	if _, err := db.ExecContext(ctx,
 		`UPDATE admin_ai_executions SET status = ?, tool_calls_count = ?, llm_model = ?, llm_prompt_tokens = ?, llm_completion_tokens = ?, finished_at = ?, error = ? WHERE id = ?`,
-		status, toolCount, llmModel, promptTokens, completionTokens, now, errField, execID)
+		status, toolCount, llmModel, promptTokens, completionTokens, now, errField, execID); err != nil {
+		slog.Warn("finish-execution", "execId", execID, "err", err.Error())
+	}
 	// 执行结束（无论成败）刷新会话活动时间，让前端轮询能感知到「有新消息」并重拉。
 	// 此前只在 run 开始时更新一次：机器人/定时任务等外部来源的对话没有 SSE 推送通道，
 	// 前端只能靠 lastActivityAt 变化触发 loadMessages，结束不更新则最终回复永远不出现。
-	_, _ = db.ExecContext(context.Background(),
-		`UPDATE admin_ai_sessions SET last_activity_at = ?, updated_at = ? WHERE id = ?`, now, now, sessionID)
+	if _, err := db.ExecContext(ctx,
+		`UPDATE admin_ai_sessions SET last_activity_at = ?, updated_at = ? WHERE id = ?`, now, now, sessionID); err != nil {
+		slog.Warn("finish-execution-session", "sessionId", sessionID, "err", err.Error())
+	}
 }
 
+// truncateContent 按 rune 边界截断，避免按字节截断切断多字节 UTF-8 字符
+// （非法 UTF-8 进入 LLM 上下文/DB/UI 会造成乱码或部分上游编码错误）。
 func truncateContent(s string) string {
-	if len(s) <= contentSizeLimit {
+	chars := []rune(s)
+	if len(chars) <= contentSizeLimit {
 		return s
 	}
-	return s[:contentSizeLimit] + "...[已截断]"
+	return string(chars[:contentSizeLimit]) + "...[已截断]"
 }

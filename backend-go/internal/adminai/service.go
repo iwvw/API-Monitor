@@ -38,6 +38,7 @@ type Service struct {
 	cancels     map[string]context.CancelFunc      // runId -> runCtx 取消函数（订阅后仍可真正终止执行）
 	approval    map[string]chan approvalResolution // approvalId -> 审批结果通道
 	runPolicy   map[string]string                          // runID → 定时任务写策略（"" / allow / readonly）
+	activeRuns  map[string]bool                            // runID → 全局并发执行计数（上限 maxConcurrentRuns）
 	runBuffers  map[string]*runEventBuffer                 // runID → 事件环形缓冲（断线重连重放）
 	chToBuf     map[chan SSEEvent]*runEventBuffer          // 事件通道 → 缓冲（emit 时写缓冲）
 	runDone     map[string]bool                            // runID → 执行是否已结束（serveSSE 归还通道判定）
@@ -70,6 +71,7 @@ func New(cfg config.Config) *Service {
 		cancels:     make(map[string]context.CancelFunc),
 		approval:    make(map[string]chan approvalResolution),
 		runPolicy:   make(map[string]string),
+		activeRuns:  make(map[string]bool),
 		runBuffers:      make(map[string]*runEventBuffer),
 		chToBuf:         make(map[chan SSEEvent]*runEventBuffer),
 		runDone:         make(map[string]bool),
@@ -278,6 +280,11 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_approvals", "reason", "TEXT"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_approvals.reason: %w", err)
 	}
+	// admin_ai_sessions 扩展 write_enabled_until 列（「允许此对话」时效授权：
+	// 到达时间后 isSessionWriteEnabled 自动视为未授权并落库清零，防永久高权）
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "write_enabled_until", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.write_enabled_until: %w", err)
+	}
 	return nil
 }
 
@@ -324,6 +331,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.createSession(w, r)
 	case strings.HasPrefix(path, "/sessions/") && r.Method == http.MethodDelete:
 		s.deleteSession(w, r, strings.TrimPrefix(path, "/sessions/"))
+	case strings.HasPrefix(path, "/sessions/") && r.Method == http.MethodPatch:
+		// 会话更新：当前支持撤销会话级写授权（writeEnabled:false）。
+		// 复用已登记的 /sessions/{id} 路由，不新增路径面。
+		s.updateSession(w, r, strings.TrimPrefix(path, "/sessions/"))
 	case strings.HasPrefix(path, "/sessions/") && strings.HasSuffix(path, "/messages") && r.Method == http.MethodGet:
 		sessionID := strings.TrimSuffix(strings.TrimPrefix(path, "/sessions/"), "/messages")
 		sessionID = strings.TrimSuffix(sessionID, "/")
@@ -544,6 +555,49 @@ func (s *Service) deleteSession(w http.ResponseWriter, r *http.Request, sessionI
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
+		response.Error(w, http.StatusNotFound, "会话不存在")
+		return
+	}
+	// 同步回收该会话的频道入站排队锁（锁表只增不减的泄漏点）
+	s.mu.Lock()
+	delete(s.channelQueueLocks, sessionID)
+	s.mu.Unlock()
+	response.OK(w, map[string]interface{}{"ok": true})
+}
+
+// updateSession PATCH /api/admin-ai/sessions/{id}：部分更新会话属性。
+// 当前支持撤销会话级写授权（{"writeEnabled": false}），为前端「撤销本会话写权限」
+// 提供入口；与会话删除解耦（保留聊天历史）。仅允许显式 false 的幂等操作。
+func (s *Service) updateSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	var req struct {
+		WriteEnabled *bool `json:"writeEnabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	if req.WriteEnabled == nil {
+		response.Error(w, http.StatusBadRequest, "writeEnabled 不能为空")
+		return
+	}
+	if *req.WriteEnabled {
+		// 只允许撤销（禁止通过本端点重新授权写操作：授权只能由审批流授予）
+		response.Error(w, http.StatusForbidden, "写授权只能由审批流程授予")
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	result, err := db.ExecContext(r.Context(),
+		"UPDATE admin_ai_sessions SET write_enabled = 0, write_enabled_until = '' WHERE id = ?", sessionID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
 		response.Error(w, http.StatusNotFound, "会话不存在")
 		return
 	}
@@ -829,7 +883,10 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 			serveSSE(w, r, s, runID, nil, true, fromSeq)
 			return
 		}
-		slog.Warn("stream-not-found", "runId", runID, "activeRuns", len(s.runs))
+		s.mu.Lock()
+		activeRuns := len(s.runs)
+		s.mu.Unlock()
+		slog.Warn("stream-not-found", "runId", runID, "activeRuns", activeRuns)
 		response.Error(w, http.StatusNotFound, "执行不存在或已结束")
 		return
 	}
@@ -893,6 +950,18 @@ func (s *Service) resolveApproval(w http.ResponseWriter, r *http.Request, approv
 	defer db.Close()
 
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	// 审批与执行生命周期对齐：若等待的 run 已结束（审批通道已被其 defer 清理），
+	// 该审批决议无人消费——即使批准也不会执行任何工具。此时直接拒绝，避免
+	// 「DB 显示已批准但实际未执行」的假批准（M4 生命周期错位）。
+	s.mu.Lock()
+	_, waiterAlive := s.approval[approvalID]
+	s.mu.Unlock()
+	if !waiterAlive {
+		response.Error(w, http.StatusConflict, "该审批所属的执行已结束，审批已失效")
+		return
+	}
+
 	result, err := db.ExecContext(r.Context(),
 		`UPDATE admin_ai_approvals SET status = ?, resolved_at = ?, reason = ? WHERE id = ? AND status = 'pending'`,
 		req.Action, now, req.Reason, approvalID)
@@ -906,11 +975,24 @@ func (s *Service) resolveApproval(w http.ResponseWriter, r *http.Request, approv
 		return
 	}
 
-	// 允许此对话：批准的同时把本会话标记为后续写操作免审批（仅本会话生效）
+	// 允许此对话：批准的同时把本会话标记为后续写操作免审批（仅本会话生效）。
+	// 带时效：write_enabled_until = now + admin_ai_session_write_ttl_hours（0=不自动过期），
+	// 到期后 isSessionWriteEnabled 自动视为未授权，避免授权永久生效。
 	if req.Action == "approve" && req.ApplyToSession {
 		var sessionID string
 		if err := db.QueryRowContext(r.Context(), "SELECT session_id FROM admin_ai_approvals WHERE id = ?", approvalID).Scan(&sessionID); err == nil && sessionID != "" {
-			_, _ = db.ExecContext(r.Context(), "UPDATE admin_ai_sessions SET write_enabled = 1 WHERE id = ?", sessionID)
+			ttlHours := 24
+			var ttlRaw string
+			if err := db.QueryRowContext(r.Context(), "SELECT value FROM system_config WHERE key = 'admin_ai_session_write_ttl_hours'").Scan(&ttlRaw); err == nil {
+				if n, convErr := strconv.Atoi(ttlRaw); convErr == nil {
+					ttlHours = n
+				}
+			}
+			until := ""
+			if ttlHours > 0 {
+				until = time.Now().UTC().Add(time.Duration(ttlHours) * time.Hour).Format(time.RFC3339)
+			}
+			_, _ = db.ExecContext(r.Context(), "UPDATE admin_ai_sessions SET write_enabled = 1, write_enabled_until = ? WHERE id = ?", until, sessionID)
 		}
 	}
 

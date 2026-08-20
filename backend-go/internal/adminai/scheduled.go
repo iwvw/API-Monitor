@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +13,18 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/sseutil"
 )
+
+// isLoopbackRemoteAddr 判断请求来源是否为本机回环地址（不含对外网关转发）。
+// 与 server 包同名判定共用语义：仅防同源会话伪造 X-Internal-Cron 头调用内部端点。
+func isLoopbackRemoteAddr(remoteAddr string) bool {
+	host := strings.TrimSpace(remoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
 // cronTaskRunReq 定时 AI 任务执行请求（内部接口，仅本机 cron 携带 X-Internal-Cron 调用）。
 // policy=allow（默认）时写操作免审批直接执行（仍受「写操作全局开关」约束）；readonly 时禁用写操作。
@@ -30,6 +43,13 @@ type cronTaskRunReq struct {
 func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Internal-Cron") != "true" {
 		response.Error(w, http.StatusForbidden, "该接口仅允许本机定时任务调用")
+		return
+	}
+	// 纵深防御：除头校验之外强制来源为本机回环地址。
+	// 同源登录会话可在浏览器侧随意附带 X-Internal-Cron 头请求本端点；
+	// 仅靠头校验会让已登录用户以 policy=allow 绕开写操作审批执行任意工具。
+	if !isLoopbackRemoteAddr(r.RemoteAddr) {
+		response.Error(w, http.StatusForbidden, "该接口仅允许本机定时任务调用（来源需为回环地址）")
 		return
 	}
 	var req cronTaskRunReq
@@ -101,48 +121,31 @@ func (s *Service) handleCronTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 策略在 RunLoop 内注册（allow/readonly，先于执行 goroutine 生效避免竞态），
-	// 本处理器负责在运行结束后清理。
+	// 本处理器负责在运行结束后清理（runInference 收尾也会兜底清理 runPolicy）。
 	runID, err := s.RunLoop(ctx, "cron", sessionID, req.Prompt, "", model, policy, nil)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "启动执行失败: "+err.Error())
 		return
 	}
-	defer func() {
-		s.mu.Lock()
-		delete(s.runPolicy, runID)
-		s.mu.Unlock()
-	}()
 
-	// 同步等待本轮执行收尾（done / error / 请求超时取消）
-	s.mu.Lock()
-	eventCh := s.runs[runID]
-	s.mu.Unlock()
-	if eventCh == nil {
-		response.Error(w, http.StatusInternalServerError, "执行通道不存在")
-		return
-	}
+	// 同步等待本轮执行收尾（done / error / 请求超时取消）；drainRunEvents 同时
+	// 兼容通道被 SSE 领走或 run 已结束的场景（回退环形缓冲补收终态，不会永久挂起）。
 	var runErr string
-	finished := false
-	for !finished {
-		select {
-		case ev, ok := <-eventCh:
-			if !ok {
-				finished = true
-				break
+	var runCtx, runCancel = context.WithCancel(ctx)
+	defer runCancel()
+	s.drainRunEvents(runCtx, runID, func(ev SSEEvent) {
+		switch ev.Type {
+		case "error":
+			if msg, ok := ev.Fields["message"].(string); ok {
+				runErr = msg
 			}
-			switch ev.Type {
-			case "done", "error":
-				if ev.Type == "error" {
-					if msg, ok := ev.Fields["message"].(string); ok {
-						runErr = msg
-					}
-				}
-				finished = true
-			}
-		case <-ctx.Done():
-			runErr = "定时 AI 任务执行超时或已取消"
-			finished = true
+			runCancel()
+		case "done":
+			runCancel()
 		}
+	})
+	if runErr == "" && ctx.Err() != nil {
+		runErr = "定时 AI 任务执行超时或已取消"
 	}
 	if runErr != "" {
 		_ = sseutil.RenewWriteDeadline(w, 0)

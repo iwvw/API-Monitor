@@ -182,6 +182,7 @@ func init() {
 		"bucket":            {t: "string", d: "存储桶"},
 		"access_key_id":     {t: "string"},
 		"access_key_secret": {t: "string"},
+		"max_records":       {t: "integer", d: "最大保留备份数量（0=不限制）"},
 	})
 	routeRequestContracts["/api/backup/restore"] = obj([]string{"id", "confirm"}, map[string]prop{
 		"id":      {t: "string", req: true},
@@ -860,7 +861,7 @@ func init() {
 		"siteName":  {t: "string"},
 		"themeMode": {t: "string"},
 		"pageWidth": {t: "string", e: []string{"standard", "wide", "full"}},
-		"uiFont":    {t: "string", e: []string{"default", "serif", "lxgw-wenkai-screen"}},
+		"uiFont":    {t: "string", e: []string{"default", "serif", "lxgw-wenkai-screen", "sora"}},
 	})
 	routeRequestContracts["/api/settings/site-brand/icons"] = obj([]string{"name"}, map[string]prop{
 		"name":     {t: "string", req: true},
@@ -872,9 +873,6 @@ func init() {
 		"databasePath": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/settings/database/import"] = obj([]string{"databasePath"}, map[string]prop{
-		"databasePath": {t: "string", req: true},
-	})
-	routeRequestContracts["/api/settings/import-database"] = obj([]string{"databasePath"}, map[string]prop{
 		"databasePath": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/settings/export-database"] = noBody
@@ -1087,7 +1085,9 @@ func init() {
 		"source": {t: "string", d: "会话来源，如 web 或 channel:<id>"},
 		"mode":   {t: "string", e: []string{"agent", "ask"}, d: "会话模式：agent=代理（可调用工具）| ask=询问（纯问答）；缺省取管理设置 admin_ai_default_mode"},
 	})
-	routeRequestContracts["/api/admin-ai/sessions/{id}"] = noBody
+	routeRequestContracts["/api/admin-ai/sessions/{id}"] = obj(nil, map[string]prop{
+		"writeEnabled": {t: "boolean", d: "撤销会话级写授权（仅允许显式 false，授权只能由审批流授予）"},
+	})
 	routeRequestContracts["/api/admin-ai/messages"] = obj([]string{"sessionId", "prompt"}, map[string]prop{
 		"sessionId": {t: "string", req: true, d: "会话 ID"},
 		"prompt":    {t: "string", req: true, d: "用户消息"},

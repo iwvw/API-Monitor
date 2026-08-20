@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -469,6 +470,8 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	retryRoundFinished := false
 	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
 	var failoverSteps []map[string]interface{}
+	// clientCancelled 标记本轮请求期间客户端已断开：断开后不再尝试其他候选，仅静默收尾。
+	clientCancelled := false
 	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
 	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
 	// lastTried 记录最后一次真实转发的端点：整链失败时以真实端点记账，而非 unknown。
@@ -530,6 +533,11 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 				stepStatus = res.resp.StatusCode
 			}
 			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
+			if res.clientCancelled {
+				clientCancelled = true
+				break
+			}
 			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
 				selected = cand
 				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
@@ -577,6 +585,13 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 		if retryRoundCancelled {
 			break
 		}
+	}
+	// 客户端已断开（请求上下文被取消，如点击停止）：不聚合错误、不记录故障、回传空结果静默收尾。
+	if clientCancelled || (ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled)) {
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+		}
+		return 0, nil, nil
 	}
 	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
@@ -730,6 +745,10 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		} else {
 			anthropicError(w, statusCode, "api_error", relayErr.Error())
 		}
+		return
+	}
+	if oaiResp == nil {
+		// 客户端已断开：relayChatOpenAI 已静默收尾，此处仅返回、不写响应。
 		return
 	}
 	defer oaiResp.Body.Close()

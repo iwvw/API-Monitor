@@ -1098,17 +1098,29 @@ func parseNodeFragment(raw string) string {
 
 func (s *Service) refreshAllEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	db, err := s.open(ctx)
+	results, err := s.refreshAllModels(ctx)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	s.invalidateRouteCache()
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "results": results})
+}
+
+// refreshAllModels 并发刷新所有启用端点的上游模型列表并写库：逐个验证 API Key 后
+// 拉取 /v1/models。验证/取模型失败时保留旧模型列表（一次超时/临时故障不应清空
+// 已获取的模型）。供人工刷新路由（refreshAllEndpointsRoute）与后台定时刷新
+// （StartModelAutoRefresh）复用；返回逐端点结果供调用方汇总。
+func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]interface{}, err error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
 	}
 	defer db.Close()
 
 	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, headers, proxy_pool FROM openai_endpoints WHERE enabled = 1")
 	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -1131,7 +1143,7 @@ func (s *Service) refreshAllEndpointsRoute(w http.ResponseWriter, r *http.Reques
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	results := []map[string]interface{}{}
+	results = []map[string]interface{}{}
 
 	for _, it := range items {
 		wg.Add(1)
@@ -1186,8 +1198,7 @@ func (s *Service) refreshAllEndpointsRoute(w http.ResponseWriter, r *http.Reques
 	}
 
 	wg.Wait()
-	s.invalidateRouteCache()
-	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "results": results})
+	return results, nil
 }
 
 func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {

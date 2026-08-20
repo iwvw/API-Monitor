@@ -82,6 +82,11 @@ func (s *Service) handleDailyBriefing(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusForbidden, "该接口仅允许本机定时任务调用")
 		return
 	}
+	// 纵深防御：强制来源为本机回环地址，防同源登录会话伪造头触发群发推送。
+	if !isLoopbackRemoteAddr(r.RemoteAddr) {
+		response.Error(w, http.StatusForbidden, "该接口仅允许本机定时任务调用（来源需为回环地址）")
+		return
+	}
 	if s.aiCaller == nil {
 		response.Error(w, http.StatusInternalServerError, "AI 调用器未配置")
 		return

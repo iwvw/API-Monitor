@@ -59,6 +59,15 @@ func insertApproval(t *testing.T, s *Service, status, expiresAt string) string {
 	return id
 }
 
+// registerApprovalWaiter 模拟真实执行中 run（engine.go 在 INSERT 前注册等待通道、
+// 收尾 defer 清理）。缺少它时新守卫会判定「执行已结束，审批失效」而拒绝决议，
+// 与真实流程一致：无等待者的审批本就是僵死审批。
+func registerApprovalWaiter(s *Service, id string) {
+	s.mu.Lock()
+	s.approval[id] = make(chan approvalResolution, 1)
+	s.mu.Unlock()
+}
+
 // 审批超时清理：过期 pending → expired（PRD-04 验收点）。
 func TestApprovalCleanerExpiresOverdue(t *testing.T) {
 	s := newTestService(t)
@@ -106,6 +115,7 @@ func TestResolveApprovalStateMachine(t *testing.T) {
 
 	for _, action := range []string{"approve", "reject"} {
 		id := insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+		registerApprovalWaiter(s, id)
 
 		body := strings.NewReader(`{"action":"` + action + `"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/approvals/"+id+"/resolve", body)
@@ -133,6 +143,7 @@ func TestResolveApprovalStateMachine(t *testing.T) {
 func TestResolveApprovalApplyToSession(t *testing.T) {
 	s := newTestService(t)
 	id := insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	registerApprovalWaiter(s, id)
 
 	body := strings.NewReader(`{"action":"approve","applyToSession":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/approvals/"+id+"/resolve", body)
@@ -161,6 +172,7 @@ func TestResolveApprovalApplyToSession(t *testing.T) {
 func TestResolveApprovalStoresReason(t *testing.T) {
 	s := newTestService(t)
 	id := insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	registerApprovalWaiter(s, id)
 
 	body := strings.NewReader(`{"action":"reject","reason":"把端口改成 45654"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/approvals/"+id+"/resolve", body)

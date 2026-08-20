@@ -24,6 +24,7 @@ func TestDailyBriefingRouteRegistered(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/cron/daily-briefing", nil)
 	req.Header.Set("X-Internal-Cron", "true")
+	req.RemoteAddr = "127.0.0.1:54321"
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
 

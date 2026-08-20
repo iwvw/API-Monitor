@@ -491,6 +491,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			if lastErr == nil {
 				lastErr = err
 			}
+			if errors.Is(err, context.Canceled) {
+				res.clientCancelled = true
+			}
 			res.attempt = attempt
 			break
 		}
@@ -613,6 +616,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			// 连接失败（例如该代理不可用）：key 不冻结，只标记代理失败，若有池则切下一个。
 			s.markProxyFailed(selected.ID, currentProxy)
 			cancel()
+			if errors.Is(lastErr, context.Canceled) {
+				res.clientCancelled = true
+			}
 			if currentProxy != "" && attempt+1 < maxProxyAttempts {
 				continue
 			}
@@ -820,8 +826,13 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 
 	if lastErr != nil && resp == nil {
 		res.lastErr = lastErr
-		if !res.retryableUpstream {
+		if errors.Is(lastErr, context.Canceled) {
+			res.clientCancelled = true
+		}
+		if !res.retryableUpstream && !res.clientCancelled {
 			// 不可重试的终局失败（配置/网关侧错误）在此记录并直接返回。
+			// 客户端已断开（context canceled）是用户主动停止，不视为故障：
+			// 静默收尾、不记账，避免把中止请求记成网关 502。
 			s.recordRelayError(RelayErrorRecord{
 				Route: p.route, Kind: "bad_gateway",
 				Endpoint: selected.Name, EndpointID: selected.ID,
@@ -1091,6 +1102,8 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	retryRoundFinished := false
 	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
 	var failoverSteps []map[string]interface{}
+	// clientCancelled 标记本轮请求期间客户端已断开：断开后不再尝试其他候选，仅静默收尾。
+	clientCancelled := false
 	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
 	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
 	// lastTried 记录最后一次真实转发的端点：整链失败时调用日志以此展示真实端点，
@@ -1152,6 +1165,11 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				stepStatus = res.resp.StatusCode
 			}
 			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
+			if res.clientCancelled {
+				clientCancelled = true
+				break
+			}
 			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
 				selected = cand
 				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
@@ -1203,6 +1221,13 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if retryRoundCancelled {
 			break
 		}
+	}
+	// 客户端已断开（请求上下文被取消，如点击停止）：不聚合错误、不记录故障、不回写响应。
+	if clientCancelled || (ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled)) {
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+		}
+		return
 	}
 	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
@@ -2165,6 +2190,8 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	var lastRes *relayLoopResult
 	retryRoundFinished := false
 	var failoverSteps []map[string]interface{}
+	// clientCancelled 标记本轮请求期间客户端已断开：断开后不再尝试其他候选，仅静默收尾。
+	clientCancelled := false
 	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
 	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
 	// lastTried 记录最后一次真实转发的端点：整链失败时调用日志以此展示真实端点，
@@ -2227,6 +2254,11 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				stepStatus = res.resp.StatusCode
 			}
 			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
+			if res.clientCancelled {
+				clientCancelled = true
+				break
+			}
 			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
 				selected = cand
 				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
@@ -2274,6 +2306,13 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		if retryRoundCancelled {
 			break
 		}
+	}
+	// 客户端已断开（请求上下文被取消，如点击停止）：不聚合错误、不记录故障、不回写响应。
+	if clientCancelled || (ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled)) {
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+		}
+		return
 	}
 	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
