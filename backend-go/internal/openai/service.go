@@ -859,6 +859,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("openai ensure schema: %w", err)
 		}
 	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "real_model", "TEXT"); err != nil {
+		return err
+	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "gateway_key_id", "TEXT"); err != nil {
 		return err
 	}
@@ -1567,6 +1570,7 @@ type relayLoopParams struct {
 	selected       Endpoint
 	endpoints      []Endpoint
 	model          string
+	realModel      string // 命中模型映射时的上游真实模型名（model 为对外别名），随日志落库
 	fullURL        string
 	body           []byte
 	stream         bool
@@ -1585,6 +1589,7 @@ type relayLoopParams struct {
 type relayLoopResult struct {
 	resp              *http.Response
 	statusCode        int
+	realModel         string // 本候选解析出的上游真实模型名（透传给调用方落库）
 	lastErr           error
 	endpointExhausted bool // 本轮全部 API Key 尝试失败，应切换到下一个候选端点
 	retryableUpstream bool // 上游返回 429/5xx 且代理重试耗尽，应切换到下一个候选端点

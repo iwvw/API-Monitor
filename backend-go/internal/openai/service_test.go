@@ -3833,6 +3833,47 @@ func TestRecordAnalyticsErrorOnlyOnError(t *testing.T) {
 	}
 }
 
+// TestRecordAnalyticsRealModel 验证命中模型映射时 real_model 落库且 logs 接口返回
+// realModel 字段；未传（未映射）时为空。
+func TestRecordAnalyticsRealModel(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	ctx := context.Background()
+
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "alias-model", http.StatusOK, 10, 0, 1, 2, 3, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", nil, "real-model")
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "plain-model", http.StatusOK, 10, 0, 1, 2, 3, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", nil)
+	service.flushAnalyticsQueue(5 * time.Second)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil)
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("logs status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var result struct {
+		Records []struct {
+			Model      string `json:"model"`
+			RealModel  string `json:"realModel"`
+			StatusCode int    `json:"statusCode"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(result.Records))
+	}
+	byModel := map[string]string{}
+	for _, rec := range result.Records {
+		byModel[rec.Model] = rec.RealModel
+	}
+	if byModel["alias-model"] != "real-model" {
+		t.Fatalf("mapped model should persist real model, got %q", byModel["alias-model"])
+	}
+	if byModel["plain-model"] != "" {
+		t.Fatalf("unmapped model should have empty real model, got %q", byModel["plain-model"])
+	}
+}
+
 // TestErrorResponseForLogTruncatesHugeBody 验证超长报错 JSON 被截断并带标记。
 func TestErrorResponseForLogTruncatesHugeBody(t *testing.T) {
 	huge := strings.Repeat("x", relayErrorResponseLimit+1024)

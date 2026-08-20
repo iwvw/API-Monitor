@@ -519,6 +519,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 				selected:       cand,
 				endpoints:      endpointCandidates,
 				model:          model,
+				realModel:      candModel,
 				fullURL:        fullURL,
 				body:           upstreamBodyBytes,
 				stream:         stream,
@@ -626,7 +627,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			Kind:     "upstream",
 			Message:  msg,
 			Response: errorResponseForLog(errBody, status),
-		})
+		}, res.realModel)
 		return status, nil, err
 	}
 	if lastRes != nil && lastRes.resp != nil {
@@ -659,7 +660,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			Message: fmt.Sprintf("upstream returned HTTP %d", res.resp.StatusCode),
 		}
 	}
-	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
+	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo, res.realModel)
 	return res.resp.StatusCode, res.resp, nil
 }
 func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request) {

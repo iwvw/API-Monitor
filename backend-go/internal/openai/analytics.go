@@ -62,6 +62,7 @@ const analyticsBatchLimit = 64
 // analyticsWriteItem 承载一次网关调用日志的落库数据与可选的 flush 哨兵。
 type analyticsWriteItem struct {
 	route, endpointID, model           string
+	realModel                          string
 	gatewayKeyID, gatewayKeyName       string
 	statusCode                         int
 	latencyMs, ttfbMs                  int64
@@ -108,16 +109,23 @@ func (s *Service) RecordAnalytics(ctx context.Context, route, endpointID, model 
 // errInfo 仅在请求失败（statusCode >= 400）时由调用方传入：Kind 为错误环节
 // （no_endpoint/bad_request/gateway/blocked/upstream/bad_gateway 等），Message 为
 // 人类可读原因，Response 为报错 JSON（应经 errorResponseForLog 截断）。成功传 nil。
+// realModel 为可选尾参：命中模型映射时传入上游真实模型名（model 存对外别名），
+// 供日志页「模型」列弹出对照；未映射时留空。
 //
 // 本方法只做内存入队（毫秒级、无 DB 锁），真正的落库与 SSE 广播由常驻 worker
 // 批量执行（见 analyticsWorker），请求路径不再承担同步 INSERT。
-func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int, failoverPath string, errInfo *AnalyticsError) {
+func (s *Service) recordAnalyticsKey(ctx context.Context, route, endpointID, model string, statusCode int, latencyMs int64, ttfbMs int64, promptTokens, completionTokens, totalTokens, cachedTokens int, stream, viaProxy int, clientIP, upstreamIP string, keyIndex int, failoverPath string, errInfo *AnalyticsError, realModel ...string) {
 	gatewayKey := gatewayKeyFromContext(ctx)
+	realModelName := ""
+	if len(realModel) > 0 {
+		realModelName = strings.TrimSpace(realModel[0])
+	}
 	s.ensureAnalyticsWorker()
 	s.enqueueAnalytics(analyticsWriteItem{
 		route:            route,
 		endpointID:       endpointID,
 		model:            model,
+		realModel:        realModelName,
 		gatewayKeyID:     gatewayKey.ID,
 		gatewayKeyName:   gatewayKey.Name,
 		statusCode:       statusCode,
@@ -214,9 +222,9 @@ func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
 			continue
 		}
 		result, execErr := tx.ExecContext(writeCtx, `
-			INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path, error_kind, error_message, response_body)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, item.endpointID, item.gatewayKeyID, item.route, item.model, item.statusCode, item.latencyMs, item.ttfbMs, item.promptTokens, item.completionTokens, item.totalTokens, item.cachedTokens, item.stream, item.viaProxy, item.clientIP, item.upstreamIP, item.keyIndex, item.failoverPath, errorKindOf(item), errorMessageOf(item), errorResponseOf(item))
+			INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, real_model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path, error_kind, error_message, response_body)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, item.endpointID, item.gatewayKeyID, item.route, item.model, item.realModel, item.statusCode, item.latencyMs, item.ttfbMs, item.promptTokens, item.completionTokens, item.totalTokens, item.cachedTokens, item.stream, item.viaProxy, item.clientIP, item.upstreamIP, item.keyIndex, item.failoverPath, errorKindOf(item), errorMessageOf(item), errorResponseOf(item))
 		if execErr != nil {
 			_ = tx.Rollback()
 			applog.Error(writeCtx, "openai", "Failed to insert gateway analytics", "error", execErr.Error())
@@ -237,6 +245,7 @@ func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
 			"endpointName":     "",
 			"gatewayKeyName":   item.gatewayKeyName,
 			"model":            item.model,
+			"realModel":        item.realModel,
 			"statusCode":       item.statusCode,
 			"latencyMs":        item.latencyMs,
 			"ttfbMs":           item.ttfbMs,
@@ -899,6 +908,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END as endpoint_name,
 			COALESCE(k.name, '未识别密钥') as gateway_key_name,
 			g.model,
+			COALESCE(g.real_model, '') as real_model,
 			g.status_code,
 			g.latency_ms,
 			g.ttfb_ms,
@@ -937,6 +947,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		EndpointName     string `json:"endpointName"`
 		GatewayKeyName   string `json:"gatewayKeyName"`
 		Model            string `json:"model"`
+		RealModel        string `json:"realModel"`
 		StatusCode       int    `json:"statusCode"`
 		LatencyMs        int64  `json:"latencyMs"`
 		TTFbMs           int64  `json:"ttfbMs"`
@@ -966,6 +977,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			&rec.EndpointName,
 			&rec.GatewayKeyName,
 			&rec.Model,
+			&rec.RealModel,
 			&rec.StatusCode,
 			&rec.LatencyMs,
 			&rec.TTFbMs,

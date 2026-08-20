@@ -435,6 +435,7 @@ var sessionProxyRequestLimit = 50
 func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	res := &relayLoopResult{
 		statusCode: http.StatusBadGateway,
+		realModel:  p.realModel,
 		egressIP:   s.egressOutbound(),
 		startTime:  time.Now(),
 	}
@@ -548,7 +549,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				Kind:     "gateway",
 				Message:  "build upstream request failed: " + err.Error(),
 				Response: errorResponseForLog(errBody, http.StatusInternalServerError),
-			})
+			}, p.realModel)
 			return res
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
@@ -846,7 +847,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				Kind:     "bad_gateway",
 				Message:  lastErr.Error(),
 				Response: errorResponseForLog(errBody, http.StatusBadGateway),
-			})
+			}, p.realModel)
 		} else {
 			// 可重试失败（429/5xx/首字或响应头超时/连接耗尽）：循环内不逐次记日志，
 			// 也不在此记账——端点级 failover 聚合会按「最终结果」记一条（含尝试次数
@@ -1151,6 +1152,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				selected:       cand,
 				endpoints:      endpointCandidates,
 				model:          model,
+				realModel:      candModel,
 				fullURL:        fullURL,
 				body:           upstreamBodyBytes,
 				stream:         stream,
@@ -1274,7 +1276,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Kind:     "upstream",
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
-		})
+		}, res.realModel)
 		writeRelayUnavailable(w, model, failCodes)
 		return
 	}
@@ -1376,7 +1378,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				Message: fmt.Sprintf("upstream returned HTTP %d (stream)", res.resp.StatusCode),
 			}
 		}
-		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
+		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo, res.realModel)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
@@ -1407,7 +1409,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				Response: errorResponseForLog(respBodyBytes, res.resp.StatusCode),
 			}
 		}
-		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.PromptTokens, usageInfo.Usage.CompletionTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.PromptTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
+		s.recordAnalyticsKey(ctx, "chat.completions", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.PromptTokens, usageInfo.Usage.CompletionTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.PromptTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo, res.realModel)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(usageInfo.Usage.TotalTokens))
@@ -2240,6 +2242,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				selected:       cand,
 				endpoints:      endpointCandidates,
 				model:          model,
+				realModel:      candModel,
 				fullURL:        fullURL,
 				body:           upstreamBodyBytes,
 				stream:         stream,
@@ -2359,7 +2362,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			Kind:     "upstream",
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
-		})
+		}, res.realModel)
 		writeRelayUnavailable(w, model, failCodes)
 		return
 	}
@@ -2455,7 +2458,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				Message: fmt.Sprintf("upstream returned HTTP %d (stream)", res.resp.StatusCode),
 			}
 		}
-		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
+		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, res.ttfbMs, promptTokens, completionTokens, totalTokens, cachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo, res.realModel)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
@@ -2486,7 +2489,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				Response: errorResponseForLog(respBodyBytes, res.resp.StatusCode),
 			}
 		}
-		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.InputTokens, usageInfo.Usage.OutputTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.InputTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo)
+		s.recordAnalyticsKey(ctx, "responses", selected.ID, model, res.resp.StatusCode, latencyMs, 0, usageInfo.Usage.InputTokens, usageInfo.Usage.OutputTokens, usageInfo.Usage.TotalTokens, usageInfo.Usage.InputTokensDetails.CachedTokens, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo, res.realModel)
 		s.recordEndpointLatency(selected.ID, latencyMs)
 		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(usageInfo.Usage.TotalTokens))
