@@ -53,6 +53,12 @@ func (s *Store) Open(ctx context.Context) (*sql.DB, error) {
 }
 
 func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
+	// auto_vacuum 是数据库级持久化属性：仅在库路径首次初始化时设置一次（由
+	// schemaOnce + WithSchemaLock 串行化），避免每个新物理连接在 connPragmas
+	// 里重复抢库文件头排他写锁（曾导致「configure sqlite ... SQLITE_BUSY」）。
+	if _, err := db.ExecContext(ctx, `PRAGMA auto_vacuum = INCREMENTAL`); err != nil {
+		return fmt.Errorf("enable auto_vacuum incremental: %w", err)
+	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS system_config (
 			key TEXT PRIMARY KEY,

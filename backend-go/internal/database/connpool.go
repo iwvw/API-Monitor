@@ -139,8 +139,12 @@ func (p *connPool) put(conn driver.Conn) error {
 	return conn.Close()
 }
 
-// connPragmas 中除 journal_mode 和 auto_vacuum（数据库级、持久化于文件）外均为连接级设置，
-// 必须对每个新物理连接执行；连接复用后不再重复。
+// connPragmas 每条都会在「新物理连接」上执行，因此只适合放连接级设置。
+// journal_mode/auto_vacuum/cache_size 等数据库级、持久化于文件的设置不应放在
+// 这里：每连接重复执行会让新连接在繁忙期抢库文件头的排他写锁（SQLITE_BUSY，
+// 例如「get session: configure sqlite (PRAGMA auto_vacuum = INCREMENTAL)」）。
+// auto_vacuum 由迁移路径（settings 数据库压缩 / github 清理）在需要时设置，
+// 连接打开阶段不再触碰。
 var connPragmas = []string{
 	"PRAGMA foreign_keys = ON",
 	"PRAGMA busy_timeout = 5000",
@@ -156,7 +160,6 @@ var connPragmas = []string{
 	"PRAGMA cache_size = -4096",
 	"PRAGMA wal_autocheckpoint = 256",
 	"PRAGMA journal_size_limit = 8388608",
-	"PRAGMA auto_vacuum = INCREMENTAL",
 }
 
 func applyConnPragmas(ctx context.Context, conn driver.Conn) error {
