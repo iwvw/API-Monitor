@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -27,7 +27,19 @@ function MultiModelSelect({ options, value, onChange }) {
   const [pos, setPos] = useState(null);
   const boxRef = useRef(null);
   const panelRef = useRef(null);
-  const selected = new Set((value || '').split(',').map((s) => s.trim()).filter(Boolean));
+  // 只统计仍存在于可用候选列表中的模型：端点上已删/停用的模型不在 options 中，
+  // 即便值里残留旧 id 也不计入已选数量，保持一致显示。
+  const optionValues = useMemo(() => new Set(options.map((o) => o.value)), [options]);
+  const selected = useMemo(
+    () =>
+      new Set(
+        (value || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s && optionValues.has(s))
+      ),
+    [value, optionValues]
+  );
   const close = () => setOpen(false);
   useEffect(() => {
     if (!open) return undefined;
@@ -190,6 +202,48 @@ function useSettingsForm() {
       }
     })();
   }, []);
+
+  // 配置多选模型仅在模型网关可用列表内收敛：端点列表删除模型后，
+  // /api/openai/models 不再返回该 id，这里自动剔除对应选中项并静默持久化，
+  // 避免已删模型仍被后端 summaryModel 引用；网关无可用模型时不清空配置。
+  const prunedRef = useRef(false);
+  useEffect(() => {
+    if (!values || loading) return undefined;
+    if (!modelOptions.length || prunedRef.current) return undefined;
+    const available = new Set(modelOptions.map((o) => o.value));
+    const next = { ...values };
+    let changed = false;
+    for (const field of SETTING_FIELDS) {
+      if (field.kind !== 'multi_select') continue;
+      const raw = String(next[field.key] || '').trim();
+      const kept = raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter((m) => m && available.has(m))
+        .join(',');
+      if (kept !== raw) {
+        next[field.key] = kept;
+        changed = true;
+      }
+    }
+    if (!changed) return undefined;
+    prunedRef.current = true;
+    setValues(next);
+    // 只写发生变化的键，避免静默覆盖用户已改但未保存的表单值；
+    // 后端按 key 逐键 INSERT OR REPLACE，缺失的键保持不变。
+    const prunedKeys = SETTING_FIELDS.filter(
+      (f) => f.kind === 'multi_select' && next[f.key] !== values[f.key]
+    );
+    if (prunedKeys.length) {
+      const body = Object.fromEntries(prunedKeys.map((f) => [f.key, next[f.key]]));
+      fetch('/api/admin-ai/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).catch(() => {});
+    }
+    return undefined;
+  }, [loading, modelOptions, values]);
 
   useEffect(() => {
     if (!savedAt) return undefined;
