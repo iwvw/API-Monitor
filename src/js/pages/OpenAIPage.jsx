@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
-import { ArrowDown, ArrowUp, CalendarDotsIcon, Info } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp, CalendarDotsIcon } from '@phosphor-icons/react';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { Button, RefreshButton } from '@cloudflare/kumo/components/button';
@@ -2612,9 +2612,9 @@ function OpenAIPage() {
           {/* Logs table and pagination */}
           <LayerCard className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
-              <Table layout="fixed" className="min-w-[1300px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
+              <Table layout="fixed" className="min-w-[1340px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
 <colgroup>
-                  <col style={{ width: 120 }} />
+                  <col style={{ width: 160 }} />
                   <col style={{ width: 104 }} />
                   <col style={{ width: 64 }} />
                   <col style={{ width: 140 }} />
@@ -2695,18 +2695,17 @@ function OpenAIPage() {
                             } : undefined}
                           >
                             <span className="inline-flex min-w-0 items-center gap-1.5">
-                              <span className="truncate">{log.model}</span>
-                              {log.realModel && log.realModel !== log.model && (
+                              {log.realModel && log.realModel !== log.model ? (
                                 <Popover>
                                   <Popover.Trigger
                                     nativeButton={false}
                                     render={
                                       <span
-                                        className="shrink-0 cursor-pointer font-sans text-kumo-subtle hover:text-kumo-strong"
-                                        title="查看映射前实际模型"
+                                        className="cursor-pointer truncate text-kumo-info hover:text-kumo-strong"
+                                        title="点击查看映射前实际模型"
                                         onClick={e => e.stopPropagation()}
                                       >
-                                        <Info className="h-3.5 w-3.5 align-middle" />
+                                        {log.model}
                                       </span>
                                     }
                                   />
@@ -2730,6 +2729,8 @@ function OpenAIPage() {
                                     </div>
                                   </Popover.Content>
                                 </Popover>
+                              ) : (
+                                <span className="truncate">{log.model}</span>
                               )}
                             </span>
                           </Table.Cell>
