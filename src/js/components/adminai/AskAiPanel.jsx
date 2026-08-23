@@ -16,6 +16,7 @@ import AdminConsole, { TAB_OPTIONS } from './AdminConsole.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { parseAdminAiEvent } from '../../modules/adminAiEvents.js';
 import {
+  MSG,
   STREAM_EVENTS,
   createUserMessage,
   createAssistantMessage,
@@ -1055,12 +1056,11 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
         setActiveSessionId(sessionId);
         setSessions((prev) => [{ id: sessionId, title: new Date().toLocaleString('zh-CN'), mode: behavior }, ...prev]);
       } catch {
+        // 创建会话失败：用现行 parts 模型落地错误消息（旧 blocks 模型已无人渲染，会变成空气泡）
         setMessages((prev) => [...prev, {
-          id: `err_${Date.now()}`,
-          role: 'assistant',
-          reasoning: '',
-          thinking: [],
-          blocks: [{ type: 'error', message: '创建会话失败，请重试', retryable: true, retryPrompt: trimmed }],
+          ...createAssistantMessage(`err_${Date.now()}`, null, MSG.ERROR),
+          active: false,
+          parts: [{ type: 'error', message: '创建会话失败，请重试', retryable: true, retryPrompt: trimmed }],
         }]);
         return;
       }

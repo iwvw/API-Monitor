@@ -187,6 +187,7 @@ function VoidRoomPage() {
   const pendingIceRef = useRef(new Map());
   const lastSignalIDRef = useRef(0);
   const stoppedRef = useRef(false);
+  const pollTimerRef = useRef(null); // 轮询定时器句柄：卸载竞态时由 cleanup 兜底再清一次
   const fileInputRef = useRef(null);
 
   useEffect(() => { roleRef.current = role; }, [role]);
@@ -202,7 +203,14 @@ function VoidRoomPage() {
   const upsertMessage = useCallback((message) => {
     setMessages((prev) => {
       const index = prev.findIndex((item) => item.id === message.id);
-      if (index === -1) return [...prev, message].slice(-120);
+      if (index === -1) {
+        const next = [...prev, message];
+        if (next.length > 120) {
+          const removed = next.splice(0, next.length - 120);
+          removed.forEach((m) => { if (m.url) URL.revokeObjectURL(m.url); });
+        }
+        return next;
+      }
       const next = [...prev];
       next[index] = { ...next[index], ...message };
       return next;
@@ -274,9 +282,14 @@ function VoidRoomPage() {
   const broadcastBlob = useCallback(async (blob, meta, excludePeerId = '') => {
     const targets = [...peersRef.current.entries()].filter(([peerId, entry]) => peerId !== excludePeerId && isOpenChannel(entry.channel));
     if (targets.length === 0) return;
-    for (const [, entry] of targets) {
-      await sendBlobOnChannel(entry.channel, blob, meta);
-    }
+    // 并发投递全部目标：单个 peer 失败不影响其余 peer 收到文件
+    await Promise.all(targets.map(async ([, entry]) => {
+      try {
+        await sendBlobOnChannel(entry.channel, blob, meta);
+      } catch {
+        // 失败目标单独忽略（房间会话中 peer 掉线是常态），剩余目标继续投递。
+      }
+    }));
   }, [sendBlobOnChannel]);
 
   const handleChannelMessage = useCallback(async (peerId, event) => {
@@ -572,6 +585,9 @@ function VoidRoomPage() {
         entry.peer?.close?.();
       }
       peersRef.current.clear();
+      for (const message of messagesRef.current) {
+        if (message.url) URL.revokeObjectURL(message.url);
+      }
     };
   }, [clientId, ensurePeer, pollSignals, postSignal, roomId]);
 

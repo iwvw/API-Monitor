@@ -157,6 +157,22 @@ function updateLastPart(msg, predicate, update) {
   return { ...msg, parts: next };
 }
 
+// 更新第一个匹配条件的 part（原地替换）。
+function updateFirstPart(msg, predicate, update) {
+  const parts = msg.parts || [];
+  let idx = -1;
+  for (let i = 0; i < parts.length; i++) {
+    if (predicate(parts[i])) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) return msg;
+  const next = parts.slice();
+  next[idx] = { ...next[idx], ...update };
+  return { ...msg, parts: next };
+}
+
 /* ---------- 主 reducer ---------- */
 
 // 轮次分段：后端 join 语义下，一次流里可能连续处理多轮追问（每轮事件带各自的
@@ -213,7 +229,13 @@ export function applyAiEvent(messages, event, targetId) {
       });
       break;
     case 'tool_result':
-      msg = updateLastPart(msg, (p) => p.type === 'tool_call' && p.toolCallId === event.toolCallId, { status: event.status, error: event.error || '' });
+      if (event.toolCallId) {
+        msg = updateLastPart(msg, (p) => p.type === 'tool_call' && p.toolCallId === event.toolCallId, { status: event.status, error: event.error || '' });
+      } else if (event.toolName) {
+        msg = updateLastPart(msg, (p) => p.type === 'tool_call' && p.toolName === event.toolName && p.status === STEP.RUNNING && !p.toolCallId, { status: event.status, error: event.error || '' });
+      } else {
+        msg = updateFirstPart(msg, (p) => p.type === 'tool_call' && p.status === STEP.RUNNING && !p.toolCallId, { status: event.status, error: event.error || '' });
+      }
       msg = appendPart(msg, {
         type: 'tool_result',
         toolName: event.toolName,

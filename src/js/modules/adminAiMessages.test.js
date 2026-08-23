@@ -90,6 +90,31 @@ describe('applyAiEvent — parts 生命周期', () => {
     expect(list[1].parts[1].status).toBe(STEP.FAILED);
   });
 
+  it('tool_result 无 toolCallId 时回退同名 RUNNING 无 id tool_call', () => {
+    let list = applyAiEvent(withTarget(), { type: 'tool_start', toolName: 'query', toolCallId: '' }, 'a1');
+    list = applyAiEvent(list, { type: 'tool_result', toolName: 'query', toolCallId: '', status: 'success', summary: 'ok' }, 'a1');
+    expect(list[1].parts[0].status).toBe(STEP.SUCCESS);
+    expect(list[1].parts[1]).toMatchObject({ type: 'tool_result', toolName: 'query', summary: 'ok' });
+  });
+
+  it('tool_result 无 toolCallId 且无 toolName 时匹配第一个 RUNNING 无 id tool_call', () => {
+    let list = applyAiEvent(withTarget(), { type: 'tool_start', toolName: 'a', toolCallId: '' }, 'a1');
+    list = applyAiEvent(list, { type: 'tool_start', toolName: 'b', toolCallId: '' }, 'a1');
+    list = applyAiEvent(list, { type: 'tool_result', toolCallId: '', status: 'success', summary: 'result' }, 'a1');
+    expect(list[1].parts[0].status).toBe(STEP.SUCCESS);
+    // 第二个 tool_call 应保持 RUNNING（只更新了第一个）
+    expect(list[1].parts[1].status).toBe(STEP.RUNNING);
+  });
+
+  it('tool_result 有 toolCallId 时不触发无 id 回退', () => {
+    let list = applyAiEvent(withTarget(), { type: 'tool_start', toolName: 'x', toolCallId: 'c1' }, 'a1');
+    list = applyAiEvent(list, { type: 'tool_start', toolName: 'y', toolCallId: '' }, 'a1');
+    // 带 id 的 result 精确匹配唯一确定，不影响无 id 工具
+    list = applyAiEvent(list, { type: 'tool_result', toolName: 'x', toolCallId: 'c1', status: 'success', summary: 'ok' }, 'a1');
+    expect(list[1].parts[0].status).toBe(STEP.SUCCESS);
+    expect(list[1].parts[1].status).toBe(STEP.RUNNING);
+  });
+
   it('done 结束消息且 roundUserMsgId 记录归属', () => {
     let list = applyAiEvent(withTarget(), { type: 'delta', text: '正文', userMessageId: 'aam_u1' }, 'a1');
     list = applyAiEvent(list, { type: 'done', userMessageId: 'aam_u1' }, 'a1');

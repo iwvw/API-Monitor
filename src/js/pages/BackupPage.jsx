@@ -138,14 +138,19 @@ export function BackupPanel({ embedded = false } = {}) {
 
   const save = async (override) => {
     const payload = override || { ...config, cron: buildSchedule(schedule) };
-    const res = await fetch('/api/backup/configs', { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!data.success) { toast.error(data.error || '保存失败'); return false; }
-    const nextConfig = { ...DEFAULT_CONFIG, ...(data.data || {}) };
-    setConfig(nextConfig);
-    setSchedule(parseSchedule(nextConfig.cron));
-    toast.success('备份配置已保存');
-    return true;
+    try {
+      const res = await fetch('/api/backup/configs', { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!data.success) { toast.error(data.error || '保存失败'); return false; }
+      const nextConfig = { ...DEFAULT_CONFIG, ...(data.data || {}) };
+      setConfig(nextConfig);
+      setSchedule(parseSchedule(nextConfig.cron));
+      toast.success('备份配置已保存');
+      return true;
+    } catch (error) {
+      toast.error(error?.message || '保存失败，请检查网络后重试');
+      return false;
+    }
   };
 
   const exportConfig = () => {
@@ -159,7 +164,7 @@ export function BackupPanel({ embedded = false } = {}) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    toast.success('备份配置已导出');
+    toast.success('备份配置已导出（包含云存储密钥，请注意保管）');
   };
 
   const importConfig = async (event) => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
@@ -533,7 +533,8 @@ function NotificationPage() {
   };
 
   // ==================== 3. 告警规则 CRUD ====================
-  const handleOpenAddRule = (overrides = {}) => {
+  // useCallback 固定引用：跨页意图 effect 依赖它，普通函数每次渲染新引用会导致 effect 结构性重跑
+  const handleOpenAddRule = useCallback((overrides = {}) => {
     setRuleForm({
       id: null,
       name: '',
@@ -557,7 +558,7 @@ function NotificationPage() {
     setTemplatePreview(null);
     setRuleModalMode('add');
     setShowRuleModal(true);
-  };
+  }, [notificationEventCatalog]);
 
   // ==================== 跨页意图：从定时任务卡片「配置通知规则」跳转而来 ====================
   // 读取 ?newRule=<cron 事件类型>（可带 workflowId/workflowName）并立即清理 URL，避免刷新或返回时重复触发。
@@ -591,6 +592,9 @@ function NotificationPage() {
     const existing = notificationRules.find(rule => rule.source_module === 'cron' && rule.event_type === ruleCreateIntent && matchesWorkflow(rule));
     if (existing) {
       setHighlightRuleId(existing.id);
+      // 意图同样要立即消费：否则依赖数组变化时 effect 反复重跑（高亮周期性闪烁），
+      // 且删掉该规则后刷新会突然弹出预填弹窗
+      setRuleCreateIntent(null); // 高亮清理由下方 timer 兜底
       const timer = window.setTimeout(() => setHighlightRuleId(null), 2500);
       return () => window.clearTimeout(timer);
     } else {

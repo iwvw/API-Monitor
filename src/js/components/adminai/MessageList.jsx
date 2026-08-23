@@ -469,7 +469,9 @@ function TimelinePart({ part, streaming, isLastPart, onResolveApproval, onRetry,
 /* ---------- 助手消息（timeline：推理/工具/正文按时间序） ---------- */
 function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, isCollapsed, toggleCollapse, mode }) {
   const parts = msg.parts || [];
-  const liveActive = !!live && !!live.runId;
+  // 仅本条消息处于流式/占位状态才打 live 徽章：markLiveMessage 只把目标消息标 STREAMING，
+  // 否则多轮会话里每条历史 assistant 消息都会误显示「正在执行工具…」
+  const liveActive = !!live && !!live.runId && isStreaming(msg.status);
   const pending = streaming && parts.length === 0;
   const hasText = parts.some((p) => p.type === 'text' && p.text);
   const textParts = parts.filter((p) => p.type === 'text');
