@@ -284,7 +284,10 @@ func TestCallLLMStreamFirstTokenTimeout(t *testing.T) {
 // --- 摘要模型多候选回退：首个失败自动尝试下一个；逗号解析去空白 ---
 
 func TestParseModelList(t *testing.T) {
-	cases := []struct{ in string; want []string }{
+	cases := []struct {
+		in   string
+		want []string
+	}{
 		{"gemini-3.1-flash-lite,gpt-oss-120b", []string{"gemini-3.1-flash-lite", "gpt-oss-120b"}},
 		{"  a , b ,, c ", []string{"a", "b", "c"}},
 		{"", nil},
@@ -334,6 +337,7 @@ func TestMemoryCaptureCooldownElapsed(t *testing.T) {
 		}
 	}
 }
+
 // --- 摘要清洗与截断：删全部标点/空白；超长按量值边界与助词回退截断 ---
 
 func TestCleanSummaryText(t *testing.T) {
@@ -476,15 +480,84 @@ func TestSummarizeReasoningFallback(t *testing.T) {
 	}
 }
 
+// 辅助链路多候选回退：简报/标题/记忆提炼共用的 callLLMPlainWithFallback，
+// 逗号分隔串首个候选不可用（5xx）或返回空正文时按序回退下一个，全部失败报错。
+func TestAuxLLMModelFallback(t *testing.T) {
+	s := newTestService(t)
+	var mu sync.Mutex
+	var called []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.Error(w, "no", http.StatusNotFound)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			Model string `json:"model"`
+		}
+		_ = json.Unmarshal(body, &req)
+		mu.Lock()
+		called = append(called, req.Model)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Model {
+		case "down-model":
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		case "empty-model":
+			fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":""}}]}`)
+			return
+		default:
+			fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"检查主机状态"}}]}`)
+			return
+		}
+	}))
+	defer ts.Close()
+	s.cfg.Port = ts.Listener.Addr().(*net.TCPAddr).Port
+
+	messages := []map[string]interface{}{{"role": "user", "content": "生成摘要"}}
+
+	// 失败候选（5xx）与空正文候选均跳过，回退到第三个
+	resp, err := s.callLLMPlainWithFallback(context.Background(), "down-model, empty-model, ok-model", messages)
+	if err != nil {
+		t.Fatalf("多候选回退应成功，实际 err=%v", err)
+	}
+	if strings.TrimSpace(resp.Content) != "检查主机状态" {
+		t.Fatalf("回退结果 = %q, want 检查主机状态", resp.Content)
+	}
+	mu.Lock()
+	order := append([]string(nil), called...)
+	mu.Unlock()
+	if len(order) != 3 || order[0] != "down-model" || order[1] != "empty-model" || order[2] != "ok-model" {
+		t.Fatalf("候选尝试顺序 = %v, want [down-model empty-model ok-model]", order)
+	}
+
+	// 会话标题生成：多候选串回退后成功
+	if title := s.generateSessionTitle(context.Background(), "down-model, ok-model", "帮我查看所有主机状态"); title != "检查主机状态" {
+		t.Fatalf("标题回退结果 = %q, want 检查主机状态", title)
+	}
+
+	// 每日简报生成：多候选串回退后成功
+	briefing, err := s.generateBriefing(context.Background(), "down-model, ok-model", "格式要求：一句话", `{"cpu":10}`)
+	if err != nil || briefing != "检查主机状态" {
+		t.Fatalf("简报回退结果 = %q err=%v, want 检查主机状态", briefing, err)
+	}
+
+	// 全部候选失败 → 返回最后一个错误
+	if _, err := s.callLLMPlainWithFallback(context.Background(), "down-model", messages); err == nil {
+		t.Fatal("全部候选失败应返回错误")
+	}
+}
+
 // --- 会话标题长度治理：≤16 保留；超长在收尾词完整处截断，避免半截词 ---
 
 func TestTrimTitle(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"并行查询系统及AI接口状态", "并行查询系统及AI接口状态"},     // 13 字 ≤16 原样
-		{"查询所有云服务器CPU使用率", "查询所有云服务器CPU使用率"},     // 14 字 ≤16 原样
-		{"ABCDEFGHIJKLMNOP状态详情报告", "ABCDEFGHIJKLMNOP状态"},   // 22 字，截断点后即收尾词"状态"：保留完整词尾（18 字）
+		{"并行查询系统及AI接口状态", "并行查询系统及AI接口状态"},                      // 13 字 ≤16 原样
+		{"查询所有云服务器CPU使用率", "查询所有云服务器CPU使用率"},                    // 14 字 ≤16 原样
+		{"ABCDEFGHIJKLMNOP状态详情报告", "ABCDEFGHIJKLMNOP状态"},        // 22 字，截断点后即收尾词"状态"：保留完整词尾（18 字）
 		{"今天下午三点检查所有域名解析记录和证书到期状态做个全面检查汇总", "今天下午三点检查所有域名解析记录"}, // 31 字，无词表命中硬切 16
 		{"", ""},
 		{"   ", ""},
@@ -544,12 +617,12 @@ func TestParallelReadonlyToolsThenWrite(t *testing.T) {
 	}
 	dbCfg.Close()
 
-// mock LLM 网关：仅主流程推理请求（携带 tools）走轮次控制；会话标题/摘要等
+	// mock LLM 网关：仅主流程推理请求（携带 tools）走轮次控制；会话标题/摘要等
 	// 辅助调用（无 tools）统一返回普通文本，避免抢占轮次计数。
 	var round int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/chat/completions" {
-body, _ := io.ReadAll(r.Body)
+			body, _ := io.ReadAll(r.Body)
 			hasTools := strings.Contains(string(body), `"tools"`)
 			w.Header().Set("Content-Type", "text/event-stream")
 			fl := w.(http.Flusher)

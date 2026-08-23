@@ -272,6 +272,25 @@ func gatewayBodyReadStatus(err error) (int, string) {
 	return http.StatusBadGateway, "gateway"
 }
 
+// upstreamBodyLimit 是非流式上游响应体的读取上限：正常 completion 响应远小于
+// 该值，超过即视为异常上游（或被劫持的代理）在倾倒超大 body，必须报错拒绝
+// 而非静默截断/全量读入，防止内存尖峰打爆网关。
+// 用 var 而非 const 以便测试注入更小的值。
+var upstreamBodyLimit int64 = 64 << 20
+
+// readUpstreamBodyLimited 读取上游响应体并施加 upstreamBodyLimit 硬上限：
+// 超限返回错误（不返回截断数据），调用方据此向客户端回 502。
+func readUpstreamBodyLimited(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, upstreamBodyLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > upstreamBodyLimit {
+		return nil, fmt.Errorf("上游响应体超过 %d MB 上限", upstreamBodyLimit>>20)
+	}
+	return body, nil
+}
+
 // trimErrorDetailRetention 清空超出保留上限（relayErrorResponseRetention）的错误详情：
 // 只更新 error_kind/error_message/response_body 列，保留调用日志行（统计不受影响）。
 // 最新记录按 timestamp DESC, id DESC 判定（同秒多记录时 id 越新越靠前）。
@@ -1011,6 +1030,19 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		viaProxy = 1
 	}
 
+	// 端点白名单候选过滤：failover 循环逐候选尝试时不再校验白名单，必须在
+	// 候选组装阶段过滤，防止白名单内端点故障时把请求打到白名单外端点。
+	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
+		filtered, newChosen := filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates, chosenIndex)
+		if len(filtered) == 0 {
+			s.rejectDisallowedEndpoints(ctx, w, "chat.completions", model, stream, clientIP, viaProxy, requestStarted)
+			return
+		}
+		endpointCandidates = filtered
+		chosenIndex = newChosen
+		selected = endpointCandidates[chosenIndex]
+	}
+
 	// 网关密钥限制：模型白名单 / 端点白名单 / token 配额。
 	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
@@ -1384,7 +1416,20 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
 		}
 	} else {
-		respBodyBytes, _ := io.ReadAll(res.resp.Body)
+		respBodyBytes, readErr := readUpstreamBodyLimited(res.resp.Body)
+		if readErr != nil {
+			// 上游响应体读取失败/超限：按网关侧 502 回错，不把截断数据写回客户端。
+			s.recordRelayError(RelayErrorRecord{
+				Route: "chat.completions", Kind: "gateway",
+				Endpoint: selected.Name, EndpointID: selected.ID,
+				Model: model, Stream: stream, Proxy: hostFromProxyURL(res.lastProxy),
+				ClientIP: clientIP, Attempts: res.attempt + 1,
+				ElapsedMs: time.Since(res.startTime).Milliseconds(),
+				Error:     "read upstream body failed: " + readErr.Error(),
+			})
+			response.JSON(w, http.StatusBadGateway, map[string]string{"error": readErr.Error()})
+			return
+		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
 		var usageInfo struct {
@@ -2138,6 +2183,19 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		viaProxy = 1
 	}
 
+	// 端点白名单候选过滤：failover 循环逐候选尝试时不再校验白名单，必须在
+	// 候选组装阶段过滤，防止白名单内端点故障时把请求打到白名单外端点。
+	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
+		filtered, newChosen := filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates, chosenIndex)
+		if len(filtered) == 0 {
+			s.rejectDisallowedEndpoints(ctx, w, "responses", model, stream, clientIP, viaProxy, requestStarted)
+			return
+		}
+		endpointCandidates = filtered
+		chosenIndex = newChosen
+		selected = endpointCandidates[chosenIndex]
+	}
+
 	// 网关密钥限制：模型白名单 / 端点白名单 / token 配额。
 	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
 		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
@@ -2464,7 +2522,20 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(totalTokens))
 		}
 	} else {
-		respBodyBytes, _ := io.ReadAll(res.resp.Body)
+		respBodyBytes, readErr := readUpstreamBodyLimited(res.resp.Body)
+		if readErr != nil {
+			// 上游响应体读取失败/超限：按网关侧 502 回错，不把截断数据写回客户端。
+			s.recordRelayError(RelayErrorRecord{
+				Route: "responses", Kind: "gateway",
+				Endpoint: selected.Name, EndpointID: selected.ID,
+				Model: model, Stream: stream, Proxy: hostFromProxyURL(res.lastProxy),
+				ClientIP: clientIP, Attempts: res.attempt + 1,
+				ElapsedMs: time.Since(res.startTime).Milliseconds(),
+				Error:     "read upstream body failed: " + readErr.Error(),
+			})
+			response.JSON(w, http.StatusBadGateway, map[string]string{"error": readErr.Error()})
+			return
+		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
 		var usageInfo struct {

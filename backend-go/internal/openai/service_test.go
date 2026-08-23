@@ -4324,3 +4324,504 @@ func TestAnalyticsChartsByDimensionCarryTokenSeries(t *testing.T) {
 		t.Fatalf("model-a tokensUncached series wrong: %+v", charts.ByModel[idx].TokensUncached)
 	}
 }
+
+// TestIsRateLimitResponseIgnoresSuccessBody 200 成功回复的正文（纯文本或 JSON
+// 成功体）恰好提及限流关键词时，不得被误判为限流：否则非流式 AutoSwitch 分支
+// 会吞掉成功回复、误冻结出口并重复计费。200+JSON 错误体（顶层 error 非空）
+// 携带限流词仍应判为限流（覆盖「200 携带错误体」的上游设计）。
+func TestIsRateLimitResponseIgnoresSuccessBody(t *testing.T) {
+	plainOK := &http.Response{StatusCode: http.StatusOK}
+	if isRateLimitResponse(plainOK, []byte("Here is how to handle rate limit errors.")) {
+		t.Fatal("200 plain-text body mentioning rate limit must not count as rate limited")
+	}
+	if isRetryableUpstreamResponse(plainOK, []byte("Here is how to handle rate limit errors.")) {
+		t.Fatal("200 plain-text body mentioning rate limit must not be retryable")
+	}
+
+	jsonOK := &http.Response{StatusCode: http.StatusOK}
+	successBody := []byte(`{"choices":[{"message":{"role":"assistant","content":"rate limit upstream error"}}],"usage":{"total_tokens":1}}`)
+	if isRateLimitResponse(jsonOK, successBody) {
+		t.Fatal("200 success JSON mentioning rate limit in content must not count as rate limited")
+	}
+	if isRetryableUpstreamResponse(jsonOK, successBody) {
+		t.Fatal("200 success JSON mentioning rate limit in content must not be retryable")
+	}
+
+	jsonErr := &http.Response{StatusCode: http.StatusOK}
+	errBody := []byte(`{"error":{"message":"rate limit exceeded, please retry"}}`)
+	if !isRateLimitResponse(jsonErr, errBody) {
+		t.Fatal("200 JSON error body with rate limit keyword should count as rate limited")
+	}
+	if !isRetryableUpstreamResponse(jsonErr, errBody) {
+		t.Fatal("200 JSON error body with rate limit keyword should be retryable")
+	}
+
+	// 顶层 error 为 null 的 200 正文不算错误体。
+	if isRateLimitResponse(&http.Response{StatusCode: http.StatusOK}, []byte(`{"error":null,"note":"rate limit"}`)) {
+		t.Fatal("200 body with null error member must not count as rate limited")
+	}
+}
+
+// TestAnthropicMessagesAllEndpointsFailedReturnsError /v1/messages 全端点失败聚合
+// 分支必须返回非 nil error：此前误返回 (503,nil,nil)，调用方静默 return，客户端
+// 收到 200 空 body 而不知道请求已失败。
+func TestAnthropicMessagesAllEndpointsFailedReturnsError(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"server exploded"}}`))
+	}))
+	defer failing.Close()
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createPayload := fmt.Sprintf(`{"name":"Anthropic Failing","baseUrl":"%s","apiKey":"k","skipVerify":true}`, failing.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["deepseek-v4-flash"]`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("all endpoints failed must surface 500, got %d body=%q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "网关无可用渠道") {
+		t.Fatalf("error body should explain gateway exhaustion, got %q", w.Body.String())
+	}
+}
+
+// TestGatewayKeyEndpointWhitelistNoFailoverBypass 网关密钥端点白名单必须约束
+// failover：白名单内端点失败后不得打到白名单外端点；候选全被过滤掉时以与
+// enforceGatewayKeyLimits 同款的白名单错误拒绝。
+func TestGatewayKeyEndpointWhitelistNoFailoverBypass(t *testing.T) {
+	var aHits, bHits int32
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&aHits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"server exploded"}}`))
+	}))
+	defer failing.Close()
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&bHits, 1)
+		okHandler(w, r)
+	}))
+	defer healthy.Close()
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	create := func(name, rawURL string) string {
+		payload := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true}`, name, rawURL)
+		rec := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(payload))
+		service.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, rec.Code, rec.Body.String())
+		}
+		var res struct {
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, rec.Body.String(), &res)
+		return res.Endpoint.ID
+	}
+	idA := create("Whitelist A", failing.URL)
+	idB := create("Outside B", healthy.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{idA, idB} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	chat := func(identity gatewayKeyIdentity) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}`))
+		r = r.WithContext(context.WithValue(r.Context(), gatewayKeyContextKey{}, identity))
+		service.ServeHTTP(w, r)
+		return w
+	}
+
+	// 白名单只含 A：A 失败后聚合失败，绝不允许 failover 到白名单外的 B。
+	w := chat(gatewayKeyIdentity{ID: "gk-1", Name: "k1", AllowedEndpoints: []string{idA}})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("exhausted whitelisted endpoint should surface 500, got %d body=%q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "网关无可用渠道") {
+		t.Fatalf("error body should explain gateway exhaustion, got %q", w.Body.String())
+	}
+	if atomic.LoadInt32(&bHits) != 0 {
+		t.Fatalf("whitelist bypass: endpoint outside whitelist was hit %d times", bHits)
+	}
+	if atomic.LoadInt32(&aHits) == 0 {
+		t.Fatal("whitelisted endpoint A should have been tried")
+	}
+
+	// 白名单端点不在候选内：以白名单错误拒绝，不触达任何端点。
+	w = chat(gatewayKeyIdentity{ID: "gk-2", Name: "k2", AllowedEndpoints: []string{"oai_missing"}})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("empty filtered candidates should be 403, got %d body=%q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "端点不在该密钥的允许列表中") {
+		t.Fatalf("error body should carry whitelist violation message, got %q", w.Body.String())
+	}
+	if atomic.LoadInt32(&bHits) != 0 {
+		t.Fatalf("rejected request must not reach endpoint B, hits=%d", bHits)
+	}
+}
+
+// TestTrimSessionBindings 会话绑定表的容量上限与过期清理：未达容量不动；
+// 达容量先剔除空闲过期条目；仍达容量则整体重建（会话 key 客户端可控，防泄漏）。
+func TestTrimSessionBindings(t *testing.T) {
+	now := time.Now()
+	stale := now.Add(-2 * time.Hour)
+	fresh := now.Add(-time.Minute)
+
+	state := newEndpointProxyState()
+	for i := 0; i < sessionBindingMax-1; i++ {
+		state.sessionBindings[fmt.Sprintf("s-%d", i)] = &sessionBinding{proxy: "p", updatedAt: stale}
+	}
+	trimSessionBindings(state, now)
+	if len(state.sessionBindings) != sessionBindingMax-1 {
+		t.Fatalf("below cap must keep all bindings, got %d", len(state.sessionBindings))
+	}
+
+	// 达容量且含过期条目：仅剔除过期，新鲜条目保留。
+	state.sessionBindings["fresh"] = &sessionBinding{proxy: "p", updatedAt: fresh}
+	trimSessionBindings(state, now)
+	if len(state.sessionBindings) != 1 {
+		t.Fatalf("stale entries should be pruned at cap, got %d", len(state.sessionBindings))
+	}
+	if _, ok := state.sessionBindings["fresh"]; !ok {
+		t.Fatal("fresh binding must survive pruning")
+	}
+
+	// 达容量且全部新鲜：整体重建，防止客户端可控的 session key 无限增长。
+	for i := 0; i < sessionBindingMax; i++ {
+		state.sessionBindings[fmt.Sprintf("f-%d", i)] = &sessionBinding{proxy: "p", updatedAt: fresh}
+	}
+	trimSessionBindings(state, now)
+	if len(state.sessionBindings) != 0 {
+		t.Fatalf("cap exceeded with all-fresh entries should rebuild, got %d", len(state.sessionBindings))
+	}
+}
+
+// TestMessagesRequestBodyLimit413 /v1/messages 请求体必须有与 chat/responses
+// 一致的上限：超限返回 413，而不是全量读入内存。
+func TestMessagesRequestBodyLimit413(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service.bodyMaxBytes = 256
+
+	big := `{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"` + strings.Repeat("x", 4096) + `"}]}`
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/v1/messages", strings.NewReader(big))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized messages body should be 413, got %d body=%q", w.Code, w.Body.String())
+	}
+}
+
+// TestReadUpstreamBodyLimited 非流式上游响应体读取必须施加硬上限：
+// 恰好等于上限可通过，超限返回错误（不静默截断）。
+func TestReadUpstreamBodyLimited(t *testing.T) {
+	old := upstreamBodyLimit
+	upstreamBodyLimit = 1024
+	defer func() { upstreamBodyLimit = old }()
+
+	body, err := readUpstreamBodyLimited(bytes.NewReader(bytes.Repeat([]byte("a"), 1024)))
+	if err != nil || len(body) != 1024 {
+		t.Fatalf("body at limit should pass, got len=%d err=%v", len(body), err)
+	}
+	if _, err := readUpstreamBodyLimited(bytes.NewReader(bytes.Repeat([]byte("a"), 1025))); err == nil || !strings.Contains(err.Error(), "上限") {
+		t.Fatalf("body over limit must error (not truncate), got %v", err)
+	}
+}
+
+// TestEgressOutboundIPSingleflightAndNegativeCache 出口 IP 探测的并发合并与
+// 失败负缓存：缓存过期瞬间的并发请求只触发一次探测；探测失败短 TTL 内不重复出网。
+func TestEgressOutboundIPSingleflightAndNegativeCache(t *testing.T) {
+	resetEgressState := func() {
+		egressIPCache.Lock()
+		egressIPCache.entry = egressEntry{}
+		egressIPCache.Unlock()
+		egressProbeFlight.Lock()
+		egressProbeFlight.inflight = nil
+		egressProbeFlight.Unlock()
+	}
+	resetEgressState()
+	defer resetEgressState()
+
+	var calls int32
+	probe := func() string {
+		atomic.AddInt32(&calls, 1)
+		time.Sleep(80 * time.Millisecond)
+		return "198.51.100.7"
+	}
+	const n = 16
+	results := make([]string, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results[i] = egressOutboundIPOnce(probe)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("concurrent calls should share one probe, got %d", got)
+	}
+	for i, r := range results {
+		if r != "198.51.100.7" {
+			t.Fatalf("result[%d] = %q, want 198.51.100.7", i, r)
+		}
+	}
+
+	// 缓存有效期内不重复探测。
+	if got := egressOutboundIPOnce(probe); got != "198.51.100.7" {
+		t.Fatalf("cached call = %q", got)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("cached call must not probe again, calls=%d", calls)
+	}
+
+	// 探测失败：负缓存短 TTL 内不重复探测。
+	resetEgressState()
+	var failCalls int32
+	failProbe := func() string {
+		atomic.AddInt32(&failCalls, 1)
+		return ""
+	}
+	if got := egressOutboundIPOnce(failProbe); got != "" {
+		t.Fatalf("failed probe should return empty, got %q", got)
+	}
+	if got := egressOutboundIPOnce(failProbe); got != "" {
+		t.Fatalf("negative-cached call should return empty, got %q", got)
+	}
+	if atomic.LoadInt32(&failCalls) != 1 {
+		t.Fatalf("failed probe must be negative-cached, calls=%d", failCalls)
+	}
+}
+
+// TestImportExportExtendedKeysRoundTrip 导出的扩展 key 是明文，导入时必须对
+// 整个明文 JSON 数组整串加密（与读取端对称）：导出→导入→列表读取应还原明文 key。
+// 此前导入端逐 key 加密后组数组，读取端整串解密失败，导入的扩展 key 全部失效。
+func TestImportExportExtendedKeysRoundTrip(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	defer upstream.Close()
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createPayload := fmt.Sprintf(`{"name":"ExtKeys","baseUrl":"%s","apiKey":"k","apiKeys":["ext-a","ext-b"],"skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+
+	// 导出。
+	wExport := httptest.NewRecorder()
+	rExport, _ := http.NewRequest("GET", "/api/openai/export", nil)
+	service.ServeHTTP(wExport, rExport)
+	if wExport.Code != http.StatusOK {
+		t.Fatalf("export status = %d body=%s", wExport.Code, wExport.Body.String())
+	}
+	var exported struct {
+		Success   bool       `json:"success"`
+		Endpoints []Endpoint `json:"endpoints"`
+	}
+	mustDecode(t, wExport.Body.String(), &exported)
+	if len(exported.Endpoints) != 1 || len(exported.Endpoints[0].APIKeys) != 2 {
+		t.Fatalf("export should carry plaintext extended keys, got %+v", exported.Endpoints)
+	}
+
+	// 导入（覆盖）。
+	importPayload, _ := json.Marshal(map[string]interface{}{"endpoints": exported.Endpoints, "overwrite": true})
+	wImport := httptest.NewRecorder()
+	rImport, _ := http.NewRequest("POST", "/api/openai/import", bytes.NewReader(importPayload))
+	service.ServeHTTP(wImport, rImport)
+	if wImport.Code != http.StatusOK {
+		t.Fatalf("import status = %d body=%s", wImport.Code, wImport.Body.String())
+	}
+
+	// 列表读取：扩展 key 应还原为明文。
+	wList := httptest.NewRecorder()
+	rList, _ := http.NewRequest("GET", "/api/openai/endpoints", nil)
+	service.ServeHTTP(wList, rList)
+	var list []Endpoint
+	mustDecode(t, wList.Body.String(), &list)
+	if len(list) != 1 {
+		t.Fatalf("imported endpoints = %d, want 1", len(list))
+	}
+	keys := list[0].APIKeys
+	if len(keys) != 2 || keys[0] != "ext-a" || keys[1] != "ext-b" {
+		t.Fatalf("extended keys must round-trip to plaintext, got %+v", keys)
+	}
+}
+
+// TestUpdateEndpointVerifyOnlyOnChange 端点更新仅在 API Key 或归一化后的地址
+// 实际变化时触发上游验证/拉模型：前端全量提交（baseUrl 必填）的同值保存不得打上游。
+func TestUpdateEndpointVerifyOnlyOnChange(t *testing.T) {
+	var hits, hits2 int32
+	newUpstream := func(counter *int32) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(counter, 1)
+			if strings.HasSuffix(r.URL.Path, "/models") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+				return
+			}
+			okHandler(w, r)
+		}))
+	}
+	upstream := newUpstream(&hits)
+	defer upstream.Close()
+	upstream2 := newUpstream(&hits2)
+	defer upstream2.Close()
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createPayload := fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+	id := createRes.Endpoint.ID
+
+	update := func(payload string) int {
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("PUT", "/api/openai/endpoints/"+id, strings.NewReader(payload))
+		service.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	// 同值全量提交（baseUrl 未变、key 未变）：不触发上游验证/拉模型。
+	base := atomic.LoadInt32(&hits)
+	same := fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k1"}`, upstream.URL)
+	if code := update(same); code != http.StatusOK {
+		t.Fatalf("unchanged update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits); got != base {
+		t.Fatalf("unchanged update must not hit upstream, hits %d -> %d", base, got)
+	}
+
+	// 再次同值提交（key 已是 k1）：同样不触发。
+	if code := update(same); code != http.StatusOK {
+		t.Fatalf("second unchanged update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits); got != base {
+		t.Fatalf("repeated unchanged update must not hit upstream, hits %d -> %d", base, got)
+	}
+
+	// Key 变化：触发验证。
+	if code := update(fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k2"}`, upstream.URL)); code != http.StatusOK {
+		t.Fatalf("key-change update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits); got == base {
+		t.Fatal("key change must trigger upstream verification")
+	}
+
+	// 地址变化：触发验证（打新地址）。
+	before2 := atomic.LoadInt32(&hits2)
+	if code := update(fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k2"}`, upstream2.URL)); code != http.StatusOK {
+		t.Fatalf("url-change update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits2); got == before2 {
+		t.Fatal("base URL change must trigger upstream verification")
+	}
+}
+
+// TestUpdateEndpointKeepsModelsOnVerifyFailure 端点更新触发验证但验证失败
+// （上游不可达）时，必须保留旧模型列表：瞬时故障不应清空端点已获取的模型。
+func TestUpdateEndpointKeepsModelsOnVerifyFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createPayload := fmt.Sprintf(`{"name":"Keep Models","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		upstream.Close()
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		upstream.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4","gpt-4o"]`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		upstream.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 上游下线后变更 key：验证必然失败，模型列表必须保留。
+	upstream.Close()
+	wUpdate := httptest.NewRecorder()
+	rUpdate, _ := http.NewRequest("PUT", "/api/openai/endpoints/"+createRes.Endpoint.ID, strings.NewReader(`{"name":"Keep Models","apiKey":"k2"}`))
+	service.ServeHTTP(wUpdate, rUpdate)
+	if wUpdate.Code != http.StatusOK {
+		t.Fatalf("update status = %d body=%s", wUpdate.Code, wUpdate.Body.String())
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&modelsRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
+		t.Fatalf("verify failure must keep existing models, got %q", modelsRaw)
+	}
+}

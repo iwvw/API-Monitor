@@ -13,14 +13,20 @@ import (
 
 // fakeQueueChannel 记录出站消息的伪频道（排队测试用）。
 type fakeQueueChannel struct {
-	mu     sync.Mutex
-	sent   []string
-	edited []string
+	mu        sync.Mutex
+	sent      []string
+	edited    []string
+	stopCalls int
 }
 
-func (f *fakeQueueChannel) ID() string { return "telegram" }
+func (f *fakeQueueChannel) ID() string                  { return "telegram" }
 func (f *fakeQueueChannel) Start(context.Context) error { return nil }
-func (f *fakeQueueChannel) Stop(context.Context) error  { return nil }
+func (f *fakeQueueChannel) Stop(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopCalls++
+	return nil
+}
 func (f *fakeQueueChannel) Send(_ context.Context, to string, msg channel.OutboundMessage) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -137,5 +143,31 @@ func TestChannelQueueTimeout(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected queue timeout notice, got %v", edited)
+	}
+}
+
+// stopChannelInstance 停止后从注册表移除实例：旧实例不再被复用，
+// 重复停止也不会对同一实例二次 Stop（修复前残留实例会导致重复 close panic）。
+func TestStopChannelInstanceUnregisters(t *testing.T) {
+	s, fc := queueTestService(t)
+
+	s.stopChannelInstance("telegram")
+	if _, ok := s.chanMgr.registry.Get("telegram"); ok {
+		t.Fatal("停止后实例应从注册表移除")
+	}
+	fc.mu.Lock()
+	calls := fc.stopCalls
+	fc.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("Stop 应恰好调用一次，实际 %d 次", calls)
+	}
+
+	// 二次停止（如连续两次 stop 操作）：注册表已无实例，不再触发 Stop
+	s.stopChannelInstance("telegram")
+	fc.mu.Lock()
+	calls = fc.stopCalls
+	fc.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("重复停止不应再次 Stop，实际 %d 次", calls)
 	}
 }

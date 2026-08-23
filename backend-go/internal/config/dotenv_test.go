@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +46,27 @@ func TestLoadDotEnvFillsOnlyUnset(t *testing.T) {
 	}
 	if got := os.Getenv("DOTENV_B"); got != "from-process" {
 		t.Errorf("DOTENV_B = %q, want from-process (existing env must win)", got)
+	}
+}
+
+// Windows 记事本保存的 .env 首行带 UTF-8 BOM：不剥离会让首个键名带上
+// 不可见前缀而静默失效；超长行（>64KB 默认扫描上限）不得截断后续内容。
+func TestReadDotEnvFileBOMAndLongLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+	longValue := strings.Repeat("v", 256*1024)
+	content := "\uFEFFFIRST_KEY=first\nLONG_KEY=" + longValue + "\nLAST_KEY=last\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	values := readDotEnvFile(path)
+	if values["FIRST_KEY"] != "first" {
+		t.Errorf("FIRST_KEY = %q (BOM must be stripped from first key)", values["FIRST_KEY"])
+	}
+	if values["LONG_KEY"] != longValue {
+		t.Errorf("LONG_KEY length = %d, want %d (long line must not be truncated)", len(values["LONG_KEY"]), len(longValue))
+	}
+	if values["LAST_KEY"] != "last" {
+		t.Errorf("LAST_KEY = %q (lines after a long line must be parsed)", values["LAST_KEY"])
 	}
 }

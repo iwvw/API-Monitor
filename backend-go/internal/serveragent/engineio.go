@@ -34,6 +34,10 @@ const maxPendingMessagesPerSession = 128
 // maxEngineIOPostBytes 是 Engine.IO polling POST 请求体的读取上限。
 const maxEngineIOPostBytes = 64 << 20
 
+// engineIOWSReadLimit 是 Engine.IO WebSocket 单连接读取上限，
+// 与 POST 上限取值一致；变量形式仅供测试注入较小值验证超限断开。
+var engineIOWSReadLimit int64 = maxEngineIOPostBytes
+
 // SocketIOPacketType Socket.IO 包类型
 type SocketIOPacketType int
 
@@ -144,6 +148,9 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		defer conn.Close()
+		// 读取上限：gorilla 默认无限制，/socket.io/ 匿名可达，
+		// 超大帧会全量缓冲导致内存被单连接打爆；超限帧读取报错并断开。
+		conn.SetReadLimit(engineIOWSReadLimit)
 
 		session.mu.Lock()
 		session.wsConn = conn
@@ -179,6 +186,8 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer conn.Close()
+	// 读取上限约束同上：匿名可达的升级路径必须限制单帧大小。
+	conn.SetReadLimit(engineIOWSReadLimit)
 
 	// 更新传输类型和 WebSocket 连接
 	// 重升级（浏览器重连到同一 sid）时先关闭旧连接：否则旧连接读循环
@@ -263,12 +272,12 @@ func (s *EngineIOServer) handleWebSocketMessages(session *EngineIOSession, conn 
 					if len(socketPayload) > 0 && socketPayload[0] == '0' {
 						connectData := socketPayload[1:]
 
-// 检查是否为 /metrics 命名空间连接
-					// 前端发送 "40/metrics," 或 "40/metrics,{}"
-					if strings.HasPrefix(connectData, "/metrics") {
-						session.mu.Lock()
-						session.Namespace = "/metrics"
-						session.mu.Unlock()
+						// 检查是否为 /metrics 命名空间连接
+						// 前端发送 "40/metrics," 或 "40/metrics,{}"
+						if strings.HasPrefix(connectData, "/metrics") {
+							session.mu.Lock()
+							session.Namespace = "/metrics"
+							session.mu.Unlock()
 
 							if s.metricsHub != nil {
 								s.metricsHub.Register(session.ID, session)

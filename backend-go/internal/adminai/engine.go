@@ -30,7 +30,7 @@ const (
 	defaultRunTimeoutSec = 600
 	contentSizeLimit     = 64 * 1024
 	eventChBuffer        = 128
-	maxToolRetries       = 3 // 工具调用失败后的自动重试次数
+	maxToolRetries       = 3  // 工具调用失败后的自动重试次数
 	maxLLMRetries        = 10 // LLM 上游可恢复错误（网络/5xx/限流/超时）的单模型重试上限
 	llmRetryBaseDelayMs  = 500
 	llmRetryMaxDelayMs   = 8000
@@ -294,7 +294,7 @@ const (
 	adminAIKeyContextWindow          = "admin_ai_context_window"
 
 	adminAIKeyMaxConcurrentRuns = "admin_ai_max_concurrent_runs" // 全局并发执行上限
-	adminAIKeySummaryModel           = "admin_ai_summary_model" // 推理摘要专用模型（留空回退默认模型）
+	adminAIKeySummaryModel      = "admin_ai_summary_model"       // 推理摘要专用模型（留空回退默认模型）
 )
 
 const defaultMemoriesBootstrapChars = 2000
@@ -804,11 +804,11 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 				toolCount++
 
 				tcID, _ := randomID("aatc_")
-s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
-					"toolName":   tc.Function.Name,
-					"toolCallId": tcID,
-					"args":       tc.Function.Arguments,
-					"desc":       s.toolDesc(tc.Function.Name, tc.Function.Arguments),
+				s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
+					"toolName":      tc.Function.Name,
+					"toolCallId":    tcID,
+					"args":          tc.Function.Arguments,
+					"desc":          s.toolDesc(tc.Function.Name, tc.Function.Arguments),
 					"userMessageId": userMsgID,
 				}})
 
@@ -914,14 +914,14 @@ s.emit(eventCh, SSEEvent{Type: "tool_start", Fields: map[string]interface{}{
 
 				s.emit(eventCh, SSEEvent{Type: "tool_result", Fields: map[string]interface{}{"toolName": st.tc.Function.Name, "toolCallId": st.tcID, "status": status, "summary": summary, "userMessageId": userMsgID}})
 
-tcFinished := time.Now().UTC().Format(time.RFC3339)
-			_, _ = db.ExecContext(runCtx,
-				`UPDATE admin_ai_tool_calls SET status = ?, output_summary = ?, finished_at = ? WHERE id = ?`,
-				status, summary, tcFinished, st.tcID)
+				tcFinished := time.Now().UTC().Format(time.RFC3339)
+				_, _ = db.ExecContext(runCtx,
+					`UPDATE admin_ai_tool_calls SET status = ?, output_summary = ?, finished_at = ? WHERE id = ?`,
+					status, summary, tcFinished, st.tcID)
 
-			_ = execBusyRetry(runCtx, db,
-				`INSERT INTO admin_ai_messages (id, session_id, role, content, tool_call_id, tool_status, created_at) VALUES (?, ?, 'tool', ?, ?, ?, ?)`,
-				nextID(runCtx, db, "aam_"), sessionID, summary, st.tc.ID, status, tcFinished)
+				_ = execBusyRetry(runCtx, db,
+					`INSERT INTO admin_ai_messages (id, session_id, role, content, tool_call_id, tool_status, created_at) VALUES (?, ?, 'tool', ?, ?, ?, ?)`,
+					nextID(runCtx, db, "aam_"), sessionID, summary, st.tc.ID, status, tcFinished)
 				messages = append(messages, historyMsg{Role: "tool", Content: summary, ToolCallID: st.tc.ID})
 			}
 			continue
@@ -1004,9 +1004,10 @@ func (s *Service) emit(ch chan SSEEvent, event SSEEvent) {
 
 // drainRunEvents 消费 run 的事件流并回调解调器，直到收到终态（done/error）或 run 结束。
 // 兼容「实时通道存在」（cron/频道同源订阅）与「已被 SSE 领走/已结束」（回退环形缓冲重放）：
-// - 实时通道存在时优先实时读取，通道由 runInference 无条件关闭，读完即返回；
-// - 通道缺失（被 streamEvents 领走）时退化为缓冲尾部轮询，终态仍可拿到，
-//   避免 cron/频道等非 SSE 消费端因拿不到通道而永久挂起或误报「执行不存在」。
+//   - 实时通道存在时优先实时读取，通道由 runInference 无条件关闭，读完即返回；
+//   - 通道缺失（被 streamEvents 领走）时退化为缓冲尾部轮询，终态仍可拿到，
+//     避免 cron/频道等非 SSE 消费端因拿不到通道而永久挂起或误报「执行不存在」。
+//
 // 返回是否读取到终态事件。
 func (s *Service) drainRunEvents(ctx context.Context, runID string, onEvent func(SSEEvent)) (terminal bool) {
 	s.mu.Lock()
@@ -1416,6 +1417,32 @@ func (s *Service) callLLM(ctx context.Context, model string, messages []map[stri
 func (s *Service) callLLMPlain(ctx context.Context, model string, messages []map[string]interface{}) (*llmResponse, error) {
 	reqBody := map[string]interface{}{"model": model, "messages": messages}
 	return s.callLLMWithBody(ctx, reqBody)
+}
+
+// callLLMPlainWithFallback 是辅助链路（每日简报/记忆提炼/会话标题）共用的
+// 多候选按序回退调用：模型串支持逗号分隔（复用 splitModelList 解析，与主对话
+// 一致），某候选调用失败或返回空正文时自动切换下一个，全部失败返回最后一个错误。
+func (s *Service) callLLMPlainWithFallback(ctx context.Context, modelSpec string, messages []map[string]interface{}) (*llmResponse, error) {
+	var lastErr error
+	for _, model := range splitModelList(modelSpec) {
+		resp, err := s.callLLMPlain(ctx, model, messages)
+		if err != nil {
+			lastErr = err
+			slog.Warn("aux-llm-model-fallback", "model", model, "err", sanitizeToolError(err).Error())
+			continue
+		}
+		if strings.TrimSpace(resp.Content) == "" && len(resp.Choices) > 0 {
+			resp.Content = strings.TrimSpace(resp.Choices[0].Message.Content)
+		}
+		if strings.TrimSpace(resp.Content) != "" {
+			return resp, nil
+		}
+		lastErr = fmt.Errorf("模型 %s 返回空正文", model)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("未配置可用模型")
+	}
+	return nil, lastErr
 }
 
 func (s *Service) callLLMWithBody(ctx context.Context, reqBody map[string]interface{}) (*llmResponse, error) {
@@ -1976,6 +2003,7 @@ func (s *Service) generateSessionTitleAsync(ctx context.Context, sessionID, mode
 }
 
 // generateSessionTitle 用同一模型生成 ≤16 字的会话标题；失败返回空串（调用方回退截断）。
+// model 支持逗号分隔多候选，某候选失败自动回退下一个（与主对话回退语义一致）。
 func (s *Service) generateSessionTitle(ctx context.Context, model, prompt string) string {
 	if strings.TrimSpace(prompt) == "" {
 		return ""
@@ -1984,15 +2012,12 @@ func (s *Service) generateSessionTitle(ctx context.Context, model, prompt string
 		{"role": "system", "content": titleSystemPrompt},
 		{"role": "user", "content": truncateContent(prompt)},
 	}
-	resp, err := s.callLLMPlain(ctx, model, messages)
+	resp, err := s.callLLMPlainWithFallback(ctx, model, messages)
 	if err != nil {
 		slog.Warn("session-title-failed", "err", err.Error())
 		return ""
 	}
 	text := strings.TrimSpace(resp.Content)
-	if text == "" && len(resp.Choices) > 0 {
-		text = strings.TrimSpace(resp.Choices[0].Message.Content)
-	}
 	text = strings.Trim(text, "\"'「」『』()（）:：")
 	return trimTitle(text)
 }
@@ -2412,15 +2437,15 @@ func (s *Service) executeReadOnlyTool(ctx context.Context, toolName string, args
 		// 避免返回「假契约」诱导模型据此发起调用（审计实证：GET /api/scheduler 404）。
 		// 与 validateCallAPIPath 保持一致：匹配前先剥离 query string，
 		// 避免模型按 call_api 习惯带 ?page=1 时误报「路径不存在」。
-matchPath := path
-	if i := strings.IndexByte(matchPath, '?'); i >= 0 {
-		matchPath = matchPath[:i]
-	}
-	// 尾斜杠归一化（保留根路径 "/"）：与 call_api 预检一致，
-	// 避免同一路径在 get_route 判「不存在」而 call_api 放行的矛盾。
-	if len(matchPath) > 1 {
-		matchPath = strings.TrimRight(matchPath, "/")
-	}
+		matchPath := path
+		if i := strings.IndexByte(matchPath, '?'); i >= 0 {
+			matchPath = matchPath[:i]
+		}
+		// 尾斜杠归一化（保留根路径 "/"）：与 call_api 预检一致，
+		// 避免同一路径在 get_route 判「不存在」而 call_api 放行的矛盾。
+		if len(matchPath) > 1 {
+			matchPath = strings.TrimRight(matchPath, "/")
+		}
 		if desc, ok := prefixes[matchPath]; ok {
 			children := s.catalogChildrenOf(matchPath)
 			hint := "该路径是聚合前缀（模块总入口"
@@ -2660,17 +2685,26 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 			return nil, err
 		}
 		if !autoApprove {
-			// 定时 AI 任务（X-Internal-Cron）策略：readonly 时写操作直接拒绝，
-			// allow 时该次执行内写操作免审批（仍受下方「写操作全局开关」硬约束）。
+			// 定时 AI 任务（X-Internal-Cron）策略：readonly 时写操作直接拒绝；
+			// allow 时该次执行内写操作免审批，但「写操作全局开关」是硬底线，
+			// 必须先校验通过（关闭时拒绝），不得借定时任务绕过。
 			s.mu.Lock()
 			runID := s.sessionRuns[sessionID]
 			policy := s.runPolicy[runID]
+			s.mu.Unlock()
 			if policy == "readonly" {
-				s.mu.Unlock()
 				return nil, fmt.Errorf("readonly 策略禁止写操作")
 			}
-			autoApprove = policy == "allow"
-			s.mu.Unlock()
+			if policy == "allow" {
+				writeAllowed, err := s.getWriteEnabled(ctx, db)
+				if err != nil {
+					return nil, err
+				}
+				if !writeAllowed {
+					return nil, fmt.Errorf("写操作未启用")
+				}
+				autoApprove = true
+			}
 		}
 		if !autoApprove {
 			// 会话级写授权（“允许此对话”）优先于全局开关，授权后本会话后续写操作免审批
@@ -2699,9 +2733,16 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 				s.approval[approvalID] = approvalCh
 				s.mu.Unlock()
 
-				_, _ = db.ExecContext(ctx,
+				// 落库走忙锁重试；失败必须撤销已注册的等待通道并立即返回错误：
+				// 否则执行会静默挂起等待 30 分钟，而用户批准时因无 pending 行必然 409。
+				if err := execBusyRetry(ctx, db,
 					`INSERT INTO admin_ai_approvals (id, session_id, tool_call_id, status, plan_summary, method, path, body_snapshot, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-					approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now)
+					approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now); err != nil {
+					s.mu.Lock()
+					delete(s.approval, approvalID)
+					s.mu.Unlock()
+					return nil, fmt.Errorf("创建审批记录失败: %w", err)
+				}
 
 				s.emit(eventCh, SSEEvent{Type: "approval_required", Fields: map[string]interface{}{
 					"approvalId":   approvalID,

@@ -129,14 +129,16 @@ func (t *TelegramChannel) Start(ctx context.Context) error {
 		}
 	}
 }
-// Stop 停止轮询。
+
+// Stop 停止轮询（幂等：关闭后置 nil，重复调用不会二次 close 同一通道）。
 func (t *TelegramChannel) Stop(ctx context.Context) error {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.stop != nil {
 		close(t.stop)
+		t.stop = nil
 	}
 	t.state = StateStopped
-	t.mu.Unlock()
 	return nil
 }
 

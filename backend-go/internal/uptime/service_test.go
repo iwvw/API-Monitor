@@ -423,6 +423,116 @@ func TestConcurrentChecksDoNotDuplicateIncidents(t *testing.T) {
 		t.Fatalf("concurrent checks must create exactly one incident, open=%d total=%d", openCount, total)
 	}
 }
+
+func TestConcurrentRecordPushAndCheckSerialize(t *testing.T) {
+	service, notifier := testService(t, true)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	res := performRequest(service, http.MethodPost, "/api/uptime/monitors", `{
+		"name":"push-race",
+		"type":"push",
+		"active":true,
+		"interval":60,
+		"push_token":"tok-race",
+		"down_confirm_count":1,
+		"up_confirm_count":1,
+		"push_grace_seconds":60
+	}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create monitor status = %d body=%s", res.Code, res.Body.String())
+	}
+	var created map[string]interface{}
+	mustDecode(t, res, &created)
+	id := int64Value(created["id"], 0)
+	token := stringValue(created["pushToken"], "")
+	if id == 0 || token == "" {
+		t.Fatalf("unexpected push monitor: %#v", created)
+	}
+	service.stopMonitor(id)
+
+	ctx := context.Background()
+	monitor, ok, err := loadMonitor(ctx, db, id)
+	if err != nil || !ok {
+		t.Fatalf("load monitor: ok=%v err=%v", ok, err)
+	}
+
+	// 初始无心跳：先开启唯一 incident，进入 down 状态。
+	if _, err := service.check(ctx, db, monitor); err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM uptime_incidents WHERE monitor_id = ?`, id).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("setup must create exactly one incident, total=%d", total)
+	}
+
+	// recordPush 必须与 check 共享同一 per-monitor 互斥锁：
+	// 测试先持有该锁，recordPush 应阻塞直至锁释放。
+	blockUnlock := service.lockMonitor(id)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pushRes := performRequest(service, http.MethodPost, "/api/uptime/push/"+token, `{}`)
+		if pushRes.Code != http.StatusOK {
+			t.Errorf("push heartbeat status = %d body=%s", pushRes.Code, pushRes.Body.String())
+		}
+	}()
+	select {
+	case <-done:
+		t.Fatal("recordPush must block while the monitor lock is held by a concurrent check")
+	case <-time.After(200 * time.Millisecond):
+	}
+	blockUnlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("recordPush did not finish after the monitor lock was released")
+	}
+
+	// 并发 push 心跳与定时检查：恢复通知只触发一次，也不会因交错读改写再开新 incident。
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			pushRes := performRequest(service, http.MethodPost, "/api/uptime/push/"+token, `{}`)
+			if pushRes.Code != http.StatusOK {
+				t.Errorf("push heartbeat status = %d body=%s", pushRes.Code, pushRes.Body.String())
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			_, _ = service.check(ctx, db, monitor)
+		}()
+	}
+	wg.Wait()
+
+	upEvents := 0
+	for _, event := range notifier.snapshot() {
+		if event == "uptime:up" {
+			upEvents++
+		}
+	}
+	if upEvents != 1 {
+		t.Fatalf("concurrent push+check must resolve exactly once, uptime:up events=%d", upEvents)
+	}
+	var openCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM uptime_incidents WHERE monitor_id = ? AND resolved_at IS NULL`, id).Scan(&openCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM uptime_incidents WHERE monitor_id = ?`, id).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if openCount != 0 || total != 1 {
+		t.Fatalf("concurrent push+check must keep single resolved incident, open=%d total=%d", openCount, total)
+	}
+}
 func TestMaintenanceRowActiveEvaluatesCron(t *testing.T) {
 	at := time.Date(2026, 8, 18, 10, 30, 0, 0, time.UTC)
 

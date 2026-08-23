@@ -314,9 +314,12 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 		var subscriptionID, planID, cycleType, createdAt string
 		var totalBytes int64
 		var cycleDay int
-		err = tx.QueryRowContext(ctx, `SELECT s.id,COALESCE(s.plan_id,''),COALESCE(p.total_bytes,0),COALESCE(p.cycle_type,'none'),COALESCE(p.cycle_day,1),COALESCE(s.created_at,datetime('now'))
+		// 周期/配额口径：plan 型订阅取套餐，profile 型（plan_id=''）回退到
+		// 所属 profile，保证记账窗口与面板展示、凭据下发使用同一来源。
+		err = tx.QueryRowContext(ctx, `SELECT s.id,COALESCE(s.plan_id,''),COALESCE(p.total_bytes,pf.total_bytes,0),COALESCE(p.cycle_type,pf.cycle_type,'none'),COALESCE(p.cycle_day,pf.cycle_day,1),COALESCE(s.created_at,datetime('now'))
 		FROM subscription_subscriptions s
 		LEFT JOIN subscription_plans p ON p.id=s.plan_id
+		LEFT JOIN subscription_profiles pf ON pf.id=s.profile_id
 		WHERE s.id=? OR s.vless_uuid=? OR s.hysteria2_password=?
 		LIMIT 1`, report.CredentialID, report.CredentialID, report.CredentialID).Scan(&subscriptionID, &planID, &totalBytes, &cycleType, &cycleDay, &createdAt)
 		if err != nil {
@@ -348,7 +351,7 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 				OR
 				(s.plan_id = '' AND s.profile_id != '' AND EXISTS(
 					SELECT 1 FROM subscription_profiles pf
-					WHERE pf.id=s.profile_id AND pf.include_internal_nodes=1
+					WHERE pf.id=s.profile_id AND pf.enabled=1 AND pf.include_internal_nodes=1
 					AND (COALESCE(pf.selection_mode,'explicit')='all' OR EXISTS(
 						SELECT 1 FROM subscription_plan_nodes pn
 						WHERE pn.plan_id=pf.id AND pn.node_id=n.id AND pn.source='internal'
@@ -388,7 +391,8 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 			}
 			remaining := totalBytes - used
 			if remaining <= 0 {
-				nodeIDs, queueErr := reconcilequeue.NodeIDsForPlan(ctx, tx, planID)
+				// profile 型订阅 planID 为空，必须按订阅维度解析节点范围
+				nodeIDs, queueErr := reconcilequeue.NodeIDsForSubscription(ctx, tx, subscriptionID)
 				if queueErr != nil {
 					return result, fmt.Errorf("resolve exhausted subscription nodes: %w", queueErr)
 				}
@@ -430,7 +434,7 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 				return result, fmt.Errorf("check subscriber quota: %w", err)
 			}
 			if used >= totalBytes {
-				nodeIDs, err := reconcilequeue.NodeIDsForPlan(ctx, tx, planID)
+				nodeIDs, err := reconcilequeue.NodeIDsForSubscription(ctx, tx, subscriptionID)
 				if err != nil {
 					return result, fmt.Errorf("resolve quota reconciliation nodes: %w", err)
 				}
@@ -464,22 +468,41 @@ func Current(ctx context.Context, db *sql.DB, subscriptionID, cycleType string, 
 		return Usage{}, fmt.Errorf("load traffic usage cycle: %w", err)
 	}
 	var internal, ready int
+	// 计量能力探测同时覆盖 plan 型与 profile 型订阅，口径与凭据下发一致。
 	err = db.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM subscription_subscriptions s
-		JOIN subscription_plans p ON p.id=s.plan_id
-		WHERE s.id=? AND p.include_internal_nodes=1 AND (
-			COALESCE(p.selection_mode,'explicit')='all' OR EXISTS(
-				SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=p.id AND pn.source='internal'
-			)
+		LEFT JOIN subscription_plans p ON p.id=s.plan_id
+		LEFT JOIN subscription_profiles pf ON pf.id=s.profile_id
+		WHERE s.id=? AND (
+			(s.plan_id != '' AND p.include_internal_nodes=1 AND (
+				COALESCE(p.selection_mode,'explicit')='all' OR EXISTS(
+					SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=p.id AND pn.source='internal'
+				)
+			))
+			OR
+			(s.plan_id = '' AND s.profile_id != '' AND pf.include_internal_nodes=1 AND (
+				COALESCE(pf.selection_mode,'explicit')='all' OR EXISTS(
+					SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=pf.id AND pn.source='internal'
+				)
+			))
 		)
 	), EXISTS(
 		SELECT 1 FROM subscription_subscriptions s
-		JOIN subscription_plans p ON p.id=s.plan_id
+		LEFT JOIN subscription_plans p ON p.id=s.plan_id
+		LEFT JOIN subscription_profiles pf ON pf.id=s.profile_id
 		JOIN managed_proxy_nodes n ON n.enabled=1 AND n.apply_status='running' AND n.stats_port>0
-		WHERE s.id=? AND p.include_internal_nodes=1 AND (
-			COALESCE(p.selection_mode,'explicit')='all' OR EXISTS(
-				SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=p.id AND pn.node_id=n.id AND pn.source='internal'
-			)
+		WHERE s.id=? AND (
+			(s.plan_id != '' AND p.include_internal_nodes=1 AND (
+				COALESCE(p.selection_mode,'explicit')='all' OR EXISTS(
+					SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=p.id AND pn.node_id=n.id AND pn.source='internal'
+				)
+			))
+			OR
+			(s.plan_id = '' AND s.profile_id != '' AND pf.include_internal_nodes=1 AND (
+				COALESCE(pf.selection_mode,'explicit')='all' OR EXISTS(
+					SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=pf.id AND pn.node_id=n.id AND pn.source='internal'
+				)
+			))
 		)
 	)`, subscriptionID, subscriptionID).Scan(&internal, &ready)
 	if err != nil {
@@ -494,14 +517,17 @@ func Current(ctx context.Context, db *sql.DB, subscriptionID, cycleType string, 
 }
 
 // ActiveCredentialsForNode returns the subscriber identities that may use a
-// managed node now. Disabled plans, disabled subscriptions and exhausted
-// subscribers are excluded.
+// managed node now. Disabled plans/profiles, disabled subscriptions and
+// exhausted subscribers are excluded. Profile-based subscriptions（plan_id=''）
+// follow the same node ownership semantics as reconcilequeue.NodeIDsForSubscription.
 func ActiveCredentialsForNode(ctx context.Context, db *sql.DB, nodeID, protocol string, now time.Time) ([]Credential, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	rows, err := db.QueryContext(ctx, `SELECT s.id,s.vless_uuid,s.hysteria2_password,
-		COALESCE(p.total_bytes,0),COALESCE(p.cycle_type,'none'),COALESCE(p.cycle_day,1),COALESCE(s.created_at,datetime('now'))
+	rows, err := db.QueryContext(ctx, `SELECT id,vless_uuid,hysteria2_password,total,cycle_type,cycle_day,created_at FROM (
+		SELECT s.id,s.vless_uuid,s.hysteria2_password,
+			COALESCE(p.total_bytes,0) AS total,COALESCE(p.cycle_type,'none') AS cycle_type,COALESCE(p.cycle_day,1) AS cycle_day,
+			COALESCE(s.created_at,datetime('now')) AS created_at
 		FROM subscription_subscriptions s
 		JOIN subscription_plans p ON p.id=s.plan_id
 		WHERE s.enabled=1 AND p.enabled=1 AND p.include_internal_nodes=1 AND (
@@ -509,7 +535,18 @@ func ActiveCredentialsForNode(ctx context.Context, db *sql.DB, nodeID, protocol 
 				SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=p.id AND pn.node_id=? AND pn.source='internal'
 			)
 		)
-		ORDER BY s.created_at,s.id`, nodeID)
+		UNION ALL
+		SELECT s.id,s.vless_uuid,s.hysteria2_password,
+			COALESCE(pf.total_bytes,0) AS total,COALESCE(pf.cycle_type,'none') AS cycle_type,COALESCE(pf.cycle_day,1) AS cycle_day,
+			COALESCE(s.created_at,datetime('now')) AS created_at
+		FROM subscription_subscriptions s
+		JOIN subscription_profiles pf ON pf.id=s.profile_id AND s.plan_id=''
+		WHERE s.enabled=1 AND pf.enabled=1 AND pf.include_internal_nodes=1 AND (
+			COALESCE(pf.selection_mode,'explicit')='all' OR EXISTS(
+				SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=pf.id AND pn.node_id=? AND pn.source='internal'
+			)
+		)
+	) ORDER BY created_at,id`, nodeID, nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("load node subscribers: %w", err)
 	}

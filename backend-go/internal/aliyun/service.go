@@ -719,47 +719,47 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 			limit <- struct{}{}
 			defer func() { <-limit }()
 
-payload, err := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
-			"RegionId":   regionID,
-			"PageSize":   options["PageSize"],
-			"PageNumber": options["PageNumber"],
-		})
-		if err != nil {
-			applog.Warn(ctx, "aliyun", "failed to list instances for region", "region", regionID, "error", err.Error())
-			return
-		}
-		items := make([]interface{}, 0)
-		appendPage := func(page map[string]interface{}) {
-			for _, item := range arrayAt(page, "Instances", "Instance") {
-				instance := objectValue(item)
-				instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
-				instance["InstanceTypeFriendly"] = formatFlavor(stringValue(instance["InstanceType"], ""))
-				items = append(items, instance)
+			payload, err := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
+				"RegionId":   regionID,
+				"PageSize":   options["PageSize"],
+				"PageNumber": options["PageNumber"],
+			})
+			if err != nil {
+				applog.Warn(ctx, "aliyun", "failed to list instances for region", "region", regionID, "error", err.Error())
+				return
 			}
-		}
-		appendPage(payload)
-		// 翻页拉全（默认 PageSize=100，超出部分需要逐页请求）
-		pageSize := findNumStr(options["PageSize"], 100)
-		if pageSize > 0 {
-			pageNumber := findNumStr(options["PageNumber"], 1)
-			total := findNum(payload, "TotalCount")
-			for int64(pageNumber*pageSize) < total {
-				pageNumber++
-				page, perr := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
-					"RegionId":   regionID,
-					"PageSize":   strconv.Itoa(pageSize),
-					"PageNumber": strconv.Itoa(pageNumber),
-				})
-				if perr != nil {
-					break
+			items := make([]interface{}, 0)
+			appendPage := func(page map[string]interface{}) {
+				for _, item := range arrayAt(page, "Instances", "Instance") {
+					instance := objectValue(item)
+					instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
+					instance["InstanceTypeFriendly"] = formatFlavor(stringValue(instance["InstanceType"], ""))
+					items = append(items, instance)
 				}
-				appendPage(page)
 			}
-		}
-		mu.Lock()
-		all = append(all, items...)
-		mu.Unlock()
-	}()
+			appendPage(payload)
+			// 翻页拉全（默认 PageSize=100，超出部分需要逐页请求）
+			pageSize := findNumStr(options["PageSize"], 100)
+			if pageSize > 0 {
+				pageNumber := findNumStr(options["PageNumber"], 1)
+				total := findNum(payload, "TotalCount")
+				for int64(pageNumber*pageSize) < total {
+					pageNumber++
+					page, perr := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
+						"RegionId":   regionID,
+						"PageSize":   strconv.Itoa(pageSize),
+						"PageNumber": strconv.Itoa(pageNumber),
+					})
+					if perr != nil {
+						break
+					}
+					appendPage(page)
+				}
+			}
+			mu.Lock()
+			all = append(all, items...)
+			mu.Unlock()
+		}()
 	}
 	wg.Wait()
 	return map[string]interface{}{"instances": all, "total": len(all)}, nil
@@ -803,18 +803,40 @@ func (s *Service) listAllSwasInstances(ctx context.Context, account map[string]i
 				"PageNumber": options["PageNumber"],
 			})
 			if err != nil {
+				applog.Warn(ctx, "aliyun", "failed to list swas instances for region", "region", regionID, "error", err.Error())
 				return
 			}
-			items := arrayValue(payload["Instances"])
-			if len(items) == 0 {
-				items = arrayAt(payload, "Instances", "Instance")
+			normalized := make([]interface{}, 0)
+			appendPage := func(page map[string]interface{}) {
+				items := arrayValue(page["Instances"])
+				if len(items) == 0 {
+					items = arrayAt(page, "Instances", "Instance")
+				}
+				for _, item := range items {
+					instance := objectValue(item)
+					instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
+					instance["InstanceTypeFriendly"] = formatFlavor(firstNonEmpty(stringValue(instance["PlanId"], ""), stringValue(instance["InstanceType"], "")))
+					normalized = append(normalized, instance)
+				}
 			}
-			normalized := make([]interface{}, 0, len(items))
-			for _, item := range items {
-				instance := objectValue(item)
-				instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
-				instance["InstanceTypeFriendly"] = formatFlavor(firstNonEmpty(stringValue(instance["PlanId"], ""), stringValue(instance["InstanceType"], "")))
-				normalized = append(normalized, instance)
+			appendPage(payload)
+			// 翻页拉全（与 ECS DescribeInstances 一致：超出首页 PageSize 的部分需要逐页请求）
+			pageSize := findNumStr(options["PageSize"], 100)
+			if pageSize > 0 {
+				pageNumber := findNumStr(options["PageNumber"], 1)
+				total := findNum(payload, "TotalCount")
+				for int64(pageNumber*pageSize) < total {
+					pageNumber++
+					page, perr := s.callRPC(ctx, s.endpoint("swas", regionID), account, swasVersion, "ListInstances", map[string]string{
+						"RegionId":   regionID,
+						"PageSize":   strconv.Itoa(pageSize),
+						"PageNumber": strconv.Itoa(pageNumber),
+					})
+					if perr != nil {
+						break
+					}
+					appendPage(page)
+				}
 			}
 			mu.Lock()
 			all = append(all, normalized...)

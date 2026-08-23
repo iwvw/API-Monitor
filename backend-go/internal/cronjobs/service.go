@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -106,6 +108,7 @@ func New(cfg config.Config) *Service {
 	}
 	service.scheduler = cron.New(cron.WithLocation(service.settingsLocation()))
 	service.scheduler.Start()
+	service.startTZWatcher()
 	_ = service.ReloadAll(context.Background())
 	return service
 }
@@ -135,6 +138,54 @@ func (s *Service) schedulerLocation() *time.Location {
 		return time.Local
 	}
 	return s.scheduler.Location()
+}
+
+// rebuildIfLocationChangedLocked 在持 s.mu 前提下检测站点时区变化并重建调度器。
+// 时区设置没有跨包变更回调，ReloadAll 与 startTZWatcher 都经由这里兜底。
+func (s *Service) rebuildIfLocationChangedLocked(loc *time.Location) {
+	if loc == nil || loc == s.scheduler.Location() {
+		return
+	}
+	stopCtx := s.scheduler.Stop()
+	select {
+	case <-stopCtx.Done():
+	case <-time.After(2 * time.Second):
+	}
+	s.scheduler = cron.New(cron.WithLocation(loc))
+	s.scheduler.Start()
+}
+
+// startTZWatcher 每分钟核对一次站点时区；检测到变化时通过 ReloadAll 重建调度器，
+// 重新挂载全部任务/workflow（不能跳过 ReloadAll 只重建调度器，否则新调度器
+// 为空、存量 entry 全部静默消失）。
+func (s *Service) startTZWatcher() {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			db, err := s.store.Open(ctx)
+			if err != nil {
+				cancel()
+				continue
+			}
+			loc := timeutil.LocationFromSettings(ctx, db)
+			db.Close()
+			cancel()
+			if loc == nil {
+				continue
+			}
+			s.mu.Lock()
+			changed := loc != s.scheduler.Location()
+			s.mu.Unlock()
+			if !changed {
+				continue
+			}
+			if err := s.ReloadAll(context.Background()); err != nil {
+				slog.Warn("cron-tz-watcher-reload-failed", "err", err.Error())
+			}
+		}
+	}()
 }
 
 func (s *Service) SetAgentRunner(runner AgentRunner) {
@@ -215,6 +266,10 @@ func (s *Service) ReloadAll(ctx context.Context) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// 站点时区可能运行中被修改：与调度器当前时区不一致时重建调度器，
+	// 否则存量 entry 会一直按旧时区触发到进程重启（预览/下次运行时间同源错位）。
+	s.rebuildIfLocationChangedLocked(timeutil.LocationFromSettings(ctx, db))
 	for _, entryID := range s.entries {
 		s.scheduler.Remove(entryID)
 	}

@@ -2,7 +2,6 @@ package backup
 
 import (
 	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -25,6 +24,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/robfig/cron/v3"
 )
@@ -226,7 +226,11 @@ func (s *Service) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.JSON(w, http.StatusOK, map[string]any{"success": true})
+	response.JSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		// 进程常驻连接仍指向恢复前的旧文件内容，必须重启后端才能读到恢复数据。
+		"message": "恢复完成，请重启后端服务使连接切换到恢复后的数据库",
+	})
 }
 
 func (s *Service) createBackup(ctx context.Context) (Record, error) {
@@ -449,17 +453,41 @@ func (s *Service) uploadObject(ctx context.Context, cfg Config, path, objectName
 	if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Bucket) == "" || strings.TrimSpace(cfg.AccessKeyID) == "" || strings.TrimSpace(cfg.AccessKeySecret) == "" {
 		return "", fmt.Errorf("cloud endpoint, bucket, access key and secret are required")
 	}
-	body, err := os.ReadFile(path)
+	// 流式上传：请求体直接来自文件句柄，避免把整个备份 zip 读进内存
+	// （库 ≥150MB 时 256MB 容器会 OOM）。ContentLength 由 Stat 提供，
+	// 部分对象存储不接受无长度的 chunked PUT。
+	file, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("upload target is a directory: %s", path)
+	}
+
 	endpoint := strings.TrimRight(cfg.Endpoint, "/")
 	objectKey := "api-monitor/" + objectName
 	target := endpoint + "/" + strings.Trim(cfg.Bucket, "/") + "/" + objectKey
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target, bytes.NewReader(body))
+	// S3 SigV4 签名覆盖 payload 哈希：先流式扫一遍文件计算 SHA-256 再发，
+	// 代价是文件读两遍，可接受；OSS/COS 签名不含 body，无需预扫。
+	payloadSha256 := ""
+	if cfg.Provider != "oss" && cfg.Provider != "cos" {
+		payloadSha256, err = fileSha256Hex(file)
+		if err != nil {
+			return "", err
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target, file)
 	if err != nil {
 		return "", err
 	}
+	req.ContentLength = info.Size()
+	// 重定向（如 S3 307）重试时由 GetBody 重新打开文件提供请求体。
+	req.GetBody = func() (io.ReadCloser, error) { return os.Open(path) }
 	req.Header.Set("Content-Type", "application/zip")
 	now := time.Now().UTC()
 	switch cfg.Provider {
@@ -468,7 +496,7 @@ func (s *Service) uploadObject(ctx context.Context, cfg Config, path, objectName
 	case "cos":
 		signCOSRequest(req, cfg, now)
 	default:
-		req.Header.Set("X-Amz-Content-Sha256", sha256HexBytes(body))
+		req.Header.Set("X-Amz-Content-Sha256", payloadSha256)
 		req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
 		signS3Request(req, cfg, now, "auto")
 	}
@@ -484,12 +512,37 @@ func (s *Service) uploadObject(ctx context.Context, cfg Config, path, objectName
 	return target, nil
 }
 
+// fileSha256Hex 流式计算文件 SHA-256，结束后把读写位置复位到文件头，
+// 供后续上传直接复用同一句柄作为请求体。
+func fileSha256Hex(file *os.File) (string, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	sum := sha256.New()
+	if _, err := io.Copy(sum, file); err != nil {
+		return "", err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sum.Sum(nil)), nil
+}
+
 func (s *Service) restoreFromZip(path string) error {
 	reader, err := zip.OpenReader(path)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
+
+	// 恢复会整体替换数据库文件，必须与数据库导入（settings.replaceDatabase）
+	// 和数据库压缩共用同一换库互斥，否则压缩/导入并发重写同一文件会损坏库。
+	swapMu := database.SwapMutex()
+	swapMu.Lock()
+	defer swapMu.Unlock()
+
+	dbPath := s.cfg.DatabasePath()
+	restoredDB := false
 	for _, file := range reader.File {
 		if file.FileInfo().IsDir() {
 			continue
@@ -504,6 +557,13 @@ func (s *Service) restoreFromZip(path string) error {
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
+		}
+		if target == dbPath {
+			// 覆盖库文件前失效连接池：Windows 下目标文件存在打开句柄时
+			// rename 直接 sharing violation；Linux 下不失效则旧连接继续
+			// 写旧 inode，恢复静默不生效。
+			database.ResetPool(dbPath)
+			restoredDB = true
 		}
 		src, err := file.Open()
 		if err != nil {
@@ -526,10 +586,76 @@ func (s *Service) restoreFromZip(path string) error {
 			_ = os.Remove(tmp)
 			return closeErr
 		}
+		if target == dbPath {
+			// 入库前预处理（完整性校验 + 转 WAL，见 database.PrepareSwapFile）：
+			// 损坏备份在此报错；WAL 预转换保证就地重写回退后新连接的
+			// journal_mode PRAGMA 不被旧句柄残留锁阻塞。
+			if err := database.PrepareSwapFile(tmp); err != nil {
+				_ = os.Remove(tmp)
+				return fmt.Errorf("备份中的数据库校验失败: %w", err)
+			}
+			if err := os.Rename(tmp, target); err != nil {
+				// Windows 下常驻连接句柄可能仍挂在库文件上（ResetPool
+				// 关不掉 database/sql 层缓存的连接），改名失败退回就地重写。
+				if err := copyFile(tmp, target, 0o600); err != nil {
+					_ = os.Remove(tmp)
+					return err
+				}
+			}
+			continue
+		}
 		if err := os.Rename(tmp, target); err != nil {
 			_ = os.Remove(tmp)
 			return err
 		}
+	}
+	if restoredDB {
+		// 旧库的 WAL sidecar 指向被替换前的库，遗留会导致新库做错误的 WAL
+		// 回放；删除后再失效一次池，把替换间隙内打开旧文件的新连接排除掉。
+		for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+			_ = os.Remove(dbPath + suffix)
+		}
+		database.ResetPool(dbPath)
+		if err := s.verifyRestoredDatabase(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFile 把 src 覆盖写入 dst（就地重写，用于库文件被常驻句柄占住、
+// 无法改名替换时的回退路径）。
+func copyFile(src, dst string, perm os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+// verifyRestoredDatabase 对恢复后的库文件做完整性校验；损坏的备份必须在
+// 此处报错，而不是等面板下次读取时以随机错误暴露。
+func (s *Service) verifyRestoredDatabase() error {
+	db, err := sql.Open("sqlite", s.cfg.DatabasePath())
+	if err != nil {
+		return fmt.Errorf("打开恢复后的数据库失败: %w", err)
+	}
+	defer db.Close()
+	var integrity string
+	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil {
+		return fmt.Errorf("恢复后完整性检查失败: %w", err)
+	}
+	if integrity != "ok" {
+		return fmt.Errorf("恢复后完整性检查失败: %s", integrity)
 	}
 	return nil
 }

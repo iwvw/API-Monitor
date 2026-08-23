@@ -118,7 +118,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			switch r.Method {
 			case http.MethodGet:
-				s.getVersion(ctx, w, versionID)
+				s.getVersion(ctx, w, docID, versionID)
 			default:
 				response.Error(w, http.StatusMethodNotAllowed, "Method not allowed")
 			}
@@ -374,7 +374,7 @@ func (s *Service) listVersions(ctx context.Context, w http.ResponseWriter, docID
 	response.JSON(w, http.StatusOK, map[string]interface{}{"versions": versions})
 }
 
-func (s *Service) getVersion(ctx context.Context, w http.ResponseWriter, versionID int64) {
+func (s *Service) getVersion(ctx context.Context, w http.ResponseWriter, docID, versionID int64) {
 	version, err := s.store.GetVersion(ctx, versionID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -386,6 +386,11 @@ func (s *Service) getVersion(ctx context.Context, w http.ResponseWriter, version
 		return
 	}
 	if version == nil {
+		response.Error(w, http.StatusNotFound, "Version not found")
+		return
+	}
+	// 版本必须属于当前文档，防止枚举 versionId 读取他人文档（与 export/restore 一致）
+	if version.DocumentID != docID {
 		response.Error(w, http.StatusNotFound, "Version not found")
 		return
 	}

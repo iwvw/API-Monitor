@@ -71,12 +71,33 @@ func ResetPool(dbPath string) {
 }
 
 type connPool struct {
-	dbPath     string
-	mu         sync.Mutex
-	idle       []driver.Conn
-	refs       int
-	schemaOnce sync.Once
-	schemaErr  error
+	dbPath string
+	mu     sync.Mutex
+	idle   []driver.Conn
+	refs   int
+	// schemaMu/schemaDone 串行化同一池内的 core schema 保障；schemaOnce
+	// 语义（失败也固化）会让一次瞬时失败永久粘池——进程内所有后续 Open
+	// 持续报错直到重启，因此改为「成功才缓存，失败不缓存」。
+	schemaMu   sync.Mutex
+	schemaDone bool
+}
+
+// ensureSchema 确保核心 schema 就绪：同一池内并发 Open 互斥执行，
+// 成功结果缓存；失败不缓存，由下一次 Open 重试（EnsureCoreSchema 全部
+// 语句幂等，可安全重入）。
+func (p *connPool) ensureSchema(ctx context.Context, db *sql.DB) error {
+	p.schemaMu.Lock()
+	defer p.schemaMu.Unlock()
+	if p.schemaDone {
+		return nil
+	}
+	if err := WithSchemaLock(ctx, func() error {
+		return EnsureCoreSchema(ctx, db)
+	}); err != nil {
+		return err
+	}
+	p.schemaDone = true
+	return nil
 }
 
 // addRef 记录一个存活的 *sql.DB 逻辑句柄。

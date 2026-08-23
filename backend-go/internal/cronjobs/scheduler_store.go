@@ -329,6 +329,13 @@ func loadRuns(ctx context.Context, db *sql.DB, limit int) ([]WorkflowRun, error)
 	return runs, rows.Err()
 }
 
+// runStatus 读取单次运行的当前状态，供执行循环在每个节点前检测用户取消。
+func runStatus(ctx context.Context, db *sql.DB, runID int64) (string, error) {
+	var status string
+	err := db.QueryRowContext(ctx, `SELECT status FROM scheduler_workflow_runs WHERE id = ?`, runID).Scan(&status)
+	return status, err
+}
+
 func findRun(ctx context.Context, db *sql.DB, id int64) (WorkflowRun, bool, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, workflow_id, workflow_name, trigger_type, status, start_time, end_time, duration, summary, created_at

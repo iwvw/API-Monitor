@@ -646,12 +646,22 @@ func (s *Service) writeSSE(w http.ResponseWriter, event TaskEvent) {
 	fmt.Fprintf(w, "data: %s\n\n", data)
 }
 
-func (s *Service) writeNamedSSE(w http.ResponseWriter, eventName string, payload interface{}) {
+// writeNamedSSE 写入带事件名的 SSE 事件。
+// 每次写入前必须续期写超时：http.Server.WriteTimeout 是自请求开始的绝对
+// 截止时间，长连接流不续期会在超时后写入静默失败。返回非 nil 错误表示
+// 连接已不可写，调用方应停止输出。
+func (s *Service) writeNamedSSE(w http.ResponseWriter, eventName string, payload interface{}) error {
+	if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+		return err
+	}
 	data, _ := json.Marshal(payload)
 	if eventName != "" {
-		fmt.Fprintf(w, "event: %s\n", eventName)
+		if _, err := fmt.Fprintf(w, "event: %s\n", eventName); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(w, "data: %s\n\n", data)
+	_, err := fmt.Fprintf(w, "data: %s\n\n", data)
+	return err
 }
 
 const (

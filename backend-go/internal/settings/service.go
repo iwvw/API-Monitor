@@ -35,18 +35,23 @@ type Service struct {
 	walCancel      context.CancelFunc
 	cleanupWG      sync.WaitGroup
 	vacuumMu       sync.Mutex
-	// swapMu 串行化「数据库整体替换（导入）」与后台周期 DB 任务（WAL 维护 /
-	// 自动清理 / 数据库压缩）。replaceDatabase 全持有；后台任务用 TryLock，
-	// 换库窗口内跳过当轮，避免并发连接在换库瞬间读写被移动/替换的库文件。
-	swapMu         sync.Mutex
-	vacuumRunning  bool
-	vacuumMode     string
-	vacuumStarted  time.Time
-	vacuumDone     time.Time
-	vacuumError    string
-	vacuumBefore   int64
-	vacuumAfter    int64
+	// 换库互斥统一使用 database.SwapMutex()（进程级、与 backup 恢复共用）：
+	// 串行化「数据库整体替换（导入）/ 备份恢复 / 数据库压缩」。整库重写的
+	// 执行体全程持有；后台周期任务用 TryLock，换库窗口内跳过当轮，
+	// 避免并发连接在换库瞬间读写被移动/替换的库文件。
+	// 锁序约束：swapMu 之后再获取 vacuumMu 等细粒度锁，不得反向嵌套。
+	vacuumRunning bool
+	vacuumMode    string
+	vacuumStarted time.Time
+	vacuumDone    time.Time
+	vacuumError   string
+	vacuumBefore  int64
+	vacuumAfter   int64
 }
+
+// errDatabaseSwapInProgress 表示数据库导入/替换/恢复正持有换库互斥，
+// 压缩任务暂不可启动，调用方应提示用户稍后重试。
+var errDatabaseSwapInProgress = errors.New("数据库导入/替换/恢复进行中，请稍后再试压缩")
 
 // 数据库压缩执行模式：migrate = 首次全量 VACUUM（建立 auto_vacuum
 // pointer-map，1 核机器需数分钟）；incremental = 分批增量回收（秒级）。
@@ -213,12 +218,13 @@ func (s *Service) runWALMaintenance(ctx context.Context) {
 // size and, when it has grown, runs a PASSIVE checkpoint pass. Returns true
 // when the pass completed (WAL was already small or successfully PASSIVE-compacted).
 func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
-	// 数据库整体替换（导入）进行中时跳过本轮：换库瞬间并发连接打开/写库文件
-	// 会与文件移动互踩（曾导致导入回滚后库仍损坏）。TryLock 失败即跳过。
-	if !s.swapMu.TryLock() {
+	// 数据库整体替换（导入/恢复）或压缩进行中时跳过本轮：换库瞬间并发连接
+	// 打开/写库文件会与文件移动互踩（曾导致导入回滚后库仍损坏）。TryLock
+	// 失败即跳过。
+	if !database.SwapMutex().TryLock() {
 		return true
 	}
-	defer s.swapMu.Unlock()
+	defer database.SwapMutex().Unlock()
 
 	path := s.store.DatabasePath()
 	before := fileSizeIfExists(path + "-wal")
@@ -267,10 +273,10 @@ func (s *Service) autoCleanupInterval(ctx context.Context) int {
 }
 
 func (s *Service) autoCleanupOnce(ctx context.Context) {
-	if !s.swapMu.TryLock() {
+	if !database.SwapMutex().TryLock() {
 		return
 	}
-	defer s.swapMu.Unlock()
+	defer database.SwapMutex().Unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, autoCleanupTimeout)
 	defer cancel()
@@ -1008,6 +1014,14 @@ func (s *Service) clearAppLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 	queued, err := s.enqueueVacuumTask(r.Context())
 	if err != nil {
+		if errors.Is(err, errDatabaseSwapInProgress) {
+			response.JSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"message": errDatabaseSwapInProgress.Error(),
+				"data":    s.vacuumSnapshot(),
+			})
+			return
+		}
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
 			"error":   "读取数据库压缩模式失败: " + err.Error(),
@@ -1030,12 +1044,20 @@ func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 }
 
 // enqueueVacuumTask 探测 auto_vacuum 模式并排队后台压缩任务（互斥单例）。
-// 返回 queued=false 表示已有压缩任务在运行（非错误）。
+// 返回 queued=false 且 err=nil 表示已有压缩任务在运行（非错误）；
+// 返回 errDatabaseSwapInProgress 表示数据库导入/替换/恢复进行中。
 func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 	s.vacuumMu.Lock()
 	defer s.vacuumMu.Unlock()
 	if s.vacuumRunning {
 		return false, nil
+	}
+	// 换库互斥必须用 TryLock 在此真实取得，而非依赖 vacuumRunning 标志：
+	// 标志只反映「压缩任务自身」，无法与导入/恢复竞速（TOCTOU）。锁由
+	// runVacuum 在收尾时释放；TryLock 失败说明导入/替换/恢复持有互斥，
+	// 此时 VACUUM 重写库文件会截断正被写入的文件导致库损坏。
+	if !database.SwapMutex().TryLock() {
+		return false, errDatabaseSwapInProgress
 	}
 	s.vacuumRunning = true
 	s.vacuumStarted = time.Now()
@@ -1056,6 +1078,7 @@ func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 	}()
 	if err != nil {
 		s.vacuumRunning = false
+		database.SwapMutex().Unlock()
 		return false, err
 	}
 	s.vacuumMode = vacuumModeIncremental
@@ -1089,12 +1112,17 @@ func (s *Service) vacuumSnapshot() map[string]interface{} {
 }
 
 func (s *Service) runVacuum(ctx context.Context) {
-	defer s.cleanupWG.Done()
+	// swapMu 由 enqueueVacuumTask 以 TryLock 取得，压缩全程持有：VACUUM /
+	// incremental_vacuum 会重写库文件，期间禁止导入替换、备份恢复并发
+	// 操作同一文件。收尾先释放互斥再清 running 标志——此后的代码不再触碰
+	// 库文件，让下一个任务/导入尽早拿到互斥。
 	defer func() {
+		database.SwapMutex().Unlock()
 		s.vacuumMu.Lock()
 		s.vacuumRunning = false
 		s.vacuumDone = time.Now()
 		s.vacuumMu.Unlock()
+		s.cleanupWG.Done()
 	}()
 
 	db, err := s.store.Open(ctx)
@@ -2226,7 +2254,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		}
 		quotedTable := quoteIdentifier(table)
 		quotedTime := quoteIdentifier(timeColumn)
-		cutoff := time.Now().UTC().AddDate(0, 0, -statisticsRetentionDays).Format(time.RFC3339)
+		cutoff := time.Now().UTC().AddDate(0, 0, -statisticsRetentionDays).Format(logCutoffFormat(timeColumn))
 		for ctx.Err() == nil {
 			result, err := db.ExecContext(ctx, `
 				DELETE FROM `+quotedTable+`
@@ -2266,7 +2294,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		quotedTime := quoteIdentifier(timeColumn)
 
 		if days > 0 {
-			cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
+			cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(logCutoffFormat(timeColumn))
 			// 分批删除旧数据：每次只删 cleanupBatchSize 行，避免长事务锁库。
 			for ctx.Err() == nil {
 				result, err := db.ExecContext(ctx, `
@@ -2428,9 +2456,10 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 	if err != nil {
 		return nil, err
 	}
-	cutoff := ""
-	if days > 0 {
-		cutoff = time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
+	var cutoffTime time.Time
+	hasCutoff := days > 0
+	if hasCutoff {
+		cutoffTime = time.Now().UTC().AddDate(0, 0, -days)
 	}
 	plans := make([]logTablePlan, 0, len(tables))
 	for _, table := range tables {
@@ -2440,6 +2469,12 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 		}
 		if timeColumn == "" {
 			continue
+		}
+		// 预览口径必须与 enforceLogTableLimits 的实际删除一致（含 cutoff
+		// 格式），否则预览统计与执行结果出现边界日偏差。
+		cutoff := ""
+		if hasCutoff {
+			cutoff = cutoffTime.Format(logCutoffFormat(timeColumn))
 		}
 		total, err := countTableRows(ctx, db, table)
 		if err != nil {
@@ -2488,6 +2523,18 @@ func logTimeColumn(ctx context.Context, db *sql.DB, table string) (string, error
 		}
 	}
 	return "", nil
+}
+
+// logCutoffFormat 返回清理 cutoff 的时间格式，必须与表内实际存储格式一致：
+// 时间戳列（created_at 等）多由 CURRENT_TIMESTAMP 写入「YYYY-MM-DD HH:MM:SS」，
+// 若用 RFC3339 比较，同日行的 'T' > ' ' 会让保留期首日整天的数据被误删；
+// date 列（如 system_api_stats.date）只存「YYYY-MM-DD」，与带时间的 cutoff
+// 比较同样会因字符串前缀规则多删边界日，因此单独按日期比较。
+func logCutoffFormat(timeColumn string) string {
+	if timeColumn == "date" {
+		return "2006-01-02"
+	}
+	return "2006-01-02 15:04:05"
 }
 
 type uploadedDatabase struct {
@@ -2659,12 +2706,16 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 	s.importsMu.Lock()
 	defer s.importsMu.Unlock()
 
-	// 换库全程持有 swapMu：阻断后台 WAL 维护/自动清理并发（它们 TryLock 失败即跳过当轮），
+	// 换库全程持有换库互斥（database.SwapMutex，与 VACUUM/备份恢复共用）：
+	// 阻断后台 WAL 维护/自动清理/压缩并发（它们 TryLock 失败即跳过当轮），
 	// 避免换库瞬间并发连接打开/写被移动或替换的库文件。
-	s.swapMu.Lock()
-	defer s.swapMu.Unlock()
+	swapMu := database.SwapMutex()
+	swapMu.Lock()
+	defer swapMu.Unlock()
 
-	// 与后台数据库优化互斥：真空执行期间替换文件会相互破坏
+	// 快速失败提示：压缩任务运行中等待换库互斥可能长达数分钟，与其阻塞
+	// 不如直接报错。真正的互斥由上面的 swapMu 保证（此检查与压缩启动
+	// 之间存在窗口时，Lock 会安全等待压缩结束）。
 	s.vacuumMu.Lock()
 	vacuumRunning := s.vacuumRunning
 	s.vacuumMu.Unlock()
@@ -2691,6 +2742,13 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 	}
 	defer os.Remove(tempTarget)
 
+	// 替换前预处理导入副本（完整性校验 + 转 WAL）：非法文件必须在此报错，
+	// 避免把库文件换成垃圾后再回滚；WAL 预转换保证就地重写回退后新连接
+	// 的 journal_mode PRAGMA 不被旧句柄残留锁阻塞（详见 database.PrepareSwapFile）。
+	if err := database.PrepareSwapFile(tempTarget); err != nil {
+		return "", fmt.Errorf("导入文件校验失败: %w", err)
+	}
+
 	// 失效连接池：释放对旧文件的空闲句柄，替换后新连接的读写落到新文件。
 	// 注意：进程常驻句柄仍指向旧文件，导入成功后应尽快重启后端。
 	database.ResetPool(dbPath)
@@ -2716,14 +2774,26 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 
 	db, err := s.store.Open(ctx)
 	if err != nil {
+		// 回滚同样要失效连接池并清理残留 sidecar：上面 Open 已在新文件上
+		// 建立过 WAL（-wal/-shm 指向导入库），留着会让恢复后的库做错误的
+		// WAL 回放；不 ResetPool 则池内空闲连接继续指向被放弃的导入文件。
+		// 备份同样经 PrepareSwapFile 预转 WAL，避免恢复后连接被残留锁阻塞。
+		database.ResetPool(dbPath)
+		cleanupSQLiteSidecars(dbPath)
+		_ = database.PrepareSwapFile(backupPath)
 		_ = copyFile(backupPath, dbPath, 0o600)
+		cleanupSQLiteSidecars(dbPath)
 		return "", fmt.Errorf("重新打开导入数据库失败: %w", err)
 	}
 	defer db.Close()
 	var integrity string
 	if err := db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		_ = db.Close()
+		database.ResetPool(dbPath)
+		cleanupSQLiteSidecars(dbPath)
+		_ = database.PrepareSwapFile(backupPath)
 		_ = copyFile(backupPath, dbPath, 0o600)
+		cleanupSQLiteSidecars(dbPath)
 		if err != nil {
 			return "", fmt.Errorf("导入后完整性检查失败: %w", err)
 		}

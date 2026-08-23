@@ -1254,6 +1254,11 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 			_ = insertNodeRun(ctx, db, runID, node, "skipped", "依赖条件未满足", start, start)
 			continue
 		}
+		// 每个节点执行前检查运行状态：用户取消后不再调度后续节点，
+		// 避免 shell/HTTP/AI 等副作用在取消后继续执行。
+		if current, err := runStatus(ctx, db, runID); err == nil && current != "running" {
+			break
+		}
 		nodeStart := time.Now().Unix()
 		_ = insertNodeRun(ctx, db, runID, node, "running", "", nodeStart, nodeStart)
 		status := "success"
@@ -1281,12 +1286,20 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 	}
 	end := time.Now().Unix()
 	summary := workflowRunSummary(statuses, outputs)
-	if _, err := db.ExecContext(context.Background(), `
+	// 最终收尾只允许覆盖仍在执行的运行：被用户取消（status='cancelled'）的
+	// 运行保留取消状态与取消摘要，不能被 success/failed 覆盖。
+	result, err := db.ExecContext(context.Background(), `
 		UPDATE scheduler_workflow_runs
 		SET status = ?, end_time = ?, duration = ?, summary = ?
-		WHERE id = ?
-	`, finalStatus, end, end-start, summary, runID); err != nil {
+		WHERE id = ? AND status = 'running'
+	`, finalStatus, end, end-start, summary, runID)
+	if err != nil {
 		return WorkflowRun{}, err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		// 运行已被取消：不再发完成/失败通知，直接返回当前运行记录。
+		run, _, findErr := findRun(context.Background(), db, runID)
+		return run, findErr
 	}
 	run, _, err := findRun(context.Background(), db, runID)
 	s.notifyWorkflowResult(ctx, workflow, finalStatus, summary, end-start, triggerType)

@@ -1399,15 +1399,18 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		if len(ep.ModelMappings) > 0 {
 			mappingsJSON, _ = json.Marshal(ep.ModelMappings)
 		}
+		// 扩展 key 与创建/更新端点保持同一存储格式：对整个明文 JSON 数组字符串
+		// 整串加密（读取端 SecureDecrypt 整串解密后再 Unmarshal）。若逐 key 加密
+		// 后组数组，读取端会把密文当明文解出，导入的扩展 key 全部失效（上游 401）。
 		apiKeysJSON, _ := json.Marshal([]string{})
 		if len(ep.APIKeys) > 0 {
-			encryptedKeys := make([]string, 0, len(ep.APIKeys))
-			for _, k := range ep.APIKeys {
-				if enc, encErr := secure.SecureEncrypt(strings.TrimSpace(k)); encErr == nil {
-					encryptedKeys = append(encryptedKeys, enc)
-				}
+			plaintextKeys, _ := json.Marshal(ep.APIKeys)
+			encryptedAPIKeys, encErr := secure.SecureEncrypt(string(plaintextKeys))
+			if encErr != nil {
+				skippedCount++
+				continue
 			}
-			apiKeysJSON, _ = json.Marshal(encryptedKeys)
+			apiKeysJSON = []byte(encryptedAPIKeys)
 		}
 		autoSwitchInt := boolToInt(ep.AutoSwitch)
 		proxyEnabledInt := boolToInt(ep.ProxyEnabled)

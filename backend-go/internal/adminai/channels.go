@@ -299,7 +299,8 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 	return nil
 }
 
-// stopChannelInstance 停止频道轮询。
+// stopChannelInstance 停止频道轮询并从注册表移除实例：
+// 残留的已停止实例会让二次 Stop 触发重复 close，也会被发送链路继续复用。
 func (s *Service) stopChannelInstance(id string) {
 	s.chanMgr.mu.Lock()
 	cancel, ok := s.chanMgr.cancels[id]
@@ -310,6 +311,7 @@ func (s *Service) stopChannelInstance(id string) {
 	s.chanMgr.mu.Unlock()
 	if ch, exists := s.chanMgr.registry.Get(id); exists {
 		_ = ch.Stop(context.Background())
+		s.chanMgr.registry.Unregister(id)
 	}
 }
 

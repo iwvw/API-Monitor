@@ -1226,7 +1226,11 @@ func (s *Service) handleV2TasksRoutes(w http.ResponseWriter, r *http.Request, db
 		if !ok {
 			return
 		}
-		s.writeNamedSSE(w, "ready", map[string]interface{}{"success": true})
+		// 每次写入前由 writeNamedSSE 续期写超时；写失败说明客户端已不可达，
+		// 必须退出循环释放订阅，避免事件在死连接上静默堆积。
+		if err := s.writeNamedSSE(w, "ready", map[string]interface{}{"success": true}); err != nil {
+			return
+		}
 		flusher.Flush()
 
 		eventCh, cancel := s.taskRegistry.SubscribeAll()
@@ -1244,10 +1248,14 @@ func (s *Service) handleV2TasksRoutes(w http.ResponseWriter, r *http.Request, db
 				if !include {
 					continue
 				}
-				s.writeNamedSSE(w, "task.update", payload)
+				if err := s.writeNamedSSE(w, "task.update", payload); err != nil {
+					return
+				}
 				flusher.Flush()
 			case <-ticker.C:
-				s.writeNamedSSE(w, "ping", map[string]interface{}{"ts": time.Now().UnixMilli()})
+				if err := s.writeNamedSSE(w, "ping", map[string]interface{}{"ts": time.Now().UnixMilli()}); err != nil {
+					return
+				}
 				flusher.Flush()
 			case <-r.Context().Done():
 				return

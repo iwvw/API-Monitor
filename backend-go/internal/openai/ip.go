@@ -69,11 +69,21 @@ type egressEntry struct {
 	expiresAt time.Time
 }
 
-// egressIPCache 缓存本机出口 IP，一段时间内不重复探测，避免热路径反复出网。
+// egressIPCache 缓存本机出口 IP（含探测失败的负缓存），一段时间内不重复探测，
+// 避免热路径反复出网。成功结果缓存 egressIPCacheTTL；探测失败（含本地网卡
+// 回退也为空）只缓存 egressFailCacheTTL，避免外部回显服务故障时每请求重复出网。
 var egressIPCache = struct {
 	sync.Mutex
 	entry egressEntry
 }{}
+
+// egressProbeFlight 手写 singleflight：保证同一时刻只有一个探测在执行，
+// 缓存过期瞬间的并发请求共享同一次探测结果，而不是各自同步出网阻塞
+// （此前持全局锁探测会把缓存到期后的全部网关请求串行阻塞最长约 6s）。
+var egressProbeFlight struct {
+	sync.Mutex
+	inflight chan struct{}
+}
 
 // egressProbeTimeout 是外部回显探测的拨号/读取超时，避免慢网络阻塞请求热路径。
 const egressProbeTimeout = 3 * time.Second
@@ -82,6 +92,10 @@ const egressProbeTimeout = 3 * time.Second
 // 每次请求都发外部探测；本地网卡回退值同理适用该 TTL。
 const egressIPCacheTTL = 10 * time.Minute
 
+// egressFailCacheTTL 是探测失败（公网与本地网卡均拿不到）的负缓存时长：
+// 短缓存即可，既避免故障期每请求重复探测，又不至于恢复过慢。
+const egressFailCacheTTL = 60 * time.Second
+
 // egressIPEchoURL 是用于探测公网出口 IP 的外部回显服务（纯文本返回 IP）。
 const egressIPEchoURL = "https://api.ipify.org"
 
@@ -89,17 +103,54 @@ const egressIPEchoURL = "https://api.ipify.org"
 // 通过外部回显服务探测真实公网出口地址（而非本地网卡的私有地址）；
 // 探测失败时回退到本地网卡地址。探测一次本地缓存，避免热路径反复出网。
 func egressOutboundIP() string {
+	return egressOutboundIPOnce(func() string {
+		ip := probePublicEgressIP()
+		if ip == "" {
+			ip = localInterfaceIP()
+		}
+		return ip
+	})
+}
+
+// egressOutboundIPOnce 执行「读缓存 → 过期则 singleflight 探测 → 写缓存」。
+// probe 注入探测函数（公网回显 + 本地网卡回退），便于测试替换。
+func egressOutboundIPOnce(probe func() string) string {
 	egressIPCache.Lock()
-	defer egressIPCache.Unlock()
-	now := time.Now()
-	if egressIPCache.entry.ip != "" && now.Before(egressIPCache.entry.expiresAt) {
-		return egressIPCache.entry.ip
+	if time.Now().Before(egressIPCache.entry.expiresAt) {
+		ip := egressIPCache.entry.ip
+		egressIPCache.Unlock()
+		return ip
 	}
-	ip := probePublicEgressIP()
+	egressIPCache.Unlock()
+
+	// singleflight：已有探测在执行时等待其完成并直接采用其写入的缓存结果。
+	egressProbeFlight.Lock()
+	if ch := egressProbeFlight.inflight; ch != nil {
+		egressProbeFlight.Unlock()
+		<-ch
+		egressIPCache.Lock()
+		ip := egressIPCache.entry.ip
+		egressIPCache.Unlock()
+		return ip
+	}
+	done := make(chan struct{})
+	egressProbeFlight.inflight = done
+	egressProbeFlight.Unlock()
+
+	ip := probe()
+	ttl := egressIPCacheTTL
 	if ip == "" {
-		ip = localInterfaceIP()
+		ttl = egressFailCacheTTL
 	}
-	egressIPCache.entry = egressEntry{ip: ip, expiresAt: now.Add(egressIPCacheTTL)}
+	egressIPCache.Lock()
+	egressIPCache.entry = egressEntry{ip: ip, expiresAt: time.Now().Add(ttl)}
+	egressIPCache.Unlock()
+
+	// 先写缓存再关闭 done：等待方经由 channel 的 happens-before 读到新结果。
+	egressProbeFlight.Lock()
+	egressProbeFlight.inflight = nil
+	egressProbeFlight.Unlock()
+	close(done)
 	return ip
 }
 

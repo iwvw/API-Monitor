@@ -334,9 +334,11 @@ type endpointProxyState struct {
 
 // sessionBinding 是某会话在某出口 IP（代理）上的粘性绑定。
 // count 为该代理已承载的请求数；超过 sessionProxyRequestLimit 后换新代理并重置。
+// updatedAt 为最近一次使用时间，驱动空闲过期清理（见 sessionBindingTTL）。
 type sessionBinding struct {
-	proxy string
-	count int
+	proxy     string
+	count     int
+	updatedAt time.Time
 }
 
 // endpointKeyState 记录端点多 API Key 的轮询游标。
@@ -1243,11 +1245,19 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		protocolChanged = true
 	}
 
-	// 仅当 API Key 或地址发生变化时才重新验证/拉模型：纯改代理池、开关等
-	// 局部保存不应触发上游请求（大池端点保存慢的主要成因其一）。
-	if keyChanged || req.BaseURL != "" {
+	// 仅当 API Key 或地址实际变化时才重新验证/拉模型：纯改代理池、开关等局部
+	// 保存不应触发上游请求（大池端点保存慢的主要成因其一）。前端全量提交时
+	// baseUrl 必填，不能以「是否提交了 baseUrl」判定（恒真），必须比较归一化
+	// 后的目标地址与当前存储值。
+	if keyChanged || targetBaseURL != currentBaseURL {
 		status := "unknown"
+		// 验证或拉模型失败时保留旧模型列表：一次超时/临时网络故障不应清空
+		// 已获取的模型（对齐 verifyEndpoint/refreshAllModels 的失败保留语义）。
 		modelsList := []string{}
+		var currentModelsRaw sql.NullString
+		if err := db.QueryRowContext(ctx, "SELECT models FROM openai_endpoints WHERE id = ?", id).Scan(&currentModelsRaw); err == nil && currentModelsRaw.Valid && currentModelsRaw.String != "" {
+			_ = json.Unmarshal([]byte(currentModelsRaw.String), &modelsList)
+		}
 
 		verifyHeaders := []HeaderItem(nil)
 		if req.Headers != nil {

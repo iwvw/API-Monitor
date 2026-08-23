@@ -127,30 +127,37 @@ func NodeIDsForSubscription(ctx context.Context, queryer Queryer, subscriptionID
 	// For profile-based subscriptions（include_internal_nodes/selection_mode 列
 	// 由 subscription 模块 ensureSchema 补齐，默认关闭保持存量语义）
 	if profileID != "" {
-		nodeRows, err := queryer.QueryContext(ctx, `SELECT n.id
-			FROM managed_proxy_nodes n
-			JOIN subscription_profiles pf ON pf.id=?
-			WHERE n.enabled=1 AND pf.include_internal_nodes=1 AND (
-				COALESCE(pf.selection_mode,'explicit')='all' OR EXISTS(
-					SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=pf.id AND pn.node_id=n.id AND pn.source='internal'
-				)
-			)
-			ORDER BY n.id`, profileID)
-		if err != nil {
-			return nil, err
-		}
-		defer nodeRows.Close()
-		ids := []string{}
-		for nodeRows.Next() {
-			var id string
-			if err := nodeRows.Scan(&id); err != nil {
-				return nil, err
-			}
-			ids = append(ids, id)
-		}
-		return ids, nodeRows.Err()
+		return NodeIDsForProfile(ctx, queryer, profileID)
 	}
 	return nil, nil
+}
+
+// NodeIDsForProfile resolves managed node IDs granted by a profile's internal
+// node policy：'all' 即全部内部节点；'explicit' 时以 subscription_plan_nodes
+// 中 plan_id=profile.id AND source='internal' 的清单为准（与套餐共用同表同语义）。
+func NodeIDsForProfile(ctx context.Context, queryer Queryer, profileID string) ([]string, error) {
+	nodeRows, err := queryer.QueryContext(ctx, `SELECT n.id
+		FROM managed_proxy_nodes n
+		JOIN subscription_profiles pf ON pf.id=?
+		WHERE n.enabled=1 AND pf.include_internal_nodes=1 AND (
+			COALESCE(pf.selection_mode,'explicit')='all' OR EXISTS(
+				SELECT 1 FROM subscription_plan_nodes pn WHERE pn.plan_id=pf.id AND pn.node_id=n.id AND pn.source='internal'
+			)
+		)
+		ORDER BY n.id`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer nodeRows.Close()
+	ids := []string{}
+	for nodeRows.Next() {
+		var id string
+		if err := nodeRows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nodeRows.Err()
 }
 
 func NodeIDsForPlans(ctx context.Context, queryer Queryer, planIDs ...string) ([]string, error) {

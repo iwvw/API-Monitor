@@ -2960,6 +2960,10 @@ func (s *Service) recordPush(w http.ResponseWriter, r *http.Request, token strin
 		response.Error(w, http.StatusNotFound, "Invalid push token")
 		return
 	}
+	// push 心跳与定时 pushProbe/checkNow 必须按 monitor 串行，
+	// 否则 processState 的读改写会交错，产生重复 incident 或通知乱序。
+	unlock := s.lockMonitor(int64Value(monitor["id"], 0))
+	defer unlock()
 	payload := map[string]interface{}{}
 	_ = json.NewDecoder(r.Body).Decode(&payload)
 	beat := map[string]interface{}{

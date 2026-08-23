@@ -45,6 +45,7 @@ type Service struct {
 	client     *http.Client
 	schemaOnce sync.Once
 	schemaErr  error
+	rateLimiter *hourlyRateLimiter
 }
 
 type Channel struct {
@@ -149,6 +150,7 @@ func New(cfg config.Config) *Service {
 		cfg:    cfg,
 		store:  database.New(cfg),
 		client: &http.Client{Timeout: requestTimeout},
+		rateLimiter: &hourlyRateLimiter{},
 	}
 }
 
@@ -999,6 +1001,14 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 			return err
 		}
 	}
+	// 告警发送参数（重试/限流）逐触发读取；读失败退回默认值，不阻塞监控关键路径。
+	var loadNotifyCfg = func() GlobalConfig {
+		cfg, err := s.LoadConfig(ctx)
+		if err != nil {
+			cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100}
+		}
+		return cfg
+	}
 	for _, rule := range rules {
 		dryRun, err := s.DryRun(ctx, rule, eventData)
 		if err != nil {
@@ -1007,12 +1017,38 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 		if dryRun["wouldNotify"] != true {
 			continue
 		}
+		// quiet_until 静默：未到期的时间窗内整条规则跳过
+		if quietUntilActive(rule.QuietUntil, time.Now()) {
+			continue
+		}
+		// 恢复（resolve）阶段跳过重复抑制，避免恢复通知被吞导致告警永远悬着
+		trackSuppression := !(hasLifecycle && lifecycle.Phase == "resolve")
+		var fingerprint string
+		if trackSuppression {
+			fingerprint = generateFingerprint(rule, eventData)
+			suppress, err := s.evaluateSuppression(ctx, rule, fingerprint, time.Now())
+			if err != nil {
+				// DB 错误 fail-open：宁多发不漏发
+				suppress = false
+			}
+			if suppress {
+				continue
+			}
+		}
+		cfg := loadNotifyCfg()
+		sentAny := false
 		for _, channelID := range rule.Channels {
 			channel, ok, err := s.loadStoredChannel(ctx, channelID)
 			if err != nil {
 				return err
 			}
 			if !ok || channel.Enabled == 0 {
+				continue
+			}
+			if allowed, firstReject := s.rateLimiter.Allow(time.Now(), cfg.GlobalRateLimitPerHr); !allowed {
+				if firstReject {
+					slog.Warn("notification-global-rate-limit", "rule", rule.Name, "channel", channel.Name, "limit", cfg.GlobalRateLimitPerHr)
+				}
 				continue
 			}
 			title := formatTitle(rule, eventData)
@@ -1022,25 +1058,32 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 				return err
 			}
 			channelConfig := decryptConfig(channel.ConfigRaw)
-			var delivery deliveryResult
-			var sendErr error
-			if channel.Type == "telegram" && hasLifecycle {
-				delivery, sendErr = s.deliverLifecycleTelegram(ctx, channel, channelConfig, sourceModule, eventType, lifecycle, title, message)
-			} else {
-				delivery, sendErr = s.sendToChannel(ctx, channel, channelConfig, title, message)
-			}
-			if sendErr != nil {
-				_ = s.updateHistoryStatus(ctx, logID, "failed", nil, ptr(sendErr.Error()))
-			} else {
-				if channel.Type == "telegram" && hasLifecycle && lifecycle.Phase != "resolve" && delivery.MessageID != 0 {
-					_ = s.upsertTelegramMessageState(ctx, telegramMessageState{
-						ChannelID: channel.ID, SourceModule: sourceModule, ResourceKey: lifecycle.ResourceKey,
-						Kind: lifecycle.Kind, ChatID: delivery.ChatID, MessageID: delivery.MessageID,
-					}, eventType, eventData)
+			send := func() (deliveryResult, error) {
+				if channel.Type == "telegram" && hasLifecycle {
+					return s.deliverLifecycleTelegram(ctx, channel, channelConfig, sourceModule, eventType, lifecycle, title, message)
 				}
-				now := time.Now().In(loc).Format(time.RFC3339)
-				_ = s.updateHistoryStatus(ctx, logID, "sent", &now, nil)
+				return s.sendToChannel(ctx, channel, channelConfig, title, message)
 			}
+			delivery, retries, sendErr := s.sendWithRetry(ctx, send, cfg.MaxRetryTimes, cfg.RetryIntervalSeconds)
+			if sendErr != nil {
+				_ = s.updateHistoryRetry(ctx, logID, retries, sendErr.Error())
+				continue
+			}
+			sentAny = true
+			if retries > 0 {
+				_ = s.updateHistoryRetryCount(ctx, logID, retries)
+			}
+			if channel.Type == "telegram" && hasLifecycle && lifecycle.Phase != "resolve" && delivery.MessageID != 0 {
+				_ = s.upsertTelegramMessageState(ctx, telegramMessageState{
+					ChannelID: channel.ID, SourceModule: sourceModule, ResourceKey: lifecycle.ResourceKey,
+					Kind: lifecycle.Kind, ChatID: delivery.ChatID, MessageID: delivery.MessageID,
+				}, eventType, eventData)
+			}
+			now := time.Now().In(loc).Format(time.RFC3339)
+			_ = s.updateHistoryStatus(ctx, logID, "sent", &now, nil)
+		}
+		if trackSuppression && sentAny {
+			_ = s.recordSuppressionSent(ctx, rule.ID, fingerprint, time.Now())
 		}
 	}
 	if hasLifecycle && lifecycle.Phase == "resolve" {

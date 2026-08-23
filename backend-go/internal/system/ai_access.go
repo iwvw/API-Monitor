@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -257,7 +258,8 @@ const aiAgentWriteEnabledKey = "ai_agent_write_enabled"
 // minimal  - 只读（写方法一律拒绝）
 // standard - 默认：写操作需显式开关，管理 AI 路由（admin-ai）不可达
 // full     - 单用户自用最高权限：放开全部管理面与写操作，
-//            仅保留防自毁的两条拦截（AI 递归调用、密钥轮换）
+//
+//	仅保留防自毁的两条拦截（AI 递归调用、密钥轮换）
 const (
 	aiAgentAccessPolicyKey = "ai_agent_access_policy"
 	AIAccessPolicyMinimal  = "minimal"
@@ -395,7 +397,13 @@ func (s *Service) validateAIAgent(r *http.Request, db *sql.DB) bool {
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer ")) == expected
+	provided := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	// 与主机 Agent Key 校验对齐：长度不等快速返回 0，等长密钥走
+	// 常量时间比较，避免普通 == 的逐字节时序差泄露密钥前缀信息。
+	if len(expected) == 0 || len(expected) != len(provided) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
 }
 
 func (s *Service) aiManifest(r *http.Request) (map[string]interface{}, error) {
@@ -704,7 +712,7 @@ func (s *Service) aiFindAPIs(args map[string]interface{}) (interface{}, error) {
 				"weight": r.Weight,
 			})
 		}
-contract := map[string]interface{}{
+		contract := map[string]interface{}{
 			"path":               route.Prefix,
 			"methods":            route.Methods,
 			"group":              route.Group,

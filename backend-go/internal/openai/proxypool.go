@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -219,6 +220,32 @@ func activeProxyHonored(state *endpointProxyState, activeProxy string, cleaned [
 	return true
 }
 
+// sessionBindingMax 是单个端点代理状态中会话绑定条目的容量上限（对齐
+// channelAffinity 的 1024）。session key 来自客户端可控的请求头/请求体
+// （X-Session-ID 等），不做上限会让绑定 map 随会话数无限增长（内存泄漏/DoS）。
+const sessionBindingMax = 1024
+
+// sessionBindingTTL 是会话绑定条目的空闲过期时长：超过该时长未复用的绑定在
+// 容量清理时被移除，避免僵尸会话永久占据绑定表。
+const sessionBindingTTL = 30 * time.Minute
+
+// trimSessionBindings 在会话绑定达到容量上限时做轻量清理：先剔除空闲过期的
+// 条目，仍达上限则整体重建（低概率冷启动场景，与会话亲和的清理策略一致）。
+// 调用方必须持有 proxyMu。
+func trimSessionBindings(state *endpointProxyState, now time.Time) {
+	if len(state.sessionBindings) < sessionBindingMax {
+		return
+	}
+	for k, v := range state.sessionBindings {
+		if now.Sub(v.updatedAt) > sessionBindingTTL {
+			delete(state.sessionBindings, k)
+		}
+	}
+	if len(state.sessionBindings) >= sessionBindingMax {
+		state.sessionBindings = make(map[string]*sessionBinding)
+	}
+}
+
 // clientForEndpoint 按端点代理池选择下一个可用代理，返回绑定该代理的 http.Client。
 // 规则：
 //   - proxyEnabled 关闭：忽略代理池，返回按端点 protocol 配置的直连客户端
@@ -245,6 +272,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 		state = newEndpointProxyState()
 		s.proxyStateByEndpoint[endpointID] = state
 	}
+	trimSessionBindings(state, now)
 	if state.cursor >= len(cleaned) || state.cursor < 0 {
 		state.cursor = 0
 	}
@@ -260,6 +288,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 						if binding.count < sessionProxyRequestLimit {
 							if _, inPool := poolIndex(binding.proxy, cleaned); inPool {
 								binding.count++
+								binding.updatedAt = now
 								bindingOK = true
 							}
 						}
@@ -288,7 +317,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 		selectedProxy := state.activeProxy
 		state.cursor = (indexOfProxy(selectedProxy, cleaned) + 1) % len(cleaned)
 		if sessionKey != "" {
-			state.sessionBindings[sessionKey] = &sessionBinding{proxy: selectedProxy, count: 1}
+			state.sessionBindings[sessionKey] = &sessionBinding{proxy: selectedProxy, count: 1, updatedAt: now}
 		}
 		s.proxyMu.Unlock()
 		client, err := s.proxyClient(selectedProxy)
@@ -384,7 +413,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 
 	// 新出口绑定到会话（从 1 次计数开始），后续请求在此计数内保持同一出口。
 	if sessionKey != "" {
-		state.sessionBindings[sessionKey] = &sessionBinding{proxy: selectedProxy, count: 1}
+		state.sessionBindings[sessionKey] = &sessionBinding{proxy: selectedProxy, count: 1, updatedAt: now}
 	}
 	s.proxyMu.Unlock()
 
@@ -1158,10 +1187,19 @@ var errStreamIdleTimeout = errors.New("upstream stream idle timeout")
 // 注意：503/529 是上游过载/停机信号，不属于客户端限流，不应计入「连续 429 冻结
 // 代理」的累计（否则瞬时过载会把一个健康代理冻结 30 分钟）；正文关键词仍能覆盖
 // 携带过载语义的 503 响应。
+//
+// 正文关键词分支仅在以下情形生效，避免把「200 成功回复正文恰好提到限流词」
+// （如模型回答"如何处理 rate limit"）误判为限流（吞成功回复 + 误冻结出口）：
+//   - 状态码 >= 400：错误响应正文，关键词可信；
+//   - 任意状态码但正文解析为 JSON 且含非空顶层 "error" 成员：覆盖部分上游
+//     「200 + 错误体」的设计，纯文本 200 正文含关键词不再命中。
 func isRateLimitResponse(resp *http.Response, body []byte) bool {
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests, 439:
 		return true
+	}
+	if resp.StatusCode < http.StatusBadRequest && !jsonBodyHasTopLevelError(body) {
+		return false
 	}
 	if len(body) > 0 {
 		lower := strings.ToLower(string(body))
@@ -1172,6 +1210,23 @@ func isRateLimitResponse(resp *http.Response, body []byte) bool {
 		}
 	}
 	return false
+}
+
+// jsonBodyHasTopLevelError 判断正文是否为 JSON 且携带非空的顶层 "error" 成员。
+// 解析失败（纯文本/空正文）或 error 缺失/为 null 时返回 false。
+func jsonBodyHasTopLevelError(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	raw, ok := parsed["error"]
+	if !ok {
+		return false
+	}
+	return string(bytes.TrimSpace(raw)) != "null"
 }
 
 // unavailableStatusCode 在所有候选端点均失败后，根据各端点失败码聚合决定返回给客户端的

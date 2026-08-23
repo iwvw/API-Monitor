@@ -23,7 +23,7 @@ func ledgerTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE subscription_subscriptions(id TEXT PRIMARY KEY,plan_id TEXT,profile_id TEXT,enabled INTEGER,vless_uuid TEXT,hysteria2_password TEXT,created_at TEXT)`,
 		`CREATE TABLE managed_proxy_nodes(id TEXT PRIMARY KEY,server_id TEXT,enabled INTEGER,apply_status TEXT,stats_port INTEGER)`,
 		`CREATE TABLE subscription_plan_nodes(plan_id TEXT,node_id TEXT,source TEXT,PRIMARY KEY(plan_id,node_id,source))`,
-		`CREATE TABLE subscription_profiles(id TEXT PRIMARY KEY,selection_mode TEXT,include_internal_nodes INTEGER)`,
+		`CREATE TABLE subscription_profiles(id TEXT PRIMARY KEY,selection_mode TEXT,include_internal_nodes INTEGER,enabled INTEGER,total_bytes INTEGER,cycle_type TEXT,cycle_day INTEGER)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -178,7 +178,7 @@ if usage.UploadBytes != 44 || usage.DownloadBytes != 66 {
 func TestRecordBatchAcceptsEnabledProfileSubscription(t *testing.T) {
 	db := ledgerTestDB(t)
 	ctx := context.Background()
-	_, _ = db.Exec(`INSERT INTO subscription_profiles VALUES('profile','all',1)`)
+	_, _ = db.Exec(`INSERT INTO subscription_profiles VALUES('profile','all',1,1,0,'none',1)`)
 	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,profile_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('profsub','','profile',1,'uuid','password','2026-01-01 00:00:00')`)
 	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
 	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('profile','node','internal')`)
@@ -195,5 +195,105 @@ func TestRecordBatchAcceptsEnabledProfileSubscription(t *testing.T) {
 	accepted, _, err = RecordBatch(ctx, db, []Report{report}, now)
 	if err != nil || accepted != 0 {
 		t.Fatalf("disabled profile subscription must be ignored, accepted=%d err=%v", accepted, err)
+	}
+}
+
+func TestRecordBatchIgnoresDisabledProfileEntitlement(t *testing.T) {
+	db := ledgerTestDB(t)
+	ctx := context.Background()
+	// profile 被禁用：即便节点在 explicit 清单内，凭据与记账都必须拒绝
+	_, _ = db.Exec(`INSERT INTO subscription_profiles VALUES('profile','explicit',1,0,0,'none',1)`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,profile_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('profsub','','profile',1,'uuid','password','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
+	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('profile','node','internal')`)
+	report := Report{ServerID: "host", NodeID: "node", CredentialID: "profsub", BootID: "boot", Sequence: 1, UploadBytes: 10}
+	result, err := RecordBatchDetailed(ctx, db, []Report{report}, time.Now().UTC())
+	if err != nil || result.Ignored != 1 || result.Accepted != 0 {
+		t.Fatalf("disabled profile must not be entitled, result=%#v err=%v", result, err)
+	}
+}
+
+func TestActiveCredentialsIncludeEnabledProfileSubscriptions(t *testing.T) {
+	db := ledgerTestDB(t)
+	ctx := context.Background()
+	_, _ = db.Exec(`INSERT INTO subscription_profiles VALUES('profile','explicit',1,1,1000,'monthly',15)`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,profile_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('profsub','','profile',1,'uuid-p','pass-p','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000),('node2','host',1,'running',21001)`)
+	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('profile','node','internal')`)
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+
+	items, err := ActiveCredentialsForNode(ctx, db, "node", "vless-reality", now)
+	if err != nil || len(items) != 1 || items[0].SubscriptionID != "profsub" || items[0].VLESSUUID != "uuid-p" {
+		t.Fatalf("items=%#v err=%v", items, err)
+	}
+	// 不在 explicit 清单内的内部节点不下发
+	items, err = ActiveCredentialsForNode(ctx, db, "node2", "vless-reality", now)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("non-granted node items=%#v err=%v", items, err)
+	}
+
+	// profile 禁用后凭据不再下发
+	if _, err := db.Exec(`UPDATE subscription_profiles SET enabled=0 WHERE id='profile'`); err != nil {
+		t.Fatal(err)
+	}
+	items, err = ActiveCredentialsForNode(ctx, db, "node", "vless-reality", now)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("disabled profile items=%#v err=%v", items, err)
+	}
+
+	// 'all' 模式覆盖全部启用中的内部节点
+	if _, err := db.Exec(`UPDATE subscription_profiles SET enabled=1, selection_mode='all' WHERE id='profile'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, nodeID := range []string{"node", "node2"} {
+		items, err = ActiveCredentialsForNode(ctx, db, nodeID, "vless-reality", now)
+		if err != nil || len(items) != 1 {
+			t.Fatalf("all-mode node %s items=%#v err=%v", nodeID, items, err)
+		}
+	}
+}
+
+func TestProfileSubscriptionLedgerSharesCycleAndQuotaCaliber(t *testing.T) {
+	db := ledgerTestDB(t)
+	ctx := context.Background()
+	_, _ = db.Exec(`INSERT INTO subscription_profiles VALUES('profile','explicit',1,1,100,'monthly',15)`)
+	_, _ = db.Exec(`INSERT INTO subscription_subscriptions(id,plan_id,profile_id,enabled,vless_uuid,hysteria2_password,created_at) VALUES('profsub','','profile',1,'uuid-p','pass-p','2026-01-01 00:00:00')`)
+	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
+	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('profile','node','internal')`)
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+
+	result, err := RecordBatchDetailed(ctx, db, []Report{{
+		ServerID: "host", NodeID: "node", CredentialID: "uuid-p", BootID: "boot", Sequence: 1, UploadBytes: 60, DownloadBytes: 40,
+	}}, now)
+	if err != nil || result.Accepted != 1 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+
+	// 记账窗口必须使用 profile 的周期口径（monthly / day=15），而非默认 none
+	wantStart, wantEnd := CycleWindow(now, "monthly", 15, "2026-01-01 00:00:00")
+	var storedStart, storedEnd string
+	var upload, download int64
+	if err := db.QueryRow(`SELECT cycle_start,cycle_end,upload_bytes,download_bytes FROM subscription_usage_cycles WHERE subscription_id='profsub'`).Scan(&storedStart, &storedEnd, &upload, &download); err != nil {
+		t.Fatal(err)
+	}
+	if storedStart != wantStart || storedEnd != wantEnd {
+		t.Fatalf("cycle window %s..%s, want %s..%s", storedStart, storedEnd, wantStart, wantEnd)
+	}
+	// 面板用同一口径读取时必须命中同一行（cycle 键一致）
+	usage, err := Current(ctx, db, "profsub", "monthly", 15, "2026-01-01 00:00:00", now)
+	if err != nil || usage.UploadBytes != 60 || usage.DownloadBytes != 40 || usage.Metering != "available" {
+		t.Fatalf("usage=%#v err=%v", usage, err)
+	}
+
+	// 配额同样来自 profile（total=100）：用尽后按订阅维度入队 reconcile
+	result, err = RecordBatchDetailed(ctx, db, []Report{{
+		ServerID: "host", NodeID: "node", CredentialID: "uuid-p", BootID: "boot", Sequence: 2, UploadBytes: 200,
+	}}, now)
+	if err != nil || result.Accepted != 0 || result.Ignored != 1 {
+		t.Fatalf("exhausted result=%#v err=%v", result, err)
+	}
+	var state string
+	if err := db.QueryRow(`SELECT state FROM subscription_runtime_reconcile WHERE node_id='node'`).Scan(&state); err != nil || state != "pending" {
+		t.Fatalf("exhausted profile must queue reconcile, state=%q err=%v", state, err)
 	}
 }

@@ -72,6 +72,42 @@ func (h *MetricsHub) UnregisterRoot(sessionID string) {
 	delete(h.rootClients, sessionID)
 }
 
+// metricsBroadcastSensitiveKeys 是广播给浏览器命名空间（/metrics 与 root）
+// 前必须剥离的敏感标识字段。/socket.io/ 端点匿名可达，公开状态页依赖匿名
+// 订阅，因此不能靠鉴权收敛，只能在广播侧剥离主机名、出口 IP 等标识，
+// 防止匿名订阅者拿到真实基础设施信息；Agent 上行数据不受影响。
+var metricsBroadcastSensitiveKeys = map[string]struct{}{
+	"hostname": {},
+	"ip":       {},
+	"isp":      {},
+	"org":      {},
+	"asn":      {},
+}
+
+// sanitizeBroadcastPayload 递归剥离广播负载中的敏感标识字段。
+// 只做删除不改值，返回新建的容器，调用方持有的原始数据不被修改。
+func sanitizeBroadcastPayload(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		copied := make(map[string]interface{}, len(typed))
+		for k, v := range typed {
+			if _, sensitive := metricsBroadcastSensitiveKeys[k]; sensitive {
+				continue
+			}
+			copied[k] = sanitizeBroadcastPayload(v)
+		}
+		return copied
+	case []interface{}:
+		copied := make([]interface{}, len(typed))
+		for i, v := range typed {
+			copied[i] = sanitizeBroadcastPayload(v)
+		}
+		return copied
+	default:
+		return value
+	}
+}
+
 // BroadcastMetrics 向所有前端客户端广播 metrics:update 事件
 // data 格式: { serverId: string, metrics: {...}, timestamp: number }
 func (h *MetricsHub) BroadcastMetrics(serverID string, metrics map[string]interface{}) {
@@ -88,7 +124,7 @@ func (h *MetricsHub) BroadcastMetrics(serverID string, metrics map[string]interf
 
 	data := map[string]interface{}{
 		"serverId":  serverID,
-		"metrics":   metrics,
+		"metrics":   sanitizeBroadcastPayload(metrics),
 		"timestamp": time.Now().UnixMilli(),
 	}
 
@@ -130,7 +166,9 @@ func (h *MetricsHub) BroadcastRootEvent(event string, data interface{}) {
 		return
 	}
 
-	h.broadcastPlainEvent(clients, event, data)
+	// root 命名空间同样匿名可达（公开状态页走 polling 订阅 uptime:heartbeat），
+	// 广播负载统一过敏感字段剥离。
+	h.broadcastPlainEvent(clients, event, sanitizeBroadcastPayload(data))
 }
 
 // broadcastEvent 向所有客户端发送 Socket.IO 事件（/metrics 命名空间）

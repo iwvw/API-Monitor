@@ -595,6 +595,69 @@ func (s *Service) consumeGatewayKeyTokens(ctx context.Context, identity gatewayK
 	}
 }
 
+// filterCandidatesByKeyIdentity 按网关密钥的端点白名单过滤候选端点列表，
+// 并同步换算加权首选（chosenIndex）在过滤后列表中的新下标（首选不在白名单
+// 内时回退 0）。触发时机：failover 循环逐个尝试候选端点时不会再校验白名单，
+// 必须在候选组装阶段过滤，否则白名单内端点故障时会 failover 到白名单外的
+// 端点（授权绕过：密钥被限制只能使用特定端点，请求却打到了别的端点）。
+// 白名单为空（未限制端点）时原样返回，保持亲和排序不变。
+func filterCandidatesByKeyIdentity(identity gatewayKeyIdentity, candidates []Endpoint, chosenIndex int) ([]Endpoint, int) {
+	if len(identity.AllowedEndpoints) == 0 {
+		return candidates, chosenIndex
+	}
+	allowed := make(map[string]bool, len(identity.AllowedEndpoints))
+	for _, id := range identity.AllowedEndpoints {
+		allowed[id] = true
+	}
+	chosenID := ""
+	if chosenIndex >= 0 && chosenIndex < len(candidates) {
+		chosenID = candidates[chosenIndex].ID
+	}
+	out := make([]Endpoint, 0, len(candidates))
+	newChosenIndex := 0
+	for _, ep := range candidates {
+		if !allowed[ep.ID] {
+			continue
+		}
+		if ep.ID == chosenID {
+			newChosenIndex = len(out)
+		}
+		out = append(out, ep)
+	}
+	return out, newChosenIndex
+}
+
+// recordDisallowedEndpoints 全部候选端点均不在网关密钥端点白名单内时，按与
+// enforceGatewayKeyLimits 端点白名单违例同款口径记录失败事件并返回错误文案；
+// 响应写回由调用方完成（不同入口的错误格式不同）。
+func (s *Service) recordDisallowedEndpoints(ctx context.Context, route, model string, stream bool, clientIP string, viaProxy int, requestStarted time.Time) string {
+	limitErr := "端点不在该密钥的允许列表中"
+	s.recordRelayError(RelayErrorRecord{
+		Route: route, Kind: "blocked",
+		Model: model, Stream: stream, ClientIP: clientIP,
+		ElapsedMs: time.Since(requestStarted).Milliseconds(),
+		Error:     limitErr,
+	})
+	errBody, _ := json.Marshal(map[string]interface{}{
+		"error": map[string]string{"message": limitErr, "type": "forbidden"},
+	})
+	s.recordAnalyticsKey(ctx, route, "", model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+		Kind:     "blocked",
+		Message:  limitErr,
+		Response: errorResponseForLog(errBody, http.StatusForbidden),
+	})
+	return limitErr
+}
+
+// rejectDisallowedEndpoints 是 OpenAI 风格入口（chat/responses）的完整拒绝路径：
+// 记录 + 写回 403 JSON（与 enforceGatewayKeyLimits 违例响应同构）。
+func (s *Service) rejectDisallowedEndpoints(ctx context.Context, w http.ResponseWriter, route, model string, stream bool, clientIP string, viaProxy int, requestStarted time.Time) {
+	limitErr := s.recordDisallowedEndpoints(ctx, route, model, stream, clientIP, viaProxy, requestStarted)
+	response.JSON(w, http.StatusForbidden, map[string]interface{}{
+		"error": map[string]string{"message": limitErr, "type": "forbidden"},
+	})
+}
+
 // FilterModelsListByKey 按当前请求网关密钥的白名单过滤模型列表（/v1/models 使用）。
 func (s *Service) FilterModelsListByKey(ctx context.Context, models []map[string]interface{}) []map[string]interface{} {
 	return filterModelsByKey(gatewayKeyFromContext(ctx), models)

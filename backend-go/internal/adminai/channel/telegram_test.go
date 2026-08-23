@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -8,7 +9,7 @@ import (
 func TestEscapeV2(t *testing.T) {
 	specials := `\ _ * [ ] ( ) ~ ` + "`" + ` > # + - = | { } . !`
 	escaped := EscapeV2(specials)
-	if escaped != `\\ \_ \* \[ \] \( \) \~ \` + "`" + ` \> \# \+ \- \= \| \{ \} \. \!` {
+	if escaped != `\\ \_ \* \[ \] \( \) \~ \`+"`"+` \> \# \+ \- \= \| \{ \} \. \!` {
 		t.Fatalf("EscapeV2(%q) = %q", specials, escaped)
 	}
 
@@ -204,5 +205,34 @@ func TestEnvelopeFromMessage(t *testing.T) {
 	emptyEnv := channel.envelopeFromMessage(map[string]interface{}{})
 	if emptyEnv.Text != "" {
 		t.Fatalf("empty env = %#v", emptyEnv)
+	}
+}
+
+// Stop 幂等：重复调用不得二次 close 同一通道（修复前第二次 Stop panic）。
+func TestTelegramStopIdempotent(t *testing.T) {
+	tg := NewTelegramChannel("telegram", TelegramConfig{BotToken: "x"}, nil)
+	// Start 需要真实 Bot API，直接模拟 Start 已创建 stop 通道的运行态
+	tg.mu.Lock()
+	tg.stop = make(chan struct{})
+	tg.state = StateRunning
+	tg.mu.Unlock()
+
+	if err := tg.Stop(context.Background()); err != nil {
+		t.Fatalf("首次 Stop: %v", err)
+	}
+	if err := tg.Stop(context.Background()); err != nil {
+		t.Fatalf("二次 Stop: %v", err)
+	}
+	if tg.Status().State != StateStopped {
+		t.Fatalf("Stop 后状态应为 stopped，实际 %s", tg.Status().State)
+	}
+
+	// 未 Start 过（stop 为 nil）的实例：Stop 同样安全
+	fresh := NewTelegramChannel("telegram2", TelegramConfig{BotToken: "x"}, nil)
+	if err := fresh.Stop(context.Background()); err != nil {
+		t.Fatalf("未启动实例 Stop: %v", err)
+	}
+	if err := fresh.Stop(context.Background()); err != nil {
+		t.Fatalf("未启动实例二次 Stop: %v", err)
 	}
 }

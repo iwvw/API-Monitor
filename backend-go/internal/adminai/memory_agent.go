@@ -275,7 +275,8 @@ func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionI
 		userContent = "对话内容：\n" + conv.String()
 	}
 
-	resp, err := s.callLLMPlain(ctx, model, []map[string]interface{}{
+	// 模型串支持逗号分隔多候选（与主对话回退语义一致）：某候选失败自动切换下一个。
+	resp, err := s.callLLMPlainWithFallback(ctx, model, []map[string]interface{}{
 		{"role": "system", "content": systemPrompt},
 		{"role": "user", "content": userContent},
 	})

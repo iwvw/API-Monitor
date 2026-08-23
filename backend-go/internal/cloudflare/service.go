@@ -1907,7 +1907,25 @@ func (s *Service) listZones(ctx context.Context, auth map[string]string, params 
 	if err != nil {
 		return nil, nil, err
 	}
-	return arrayValue(payload["result"]), payload["result_info"], nil
+	results := arrayValue(payload["result"])
+	firstInfo := payload["result_info"]
+	// per_page 默认 50 会静默截断，按 result_info.total_pages 翻页拉全
+	totalPages := intValue(objectValue(firstInfo)["total_pages"], 1)
+	for page := 2; page <= totalPages; page++ {
+		query.Set("page", strconv.Itoa(page))
+		pagePayload, perr := s.cfRequest(ctx, http.MethodGet, "/zones?"+query.Encode(), auth, nil)
+		if perr != nil {
+			applog.Warn(ctx, "cloudflare", "failed to list zones page", "page", page, "error", perr.Error())
+			break
+		}
+		before := len(results)
+		results = append(results, arrayValue(pagePayload["result"])...)
+		if len(results) == before {
+			// 防御：服务端返回空页时终止，避免异常响应下死循环
+			break
+		}
+	}
+	return results, firstInfo, nil
 }
 
 func (s *Service) listDNSRecords(ctx context.Context, auth map[string]string, zoneID string, params url.Values) ([]interface{}, interface{}, error) {

@@ -558,3 +558,62 @@ func TestPublicPageIconID(t *testing.T) {
 		t.Fatalf("missing slug lookup = (%q, %v, %v), want ('', false, nil)", iconID, found, err)
 	}
 }
+
+func TestCleanupHistoryKeepsBoundaryDayRowsPerTimestampFormat(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	days := 30
+	boundary := time.Now().AddDate(0, 0, -days).UTC()
+	keptAt := boundary.Add(2 * time.Hour)
+	deletedAt := boundary.Add(-2 * time.Hour)
+
+	// github_events 等五表时间戳是 CURRENT_TIMESTAMP 空格格式
+	for _, item := range []struct {
+		id   int
+		when time.Time
+	}{
+		{1, keptAt},
+		{2, deletedAt},
+	} {
+		if _, err := db.Exec(`INSERT INTO github_events (repository_id, event_type, title, created_at)
+			VALUES (1, 'issue_opened', '边界事件', ?)`, item.when.Format("2006-01-02 15:04:05")); err != nil {
+			t.Fatalf("insert event %d: %v", item.id, err)
+		}
+	}
+	// github_action_runs.created_at 存 GitHub API 原始 RFC3339「T」格式
+	for _, item := range []struct {
+		runID int64
+		when  time.Time
+	}{
+		{101, keptAt},
+		{102, deletedAt},
+	} {
+		if _, err := db.Exec(`INSERT INTO github_action_runs (repository_id, run_id, workflow_name, created_at)
+			VALUES (1, ?, 'CI', ?)`, item.runID, item.when.Format(time.RFC3339)); err != nil {
+			t.Fatalf("insert run %d: %v", item.runID, err)
+		}
+	}
+
+	if _, err := cleanupHistory(ctx, db, 0, days); err != nil {
+		t.Fatalf("cleanup history: %v", err)
+	}
+
+	var keptEvents, keptRuns int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM github_events WHERE title = '边界事件'`).Scan(&keptEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM github_action_runs`).Scan(&keptRuns); err != nil {
+		t.Fatal(err)
+	}
+	// 保留期首日当天（cutoff 之后）的数据必须保留，只删除 cutoff 之前的行
+	if keptEvents != 1 || keptRuns != 1 {
+		t.Fatalf("keptEvents=%d keptRuns=%d, want 1/1", keptEvents, keptRuns)
+	}
+}

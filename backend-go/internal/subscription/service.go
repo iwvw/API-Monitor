@@ -136,6 +136,9 @@ type NodeLibrary struct {
 	SortOrder             int         `json:"sort_order"`
 	SelectionMode         string      `json:"selection_mode,omitempty"`
 	IncludeInternalNodes  bool        `json:"include_internal_nodes"`
+	// InternalNodeIDs 为 explicit 模式下授权的内部节点清单，与套餐共用
+	// subscription_plan_nodes 同表同语义（plan_id 存 profile id）。
+	InternalNodeIDs       []string    `json:"internal_node_ids,omitempty"`
 	CreatedAt             string      `json:"created_at"`
 	UpdatedAt             string      `json:"updated_at"`
 	NodeCount             int         `json:"node_count"`
@@ -1083,7 +1086,11 @@ func (s *Service) handlePlans(w http.ResponseWriter, r *http.Request, db *sql.DB
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		plans, _ := loadPlans(r.Context(), db, id)
+		plans, err := loadPlans(r.Context(), db, id)
+		if err != nil || len(plans) == 0 {
+			response.Error(w, http.StatusNotFound, "套餐不存在或加载失败")
+			return
+		}
 		response.OK(w, plans[0])
 	case http.MethodPost, http.MethodPut:
 		var input Plan
@@ -1161,7 +1168,11 @@ func (s *Service) handlePlans(w http.ResponseWriter, r *http.Request, db *sql.DB
 			response.Error(w, 500, err.Error())
 			return
 		}
-		plans, _ := loadPlans(r.Context(), db, id)
+		plans, err := loadPlans(r.Context(), db, id)
+		if err != nil || len(plans) == 0 {
+			response.Error(w, http.StatusNotFound, "套餐不存在或加载失败")
+			return
+		}
 		response.OK(w, plans[0])
 	case http.MethodDelete:
 		if id == "" {
@@ -1255,6 +1266,25 @@ func loadPlans(ctx context.Context, db *sql.DB, id string) ([]Plan, error) {
 type subscriptionExecutor interface {
 	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
 	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
+// loadProfileInternalNodeIDs 读取节点库在 explicit 模式下授权的内部节点清单
+// （subscription_plan_nodes 中 plan_id=profile id AND source='internal'）。
+func loadProfileInternalNodeIDs(ctx context.Context, db *sql.DB, profileID string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT node_id FROM subscription_plan_nodes WHERE plan_id=? AND source='internal' ORDER BY created_at,node_id`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func replacePlanNodeRelations(ctx context.Context, db *sql.DB, tx *sql.Tx, planID string, nodeIDs []string) (bool, bool, error) {
@@ -1627,6 +1657,15 @@ func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// explicit 清单与套餐共用 subscription_plan_nodes（plan_id 存 profile id），
+	// 写入后立即为涉及节点排队 reconcile，让 Agent 下发新凭据范围。
+	if _, _, err := replacePlanNodeRelations(r.Context(), db, nil, id, input.InternalNodeIDs); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if nodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), db, id); err == nil && len(nodeIDs) > 0 {
+		_ = reconcilequeue.EnqueueNodes(r.Context(), db, nodeIDs, "profile policy changed")
+	}
 	if err := upsertDefaultUpstream(r.Context(), db, id, subInput, refreshHours); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1648,6 +1687,13 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 		response.Error(w, http.StatusNotFound, "node library not found")
 		return
 	}
+	// 对齐套餐变更的做法：先记录旧节点范围，写入后对前后差集排队 reconcile，
+	// 确保被移出/移入 explicit 清单的节点都能同步运行时凭据。
+	previousNodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), db, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	subInput := subscriptionFromProfile(input)
 	cycleDay := input.CycleDay
 	if cycleDay <= 0 {
@@ -1663,6 +1709,19 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	refreshHours := intDefault(input.UpstreamRefreshHours, defaultRefreshHours)
 	limitPerMin := intDefault(input.RateLimitPerMinute, defaultLimitPerMin)
 	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, _, err := replacePlanNodeRelations(r.Context(), db, nil, id, input.InternalNodeIDs); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	currentNodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), db, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := reconcilequeue.EnqueueNodes(r.Context(), db, append(previousNodeIDs, currentNodeIDs...), "profile policy changed"); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1704,6 +1763,7 @@ func (s *Service) deleteProfile(w http.ResponseWriter, r *http.Request, db *sql.
 		_, _ = tx.ExecContext(r.Context(), `DELETE FROM subscription_subscriptions WHERE id = ? AND id = COALESCE(profile_id, id)`, id)
 	}
 	_, _ = tx.ExecContext(r.Context(), `DELETE FROM subscription_upstreams WHERE profile_id = ?`, id)
+	_, _ = tx.ExecContext(r.Context(), `DELETE FROM subscription_plan_nodes WHERE plan_id = ?`, id)
 	if _, err := tx.ExecContext(r.Context(), `DELETE FROM subscription_profiles WHERE id = ?`, id); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -3197,6 +3257,10 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 	for i := range items {
 		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_nodes WHERE COALESCE(profile_id, subscription_id) = ?`, items[i].ID).Scan(&items[i].NodeCount)
 		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_subscriptions WHERE COALESCE(profile_id, id) = ? AND id != COALESCE(profile_id, id)`, items[i].ID).Scan(&items[i].SubscriptionCount)
+		nodeIDs, err := loadProfileInternalNodeIDs(ctx, db, items[i].ID)
+		if err == nil {
+			items[i].InternalNodeIDs = nodeIDs
+		}
 		items[i].Traffic = computeTraffic(ctx, db, Subscription{
 			ID:                    items[i].ID,
 			ProfileID:             items[i].ID,
@@ -3644,9 +3708,28 @@ func loadSettings(ctx context.Context, db *sql.DB) (Settings, error) {
 	return settings, err
 }
 
+// effectiveCycleConfig 返回与记账（subscriptionledger.RecordBatchDetailed）
+// 一致的周期/配额口径：plan 型订阅取套餐值，profile 型（plan_id=''）回退到
+// 所属 profile；找不到订阅行时回退调用方传入的订阅行自身值。
+func effectiveCycleConfig(ctx context.Context, db *sql.DB, sub Subscription) (int64, string, int) {
+	var total int64
+	var cycleType string
+	var cycleDay int
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(p.total_bytes, pf.total_bytes, 0), COALESCE(p.cycle_type, pf.cycle_type, 'none'), COALESCE(p.cycle_day, pf.cycle_day, 1)
+		FROM subscription_subscriptions s
+		LEFT JOIN subscription_plans p ON p.id = s.plan_id
+		LEFT JOIN subscription_profiles pf ON pf.id = s.profile_id
+		WHERE s.id = ?`, sub.ID).Scan(&total, &cycleType, &cycleDay)
+	if err != nil {
+		return sub.TotalBytes, sub.CycleType, sub.CycleDay
+	}
+	return total, cycleType, cycleDay
+}
+
 func computeTraffic(ctx context.Context, db *sql.DB, sub Subscription) TrafficInfo {
-	info := TrafficInfo{Total: sub.TotalBytes, Source: "panel", Status: "active", MeteringStatus: "pending", CycleStart: sub.CycleStart, CycleEnd: sub.CycleEnd}
-	usage, err := subscriptionledger.Current(ctx, db, sub.ID, sub.CycleType, sub.CycleDay, sub.CreatedAt, time.Now().UTC())
+	totalBytes, cycleType, cycleDay := effectiveCycleConfig(ctx, db, sub)
+	info := TrafficInfo{Total: totalBytes, Source: "panel", Status: "active", MeteringStatus: "pending", CycleStart: sub.CycleStart, CycleEnd: sub.CycleEnd}
+	usage, err := subscriptionledger.Current(ctx, db, sub.ID, cycleType, cycleDay, sub.CreatedAt, time.Now().UTC())
 	if err == nil {
 		info.Upload = usage.UploadBytes
 		info.Download = usage.DownloadBytes

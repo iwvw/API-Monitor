@@ -1159,3 +1159,62 @@ func TestApiStatsTrafficCycleMatchesPanel(t *testing.T) {
 		t.Fatal("today bucket missing from trend")
 	}
 }
+
+// TestValidateAIAgentBearerKey 验证 Bearer 密钥校验的接受与拒绝路径：
+// 正确密钥通过；同长度、异长度错误密钥以及缺失头一律拒绝。
+func TestValidateAIAgentBearerKey(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_ai_bearer_test_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Config{DataDir: tempDir, DBName: "data.db", Version: "test"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/api/system/ai-access", nil)
+	overview, err := service.aiAccessOverview(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedKey := overview["agentKey"].(map[string]interface{})["value"].(string)
+	if expectedKey == "" {
+		t.Fatal("expected agent key")
+	}
+
+	db, err := service.store.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	valid := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	valid.Header.Set("Authorization", "Bearer "+expectedKey)
+	if !service.validateAIAgent(valid, db) {
+		t.Fatal("correct bearer key must validate")
+	}
+
+	wrongSameLength := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	wrongSameLength.Header.Set("Authorization", "Bearer "+strings.Repeat("x", len(expectedKey)))
+	if service.validateAIAgent(wrongSameLength, db) {
+		t.Fatal("same-length wrong key must be rejected")
+	}
+
+	wrongDifferentLength := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	wrongDifferentLength.Header.Set("Authorization", "Bearer "+expectedKey[:len(expectedKey)-2])
+	if service.validateAIAgent(wrongDifferentLength, db) {
+		t.Fatal("different-length wrong key must be rejected")
+	}
+
+	missing := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	if service.validateAIAgent(missing, db) {
+		t.Fatal("missing authorization header must be rejected")
+	}
+
+	malformed := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	malformed.Header.Set("Authorization", "Basic "+expectedKey)
+	if service.validateAIAgent(malformed, db) {
+		t.Fatal("non-bearer authorization must be rejected")
+	}
+}

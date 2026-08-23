@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
 )
 
 func newTestService(t *testing.T) *Service {
@@ -474,10 +476,10 @@ func TestToolDescTemplatePathMatch(t *testing.T) {
 	s := newTestService(t)
 	s.catalogMu.Lock()
 	s.catalogDescs = map[string]string{
-		"/api/aliyun/accounts":                     "列出或新增阿里云账号",
-		"/api/aliyun/accounts/{id}/domains":        "列出或添加域名",
-		"/api/tencent/accounts":                    "列出或新增腾讯云账号",
-		"/api/cloudflare/zones":                    "列出 Zone 列表",
+		"/api/aliyun/accounts":                       "列出或新增阿里云账号",
+		"/api/aliyun/accounts/{id}/domains":          "列出或添加域名",
+		"/api/tencent/accounts":                      "列出或新增腾讯云账号",
+		"/api/cloudflare/zones":                      "列出 Zone 列表",
 		"/api/cloudflare/zones/{zoneId}/dns_records": "管理 DNS 记录",
 	}
 	s.catalogMu.Unlock()
@@ -524,5 +526,257 @@ func TestGetAutoApprove(t *testing.T) {
 	v, err = s.getAutoApprove(context.Background(), db)
 	if err != nil || !v {
 		t.Fatalf("期望 true，实际 %v (err=%v)", v, err)
+	}
+}
+
+// registerCronPolicy 把会话挂到指定策略的 run 上（模拟 handleCronTaskRun 的注册）。
+func registerCronPolicy(s *Service, sessionID, runID, policy string) {
+	s.mu.Lock()
+	s.sessionRuns[sessionID] = runID
+	s.runPolicy[runID] = policy
+	s.mu.Unlock()
+}
+
+func unregisterCronPolicy(s *Service, sessionID, runID string) {
+	s.mu.Lock()
+	delete(s.sessionRuns, sessionID)
+	delete(s.runPolicy, runID)
+	s.mu.Unlock()
+}
+
+// 定时 AI 任务 allow 策略受「写操作全局开关」硬约束：
+// 开关关闭时写操作被拒（不得借 cron 绕过）；开关打开时免审批直接执行。
+func TestCronAllowPolicyRespectsWriteSwitch(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{"success":true}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	registerCronPolicy(s, "aas_cron_w", "aae_cron_w", "allow")
+	defer unregisterCronPolicy(s, "aas_cron_w", "aae_cron_w")
+
+	eventCh := make(chan SSEEvent, 8)
+	args := map[string]interface{}{"method": "POST", "path": "/api/demo/write"}
+
+	// 写开关未配置（默认关闭）：allow 策略也必须被硬底线拒绝
+	_, err = s.executeCallAPITool(context.Background(), db, args, "aas_cron_w", "tc_w1", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "写操作未启用") {
+		t.Fatalf("写开关关闭时 cron allow 应被拒绝，实际 err=%v", err)
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("写开关关闭时不应发起写调用，实际 %d 次", writeCalls)
+	}
+
+	// 写开关打开：allow 策略免审批直接执行（不进入审批等待）
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+	if _, err := s.executeCallAPITool(context.Background(), db, args, "aas_cron_w", "tc_w2", eventCh); err != nil {
+		t.Fatalf("写开关打开时 cron allow 应免审批执行，实际 err=%v", err)
+	}
+	if atomic.LoadInt32(&writeCalls) != 1 {
+		t.Fatalf("写开关打开时应执行一次写调用，实际 %d 次", writeCalls)
+	}
+}
+
+// readonly 策略仍然直接拒绝写操作（回归保护）。
+func TestCronReadonlyPolicyStillRejectsWrite(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+
+	registerCronPolicy(s, "aas_cron_ro", "aae_cron_ro", "readonly")
+	defer unregisterCronPolicy(s, "aas_cron_ro", "aae_cron_ro")
+
+	_, err = s.executeCallAPITool(context.Background(), db,
+		map[string]interface{}{"method": "POST", "path": "/api/demo/write"}, "aas_cron_ro", "tc_ro", make(chan SSEEvent, 8))
+	if err == nil || !strings.Contains(err.Error(), "readonly 策略禁止写操作") {
+		t.Fatalf("readonly 应拒绝写操作，实际 err=%v", err)
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("readonly 不应发起写调用，实际 %d 次", writeCalls)
+	}
+}
+
+// 普通会话（无定时策略）审批流不变：写开关关闭时快速拒绝；
+// 打开后进入审批等待（发 approval_required 并阻塞到上下文取消）。
+func TestNormalSessionApprovalFlowUnchanged(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	// 审批行有会话外键，先落会话
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_normal', 'web', '测试会话', 0, ?, ?, ?)`,
+		now, now, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	eventCh := make(chan SSEEvent, 8)
+	args := map[string]interface{}{"method": "POST", "path": "/api/demo/write"}
+
+	// 无策略 + 写开关关 → 直接「写操作未启用」（不弹审批）
+	_, err = s.executeCallAPITool(context.Background(), db, args, "aas_normal", "tc_n1", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "写操作未启用") {
+		t.Fatalf("无策略且写开关关应被拒绝，实际 err=%v", err)
+	}
+
+	// 无策略 + 写开关开 → 进入审批等待（approval_required + 等待直到取消）
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = s.executeCallAPITool(ctx, db, args, "aas_normal", "tc_n2", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "等待审批时执行已超时或取消") {
+		t.Fatalf("无策略应进入审批等待后随上下文取消，实际 err=%v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
+		t.Fatalf("应等待审批而非立即返回，实际 %v 即返回", elapsed)
+	}
+	select {
+	case ev := <-eventCh:
+		if ev.Type != "approval_required" {
+			t.Fatalf("首个事件应为 approval_required，实际 %s", ev.Type)
+		}
+	default:
+		t.Fatal("应发出 approval_required 事件")
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("未经批准不得执行写调用，实际 %d 次", writeCalls)
+	}
+}
+
+// 审计分页 offset 越过过滤后总数：返回空页而不是切片越界 panic。
+func TestAuditOffsetBeyondTotalReturnsEmpty(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_audit_off', 'web', '测试', 0, ?, ?, ?)`,
+		now, now, now)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_executions (id, session_id, source, status, llm_model, started_at) VALUES ('aae_audit_off', 'aas_audit_off', 'web', 'completed', 'm', ?)`, now)
+	db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/audit?offset=100&limit=50", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req) // 修复前此处 panic：merged[100:1] 无效切片
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []auditItem `json:"items"`
+			Total int         `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if len(resp.Data.Items) != 0 {
+		t.Fatalf("越界 offset 应返回空页，实际 %d 条", len(resp.Data.Items))
+	}
+	if resp.Data.Total < 1 {
+		t.Fatalf("total 应保持真实总数，实际 %d", resp.Data.Total)
+	}
+}
+
+// 审批落库失败：撤销已注册的等待通道并立即返回错误，不进入 30 分钟静默等待。
+// 用 BEFORE INSERT 触发器 RAISE(ABORT) 确定性模拟写库失败（非忙锁，重试无意义路径）。
+func TestApprovalInsertFailureCleansWaiter(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE TRIGGER trg_test_block_approval BEFORE INSERT ON admin_ai_approvals
+		 BEGIN SELECT RAISE(ABORT, 'blocked for test'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	eventCh := make(chan SSEEvent, 8)
+	start := time.Now()
+	_, err = s.executeCallAPITool(context.Background(), db,
+		map[string]interface{}{"method": "POST", "path": "/api/demo/write"}, "aas_apins", "tc_ins", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "创建审批记录失败") {
+		t.Fatalf("落库失败应返回创建审批记录失败，实际 err=%v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("落库失败应立即返回而非挂起等待审批，实际耗时 %v", elapsed)
+	}
+	s.mu.Lock()
+	waiters := len(s.approval)
+	s.mu.Unlock()
+	if waiters != 0 {
+		t.Fatalf("落库失败后等待通道应被清理，实际残留 %d 个", waiters)
+	}
+	select {
+	case ev := <-eventCh:
+		t.Fatalf("落库失败不应发出事件，实际收到 %s", ev.Type)
+	default:
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("落库失败不得执行写调用，实际 %d 次", writeCalls)
 	}
 }

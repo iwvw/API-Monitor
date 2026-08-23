@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,13 +72,22 @@ func readDotEnvFile(path string) map[string]string {
 	defer file.Close()
 	values := map[string]string{}
 	scanner := bufio.NewScanner(file)
+	// 行缓冲上限调大到 1MB：默认 64KB 会在超长行处静默截断后续内容。
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+		// 剥离 UTF-8 BOM（Windows 记事本保存的 .env 首行带 BOM，
+		// 不剥会导致首个键名带不可见前缀而静默失效）。
+		line = strings.TrimPrefix(line, "\uFEFF")
 		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
 			continue
 		}
 		parts := strings.SplitN(line, "=", 2)
 		values[strings.TrimSpace(parts[0])] = strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+	}
+	// 读取中途的 I/O 错误只告警不中断：已解析的键值仍然生效。
+	if err := scanner.Err(); err != nil {
+		log.Printf("[config] 读取 .env 文件出错（已解析内容仍然生效） %s: %v", path, err)
 	}
 	return values
 }

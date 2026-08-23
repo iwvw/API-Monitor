@@ -153,6 +153,11 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 	merged = append(merged, toolCalls...)
 	merged = mergeAuditByTime(merged)
 
+	// offset 超过过滤后总数时返回空页，避免 merged[offset:end] 切片越界 panic
+	if offset >= len(merged) {
+		response.OK(w, map[string]interface{}{"items": []auditItem{}, "total": total, "offset": offset, "limit": limit})
+		return
+	}
 	end := offset + limit
 	if end > len(merged) {
 		end = len(merged)
