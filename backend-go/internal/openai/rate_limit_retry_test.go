@@ -18,6 +18,9 @@ import (
 func createRelayEndpoint(t *testing.T, upstream string, extra map[string]interface{}) (*Service, string) {
 	t.Helper()
 	service := New(configForTest(t))
+	// 关闭异步 analytics worker：等待在途批次落库后再返回，避免测试结束后
+	// worker 仍向 TempDir 写库导致清理竞态（CI 偶发 TempDir RemoveAll 失败）。
+	t.Cleanup(service.Shutdown)
 	fields := []string{
 		fmt.Sprintf(`"name":"RelayEndpoint"`),
 		fmt.Sprintf(`"baseUrl":"%s"`, upstream),
