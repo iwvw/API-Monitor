@@ -2315,9 +2315,9 @@ function OpenAIPage() {
             <div className="grid">
             <LayerCard className="min-w-0 p-0">
               <LayerCard.Secondary>
-                <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                <div className="flex w-full items-center justify-between gap-2">
                   <span>模型调用趋势</span>
-                  <div className="flex flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain scrollbar-thin">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     {modelTrendMetric === 'tokens' && (
                       <Tabs
                         variant="segmented"
@@ -3289,6 +3289,37 @@ function OpenAIPage() {
                   />
                   <span className="text-xs text-kumo-subtle">代理池异常时允许直连兜底</span>
                 </div>
+                <div className="flex min-h-8 items-center gap-2">
+                  <Switch
+                    size="sm"
+                    aria-label="429等待重试"
+                    checked={!!endpointForm.rateLimitRetryEnabled}
+                    onCheckedChange={checked =>
+                      setEndpointForm(current => ({ ...current, rateLimitRetryEnabled: checked }))
+                    }
+                  />
+                  <span className="text-xs text-kumo-strong">429 等待重试</span>
+                  <span className="text-xs text-kumo-subtle">收到 429 后按 Retry-After 等待配额恢复再试（适合低 RPM 端点）</span>
+                </div>
+                {endpointForm.rateLimitRetryEnabled && (
+                  <div className="flex min-h-8 items-center gap-2">
+                    <Input
+                      className="w-20"
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={endpointForm.rateLimitRetryWaitSeconds ?? 10}
+                      onChange={e => {
+                        const value = parseInt(e.target.value, 10);
+                        setEndpointForm(current => ({
+                          ...current,
+                          rateLimitRetryWaitSeconds: Number.isNaN(value) ? 0 : value,
+                        }));
+                      }}
+                    />
+                    <span className="text-xs text-kumo-subtle">秒（无 Retry-After 头时的缺省等待，单请求预算 30 秒）</span>
+                  </div>
+                )}
               </div>
             </div>
 

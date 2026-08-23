@@ -31,6 +31,8 @@ const [endpointForm, setEndpointForm] = useState({
   autoSwitch: false,
   proxyEnabled: false,
   allowDirectFallback: true,
+  rateLimitRetryEnabled: true,
+  rateLimitRetryWaitSeconds: 10,
   protocol: 'auto',
 });
 const [endpointFormError, setEndpointFormError] = useState('');
@@ -408,6 +410,8 @@ const openAddEndpointModal = () => {
     autoSwitch: false,
     proxyEnabled: false,
     allowDirectFallback: true,
+    rateLimitRetryEnabled: true,
+    rateLimitRetryWaitSeconds: 10,
     protocol: 'auto',
   });
   setEndpointFormError('');
@@ -429,6 +433,8 @@ const openEditEndpointModal = endpoint => {
     autoSwitch: Boolean(endpoint.autoSwitch),
     proxyEnabled: Boolean(endpoint.proxyEnabled),
     allowDirectFallback: !endpoint.forceProxy,
+    rateLimitRetryEnabled: endpoint.rateLimitRetryEnabled !== false,
+    rateLimitRetryWaitSeconds: endpoint.rateLimitRetryWaitSeconds || 10,
     protocol: endpoint.protocol || 'auto',
   });
   setEndpointFormError('');
