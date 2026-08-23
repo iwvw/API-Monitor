@@ -34,11 +34,18 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// newOpenAIService 创建测试 Service 并注册退出清理：在测试返回前关闭异步 analytics
+// worker（等待在途批次落库），避免测试结束后后台线程仍占用 TempDir 中的 SQLite
+// 文件导致 TempDir RemoveAll 清理竞态（CI 偶发 directory not empty）。
+func newOpenAIService(t *testing.T) *Service {
+	t.Helper()
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	t.Cleanup(service.Shutdown)
+	return service
+}
+
 func TestOpenAINormalization(t *testing.T) {
-	s := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	s := newOpenAIService(t)
 
 	testCases := []struct {
 		input    string
@@ -138,10 +145,7 @@ func TestEffectiveProxyAttempts(t *testing.T) {
 }
 
 func TestClientForProtocol(t *testing.T) {
-	s := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	s := newOpenAIService(t)
 
 	http1 := s.clientForProtocol("http1")
 	if tr, ok := http1.Transport.(*http.Transport); !ok {
@@ -229,10 +233,7 @@ func TestEnsureSchemaMigratesGatewayAnalyticsKeyColumn(t *testing.T) {
 }
 
 func TestAnalyticsLogsRespectDaysFilter(t *testing.T) {
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +272,7 @@ func TestAnalyticsLogsRespectDaysFilter(t *testing.T) {
 }
 
 func TestRecordAnalyticsSurvivesCancelledRequestContext(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "key-1", Name: "client"})
 	cancel()
@@ -344,10 +345,7 @@ func TestEnsureSchemaMigratesGatewayKeyCipherColumn(t *testing.T) {
 }
 
 func TestGatewayKeyIsStoredEncrypted(t *testing.T) {
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createRecorder := httptest.NewRecorder()
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/openai/keys", strings.NewReader(`{"name":"desktop client"}`))
@@ -391,10 +389,7 @@ func TestGatewayKeyIsStoredEncrypted(t *testing.T) {
 }
 
 func TestGetModelsListIncludesEnabledEndpointPendingVerification(t *testing.T) {
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -486,10 +481,7 @@ func TestOpenAILifecycleAndProxy(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	// 1. List initially empty
 	wList := httptest.NewRecorder()
@@ -748,10 +740,7 @@ func TestHealthCheckAcceptsEmptyOutput(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	success := service.healthCheckSingleModel(
 		context.Background(),
@@ -792,10 +781,7 @@ func TestHealthCheckRejects200WithErrorBody(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	record := service.healthCheckSingleModel(
 		context.Background(),
@@ -821,10 +807,7 @@ func mustDecode(t *testing.T, body string, v interface{}) {
 }
 
 func TestDeletedEndpointKeepsNameInAnalytics(t *testing.T) {
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -941,10 +924,7 @@ func TestEndpointCustomHeadersForwardedToUpstream(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Headers Mock",
@@ -1042,10 +1022,7 @@ func TestEndpointModelEnableToggleFiltersRouting(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Model Switch Mock",
@@ -1203,10 +1180,7 @@ func TestProxyPoolRotationAndAutoSwitch(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Proxy Switch Mock",
@@ -1320,10 +1294,7 @@ func TestProxyPoolAutoSwitchOn5xx(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Proxy 5xx Switch Mock",
@@ -1406,7 +1377,7 @@ func TestIsRetryableUpstreamResponse(t *testing.T) {
 }
 
 func TestRelayErrorsBufferAndHandler(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 
 	// 记录三条失败事件，模拟最新的最后写入。
 	service.recordRelayError(RelayErrorRecord{Route: "chat.completions", Kind: "dial", Endpoint: "ep-a", Model: "m1", Proxy: "203.0.113.5:8080", Error: "dial tcp: i/o timeout"})
@@ -1460,7 +1431,7 @@ func TestRelayErrorsBufferAndHandler(t *testing.T) {
 }
 
 func TestRelayErrorsBufferCap(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	for i := 0; i < relayErrorBufferSize+37; i++ {
 		service.recordRelayError(RelayErrorRecord{Route: "chat.completions", Kind: "dial", Error: "x"})
 	}
@@ -1511,7 +1482,7 @@ func setupTwoProxyEndpoint(t *testing.T, proxy1Handler, proxy2Handler http.Handl
 	}))
 	t.Cleanup(mockUpstream.Close)
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{
 		"name": "Session Proxy Mock",
 		"baseUrl": "%s",
@@ -1668,7 +1639,7 @@ func TestClientDisconnectSkips502Record(t *testing.T) {
 		mockUpstream.Close()
 	}()
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{
 		"name": "Slow Upstream",
 		"baseUrl": "%s",
@@ -1748,7 +1719,7 @@ func TestRefreshAllModelsUpdatesEndpointModels(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{
 		"name": "Auto Refresh Mock",
 		"baseUrl": "%s",
@@ -1839,7 +1810,7 @@ func TestSameExitIPGroupCooled(t *testing.T) {
 	}))
 	t.Cleanup(mockUpstream.Close)
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	// 池序：[fail, okSameIP, okOtherIP]——fail 与 okSameIP 预置为同一出口 IP。
 	poolURLs := []string{failSrv.URL, okSameIP.URL, okOtherIP.URL}
 	poolJSON, _ := json.Marshal(poolURLs)
@@ -1946,7 +1917,7 @@ func TestActiveProxySticky(t *testing.T) {
 	}))
 	t.Cleanup(mockUpstream.Close)
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createBody := fmt.Sprintf(`{
 		"name":"Sticky","baseUrl":"%s","apiKey":"k","skipVerify":true,
 		"proxyPool":["%s","%s"],"proxyEnabled":true,"autoSwitch":true
@@ -2046,7 +2017,7 @@ func TestProxy429FrozenOnFirstHit(t *testing.T) {
 
 func TestEndpointProxyBatchesRoundTrip(t *testing.T) {
 	// 批次（文件导入）随端点创建/更新持久化，列表接口原样返回；脏批次（空 ID/名称/代理）被清洗。
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	payload := `{
 		"name": "batch demo",
 		"baseUrl": "https://example.com/v1",
@@ -2180,7 +2151,7 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 func TestAutoUnfreezeAllLocked(t *testing.T) {
 	// 全部出口被禁用（429 冻结/坏代理沉淀）时：自动解冻全体代理，清除冷却/
 	// 冻结/沉淀状态；节流窗口内重复触发不再解冻（返回 false）。
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	service.proxyMu.Lock()
 	state := newEndpointProxyState()
 	service.proxyStateByEndpoint["ep-unfreeze"] = state
@@ -2225,7 +2196,7 @@ func TestAutoUnfreezeAllLocked(t *testing.T) {
 }
 
 func TestImportProxyListRoute(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	text := strings.Join([]string{
 		"http://user:pass@1.2.3.4:3128",
 		"http://user:pass@1.2.3.4:3128", // 重复
@@ -2257,7 +2228,7 @@ func TestImportProxyListRoute(t *testing.T) {
 
 func TestMarkProxyFailedExponentialBackoff(t *testing.T) {
 	// 指数退避：1min << min(failures-1, 5)，封顶 30min。
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	service.proxyMu.Lock()
 	service.proxyStateByEndpoint["ep-backoff"] = newEndpointProxyState()
 	service.proxyMu.Unlock()
@@ -2533,10 +2504,7 @@ func TestMultiEndpointFailoverOn5xx(t *testing.T) {
 	}))
 	defer ok.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	// 端点 A：总是 5xx。
 	createA := fmt.Sprintf(`{"name":"Bad A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
@@ -2601,10 +2569,7 @@ func TestSingleEndpoint5xxNoPanic(t *testing.T) {
 	}))
 	defer failing.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createBody := fmt.Sprintf(`{"name":"Rate Limited","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
 	wC := httptest.NewRecorder()
@@ -2650,10 +2615,7 @@ func TestAllEndpointsSameErrorReturnsThatCode(t *testing.T) {
 	}))
 	defer failing.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createBody := fmt.Sprintf(`{"name":"Limited A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true,"rateLimitRetryEnabled":false}`, failing.URL)
 	wA := httptest.NewRecorder()
@@ -2722,10 +2684,7 @@ func TestMixedEndpointErrorsReturns503(t *testing.T) {
 	}))
 	defer serverErr.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	mk := func(name, url string) string {
 		w := httptest.NewRecorder()
@@ -2801,10 +2760,7 @@ func TestRetryRoundRecoversOnSubsequentRound(t *testing.T) {
 	defer func() { endpointRetryDelay = oldDelay }()
 	endpointRetryDelay = 50 * time.Millisecond
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createBody := fmt.Sprintf(`{"name":"Flaky","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, flaky.URL)
 	wC := httptest.NewRecorder()
@@ -2860,10 +2816,7 @@ func TestAll429ReturnsFastWithoutRetryRounds(t *testing.T) {
 	}))
 	defer rateLimited.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createBody := fmt.Sprintf(`{"name":"Always429","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true,"rateLimitRetryEnabled":false}`, rateLimited.URL)
 	wC := httptest.NewRecorder()
@@ -2933,7 +2886,7 @@ func TestDistinctProxy429EarlyAbort(t *testing.T) {
 	}))
 	t.Cleanup(mockUpstream.Close)
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	poolJSON, _ := json.Marshal(pool)
 	createBody := fmt.Sprintf(`{
 		"name":"Distinct429","baseUrl":"%s","apiKey":"k","skipVerify":true,
@@ -3004,10 +2957,7 @@ func TestStream429NoAutoSwitchFailover(t *testing.T) {
 	}))
 	defer ok.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	// 端点 A：autoSwitch=false（对齐日日新配置），返回 429。
 	createA := fmt.Sprintf(`{"name":"Limited NoSwitch","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":false}`, rateLimited.URL)
@@ -3248,10 +3198,7 @@ func TestFailoverNormalizesReasoningEffort(t *testing.T) {
 	}))
 	defer failing.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	mkEndpoint := func(name, url string) string {
 		create := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
@@ -3320,10 +3267,7 @@ func TestFirstCandidateGetsNormalizedReasoningEffort(t *testing.T) {
 	}))
 	defer ok.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 	create := fmt.Sprintf(`{"name":"ok","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, ok.URL)
 	w := httptest.NewRecorder()
 	r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(create))
@@ -3413,10 +3357,7 @@ func TestStressEndpointSwitchNormalizesEffort(t *testing.T) {
 	}))
 	defer strict.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	mkEndpoint := func(name, url string) string {
 		create := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
@@ -3762,7 +3703,7 @@ func TestNormalizeChatContentBlocksThinkingReset(t *testing.T) {
 // （>= 400）落库，成功请求不占空间；logs 接口能返回 errorKind/errorMessage/errorResponse
 // 字段供界面与 AI 排障读取。
 func TestRecordAnalyticsErrorOnlyOnError(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	ctx := context.Background()
 
 	errorJSON := `{"error":{"message":"insufficient balance","type":"insufficient_quota"}}`
@@ -3836,7 +3777,7 @@ func TestRecordAnalyticsErrorOnlyOnError(t *testing.T) {
 // TestRecordAnalyticsRealModel 验证命中模型映射时 real_model 落库且 logs 接口返回
 // realModel 字段；未传（未映射）时为空。
 func TestRecordAnalyticsRealModel(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	ctx := context.Background()
 
 	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "alias-model", http.StatusOK, 10, 0, 1, 2, 3, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", nil, "real-model")
@@ -3892,7 +3833,7 @@ func TestErrorResponseForLogTruncatesHugeBody(t *testing.T) {
 // TestTrimErrorDetailRetention 验证超出保留上限的错误详情被清空：
 // 最新的 50 条保留 error_kind/error_message/response_body，更早的全部清空但行不删除。
 func TestTrimErrorDetailRetention(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	ctx := context.Background()
 
 	errInfo := &AnalyticsError{Kind: "upstream", Message: "boom", Response: `{"error":"boom"}`}
@@ -4037,7 +3978,7 @@ func TestEndpointWeightIncludesPriority(t *testing.T) {
 }
 
 func TestEndpointExportImportPreservesAllFields(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -4117,7 +4058,7 @@ func TestEndpointExportImportPreservesAllFields(t *testing.T) {
 	}
 
 	// 导入到全新实例（overwrite），再导出验证往返一致
-	service2 := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service2 := newOpenAIService(t)
 	impBody, _ := json.Marshal(map[string]interface{}{"endpoints": exported.Endpoints, "overwrite": true})
 	rImport, _ := http.NewRequest("POST", "/api/openai/import", bytes.NewReader(impBody))
 	wImport := httptest.NewRecorder()
@@ -4148,7 +4089,7 @@ func TestEndpointExportImportPreservesAllFields(t *testing.T) {
 // 外部名且部分被 disabled_models 禁用的场景：路由必须稳定选中未被禁用的别名，
 // 不能受 Go map 迭代顺序影响而间歇性不可路由。
 func TestResolveEndpointModelPrefersRoutableMapping(t *testing.T) {
-	s := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	s := newOpenAIService(t)
 	testCases := []struct {
 		name      string
 		mappings  map[string]string
@@ -4223,7 +4164,7 @@ func TestResolveEndpointModelPrefersRoutableMapping(t *testing.T) {
 // TestSelectEndpointCandidatesDualMapping 验证双映射 + 部分禁用时端点稳定进入
 // 候选（模拟真实场景：gcli-gemini-3.1-pro-preview 被禁用、-search 已启用）。
 func TestSelectEndpointCandidatesDualMapping(t *testing.T) {
-	s := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	s := newOpenAIService(t)
 	db, err := s.open(context.Background())
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -4263,7 +4204,7 @@ func TestSelectEndpointCandidatesDualMapping(t *testing.T) {
 }
 
 func TestAnalyticsChartsByDimensionCarryTokenSeries(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -4373,7 +4314,7 @@ func TestAnthropicMessagesAllEndpointsFailedReturnsError(t *testing.T) {
 	}))
 	defer failing.Close()
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{"name":"Anthropic Failing","baseUrl":"%s","apiKey":"k","skipVerify":true}`, failing.URL)
 	wCreate := httptest.NewRecorder()
 	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
@@ -4427,7 +4368,7 @@ func TestGatewayKeyEndpointWhitelistNoFailoverBypass(t *testing.T) {
 	}))
 	defer healthy.Close()
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	create := func(name, rawURL string) string {
 		payload := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true}`, name, rawURL)
 		rec := httptest.NewRecorder()
@@ -4533,7 +4474,7 @@ func TestTrimSessionBindings(t *testing.T) {
 // TestMessagesRequestBodyLimit413 /v1/messages 请求体必须有与 chat/responses
 // 一致的上限：超限返回 413，而不是全量读入内存。
 func TestMessagesRequestBodyLimit413(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	service.bodyMaxBytes = 256
 
 	big := `{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"` + strings.Repeat("x", 4096) + `"}]}`
@@ -4641,7 +4582,7 @@ func TestImportExportExtendedKeysRoundTrip(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{"name":"ExtKeys","baseUrl":"%s","apiKey":"k","apiKeys":["ext-a","ext-b"],"skipVerify":true}`, upstream.URL)
 	wCreate := httptest.NewRecorder()
 	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
@@ -4711,7 +4652,7 @@ func TestUpdateEndpointVerifyOnlyOnChange(t *testing.T) {
 	upstream2 := newUpstream(&hits2)
 	defer upstream2.Close()
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
 	wCreate := httptest.NewRecorder()
 	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
@@ -4777,7 +4718,7 @@ func TestUpdateEndpointKeepsModelsOnVerifyFailure(t *testing.T) {
 		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
 	}))
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{"name":"Keep Models","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
 	wCreate := httptest.NewRecorder()
 	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
