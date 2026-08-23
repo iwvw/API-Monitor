@@ -2655,7 +2655,7 @@ func TestAllEndpointsSameErrorReturnsThatCode(t *testing.T) {
 		DBName:  "data.db",
 	})
 
-	createBody := fmt.Sprintf(`{"name":"Limited A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
+	createBody := fmt.Sprintf(`{"name":"Limited A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true,"rateLimitRetryEnabled":false}`, failing.URL)
 	wA := httptest.NewRecorder()
 	rA, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
 	service.ServeHTTP(wA, rA)
@@ -2865,7 +2865,7 @@ func TestAll429ReturnsFastWithoutRetryRounds(t *testing.T) {
 		DBName:  "data.db",
 	})
 
-	createBody := fmt.Sprintf(`{"name":"Always429","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, rateLimited.URL)
+	createBody := fmt.Sprintf(`{"name":"Always429","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true,"rateLimitRetryEnabled":false}`, rateLimited.URL)
 	wC := httptest.NewRecorder()
 	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
 	service.ServeHTTP(wC, rC)
@@ -2937,7 +2937,7 @@ func TestDistinctProxy429EarlyAbort(t *testing.T) {
 	poolJSON, _ := json.Marshal(pool)
 	createBody := fmt.Sprintf(`{
 		"name":"Distinct429","baseUrl":"%s","apiKey":"k","skipVerify":true,
-		"proxyPool":%s,"proxyEnabled":true,"autoSwitch":true
+		"proxyPool":%s,"proxyEnabled":true,"autoSwitch":true,"rateLimitRetryEnabled":false
 	}`, mockUpstream.URL, string(poolJSON))
 	wC := httptest.NewRecorder()
 	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))

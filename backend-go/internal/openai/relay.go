@@ -438,6 +438,78 @@ const endpointRetryRounds = 3
 
 var endpointRetryDelay = 500 * time.Millisecond
 
+// rateLimitRetryBudget 是单请求内「429 等待重试」的总预算：全部候选端点返回
+// 429 且端点开启 rateLimitRetryEnabled 时，网关在预算内等待配额窗口（优先
+// Retry-After 头，缺省端点配置秒数）后重试整轮候选，预算耗尽才以 429 收尾。
+// 适用于 RPM 很低、429 后等待数十秒配额才恢复的端点。
+// 用 var 而非 const 以便测试注入更小的预算。
+var rateLimitRetryBudget = 30 * time.Second
+
+// rateLimitRetryRoundsCap 是 429 等待重试在预算内重试整轮候选的次数上限。
+// 真实停止条件由 rateLimitRetryBudget 控制（每轮至少等待一次间隔），此上限仅
+// 防止极端配置（wait_seconds 极短）把重试轮数放大到无意义。
+const rateLimitRetryRoundsCap = 20
+
+// rateLimitRetryEnabledAny 判断候选端点中是否有任一开启了「429 等待重试」。
+// 任一开启即允许整个请求进入等待重试（预算按全请求计）。
+func rateLimitRetryEnabledAny(candidates []Endpoint) bool {
+	for i := range candidates {
+		if candidates[i].RateLimitRetryEnabled {
+			return true
+		}
+	}
+	return false
+}
+
+// rateLimitRetryWaitFor 计算一次 429 等待重试应等待的时长：
+//   - 优先采用最近响应中的 Retry-After 头（配额恢复窗口）；
+//   - 无头时采用端点配置缺省秒数（取候选中最短非零配置，避免最慢端点拖住预算）；
+//   - 一律钳制到剩余预算内；预算耗尽返回 0（直接收尾不再等待）。
+func rateLimitRetryWaitFor(res *relayLoopResult, candidates []Endpoint, budget time.Duration) time.Duration {
+	wait := time.Duration(0)
+	if res != nil && res.resp != nil {
+		if ra := retryAfterFromHeader(res.resp); ra != nil && *ra > 0 {
+			wait = *ra
+		}
+	}
+	if wait <= 0 {
+		configSeconds := 0
+		for i := range candidates {
+			if candidates[i].RateLimitRetryEnabled && candidates[i].RateLimitRetryWaitSeconds > 0 {
+				if configSeconds == 0 || candidates[i].RateLimitRetryWaitSeconds < configSeconds {
+					configSeconds = candidates[i].RateLimitRetryWaitSeconds
+				}
+			}
+		}
+		if configSeconds > 0 {
+			wait = time.Duration(configSeconds) * time.Second
+		}
+	}
+	if budget <= 0 || wait <= 0 {
+		return 0
+	}
+	if wait > budget {
+		wait = budget
+	}
+	return wait
+}
+
+// waitForRateLimitRetry 在 429 等待重试期间等待 wait 时长（ctx 可取消）。
+// 返回 false 表示客户端已断开或预算中断，调用方应停止重试。
+func waitForRateLimitRetry(ctx context.Context, wait time.Duration) bool {
+	if wait <= 0 {
+		return true
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 // attemptHeaderTimeout 是单次转发在「仍有可切换出口」时的响应头等待上限。
 // 可切换时，代理在期限内不返回响应头即视为该出口链路不可用，提前切下一个
 // （非流式此前只能等 transport 的 ResponseHeaderTimeout=180s，一个挂死的
@@ -1133,6 +1205,13 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	failCodes := []int{}
 	var lastRes *relayLoopResult
 	retryRoundFinished := false
+	// rateLimitBudget 是「429 等待重试」的本请求剩余预算；任一候选开启等待重试
+	// 时启用整请求预算。rateLimitRoundsUsed 统计已发生的等待重试轮次（预算兜底）。
+	rateLimitBudget := time.Duration(0)
+	if rateLimitRetryEnabledAny(endpointCandidates) {
+		rateLimitBudget = rateLimitRetryBudget
+	}
+	rateLimitRoundsUsed := 0
 	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
 	var failoverSteps []map[string]interface{}
 	// clientCancelled 标记本轮请求期间客户端已断开：断开后不再尝试其他候选，仅静默收尾。
@@ -1241,6 +1320,28 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if allRateLimited {
+			// 任一候选端点开启「429 等待重试」且预算未耗尽：不立即 429 收尾，
+			// 等待配额窗口（优先 Retry-After，缺省端点配置秒数）后重跑整轮候选。
+			// 适用于 RPM 很低、429 后等数十秒配额才恢复的端点；预算耗尽仍走快速收尾。
+			if rateLimitRetryEnabledAny(endpointCandidates) && rateLimitBudget > 0 && rateLimitRoundsUsed < rateLimitRetryRoundsCap {
+				wait := rateLimitRetryWaitFor(res, endpointCandidates, rateLimitBudget)
+				if wait > 0 {
+					rateLimitBudget -= wait
+					if !waitForRateLimitRetry(ctx, wait) {
+						retryRoundCancelled = true
+					} else {
+						rateLimitRoundsUsed++
+						lastRes = res
+						// 重置轮次计数：等待重试注入额外轮次（普通 5xx 路径仍受
+						// endpointRetryRounds 约束，不受此影响）。
+						retryRound = -1
+						continue
+					}
+					if retryRoundCancelled {
+						break
+					}
+				}
+			}
 			break
 		}
 		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。
@@ -2249,6 +2350,12 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	failCodes := []int{}
 	var lastRes *relayLoopResult
 	retryRoundFinished := false
+	// rateLimitBudget 是「429 等待重试」的本请求剩余预算；任一候选开启等待重试时启用。
+	rateLimitBudget := time.Duration(0)
+	if rateLimitRetryEnabledAny(endpointCandidates) {
+		rateLimitBudget = rateLimitRetryBudget
+	}
+	rateLimitRoundsUsed := 0
 	var failoverSteps []map[string]interface{}
 	// clientCancelled 标记本轮请求期间客户端已断开：断开后不再尝试其他候选，仅静默收尾。
 	clientCancelled := false
@@ -2353,6 +2460,24 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if allRateLimited {
+			// 任一候选端点开启「429 等待重试」且预算未耗尽：等待配额窗口后重跑整轮候选。
+			if rateLimitRetryEnabledAny(endpointCandidates) && rateLimitBudget > 0 && rateLimitRoundsUsed < rateLimitRetryRoundsCap {
+				wait := rateLimitRetryWaitFor(res, endpointCandidates, rateLimitBudget)
+				if wait > 0 {
+					rateLimitBudget -= wait
+					if !waitForRateLimitRetry(ctx, wait) {
+						retryRoundCancelled = true
+					} else {
+						rateLimitRoundsUsed++
+						lastRes = res
+						retryRound = -1
+						continue
+					}
+					if retryRoundCancelled {
+						break
+					}
+				}
+			}
 			break
 		}
 		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。

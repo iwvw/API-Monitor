@@ -40,11 +40,11 @@ const (
 )
 
 type Service struct {
-	cfg        config.Config
-	store      *database.Store
-	client     *http.Client
-	schemaOnce sync.Once
-	schemaErr  error
+	cfg         config.Config
+	store       *database.Store
+	client      *http.Client
+	schemaOnce  sync.Once
+	schemaErr   error
 	rateLimiter *hourlyRateLimiter
 }
 
@@ -147,9 +147,9 @@ type conditionResult struct {
 
 func New(cfg config.Config) *Service {
 	return &Service{
-		cfg:    cfg,
-		store:  database.New(cfg),
-		client: &http.Client{Timeout: requestTimeout},
+		cfg:         cfg,
+		store:       database.New(cfg),
+		client:      &http.Client{Timeout: requestTimeout},
 		rateLimiter: &hourlyRateLimiter{},
 	}
 }

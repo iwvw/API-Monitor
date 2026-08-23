@@ -103,6 +103,11 @@ type Endpoint struct {
 	ForceProxy     bool              `json:"forceProxy"`
 	Protocol       string            `json:"protocol,omitempty"`
 	ModelMappings  map[string]string `json:"modelMappings,omitempty"`
+	// RateLimitRetryEnabled 开启「429 等待重试」：收到 429/439 后在 Retry-After
+	// （缺省 RateLimitRetryWaitSeconds 秒）内等待配额恢复并重试，适用低 RPM 端点。
+	RateLimitRetryEnabled bool `json:"rateLimitRetryEnabled"`
+	// RateLimitRetryWaitSeconds 是无 Retry-After 响应头时的缺省等待秒数。
+	RateLimitRetryWaitSeconds int `json:"rateLimitRetryWaitSeconds"`
 	// Priority 是端点优先级档位：值越大越优先被选中（同模型多端点时先高优先级）。
 	// Weight 是同档位内的加权因子：值越大在该档位内被选中的概率越高。
 	Priority     int     `json:"priority,omitempty"`
@@ -781,6 +786,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			auto_switch INTEGER DEFAULT 0,
 			proxy_enabled INTEGER DEFAULT 0,
 			force_proxy INTEGER DEFAULT 0,
+			rate_limit_retry_enabled INTEGER DEFAULT 1,
+			rate_limit_retry_wait_seconds INTEGER DEFAULT 10,
 			status TEXT DEFAULT 'unknown',
 			enabled INTEGER DEFAULT 1,
 			models TEXT,
@@ -965,6 +972,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "weight", "INTEGER DEFAULT 100"); err != nil {
 		return err
 	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "rate_limit_retry_enabled", "INTEGER DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "rate_limit_retry_wait_seconds", "INTEGER DEFAULT 10"); err != nil {
+		return err
+	}
 	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_openai_analytics_gateway_key ON openai_gateway_analytics(gateway_key_id, timestamp)`); err != nil {
 		return fmt.Errorf("openai ensure schema: %w", err)
 	}
@@ -1132,6 +1145,8 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		AutoSwitch   *bool         `json:"autoSwitch"`
 		ProxyEnabled *bool         `json:"proxyEnabled"`
 		ForceProxy   *bool         `json:"forceProxy"`
+		RateLimitRetryEnabled *bool `json:"rateLimitRetryEnabled"`
+		RateLimitRetryWaitSeconds *int `json:"rateLimitRetryWaitSeconds"`
 		Protocol     *string       `json:"protocol"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1238,6 +1253,21 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		forceProxyInt = boolToInt(*req.ForceProxy)
 		forceProxyChanged = true
 	}
+	rateLimitRetryInt := 1
+	rateLimitRetryChanged := false
+	if req.RateLimitRetryEnabled != nil {
+		rateLimitRetryInt = boolToInt(*req.RateLimitRetryEnabled)
+		rateLimitRetryChanged = true
+	}
+	rateLimitRetryWaitSeconds := 10
+	rateLimitRetryWaitChanged := false
+	if req.RateLimitRetryWaitSeconds != nil {
+		rateLimitRetryWaitSeconds = *req.RateLimitRetryWaitSeconds
+		if rateLimitRetryWaitSeconds < 1 {
+			rateLimitRetryWaitSeconds = 10
+		}
+		rateLimitRetryWaitChanged = true
+	}
 	protocol := ""
 	protocolChanged := false
 	if req.Protocol != nil {
@@ -1295,16 +1325,16 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 		_, err = db.ExecContext(ctx, `
 			UPDATE openai_endpoints
-			SET name = ?, base_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, protocol = ?, status = ?, models = ?, last_checked = ?
+			SET name = ?, base_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, last_checked = ?
 			WHERE id = ?`,
-			req.Name, targetBaseURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, protocol, status, string(modelsJSON), lastChecked, id)
+			req.Name, targetBaseURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), lastChecked, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged {
-		_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, protocol = ? WHERE id = ?",
-			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, protocol, id)
+	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged || rateLimitRetryChanged || rateLimitRetryWaitChanged {
+		_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ? WHERE id = ?",
+			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -1350,7 +1380,7 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 
 	endpoints := []Endpoint{}
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, sort_order, priority, weight
+		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_mappings, sort_order, priority, weight
 		FROM openai_endpoints WHERE enabled = 1
 		ORDER BY priority DESC, sort_order ASC, created_at ASC`)
 	if err != nil {
@@ -1360,13 +1390,15 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 	for rows.Next() {
 		var ep Endpoint
 		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, sortOrder, priority, weight int
-		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight); errScan == nil {
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight int
+		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight); errScan == nil {
 			ep.APIKey = secure.SecureDecrypt(ep.APIKey)
 			ep.Enabled = enabledInt == 1
 			ep.AutoSwitch = autoSwitchInt == 1
 			ep.ProxyEnabled = proxyEnabledInt == 1
 			ep.ForceProxy = forceProxyInt == 1
+			ep.RateLimitRetryEnabled = rateLimitRetryInt == 1
+			ep.RateLimitRetryWaitSeconds = rateLimitRetryWaitSeconds
 			ep.Protocol = normalizeProtocol(protocolRaw.String)
 			if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 				_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
