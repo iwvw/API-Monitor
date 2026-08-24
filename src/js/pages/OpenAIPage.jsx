@@ -136,6 +136,9 @@ import {
   toLocalDateTimeValue,
   parseLocalDateTime,
   getAuthHeaders,
+  formatCostAmount,
+  formatUnitPrice,
+  costDetailsFor,
 } from './openai/utils.js';
 import { useAnalytics } from './openai/useAnalytics.js';
 import { useGatewayKeys } from './openai/useGatewayKeys.js';
@@ -2075,6 +2078,18 @@ function OpenAIPage() {
                               {formatTokensM(analyticsSummary.totalTokens || 0)}
                             </span>
                           </div>
+                          {(analyticsSummary.costs?.length > 0) && (
+                            <div className="flex items-center justify-between gap-3 pt-1.5 text-kumo-strong border-t border-kumo-line">
+                              <span className="text-kumo-subtle">预估费用</span>
+                              <span className="flex flex-col items-end gap-0.5 font-mono text-kumo-success">
+                                {analyticsSummary.costs.map(cs => (
+                                  <span key={cs.currency}>
+                                    {formatCostAmount(cs.amount, cs.currency)}
+                                  </span>
+                                ))}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </Popover.Content>
                     </Popover>
@@ -2612,7 +2627,7 @@ function OpenAIPage() {
           {/* Logs table and pagination */}
           <LayerCard className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
-              <Table layout="fixed" className="min-w-[1340px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
+              <Table layout="fixed" className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
 <colgroup>
                   <col style={{ width: 160 }} />
                   <col style={{ width: 104 }} />
@@ -2623,7 +2638,7 @@ function OpenAIPage() {
                   <col style={{ width: 160 }} />
                   <col style={{ width: 132 }} />
                   <col style={{ width: 132 }} />
-                  <col style={{ width: 132 }} />
+                  <col style={{ width: 150 }} />
                   <col style={{ width: 88 }} />
                 </colgroup>
                 <Table.Header sticky variant="compact">
@@ -2656,6 +2671,7 @@ function OpenAIPage() {
                     </Table.Row>
                   ) : (
                     analyticsLogs.map(log => {
+                      const detail = costDetailsFor(log, endpoints);
                       return (
                         <Table.Row key={log.id} className="text-sm">
                           <Table.Cell className="truncate text-left font-mono text-kumo-subtle" title={formatDateTime(log.timestamp)}>
@@ -2799,20 +2815,129 @@ function OpenAIPage() {
                               <span className="shrink-0 text-kumo-subtle">）</span>
                             </div>
                           </Table.Cell>
-<Table.Cell
+                          <Table.Cell
                             className="text-left font-mono"
                             title="总消耗（实际消耗 = 总消耗 − 缓存）"
                           >
-                            <div className="flex w-full items-baseline justify-start whitespace-nowrap">
-                              <span className="text-right font-semibold leading-none text-brand">
-                                {log.totalTokens}
-                              </span>
-                              <span className="shrink-0 px-0.5 leading-none text-kumo-subtle">（</span>
-                              <span className="text-left font-mono leading-none text-kumo-subtle">
-                                {Math.max(0, log.totalTokens - log.cachedTokens)}
-                              </span>
-                              <span className="shrink-0 leading-none text-kumo-subtle">）</span>
-                            </div>
+                            {detail ? (
+                              <Popover>
+                                <Popover.Trigger
+                                  nativeButton={false}
+                                  title="点击查看费用详情"
+                                  render={
+                                    <div className="flex w-full cursor-pointer items-baseline justify-start whitespace-nowrap">
+                                      <span className="text-right font-semibold leading-none text-kumo-success">
+                                        {formatCostAmount(detail.cost, detail.currency)}
+                                      </span>
+                                      <span className="shrink-0 px-0.5 leading-none text-kumo-subtle">（</span>
+                                      <span className="text-left font-mono leading-none text-kumo-subtle">
+                                        {Math.max(0, log.totalTokens - log.cachedTokens)}
+                                      </span>
+                                      <span className="shrink-0 leading-none text-kumo-subtle">）</span>
+                                    </div>
+                                  }
+                                />
+                                <Popover.Content className="w-72 p-3">
+                                  <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                                    费用详情
+                                  </Popover.Title>
+                                  <div className="mt-2 flex flex-col gap-1.5 text-xs text-kumo-strong">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-kumo-subtle">模型</span>
+                                      <span className="max-w-44 truncate font-mono">{detail.model || '—'}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-kumo-subtle">端点</span>
+                                      <span className="max-w-44 truncate">{detail.endpointName || '—'}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-kumo-subtle">货币</span>
+                                      <span className="font-mono">{detail.currency}</span>
+                                    </div>
+                                    {detail.hasPricing ? (
+                                      <>
+                                        <div className="border-t border-kumo-line pt-1.5">
+                                          <span className="text-kumo-subtle">单价（每百万词元）</span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输入</span>
+                                          <span className="font-mono">{formatUnitPrice(detail.inputUnit)}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输出</span>
+                                          <span className="font-mono">{formatUnitPrice(detail.outputUnit)}</span>
+                                        </div>
+                                        {detail.cacheUnit > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">缓存</span>
+                                            <span className="font-mono">{formatUnitPrice(detail.cacheUnit)}</span>
+                                          </div>
+                                        )}
+                                        <div className="border-t border-kumo-line pt-1.5">
+                                          <span className="text-kumo-subtle">用量分解</span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输入（未缓存）</span>
+                                          <span className="font-mono">{detail.input}</span>
+                                        </div>
+                                        {detail.cached > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">缓存命中</span>
+                                            <span className="font-mono">{detail.cached}</span>
+                                          </div>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输出</span>
+                                          <span className="font-mono">{detail.completion}</span>
+                                        </div>
+                                        <div className="border-t border-kumo-line pt-1.5">
+                                          <span className="text-kumo-subtle">费用分解</span>
+                                        </div>
+                                        {detail.inputCost > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">输入费用</span>
+                                            <span className="font-mono">{formatCostAmount(detail.inputCost, detail.currency)}</span>
+                                          </div>
+                                        )}
+                                        {detail.cacheCost > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">缓存费用</span>
+                                            <span className="font-mono">{formatCostAmount(detail.cacheCost, detail.currency)}</span>
+                                          </div>
+                                        )}
+                                        {detail.outputCost > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">输出费用</span>
+                                            <span className="font-mono">{formatCostAmount(detail.outputCost, detail.currency)}</span>
+                                          </div>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3 border-t border-kumo-line pt-1.5 font-semibold">
+                                          <span className="text-kumo-subtle">合计</span>
+                                          <span className="font-mono text-kumo-success">
+                                            {formatCostAmount(detail.cost, detail.currency)}
+                                          </span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="mt-1 text-xs text-kumo-subtle">
+                                        端点未返回该模型的定价信息，仅展示已记录的费用金额。
+                                      </div>
+                                    )}
+                                  </div>
+                                </Popover.Content>
+                              </Popover>
+                            ) : (
+                              <div className="flex w-full items-baseline justify-start whitespace-nowrap">
+                                <span className="text-right font-semibold leading-none text-brand">
+                                  {log.totalTokens}
+                                </span>
+                                <span className="shrink-0 px-0.5 leading-none text-kumo-subtle">（</span>
+                                <span className="text-left font-mono leading-none text-kumo-subtle">
+                                  {Math.max(0, log.totalTokens - log.cachedTokens)}
+                                </span>
+                                <span className="shrink-0 leading-none text-kumo-subtle">）</span>
+                              </div>
+                            )}
                           </Table.Cell>
                           <Table.Cell
                             className="text-left font-mono text-kumo-strong"
@@ -3037,32 +3162,45 @@ function OpenAIPage() {
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <Label>API Key 列表</Label>
-                    <Button
-                      size="xs"
-                      variant="secondary"
-                      type="button"
-                      disabled={endpointKeyChecking || !editingEndpoint}
-                      onClick={() =>
-                        checkEndpointKeys(
-                          [endpointForm.apiKey, ...(endpointForm.apiKeys || [])],
-                          editingEndpoint?.id
-                        )
-                      }
-                    >
-                      <RotateCw className={cx(endpointKeyChecking && 'animate-spin')} size={14} />
-                      {endpointKeyChecking ? '检测中' : '重新检测'}
-                    </Button>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={appendEndpointKey}
+                        icon={<Plus className="h-3.5 w-3.5" />}
+                      >
+                        Key
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="secondary"
+                        type="button"
+                        disabled={endpointKeyChecking || !editingEndpoint}
+                        onClick={() =>
+                          checkEndpointKeys(
+                            [endpointForm.apiKey, ...(endpointForm.apiKeys || [])],
+                            editingEndpoint?.id
+                          )
+                        }
+                      >
+                        <RotateCw className={cx(endpointKeyChecking && 'animate-spin')} size={14} />
+                        {endpointKeyChecking ? '检测中' : '检测'}
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
                     {[endpointForm.apiKey, ...(endpointForm.apiKeys || [])].map((key, rowIndex) => (
                       <div
                         key={rowIndex}
-                        className="grid grid-cols-[2rem_minmax(0,1fr)_auto_1.75rem] items-center gap-1.5"
+                        className="grid grid-cols-[2rem_minmax(0,1fr)_1.75rem_auto] items-center gap-1.5"
                       >
-                        <span className="text-center text-[11px] font-semibold text-kumo-subtle select-none">
+                        <Badge
+                          variant="outline"
+                          className="w-full justify-center text-center font-mono !text-[11px] leading-none"
+                        >
                           K{rowIndex + 1}
-                        </span>
+                        </Badge>
                         <Input
                           size="sm"
                           type="text"
@@ -3096,7 +3234,6 @@ function OpenAIPage() {
                           spellCheck={false}
                           className="w-full text-kumo-strong text-[0.9em] font-mono"
                         />
-                        <KeyStatusBadge check={endpointKeyChecks?.[rowIndex]} />
                         <Button
                           shape="square"
                           size="sm"
@@ -3106,38 +3243,27 @@ function OpenAIPage() {
                           title="删除此 Key"
                           icon={<Trash className="h-3.5 w-3.5" />}
                         />
+                        <KeyStatusBadge check={endpointKeyChecks?.[rowIndex]} />
                       </div>
                     ))}
-
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={appendEndpointKey}
-                      icon={<Plus className="h-3.5 w-3.5" />}
-                    >
-                      添加 Key
-                    </Button>
                   </div>
                 </div>
 
-                <Input
-                  size="sm"
-                  label="备注"
-                  type="text"
-                  value={endpointForm.notes}
-                  onChange={e => setEndpointForm({ ...endpointForm, notes: e.target.value })}
-                  placeholder="选填"
-                  className="w-full text-kumo-strong text-sm font-sans"
-                />
-              </div>
-
-              {/* ====== 右列：连接与代理 ====== */}
-              <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label>
-                    自定义请求头
-                    <span className="font-normal text-kumo-subtle">（可选）</span>
-                  </Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>
+                      自定义请求头
+                      <span className="font-normal text-kumo-subtle">（可选）</span>
+                    </Label>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={addEndpointHeader}
+                      icon={<Plus className="h-3.5 w-3.5" />}
+                    >
+                      添加请求头
+                    </Button>
+                  </div>
                   <div className="space-y-2">
                     {(endpointForm.headers || []).map((header, index) => (
                       <div
@@ -3180,14 +3306,6 @@ function OpenAIPage() {
                       </div>
                     ))}
                   </div>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={addEndpointHeader}
-                    icon={<Plus className="h-3.5 w-3.5" />}
-                  >
-                    添加请求头
-                  </Button>
                 </div>
 
                 <Select
@@ -3198,7 +3316,10 @@ function OpenAIPage() {
                   items={ENDPOINT_PROTOCOL_OPTIONS}
                   className="w-full"
                 />
+              </div>
 
+              {/* ====== 右列：连接与代理 ====== */}
+              <div className="space-y-4">
                 <div className="space-y-1.5">
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <Label>
@@ -3299,27 +3420,27 @@ function OpenAIPage() {
                     }
                   />
                   <span className="text-xs text-kumo-strong">429 等待重试</span>
-                  <span className="text-xs text-kumo-subtle">收到 429 后按 Retry-After 等待配额恢复再试（适合低 RPM 端点）</span>
+                  {endpointForm.rateLimitRetryEnabled && (
+                    <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+                      <Input
+                        size="sm"
+                        className="w-20"
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={endpointForm.rateLimitRetryWaitSeconds ?? 10}
+                        onChange={e => {
+                          const value = parseInt(e.target.value, 10);
+                          setEndpointForm(current => ({
+                            ...current,
+                            rateLimitRetryWaitSeconds: Number.isNaN(value) ? 0 : value,
+                          }));
+                        }}
+                      />
+                      <span className="text-xs text-kumo-subtle">秒</span>
+                    </div>
+                  )}
                 </div>
-                {endpointForm.rateLimitRetryEnabled && (
-                  <div className="flex min-h-8 items-center gap-2">
-                    <Input
-                      className="w-20"
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={endpointForm.rateLimitRetryWaitSeconds ?? 10}
-                      onChange={e => {
-                        const value = parseInt(e.target.value, 10);
-                        setEndpointForm(current => ({
-                          ...current,
-                          rateLimitRetryWaitSeconds: Number.isNaN(value) ? 0 : value,
-                        }));
-                      }}
-                    />
-                    <span className="text-xs text-kumo-subtle">秒（无 Retry-After 头时的缺省等待，单请求预算 30 秒）</span>
-                  </div>
-                )}
               </div>
             </div>
 

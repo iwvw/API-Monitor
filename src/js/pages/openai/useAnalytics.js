@@ -24,6 +24,8 @@ export function useAnalytics(activeTab) {
     errorRate: 0,
     errorCount: 0,
     endpointErrorRates: [],
+    totalCost: 0,
+    costs: [],
   });
   // 词元趋势视角：all（全部词元）| uncached（未缓存词元）。
   const [tokenTrendMode, setTokenTrendMode] = useState('all');

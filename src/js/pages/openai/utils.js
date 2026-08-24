@@ -55,6 +55,79 @@ export const formatCompact = (value, decimals = 2) => {
 // 词元统一以百万（M）为单位，保留 2 位小数。
 export const formatTokensM = value => `${(Number(value) / 1e6).toFixed(2)}M`;
 
+// 货币符号映射：覆盖常见币种，未知货币回退到「code 空格」前缀。
+const CURRENCY_SYMBOLS = {
+  CNY: '¥',
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  JPY: '¥',
+  HKD: 'HK$',
+  TWD: 'NT$',
+  KRW: '₩',
+  SGD: 'S$',
+  AUD: 'A$',
+  CAD: 'C$',
+  CHF: 'CHF ',
+};
+
+export const currencySymbol = currency =>
+  CURRENCY_SYMBOLS[String(currency || '').toUpperCase()] || `${String(currency || '').toUpperCase()} `;
+
+// formatCost 格式化费用金额：统一保留两位小数。
+export const formatCost = amount => {
+  const num = Number(amount) || 0;
+  if (!(num > 0)) return '0';
+  return num.toFixed(2);
+};
+
+export const formatCostAmount = (amount, currency) => `${currencySymbol(currency)}${formatCost(amount)}`;
+
+// formatUnitPrice 格式化每百万 token 单价（per M）：≥1 保留 2 位，更小保留 4 位。
+export const formatUnitPrice = value => {
+  const num = Number(value) || 0;
+  if (!(num > 0)) return '—';
+  if (num >= 100) return num.toFixed(0);
+  if (num >= 1) return num.toFixed(2);
+  return num.toFixed(4);
+};
+
+// costDetailsFor 根据日志行反算费用明细：优先用上游真实模型名匹配端点定价，
+// 无定价或费用为 0 时返回 null（该调用未计费）。
+export function costDetailsFor(log, endpoints = []) {
+  if (!log || !(Number(log.cost) > 0)) return null;
+  const endpoint = Array.isArray(endpoints)
+    ? endpoints.find(ep => ep?.id === log.endpointId)
+    : undefined;
+  const pricing = endpoint?.pricing || {};
+  const model = log.realModel || log.model;
+  const p = pricing[model] || pricing[log.model];
+  const prompt = Number(log.promptTokens) || 0;
+  const completion = Number(log.completionTokens) || 0;
+  const cached = Math.max(0, Math.min(Number(log.cachedTokens) || 0, prompt));
+  const input = Math.max(0, prompt - cached);
+  const inputUnit = Number(p?.input) || 0;
+  const outputUnit = Number(p?.output) || 0;
+  const cacheUnit = Number(p?.cacheRead) || (inputUnit > 0 ? inputUnit / 10 : 0);
+  return {
+    model,
+    endpointName: log.endpointName || '',
+    currency: log.costCurrency || p?.currency || 'USD',
+    cost: Number(log.cost) || 0,
+    hasPricing: !!p,
+    prompt,
+    completion,
+    cached,
+    input,
+    inputUnit,
+    outputUnit,
+    cacheUnit,
+    inputCost: (input * inputUnit) / 1e6,
+    outputCost: (completion * outputUnit) / 1e6,
+    cacheCost: (cached * cacheUnit) / 1e6,
+  };
+}
+
 export function createHealthCheckProgress(total = 0, running = false) {
   return { running, total, completed: 0, healthy: 0, degraded: 0, failed: 0 };
 }
