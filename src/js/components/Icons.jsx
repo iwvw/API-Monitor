@@ -302,3 +302,38 @@ export const MODULE_GROUP_ICON_MAP = {
 export const getModuleIconComponent = (moduleId, fallback = Server) => (
   MODULE_ICON_MAP[moduleId] || fallback
 );
+
+/* 微信 / Telegram 品牌图标（彩色圆角方块原始形状，来自 svgrepo）。
+   weight 属性直接吞掉，避免调用方按 phosphor 语义传入后透传到 <svg> 上。 */
+export const WechatBrand = ({ className = '', size = 24, weight, ...props }) => (
+  <svg
+    viewBox="0 0 512 512"
+    width={size}
+    height={size}
+    className={`app-icon ${className}`.trim()}
+    aria-hidden={props['aria-label'] ? undefined : true}
+    focusable="false"
+    {...props}
+  >
+    <rect width="512" height="512" rx="15%" fill="#00c70a" />
+    <path fill="#ffffff" d="M402 369c23-17 38-42 38-70 0-51-50-92-111-92s-110 41-110 92 49 92 110 92c13 0 25-2 36-5 4-1 8 0 9 1l25 14c3 2 6 0 5-4l-6-22c0-3 2-5 4-6m-110-85a15 15 0 1 1 0-29 15 15 0 0 1 0 29m74 0a15 15 0 1 1 0-29 15 15 0 0 1 0 29" />
+    <path fill="#ffffff" d="m205 105c-73 0-132 50-132 111 0 33 17 63 45 83 3 2 5 5 4 10l-7 24c-1 5 3 7 6 6l30-17c3-2 7-3 11-2 26 8 48 6 51 6-24-84 59-132 123-128-10-52-65-93-131-93m-44 93a18 18 0 1 1 0-35 18 18 0 0 1 0 35m89 0a18 18 0 1 1 0-35 18 18 0 0 1 0 35" />
+  </svg>
+);
+
+export const TelegramBrand = ({ className = '', size = 24, weight, ...props }) => (
+  <svg
+    viewBox="0 0 512 512"
+    width={size}
+    height={size}
+    className={`app-icon ${className}`.trim()}
+    aria-hidden={props['aria-label'] ? undefined : true}
+    focusable="false"
+    {...props}
+  >
+    <rect width="512" height="512" rx="15%" fill="#37aee2" />
+    <path fill="#c8daea" d="M199 404c-11 0-10-4-13-14l-32-105 245-144" />
+    <path fill="#a9c9dd" d="M199 404c7 0 11-4 16-8l45-43-56-34" />
+    <path fill="#f6fbfe" d="M204 319l135 99c14 9 26 4 30-14l55-258c5-22-9-32-24-25L79 245c-21 8-21 21-4 26l83 26 190-121c9-5 17-3 11 4" />
+  </svg>
+);

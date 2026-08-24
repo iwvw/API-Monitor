@@ -2025,7 +2025,7 @@ function OpenAIPage() {
                           </span>
                         }
                       />
-                      <Popover.Content className="w-64 p-3">
+                      <Popover.Content className="w-80 p-3">
                         <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
                           词元用量详情
                         </Popover.Title>
@@ -2073,6 +2073,42 @@ function OpenAIPage() {
                                 ))}
                               </span>
                             </div>
+                          )}
+                          {analyticsSummary.costByEndpoint?.length > 0 && (
+                            <>
+                              <div className="border-t border-kumo-line pt-1.5">
+                                <span className="text-kumo-subtle">费用构成（按端点 / Key）</span>
+                              </div>
+                              {analyticsSummary.costByEndpoint.map(es => (
+                                <div key={es.endpointId || es.endpointName} className="flex flex-col gap-1">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="min-w-0 truncate" title={es.endpointName}>
+                                      {es.endpointName || '—'}
+                                    </span>
+                                    <span className="shrink-0 font-mono text-kumo-success">
+                                      {formatCostAmount(es.cost, es.currency)}
+                                    </span>
+                                  </div>
+                                  {es.keys?.length > 0 && (
+                                    <div className="flex flex-col gap-0.5 pl-3">
+                                      {es.keys.map(ks => (
+                                        <div
+                                          key={`${es.endpointId}-${ks.keyName}`}
+                                          className="flex items-center justify-between gap-3"
+                                        >
+                                          <span className="min-w-0 truncate text-[11px] text-kumo-subtle" title={ks.keyName}>
+                                            {ks.keyName || '未识别密钥'}
+                                          </span>
+                                          <span className="shrink-0 font-mono text-[11px] text-kumo-success">
+                                            {formatCostAmount(ks.cost, ks.currency)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </>
                           )}
                         </div>
                       </Popover.Content>

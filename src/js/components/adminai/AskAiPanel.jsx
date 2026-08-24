@@ -9,7 +9,7 @@ import useStore from '../../store.js';
 import {
   Sparkle, X, Send, Plus, ChevronDown, Settings as SettingsIcon,
   Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Terminal, MessageSquare, Clock, Bell,
-  FlyIoBrand, KoyebBrand,
+  FlyIoBrand, KoyebBrand, WechatBrand, TelegramBrand,
 } from '../Icons.jsx';
 import MessageList from './MessageList.jsx';
 import AdminConsole, { TAB_OPTIONS } from './AdminConsole.jsx';
@@ -124,14 +124,20 @@ function isBotSession(session) {
   return !!session && !!session.source && session.source !== 'web';
 }
 
-function sessionSourceLabel(source) {
+function sessionSourceLabel(source, channelType) {
   if (source === 'cron') return '任务';
+  if (channelType === 'wechat') return '微信';
+  if (channelType === 'telegram') return 'TG';
   return 'BOT';
 }
 
 /* 会话列表条目（全屏侧栏与下拉菜单共用）：机器人会话带来源标签 */
 function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
   const bot = isBotSession(s);
+  // 不同渠道用对应品牌图标（TG/微信），其余（web/BOT 通用）沿用聊天气泡图标
+  let ChannelIcon = ChatsCircle;
+  if (s.channelType === 'wechat') ChannelIcon = WechatBrand;
+  else if (s.channelType === 'telegram') ChannelIcon = TelegramBrand;
   return (
     <div className="group relative">
       <Sidebar.MenuButton
@@ -139,9 +145,9 @@ function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
         aria-current={active ? 'page' : undefined}
         onClick={onSelect}
         icon={
-          <ChatsCircle
-            weight="duotone"
-            className={`size-4 shrink-0 transition-all duration-200 ${
+          <ChannelIcon
+            weight={s.channelType === 'wechat' || s.channelType === 'telegram' ? undefined : 'duotone'}
+            className={`${s.channelType === 'wechat' || s.channelType === 'telegram' ? 'size-5' : 'size-4'} shrink-0 transition-all duration-200 ${
               active
                 ? 'text-brand'
                 : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
@@ -163,7 +169,7 @@ function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
             </span>
             {bot && (
               <span className="shrink-0 rounded bg-kumo-warning/10 px-1 py-px text-[9px] font-semibold leading-4 text-kumo-warning">
-                {sessionSourceLabel(s.source)}
+                {sessionSourceLabel(s.source, s.channelType)}
               </span>
             )}
           </span>
@@ -1298,6 +1304,17 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const botSessions = sessions.filter((s) => isBotSession(s) && (s.messageCount || 0) > 0);
   // BOT（频道 channel:*）与任务（cron）分 tab 展示；任务按任务名合并成组。
   const channelSessions = botSessions.filter((s) => s.source !== 'cron');
+  // 频道会话按渠道分组（Telegram / 微信 / 其他），避免混在一起。
+  const channelGroups = useMemo(() => {
+    const groups = [];
+    const tg = channelSessions.filter((s) => s.channelType === 'telegram');
+    const wx = channelSessions.filter((s) => s.channelType === 'wechat');
+    const other = channelSessions.filter((s) => s.channelType !== 'telegram' && s.channelType !== 'wechat');
+    if (tg.length) groups.push({ key: 'telegram', label: 'Telegram', items: tg });
+    if (wx.length) groups.push({ key: 'wechat', label: '微信', items: wx });
+    if (other.length) groups.push({ key: 'bot', label: 'BOT', items: other });
+    return groups;
+  }, [channelSessions]);
   const taskGroups = useMemo(
     () => groupCronSessions(sessions.filter((s) => isBotSession(s) && s.source === 'cron' && (s.messageCount || 0) > 0)),
     [sessions],
@@ -1454,15 +1471,20 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                   <p className="px-2.5 py-6 text-center text-xs text-kumo-subtle">暂无 BOT 会话</p>
                 ) : (
                   <Sidebar.Menu>
-                    {channelSessions.map((s) => (
-                      <SessionItem
-                        key={s.id}
-                        s={s}
-                        active={s.id === activeSessionId}
-                        confirmDeleteId={confirmDeleteId}
-                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
-                        onDelete={requestDelete}
-                      />
+                    {channelGroups.map((g) => (
+                      <div key={g.key}>
+                        <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-subtle/70">{g.label}</div>
+                        {g.items.map((s) => (
+                          <SessionItem
+                            key={s.id}
+                            s={s}
+                            active={s.id === activeSessionId}
+                            confirmDeleteId={confirmDeleteId}
+                            onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
+                            onDelete={requestDelete}
+                          />
+                        ))}
+                      </div>
                     ))}
                   </Sidebar.Menu>
                 )
@@ -1716,15 +1738,20 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                     <p className="px-2.5 py-2 text-xs text-kumo-subtle">暂无 BOT 会话</p>
                   ) : (
                     <Sidebar.Menu>
-                      {channelSessions.map((s) => (
-                        <SessionItem
-                          key={s.id}
-                          s={s}
-                          active={s.id === activeSessionId}
-                          confirmDeleteId={confirmDeleteId}
-                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
-                          onDelete={requestDelete}
-                        />
+                      {channelGroups.map((g) => (
+                        <div key={g.key}>
+                          <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-subtle/70">{g.label}</div>
+                          {g.items.map((s) => (
+                            <SessionItem
+                              key={s.id}
+                              s={s}
+                              active={s.id === activeSessionId}
+                              confirmDeleteId={confirmDeleteId}
+                              onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
+                              onDelete={requestDelete}
+                            />
+                          ))}
+                        </div>
                       ))}
                     </Sidebar.Menu>
                   )

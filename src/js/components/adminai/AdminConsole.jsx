@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import { createPortal } from 'react-dom';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -9,7 +10,7 @@ import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Empty, Loader, Tabs } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, cx } from '../ui/AppPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
-import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ChevronDown } from '../Icons.jsx';
+import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ChevronDown, WechatBrand, TelegramBrand } from '../Icons.jsx';
 
 /* ==================== 通用小组件 ==================== */
 
@@ -376,8 +377,10 @@ className={cx(
 
 const EMPTY_FORM = {
   id: '',
+  type: 'telegram',
   name: '',
   notificationChannelId: '',
+  botTokenSet: false,
 };
 
 function ChannelsCard() {
@@ -431,8 +434,10 @@ function ChannelsCard() {
   const openEdit = (channel) => {
     setForm({
       id: channel.id,
+      type: channel.type || 'telegram',
       name: channel.name,
       notificationChannelId: channel.notificationChannelId || '',
+      botTokenSet: channel.type === 'wechat' ? !!(channel.config?.botToken) : false,
     });
     setError('');
     setFormOpen(true);
@@ -445,7 +450,8 @@ function ChannelsCard() {
       setError('填写频道名称');
       return;
     }
-    if (!form.id && !form.notificationChannelId) {
+    const isTelegram = form.type === 'telegram';
+    if (!form.id && isTelegram && !form.notificationChannelId) {
       setError('选择来源通知渠道（bot token 复用通知中心配置）');
       return;
     }
@@ -454,8 +460,8 @@ function ChannelsCard() {
     try {
       const url = form.id ? `/api/admin-ai/channels/${form.id}` : '/api/admin-ai/channels';
       const payload = form.id
-        ? { name: form.name.trim(), notificationChannelId: form.notificationChannelId }
-        : { type: 'telegram', name: form.name.trim(), enabled: true, notificationChannelId: form.notificationChannelId };
+        ? { name: form.name.trim(), ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}) }
+        : { type: form.type || 'telegram', name: form.name.trim(), enabled: isTelegram, ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}) };
       const res = await fetch(url, {
         method: form.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -522,7 +528,7 @@ function ChannelsCard() {
   const addBinding = async () => {
     const userId = bindInput.userId.trim();
     if (!form.id || !userId) {
-      setError('填写 Telegram 用户 ID');
+      setError(`填写${form.type === 'wechat' ? '微信' : 'Telegram'} 用户 ID`);
       return;
     }
     setSaving(true);
@@ -560,6 +566,98 @@ function ChannelsCard() {
     }
   };
 
+  // ---- 微信扫码登录 ----
+  const [qrState, setQrState] = useState({ channelId: null, loading: false, qrcode: '', qrcodeImg: '', imgSrc: '', status: '' });
+  const qrPollRef = useRef(null);
+
+  // 根据后端返回生成可显示的二维码图片：
+  // 优先用完整链接在本地生成（qrcode 库），兼容 base64 图片 / URL 两种后端返回。
+  const resolveQRImg = async (body) => {
+    const { qrcodeUrl, qrcodeImg } = body;
+    const link = qrcodeUrl || (typeof qrcodeImg === 'string' && qrcodeImg.startsWith('http') ? qrcodeImg : '');
+    if (link) {
+      try {
+        return await QRCode.toDataURL(link, { width: 200, margin: 1 });
+      } catch { /* 本地生成失败则回退 base64 原样 */ }
+    }
+    if (typeof qrcodeImg === 'string' && qrcodeImg.startsWith('data:image')) {
+      return qrcodeImg;
+    }
+    if (typeof qrcodeImg === 'string' && qrcodeImg && !qrcodeImg.startsWith('http')) {
+      return `data:image/png;base64,${qrcodeImg}`;
+    }
+    return '';
+  };
+
+  const startQRLogin = async (channelId) => {
+    setQrState({ channelId, loading: true, qrcode: '', qrcodeImg: '', imgSrc: '', status: 'requesting' });
+    setError('');
+    try {
+      const res = await fetch(`/api/admin-ai/channels/${channelId}/wechat/qrcode`, { method: 'POST' });
+      const data = await res.json();
+      const body = data.data || data;
+      if (!res.ok || !body.qrcode) {
+        setQrState((prev) => ({ ...prev, loading: false, status: 'error' }));
+        setError((data.error || {}).message || '获取二维码失败');
+        return;
+      }
+      const imgSrc = await resolveQRImg(body);
+      setQrState({ channelId, loading: false, qrcode: body.qrcode, qrcodeImg: body.qrcodeImg, imgSrc, status: 'waiting' });
+      pollQRStatus(channelId, body.qrcode);
+    } catch {
+      setQrState((prev) => ({ ...prev, loading: false, status: 'error' }));
+      setError('获取二维码失败');
+    }
+  };
+
+  const pollQRStatus = async (channelId, qrcode) => {
+    if (qrPollRef.current) clearTimeout(qrPollRef.current);
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/admin-ai/channels/${channelId}/wechat/qrcode/status?qrcode=${encodeURIComponent(qrcode)}`);
+        const data = await res.json();
+        const body = data.data || data;
+        const status = body.status || '';
+        setQrState((prev) => ({ ...prev, status }));
+        if (status === 'confirmed') {
+          setQrState((prev) => ({ ...prev, status: 'confirmed' }));
+          setForm((prev) => ({ ...prev, botTokenSet: true }));
+          load();
+          return;
+        }
+        if (status === 'expired') return;
+        qrPollRef.current = setTimeout(poll, 2000);
+      } catch {
+        qrPollRef.current = setTimeout(poll, 3000);
+      }
+    };
+    poll();
+  };
+
+  const cancelQRLogin = () => {
+    if (qrPollRef.current) clearTimeout(qrPollRef.current);
+    setQrState({ channelId: null, loading: false, qrcode: '', qrcodeImg: '', imgSrc: '', status: '' });
+  };
+
+  useEffect(() => () => { if (qrPollRef.current) clearTimeout(qrPollRef.current); }, []);
+
+  // 微信未授权频道：打开编辑表单即自动拉取二维码（不显示手动按钮）。
+  const qrAutoRef = useRef(null);
+  useEffect(() => {
+    if (!formOpen || !form.id || form.type !== 'wechat') {
+      qrAutoRef.current = null;
+      cancelQRLogin();
+      return;
+    }
+    if (form.botTokenSet) {
+      qrAutoRef.current = null;
+      return;
+    }
+    if (qrAutoRef.current === form.id) return; // 该频道已在拉取中
+    qrAutoRef.current = form.id;
+    startQRLogin(form.id);
+  }, [formOpen, form.id, form.type, form.botTokenSet]);
+
   if (loading) {
     return <div className="flex justify-center py-10"><Loader size={20} className="text-kumo-subtle" /></div>;
   }
@@ -580,7 +678,7 @@ function ChannelsCard() {
         bodyPadding="none"
       >
       {channels.length === 0 && !formOpen ? (
-        <Empty className="py-10" title="暂无频道" description="点击「新建频道」接入 Telegram Bot" />
+        <Empty className="py-10" title="暂无频道" description="点击「新建频道」接入 Telegram 或微信" />
       ) : (
         <div className="divide-y divide-kumo-line">
           {channels.map((channel) => (
@@ -590,17 +688,29 @@ function ChannelsCard() {
             >
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
-                  <Send className="h-4 w-4" />
+                  {channel.type === 'wechat' ? (
+                    <WechatBrand className="size-6" />
+                  ) : channel.type === 'telegram' ? (
+                    <TelegramBrand className="size-6" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
                 </span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-semibold text-kumo-strong">{channel.name}</span>
-                    <span className="truncate text-xs text-kumo-subtle">
-                      来源：{channel.notificationChannelName || '旧 Token 配置（未选择来源）'}
-                    </span>
+                    {channel.type === 'wechat' ? (
+                      <span className="truncate text-xs text-kumo-subtle">
+                        {channel.config?.botToken ? '已授权' : '未授权（需扫码）'}
+                      </span>
+                    ) : (
+                      <span className="truncate text-xs text-kumo-subtle">
+                        来源：{channel.notificationChannelName || '旧 Token 配置（未选择来源）'}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">telegram</Badge>
+                    <Badge variant="secondary">{channel.type}</Badge>
                     <Badge variant={`${bindings.some((b) => b.channelId === channel.id) ? 'secondary' : 'warning'}`}>
                       {bindings.some((b) => b.channelId === channel.id)
                         ? `白名单 ${bindings.filter((b) => b.channelId === channel.id).length} 人`
@@ -657,28 +767,88 @@ function ChannelsCard() {
           </div>
           <div className="grid gap-3 cq-sm:grid-cols-2">
             <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">名称</div>
-              <Input size="sm" className="w-full" placeholder="如：Telegram 主机器人" aria-label="频道名称" value={form.name} onChange={(e) => setFormField('name', e.target.value)} />
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-kumo-subtle">来源通知渠道</div>
+              <div className="mb-1 text-xs font-medium text-kumo-subtle">频道类型</div>
               <Select
                 size="sm"
                 className="w-full"
-                placeholder={form.notificationChannelId ? undefined : (form.id ? '未选择（沿用旧 Token 配置）' : '选择通知中心的 Telegram 渠道')}
-                value={form.notificationChannelId}
-                onValueChange={(v) => setFormField('notificationChannelId', String(v))}
-                items={notificationOptions.length ? notificationOptions : [{ value: '__none__', label: '暂无可用通知渠道（请先到通知中心配置 Telegram 渠道）' }]}
-                disabled={notificationOptions.length === 0}
+                value={form.type || 'telegram'}
+                onValueChange={(v) => { setFormField('type', String(v)); setError(''); }}
+                items={[{ value: 'telegram', label: 'Telegram Bot' }, { value: 'wechat', label: '微信（个人号扫码）' }]}
               />
             </div>
+            <div>
+              <div className="mb-1 text-xs font-medium text-kumo-subtle">名称</div>
+              <Input size="sm" className="w-full" placeholder={form.type === 'wechat' ? '如：微信机器人' : '如：Telegram 主机器人'} aria-label="频道名称" value={form.name} onChange={(e) => setFormField('name', e.target.value)} />
+            </div>
           </div>
-          <p className="mt-3 text-xs leading-5 text-kumo-subtle">
-            复用通知中心已配置的 Telegram 渠道（需含 bot_token 与 chat_id），无需在此填写；同一渠道只能被一个 AI 频道引用。
-          </p>
 
-          {/* 白名单管理（并入频道编辑设置）：仅编辑已有频道时显示 */}
-          {form.id && (
+          {form.type === 'telegram' ? (
+            <>
+              <div className="mt-3">
+                <div className="mb-1 text-xs font-medium text-kumo-subtle">来源通知渠道</div>
+                <Select
+                  size="sm"
+                  className="w-full"
+                  placeholder={form.notificationChannelId ? undefined : (form.id ? '未选择（沿用旧 Token 配置）' : '选择通知中心的 Telegram 渠道')}
+                  value={form.notificationChannelId}
+                  onValueChange={(v) => setFormField('notificationChannelId', String(v))}
+                  items={notificationOptions.length ? notificationOptions : [{ value: '__none__', label: '暂无可用通知渠道（请先到通知中心配置 Telegram 渠道）' }]}
+                  disabled={notificationOptions.length === 0}
+                />
+              </div>
+              <p className="mt-3 text-xs leading-5 text-kumo-subtle">
+                复用通知中心已配置的 Telegram 渠道（需含 bot_token 与 chat_id），无需在此填写；同一渠道只能被一个 AI 频道引用。
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-3 text-xs leading-5 text-kumo-subtle">
+                微信频道通过扫码登录个人微信号获取 Bot 权限，bot_token 加密存储在频道配置中。创建频道后在下方扫码登录。
+              </p>
+              {form.id && (
+                <div className="mt-3 rounded-lg border border-kumo-line bg-kumo-base p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-kumo-strong">微信账号</span>
+                    {form.botTokenSet || (qrState.channelId === form.id && qrState.status === 'confirmed') ? (
+                      <Badge variant="success">已授权</Badge>
+                    ) : (
+                      <Badge variant="outline">未授权</Badge>
+                    )}
+                  </div>
+                  {form.botTokenSet ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-kumo-subtle">已绑定微信账号，机器人将以此账号收发消息。</p>
+                      <Button size="sm" variant="secondary" onClick={() => setForm((prev) => ({ ...prev, botTokenSet: false }))}>
+                        重新授权
+                      </Button>
+                    </div>
+                  ) : qrState.channelId === form.id && qrState.imgSrc ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <img src={qrState.imgSrc} alt="微信登录二维码" className="w-48 rounded-lg" />
+                      <p className="text-xs text-kumo-subtle">
+                        {qrState.status === 'scanned' ? '已扫描，请在手机确认' : '请用微信扫码登录'}
+                      </p>
+                    </div>
+                  ) : qrState.channelId === form.id && qrState.loading ? (
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <Loader size={24} className="text-kumo-subtle" />
+                      <p className="text-xs text-kumo-subtle">正在获取二维码…</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      <p className="text-xs text-kumo-subtle">二维码加载失败</p>
+                      <Button size="sm" variant="ghost" onClick={() => { qrAutoRef.current = null; startQRLogin(form.id); }}>
+                        重新加载
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* 白名单管理（并入频道编辑设置）：仅 Telegram 显示；微信不设白名单 */}
+          {form.id && form.type === 'telegram' && (
             <div className="mt-4 rounded-lg border border-kumo-line bg-kumo-base p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-semibold text-kumo-strong">白名单成员</span>
@@ -708,8 +878,8 @@ function ChannelsCard() {
                 <Input
                   size="sm"
                   className="w-40"
-                  placeholder="Telegram 用户 ID *"
-                  aria-label="Telegram 用户 ID"
+                  placeholder={(form.type === 'wechat' ? '微信' : 'Telegram') + ' 用户 ID *'}
+                  aria-label={form.type === 'wechat' ? '微信用户 ID' : 'Telegram 用户 ID'}
                   value={bindInput.userId}
                   onChange={(e) => setBindInput((prev) => ({ ...prev, userId: e.target.value }))}
                 />
