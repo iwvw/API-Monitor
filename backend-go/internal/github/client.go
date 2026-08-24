@@ -18,6 +18,11 @@ import (
 const (
 	defaultGitHubAPIBase = "https://api.github.com"
 	githubAPIVersion     = "2022-11-28"
+	// maxGitHubBodyBytes 是 GitHub API 单次响应体上限（4MB）。
+	// GitHub 常规端点（workflow runs/jobs 等）正常响应远小于此值；
+	// 超限响应大概率异常（超大内容文件解析、响应异常），直接拒绝，
+	// 避免瞬时大分配抬高 GC 峰值水位（小内存主机收益最大）。
+	maxGitHubBodyBytes = 4 << 20
 )
 
 type apiClient struct {
@@ -79,9 +84,14 @@ func (c *apiClient) do(ctx context.Context, token, method, path string, payload 
 	if res.StatusCode == http.StatusNoContent {
 		return rate, nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 10<<20))
+	// 多读 1 字节用于检测是否超限：读满上限+1 说明响应被截断，返回明确
+	// 错误而不是静默交给 json.Unmarshal 碰运气（截断 JSON 解不出合理错误）。
+	raw, err := io.ReadAll(io.LimitReader(res.Body, maxGitHubBodyBytes+1))
 	if err != nil {
 		return rate, err
+	}
+	if len(raw) > maxGitHubBodyBytes {
+		return rate, fmt.Errorf("GitHub API %s %s: response body exceeds %dMB limit", method, path, maxGitHubBodyBytes>>20)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		msg := strings.TrimSpace(string(raw))

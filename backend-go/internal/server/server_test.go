@@ -134,6 +134,21 @@ func TestAuthSubroutesAreForwarded(t *testing.T) {
 	}
 }
 
+func TestAdminAIMemoriesRouteForwarded(t *testing.T) {
+	handler := testServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/memories", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code == http.StatusNotFound {
+		t.Fatalf("/api/admin-ai/memories unexpectedly fell through router; body=%s", res.Body.String())
+	}
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("/api/admin-ai/memories status = %d, want 401 (session required); body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestAIMCPCallAPIUsesInternalRoutes(t *testing.T) {
 	handler := testServer(t)
 	cookie := loginServerForTest(t, handler)
@@ -268,6 +283,67 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 	callResult := result["structuredContent"].(map[string]interface{})
 	if callResult["statusCode"].(float64) != 200 {
 		t.Fatalf("expected proxied status 200, got %#v", callResult)
+	}
+}
+
+func TestAIMCPCannotSelfApproveAdminRoutes(t *testing.T) {
+	handler := testServer(t)
+	cookie := loginServerForTest(t, handler)
+
+	keyReq := httptest.NewRequest(http.MethodGet, "/api/system/ai-access", nil)
+	keyReq.AddCookie(cookie)
+	keyRes := httptest.NewRecorder()
+	handler.ServeHTTP(keyRes, keyReq)
+	var keyPayload map[string]interface{}
+	if err := json.Unmarshal(keyRes.Body.Bytes(), &keyPayload); err != nil {
+		t.Fatal(err)
+	}
+	overview := keyPayload["data"].(map[string]interface{})
+	agentKey := overview["agentKey"].(map[string]interface{})["value"].(string)
+
+	// 启用写入，确保 admin-ai 屏蔽不是写开关的副作用
+	writeReq := httptest.NewRequest(http.MethodPut, "/api/system/ai-access/write", strings.NewReader(`{"writeEnabled":true}`))
+	writeReq.AddCookie(cookie)
+	writeReq.Header.Set("Content-Type", "application/json")
+	writeRes := httptest.NewRecorder()
+	handler.ServeHTTP(writeRes, writeReq)
+	if writeRes.Code != http.StatusOK {
+		t.Fatalf("enable write status = %d, body=%s", writeRes.Code, writeRes.Body.String())
+	}
+
+	callTools := func(name string, args map[string]interface{}) map[string]interface{} {
+		body := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "tools/call",
+			"params":  map[string]interface{}{"name": name, "arguments": args},
+		}
+		encoded, _ := json.Marshal(body)
+		req := httptest.NewRequest(http.MethodPost, "/api/ai/mcp", bytes.NewReader(encoded))
+		req.Header.Set("Authorization", "Bearer "+agentKey)
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		var payload map[string]interface{}
+		if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode mcp response: %v body=%s", err, res.Body.String())
+		}
+		return payload
+	}
+
+	// 枚举待批项必须被拒
+	payload := callTools("call_api", map[string]interface{}{"method": "GET", "path": "/api/admin-ai/approvals"})
+	if payload["error"] == nil {
+		t.Fatalf("AI must not enumerate admin approvals, got %#v", payload)
+	}
+	if !strings.Contains(payload["error"].(map[string]interface{})["message"].(string), "不允许") {
+		t.Fatalf("unexpected block message: %#v", payload["error"])
+	}
+
+	// resolve 自批必须被拒
+	payload = callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/admin-ai/approvals/aaa_x/resolve", "body": map[string]interface{}{"action": "approve"}})
+	if payload["error"] == nil {
+		t.Fatalf("AI must not self-resolve approvals, got %#v", payload)
 	}
 }
 
@@ -1331,6 +1407,77 @@ func TestCronRoutesRequireSessionAndAreServedByGo(t *testing.T) {
 	}
 }
 
+func TestInternalCronReadonlyWhitelist(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "")
+	t.Setenv("DEMO_MODE", "")
+
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	cronReq := func(method, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("X-Internal-Cron", "true")
+		req.RemoteAddr = "127.0.0.1:12345"
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		return res
+	}
+
+	// 白名单内业务家族只读 GET 放行
+	for _, path := range []string{
+		"/api/system/host-metrics",
+		"/api/server/s",
+		"/api/cloudflare/zones",
+		"/api/openai/analytics/summary",
+		"/api/totp/accounts",
+		"/api/notification/channels",
+		"/api/drawio/documents",
+		"/api/prompts/entries",
+		"/api/aliyun/accounts",
+		"/api/koyeb/data",
+		"/api/github/tokens",
+	} {
+		res := cronReq(http.MethodGet, path)
+		if res.Code != http.StatusOK {
+			t.Fatalf("GET %s with internal cron header status = %d body=%s", path, res.Code, res.Body.String())
+		}
+	}
+
+	// 白名单内路径的写操作拒绝
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/scheduler/workflows"},
+		{http.MethodDelete, "/api/prompts/entries/1"},
+		{http.MethodPut, "/api/totp/accounts/1"},
+		{http.MethodPost, "/api/cloudflare/zones"},
+	} {
+		res := cronReq(tc.method, tc.path)
+		if res.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s with internal cron header status = %d (want 401) body=%s", tc.method, tc.path, res.Code, res.Body.String())
+		}
+	}
+
+	// 带模块级二次鉴权的模块不放行（uptime）
+	res := cronReq(http.MethodGet, "/api/uptime/monitors")
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/uptime/monitors with internal cron header status = %d (want 401) body=%s", res.Code, res.Body.String())
+	}
+
+	// 外部地址伪造 X-Internal-Cron 头不放行
+	req := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	req.Header.Set("X-Internal-Cron", "true")
+	req.RemoteAddr = "203.0.113.5:12345"
+	resFake := httptest.NewRecorder()
+	handler.ServeHTTP(resFake, req)
+	if resFake.Code != http.StatusUnauthorized {
+		t.Fatalf("external addr with internal cron header status = %d (want 401) body=%s", resFake.Code, resFake.Body.String())
+	}
+}
+
 func TestNotificationRoutesRequireSessionAndAreServedByGo(t *testing.T) {
 	t.Setenv("ADMIN_PASSWORD", "")
 	t.Setenv("DEMO_MODE", "")
@@ -1631,6 +1778,52 @@ func TestOpenAIServerRouting(t *testing.T) {
 		if record.Route == "models" {
 			t.Fatalf("models request should not pollute analytics logs: %+v", analyticsPayload.Records)
 		}
+	}
+
+	// 7. key-check 路由：端点 API Key 批量检测需要会话鉴权。
+	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints", strings.NewReader(`{
+		"name":"key-check-test","baseUrl":"https://example.com/v1","apiKey":"sk-test-main"
+	}`))
+	req.AddCookie(cookie)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK && res.Code != http.StatusCreated {
+		t.Fatalf("create endpoint for key-check status = %d body=%s", res.Code, res.Body.String())
+	}
+	var createdEndpoint struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &createdEndpoint); err != nil || createdEndpoint.ID == "" {
+		var createdEnvelope struct {
+			Endpoint struct {
+				ID string `json:"id"`
+			} `json:"endpoint"`
+		}
+		if envErr := json.Unmarshal(res.Body.Bytes(), &createdEnvelope); envErr != nil || createdEnvelope.Endpoint.ID == "" {
+			t.Fatalf("decode created endpoint: %v body=%s", err, res.Body.String())
+		}
+		createdEndpoint.ID = createdEnvelope.Endpoint.ID
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints/"+createdEndpoint.ID+"/key-check", strings.NewReader(`{"keys":["sk-test-main","sk-test-backup"],"timeout":3000}`))
+	req.AddCookie(cookie)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("key-check status = %d body=%s", res.Code, res.Body.String())
+	}
+	var keyCheckPayload struct {
+		Results []struct {
+			Index  int    `json:"index"`
+			Key    string `json:"key"`
+			Status string `json:"status"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &keyCheckPayload); err != nil {
+		t.Fatalf("unmarshal key-check: %v body=%s", err, res.Body.String())
+	}
+	if len(keyCheckPayload.Results) != 2 {
+		t.Fatalf("key-check results count = %d, want 2: %s", len(keyCheckPayload.Results), res.Body.String())
 	}
 }
 

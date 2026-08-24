@@ -650,3 +650,22 @@ func getInt(m map[string]interface{}, key string) int {
 	}
 	return 0
 }
+
+
+// clearExpiredHistory 分批删除指定表过期行，避免大表单次 DELETE 持写锁过久。
+// 表名/列名为内部常量（非用户输入）；LIMIT 置于子查询（modernc 驱动不支持
+// DELETE 主语句 LIMIT）。每批到上限后继续下一批直至删完。
+func clearExpiredHistory(ctx context.Context, db *sql.DB, table, column string, retentionDays int) {
+	const batchSize = 2000
+	query := fmt.Sprintf("DELETE FROM %s WHERE rowid IN (SELECT rowid FROM %s WHERE %s < datetime('now', '-' || ? || ' days') LIMIT %d)", table, table, column, batchSize)
+	for {
+		result, err := db.ExecContext(ctx, query, retentionDays)
+		if err != nil {
+			return
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil || deleted < batchSize {
+			return
+		}
+	}
+}

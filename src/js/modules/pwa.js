@@ -7,6 +7,7 @@ const UPDATE_SIGNAL_KEY = 'api-monitor-update-signal';
 
 let refreshingForUpdate = false;
 let updateChannel = null;
+let controllerVersionFallbackTimeout = null;
 
 const isStandalone = () =>
   window.matchMedia?.('(display-mode: standalone)').matches ||
@@ -89,6 +90,13 @@ const reloadForUpdate = (version = 'controller-change') => {
 const handleVersionMessage = (message, shouldFanOut = true) => {
   if (!['APP_UPDATED', 'APP_VERSION'].includes(message?.type) || !message.version) return;
 
+  // 收到新 controller 的有效版本应答：取消 controllerchange 的 1s 兜底刷新，
+  // 避免在版本一致（跳过刷新）后兜底仍以 'controller-change' 为键二次刷新。
+  if (controllerVersionFallbackTimeout) {
+    window.clearTimeout(controllerVersionFallbackTimeout);
+    controllerVersionFallbackTimeout = null;
+  }
+
   if (shouldFanOut) {
     updateChannel?.postMessage(message);
     try {
@@ -147,8 +155,11 @@ const registerServiceWorker = () => {
 
     const controller = navigator.serviceWorker.controller;
     if (controller) {
+      // 询问新 controller 的应用版本：收到应答后由 handleVersionMessage
+      // 按版本决定是否重载（版本一致则不重载，避免无谓刷新）；
+      // 兜底：旧版 sw.js 未实现版本应答时 1s 后仍刷新一次保证更新生效。
       controller.postMessage({ type: 'GET_APP_VERSION' });
-      window.setTimeout(() => reloadForUpdate(), 250);
+      controllerVersionFallbackTimeout = window.setTimeout(() => reloadForUpdate(), 1000);
     }
   });
 

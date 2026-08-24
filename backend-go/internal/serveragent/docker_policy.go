@@ -17,7 +17,7 @@ func validateDockerCreatePolicy(payload map[string]interface{}) []string {
 			continue
 		}
 		switch {
-		case normalized == "--privileged":
+		case strings.HasPrefix(normalized, "--privileged"):
 			violations = append(violations, "extraArgs cannot enable privileged mode")
 		case normalized == "--pid=host" || normalized == "--pid host":
 			violations = append(violations, "extraArgs cannot use host PID namespace")

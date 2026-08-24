@@ -160,6 +160,8 @@ func init() {
 	routeRequestContracts["/api/system/ai-access/skills/{id}"] = routeRequestContracts["/api/ai-access/skills"]
 	routeRequestContracts["/api/ai-access/write"] = obj([]string{"writeEnabled"}, map[string]prop{"writeEnabled": {t: "boolean", req: true, d: "是否允许 AI 写操作"}})
 	routeRequestContracts["/api/system/ai-access/write"] = routeRequestContracts["/api/ai-access/write"]
+	routeRequestContracts["/api/ai-access/policy"] = obj([]string{"policy"}, map[string]prop{"policy": {t: "string", req: true, e: []string{"minimal", "standard", "full"}, d: "AI 接入权限模式"}})
+	routeRequestContracts["/api/system/ai-access/policy"] = routeRequestContracts["/api/ai-access/policy"]
 	routeRequestContracts["/api/api-keys"] = obj([]string{"name"}, map[string]prop{
 		"name":      {t: "string", req: true, d: "密钥名称"},
 		"kind":      {t: "string", d: "用途类型"},
@@ -169,6 +171,9 @@ func init() {
 	})
 	routeRequestContracts["/api/system/api-keys"] = routeRequestContracts["/api/api-keys"]
 	routeRequestContracts["/api/system/api-keys/{id}"] = routeRequestContracts["/api/api-keys"]
+	routeRequestContracts["/api/system/api-stats"] = obj(nil, map[string]prop{
+		"days": {t: "integer", d: "统计天数（1-90，默认 14）"},
+	})
 	routeRequestContracts["/api/backup/configs"] = obj([]string{"provider"}, map[string]prop{
 		"provider":          {t: "string", req: true, e: []string{"local", "oss", "cos", "s3"}},
 		"local_dir":         {t: "string", d: "本地备份目录"},
@@ -177,6 +182,7 @@ func init() {
 		"bucket":            {t: "string", d: "存储桶"},
 		"access_key_id":     {t: "string"},
 		"access_key_secret": {t: "string"},
+		"max_records":       {t: "integer", d: "最大保留备份数量（0=不限制）"},
 	})
 	routeRequestContracts["/api/backup/restore"] = obj([]string{"id", "confirm"}, map[string]prop{
 		"id":      {t: "string", req: true},
@@ -218,10 +224,6 @@ func init() {
 		"skipVerify":   {t: "boolean"},
 	})
 	routeRequestContracts["/api/openai/endpoints/{id}"] = routeRequestContracts["/api/openai/endpoints"]
-	routeRequestContracts["/api/openai/sessions"] = obj(nil, map[string]prop{
-		"title":   {t: "string"},
-		"modelId": {t: "string"},
-	})
 
 	// ===== 通知中心 =====
 	routeRequestContracts["/api/notification/channels"] = obj([]string{"name", "type"}, map[string]prop{
@@ -246,11 +248,19 @@ func init() {
 
 	// ===== 定时任务 =====
 	routeRequestContracts["/api/scheduler/tasks"] = obj([]string{"name", "command"}, map[string]prop{
-		"name":     {t: "string", req: true},
-		"schedule": {t: "string", d: "cron 表达式"},
-		"command":  {t: "string", req: true},
-		"type":     {t: "string"},
-		"enabled":  {t: "boolean"},
+		"name":                 {t: "string", req: true},
+		"description":          {t: "string"},
+		"schedule":             {t: "string", d: "cron 表达式"},
+		"command":              {t: "string", req: true},
+		"type":                 {t: "string", d: "shell | internal | agent | http | ai"},
+		"enabled":              {t: "boolean", d: "是否启用（兼容 0/1 整数）"},
+		"timeout_seconds":      {t: "integer"},
+		"retry_count":          {t: "integer"},
+		"retry_interval_seconds": {t: "integer"},
+		"max_concurrency":      {t: "integer"},
+		"node_id":              {t: "string"},
+		"node_selector":        {t: "string"},
+		"config":               {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}，policy 仅支持 allow/readonly，默认 allow）"},
 	})
 	routeRequestContracts["/api/scheduler/tasks/{id}"] = routeRequestContracts["/api/scheduler/tasks"]
 	routeRequestContracts["/api/cron/tasks"] = routeRequestContracts["/api/scheduler/tasks"]
@@ -346,6 +356,7 @@ func init() {
 	routeRequestContracts["/api/github/tokens/{id}"] = obj(nil, map[string]prop{
 		"name": {t: "string"},
 	})
+	routeRequestContracts["/api/github/repositories"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/github/repositories/{id}/refresh"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/github/repositories/{id}/webhook/configure"] = obj(nil, map[string]prop{
 		"secret": {t: "string", d: "Webhook 密钥"},
@@ -363,6 +374,8 @@ func init() {
 
 	// ===== 主机实例 server / serveragent =====
 	noBody := obj(nil, map[string]prop{})
+	// 公开订阅信息页（无凭据 GET），无需请求体。
+	routeRequestContracts["/api/subscription/public/{token}"] = noBody
 	routeRequestContracts["/api/server/accounts"] = obj([]string{"name", "host", "port"}, map[string]prop{
 		"name":       {t: "string", req: true},
 		"host":       {t: "string", req: true},
@@ -422,10 +435,19 @@ func init() {
 	routeRequestContracts["/api/server/test-connection"] = obj([]string{"id"}, map[string]prop{"id": {t: "string", req: true}})
 	routeRequestContracts["/api/server/action"] = obj([]string{"serverId", "action"}, map[string]prop{
 		"serverId": {t: "string", req: true},
-		"action":   {t: "string", req: true},
-		"params":   {t: "object"},
+		"action": {t: "string", req: true,
+			e: []string{"reboot", "restart", "shutdown"},
+			d: "仅支持预设主机动作；执行任意命令（如关闭进程 taskkill）请改用 POST /api/server/agent/command/{id} 向在线 Agent 下发命令"},
+		"params": {t: "object"},
 	})
 	routeRequestContracts["/api/server/check-all"] = noBody
+	routeRequestContracts["/api/server/v2/tasks"] = obj([]string{"serverId", "action"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"domain":   {t: "string", d: "动作域（docker/compose/image/network/volume 等），服务端以 action 前缀为准"},
+		"action": {t: "string", req: true,
+			d: "域内动作：container.start/stop/restart/delete/pull/logs/update/rename、compose.restart、image.list/delete、network.create/remove 等"},
+		"payload": {t: "object", d: "动作参数（containerId、image、project、configFiles 等）"},
+	})
 	routeRequestContracts["/api/server/status-pages"] = obj([]string{"title", "slug"}, map[string]prop{
 		"title":          {t: "string", req: true},
 		"slug":           {t: "string", req: true},
@@ -510,6 +532,7 @@ func init() {
 		"timeout": {t: "integer"},
 	})
 	routeRequestContracts["/api/server/agent/auto-install/{id}"] = obj(nil, map[string]prop{"protocol": {t: "string"}})
+	routeRequestContracts["/api/server/monitor/collect"] = noBody
 	routeRequestContracts["/api/server/agent/batch-install"] = obj([]string{"serverIds"}, map[string]prop{
 		"serverIds": {t: "array", req: true},
 		"protocol":  {t: "string"},
@@ -517,7 +540,6 @@ func init() {
 	routeRequestContracts["/api/server/agent/batch-upgrade"] = routeRequestContracts["/api/server/agent/batch-install"]
 	routeRequestContracts["/api/server/agent/uninstall/{id}"] = obj(nil, map[string]prop{"force": {t: "boolean"}})
 	routeRequestContracts["/api/server/agent/install-script/{id}"] = noBody
-	routeRequestContracts["/api/server/agent/install/linux/{id}"] = noBody
 	routeRequestContracts["/api/server/agent/install/linux/{id}/{key}"] = noBody
 	routeRequestContracts["/api/server/agent/install/win/{id}/{key}"] = noBody
 	routeRequestContracts["/api/server/agent/key/generate"] = noBody
@@ -636,6 +658,9 @@ func init() {
 		"publicUploadEnabled": {t: "boolean"},
 		"maxSizeMb":           {t: "integer"},
 	})
+	routeRequestContracts["/api/filebox/shares"] = noBody
+	routeRequestContracts["/api/filebox/access-logs"] = noBody
+	routeRequestContracts["/api/m365/registrations"] = noBody
 	routeRequestContracts["/api/filebox/void/rooms"] = obj([]string{"name"}, map[string]prop{
 		"name":    {t: "string", req: true},
 		"expires": {t: "integer", d: "有效期秒"},
@@ -669,6 +694,7 @@ func init() {
 	routeRequestContracts["/api/aliyun/accounts/{id}/records/{recordId}/status"] = obj(nil, map[string]prop{
 		"status": {t: "string", e: []string{"enable", "disable"}},
 	})
+	routeRequestContracts["/api/aliyun/accounts/{id}/metrics"] = noBody
 	routeRequestContracts["/api/aliyun/accounts/{id}/instances/{instanceId}/{action}"] = obj(nil, map[string]prop{
 		"action": {t: "string", d: "实例动作"},
 	})
@@ -735,10 +761,15 @@ func init() {
 		"enabled":  {t: "boolean"},
 	})
 	routeRequestContracts["/api/scheduler/nodes/{id}"] = routeRequestContracts["/api/scheduler/nodes"]
-	routeRequestContracts["/api/scheduler/workflows"] = obj([]string{"name", "definition"}, map[string]prop{
-		"name":       {t: "string", req: true},
-		"definition": {t: "object", req: true, d: "工作流 JSON 定义"},
-		"enabled":    {t: "boolean"},
+	routeRequestContracts["/api/scheduler/workflows"] = obj([]string{"name", "nodes"}, map[string]prop{
+		"name":               {t: "string", req: true},
+		"description":        {t: "string"},
+		"schedule":           {t: "string"},
+		"enabled":            {t: "boolean"},
+		"concurrency_policy": {t: "string"},
+		"failure_policy":     {t: "string"},
+		"nodes":              {t: "array", req: true, d: "工作流节点（start/end 标记与任务节点）"},
+		"edges":              {t: "array", d: "节点连线（from/to/condition）"},
 	})
 	routeRequestContracts["/api/scheduler/workflows/import"] = obj([]string{"workflows"}, map[string]prop{
 		"workflows": {t: "array", req: true},
@@ -778,32 +809,25 @@ func init() {
 	})
 	routeRequestContracts["/api/openai/analytics/clear"] = noBody
 	routeRequestContracts["/api/openai/relay-errors"] = noBody
+	routeRequestContracts["/api/openai/endpoints/{id}/routing"] = obj([]string{"priority", "weight"}, map[string]prop{
+		"priority": {t: "number", d: "路由优先级（越小越优先），与 weight 至少提供一个"},
+		"weight":   {t: "number", d: "路由权重，与 priority 至少提供一个"},
+	})
+	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state"] = noBody
+	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state/unban"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/verify"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/test"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/health-check"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/health-check-all"] = noBody
+	routeRequestContracts["/api/openai/endpoints/{id}/key-check"] = obj([]string{"keys"}, map[string]prop{
+		"keys":    {t: "array", req: true},
+		"timeout": {t: "number"},
+	})
 	routeRequestContracts["/api/openai/endpoints/refresh"] = noBody
 	routeRequestContracts["/api/openai/endpoints/refresh-all"] = noBody
 	routeRequestContracts["/api/openai/health-check-all"] = noBody
 	routeRequestContracts["/api/openai/import"] = obj([]string{"endpoints"}, map[string]prop{
 		"endpoints": {t: "array", req: true},
-	})
-	routeRequestContracts["/api/openai/personas"] = obj([]string{"name"}, map[string]prop{
-		"name":        {t: "string", req: true},
-		"description": {t: "string"},
-		"prompt":      {t: "string"},
-	})
-	routeRequestContracts["/api/openai/personas/{id}"] = routeRequestContracts["/api/openai/personas"]
-	routeRequestContracts["/api/openai/sessions/{id}"] = obj(nil, map[string]prop{
-		"title": {t: "string"},
-	})
-	routeRequestContracts["/api/openai/sessions/{id}/messages"] = obj([]string{"role", "content"}, map[string]prop{
-		"role":    {t: "string", req: true, e: []string{"user", "assistant", "system"}},
-		"content": {t: "string", req: true},
-	})
-	routeRequestContracts["/api/openai/sessions"] = obj(nil, map[string]prop{
-		"title":   {t: "string"},
-		"modelId": {t: "string"},
 	})
 
 	// ===== 认证 auth =====
@@ -837,7 +861,7 @@ func init() {
 		"siteName":  {t: "string"},
 		"themeMode": {t: "string"},
 		"pageWidth": {t: "string", e: []string{"standard", "wide", "full"}},
-		"uiFont":    {t: "string", e: []string{"default", "serif", "lxgw-wenkai-screen"}},
+		"uiFont":    {t: "string", e: []string{"default", "serif", "lxgw-wenkai-screen", "sora"}},
 	})
 	routeRequestContracts["/api/settings/site-brand/icons"] = obj([]string{"name"}, map[string]prop{
 		"name":     {t: "string", req: true},
@@ -849,9 +873,6 @@ func init() {
 		"databasePath": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/settings/database/import"] = obj([]string{"databasePath"}, map[string]prop{
-		"databasePath": {t: "string", req: true},
-	})
-	routeRequestContracts["/api/settings/import-database"] = obj([]string{"databasePath"}, map[string]prop{
 		"databasePath": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/settings/export-database"] = noBody
@@ -916,6 +937,131 @@ func init() {
 		"config": {t: "object", d: "应用配置 JSON"},
 	})
 
+	// ===== 1Panel 快捷控制 =====
+	routeRequestContracts["/api/onepanel/spec"] = noBody
+	routeRequestContracts["/api/onepanel/config"] = obj([]string{"serverId", "apiKey"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "API Monitor 服务器 ID"},
+		"apiKey":   {t: "string", req: true, d: "1Panel API 签名密钥（从 core.db settings 的 ApiKey 获取）"},
+		"baseUrl":  {t: "string", d: "面板基地址，默认 https://127.0.0.1:8888"},
+	})
+	routeRequestContracts["/api/onepanel/config/{serverId}"] = obj([]string{"apiKey"}, map[string]prop{
+		"apiKey":  {t: "string", req: true, d: "1Panel API 签名密钥"},
+		"baseUrl": {t: "string", d: "面板基地址，默认 https://127.0.0.1:8888"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/health"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/overview"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/dashboard/current"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/upgrade/check"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/upgrade"] = obj([]string{"version"}, map[string]prop{
+		"version": {t: "string", req: true, d: "目标版本号，可从 /upgrade/check 获取"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites"] = obj([]string{"type", "alias", "webSiteGroupID"}, map[string]prop{
+		"type":           {t: "string", req: true, e: []string{"proxy", "static"}, d: "站点类型"},
+		"alias":          {t: "string", req: true, d: "站点别名（通常为域名）"},
+		"webSiteGroupID": {t: "integer", req: true, d: "站点分组 ID"},
+		"proxy":          {t: "string", d: "反向代理目标，如 127.0.0.1:8080"},
+		"domains":        {t: "array", d: "域名列表 [{domain, port}]"},
+		"enableSSL":      {t: "boolean", d: "是否同时启用 SSL"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/operate"] = obj([]string{"id", "operate"}, map[string]prop{
+		"id":      {t: "integer", req: true, d: "网站 ID"},
+		"operate": {t: "string", req: true, e: []string{"start", "stop", "restart"}},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxy"] = obj([]string{"id", "name", "operate", "proxyHost", "proxyPass", "match"}, map[string]prop{
+		"id":        {t: "integer", req: true, d: "网站 ID"},
+		"name":      {t: "string", req: true, d: "反代配置名"},
+		"operate":   {t: "string", req: true, e: []string{"update"}, d: "操作类型"},
+		"proxyHost": {t: "string", req: true, d: "代理目标主机，如 127.0.0.1"},
+		"proxyPass": {t: "string", req: true, d: "代理目标地址，如 http://127.0.0.1:9000"},
+		"match":     {t: "string", req: true, d: "匹配规则，如 ^~ /"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/https"] = obj([]string{"websiteId", "enable", "type"}, map[string]prop{
+		"websiteId":  {t: "integer", req: true, d: "网站 ID"},
+		"enable":     {t: "boolean", req: true},
+		"type":       {t: "string", req: true, e: []string{"existed", "auto", "manual"}},
+		"httpConfig": {t: "string", e: []string{"HTTPSOnly", "HTTPAlso", "HTTPToHTTPS"}},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/nginx"] = obj([]string{"id", "content"}, map[string]prop{
+		"id":      {t: "integer", req: true, d: "网站 ID"},
+		"content": {t: "string", req: true, d: "nginx 配置内容"},
+		"operate": {t: "string", e: []string{"add", "update", "delete"}},
+		"params":  {t: "object"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/apps/install"] = obj([]string{"appDetailId", "name"}, map[string]prop{
+		"appDetailId":   {t: "integer", req: true, d: "应用详细 ID（从应用市场搜索接口获取）"},
+		"name":          {t: "string", req: true, d: "应用实例名称"},
+		"appKey":        {t: "string", d: "应用标识，如 mysql / nginx"},
+		"version":       {t: "string", d: "应用版本"},
+		"dockerCompose": {t: "string", d: "自定义 compose 内容"},
+		"params":        {t: "object"},
+		"editCompose":   {t: "boolean"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/apps/installed/{appInstallId}/op"] = obj([]string{"installId", "operate"}, map[string]prop{
+		"installId": {t: "integer", req: true, d: "应用安装 ID"},
+		"operate":   {t: "string", req: true, e: []string{"enable", "disable", "restart"}, d: "应用操作"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/containers/operate"] = obj([]string{"names", "operation"}, map[string]prop{
+		"names":     {t: "array", req: true, d: "容器名列表"},
+		"operation": {t: "string", req: true, e: []string{"up", "start", "stop", "restart", "kill", "pause", "unpause", "remove"}},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/containers/{name}/logs"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/containers/compose"] = obj([]string{"from"}, map[string]prop{
+		"from":    {t: "string", req: true, d: "compose 来源：path / file / url"},
+		"name":    {t: "string", d: "compose 名称"},
+		"compose": {t: "object"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/obtain"] = obj([]string{"ID"}, map[string]prop{
+		"ID":           {t: "integer", req: true, d: "SSL 证书条目 ID"},
+		"nameservers":  {t: "array", d: "自定义 DNS 服务器"},
+		"skipDNSCheck": {t: "boolean"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/acme"] = obj([]string{"type", "email", "keyType"}, map[string]prop{
+		"email":    {t: "string", req: true, d: "ACME 注册邮箱"},
+		"keyType":  {t: "string", req: true, e: []string{"EC256", "EC384", "RSA2048", "RSA3072", "RSA4096", "RSA8192"}},
+		"type":     {t: "string", req: true, e: []string{"letsencrypt", "zerossl", "buypass", "google", "custom"}, d: "ACME 服务商"},
+		"caDirURL": {t: "string", d: "自定义 CA 目录 URL"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/openresty/reload"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/backup"] = obj([]string{"type"}, map[string]prop{
+		"type":       {t: "string", req: true, e: []string{"app", "mysql", "mariadb", "redis", "website", "postgresql", "mongodb"}},
+		"name":       {t: "string", d: "备份存储账号名"},
+		"detailName": {t: "string", d: "备份对象，如网站名 / 数据库名"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/backups/records"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/backups/options"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/databases"] = obj([]string{"from", "name", "type", "username", "version"}, map[string]prop{
+		"type":     {t: "string", req: true, d: "数据库类型：mysql / mariadb / postgresql / redis / mongodb"},
+		"name":     {t: "string", req: true, d: "数据库名"},
+		"from":     {t: "string", req: true, d: "来源：create / existing"},
+		"username": {t: "string", req: true, d: "数据库用户"},
+		"version":  {t: "string", req: true, d: "数据库版本"},
+		"format":   {t: "string", d: "字符集"},
+		"password": {t: "string"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/databases/{id}/password"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true, d: "新密码"},
+		"database": {t: "string", d: "数据库名"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/databases/{id}"] = noBody
+	routeRequestContracts["/api/onepanel/{serverId}/runtimes"] = obj(nil, map[string]prop{
+		"type":    {t: "string", d: "runtime 类型：php / python / nodejs"},
+		"name":    {t: "string"},
+		"version": {t: "string"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/cronjobs"] = obj(nil, map[string]prop{
+		"type":   {t: "string", d: "任务类型"},
+		"name":   {t: "string"},
+		"spec":   {t: "string", d: "cron 表达式"},
+		"script": {t: "string"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/proxy"] = obj([]string{"method", "path"}, map[string]prop{
+		"method": {t: "string", req: true, e: []string{"GET", "POST", "PUT", "DELETE"}, d: "1Panel API 方法"},
+		"path":   {t: "string", req: true, d: "1Panel API 路径，如 /websites/list（不含 /api/v2 前缀）"},
+		"body":   {t: "object", d: "请求体（可选）"},
+	})
+	routeRequestContracts["/api/onepanel/{serverId}/proxy/catalog"] = noBody
+
 	// ===== AI 接入 / 备份 =====
 	routeRequestContracts["/api/ai-access/key/rotate"] = noBody
 	routeRequestContracts["/api/system/ai-access/key/rotate"] = noBody
@@ -931,4 +1077,450 @@ func init() {
 	routeRequestContracts["/api/ai/mcp"] = noBody
 	routeRequestContracts["/api/backup/run"] = noBody
 	routeRequestContracts["/api/system/logs/download"] = noBody
+
+	// ===== 管理 AI admin-ai =====
+	routeRequestContracts["/api/admin-ai/sessions"] = obj(nil, map[string]prop{
+		"title":  {t: "string", d: "会话标题"},
+		"model":  {t: "string", d: "LLM 模型"},
+		"source": {t: "string", d: "会话来源，如 web 或 channel:<id>"},
+		"mode":   {t: "string", e: []string{"agent", "ask"}, d: "会话模式：agent=代理（可调用工具）| ask=询问（纯问答）；缺省取管理设置 admin_ai_default_mode"},
+	})
+	routeRequestContracts["/api/admin-ai/sessions/{id}"] = obj(nil, map[string]prop{
+		"writeEnabled": {t: "boolean", d: "撤销会话级写授权（仅允许显式 false，授权只能由审批流授予）"},
+	})
+	routeRequestContracts["/api/admin-ai/messages"] = obj([]string{"sessionId", "prompt"}, map[string]prop{
+		"sessionId": {t: "string", req: true, d: "会话 ID"},
+		"prompt":    {t: "string", req: true, d: "用户消息"},
+		"model":     {t: "string", d: "指定模型"},
+		"source":    {t: "string", d: "会话来源"},
+		"mode":      {t: "string", e: []string{"agent", "ask"}, d: "本次消息使用的模式；非空时同步为会话模式（agent=代理可调用工具，ask=询问纯问答）"},
+		"rewindId":  {t: "string", d: "编辑重发：删除该消息及其后所有消息后再执行"},
+		"mentions":  {t: "array", d: "@ 引用的资源列表（type: zone/host/task/account/flyio/koyeb/node/channel，id: 资源 ID），服务端拉取实时快照注入本轮上下文；上限 10 条"},
+	})
+	routeRequestContracts["/api/admin-ai/cancel"] = obj([]string{"runId"}, map[string]prop{
+		"runId": {t: "string", req: true, d: "要取消的执行 ID"},
+	})
+	routeRequestContracts["/api/admin-ai/cron/daily-briefing"] = noBody
+	routeRequestContracts["/api/admin-ai/cron/task-run"] = obj([]string{"prompt"}, map[string]prop{
+		"prompt":    {t: "string", req: true, d: "AI 提示词"},
+		"model":     {t: "string", d: "指定模型，留空回退默认模型"},
+		"policy":    {t: "string", e: []string{"allow", "readonly"}, d: "allow（默认，写操作免审批）| readonly"},
+		"channelId": {t: "string", d: "可选：完成后推送到绑定频道的接收者"},
+		"title":     {t: "string", d: "会话标题，留空取 prompt 摘要"},
+	})
+	routeRequestContracts["/api/admin-ai/channels"] = obj(nil, map[string]prop{
+		"channelId": {t: "string", d: "渠道 ID"},
+		"name":      {t: "string", d: "渠道名称"},
+		"config":    {t: "object", d: "渠道配置"},
+	})
+	routeRequestContracts["/api/admin-ai/channels/{id}"] = routeRequestContracts["/api/admin-ai/channels"]
+	routeRequestContracts["/api/admin-ai/channels/{id}/start"] = noBody
+	routeRequestContracts["/api/admin-ai/channels/{id}/stop"] = noBody
+	routeRequestContracts["/api/admin-ai/channels/{id}/status"] = noBody
+	routeRequestContracts["/api/admin-ai/approvals"] = noBody
+	routeRequestContracts["/api/admin-ai/audit"] = noBody
+	routeRequestContracts["/api/admin-ai/channel-bindings"] = obj([]string{"channelId", "channelUserId"}, map[string]prop{
+		"channelId":     {t: "string", req: true, d: "频道配置 ID"},
+		"channelUserId": {t: "string", req: true, d: "渠道侧用户 ID（如 Telegram 数字 ID）"},
+		"username":      {t: "string", d: "渠道用户名"},
+		"panelUserId":   {t: "string", d: "绑定的面板用户 ID"},
+		"role":          {t: "string", d: "角色，默认 admin"},
+	})
+	routeRequestContracts["/api/admin-ai/channel-bindings/{id}"] = noBody
+	routeRequestContracts["/api/admin-ai/memories"] = obj([]string{"content"}, map[string]prop{
+		"content":    {t: "string", req: true, d: "记忆内容（最多 500 字）"},
+		"importance": {t: "number", d: "重要性 1-10，默认 5"},
+		"triggers":   {t: "string", d: "逗号分隔的触发词（选填）"},
+		"pinned":     {t: "boolean", d: "是否置顶"},
+	})
+	routeRequestContracts["/api/admin-ai/memories/{id}"] = obj(nil, map[string]prop{
+		"content":    {t: "string", d: "记忆内容（最多 500 字）"},
+		"importance": {t: "number", d: "重要性 1-10"},
+		"triggers":   {t: "string", d: "逗号分隔的触发词"},
+		"pinned":     {t: "boolean", d: "是否置顶"},
+	})
+	routeRequestContracts["/api/admin-ai/approvals/{id}"] = obj([]string{"action"}, map[string]prop{
+		"action":         {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
+		"applyToSession": {t: "boolean", d: "批准并授权本会话后续写操作免审批"},
+		"reason":         {t: "string", d: "拒绝/请求更改的原因"},
+	})
+	routeRequestContracts["/api/admin-ai/settings"] = obj(nil, map[string]prop{
+		"gatewayKey":                    {t: "string", d: "管理 AI 网关密钥"},
+		"admin_ai_enabled":              {t: "string", d: "管理 AI 总开关（true/false）"},
+		"admin_ai_default_model":        {t: "string", d: "默认推理模型"},
+		"admin_ai_default_mode":         {t: "string", e: []string{"agent", "ask"}, d: "新会话默认模式（agent=代理可调用工具，ask=询问纯问答）"},
+		"admin_ai_write_enabled":        {t: "string", d: "写操作全局开关（true/false）"},
+		"admin_ai_tool_call_limit":      {t: "string", d: "单轮最大工具调用次数"},
+		"admin_ai_timeout_seconds":      {t: "string", d: "单轮执行超时秒数"},
+		"admin_ai_context_window":       {t: "string", d: "上下文窗口 token 上限"},
+		"admin_ai_audit_retention_days": {t: "string", d: "审计记录保留天数"},
+	})
+
+	// ---- 契约覆盖审计修复补登（2026-08-19）----
+	// 写路由必须登记请求契约，见 TestRouteContractCoverage。
+	routeRequestContracts["/api/server/snippets/history"] = obj(nil, map[string]prop{
+		"serverId": {t: "string", d: "目标主机 ID（可选）"},
+	})
+	routeRequestContracts["/api/scheduler/tasks/{id}/run"] = noBody
+	routeRequestContracts["/api/scheduler/workflows/{id}"] = obj([]string{"name", "nodes"}, map[string]prop{
+		"name":              {t: "string", req: true, d: "工作流名称"},
+		"nodes":             {t: "array", req: true, d: "工作流节点"},
+		"edges":             {t: "array", d: "节点连线"},
+		"schedule":          {t: "string", d: "cron 表达式"},
+		"enabled":           {t: "boolean", d: "是否启用"},
+		"concurrency_policy": {t: "string", d: "并发策略"},
+		"failure_policy":    {t: "string", d: "失败策略"},
+	})
+	routeRequestContracts["/api/server/accounts/refresh-locations"] = noBody
+	routeRequestContracts["/api/cron/tasks/{id}/run"] = noBody
+	routeRequestContracts["/api/admin-ai/approvals/{id}/resolve"] = obj([]string{"action"}, map[string]prop{
+		"action":         {t: "string", req: true, e: []string{"approve", "reject"}, d: "批准或拒绝写操作"},
+		"applyToSession": {t: "boolean", d: "批准并授权本会话后续写操作免审批"},
+		"reason":         {t: "string", d: "拒绝/请求更改的原因"},
+	})
+	routeRequestContracts["/api/notification/channels/{id}/test"] = obj(nil, map[string]prop{
+		"message": {t: "string", d: "测试消息内容（可选）"},
+	})
+	routeRequestContracts["/api/notification/rules/{id}/dry-run"] = obj(nil, map[string]prop{
+		"eventType": {t: "string", d: "模拟的事件类型"},
+		"context":   {t: "object", d: "模拟事件的上下文"},
+	})
+	routeRequestContracts["/api/notification/rules/{id}/enable"] = noBody
+	routeRequestContracts["/api/notification/rules/{id}/disable"] = noBody
+	routeRequestContracts["/api/notification/templates/preview"] = obj([]string{"template"}, map[string]prop{
+		"template":  {t: "string", req: true, d: "模板文本"},
+		"eventType": {t: "string", d: "事件类型"},
+		"context":   {t: "object", d: "渲染上下文"},
+	})
+	routeRequestContracts["/api/notification/config"] = obj(nil, map[string]prop{
+		"globalEnabled": {t: "boolean", d: "全局开关"},
+	})
+	routeRequestContracts["/api/notification/trigger"] = obj([]string{"eventType"}, map[string]prop{
+		"eventType": {t: "string", req: true, d: "事件类型"},
+		"serverId":  {t: "string", d: "目标主机 ID"},
+		"context":   {t: "object", d: "事件上下文"},
+	})
+	routeRequestContracts["/api/github/tokens/{id}/test"] = obj(nil, map[string]prop{
+		"repositoryId": {t: "integer", d: "可选的仓库 ID（同时探测该仓库权限）"},
+	})
+	routeRequestContracts["/api/github/tokens/{id}/rotate"] = noBody
+	routeRequestContracts["/api/github/repositories/parse-url"] = obj([]string{"url"}, map[string]prop{
+		"url": {t: "string", req: true, d: "仓库 URL，如 https://github.com/owner/repo"},
+	})
+	routeRequestContracts["/api/github/repositories/reorder"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true, d: "按新顺序排列的仓库 ID 数组"},
+	})
+	routeRequestContracts["/api/github/repositories/{id}"] = obj(nil, map[string]prop{
+		"name":        {t: "string", d: "仓库显示名称"},
+		"description": {t: "string", d: "仓库描述"},
+		"tags":        {t: "array", d: "标签"},
+		"clean":       {t: "boolean", d: "删除时是否同时清空历史（DELETE）"},
+	})
+	routeRequestContracts["/api/github/repositories/{id}/actions/runs/{runId}/rerun"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/runs/{runId}/rerun-failed-jobs"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/runs/{runId}/cancel"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/refresh"] = noBody
+	routeRequestContracts["/api/github/repositories/{id}/actions/workflows/{workflowId}/dispatch"] = obj([]string{"ref"}, map[string]prop{
+		"ref":    {t: "string", req: true, d: "目标分支或 tag"},
+		"inputs": {t: "object", d: "workflow_dispatch 输入参数"},
+	})
+	routeRequestContracts["/api/github/settings"] = obj(nil, map[string]prop{
+		"intervalMinutes": {t: "number", d: "采集间隔（分钟）"},
+		"enabled":         {t: "boolean", d: "采集器开关"},
+	})
+	routeRequestContracts["/api/github/collector/run"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/containers/{containerId}/{action}"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/images/prune"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/networks/prune"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/volumes/prune"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/compose/{project}/{action}"] = obj(nil, map[string]prop{
+		"configFiles":  {t: "array", d: "compose 配置文件路径列表"},
+		"configFile":   {t: "string", d: "单配置文件路径"},
+		"wait":         {t: "boolean", d: "等待完成（默认 true）"},
+	})
+	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/sync"] = noBody
+	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/{project}/{action}"] = obj(nil, map[string]prop{
+		"configFiles": {t: "array", d: "compose 配置文件路径列表"},
+		"configFile":  {t: "string", d: "单配置文件路径"},
+	})
+
+	// ---- 全模块契约补齐（2026-08-19 第二批）----
+	routeRequestContracts["/api/cloudflare/accounts/{accountId}/tunnels/{tunnelId}"] = obj(nil, map[string]prop{
+		"name": {t: "string", d: "隧道新名称（PATCH 改名）"},
+	})
+	routeRequestContracts["/api/drawio/documents/{id}/versions"] = obj(nil, map[string]prop{
+		"note": {t: "string", d: "版本说明"},
+	})
+	routeRequestContracts["/api/drawio/documents/{id}/thumbnail"] = obj(nil, map[string]prop{
+		"data": {t: "string", d: "缩略图 base64 数据"},
+	})
+	routeRequestContracts["/api/aliyun/accounts/import"] = obj([]string{"accounts"}, map[string]prop{
+		"accounts": {t: "array", req: true, d: "账号数组（name/token 等）"},
+	})
+	routeRequestContracts["/api/tencent/accounts/import"] = routeRequestContracts["/api/aliyun/accounts/import"]
+	routeRequestContracts["/api/flyio/apps/{appName}/machines"] = obj(nil, map[string]prop{
+		"accountId": {t: "string", d: "Fly 账号 ID（多账号时必填）"},
+		"region":    {t: "string", d: "区域"},
+		"image":     {t: "string", d: "镜像"},
+	})
+	routeRequestContracts["/api/flyio/apps/{appName}/machines/{machineId}"] = routeRequestContracts["/api/flyio/apps/{appName}/machines"]
+	routeRequestContracts["/api/flyio/apps/{appName}/machines/{machineId}/memory"] = obj([]string{"memory_mb"}, map[string]prop{
+		"memory_mb": {t: "integer", req: true, d: "内存 MB"},
+	})
+	routeRequestContracts["/api/flyio/apps/{appName}/machines/{machineId}/restart"] = noBody
+	routeRequestContracts["/api/flyio/apps/{appName}/machines/{machineId}/start"] = noBody
+	routeRequestContracts["/api/flyio/apps/{appName}/machines/{machineId}/stop"] = noBody
+	routeRequestContracts["/api/flyio/apps/{appName}/machines/{machineId}/lease"] = obj(nil, map[string]prop{
+		"ttl": {t: "integer", d: "租约时长秒"},
+		"id":  {t: "string", d: "租约 ID（释放时）"},
+	})
+	routeRequestContracts["/api/flyio/apps/{appName}/machines/{machineId}/metadata"] = obj(nil, map[string]prop{
+		"key":   {t: "string", d: "元数据键"},
+		"value": {t: "string", d: "元数据值"},
+	})
+	routeRequestContracts["/api/oracle/accounts"] = obj([]string{"name", "tenancy"}, map[string]prop{
+		"name":    {t: "string", req: true, d: "账号名称"},
+		"tenancy": {t: "string", req: true, d: "租户 OCID"},
+	})
+	routeRequestContracts["/api/oracle/import/accounts"] = routeRequestContracts["/api/aliyun/accounts/import"]
+	routeRequestContracts["/api/oracle/accounts/{id}"] = obj(nil, map[string]prop{
+		"name": {t: "string", d: "账号名称"},
+	})
+	routeRequestContracts["/api/oracle/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/oracle/accounts/{id}/instances"] = obj(nil, map[string]prop{
+		"compartmentId": {t: "string", d: "区间 OCID"},
+	})
+	routeRequestContracts["/api/oracle/accounts/{id}/instances/{iid}"] = obj(nil, map[string]prop{
+		"displayName": {t: "string", d: "实例名"},
+	})
+	routeRequestContracts["/api/oracle/accounts/{id}/instances/{iid}/actions"] = obj([]string{"action"}, map[string]prop{
+		"action": {t: "string", req: true, d: "start/stop/reboot 等"},
+	})
+	routeRequestContracts["/api/m365/accounts"] = obj([]string{"name"}, map[string]prop{
+		"name":        {t: "string", req: true, d: "账号名称"},
+		"tenantId":    {t: "string", d: "租户 ID"},
+		"clientId":    {t: "string", d: "应用客户端 ID"},
+		"clientSecret": {t: "string", d: "应用密钥"},
+	})
+	routeRequestContracts["/api/m365/import/accounts"] = routeRequestContracts["/api/aliyun/accounts/import"]
+	routeRequestContracts["/api/m365/accounts/{id}"] = obj(nil, map[string]prop{
+		"name": {t: "string", d: "账号名称"},
+	})
+	routeRequestContracts["/api/m365/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/m365/accounts/{id}/users"] = obj([]string{"userPrincipalName"}, map[string]prop{
+		"userPrincipalName": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/m365/accounts/{id}/users/{uid}"] = obj(nil, map[string]prop{
+		"displayName": {t: "string", d: "显示名"},
+	})
+	routeRequestContracts["/api/m365/accounts/{id}/users/{uid}/assign-license"] = obj([]string{"skuId"}, map[string]prop{
+		"skuId": {t: "string", req: true, d: "SKU ID"},
+	})
+	routeRequestContracts["/api/m365/accounts/{id}/groups"] = obj([]string{"displayName"}, map[string]prop{
+		"displayName": {t: "string", req: true, d: "组显示名"},
+	})
+	routeRequestContracts["/api/m365/accounts/{id}/groups/{gid}/members"] = obj([]string{"userId"}, map[string]prop{
+		"userId": {t: "string", req: true, d: "用户 ID"},
+	})
+	routeRequestContracts["/api/m365/accounts/{id}/groups/{gid}/assign-license"] = routeRequestContracts["/api/m365/accounts/{id}/users/{uid}/assign-license"]
+	routeRequestContracts["/api/m365/public-pages"] = obj(nil, map[string]prop{
+		"title":   {t: "string"},
+		"slug":    {t: "string"},
+		"accountId": {t: "string"},
+	})
+	routeRequestContracts["/api/m365/public-pages/{id}"] = obj(nil, map[string]prop{
+		"title": {t: "string"},
+		"slug":  {t: "string"},
+	})
+	routeRequestContracts["/api/m365/invite-codes"] = obj(nil, map[string]prop{
+		"code":   {t: "string", d: "邀请码"},
+		"limit":  {t: "integer", d: "可用次数"},
+	})
+	routeRequestContracts["/api/m365/invite-codes/{id}"] = routeRequestContracts["/api/m365/invite-codes"]
+	routeRequestContracts["/api/openai/endpoints/reorder"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true, d: "按新顺序排列的端点 ID"},
+	})
+	routeRequestContracts["/api/openai/endpoints/{id}/models/toggle-batch"] = obj([]string{"models"}, map[string]prop{
+		"models": {t: "array", req: true, d: "模型名数组"},
+		"enable": {t: "boolean", d: "true 启用 / false 停用"},
+	})
+	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state/probe"] = noBody
+	routeRequestContracts["/api/openai/proxies/import-list"] = obj([]string{"nodes"}, map[string]prop{
+		"nodes": {t: "array", req: true, d: "代理节点列表"},
+	})
+	routeRequestContracts["/api/onepanel/config/{id}"] = obj(nil, map[string]prop{
+		"name":  {t: "string", d: "面板配置名"},
+		"url":   {t: "string", d: "面板地址"},
+		"token": {t: "string", d: "面板 Token"},
+	})
+	routeRequestContracts["/api/onepanel/websites"] = obj([]string{"serverId", "name"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"name":     {t: "string", req: true, d: "站点名"},
+	})
+	routeRequestContracts["/api/onepanel/websites/{id}/operate"] = obj([]string{"action"}, map[string]prop{
+		"action": {t: "string", req: true, d: "start/stop/restart"},
+	})
+	routeRequestContracts["/api/onepanel/websites/{id}/proxy"] = obj(nil, map[string]prop{
+		"serverId": {t: "string", d: "主机 ID"},
+		"config":   {t: "object", d: "反代配置"},
+	})
+	routeRequestContracts["/api/onepanel/websites/{id}/https"] = obj(nil, map[string]prop{
+		"serverId": {t: "string"},
+		"config":   {t: "object"},
+	})
+	routeRequestContracts["/api/onepanel/websites/{id}/nginx"] = obj(nil, map[string]prop{
+		"serverId": {t: "string"},
+		"config":   {t: "object"},
+	})
+	routeRequestContracts["/api/onepanel/apps/install"] = obj([]string{"serverId", "appName"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"appName":  {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/apps/installed/{app}/op"] = obj([]string{"action"}, map[string]prop{
+		"action": {t: "string", req: true, d: "start/stop/restart/upgrade"},
+	})
+	routeRequestContracts["/api/onepanel/containers/operate"] = obj([]string{"serverId", "action"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"action":   {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/ssl/obtain"] = obj([]string{"serverId", "domain"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"domain":   {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/acme"] = obj(nil, map[string]prop{
+		"serverId": {t: "string"},
+		"config":   {t: "object"},
+	})
+	routeRequestContracts["/api/onepanel/openresty/reload"] = obj([]string{"serverId"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/backup"] = obj([]string{"serverId"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/databases"] = obj([]string{"serverId", "name", "databaseType"}, map[string]prop{
+		"serverId":     {t: "string", req: true},
+		"name":         {t: "string", req: true},
+		"databaseType": {t: "string", req: true, d: "mysql/postgresql 等"},
+	})
+	routeRequestContracts["/api/onepanel/databases/{id}/password"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/runtimes"] = obj([]string{"serverId", "name"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"name":     {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/cronjobs"] = obj([]string{"serverId", "name"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+		"name":     {t: "string", req: true},
+	})
+	routeRequestContracts["/api/onepanel/upgrade"] = obj([]string{"serverId"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/uptime/monitors"] = obj([]string{"name"}, map[string]prop{
+		"name":      {t: "string", req: true},
+		"url":       {t: "string", d: "监测 URL"},
+		"type":      {t: "string", d: "http/tcp/ping"},
+		"interval":  {t: "integer", d: "间隔秒"},
+	})
+	routeRequestContracts["/api/uptime/monitors/{id}"] = routeRequestContracts["/api/uptime/monitors"]
+	routeRequestContracts["/api/uptime/monitors/batch-delete"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true},
+	})
+	routeRequestContracts["/api/uptime/monitors/{id}/test"] = noBody
+	routeRequestContracts["/api/uptime/monitors/{id}/check-now"] = noBody
+	routeRequestContracts["/api/uptime/monitors/{id}/toggle"] = noBody
+	routeRequestContracts["/api/uptime/batch"] = obj(nil, map[string]prop{
+		"action": {t: "string", d: "batch 动作"},
+	})
+	routeRequestContracts["/api/uptime/import"] = obj(nil, map[string]prop{
+		"data": {t: "object"},
+	})
+	routeRequestContracts["/api/uptime/import/preview"] = routeRequestContracts["/api/uptime/import"]
+	routeRequestContracts["/api/uptime/maintenance"] = obj(nil, map[string]prop{
+		"title":    {t: "string"},
+		"schedule": {t: "string", d: "维护时间"},
+	})
+	routeRequestContracts["/api/subscription/profiles"] = obj([]string{"name"}, map[string]prop{
+		"name":     {t: "string", req: true},
+		"callback": {t: "string", d: "回调地址"},
+	})
+	routeRequestContracts["/api/subscription/profiles/{id}"] = routeRequestContracts["/api/subscription/profiles"]
+	routeRequestContracts["/api/subscription/profiles/{id}/refresh-upstream"] = noBody
+	routeRequestContracts["/api/subscription/subscriptions"] = obj([]string{"name"}, map[string]prop{
+		"name":     {t: "string", req: true},
+		"url":      {t: "string", d: "订阅源地址"},
+		"profileId": {t: "string", d: "绑定模板"},
+	})
+	routeRequestContracts["/api/subscription/subscriptions/{id}"] = routeRequestContracts["/api/subscription/subscriptions"]
+	routeRequestContracts["/api/subscription/subscriptions/{id}/reset-token"] = noBody
+	routeRequestContracts["/api/subscription/subscriptions/{id}/rotate-address"] = noBody
+	routeRequestContracts["/api/subscription/subscriptions/{id}/refresh-upstream"] = noBody
+	routeRequestContracts["/api/subscription/subscriptions/{id}/usage"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/subscription/nodes/reorder"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true},
+	})
+	routeRequestContracts["/api/subscription/nodes/{id}"] = obj(nil, map[string]prop{
+		"name":     {t: "string"},
+		"enabled":  {t: "boolean"},
+		"sortOrder": {t: "integer"},
+	})
+	routeRequestContracts["/api/subscription/import/preview"] = obj([]string{"file"}, map[string]prop{
+		"file": {t: "string", req: true, d: "导入内容"},
+	})
+	routeRequestContracts["/api/subscription/import/commit"] = obj([]string{"items"}, map[string]prop{
+		"items": {t: "array", req: true},
+	})
+	routeRequestContracts["/api/subscription/templates"] = obj([]string{"name"}, map[string]prop{
+		"name":    {t: "string", req: true},
+		"content": {t: "string", d: "模板内容"},
+	})
+	routeRequestContracts["/api/subscription/templates/{id}"] = routeRequestContracts["/api/subscription/templates"]
+	routeRequestContracts["/api/subscription/templates/{id}/default"] = noBody
+	routeRequestContracts["/api/subscription/templates/restore-builtins"] = noBody
+	routeRequestContracts["/api/subscription/settings"] = obj(nil, map[string]prop{
+		"enabled": {t: "boolean"},
+	})
+	routeRequestContracts["/api/filebox/rooms"] = obj([]string{"name"}, map[string]prop{
+		"name":  {t: "string", req: true},
+		"expiry": {t: "integer", d: "过期秒"},
+	})
+	routeRequestContracts["/api/filebox/void/rooms"] = routeRequestContracts["/api/filebox/rooms"]
+	routeRequestContracts["/api/filebox/void/rooms/{id}/participants"] = obj([]string{"userId"}, map[string]prop{
+		"userId": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/filebox/void/rooms/{id}/signals"] = obj(nil, map[string]prop{
+		"type": {t: "string", d: "信号类型"},
+		"data": {t: "object"},
+	})
+	routeRequestContracts["/api/filebox/jobs/cleanup"] = noBody
+	routeRequestContracts["/api/totp/accounts/{id}/increment"] = obj(nil, map[string]prop{
+		"by": {t: "integer", d: "增量步数（默认 1）"},
+	})
+	routeRequestContracts["/api/totp/verify"] = obj([]string{"code"}, map[string]prop{
+		"code":     {t: "string", req: true},
+		"accountId": {t: "string"},
+	})
+	routeRequestContracts["/api/totp/export"] = noBody
+	routeRequestContracts["/api/totp/import"] = obj([]string{"data"}, map[string]prop{
+		"data": {t: "string", req: true, d: "导入内容"},
+	})
+	routeRequestContracts["/api/totp/generate-secret"] = noBody
+	routeRequestContracts["/api/totp/order"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true},
+	})
+	routeRequestContracts["/api/auth/webauthn/register/begin"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/auth/webauthn/register/finish"] = obj([]string{"response"}, map[string]prop{
+		"response": {t: "object", req: true},
+	})
+	routeRequestContracts["/api/auth/webauthn/login/begin"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/auth/webauthn/login/finish"] = routeRequestContracts["/api/auth/webauthn/register/finish"]
+	routeRequestContracts["/api/auth/plugin-token"] = obj(nil, map[string]prop{
+		"name": {t: "string", d: "插件名"},
+	})
+	routeRequestContracts["/api/auth/sessions/revoke-all"] = noBody
+	routeRequestContracts["/api/auth/github/config"] = obj(nil, map[string]prop{
+		"clientId":     {t: "string"},
+		"clientSecret": {t: "string"},
+		"enabled":      {t: "boolean"},
+	})
 }

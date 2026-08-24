@@ -250,10 +250,17 @@ func (c *AgentConnection) SendEvent(event string, data interface{}) error {
 
 	frame := fmt.Sprintf("42%s", jsonData)
 
-	// 如果 Socket 是 *EngineIOSession，将消息加入其发送队列，实现并发安全
+	// 如果 Socket 是 *EngineIOSession，将消息加入其发送队列，实现并发安全。
+	// 队列有界（与 enqueuePendingMessage 相同语义）：满了丢弃最旧消息，
+	// 防止积压无界增长。
 	if session, ok := socket.(*EngineIOSession); ok {
 		session.mu.Lock()
-		session.PendingMessages = append(session.PendingMessages, frame)
+		if len(session.PendingMessages) >= maxPendingMessagesPerSession {
+			copy(session.PendingMessages, session.PendingMessages[1:])
+			session.PendingMessages[len(session.PendingMessages)-1] = frame
+		} else {
+			session.PendingMessages = append(session.PendingMessages, frame)
+		}
 		session.mu.Unlock()
 		return nil
 	}

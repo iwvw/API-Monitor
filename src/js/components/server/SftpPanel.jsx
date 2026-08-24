@@ -191,7 +191,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     if (hasUnsavedEdit) {
       const ok = await dialog.confirm({
         title: '放弃未保存修改',
-        message: `文件 ${editFile?.name || ''} 还有未保存内容，确定关闭编辑器吗？`,
+        message: `文件 ${editFile?.name || ''} 有未保存内容，确定关闭？`,
         confirmText: '放弃修改',
         cancelText: '继续编辑',
         variant: 'danger',
@@ -218,7 +218,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     }
     event.target.value = '';
     setUploading(false);
-    toast.success(`上传完成：成功 ${ok} 个，失败 ${failed} 个`);
+    toast.success(`上传完成：成功 ${ok}，失败 ${failed}`);
     loadDirectory(currentPath);
   };
 
@@ -293,8 +293,8 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
         <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-3 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
-              <FolderOpen className="h-4 w-4 text-kumo-brand" />
-              <span className="truncate">FileSystem</span>
+              <FolderOpen className="h-4 w-4 text-brand" />
+              <span className="truncate">文件系统</span>
             </div>
             <div className="truncate text-[10px] text-kumo-subtle">{serverName || serverId || '-'}</div>
           </div>
@@ -371,7 +371,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
                           <Table.Row className="hover:bg-kumo-recessed/15">
                             <Table.Cell className="min-w-0">
                               <Button type="button" size="xs" variant="ghost" className="h-auto min-w-0 justify-start gap-2 px-0 py-0 text-left" onClick={() => openFile(file)} title={file.path}>
-                                {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0 text-kumo-brand" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
+                                {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0 text-brand" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
                                 <span className="truncate font-medium text-kumo-strong">{file.name}</span>
                               </Button>
                             </Table.Cell>

@@ -5,6 +5,21 @@
 /* 手动切换主题时 dark: 变体跟随 html.dark class，而非系统 prefers-color-scheme */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* 容器查询断点（cq-*）：与视口断点同值（40/48/64/80/96/120rem）。
+   主画布/侧栏/独立页根均为 @container，布局按内容实际可用宽度判定，
+   侧栏让位后主视图自动降级为窄屏布局。注意：kumo 弹层（Dialog/Menu/
+   Popover 等）经 portal 渲染到 body，位于所有页面 @container 之外，
+   凡在弹层内容里使用 cq-*，必须在该弹层根上声明 @container（如
+   <Dialog className="@container ...">），否则断点永不匹配。 */
+@custom-variant cq-xs (@container (width >= 20rem));
+@custom-variant cq-tight (@container (width >= 28rem));
+@custom-variant cq-sm (@container (width >= 40rem));
+@custom-variant cq-md (@container (width >= 48rem));
+@custom-variant cq-lg (@container (width >= 64rem));
+@custom-variant cq-xl (@container (width >= 80rem));
+@custom-variant cq-2xl (@container (width >= 96rem));
+@custom-variant cq-3xl (@container (width >= 120rem));
+
 @font-face {
   font-family: 'Chakra Petch API Monitor';
   src: url('/fonts/chakra-petch-api-monitor-600.woff2') format('woff2');
@@ -16,6 +31,17 @@
 
 @theme inline {
   --font-mono: var(--font-sans);
+  /* 站点品牌色（品牌标识=橙色系：登录页品牌区 #dc7d40、AI 面板光斑 #fb923c；
+     kumo-brand 蓝紫仅为库默认强调色，非品牌色） */
+  --color-brand: #dc7d40;
+  --color-brand-hover: #c96a33;
+  /* Kumo 主题把 --text-xs/sm/base/lg 定义为固定 px（12/13/14/16px），
+     不受 html 根字号缩放影响，导致「界面字号」只撑开 rem 布局间距、文字纹丝不动。
+     此处改为等值 rem，让文字与间距一起随根字号缩放。默认缩放(16px)下数值不变。 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
 }
 
 /* ==================== Base Resets ==================== */
@@ -26,6 +52,16 @@ html {
   background: var(--app-main-bg);
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* 全局字号缩放时保持品牌 logo 固定尺寸（侧栏 28px / 顶栏 20px） */
+:root[data-font-size] .sidebar-brand-logo {
+  width: 28px;
+  height: 28px;
+}
+:root[data-font-size] .topbar-brand-logo {
+  width: 20px;
+  height: 20px;
 }
 
 :root {
@@ -71,6 +107,58 @@ code,
 kbd,
 samp {
   font-family: var(--font-sans);
+}
+
+/* ==================== 字体下行笔画防裁切 ====================
+   自托管字体（Lora Variable / Noto Serif SC / LXGW WenKai Screen）
+   的下探墨迹（拉丁 g/j/p/q/y 及中文标点）远深于系统 UI 字体；而
+   truncate / line-clamp / overflow-hidden / 固定高度容器配合
+   leading-none / leading-tight 时行盒过矮，会把底部笔画裁掉
+   （衬线与楷体主题下全站可见）。此处为紧密行高统一设立 1.35
+   安全下限（≥ 各字体实际墨迹下探），一次性消除裁切，同时保持
+   紧凑观感。unlayered 规则优先于 Tailwind 工具类（@layer
+   utilities），故对所有用法全局生效。 */
+.leading-none,
+.leading-tight,
+.leading-\[1\.2\] {
+  line-height: 1.35;
+}
+
+/* 衬线主题（应用/设置里的「衬线字体」）：西文 Lora Variable + 中文 Noto Serif SC，
+   正文保留默认字重，标题 500 + 负字距，与 api.dsuk.top 的 serif 主题一致 */
+.app-serif {
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'tnum' 1;
+}
+
+.app-serif :is(h1, h2, h3, h4, h5, h6) {
+  letter-spacing: -0.012em;
+  font-weight: 500;
+}
+
+.app-serif h1,
+.app-serif .text-3xl,
+.app-serif .text-4xl,
+.app-serif .text-5xl {
+  letter-spacing: -0.02em;
+}
+
+/* 组合字体主题（设置里「Sora 圆润现代」）：标题 Sora、正文 Manrope、
+   中文 HarmonyOS Sans SC、代码 JetBrains Mono。font-stack 由 store.js 注入 */
+.app-sora :is(h1, h2, h3, h4, h5, h6) {
+  font-family: 'Sora', 'HarmonyOS Sans SC', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+.app-sora :is(pre, code, kbd, samp) {
+  font-family: 'JetBrains Mono', 'HarmonyOS Sans SC', ui-monospace, monospace;
+}
+
+/* 弹窗底部操作区（flex-col-reverse 窄屏纵向堆叠）：Kumo Button 基础样式缺
+   justify-center，被 w-full 拉伸后内容靠左、右侧留白；定向该容器内的按钮
+   在窄屏堆叠时内容居中，宽屏（cq-sm 切回 flex-row）恢复默认左对齐。 */
+.flex-col-reverse > button {
+  justify-content: center;
 }
 
 :root[data-mode='dark'] body {
@@ -1283,49 +1371,34 @@ samp {
   background-color: color-mix(in oklab, var(--color-kumo-recessed) 10%, transparent);
 }
 
-.scheduler-workflow-canvas {
-  min-height: 14rem;
-  background:
-    linear-gradient(
-      to right,
-      color-mix(in oklab, var(--color-kumo-line) 46%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(in oklab, var(--color-kumo-line) 46%, transparent) 1px,
-      transparent 1px
-    ),
-    color-mix(in oklab, var(--color-kumo-recessed) 18%, transparent);
-  background-size:
-    32px 32px,
-    32px 32px,
-    auto;
-}
-
-.scheduler-workflow-canvas-compact {
-  min-height: 14rem;
+.scheduler-workflow-canvas-editor-card {
+  min-height: 19rem;
 }
 
 @media (min-width: 1024px) {
   .scheduler-workflow-card {
     height: 100%;
   }
-
-  .scheduler-workflow-card > div {
-    height: 100%;
-    align-items: stretch;
-  }
-
-  .scheduler-workflow-card .scheduler-workflow-canvas-compact {
-    height: 100%;
-    min-height: 100%;
-  }
 }
 
-.scheduler-workflow-canvas-editor {
-  height: clamp(24rem, 48dvh, 34rem);
-  min-height: 24rem;
+/* Kumo Dialog 默认 size 变体带 sm:w-96 等媒体查询宽度，会覆盖调用方传入的 Tailwind 宽度类；
+   此处用未分层组件类（优先级高于 utilities layer）统一接管弹框宽度，
+   避免 <Dialog> 内容容器的 cq-* 断点因为自身宽度被压成 384px 而永不触发。
+   宽度上限取 calc(100vw - 2rem)：与 Dialog 内置 max-w-[calc(100vw-2rem)] 一致，
+   窄屏时左右各留 1rem 边距，不出现宽度被 max-width 二次钳制的假边距。 */
+.scheduler-task-dialog {
+  width: min(56rem, calc(100vw - 2rem));
+}
+
+.scheduler-workflow-dialog {
+  width: min(76rem, calc(100vw - 2rem));
+}
+
+/* 调度弹窗高度上界与横向边距对称（垂直同样各 1rem），覆盖全局 [role='dialog']
+   的 100dvh-1rem（垂直仅 0.5rem，四边距不均，且视口不够高时内容易被裁断）。 */
+.scheduler-task-dialog[role='dialog'],
+.scheduler-workflow-dialog[role='dialog'] {
+  max-height: calc(100dvh - 2rem);
 }
 
 [role='dialog'] {
@@ -2048,6 +2121,23 @@ table td > * {
   min-width: 0;
 }
 
+/* Kumo 2.11 Table.Row 默认变体新增偶数行斑马纹（even:bg-kumo-tint），并移除了
+   2.10 的行分隔线（td border-b）。项目沿用 2.10 纯底色 + 分隔线风格：偶数行恢复
+   透明行底（selected 变体除外），td 补回底部边框（末行不描边）。
+   unlayered 规则优先于 Tailwind 工具类，故对全站 Kumo 表格生效。 */
+table.isolate tr:not(.bg-kumo-tint):nth-child(even) {
+  background-color: transparent;
+  --kumo-table-row-bg: var(--color-kumo-base);
+}
+
+table.isolate td {
+  border-bottom: 1px solid var(--color-kumo-fill);
+}
+
+table.isolate tr:last-child td {
+  border-bottom: 0;
+}
+
 /* Semantic table columns keep utility cells stable while content columns grow. */
 .app-semantic-table th,
 .app-semantic-table td {
@@ -2194,4 +2284,406 @@ input[type='number']::-webkit-inner-spin-button {
 input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+/* Admin AI 全屏展开淡入 */
+@keyframes askai-expand-in {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
+}
+.askai-expand-in {
+  animation: askai-expand-in 0.18s ease-out;
+}
+
+/* 网关排行行交错入场（按模型/按站点切换时逐行上浮淡入，delay 由行内样式偏移） */
+@keyframes rank-row-fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rank-row-enter {
+  animation: rank-row-fade-up 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ==================== Ask AI 空状态云朵（Cloudflare 官方 Ask AI 侧栏 CSS 移植，纯 CSS 多层渐变） ==================== */
+.askai-cloud-container {
+  --blur-multiplier: 1;
+  --node-1-x: 0;
+  --node-1-y: 0;
+  --node-1-offset-x: 8%;
+  --node-1-offset-y: 0%;
+  --node-1-s: 0.57;
+
+  --node-2-x: 0;
+  --node-2-y: 0;
+  --node-2-offset-x: -22%;
+  --node-2-offset-y: 8%;
+  --node-2-s: 0.35;
+
+
+  --node-1-blur-x: var(--node-1-x);
+  --node-1-blur-y: var(--node-1-y);
+  --node-1-blur-s: calc(var(--node-1-s) * 1.15);
+  --node-1-blur-offset-x: 8%;
+  --node-1-blur-offset-y: 0%;
+
+  --global-to-node-1-blur: calc(1/ var(--node-1-blur-s));
+  --node-1-blur-clip-s: calc(var(--node-2-s) / var(--node-1-blur-s)) * 50;
+
+  --n2-offs-x-local: var(--node-2-offset-x) * var(--global-to-node-1-blur);
+  --n2-offs-y-local: var(--node-2-offset-y) * var(--global-to-node-1-blur);
+  --n1-blur-offs-x-local: var(--node-1-blur-offset-x) * var(--global-to-node-1-blur);
+  --n1-blur-offs-y-local: var(--node-1-blur-offset-y) * var(--global-to-node-1-blur);
+
+  --node-1-blur-clip-x: calc((var(--n2-offs-x-local) + (var(--node-2-x) * 1px) - var(--n1-blur-offs-x-local) - (var(--node-1-blur-x) * 1px)));
+  --node-1-blur-clip-y: calc((var(--n2-offs-y-local) + (var(--node-2-y) * 1px) - var(--n1-blur-offs-y-local) - (var(--node-1-blur-y) * 1px)));
+
+  --node-3-x: 0;
+  --node-3-y: 0;
+  --node-3-offset-x: 30%;
+  --node-3-offset-y: 6%;
+  --node-3-s: 0.41;
+
+  --n3-offs-x-local: var(--node-3-offset-x) * var(--global-to-node-1-blur);
+  --n3-offs-y-local: var(--node-3-offset-y) * var(--global-to-node-1-blur);
+
+  --node-1-shadow-clip-x: calc((var(--n3-offs-x-local) + (var(--node-3-x) * 1px) - var(--n1-blur-offs-x-local) - (var(--node-1-blur-x) * 1px)));
+  --node-1-shadow-clip-y: calc((var(--n3-offs-y-local) + (var(--node-3-y) * 1px) - var(--n1-blur-offs-y-local) - (var(--node-1-blur-y) * 1px)));
+  --node-1-shadow-clip-s: calc(var(--node-3-s) / var(--node-1-blur-s)) * 50;
+
+  --node-4-x: 0;
+  --node-4-y: 0;
+  --node-4-offset-x: -27.5%;
+  --node-4-offset-y: -2.5%;
+  --node-4-s: 0.32;
+
+  --node-2-blur-s: calc(var(--node-2-s) * 1.15);
+  --global-to-node-2-blur: calc(1/ var(--node-2-blur-s));
+
+  --n4-offs-x-local: var(--node-4-offset-x) * var(--global-to-node-2-blur);
+  --n4-offs-y-local: var(--node-4-offset-y) * var(--global-to-node-2-blur);
+  --n2-blur-offs-x-local: var(--node-2-offset-x) * var(--global-to-node-2-blur);
+  --n2-blur-offs-y-local: var(--node-2-offset-y) * var(--global-to-node-2-blur);
+
+  --node-2-blur-clip-x: calc((var(--n4-offs-x-local) + (var(--node-4-x) * 1px) - var(--n2-blur-offs-x-local) - (var(--node-2-x) * 1px)));
+  --node-2-blur-clip-y: calc((var(--n4-offs-y-local) + (var(--node-4-y) * 1px) - var(--n2-blur-offs-y-local) - (var(--node-2-y) * 1px)));
+  --node-2-blur-clip-s: calc(var(--node-4-s) / var(--node-2-blur-s)) * 50;
+
+  --node-5-x: 0;
+  --node-5-y: 0;
+  --node-5-offset-x: -41%;
+  --node-5-offset-y: 10%;
+  --node-5-s: 0.24;
+}
+
+.askai-cloud-node {
+  position: absolute;
+  aspect-ratio: 1;
+  border-radius: 100%;
+}
+
+.askai-cloud-node-5 {
+  height: calc(var(--node-5-s) * 100%);
+  top: calc(50% + var(--node-5-offset-y));
+  left: calc(50% + var(--node-5-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), linear-gradient(0deg, #FFB371 0%, #FFB371 100%), #FFB371;
+  background-blend-mode: soft-light, overlay, normal, normal, normal;
+}
+
+.askai-cloud-node-4 {
+  height: calc(var(--node-4-s) * 100%);
+  top: calc(50% + var(--node-4-offset-y));
+  left: calc(50% + var(--node-4-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(163deg, #FFEDDD 7.61%, #FF9335 93.15%);
+  background-blend-mode: overlay, normal;
+}
+
+.askai-cloud-node-2-blur {
+  height: calc(var(--node-2-blur-s) * 100%);
+  top: calc(50% + var(--node-2-offset-y));
+  left: calc(50% + var(--node-2-offset-x));
+  filter: blur(calc(2.25px * var(--blur-multiplier)));
+  translate: -50% -50%;
+  background-blend-mode: soft-light, overlay, normal, normal;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), #FFB371;
+  clip-path: circle(calc(var(--node-2-blur-clip-s) * 1%) at calc(50% + var(--node-2-blur-clip-x)) calc(50% + var(--node-2-blur-clip-y)));
+}
+
+.askai-cloud-node-3 {
+  height: calc(var(--node-3-s) * 100%);
+  top: calc(50% + var(--node-3-offset-y));
+  left: calc(50% + var(--node-3-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), #FFB371;
+  background-blend-mode: soft-light, overlay, normal, normal;
+}
+
+.askai-cloud-node-2 {
+  height: calc(var(--node-2-s) * 100%);
+  top: calc(50% + var(--node-2-offset-y));
+  left: calc(50% + var(--node-2-offset-x));
+  translate: -50% -50%;
+  background-blend-mode: soft-light, overlay, normal, normal;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.00) 82.35%, rgba(0, 0, 0, 0.14) 100%), radial-gradient(121% 121% at -26.09% 50%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%), #FFB371;
+}
+
+.askai-cloud-node-1-shadow {
+  /* Cloudflare 官方：向上渐变黑 + 大模糊 + 高透明度的桌面投影，clip-path 裁剪只落在球团下方 */
+  background: linear-gradient(to top, black, rgba(0, 0, 0, 0) 60%);
+  height: calc(var(--node-1-blur-s) * 100%);
+  top: calc(50% + var(--node-1-blur-offset-y));
+  left: calc(50% + var(--node-1-blur-offset-x));
+  translate: -50% -50%;
+  filter: blur(calc(7.25px * var(--blur-multiplier)));
+  opacity: 0.6;
+  clip-path: circle(calc(var(--node-1-shadow-clip-s) * 1%) at calc(50% + var(--node-1-shadow-clip-x)) calc(50% + var(--node-1-shadow-clip-y)));
+}
+
+.askai-cloud-node-1-blur {
+  background: radial-gradient(50% 50% at 50% 50%, rgba(255, 255, 255, 0.00) 46.63%, rgba(255, 255, 255, 0.29) 100%), radial-gradient(102.97% 102.97% at 14.06% 10.94%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%);
+  background-blend-mode: normal, overlay, normal;
+  height: calc(var(--node-1-blur-s) * 100%);
+  top: calc(50% + var(--node-1-blur-offset-y));
+  left: calc(50% + var(--node-1-blur-offset-x));
+  translate: -50% -50%;
+  filter: blur(calc(3.75px * var(--blur-multiplier)));
+  clip-path: circle(calc(var(--node-1-blur-clip-s) * 1%) at calc(50% + var(--node-1-blur-clip-x)) calc(50% + var(--node-1-blur-clip-y)));
+}
+
+.askai-cloud-node-1 {
+  height: calc(var(--node-1-s) * 100%);
+  top: calc(50% + var(--node-1-offset-y));
+  left: calc(50% + var(--node-1-offset-x));
+  translate: -50% -50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(255, 255, 255, 0.00) 46.63%, rgba(255, 255, 255, 0.29) 100%), radial-gradient(102.97% 102.97% at 14.06% 10.94%, #FFF 0%, rgba(0, 0, 0, 0.40) 100%), linear-gradient(154deg, #FFEDDD 13.48%, #FF9335 90.22%);
+  background-blend-mode: normal, overlay, normal;
+}
+
+/* ==================== Ask AI 对话状态（Cloudflare 风格） ==================== */
+
+/* 流式回复光标（CF 聊天末尾闪烁竖条） */
+@keyframes askai-caret-blink {
+  0%, 45% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.askai-caret {
+  display: inline-block;
+  width: 1px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: -0.12em;
+  background: var(--color-kumo-brand);
+  border-radius: 1px;
+  animation: askai-caret-blink 1s steps(1) infinite;
+}
+
+/* 打字三点（思考中 / 等待中） */
+@keyframes askai-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+.askai-typing-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: askai-dot-bounce 1.2s ease-in-out infinite;
+}
+.askai-typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.askai-typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* pending 占位骨架（等待首个流事件） */
+@keyframes askai-skeleton-shimmer {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+.askai-skeleton-line {
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--color-kumo-line), color-mix(in oklab, var(--color-kumo-brand) 18%, var(--color-kumo-line)), var(--color-kumo-line));
+  background-size: 200% 100%;
+  animation: askai-skeleton-shimmer 1.4s ease-in-out infinite alternate;
+}
+
+/* 工具运行中：左侧品牌色脉冲边条 */
+@keyframes askai-tool-live {
+  0% { opacity: 0.25; transform: scaleY(0.6); }
+  50% { opacity: 1; transform: scaleY(1); }
+  100% { opacity: 0.25; transform: scaleY(0.6); }
+}
+.askai-tool-live::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-kumo-brand);
+  transform-origin: center;
+  animation: askai-tool-live 1.1s ease-in-out infinite;
+}
+
+/* 思维链展开淡入 */
+@keyframes askai-reason-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.askai-reason-fade {
+  animation: askai-reason-fade 0.18s ease-out;
+}
+
+/* 审批弹窗（遮罩+卡片淡入放大） */
+@keyframes askai-modal-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.askai-modal-in {
+  animation: askai-modal-in 0.15s ease-out;
+}
+.askai-modal-in > div {
+  animation: askai-expand-in 0.15s ease-out;
+}
+
+/* AI 入口按钮：闲置静止，hover/focus 时呼吸（星形微缩放+转动+亮度闪亮，无模糊） */
+@keyframes askai-entry-twinkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    filter: brightness(0.92);
+  }
+  50% {
+    transform: scale(1.14) rotate(10deg);
+    filter: brightness(1.3);
+  }
+}
+.askai-entry-sparkle {
+  will-change: transform, filter;
+}
+.askai-entry-btn:hover .askai-entry-sparkle,
+.askai-entry-btn:focus-visible .askai-entry-sparkle {
+  animation: askai-entry-twinkle 3s ease-in-out infinite;
+}
+
+/* 折叠区丝滑展开/收起：grid-rows 0fr→1fr + 透明度（工具步骤/推理/长文本共用）
+   注意 fr 只设上限、下限默认 auto（=内容 min-content），收起态必须显式 minmax(0, 0fr)
+   否则轨道缩不到 0，内容被 clip 后残留一条空白条 */
+.askai-collapse {
+  display: grid;
+  grid-template-rows: minmax(0, 0fr);
+  grid-template-columns: minmax(0, 1fr); /* 列轨道下限归零：子内容 min-content（长 JSON/长路径）不再撑宽容器 */
+  opacity: 0;
+  transition:
+    grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.22s ease;
+}
+.askai-collapse[data-open='true'] {
+  grid-template-rows: minmax(0, 1fr);
+  opacity: 1;
+}
+/* 动画裁剪放在子元素层：容器 clip 会裁掉子元素外扩的 box-shadow（卡片 ring），
+   子元素自己的 shadow 不受自身 overflow 影响 */
+.askai-collapse > * {
+  min-height: 0;
+  overflow: clip;
+}
+/* 推理展开块需要内部滚动：显式恢复（.askai-collapse > * 的 clip 只裁动画溢出） */
+.askai-collapse > .askai-reason-fade {
+  overflow-y: auto;
+  overflow-x: clip;
+}
+
+/* 工具步骤依次浮现：每行错峰滑入（index 决定 delay） */
+@keyframes askai-tool-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.askai-tool-stagger {
+  animation: askai-tool-in 0.25s ease-out both;
+}
+
+/* 外部 run 指示器（输入框工具行内）：整体滑入 + 阶段文案切换淡入 */
+@keyframes askai-external-run-in {
+  from { opacity: 0; transform: translateX(6px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes askai-external-run-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.askai-external-run {
+  animation: askai-external-run-in 0.25s ease-out;
+}
+.askai-external-run .askai-external-run-phase {
+  display: inline-block;
+  animation: askai-external-run-fade 0.2s ease-out;
+}
+
+/* 实时环节图标呼吸（推理星形/工具 Terminal/代理 Terminal）：
+   挂类即代表「该环节正在执行」（流式 streaming 或外部 run live 轮询态），
+   完成/失败/取消后类移除自动静止；只做明暗呼吸，不做位移/缩放；
+   prefers-reduced-motion 下关闭 */
+@keyframes askai-live-pulse {
+  0%, 100% {
+    filter: brightness(1.9);
+    opacity: 1;
+  }
+  50% {
+    filter: brightness(0.35);
+    opacity: 0.5;
+  }
+}
+.askai-live-icon {
+  display: inline-block;
+  animation: askai-live-pulse 1.2s ease-in-out infinite;
+  will-change: filter, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .askai-live-icon {
+    animation: none;
+  }
+}
+
+/* Shiki JSON 高亮块（JsonHighlight）：滚动 + 字体 + 主题色跟随 */
+.shiki-json-block {
+  overflow: auto;
+  max-height: 100%;
+}
+.shiki-json-block pre {
+  margin: 0;
+  padding: 0.75rem;
+  background: transparent !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-color-kumo-default, inherit);
+}
+
+/* Kumo Select 弹层：限制宽度并截断超长选项文本，避免弹层过宽压到旁边内容 */
+[data-kumo-component="Select"] [role="listbox"] {
+  max-width: min(24rem, calc(100vw - 2rem));
+}
+[data-kumo-component="Select"] [role="option"] {
+  min-width: 0;
+}
+[data-kumo-component="Select"] [role="option"] > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Kumo Select trigger：收起态按容器宽度截断，不被长文本撑宽（button 基础样式为 w-max） */
+[data-kumo-component="Select"][data-kumo-part="trigger"] {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* 工作流画布运行中节点：边框呼吸高亮提示执行中 */
+.scheduler-node-running {
+  border-color: var(--color-kumo-warning);
+  animation: scheduler-node-running-pulse 1.4s ease-in-out infinite;
+}
+@keyframes scheduler-node-running-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12); }
 }

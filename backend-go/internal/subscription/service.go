@@ -134,6 +134,11 @@ type NodeLibrary struct {
 	RateLimitPerMinute    int         `json:"rate_limit_per_minute"`
 	NodeFilterTags        string      `json:"node_filter_tags,omitempty"`
 	SortOrder             int         `json:"sort_order"`
+	SelectionMode         string      `json:"selection_mode,omitempty"`
+	IncludeInternalNodes  bool        `json:"include_internal_nodes"`
+	// InternalNodeIDs 为 explicit 模式下授权的内部节点清单，与套餐共用
+	// subscription_plan_nodes 同表同语义（plan_id 存 profile id）。
+	InternalNodeIDs       []string    `json:"internal_node_ids,omitempty"`
 	CreatedAt             string      `json:"created_at"`
 	UpdatedAt             string      `json:"updated_at"`
 	NodeCount             int         `json:"node_count"`
@@ -376,6 +381,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer db.Close()
 
 	switch {
+	case len(parts) == 2 && parts[0] == "public":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.servePublicSubscriptionInfo(w, r, db, parts[1])
 	case len(parts) == 0 || (len(parts) == 1 && parts[0] == "summary"):
 		s.summary(w, r, db)
 	case len(parts) == 1 && parts[0] == "profiles":
@@ -436,6 +447,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.resetToken(w, r, db, parts[1])
+	case len(parts) == 3 && parts[0] == "subscriptions" && parts[2] == "usage":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.getSubscriptionUsage(w, r, db, parts[1])
+	case len(parts) == 3 && parts[0] == "subscriptions" && parts[2] == "rotate-address":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.rotateAddress(w, r, db, parts[1])
 	case len(parts) == 3 && parts[0] == "subscriptions" && parts[2] == "refresh-upstream":
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -746,6 +769,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_subscription_access_logs_subscription ON subscription_access_logs(subscription_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_access_logs_ip ON subscription_access_logs(subscription_id, ip_address, created_at)`,
 		`CREATE TRIGGER IF NOT EXISTS trg_subscription_plan_nodes_managed_delete AFTER DELETE ON managed_proxy_nodes
 			BEGIN DELETE FROM subscription_plan_nodes WHERE node_id=OLD.id AND source='internal'; END`,
 		`CREATE TRIGGER IF NOT EXISTS trg_subscription_plan_nodes_external_delete AFTER DELETE ON subscription_nodes
@@ -778,6 +802,13 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("create subscription Hysteria2 credential index: %w", err)
 	}
 	if err := ensureColumn(ctx, db, "subscription_plans", "selection_mode", "ALTER TABLE subscription_plans ADD COLUMN selection_mode TEXT NOT NULL DEFAULT 'explicit'"); err != nil {
+		return err
+	}
+	// profile 型订阅的内部节点记账开关（与 plan 语义一致，默认关闭兼容存量）
+	if err := ensureColumn(ctx, db, "subscription_profiles", "include_internal_nodes", "ALTER TABLE subscription_profiles ADD COLUMN include_internal_nodes INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "subscription_profiles", "selection_mode", "ALTER TABLE subscription_profiles ADD COLUMN selection_mode TEXT NOT NULL DEFAULT 'explicit'"); err != nil {
 		return err
 	}
 	if err := ensureColumn(ctx, db, "subscription_subscriptions", "plan_id", "ALTER TABLE subscription_subscriptions ADD COLUMN plan_id TEXT DEFAULT ''"); err != nil {
@@ -1055,7 +1086,11 @@ func (s *Service) handlePlans(w http.ResponseWriter, r *http.Request, db *sql.DB
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		plans, _ := loadPlans(r.Context(), db, id)
+		plans, err := loadPlans(r.Context(), db, id)
+		if err != nil || len(plans) == 0 {
+			response.Error(w, http.StatusNotFound, "套餐不存在或加载失败")
+			return
+		}
 		response.OK(w, plans[0])
 	case http.MethodPost, http.MethodPut:
 		var input Plan
@@ -1133,7 +1168,11 @@ func (s *Service) handlePlans(w http.ResponseWriter, r *http.Request, db *sql.DB
 			response.Error(w, 500, err.Error())
 			return
 		}
-		plans, _ := loadPlans(r.Context(), db, id)
+		plans, err := loadPlans(r.Context(), db, id)
+		if err != nil || len(plans) == 0 {
+			response.Error(w, http.StatusNotFound, "套餐不存在或加载失败")
+			return
+		}
 		response.OK(w, plans[0])
 	case http.MethodDelete:
 		if id == "" {
@@ -1227,6 +1266,25 @@ func loadPlans(ctx context.Context, db *sql.DB, id string) ([]Plan, error) {
 type subscriptionExecutor interface {
 	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
 	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
+// loadProfileInternalNodeIDs 读取节点库在 explicit 模式下授权的内部节点清单
+// （subscription_plan_nodes 中 plan_id=profile id AND source='internal'）。
+func loadProfileInternalNodeIDs(ctx context.Context, db *sql.DB, profileID string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT node_id FROM subscription_plan_nodes WHERE plan_id=? AND source='internal' ORDER BY created_at,node_id`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func replacePlanNodeRelations(ctx context.Context, db *sql.DB, tx *sql.Tx, planID string, nodeIDs []string) (bool, bool, error) {
@@ -1595,9 +1653,18 @@ func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	if limitPerMin <= 0 {
 		limitPerMin = settings.DefaultRateLimitPerMin
 	}
-	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin); err != nil {
+	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// explicit 清单与套餐共用 subscription_plan_nodes（plan_id 存 profile id），
+	// 写入后立即为涉及节点排队 reconcile，让 Agent 下发新凭据范围。
+	if _, _, err := replacePlanNodeRelations(r.Context(), db, nil, id, input.InternalNodeIDs); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if nodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), db, id); err == nil && len(nodeIDs) > 0 {
+		_ = reconcilequeue.EnqueueNodes(r.Context(), db, nodeIDs, "profile policy changed")
 	}
 	if err := upsertDefaultUpstream(r.Context(), db, id, subInput, refreshHours); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -1620,6 +1687,13 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 		response.Error(w, http.StatusNotFound, "node library not found")
 		return
 	}
+	// 对齐套餐变更的做法：先记录旧节点范围，写入后对前后差集排队 reconcile，
+	// 确保被移出/移入 explicit 清单的节点都能同步运行时凭据。
+	previousNodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), db, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	subInput := subscriptionFromProfile(input)
 	cycleDay := input.CycleDay
 	if cycleDay <= 0 {
@@ -1634,7 +1708,20 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	cycleType := normalizeCycleType(input.CycleType)
 	refreshHours := intDefault(input.UpstreamRefreshHours, defaultRefreshHours)
 	limitPerMin := intDefault(input.RateLimitPerMinute, defaultLimitPerMin)
-	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin); err != nil {
+	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, _, err := replacePlanNodeRelations(r.Context(), db, nil, id, input.InternalNodeIDs); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	currentNodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), db, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := reconcilequeue.EnqueueNodes(r.Context(), db, append(previousNodeIDs, currentNodeIDs...), "profile policy changed"); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1676,6 +1763,7 @@ func (s *Service) deleteProfile(w http.ResponseWriter, r *http.Request, db *sql.
 		_, _ = tx.ExecContext(r.Context(), `DELETE FROM subscription_subscriptions WHERE id = ? AND id = COALESCE(profile_id, id)`, id)
 	}
 	_, _ = tx.ExecContext(r.Context(), `DELETE FROM subscription_upstreams WHERE profile_id = ?`, id)
+	_, _ = tx.ExecContext(r.Context(), `DELETE FROM subscription_plan_nodes WHERE plan_id = ?`, id)
 	if _, err := tx.ExecContext(r.Context(), `DELETE FROM subscription_profiles WHERE id = ?`, id); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1707,6 +1795,109 @@ func (s *Service) getSubscription(w http.ResponseWriter, r *http.Request, db *sq
 	}
 	nodes, _ := loadNodes(r.Context(), db, firstNonEmpty(subs[0].ProfileID, id), true)
 	response.OK(w, map[string]interface{}{"subscription": subs[0], "nodes": nodes})
+}
+
+// getSubscriptionUsage 返回某订阅的流量明细（对账用）：当前周期累计来自
+// subscription_usage_cycles（与订阅分发面板同口径），逐日/逐时明细来自
+// subscription_usage_hourly（UTC）。granularity=day|hour（默认 day），
+// days 默认 30、上限 90。hourly 聚合自 2026-08-13 新版 ledger 起采集，
+// 更早的周期只有周期累计、无逐日明细（趋势缺口属预期）。
+func (s *Service) getSubscriptionUsage(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
+	ctx := r.Context()
+	now := time.Now().UTC()
+
+	var planID, cycleType, createdAt string
+	var cycleDay int
+	var totalBytes int64
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(s.plan_id,''), COALESCE(p.total_bytes,0), COALESCE(p.cycle_type,'none'), COALESCE(p.cycle_day,1), COALESCE(s.created_at, datetime('now'))
+		FROM subscription_subscriptions s
+		LEFT JOIN subscription_plans p ON p.id = s.plan_id
+		WHERE s.id = ?`, id).Scan(&planID, &totalBytes, &cycleType, &cycleDay, &createdAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			response.Error(w, http.StatusNotFound, "subscription not found")
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = planID
+
+	// 当前周期累计（cycles：面板口径，不受 hourly 采集历史影响）。
+	cycleStart, cycleEnd := subscriptionledger.CycleWindow(now, cycleType, cycleDay, createdAt)
+	var cycleUpload, cycleDownload int64
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(upload_bytes,0), COALESCE(download_bytes,0) FROM subscription_usage_cycles WHERE subscription_id=? AND cycle_start=?`, id, cycleStart).Scan(&cycleUpload, &cycleDownload); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	granularity := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("granularity")))
+	if granularity != "hour" {
+		granularity = "day"
+	}
+	days := 30
+	if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d >= 1 && d <= 90 {
+		days = d
+	}
+	start := now.AddDate(0, 0, -(days - 1)).Format(time.RFC3339)
+
+	// 逐日/逐时明细（hourly，UTC 桶）。
+	type usagePoint struct {
+		Bucket        string `json:"bucket"`
+		UploadBytes   int64  `json:"uploadBytes"`
+		DownloadBytes int64  `json:"downloadBytes"`
+	}
+	points := []usagePoint{}
+	var rows *sql.Rows
+	if granularity == "hour" {
+		rows, err = db.QueryContext(ctx, `SELECT hour, upload_bytes, download_bytes FROM subscription_usage_hourly WHERE subscription_id=? AND hour>=? ORDER BY hour ASC`, id, start)
+		if err == nil {
+			for rows.Next() {
+				var p usagePoint
+				if err := rows.Scan(&p.Bucket, &p.UploadBytes, &p.DownloadBytes); err == nil {
+					points = append(points, p)
+				}
+			}
+		}
+	} else {
+		rows, err = db.QueryContext(ctx, `SELECT strftime('%Y-%m-%d', hour) AS bucket, COALESCE(SUM(upload_bytes),0), COALESCE(SUM(download_bytes),0) FROM subscription_usage_hourly WHERE subscription_id=? AND hour>=? GROUP BY bucket ORDER BY bucket ASC`, id, start)
+		if err == nil {
+			for rows.Next() {
+				var p usagePoint
+				if err := rows.Scan(&p.Bucket, &p.UploadBytes, &p.DownloadBytes); err == nil {
+					points = append(points, p)
+				}
+			}
+		}
+	}
+	if rows != nil {
+		rows.Close()
+	}
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	used := cycleUpload + cycleDownload
+	percent := 0.0
+	if totalBytes > 0 {
+		percent = float64(used) / float64(totalBytes) * 100
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"subscriptionId":     id,
+			"totalBytes":         totalBytes,
+			"cycleStart":         cycleStart,
+			"cycleEnd":           cycleEnd,
+			"cycleUploadBytes":   cycleUpload,
+			"cycleDownloadBytes": cycleDownload,
+			"cycleUsedBytes":     used,
+			"percent":            percent,
+			"granularity":        granularity,
+			"points":             points,
+		},
+	})
 }
 
 func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db *sql.DB) {
@@ -1746,7 +1937,7 @@ func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db 
 	defer tx.Rollback()
 	if !profileExists(r.Context(), tx, profileID) {
 		library := Subscription{Name: "外部节点池", Remark: "系统统一外部节点池", Enabled: true}
-		if err := upsertProfile(r.Context(), tx, profileID, library, rawTemplateID, "manual", "none", 1, defaultLimitPerMin); err != nil {
+		if err := upsertProfile(r.Context(), tx, profileID, library, rawTemplateID, "manual", "none", 1, defaultLimitPerMin, "explicit", false); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -1934,6 +2125,7 @@ func (s *Service) deleteSubscription(w http.ResponseWriter, r *http.Request, db 
 	for _, statement := range []string{
 		`DELETE FROM subscription_usage_reports WHERE subscription_id=?`,
 		`DELETE FROM subscription_usage_report_keys WHERE subscription_id=?`,
+		`DELETE FROM subscription_usage_hourly WHERE subscription_id=?`,
 		`DELETE FROM subscription_usage_cycles WHERE subscription_id=?`,
 		`DELETE FROM subscription_cycle_state WHERE subscription_id=?`,
 	} {
@@ -1963,7 +2155,7 @@ func (s *Service) deleteSubscription(w http.ResponseWriter, r *http.Request, db 
 	response.OK(w, map[string]bool{"deleted": true})
 }
 
-func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string, input Subscription, templateID, trafficSource, cycleType string, cycleDay, limitPerMin int) error {
+func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string, input Subscription, templateID, trafficSource, cycleType string, cycleDay, limitPerMin int, selectionMode string, includeInternal bool) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("profile id is required")
 	}
@@ -1971,8 +2163,8 @@ func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string
 			id, name, remark, enabled, template_id, traffic_source, traffic_server_id,
 			total_bytes, manual_upload_bytes, manual_download_bytes, expire_at, cycle_type,
 			cycle_day, cycle_start, cycle_end, baseline_upload_bytes, baseline_download_bytes,
-			rate_limit_enabled, rate_limit_per_minute, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+			rate_limit_enabled, rate_limit_per_minute, selection_mode, include_internal_nodes, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			remark = excluded.remark,
@@ -1992,11 +2184,13 @@ func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string
 			baseline_download_bytes = excluded.baseline_download_bytes,
 			rate_limit_enabled = excluded.rate_limit_enabled,
 			rate_limit_per_minute = excluded.rate_limit_per_minute,
+			selection_mode = excluded.selection_mode,
+			include_internal_nodes = excluded.include_internal_nodes,
 			updated_at = datetime('now')`,
 		id, input.Name, input.Remark, boolToInt(input.Enabled), templateID, trafficSource, nullString(input.TrafficServerID),
 		input.TotalBytes, input.ManualUploadBytes, input.ManualDownloadBytes, nullString(input.ExpireAt), cycleType,
 		cycleDay, nullString(input.CycleStart), nullString(input.CycleEnd), input.BaselineUploadBytes, input.BaselineDownloadBytes,
-		boolToInt(input.RateLimitEnabled), limitPerMin)
+		boolToInt(input.RateLimitEnabled), limitPerMin, normalizePlanSelectionMode(selectionMode), boolToInt(includeInternal))
 	if err != nil {
 		return fmt.Errorf("upsert subscription profile: %w", err)
 	}
@@ -2098,6 +2292,40 @@ func (s *Service) resetToken(w http.ResponseWriter, r *http.Request, db *sql.DB,
 		"credentials_rotated": true,
 		"nodes_queued":        len(nodeIDs),
 		"runtime_sync_status": syncStatus,
+	})
+}
+
+// rotateAddress rotates only the public subscription URL token. Client node
+// credentials (VLESS UUID, Hysteria2 password) are left untouched, so already
+// configured clients keep working; no runtime reconciliation is enqueued.
+func (s *Service) rotateAddress(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
+	token := randomToken()
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(r.Context(), `UPDATE subscription_subscriptions
+		SET public_token=?,updated_at=datetime('now')
+		WHERE id=?`, token, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		response.Error(w, http.StatusNotFound, "订阅不存在")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{
+		"public_token":        token,
+		"credentials_rotated": false,
+		"nodes_queued":        0,
+		"runtime_sync_status": "not_required",
 	})
 }
 
@@ -2714,6 +2942,18 @@ func (s *Service) servePublicSubscription(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	explicitFormat := r.URL.Query().Get("format")
+	showInfoPage := explicitFormat == "info" || (explicitFormat == "" && wantsBrowserInfoPage(r))
+	if showInfoPage {
+		format = "info"
+		nodeCount = len(nodes)
+		s.serveSubscriptionInfoSPA(w, r)
+		success = true
+		return
+	}
+	if format == "" {
+		format = subscriptionFormatFromUA(r.UserAgent())
+	}
 	if format == "" {
 		format = templateFormat(r.Context(), db, sub.TemplateID)
 	}
@@ -2726,13 +2966,31 @@ func (s *Service) servePublicSubscription(w http.ResponseWriter, r *http.Request
 	}
 	nodeCount = len(nodes)
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": subscriptionOutputFilename(sub)}))
 	w.Header().Set("Profile-Title", subscriptionProfileTitle(sub))
 	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Upload, traffic.Download, traffic.Total, traffic.Expire))
-	w.Header().Set("Profile-Update-Interval", "24")
+	w.Header().Set("Profile-Update-Interval", "12")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(body))
 	success = true
+}
+
+// subscriptionRequestURL reconstructs the absolute subscription URL for the
+// current request, honoring the X-Forwarded-Proto set by reverse proxies.
+func subscriptionRequestURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded == "https" || forwarded == "http" {
+		scheme = forwarded
+	}
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		host = "localhost"
+	}
+	return scheme + "://" + host + r.URL.Path
 }
 
 func loadManagedSubscriptionNodes(ctx context.Context, db *sql.DB, sub Subscription) ([]Node, error) {
@@ -2962,7 +3220,9 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 			p.total_bytes, p.manual_upload_bytes, p.manual_download_bytes, COALESCE(p.expire_at, ''),
 			COALESCE(p.cycle_type, 'none'), COALESCE(p.cycle_day, 1), COALESCE(p.cycle_start, ''), COALESCE(p.cycle_end, ''),
 			p.baseline_upload_bytes, p.baseline_download_bytes, p.rate_limit_enabled, COALESCE(p.rate_limit_per_minute, 30),
-			COALESCE(p.node_filter_tags, ''), COALESCE(p.sort_order, 0), p.created_at, p.updated_at
+			COALESCE(p.node_filter_tags, ''), COALESCE(p.sort_order, 0),
+			COALESCE(p.selection_mode, 'explicit'), COALESCE(p.include_internal_nodes, 0),
+			p.created_at, p.updated_at
 		FROM subscription_profiles p
 		LEFT JOIN subscription_upstreams u ON u.id = (
 			SELECT id FROM subscription_upstreams
@@ -2978,13 +3238,14 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 	items := []NodeLibrary{}
 	for rows.Next() {
 		var item NodeLibrary
-		var enabled, upstreamEnabled, rateEnabled int
-		if err := rows.Scan(&item.ID, &item.Name, &item.Remark, &enabled, &item.TemplateID, &item.TrafficSource, &item.TrafficServerID, &item.UpstreamURL, &upstreamEnabled, &item.UpstreamRefreshHours, &item.UpstreamStatus, &item.UpstreamLastError, &item.UpstreamLastRefreshAt, &item.UpstreamUserinfo, &item.TotalBytes, &item.ManualUploadBytes, &item.ManualDownloadBytes, &item.ExpireAt, &item.CycleType, &item.CycleDay, &item.CycleStart, &item.CycleEnd, &item.BaselineUploadBytes, &item.BaselineDownloadBytes, &rateEnabled, &item.RateLimitPerMinute, &item.NodeFilterTags, &item.SortOrder, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		var enabled, upstreamEnabled, rateEnabled, includeInternal int
+		if err := rows.Scan(&item.ID, &item.Name, &item.Remark, &enabled, &item.TemplateID, &item.TrafficSource, &item.TrafficServerID, &item.UpstreamURL, &upstreamEnabled, &item.UpstreamRefreshHours, &item.UpstreamStatus, &item.UpstreamLastError, &item.UpstreamLastRefreshAt, &item.UpstreamUserinfo, &item.TotalBytes, &item.ManualUploadBytes, &item.ManualDownloadBytes, &item.ExpireAt, &item.CycleType, &item.CycleDay, &item.CycleStart, &item.CycleEnd, &item.BaselineUploadBytes, &item.BaselineDownloadBytes, &rateEnabled, &item.RateLimitPerMinute, &item.NodeFilterTags, &item.SortOrder, &item.SelectionMode, &includeInternal, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled == 1
 		item.UpstreamEnabled = upstreamEnabled == 1
 		item.RateLimitEnabled = rateEnabled == 1
+		item.IncludeInternalNodes = includeInternal == 1
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -2996,6 +3257,10 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 	for i := range items {
 		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_nodes WHERE COALESCE(profile_id, subscription_id) = ?`, items[i].ID).Scan(&items[i].NodeCount)
 		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_subscriptions WHERE COALESCE(profile_id, id) = ? AND id != COALESCE(profile_id, id)`, items[i].ID).Scan(&items[i].SubscriptionCount)
+		nodeIDs, err := loadProfileInternalNodeIDs(ctx, db, items[i].ID)
+		if err == nil {
+			items[i].InternalNodeIDs = nodeIDs
+		}
 		items[i].Traffic = computeTraffic(ctx, db, Subscription{
 			ID:                    items[i].ID,
 			ProfileID:             items[i].ID,
@@ -3443,9 +3708,28 @@ func loadSettings(ctx context.Context, db *sql.DB) (Settings, error) {
 	return settings, err
 }
 
+// effectiveCycleConfig 返回与记账（subscriptionledger.RecordBatchDetailed）
+// 一致的周期/配额口径：plan 型订阅取套餐值，profile 型（plan_id=''）回退到
+// 所属 profile；找不到订阅行时回退调用方传入的订阅行自身值。
+func effectiveCycleConfig(ctx context.Context, db *sql.DB, sub Subscription) (int64, string, int) {
+	var total int64
+	var cycleType string
+	var cycleDay int
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(p.total_bytes, pf.total_bytes, 0), COALESCE(p.cycle_type, pf.cycle_type, 'none'), COALESCE(p.cycle_day, pf.cycle_day, 1)
+		FROM subscription_subscriptions s
+		LEFT JOIN subscription_plans p ON p.id = s.plan_id
+		LEFT JOIN subscription_profiles pf ON pf.id = s.profile_id
+		WHERE s.id = ?`, sub.ID).Scan(&total, &cycleType, &cycleDay)
+	if err != nil {
+		return sub.TotalBytes, sub.CycleType, sub.CycleDay
+	}
+	return total, cycleType, cycleDay
+}
+
 func computeTraffic(ctx context.Context, db *sql.DB, sub Subscription) TrafficInfo {
-	info := TrafficInfo{Total: sub.TotalBytes, Source: "panel", Status: "active", MeteringStatus: "pending", CycleStart: sub.CycleStart, CycleEnd: sub.CycleEnd}
-	usage, err := subscriptionledger.Current(ctx, db, sub.ID, sub.CycleType, sub.CycleDay, sub.CreatedAt, time.Now().UTC())
+	totalBytes, cycleType, cycleDay := effectiveCycleConfig(ctx, db, sub)
+	info := TrafficInfo{Total: totalBytes, Source: "panel", Status: "active", MeteringStatus: "pending", CycleStart: sub.CycleStart, CycleEnd: sub.CycleEnd}
+	usage, err := subscriptionledger.Current(ctx, db, sub.ID, cycleType, cycleDay, sub.CreatedAt, time.Now().UTC())
 	if err == nil {
 		info.Upload = usage.UploadBytes
 		info.Download = usage.DownloadBytes
@@ -3625,6 +3909,108 @@ func normalizeTemplateFormat(value string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(value))
 	}
+}
+
+// subscriptionFormatFromUA maps known proxy client User-Agents to a concrete
+// subscription format. Unknown clients return "" so the caller falls back to
+// the subscription's default template format (usually Mihomo/Clash YAML).
+func subscriptionFormatFromUA(userAgent string) string {
+	lower := strings.ToLower(userAgent)
+	switch {
+	case strings.Contains(lower, "clash"), strings.Contains(lower, "mihomo"), strings.Contains(lower, "stash"):
+		return "clash"
+	case strings.Contains(lower, "v2rayn"), strings.Contains(lower, "nekobox"), strings.Contains(lower, "quantumult"), strings.Contains(lower, "shadowrocket"):
+		return "base64"
+	case strings.Contains(lower, "sing-box"), strings.Contains(lower, "singbox"), strings.Contains(lower, "sfi"), strings.Contains(lower, "sfm"), strings.Contains(lower, "sfa"):
+		return "base64"
+	default:
+		return ""
+	}
+}
+
+// wantsBrowserInfoPage decides whether a human opened the subscription URL in
+// a browser and should get the readable info page instead of a raw config dump.
+// Browsers are identified by a Mozilla-style UA plus an Accept header that asks
+// for HTML; proxy clients send neither. Explicit ?format= is decided by the
+// caller before this check so a browser can still force a config download.
+func wantsBrowserInfoPage(r *http.Request) bool {
+	ua := strings.ToLower(r.UserAgent())
+	if !strings.Contains(ua, "mozilla") || strings.Contains(ua, "clash") || strings.Contains(ua, "mihomo") || strings.Contains(ua, "sing-box") || strings.Contains(ua, "singbox") || strings.Contains(ua, "v2rayn") || strings.Contains(ua, "nekobox") || strings.Contains(ua, "sfa") || strings.Contains(ua, "sfm") || strings.Contains(ua, "sfi") || strings.Contains(ua, "quantumult") || strings.Contains(ua, "shadowrocket") {
+		return false
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "text/html")
+}
+
+func (s *Service) serveSubscriptionInfoSPA(w http.ResponseWriter, r *http.Request) {
+	indexPath := filepath.Join(s.cfg.DistDir, "index.html")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "subscription info page unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(raw)
+}
+
+// publicSubscriptionInfo is the payload served by the public subscription info
+// endpoint. It carries only display data and never node credentials, so the
+// frontend info page can render without exposing vless UUID or hy2 passwords.
+type publicSubscriptionInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Status        string   `json:"status"`
+	Upload        int64    `json:"upload"`
+	Download      int64    `json:"download"`
+	Total         int64    `json:"total"`
+	Percent       float64  `json:"percent"`
+	Expire        int64    `json:"expire"`
+	CycleStart    string   `json:"cycle_start,omitempty"`
+	CycleEnd      string   `json:"cycle_end,omitempty"`
+	NodeCount     int      `json:"node_count"`
+	Formats       []string `json:"formats"`
+	PublicToken   string   `json:"public_token"`
+	SiteName      string   `json:"site_name,omitempty"`
+	RateLimited   bool     `json:"rate_limited"`
+}
+
+func (s *Service) servePublicSubscriptionInfo(w http.ResponseWriter, r *http.Request, db *sql.DB, token string) {
+	subs, err := loadSubscriptionByToken(r.Context(), db, token)
+	if err != nil || len(subs) == 0 {
+		response.Error(w, http.StatusNotFound, "订阅不存在")
+		return
+	}
+	sub := subs[0]
+	if !sub.Enabled || !sub.PlanEnabled {
+		response.Error(w, http.StatusForbidden, "订阅或套餐已停用")
+		return
+	}
+	info := publicSubscriptionInfo{
+		ID:          sub.ID,
+		Name:        sub.Name,
+		Status:      sub.Traffic.Status,
+		Upload:      sub.Traffic.Upload,
+		Download:    sub.Traffic.Download,
+		Total:       sub.Traffic.Total,
+		Percent:     sub.Traffic.Percent,
+		Expire:      sub.Traffic.Expire,
+		CycleStart:  sub.Traffic.CycleStart,
+		CycleEnd:    sub.Traffic.CycleEnd,
+		PublicToken: sub.PublicToken,
+		Formats:     []string{"clash", "base64", "raw", "info"},
+	}
+	if info.Status == "" {
+		info.Status = "active"
+	}
+	nodes, err := loadPublishedNodesForSubscription(r.Context(), db, sub)
+	if err == nil {
+		info.NodeCount = len(nodes)
+	}
+	response.OK(w, info)
 }
 
 func validateTemplateDefinition(format, content string) error {
@@ -4661,9 +5047,14 @@ func isRateLimited(ctx context.Context, db *sql.DB, subID, ip string, perMin int
 	if perMin <= 0 {
 		perMin = defaultLimitPerMin
 	}
-	var count int
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND ip_address = ? AND created_at >= datetime('now', '-1 minute')`, subID, ip).Scan(&count)
-	return count >= perMin
+	// Per-IP dimension for one subscription catches a single client hammering
+	// the endpoint. A token-global dimension (all IPs combined) limits an
+	// attacker who spreads the leaked token across many hosts and stays under
+	// each per-IP ceiling.
+	var perIP, total int
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND ip_address = ? AND created_at >= datetime('now', '-1 minute')`, subID, ip).Scan(&perIP)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND created_at >= datetime('now', '-1 minute')`, subID).Scan(&total)
+	return perIP >= perMin || total >= perMin
 }
 
 func (s *Service) logAccess(ctx context.Context, db *sql.DB, subID, token, ip, ua, format string, success bool, statusCode int, errMsg string, nodeCount int, traffic TrafficInfo) {

@@ -4,15 +4,18 @@ import useStore, {
   MODULE_CONFIG,
   getGroupModuleIds,
   getModuleName,
+  store,
 } from '../store.js';
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar';
 import { Tooltip } from '@cloudflare/kumo/components/tooltip';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Loader, Tabs } from '@cloudflare/kumo';
+import { ClipboardText, Empty, Tabs } from '@cloudflare/kumo';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { APP_VERSION } from '../modules/appVersion.js';
 import AppPageHeader, { AppBreadcrumbs } from './AppPageHeader.jsx';
 import { AppCard } from './ui/AppPrimitives.jsx';
+import { AlertTriangle } from './IconsCore.jsx';
 import {
   Globe,
   Server,
@@ -22,6 +25,8 @@ import {
   Sun,
   Moon,
   Settings,
+  Sparkle,
+  LayoutSidebar,
   MODULE_GROUP_ICON_MAP,
   getModuleIconComponent,
 } from './Icons.jsx';
@@ -48,10 +53,24 @@ const ApiDocsPage = lazy(() => import('../pages/ApiDocsPage.jsx'));
 const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
+const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
+
+import { pageStackClass } from './ui/AppPrimitives.jsx';
+import AskAiPanel from './adminai/AskAiPanel.jsx';
 
 const PageLoadingFallback = () => (
-  <div className="flex min-h-[240px] items-center justify-center">
-    <Loader size={32} />
+  <div className={`${pageStackClass} pt-3 cq-sm:pt-4`}>
+    <div className="rounded-xl border border-kumo-fill bg-kumo-control">
+      <div className="flex items-center gap-2 border-b border-kumo-line px-4 py-2.5">
+        <SkeletonLine className="h-4 w-4" />
+        <SkeletonLine className="h-3.5 w-24" />
+      </div>
+      <div className="flex flex-col gap-3 p-4">
+        <SkeletonLine className="h-3.5 w-3/4" />
+        <SkeletonLine className="h-3.5 w-1/2" />
+        <SkeletonLine className="h-3.5 w-5/6" />
+      </div>
+    </div>
   </div>
 );
 
@@ -81,28 +100,34 @@ class ModuleErrorBoundary extends React.Component {
     }
     return (
       <div className="flex min-h-[360px] items-center justify-center">
-        <AppCard padding="none" className="w-full max-w-xl p-5">
-          <div className="mb-2 text-sm font-bold text-kumo-strong">模块加载失败</div>
-          <div className="mb-4 text-xs leading-relaxed text-kumo-subtle">
-            前端资源已更新或缓存过期，请重新加载页面。
-          </div>
-          <div className="mb-4 rounded-md border border-kumo-line bg-kumo-recessed/50 p-3 font-mono text-[11px] leading-relaxed text-kumo-subtle">
-            {this.state.error?.message || '未知错误'}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            onClick={() => {
-              const url = new URL(window.location.href);
-              url.searchParams.set('_reload', String(Date.now()));
-              window.location.replace(url.toString());
-            }}
-            className="font-bold"
-          >
-            重新加载
-          </Button>
-        </AppCard>
+        <Empty
+          size="sm"
+          className="max-w-xl"
+          icon={<AlertTriangle size={32} />}
+          title="模块加载失败"
+          description="前端已更新或缓存过期。"
+          contents={
+            <div className="flex flex-col items-center gap-3">
+              <ClipboardText
+                text={this.state.error?.message || '未知错误'}
+                className="w-full max-w-md"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('_reload', String(Date.now()));
+                  window.location.replace(url.toString());
+                }}
+                className="font-bold"
+              >
+                重新加载
+              </Button>
+            </div>
+          }
+        />
       </div>
     );
   }
@@ -187,6 +212,29 @@ const useMobileClosingNavigation = onNavigate => {
     if (isMobile) setOpenMobile(false);
   };
 };
+
+/* 左侧边栏开合桥：顶栏移动端按钮位于右侧 AskAI Provider 子树内，
+   Sidebar.Trigger 的上下文会解析到右侧面板（导致窄屏点左上角开错面板）。
+   这里在左侧 Provider 内注册 toggleSidebar，供顶栏按钮显式调用。
+
+   移动端额外强制桌面展开态：Provider 的 state 由 open（桌面开合偏好）推导，
+   与 openMobile（移动抽屉）无关。若用户曾在桌面端收起侧栏（sidebarCollapsed=true），
+   窄屏上 open 会回落到 internalOpen=false → state="collapsed"，
+   导致 SidebarCollapsibleContent 以 state!=="collapsed" 为闸门拒绝展开分组。
+   这里在 isMobile 时显式置 open=true，让移动抽屉内分组可正常展开，
+   且不会污染桌面偏好（handleSidebarOpenChange 在窄屏不持久化）。 */
+const leftSidebarToggles = new Set();
+function LeftSidebarBridge() {
+  const { toggleSidebar, isMobile, setOpen } = useSidebar();
+  useEffect(() => {
+    leftSidebarToggles.add(toggleSidebar);
+    return () => leftSidebarToggles.delete(toggleSidebar);
+  }, [toggleSidebar]);
+  useEffect(() => {
+    if (isMobile) setOpen(true);
+  }, [isMobile, setOpen]);
+  return null;
+}
 
 const SidebarTooltipMenuButton = ({ label, children, ...props }) => {
   const { isMobile, state } = useSidebar();
@@ -325,7 +373,7 @@ const SidebarBrand = ({ onHome }) => (
     aria-label="返回首页"
   >
     <span className="flex size-10 shrink-0 items-center justify-center transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)]">
-      <img src="/logo.svg" className="size-7 shrink-0 object-contain" alt="" />
+      <img src="/logo.svg" className="app-logo-img sidebar-brand-logo size-7 shrink-0 object-contain" alt="" />
     </span>
     <span className="app-brand-wordmark min-w-0 max-w-48 overflow-hidden truncate whitespace-nowrap text-xl font-semibold text-kumo-strong opacity-100 transition-[max-width,opacity] duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] group-data-[state=collapsed]/sidebar:max-w-0 group-data-[state=collapsed]/sidebar:opacity-0">
       API Monitor
@@ -394,6 +442,8 @@ function MainLayout() {
     loadUserSettings,
     triggerHaptic,
     logout,
+    showAskAI,
+    setShowAskAI,
   } = useStore();
   const [runtimeClock, setRuntimeClock] = useState(() => Date.now());
   const displayedAppProcessUptime =
@@ -497,11 +547,12 @@ function MainLayout() {
     window.history.replaceState({ module: currentModule }, '', nextPath);
   }, []);
 
-  const navigateToModule = module => {
+  const navigateToModule = (module, query) => {
     triggerHaptic();
     setMainActiveTab(module);
-    const nextPath = MODULE_PATHS[module] || `/${module}`;
-    if (window.location.pathname !== nextPath) {
+    const basePath = MODULE_PATHS[module] || `/${module}`;
+    const nextPath = query ? `${basePath}?${new URLSearchParams(query).toString()}` : basePath;
+    if (window.location.pathname + window.location.search !== nextPath) {
       window.history.pushState({ module }, '', nextPath);
     }
   };
@@ -571,14 +622,19 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'aliyun',
     'tencent',
     'm365',
+    'adminai',
   ].includes(mainActiveTab);
   const mainCanvasClassName =
-    stickyHeaderScrollModule
+    (stickyHeaderScrollModule
       ? 'flex-1 min-w-0 overflow-x-clip px-[var(--app-canvas-gutter-x)] pb-[var(--app-canvas-gutter-bottom)]'
       : viewportWorkspaceModule
         ? 'flex-1 overflow-hidden px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)]'
-        : 'flex-1 overflow-x-hidden overflow-y-auto px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)] scrollbar-thin';
-  const mainCanvasInnerClassName = `mx-auto flex w-full min-w-0 flex-col ${
+        : 'flex-1 overflow-x-hidden overflow-y-auto px-[var(--app-canvas-gutter-x)] pt-[var(--app-canvas-gutter-top)] pb-[var(--app-canvas-gutter-bottom)] scrollbar-thin') +
+    ' transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)]';
+  // 容器放在画布内层而非 main 自身：container-type(size containment) 与 main 的
+  // lg:mr 让位 margin 同元素时在 Chrome 中让位失效（flex item 交互问题），
+  // 内层 div 宽度 = main 内容可用宽度，cq-* 断点语义一致。
+  const mainCanvasInnerClassName = `@container mx-auto flex w-full min-w-0 flex-col ${
     stickyHeaderScrollModule
       ? 'min-h-full'
       : viewportWorkspaceModule
@@ -623,7 +679,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
       case 'settings':
         return <SettingsPage />;
       case 'scheduler':
-        return <SchedulerPage />;
+        return <SchedulerPage onNavigate={navigateToModule} />;
       case 'apidocs':
         return <ApiDocsPage />;
       case 'systemlogs':
@@ -632,6 +688,8 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <DrawioPage />;
       case 'prompts':
         return <PromptLibraryPage />;
+      case 'adminai':
+        return <AdminAIPage />;
       default:
         const ActiveIcon = getModuleIconComponent(mainActiveTab, Server);
         return (
@@ -639,14 +697,14 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
             padding="none"
             className="mx-auto flex h-[60vh] max-w-xl flex-col items-center justify-center p-6 text-center"
           >
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-kumo-line bg-kumo-recessed text-kumo-brand shadow-none">
+            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-kumo-line bg-kumo-recessed text-brand shadow-none">
               <ActiveIcon className="w-7 h-7" />
             </div>
             <h2 className="text-base font-bold text-kumo-strong mb-2.5">
               {getModuleName(mainActiveTab)} 模块重构中
             </h2>
             <p className="text-xs text-kumo-subtle max-w-sm leading-relaxed">
-              页面正在使用 React + Kumo + Tailwind v4 重构，原有逻辑暂时不可用。
+              原逻辑暂不可用。
             </p>
           </AppCard>
         );
@@ -664,7 +722,7 @@ return (
         '--sidebar-width': '11.5rem',
         '--sidebar-width-icon': '57px',
       }}
-      className="app-main-shell flex h-screen w-screen overflow-hidden text-kumo-default"
+      className="app-main-shell flex h-dvh w-screen overflow-hidden text-kumo-default"
     >
       <>
         {/* ==================== 1. 侧边栏 (Sidebar) ==================== */}
@@ -746,20 +804,41 @@ return (
           </Sidebar.Footer>
         </Sidebar>
 
-        {/* ==================== 2. 主页面区 (Main Panel) ==================== */}
-        <div
+        {/* 顶栏移动端按钮的左侧 Provider 桥 */}
+        <LeftSidebarBridge />
+
+        {/* ==================== 2. 主页面区 (Main Panel) + 右侧 Ask AI 侧栏 ==================== */}
+        <Sidebar.Provider
+          side="right"
+          open={showAskAI}
+          onOpenChange={(open) => setShowAskAI(open)}
+          collapsible="none"
+          animationDuration={200}
+        >
+          <div
           className={`app-main-panel flex-1 flex flex-col h-full ${
             stickyHeaderScrollModule ? 'overflow-x-hidden overflow-y-auto scrollbar-thin' : 'overflow-hidden'
           }`}
         >
-          {/* 顶部导航 */}
+          {/* 顶部导航（跟随 Ask AI 侧栏压缩，保证按钮随主视图移动） */}
           <header
-            className={`app-main-topbar box-border flex h-[58px] flex-shrink-0 items-center border-b border-kumo-line px-3 min-[450px]:px-4 md:px-6 ${
+            className={`app-main-topbar box-border flex h-[58px] flex-shrink-0 items-center border-b border-kumo-line px-3 @[450px]:px-4 cq-md:px-6 transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)] ${
               stickyHeaderScrollModule ? 'sticky top-0 z-20' : ''
             }`}
           >
             <div className="flex h-full min-w-0 flex-1 items-center gap-3.5">
-              <Sidebar.Trigger className="lg:hidden" />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                shape="square"
+                className="lg:hidden h-8 w-8 shrink-0"
+                onClick={() => leftSidebarToggles.forEach((fn) => fn())}
+                aria-label="切换侧边栏"
+                title="侧边栏"
+              >
+                <LayoutSidebar className="h-4 w-4" />
+              </Button>
 
 <AppPageHeader
                 className="flex-row items-center justify-between"
@@ -773,10 +852,22 @@ return (
                 }
               >
               </AppPageHeader>
+              <Button
+                onClick={() => store.toggleAskAI()}
+                className={`askai-entry-btn ml-auto h-8 w-8 transition-colors duration-200 focus:!ring-0 focus-visible:!ring-0 ${
+                  showAskAI ? '!bg-brand ring-1 ring-brand shadow-[0_2px_8px_-2px_rgba(220,125,64,0.45)]' : ''
+                }`}
+                shape="square"
+                variant="ghost"
+                aria-label="Ask AI"
+                title="管理 AI"
+              >
+                <Sparkle className={`askai-entry-sparkle h-5 w-5 ${showAskAI ? 'text-white' : 'text-brand'}`} />
+              </Button>
             </div>
             </header>
 
-          {/* 主内容画布 */}
+          {/* 主内容画布（@container：页面布局按内容实际可用宽度自适应，侧栏让位后自动降级） */}
           <main className={mainCanvasClassName}>
             <div className={mainCanvasInnerClassName}>
               <ModuleErrorBoundary moduleId={mainActiveTab}>
@@ -785,11 +876,11 @@ return (
             </div>
           </main>
           {mainActiveTab === 'dashboard' && dashboardFooterVisible && (
-            <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle min-[450px]:px-4 md:px-6">
+            <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle @[450px]:px-4 cq-md:px-6 transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)]">
               <div className="flex min-w-0 items-center gap-2">
-                <img src="/logo.svg" alt="" className="h-5 w-5 shrink-0 object-contain" />
+                <img src="/logo.svg" alt="" className="app-logo-img topbar-brand-logo h-5 w-5 shrink-0 object-contain" />
                 <span className="app-brand-wordmark truncate font-semibold text-kumo-strong">API Monitor</span>
-                <span className="hidden shrink-0 text-kumo-subtle min-[520px]:inline">
+                <span className="hidden shrink-0 text-kumo-subtle @[520px]:inline">
                   · 已运行{' '}
                   {appProcessUptimeMeasuredAt > 0
                     ? formatAppProcessUptime(displayedAppProcessUptime)
@@ -826,6 +917,8 @@ return (
             </footer>
           )}
 </div>
+          <AskAiPanel />
+        </Sidebar.Provider>
       </>
     </Sidebar.Provider>
   );

@@ -86,6 +86,8 @@ import {
   SpeakerSlash,
   Sparkle as PhSparkle,
   SquaresFour,
+  ThumbsDown as PhThumbsDown,
+  ThumbsUp as PhThumbsUp,
   Square as PhSquare,
   Stack,
   Star as PhStar,
@@ -97,6 +99,7 @@ import {
   User as PhUser,
   Users as PhUsers,
   Warning,
+  Wrench as PhWrench,
   X as PhX,
 } from '@phosphor-icons/react';
 import { createFontIcon, GitHubBrand } from './IconsCore.jsx';
@@ -219,6 +222,8 @@ export const Brain = createIcon(PhBrain);
 export const Image = createIcon(PhImage);
 export const Star = createIcon(PhStar);
 export const Sparkle = createIcon(PhSparkle);
+export const ThumbsDown = createIcon(PhThumbsDown);
+export const ThumbsUp = createIcon(PhThumbsUp);
 export const Pin = createIcon(PushPin);
 export const Check = createIcon(PhCheck);
 export const Paperclip = createIcon(PhPaperclip);
@@ -249,6 +254,7 @@ export const Maximize2 = createIcon(ArrowsOutSimple);
 export const ExternalLink = createIcon(ArrowSquareOut);
 export const ArrowLeft = createIcon(PhArrowLeft);
 export const Undo = createIcon(ArrowCounterClockwise);
+export const Wrench = createIcon(PhWrench);
 export const CloudflareBrand = createFontIcon('si si-cloudflare', 'Cloudflare');
 export const AlibabaCloudBrand = createFontIcon('si si-alibabacloud', 'AlibabaCloud');
 export const TencentCloudBrand = createAssetIcon(tencentCloudIcon, 'TencentCloud');

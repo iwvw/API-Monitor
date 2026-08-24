@@ -11,7 +11,7 @@ function PublicOverviewStats({ items, activeKey = '', onChange, className = '' }
       listClassName="w-fit max-w-full"
       tabs={items.map((item) => ({
         value: item.key,
-        label: <span className="inline-flex min-w-[3.75rem] items-center justify-between gap-2 tabular-nums"><span>{item.label}</span><strong>{item.value}</strong></span>,
+        label: <span className="inline-flex items-center gap-1 tabular-nums"><span>{item.label}</span><strong>{item.value}</strong></span>,
       }))}
     />
   );

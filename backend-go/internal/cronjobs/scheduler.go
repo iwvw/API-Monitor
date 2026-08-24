@@ -25,6 +25,7 @@ type SchedulerTask struct {
 	MaxConcurrency       int     `json:"max_concurrency"`
 	NodeID               string  `json:"node_id"`
 	NodeSelector         string  `json:"node_selector"`
+	Config               string  `json:"config"` // AI 任务扩展配置（JSON：model/policy/channelId 等）
 	ScheduleSummary      string  `json:"schedule_summary"`
 	RecentStatus         *string `json:"recent_status,omitempty"`
 }
@@ -41,6 +42,7 @@ type Workflow struct {
 	FailurePolicy     string         `json:"failure_policy"`
 	CreatedAt         int64          `json:"created_at"`
 	UpdatedAt         int64          `json:"updated_at"`
+	NextRun           *int64         `json:"next_run,omitempty"`
 }
 
 type WorkflowNode struct {
@@ -49,12 +51,13 @@ type WorkflowNode struct {
 	TaskID         int64  `json:"task_id,omitempty"`
 	Type           string `json:"type,omitempty"`
 	Command        string `json:"command,omitempty"`
-	Enabled        int    `json:"enabled"`
+	Enabled        intOrBool `json:"enabled"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 	RetryCount     int    `json:"retry_count,omitempty"`
 	NodeID         string `json:"node_id,omitempty"`
 	PositionX      int    `json:"x,omitempty"`
 	PositionY      int    `json:"y,omitempty"`
+	Config         string `json:"config,omitempty"`
 }
 
 type WorkflowEdge struct {
@@ -105,25 +108,26 @@ type SchedulerNode struct {
 }
 
 type schedulerTaskPayload struct {
-	Name                 *string `json:"name"`
-	Description          *string `json:"description"`
-	Schedule             *string `json:"schedule"`
-	Command              *string `json:"command"`
-	Type                 *string `json:"type"`
-	Enabled              *int    `json:"enabled"`
-	TimeoutSeconds       *int    `json:"timeout_seconds"`
-	RetryCount           *int    `json:"retry_count"`
-	RetryIntervalSeconds *int    `json:"retry_interval_seconds"`
-	MaxConcurrency       *int    `json:"max_concurrency"`
-	NodeID               *string `json:"node_id"`
-	NodeSelector         *string `json:"node_selector"`
+	Name                 *string     `json:"name"`
+	Description          *string     `json:"description"`
+	Schedule             *string     `json:"schedule"`
+	Command              *string     `json:"command"`
+	Type                 *string     `json:"type"`
+	Enabled              *intOrBool  `json:"enabled"`
+	TimeoutSeconds       *int        `json:"timeout_seconds"`
+	RetryCount           *int        `json:"retry_count"`
+	RetryIntervalSeconds *int        `json:"retry_interval_seconds"`
+	MaxConcurrency       *int        `json:"max_concurrency"`
+	NodeID               *string     `json:"node_id"`
+	NodeSelector         *string     `json:"node_selector"`
+	Config               *string     `json:"config"`
 }
 
 type workflowPayload struct {
 	Name              string         `json:"name"`
 	Description       string         `json:"description"`
 	Schedule          string         `json:"schedule"`
-	Enabled           int            `json:"enabled"`
+	Enabled           intOrBool      `json:"enabled"`
 	Nodes             []WorkflowNode `json:"nodes"`
 	Edges             []WorkflowEdge `json:"edges"`
 	ConcurrencyPolicy string         `json:"concurrency_policy"`
@@ -135,6 +139,32 @@ type schedulerNodePayload struct {
 	Labels         []string `json:"labels"`
 	MaxConcurrency *int     `json:"max_concurrency"`
 	CapabilityNote *string  `json:"capability_note"`
+}
+
+// intOrBool 兼容 JSON 数字（0/1）与布尔值的 enabled 字段，
+// 使调用方按契约传 boolean 或按实现传 integer 都能正确解析。
+type intOrBool int
+
+func (v *intOrBool) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*v = 0
+		return nil
+	}
+	var integer int
+	if err := json.Unmarshal(data, &integer); err == nil {
+		*v = intOrBool(integer)
+		return nil
+	}
+	var boolean bool
+	if err := json.Unmarshal(data, &boolean); err == nil {
+		if boolean {
+			*v = 1
+		} else {
+			*v = 0
+		}
+		return nil
+	}
+	return fmt.Errorf("enabled 必须是布尔值或整数")
 }
 
 func (s *Service) serveSchedulerHTTP(w http.ResponseWriter, r *http.Request) {
@@ -323,8 +353,15 @@ func (s *Service) createSchedulerTask(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.ReloadTask(context.Background(), created.ID)
-	response.OK(w, created)
+	if err := s.ReloadTask(context.Background(), created.ID); err != nil {
+		// 回滚已落库的任务，避免残留半生效行导致 AI 误判后重复创建。
+		_, _ = db.ExecContext(r.Context(), `DELETE FROM cron_tasks WHERE id = ?`, created.ID)
+		response.Error(w, http.StatusInternalServerError, "任务创建失败，调度注册失败: "+err.Error())
+		return
+	}
+	enriched := []SchedulerTask{created}
+	s.enrichTaskRuntime(enriched)
+	response.OK(w, enriched[0])
 }
 
 func (s *Service) updateSchedulerTask(w http.ResponseWriter, r *http.Request, idText string) {
@@ -363,8 +400,22 @@ func (s *Service) updateSchedulerTask(w http.ResponseWriter, r *http.Request, id
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.ReloadTask(context.Background(), id)
-	response.OK(w, updated)
+	if err := s.ReloadTask(context.Background(), id); err != nil {
+		// 任务已落库但调度注册失败：写回旧值并尝试恢复旧调度，保持 DB 与运行态一致。
+		if _, rollbackErr := updateSchedulerTaskRow(r.Context(), db, existing); rollbackErr != nil {
+			response.Error(w, http.StatusInternalServerError, "任务已更新但调度注册失败，旧值恢复也失败: "+err.Error())
+			return
+		}
+		if rollbackErr := s.ReloadTask(context.Background(), id); rollbackErr != nil {
+			response.Error(w, http.StatusInternalServerError, "任务已更新但调度注册失败（旧值已写回，调度恢复失败）: "+err.Error())
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, "任务已回滚，调度注册失败: "+err.Error())
+		return
+	}
+	enriched := []SchedulerTask{updated}
+	s.enrichTaskRuntime(enriched)
+	response.OK(w, enriched[0])
 }
 
 func (s *Service) previewCron(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +430,7 @@ func (s *Service) previewCron(w http.ResponseWriter, r *http.Request) {
 	if count <= 0 || count > 20 {
 		count = 5
 	}
-	next, summary, err := previewCronSchedule(payload.Schedule, count, time.Now())
+	next, summary, err := previewCronSchedule(payload.Schedule, count, s.now())
 	if err != nil {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -399,6 +450,7 @@ func (s *Service) listWorkflows(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.enrichWorkflowNextRuns(workflows)
 	response.OK(w, workflows)
 }
 
@@ -836,7 +888,7 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 		task.Type = strings.TrimSpace(*payload.Type)
 	}
 	if payload.Enabled != nil {
-		task.Enabled = *payload.Enabled
+		task.Enabled = int(*payload.Enabled)
 	}
 	if payload.TimeoutSeconds != nil {
 		task.TimeoutSeconds = *payload.TimeoutSeconds
@@ -856,6 +908,22 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 	if payload.NodeSelector != nil {
 		task.NodeSelector = strings.TrimSpace(*payload.NodeSelector)
 	}
+	if payload.Config != nil {
+		task.Config = strings.TrimSpace(*payload.Config)
+	}
+	if task.Config != "" && !json.Valid([]byte(task.Config)) {
+		return SchedulerTask{}, fmt.Errorf("config 必须是合法 JSON 字符串")
+	}
+	// AI 任务策略归一化：task-run 只接受 allow/readonly，但历史数据/模型
+	// 可能写入 illegal 值（如 "standard"）导致运行必失败。
+	// 本处把 AI 任务的 policy 收敛为合法集合：空与 unknown 均归为 allow
+	// （cron 无头执行下唯一可写的策略，与 /api/admin-ai/cron/task-run 的
+	// 默认语义一致），readonly 保持。
+	if task.Type == "ai" {
+		if normalized, ok := normalizeAIPolicyConfig(task.Config); ok {
+			task.Config = normalized
+		}
+	}
 	if task.Name == "" {
 		return SchedulerTask{}, fmt.Errorf("任务名称不能为空")
 	}
@@ -866,9 +934,11 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 		return SchedulerTask{}, err
 	}
 	if task.Schedule != "" {
-		if _, err := cron.ParseStandard(task.Schedule); err != nil {
+		normalized, err := normalizeCronSchedule(task.Schedule)
+		if err != nil {
 			return SchedulerTask{}, fmt.Errorf("Cron 表达式无效: %w", err)
 		}
+		task.Schedule = normalized
 	}
 	if task.TimeoutSeconds <= 0 || task.TimeoutSeconds > 86400 {
 		return SchedulerTask{}, fmt.Errorf("超时时间必须在 1 到 86400 秒之间")
@@ -888,9 +958,39 @@ func buildSchedulerTask(payload schedulerTaskPayload, existing *SchedulerTask) (
 	return task, nil
 }
 
+// normalizeAIPolicyConfig 归一化 AI 任务的 config JSON：把 policy 字段收敛为
+// task-run 可接受的集合（"": 空、缺失、未知/历史非法值如 "standard" → "allow"；
+// "readonly" 保留）。返回（新 config, 是否变化）。
+func normalizeAIPolicyConfig(config string) (string, bool) {
+	trimmed := strings.TrimSpace(config)
+	if trimmed == "" {
+		return config, false
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+		return config, false
+	}
+	policy, _ := raw["policy"].(string)
+	policy = strings.ToLower(strings.TrimSpace(policy))
+	if policy == "readonly" {
+		return config, false
+	}
+	if policy == "allow" {
+		return config, false
+	}
+	// 其余（空/缺失/standard 等历史值）归一化：JSON 序列化顺序可能变化，
+	// 仅当确实需要改写时才重序列化（保持原始格式不必要）
+	raw["policy"] = "allow"
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return config, false
+	}
+	return string(out), true
+}
+
 func validateTaskType(taskType, command string) error {
 	switch taskType {
-	case "", "shell", "internal", "agent":
+	case "", "shell", "internal", "agent", "ai":
 	case "http":
 		if _, err := url.ParseRequestURI(command); err != nil || !strings.HasPrefix(command, "http") {
 			return fmt.Errorf("HTTP 任务需要有效 URL")
@@ -901,11 +1001,18 @@ func validateTaskType(taskType, command string) error {
 	if taskType == "internal" && !strings.HasPrefix(command, "/") && !strings.Contains(command, " /") {
 		return fmt.Errorf("内部接口任务需要以 / 开头的路径，或 METHOD /path")
 	}
+	if taskType == "ai" && strings.TrimSpace(command) == "" {
+		return fmt.Errorf("AI 任务需要填写提示词")
+	}
 	return nil
 }
 
 func previewCronSchedule(schedule string, count int, start time.Time) ([]int64, string, error) {
-	parsed, err := cron.ParseStandard(strings.TrimSpace(schedule))
+	normalized, err := normalizeCronSchedule(schedule)
+	if err != nil {
+		return nil, "", fmt.Errorf("Cron 表达式无效: %w", err)
+	}
+	parsed, err := cron.ParseStandard(normalized)
 	if err != nil {
 		return nil, "", fmt.Errorf("Cron 表达式无效: %w", err)
 	}
@@ -915,7 +1022,29 @@ func previewCronSchedule(schedule string, count int, start time.Time) ([]int64, 
 		cursor = parsed.Next(cursor)
 		next = append(next, cursor.Unix())
 	}
-	return next, cronSummary(schedule), nil
+	return next, cronSummary(normalized), nil
+}
+
+func normalizeCronSchedule(schedule string) (string, error) {
+	trimmed := strings.TrimSpace(schedule)
+	if trimmed == "" {
+		return "", nil
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 6 {
+		if fields[0] != "0" {
+			return "", fmt.Errorf("带秒的 Cron 仅支持秒段为 0（如 0 0 2 * * *），当前秒段为 %s", fields[0])
+		}
+		trimmed = strings.Join(fields[1:], " ")
+		fields = fields[1:]
+	}
+	if len(fields) != 5 {
+		return "", fmt.Errorf("expected exactly 5 fields, found %d", len(fields))
+	}
+	if _, err := cron.ParseStandard(trimmed); err != nil {
+		return "", err
+	}
+	return trimmed, nil
 }
 
 func cronSummary(schedule string) string {
@@ -930,14 +1059,21 @@ func cronSummary(schedule string) string {
 	case hour == "*" && day == "*" && month == "*" && weekday == "*":
 		return fmt.Sprintf("每小时第 %s 分钟执行", minute)
 	case day == "*" && month == "*" && weekday == "*":
-		return fmt.Sprintf("每天 %s:%s 执行", hour, minute)
+		return fmt.Sprintf("每天 %s:%s 执行", padTwo(hour), padTwo(minute))
 	case day == "*" && month == "*":
-		return fmt.Sprintf("每周 %s %s:%s 执行", weekdayLabel(weekday), hour, minute)
+		return fmt.Sprintf("每周 %s %s:%s 执行", weekdayLabel(weekday), padTwo(hour), padTwo(minute))
 	case month == "*" && weekday == "*":
-		return fmt.Sprintf("每月 %s 日 %s:%s 执行", day, hour, minute)
+		return fmt.Sprintf("每月 %s 日 %s:%s 执行", day, padTwo(hour), padTwo(minute))
 	default:
 		return "自定义 Cron"
 	}
+}
+
+func padTwo(value string) string {
+	if len(value) == 1 && value[0] >= '0' && value[0] <= '9' {
+		return "0" + value
+	}
+	return value
 }
 
 func weekdayLabel(value string) string {
@@ -957,16 +1093,18 @@ func buildWorkflow(payload workflowPayload, id int64) (Workflow, error) {
 		return Workflow{}, fmt.Errorf("工作流至少需要一个节点")
 	}
 	if payload.Schedule != "" {
-		if _, err := cron.ParseStandard(payload.Schedule); err != nil {
+		normalized, err := normalizeCronSchedule(payload.Schedule)
+		if err != nil {
 			return Workflow{}, fmt.Errorf("Cron 表达式无效: %w", err)
 		}
+		payload.Schedule = normalized
 	}
 	workflow := Workflow{
 		ID:                id,
 		Name:              name,
 		Description:       strings.TrimSpace(payload.Description),
 		Schedule:          strings.TrimSpace(payload.Schedule),
-		Enabled:           payload.Enabled,
+		Enabled:           int(payload.Enabled),
 		Nodes:             normalizeWorkflowNodes(payload.Nodes),
 		Edges:             normalizeWorkflowEdges(payload.Edges),
 		ConcurrencyPolicy: firstNonEmpty(payload.ConcurrencyPolicy, "skip"),
@@ -991,7 +1129,11 @@ func normalizeWorkflowNodes(nodes []WorkflowNode) []WorkflowNode {
 			node.ID = fmt.Sprintf("node-%d", i+1)
 		}
 		node.Name = firstNonEmpty(strings.TrimSpace(node.Name), node.ID)
-		node.Type = firstNonEmpty(strings.TrimSpace(node.Type), "task")
+		node.Type = strings.TrimSpace(node.Type)
+		if node.Type == "" || node.Type == "task" {
+			// 内联 command 节点默认按 shell 执行；显式 task 同样归为 shell（与任务引擎合法类型一致）。
+			node.Type = "shell"
+		}
 		if node.Enabled != 0 {
 			node.Enabled = 1
 		}
@@ -1080,6 +1222,19 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 	if !ok {
 		return WorkflowRun{}, fmt.Errorf("工作流不存在")
 	}
+	// 并发策略评估：skip（默认）时若已有 run 在执行，本次触发直接跳过，
+	// 不创建新 run，避免同一工作流的并发执行相互踩踏。
+	if workflow.ConcurrencyPolicy == "skip" {
+		var running int
+		if err := db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM scheduler_workflow_runs WHERE workflow_id = ? AND status = 'running'`,
+			workflowID).Scan(&running); err != nil {
+			return WorkflowRun{}, err
+		}
+		if running > 0 {
+			return WorkflowRun{}, fmt.Errorf("工作流正在执行，按并发策略 skip 跳过本次触发")
+		}
+	}
 	start := time.Now().Unix()
 	runID, err := createWorkflowRun(ctx, db, workflow, triggerType, start)
 	if err != nil {
@@ -1099,7 +1254,13 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 			_ = insertNodeRun(ctx, db, runID, node, "skipped", "依赖条件未满足", start, start)
 			continue
 		}
+		// 每个节点执行前检查运行状态：用户取消后不再调度后续节点，
+		// 避免 shell/HTTP/AI 等副作用在取消后继续执行。
+		if current, err := runStatus(ctx, db, runID); err == nil && current != "running" {
+			break
+		}
 		nodeStart := time.Now().Unix()
+		_ = insertNodeRun(ctx, db, runID, node, "running", "", nodeStart, nodeStart)
 		status := "success"
 		output, execErr := s.executeWorkflowNode(ctx, db, node)
 		if execErr != nil {
@@ -1108,7 +1269,7 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 		}
 		output = truncateOutput(output)
 		nodeEnd := time.Now().Unix()
-		_ = insertNodeRun(ctx, db, runID, node, status, output, nodeStart, nodeEnd)
+		_ = updateNodeRun(ctx, db, runID, node.ID, status, output, nodeEnd)
 		statuses[node.ID] = status
 		outputs[node.ID] = output
 		if status == "failed" && workflow.FailurePolicy == "stop" {
@@ -1125,18 +1286,52 @@ func (s *Service) executeWorkflow(ctx context.Context, workflowID int64, trigger
 	}
 	end := time.Now().Unix()
 	summary := workflowRunSummary(statuses, outputs)
-	if _, err := db.ExecContext(context.Background(), `
+	// 最终收尾只允许覆盖仍在执行的运行：被用户取消（status='cancelled'）的
+	// 运行保留取消状态与取消摘要，不能被 success/failed 覆盖。
+	result, err := db.ExecContext(context.Background(), `
 		UPDATE scheduler_workflow_runs
 		SET status = ?, end_time = ?, duration = ?, summary = ?
-		WHERE id = ?
-	`, finalStatus, end, end-start, summary, runID); err != nil {
+		WHERE id = ? AND status = 'running'
+	`, finalStatus, end, end-start, summary, runID)
+	if err != nil {
 		return WorkflowRun{}, err
 	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		// 运行已被取消：不再发完成/失败通知，直接返回当前运行记录。
+		run, _, findErr := findRun(context.Background(), db, runID)
+		return run, findErr
+	}
 	run, _, err := findRun(context.Background(), db, runID)
+	s.notifyWorkflowResult(ctx, workflow, finalStatus, summary, end-start, triggerType)
 	return run, err
 }
 
+// notifyWorkflowResult 工作流执行完成后触发通知中心事件（cron 源，workflow.completed / failed）。
+func (s *Service) notifyWorkflowResult(ctx context.Context, workflow Workflow, status, summary string, duration int64, triggerType string) {
+	if s.notifier == nil {
+		return
+	}
+	eventType := "workflow.completed"
+	if status != "success" {
+		eventType = "workflow.failed"
+	}
+	payload := map[string]interface{}{
+		"workflowId":   workflow.ID,
+		"workflowName": workflow.Name,
+		"status":       status,
+		"summary":      summary,
+		"duration":     duration,
+		"triggerType":  triggerType,
+		"eventType":    "cron." + eventType,
+	}
+	_ = s.notifier.Trigger(ctx, "cron", eventType, payload)
+}
+
 func (s *Service) executeWorkflowNode(ctx context.Context, db *sql.DB, node WorkflowNode) (string, error) {
+	// start / end 是 DAG 控制标记节点，无实际任务语义，直接视为成功。
+	if node.Type == "start" || node.Type == "end" {
+		return "", nil
+	}
 	if node.TaskID != 0 {
 		task, ok, err := findTask(ctx, db, node.TaskID)
 		if err != nil {
@@ -1147,11 +1342,18 @@ func (s *Service) executeWorkflowNode(ctx context.Context, db *sql.DB, node Work
 		}
 		return s.executeTaskCommand(ctx, task)
 	}
+	nodeType := node.Type
+	if nodeType == "" || nodeType == "task" {
+		// 存量工作流（旧画布默认类型）与内联 command 节点按 shell 执行，
+		// 与 buildWorkflow 的写入规范化一致；执行路径兜底保证老记录不手动重存也能恢复。
+		nodeType = "shell"
+	}
 	task := Task{
 		Name:    node.Name,
-		Type:    firstNonEmpty(node.Type, "shell"),
+		Type:    nodeType,
 		Command: node.Command,
 		Enabled: 1,
+		Config:  node.Config,
 	}
 	return s.executeTaskCommand(ctx, task)
 }
@@ -1257,4 +1459,22 @@ func firstNonEmpty(values ...string) string {
 
 func int64Ref(value int64) *int64 {
 	return &value
+}
+
+// enrichWorkflowNextRuns 为工作流列表填充下次运行时间（依据调度器注册的 cron entry）。
+func (s *Service) enrichWorkflowNextRuns(workflows []Workflow) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range workflows {
+		if workflows[i].Enabled == 0 || strings.TrimSpace(workflows[i].Schedule) == "" {
+			continue
+		}
+		if entryID, ok := s.workflowEntries[workflows[i].ID]; ok {
+			entry := s.scheduler.Entry(entryID)
+			if !entry.Next.IsZero() {
+				next := entry.Next.Unix()
+				workflows[i].NextRun = &next
+			}
+		}
+	}
 }

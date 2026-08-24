@@ -9,7 +9,7 @@ const MODE_OPTIONS = [
     label: (
       <span className="inline-flex items-center gap-1.5">
         <Eye className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">编辑</span>
+        <span className="hidden cq-sm:inline">编辑</span>
       </span>
     ),
   },
@@ -18,7 +18,7 @@ const MODE_OPTIONS = [
     label: (
       <span className="inline-flex items-center gap-1.5">
         <Columns className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">分栏</span>
+        <span className="hidden cq-sm:inline">分栏</span>
       </span>
     ),
   },
@@ -27,7 +27,7 @@ const MODE_OPTIONS = [
     label: (
       <span className="inline-flex items-center gap-1.5">
         <CodeFile className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">源码</span>
+        <span className="hidden cq-sm:inline">源码</span>
       </span>
     ),
   },

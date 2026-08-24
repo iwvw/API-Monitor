@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -6,13 +6,14 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
-import { ClipboardText, Tabs } from '@cloudflare/kumo';
+import { ClipboardText, LayerCard, Tabs } from '@cloudflare/kumo';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import useStore, {
   DEFAULT_MODULE_ORDER,
   FONT_OPTIONS,
+  FONT_SIZE_OPTIONS,
   MODULE_CONFIG,
   MODULE_GROUPS,
   applyCustomCss,
@@ -20,9 +21,9 @@ import useStore, {
   normalizeUserSettings,
 } from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
-import { APP_VERSION } from '../modules/appVersion.js';
+import { APP_BUILD_TIME, APP_VERSION, FRAMEWORK_VERSIONS } from '../modules/appVersion.js';
 import { applySiteBrandFaviconHref, getDefaultSiteBrandPreviewUrl } from '../modules/siteBrand.js';
-import { AppCard, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, cx, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { AppCard, FieldRow, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, cx, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
 import { BackupPanel } from './BackupPage.jsx';
 import { browserSupportsWebAuthn, createPasskeyCredential } from '../modules/webauthn.js';
@@ -30,6 +31,10 @@ import {
   Activity,
   Bell,
   Check,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Columns,
   Database,
   Download,
   ExternalLink,
@@ -61,7 +66,7 @@ const SETTINGS_TABS = [
   { value: 'about', label: <span className="inline-flex items-center gap-1.5"><Settings className="h-4 w-4" />关于</span> },
 ];
 
-const SECURITY_MASONRY_CARD_CLASS = 'mb-4 inline-block w-full align-top [break-inside:avoid] last:mb-0';
+const SECURITY_MASONRY_CARD_CLASS = '';
 
 const THEME_OPTIONS = [
   { value: 'auto', label: '跟随系统' },
@@ -129,108 +134,6 @@ const moduleRows = DEFAULT_MODULE_ORDER.filter((moduleId) => moduleId !== 'promp
   };
 });
 
-function FieldRow({ title, description, children }) {
-  return (
-    <div className="grid gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] md:items-center">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-kumo-strong">{title}</div>
-        {description && <div className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</div>}
-      </div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, hint, icon: Icon }) {
-  return (
-    <AppCard padding="lg">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-normal text-kumo-subtle">{label}</div>
-          <div className="mt-2 truncate text-lg font-bold text-kumo-strong">{value}</div>
-          {hint && <div className="mt-1 text-xs text-kumo-subtle">{hint}</div>}
-        </div>
-        {Icon && (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-recessed text-kumo-brand">
-            <Icon className="h-4 w-4" />
-          </div>
-        )}
-      </div>
-    </AppCard>
-  );
-}
-
-function SummaryMetricCard({ label, value, hint, tone = 'default', compact = false }) {
-  const valueToneClass = {
-    default: 'text-kumo-strong',
-    brand: 'text-kumo-brand',
-    warning: 'text-kumo-warning',
-    info: 'text-kumo-info',
-    success: 'text-kumo-success',
-    danger: 'text-kumo-danger',
-  };
-
-  return (
-    <AppCard
-      padding={compact ? 'sm' : 'md'}
-      className={cx(
-        'flex min-w-0',
-        compact ? 'min-h-[4.5rem] flex-col items-start justify-center gap-1.5' : 'flex-col gap-1',
-      )}
-    >
-      <span className={cx('font-bold uppercase tracking-wider text-kumo-subtle', compact ? 'text-[11px] leading-none' : 'text-[10px]')}>
-        {label}
-      </span>
-      <span className={cx('font-mono font-bold leading-none', compact ? 'text-lg sm:text-base' : 'text-xl', valueToneClass[tone] || valueToneClass.default)}>
-        {value}
-      </span>
-      {!compact && hint ? <span className="truncate text-[11px] text-kumo-subtle">{hint}</span> : null}
-    </AppCard>
-  );
-}
-
-function MaintenanceActionCard({
-  title,
-  description,
-  icon,
-  tone = 'default',
-  meta,
-  children,
-}) {
-  const toneClassName = {
-    default: 'border-kumo-line/80 bg-kumo-recessed/15',
-    brand: 'border-kumo-brand/15 bg-kumo-brand/5',
-    danger: 'border-kumo-danger/20 bg-kumo-danger/5',
-    warning: 'border-kumo-warning/20 bg-kumo-warning/5',
-  };
-  const compact = !description;
-
-  return (
-    <AppCard
-      padding="md"
-      className={cx(
-        'flex min-h-[102px] min-w-0 flex-col gap-2 border',
-        compact ? 'justify-center' : '',
-        toneClassName[tone] || toneClassName.default,
-      )}
-    >
-      <div className={cx('flex justify-between gap-3', compact ? 'items-center' : 'items-start')}>
-        <div className={cx('flex min-w-0 gap-3', compact ? 'items-center' : 'items-start')}>
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-kumo-line/70 bg-kumo-base text-kumo-brand">
-            {icon}
-          </div>
-          <div className={cx('min-w-0', compact ? 'flex min-h-7 items-center' : '')}>
-            <div className={cx('truncate text-sm font-semibold text-kumo-strong', compact ? 'leading-none' : '')}>{title}</div>
-            {description ? <div className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</div> : null}
-          </div>
-        </div>
-        {meta ? <div className={cx('shrink-0', compact ? 'flex min-h-7 items-center' : '')}>{meta}</div> : null}
-      </div>
-      <div className={cx(compact ? 'pt-0.5' : 'mt-auto')}>{children}</div>
-    </AppCard>
-  );
-}
-
 function SettingsPage() {
   const { isArmed, confirmPress } = useConfirmPress();
   const {
@@ -241,6 +144,8 @@ function SettingsPage() {
     setDashboardFooterRecordNumber,
     setVibrationEnabled,
     setUIFont,
+    uiFontSize,
+    setUIFontSize,
     applyUserSettings,
     loadUserSettings,
     logout,
@@ -250,6 +155,7 @@ function SettingsPage() {
   const fileInputRef = useRef(null);
   const siteBrandInputRef = useRef(null);
   const [activeTab, setActiveTab] = useState('general');
+  const [backendOnline, setBackendOnline] = useState(true);
   const [settings, setSettings] = useState(() => normalizeUserSettings());
   const [settingsPatch, setSettingsPatch] = useState({});
   const [settingsLoading, setSettingsLoading] = useState(true);
@@ -286,7 +192,9 @@ function SettingsPage() {
   const [deprecatedTables, setDeprecatedTables] = useState(null);
   const [databaseBusy, setDatabaseBusy] = useState(false);
   const [databaseLoaded, setDatabaseLoaded] = useState(false);
+  const [dbTablesExpanded, setDbTablesExpanded] = useState(false);
   const [dbImportPreview, setDbImportPreview] = useState(null);
+  const [healthInfo, setHealthInfo] = useState(null);
 
   const [logSettings, setLogSettings] = useState({
     days: 0,
@@ -332,8 +240,14 @@ function SettingsPage() {
 
   const tableRows = useMemo(() => {
     if (dbAnalysis?.tables?.length) return dbAnalysis.tables;
-    return Object.entries(dbStats?.tables || {}).map(([table, rows]) => ({ table, rows }));
+    return Object.entries(dbStats?.tables || {})
+      .map(([table, rows]) => ({ table, rows }))
+      .sort((a, b) => Number(b.rows) - Number(a.rows));
   }, [dbAnalysis, dbStats]);
+  const dbTableDisplayRows = useMemo(
+    () => (dbTablesExpanded ? tableRows : []),
+    [tableRows, dbTablesExpanded],
+  );
   const formatTableRows = useCallback((rows) => {
     const value = Number(rows);
     return Number.isFinite(value) && value >= 0 ? value : '-';
@@ -364,6 +278,10 @@ function SettingsPage() {
     setUIFont(nextFont);
     patchSettings({ uiFont: nextFont });
   }, [patchSettings, setUIFont]);
+
+  const handleUIFontSizeChange = useCallback((value) => {
+    setUIFontSize(String(value));
+  }, [setUIFontSize]);
 
   const handleDashboardFooterVisibleChange = useCallback((checked) => {
     setDashboardFooterVisible(checked);
@@ -431,6 +349,30 @@ function SettingsPage() {
       setLogsLoaded(true);
     } finally {
       setLogsBusy(false);
+    }
+  }, []);
+
+  const fetchRuntimeState = useCallback(async () => {
+    try {
+      const [statsResponse, logSettingsResponse] = await Promise.all([
+        fetch('/api/settings/database-stats', { headers: getAuthHeaders() }),
+        fetch('/api/settings/log-settings', { headers: getAuthHeaders() }),
+      ]);
+
+      const statsResult = await statsResponse.json();
+      if (statsResult.success) setDbStats(statsResult.data);
+
+      const logSettingsResult = await logSettingsResponse.json();
+      if (logSettingsResult.success) {
+        setLogSettings((prev) => ({
+          ...prev,
+          ...logSettingsResult.data,
+          autoCleanup: !!logSettingsResult.data?.autoCleanup,
+        }));
+        setLogFileInfo(logSettingsResult.fileInfo || null);
+      }
+    } catch (error) {
+      console.error('获取运行状态失败', error);
     }
   }, []);
 
@@ -509,21 +451,57 @@ function SettingsPage() {
 
 
 
+  const fetchHealth = useCallback(async () => {
+    try {
+      const response = await fetch('/health');
+      const result = await response.json();
+      if (response.ok) setHealthInfo(result);
+    } catch (error) {
+      console.error('获取后端健康信息失败', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'about' && !healthInfo) {
+      fetchHealth();
+    }
+  }, [activeTab, healthInfo, fetchHealth]);
+
   const refreshCurrent = useCallback(async (showFeedback = false) => {
     setSettingsLoading(true);
     try {
       await fetchSettings();
+      if (activeTab === 'general') await fetchRuntimeState();
       if (activeTab === 'appearance') await loadSiteBrandIcons();
       if (activeTab === 'database') await fetchDbState();
       if (activeTab === 'logs') await fetchLogState();
       if (activeTab === 'security') await Promise.all([fetchTwoFAStatus(), fetchLoginSessions(), fetchGitHubAuthConfig(), fetchPasskeys()]);
+      if (activeTab === 'about') await fetchHealth();
       if (showFeedback) toast.success('设置已刷新');
     } catch (error) {
       toast.error(error.message || '加载设置失败');
     } finally {
       setSettingsLoading(false);
     }
-  }, [activeTab, fetchDbState, fetchGitHubAuthConfig, fetchLogState, fetchLoginSessions, fetchPasskeys, fetchSettings, fetchTwoFAStatus, loadSiteBrandIcons]);
+  }, [activeTab, fetchDbState, fetchGitHubAuthConfig, fetchHealth, fetchLogState, fetchLoginSessions, fetchPasskeys, fetchRuntimeState, fetchSettings, fetchTwoFAStatus, loadSiteBrandIcons]);
+
+  useEffect(() => {
+    if (activeTab === 'general') {
+      fetchRuntimeState();
+    }
+  }, [activeTab, fetchRuntimeState]);
+
+  useEffect(() => {
+    if (activeTab !== 'general' || typeof window.EventSource !== 'function') {
+      setBackendOnline(true);
+      return undefined;
+    }
+    const source = new EventSource('/api/system/status/stream');
+    source.onopen = () => setBackendOnline(true);
+    source.onmessage = () => setBackendOnline(true);
+    source.onerror = () => setBackendOnline(false);
+    return () => source.close();
+  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -963,7 +941,11 @@ function SettingsPage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '启动数据库压缩失败');
       if (result.data?.running) {
-        toast.info('数据库压缩已开始，将在后台执行…');
+        if (result.data?.mode === 'migrate') {
+          toast.info('首次压缩需几分钟（数据库迁移到增量回收模式），期间部分请求可能短暂报错，请勿刷新或重启');
+        } else {
+          toast.info('数据库压缩已开始，将在后台执行…');
+        }
       } else {
         toast.success(result.message || '数据库已压缩');
       }
@@ -1151,6 +1133,18 @@ function SettingsPage() {
   });
 
   const databaseStorage = dbStats?.storage || dbAnalysis?.storage || null;
+  const databaseSegments = useMemo(() => {
+    if (!databaseStorage) return [];
+    const walShm = (databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0);
+    const freePage = databaseStorage.freePageBytes || 0;
+    const used = Math.max((databaseStorage.mainSizeBytes || 0) - freePage, 0);
+    const total = Math.max(used + freePage + walShm, 1);
+    return [
+      { label: '有效数据', value: used, barClass: 'bg-brand' },
+      { label: '空闲页', value: freePage, barClass: 'bg-kumo-info' },
+      { label: 'WAL / SHM', value: walShm, barClass: 'bg-kumo-warning' },
+    ].map((s) => ({ ...s, percent: (s.value / total) * 100 }));
+  }, [databaseStorage]);
   const databaseSizeBytes = dbStats?.totalSize ?? dbStats?.dbSize;
   const databaseSizeHint = databaseStorage
     ? `主库 ${formatFileSize(databaseStorage.mainSizeBytes)} · WAL ${formatFileSize(databaseStorage.walSizeBytes)} · 空闲 ${formatFileSize(databaseStorage.freePageBytes)}`
@@ -1159,7 +1153,7 @@ function SettingsPage() {
   const contentViewportClassName = 'min-w-0';
 
   return (
-    <div className="flex min-h-full w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex min-h-full w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
           {...MODULE_TABS_PROPS}
@@ -1195,23 +1189,35 @@ function SettingsPage() {
 
       <div className={contentViewportClassName}>
       {activeTab === 'general' && (
-        <div className="grid min-h-0 items-start gap-4 md:h-full md:overflow-auto xl:grid-cols-[minmax(16rem,1fr)_minmax(0,3fr)]">
-          <div className="grid min-h-0 gap-4">
-            <StatCard label="运行状态" value="正常" hint={settingsLoading ? '同步中' : '已连接后端'} icon={Check} />
-            <StatCard label="公网入口" value={settings.publicApiUrl || currentOrigin} hint="/api 自动拼接" icon={Globe} />
-            <StatCard label="数据库大小" value={formatFileSize(databaseSizeBytes)} hint={databaseSizeHint} icon={Database} />
-            <StatCard label="日志文件" value={logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB 上限`} hint="app.log" icon={FileText} />
-          </div>
+        <div className="grid min-h-0 items-start gap-4 cq-md:h-full cq-md:overflow-auto cq-xl:grid-cols-[minmax(16rem,1fr)_minmax(0,3fr)]">
+          <SectionCard
+            title="运行状态"
+            icon={<Check className="h-4 w-4 text-brand" />}
+            className="min-h-0 self-start"
+            bodyPadding="none"
+          >
+            <FieldRow title="运行状态">
+              <span className={`font-mono text-sm font-bold ${backendOnline ? 'text-kumo-success' : 'text-kumo-danger'}`}>{backendOnline ? '正常' : '离线'}</span>
+            </FieldRow>
+            <FieldRow title="公网入口" >
+              <span className="truncate font-mono text-sm font-medium text-kumo-strong">{settings.publicApiUrl || currentOrigin}</span>
+            </FieldRow>
+            <FieldRow title="数据库大小">
+              <span className="font-mono text-sm font-medium text-kumo-strong">{formatFileSize(databaseSizeBytes)}</span>
+            </FieldRow>
+            <FieldRow title="日志文件">
+              <span className="font-mono text-sm font-medium text-kumo-strong">上限 {logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB`}</span>
+            </FieldRow>
+          </SectionCard>
 
           <SectionCard
             title="部署访问地址"
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             className="min-h-0 self-start"
             bodyPadding="none"
           >
             <FieldRow title="公网 API 地址" description="公网可访问时填写，留空用当前来源。">
               <Input size="sm"
-                label="公网 API 地址"
                 value={settings.publicApiUrl}
                 onChange={(e) => patchSettings({ publicApiUrl: e.target.value })}
                 placeholder="https://monitor.example.com"
@@ -1220,7 +1226,6 @@ function SettingsPage() {
             <FieldRow title="系统时区" description="本地化时间；跟随服务器用默认时区。">
               <Select
                 size="sm"
-                label="系统时区"
                 value={settings.timezone}
                 onValueChange={(value) => patchSettings({ timezone: value })}
                 items={TIMEZONE_OPTIONS}
@@ -1233,12 +1238,12 @@ function SettingsPage() {
 
 
       {activeTab === 'modules' && (
-        <div className="min-h-0 overflow-auto md:h-full">
+        <div className="min-h-0 overflow-auto cq-md:h-full">
         <SectionCard
-          className="flex min-h-0 md:h-full"
+          className="flex min-h-0 cq-md:h-full"
           headerClassName="max-sm:min-h-12 max-sm:flex-row max-sm:items-center max-sm:px-3 max-sm:py-2"
           title="功能模块"
-          icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+          icon={<Activity className="h-4 w-4 text-brand" />}
           actionsClassName="max-sm:ml-auto max-sm:w-auto max-sm:gap-1.5"
           actions={
               <>
@@ -1247,13 +1252,13 @@ function SettingsPage() {
                   onChange={(event) => setModuleSearch(event.target.value)}
                   placeholder="搜索模块"
                   ariaLabel="搜索模块"
-                  className="sm:w-52"
+                  className="cq-sm:w-52"
                 />
               </>
           }
           bodyClassName="flex min-h-0 flex-1 flex-col gap-3 overflow-auto"
         >
-          <div className="flex flex-col gap-3 sm:gap-4">
+          <div className="flex flex-col gap-3 cq-sm:gap-4">
             {moduleGroups.map((group) => {
               const groupRows = filteredModuleRows.filter((row) => row.groupId === group.id);
               if (groupRows.length === 0) return null;
@@ -1265,19 +1270,19 @@ function SettingsPage() {
                     <span className="h-px min-w-4 flex-1 bg-kumo-line" />
                     <span className="font-normal">{groupRows.length} 项</span>
                   </div>
-                  <div className="grid gap-1.5 lg:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-1.5 cq-lg:grid-cols-2 cq-xl:grid-cols-3">
                     {groupRows.map((row) => {
                       const ModuleIcon = getModuleIconComponent(row.id);
                       const isVisible = settings.moduleVisibility[row.id] !== false;
 
                       return (
-                        <div key={row.id} className={cx('flex min-h-15 items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors sm:min-h-16 sm:gap-3 sm:px-3', isVisible ? 'border-kumo-line bg-kumo-base' : 'border-kumo-line/70 bg-kumo-recessed/35 opacity-75')}>
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-kumo-brand">
+                        <div key={row.id} className={cx('flex min-h-15 items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors cq-sm:min-h-16 cq-sm:gap-3 cq-sm:px-3', isVisible ? 'border-kumo-line bg-kumo-base' : 'border-kumo-line/70 bg-kumo-recessed/35 opacity-75')}>
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-brand">
                             <ModuleIcon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-semibold text-kumo-strong">{row.config.name}</div>
-                            <div className="hidden truncate text-xs text-kumo-subtle sm:block">{row.config.description}</div>
+                            <div className="hidden truncate text-xs text-kumo-subtle cq-sm:block">{row.config.description}</div>
                           </div>
                           <Switch
                             checked={isVisible}
@@ -1301,11 +1306,12 @@ function SettingsPage() {
       )}
 
       {activeTab === 'security' && (
-        <div className="min-w-0 overflow-auto [column-gap:1rem] xl:columns-2">
+        <div className="grid min-w-0 items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
+          <div className="top-[calc(var(--app-header-height)+0.5rem)] z-20 flex min-w-0 flex-col gap-4 cq-xl:sticky">
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="管理员密码"
-            icon={<Lock className="h-4 w-4 text-kumo-brand" />}
+            icon={<Lock className="h-4 w-4 text-brand" />}
             bodyPadding="none"
           >
             <div className="flex w-full flex-col gap-4 p-5">
@@ -1325,7 +1331,7 @@ function SettingsPage() {
                   className="w-full"
                 />
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-sm:grid-cols-2">
                 <Input size="sm"
                   label="新密码"
                   type="text"
@@ -1365,8 +1371,131 @@ function SettingsPage() {
 
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
+            title="GitHub 一键登录"
+            icon={<GitHubBrand className="h-4 w-4 text-brand" />}
+            meta={(
+              <Badge variant={githubAuth.enabled ? 'success' : 'secondary'}>
+                {githubAuth.enabled ? '已启用' : '未启用'}
+              </Badge>
+            )}
+            bodyPadding="lg"
+          >
+            <div className="grid gap-4">
+              <div className="grid gap-4 border-b border-kumo-line/70 pb-4 cq-xl:grid-cols-2 cq-xl:gap-0">
+                  <div className="grid gap-2 cq-xl:pr-5">
+                    <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-xs font-bold text-brand">1</span>
+                      <span>创建 OAuth App</span>
+                    </div>
+                    <div className="text-xs leading-relaxed text-kumo-subtle">
+                      <code className="app-inline-code">Homepage URL</code> 填当前站点地址即可。
+                    </div>
+                    <ClipboardText
+                      size="sm"
+                      text={settings.publicApiUrl || currentOrigin}
+                      className="min-w-0 w-full font-mono text-[11px]"
+                      tooltip={{ text: '复制主页地址', copiedText: '主页地址已复制' }}
+                      labels={{ copyAction: '复制主页地址' }}
+                    />
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <a href={GITHUB_NEW_OAUTH_APP_URL} target="_blank" rel="noreferrer">
+                        <Button size="sm" variant="secondary" icon={<ExternalLink className="h-4 w-4" />}>
+                          新建 OAuth App
+                        </Button>
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 border-t border-kumo-line/70 pt-4 cq-xl:border-l cq-xl:border-t-0 cq-xl:pl-5 cq-xl:pt-0">
+                    <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-xs font-bold text-brand">2</span>
+                      <span>填回调并保存到下方</span>
+                    </div>
+                    <div className="text-xs leading-relaxed text-kumo-subtle">
+                      <code className="app-inline-code">Authorization callback URL</code> 用下方地址；创建后把 <code className="app-inline-code">Client ID / Secret</code> 填到下面。
+                    </div>
+                    <ClipboardText
+                      size="sm"
+                      text={githubOAuthCallback}
+                      className="min-w-0 w-full font-mono text-[11px]"
+                      tooltip={{ text: '复制回调地址', copiedText: 'GitHub 回调地址已复制' }}
+                      labels={{ copyAction: '复制回调地址' }}
+                    />
+                  </div>
+              </div>
+
+              <div className="grid gap-3 cq-sm:grid-cols-2">
+                <Input
+                  size="sm"
+                  label="Client ID"
+                  value={githubAuth.clientId}
+                  onChange={(event) => setGitHubAuth((prev) => ({ ...prev, clientId: event.target.value }))}
+                />
+                <Input
+                  size="sm"
+                  label={githubAuth.hasClientSecret ? 'Client Secret（留空表示保持不变）' : 'Client Secret'}
+                  type="password"
+                  value={githubAuth.clientSecret}
+                  onChange={(event) => setGitHubAuth((prev) => ({ ...prev, clientSecret: event.target.value }))}
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                />
+              </div>
+
+              <div className="grid gap-3 cq-xl:grid-cols-2">
+                <label className="grid gap-1.5 text-xs text-kumo-subtle">
+                  <span className="font-semibold text-kumo-strong">允许登录的 GitHub 用户名</span>
+                  <Textarea
+                    value={githubAuth.allowedLoginsText}
+                    onChange={(event) => setGitHubAuth((prev) => ({ ...prev, allowedLoginsText: event.target.value }))}
+                    placeholder={'一行一个或逗号分隔\n如：iwvw'}
+                    className="min-h-24"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs text-kumo-subtle">
+                  <span className="font-semibold text-kumo-strong">允许登录的邮箱</span>
+                  <Textarea
+                    value={githubAuth.allowedEmailsText}
+                    onChange={(event) => setGitHubAuth((prev) => ({ ...prev, allowedEmailsText: event.target.value }))}
+                    placeholder={'可选；支持私人邮箱校验\n如：admin@example.com'}
+                    className="min-h-24"
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Switch
+                  checked={githubAuth.enabled}
+                  onCheckedChange={(checked) => setGitHubAuth((prev) => ({ ...prev, enabled: checked }))}
+                  aria-label="启用 GitHub 登录"
+                />
+                <span className="text-sm text-kumo-strong">启用 GitHub 登录入口</span>
+                <span className="text-xs text-kumo-subtle">保存后显示 GitHub 按钮。</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={saveGitHubLoginConfig}
+                  loading={githubAuthSaving || githubAuthLoading}
+                  disabled={isDemoMode}
+                >
+                  保存 GitHub 配置
+                </Button>
+              </div>
+            </div>
+          </SectionCard>
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
+          <SectionCard
+            className={SECURITY_MASONRY_CARD_CLASS}
             title="双因子认证与通行密钥"
-            icon={<Shield className="h-4 w-4 text-kumo-brand" />}
+            icon={<Shield className="h-4 w-4 text-brand" />}
             meta={(
               <div className="flex items-center gap-2">
                 <Badge variant={twoFA.enabled ? 'success' : 'warning'}>
@@ -1379,11 +1508,11 @@ function SettingsPage() {
             )}
             bodyPadding="lg"
           >
-            <div className="grid items-start gap-4 xl:grid-cols-2">
+            <div className="grid items-start gap-4 cq-xl:grid-cols-2">
               <AppCard padding="md" className="flex h-auto flex-col gap-4 self-start border border-kumo-line/80">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-kumo-strong">验证器</div>
-                  <div className="text-xs leading-relaxed text-kumo-subtle">为密码和 GitHub 登录增加 6 位验证码；通行密钥不依赖 TOTP。</div>
+                  <div className="text-xs leading-relaxed text-kumo-subtle">为密码和 GitHub 登录增加 6 位验证码</div>
                 </div>
 
                 {twoFA.error && (
@@ -1484,7 +1613,7 @@ function SettingsPage() {
                     <div className="px-4 py-6 text-sm text-kumo-subtle">加载中...</div>
                   )}
                   {!passkeysLoading && passkeys.map((passkey) => (
-                    <div key={passkey.id} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                    <div key={passkey.id} className="grid gap-3 px-4 py-3 cq-md:grid-cols-[minmax(0,1fr)_auto] cq-md:items-center">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-kumo-strong">{passkey.label || '通行密钥'}</span>
@@ -1518,132 +1647,8 @@ function SettingsPage() {
 
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
-            title="GitHub 一键登录"
-            icon={<GitHubBrand className="h-4 w-4 text-kumo-brand" />}
-            meta={(
-              <Badge variant={githubAuth.enabled ? 'success' : 'secondary'}>
-                {githubAuth.enabled ? '已启用' : '未启用'}
-              </Badge>
-            )}
-            bodyPadding="lg"
-          >
-            <div className="grid gap-4">
-              <div className="grid gap-4 border-b border-kumo-line/70 pb-4 xl:grid-cols-2 xl:gap-0">
-                  <div className="grid gap-2 xl:pr-5">
-                    <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-kumo-brand/10 text-xs font-bold text-kumo-brand">1</span>
-                      <span>创建 OAuth App</span>
-                    </div>
-                    <div className="text-xs leading-relaxed text-kumo-subtle">
-                      <code className="app-inline-code">Homepage URL</code> 填当前站点地址即可。
-                    </div>
-                    <ClipboardText
-                      size="sm"
-                      text={settings.publicApiUrl || currentOrigin}
-                      className="min-w-0 w-full font-mono text-[11px]"
-                      tooltip={{ text: '复制主页地址', copiedText: '主页地址已复制' }}
-                      labels={{ copyAction: '复制主页地址' }}
-                    />
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <a href={GITHUB_NEW_OAUTH_APP_URL} target="_blank" rel="noreferrer">
-                        <Button size="sm" variant="secondary" icon={<ExternalLink className="h-4 w-4" />}>
-                          新建 OAuth App
-                        </Button>
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2 border-t border-kumo-line/70 pt-4 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
-                    <div className="inline-flex items-center gap-2 text-sm font-semibold text-kumo-strong">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-kumo-brand/10 text-xs font-bold text-kumo-brand">2</span>
-                      <span>填回调并保存到下方</span>
-                    </div>
-                    <div className="text-xs leading-relaxed text-kumo-subtle">
-                      <code className="app-inline-code">Authorization callback URL</code> 用下方地址；创建后把 <code className="app-inline-code">Client ID / Secret</code> 填到下面。
-                    </div>
-                    <ClipboardText
-                      size="sm"
-                      text={githubOAuthCallback}
-                      className="min-w-0 w-full font-mono text-[11px]"
-                      tooltip={{ text: '复制回调地址', copiedText: 'GitHub 回调地址已复制' }}
-                      labels={{ copyAction: '复制回调地址' }}
-                    />
-                  </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  size="sm"
-                  label="Client ID"
-                  value={githubAuth.clientId}
-                  onChange={(event) => setGitHubAuth((prev) => ({ ...prev, clientId: event.target.value }))}
-                  placeholder="GitHub OAuth App Client ID"
-                />
-                <Input
-                  size="sm"
-                  label={githubAuth.hasClientSecret ? 'Client Secret（留空表示保持不变）' : 'Client Secret'}
-                  type="password"
-                  value={githubAuth.clientSecret}
-                  onChange={(event) => setGitHubAuth((prev) => ({ ...prev, clientSecret: event.target.value }))}
-                  placeholder={githubAuth.hasClientSecret ? '如需替换再填写' : 'GitHub OAuth App Client Secret'}
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  spellCheck={false}
-                />
-              </div>
-
-              <div className="grid gap-3 xl:grid-cols-2">
-                <label className="grid gap-1.5 text-xs text-kumo-subtle">
-                  <span className="font-semibold text-kumo-strong">允许登录的 GitHub 用户名</span>
-                  <Textarea
-                    value={githubAuth.allowedLoginsText}
-                    onChange={(event) => setGitHubAuth((prev) => ({ ...prev, allowedLoginsText: event.target.value }))}
-                    placeholder={'一行一个或逗号分隔\n如：iwvw'}
-                    className="min-h-24"
-                  />
-                </label>
-                <label className="grid gap-1.5 text-xs text-kumo-subtle">
-                  <span className="font-semibold text-kumo-strong">允许登录的邮箱</span>
-                  <Textarea
-                    value={githubAuth.allowedEmailsText}
-                    onChange={(event) => setGitHubAuth((prev) => ({ ...prev, allowedEmailsText: event.target.value }))}
-                    placeholder={'可选；支持私人邮箱校验\n如：admin@example.com'}
-                    className="min-h-24"
-                  />
-                </label>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <Switch
-                  checked={githubAuth.enabled}
-                  onCheckedChange={(checked) => setGitHubAuth((prev) => ({ ...prev, enabled: checked }))}
-                  aria-label="启用 GitHub 登录"
-                />
-                <span className="text-sm text-kumo-strong">启用 GitHub 登录入口</span>
-                <span className="text-xs text-kumo-subtle">保存后显示 GitHub 按钮。</span>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={saveGitHubLoginConfig}
-                  loading={githubAuthSaving || githubAuthLoading}
-                  disabled={isDemoMode}
-                >
-                  保存 GitHub 配置
-                </Button>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            className={SECURITY_MASONRY_CARD_CLASS}
             title="登录设备"
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             actions={(
               <div className="flex items-center gap-2">
                 <Button
@@ -1665,7 +1670,7 @@ function SettingsPage() {
           >
             <div className="divide-y divide-kumo-line">
               {loginSessions.map((session) => (
-                <div key={session.id} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                <div key={session.id} className="grid gap-3 px-4 py-3 cq-md:grid-cols-[minmax(0,1fr)_auto] cq-md:items-center">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold text-kumo-strong">{describeUserAgent(session.userAgent)}</span>
@@ -1693,236 +1698,142 @@ function SettingsPage() {
               )}
             </div>
           </SectionCard>
+          </div>
         </div>
       )}
-
       {activeTab === 'database' && (
-        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
+        <div className="grid min-w-0 items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
+          <div className="flex min-w-0 flex-col gap-4">
           <SectionCard
-            className="flex h-full min-h-0 flex-1"
-            title="数据库统计"
-            description={dbStats?.dbPath || 'SQLite 数据文件'}
-            icon={<Database className="h-4 w-4 text-kumo-brand" />}
-            actions={
-                <Button size="sm" onClick={() => fetchDbState().catch((error) => toast.error(error.message || '加载数据库统计失败'))} loading={databaseBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新统计</Button>
-            }
-            bodyPadding="none"
-            bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+            className="min-w-0"
+            title="数据库导入导出"
+            icon={<Download className="h-4 w-4 text-brand" />}
+            bodyPadding="sm"
+            bodyClassName="space-y-3"
           >
-            {databaseStorage && (
-              <div className="shrink-0 border-b border-kumo-line px-3 py-3">
-                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                  <SummaryMetricCard
-                    label="总占用"
-                    value={formatFileSize(databaseStorage.totalSizeBytes)}
-                    tone="brand"
-                    compact
-                  />
-                  <SummaryMetricCard
-                    label="主库文件"
-                    value={formatFileSize(databaseStorage.mainSizeBytes)}
-                    tone="default"
-                    compact
-                  />
-                  <SummaryMetricCard
-                    label="WAL / SHM"
-                    value={formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0))}
-                    tone="warning"
-                    compact
-                  />
-                  <SummaryMetricCard
-                    label="空闲页"
-                    value={formatFileSize(databaseStorage.freePageBytes)}
-                    tone="info"
-                    compact
-                  />
-                </div>
-              </div>
-            )}
-            <div className="min-h-0 flex-1 overflow-auto">
-              <Table layout="fixed">
-                <colgroup>
-                  <col className="w-[28%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[19%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[21%]" />
-                </colgroup>
-                <Table.Header>
-                  <Table.Row>
-                    <Table.Head>表名</Table.Head>
-                    <Table.Head>记录数</Table.Head>
-                    <Table.Head>占用</Table.Head>
-                    <Table.Head>索引</Table.Head>
-                    <Table.Head>行大小</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {tableRows.length === 0 ? (
-                    <Table.Row>
-                      <Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">
-                        {databaseBusy ? '正在加载统计...' : '暂无统计数据'}
-                      </Table.Cell>
-                    </Table.Row>
-                  ) : tableRows.map((row) => (
-                    <Table.Row key={row.table}>
-                      <Table.Cell className="truncate font-mono text-xs text-kumo-strong" title={row.table}>{row.table}</Table.Cell>
-                      <Table.Cell className="font-mono text-xs">{formatTableRows(row.rows)}</Table.Cell>
-                      <Table.Cell className="font-mono text-xs">{formatTableMetricSize(row.estimatedSizeBytes)}</Table.Cell>
-                      <Table.Cell className="font-mono text-xs">{formatTableMetricSize(row.indexSizeBytes)}</Table.Cell>
-                      <Table.Cell className="font-mono text-xs">{formatTableMetricSize(row.avgRowSizeBytes)}</Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
+            <Input
+              ref={fileInputRef}
+              type="file"
+              accept=".db"
+              aria-label="选择数据库文件"
+              className="hidden"
+              onChange={previewDatabaseImport}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={exportDatabase}
+                aria-label="导出数据库"
+                title="导出数据库"
+                icon={<Upload className="h-3.5 w-3.5" />}
+              >
+                导出数据库
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={importDatabase}
+                loading={databaseBusy}
+                aria-label="导入数据库"
+                title="导入数据库"
+                icon={<Download className="h-3.5 w-3.5" />}
+              >
+                导入数据库
+              </Button>
             </div>
+            {dbImportPreview && (
+              <AppCard padding="none" className="bg-kumo-recessed/40 p-3 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-kumo-strong truncate">{dbImportPreview.originalName}</span>
+                  <Badge variant={dbImportPreview.analysis?.integrity === 'ok' ? 'success' : 'warning'}>
+                    {dbImportPreview.analysis?.integrity || 'unknown'}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">大小</div>
+                    <div className="mt-1 font-mono text-kumo-strong">{formatFileSize(dbImportPreview.analysis?.sizeBytes)}</div>
+                  </div>
+                  <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">表数量</div>
+                    <div className="mt-1 font-mono text-kumo-strong">{dbImportPreview.analysis?.tableCount || 0}</div>
+                  </div>
+                </div>
+                {dbImportPreview.warnings?.length > 0 && (
+                  <div className="mt-2 space-y-1 rounded border border-kumo-warning/30 bg-kumo-warning/10 p-2 text-[11px] text-kumo-warning">
+                    {dbImportPreview.warnings.map((warning) => (
+                      <div key={warning}>{warning}</div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-3 max-h-44 overflow-y-auto rounded border border-kumo-line bg-kumo-base">
+                  <Table layout="fixed">
+                    <Table.Header variant="compact">
+                      <Table.Row>
+                        <Table.Head>表名</Table.Head>
+                        <Table.Head className="w-20">记录数</Table.Head>
+                      </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                      {(dbImportPreview.analysis?.tables || []).slice(0, 20).map((row) => (
+                        <Table.Row key={row.name}>
+                          <Table.Cell className="truncate font-mono text-[11px]">{row.name}</Table.Cell>
+                          <Table.Cell className="font-mono text-[11px]">{row.rows}</Table.Cell>
+                        </Table.Row>
+                      ))}
+                    </Table.Body>
+                  </Table>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" variant="primary" className="flex-1 justify-center" onClick={commitDatabaseImport} loading={databaseBusy}>
+                    确认导入
+                  </Button>
+                  <Button size="sm" variant="secondary" className="flex-1 justify-center" onClick={() => setDbImportPreview(null)}>
+                    取消
+                  </Button>
+                </div>
+              </AppCard>
+            )}
           </SectionCard>
 
-          <div className="grid content-start gap-3">
-            <SectionCard
-              title="数据库导入导出"
-              description="导出数据库，或预检后替换。"
-              icon={<Download className="h-4 w-4 text-kumo-brand" />}
-              bodyPadding="sm"
-              bodyClassName="space-y-3"
+          <BackupPanel embedded />
+
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
+          <SectionCard
+            title="维护操作"
+              icon={<HardDrive className="h-4 w-4 text-brand" />}
+              bodyPadding="none"
             >
-              <Input
-                ref={fileInputRef}
-                type="file"
-                accept=".db"
-                aria-label="选择数据库文件"
-                className="hidden"
-                onChange={previewDatabaseImport}
-              />
-              <div className="flex flex-wrap gap-2">
+              <FieldRow title="压缩数据库">
                 <Button
                   size="sm"
-                  variant="secondary"
-                  onClick={exportDatabase}
-                  aria-label="导出数据库"
-                  title="导出数据库"
-                  icon={<Upload className="h-3.5 w-3.5" />}
-                >
-                  导出数据库
-                </Button>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={importDatabase}
+                  onClick={() => runDatabaseVacuum()}
                   loading={databaseBusy}
-                  aria-label="导入数据库"
-                  title="导入数据库"
-                  icon={<Download className="h-3.5 w-3.5" />}
                 >
-                  导入数据库
+                  立即压缩
                 </Button>
-              </div>
-              {dbImportPreview && (
-                <AppCard padding="none" className="bg-kumo-recessed/40 p-3 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-kumo-strong truncate">{dbImportPreview.originalName}</span>
-                    <Badge variant={dbImportPreview.analysis?.integrity === 'ok' ? 'success' : 'warning'}>
-                      {dbImportPreview.analysis?.integrity || 'unknown'}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">大小</div>
-                      <div className="mt-1 font-mono text-kumo-strong">{formatFileSize(dbImportPreview.analysis?.sizeBytes)}</div>
-                    </div>
-                    <div className="rounded-md border border-kumo-line/70 bg-kumo-base px-3 py-2">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle">表数量</div>
-                      <div className="mt-1 font-mono text-kumo-strong">{dbImportPreview.analysis?.tableCount || 0}</div>
-                    </div>
-                  </div>
-                  {dbImportPreview.warnings?.length > 0 && (
-                    <div className="mt-2 space-y-1 rounded border border-kumo-warning/30 bg-kumo-warning/10 p-2 text-[11px] text-kumo-warning">
-                      {dbImportPreview.warnings.map((warning) => (
-                        <div key={warning}>{warning}</div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="mt-3 max-h-44 overflow-y-auto rounded border border-kumo-line bg-kumo-base">
-                    <Table layout="fixed">
-                      <Table.Header variant="compact">
-                        <Table.Row>
-                          <Table.Head>表名</Table.Head>
-                          <Table.Head className="w-20">记录数</Table.Head>
-                        </Table.Row>
-                      </Table.Header>
-                      <Table.Body>
-                        {(dbImportPreview.analysis?.tables || []).slice(0, 20).map((row) => (
-                          <Table.Row key={row.name}>
-                            <Table.Cell className="truncate font-mono text-[11px]">{row.name}</Table.Cell>
-                            <Table.Cell className="font-mono text-[11px]">{row.rows}</Table.Cell>
-                          </Table.Row>
-                        ))}
-                      </Table.Body>
-                    </Table>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="primary" className="flex-1 justify-center" onClick={commitDatabaseImport} loading={databaseBusy}>
-                      确认导入
-                    </Button>
-                    <Button size="sm" variant="secondary" className="flex-1 justify-center" onClick={() => setDbImportPreview(null)}>
-                      取消
-                    </Button>
-                  </div>
-                </AppCard>
-              )}
-            </SectionCard>
+              </FieldRow>
 
-            <BackupPanel embedded />
-
-            <SectionCard
-              title="维护操作"
-              icon={<HardDrive className="h-4 w-4 text-kumo-brand" />}
-              bodyPadding="sm"
-              bodyClassName="space-y-3"
-            >
-              <div className="grid gap-3 xl:grid-cols-3">
-                <MaintenanceActionCard
-                  title="压缩数据库"
-                  icon={<Database className="h-4 w-4" />}
-                  tone="brand"
-                >
-                  <Button
-                    size="sm"
-                    className="w-full justify-center"
-                    onClick={() => runDatabaseVacuum()}
-                    loading={databaseBusy}
-                  >
-                    立即压缩
-                  </Button>
-                </MaintenanceActionCard>
-
-                <MaintenanceActionCard
-                  title="清理运行日志"
-                  icon={<FileText className="h-4 w-4" />}
-                  tone="danger"
-                >
-                  <Button
-                    size="sm"
-                    variant="secondary-destructive"
-                    className="w-full justify-center"
-                    onClick={() => postSettingsAction('/api/settings/clear-logs', '数据库日志已清理', fetchDbState)}
-                    loading={databaseBusy}
-                    icon={<Trash className="h-4 w-4" />}
-                  >
-                    清理日志
-                  </Button>
-                </MaintenanceActionCard>
-
-                <MaintenanceActionCard
-                  title="清理废弃表"
+              <FieldRow title="清理运行日志">
+                <Button
+                  size="sm"
+                  variant="secondary-destructive"
+                  onClick={() => postSettingsAction('/api/settings/clear-logs', '数据库日志已清理', fetchDbState)}
+                  loading={databaseBusy}
                   icon={<Trash className="h-4 w-4" />}
-                  tone="warning"
-                  meta={<Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>{deprecatedTableItems.length} 张</Badge>}
                 >
+                  清理日志
+                </Button>
+              </FieldRow>
+
+              <FieldRow title="清理废弃表">
+                <div className="flex items-center gap-2">
+                  <Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>{deprecatedTableItems.length} 张</Badge>
                   <Button
                     size="sm"
                     variant="secondary-destructive"
-                    className="w-full justify-center"
                     onClick={cleanupDeprecatedTables}
                     loading={databaseBusy}
                     disabled={deprecatedTableItems.length === 0}
@@ -1930,14 +1841,13 @@ function SettingsPage() {
                   >
                     清理废弃表
                   </Button>
-                </MaintenanceActionCard>
-              </div>
+                </div>
+              </FieldRow>
 
-              <div className="rounded-lg border border-kumo-line/80 bg-kumo-base px-3 pt-3 pb-2">
+              <div className="mx-4 mb-4 mt-3 rounded-lg border border-kumo-line/80 bg-kumo-base px-3 pt-3 pb-2">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-kumo-strong">废弃表候选</div>
-                    <div className="mt-1 text-xs text-kumo-subtle">显示可清理旧表与预计空间。</div>
                   </div>
                   <Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>
                     {deprecatedTableItems.length} 张
@@ -1967,16 +1877,125 @@ function SettingsPage() {
                 )}
               </div>
             </SectionCard>
+
+          <SectionCard
+            title="数据库统计"
+            description={dbStats?.dbPath || 'SQLite 数据文件'}
+            icon={<Database className="h-4 w-4 text-brand" />}
+            actions={
+                <Button size="sm" onClick={() => fetchDbState().catch((error) => toast.error(error.message || '加载数据库统计失败'))} loading={databaseBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新统计</Button>
+            }
+            bodyPadding="none"
+            bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            {databaseStorage && (
+              <div className="shrink-0 border-b border-kumo-line">
+                <div className="p-3.5">
+                  <div className="grid grid-cols-2 gap-2 cq-sm:grid-cols-4 cq-sm:gap-3">
+                  {[
+                    { title: '总占用', description: '主库 + WAL/SHM + 空闲页合计', value: formatFileSize(databaseStorage.totalSizeBytes), icon: <Database className="h-3.5 w-3.5 text-brand" />, valueClassName: 'text-brand' },
+                    { title: '主库文件', description: 'SQLite 主数据库', value: formatFileSize(databaseStorage.mainSizeBytes), icon: <FileText className="h-3.5 w-3.5 text-kumo-strong" />, valueClassName: 'text-kumo-strong' },
+                    { title: 'WAL / SHM', description: '预写日志与共享内存', value: formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0)), icon: <Activity className="h-3.5 w-3.5 text-kumo-warning" />, valueClassName: 'text-kumo-warning' },
+                    { title: '空闲页', description: '可直接回收的空间', value: formatFileSize(databaseStorage.freePageBytes), icon: <Columns className="h-3.5 w-3.5 text-kumo-info" />, valueClassName: 'text-kumo-info' },
+                  ].map((item) => (
+                    <LayerCard key={item.title} className="min-w-0 p-2.5 cq-sm:p-3">
+                      <div title={item.description} className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle cq-sm:gap-3 cq-sm:text-xs">
+                        <span className="truncate">{item.title}</span>
+                        <span className="shrink-0">{item.icon}</span>
+                      </div>
+                      <div className={`mt-1 truncate text-base font-bold tabular-nums ${item.valueClassName}`} title={item.value}>{item.value}</div>
+                    </LayerCard>
+                  ))}
+                  </div>
+                </div>
+                {databaseSegments.length > 0 && (
+                  <div className="flex flex-col gap-2 border-t border-kumo-line bg-kumo-surface px-3.5 py-3">
+                    <div className="flex h-1.5 w-full items-center overflow-hidden rounded-full bg-kumo-recessed">
+                      {databaseSegments.map((s) => (
+                        <div key={s.label} className={`h-full ${s.barClass}`} style={{ width: `${s.percent}%` }} title={`${s.label} ${formatFileSize(s.value)}`} />
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      {databaseSegments.map((s) => (
+                        <span key={s.label} className="inline-flex items-center gap-1.5 text-[10px] text-kumo-subtle">
+                          <span className={`h-2 w-2 rounded-full ${s.barClass}`} />
+                          {s.label}
+                          <span className="tabular-nums text-kumo-default">{formatFileSize(s.value)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {tableRows.length > 0 && (
+              <div className="flex shrink-0 items-center justify-between border-b border-kumo-line bg-kumo-surface px-3.5 py-1.5">
+                <span className="text-xs font-semibold text-kumo-strong">数据库表（{tableRows.length} 张）</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setDbTablesExpanded((v) => !v)}
+                  className="gap-1 text-xs font-medium text-brand"
+                >
+                  {dbTablesExpanded ? '收起' : '展开全部'}
+                  {dbTablesExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            )}
+            <div className="min-h-0 flex-1 overflow-auto">
+              <Table layout="fixed">
+                <colgroup>
+                  <col className="w-[28%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[19%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[21%]" />
+                </colgroup>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.Head>表名</Table.Head>
+                    <Table.Head>记录数</Table.Head>
+                    <Table.Head>占用</Table.Head>
+                    <Table.Head>索引</Table.Head>
+                    <Table.Head>行大小</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {tableRows.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">
+                        {databaseBusy ? '正在加载统计...' : '暂无统计数据'}
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : !dbTablesExpanded ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">
+                        已折叠 {tableRows.length} 张表，点击上方展开全部
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : dbTableDisplayRows.map((row) => (
+                    <Table.Row key={row.table}>
+                      <Table.Cell className="truncate font-mono text-xs text-kumo-strong" title={row.table}>{row.table}</Table.Cell>
+                      <Table.Cell className="font-mono text-xs">{formatTableRows(row.rows)}</Table.Cell>
+                      <Table.Cell className="font-mono text-xs">{formatTableMetricSize(row.estimatedSizeBytes)}</Table.Cell>
+                      <Table.Cell className="font-mono text-xs">{formatTableMetricSize(row.indexSizeBytes)}</Table.Cell>
+                      <Table.Cell className="font-mono text-xs">{formatTableMetricSize(row.avgRowSizeBytes)}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+            </div>
+          </SectionCard>
           </div>
         </div>
       )}
-
       {activeTab === 'logs' && (
-        <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
           <SectionCard
-            className="shrink-0"
+            className="top-[calc(var(--app-header-height)+0.5rem)] z-20 min-w-0 cq-xl:sticky"
             title="审计与保留"
-            icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+            icon={<FileText className="h-4 w-4 text-brand" />}
             bodyPadding="none"
             actions={
               <Switch
@@ -1987,7 +2006,7 @@ function SettingsPage() {
             }
           >
             <div className="p-5">
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3">
                 <Input size="sm" label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
                 <Input size="sm" label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
                 <Input size="sm" label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
@@ -2002,16 +2021,16 @@ function SettingsPage() {
               </div>
             </SectionCard>
 
-          <div className="flex min-h-0 flex-1">
+          <div className="min-w-0">
             <SectionCard
-              className="min-h-0 flex-1"
+              className="min-w-0"
               title="审计记录"
               description="最近 100 条记录"
-              icon={<Database className="h-4 w-4 text-kumo-brand" />}
+              icon={<Database className="h-4 w-4 text-brand" />}
               bodyPadding="none"
-              bodyClassName="min-h-0 flex-1 overflow-auto"
+              bodyClassName="overflow-x-auto"
             >
-              <Table layout="fixed">
+              <Table layout="fixed" className="min-w-[700px]">
                 <colgroup>
                   <col className="w-[170px]" />
                   <col className="w-[220px]" />
@@ -2048,22 +2067,25 @@ function SettingsPage() {
       )}
 
       {activeTab === 'appearance' && (
-        <div className="grid min-h-0 items-start gap-3 overflow-auto xl:grid-cols-[minmax(20rem,0.82fr)_minmax(0,1.18fr)]">
+        <div className="grid min-h-0 items-start gap-3 overflow-auto cq-xl:grid-cols-[minmax(20rem,0.82fr)_minmax(0,1.18fr)]">
           <SectionCard
             title="界面外观"
-            icon={<Sun className="h-4 w-4 text-kumo-brand" />}
+            icon={<Sun className="h-4 w-4 text-brand" />}
             bodyPadding="none"
           >
-            <FieldRow title="主题模式" description="切换后立即生效">
-              <Select size="sm" label="主题模式" value={themeMode} onValueChange={handleThemeModeChange} items={THEME_OPTIONS} />
+            <FieldRow title="主题模式">
+              <Select size="sm" value={themeMode} onValueChange={handleThemeModeChange} items={THEME_OPTIONS} />
             </FieldRow>
-            <FieldRow title="界面字体" description="选择个性化字体，保存后全站生效">
-              <Select size="sm" label="界面字体" value={settings.uiFont || 'default'} onValueChange={handleUIFontChange} items={FONT_OPTIONS} />
+            <FieldRow title="界面字体">
+              <Select size="sm" value={settings.uiFont || 'default'} onValueChange={handleUIFontChange} items={FONT_OPTIONS} />
             </FieldRow>
-            <FieldRow title="显示首页页脚" description="控制仪表盘底部页脚">
+            <FieldRow title="字号与布局">
+              <Select size="sm" value={uiFontSize} onValueChange={handleUIFontSizeChange} items={FONT_SIZE_OPTIONS} />
+            </FieldRow>
+            <FieldRow title="显示首页页脚">
               <Switch aria-label="显示首页页脚" checked={settings.dashboardFooterVisible} onCheckedChange={handleDashboardFooterVisibleChange} />
             </FieldRow>
-            <FieldRow title="备案号" description="显示在首页页脚右侧；留空不显示。">
+            <FieldRow title="备案号">
               <Input
                 size="sm"
                 aria-label="首页页脚备案号"
@@ -2073,14 +2095,14 @@ function SettingsPage() {
                 className="w-full min-w-52"
               />
             </FieldRow>
-            <FieldRow title="触感反馈" description="移动端振动反馈。">
+            <FieldRow title="触感反馈">
               <Switch checked={settings.vibrationEnabled} onCheckedChange={handleVibrationEnabledChange} />
             </FieldRow>
           </SectionCard>
 
           <SectionCard
             title="自定义 CSS"
-            icon={<Terminal className="h-4 w-4 text-kumo-brand" />}
+            icon={<Terminal className="h-4 w-4 text-brand" />}
             actions={
                 <>
                   <Button size="sm" onClick={() => applyCustomCss(settings.customCss)}>预览</Button>
@@ -2108,34 +2130,87 @@ function SettingsPage() {
       )}
 
       {activeTab === 'about' && (
-        <div className="grid items-start gap-4 overflow-auto lg:grid-cols-1">
+        <div className="grid items-start gap-4 overflow-auto cq-lg:grid-cols-1">
           <SectionCard
             title={<span className="app-brand-wordmark">API Monitor</span>}
-            description={APP_VERSION}
             icon={<img src="/logo.svg" alt="" className="h-6 w-6 object-contain" />}
-            bodyPadding="lg"
           >
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-3">
-                <div className="text-xs text-kumo-subtle">当前源</div>
-                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{currentOrigin}</div>
-              </div>
-              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-3">
-                <div className="text-xs text-kumo-subtle">API 地址</div>
-                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{`${currentOrigin}/api`}</div>
-              </div>
-              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-3">
-                <div className="text-xs text-kumo-subtle">仓库地址</div>
-                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">
-                  <a
-                    href="https://github.com/iwvw/API-Monitor"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:underline text-kumo-strong"
-                  >
-                    https://github.com/iwvw/API-Monitor
-                  </a>
+            <div className="grid gap-3 cq-sm:grid-cols-2">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <HardDrive className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">当前版本</span>
                 </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{APP_VERSION}</span>
+              </div>
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <Clock className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">构建时间</span>
+                </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">
+                  {APP_BUILD_TIME ? new Date(APP_BUILD_TIME).toLocaleString() : '未知'}
+                </span>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+              {[
+                { label: 'React', value: FRAMEWORK_VERSIONS.react, icon: <Activity className="h-3.5 w-3.5" /> },
+                { label: 'Vite', value: FRAMEWORK_VERSIONS.vite, icon: <Terminal className="h-3.5 w-3.5" /> },
+                { label: 'Tailwind CSS', value: FRAMEWORK_VERSIONS.tailwind, icon: <Columns className="h-3.5 w-3.5" /> },
+                { label: 'Kumo', value: FRAMEWORK_VERSIONS.kumo, icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+                { label: 'Zustand', value: FRAMEWORK_VERSIONS.zustand, icon: <Database className="h-3.5 w-3.5" /> },
+                { label: 'Go 后端', value: healthInfo?.goVersion || '…', icon: <Globe className="h-3.5 w-3.5" /> },
+              ].map((item) => (
+                <div key={item.label} className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                      {item.icon}
+                    </span>
+                    <span className="text-xs font-medium text-kumo-subtle">{item.label}</span>
+                  </div>
+                  <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{item.value || '-'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 grid gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <Globe className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">当前源</span>
+                </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{currentOrigin}</span>
+              </div>
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <Terminal className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">API 地址</span>
+                </div>
+                <span className="truncate font-mono text-sm leading-6 text-kumo-strong">{`${currentOrigin}/api`}</span>
+              </div>
+              <div className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 transition-colors hover:border-brand/50">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-kumo-default">
+                    <GitHubBrand className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-medium text-kumo-subtle">仓库地址</span>
+                </div>
+                <a
+                  href="https://github.com/iwvw/API-Monitor"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="truncate font-mono text-sm leading-6 text-kumo-strong transition-colors hover:text-brand hover:underline"
+                >
+                  https://github.com/iwvw/API-Monitor
+                </a>
               </div>
             </div>
           </SectionCard>

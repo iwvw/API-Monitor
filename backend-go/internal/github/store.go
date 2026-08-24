@@ -629,24 +629,46 @@ func cleanupHistory(ctx context.Context, db *sql.DB, repoID int64, days int) (ma
 	}
 	tables := []string{"github_repository_snapshots", "github_action_runs", "github_traffic_samples", "github_events", "github_webhook_deliveries", "github_operation_audit"}
 	result := map[string]int64{}
-	cutoff := time.Now().AddDate(0, 0, -days).UTC().Format(time.RFC3339)
+	now := time.Now().AddDate(0, 0, -days).UTC()
 	for _, table := range tables {
 		column := "created_at"
+		// 五张表的时间戳是 SQLite CURRENT_TIMESTAMP（空格格式），cutoff 必须用
+		// 同一格式比较：'2026-01-01T...' 与 '2026-01-01 10:00:00' 在字节 10 处
+		// 错位（'T' > ' '），保留期首日数据会被整日多删。github_action_runs 的
+		// created_at 存的是 GitHub API 原始 RFC3339「T」格式，该表保持 RFC3339。
+		layout := "2006-01-02 15:04:05"
+		if table == "github_action_runs" {
+			layout = time.RFC3339
+		}
 		if table == "github_repository_snapshots" || table == "github_traffic_samples" {
 			column = "collected_at"
 		}
-		query := fmt.Sprintf("DELETE FROM %s WHERE %s < ?", table, column)
-		args := []interface{}{cutoff}
-		if repoID > 0 && table != "github_webhook_deliveries" {
-			query += " AND repository_id = ?"
-			args = append(args, repoID)
+		cutoff := now.Format(layout)
+		// 分批删除：单批上限内循环，避免大表单次 DELETE 长时间持有写锁
+		// （collector 每分钟与手动清理都会走到这里）。LIMIT 放在子查询中
+		// （modernc 驱动不支持 DELETE 主语句 LIMIT）。
+		const batchSize = 2000
+		for {
+			query := fmt.Sprintf("DELETE FROM %s WHERE rowid IN (SELECT rowid FROM %s WHERE %s < ?", table, table, column)
+			args := []interface{}{cutoff}
+			if repoID > 0 && table != "github_webhook_deliveries" {
+				query += " AND repository_id = ?"
+				args = append(args, repoID)
+			}
+			query += fmt.Sprintf(" LIMIT %d)", batchSize)
+			res, err := db.ExecContext(ctx, query, args...)
+			if err != nil {
+				return result, err
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return result, err
+			}
+			result[table] += n
+			if n < batchSize {
+				break
+			}
 		}
-		res, err := db.ExecContext(ctx, query, args...)
-		if err != nil {
-			return result, err
-		}
-		n, _ := res.RowsAffected()
-		result[table] = n
 	}
 	return result, nil
 }

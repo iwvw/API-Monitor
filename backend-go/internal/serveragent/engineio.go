@@ -31,6 +31,13 @@ const (
 
 const maxPendingMessagesPerSession = 128
 
+// maxEngineIOPostBytes 是 Engine.IO polling POST 请求体的读取上限。
+const maxEngineIOPostBytes = 64 << 20
+
+// engineIOWSReadLimit 是 Engine.IO WebSocket 单连接读取上限，
+// 与 POST 上限取值一致；变量形式仅供测试注入较小值验证超限断开。
+var engineIOWSReadLimit int64 = maxEngineIOPostBytes
+
 // SocketIOPacketType Socket.IO 包类型
 type SocketIOPacketType int
 
@@ -141,6 +148,9 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		defer conn.Close()
+		// 读取上限：gorilla 默认无限制，/socket.io/ 匿名可达，
+		// 超大帧会全量缓冲导致内存被单连接打爆；超限帧读取报错并断开。
+		conn.SetReadLimit(engineIOWSReadLimit)
 
 		session.mu.Lock()
 		session.wsConn = conn
@@ -176,15 +186,26 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer conn.Close()
+	// 读取上限约束同上：匿名可达的升级路径必须限制单帧大小。
+	conn.SetReadLimit(engineIOWSReadLimit)
 
 	// 更新传输类型和 WebSocket 连接
+	// 重升级（浏览器重连到同一 sid）时先关闭旧连接：否则旧连接读循环
+	// 永久阻塞在旧 socket 上，泄漏 goroutine + fd。
 	session.mu.Lock()
+	var oldConn *websocket.Conn
+	if session.wsConn != nil && session.wsConn != conn {
+		oldConn = session.wsConn
+	}
 	session.Transport = "websocket"
 	if session.RemoteIP == "" {
 		session.RemoteIP = requestRemoteIP(r)
 	}
 	session.wsConn = conn
 	session.mu.Unlock()
+	if oldConn != nil {
+		_ = oldConn.Close()
+	}
 
 	// Engine.IO v4: WebSocket 升级后，需要等待客户端的 probe 和 upgrade 确认
 	// 然后等待客户端发送 Socket.IO CONNECT (40)
@@ -256,7 +277,6 @@ func (s *EngineIOServer) handleWebSocketMessages(session *EngineIOSession, conn 
 						if strings.HasPrefix(connectData, "/metrics") {
 							session.mu.Lock()
 							session.Namespace = "/metrics"
-							session.Authenticated = true
 							session.mu.Unlock()
 
 							if s.metricsHub != nil {
@@ -523,7 +543,9 @@ func drainPendingMessages(session *EngineIOSession) []string {
 
 // handlePost 处理 POST polling
 func (s *EngineIOServer) handlePost(w http.ResponseWriter, r *http.Request, session *EngineIOSession) {
-	body, err := io.ReadAll(r.Body)
+	// POST 体上限：Engine.IO 消息本身很小（一个包），64MB 上限足以覆盖
+	// 正常聚合包，防止匿名连接用巨包打满内存。
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxEngineIOPostBytes))
 	if err != nil {
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
 		return
@@ -605,7 +627,6 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 		if strings.HasPrefix(data, "/metrics") {
 			session.mu.Lock()
 			session.Namespace = "/metrics"
-			session.Authenticated = true
 			session.mu.Unlock()
 
 			s.queueMessage(session, connectAckPacket("/metrics", session.ID))
@@ -615,9 +636,9 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 			return
 		}
 
-		// 默认命名空间（Agent 连接）
+		// 默认命名空间（Agent 连接；认证事件之后才会被标记为已认证）
 		session.mu.Lock()
-		session.Authenticated = true
+		session.Authenticated = false
 		session.mu.Unlock()
 
 		// Socket.IO v4 CONNECT ACK 必须包含 sid，否则 v3+ 客户端会判定为 v2 协议。
@@ -648,6 +669,21 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 		var eventPayload json.RawMessage
 		if len(eventData) > 1 {
 			eventPayload = eventData[1]
+		}
+
+		// 会话认证门禁：只有经过 agent:connect/authenticate 密钥校验的会话
+		// 才能处理 Agent 上行事件；未认证会话的任何业务事件一律忽略，
+		// 防止匿名连接伪造 agent:state/agent:heartbeat 等状态与指标。
+		if eventName != "authenticate" && eventName != "agent:connect" {
+			session.mu.RLock()
+			auth := session.Authenticated
+			serverID := session.ServerID
+			session.mu.RUnlock()
+			if !auth || serverID == "" {
+				applog.Warn(context.Background(), "serveragent", "ignored socket event from unauthenticated session",
+					"session_id", session.ID, "event", eventName)
+				return
+			}
 		}
 
 		// 处理认证事件
@@ -817,12 +853,18 @@ func (s *EngineIOServer) cleanupLoop() {
 				// 清理 /metrics 命名空间的客户端
 				session.mu.RLock()
 				ns := session.Namespace
+				staleConn := session.wsConn
 				session.mu.RUnlock()
 				if ns == "/metrics" && s.metricsHub != nil {
 					s.metricsHub.Unregister(sid)
 				}
 				if s.metricsHub != nil {
 					s.metricsHub.UnregisterRoot(sid)
+				}
+				// 关闭该会话的 WebSocket：仅从 map 删除会让读循环
+				// 永远阻塞在旧连接上，泄漏 goroutine 与 fd。
+				if staleConn != nil {
+					_ = staleConn.Close()
 				}
 
 				delete(s.sessions, sid)

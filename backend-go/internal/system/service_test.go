@@ -2,10 +2,13 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -265,7 +268,6 @@ func TestAIMCPToolSchemasAreValidJSONSchema(t *testing.T) {
 	t.Logf("validated request schemas for %d routes", checked)
 }
 
-
 func TestAIMCPSpec(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "api_monitor_mcp_spec_test_*")
 	if err != nil {
@@ -326,8 +328,8 @@ func TestAIMCPSpec(t *testing.T) {
 		t.Fatalf("resources/list failed: %v", err)
 	}
 	resources := resList.(map[string]interface{})["result"].(map[string]interface{})["resources"].([]map[string]interface{})
-	if len(resources) != 2 {
-		t.Fatalf("expected 2 resources, got %d", len(resources))
+	if len(resources) != 4 {
+		t.Fatalf("expected 4 resources, got %d", len(resources))
 	}
 
 	readResult, _, err := mcpRequest("resources/read", map[string]interface{}{"uri": "api-monitor://routes"}, 3)
@@ -471,6 +473,7 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 		{"/api/m365/accounts", "Microsoft 365"},
 		{"/api/github/tokens", "GitHub"},
 		{"/api/server/accounts", "主机实例"},
+		{"/api/onepanel/config", "主机实例"},
 		{"/api/koyeb/accounts", "PaaS"},
 		{"/api/flyio/accounts", "PaaS"},
 		{"/api/scheduler/tasks", "定时任务"},
@@ -503,7 +506,8 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 	}
 }
 
-func TestAPICallStats(t *testing.T) {	tempDir, err := os.MkdirTemp("", "api_monitor_api_stats_test_*")
+func TestAPICallStats(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_api_stats_test_*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +531,7 @@ func TestAPICallStats(t *testing.T) {	tempDir, err := os.MkdirTemp("", "api_moni
 	service.RecordAPICall(http.MethodGet, "/api/system/host-metrics")
 	service.RecordAPICall(http.MethodGet, "/api/system/api-stats")
 
-	stats, err := service.apiStats()
+	stats, err := service.apiStats(7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +555,7 @@ func TestAPICallStats(t *testing.T) {	tempDir, err := os.MkdirTemp("", "api_moni
 	service.flushToDB()
 
 	// 再次查询看是否依然正确合并
-	stats2, err := service.apiStats()
+	stats2, err := service.apiStats(7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,6 +568,16 @@ func TestAPICallStats(t *testing.T) {	tempDir, err := os.MkdirTemp("", "api_moni
 	trend, ok := stats2["trend"].([]map[string]interface{})
 	if !ok || len(trend) != 7 {
 		t.Fatalf("expected 7 days of trend data, got %#v", stats2["trend"])
+	}
+
+	// 14 天窗口应返回 14 个趋势桶。
+	stats14, err := service.apiStats(14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trend14, ok := stats14["trend"].([]map[string]interface{})
+	if !ok || len(trend14) != 14 {
+		t.Fatalf("expected 14 days of trend data, got %#v", stats14["trend"])
 	}
 
 	// 每个趋势桶应带 tokens / traffic 字段（无数据时回落为 0）。
@@ -588,6 +602,72 @@ func TestAPICallStats(t *testing.T) {	tempDir, err := os.MkdirTemp("", "api_moni
 	}
 	if !foundToday {
 		t.Error("expected today to be present in trend data")
+	}
+}
+
+func TestApiStatsCacheWithinTTL(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_apistats_cache_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	service := New(config.Config{DataDir: tempDir, DBName: "data.db"})
+	defer service.Shutdown()
+
+	service.RecordAPICall(http.MethodGet, "/api/totp/accounts")
+	service.RecordAPICall(http.MethodPost, "/api/auth/login")
+
+	first, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTotal := first["total"].(map[string]interface{})
+	if firstTotal["all"].(int64) != 2 {
+		t.Fatalf("expected 2 recorded calls, got %v", firstTotal["all"])
+	}
+
+	// TTL 内第二次查询应直接命中缓存：返回同一份 payload（指针恒等）。
+	second, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(second).Pointer() != reflect.ValueOf(first).Pointer() {
+		t.Error("expected apiStats(7) within TTL to serve the cached payload")
+	}
+
+	// 落盘后（内存计数已清空），不同 days 窗口绕过缓存重新计算，结果仍应合并正确。
+	service.flushToDB()
+	other, err := service.apiStats(14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(other).Pointer() == reflect.ValueOf(first).Pointer() {
+		t.Error("expected apiStats(14) to bypass the cached payload")
+	}
+	otherTotal := other["total"].(map[string]interface{})
+	if otherTotal["all"].(int64) != 2 {
+		t.Errorf("expected recomputed payload for different days, got %v", otherTotal["all"])
+	}
+	trend, ok := other["trend"].([]map[string]interface{})
+	if !ok || len(trend) != 14 {
+		t.Fatalf("expected 14 trend buckets, got %#v", other["trend"])
+	}
+
+	// 超过 TTL 后应重新计算而非返回旧缓存。
+	service.apiStatsMu.Lock()
+	service.apiStatsCacheAt = time.Now().Add(-2 * apiStatsCacheTTL)
+	service.apiStatsMu.Unlock()
+	fresh, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(fresh).Pointer() == reflect.ValueOf(first).Pointer() {
+		t.Error("expected apiStats(7) after TTL expiry to recompute")
+	}
+	freshTotal := fresh["total"].(map[string]interface{})
+	if freshTotal["all"].(int64) != 2 {
+		t.Errorf("expected recomputed payload after TTL expiry, got %v", freshTotal["all"])
 	}
 }
 
@@ -679,5 +759,462 @@ func TestOpenAPIDocumentIncludesParametersAndSecurity(t *testing.T) {
 	}
 	if !strings.Contains(postLogin["description"].(string), "管理员密码登录") && !strings.Contains(postLogin["description"].(string), "登录") {
 		t.Fatalf("expected enriched description, got %q", postLogin["description"])
+	}
+}
+
+func TestAIFindAPISemanticRecall(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	cases := []struct {
+		label       string
+		intent      string
+		wantPathSub string // 期望命中的路由路径片段
+		wantAny     bool   // 只要非空即可（低置信度兜底）
+	}{
+		{"dns 解析记录", "帮我列出所有 DNS 解析记录", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/records", false},
+		{"更新 flyio 镜像", "给 flyio 应用更新镜像", "/api/flyio/apps/{appName}/update-image", false},
+		{"主机监控状态", "查看主机监控状态", "/api/server/monitor/status", false},
+		{"定时任务", "创建定时任务", "/api/scheduler/tasks", false},
+		{"提示词库", "提示词库怎么用", "/api/prompts", false},
+		{"阿里云 DNS", "查阿里云的解析记录", "/api/aliyun/accounts/{id}/domains/{domainName}/records", false},
+		{"腾讯云 DNS", "看腾讯云的 dns 记录", "/api/tencent/accounts/{id}/domains/{domain}/records", false},
+		{"m365", "微软 365 用户列表", "/api/m365", false},
+		{"oracle 云", "oracle oci 实例", "/api/oracle", false},
+		{"代理节点", "看看梯子节点连通情况", "/api/server/agent/proxy", false},
+		{"郎才", "郎才不存在的意图随便写一个", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			result, err := service.aiFindAPIs(map[string]interface{}{"intent": tc.intent})
+			if err != nil {
+				t.Fatalf("aiFindAPIs err: %v", err)
+			}
+			payload := result.(map[string]interface{})
+			routes, ok := payload["routes"].([]map[string]interface{})
+			if !ok {
+				t.Fatalf("routes not []map[string]interface{}: %#v", payload["routes"])
+			}
+			if tc.wantAny {
+				suggestions, hasS := payload["suggestions"].([]string)
+				if !hasS || len(suggestions) == 0 {
+					t.Fatalf("intent %q missing suggestions for low-confidence case: %#v", tc.intent, payload["suggestions"])
+				}
+				return
+			}
+			if len(routes) == 0 {
+				t.Fatalf("intent %q returned no routes", tc.intent)
+			}
+			found := false
+			for _, r := range routes {
+				path, _ := r["path"].(string)
+				if strings.Contains(path, tc.wantPathSub) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("intent %q top%v results missing %q: %#v", tc.intent, len(routes), tc.wantPathSub, routes)
+			}
+			conf, _ := payload["confidence"].(string)
+			if conf == "" {
+				t.Fatalf("intent %q missing confidence", tc.intent)
+			}
+			for _, r := range routes {
+				if _, hasScore := r["score"]; !hasScore {
+					t.Fatalf("intent %q route missing score: %#v", tc.intent, r["path"])
+				}
+				if reasons, hasReason := r["matchReason"].([]map[string]interface{}); hasReason {
+					for _, reason := range reasons {
+						if _, hasTerm := reason["term"]; !hasTerm {
+							t.Fatalf("intent %q matchReason missing term: %#v", tc.intent, reason)
+						}
+					}
+				} else {
+					t.Fatalf("intent %q route missing matchReason: %#v", tc.intent, r["path"])
+				}
+			}
+		})
+	}
+}
+
+func TestAIRouteCatalogPagination(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	result, err := service.aiRouteCatalog(map[string]interface{}{"limit": float64(20), "offset": float64(0)})
+	if err != nil {
+		t.Fatalf("aiRouteCatalog err: %v", err)
+	}
+	payload := result.(map[string]interface{})
+	if returned, _ := payload["returned"].(int); returned != 20 {
+		t.Fatalf("expected 20 returned, got %d", returned)
+	}
+	if total, _ := payload["count"].(int); total <= 20 {
+		t.Fatalf("expected total > 20, got %d", total)
+	}
+
+	page2, err := service.aiRouteCatalog(map[string]interface{}{"limit": float64(20), "offset": float64(20)})
+	if err != nil {
+		t.Fatalf("aiRouteCatalog page2 err: %v", err)
+	}
+	p2 := page2.(map[string]interface{})
+	r1 := payload["routes"].([]map[string]interface{})
+	r2 := p2["routes"].([]map[string]interface{})
+	if len(r2) == 0 || r1[0]["path"] == r2[0]["path"] {
+		t.Fatalf("expected different page content, got same first path %v", r1[0]["path"])
+	}
+
+	limited, err := service.aiRouteCatalog(map[string]interface{}{"limit": float64(500)})
+	if err != nil {
+		t.Fatalf("aiRouteCatalog clamp err: %v", err)
+	}
+	if returned, _ := limited.(map[string]interface{})["returned"].(int); returned > 100 {
+		t.Fatalf("expected limit clamped to 100, got %d", returned)
+	}
+}
+
+func TestAIRunBatch(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	batchReq := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "http://example.test/api/ai/mcp", nil)
+		r.Header.Set("Authorization", "Bearer test")
+		r.RemoteAddr = "127.0.0.1:1234"
+		return r
+	}
+
+	// 注入只读 caller：/health 成功，/api/forbidden 失败，其余返回 404 语义。
+	service.SetAICaller(func(ctx context.Context, req AICallRequest) (AICallResponse, error) {
+		if req.Method != http.MethodGet {
+			return AICallResponse{}, fmt.Errorf("write not allowed")
+		}
+		switch req.Path {
+		case "/health":
+			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"status": "ok"}}, nil
+		default:
+			return AICallResponse{StatusCode: 404, Body: map[string]interface{}{"error": "not found"}}, nil
+		}
+	})
+
+	// serial 全成功
+	result, err := service.aiRunBatch(batchReq(), map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{"name": "first", "path": "/health", "method": "GET"},
+			map[string]interface{}{"name": "second", "path": "/health", "method": "GET"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("aiRunBatch err: %v", err)
+	}
+	payload := result.(map[string]interface{})
+	if total, _ := payload["total"].(int); total != 2 {
+		t.Fatalf("expected total 2, got %d", total)
+	}
+	if failed, _ := payload["failed"].(int); failed != 0 {
+		t.Fatalf("expected 0 failed, got %d", failed)
+	}
+	items := payload["items"].([]map[string]interface{})
+	if items[0]["name"] != "first" || items[0]["ok"] != true {
+		t.Fatalf("unexpected item0: %#v", items[0])
+	}
+	if items[1]["ok"] != true {
+		t.Fatalf("unexpected item1: %#v", items[1])
+	}
+
+	// 单个失败不中断整批
+	result2, err := service.aiRunBatch(batchReq(), map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{"path": "/health"},
+			map[string]interface{}{"path": "/api/does-not-exist"},
+			map[string]interface{}{"path": "/health"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("aiRunBatch batch2 err: %v", err)
+	}
+	p2 := result2.(map[string]interface{})
+	if failed, _ := p2["failed"].(int); failed != 1 {
+		t.Fatalf("expected 1 failed, got %d", failed)
+	}
+	if total, _ := p2["total"].(int); total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+
+	// stopOnError 短路
+	result3, err := service.aiRunBatch(batchReq(), map[string]interface{}{
+		"mode":        "serial",
+		"stopOnError": true,
+		"operations": []interface{}{
+			map[string]interface{}{"path": "/health"},
+			map[string]interface{}{"path": "/api/does-not-exist"},
+			map[string]interface{}{"path": "/health"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("aiRunBatch batch3 err: %v", err)
+	}
+	p3 := result3.(map[string]interface{})
+	items3 := p3["items"].([]map[string]interface{})
+	if len(items3) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items3))
+	}
+	if items3[1]["ok"] != false || items3[2]["ok"] != false {
+		t.Fatalf("expected stopOnError to mark later ops failed: %#v", items3)
+	}
+
+	// 写操作被注入 caller 拒绝，且复用调用约束
+	result4, err := service.aiRunBatch(batchReq(), map[string]interface{}{
+		"mode": "parallel",
+		"operations": []interface{}{
+			map[string]interface{}{"path": "/health", "method": "GET"},
+			map[string]interface{}{"path": "/health", "method": "POST"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("aiRunBatch batch4 err: %v", err)
+	}
+	p4 := result4.(map[string]interface{})
+	if failed, _ := p4["failed"].(int); failed != 1 {
+		t.Fatalf("expected 1 failed in parallel batch, got %d", failed)
+	}
+
+	// 超限拒绝
+	if _, err := service.aiRunBatch(batchReq(), map[string]interface{}{
+		"operations": []interface{}{map[string]interface{}{"path": "/health"}},
+	}); err == nil {
+		// 1 个操作不应报错
+	} else {
+		t.Fatalf("unexpected error for single op: %v", err)
+	}
+	tooMany := make([]interface{}, 21)
+	for i := range tooMany {
+		tooMany[i] = map[string]interface{}{"path": "/health"}
+	}
+	if _, err := service.aiRunBatch(batchReq(), map[string]interface{}{"operations": tooMany}); err == nil {
+		t.Fatal("expected error for >20 operations")
+	}
+
+	// 子操作审计入库：run_batch.<index> 记录应存在于 ai_access_audit。
+	db, err := service.store.Open(context.Background())
+	if err != nil {
+		t.Fatalf("store open err: %v", err)
+	}
+	defer db.Close()
+	var auditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ai_access_audit WHERE action LIKE 'run_batch.%'`).Scan(&auditCount); err != nil {
+		t.Fatalf("audit query err: %v", err)
+	}
+	if auditCount < 4 {
+		t.Fatalf("expected >=4 run_batch audit rows, got %d", auditCount)
+	}
+}
+
+func TestAIRouteIndexResource(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
+	payload := service.routeIndexPayload("")
+	total, _ := payload["count"].(int)
+	if total <= 0 {
+		t.Fatalf("expected route index count > 0, got %d", total)
+	}
+	routes := payload["routes"].([]map[string]interface{})
+	if len(routes) != total {
+		t.Fatalf("routes length %d != count %d", len(routes), total)
+	}
+	if _, ok := routes[0]["path"].(string); !ok {
+		t.Fatalf("expected route path string: %#v", routes[0])
+	}
+	if _, ok := routes[0]["desc"].(string); !ok {
+		t.Fatalf("expected route desc string: %#v", routes[0])
+	}
+
+	// 分组分片：取一个存在的分组，返回的路由都属于该分组。
+	groups := payload["groups"].(map[string]int)
+	var sampleGroup string
+	for g, n := range groups {
+		if n > 0 {
+			sampleGroup = g
+			break
+		}
+	}
+	if sampleGroup == "" {
+		t.Fatal("expected at least one route group")
+	}
+	slice := service.routeIndexPayload(sampleGroup)
+	sliceRoutes := slice["routes"].([]map[string]interface{})
+	if len(sliceRoutes) == 0 {
+		t.Fatalf("expected non-empty group slice for %q", sampleGroup)
+	}
+	for _, r := range sliceRoutes {
+		if r["group"] != sampleGroup {
+			t.Fatalf("route group %v not expected %q", r["group"], sampleGroup)
+		}
+	}
+	if g, _ := slice["group"].(string); g != sampleGroup {
+		t.Fatalf("expected slice group %q, got %q", sampleGroup, g)
+	}
+
+	// 资源可通过 MCP resources/read 读取（全量与分组）
+	res, err := service.mcpReadResource(req, "api-monitor://route-index")
+	if err != nil {
+		t.Fatalf("mcpReadResource err: %v", err)
+	}
+	contents := res.(map[string]interface{})["contents"].([]map[string]interface{})
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+
+	groupRes, err := service.mcpReadResource(req, "api-monitor://route-index/"+sampleGroup)
+	if err != nil {
+		t.Fatalf("mcpReadResource group err: %v", err)
+	}
+	groupContents := groupRes.(map[string]interface{})["contents"].([]map[string]interface{})
+	if len(groupContents) != 1 {
+		t.Fatalf("expected 1 group content, got %d", len(groupContents))
+	}
+
+	if _, err := service.mcpReadResource(req, "api-monitor://route-index/"); err == nil {
+		t.Fatal("expected error for empty group resource uri")
+	}
+}
+
+// TestApiStatsTrafficCycleMatchesPanel 验证仪表盘 API 趋势的顶层 traffic 采用
+// 「当前周期 cycles 累计」（与订阅面板同口径），而 trend 逐日仍来自 hourly：
+// 即便 30 天 hourly 窗口只有部分数据，顶部总额也不与订阅面板打架。
+func TestApiStatsTrafficCycleMatchesPanel(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_traffic_cycle_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	service := New(config.Config{DataDir: tempDir, DBName: "data.db"})
+	defer service.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_cycles (
+		subscription_id TEXT NOT NULL, cycle_start TEXT NOT NULL, cycle_end TEXT NOT NULL DEFAULT '',
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(subscription_id, cycle_start))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_hourly (
+		server_id TEXT NOT NULL, node_id TEXT NOT NULL, subscription_id TEXT NOT NULL, hour TEXT NOT NULL,
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		reported_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(server_id,node_id,subscription_id,hour))`); err != nil {
+		t.Fatal(err)
+	}
+	// 周期累计（面板口径）：未来月窗口覆盖 now，总额 upload10+download20=30。
+	nowUTC := time.Now().UTC()
+	cycleStart := nowUTC.AddDate(0, -1, 0).Format(time.RFC3339)
+	cycleEnd := nowUTC.AddDate(0, 1, 0).Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)
+		VALUES('sub-1',?,?,10,20,datetime('now'))`, cycleStart, cycleEnd); err != nil {
+		t.Fatal(err)
+	}
+	// 今日 hourly（趋势口径）：upload5+download7=12，远小于周期累计。
+	hour := nowUTC.Truncate(time.Hour).Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes,reported_at)
+		VALUES('srv','node','sub-1',?,5,7,datetime('now'))`, hour); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	stats, err := service.apiStats(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 顶层 traffic = 当前周期累计 30（与订阅面板一致），而不是 hourly 窗口合计 12。
+	if got := stats["traffic"].(int64); got != 30 {
+		t.Fatalf("top-level traffic = %d, want cycle total 30", got)
+	}
+	// trend 逐日仍来自 hourly：今天桶 = 12。
+	trend, ok := stats["trend"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("trend type = %T", stats["trend"])
+	}
+	foundToday := false
+	for _, item := range trend {
+		if item["bucket"] == nowUTC.Format("2006-01-02") {
+			foundToday = true
+			if got := item["traffic"].(int64); got != 12 {
+				t.Fatalf("today trend traffic = %d, want hourly 12", got)
+			}
+		}
+	}
+	if !foundToday {
+		t.Fatal("today bucket missing from trend")
+	}
+}
+
+// TestValidateAIAgentBearerKey 验证 Bearer 密钥校验的接受与拒绝路径：
+// 正确密钥通过；同长度、异长度错误密钥以及缺失头一律拒绝。
+func TestValidateAIAgentBearerKey(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "api_monitor_ai_bearer_test_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Config{DataDir: tempDir, DBName: "data.db", Version: "test"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/api/system/ai-access", nil)
+	overview, err := service.aiAccessOverview(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedKey := overview["agentKey"].(map[string]interface{})["value"].(string)
+	if expectedKey == "" {
+		t.Fatal("expected agent key")
+	}
+
+	db, err := service.store.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	valid := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	valid.Header.Set("Authorization", "Bearer "+expectedKey)
+	if !service.validateAIAgent(valid, db) {
+		t.Fatal("correct bearer key must validate")
+	}
+
+	wrongSameLength := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	wrongSameLength.Header.Set("Authorization", "Bearer "+strings.Repeat("x", len(expectedKey)))
+	if service.validateAIAgent(wrongSameLength, db) {
+		t.Fatal("same-length wrong key must be rejected")
+	}
+
+	wrongDifferentLength := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	wrongDifferentLength.Header.Set("Authorization", "Bearer "+expectedKey[:len(expectedKey)-2])
+	if service.validateAIAgent(wrongDifferentLength, db) {
+		t.Fatal("different-length wrong key must be rejected")
+	}
+
+	missing := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	if service.validateAIAgent(missing, db) {
+		t.Fatal("missing authorization header must be rejected")
+	}
+
+	malformed := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/manifest", nil)
+	malformed.Header.Set("Authorization", "Basic "+expectedKey)
+	if service.validateAIAgent(malformed, db) {
+		t.Fatal("non-bearer authorization must be rejected")
 	}
 }

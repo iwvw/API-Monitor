@@ -27,12 +27,14 @@ func testService(t *testing.T) (*Service, *sql.DB) {
 		DataDir: t.TempDir(),
 		DBName:  "data.db",
 	})
-	t.Cleanup(service.Stop)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		service.Stop()
+		_ = db.Close()
+	})
 	return service, db
 }
 
@@ -85,6 +87,9 @@ func TestDeleteAccountForceCascadesPanelRecordsAndStatusPageMembership(t *testin
 	if _, err := db.Exec(`INSERT INTO subscription_usage_report_keys(server_id,node_id,subscription_id,boot_id,sequence) VALUES('clean-host','clean-node','cascade-sub','boot',1)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes) VALUES('clean-host','clean-node','cascade-sub','2026-07-01T12:00:00Z',1,2)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`INSERT INTO server_status_pages(slug,title,server_ids_json) VALUES('cascade-page','级联页','["clean-host","other-host"]')`); err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +139,7 @@ func TestDeleteAccountForceCascadesPanelRecordsAndStatusPageMembership(t *testin
 		`SELECT COUNT(*) FROM server_proxy_traffic_reports WHERE server_id='clean-host'`,
 		`SELECT COUNT(*) FROM subscription_usage_reports WHERE server_id='clean-host'`,
 		`SELECT COUNT(*) FROM subscription_usage_report_keys WHERE server_id='clean-host'`,
+		`SELECT COUNT(*) FROM subscription_usage_hourly WHERE server_id='clean-host'`,
 	} {
 		var count int
 		if err := db.QueryRow(query).Scan(&count); err != nil || count != 0 {
@@ -164,6 +170,7 @@ func TestDeleteManagedNodeRemovesRelationsAndRawTrafficHistory(t *testing.T) {
 		`INSERT INTO subscription_runtime_reconcile(node_id,state) VALUES('deleted-node','pending')`,
 		`INSERT INTO subscription_usage_reports(server_id,node_id,subscription_id,credential_id,boot_id,sequence) VALUES('node-host','deleted-node','node-sub','node-sub','boot',1)`,
 		`INSERT INTO subscription_usage_report_keys(server_id,node_id,subscription_id,boot_id,sequence) VALUES('node-host','deleted-node','node-sub','boot',1)`,
+		`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes) VALUES('node-host','deleted-node','node-sub','2026-07-01T12:00:00Z',1,2)`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("fixture %q: %v", statement, err)
@@ -177,6 +184,7 @@ func TestDeleteManagedNodeRemovesRelationsAndRawTrafficHistory(t *testing.T) {
 		`SELECT COUNT(*) FROM subscription_runtime_reconcile WHERE node_id='deleted-node'`,
 		`SELECT COUNT(*) FROM subscription_usage_reports WHERE node_id='deleted-node'`,
 		`SELECT COUNT(*) FROM subscription_usage_report_keys WHERE node_id='deleted-node'`,
+		`SELECT COUNT(*) FROM subscription_usage_hourly WHERE node_id='deleted-node'`,
 	} {
 		var count int
 		if err := db.QueryRowContext(ctx, query).Scan(&count); err != nil || count != 0 {
@@ -2205,6 +2213,84 @@ func TestAgentSocketAuthenticationRequiresValidServerAndKey(t *testing.T) {
 	}
 }
 
+func TestAnonymousSessionCannotForgeAgentState(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status) VALUES
+		('anon-agent', 'anon', '0.0.0.0', 'agent', 'password', 'offline')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	anonSession := &EngineIOSession{ID: "anon", PendingMessages: []string{}}
+	service.engineIO.mu.Lock()
+	service.engineIO.sessions[anonSession.ID] = anonSession
+	service.engineIO.mu.Unlock()
+
+	service.engineIO.handleSocketIOMessage(anonSession, `2["agent:state",{"server_id":"anon-agent","cpu":99,"memory":99,"disk_usage":99}]`)
+	service.engineIO.handleSocketIOMessage(anonSession, `2["agent:heartbeat",{"server_id":"anon-agent","ts":1}]`)
+	service.engineIO.handleSocketIOMessage(anonSession, `2["agent:host_info",{"server_id":"anon-agent","hostname":"spoofed"}]`)
+
+	var status, cachedInfo string
+	err = db.QueryRowContext(context.Background(), `SELECT status, COALESCE(cached_info,'') FROM server_accounts WHERE id = 'anon-agent'`).Scan(&status, &cachedInfo)
+	if err != nil {
+		t.Fatalf("lookup account: %v", err)
+	}
+	if status != "offline" {
+		t.Fatalf("anonymous agent:state must not mark host online, status=%q", status)
+	}
+	if cachedInfo != "" {
+		t.Fatalf("anonymous agent:state must not persist cached_info, got %q", cachedInfo)
+	}
+	if anonSession.Authenticated {
+		t.Fatal("anonymous session must stay unauthenticated")
+	}
+	if _, exists := service.registry.Get("anon-agent"); exists {
+		t.Fatal("anonymous session must not register an agent connection")
+	}
+}
+
+func TestAuthenticatedSessionStateUpdatesHost(t *testing.T) {
+	service, db := testService(t)
+	service.realtimePersistInterval = 50 * time.Millisecond
+	service.presence = nil
+	service.registry = NewConnectionRegistry()
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status) VALUES
+		('real-agent', 'real', '0.0.0.0', 'agent', 'password', 'offline')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES ('global_agent_key', 'good-key', datetime('now'))`); err != nil {
+		t.Fatalf("insert key: %v", err)
+	}
+
+	authSession := &EngineIOSession{ID: "auth", PendingMessages: []string{}}
+	service.engineIO.mu.Lock()
+	service.engineIO.sessions[authSession.ID] = authSession
+	service.engineIO.mu.Unlock()
+	service.engineIO.handleSocketIOMessage(authSession, `2["agent:connect",{"server_id":"real-agent","key":"good-key","hostname":"real"}]`)
+	if !authSession.Authenticated || authSession.ServerID != "real-agent" {
+		t.Fatalf("session should be authenticated: %#v", authSession)
+	}
+
+	service.engineIO.handleSocketIOMessage(authSession, `2["agent:state",{"server_id":"real-agent","cpu":42,"memory":50,"disk_usage":30}]`)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var status string
+		err := db.QueryRowContext(context.Background(), `SELECT status FROM server_accounts WHERE id = 'real-agent'`).Scan(&status)
+		if err != nil {
+			t.Fatalf("lookup account: %v", err)
+		}
+		if status == "online" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("authenticated agent:state should mark host online, status=%q", status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func TestAgentCredentialsAreScopedPerServer(t *testing.T) {
 	service, db := testService(t)
 	for _, id := range []string{"agent-a", "agent-b"} {
@@ -2605,6 +2691,14 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	res = perform(service, http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/bad-key", "")
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("bad keyed linux install status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	res = perform(service, http.MethodGet, "/api/server/agent/install/linux/"+serverID, "")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("keyless linux install must not exist: status=%d body=%s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "AGENT_KEY=") {
+		t.Fatalf("keyless linux install must not leak agent key: %s", res.Body.String())
 	}
 
 	var name, host, username, monitorMode string
@@ -3339,6 +3433,14 @@ func TestDetectDangerousCommandVariants(t *testing.T) {
 		"rm -i -rf /tmp/x",
 		"rm --recursive --force /tmp/x",
 		"rm --force --recursive /tmp/x",
+		// 主机级关机/重启命令（作为命令名时应拦截）
+		"shutdown -h now",
+		"sudo shutdown now",
+		"reboot",
+		"/sbin/poweroff",
+		"systemctl halt",
+		"&& shutdown",
+		"Stop-Computer -Force",
 	}
 	shouldAllow := []string{
 		"echo hello",
@@ -3348,6 +3450,10 @@ func TestDetectDangerousCommandVariants(t *testing.T) {
 		"ls -la",
 		"systemctl status sshd",
 		"uname -a",
+		// WSL 子系统操作不应误判为主机级关机
+		"wsl --shutdown",
+		"wsl.exe --shutdown",
+		"wsl --terminate Debian-13",
 	}
 	for _, c := range shouldBlock {
 		if !DetectDangerousCommand(c).Dangerous {

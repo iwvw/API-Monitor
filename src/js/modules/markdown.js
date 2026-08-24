@@ -9,6 +9,15 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
 /**
+ * DOMPurify 允许的 URI 白名单：
+ * 放行 http(s)/ftp/mailto/tel/callto/cid/xmpp 协议与
+ * data:image/(png|jpe?g|gif|webp|bmp|avif|ico)[;,] 位图 data URL（Base64 图片预览）；
+ * javascript:/vbscript:/data:text/html 等一律拦截。
+ */
+export const ALLOWED_URI_REGEXP =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp:|data:image\/(?:png|jpe?g|gif|webp|bmp|avif|ico)[;,])|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
+/**
  * 渲染 Markdown 为 HTML (安全模式)
  */
 export function renderMarkdown(text) {
@@ -94,9 +103,9 @@ export function renderMarkdown(text) {
     return DOMPurify.sanitize(rawHtml, {
       ADD_ATTR: ['target', 'title', 'rel', 'open', 'class', 'style', 'aria-hidden', 'viewBox', 'd', 'fill'],
       ADD_TAGS: ['a', 'img', 'div', 'details', 'summary', 'i', 'span', 'svg', 'path', 'math', 'semantics', 'mrow', 'annotation', 'mstyle', 'mo', 'mi', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'root', 'mtd', 'mtr', 'mtable'],
-      // 允许 data: 协议以便查看 Base64 图片
-      ALLOWED_URI_REGEXP:
-        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+      // 允许 data:image/ 位图（Base64 图片预览）；data:text/html 与
+      // data:image/svg+xml 等可执行脚本的 data URL 一律不放行。
+      ALLOWED_URI_REGEXP,
     });
   } catch (e) {
     console.error('Markdown 解析失败:', e);

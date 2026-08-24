@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
@@ -49,12 +52,25 @@ type Service struct {
 	aiCaller   AICaller
 	apiKeys    *apikeys.Manager
 	alertState alertState
+	statusHub  *statusHub
+
+	apiStatsMu        sync.Mutex
+	apiStatsCacheDays int
+	apiStatsCacheAt   time.Time
+	apiStatsCacheVal  map[string]interface{}
 }
 
 type APICounters struct {
 	Audit int64 `json:"audit"`
 	Ops   int64 `json:"ops"`
 }
+
+const (
+	defaultApiStatsDays = 14
+	minApiStatsDays     = 1
+	maxApiStatsDays     = 90
+	apiStatsCacheTTL    = 60 * time.Second
+)
 
 func (s *Service) SetNotifier(n Notifier) {
 	s.notifier = n
@@ -72,6 +88,7 @@ func New(cfg config.Config) *Service {
 		apiKeys:    apikeys.New(cfg),
 		statsCache: make(map[string]*APICounters),
 		stopChan:   make(chan struct{}),
+		statusHub:  newStatusHub(),
 	}
 
 	s.wg.Add(1)
@@ -79,6 +96,9 @@ func New(cfg config.Config) *Service {
 
 	s.wg.Add(1)
 	go s.runHostMonitorLoop()
+
+	s.wg.Add(1)
+	go s.runStatusBroadcastLoop()
 
 	return s
 }
@@ -332,12 +352,22 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		payload, err := s.apiStats()
+		days := defaultApiStatsDays
+		if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d >= minApiStatsDays && d <= maxApiStatsDays {
+			days = d
+		}
+		payload, err := s.apiStats(days)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		response.OK(w, payload)
+	case "/api/system/status/stream":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.serveStatusStream(w, r)
 	case "/api/system/api-docs":
 		if r.Method != http.MethodGet {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -369,6 +399,28 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		payload, err := s.setAIAgentWriteEnabled(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/system/ai-access/policy":
+		if r.Method != http.MethodPut {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.setAIAgentAccessPolicy(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/ai-access/policy":
+		if r.Method != http.MethodPut {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		payload, err := s.setAIAgentAccessPolicy(r)
 		if err != nil {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
@@ -667,9 +719,74 @@ func (s *Service) apiDocs() map[string]interface{} {
 	}
 }
 
+// openapiCompactDocument 生成精简版 OpenAPI（MCP get_openapi 使用）：
+// 只保留 path → method → {summary, tags, auth}，剔除 schema/示例等大字段。
+// 完整文档仍可经 /api/system/openapi.json HTTP 面获取。
+// 用途：AI 在有限上下文中快速扫描全部接口而不被 600KB 文档撑爆。
+func (s *Service) openapiCompactDocument(r *http.Request) map[string]interface{} {
+	paths := map[string]interface{}{}
+	for _, route := range s.apiDocs()["routes"].([]apiDocRoute) {
+		rest := strings.TrimPrefix(route.Prefix, "/api/")
+		if route.MatchMode == manifest.MatchPrefix && rest != route.Prefix && !strings.HasPrefix(route.Prefix, "/sub") && !strings.HasPrefix(route.Prefix, "/v1") {
+			continue
+		}
+		switch route.Prefix {
+		case "/api/auth/2fa", "/api/auth/webauthn/login", "/api/server/v2/docker", "/v1":
+			continue
+		}
+		methods := route.Methods
+		if len(methods) == 0 {
+			methods = []string{"GET"}
+		}
+		operations := map[string]interface{}{}
+		// summary 用分组名而非完整描述：路由补齐后描述文本会让 compact 文档
+		// 超 64KB 预算（撑爆 AI 上下文）。分组名保留「所属模块」语义且极短。
+		group := route.Group
+		if len([]rune(group)) > 24 {
+			group = string([]rune(group)[:24]) + "…"
+		}
+		for _, method := range methods {
+			operations[strings.ToLower(method)] = map[string]interface{}{
+				"summary": group,
+			}
+		}
+		paths[route.Prefix] = operations
+	}
+
+	scheme := "http"
+	if r != nil && r.TLS != nil {
+		scheme = "https"
+	}
+	serverURL := "/"
+	if r != nil && r.Host != "" {
+		serverURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+	}
+	return map[string]interface{}{
+		"openapi": "3.1.0",
+		"info": map[string]interface{}{
+			"title":       "API Monitor",
+			"version":     s.cfg.Version,
+			"description": "精简接口清单（路径与方法）；完整契约请用 get_route 或 /api/system/openapi.json 获取",
+		},
+		"servers": []map[string]interface{}{{"url": serverURL}},
+		"paths":   paths,
+	}
+}
+
 func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 	paths := map[string]interface{}{}
 	for _, route := range s.apiDocs()["routes"].([]apiDocRoute) {
+		// 家族前缀聚合路由（MatchPrefix，如 /api/aliyun、/api/auth/2fa、/api/server/v2/docker）
+		// 仅作路由匹配声明，不是可调用端点：OpenAPI 不展开其操作，避免文档/巡检误报。
+		rest := strings.TrimPrefix(route.Prefix, "/api/")
+		if route.MatchMode == manifest.MatchPrefix && rest != route.Prefix && !strings.HasPrefix(route.Prefix, "/sub") && !strings.HasPrefix(route.Prefix, "/v1") {
+			continue
+		}
+		// 补充登记为 MatchPattern 的裸聚合入口同样无可调用语义，显式排除。
+		switch route.Prefix {
+		case "/api/auth/2fa", "/api/auth/webauthn/login", "/api/server/v2/docker", "/v1":
+			continue
+		}
 		methods := route.Methods
 		if len(methods) == 0 {
 			methods = []string{"GET"}
@@ -872,7 +989,7 @@ func routeGroup(route manifest.Route) string {
 	case strings.HasPrefix(prefix, "/api/github"):
 		return "GitHub"
 	// 主机实例
-	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/ws/agent-terminal"), strings.HasPrefix(prefix, "/socket.io"):
+	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/api/onepanel"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/ws/agent-terminal"), strings.HasPrefix(prefix, "/socket.io"):
 		return "主机实例"
 	// PaaS
 	case strings.HasPrefix(prefix, "/api/koyeb"), strings.HasPrefix(prefix, "/api/flyio"):
@@ -1032,12 +1149,73 @@ func inferRouteMethods(route manifest.Route) []string {
 		}
 		return []string{"GET"}
 	}
+	// 描述中显式标注的方法（如「获取安装命令（GET）或发送命令执行（POST）」）
+	// 优先于一切推断：这是路由作者写下的真实方法集合，中文描述也不会漏掉。
+	if annotated := methodsFromAnnotations(route.Description); len(annotated) > 0 {
+		return annotated
+	}
 	switch route.Prefix {
 	case "/api/settings":
 		return []string{"GET", "POST", "PATCH"}
 	case "/api/auth/login", "/api/auth/logout", "/api/auth/set-password", "/api/auth/verify-password", "/api/auth/change-password", "/api/auth/2fa/setup", "/api/auth/2fa/enable", "/api/auth/2fa/disable", "/api/system/ai-access/key/rotate", "/api/ai-access/key/rotate", "/api/backup/run", "/api/backup/restore":
 		return []string{"POST"}
 	case "/api/auth/check-password", "/api/auth/session", "/api/auth/2fa/status", "/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json":
+		return []string{"GET"}
+	case "/api/admin-ai/cron/daily-briefing":
+		return []string{"GET"}
+	case "/api/admin-ai/cron/task-run":
+		return []string{"POST"}
+	// 操作型子路由：显式登记真实方法，避免 MatchPattern 默认推断 4 方法导致巡检/文档误报。
+	case "/api/openai/endpoints/{id}/proxy-state":
+		return []string{"GET"}
+	case "/api/prompts/entries/{id}/publish":
+		return []string{"POST"}
+	case "/api/onepanel/{serverId}/openresty/reload":
+		return []string{"POST"}
+	case "/api/server/agent/auto-install/{id}":
+		return []string{"POST"}
+	case "/api/server/agent/proxy/runtimes":
+		return []string{"GET", "POST"}
+	case "/api/server/agent/proxy/runtimes/{id}/{action}":
+		return []string{"POST"}
+	case "/api/server/public/status-page-by-domain", "/api/server/public/status-pages/{slug}":
+		return []string{"GET"}
+	case "/api/aliyun/accounts/{id}/metrics":
+		return []string{"POST"}
+	case "/api/aliyun/accounts/{id}/records/{recordId}/status":
+		return []string{"PUT"}
+	case "/api/tencent/accounts/{id}/domains/{domain}/records/{recordId}/status":
+		return []string{"PATCH"}
+	case "/api/server/monitor/collect":
+		return []string{"POST"}
+	// 云厂商/托管面板的操作型子路由：真实仅 POST（或 GET+POST），
+	// 显式登记避免 MatchPattern 默认 4 方法导致 OpenAPI/巡检误报 GET。
+	case "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/purge",
+		"/api/cloudflare/accounts/{accountId}/zones/{zoneId}/batch",
+		"/api/cloudflare/accounts/{accountId}/zones/{zoneId}/switch",
+		"/api/cloudflare/accounts/{id}/verify",
+		"/api/cloudflare/templates/{templateId}/apply",
+		"/api/flyio/apps/{appName}/redeploy",
+		"/api/flyio/apps/{appName}/rename",
+		"/api/flyio/apps/{appName}/update-image",
+		"/api/flyio/accounts/{id}/update-all-images",
+		"/api/github/history/compact",
+		"/api/github/repositories/{id}/refresh",
+		"/api/github/repositories/{id}/webhook/configure",
+		"/api/koyeb/services/{serviceId}/redeploy",
+		"/api/koyeb/services/{serviceId}/pause",
+		"/api/koyeb/services/{serviceId}/restart",
+		"/api/onepanel/{serverId}/websites/{id}/operate",
+		"/api/onepanel/{serverId}/apps/install",
+		"/api/onepanel/{serverId}/containers/operate",
+		"/api/onepanel/{serverId}/ssl/obtain",
+		"/api/onepanel/{serverId}/upgrade",
+		"/api/onepanel/{serverId}/databases/{id}/password",
+		"/api/onepanel/{serverId}/websites/{id}/nginx",
+		"/api/onepanel/{serverId}/websites/{id}/https",
+		"/api/onepanel/{serverId}/websites/{id}/proxy":
+		return []string{"POST"}
+	case "/api/koyeb/data":
 		return []string{"GET"}
 	}
 	description := strings.ToLower(route.Description)
@@ -1062,13 +1240,35 @@ func inferRouteMethods(route manifest.Route) []string {
 	case strings.Contains(description, "list"), strings.Contains(description, "status"), strings.Contains(description, "summary"), strings.Contains(description, "logs"), strings.Contains(description, "metrics"), strings.Contains(description, "history"), strings.Contains(description, "models"), strings.Contains(description, "analytics"), strings.Contains(description, "export"):
 		return []string{"GET"}
 	}
+	// 中文描述关键词：描述从英文迁到中文后英文匹配必然落空，需同步中文口径。
+	// 「列出」类基础 GET，叠加「新增/创建」得 GET+POST；纯「新增/创建/删除/
+	// 更新」各自归位。把握不大的词不放这里，交给显式标注或保守 GET 兜底。
+	zh := description
+	switch {
+	case strings.Contains(zh, "列出") || strings.Contains(zh, "查询列表"):
+		if strings.Contains(zh, "新增") || strings.Contains(zh, "创建") {
+			return []string{"GET", "POST"}
+		}
+		return []string{"GET"}
+	case strings.Contains(zh, "新增") || strings.Contains(zh, "创建"):
+		return []string{"POST"}
+	case strings.Contains(zh, "更新") || strings.Contains(zh, "修改"):
+		if strings.Contains(zh, "删除") || strings.Contains(zh, "清理") {
+			return []string{"PUT", "DELETE"}
+		}
+		return []string{"PUT"}
+	case strings.Contains(zh, "删除"):
+		return []string{"DELETE"}
+	}
 	switch route.MatchMode {
 	case manifest.MatchExact:
 		if strings.Contains(route.Description, "list") || strings.Contains(route.Description, "read") || strings.Contains(route.Description, "status") {
 			return []string{"GET"}
 		}
 	case manifest.MatchPattern:
-		return []string{"GET", "POST", "PUT", "DELETE"}
+		// 无法从描述推断的操作型子路由，保守只声明 GET：
+		// 全方法声明会让 AI 按错误方法调用（405），GET 至少可读。
+		return []string{"GET"}
 	}
 	if route.Owner == manifest.OwnerRetired {
 		return []string{"GET"}
@@ -1076,12 +1276,41 @@ func inferRouteMethods(route manifest.Route) []string {
 	if route.Auth == manifest.AuthPublic && (route.Prefix == "/health" || strings.Contains(route.Description, "status")) {
 		return []string{"GET"}
 	}
-	return []string{"GET", "POST", "PUT", "DELETE"}
+	// 兜底保守只读：宁可让写方法在真实调用时按 405 提示，
+	// 也不能让文档宣称的方法集合比实际大（AI 会照文档调用而失败）。
+	return []string{"GET"}
 }
 
-func (s *Service) apiStats() (map[string]interface{}, error) {
+// methodAnnotationPattern 匹配描述中的显式方法标注，
+// 如「获取安装命令（GET）或发送命令执行（POST）」，兼容全角/半角括号。
+var methodAnnotationPattern = regexp.MustCompile(`[（(](GET|POST|PUT|PATCH|DELETE)[）)]`)
+
+// methodsFromAnnotations 提取描述中显式标注的 HTTP 方法集合（去重保序）。
+// 空返回表示描述未标注任何方法。
+func methodsFromAnnotations(desc string) []string {
+	var methods []string
+	seen := map[string]bool{}
+	for _, match := range methodAnnotationPattern.FindAllStringSubmatch(desc, -1) {
+		up := strings.ToUpper(match[1])
+		if !seen[up] {
+			seen[up] = true
+			methods = append(methods, up)
+		}
+	}
+	return methods
+}
+
+func (s *Service) apiStats(days int) (map[string]interface{}, error) {
+	s.apiStatsMu.Lock()
+	if s.apiStatsCacheDays == days && time.Since(s.apiStatsCacheAt) < apiStatsCacheTTL {
+		cached := s.apiStatsCacheVal
+		s.apiStatsMu.Unlock()
+		return cached, nil
+	}
+	s.apiStatsMu.Unlock()
+
 	now := time.Now()
-	startDateStr := now.AddDate(0, 0, -6).Format("2006-01-02")
+	startDateStr := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1111,12 +1340,12 @@ func (s *Service) apiStats() (map[string]interface{}, error) {
 		dbData[date] = &APICounters{Audit: audit, Ops: ops}
 	}
 
-	trend := make([]map[string]interface{}, 0, 7)
+	trend := make([]map[string]interface{}, 0, days)
 	var totalAudit, totalOps int64
 
 	s.mu.Lock()
-	for i := 0; i < 7; i++ {
-		day := now.AddDate(0, 0, -6+i).Format("2006-01-02")
+	for i := 0; i < days; i++ {
+		day := now.AddDate(0, 0, -(days-1)+i).Format("2006-01-02")
 
 		var auditVal, opsVal int64
 		if dbVal, exists := dbData[day]; exists {
@@ -1140,9 +1369,10 @@ func (s *Service) apiStats() (map[string]interface{}, error) {
 	}
 	s.mu.Unlock()
 
-	// 汇总最近 7 天的词元用量（OpenAI 网关）与订阅实际用量（流量），并按天对齐趋势桶。
+	// 汇总最近 days 天的词元用量（OpenAI 网关）与订阅实际用量（流量），并按天对齐趋势桶。
 	var totalTokens, totalTraffic int64
-	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, now)
+	nowUTC := time.Now().UTC()
+	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, nowUTC, days)
 	for _, item := range trend {
 		bucket := item["bucket"].(string)
 		tokens := tokensByDay[bucket]
@@ -1152,7 +1382,19 @@ func (s *Service) apiStats() (map[string]interface{}, error) {
 		totalTokens += tokens
 		totalTraffic += traffic
 	}
-	return map[string]interface{}{
+	// 订阅流量的「主口径」= 全部订阅当前结算周期的累计用量（与订阅分发面板
+	// subscription_usage_cycles 同源），避免仪表盘顶部数字与订阅面板对不上。
+	// 逐日 trend 仍来自 subscription_usage_hourly（近 days 天窗口；hourly 聚合自
+	// 2026-08-13 新版 ledger 起才采集，更早的周期只有 cycles 累计、无逐日明细，
+	// 趋势图上缺失的早期日期属预期，顶部周期总量不受影响）。
+	var cycleTraffic int64
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(upload_bytes+download_bytes),0) FROM subscription_usage_cycles WHERE cycle_start <= ? AND cycle_end > ?`,
+		nowUTC.Format(time.RFC3339), nowUTC.Format(time.RFC3339)).Scan(&cycleTraffic); err == nil && cycleTraffic > 0 {
+		totalTraffic = cycleTraffic
+	} else if err != nil {
+		// 查询失败（如表尚未创建）不惩罚趋势图，保留 hourly 口径合计。
+	}
+	payload := map[string]interface{}{
 		"total": map[string]interface{}{
 			"audit": totalAudit,
 			"ops":   totalOps,
@@ -1161,13 +1403,22 @@ func (s *Service) apiStats() (map[string]interface{}, error) {
 		"trend":   trend,
 		"tokens":  totalTokens,
 		"traffic": totalTraffic,
-	}, nil
+	}
+
+	s.apiStatsMu.Lock()
+	s.apiStatsCacheDays = days
+	s.apiStatsCacheAt = time.Now()
+	s.apiStatsCacheVal = payload
+	s.apiStatsMu.Unlock()
+	return payload, nil
 }
 
-// systemUsageDaily 按天汇总最近 7 天的 OpenAI 网关词元消耗与订阅实际流量（上传+下载字节）。
-// 返回以 "2006-01-02" 为键的逐日用量表，缺失日期返回 0。
-func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time) (map[string]int64, map[string]int64) {
-	start := now.AddDate(0, 0, -6).Format("2006-01-02 15:04:05")
+// systemUsageDaily 按天汇总最近 days 天的 OpenAI 网关词元消耗与订阅实际流量（上传+下载字节）。
+// now 须为 UTC：两表时间列均以 UTC 文本存储，直接与列比较可命中索引，
+// 避免 datetime() 函数包裹导致全表扫描。返回以 "2006-01-02"（UTC 日）为键的逐日用量表，缺失日期返回 0。
+func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) (map[string]int64, map[string]int64) {
+	start := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02 15:04:05")
+	startRFC3339 := now.AddDate(0, 0, -(days - 1)).Format(time.RFC3339)
 	tokensByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
 		SELECT strftime('%Y-%m-%d', timestamp) AS day, COALESCE(SUM(total_tokens), 0)
@@ -1188,10 +1439,10 @@ func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time) (map[strin
 	}
 	trafficByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
-		SELECT strftime('%Y-%m-%d', reported_at) AS day, COALESCE(SUM(upload_bytes + download_bytes), 0)
-		FROM subscription_usage_reports
-		WHERE reported_at >= ?
-		GROUP BY day`, start); err != nil {
+		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(upload_bytes + download_bytes), 0)
+		FROM subscription_usage_hourly
+		WHERE hour >= ?
+		GROUP BY day`, startRFC3339); err != nil {
 		trafficByDay = nil
 	} else {
 		for rows.Next() {
@@ -1220,6 +1471,7 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 	diskUsage := readDiskUsage()
 	currentProcess := readProcessInfo(s.startedAt)
 
+	authTime := s.authoritativeTime()
 	return map[string]interface{}{
 		"hostname":      hostname(),
 		"platform":      nodePlatformName(runtime.GOOS),
@@ -1234,11 +1486,37 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 			"model":         cpuInfo.model,
 			"loadAverage":   readLoadAverage(),
 		},
-		"memory":    virtualMemory,
-		"disk":      diskUsage,
-		"process":   currentProcess,
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"memory":      virtualMemory,
+		"disk":        diskUsage,
+		"process":     currentProcess,
+		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
+		"serverTime":  authTime,
+		"displayTime": fmt.Sprintf("%s (%s)", authTime["local"], authTime["timezone"]),
 	}, nil
+}
+
+// authoritativeTime 返回站点设置的权威时间信息（供 AI 工具读取，避免模型凭记忆编造时间）。
+// 含 UTC 时刻、站点时区名与站点本地时间；读设置失败时回退服务器本地时区。
+func (s *Service) authoritativeTime() map[string]interface{} {
+	now := time.Now().UTC()
+	loc := time.Local
+	zone := "system"
+	db, err := s.store.Open(context.Background())
+	if err == nil {
+		zone = timeutil.ReadTimeZone(context.Background(), db)
+		_ = db.Close()
+		loc = timeutil.LocationFromName(zone)
+	}
+	return map[string]interface{}{
+		"utc":        now.Format(time.RFC3339Nano),
+		"timezone":   zone,
+		"local":      now.In(loc).Format("2006-01-02 15:04:05"),
+		"localISO":   now.In(loc).Format(time.RFC3339),
+		"weekday":    now.In(loc).Weekday().String(),
+		"date":       now.In(loc).Format("2006-01-02"),
+		"clock":      now.In(loc).Format("15:04:05"),
+		"note":       "时间以 serverTime 为准，禁止凭训练记忆推测当前时间",
+	}
 }
 
 type cpuDetails struct {

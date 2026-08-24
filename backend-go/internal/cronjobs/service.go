@@ -18,9 +18,12 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 	"github.com/robfig/cron/v3"
 )
 
@@ -28,6 +31,7 @@ const (
 	httpTaskTimeout  = 30 * time.Second
 	shellTaskTimeout = 5 * time.Minute
 	internalTimeout  = time.Minute
+	aiTaskTimeout    = 5 * time.Minute
 	maxLogOutput     = 5000
 )
 
@@ -42,6 +46,16 @@ type Service struct {
 	mu              sync.Mutex
 	client          *http.Client
 	agentRunner     AgentRunner
+	notifier        Notifier
+}
+
+// Notifier 是通知中心的最小接口，供任务/工作流执行结果事件通知。
+type Notifier interface {
+	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
+}
+
+func (s *Service) SetNotifier(notifier Notifier) {
+	s.notifier = notifier
 }
 
 type AgentRunner interface {
@@ -58,6 +72,7 @@ type Task struct {
 	LastRun   *int64 `json:"last_run"`
 	NextRun   *int64 `json:"next_run"`
 	CreatedAt int64  `json:"created_at"`
+	Config    string `json:"config"`
 }
 
 type Log struct {
@@ -72,28 +87,105 @@ type Log struct {
 }
 
 type taskPayload struct {
-	Name     *string `json:"name"`
-	Schedule *string `json:"schedule"`
-	Command  *string `json:"command"`
-	Type     *string `json:"type"`
-	Enabled  *int    `json:"enabled"`
-	LastRun  *int64  `json:"last_run"`
-	NextRun  *int64  `json:"next_run"`
+	Name     *string    `json:"name"`
+	Schedule *string    `json:"schedule"`
+	Command  *string    `json:"command"`
+	Type     *string    `json:"type"`
+	Enabled  *intOrBool `json:"enabled"`
+	LastRun  *int64     `json:"last_run"`
+	NextRun  *int64     `json:"next_run"`
+	Config   *string    `json:"config"`
 }
 
 func New(cfg config.Config) *Service {
 	service := &Service{
 		cfg:             cfg,
 		store:           database.New(cfg),
-		scheduler:       cron.New(),
 		entries:         map[int64]cron.EntryID{},
 		workflowEntries: map[int64]cron.EntryID{},
 		activeRuns:      map[int64]int{},
 		client:          &http.Client{},
 	}
+	service.scheduler = cron.New(cron.WithLocation(service.settingsLocation()))
 	service.scheduler.Start()
+	service.startTZWatcher()
 	_ = service.ReloadAll(context.Background())
 	return service
+}
+
+// settingsLocation 读取用户设置里的系统时区作为调度器时区，
+// 保证定时任务的执行时刻与站点设置一致（服务器部署海外时不再按服务器本地时间跑）。
+func (s *Service) settingsLocation() *time.Location {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return time.Local
+	}
+	defer db.Close()
+	return timeutil.LocationFromSettings(ctx, db)
+}
+
+// now 返回当前时间按设置时区的视角（与调度器同源），供预览/汇总等计算使用。
+func (s *Service) now() time.Time {
+	loc := s.schedulerLocation()
+	return time.Now().In(loc)
+}
+
+// schedulerLocation 优先取调度器已配置的时区；未初始化时回退服务器本地。
+func (s *Service) schedulerLocation() *time.Location {
+	if s == nil || s.scheduler == nil {
+		return time.Local
+	}
+	return s.scheduler.Location()
+}
+
+// rebuildIfLocationChangedLocked 在持 s.mu 前提下检测站点时区变化并重建调度器。
+// 时区设置没有跨包变更回调，ReloadAll 与 startTZWatcher 都经由这里兜底。
+func (s *Service) rebuildIfLocationChangedLocked(loc *time.Location) {
+	if loc == nil || loc == s.scheduler.Location() {
+		return
+	}
+	stopCtx := s.scheduler.Stop()
+	select {
+	case <-stopCtx.Done():
+	case <-time.After(2 * time.Second):
+	}
+	s.scheduler = cron.New(cron.WithLocation(loc))
+	s.scheduler.Start()
+}
+
+// startTZWatcher 每分钟核对一次站点时区；检测到变化时通过 ReloadAll 重建调度器，
+// 重新挂载全部任务/workflow（不能跳过 ReloadAll 只重建调度器，否则新调度器
+// 为空、存量 entry 全部静默消失）。
+func (s *Service) startTZWatcher() {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			db, err := s.store.Open(ctx)
+			if err != nil {
+				cancel()
+				continue
+			}
+			loc := timeutil.LocationFromSettings(ctx, db)
+			db.Close()
+			cancel()
+			if loc == nil {
+				continue
+			}
+			s.mu.Lock()
+			changed := loc != s.scheduler.Location()
+			s.mu.Unlock()
+			if !changed {
+				continue
+			}
+			if err := s.ReloadAll(context.Background()); err != nil {
+				slog.Warn("cron-tz-watcher-reload-failed", "err", err.Error())
+			}
+		}
+	}()
 }
 
 func (s *Service) SetAgentRunner(runner AgentRunner) {
@@ -174,6 +266,10 @@ func (s *Service) ReloadAll(ctx context.Context) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// 站点时区可能运行中被修改：与调度器当前时区不一致时重建调度器，
+	// 否则存量 entry 会一直按旧时区触发到进程重启（预览/下次运行时间同源错位）。
+	s.rebuildIfLocationChangedLocked(timeutil.LocationFromSettings(ctx, db))
 	for _, entryID := range s.entries {
 		s.scheduler.Remove(entryID)
 	}
@@ -219,10 +315,14 @@ func (s *Service) ReloadTask(ctx context.Context, id int64) error {
 }
 
 func (s *Service) scheduleTaskLocked(task Task) error {
-	if strings.TrimSpace(task.Schedule) == "" {
+	normalized, err := normalizeCronSchedule(task.Schedule)
+	if err != nil {
+		return err
+	}
+	if normalized == "" {
 		return fmt.Errorf("empty cron schedule")
 	}
-	entryID, err := s.scheduler.AddFunc(task.Schedule, func() {
+	entryID, err := s.scheduler.AddFunc(normalized, func() {
 		go s.ExecuteTask(context.Background(), task.ID)
 	})
 	if err != nil {
@@ -255,7 +355,11 @@ func (s *Service) ReloadWorkflow(ctx context.Context, id int64) error {
 }
 
 func (s *Service) scheduleWorkflowLocked(workflow Workflow) error {
-	entryID, err := s.scheduler.AddFunc(workflow.Schedule, func() {
+	normalized, err := normalizeCronSchedule(workflow.Schedule)
+	if err != nil {
+		return err
+	}
+	entryID, err := s.scheduler.AddFunc(normalized, func() {
 		go func(id int64) {
 			_, _ = s.executeWorkflow(context.Background(), id, "cron")
 		}(workflow.ID)
@@ -292,13 +396,26 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 		Schedule:  stringValue(payload.Schedule, ""),
 		Command:   stringValue(payload.Command, ""),
 		Type:      stringValue(payload.Type, "shell"),
-		Enabled:   intValue(payload.Enabled, 1),
+		Enabled:   intOrBoolValue(payload.Enabled, 1),
 		CreatedAt: time.Now().Unix(),
+	}
+	if payload.Config != nil {
+		task.Config = strings.TrimSpace(*payload.Config)
+	}
+	if task.Config != "" && !json.Valid([]byte(task.Config)) {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "config 必须是合法 JSON 字符串"})
+		return
 	}
 	if strings.TrimSpace(task.Name) == "" || strings.TrimSpace(task.Schedule) == "" || strings.TrimSpace(task.Command) == "" {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "name, schedule, and command are required"})
 		return
 	}
+	normalized, err := normalizeCronSchedule(task.Schedule)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid cron schedule")
+		return
+	}
+	task.Schedule = normalized
 
 	db, err := s.open(r.Context())
 	if err != nil {
@@ -324,6 +441,20 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request, idText stri
 	var payload taskPayload
 	if !decodeJSON(w, r, &payload) {
 		return
+	}
+	if payload.Schedule != nil {
+		normalized, err := normalizeCronSchedule(*payload.Schedule)
+		if err != nil {
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		payload.Schedule = &normalized
+	}
+	if payload.Config != nil {
+		if cfg := strings.TrimSpace(*payload.Config); cfg != "" && !json.Valid([]byte(cfg)) {
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "config 必须是合法 JSON 字符串"})
+			return
+		}
 	}
 	db, err := s.open(r.Context())
 	if err != nil {
@@ -467,6 +598,27 @@ func (s *Service) ExecuteTask(ctx context.Context, taskID int64) {
 		WHERE id = ?
 	`, status, output, endTime, duration, logID)
 	_, _ = db.ExecContext(context.Background(), `UPDATE cron_tasks SET last_run = ? WHERE id = ?`, endTime, task.ID)
+	s.notifyTaskResult(ctx, task, status, output, duration)
+}
+
+// notifyTaskResult 任务执行完成后触发通知中心事件（cron 源，task.completed / task.failed）。
+func (s *Service) notifyTaskResult(ctx context.Context, task SchedulerTask, status, output string, duration int64) {
+	if s.notifier == nil {
+		return
+	}
+	eventType := "task.completed"
+	if status != "success" {
+		eventType = "task.failed"
+	}
+	payload := map[string]interface{}{
+		"taskId":   task.ID,
+		"taskName": task.Name,
+		"status":   status,
+		"output":   truncateOutput(output),
+		"duration": duration,
+		"eventType": "cron." + eventType,
+	}
+	_ = s.notifier.Trigger(ctx, "cron", eventType, payload)
 }
 
 func (s *Service) executeTaskCommand(ctx context.Context, task Task) (string, error) {
@@ -502,6 +654,12 @@ func (s *Service) executeSchedulerTaskCommand(ctx context.Context, task Schedule
 		}
 		lastErr = err
 		history = append(history, fmt.Sprintf("第 %d 次尝试失败:\n%s", attempt, err.Error()))
+		// AI 任务单次执行即可能已产生非幂等副作用（独立会话、工具调用写操作、频道推送），
+		// 重试会整体重放这些副作用造成重复执行，因此失败后不再整体重试，
+		// 由下一次调度（或人工重跑）重新执行。
+		if task.Type == "ai" {
+			break
+		}
 		if attempt < attempts && task.RetryIntervalSeconds > 0 {
 			timer := time.NewTimer(time.Duration(task.RetryIntervalSeconds) * time.Second)
 			select {
@@ -526,6 +684,8 @@ func (s *Service) executeSchedulerTaskAttempt(ctx context.Context, task Schedule
 		return s.executeInternalTask(ctx, task.Command, timeout)
 	case "agent":
 		return s.executeAgentTask(ctx, task, timeout)
+	case "ai":
+		return s.executeAITask(ctx, task, timeout)
 	case "shell":
 		if !s.cfg.LocalShellTasksAllowed() {
 			return "", fmt.Errorf("本地 Shell 任务已在当前环境禁用，请显式设置 ALLOW_LOCAL_SHELL_TASKS=true")
@@ -545,6 +705,64 @@ func (s *Service) executeAgentTask(ctx context.Context, task SchedulerTask, time
 		return "", fmt.Errorf("Agent 任务需要选择在线 Agent 节点")
 	}
 	return s.agentRunner.RunCommandTaskAndWait(nodeID, task.Command, timeout)
+}
+
+// executeAITask 定时 AI 任务：经 X-Internal-Cron 调用管理 AI 内部接口，无头执行提示词
+// （默认策略「完全允许」写操作，仍受管理 AI 全局写开关约束），返回最终回复文本。
+func (s *Service) executeAITask(ctx context.Context, task SchedulerTask, timeout time.Duration) (string, error) {
+	cfg := map[string]interface{}{}
+	if strings.TrimSpace(task.Config) != "" {
+		_ = json.Unmarshal([]byte(task.Config), &cfg)
+	}
+	model, _ := cfg["model"].(string)
+	policy, _ := cfg["policy"].(string)
+	channelID, _ := cfg["channelId"].(string)
+	body, err := json.Marshal(map[string]interface{}{
+		"prompt":    task.Command,
+		"title":     task.Name, // 会话标题按任务名命名，便于前端/审计区分机器人会话
+		"model":     model,
+		"policy":    policy, // 留空由接口回退默认 allow
+		"channelId": channelID,
+	})
+	if err != nil {
+		return "", err
+	}
+	target := "http://127.0.0.1:" + strconv.Itoa(s.cfg.Port) + "/api/admin-ai/cron/task-run"
+	if timeout <= 0 {
+		timeout = aiTaskTimeout
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-Internal-Cron", "true")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, maxLogOutput))
+
+	var payload struct {
+		Output string `json:"output"`
+		Error  string `json:"error"`
+	}
+	if json.Unmarshal(raw, &payload) == nil && (payload.Output != "" || payload.Error != "") {
+		if res.StatusCode >= 400 || payload.Error != "" {
+			if payload.Error != "" {
+				return "", fmt.Errorf("AI 任务失败: %s", payload.Error)
+			}
+			return "", fmt.Errorf("AI 任务返回 HTTP %d", res.StatusCode)
+		}
+		return payload.Output, nil
+	}
+	if res.StatusCode >= 400 {
+		return "", fmt.Errorf("AI 任务返回 HTTP %d: %s", res.StatusCode, formatBody(raw))
+	}
+	return formatBody(raw), nil
 }
 
 func (s *Service) executeHTTPTask(ctx context.Context, target string, timeout time.Duration) (string, error) {
@@ -752,6 +970,7 @@ func ensureCronTaskColumns(ctx context.Context, db *sql.DB) error {
 		{"max_concurrency", "ALTER TABLE cron_tasks ADD COLUMN max_concurrency INTEGER DEFAULT 1"},
 		{"node_id", "ALTER TABLE cron_tasks ADD COLUMN node_id TEXT DEFAULT 'local'"},
 		{"node_selector", "ALTER TABLE cron_tasks ADD COLUMN node_selector TEXT DEFAULT ''"},
+		{"config", "ALTER TABLE cron_tasks ADD COLUMN config TEXT DEFAULT ''"},
 	}
 	for _, column := range columns {
 		exists, err := hasColumn(ctx, db, "cron_tasks", column.name)
@@ -792,7 +1011,7 @@ func hasColumn(ctx context.Context, db *sql.DB, tableName, columnName string) (b
 
 func loadTasks(ctx context.Context, db *sql.DB) ([]Task, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at
+		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at, config
 		FROM cron_tasks
 		ORDER BY created_at DESC
 	`)
@@ -813,7 +1032,7 @@ func loadTasks(ctx context.Context, db *sql.DB) ([]Task, error) {
 
 func findTask(ctx context.Context, db *sql.DB, id int64) (Task, bool, error) {
 	row := db.QueryRowContext(ctx, `
-		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at
+		SELECT id, name, schedule, command, type, enabled, last_run, next_run, created_at, config
 		FROM cron_tasks
 		WHERE id = ?
 	`, id)
@@ -836,7 +1055,8 @@ func scanTask(scanner taskScanner) (Task, error) {
 	var taskType sql.NullString
 	var enabled sql.NullInt64
 	var lastRun, nextRun sql.NullInt64
-	err := scanner.Scan(&task.ID, &task.Name, &task.Schedule, &task.Command, &taskType, &enabled, &lastRun, &nextRun, &task.CreatedAt)
+	var config sql.NullString
+	err := scanner.Scan(&task.ID, &task.Name, &task.Schedule, &task.Command, &taskType, &enabled, &lastRun, &nextRun, &task.CreatedAt, &config)
 	if err != nil {
 		return Task{}, err
 	}
@@ -844,14 +1064,15 @@ func scanTask(scanner taskScanner) (Task, error) {
 	task.Enabled = int(int64OrDefault(enabled, 1))
 	task.LastRun = int64Ptr(lastRun)
 	task.NextRun = int64Ptr(nextRun)
+	task.Config = stringOrDefault(config, "")
 	return task, nil
 }
 
 func insertTask(ctx context.Context, db *sql.DB, task Task) (Task, error) {
 	result, err := db.ExecContext(ctx, `
-		INSERT INTO cron_tasks (name, schedule, command, type, enabled, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, task.Name, task.Schedule, task.Command, task.Type, task.Enabled, task.CreatedAt)
+		INSERT INTO cron_tasks (name, schedule, command, type, enabled, created_at, config)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, task.Name, task.Schedule, task.Command, task.Type, task.Enabled, task.CreatedAt, task.Config)
 	if err != nil {
 		return Task{}, fmt.Errorf("create cron task: %w", err)
 	}
@@ -884,7 +1105,11 @@ func updateTaskFields(ctx context.Context, db *sql.DB, id int64, payload taskPay
 	}
 	if payload.Enabled != nil {
 		sets = append(sets, "enabled = ?")
-		args = append(args, *payload.Enabled)
+		args = append(args, int(*payload.Enabled))
+	}
+	if payload.Config != nil {
+		sets = append(sets, "config = ?")
+		args = append(args, strings.TrimSpace(*payload.Config))
 	}
 	if payload.LastRun != nil {
 		sets = append(sets, "last_run = ?")
@@ -1025,6 +1250,13 @@ func intValue(value *int, fallback int) int {
 		return fallback
 	}
 	return *value
+}
+
+func intOrBoolValue(value *intOrBool, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return int(*value)
 }
 
 func int64Ptr(value sql.NullInt64) *int64 {

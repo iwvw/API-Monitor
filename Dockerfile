@@ -51,7 +51,7 @@ RUN if [ "$USE_PREBUILT_FRONTEND" = "true" ]; then \
     test -f /app/dist/index.html && test -d /app/dist/assets
 
 # 阶段 2: 构建 Go 后端 (Go Backend Builder)
-FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.24 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.24 AS go-builder
 
 # 安装必要的构建工具
 RUN apk add --no-cache gcc musl-dev
@@ -134,10 +134,18 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL maintainer="iwvw"
 
 # 安装运行时依赖
+# shell 任务常用工具：curl（HTTP 探测）、bind-tools（dig）、openssl、bash、jq、zip、openssh（ssh/scp）
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     tini \
+    curl \
+    bind-tools \
+    openssl \
+    bash \
+    jq \
+    zip \
+    openssh-client \
     && apk upgrade --no-cache \
     && addgroup -g 1001 appuser \
     && adduser -D -u 1001 -G appuser appuser

@@ -176,14 +176,6 @@ func TestSettingsRoutesOwnDatabaseMaintenanceSlices(t *testing.T) {
 	if route.Owner != OwnerGo {
 		t.Fatalf("expected go owner for vacuum route, got %s", route.Owner)
 	}
-
-	route, ok = Match("/api/settings/clear-chat-messages")
-	if !ok {
-		t.Fatal("expected settings clear chat route match")
-	}
-	if route.Owner != OwnerGo {
-		t.Fatalf("expected go owner for clear chat route, got %s", route.Owner)
-	}
 }
 
 func TestSystemHostMetricsRouteIsGoOwned(t *testing.T) {

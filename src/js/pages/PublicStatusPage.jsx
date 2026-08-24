@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
-import { ChartPalette, TimeseriesChart } from '@cloudflare/kumo';
+import { ChartPalette } from '@cloudflare/kumo';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
+import { ChartWarmupSkeleton } from '../components/ui/AppPrimitives.jsx';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -90,7 +92,9 @@ const formatUptimePercent = (value, fallback = '100') => {
   if (value === null || value === undefined || value === '') return fallback;
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
-  return String(Math.round(numeric));
+  if (numeric >= 100) return '100';
+  // 保留两位小数并去掉末尾多余的 0，避免 99.84% 被四舍五入成 100%
+  return String(Math.round(numeric * 100) / 100);
 };
 
 const formatChartTime = (timestamp) => {
@@ -99,12 +103,7 @@ const formatChartTime = (timestamp) => {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
 
-const formatLatencyAxis = (value) => {
-  const latency = Number(value) || 0;
-  const abs = Math.abs(latency);
-  if (abs >= 1000) return `${(latency / 1000).toFixed(abs >= 10000 ? 0 : 1)}s`;
-  return `${Math.round(latency)}ms`;
-};
+const formatLatencyAxis = (value) => `${((Number(value) || 0) / 1000).toFixed(1)}s`;
 
 const getStateMeta = (state) => STATE_META[state] || STATE_META.unknown;
 
@@ -156,7 +155,7 @@ const heartbeatClass = (status) => {
 
 const isHttpUrl = (value) => /^https?:\/\//i.test(String(value || ''));
 
-function HeartbeatLatencyChart({ beats, isDarkMode }) {
+function HeartbeatLatencyChart({ beats, isDarkMode, loading = false }) {
   const chartData = useMemo(() => {
     const data = beats
       .slice(0, 60)
@@ -170,6 +169,10 @@ function HeartbeatLatencyChart({ beats, isDarkMode }) {
     }];
   }, [beats, isDarkMode]);
 
+  if (loading && chartData[0].data.length === 0) {
+    return <ChartWarmupSkeleton height={96} bars={10} />;
+  }
+
   if (chartData[0].data.length === 0) {
     return <div className="mt-2 text-xs text-kumo-subtle">暂无心跳记录</div>;
   }
@@ -181,16 +184,15 @@ function HeartbeatLatencyChart({ beats, isDarkMode }) {
         <span className="tabular-nums text-kumo-subtle">最近 {chartData[0].data.length} 次</span>
       </div>
       <div className="min-w-0 overflow-hidden" style={{ height: 96 }}>
-        <TimeseriesChart
+        <SiteFontTimeseriesChart
           echarts={echarts}
           data={chartData}
           height={96}
-          yAxisName="ms"
           isDarkMode={isDarkMode}
           xAxisTickCount={3}
           yAxisTickCount={3}
           yAxisTickFormat={formatLatencyAxis}
-          tooltipValueFormat={(value) => `${Math.round(value)} ms`}
+          tooltipValueFormat={(value) => `${((Number(value) || 0) / 1000).toFixed(1)}s`}
           xAxisTickFormat={formatChartTime}
           tooltipMode="single"
           gradient
@@ -310,6 +312,11 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
   const downCount = monitors.filter((item) => getStateMeta(item.state).tone === 'danger').length;
   const warningCount = monitors.filter((item) => getStateMeta(item.state).tone === 'warning').length;
   const operationalCount = monitors.length - downCount - warningCount;
+  // 数据最后刷新时间取各监测最新心跳时间，而非状态页配置的更新时间
+  const lastDataUpdate = monitors.reduce(
+    (latest, m) => (m.updatedAt && (!latest || m.updatedAt > latest) ? m.updatedAt : latest),
+    null
+  );
   const visibleMonitors = monitorFilter === 'up'
     ? monitors.filter((item) => getStateMeta(item.state).tone === 'success')
     : monitorFilter === 'down'
@@ -360,7 +367,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
               config={page?.config}
               isAuthenticated={isAuthenticated}
               onChange={updatePageIcon}
-              triggerClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-interact/80 bg-kumo-base text-kumo-brand"
+              triggerClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-interact/80 bg-kumo-base text-brand"
               iconClassName="h-5 w-5"
             />
             <div className="min-w-0">
@@ -424,7 +431,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
             <section className="public-status-card overflow-hidden rounded-lg border border-kumo-interact/80 bg-kumo-base">
               <div className="flex items-center justify-between gap-3 border-b border-kumo-interact/70 px-4 py-3">
                 <h2 className="text-sm font-bold text-kumo-strong">服务状态</h2>
-                <span className="text-xs text-kumo-subtle">24h 可用率</span>
+                <span className="text-xs text-kumo-subtle">30天可用率</span>
               </div>
               {monitors.length === 0 ? (
                 <div className="p-8 text-center text-sm text-kumo-subtle">这个状态页还没有绑定监测目标。</div>
@@ -457,7 +464,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                   href={targetUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="truncate text-base font-bold text-kumo-strong hover:text-kumo-brand hover:underline"
+                                  className="truncate text-base font-bold text-kumo-strong hover:text-brand hover:underline"
                                   onClick={(event) => event.stopPropagation()}
                                 >
                                   {monitor.name}
@@ -499,7 +506,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                 variant="secondary"
                                 className="h-7 w-[4.5rem] justify-center tabular-nums !text-[11px] font-semibold"
                               >
-                                {formatUptimePercent(monitor.uptime24h)}%
+                                {formatUptimePercent(monitor.uptime30d)}%
                               </Badge>
                             </div>
                           </div>
@@ -508,7 +515,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                           <div className="border-t border-kumo-interact/70 bg-kumo-recessed/30 px-4 py-3">
                             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem]">
                               <div className="min-w-0">
-                                <HeartbeatLatencyChart beats={heartbeats} isDarkMode={isDarkMode} />
+                                <HeartbeatLatencyChart beats={heartbeats} isDarkMode={isDarkMode} loading={loading} />
                               </div>
                               <div className="grid grid-cols-2 gap-2 lg:grid-cols-1 lg:self-start">
                                 <div className="rounded-md border border-kumo-interact/75 bg-kumo-base p-2">
@@ -517,7 +524,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                 </div>
                                 <div className="rounded-md border border-kumo-interact/75 bg-kumo-base p-2">
                                   <div className="text-[10px] text-kumo-subtle">30天可用率</div>
-                                  <div className="mt-1 tabular-nums text-sm font-bold text-kumo-strong">{formatUptimePercent(monitor.uptime30d, '--')}%</div>
+                                  <div className="mt-1 tabular-nums text-sm font-bold text-kumo-strong">{monitor.uptime30d ? `${formatUptimePercent(monitor.uptime30d)}%` : '--'}</div>
                                 </div>
                               </div>
                             </div>
@@ -536,7 +543,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                 <Shield className="h-3.5 w-3.5" />
                 由 API Monitor 提供
               </span>
-              <span>最后更新：{formatDateTime(page.updatedAt || page.createdAt)}</span>
+              <span>最后更新：{formatDateTime(lastDataUpdate || page.updatedAt || page.createdAt)}</span>
             </footer>
           </div>
         )}

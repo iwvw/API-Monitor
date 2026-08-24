@@ -338,8 +338,8 @@ function AuthStatusNotice({ statusKey, message }) {
       {message ? (
         <AuthErrorBanner message={message} />
       ) : status ? (
-        <div className="flex w-full items-center gap-2.5 rounded-lg border border-kumo-brand/35 bg-kumo-brand/10 p-3 text-kumo-brand">
-          <Loader size={16} className="shrink-0 text-kumo-brand" />
+        <div className="flex w-full items-center gap-2.5 rounded-lg border border-brand/35 bg-brand/10 p-3 text-brand">
+          <Loader size={16} className="shrink-0 text-brand" />
           <div className="text-xs font-bold leading-tight">{status}</div>
         </div>
       ) : null}
@@ -656,7 +656,6 @@ function AuthPage() {
             size="base"
             type="password"
             label="新密码"
-            placeholder="设置管理员密码"
             value={newPassword}
             onChange={event => {
               setSetupError('');
@@ -725,7 +724,7 @@ function AuthPage() {
           type={requiresSecondStep ? 'text' : 'password'}
           inputMode={requiresSecondStep ? 'numeric' : undefined}
           aria-label={requiresSecondStep ? '双因素验证码' : '管理员密码'}
-          placeholder={requiresSecondStep ? '000000' : '请输入管理员密码'}
+          placeholder={requiresSecondStep ? '000000' : '密码'}
           maxLength={requiresSecondStep ? 6 : undefined}
           value={requiresSecondStep ? loginTotpToken : loginPassword}
           onChange={event => {

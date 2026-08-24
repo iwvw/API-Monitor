@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -378,14 +379,15 @@ func (s *Service) domains(w http.ResponseWriter, r *http.Request, accountID stri
 	}
 	switch r.Method {
 	case http.MethodGet:
-		result, err := s.callTencent(r.Context(), "dnspod", stringValue(account["region_id"], defaultRegion), "DescribeDomainList", dnspodVersion, map[string]interface{}{})
+		// DNSPod 默认 Limit=100 截断，按 TotalCount 翻页拉全
+		domains, err := s.listAllDnspodPages(r.Context(), account, "DescribeDomainList", map[string]interface{}{},
+			[]string{"DomainList", "Domains", "domains"}, "DomainCount")
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "DescribeDomainList Failed: " + err.Error()})
 			return
 		}
-		domains := normalizeDomains(arrayValue(firstPresent(result, "DomainList", "Domains", "domains")))
-		total := firstNumber(result["DomainCount"], result["TotalCount"], len(domains))
-		response.JSON(w, http.StatusOK, map[string]interface{}{"Domains": domains, "domains": domains, "DomainList": domains, "total": total})
+		normalized := normalizeDomains(domains)
+		response.JSON(w, http.StatusOK, map[string]interface{}{"Domains": normalized, "domains": normalized, "DomainList": normalized, "total": len(normalized)})
 	case http.MethodPost:
 		payload, _ := readObject(r)
 		domain := strings.TrimSpace(firstNonEmpty(stringValue(payload["domain"], ""), stringValue(payload["domainName"], "")))
@@ -424,14 +426,15 @@ func (s *Service) domainRecords(w http.ResponseWriter, r *http.Request, accountI
 	}
 	switch r.Method {
 	case http.MethodGet:
-		result, err := s.callTencent(r.Context(), "dnspod", stringValue(account["region_id"], defaultRegion), "DescribeRecordList", dnspodVersion, map[string]interface{}{"Domain": domain})
+		// DNSPod 默认 Limit=100 截断，按 TotalCount 翻页拉全
+		records, err := s.listAllDnspodPages(r.Context(), account, "DescribeRecordList", map[string]interface{}{"Domain": domain},
+			[]string{"RecordList", "Records", "records"}, "RecordCount")
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "DescribeRecordList Failed: " + err.Error()})
 			return
 		}
-		records := normalizeRecords(arrayValue(firstPresent(result, "RecordList", "Records", "records")))
-		total := firstNumber(result["RecordCount"], result["TotalCount"], len(records))
-		response.JSON(w, http.StatusOK, map[string]interface{}{"Records": records, "records": records, "RecordList": records, "total": total})
+		normalized := normalizeRecords(records)
+		response.JSON(w, http.StatusOK, map[string]interface{}{"Records": normalized, "records": normalized, "RecordList": normalized, "total": len(normalized)})
 	case http.MethodPost:
 		payload, _ := readObject(r)
 		params := map[string]interface{}{
@@ -570,20 +573,34 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 			limit <- struct{}{}
 			defer func() { <-limit }()
 
-			result, err := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{})
+			result, err := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{"Limit": 100, "Offset": 0})
 			if err != nil {
+				applog.Warn(ctx, "tencent", "failed to list instances for region", "region", region, "error", err.Error())
 				return
 			}
 			items := make([]map[string]interface{}, 0)
-			for _, item := range arrayValue(firstPresent(result, key, "instances")) {
-				instance := objectValue(item)
-				if len(instance) == 0 {
-					continue
+			appendPage := func(page map[string]interface{}) {
+				for _, item := range arrayValue(firstPresent(page, key, "instances")) {
+					instance := objectValue(item)
+					if len(instance) == 0 {
+						continue
+					}
+					instance["_Region"] = region
+					instance["Region"] = region
+					instance["RegionName"] = regionName(region)
+					items = append(items, instance)
 				}
-				instance["_Region"] = region
-				instance["Region"] = region
-				instance["RegionName"] = regionName(region)
-				items = append(items, instance)
+			}
+			appendPage(result)
+			// 翻页拉全（腾讯默认只返回 20 条/页）：按 TotalCount 逐页补齐
+			if totalCount := findNum(result, "TotalCount"); totalCount > 0 {
+				for offset := 100; int64(offset) < totalCount; offset += 100 {
+					page, perr := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{"Limit": 100, "Offset": offset})
+					if perr != nil {
+						break
+					}
+					appendPage(page)
+				}
 			}
 			mu.Lock()
 			instances = append(instances, items...)
@@ -592,6 +609,73 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 	}
 	wg.Wait()
 	return instances
+}
+
+// listAllDnspodPages 对 DNSPod 接口按 Limit/Offset 循环拉全量列表。
+// DNSPod 单页默认上限 100 条，超过会被静默截断；countKey 为响应中的总数
+// 字段（如 DomainCount/RecordCount），listKeys 为条目数组的候选字段名。
+func (s *Service) listAllDnspodPages(ctx context.Context, account map[string]interface{}, action string, baseParams map[string]interface{}, listKeys []string, countKey string) ([]interface{}, error) {
+	params := make(map[string]interface{}, len(baseParams)+2)
+	for k, v := range baseParams {
+		params[k] = v
+	}
+	params["Limit"] = 100
+	params["Offset"] = 0
+	result, err := s.callTencent(ctx, "dnspod", stringValue(account["region_id"], defaultRegion), action, dnspodVersion, params)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]interface{}, 0)
+	appendPage := func(page map[string]interface{}) {
+		for _, item := range arrayValue(firstPresent(page, listKeys...)) {
+			entry := objectValue(item)
+			if len(entry) == 0 {
+				continue
+			}
+			items = append(items, entry)
+		}
+	}
+	appendPage(result)
+	if totalCount := findNum(result, countKey); totalCount > int64(len(items)) {
+		for offset := 100; int64(offset) < totalCount; offset += 100 {
+			params["Offset"] = offset
+			page, perr := s.callTencent(ctx, "dnspod", stringValue(account["region_id"], defaultRegion), action, dnspodVersion, params)
+			if perr != nil {
+				applog.Warn(ctx, "tencent", "failed to fetch dnspod page", "action", action, "offset", offset, "error", perr.Error())
+				break
+			}
+			before := len(items)
+			appendPage(page)
+			if len(items) == before {
+				// 防御：服务端返回异常空页时终止循环，避免死循环
+				break
+			}
+		}
+	}
+	return items, nil
+}
+
+// findNum 从响应 map 安全读取数值字段（兼容 float64/int64/json.Number/数字字符串）。
+func findNum(value map[string]interface{}, key string) int64 {
+	raw, ok := value[key]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n
+		}
+	case string:
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func (s *Service) callTencent(ctx context.Context, service, region, action, version string, payload map[string]interface{}) (map[string]interface{}, error) {

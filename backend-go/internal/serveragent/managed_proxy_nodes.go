@@ -1099,6 +1099,7 @@ func (s *Service) runManagedProxyNodeDelete(taskID, id, serverID, runtime string
 	for _, statement := range []string{
 		`DELETE FROM subscription_usage_reports WHERE node_id=?`,
 		`DELETE FROM subscription_usage_report_keys WHERE node_id=?`,
+		`DELETE FROM subscription_usage_hourly WHERE node_id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, statement, id); err != nil && !isMissingTableError(err) {
 			fail("delete_traffic_ledger", err)

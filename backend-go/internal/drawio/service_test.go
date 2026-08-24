@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -184,4 +185,41 @@ func TestSaveThumbnailAndInvalidateOnDraftSave(t *testing.T) {
 func strconvQuote(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
+}
+
+func TestGetVersionRejectsVersionFromOtherDocument(t *testing.T) {
+	service := testService(t)
+	for _, title := range []string{"文档一", "文档二"} {
+		created := httptest.NewRecorder()
+		service.ServeHTTP(created, httptest.NewRequest(http.MethodPost, "/api/drawio/documents", strings.NewReader(`{"title":"`+title+`","tags_json":"[]"}`)))
+		if created.Code != http.StatusCreated {
+			t.Fatalf("create %s status=%d body=%s", title, created.Code, created.Body.String())
+		}
+	}
+	// 文档 1 保存一个版本
+	saved := httptest.NewRecorder()
+	service.ServeHTTP(saved, httptest.NewRequest(http.MethodPost, "/api/drawio/documents/1/versions", strings.NewReader(`{"summary":"v1","xml_content":"<mxfile/>"}`)))
+	if saved.Code != http.StatusCreated {
+		t.Fatalf("save version status=%d body=%s", saved.Code, saved.Body.String())
+	}
+	var payload struct {
+		Version struct {
+			ID int64 `json:"id"`
+		} `json:"version"`
+	}
+	if err := json.Unmarshal(saved.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	// 归属文档读取成功
+	ownDoc := httptest.NewRecorder()
+	service.ServeHTTP(ownDoc, httptest.NewRequest(http.MethodGet, "/api/drawio/documents/1/versions/"+strconv.FormatInt(payload.Version.ID, 10), nil))
+	if ownDoc.Code != http.StatusOK {
+		t.Fatalf("own document version status=%d body=%s", ownDoc.Code, ownDoc.Body.String())
+	}
+	// 通过他人文档路径枚举 versionId 必须返回 404
+	otherDoc := httptest.NewRecorder()
+	service.ServeHTTP(otherDoc, httptest.NewRequest(http.MethodGet, "/api/drawio/documents/2/versions/"+strconv.FormatInt(payload.Version.ID, 10), nil))
+	if otherDoc.Code != http.StatusNotFound {
+		t.Fatalf("cross-document version status=%d body=%s", otherDoc.Code, otherDoc.Body.String())
+	}
 }

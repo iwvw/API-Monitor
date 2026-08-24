@@ -1907,7 +1907,25 @@ func (s *Service) listZones(ctx context.Context, auth map[string]string, params 
 	if err != nil {
 		return nil, nil, err
 	}
-	return arrayValue(payload["result"]), payload["result_info"], nil
+	results := arrayValue(payload["result"])
+	firstInfo := payload["result_info"]
+	// per_page 默认 50 会静默截断，按 result_info.total_pages 翻页拉全
+	totalPages := intValue(objectValue(firstInfo)["total_pages"], 1)
+	for page := 2; page <= totalPages; page++ {
+		query.Set("page", strconv.Itoa(page))
+		pagePayload, perr := s.cfRequest(ctx, http.MethodGet, "/zones?"+query.Encode(), auth, nil)
+		if perr != nil {
+			applog.Warn(ctx, "cloudflare", "failed to list zones page", "page", page, "error", perr.Error())
+			break
+		}
+		before := len(results)
+		results = append(results, arrayValue(pagePayload["result"])...)
+		if len(results) == before {
+			// 防御：服务端返回空页时终止，避免异常响应下死循环
+			break
+		}
+	}
+	return results, firstInfo, nil
 }
 
 func (s *Service) listDNSRecords(ctx context.Context, auth map[string]string, zoneID string, params url.Values) ([]interface{}, interface{}, error) {
@@ -2143,7 +2161,16 @@ func (s *Service) cfRawRequest(ctx context.Context, method, path string, headers
 		return nil, "", err
 	}
 	defer res.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(res.Body, 16<<20))
+	// cfRawRequest 通用请求读取上限：超过该大小的响应不再静默截断，
+	// 而是返回错误，避免大文件（如 R2 对象）被截断后以 200 交付损坏数据。
+	const maxCFResponseBytes = 16 << 20
+	raw, err := io.ReadAll(io.LimitReader(res.Body, maxCFResponseBytes+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(raw) > maxCFResponseBytes {
+		return nil, "", fmt.Errorf("response exceeds download limit of %d bytes", maxCFResponseBytes)
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		var payload map[string]interface{}
 		if json.Unmarshal(raw, &payload) == nil {

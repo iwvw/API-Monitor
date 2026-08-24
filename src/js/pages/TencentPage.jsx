@@ -123,7 +123,7 @@ function InstanceActions({ disabled, onAction }) {
     <div className="flex w-full justify-end gap-1">
       <Button size="sm" shape="square" variant="secondary" disabled={disabled.start} onClick={() => onAction('START')} aria-label="启动" title="启动" icon={<Play className="h-3.5 w-3.5 text-kumo-success" />} />
       <Button size="sm" shape="square" variant="secondary" disabled={disabled.stop} onClick={() => onAction('STOP')} aria-label="停止" title="停止" icon={<Square className="h-3.5 w-3.5 text-kumo-danger" />} />
-      <Button size="sm" shape="square" variant="secondary" onClick={() => onAction('REBOOT')} aria-label="重启" title="重启" icon={<RotateCw className="h-3.5 w-3.5 text-kumo-brand" />} />
+      <Button size="sm" shape="square" variant="secondary" onClick={() => onAction('REBOOT')} aria-label="重启" title="重启" icon={<RotateCw className="h-3.5 w-3.5 text-brand" />} />
     </div>
   );
 }
@@ -352,7 +352,7 @@ function TencentPage() {
   };
 
   const renderDns = () => (
-    <SectionCard title="DNS 域名" icon={<Globe className="h-4 w-4 text-kumo-brand" />} bodyPadding="none">
+    <SectionCard title="DNS 域名" icon={<Globe className="h-4 w-4 text-brand" />} bodyPadding="none">
       <DataTableFrame variant="embedded" density="compact">
         <AppTable layout="fixed" widths={dnsColWidths}>
           <colgroup>{dnsColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
@@ -387,7 +387,7 @@ function TencentPage() {
     const items = kind === 'cvm' ? cvmInstances : lighthouseInstances;
     const title = kind === 'cvm' ? 'CVM 实例' : '轻量应用服务器';
     return (
-      <SectionCard title={title} icon={<Server className="h-4 w-4 text-kumo-brand" />} bodyPadding="none">
+      <SectionCard title={title} icon={<Server className="h-4 w-4 text-brand" />} bodyPadding="none">
         <DataTableFrame variant="embedded" density="compact">
           <AppTable tableId={`tencent-${kind}-instances`} columns={TENCENT_INSTANCE_COLUMNS}>
             <Table.Header sticky variant="compact">
@@ -441,7 +441,7 @@ function TencentPage() {
     <SectionCard
       title="腾讯云账号"
       description="Secret 保存后不回显"
-      icon={<Cloud className="h-4 w-4 text-kumo-brand" />}
+      icon={<Cloud className="h-4 w-4 text-brand" />}
       action={(
         <div className="flex shrink-0 items-center gap-2">
           <Input
@@ -454,10 +454,10 @@ function TencentPage() {
           />
           <Toolbar size="sm" aria-label="导出导入账号" className="shrink-0">
             <Toolbar.Button onClick={exportAccounts} disabled={accounts.length === 0} aria-label="导出账号" title="导出账号（含 SecretKey）" icon={<Upload className="h-3.5 w-3.5" />}>
-              <span className="hidden sm:inline">导出</span>
+              <span className="hidden cq-sm:inline">导出</span>
             </Toolbar.Button>
             <Toolbar.Button onClick={() => accountImportInputRef.current?.click()} disabled={accountImporting} aria-label="导入账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-              <span className="hidden sm:inline">导入</span>
+              <span className="hidden cq-sm:inline">导入</span>
             </Toolbar.Button>
           </Toolbar>
           <Button size="sm" onClick={openCreateModal}><Plus className="h-3.5 w-3.5" />添加账号</Button>
@@ -518,18 +518,18 @@ function TencentPage() {
       {activeTab === 'accounts' && renderAccounts()}
 
       <Dialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),34rem)] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),34rem)] flex-col overflow-hidden p-0">
           <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
             <Dialog.Title className="text-base font-semibold text-kumo-strong">{editingAccount ? '编辑腾讯云账号' : '添加腾讯云账号'}</Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs text-kumo-subtle">Secret 保存后不会回显，建议使用最小权限子账号。</Dialog.Description>
+            <Dialog.Description className="mt-1 text-xs text-kumo-subtle">建议使用最小权限子账号。</Dialog.Description>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
             <Input size="sm" label="备注名称" value={accountForm.name} onChange={(event) => setAccountForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="生产环境" />
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 cq-sm:grid-cols-2">
               <Input size="sm" label="Secret ID" value={accountForm.secretId} onChange={(event) => setAccountForm((prev) => ({ ...prev, secretId: event.target.value }))} className="font-mono" placeholder="AKID..." />
               <Input size="sm" label="默认地域 ID" value={accountForm.regionId} onChange={(event) => setAccountForm((prev) => ({ ...prev, regionId: event.target.value }))} className="font-mono" placeholder="ap-guangzhou" />
             </div>
-            <Input size="sm" label="Secret Key" value={accountForm.secretKey} onChange={(event) => setAccountForm((prev) => ({ ...prev, secretKey: event.target.value }))} placeholder={editingAccount ? '不修改请留空' : '请输入 SecretKey'} autoComplete="off" spellCheck={false} className="font-mono" />
+            <Input size="sm" label="Secret Key" value={accountForm.secretKey} onChange={(event) => setAccountForm((prev) => ({ ...prev, secretKey: event.target.value }))} placeholder={editingAccount ? '不修改请留空' : undefined} autoComplete="off" spellCheck={false} className="font-mono" />
             <Textarea size="sm" label="账号描述" value={accountForm.description} onChange={(event) => setAccountForm((prev) => ({ ...prev, description: event.target.value }))} className="min-h-20" />
           </div>
           <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-5 py-3">

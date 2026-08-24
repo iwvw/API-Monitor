@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"mime/quotedprintable"
+	"net"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -21,10 +23,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/iwvw/api-monitor/backend-go/internal/tgapi"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 const (
@@ -35,11 +40,12 @@ const (
 )
 
 type Service struct {
-	cfg        config.Config
-	store      *database.Store
-	client     *http.Client
-	schemaOnce sync.Once
-	schemaErr  error
+	cfg         config.Config
+	store       *database.Store
+	client      *http.Client
+	schemaOnce  sync.Once
+	schemaErr   error
+	rateLimiter *hourlyRateLimiter
 }
 
 type Channel struct {
@@ -68,9 +74,10 @@ type deliveryResult struct {
 }
 
 type messageLifecycle struct {
-	ResourceKey string
-	Kind        string
-	Phase       string
+	SourceModule string
+	ResourceKey  string
+	Kind         string
+	Phase        string
 }
 
 type telegramMessageState struct {
@@ -140,9 +147,10 @@ type conditionResult struct {
 
 func New(cfg config.Config) *Service {
 	return &Service{
-		cfg:    cfg,
-		store:  database.New(cfg),
-		client: &http.Client{Timeout: requestTimeout},
+		cfg:         cfg,
+		store:       database.New(cfg),
+		client:      &http.Client{Timeout: requestTimeout},
+		rateLimiter: &hourlyRateLimiter{},
 	}
 }
 
@@ -993,6 +1001,14 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 			return err
 		}
 	}
+	// 告警发送参数（重试/限流）逐触发读取；读失败退回默认值，不阻塞监控关键路径。
+	var loadNotifyCfg = func() GlobalConfig {
+		cfg, err := s.LoadConfig(ctx)
+		if err != nil {
+			cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100}
+		}
+		return cfg
+	}
 	for _, rule := range rules {
 		dryRun, err := s.DryRun(ctx, rule, eventData)
 		if err != nil {
@@ -1001,12 +1017,38 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 		if dryRun["wouldNotify"] != true {
 			continue
 		}
+		// quiet_until 静默：未到期的时间窗内整条规则跳过
+		if quietUntilActive(rule.QuietUntil, time.Now()) {
+			continue
+		}
+		// 恢复（resolve）阶段跳过重复抑制，避免恢复通知被吞导致告警永远悬着
+		trackSuppression := !(hasLifecycle && lifecycle.Phase == "resolve")
+		var fingerprint string
+		if trackSuppression {
+			fingerprint = generateFingerprint(rule, eventData)
+			suppress, err := s.evaluateSuppression(ctx, rule, fingerprint, time.Now())
+			if err != nil {
+				// DB 错误 fail-open：宁多发不漏发
+				suppress = false
+			}
+			if suppress {
+				continue
+			}
+		}
+		cfg := loadNotifyCfg()
+		sentAny := false
 		for _, channelID := range rule.Channels {
 			channel, ok, err := s.loadStoredChannel(ctx, channelID)
 			if err != nil {
 				return err
 			}
 			if !ok || channel.Enabled == 0 {
+				continue
+			}
+			if allowed, firstReject := s.rateLimiter.Allow(time.Now(), cfg.GlobalRateLimitPerHr); !allowed {
+				if firstReject {
+					slog.Warn("notification-global-rate-limit", "rule", rule.Name, "channel", channel.Name, "limit", cfg.GlobalRateLimitPerHr)
+				}
 				continue
 			}
 			title := formatTitle(rule, eventData)
@@ -1016,25 +1058,32 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 				return err
 			}
 			channelConfig := decryptConfig(channel.ConfigRaw)
-			var delivery deliveryResult
-			var sendErr error
-			if channel.Type == "telegram" && hasLifecycle {
-				delivery, sendErr = s.deliverLifecycleTelegram(ctx, channel, channelConfig, sourceModule, eventType, lifecycle, title, message)
-			} else {
-				delivery, sendErr = s.sendToChannel(ctx, channel, channelConfig, title, message)
-			}
-			if sendErr != nil {
-				_ = s.updateHistoryStatus(ctx, logID, "failed", nil, ptr(sendErr.Error()))
-			} else {
-				if channel.Type == "telegram" && hasLifecycle && lifecycle.Phase != "resolve" && delivery.MessageID != 0 {
-					_ = s.upsertTelegramMessageState(ctx, telegramMessageState{
-						ChannelID: channel.ID, SourceModule: sourceModule, ResourceKey: lifecycle.ResourceKey,
-						Kind: lifecycle.Kind, ChatID: delivery.ChatID, MessageID: delivery.MessageID,
-					}, eventType, eventData)
+			send := func() (deliveryResult, error) {
+				if channel.Type == "telegram" && hasLifecycle {
+					return s.deliverLifecycleTelegram(ctx, channel, channelConfig, sourceModule, eventType, lifecycle, title, message)
 				}
-				now := time.Now().In(loc).Format(time.RFC3339)
-				_ = s.updateHistoryStatus(ctx, logID, "sent", &now, nil)
+				return s.sendToChannel(ctx, channel, channelConfig, title, message)
 			}
+			delivery, retries, sendErr := s.sendWithRetry(ctx, send, cfg.MaxRetryTimes, cfg.RetryIntervalSeconds)
+			if sendErr != nil {
+				_ = s.updateHistoryRetry(ctx, logID, retries, sendErr.Error())
+				continue
+			}
+			sentAny = true
+			if retries > 0 {
+				_ = s.updateHistoryRetryCount(ctx, logID, retries)
+			}
+			if channel.Type == "telegram" && hasLifecycle && lifecycle.Phase != "resolve" && delivery.MessageID != 0 {
+				_ = s.upsertTelegramMessageState(ctx, telegramMessageState{
+					ChannelID: channel.ID, SourceModule: sourceModule, ResourceKey: lifecycle.ResourceKey,
+					Kind: lifecycle.Kind, ChatID: delivery.ChatID, MessageID: delivery.MessageID,
+				}, eventType, eventData)
+			}
+			now := time.Now().In(loc).Format(time.RFC3339)
+			_ = s.updateHistoryStatus(ctx, logID, "sent", &now, nil)
+		}
+		if trackSuppression && sentAny {
+			_ = s.recordSuppressionSent(ctx, rule.ID, fingerprint, time.Now())
 		}
 	}
 	if hasLifecycle && lifecycle.Phase == "resolve" {
@@ -1044,9 +1093,10 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 }
 
 // RefreshLifecycle updates an active Telegram lifecycle message without re-sending other channels.
+// 支持 open（刷新进行中事件）与 resolve（自愈恢复：把残留 open 消息编辑为恢复内容并清除状态）。
 func (s *Service) RefreshLifecycle(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error {
 	lifecycle, ok := notificationMessageLifecycle(sourceModule, eventType, eventData)
-	if !ok || lifecycle.Phase != "open" {
+	if !ok {
 		return nil
 	}
 	var err error
@@ -1054,7 +1104,9 @@ func (s *Service) RefreshLifecycle(ctx context.Context, sourceModule, eventType 
 	if err != nil {
 		return err
 	}
-	eventData["lifecycleMutation"] = "refresh"
+	if lifecycle.Phase == "open" {
+		eventData["lifecycleMutation"] = "refresh"
+	}
 	rules, err := s.loadEnabledRulesByEvent(ctx, sourceModule, eventType)
 	if err != nil {
 		return err
@@ -1087,22 +1139,69 @@ func (s *Service) RefreshLifecycle(ctx context.Context, sourceModule, eventType 
 			message := formatMessage(rule, eventData, loc)
 			config := decryptConfig(channel.ConfigRaw)
 			if err := s.editTelegram(ctx, config, state.ChatID, state.MessageID, title, message); err == nil {
-				_ = s.touchTelegramMessageState(ctx, state, eventType, eventData)
-				_ = s.recordLifecycleRefreshHistory(ctx, rule, channel.ID, title, message, eventData, loc)
+				s.completeLifecycleRefresh(ctx, lifecycle, state, eventType, eventData, title, message, rule, channel.ID, loc)
 				continue
 			}
 			delivery, sendErr := s.sendTelegram(ctx, config, title, message)
 			if sendErr != nil {
 				continue
 			}
+			s.completeLifecycleRefresh(ctx, lifecycle, state, eventType, eventData, title, message, rule, channel.ID, loc)
 			_ = s.upsertTelegramMessageState(ctx, telegramMessageState{
 				ChannelID: channel.ID, SourceModule: sourceModule, ResourceKey: lifecycle.ResourceKey,
 				Kind: lifecycle.Kind, ChatID: delivery.ChatID, MessageID: delivery.MessageID,
 			}, eventType, eventData)
-			_ = s.recordLifecycleRefreshHistory(ctx, rule, channel.ID, title, message, eventData, loc)
 		}
 	}
+	// resolve 兜底：后端重启后残留 open 状态且无恢复规则覆盖时，仍把动态消息编辑为恢复内容并清除状态。
+	// 顺带把上文规则循环中 edit/重发均失败的残留状态再尝试一次。
+	if lifecycle.Phase == "resolve" {
+		s.reconcileStaleLifecycleMessages(ctx, sourceModule, eventType, lifecycle, eventData, loc)
+	}
 	return nil
+}
+
+// completeLifecycleRefresh 记录一次生命周期刷新历史；resolve 场景同时清除该渠道的消息状态。
+func (s *Service) completeLifecycleRefresh(ctx context.Context, lifecycle messageLifecycle, state telegramMessageState, eventType string, eventData map[string]interface{}, title, message string, rule Rule, channelID string, loc *time.Location) {
+	_ = s.recordLifecycleRefreshHistory(ctx, rule, channelID, title, message, eventData, loc)
+	if lifecycle.Phase == "resolve" {
+		_ = s.deleteTelegramMessageStateForChannel(ctx, channelID, lifecycle.SourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+	} else {
+		_ = s.touchTelegramMessageState(ctx, state, eventType, eventData)
+	}
+}
+
+// reconcileStaleLifecycleMessages 处理规则未覆盖/刷新失败的残留生命周期状态：
+// 逐一编辑为恢复内容（失败则重发新消息），成功后按渠道清除状态。
+func (s *Service) reconcileStaleLifecycleMessages(ctx context.Context, sourceModule, eventType string, lifecycle messageLifecycle, eventData map[string]interface{}, loc *time.Location) {
+	states, err := s.listTelegramMessageStates(ctx, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+	if err != nil {
+		return
+	}
+	for _, state := range states {
+		channel, found, err := s.loadStoredChannel(ctx, state.ChannelID)
+		if err != nil || !found || channel.Enabled == 0 || channel.Type != "telegram" {
+			continue
+		}
+		config := decryptConfig(channel.ConfigRaw)
+		fallbackRule := Rule{
+			Name:      firstNonEmpty(notificationSubject(eventData), "恢复通知"),
+			EventType: eventType,
+			Severity:  "warning",
+		}
+		title := formatTitle(fallbackRule, eventData)
+		message := formatMessage(fallbackRule, eventData, loc)
+		if err := s.editTelegram(ctx, config, state.ChatID, state.MessageID, title, message); err == nil {
+			_ = s.deleteTelegramMessageStateForChannel(ctx, channel.ID, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+			_ = s.recordLifecycleRefreshHistory(ctx, fallbackRule, channel.ID, title, message, eventData, loc)
+			continue
+		}
+		if _, sendErr := s.sendTelegram(ctx, config, title, message); sendErr != nil {
+			continue
+		}
+		_ = s.deleteTelegramMessageStateForChannel(ctx, channel.ID, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
+		_ = s.recordLifecycleRefreshHistory(ctx, fallbackRule, channel.ID, title, message, eventData, loc)
+	}
 }
 
 func (s *Service) enrichLifecycleEventData(ctx context.Context, sourceModule, eventType string, lifecycle messageLifecycle, eventData map[string]interface{}, now time.Time) (map[string]interface{}, error) {
@@ -1263,6 +1362,87 @@ func (s *Service) loadStoredChannel(ctx context.Context, id string) (storedChann
 	return channel, true, nil
 }
 
+// SendToChannel 把一条消息直接投递到指定通知渠道的固定目标（bot token 与目标 chat 均取自渠道配置，
+// 不做规则匹配/生命周期跟踪）。用于管理 AI 等模块复用通知中心已配置的渠道做结果推送。
+func (s *Service) SendToChannel(ctx context.Context, channelID, title, message string) error {
+	channel, ok, err := s.loadStoredChannel(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("通知渠道 %s 不存在", channelID)
+	}
+	if channel.Enabled != 1 {
+		return fmt.Errorf("通知渠道 %s 已停用", channelID)
+	}
+	cfg := decryptConfig(channel.ConfigRaw)
+	if len(cfg) == 0 {
+		return fmt.Errorf("通知渠道 %s 配置为空", channelID)
+	}
+	_, err = s.sendToChannel(ctx, channel, cfg, title, message)
+	return err
+}
+
+// SendRichToChannel 以富消息（GFM Markdown）直接投递到通知渠道，与 SendToChannel 相同定位，
+// 但保留 AI 简报的 Markdown 结构（标题/加粗/表格/代码块）——SendToChannel 的逐行转义
+// 是为键值式监控通知设计的，会把 AI 输出的 | 表格 |、### 标题、**加粗** 全部转义成字面量。
+// Telegram 走 sendRichMessage（Bot API 富消息扩展）；非 Telegram 渠道回退 sendToChannel。
+func (s *Service) SendRichToChannel(ctx context.Context, channelID, title, markdown string) error {
+	channel, ok, err := s.loadStoredChannel(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("通知渠道 %s 不存在", channelID)
+	}
+	if channel.Enabled != 1 {
+		return fmt.Errorf("通知渠道 %s 已停用", channelID)
+	}
+	cfg := decryptConfig(channel.ConfigRaw)
+	if len(cfg) == 0 {
+		return fmt.Errorf("通知渠道 %s 配置为空", channelID)
+	}
+	if channel.Type == "telegram" {
+		return s.sendTelegramRich(ctx, cfg, title, markdown)
+	}
+	_, err = s.sendToChannel(ctx, channel, cfg, title, markdown)
+	return err
+}
+
+// sendTelegramRich 用富消息（sendRichMessage + rich_message.markdown）发送，
+// 保留 GFM 表格/标题/加粗；不可用时降级为普通 sendMessage（无 parse_mode，纯文本不丢消息）。
+func (s *Service) sendTelegramRich(ctx context.Context, cfg map[string]interface{}, title, markdown string) error {
+	token := stringValue(cfg["bot_token"])
+	chatID := stringValue(cfg["chat_id"])
+	if token == "" || chatID == "" {
+		return errors.New("telegram channel config incomplete")
+	}
+	client, err := s.telegramHTTPClient(cfg)
+	if err != nil {
+		return err
+	}
+	text := strings.TrimSpace(markdown)
+	if title != "" {
+		text = "*" + telegramEscapeBold(title) + "*\n\n" + text
+	}
+	payload := map[string]interface{}{
+		"chat_id": chatID,
+		"rich_message": map[string]interface{}{
+			"markdown": text,
+		},
+	}
+	if _, err := s.callTelegram(ctx, client, token, "sendRichMessage", payload); err == nil {
+		return nil
+	} else {
+		// 降级：老 Bot API 服务器不支持 sendRichMessage 时以普通文本发送。
+		slog.Warn("telegram-send-rich-fallback", "chatId", chatID, "err", err.Error(), "textLen", len(text))
+	}
+	_, err = s.callTelegram(ctx, client, token, "sendMessage", map[string]interface{}{
+		"chat_id": chatID, "text": text, "disable_web_page_preview": true,
+	})
+	return err
+}
+
 func (s *Service) createHistory(ctx context.Context, ruleID, channelID, status, title, message string, data map[string]interface{}, errorMessage *string) (int64, error) {
 	db, err := s.open(ctx)
 	if err != nil {
@@ -1338,7 +1518,7 @@ func (s *Service) matchMaintenance(ctx context.Context, eventData map[string]int
 func notificationMessageLifecycle(sourceModule, eventType string, eventData map[string]interface{}) (messageLifecycle, bool) {
 	sourceModule = strings.ToLower(strings.TrimSpace(sourceModule))
 	eventType = strings.ToLower(strings.TrimSpace(eventType))
-	lifecycle := messageLifecycle{}
+	lifecycle := messageLifecycle{SourceModule: sourceModule}
 	switch sourceModule {
 	case "uptime":
 		lifecycle.ResourceKey = stringValue(eventData["monitorId"])
@@ -1454,30 +1634,44 @@ func (s *Service) loadTelegramMessageState(ctx context.Context, channelID, sourc
 }
 
 func (s *Service) loadAnyTelegramMessageState(ctx context.Context, sourceModule, resourceKey, kind string) (telegramMessageState, bool, error) {
-	db, err := s.open(ctx)
+	states, err := s.listTelegramMessageStates(ctx, sourceModule, resourceKey, kind)
 	if err != nil {
 		return telegramMessageState{}, false, err
 	}
+	if len(states) == 0 {
+		return telegramMessageState{}, false, nil
+	}
+	return states[0], true, nil
+}
+
+func (s *Service) listTelegramMessageStates(ctx context.Context, sourceModule, resourceKey, kind string) ([]telegramMessageState, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
 	defer db.Close()
-	state := telegramMessageState{}
-	err = db.QueryRowContext(ctx, `
+	rows, err := db.QueryContext(ctx, `
 		SELECT channel_id, source_module, resource_key, lifecycle_kind, chat_id, message_id,
 			event_type, COALESCE(last_data, '{}'), created_at, updated_at
 		FROM notification_message_state
 		WHERE source_module = ? AND resource_key = ? AND lifecycle_kind = ?
-		ORDER BY created_at ASC
-		LIMIT 1
-	`, sourceModule, resourceKey, kind).Scan(
-		&state.ChannelID, &state.SourceModule, &state.ResourceKey, &state.Kind, &state.ChatID, &state.MessageID,
-		&state.EventType, &state.LastData, &state.CreatedAt, &state.UpdatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return telegramMessageState{}, false, nil
-	}
+	`, sourceModule, resourceKey, kind)
 	if err != nil {
-		return telegramMessageState{}, false, fmt.Errorf("load telegram lifecycle state: %w", err)
+		return nil, fmt.Errorf("load telegram lifecycle states: %w", err)
 	}
-	return state, true, nil
+	defer rows.Close()
+	states := []telegramMessageState{}
+	for rows.Next() {
+		state := telegramMessageState{}
+		if err := rows.Scan(
+			&state.ChannelID, &state.SourceModule, &state.ResourceKey, &state.Kind, &state.ChatID, &state.MessageID,
+			&state.EventType, &state.LastData, &state.CreatedAt, &state.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, rows.Err()
 }
 
 func telegramLifecycleRefreshDue(updatedAt string, now time.Time) bool {
@@ -1544,6 +1738,19 @@ func (s *Service) deleteTelegramMessageStates(ctx context.Context, sourceModule,
 	return err
 }
 
+func (s *Service) deleteTelegramMessageStateForChannel(ctx context.Context, channelID, sourceModule, resourceKey, kind string) error {
+	db, err := s.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM notification_message_state
+		WHERE channel_id = ? AND source_module = ? AND resource_key = ? AND lifecycle_kind = ?
+	`, channelID, sourceModule, resourceKey, kind)
+	return err
+}
+
 func (s *Service) sendToChannel(ctx context.Context, channel storedChannel, cfg map[string]interface{}, title, message string) (deliveryResult, error) {
 	switch channel.Type {
 	case "email":
@@ -1555,6 +1762,10 @@ func (s *Service) sendToChannel(ctx context.Context, channel storedChannel, cfg 
 	}
 }
 
+// smtpSendTimeout 是 SMTP 发送全链路的阻塞上限：网络连接、TLS 握手、
+// 认证与数据传输任何一步停滞都不会无限等待。
+const smtpSendTimeout = 30 * time.Second
+
 func sendEmail(cfg map[string]interface{}, title, message string) error {
 	host := stringValue(cfg["host"])
 	port := intValue(cfg["port"], 465)
@@ -1565,7 +1776,7 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 	if host == "" || user == "" || pass == "" || to == "" {
 		return errors.New("email channel config incomplete")
 	}
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	auth := smtp.PlainAuth("", user, pass, host)
 	from := user
 
@@ -1594,40 +1805,51 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 		"Content-Type: text/html; charset=UTF-8\r\n" +
 		"Content-Transfer-Encoding: quoted-printable\r\n\r\n" +
 		encodedBody.String() + "\r\n")
-	if boolValue(cfg["secure"], port == 465) {
-		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
-		client, err := smtp.NewClient(conn, host)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-		if err := client.Auth(auth); err != nil {
-			return err
-		}
-		if err := client.Mail(user); err != nil {
-			return err
-		}
-		if err := client.Rcpt(to); err != nil {
-			return err
-		}
-		writer, err := client.Data()
-		if err != nil {
-			return err
-		}
-		if _, err := writer.Write(messageBytes); err != nil {
-			_ = writer.Close()
-			return err
-		}
-		if err := writer.Close(); err != nil {
-			return err
-		}
-		return client.Quit()
+
+	// 全链路超时护栏：网络/认证/数据阶段的任何阻塞最多持续 smtpSendTimeout，
+	// 避免 SMTP 服务器不响应时通知轮询链路被无限卡死。
+	dialer := &net.Dialer{Timeout: smtpSendTimeout}
+	rawConn, err := dialer.Dial("tcp", addr)
+	if err != nil {
+		return err
 	}
-	return smtp.SendMail(addr, auth, user, []string{to}, messageBytes)
+	defer rawConn.Close()
+	_ = rawConn.SetDeadline(time.Now().Add(smtpSendTimeout))
+
+	var conn net.Conn = rawConn
+	if boolValue(cfg["secure"], port == 465) {
+		tlsConn := tls.Client(rawConn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		if err := tlsConn.Handshake(); err != nil {
+			return err
+		}
+		conn = tlsConn
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer client.Quit()
+	if err := client.Auth(auth); err != nil {
+		return err
+	}
+	if err := client.Mail(user); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(messageBytes); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 type telegramAPIResponse struct {
@@ -1641,23 +1863,55 @@ type telegramAPIResponse struct {
 	} `json:"result"`
 }
 
+// callTelegram 调用 Telegram Bot API，返回 result 对象。
+// 底层复用 tgapi 共享客户端（与 adminai 频道同一份 API 调用代码）。
+func (s *Service) callTelegram(ctx context.Context, client *http.Client, token, method string, payload map[string]interface{}) (telegramAPIResponse, error) {
+	env, err := tgapi.NewClient(token, client).Call(ctx, method, payload)
+	if err != nil {
+		return telegramAPIResponse{}, err
+	}
+	var result telegramAPIResponse
+	result.OK = env.OK
+	result.Description = env.Description
+	if err := json.Unmarshal(env.Result, &result.Result); err != nil {
+		return telegramAPIResponse{}, err
+	}
+	return result, nil
+}
+
 func (s *Service) sendTelegram(ctx context.Context, cfg map[string]interface{}, title, message string) (deliveryResult, error) {
 	token := stringValue(cfg["bot_token"])
 	chatID := stringValue(cfg["chat_id"])
 	if token == "" || chatID == "" {
 		return deliveryResult{}, errors.New("telegram channel config incomplete")
 	}
-	payload := map[string]interface{}{
-		"chat_id":                  chatID,
-		"text":                     telegramMessageText(title, message),
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
-	}
 	client, err := s.telegramHTTPClient(cfg)
 	if err != nil {
 		return deliveryResult{}, err
 	}
-	result, err := s.callTelegram(ctx, client, token, "sendMessage", payload)
+	text := telegramMessageText(title, message)
+	applog.Info(ctx, "notification", "telegram-rich-outgoing", "chatId", chatID, "textLen", len(text), "textHex", fmt.Sprintf("%x", []byte(text)))
+	// 富消息优先（sendRichMessage + rich_message.markdown，GFM 宽松解析，对中文/emoji 渲染稳定）；
+	// 失败时降级为普通文本 sendMessage（不带 parse_mode），避免旧客户端 MarkdownV2 解析乱码。
+	richPayload := map[string]interface{}{
+		"chat_id":                  chatID,
+		"rich_message":             map[string]interface{}{"markdown": text},
+		"disable_web_page_preview": true,
+	}
+	if result, err := s.callTelegram(ctx, client, token, "sendRichMessage", richPayload); err == nil {
+		if result.Result.Chat.ID != 0 {
+			chatID = strconv.FormatInt(result.Result.Chat.ID, 10)
+		}
+		return deliveryResult{ChatID: chatID, MessageID: result.Result.MessageID}, nil
+	} else {
+		slog.Warn("telegram-rich-fallback", "chatId", chatID, "err", err.Error(), "textLen", len(text))
+	}
+	plainPayload := map[string]interface{}{
+		"chat_id":                  chatID,
+		"text":                     text,
+		"disable_web_page_preview": true,
+	}
+	result, err := s.callTelegram(ctx, client, token, "sendMessage", plainPayload)
 	if err != nil {
 		return deliveryResult{}, err
 	}
@@ -1672,53 +1926,128 @@ func (s *Service) editTelegram(ctx context.Context, cfg map[string]interface{}, 
 	if token == "" || chatID == "" || messageID == 0 {
 		return errors.New("telegram message state incomplete")
 	}
-	payload := map[string]interface{}{
-		"chat_id":                  chatID,
-		"message_id":               messageID,
-		"text":                     telegramMessageText(title, message),
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
-	}
+	text := telegramMessageText(title, message)
 	client, err := s.telegramHTTPClient(cfg)
 	if err != nil {
 		return err
 	}
-	_, err = s.callTelegram(ctx, client, token, "editMessageText", payload)
-	if err != nil && strings.Contains(strings.ToLower(err.Error()), "message is not modified") {
+	// 富消息优先（editMessageText + rich_message.markdown，GFM 宽松解析）：
+	// 消息由 sendRichMessage 创建，只有用相同富格式编辑才能覆盖原内容；
+	// 旧实现用 MarkdownV2 编辑会解析失败，导致 RefreshLifecycle 回退重发新消息。
+	richPayload := map[string]interface{}{
+		"chat_id":     chatID,
+		"message_id":  messageID,
+		"rich_message": map[string]interface{}{"markdown": text},
+	}
+	_, err = s.callTelegram(ctx, client, token, "editMessageText", richPayload)
+	if err == nil {
 		return nil
 	}
-	return err
+	if telegramEditIgnore(err) {
+		return nil
+	}
+	slog.Warn("telegram-edit-rich-fallback", "chatId", chatID, "msgId", messageID, "err", err.Error(), "textLen", len(text))
+	// 降级：富消息不可用时以普通文本编辑（不带 parse_mode，避免 MarkdownV2 解析乱码）。
+	plainPayload := map[string]interface{}{
+		"chat_id":                  chatID,
+		"message_id":               messageID,
+		"text":                     text,
+		"disable_web_page_preview": true,
+	}
+	_, derr := s.callTelegram(ctx, client, token, "editMessageText", plainPayload)
+	if derr == nil || telegramEditIgnore(derr) {
+		return nil
+	}
+	return derr
 }
 
+// telegramEditIgnore 判断编辑失败是否可静默忽略：
+// "message is not modified"（内容一致）与 "canceled by new edit message request"（流式编辑竞争，
+// 后续编辑会覆盖）都不算真正的失败。
+func telegramEditIgnore(err error) bool {
+	if err == nil {
+		return true
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "message is not modified") || strings.Contains(low, "canceled by new edit")
+}
+
+// telegramMessageText 组装 Rich Markdown（GFM）消息体：标题加粗、键值行用
+// **label：** 粗体标签，行间用 GFM 硬换行（行尾两个空格）保证富文本渲染真正换行
+// （普通 LF 在 GFM 中属于软换行，会合并为一行）。
 func telegramMessageText(title, message string) string {
 	lines := strings.Split(strings.TrimSpace(message), "\n")
 	formatted := make([]string, 0, len(lines))
 	for _, line := range lines {
-		formatted = append(formatted, telegramMessageLine(line))
+		rendered := telegramMessageLine(line)
+		if rendered == "" {
+			continue
+		}
+		formatted = append(formatted, rendered+"  ")
 	}
 	body := strings.Join(formatted, "\n")
+	head := title
 	if body == "" {
-		return "<b>" + html.EscapeString(title) + "</b>"
+		return normalizeRichTextColons(head)
 	}
-	return "<b>" + html.EscapeString(title) + "</b>\n\n<blockquote>" + body + "</blockquote>\n\n<i>API Monitor</i>"
+	return normalizeRichTextColons(head + "\n\n" + body + "\n\nAPI Monitor")
+}
+
+// normalizeRichTextColons 富文本（sendRichMessage markdown）渲染在部分客户端会把
+// 全角冒号（U+FF1A）显示为替换字符（��），发送前统一转为半角冒号避免乱码。
+func normalizeRichTextColons(text string) string {
+	return strings.ReplaceAll(text, "：", ":")
 }
 
 func telegramMessageLine(line string) string {
+	applog.Info(context.Background(), "notification", "telegram-line-in", "lineHex", fmt.Sprintf("%x", []byte(line)))
 	field := parseNotificationMessageLine(line)
 	if field.Empty {
 		return ""
 	}
+	applog.Info(context.Background(), "notification", "telegram-line-parse", "labelHex", fmt.Sprintf("%x", []byte(field.Label)), "valueHex", fmt.Sprintf("%x", []byte(field.Value)))
 	if field.Label == "" {
-		return html.EscapeString(field.Value)
+		return field.Value
 	}
-	escapedValue := html.EscapeString(field.Value)
+	value := field.Value
 	if field.Label == "状态" || strings.EqualFold(field.Label, "status") {
-		escapedValue = notificationStatusIcon(field.Value) + escapedValue
+		value = notificationStatusIcon(field.Value) + value
 	}
 	if isNotificationCodeField(field.Label) {
-		escapedValue = "<code>" + escapedValue + "</code>"
+		value = "`" + field.Value + "`"
 	}
-	return "<b>" + html.EscapeString(field.Label) + ":</b> " + escapedValue
+	return field.Label + ": " + value
+}
+
+// telegramEscapeV2 转义 Telegram MarkdownV2 特殊字符。
+// MarkdownV2 规定除 pre/code（仅 ` 与 \）和链接 URL（仅 ) 与 \）外，
+// 全部保留字符 _ * [ ] ( ) ~ ` > # + - = | { } . ! 在普通文本与实体内部都必须转义，
+// 否则 Telegram 返回 "can't parse entities"。
+func telegramEscapeV2(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// telegramEscapeBold 转义 MarkdownV2 加粗实体内部内容（同全量转义）。
+func telegramEscapeBold(s string) string { return telegramEscapeV2(s) }
+
+// telegramEscapeCode 转义 MarkdownV2 行内代码内部（仅 ` 与 \ 需转义）。
+func telegramEscapeCode(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '`' || r == '\\' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 type notificationMessageField struct {
@@ -1733,8 +2062,12 @@ func parseNotificationMessageLine(line string) notificationMessageField {
 		return notificationMessageField{Empty: true}
 	}
 	separator := strings.Index(line, ":")
+	separatorLen := 1
 	if chineseSeparator := strings.Index(line, "："); chineseSeparator >= 0 && (separator < 0 || chineseSeparator < separator) {
+		// 全角冒号为 3 字节（U+FF1A），value 切片必须跳过完整分隔符，
+		// 否则残留后两字节（BC 9A）导致 Telegram 端显示乱码。
 		separator = chineseSeparator
+		separatorLen = 3
 	}
 	if separator <= 0 {
 		return notificationMessageField{Value: line}
@@ -1743,7 +2076,7 @@ func parseNotificationMessageLine(line string) notificationMessageField {
 	if len([]rune(label)) > 32 {
 		return notificationMessageField{Value: line}
 	}
-	return notificationMessageField{Label: label, Value: strings.TrimSpace(line[separator+1:])}
+	return notificationMessageField{Label: label, Value: strings.TrimSpace(line[separator+separatorLen:])}
 }
 
 func isNotificationCodeField(label string) bool {
@@ -1837,60 +2170,18 @@ func (s *Service) telegramHTTPClient(cfg map[string]interface{}) (*http.Client, 
 	return &http.Client{Timeout: timeout, Transport: transport}, nil
 }
 
-func (s *Service) callTelegram(ctx context.Context, client *http.Client, token, method string, payload map[string]interface{}) (telegramAPIResponse, error) {
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/"+method, bytes.NewReader(body))
-	if err != nil {
-		return telegramAPIResponse{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := client.Do(req)
-	if err != nil {
-		var requestErr *url.Error
-		if errors.As(err, &requestErr) {
-			err = requestErr.Err
-		}
-		return telegramAPIResponse{}, fmt.Errorf("telegram API request failed: %w", err)
-	}
-	defer res.Body.Close()
-	var result telegramAPIResponse
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
-		if res.StatusCode < 200 || res.StatusCode >= 300 {
-			return telegramAPIResponse{}, fmt.Errorf("telegram API status %d", res.StatusCode)
-		}
-		return telegramAPIResponse{}, err
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		if result.Description != "" {
-			return telegramAPIResponse{}, fmt.Errorf("telegram API status %d: %s", res.StatusCode, result.Description)
-		}
-		return telegramAPIResponse{}, fmt.Errorf("telegram API status %d", res.StatusCode)
-	}
-	if !result.OK {
-		return telegramAPIResponse{}, fmt.Errorf("telegram API error: %s", result.Description)
-	}
-	return result, nil
-}
-
 func (s *Service) systemLocation(ctx context.Context) (*time.Location, string) {
 	db, err := s.store.Open(ctx)
 	if err != nil {
-		return time.Local, "system"
+		return timeutil.LocationFromName(""), "system"
 	}
 	defer db.Close()
 
-	var zone sql.NullString
-	err = db.QueryRowContext(ctx, `SELECT time_zone FROM user_settings WHERE id = 1`).Scan(&zone)
-	if err != nil || !zone.Valid {
-		return time.Local, "system"
-	}
-	name := strings.TrimSpace(zone.String)
-	if name == "" || name == "system" {
-		return time.Local, "system"
-	}
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		return time.Local, "system"
+	zone := timeutil.ReadTimeZone(ctx, db)
+	loc := timeutil.LocationFromName(zone)
+	name := zone
+	if loc == time.Local || strings.TrimSpace(zone) == "" || strings.TrimSpace(zone) == "system" {
+		name = "system"
 	}
 	return loc, name
 }
@@ -2168,6 +2459,8 @@ func eventCatalog() []map[string]interface{} {
 		{"module": "filebox", "events": []string{"resource.created", "resource.deleted", "cleanup"}},
 		{"module": "github", "events": []string{"action_failed", "action_recovered", "release_published", "star_spike", "issue_opened", "pull_request_opened", "repository_unreachable", "token_invalid", "rate_limit_low", "webhook_delivery_failed", "webhook_ping"}, "dynamic_events": []string{"action_failed", "action_recovered"}},
 		{"module": "totp", "events": []string{"resource.created", "resource.updated", "resource.deleted", "security.revealed", "backup.imported", "backup.exported"}},
+		{"module": "openai", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
+		{"module": "cron", "events": []string{"task.completed", "task.failed", "workflow.completed", "workflow.failed"}, "dynamic_events": []string{}},
 	}
 }
 
@@ -2224,6 +2517,12 @@ func formatMessage(rule Rule, data map[string]interface{}, loc *time.Location) s
 	}
 	add("仓库", data["repositoryFullName"])
 	add("资源", firstNonEmpty(stringValue(data["resourceName"]), stringValue(data["name"])))
+	add("任务", data["taskName"])
+	add("工作流", data["workflowName"])
+	add("结果", data["summary"])
+	add("输出", data["output"])
+	add("耗时", data["duration"])
+	add("触发方式", data["triggerType"])
 
 	if data["url"] != nil {
 		add("地址", data["url"])
@@ -2261,6 +2560,14 @@ func formatMessage(rule Rule, data map[string]interface{}, loc *time.Location) s
 	}
 	add("链接", data["htmlUrl"])
 	add("说明", firstNonEmpty(stringValue(data["message"]), stringValue(data["reason"])))
+
+	// 网关告警（openai 模块）字段
+	if rateVal, ok := data["error_rate"].(float64); ok {
+		add("错误率", fmt.Sprintf("%.1f%%", rateVal))
+	}
+	add("请求数", data["requests"])
+	add("错误数", data["errors"])
+	add("统计窗口", data["windowMin"])
 
 	// 数据库备份相关字段
 	add("备份 ID", data["backupId"])
@@ -2382,6 +2689,9 @@ func notificationEventLabel(eventType string) string {
 		"database.backup": "数据库备份", "database.import": "数据库恢复", "log.cleanup": "日志清理", "migration.failed": "数据库迁移失败",
 		"resource.created": "资源已创建", "resource.updated": "资源已更新", "resource.deleted": "资源已删除", "cleanup": "清理任务",
 		"security.revealed": "敏感信息已查看", "backup.imported": "备份已导入", "backup.exported": "备份已导出",
+		"gateway_error_high": "网关错误率过高", "gateway_error_normal": "网关错误率恢复正常",
+		"task.completed": "定时任务执行完成", "task.failed": "定时任务执行失败",
+		"workflow.completed": "工作流执行完成", "workflow.failed": "工作流执行失败",
 	}
 	if label := labels[strings.ToLower(strings.TrimSpace(eventType))]; label != "" {
 		return label
@@ -2448,26 +2758,44 @@ func formatNotificationPercent(value interface{}) interface{} {
 	return text + "%"
 }
 
+// renderTemplate 渲染通知模板。用游标式单遍扫描替换占位符：
+// 缺失 key 的占位符原样保留（便于用户定位），不重复扫描、不阻塞后续
+// 正常占位符，保证渲染必然终止（旧实现重建相同占位符导致死循环）。
 func renderTemplate(template string, data map[string]interface{}) string {
-	result := template
-	for {
-		start := strings.Index(result, "{{")
+	const maxKeys = 100
+	var b strings.Builder
+	b.Grow(len(template) + 32)
+	rest := template
+	for i := 0; i < maxKeys; i++ {
+		start := strings.Index(rest, "{{")
 		if start < 0 {
-			return result
+			b.WriteString(rest)
+			return normalizeTemplateNewlines(b.String())
 		}
-		end := strings.Index(result[start+2:], "}}")
+		end := strings.Index(rest[start+2:], "}}")
 		if end < 0 {
-			return result
+			b.WriteString(rest)
+			return normalizeTemplateNewlines(b.String())
 		}
 		end += start + 2
-		key := strings.TrimSpace(result[start+2 : end])
-		value, ok := data[key]
-		replacement := "{{" + key + "}}"
-		if ok {
-			replacement = stringValue(value)
+		b.WriteString(rest[:start])
+		key := strings.TrimSpace(rest[start+2 : end])
+		if value, ok := data[key]; ok {
+			b.WriteString(stringValue(value))
+		} else {
+			b.WriteString("{{" + key + "}}")
 		}
-		result = result[:start] + replacement + result[end+2:]
+		rest = rest[end+2:]
 	}
+	b.WriteString(rest)
+	return normalizeTemplateNewlines(b.String())
+}
+
+// normalizeTemplateNewlines 把模板里以字面量存储的 \n（反斜杠+n 两个字符，常见于
+// 旧版编辑器/转义序列落库）统一还原为真实换行，保证行级解析（telegramMessageLine
+// 等按行切分状态/指标）不会把整段消息当成一行导致格式错乱。
+func normalizeTemplateNewlines(text string) string {
+	return strings.ReplaceAll(text, `\n`, "\n")
 }
 
 func generateFingerprint(rule Rule, data map[string]interface{}) string {

@@ -39,20 +39,23 @@ func (s *Store) Open(ctx context.Context) (*sql.DB, error) {
 	db := sql.OpenDB(&poolConnector{pool: pool})
 	db.SetMaxOpenConns(1)
 	// core schema 按数据库路径全局执行一次（此前 per-Store，20 个服务
-	// 首次 Open 时各自重复执行）。
-	pool.schemaOnce.Do(func() {
-		pool.schemaErr = WithSchemaLock(ctx, func() error {
-			return EnsureCoreSchema(ctx, db)
-		})
-	})
-	if pool.schemaErr != nil {
+	// 首次 Open 时各自重复执行）。失败不缓存：瞬时故障（文件被替换、
+	// 磁盘满）恢复后下一次 Open 重试，而不是粘池直到进程重启。
+	if err := pool.ensureSchema(ctx, db); err != nil {
 		db.Close()
-		return nil, pool.schemaErr
+		return nil, err
 	}
 	return db, nil
 }
 
 func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
+	// auto_vacuum 是数据库级持久化属性：仅在库路径首次初始化时设置一次（由
+	// connPool.ensureSchema + WithSchemaLock 串行化），避免每个新物理连接在
+	// connPragmas 里重复抢库文件头排他写锁（曾导致「configure sqlite ...
+	// SQLITE_BUSY」）。
+	if _, err := db.ExecContext(ctx, `PRAGMA auto_vacuum = INCREMENTAL`); err != nil {
+		return fmt.Errorf("enable auto_vacuum incremental: %w", err)
+	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS system_config (
 			key TEXT PRIMARY KEY,
@@ -91,6 +94,7 @@ func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_operation_logs_table ON operation_logs(table_name, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_operation_logs_created ON operation_logs(created_at)`,
 		`CREATE TABLE IF NOT EXISTS auth_flows (
 			id TEXT PRIMARY KEY,
 			flow_type TEXT NOT NULL,

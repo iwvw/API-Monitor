@@ -23,6 +23,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/iwvw/api-monitor/backend-go/internal/sseutil"
 )
 
 type Service struct {
@@ -41,17 +42,23 @@ type Service struct {
 	streams        map[int64]chan map[string]interface{}
 	actionPollMu   sync.Mutex
 	actionLastPoll map[int64]time.Time
+	// webhook 刷新的每仓库去重：事件风暴时同一仓库不并发发起多个 GitHub API 刷新
+	webhookRefreshMu    sync.Mutex
+	webhookRefreshBusy  map[int64]bool
+	webhookRefreshTimer map[int64]*time.Timer
 }
 
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:            cfg,
-		store:          database.New(cfg),
-		client:         newAPIClient(),
-		stop:           make(chan struct{}),
-		stopped:        make(chan struct{}),
-		streams:        map[int64]chan map[string]interface{}{},
-		actionLastPoll: map[int64]time.Time{},
+		cfg:                 cfg,
+		store:               database.New(cfg),
+		client:              newAPIClient(),
+		stop:                make(chan struct{}),
+		stopped:             make(chan struct{}),
+		streams:             map[int64]chan map[string]interface{}{},
+		actionLastPoll:      map[int64]time.Time{},
+		webhookRefreshBusy:  map[int64]bool{},
+		webhookRefreshTimer: map[int64]*time.Timer{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -343,7 +350,7 @@ func (s *Service) publicPageByDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		response.Error(w, http.StatusNotFound, "公开页不存在或未公开")
+		response.OK(w, map[string]interface{}{"found": false})
 		return
 	}
 
@@ -466,6 +473,9 @@ func (s *Service) publicPageEventStream(w http.ResponseWriter, r *http.Request, 
 	defer cancel()
 	heartbeat := time.NewTicker(20 * time.Second)
 	defer heartbeat.Stop()
+	if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+		return
+	}
 	fmt.Fprintf(w, "event: hello\ndata: %s\n\n", jsonString(map[string]interface{}{"connected": true}))
 	flusher.Flush()
 
@@ -474,12 +484,18 @@ func (s *Service) publicPageEventStream(w http.ResponseWriter, r *http.Request, 
 		case <-r.Context().Done():
 			return
 		case <-heartbeat.C:
+			if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+				return
+			}
 			fmt.Fprint(w, ": keepalive\n\n")
 			flusher.Flush()
 		case event := <-ch:
 			payload, visible := publicPageEventPayload(repositoryIDs, event)
 			if !visible {
 				continue
+			}
+			if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+				return
 			}
 			fmt.Fprintf(w, "event: github\ndata: %s\n\n", jsonString(payload))
 			flusher.Flush()
@@ -1062,16 +1078,23 @@ func (s *Service) refreshRepository(w http.ResponseWriter, r *http.Request, idTe
 		response.Error(w, http.StatusBadRequest, "invalid repository id")
 		return
 	}
-	if err := s.refreshRepositoryByID(r.Context(), id, "manual"); err != nil {
-		response.Error(w, http.StatusBadGateway, err.Error())
-		return
-	}
 	db, err := s.open(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer db.Close()
+	if _, ok, err := getRepository(r.Context(), db, id); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if !ok {
+		response.Error(w, http.StatusNotFound, "repository not found")
+		return
+	}
+	if err := s.refreshRepositoryByID(r.Context(), id, "manual"); err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	repo, _, _ := getRepository(r.Context(), db, id)
 	response.OK(w, repo)
 }
@@ -1102,7 +1125,10 @@ func (s *Service) repositoryTrends(w http.ResponseWriter, r *http.Request, idTex
 		return
 	}
 	defer db.Close()
-	cutoff := time.Now().AddDate(0, 0, -days).UTC().Format(time.RFC3339)
+	// 快照时间戳是 SQLite CURRENT_TIMESTAMP（空格格式），cutoff 必须用同一
+	// 格式比较，否则 '2026-01-01T...' 与 '2026-01-01 10:00:00' 在字节 10
+	// 处错位（'T' > ' '），首日快照会被永久排除。
+	cutoff := time.Now().AddDate(0, 0, -days).UTC().Format("2006-01-02 15:04:05")
 	rows, err := db.QueryContext(r.Context(), `SELECT id, repository_id, stars, forks, watchers, open_issues, open_pull_requests,
 		commit_count, release_count, contributor_count, actions_total, actions_success, actions_failed,
 		traffic_views, traffic_uniques, traffic_clones, traffic_clone_uniques, collected_at
@@ -1450,12 +1476,10 @@ func (s *Service) deleteHistory(w http.ResponseWriter, r *http.Request) {
 		deleted += count
 	}
 	if deleted > 0 {
-		_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
-		if _, err := db.ExecContext(r.Context(), `VACUUM`); err != nil {
+		if err := reclaimDatabaseSpace(r.Context(), db); err != nil {
 			response.Error(w, http.StatusInternalServerError, "github history vacuum failed: "+err.Error())
 			return
 		}
-		_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
 	}
 	response.OK(w, result)
 }
@@ -1475,14 +1499,36 @@ func (s *Service) compactHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	updated := result["github_events"] + result["github_webhook_deliveries"]
 	if updated > 0 {
-		_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
-		if _, err := db.ExecContext(r.Context(), `VACUUM`); err != nil {
+		if err := reclaimDatabaseSpace(r.Context(), db); err != nil {
 			response.Error(w, http.StatusInternalServerError, "github history vacuum failed: "+err.Error())
 			return
 		}
-		_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
 	}
 	response.OK(w, result)
+}
+
+// reclaimDatabaseSpace 分批增量回收删除后留下的空闲页（每批 4096 页，
+// 每次持写锁仅几十毫秒），避免全量 VACUUM 长时间独占数据库。
+// auto_vacuum=NONE 的存量库无法增量回收（全量迁移由设置页「数据库压缩」处理），
+// 此处静默跳过，原有的 wal_checkpoint 逻辑保留。
+func reclaimDatabaseSpace(ctx context.Context, db *sql.DB) error {
+	var mode int
+	if err := db.QueryRowContext(ctx, `PRAGMA auto_vacuum`).Scan(&mode); err != nil {
+		return err
+	}
+	if mode == 2 {
+		for rounds := 0; rounds < 64; rounds++ {
+			var freePages int64
+			if err := db.QueryRowContext(ctx, `PRAGMA freelist_count`).Scan(&freePages); err != nil || freePages == 0 {
+				break
+			}
+			if _, err := db.ExecContext(ctx, `PRAGMA incremental_vacuum(4096)`); err != nil {
+				return err
+			}
+		}
+	}
+	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	return nil
 }
 
 func (s *Service) events(w http.ResponseWriter, r *http.Request) {
@@ -1511,6 +1557,9 @@ func (s *Service) eventStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	ch, cancel := s.subscribe()
 	defer cancel()
+	if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+		return
+	}
 	fmt.Fprintf(w, "event: hello\ndata: %s\n\n", jsonString(map[string]interface{}{"connected": true}))
 	flusher.Flush()
 	for {
@@ -1518,6 +1567,9 @@ func (s *Service) eventStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case event := <-ch:
+			if err := sseutil.RenewWriteDeadline(w, 0); err != nil {
+				return
+			}
 			fmt.Fprintf(w, "event: github\ndata: %s\n\n", jsonString(event))
 			flusher.Flush()
 		}

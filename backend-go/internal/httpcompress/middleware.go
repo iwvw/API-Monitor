@@ -100,6 +100,13 @@ func (w *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, http.ErrNotSupported
 }
 
+// Unwrap 透传底层 ResponseWriter：让 http.NewResponseController 能下钻到真实
+// response 设置写 deadline（SSE 长连接续期），否则封装层挡住 SetWriteDeadline，
+// 60s WriteTimeout 到期时首个写入失败导致 SSE 流被掐断。
+func (w *gzipResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (w *gzipResponseWriter) Close() {
 	if w.gz == nil {
 		return

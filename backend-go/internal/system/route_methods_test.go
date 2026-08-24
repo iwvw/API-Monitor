@@ -1,0 +1,189 @@
+package system
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
+)
+
+// 描述中显式标注的方法（全角/半角括号）优先于推断：
+// 这是「获取安装命令（GET）或发送命令执行（POST）」类中文描述的正确来源。
+func TestInferRouteMethodsAnnotations(t *testing.T) {
+	cases := []struct {
+		desc string
+		want []string
+	}{
+		{"获取 Agent 安装命令（GET）或向 Agent 发送命令执行（POST）", []string{"GET", "POST"}},
+		{"更新或删除单个 MCP 服务配置（PUT）", []string{"PUT"}},
+		{"读取或更新应用配置（GET）", []string{"GET"}},
+		{"没有显式标注的中文描述", nil},
+	}
+	for _, c := range cases {
+		if got := methodsFromAnnotations(c.desc); !reflect.DeepEqual(got, c.want) {
+			t.Fatalf("methodsFromAnnotations(%q) = %v, want %v", c.desc, got, c.want)
+		}
+	}
+}
+
+// 中文关键词推断：列出/创建/删除/更新 与英文关键词同语义。
+func TestInferRouteMethodsChinese(t *testing.T) {
+	cases := []struct {
+		desc  string
+		mode  manifest.MatchMode
+		want  []string
+	}{
+		{"列出或创建主机任务", manifest.MatchExact, []string{"GET", "POST"}},
+		{"列出或新增 cron 任务", manifest.MatchExact, []string{"GET", "POST"}},
+		{"列出全部主机", manifest.MatchExact, []string{"GET"}},
+		{"新增 MCP 服务配置", manifest.MatchExact, []string{"POST"}},
+		{"删除单条会话消息", manifest.MatchExact, []string{"DELETE"}},
+		{"更新或删除会话", manifest.MatchPattern, []string{"PUT", "DELETE"}},
+	}
+	for _, c := range cases {
+		got := inferRouteMethods(manifest.Route{Prefix: "/api/test", Description: c.desc, MatchMode: c.mode})
+		if !reflect.DeepEqual(got, c.want) {
+			t.Fatalf("inferRouteMethods(%q) = %v, want %v", c.desc, got, c.want)
+		}
+	}
+}
+
+// 定时任务（scheduler）子路由契约：工作流/任务的删除更新方法必须在文档可见
+// （此前漏登记 workflows/{id}，AI 据此误判「无删除接口」，实际 DELETE 存在）。
+func TestSchedulerWriteRouteMethodsExposed(t *testing.T) {
+	keyRoutes := []struct {
+		prefix string
+		want   []string
+	}{
+		{"/api/scheduler/tasks/{id}", []string{"GET", "PUT", "DELETE"}},
+		{"/api/scheduler/tasks/{id}/run", []string{"POST"}},
+		{"/api/scheduler/workflows/{id}", []string{"GET", "PUT", "DELETE"}},
+		{"/api/scheduler/runs", []string{"GET", "DELETE"}},
+		{"/api/scheduler/runs/{id}", []string{"GET"}},
+	}
+	for _, kr := range keyRoutes {
+		docs := routeDocs(manifest.Route{
+			Prefix:       kr.prefix,
+			Module:       "scheduler",
+			Owner:        manifest.OwnerGo,
+			Auth:         manifest.AuthSession,
+			ResponseMode: manifest.ResponseJSON,
+			MatchMode:    manifest.MatchPattern,
+		})
+		if !reflect.DeepEqual(docs.Methods, kr.want) {
+			t.Fatalf("%s methods = %v, want %v", kr.prefix, docs.Methods, kr.want)
+		}
+	}
+}
+
+// 契约覆盖审计第二波（2026-08-19）：此前漏登记/错登的中文操作路由，
+// 抽查代表条目确保写方法在文档可见（AI 依赖契约调用）。
+func TestAuditWriteRouteMethodsExposed(t *testing.T) {
+	cases := []struct {
+		prefix string
+		mode   manifest.MatchMode
+		want   []string
+	}{
+		{"/api/server/agent/quick-install", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/agent/batch-upgrade", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/agent/uninstall/{id}", manifest.MatchPattern, []string{"POST"}},
+		{"/api/server/agent/proxy/nodes/{id}", manifest.MatchPattern, []string{"PUT", "DELETE"}},
+		{"/api/server/agent/proxy/tunnels/preflight", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/info", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/check-all", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/accounts/refresh-locations", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/accounts/{id}", manifest.MatchPattern, []string{"GET", "PUT", "DELETE"}},
+		{"/api/server/remote-desktop/sessions", manifest.MatchExact, []string{"POST"}},
+		{"/api/server/remote-desktop/sessions/{id}/signals", manifest.MatchPattern, []string{"GET", "POST"}},
+		{"/api/server/v2/docker/{serverId}/containers/{containerId}", manifest.MatchPattern, []string{"DELETE"}},
+		{"/api/server/v2/docker/{serverId}/compose/{project}/{action}", manifest.MatchPattern, []string{"POST"}},
+		{"/api/scheduler/nodes/{id}", manifest.MatchPattern, []string{"PUT"}},
+		{"/api/cron/tasks/{id}/run", manifest.MatchPattern, []string{"POST"}},
+		{"/api/settings/clear-logs", manifest.MatchExact, []string{"POST"}},
+		{"/api/settings/enforce-log-limits", manifest.MatchExact, []string{"POST"}},
+		{"/api/settings/log-settings", manifest.MatchExact, []string{"GET", "POST"}},
+		{"/api/admin-ai/messages", manifest.MatchExact, []string{"POST"}},
+		{"/api/admin-ai/cancel", manifest.MatchExact, []string{"POST"}},
+		{"/api/admin-ai/settings", manifest.MatchExact, []string{"GET", "PUT"}},
+		{"/api/admin-ai/approvals/{id}/resolve", manifest.MatchPattern, []string{"POST"}},
+		{"/api/system/ai-access/write", manifest.MatchExact, []string{"PUT"}},
+		{"/api/system/ai-access/policy", manifest.MatchExact, []string{"PUT"}},
+		{"/api/system/ai-access/mcp-servers", manifest.MatchExact, []string{"POST"}},
+		{"/api/ai-access/audit/clear", manifest.MatchExact, []string{"POST"}},
+		{"/api/notification/channels/{id}/test", manifest.MatchPattern, []string{"POST"}},
+		{"/api/notification/history", manifest.MatchExact, []string{"GET", "DELETE"}},
+		{"/api/backup/records/{id}", manifest.MatchPattern, []string{"DELETE"}},
+		{"/api/github/tokens/{id}", manifest.MatchPattern, []string{"PUT", "PATCH", "DELETE"}},
+		{"/api/github/repositories/{id}/refresh", manifest.MatchPattern, []string{"POST"}},
+		{"/api/github/history", manifest.MatchExact, []string{"DELETE"}},
+		{"/api/github/collector/run", manifest.MatchExact, []string{"POST"}},
+	}
+	for _, c := range cases {
+		docs := routeDocs(manifest.Route{
+			Prefix:       c.prefix,
+			Owner:        manifest.OwnerGo,
+			Auth:         manifest.AuthSession,
+			ResponseMode: manifest.ResponseJSON,
+			MatchMode:    c.mode,
+		})
+		if !reflect.DeepEqual(docs.Methods, c.want) {
+			t.Fatalf("%s methods = %v, want %v", c.prefix, docs.Methods, c.want)
+		}
+	}
+}
+
+// 无法推断的 MatchPattern 路由保守只读（防文档宣称方法比实际大）。
+func TestInferRouteMethodsConservativeFallback(t *testing.T) {
+	got := inferRouteMethods(manifest.Route{
+		Prefix: "/api/server/some/deep/{id}",
+		Description: "某个无法从描述推断的具体操作",
+		MatchMode: manifest.MatchPattern,
+	})
+	if !reflect.DeepEqual(got, []string{"GET"}) {
+		t.Fatalf("保守兜底应只声明 GET, got %v", got)
+	}
+}
+
+// 真实业务描述（此前 AI 命令下发失败场景）：中文描述 + (GET)/(POST)
+// 显式标注 → 方法集合必须完整暴露给 AI。
+func TestInferRouteMethodsAgentCommandRealDesc(t *testing.T) {
+	got := inferRouteMethods(manifest.Route{
+		Prefix:      "/api/server/agent/command/{id}",
+		Description: "获取 Agent 安装命令（GET）或向 Agent 发送命令执行（POST）",
+		MatchMode:   manifest.MatchPattern,
+	})
+	if !reflect.DeepEqual(got, []string{"GET", "POST"}) {
+		t.Fatalf("agent/command 契约应暴露 GET+POST（AI 依赖其下发命令），got %v", got)
+	}
+}
+
+// 关键 server 写路由契约：POST 方法必须在 api-docs 中可见
+// （AI 依赖该契约执行主机命令；此前只暴露 GET 导致命令下发被预检拒绝）。
+func TestServerWriteRouteMethodsExposed(t *testing.T) {
+	// 关键 server 写路由契约：POST 方法必须在 api-docs 中可见
+	// （AI 依赖该契约执行主机命令；此前只暴露 GET 导致命令下发被预检拒绝）。
+	keyRoutes := []struct {
+		prefix string
+		want   []string
+	}{
+		{"/api/server/agent/command/{id}", []string{"GET", "POST"}},
+		{"/api/server/tasks", []string{"GET", "POST"}},
+		{"/api/server/v2/tasks", []string{"GET", "POST"}},
+	}
+	for _, kr := range keyRoutes {
+		route := manifest.Route{
+			Prefix:       kr.prefix,
+			Owner:        manifest.OwnerGo,
+			Auth:         manifest.AuthSession,
+			ResponseMode: manifest.ResponseJSON,
+			MatchMode:    manifest.MatchPattern,
+		}
+		if kr.prefix == "/api/server/tasks" || kr.prefix == "/api/server/v2/tasks" {
+			route.MatchMode = manifest.MatchExact
+		}
+		docs := routeDocs(route)
+		if !reflect.DeepEqual(docs.Methods, kr.want) {
+			t.Fatalf("%s methods = %v, want %v", kr.prefix, docs.Methods, kr.want)
+		}
+	}
+}

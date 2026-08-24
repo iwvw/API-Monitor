@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	randv2 "math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/robfig/cron/v3"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
@@ -64,6 +67,11 @@ type Service struct {
 	timers        map[int64]*time.Timer
 	stopped       bool
 	lastSslAlerts sync.Map // monitorID -> time.Time (expiry)
+
+	// per-monitor 检查互斥：同一 monitor 的定时检查、checkNow、state 迁移
+	// 必须串行执行，防止并发 processState 的读-改-写产生重复 incident。
+	checkMux   sync.Mutex
+	checkLocks map[int64]*sync.Mutex
 }
 
 type probeResult struct {
@@ -110,11 +118,12 @@ type maintenanceWindow struct {
 
 func New(cfg config.Config, auth Authenticator, notifier Notifier) *Service {
 	service := &Service{
-		cfg:      cfg,
-		store:    database.New(cfg),
-		auth:     auth,
-		notifier: notifier,
-		timers:   map[int64]*time.Timer{},
+		cfg:        cfg,
+		store:      database.New(cfg),
+		auth:       auth,
+		notifier:   notifier,
+		timers:     map[int64]*time.Timer{},
+		checkLocks: map[int64]*sync.Mutex{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -173,7 +182,19 @@ func (s *Service) cleanupOldHeartbeats(ctx context.Context) {
 		return
 	}
 	defer db.Close()
-	_, _ = db.ExecContext(ctx, "DELETE FROM uptime_heartbeats WHERE created_at < datetime('now', '-' || ? || ' days')", retentionDays)
+	// 分批删除：单批上限内循环，避免月积累的大量心跳单次 DELETE 长时间持锁。
+	// LIMIT 置于子查询（modernc 驱动不支持 DELETE 主语句 LIMIT）。
+	const batchSize = 2000
+	for {
+		result, err := db.ExecContext(ctx, `DELETE FROM uptime_heartbeats WHERE rowid IN (SELECT rowid FROM uptime_heartbeats WHERE created_at < datetime('now', '-' || ? || ' days') LIMIT ?)`, retentionDays, batchSize)
+		if err != nil {
+			return
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil || deleted < batchSize {
+			return
+		}
+	}
 }
 
 func resolveHeartbeatRetentionDays() int {
@@ -587,7 +608,10 @@ func (s *Service) startMonitor(monitor map[string]interface{}) {
 		s.mu.Unlock()
 		return
 	}
-	timer := time.AfterFunc(2*time.Second, func() {
+	// 初次探测延迟带 0-3s 随机抖动：批量创建 monitor 时若全部 2s 后同时
+	// 探测，会在同一时刻向 SQLite 并发写入（各 monitor 独立 goroutine），
+	// 抖动错开相位后写高峰自然分散；后续排期保持各自固定间隔不变。
+	timer := time.AfterFunc(2*time.Second+time.Duration(randv2.N(3000))*time.Millisecond, func() {
 		s.runScheduledCheck(id)
 	})
 	s.timers[id] = timer
@@ -1051,11 +1075,7 @@ func getLastHeartbeat(ctx context.Context, db *sql.DB, monitorID int64) (map[str
 }
 
 func normalizeHeartbeatTime(row map[string]interface{}) {
-	raw := stringValue(firstNonNil(row["time"], row["created_at"]), "")
-	if raw == "" {
-		return
-	}
-	parsed := parseTimeFallback(raw, time.Time{})
+	parsed := parseTimeFallbackAny(firstNonNil(row["time"], row["created_at"]), time.Time{})
 	if parsed.IsZero() {
 		return
 	}
@@ -1363,8 +1383,8 @@ func calculateUptime(ctx context.Context, db *sql.DB, monitorID int64, days int)
 		if err := rows.Scan(&started, &resolved); err != nil {
 			return "", err
 		}
-		startTime := parseTimeFallback(started, rangeStart)
-		endTime := parseTimeFallback(resolved, time.Now())
+		startTime := parseTimeFallbackAny(started, rangeStart)
+		endTime := parseTimeFallbackAny(resolved, time.Now())
 		if startTime.Before(rangeStart) {
 			startTime = rangeStart
 		}
@@ -1564,7 +1584,28 @@ func parseUptimeDBTime(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, value)
 }
 
+// lockMonitor 获取指定 monitor 的检查互斥锁，返回解锁函数。
+// 同一 monitor 的定时检查、checkNow 与手动触发必须串行，才能保证
+// processState 的 loadState→transition→saveState 是原子读改写。
+func (s *Service) lockMonitor(id int64) func() {
+	if id <= 0 {
+		return func() {}
+	}
+	s.checkMux.Lock()
+	mu, ok := s.checkLocks[id]
+	if !ok {
+		mu = &sync.Mutex{}
+		s.checkLocks[id] = mu
+	}
+	s.checkMux.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
 func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]interface{}) (map[string]interface{}, error) {
+	unlock := s.lockMonitor(int64Value(monitor["id"], 0))
+	defer unlock()
+
 	result, err := s.probe(ctx, db, monitor)
 	if err != nil {
 		result = probeResult{
@@ -1614,7 +1655,6 @@ func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]inte
 		if daysLeft <= 30 {
 			lastExpiry, exists := s.lastSslAlerts.Load(monitorID)
 			if !exists || !lastExpiry.(time.Time).Equal(*result.SslExpiry) {
-				s.lastSslAlerts.Store(monitorID, *result.SslExpiry)
 				if s.notifier != nil {
 					eventData := map[string]interface{}{
 						"monitorId":   monitorID,
@@ -1623,7 +1663,14 @@ func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]inte
 						"daysLeft":    daysLeft,
 						"expiry":      result.SslExpiry.UTC().Format(time.RFC3339),
 					}
-					_ = s.notifier.Trigger(ctx, "uptime", "ssl_expiry", eventData)
+					triggerErr := s.notifier.Trigger(ctx, "uptime", "ssl_expiry", eventData)
+					// 只在通知成功时才记录去重游标：失败留待下轮重试，
+					// 否则告警会因落库成功而永不重发。
+					if triggerErr == nil {
+						s.lastSslAlerts.Store(monitorID, *result.SslExpiry)
+					}
+				} else {
+					s.lastSslAlerts.Store(monitorID, *result.SslExpiry)
 				}
 			}
 		}
@@ -1664,7 +1711,12 @@ func (s *Service) processState(ctx context.Context, db *sql.DB, monitor map[stri
 			started := parseTimeFallback(stringValue(incident["started_at"], ""), time.Now())
 			duration = time.Since(started).Milliseconds()
 		}
-		s.refreshNotification(ctx, monitor, beat, duration)
+		s.refreshNotification(ctx, "down", monitor, beat, duration)
+	}
+	if action == "" && stateText(next["state"]) == stateUp {
+		// 在线状态也周期触发 resolve 自愈：后端重启后残留的 down 生命周期消息
+		// （无 up 规则覆盖时）需要被编辑为恢复内容并清除。
+		s.refreshNotification(ctx, "up", monitor, beat, 0)
 	}
 	return nil
 }
@@ -1756,14 +1808,14 @@ func (s *Service) notify(ctx context.Context, eventType string, monitor, beat ma
 	_ = s.notifier.Trigger(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs))
 }
 
-func (s *Service) refreshNotification(ctx context.Context, monitor, beat map[string]interface{}, durationMs int64) {
+func (s *Service) refreshNotification(ctx context.Context, eventType string, monitor, beat map[string]interface{}, durationMs int64) {
 	updater, ok := s.notifier.(interface {
 		RefreshLifecycle(context.Context, string, string, map[string]interface{}) error
 	})
 	if !ok {
 		return
 	}
-	_ = updater.RefreshLifecycle(ctx, "uptime", "down", uptimeNotificationData("down", monitor, beat, durationMs))
+	_ = updater.RefreshLifecycle(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs))
 }
 
 func uptimeNotificationData(eventType string, monitor, beat map[string]interface{}, durationMs int64) map[string]interface{} {
@@ -2159,7 +2211,7 @@ func (s *Service) publicStatusPageByDomain(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !ok {
-		response.Error(w, http.StatusNotFound, "Not found")
+		response.OK(w, map[string]interface{}{"found": false})
 		return
 	}
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", intValue(page["cacheSeconds"], 300)))
@@ -2656,10 +2708,56 @@ func activeMaintenanceForMonitor(ctx context.Context, db *sql.DB, monitorID int6
 		return nil, err
 	}
 	defer rows.Close()
-	if !rows.Next() {
-		return nil, rows.Err()
+	for rows.Next() {
+		row, err := scanMap(rows)
+		if err != nil {
+			return nil, err
+		}
+		active, err := maintenanceRowActive(row, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		// cron 型窗口未被命中时继续找下一个候选（一次性窗口恒活跃）
+		if !active {
+			continue
+		}
+		return row, nil
 	}
-	return scanMap(rows)
+	return nil, rows.Err()
+}
+
+// maintenanceRowActive 判断维护窗口在指定时刻是否处于生效期。
+// 一次性窗口（cron 为空）：SQL 已按 start_at/end_at 过滤，直接生效；
+// cron 型窗口：当前分钟必须命中 cron 表达式（按 timezone 评估），
+// 避免「配置了 cron 却按一次性起止时间永久生效」。
+func maintenanceRowActive(row map[string]interface{}, at time.Time) (bool, error) {
+	cronExpr := strings.TrimSpace(stringValue(row["cron"], ""))
+	if cronExpr == "" {
+		// 兼容 recurrence_json 内携带 cron 表达式的情况
+		if rec := parseJSONAny(row["recurrence_json"]); rec != nil {
+			if recMap, ok := rec.(map[string]interface{}); ok {
+				cronExpr = strings.TrimSpace(stringValue(recMap["cron"], ""))
+			}
+		}
+	}
+	if cronExpr == "" {
+		return true, nil
+	}
+	loc := time.UTC
+	if tzName := strings.TrimSpace(stringValue(row["timezone"], "")); tzName != "" {
+		if loaded, err := time.LoadLocation(tzName); err == nil {
+			loc = loaded
+		}
+	}
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(cronExpr)
+	if err != nil {
+		// 非法 cron 视为不生效：绝不能变成永久生效窗口
+		return false, nil
+	}
+	now := at.In(loc)
+	next := schedule.Next(now.Add(-time.Minute))
+	return !next.After(now), nil
 }
 
 func (s *Service) exportConfig(w http.ResponseWriter, r *http.Request) {
@@ -2862,6 +2960,10 @@ func (s *Service) recordPush(w http.ResponseWriter, r *http.Request, token strin
 		response.Error(w, http.StatusNotFound, "Invalid push token")
 		return
 	}
+	// push 心跳与定时 pushProbe/checkNow 必须按 monitor 串行，
+	// 否则 processState 的读改写会交错，产生重复 incident 或通知乱序。
+	unlock := s.lockMonitor(int64Value(monitor["id"], 0))
+	defer unlock()
 	payload := map[string]interface{}{}
 	_ = json.NewDecoder(r.Body).Decode(&payload)
 	beat := map[string]interface{}{
@@ -3051,17 +3153,71 @@ func pingProbe(ctx context.Context, monitor map[string]interface{}) (probeResult
 
 func dnsProbe(ctx context.Context, monitor map[string]interface{}) (probeResult, error) {
 	started := time.Now()
+	hostname := strings.TrimSpace(stringValue(monitor["hostname"], ""))
+	resolveType := strings.ToUpper(stringValue(firstNonNil(monitor["dns_resolve_type"], monitor["dnsResolveType"]), "A"))
+	server := strings.TrimSpace(stringValue(firstNonNil(monitor["dns_resolve_server"], monitor["dnsResolveServer"]), ""))
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(intValue(monitor["timeout"], 10))*time.Second)
 	defer cancel()
-	records, err := net.DefaultResolver.LookupHost(timeoutCtx, stringValue(monitor["hostname"], ""))
+	resolver := net.DefaultResolver
+	if server != "" {
+		resolver = customDNSResolver(server)
+	}
+	records := []string{}
+	var err error
+	switch resolveType {
+	case "AAAA":
+		var ips []net.IP
+		ips, err = resolver.LookupIP(timeoutCtx, "ip6", hostname)
+		for _, ip := range ips {
+			records = append(records, ip.String())
+		}
+	case "MX":
+		var mxs []*net.MX
+		mxs, err = resolver.LookupMX(timeoutCtx, hostname)
+		for _, mx := range mxs {
+			records = append(records, fmt.Sprintf("%s %d", mx.Host, mx.Pref))
+		}
+	case "TXT":
+		records, err = resolver.LookupTXT(timeoutCtx, hostname)
+	case "NS":
+		var nss []*net.NS
+		nss, err = resolver.LookupNS(timeoutCtx, hostname)
+		for _, ns := range nss {
+			records = append(records, ns.Host)
+		}
+	case "CNAME":
+		var cname string
+		cname, err = resolver.LookupCNAME(timeoutCtx, hostname)
+		if cname != "" {
+			records = append(records, cname)
+		}
+	default:
+		records, err = resolver.LookupHost(timeoutCtx, hostname)
+	}
 	if err != nil {
 		return probeResult{}, err
 	}
 	expected := stringValue(firstNonNil(monitor["keyword"], monitor["expectedValue"], objectValue(monitor["config"])["expectedValue"]), "")
 	if expected != "" && !strings.Contains(strings.Join(records, ","), expected) {
-		return probeResult{}, fmt.Errorf("DNS expected value not found: %s", expected)
+		return probeResult{}, fmt.Errorf("DNS %s expected value not found: %s", resolveType, expected)
 	}
-	return probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", Details: map[string]interface{}{"records": records, "type": stringValue(monitor["dns_resolve_type"], "A")}}, nil
+	return probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", Details: map[string]interface{}{"records": records, "type": resolveType}}, nil
+}
+
+// customDNSResolver 返回将 DNS 查询发往指定服务器（支持 "IP" 或 "IP:端口"，
+// 缺省端口为 53）的解析器。
+func customDNSResolver(server string) *net.Resolver {
+	serverAddr := net.JoinHostPort(server, "53")
+	if _, _, err := net.SplitHostPort(server); err == nil {
+		serverAddr = server
+	}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, "udp", serverAddr)
+		},
+	}
 }
 
 func pushProbe(ctx context.Context, db *sql.DB, monitor map[string]interface{}) (probeResult, error) {
@@ -3075,7 +3231,7 @@ func pushProbe(ctx context.Context, db *sql.DB, monitor map[string]interface{}) 
 	if last == nil || intValue(last["status"], 0) != 1 {
 		return probeResult{}, errors.New("Push heartbeat missing")
 	}
-	lastTime := parseTimeFallback(stringValue(firstNonNil(last["time"], last["created_at"]), ""), time.Time{})
+	lastTime := parseTimeFallbackAny(firstNonNil(last["time"], last["created_at"]), time.Time{})
 	if lastTime.IsZero() {
 		return probeResult{}, errors.New("Push heartbeat missing")
 	}
@@ -3730,12 +3886,24 @@ func parseTimeFallback(value string, fallback time.Time) time.Time {
 	if value == "" {
 		return fallback
 	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05.000Z"} {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05.000Z", "2006-01-02 15:04:05 -0700 MST"} {
 		if parsed, err := time.Parse(layout, value); err == nil {
 			return parsed
 		}
 	}
 	return fallback
+}
+
+// parseTimeFallbackAny 兼容 DATETIME 列经 modernc sqlite 驱动返回的
+// time.Time 值与字符串时间格式；解析失败回退 fallback。
+func parseTimeFallbackAny(value interface{}, fallback time.Time) time.Time {
+	if t, ok := value.(time.Time); ok {
+		if t.IsZero() {
+			return fallback
+		}
+		return t
+	}
+	return parseTimeFallback(stringValue(value, ""), fallback)
 }
 
 func formatDuration(ms int64) string {

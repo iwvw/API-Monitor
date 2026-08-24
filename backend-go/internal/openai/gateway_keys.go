@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iwvw/api-monitor/backend-go/internal/apikeys"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
@@ -63,6 +65,13 @@ func gatewayKeyFromContext(ctx context.Context) gatewayKeyIdentity {
 }
 
 func (s *Service) AuthorizeGatewayRequest(r *http.Request) (*http.Request, error) {
+	// 本机内部调用（管理 AI 会话 / 部署脚本等）免密钥放行，以“internal”身份进入网关。
+	// 信任边界：运行本后台的宿主机上的任何进程（loopback 来源）都被视为内部可信调用，
+	// 可免密钥消费/路由/审计网关能力。这与单机部署的既有信任模型一致；若需多租户或
+	// 暴露到不可信网络，应改由 API Key 强制鉴权并移除该放行。
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && (host == "127.0.0.1" || host == "::1") {
+		return r.WithContext(context.WithValue(r.Context(), gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "internal", Name: "内部调用"})), nil
+	}
 	rawKey := strings.TrimSpace(r.Header.Get("X-API-Key"))
 	if rawKey == "" {
 		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
@@ -205,11 +214,16 @@ func (s *Service) createGatewayKey(w http.ResponseWriter, r *http.Request) {
 	id := "gk_" + uuid.NewString()
 	createdAt := time.Now().Format(time.RFC3339)
 	prefix, suffix := gatewayKeyParts(rawKey)
+	keyCipher, encryptErr := secure.SecureEncrypt(rawKey)
+	if encryptErr != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "加密密钥失败"})
+		return
+	}
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO openai_gateway_keys
 			(id, name, key_hash, key_cipher, key_prefix, key_suffix, enabled, created_at, expires_at, allowed_models, allowed_endpoints, max_tokens_quota)
 		VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-		id, req.Name, hashGatewayKey(rawKey), rawKey, prefix, suffix, createdAt, expiresAt,
+		id, req.Name, hashGatewayKey(rawKey), keyCipher, prefix, suffix, createdAt, expiresAt,
 		string(allowedModelsJSON), string(allowedEndpointsJSON), maxInt64(req.MaxTokensQuota, 0))
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -329,10 +343,15 @@ func (s *Service) rotateGatewayKey(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	defer db.Close()
+	keyCipher, encryptErr := secure.SecureEncrypt(rawKey)
+	if encryptErr != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "加密密钥失败"})
+		return
+	}
 	result, err := db.ExecContext(r.Context(), `
 		UPDATE openai_gateway_keys
 		SET key_hash = ?, key_cipher = ?, key_prefix = ?, key_suffix = ?, last_used = NULL, request_count = 0
-		WHERE id = ?`, hashGatewayKey(rawKey), rawKey, prefix, suffix, id)
+		WHERE id = ?`, hashGatewayKey(rawKey), keyCipher, prefix, suffix, id)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -427,12 +446,8 @@ func scanGatewayKey(scanner interface {
 	key.Enabled = enabled == 1
 	key.IsDefault = isDefault == 1
 	key.MaskedKey = maskGatewayKey(key.KeyPrefix, key.KeySuffix)
-	if keyCipher.Valid && secure.IsEncrypted(keyCipher.String) {
-		if rawKey, decryptErr := secure.DecryptNodeGCM(keyCipher.String); decryptErr == nil {
-			key.APIKey = rawKey
-		}
-	} else if keyCipher.Valid {
-		key.APIKey = keyCipher.String
+	if keyCipher.Valid {
+		key.APIKey = secure.SecureDecrypt(keyCipher.String)
 	}
 	if lastUsed.Valid {
 		key.LastUsed = &lastUsed.String
@@ -556,6 +571,8 @@ func (s *Service) enforceGatewayKeyLimits(ctx context.Context, identity gatewayK
 }
 
 // consumeGatewayKeyTokens 在请求完成后累加该密钥的 token 用量。
+// 扣减采用带配额条件的原子 UPDATE：并发请求同时结算时，超配额的更新
+// 不会生效（RowsAffected=0），杜绝「检查-后-扣减」竞态导致的任意超卖。
 func (s *Service) consumeGatewayKeyTokens(ctx context.Context, identity gatewayKeyIdentity, tokens int64) {
 	if identity.ID == "" || tokens <= 0 {
 		return
@@ -565,10 +582,85 @@ func (s *Service) consumeGatewayKeyTokens(ctx context.Context, identity gatewayK
 		return
 	}
 	defer db.Close()
-	_, _ = db.ExecContext(ctx, `
+	result, err := db.ExecContext(ctx, `
 		UPDATE openai_gateway_keys
 		SET total_tokens_used = total_tokens_used + ?
-		WHERE id = ?`, tokens, identity.ID)
+		WHERE id = ? AND (max_tokens_quota = 0 OR total_tokens_used + ? <= max_tokens_quota)`,
+		tokens, identity.ID, tokens)
+	if err != nil {
+		return
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		applog.Warn(ctx, "openai", "gateway key token quota exceeded during settle", "key_id", identity.ID, "tokens", tokens)
+	}
+}
+
+// filterCandidatesByKeyIdentity 按网关密钥的端点白名单过滤候选端点列表，
+// 并同步换算加权首选（chosenIndex）在过滤后列表中的新下标（首选不在白名单
+// 内时回退 0）。触发时机：failover 循环逐个尝试候选端点时不会再校验白名单，
+// 必须在候选组装阶段过滤，否则白名单内端点故障时会 failover 到白名单外的
+// 端点（授权绕过：密钥被限制只能使用特定端点，请求却打到了别的端点）。
+// 白名单为空（未限制端点）时原样返回，保持亲和排序不变。
+func filterCandidatesByKeyIdentity(identity gatewayKeyIdentity, candidates []Endpoint, chosenIndex int) ([]Endpoint, int) {
+	if len(identity.AllowedEndpoints) == 0 {
+		return candidates, chosenIndex
+	}
+	allowed := make(map[string]bool, len(identity.AllowedEndpoints))
+	for _, id := range identity.AllowedEndpoints {
+		allowed[id] = true
+	}
+	chosenID := ""
+	if chosenIndex >= 0 && chosenIndex < len(candidates) {
+		chosenID = candidates[chosenIndex].ID
+	}
+	out := make([]Endpoint, 0, len(candidates))
+	newChosenIndex := 0
+	for _, ep := range candidates {
+		if !allowed[ep.ID] {
+			continue
+		}
+		if ep.ID == chosenID {
+			newChosenIndex = len(out)
+		}
+		out = append(out, ep)
+	}
+	return out, newChosenIndex
+}
+
+// recordDisallowedEndpoints 全部候选端点均不在网关密钥端点白名单内时，按与
+// enforceGatewayKeyLimits 端点白名单违例同款口径记录失败事件并返回错误文案；
+// 响应写回由调用方完成（不同入口的错误格式不同）。
+func (s *Service) recordDisallowedEndpoints(ctx context.Context, route, model string, stream bool, clientIP string, viaProxy int, requestStarted time.Time) string {
+	limitErr := "端点不在该密钥的允许列表中"
+	s.recordRelayError(RelayErrorRecord{
+		Route: route, Kind: "blocked",
+		Model: model, Stream: stream, ClientIP: clientIP,
+		ElapsedMs: time.Since(requestStarted).Milliseconds(),
+		Error:     limitErr,
+	})
+	errBody, _ := json.Marshal(map[string]interface{}{
+		"error": map[string]string{"message": limitErr, "type": "forbidden"},
+	})
+	s.recordAnalyticsKey(ctx, route, "", model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+		Kind:     "blocked",
+		Message:  limitErr,
+		Response: errorResponseForLog(errBody, http.StatusForbidden),
+	})
+	return limitErr
+}
+
+// rejectDisallowedEndpoints 是 OpenAI 风格入口（chat/responses）的完整拒绝路径：
+// 记录 + 写回 403 JSON（与 enforceGatewayKeyLimits 违例响应同构）。
+func (s *Service) rejectDisallowedEndpoints(ctx context.Context, w http.ResponseWriter, route, model string, stream bool, clientIP string, viaProxy int, requestStarted time.Time) {
+	limitErr := s.recordDisallowedEndpoints(ctx, route, model, stream, clientIP, viaProxy, requestStarted)
+	response.JSON(w, http.StatusForbidden, map[string]interface{}{
+		"error": map[string]string{"message": limitErr, "type": "forbidden"},
+	})
+}
+
+// FilterModelsListByKey 按当前请求网关密钥的白名单过滤模型列表（/v1/models 使用）。
+func (s *Service) FilterModelsListByKey(ctx context.Context, models []map[string]interface{}) []map[string]interface{} {
+	return filterModelsByKey(gatewayKeyFromContext(ctx), models)
 }
 
 // filterModelsByKey 按密钥白名单过滤模型列表；白名单为空时返回原列表。

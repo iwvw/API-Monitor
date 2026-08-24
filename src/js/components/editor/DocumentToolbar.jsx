@@ -39,7 +39,7 @@ export default function DocumentToolbar({
     dirty ? '未保存' : '';
 
   return (
-    <div className={`flex min-w-0 flex-col gap-3 border-b border-kumo-line pb-3 sm:flex-row sm:items-center sm:justify-between ${className}`.trim()}>
+    <div className={`flex min-w-0 flex-col gap-3 border-b border-kumo-line pb-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between ${className}`.trim()}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {onTitleChange ? (
           <Input

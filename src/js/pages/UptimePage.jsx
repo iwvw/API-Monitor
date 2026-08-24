@@ -18,9 +18,11 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
-import { ChartPalette, ClipboardText, Loader, Tabs, TimeseriesChart, Toolbar } from '@cloudflare/kumo';
+import { ChartPalette, ClipboardText, Loader, Tabs, Toolbar } from '@cloudflare/kumo';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
 import { AppCard, ChartCard, ChartWarmupSkeleton, DataTableFrame, EmptyState, ResponsiveSearchInput, SectionCard, StatusBadge, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
@@ -193,90 +195,6 @@ const buildUptimeImportSections = (preview) => {
   });
 };
 
-function UptimeResponseChart({ points = [], loading = false }) {
-  const chartRef = useRef(null);
-  const chartColor = getUptimeChartColor(false);
-  const validPoints = useMemo(() => points
-    .map(([timestamp, value]) => [Number(timestamp), Number(value)])
-    .filter(([timestamp, value]) => Number.isFinite(timestamp) && Number.isFinite(value)), [points]);
-
-  useEffect(() => {
-    if (!chartRef.current || validPoints.length === 0) return undefined;
-
-    const chart = echarts.init(chartRef.current);
-    chart.setOption({
-      animation: false,
-      grid: { left: 48, right: 12, top: 14, bottom: 28 },
-      tooltip: {
-        trigger: 'axis',
-        confine: true,
-        backgroundColor: '#ffffff',
-        borderColor: '#e5e7eb',
-        textStyle: { color: '#111827', fontSize: 11 },
-        formatter: (params) => {
-          const item = Array.isArray(params) ? params[0] : params;
-          const [timestamp, value] = item?.data || [];
-          return `${formatUptimeChartTime(timestamp)}<br/>响应时间：${Math.round(value || 0)} ms`;
-        },
-      },
-      xAxis: {
-        type: 'time',
-        axisLabel: { color: '#6b7280', formatter: formatUptimeChartTime, fontSize: 10 },
-        axisLine: { lineStyle: { color: '#e5e7eb' } },
-        axisTick: { show: false },
-        splitLine: { show: false },
-      },
-      yAxis: {
-        type: 'value',
-        name: 'ms',
-        nameTextStyle: { color: '#6b7280', fontSize: 10 },
-        axisLabel: { color: '#6b7280', formatter: formatLatencyAxis, fontSize: 10 },
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { lineStyle: { color: '#e5e7eb', type: 'dashed' } },
-        min: 0,
-      },
-      series: [{
-        type: 'line',
-        name: '响应时间',
-        data: validPoints,
-        showSymbol: validPoints.length < 24,
-        symbolSize: 4,
-        smooth: true,
-        connectNulls: false,
-        lineStyle: { width: 2, color: chartColor },
-        itemStyle: { color: chartColor },
-        areaStyle: { color: `${chartColor}18` },
-      }],
-    }, true);
-
-    chart.resize();
-    const resizeObserver = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => chart.resize())
-      : null;
-    resizeObserver?.observe(chartRef.current);
-
-    return () => {
-      resizeObserver?.disconnect();
-      chart.dispose();
-    };
-  }, [validPoints]);
-
-  if (loading && validPoints.length === 0) {
-    return <ChartWarmupSkeleton height={120} />;
-  }
-
-  if (validPoints.length === 0) {
-    return (
-      <div className="flex h-[120px] items-center justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/20 text-xs text-kumo-subtle">
-        暂无响应时间数据
-      </div>
-    );
-  }
-
-  return <div ref={chartRef} className="h-[120px] w-full min-w-0" />;
-}
-
 // ==================== SSL Certificate Panel ====================
 function SslCertificatePanel({ monitorId }) {
   const [sslData, setSslData] = useState(null);
@@ -333,7 +251,7 @@ function SslCertificatePanel({ monitorId }) {
             return (
               <>
                 {/* 证书状态概览 */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 cq-md:grid-cols-4 gap-2">
                   <div className={`rounded-md p-2 ${bgColor} flex flex-col`}>
                     <span className="text-[9px] text-kumo-subtle select-none">剩余天数</span>
                     <span className={`text-sm font-bold font-mono ${shieldColor} flex items-center gap-1`}>
@@ -355,7 +273,7 @@ function SslCertificatePanel({ monitorId }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 cq-sm:grid-cols-2">
                   {/* DNS SANs */}
                   {sslData.dnsNames && sslData.dnsNames.length > 0 && (
                     <div className="rounded-md p-2 bg-kumo-recessed">
@@ -461,12 +379,12 @@ function UptimeMonitorDetails({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_15rem]">
+      <div className="grid grid-cols-1 gap-3 cq-lg:grid-cols-[minmax(0,1fr)_15rem]">
         {/* 图表主栏 (Span 3) */}
         <ChartCard className="relative h-36 !border-kumo-interact/90 !bg-kumo-base">
           {(tooltipBoundary) => (
             <DeferredRender open={expanded} fallback={<ChartWarmupSkeleton height={120} />}>
-              <TimeseriesChart
+              <SiteFontTimeseriesChart
                 echarts={echarts}
                 data={chartData}
                 height={120}
@@ -481,14 +399,14 @@ function UptimeMonitorDetails({
                 xAxisTickFormat={formatUptimeChartTime}
                 tooltipMode="single"
                 gradient
-                ariaDescription="Uptime monitor response time history"
+                ariaDescription="Uptime 监测响应时间历史"
               />
             </DeferredRender>
           )}
         </ChartCard>
 
         {/* 右侧可用率统计指标 */}
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+        <div className="grid grid-cols-2 gap-2 cq-lg:grid-cols-1">
           <div className="rounded-md border border-kumo-interact/85 bg-kumo-base p-2">
             <span className="text-[10px] text-kumo-subtle select-none">24小时可用率</span>
             <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{uptime24h}%</span>
@@ -667,9 +585,13 @@ function UptimePage() {
       ]);
       const d1 = await res1.json();
       const d30 = await res30.json();
+      // 后端错误响应（无 uptime 字段）时显示 —，绝不退化为 100.000
       setUptimeRateCache(prev => ({
         ...prev,
-        [monitorId]: { 1: d1.uptime || '100.000', 30: d30.uptime || '100.000' }
+        [monitorId]: {
+          1: d1.error || d1.success === false ? '—' : (d1.uptime ?? '0.000'),
+          30: d30.error || d30.success === false ? '—' : (d30.uptime ?? '0.000'),
+        }
       }));
     } catch (e) {
       // 静默失败
@@ -718,7 +640,7 @@ function UptimePage() {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          title: 'Main Status',
+          title: '主状态页',
           slug: 'main-status',
           monitorIds: uptimeMonitors.map(m => m.id),
         }),
@@ -1079,7 +1001,10 @@ function UptimePage() {
 
   const formatUptimeRateCompact = (rateStr) => {
     const rate = Number(rateStr);
-    return Number.isFinite(rate) ? String(Math.round(rate)) : '--';
+    if (!Number.isFinite(rate)) return '--';
+    if (rate >= 100) return '100';
+    // 保留两位小数并去掉末尾多余的 0，避免 99.84% 被四舍五入成 100%
+    return String(Math.round(rate * 100) / 100);
   };
 
   // 格式化连接地址
@@ -1344,7 +1269,7 @@ function UptimePage() {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
@@ -1375,7 +1300,7 @@ function UptimePage() {
               onChange={(e) => setUptimeSearchText(e.target.value)}
               placeholder="搜索监测目标..."
               ariaLabel="搜索监测目标"
-              className="md:w-56"
+              className="cq-md:w-56"
             />
 
             <TabBarOverflowActions
@@ -1455,7 +1380,7 @@ function UptimePage() {
 
           {uptimeLoading && uptimeMonitors.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
-              <Loader size={32} className="text-kumo-brand mb-4" />
+              <Loader size={32} className="text-brand mb-4" />
               <span>载入监控目标中...</span>
             </div>
           ) : filteredMonitors.length === 0 ? (
@@ -1543,7 +1468,7 @@ function UptimePage() {
                       {/* 卡片头部行 */}
                       <div
                         onClick={() => setExpandedMonitorId(isExpanded ? null : monitor.id)}
-                        className="flex flex-col md:flex-row items-start md:items-center justify-between p-2 gap-4 cursor-pointer transition-colors hover:bg-kumo-recessed/25"
+                        className="flex flex-col cq-md:flex-row items-start cq-md:items-center justify-between p-2 gap-4 cursor-pointer transition-colors hover:bg-kumo-recessed/25"
                       >
                         {/* 左侧选择复选框 & 图标 & 核心信息 */}
                         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1602,19 +1527,19 @@ function UptimePage() {
                         </div>
 
                         {/* 右侧数据 & Heartbeat 迷你丸列 */}
-                        <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end flex-shrink-0">
+                        <div className="flex items-center gap-4 w-full cq-md:w-auto justify-between cq-md:justify-end flex-shrink-0">
                           {/* 实时响应时延 & 可用率 */}
                           <div className="flex items-center gap-3 text-right">
                             <div className="flex flex-col">
                               <span className="text-[9px] text-kumo-subtle select-none">时延</span>
-                              <span className="text-xs font-bold tabular-nums text-kumo-strong">
+                              <span className="inline-block min-w-[6ch] text-right text-xs font-bold tabular-nums text-kumo-strong">
                                 {lastBeat && lastBeat.status === 'up' ? `${lastBeat.ping}ms` : '--'}
                               </span>
                             </div>
                             <div className="flex flex-col">
                               <span className="text-[9px] text-kumo-subtle select-none">可用率</span>
-                              <span className={`text-xs font-bold tabular-nums ${getUptimeRateClass(getUptimeRate(monitor.id, 1))}`}>
-                                {formatUptimeRateCompact(getUptimeRate(monitor.id, 1))}%
+                              <span className={`inline-block min-w-[6ch] text-right text-xs font-bold tabular-nums ${getUptimeRateClass(getUptimeRate(monitor.id, 30))}`}>
+                                {formatUptimeRateCompact(getUptimeRate(monitor.id, 30))}%
                               </span>
                             </div>
                           </div>
@@ -1659,10 +1584,10 @@ function UptimePage() {
       )}
 
       {uptimeCurrentTab === 'status-pages' && (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(24rem,0.9fr)_minmax(0,1.1fr)]">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(24rem,0.9fr)_minmax(0,1.1fr)]">
           <SectionCard
             title={statusPageForm.id ? '编辑状态页' : '新建状态页'}
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             action={statusPageForm.id ? (
               <Button size="sm" variant="secondary" shape="square" icon={<X className="h-3.5 w-3.5" />} onClick={resetStatusPageForm} aria-label="取消编辑" />
             ) : null}
@@ -1670,7 +1595,7 @@ function UptimePage() {
             bodyClassName="space-y-4"
           >
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 cq-sm:grid-cols-2">
               <Input
                 size="sm"
                 label="名称"
@@ -1704,13 +1629,12 @@ function UptimePage() {
                 value={statusPageForm.cacheSeconds}
                 onChange={(event) => setStatusPageForm(prev => ({ ...prev, cacheSeconds: event.target.value }))}
               />
-              <div className="sm:col-span-2">
+              <div className="cq-sm:col-span-2">
                 <Textarea
                   size="sm"
                   label="说明"
                   value={statusPageForm.description}
                   onChange={(event) => setStatusPageForm(prev => ({ ...prev, description: event.target.value }))}
-                  placeholder="可选说明"
                   rows={3}
                 />
               </div>
@@ -1724,7 +1648,7 @@ function UptimePage() {
               <Switch checked={!!statusPageForm.public} onCheckedChange={(checked) => setStatusPageForm(prev => ({ ...prev, public: checked }))} />
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 cq-sm:grid-cols-2">
               <div className="flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-kumo-strong">隐藏地址</div>
@@ -1773,7 +1697,7 @@ function UptimePage() {
                           aria-label={`绑定 ${monitor.name}`}
                         />
                         <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">{monitor.name}</span>
-                        <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle sm:block">{getDisplayUrl(monitor)}</span>
+                        <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle cq-sm:block">{getDisplayUrl(monitor)}</span>
                       </label>
                     ))}
                   </div>
@@ -1800,7 +1724,7 @@ function UptimePage() {
 
           <SectionCard
             title="已发布状态页"
-            icon={<Globe className="h-4 w-4 text-kumo-brand" />}
+            icon={<Globe className="h-4 w-4 text-brand" />}
             className="self-start"
             actions={(
               <>
@@ -1829,10 +1753,10 @@ function UptimePage() {
                   const domainUrl = getStatusPageDomainUrl(page);
                   return (
                     <div key={page.id} className="rounded-lg border border-kumo-line bg-kumo-base p-3">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-brand/10 text-kumo-brand">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
                               <PublicPageBrandIcon pageKind="uptime" config={page.config} iconClassName="h-4 w-4" customIconClassName="h-4 w-4" />
                             </span>
                             <span className="truncate text-sm font-bold text-kumo-strong">{page.title || page.slug}</span>
@@ -1871,7 +1795,7 @@ function UptimePage() {
         <SectionCard
           title="维护窗口"
           description="维护期内抑制告警"
-          icon={<Shield className="h-4 w-4 text-kumo-brand" />}
+          icon={<Shield className="h-4 w-4 text-brand" />}
           actions={(
             <>
               <Button
@@ -2008,14 +1932,14 @@ function UptimePage() {
       {uptimeCurrentTab === 'add' && (
         <SectionCard
           title={uptimeForm.id ? '编辑监测目标' : '新建监测目标'}
-          icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+          icon={<Activity className="h-4 w-4 text-brand" />}
           bodyPadding="xl"
           bodyClassName="space-y-6"
         >
 
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+          <div className="grid grid-cols-1 cq-md:grid-cols-12 gap-5">
             {/* 监控类型选择 (Full Width) */}
-            <div className="md:col-span-12 space-y-1.5">
+            <div className="cq-md:col-span-12 space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">监测类型</label>
               <Tabs
                 {...TOOL_TABS_PROPS}
@@ -2026,7 +1950,7 @@ function UptimePage() {
                   { value: 'keyword', label: '网页关键词' },
                   { value: 'json', label: 'JSON 查询' },
                   { value: 'tcp', label: 'TCP 端口' },
-                  { value: 'ping', label: 'ICMP Ping' },
+                  { value: 'ping', label: 'Ping（TCP 80/443/53）' },
                   { value: 'dns', label: 'DNS 解析' },
                   { value: 'push', label: 'Push' },
                 ]}
@@ -2034,7 +1958,7 @@ function UptimePage() {
             </div>
 
             {/* 目标显示名称 */}
-            <div className="md:col-span-4">
+            <div className="cq-md:col-span-4">
               <Input
                 label="名称 *"
                 type="text" size="sm"
@@ -2047,7 +1971,7 @@ function UptimePage() {
 
             {/* 地址输入域 */}
             {['http', 'keyword', 'json'].includes(uptimeForm.type) ? (
-              <div className="md:col-span-8">
+              <div className="cq-md:col-span-8">
                 <Input
                   label="请求 URL *"
                   type="text" size="sm"
@@ -2058,7 +1982,7 @@ function UptimePage() {
                 />
               </div>
             ) : uptimeForm.type === 'push' ? (
-              <div className="md:col-span-8">
+              <div className="cq-md:col-span-8">
                 <AppCard padding="none" className="bg-kumo-recessed/40 p-3">
                   <div className="text-[10px] font-semibold text-kumo-subtle">Push URL</div>
                   <div className="mt-1 truncate font-mono text-xs text-kumo-strong">
@@ -2068,7 +1992,7 @@ function UptimePage() {
               </div>
             ) : (
               <>
-                <div className={uptimeForm.type === 'tcp' ? 'md:col-span-6' : 'md:col-span-8'}>
+                <div className={['tcp', 'dns'].includes(uptimeForm.type) ? 'cq-md:col-span-6' : 'cq-md:col-span-8'}>
                   <Input
                     label="主机名 / IP *"
                     type="text" size="sm"
@@ -2079,7 +2003,7 @@ function UptimePage() {
                   />
                 </div>
                 {uptimeForm.type === 'tcp' && (
-                  <div className="md:col-span-2">
+                  <div className="cq-md:col-span-2">
                     <Input
                       label="连接端口 *"
                       type="number" size="sm"
@@ -2090,11 +2014,42 @@ function UptimePage() {
                     />
                   </div>
                 )}
+                {uptimeForm.type === 'dns' && (
+                  <>
+                    <div className="cq-md:col-span-2">
+                      <Select
+                        size="sm"
+                        label="解析类型"
+                        value={uptimeForm.dns_resolve_type}
+                        onValueChange={(value) => setUptimeForm(prev => ({ ...prev, dns_resolve_type: String(value) }))}
+                        items={[
+                          { value: 'A', label: 'A（IPv4）' },
+                          { value: 'AAAA', label: 'AAAA（IPv6）' },
+                          { value: 'MX', label: 'MX（邮件）' },
+                          { value: 'TXT', label: 'TXT' },
+                          { value: 'NS', label: 'NS（名称服务器）' },
+                          { value: 'CNAME', label: 'CNAME（别名）' },
+                        ]}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="cq-md:col-span-4">
+                      <Input
+                        label="DNS 服务器（可选）"
+                        type="text" size="sm"
+                        placeholder="如：8.8.8.8 或 127.0.0.1:5353"
+                        value={uptimeForm.dns_resolve_server}
+                        onChange={(e) => setUptimeForm(prev => ({ ...prev, dns_resolve_server: e.target.value }))}
+                        className="w-full font-mono"
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
 
             {/* 监测频率与重试参数 */}
-            <div className="md:col-span-6">
+            <div className="cq-md:col-span-6">
               <Input
                 label="检测频率（秒）"
                 type="number" size="sm"
@@ -2104,7 +2059,7 @@ function UptimePage() {
                 className="w-full font-mono"
               />
             </div>
-            <div className="md:col-span-6">
+            <div className="cq-md:col-span-6">
               <Input
                 label="重试次数"
                 type="number" size="sm"
@@ -2116,7 +2071,7 @@ function UptimePage() {
             </div>
 
             {/* 高级设置小节 */}
-            <div className="md:col-span-12 border-t border-kumo-line pt-4 mt-2">
+            <div className="cq-md:col-span-12 border-t border-kumo-line pt-4 mt-2">
               <h4 className="text-xs font-bold text-kumo-strong flex items-center gap-1.5 select-none">
                 <Shield className="w-3.5 h-3.5" />
                 安全与高级设置
@@ -2125,7 +2080,7 @@ function UptimePage() {
 
             {/* 证书过期设置 */}
             {['http', 'json'].includes(uptimeForm.type) && (
-              <div className="md:col-span-6">
+              <div className="cq-md:col-span-6">
                 <Input
                 label="SSL 到期提醒（天）"
                   type="number" size="sm"
@@ -2139,7 +2094,7 @@ function UptimePage() {
 
             {/* 忽略 TLS 选项 */}
             {['http', 'keyword', 'json'].includes(uptimeForm.type) && (
-              <div className="md:col-span-6 flex items-end pb-2">
+              <div className="cq-md:col-span-6 flex items-end pb-2">
                 <Checkbox
                   checked={uptimeForm.ignoreTls}
                   onCheckedChange={(checked) => setUptimeForm(prev => ({ ...prev, ignoreTls: checked }))}
@@ -2150,7 +2105,7 @@ function UptimePage() {
 
             {/* 网页关键字匹配 */}
             {uptimeForm.type === 'keyword' && (
-              <div className="md:col-span-12">
+              <div className="cq-md:col-span-12">
                 <Input
                   label="关键字匹配 *"
                   type="text" size="sm"
@@ -2162,9 +2117,22 @@ function UptimePage() {
               </div>
             )}
 
+            {uptimeForm.type === 'dns' && (
+              <div className="cq-md:col-span-6">
+                <Input
+                  label="期望值（可选）"
+                  type="text" size="sm"
+                  placeholder="如：93.184.216 或 google.com. 10（MX）"
+                  value={uptimeForm.keyword}
+                  onChange={(e) => setUptimeForm(prev => ({ ...prev, keyword: e.target.value }))}
+                  className="w-full"
+                />
+              </div>
+            )}
+
             {uptimeForm.type === 'json' && (
               <>
-                <div className="md:col-span-4">
+                <div className="cq-md:col-span-4">
                   <Input
                     label="JSON 路径 *"
                     type="text" size="sm"
@@ -2174,7 +2142,7 @@ function UptimePage() {
                     className="w-full font-mono"
                   />
                 </div>
-                <div className="md:col-span-4">
+                <div className="cq-md:col-span-4">
                   <Input
                     label="操作符"
                     type="text" size="sm"
@@ -2184,7 +2152,7 @@ function UptimePage() {
                     className="w-full font-mono"
                   />
                 </div>
-                <div className="md:col-span-4">
+                <div className="cq-md:col-span-4">
                   <Input
                     label="期望值"
                     type="text" size="sm"
@@ -2198,7 +2166,7 @@ function UptimePage() {
             )}
 
             {uptimeForm.type === 'push' && (
-              <div className="md:col-span-6">
+              <div className="cq-md:col-span-6">
                 <Input
                   label="Push 宽限（秒）"
                   type="number" size="sm"
@@ -2211,14 +2179,14 @@ function UptimePage() {
             )}
 
             {/* 告警通知渠道设置 */}
-            <div className="md:col-span-12 border-t border-kumo-line pt-4 mt-2">
+            <div className="cq-md:col-span-12 border-t border-kumo-line pt-4 mt-2">
               <h4 className="text-xs font-bold text-kumo-strong flex items-center gap-1.5 select-none">
                 <Bell className="w-3.5 h-3.5" />
                 故障通知分发渠道
               </h4>
             </div>
 
-            <div className="md:col-span-12 space-y-2">
+            <div className="cq-md:col-span-12 space-y-2">
               <AppCard padding="none" className="flex flex-wrap gap-4 bg-kumo-recessed/50 p-3.5">
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
                   <Checkbox
@@ -2247,7 +2215,7 @@ function UptimePage() {
             </div>
 
             {/* 标签管理 */}
-            <div className="md:col-span-12">
+            <div className="cq-md:col-span-12">
               <Input
                 label="分组标签"
                 type="text" size="sm"
@@ -2271,10 +2239,10 @@ function UptimePage() {
 
       {/* ==================== 3. 配置迁移 Tab ==================== */}
       {uptimeCurrentTab === 'stats' && (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1fr)_24rem]">
           <SectionCard
             title="配置导入预览"
-            icon={<Upload className="h-4 w-4 text-kumo-brand" />}
+            icon={<Upload className="h-4 w-4 text-brand" />}
             actions={(
               <>
                 <Input
@@ -2287,10 +2255,10 @@ function UptimePage() {
                 />
                 <Toolbar size="sm" aria-label="导出导入 Uptime 配置" className="shrink-0">
                     <Toolbar.Button onClick={exportUptimeConfig} loading={uptimeMetaLoading} aria-label="导出当前配置" icon={<Upload className="h-3.5 w-3.5" />}>
-                      <span className="hidden sm:inline">导出</span>
+                      <span className="hidden cq-sm:inline">导出</span>
                     </Toolbar.Button>
                     <Toolbar.Button onClick={() => uptimeImportInputRef.current?.click()} loading={uptimeMetaLoading} aria-label="导入配置文件" icon={<Download className="h-3.5 w-3.5" />}>
-                      <span className="hidden sm:inline">导入</span>
+                      <span className="hidden cq-sm:inline">导入</span>
                     </Toolbar.Button>
                   </Toolbar>
               </>
@@ -2335,7 +2303,7 @@ function UptimePage() {
                   </div>
                 </AppCard>
 
-                <div className="grid gap-3 xl:grid-cols-3">
+                <div className="grid gap-3 cq-xl:grid-cols-3">
                   {uptimeImportSections.map((section) => (
                     <AppCard key={section.key} padding="none" className="overflow-hidden bg-kumo-recessed/40">
                       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-kumo-line/70 bg-kumo-recessed/20 px-4 py-3">
@@ -2380,7 +2348,7 @@ function UptimePage() {
 
           <SectionCard
             title="导入执行"
-            icon={<Download className="h-4 w-4 text-kumo-brand" />}
+            icon={<Download className="h-4 w-4 text-brand" />}
             className="self-start"
             bodyPadding="lg"
             bodyClassName="space-y-3.5"

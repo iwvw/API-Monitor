@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -74,6 +75,9 @@ type Service struct {
 	backgroundCtx                 context.Context
 	backgroundCancel              context.CancelFunc
 	backgroundWG                  sync.WaitGroup
+	pendingWG                     sync.WaitGroup
+	pendingWGClosed               atomic.Bool
+	pendingWGAddMu                sync.Mutex
 	stopOnce                      sync.Once
 	startupErr                    error
 }
@@ -157,11 +161,13 @@ func New(cfg config.Config) *Service {
 	engineIO.service = s
 	s.presence = newAgentPresenceManager(s)
 
+	s.backgroundCtx, s.backgroundCancel = context.WithCancel(context.Background())
+
 	// 绑定 Engine.IO 事件处理器
 	engineIO.SetHandlers(
 		// onConnect: Agent 连接成功
 		func(sessionID string, serverID string) {
-			applog.Info(context.Background(), "serveragent", "agent connected", "session_id", sessionID, "server_id", serverID)
+			applog.Info(s.backgroundCtx, "serveragent", "agent connected", "session_id", sessionID, "server_id", serverID)
 			if serverID != "" {
 				var socket interface{}
 				transport := ""
@@ -204,17 +210,20 @@ func New(cfg config.Config) *Service {
 				} else if s.presence != nil {
 					s.presence.recordConnect(serverID, transport)
 				}
-				if s.backgroundCtx == nil || s.backgroundCtx.Err() == nil {
-					s.backgroundWG.Add(2)
-					go func() {
-						defer s.backgroundWG.Done()
-						s.refreshAccountLocationFromAgentIfMissing(serverID)
-					}()
-					go func(id string) {
-						defer s.backgroundWG.Done()
-						time.Sleep(2 * time.Second)
-						s.reconcileManagedProxyFacts(id)
-					}(serverID)
+				if s.backgroundCtx.Err() == nil {
+					if s.trackPending() {
+						go func() {
+							defer s.pendingWG.Done()
+							s.refreshAccountLocationFromAgentIfMissing(serverID)
+						}()
+					}
+					if s.trackPending() {
+						go func(id string) {
+							defer s.pendingWG.Done()
+							time.Sleep(2 * time.Second)
+							s.reconcileManagedProxyFacts(id)
+						}(serverID)
+					}
 				}
 			}
 		},
@@ -384,7 +393,7 @@ func New(cfg config.Config) *Service {
 					if conn, exists := registry.Get(serverID); exists {
 						conn.SetMetadata("upgrade_status", upgradeStatus)
 					}
-					applog.Info(context.Background(), "serveragent", "agent self-upgrade status report", "server_id", serverID, "status", string(data))
+					applog.Info(s.backgroundCtx, "serveragent", "agent self-upgrade status report", "server_id", serverID, "status", string(data))
 				}
 			case "agent:task_result":
 				// Agent 任务结果上报
@@ -472,7 +481,7 @@ func New(cfg config.Config) *Service {
 		},
 		// onDisconnect: Agent 断开连接
 		func(sessionID string) {
-			applog.Info(context.Background(), "serveragent", "agent disconnected", "session_id", sessionID)
+			applog.Info(s.backgroundCtx, "serveragent", "agent disconnected", "session_id", sessionID)
 			// 查找此 session 对应的 serverID 并广播离线状态
 			if sess := engineIO.getSession(sessionID); sess != nil {
 				sess.mu.RLock()
@@ -493,16 +502,16 @@ func New(cfg config.Config) *Service {
 		},
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(s.backgroundCtx, 10*time.Second)
 	defer cancel()
 	if db, err := s.store.Open(ctx); err == nil {
 		if schemaErr := database.WithSchemaLock(ctx, func() error { return ensureSchema(ctx, db) }); schemaErr != nil {
-			applog.Error(context.Background(), "serveragent", "ensure schema failed", "error", schemaErr.Error())
+			applog.Error(s.backgroundCtx, "serveragent", "ensure schema failed", "error", schemaErr.Error())
 			s.startupErr = schemaErr
 		}
 		db.Close()
 	} else {
-		applog.Error(context.Background(), "serveragent", "open database during startup failed", "error", err.Error())
+		applog.Error(s.backgroundCtx, "serveragent", "open database during startup failed", "error", err.Error())
 		s.startupErr = err
 	}
 	if s.startupErr != nil {
@@ -510,11 +519,11 @@ func New(cfg config.Config) *Service {
 	}
 	taskPersistence := newSQLiteTaskPersistence(store)
 	if err := taskPersistence.Ensure(ctx); err != nil {
-		applog.Error(context.Background(), "serveragent", "ensure task persistence failed", "error", err.Error())
+		applog.Error(s.backgroundCtx, "serveragent", "ensure task persistence failed", "error", err.Error())
 		s.startupErr = fmt.Errorf("ensure task persistence: %w", err)
 		return s
 	} else if err := taskRegistry.AttachPersistence(ctx, taskPersistence); err != nil {
-		applog.Error(context.Background(), "serveragent", "restore task persistence failed", "error", err.Error())
+		applog.Error(s.backgroundCtx, "serveragent", "restore task persistence failed", "error", err.Error())
 		s.startupErr = fmt.Errorf("restore task persistence: %w", err)
 		return s
 	}
@@ -525,9 +534,7 @@ func New(cfg config.Config) *Service {
 	if s.presence != nil {
 		s.presence.start()
 	}
-	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
-	s.backgroundCtx = backgroundCtx
-	s.backgroundCancel = backgroundCancel
+	backgroundCtx := s.backgroundCtx
 	s.backgroundWG.Add(4)
 	go func() {
 		defer s.backgroundWG.Done()
@@ -549,6 +556,19 @@ func New(cfg config.Config) *Service {
 	return s
 }
 
+// trackPending 注册一个待跟踪的后台 goroutine。返回 false 表示服务已进入
+// 关闭流程（pendingWG 已被 Wait），此时不应再启动新的后台任务，避免
+// WaitGroup 计数在 Wait 期间再次变为 0 时触发 Add 竞态 panic。
+func (s *Service) trackPending() bool {
+	s.pendingWGAddMu.Lock()
+	defer s.pendingWGAddMu.Unlock()
+	if s.pendingWGClosed.Load() {
+		return false
+	}
+	s.pendingWG.Add(1)
+	return true
+}
+
 // Stop terminates background work owned by the service. It is idempotent so
 // tests and process shutdown can safely share the same cleanup path.
 func (s *Service) Stop() {
@@ -556,7 +576,11 @@ func (s *Service) Stop() {
 		if s.backgroundCancel != nil {
 			s.backgroundCancel()
 		}
+		s.pendingWGAddMu.Lock()
+		s.pendingWGClosed.Store(true)
+		s.pendingWGAddMu.Unlock()
 		s.backgroundWG.Wait()
+		s.pendingWG.Wait()
 		if s.presence != nil {
 			s.presence.stop()
 		}
@@ -1095,10 +1119,14 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	if exists, err := hasColumn(ctx, db, "server_monitor_config", "metrics_retention_days"); err == nil && !exists {
-		_, _ = db.ExecContext(ctx, `ALTER TABLE server_monitor_config ADD COLUMN metrics_retention_days INTEGER DEFAULT 30`)
+		if _, err := db.ExecContext(ctx, `ALTER TABLE server_monitor_config ADD COLUMN metrics_retention_days INTEGER DEFAULT 30`); err != nil {
+			applog.Error(ctx, "serveragent", "schema migration failed", "column", "metrics_retention_days", "error", err.Error())
+		}
 	}
 	if exists, err := hasColumn(ctx, db, "server_accounts", "monitor_mode"); err == nil && !exists {
-		_, _ = db.ExecContext(ctx, `ALTER TABLE server_accounts ADD COLUMN monitor_mode TEXT DEFAULT 'agent'`)
+		if _, err := db.ExecContext(ctx, `ALTER TABLE server_accounts ADD COLUMN monitor_mode TEXT DEFAULT 'agent'`); err != nil {
+			applog.Error(ctx, "serveragent", "schema migration failed", "column", "monitor_mode", "error", err.Error())
+		}
 	}
 	accountFields := []struct{ Name, SQL string }{
 		{"traffic_limit_bytes", "ALTER TABLE server_accounts ADD COLUMN traffic_limit_bytes INTEGER DEFAULT 0"},
@@ -1112,7 +1140,9 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 	}
 	for _, f := range accountFields {
 		if exists, err := hasColumn(ctx, db, "server_accounts", f.Name); err == nil && !exists {
-			_, _ = db.ExecContext(ctx, f.SQL)
+			if _, err := db.ExecContext(ctx, f.SQL); err != nil {
+				applog.Error(ctx, "serveragent", "schema migration failed", "column", f.Name, "error", err.Error())
+			}
 		}
 	}
 
@@ -1129,7 +1159,9 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 	}
 	for _, f := range gpuFields {
 		if exists, err := hasColumn(ctx, db, "server_metrics_history", f.Name); err == nil && !exists {
-			_, _ = db.ExecContext(ctx, f.SQL)
+			if _, err := db.ExecContext(ctx, f.SQL); err != nil {
+				applog.Error(ctx, "serveragent", "schema migration failed", "column", f.Name, "error", err.Error())
+			}
 		}
 	}
 
@@ -1360,7 +1392,7 @@ func (s *Service) handlePublicStatusPageRoutes(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !ok {
-		response.Error(w, http.StatusNotFound, "Not found")
+		response.OK(w, map[string]interface{}{"found": false})
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -2030,25 +2062,34 @@ func (s *Service) setDefaultCredential(w http.ResponseWriter, r *http.Request, d
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var exists int
+	if err := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM server_credentials WHERE id = ?", id).Scan(&exists); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if exists == 0 {
+		response.Error(w, http.StatusNotFound, "凭据不存在")
+		return
+	}
 
 	if _, err := tx.ExecContext(r.Context(), "UPDATE server_credentials SET is_default = 0"); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	res, err := tx.ExecContext(r.Context(), "UPDATE server_credentials SET is_default = 1 WHERE id = ?", id)
-	if err != nil {
+	if _, err := tx.ExecContext(r.Context(), "UPDATE server_credentials SET is_default = 1 WHERE id = ?", id); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		response.Error(w, http.StatusNotFound, "凭据不存在")
-		return
-	}
-
+	committed = true
 	if err := tx.Commit(); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2659,7 +2700,7 @@ func (s *Service) handleMonitor(w http.ResponseWriter, r *http.Request, db *sql.
 func (s *Service) getMonitorStatus(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	var interval int
 	var autoStart int
-	err := db.QueryRowContext(r.Context(), "SELECT metrics_collect_interval, auto_start FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart)
+	err := db.QueryRowContext(r.Context(), "SELECT COALESCE(metrics_collect_interval, 300), auto_start FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2766,7 +2807,8 @@ func (s *Service) startMetricsCollectorLoop(ctx context.Context) {
 		var interval int
 		var autoStart int
 		var retentionDays int
-		err = db.QueryRowContext(loopCtx, "SELECT metrics_collect_interval, auto_start, metrics_retention_days FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart, &retentionDays)
+		var logRetentionDays int
+		err = db.QueryRowContext(loopCtx, "SELECT COALESCE(metrics_collect_interval, 300), auto_start, COALESCE(metrics_retention_days, 30), COALESCE(log_retention_days, 7) FROM server_monitor_config WHERE id = 1").Scan(&interval, &autoStart, &retentionDays, &logRetentionDays)
 		if err != nil {
 			db.Close()
 			cancel()
@@ -2786,10 +2828,14 @@ func (s *Service) startMetricsCollectorLoop(ctx context.Context) {
 			s.runPeriodicCollection(loopCtx, db)
 			lastCollected = now
 
-			// Clean up old metrics
+			// 分批清理过期数据：单批上限避免大表上单次 DELETE 持写锁过久
+			// 阻塞其它模块写入（含检查循环自身的后续写入）。
 			if retentionDays > 0 {
-				_, _ = db.ExecContext(loopCtx, "DELETE FROM server_metrics_history WHERE recorded_at < datetime('now', '-' || ? || ' days')", retentionDays)
-				_, _ = db.ExecContext(loopCtx, "DELETE FROM server_network_quality_samples WHERE checked_at < datetime('now', '-' || ? || ' days')", retentionDays)
+				clearExpiredHistory(loopCtx, db, "server_metrics_history", "recorded_at", retentionDays)
+				clearExpiredHistory(loopCtx, db, "server_network_quality_samples", "checked_at", retentionDays)
+			}
+			if logRetentionDays > 0 {
+				clearExpiredHistory(loopCtx, db, "server_monitor_logs", "checked_at", logRetentionDays)
 			}
 		}
 
@@ -2802,7 +2848,7 @@ func (s *Service) getMonitorConfig(w http.ResponseWriter, r *http.Request, db *s
 	var id, probeInterval, probeTimeout, logRetentionDays, maxConnections, sessionTimeout, autoStart, metricsCollectInterval, metricsRetentionDays int
 	var updatedAt string
 
-	err := db.QueryRowContext(r.Context(), "SELECT id, probe_interval, probe_timeout, log_retention_days, max_connections, session_timeout, auto_start, metrics_collect_interval, metrics_retention_days, updated_at FROM server_monitor_config WHERE id = 1").
+	err := db.QueryRowContext(r.Context(), "SELECT id, probe_interval, probe_timeout, log_retention_days, COALESCE(max_connections, 10), COALESCE(session_timeout, 1800), auto_start, COALESCE(metrics_collect_interval, 300), COALESCE(metrics_retention_days, 30), COALESCE(updated_at, '') FROM server_monitor_config WHERE id = 1").
 		Scan(&id, &probeInterval, &probeTimeout, &logRetentionDays, &maxConnections, &sessionTimeout, &autoStart, &metricsCollectInterval, &metricsRetentionDays, &updatedAt)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -2841,7 +2887,7 @@ func (s *Service) updateMonitorConfig(w http.ResponseWriter, r *http.Request, db
 		metricsCollectInterval int
 		metricsRetentionDays   int
 	}
-	err := db.QueryRowContext(r.Context(), "SELECT probe_interval, probe_timeout, log_retention_days, max_connections, session_timeout, auto_start, metrics_collect_interval, metrics_retention_days FROM server_monitor_config WHERE id = 1").
+	err := db.QueryRowContext(r.Context(), "SELECT probe_interval, probe_timeout, log_retention_days, COALESCE(max_connections, 10), COALESCE(session_timeout, 1800), auto_start, COALESCE(metrics_collect_interval, 300), COALESCE(metrics_retention_days, 30) FROM server_monitor_config WHERE id = 1").
 		Scan(&existing.probeInterval, &existing.probeTimeout, &existing.logRetentionDays, &existing.maxConnections, &existing.sessionTimeout, &existing.autoStart, &existing.metricsCollectInterval, &existing.metricsRetentionDays)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to get config: "+err.Error())
@@ -3089,7 +3135,13 @@ func (s *Service) refreshAccountLocationIfMissingFromList(account map[string]int
 		}
 	}
 	s.lastAutoLocationRefresh.Store(serverID, time.Now())
-	go s.refreshAccountLocationFromAgentIfMissing(serverID)
+	if !s.trackPending() {
+		return
+	}
+	go func(id string) {
+		defer s.pendingWG.Done()
+		s.refreshAccountLocationFromAgentIfMissing(id)
+	}(serverID)
 }
 
 func (s *Service) refreshAccountLocationFromAgentIfMissing(serverID string) {
@@ -3102,19 +3154,19 @@ func (s *Service) refreshAccountLocationFromAgentIfMissing(serverID string) {
 	}
 	defer s.autoLocationRefreshes.Delete(serverID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(s.backgroundCtx, 20*time.Second)
 	defer cancel()
 	db, err := s.open(ctx)
 	if err != nil {
 		return
 	}
+	defer db.Close()
 
 	var cachedInfo sql.NullString
 	var country, resolvedCountry sql.NullString
 	if err := db.QueryRowContext(ctx, "SELECT country, resolved_country, cached_info FROM server_accounts WHERE id = ?", serverID).Scan(&country, &resolvedCountry, &cachedInfo); err != nil {
 		return
 	}
-	_ = db.Close()
 	if !accountNeedsLocation(country, resolvedCountry, cachedInfo) {
 		return
 	}
@@ -3611,7 +3663,7 @@ func loadAccountDeleteDependencies(ctx context.Context, db *sql.DB, serverID str
 }
 
 func (s *Service) runAccountCascadeDelete(taskID, serverID, serverName string, dependencies accountDeleteDependencies, requiresHostCleanup, forceDetach bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(s.backgroundCtx, 10*time.Minute)
 	defer cancel()
 	db, err := s.open(ctx)
 	if err != nil {
@@ -3785,7 +3837,12 @@ func deleteAccountRecords(ctx context.Context, db *sql.DB, serverID string) erro
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 	if err := removeServerFromStatusPages(ctx, tx, serverID); err != nil {
 		return err
 	}
@@ -3808,6 +3865,7 @@ func deleteAccountRecords(ctx context.Context, db *sql.DB, serverID string) erro
 		`DELETE FROM server_proxy_traffic_reports WHERE server_id=?`,
 		`DELETE FROM subscription_usage_reports WHERE server_id=?`,
 		`DELETE FROM subscription_usage_report_keys WHERE server_id=?`,
+		`DELETE FROM subscription_usage_hourly WHERE server_id=?`,
 		`UPDATE server_command_history SET server_id=NULL WHERE server_id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, statement, serverID); err != nil && !isMissingTableError(err) {
@@ -3821,6 +3879,7 @@ func deleteAccountRecords(ctx context.Context, db *sql.DB, serverID string) erro
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return sql.ErrNoRows
 	}
+	committed = true
 	return tx.Commit()
 }
 
@@ -4309,8 +4368,12 @@ func (s *Service) markRealtimeMetricsPersistResult(serverID string, ok bool, err
 	conn.SetMetadata("metrics_persist_error", errorText)
 	conn.SetMetadata("metrics_persist_at", now.UTC().Format(time.RFC3339Nano))
 	if !ok && previousStatus != "error" {
+		if !s.trackPending() {
+			return
+		}
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer s.pendingWG.Done()
+			ctx, cancel := context.WithTimeout(s.backgroundCtx, 5*time.Second)
 			defer cancel()
 			db, openErr := s.open(ctx)
 			if openErr != nil {
@@ -5407,12 +5470,12 @@ func (s *Service) buildCachedInfo(state map[string]interface{}, hostInfo map[str
 }
 
 func (s *Service) initTargetsCache() {
-	db, err := s.open(context.Background())
+	db, err := s.open(s.backgroundCtx)
 	if err != nil {
 		return
 	}
 	defer db.Close()
-	targets, _ := s.listNetworkQualityTargets(context.Background(), db)
+	targets, _ := s.listNetworkQualityTargets(s.backgroundCtx, db)
 	s.targetsCacheMu.Lock()
 	s.targetsCache = targets
 	s.targetsCacheMu.Unlock()

@@ -4,19 +4,29 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/apikeys"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 )
+
+// escapeLike 转义 LIKE 模式中的通配符（配合 ESCAPE '\' 使用），
+// 让用户输入的 % _ \ 按字面匹配而非被当作模式字符。
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
 
 type aiMCPServer struct {
 	ID          string `json:"id"`
@@ -71,6 +81,25 @@ type AICallResponse struct {
 }
 
 type AICaller func(context.Context, AICallRequest) (AICallResponse, error)
+
+// EnvelopeError 检查标准响应信封：body 为 {"success":false,"error":...} 时返回错误文本，
+// 用于 AI 工具调用层识别 HTTP 2xx 但业务失败的情况，防止把失败误判为成功。
+// 非信封结构（成功响应或裸 JSON）返回空字符串。
+func EnvelopeError(payload interface{}) string {
+	obj, ok := payload.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	success, ok := obj["success"].(bool)
+	if !ok || success {
+		return ""
+	}
+	msg, _ := obj["error"].(string)
+	if msg == "" {
+		msg = "未知业务错误"
+	}
+	return msg
+}
 
 type aiMCPRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -161,6 +190,10 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 	if err != nil {
 		return nil, err
 	}
+	accessPolicy, err := s.getAIAgentAccessPolicy(r.Context(), db)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]interface{}{
 		"agentKey": map[string]interface{}{
 			"value":     key,
@@ -181,6 +214,7 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 			"blockedModes":   []string{string(manifest.ResponseStream), string(manifest.ResponseWebSocket)},
 			"bodyLimitBytes": 1024 * 1024,
 			"writeEnabled":   writeEnabled,
+			"accessPolicy":   accessPolicy,
 			"auth":           "Agent Key 作为系统级接入密钥使用；默认只读，写入需在设置中开启，所有调用都会写入审计记录。",
 		},
 		"mcpServers": mcpServers,
@@ -219,6 +253,67 @@ func (s *Service) rotateAIAgentKey(r *http.Request) (map[string]interface{}, err
 }
 
 const aiAgentWriteEnabledKey = "ai_agent_write_enabled"
+
+// AI 接入权限模式：
+// minimal  - 只读（写方法一律拒绝）
+// standard - 默认：写操作需显式开关，管理 AI 路由（admin-ai）不可达
+// full     - 单用户自用最高权限：放开全部管理面与写操作，
+//
+//	仅保留防自毁的两条拦截（AI 递归调用、密钥轮换）
+const (
+	aiAgentAccessPolicyKey = "ai_agent_access_policy"
+	AIAccessPolicyMinimal  = "minimal"
+	AIAccessPolicyStandard = "standard"
+	AIAccessPolicyFull     = "full"
+	AIAccessPolicyDefault  = AIAccessPolicyStandard
+)
+
+// AIAgentAccessPolicy 读取当前 AI 接入权限模式，缺省 standard。
+func (s *Service) AIAgentAccessPolicy(ctx context.Context) (string, error) {
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return AIAccessPolicyDefault, err
+	}
+	defer db.Close()
+	return s.getAIAgentAccessPolicy(ctx, db)
+}
+
+func (s *Service) getAIAgentAccessPolicy(ctx context.Context, db *sql.DB) (string, error) {
+	var value string
+	_ = db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = ?", aiAgentAccessPolicyKey).Scan(&value)
+	switch strings.TrimSpace(value) {
+	case AIAccessPolicyMinimal, AIAccessPolicyStandard, AIAccessPolicyFull:
+		return strings.TrimSpace(value), nil
+	default:
+		return AIAccessPolicyDefault, nil
+	}
+}
+
+func (s *Service) setAIAgentAccessPolicy(r *http.Request) (map[string]interface{}, error) {
+	var payload struct {
+		Policy string `json:"policy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	switch payload.Policy {
+	case AIAccessPolicyMinimal, AIAccessPolicyStandard, AIAccessPolicyFull:
+	default:
+		return nil, fmt.Errorf("policy 必须是 minimal / standard / full 之一")
+	}
+	db, err := s.store.Open(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.ExecContext(r.Context(), `INSERT OR REPLACE INTO system_config (key, value, description, updated_at) VALUES (?, ?, ?, ?)`,
+		aiAgentAccessPolicyKey, payload.Policy, "AI agent access policy", now); err != nil {
+		return nil, err
+	}
+	_ = s.insertAIAudit(r.Context(), db, "admin", "set_policy", aiAgentAccessPolicyKey, payload.Policy, 0, "AI 接入权限模式已设置为 "+payload.Policy, s.clientIP(r), r.UserAgent())
+	return s.aiAccessOverview(r)
+}
 
 func (s *Service) getOrCreateAIAgentKey(ctx context.Context, db *sql.DB) (string, string, error) {
 	var key string
@@ -302,7 +397,13 @@ func (s *Service) validateAIAgent(r *http.Request, db *sql.DB) bool {
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer ")) == expected
+	provided := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	// 与主机 Agent Key 校验对齐：长度不等快速返回 0，等长密钥走
+	// 常量时间比较，避免普通 == 的逐字节时序差泄露密钥前缀信息。
+	if len(expected) == 0 || len(expected) != len(provided) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
 }
 
 func (s *Service) aiManifest(r *http.Request) (map[string]interface{}, error) {
@@ -385,7 +486,18 @@ func (s *Service) handleMCP(r *http.Request) (interface{}, int, error) {
 func (s *Service) dispatchMCPTool(r *http.Request, req aiMCPRequest) (interface{}, error) {
 	switch req.Method {
 	case "initialize":
-		return map[string]interface{}{"protocolVersion": "2024-11-05", "serverInfo": map[string]string{"name": "api-monitor", "version": s.cfg.Version}, "capabilities": map[string]interface{}{"tools": map[string]bool{"listChanged": true}, "resources": map[string]bool{"listChanged": false}}}, nil
+		return map[string]interface{}{
+			"protocolVersion": "2025-06-18",
+			"serverInfo":      map[string]string{"name": "api-monitor", "version": s.cfg.Version},
+			"capabilities": map[string]interface{}{
+				"tools":     map[string]bool{"listChanged": true},
+				"resources": map[string]bool{"listChanged": false},
+			},
+			"instructions": "这是 API Monitor 面板的 MCP 服务，可管理主机、DNS、模型网关、备份、定时任务等 400+ 内部接口。" +
+				"找接口：先用 find_api 用自然语言描述意图（如「给 flyio 应用更新镜像」），必要时用 list_apis 按 group（主机实例/Cloudflare/模型网关…）缩小；" +
+				"调用前必须用 get_route 确认该路径的真实可用方法与请求体结构，路径参数要用真实 ID 替换（先调用对应 list 接口获取）；" +
+				"prefixRoute=true 或描述含「聚合前缀」的条目不可直接调用。",
+		}, nil
 	case "ping":
 		return map[string]interface{}{}, nil
 	case "resources/list":
@@ -438,10 +550,12 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 	switch name {
 	case "list_apis":
 		return s.aiRouteCatalog(args)
+	case "find_api":
+		return s.aiFindAPIs(args)
 	case "get_route":
 		return s.getRouteContract(args)
 	case "get_openapi":
-		return s.openapiDocument(r), nil
+		return s.openapiCompactDocument(r), nil
 	case "get_ai_manifest":
 		return s.aiManifestPayload(r), nil
 	case "get_system_status":
@@ -452,12 +566,14 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 		return metrics, nil
 	case "call_api":
 		return s.callAPIFromAI(r.Context(), args)
+	case "run_batch":
+		return s.aiRunBatch(r, args)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
 }
 
-// aiRouteCatalog 返回紧凑的接口目录，支持 group / module / search 过滤，用于渐进式披露。
+// aiRouteCatalog 返回紧凑的接口目录，支持 group / module / search 过滤与分页，用于渐进式披露。
 func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, error) {
 	group, _ := args["group"].(string)
 	module, _ := args["module"].(string)
@@ -465,6 +581,18 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 	group = strings.TrimSpace(group)
 	module = strings.TrimSpace(module)
 	search = strings.ToLower(strings.TrimSpace(search))
+
+	limit := 30
+	if rawLimit, ok := args["limit"].(float64); ok && rawLimit > 0 && rawLimit <= 1000 {
+		limit = int(rawLimit)
+		if limit > 100 {
+			limit = 100
+		}
+	}
+	offset := 0
+	if rawOffset, ok := args["offset"].(float64); ok && rawOffset > 0 && rawOffset <= 1e6 {
+		offset = int(rawOffset)
+	}
 
 	items := s.apiDocs()["routes"].([]apiDocRoute)
 	result := make([]map[string]interface{}, 0, len(items))
@@ -494,7 +622,12 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 		if desc == "" {
 			desc = item.Description
 		}
-		result = append(result, map[string]interface{}{
+		// 聚合前缀路由（模块根/总入口）不是可调用端点：标注给 AI，
+		// 提示应从其子路由中选择具体接口。
+		prefixRoute := item.MatchMode == manifest.MatchPrefix &&
+			strings.HasPrefix(item.Prefix, "/api/") &&
+			!strings.HasPrefix(item.Prefix, "/sub") && !strings.HasPrefix(item.Prefix, "/v1")
+		entry := map[string]interface{}{
 			"path":    item.Prefix,
 			"methods": item.Methods,
 			"group":   item.Group,
@@ -502,12 +635,171 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 			"auth":    string(item.Auth),
 			"desc":    desc,
 			"hasBody": hasBody,
-		})
+		}
+		if prefixRoute {
+			entry["prefixRoute"] = true
+			entry["desc"] = desc + "（聚合前缀，不可直接调用；请用其子路由）"
+		}
+		result = append(result, entry)
 	}
-	return map[string]interface{}{"count": len(result), "routes": result}, nil
+	total := len(result)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	page := result[offset:end]
+	return map[string]interface{}{"count": total, "returned": len(page), "limit": limit, "offset": offset, "routes": page}, nil
+}
+
+// aiFindAPIs 根据自然语言意图粗召回匹配的路由，返回 top-k 与契约摘要。
+// 采用宽松召回 + 低置信度标注：命中数少或分低时在 confidence 字段提示，
+// 由 AI 决定是否转用 list_apis/get_route 兜底。
+func (s *Service) aiFindAPIs(args map[string]interface{}) (interface{}, error) {
+	intent, _ := args["intent"].(string)
+	intent = strings.TrimSpace(intent)
+	if intent == "" {
+		return nil, fmt.Errorf("intent is required")
+	}
+	limit := 5
+	if rawLimit, ok := args["limit"].(float64); ok && rawLimit > 0 && rawLimit <= 1000 {
+		limit = int(rawLimit)
+		if limit > 10 {
+			limit = 10
+		}
+	}
+	group, _ := args["group"].(string)
+	group = strings.TrimSpace(group)
+
+	items := s.apiDocs()["routes"].([]apiDocRoute)
+	filtered := items
+	if group != "" {
+		filtered = make([]apiDocRoute, 0, len(items))
+		for _, item := range items {
+			if item.Group == group {
+				filtered = append(filtered, item)
+			}
+		}
+	}
+
+	matches := findTopRoutes(filtered, intent, limit)
+	confidence := "low"
+	if len(matches) > 0 {
+		// 以最高命中分界：≥5 视为别名/片段级强命中，≥2 视为描述级命中。
+		maxScore := matches[0].Score
+		switch {
+		case maxScore >= 5:
+			confidence = "high"
+		case maxScore >= 2:
+			confidence = "medium"
+		}
+	}
+
+	result := make([]map[string]interface{}, 0, len(matches))
+	for _, match := range matches {
+		route := match.Route
+		desc := route.Detail
+		if desc == "" {
+			desc = route.Description
+		}
+		reasons := make([]map[string]interface{}, 0, len(match.Reasons))
+		for _, r := range match.Reasons {
+			reasons = append(reasons, map[string]interface{}{
+				"term":   r.Term,
+				"level":  r.Level,
+				"weight": r.Weight,
+			})
+		}
+		contract := map[string]interface{}{
+			"path":               route.Prefix,
+			"methods":            route.Methods,
+			"group":              route.Group,
+			"module":             route.Module,
+			"auth":               string(route.Auth),
+			"desc":               desc,
+			"score":              match.Score,
+			"matchReason":        reasons,
+			"matchMode":          string(route.MatchMode),
+			"responseMode":       string(route.ResponseMode),
+			"status":             route.Status,
+			"pathParams":         route.PathParams,
+			"queryParams":        route.QueryParams,
+			"requestContentType": route.RequestType,
+			"requestSchema":      route.RequestSchema,
+			"requestExample":     route.RequestBody,
+		}
+		if route.MatchMode == manifest.MatchPrefix && strings.HasPrefix(route.Prefix, "/api/") &&
+			!strings.HasPrefix(route.Prefix, "/sub") && !strings.HasPrefix(route.Prefix, "/v1") {
+			contract["prefixRoute"] = true
+			contract["desc"] = desc + "（聚合前缀，不可直接调用；请用其子路由）"
+		}
+		result = append(result, contract)
+	}
+
+	suggestions := s.findAPISuggestions(intent, group, matches)
+	return map[string]interface{}{
+		"intent":      intent,
+		"confidence":  confidence,
+		"count":       len(result),
+		"suggestions": suggestions,
+		"note":        "find_api 是粗召回匹配，命中不代表一定正确；每条的 score/matchReason 说明命中原因，低置信度或无结果时参考 suggestions 改用关键词。",
+		"routes":      result,
+	}, nil
+}
+
+// findAPISuggestions 在无命中或低置信度时，为 AI 提供替代关键词与可读分组，帮助纠偏。
+func (s *Service) findAPISuggestions(intent string, group string, matches []routeMatch) []string {
+	items := s.apiDocs()["routes"].([]apiDocRoute)
+	suggestions := make([]string, 0, 4)
+	allGroups := map[string]bool{}
+	for _, item := range items {
+		allGroups[item.Group] = true
+	}
+	if group != "" {
+		if !allGroups[group] {
+			return []string{fmt.Sprintf("分组 %q 不存在；可用分组：%s", group, sortedGroupList(allGroups))}
+		}
+	}
+	if len(matches) == 0 {
+		// 提示可用分组面，引导 AI 换一个维度检索。
+		if code, ok := providerCodeInIntent(intent); ok {
+			suggestions = append(suggestions, fmt.Sprintf("意图 %q 未命中路由；试试用接口关键词（如 %s）或 list_apis 列表检索", intent, code))
+		} else {
+			suggestions = append(suggestions, fmt.Sprintf("意图 %q 未命中路由；试试 list_apis 按模块/关键词检索，或检查是否属于这些分组：%s", intent, sortedGroupList(allGroups)))
+		}
+		return append(suggestions, "低置信度 fallback：先 get_route 核对候选路由的路径参数再 call_api")
+	}
+	// 低置信度（匹配到但分低）：提示可用 group 过滤精确命中。
+	suggestions = append(suggestions, fmt.Sprintf("当前匹配分较低；可按分组缩小范围：%s", sortedGroupList(allGroups)))
+	return suggestions
+}
+
+func sortedGroupList(groups map[string]bool) []string {
+	list := make([]string, 0, len(groups))
+	for g := range groups {
+		list = append(list, g)
+	}
+	sort.Strings(list)
+	return list
+}
+
+// providerCodeInIntent 探测意图中的服务商标识（cf/aliyun/flyio 等英文 token），
+// 供纠偏提示中使用真实存在的模块代码。
+func providerCodeInIntent(intent string) (string, bool) {
+	lower := strings.ToLower(intent)
+	for _, code := range []string{"cf", "cloudflare", "aliyun", "tencent", "flyio", "koyeb", "github", "openai", "oracle", "m365", "onepanel"} {
+		if strings.Contains(lower, code) {
+			return code, true
+		}
+	}
+	return "", false
 }
 
 // getRouteContract 返回单个接口的完整契约；入参 path 可以是具体路径（会匹配到模式路由）。
+// 与 admin-ai 侧 get_route 对齐：匹配前剥离 query；命中聚合前缀（模块总入口）直接
+// 拒绝并给子路由提示，绝不返回「GET 可用」的假契约（实测 GET 聚合根 404）。
 func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, error) {
 	path, _ := args["path"].(string)
 	path = strings.TrimSpace(path)
@@ -517,16 +809,52 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
+	matchPath := path
+	if i := strings.IndexByte(matchPath, '?'); i >= 0 {
+		matchPath = matchPath[:i]
+	}
+	if len(matchPath) > 1 {
+		matchPath = strings.TrimRight(matchPath, "/")
+	}
 
 	items := s.apiDocs()["routes"].([]apiDocRoute)
 	best := (*apiDocRoute)(nil)
+	var prefixHit *apiDocRoute // 命中的聚合前缀（MatchPrefix）
 	for i := range items {
 		item := &items[i]
-		if routePrefixMatches(item.Prefix, item.MatchMode, path) {
+		if item.MatchMode == manifest.MatchPrefix && (item.Prefix == matchPath || strings.HasPrefix(matchPath, item.Prefix+"/")) {
+			if prefixHit == nil || len(item.Prefix) > len(prefixHit.Prefix) {
+				prefixHit = item
+			}
+			continue
+		}
+		if routePrefixMatches(item.Prefix, item.MatchMode, matchPath) {
 			if best == nil || len(item.Prefix) > len(best.Prefix) {
 				best = item
 			}
 		}
+	}
+	if best != nil {
+		// 具体路由胜出（pattern/exact 最长前缀）；即使父前缀存在也优先具体路由
+		_ = prefixHit
+	} else if prefixHit != nil {
+		children := make([]string, 0, 5)
+		for i := range items {
+			p := items[i].Prefix
+			if strings.HasPrefix(p, prefixHit.Prefix+"/") && items[i].MatchMode != manifest.MatchPrefix {
+				children = append(children, p)
+				if len(children) >= 5 {
+					break
+				}
+			}
+		}
+		hint := fmt.Sprintf("路径 %s 是聚合前缀（模块总入口%s），不可直接调用；请改用其具体子路由", matchPath, explainPrefixDesc(prefixHit.Detail, prefixHit.Description))
+		if len(children) > 0 {
+			hint += "，例如：" + strings.Join(children, "、")
+		} else {
+			hint += "（可用 list_apis 按 group/module 浏览具体接口）"
+		}
+		return nil, fmt.Errorf("%s", hint)
 	}
 	if best == nil {
 		return nil, fmt.Errorf("API 路由不存在: %s", path)
@@ -537,7 +865,7 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 	}
 	return map[string]interface{}{
 		"path":               best.Prefix,
-		"matchedPath":        path,
+		"matchedPath":        matchPath,
 		"methods":            best.Methods,
 		"group":              best.Group,
 		"module":             best.Module,
@@ -555,6 +883,20 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 		"responseExample":    best.ResponseBody,
 		"notes":              best.Notes,
 	}, nil
+}
+
+func explainPrefixDesc(detail, description string) string {
+	text := detail
+	if text == "" {
+		text = description
+	}
+	if text == "" {
+		return ""
+	}
+	if len([]rune(text)) > 40 {
+		text = string([]rune(text)[:40]) + "…"
+	}
+	return "：" + text
 }
 
 func routePrefixMatches(prefix string, mode manifest.MatchMode, path string) bool {
@@ -620,6 +962,185 @@ func (s *Service) callAPIFromAI(ctx context.Context, args map[string]interface{}
 	return s.readOnlyAICall(req)
 }
 
+// batchOp 表示 run_batch 中的单个操作。
+type batchOp struct {
+	name   string
+	path   string
+	method string
+	full   map[string]interface{}
+}
+
+// batchResult 表示 run_batch 中单个操作的执行结果。
+type batchResult struct {
+	index    int
+	name     string
+	path     string
+	method   string
+	err      error
+	response interface{}
+}
+
+// aiRunBatch 一次提交多个接口调用（串行或并行），聚合返回每个操作的结果。
+// 每个操作复用 callAPIFromAI 的完整约束（路由匹配、写权限门槛、递归/密钥阻断），
+// 无独立绕过路径；单个操作失败不会中断整批（除非 stopOnError）。
+// 每个子操作都会写入 AI 访问审计（run_batch.<index>）。
+func (s *Service) aiRunBatch(r *http.Request, args map[string]interface{}) (interface{}, error) {
+	rawOps, ok := args["operations"].([]interface{})
+	if !ok || len(rawOps) == 0 {
+		return nil, fmt.Errorf("operations is required and must be a non-empty array")
+	}
+	if len(rawOps) > 20 {
+		return nil, fmt.Errorf("operations exceed 20 items per batch")
+	}
+	mode := "serial"
+	if rawMode, ok := args["mode"].(string); ok {
+		if rawMode == "parallel" {
+			mode = "parallel"
+		}
+	}
+	stopOnError := false
+	if rawStop, ok := args["stopOnError"].(bool); ok {
+		stopOnError = rawStop
+	}
+
+	ops := make([]batchOp, 0, len(rawOps))
+	for i, raw := range rawOps {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("operations[%d] is not an object", i)
+		}
+		path, _ := m["path"].(string)
+		if strings.TrimSpace(path) == "" {
+			return nil, fmt.Errorf("operations[%d].path is required", i)
+		}
+		method, _ := m["method"].(string)
+		if method == "" {
+			method = http.MethodGet
+		}
+		ops = append(ops, batchOp{
+			name:   opLabel(m, i),
+			path:   path,
+			method: strings.ToUpper(method),
+			full:   m,
+		})
+	}
+
+	results := make([]batchResult, len(ops))
+	if mode == "parallel" {
+		var wg sync.WaitGroup
+		for i := range ops {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				results[i] = s.runSingleBatchOp(r.Context(), ops[i], i)
+			}(i)
+		}
+		wg.Wait()
+	} else {
+		for i := range ops {
+			results[i] = s.runSingleBatchOp(r.Context(), ops[i], i)
+			if stopOnError && results[i].err != nil {
+				// 保留后续操作状态为未执行。
+				for j := i + 1; j < len(ops); j++ {
+					results[j].index = j
+					results[j].name = ops[j].name
+					results[j].path = ops[j].path
+					results[j].method = ops[j].method
+					results[j].err = fmt.Errorf("batch stopped after previous error")
+				}
+				break
+			}
+		}
+	}
+
+	items := make([]map[string]interface{}, 0, len(results))
+	failed := 0
+	for _, r := range results {
+		item := map[string]interface{}{
+			"index":  r.index,
+			"name":   r.name,
+			"path":   r.path,
+			"method": r.method,
+		}
+		if r.err != nil {
+			failed++
+			item["ok"] = false
+			item["error"] = r.err.Error()
+		} else {
+			item["ok"] = true
+			item["data"] = r.response
+		}
+		items = append(items, item)
+	}
+	s.auditRunBatchSubOps(r, ops, results)
+	return map[string]interface{}{
+		"mode":   mode,
+		"total":  len(items),
+		"ok":     len(items) - failed,
+		"failed": failed,
+		"note":   "run_batch 逐个复用 call_api 的鉴权与只读约束；写操作需全局开启「允许写入」。",
+		"items":  items,
+	}, nil
+}
+
+// auditRunBatchSubOps 将 run_batch 的子操作写入 AI 访问审计，便于追溯批量调用。
+// 审计失败不影响批量结果本身。
+func (s *Service) auditRunBatchSubOps(r *http.Request, ops []batchOp, results []batchResult) {
+	db, err := s.store.Open(r.Context())
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	if err := s.ensureAIAccessSchema(r.Context(), db); err != nil {
+		return
+	}
+	ip := s.clientIP(r)
+	ua := r.UserAgent()
+	for i, res := range results {
+		status := "success"
+		detail := ""
+		if res.err != nil {
+			status = "error"
+			detail = truncate(res.err.Error(), 200)
+		}
+		action := fmt.Sprintf("run_batch.%d", res.index)
+		_ = s.insertAIAudit(r.Context(), db, "external", action, res.path, status, 0, detail, ip, ua)
+		if i >= 400 {
+			break
+		}
+	}
+}
+
+func (s *Service) runSingleBatchOp(ctx context.Context, op batchOp, index int) batchResult {
+	result, err := s.callAPIFromAI(ctx, op.full)
+	if err != nil {
+		return batchResult{index: index, name: op.name, path: op.path, method: op.method, err: err}
+	}
+	if resp, ok := result.(AICallResponse); ok {
+		if resp.StatusCode >= 400 {
+			msg := fmt.Sprintf("non-2xx status %d", resp.StatusCode)
+			if resp.Body != nil {
+				msg = fmt.Sprintf("non-2xx status %d: %v", resp.StatusCode, resp.Body)
+			}
+			return batchResult{index: index, name: op.name, path: op.path, method: op.method, err: fmt.Errorf("%s", msg)}
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if businessErr := EnvelopeError(resp.Body); businessErr != "" {
+				return batchResult{index: index, name: op.name, path: op.path, method: op.method, err: fmt.Errorf("business failure: %s", businessErr)}
+			}
+		}
+		return batchResult{index: index, name: op.name, path: op.path, method: op.method, response: resp.Body}
+	}
+	return batchResult{index: index, name: op.name, path: op.path, method: op.method, response: result}
+}
+
+func opLabel(m map[string]interface{}, index int) string {
+	if name, ok := m["name"].(string); ok && strings.TrimSpace(name) != "" {
+		return name
+	}
+	return fmt.Sprintf("op-%d", index)
+}
+
 func (s *Service) readOnlyAICall(req AICallRequest) (interface{}, error) {
 	if req.Method != http.MethodGet {
 		return nil, fmt.Errorf("AI caller is not configured; only GET fallback is available")
@@ -648,12 +1169,14 @@ func (s *Service) readOnlyAICall(req AICallRequest) (interface{}, error) {
 
 func (s *Service) aiTools() []map[string]interface{} {
 	return []map[string]interface{}{
-		{"name": "list_apis", "description": "读取接口目录（紧凑版，支持 group/module/search 过滤），先扫目录再按需取详情", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"group": map[string]interface{}{"type": "string", "description": "按分组过滤（如 模型网关 / Cloudflare / 主机实例）"}, "module": map[string]interface{}{"type": "string", "description": "按模块过滤（如 flyio / cloudflare-dns）"}, "search": map[string]interface{}{"type": "string", "description": "按路径或描述关键词过滤"}}}},
-		{"name": "get_route", "description": "读取单个接口的完整契约（参数、请求体 schema、示例、鉴权）；调用 call_api 前必须先用本工具确认请求体结构", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string", "description": "接口路径，如 /api/flyio/apps/{appName}/update-image 或具体路径"}}, "required": []string{"path"}}},
+		{"name": "list_apis", "description": "接口目录浏览：支持按 group（如 主机实例 / Cloudflare / 模型网关）或模块过滤、关键词 search、分页 offset/limit。返回的 prefixRoute=true 条目是聚合前缀（模块总入口），不可直接调用，请改用其子路由。先按 group 缩到 100 条以内再挑，效率最高；配合 find_api 定位更省 token。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"group": map[string]interface{}{"type": "string", "description": "按分组过滤（如 模型网关 / Cloudflare / 主机实例）"}, "module": map[string]interface{}{"type": "string", "description": "按模块过滤（如 flyio / cloudflare-dns）"}, "search": map[string]interface{}{"type": "string", "description": "按路径或描述关键词过滤"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 30，最大 100）"}, "offset": map[string]interface{}{"type": "number", "description": "分页偏移（默认 0）"}}}},
+		{"name": "find_api", "description": "自然语言意图定位接口（top-k 召回）。适用：知道想做什么但不确定接口路径/名称时，例如 intent=“给 flyio 应用更新镜像”。每个命中会给出 path/methods/desc 与命中原因；优先取 score 高且非 prefixRoute 的条目。不要用来列全量目录（那是 list_apis 的职责）；召回不满或低置信度时，结合 list_apis 的 group/search 兜底。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"intent": map[string]interface{}{"type": "string", "description": "意图描述，如“列出所有 DNS 解析记录”“给 flyio 应用更新镜像”“查看主机监控状态”"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 5，最大 10）"}, "group": map[string]interface{}{"type": "string", "description": "按分组过滤（可选）"}}, "required": []string{"intent"}}},
+		{"name": "get_route", "description": "读取单个接口的完整契约：真实可用方法（methods，已按 handler 校准）、鉴权、路径参数（含示例值）、查询参数、请求体 schema 与示例。调用 call_api 前必须先用本工具确认方法与请求体结构；路径参数要用实际资源 ID 替换占位符（先调用对应 list 接口获取真实 ID）。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string", "description": "接口路径，如 /api/flyio/apps/{appName}/update-image 或具体路径"}}, "required": []string{"path"}}},
 		{"name": "get_openapi", "description": "读取 OpenAPI 3.1 文档", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "get_ai_manifest", "description": "读取 AI 接入能力清单", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
-		{"name": "get_system_status", "description": "读取本机系统运行状态", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
-		{"name": "call_api", "description": "调用 API Monitor 内部接口，支持 GET/POST/PUT/PATCH/DELETE、请求头和 JSON 请求体；请求体结构先用 get_route 获取", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true, "description": "JSON 请求体，字段以 get_route 返回的 requestSchema/requestExample 为准"}}, "required": []string{"path"}}},
+		{"name": "get_system_status", "description": "读取本机系统运行状态（CPU/内存/磁盘）；displayTime/serverTime 为站点当前时间（本地时区），回答时间/换算 cron 必须用 displayTime 或 serverTime.local，禁止用 timestamp（UTC）", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
+		{"name": "call_api", "description": "调用 API Monitor 内部接口，支持 GET/POST/PUT/PATCH/DELETE、请求头和 JSON 请求体；请求体结构先用 get_route 获取。强制规则：写操作（POST/PUT/PATCH/DELETE）返回后必须立即用 GET 回读验证真实生效（如列表/详情确认状态、next_run 等），且必须检查响应中的 success/error 字段，发现 success=false 或 error 非空即视为失败，绝不向用户宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true, "description": "JSON 请求体，字段以 get_route 返回的 requestSchema/requestExample 为准"}}, "required": []string{"path"}}},
+		{"name": "run_batch", "description": "一次提交 1-20 个接口调用并聚合返回结果（串行或并行），减少多轮往返；每个操作复用 call_api 的鉴权与写权限约束。强制规则：含写操作（POST/PUT/PATCH/DELETE）的批次，完成后必须回读验证真实生效并检查每个子项的 ok/error 字段，任一子项 ok=false 或业务失败即视为整体未完成，绝不宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"operations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string", "description": "操作名（便于阅读结果）"}, "method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true}}, "required": []string{"path"}}, "description": "要执行的接口调用数组"}, "mode": map[string]interface{}{"type": "string", "enum": []string{"serial", "parallel"}, "description": "执行模式（默认 serial）"}, "stopOnError": map[string]interface{}{"type": "boolean", "description": "serial 模式下遇到失败是否停止后续（默认 false）"}}, "required": []string{"operations"}}},
 	}
 }
 
@@ -703,35 +1226,61 @@ func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, key string, too
 
 ## 可用资源
 - api-monitor://routes：完整接口清单
+- api-monitor://route-index：紧凑路由索引（仅 path/methods/group/desc/auth，适合预加载）
+- api-monitor://route-index/{group}：按分组读取紧凑路由索引（如 api-monitor://route-index/Cloudflare）
 - api-monitor://openapi：OpenAPI 3.1 文档
 
 ## 接入步骤（渐进式披露）
-1. 用 list_apis 扫目录（可按 group / module / search 过滤，先只看目标模块，省 token）。
-2. 确定要调用的接口后，用 get_route <path> 获取该接口的完整契约（路径参数、请求体 schema、示例、鉴权）。
-3. 按契约用 call_api 调用；请求体字段以 get_route 返回的 requestSchema / requestExample 为准，不要猜。
-4. 默认只读；写操作（POST/PUT/PATCH/DELETE）会返回「写入未启用」提示，需管理员在「API 文档 → AI 接入」开启「允许写入」。
-5. 密钥可随时在「API 文档 → AI 接入」页面轮换；请勿将密钥写入公开仓库。
+1. 用 find_api <意图> 直接定位目标接口（返回 top-k 匹配与契约摘要，命中不确信时再用 list_apis / get_route 核对）。
+2. 用 list_apis 扫目录（可按 group / module / search 过滤，先只看目标模块，省 token）。
+3. 确定要调用的接口后，用 get_route <path> 获取该接口的完整契约（路径参数、请求体 schema、示例、鉴权）。
+4. 按契约用 call_api 调用；请求体字段以 get_route 返回的 requestSchema / requestExample 为准，不要猜。
+5. 默认只读；写操作（POST/PUT/PATCH/DELETE）会返回「写入未启用」提示，需管理员在「API 文档 → AI 接入」开启「允许写入」。
+6. 密钥可随时在「API 文档 → AI 接入」页面轮换；请勿将密钥写入公开仓库。
+
+## 强制验证规则（不可省略）
+1. 写操作（POST/PUT/PATCH/DELETE）调用返回后，必须立即回读验证真实生效：用 GET 列表/详情接口确认目标资源已存在且状态正确（如 enabled、next_run 等），仅凭创建接口自身返回 2xx 不算完成。
+2. 每次调用都必须检查响应：HTTP 非 2xx、或 body 中 success=false、或 error 字段非空，均视为失败；任一失败出现时，禁止向用户宣称任务完成，必须如实报告错误。
+3. 宁可多一次回读调用，也不要在未验证生效前宣告成功；无法验证时如实说明「未能验证」。
 `, s.cfg.Version, key, key, manifestURL, mcpURL, openAPIURL, mcpURL, key, mcpURL, key, toolsText)
 }
 
 func (s *Service) mcpResources() []map[string]interface{} {
 	return []map[string]interface{}{
 		{"uri": "api-monitor://routes", "name": "接口清单", "mimeType": "application/json"},
+		{"uri": "api-monitor://route-index", "name": "紧凑路由索引", "mimeType": "application/json"},
+		{"uri": "api-monitor://route-index/{group}", "name": "紧凑路由索引（按分组）", "mimeType": "application/json"},
 		{"uri": "api-monitor://openapi", "name": "OpenAPI", "mimeType": "application/json"},
 	}
 }
 
 func (s *Service) mcpReadResource(r *http.Request, uri string) (interface{}, error) {
 	var content string
-	switch uri {
-	case "api-monitor://routes":
+	switch {
+	case uri == "api-monitor://routes":
 		encoded, err := json.Marshal(s.apiDocs())
 		if err != nil {
 			return nil, err
 		}
 		content = string(encoded)
-	case "api-monitor://openapi":
-		encoded, err := json.Marshal(s.openapiDocument(r))
+	case uri == "api-monitor://route-index":
+		encoded, err := json.Marshal(s.routeIndexPayload(""))
+		if err != nil {
+			return nil, err
+		}
+		content = string(encoded)
+	case strings.HasPrefix(uri, "api-monitor://route-index/"):
+		group := strings.TrimPrefix(uri, "api-monitor://route-index/")
+		if group == "" {
+			return nil, fmt.Errorf("missing group in template resource uri")
+		}
+		encoded, err := json.Marshal(s.routeIndexPayload(group))
+		if err != nil {
+			return nil, err
+		}
+		content = string(encoded)
+	case uri == "api-monitor://openapi":
+		encoded, err := json.Marshal(s.openapiCompactDocument(r))
 		if err != nil {
 			return nil, err
 		}
@@ -744,6 +1293,42 @@ func (s *Service) mcpReadResource(r *http.Request, uri string) (interface{}, err
 			{"uri": uri, "mimeType": "application/json", "text": content},
 		},
 	}, nil
+}
+
+// routeIndexPayload 生成紧凑路由索引：仅 path / methods / group / desc / auth，
+// 供客户端预加载路由目录，避免每次用 list_apis 全量扫描。
+// group 非空时只返回该分组的路由（分片读取）。
+func (s *Service) routeIndexPayload(group string) map[string]interface{} {
+	items := s.apiDocs()["routes"].([]apiDocRoute)
+	routes := make([]map[string]interface{}, 0, len(items))
+	groups := map[string]int{}
+	for _, item := range items {
+		if group != "" && item.Group != group {
+			continue
+		}
+		desc := item.Detail
+		if desc == "" {
+			desc = item.Description
+		}
+		groups[item.Group]++
+		routes = append(routes, map[string]interface{}{
+			"path":    item.Prefix,
+			"methods": item.Methods,
+			"group":   item.Group,
+			"auth":    string(item.Auth),
+			"desc":    desc,
+		})
+	}
+	payload := map[string]interface{}{
+		"count":  len(routes),
+		"routes": routes,
+	}
+	if group != "" {
+		payload["group"] = group
+	} else {
+		payload["groups"] = groups
+	}
+	return payload
 }
 
 func (s *Service) listMCPServers(ctx context.Context, db *sql.DB) ([]aiMCPServer, error) {
@@ -918,7 +1503,8 @@ func (s *Service) listAIAudit(ctx context.Context, db *sql.DB, limit int) ([]aiA
 }
 
 // listAIAuditPage returns paginated AI access audit entries filtered by recent days.
-// Supports days (default 7), page (default 1) and pageSize (default 20, max 100) query params.
+// Supports days (default 7), page (default 1), pageSize (default 20, max 100),
+// action (exact match) and search (LIKE across action, target, agent_name, details, ip_address, status).
 func (s *Service) listAIAuditPage(r *http.Request) (map[string]interface{}, error) {
 	db, err := s.store.Open(r.Context())
 	if err != nil {
@@ -944,15 +1530,35 @@ func (s *Service) listAIAuditPage(r *http.Request) (map[string]interface{}, erro
 		days = d
 	}
 
+	actionFilter := strings.TrimSpace(query.Get("action"))
+	searchText := strings.TrimSpace(query.Get("search"))
+
 	offset := (page - 1) * pageSize
 	timeFilter := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
 
+	whereClause := "WHERE created_at >= ?"
+	args := []interface{}{timeFilter}
+
+	if actionFilter != "" {
+		whereClause += " AND action = ?"
+		args = append(args, actionFilter)
+	}
+	if searchText != "" {
+		whereClause += " AND (action LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\' OR agent_name LIKE ? ESCAPE '\\' OR details LIKE ? ESCAPE '\\' OR ip_address LIKE ? ESCAPE '\\' OR status LIKE ? ESCAPE '\\')"
+		escaped := escapeLike(searchText)
+		like := "%" + escaped + "%"
+		args = append(args, like, like, like, like, like, like)
+	}
+
 	var total int
-	if err := db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM ai_access_audit WHERE created_at >= ?`, timeFilter).Scan(&total); err != nil {
+	countQuery := "SELECT COUNT(*) FROM ai_access_audit " + whereClause
+	if err := db.QueryRowContext(r.Context(), countQuery, args...).Scan(&total); err != nil {
 		return nil, err
 	}
 
-	rows, err := db.QueryContext(r.Context(), `SELECT id, COALESCE(agent_name,''), action, COALESCE(target,''), status, latency_ms, COALESCE(details,''), COALESCE(ip_address,''), COALESCE(user_agent,''), created_at FROM ai_access_audit WHERE created_at >= ? ORDER BY id DESC LIMIT ? OFFSET ?`, timeFilter, pageSize, offset)
+	dataQuery := "SELECT id, COALESCE(agent_name,''), action, COALESCE(target,''), status, COALESCE(latency_ms,0), COALESCE(details,''), COALESCE(ip_address,''), COALESCE(user_agent,''), created_at FROM ai_access_audit " + whereClause + " ORDER BY id DESC LIMIT ? OFFSET ?"
+	dataArgs := append(args, pageSize, offset)
+	rows, err := db.QueryContext(r.Context(), dataQuery, dataArgs...)
 	if err != nil {
 		return nil, err
 	}

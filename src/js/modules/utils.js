@@ -296,7 +296,10 @@ export function maskAddress(address, mode = 'normal') {
       prefix = url.protocol + '//';
       displayAddress = url.hostname;
       suffix = url.pathname !== '/' ? url.pathname : '';
-      if (url.port) prefix += ''; // 端口通常也打码，所以合并到 hostname 处理
+      // 端口不泄露具体值，但保留存在性提示（host:8443 与默认端口可区分）
+      if (url.port && url.port !== '443' && url.port !== '80') {
+        suffix = ':' + '****' + suffix;
+      }
     }
   } catch (e) {
     // 如果不是标准 URL，则按原样处理

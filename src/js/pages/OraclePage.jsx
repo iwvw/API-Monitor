@@ -679,7 +679,7 @@ function OraclePage() {
       !accountForm.fingerprint ||
       (!editingAccount && (!accountForm.tenancyOcid || !accountForm.userOcid || !accountForm.privateKeyPem));
     if (missingRequired) {
-      toast.warning(editingAccount ? '请填写账号名称、Region 和 Fingerprint' : '请填写必填的 OCI 账号信息和私钥');
+      toast.warning(editingAccount ? '请填写账号名称、Region 和 Fingerprint' : '请填写 OCI 账号信息和私钥');
       return;
     }
     setSubmittingAccount(true);
@@ -952,14 +952,14 @@ function OraclePage() {
       </div>
 
       {activeTab === 'instances' && (
-        <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
+        <div className="grid min-h-0 gap-4 cq-xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
           <SectionCard
             title="实例列表"
             description={`${filteredInstances.length} 台实例`}
             className="min-h-0"
             bodyPadding="none"
             bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
-            icon={<Server className="h-4 w-4 text-kumo-brand" />}
+            icon={<Server className="h-4 w-4 text-brand" />}
             actions={(
               <>
                 <ResponsiveSearchInput
@@ -967,12 +967,12 @@ function OraclePage() {
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="搜索名称、ID、IP、shape"
                   ariaLabel="搜索 Oracle 实例"
-                  className="w-40 sm:w-52"
+                  className="w-40 cq-sm:w-52"
                 />
                 <Select
                   aria-label="实例状态筛选"
                   size="sm"
-                  className="w-32 sm:w-36"
+                  className="w-32 cq-sm:w-36"
                   value={stateFilter}
                   onValueChange={setStateFilter}
                   items={stateOptions}
@@ -1051,7 +1051,7 @@ function OraclePage() {
           <SectionCard
             title="实例详情"
             icon={<Settings className="h-4 w-4" />}
-            className="min-w-0 xl:sticky xl:top-0 xl:self-start"
+            className="min-w-0 cq-xl:sticky cq-xl:top-0 cq-xl:self-start"
             bodyPadding="none"
             bodyClassName="flex flex-col"
             actions={selectedInstance && (
@@ -1087,10 +1087,10 @@ function OraclePage() {
       {activeTab === 'network' && <ResourceList title="VNIC 附加" icon={<Cloud className="h-4 w-4" />} loading={loadingDetail} items={instanceDetail?.vnicSummary || []} columns={['displayName', 'state', 'privateIp', 'publicIp', 'subnetId']} onCopy={copyText} />}
       {activeTab === 'storage' && <ResourceList title="卷附加" icon={<HardDrive className="h-4 w-4" />} loading={loadingDetail} items={[...(instanceDetail?.bootVolumeSummary || []), ...(instanceDetail?.blockVolumeSummary || [])]} columns={['volumeType', 'state', 'device', 'volumeId', 'attachmentId']} onCopy={copyText} />}
       {activeTab === 'console' && (
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
+        <div className="grid min-h-0 flex-1 gap-4 cq-xl:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)]">
           <SectionCard
             title="创建控制台连接"
-            icon={<Terminal className="h-4 w-4 text-kumo-brand" />}
+            icon={<Terminal className="h-4 w-4 text-brand" />}
             className="min-h-0"
             bodyClassName="flex min-h-0 flex-1 flex-col gap-4"
             action={<Button type="button" size="sm" onClick={createConsoleConnection} disabled={!selectedInstance || !consolePublicKey.trim()}><Plus className="mr-2 h-4 w-4" />创建连接</Button>}
@@ -1125,18 +1125,17 @@ function OraclePage() {
                   language="text"
                   value={consolePublicKey}
                   onChange={setConsolePublicKey}
-                  placeholder="粘贴控制台连接 SSH 公钥"
+                  placeholder="粘贴 SSH 公钥"
                   minHeight="10rem"
                 />
                 <div className="text-xs leading-5 text-kumo-subtle">
-                  使用本地 SSH 公钥创建连接，创建后可在右侧查看连接串和指纹。
+                  创建后可在右侧查看连接串和指纹。
                 </div>
               </>
             ) : (
               <EmptyState
                 icon={Terminal}
                 title="请先选择实例"
-                description="先选实例，再来这里创建连接。"
                 card={false}
                 className="min-h-[18rem]"
               />
@@ -1154,7 +1153,7 @@ function OraclePage() {
               <EmptyState
                 icon={Terminal}
                 title="暂无可展示连接"
-                description="选中实例后，这里显示现有连接。"
+                description="选中实例后显示现有连接。"
                 card={false}
                 className="min-h-[20rem]"
               />
@@ -1187,7 +1186,7 @@ function OraclePage() {
       {activeTab === 'accounts' && (
         <SectionCard
           title="Oracle 账号"
-          icon={<Key className="h-4 w-4 text-kumo-brand" />}
+          icon={<Key className="h-4 w-4 text-brand" />}
           description={accounts.length > 0 ? `${accounts.length} 个已配置账号` : '管理 OCI 凭证和默认 Compartment'}
           className="min-h-0 flex-1"
           bodyPadding="none"
@@ -1203,10 +1202,10 @@ function OraclePage() {
               />
               <Toolbar size="sm" aria-label="导出导入账号" className="shrink-0">
                 <Toolbar.Button type="button" onClick={exportAccounts} aria-label="导出账号" title="导出账号" icon={<Upload className="h-3.5 w-3.5" />}>
-                  <span className="hidden sm:inline">导出</span>
+                  <span className="hidden cq-sm:inline">导出</span>
                 </Toolbar.Button>
                 <Toolbar.Button type="button" onClick={openAccountImportDialog} aria-label="导入账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-                  <span className="hidden sm:inline">导入</span>
+                  <span className="hidden cq-sm:inline">导入</span>
                 </Toolbar.Button>
               </Toolbar>
               <Button type="button" size="sm" shape="square" variant="primary" onClick={() => openAccountDialog()} aria-label="添加账号" title="添加账号" icon={<Plus className="h-4 w-4" />} />
@@ -1271,7 +1270,7 @@ function OraclePage() {
       )}
 
       <Dialog.Root open={resizeDialogOpen} onOpenChange={setResizeDialogOpen}>
-        <Dialog className="!w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
+        <Dialog className="@container !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
           <Dialog.Title className="mb-1 text-base font-bold text-kumo-strong">实例升降配</Dialog.Title>
           <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
             调整 shape 或 Flex 规格时，Oracle 可能重启实例，建议在低峰期执行。
@@ -1322,7 +1321,7 @@ function OraclePage() {
                 <InsetPanel tone="surface">
                   <div className="mb-1 text-sm font-semibold text-kumo-strong">{selectedResizeShape.name}</div>
                   <div className="text-xs leading-5 text-kumo-subtle">
-                    {selectedResizeShape.processorDescription || 'Oracle Compute shape'}
+                    {selectedResizeShape.processorDescription || 'Oracle 计算实例规格'}
                   </div>
                   <KeyValueGrid
                     className="mt-3"
@@ -1338,7 +1337,7 @@ function OraclePage() {
                     ]}
                   />
                   {selectedResizeShape.isFlexible ? (
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="mt-4 grid gap-3 cq-md:grid-cols-2">
                       <Input
                         size="sm"
                         label={`OCPU${selectedResizeShape.ocpuOptions?.min || selectedResizeShape.ocpuOptions?.max ? ` (${formatInstanceMetric(selectedResizeShape.ocpuOptions?.min)} - ${formatInstanceMetric(selectedResizeShape.ocpuOptions?.max)})` : ''}`}
@@ -1357,7 +1356,7 @@ function OraclePage() {
                         <Select
                           aria-label="baseline OCPU"
                           size="sm"
-                          className="md:col-span-2"
+                          className="cq-md:col-span-2"
                           value={resizeForm.baselineOcpuUtilization}
                           onValueChange={(value) => setResizeForm((current) => ({ ...current, baselineOcpuUtilization: value }))}
                           items={[
@@ -1372,7 +1371,7 @@ function OraclePage() {
                     </div>
                   ) : (
                     <div className="mt-4 text-xs text-kumo-subtle">
-                      该规格为固定规格，只需切换 shape，无需填写 OCPU / 内存。
+                      固定规格，只需切换 shape，无需填写 OCPU / 内存。
                     </div>
                   )}
                 </InsetPanel>
@@ -1404,7 +1403,7 @@ function OraclePage() {
       </Dialog.Root>
 
       <Dialog.Root open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
-        <Dialog className="!w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
+        <Dialog className="@container !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
           <Dialog.Title className="mb-1 text-base font-bold text-kumo-strong">
             {editingAccount ? '编辑 Oracle 账号' : '添加 Oracle 账号'}
           </Dialog.Title>
@@ -1430,7 +1429,7 @@ key_file=<path to your private keyfile>`}
               <span>粘贴后自动填充 User OCID、Fingerprint、Tenancy OCID 和 Region；key_file 不使用，私钥请在下方粘贴或上传。</span>
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 cq-md:grid-cols-2">
             <Input
               label="账号名称 *"
               value={accountForm.name}
@@ -1486,7 +1485,7 @@ key_file=<path to your private keyfile>`}
               onChange={(event) => setAccountForm({ ...accountForm, description: event.target.value })}
               placeholder="可选"
             />
-            <div className="md:col-span-2">
+            <div className="cq-md:col-span-2">
               <input
                 ref={privateKeyFileRef}
                 type="file"

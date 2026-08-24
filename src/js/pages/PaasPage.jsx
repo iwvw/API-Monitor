@@ -8,7 +8,7 @@ import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
-import { Badge, ClipboardText, Empty, Grid as KumoGrid, LayerCard, Link, Loader, Tabs, Text, Toolbar } from '@cloudflare/kumo';
+import { Badge, ClipboardText, Empty, LayerCard, Link, Loader, Tabs, Text, Toolbar } from '@cloudflare/kumo';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -268,7 +268,7 @@ function PaasPage() {
 
   const downloadLogs = () => {
     if (logs.length === 0) {
-      toast.info('暂无日志可以下载');
+      toast.info('暂无日志', { isManual: true });
       return;
     }
     const content = logs
@@ -427,7 +427,7 @@ function PaasPage() {
   };
 
   const redeployKoyebService = async (account, app, service) => {
-    if (!(await dialog.confirm(`确认重新部署 Koyeb 服务 "${service.name}" 吗？`))) return;
+    if (!(await dialog.confirm(`重新部署 Koyeb 服务 "${service.name}"？`))) return;
     try {
       const response = await fetch(`/api/koyeb/services/${service._id}/redeploy`, {
         method: 'POST',
@@ -834,7 +834,7 @@ function PaasPage() {
 
   // Fly.io Service Operations
   const redeployFlyApp = async (account, app) => {
-    if (!(await dialog.confirm(`确认重启 Fly.io 应用 "${app.name}" 吗？（触发一次重新部署）`))) return;
+    if (!(await dialog.confirm(`重启 Fly.io 应用 "${app.name}"？（触发一次重新部署）`))) return;
     try {
       const response = await fetch(`/api/flyio/apps/${app.name}/redeploy`, {
         method: 'POST',
@@ -878,7 +878,7 @@ function PaasPage() {
 
     if (newImage === null || newImage.trim() === '') return;
 
-    toast.info('正在更新容器镜像，请稍候...');
+    toast.info('正在更新容器镜像，请稍候...', { isManual: true });
     try {
       const response = await fetch(`/api/flyio/apps/${app.name}/update-image`, {
         method: 'POST',
@@ -903,7 +903,7 @@ function PaasPage() {
           toast.warning('没有 Machine 被更新');
         }
         if (digestChangedCount === 0 && changedCount > 0) {
-          toast.info('Machine 配置/版本有变化，但镜像 digest 未变化');
+          toast.info('Machine 配置/版本有变化，但镜像 digest 未变化', { isManual: true });
         }
         loadFlyData(false);
       } else {
@@ -916,8 +916,8 @@ function PaasPage() {
   };
 
   const updateAllFlyAppsImage = async (account) => {
-    if (!(await dialog.confirm(`确定要为 Fly.io 账号 "${account.name}" 下的所有应用批量更新最新镜像吗？`))) return;
-    toast.info('正在提交批量更新，请稍候...');
+    if (!(await dialog.confirm(`为 Fly.io 账号 "${account.name}" 下的所有应用批量更新最新镜像？`))) return;
+    toast.info('正在提交批量更新，请稍候...', { isManual: true });
     try {
       const response = await fetch(`/api/flyio/accounts/${account.id}/update-all-images`, {
         method: 'POST',
@@ -1684,16 +1684,16 @@ function PaasPage() {
   }, [activeTab, flyIntervalSec, loadFlyData]);
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
-        <div className="min-w-0 w-full md:w-auto">
+        <div className="min-w-0 w-full cq-md:w-auto">
           <Tabs
             {...MODULE_TABS_PROPS}
             value={activeTab}
             onValueChange={setActiveTab}
             tabs={[
-              { value: 'fly', label: <span className="inline-flex items-center gap-1.5"><FlyIoBrand className="w-4 h-4 text-kumo-brand" />Fly.io</span> },
-              { value: 'koyeb', label: <span className="inline-flex items-center gap-1.5"><KoyebBrand className="w-4 h-4 text-kumo-info" />Koyeb</span> },
+              { value: 'fly', label: <span className="inline-flex items-center gap-1.5"><FlyIoBrand className="size-3.5 text-brand" />Fly.io</span> },
+              { value: 'koyeb', label: <span className="inline-flex items-center gap-1.5"><KoyebBrand className="size-3.5 text-kumo-info" />Koyeb</span> },
               { value: 'config', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4 text-kumo-success" />配置</span> },
             ]}
           />
@@ -1740,8 +1740,6 @@ function PaasPage() {
             <div className="space-y-5">
               {koyebAccounts.map((account) => {
                 const expanded = isKoyebAccountExpanded(account.name);
-                const projectCount = account.projects?.length || 0;
-                const serviceCount = (account.projects || []).reduce((total, project) => total + (project.services?.length || 0), 0);
                 const balance = Number(account.data?.balance ?? account.balance ?? 0);
                 return (
                   <section key={account.name} className="space-y-3">
@@ -1750,7 +1748,7 @@ function PaasPage() {
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
-                        className="flex min-w-0 cursor-pointer flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 cq-sm:justify-between"
                         onClick={() => toggleKoyebAccount(account.name)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -1764,7 +1762,7 @@ function PaasPage() {
                           variant="ghost"
                           size="sm"
                           tabIndex={-1}
-                          className="w-full min-w-0 justify-start px-0 text-left sm:w-auto"
+                          className="min-w-0 flex-1 justify-start px-0 text-left"
                           icon={<ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />}
                         >
                           <span className="flex min-w-0 items-center gap-2 text-left">
@@ -1772,15 +1770,13 @@ function PaasPage() {
                             <Text as="span" bold truncate>{account.name}</Text>
                           </span>
                         </Button>
-                        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           {account.data?.email ? (
                             <Badge variant="outline" className="max-w-full">
                               <Mail className="h-3 w-3 shrink-0" />
                               <span className="truncate">{account.data.email}</span>
                             </Badge>
                           ) : null}
-                          <Badge variant="neutral">{projectCount} 应用</Badge>
-                          <Badge variant="neutral">{serviceCount} 服务</Badge>
                           <Badge variant="info">${Number.isFinite(balance) ? balance.toFixed(2) : '0.00'}</Badge>
                         </div>
                       </LayerCard.Secondary>
@@ -1799,10 +1795,9 @@ function PaasPage() {
                           size="sm"
                           icon={<KoyebBrand className="h-8 w-8 text-kumo-info" />}
                           title="暂无应用"
-                          description="此账号暂无 Koyeb 应用。"
                         />
                       ) : (
-                        <KumoGrid variant="4up" gap="sm" className="items-start">
+                        <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3 cq-lg:grid-cols-4">
                           {account.projects.map((app) => {
                             const services = app.services || [];
                             return (
@@ -1860,7 +1855,6 @@ function PaasPage() {
                                       size="sm"
                                       icon={<Server className="h-7 w-7 text-kumo-subtle" />}
                                       title="暂无服务"
-                                      description="此应用还没有可管理的服务。"
                                     />
                                   ) : (
                                     <div className="space-y-3">
@@ -1923,7 +1917,6 @@ function PaasPage() {
 
                                           {service.domains?.length ? (
                                             <div className="space-y-1">
-                                              <Text as="div" variant="secondary" size="xs" bold>访问域名</Text>
                                               <div className="flex min-w-0 flex-wrap gap-1.5">
                                                 {service.domains.map((dom) => {
                                                   const domain = dom.domain || dom.name || String(dom);
@@ -1975,7 +1968,7 @@ function PaasPage() {
                                             </div>
                                           ) : null}
 
-                                          <div className="flex flex-wrap justify-end gap-1">
+                                          <div className="flex flex-wrap justify-start gap-1">
                                             <Button shape="square" size="sm" variant="secondary" aria-label="重启服务" onClick={() => restartKoyebService(account, app, service)} title={service.status === 'SUSPENDED' ? '启动服务' : '重启服务'} icon={<RefreshCw className="h-3.5 w-3.5" />} />
                                             <Button shape="square" size="sm" variant="secondary" aria-label="重新部署服务" onClick={() => redeployKoyebService(account, app, service)} title="重新部署" icon={<Rocket className="h-3.5 w-3.5" />} />
                                             <Button shape="square" size="sm" variant="secondary" aria-label="查看服务实例" onClick={() => fetchKoyebServiceInstances(account, service)} title="查看实例" loading={service.loadingInstances} icon={<Server className="h-3.5 w-3.5" />} />
@@ -1989,7 +1982,7 @@ function PaasPage() {
                               </LayerCard>
                             );
                           })}
-                        </KumoGrid>
+                        </div>
                       )}
                     </AnimatedCollapse>
                   </section>
@@ -2006,14 +1999,14 @@ function PaasPage() {
           {flyLoading && flyAccounts.length === 0 ? (
             <Empty
               size="base"
-              icon={<Loader size={32} className="text-kumo-brand" />}
+              icon={<Loader size={32} className="text-brand" />}
               title="正在加载 Fly.io"
               description="同步应用和域名状态"
             />
           ) : flyAccounts.length === 0 ? (
             <Empty
               size="base"
-              icon={<FlyIoBrand className="h-8 w-8 text-kumo-brand" />}
+              icon={<FlyIoBrand className="h-8 w-8 text-brand" />}
               title="暂无 Fly.io 账号"
               description="需先添加 Fly.io API Token"
             />
@@ -2021,8 +2014,6 @@ function PaasPage() {
             <div className="space-y-5">
               {flyAccounts.map((account) => {
                 const expanded = isFlyAccountExpanded(account.name);
-                const appCount = account.projects?.length || 0;
-                const machineCount = (account.projects || []).reduce((total, project) => total + (project.machines?.length || 0), 0);
                 return (
                   <section key={account.name} className="space-y-3">
                     <LayerCard className="self-start">
@@ -2030,7 +2021,7 @@ function PaasPage() {
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
-                        className="flex min-w-0 cursor-pointer flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 cq-sm:justify-between"
                         onClick={() => toggleFlyAccount(account.name)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -2044,17 +2035,15 @@ function PaasPage() {
                           variant="ghost"
                           size="sm"
                           tabIndex={-1}
-                          className="w-full min-w-0 justify-start px-0 text-left sm:w-auto"
+                          className="min-w-0 flex-1 justify-start px-0 text-left"
                           icon={<ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />}
                         >
                           <span className="flex min-w-0 items-center gap-2 text-left">
-                            <FlyIoBrand className="h-4 w-4 shrink-0 text-kumo-brand" />
+                            <FlyIoBrand className="h-4 w-4 shrink-0 text-brand" />
                             <Text as="span" bold truncate>{account.name}</Text>
                           </span>
                         </Button>
-                        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                          <Badge variant="neutral">{appCount} 应用</Badge>
-                          <Badge variant="neutral">{machineCount} 机器</Badge>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); updateAllFlyAppsImage(account); }} icon={<Rocket className="h-3.5 w-3.5" />}>
                             批量更新
                           </Button>
@@ -2076,13 +2065,12 @@ function PaasPage() {
                       ) : !account.projects || account.projects.length === 0 ? (
                         <Empty
                           size="sm"
-                          icon={<FlyIoBrand className="h-8 w-8 text-kumo-brand" />}
+                          icon={<FlyIoBrand className="h-8 w-8 text-brand" />}
                           title="暂无应用"
-                          description="此账号暂无 Fly.io 应用。"
                           contents={<Button size="sm" variant="primary" onClick={() => createFlyApp(account)} icon={<Plus className="h-3.5 w-3.5" />}>新建应用</Button>}
                         />
                       ) : (
-                        <KumoGrid variant="4up" gap="sm" className="items-start">
+                        <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3 cq-lg:grid-cols-4">
                           {account.projects.map((app) => (
                             <LayerCard key={app.id} className="self-start">
                               <LayerCard.Secondary className="flex min-w-0 items-start justify-between gap-3">
@@ -2118,7 +2106,7 @@ function PaasPage() {
                                       onDoubleClick={() => startEditFlyAppName(app)}
                                       className="min-w-0 justify-start px-0"
                                       title="双击重命名"
-                                      icon={<FlyIoBrand className="h-4 w-4 text-kumo-brand" />}
+                                      icon={<FlyIoBrand className="h-4 w-4 text-brand" />}
                                     >
                                       <Text as="span" bold truncate>{app.name}</Text>
                                     </Button>
@@ -2134,7 +2122,6 @@ function PaasPage() {
 
                               <LayerCard.Primary className="space-y-3">
                                 <div className="space-y-2">
-                                  <Text as="div" variant="secondary" size="xs" bold>访问域名</Text>
                                   <div className="flex min-w-0 flex-wrap gap-1.5">
                                     {app.hostname ? (
                                       <Link href={`https://${app.hostname}`} target="_blank" rel="noreferrer" variant="plain" className="min-w-0">
@@ -2201,7 +2188,7 @@ function PaasPage() {
                                   </div>
                                 ) : null}
 
-                                <div className="flex flex-wrap justify-end gap-1">
+                                <div className="flex flex-wrap justify-start gap-1">
                                     <Button shape="square" size="sm" variant="secondary" aria-label="重启应用" onClick={() => redeployFlyApp(account, app)} title="重启应用" icon={<RefreshCw className="h-3.5 w-3.5" />} />
                                     <Button shape="square" size="sm" variant="secondary" aria-label="更新容器镜像" onClick={() => updateFlyAppImage(account, app)} title="更新容器镜像" icon={<Rocket className="h-3.5 w-3.5" />} />
                                     <Button shape="square" size="sm" variant="secondary" aria-label="创建机器" onClick={() => createFlyMachine(account, app)} title="创建机器" icon={<Plus className="h-3.5 w-3.5" />} />
@@ -2213,7 +2200,7 @@ function PaasPage() {
                               </LayerCard.Primary>
                             </LayerCard>
                           ))}
-                        </KumoGrid>
+                        </div>
                       )}
                     </AnimatedCollapse>
                   </section>
@@ -2226,10 +2213,10 @@ function PaasPage() {
 
       {/* ==================== Configuration Tab Content ==================== */}
       {activeTab === 'config' && (
-        <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] xl:items-start">
+        <div className="grid min-w-0 gap-3 cq-xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] cq-xl:items-start">
           <SectionCard
             title="自动刷新"
-            icon={<Settings className="h-4 w-4 text-kumo-brand" />}
+            icon={<Settings className="h-4 w-4 text-brand" />}
             actions={(
               <Button size="sm" onClick={saveSettings} icon={<Save className="h-3.5 w-3.5" />}>
                 保存配置
@@ -2256,7 +2243,7 @@ function PaasPage() {
             </div>
             <div className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/20 px-3 py-2">
               <div className="flex w-20 shrink-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
-                <FlyIoBrand className="h-3.5 w-3.5 text-kumo-brand" />
+                <FlyIoBrand className="h-3.5 w-3.5 text-brand" />
                 Fly.io
               </div>
               <Input
@@ -2286,10 +2273,10 @@ function PaasPage() {
                   <Button size="sm" onClick={() => setShowAddFlyModal(true)} icon={<FlyIoBrand className="h-3.5 w-3.5" />}>添加 Fly.io</Button>
                   <Toolbar size="sm" aria-label="导出导入 PaaS 账号" className="shrink-0">
                     <Toolbar.Button onClick={exportPaasAccounts} aria-label="导出 PaaS 账号" title="导出账号" icon={<Upload className="h-3.5 w-3.5" />}>
-                      <span className="hidden sm:inline">导出</span>
+                      <span className="hidden cq-sm:inline">导出</span>
                     </Toolbar.Button>
                     <Toolbar.Button onClick={importPaasAccounts} aria-label="导入 PaaS 账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-                      <span className="hidden sm:inline">导入</span>
+                      <span className="hidden cq-sm:inline">导入</span>
                     </Toolbar.Button>
                   </Toolbar>
               </>
@@ -2341,7 +2328,7 @@ function PaasPage() {
                         <Table.Row key={`fly-${account.id}`} className="hover:bg-kumo-recessed/25">
                           <Table.Cell>
                             <Badge variant="outline" className="inline-flex items-center gap-1">
-                              <FlyIoBrand className="h-3.5 w-3.5 text-kumo-brand" />
+                              <FlyIoBrand className="h-3.5 w-3.5 text-brand" />
                               Fly.io
                             </Badge>
                           </Table.Cell>
@@ -2372,7 +2359,7 @@ function PaasPage() {
             添加 Koyeb 账号
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            请输入您的 Koyeb API 令牌。建议以备注名区分。
+            请输入 Koyeb API 令牌。以备注名区分。
           </Dialog.Description>
           <div className="space-y-4">
             <div className="space-y-1">
@@ -2435,7 +2422,7 @@ function PaasPage() {
             添加 Fly.io 账号
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            请输入您的 Fly.io API 令牌（以 flyv1_ 开头）。
+            请输入 Fly.io API 令牌（以 flyv1_ 开头）。
           </Dialog.Description>
           <div className="space-y-4">
             <div className="space-y-1">
@@ -2493,7 +2480,7 @@ function PaasPage() {
 
       {/* Global Self-Contained Log Viewer Dialog */}
       <Dialog.Root open={logViewerOpen} onOpenChange={setLogViewerOpen}>
-        <Dialog className="flex h-[80vh] !w-[min(56rem,calc(100vw-2rem))] !max-w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex h-[80vh] !w-[min(56rem,calc(100vw-2rem))] !max-w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           {/* Header */}
           <div className="p-4 border-b border-kumo-line bg-kumo-recessed/40 flex justify-between items-center">
             <div>
@@ -2512,14 +2499,14 @@ function PaasPage() {
           </div>
 
           {/* Log Controls */}
-          <div className="p-3 border-b border-kumo-line flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs bg-kumo-base">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="p-3 border-b border-kumo-line flex flex-col cq-sm:flex-row justify-between items-start cq-sm:items-center gap-3 text-xs bg-kumo-base">
+            <div className="flex items-center gap-2 w-full cq-sm:w-auto">
               <ResponsiveSearchInput
                 value={logFilterText}
                 onChange={(e) => setLogFilterText(e.target.value)}
                 placeholder="搜索日志消息..."
                 ariaLabel="搜索日志消息"
-                className="sm:w-48"
+                className="cq-sm:w-48"
               />
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[10px]">

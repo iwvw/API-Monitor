@@ -383,7 +383,13 @@ function TotpPage() {
   }, [totpFilterGroup, totpGroups]);
 
   useEffect(() => {
+    // 用真实流逝时间扣减剩余秒数：后台标签被浏览器节流时 tick 间隔
+    // 可能远超 1s，按 tick 数-1 会让倒计时慢于真实时间（漂移）。
+    let lastTickAt = Date.now();
     const timer = setInterval(() => {
+      const now = Date.now();
+      const elapsed = Math.max(1, Math.floor((now - lastTickAt) / 1000));
+      lastTickAt = now;
       setTotpCodes(prevCodes => {
         const updated = {};
         let needRefresh = false;
@@ -391,7 +397,7 @@ function TotpPage() {
         for (const id in prevCodes) {
           const item = prevCodes[id];
           if (item.remaining !== undefined && item.remaining > 0) {
-            const nextRemaining = item.remaining - 1;
+            const nextRemaining = Math.max(0, item.remaining - elapsed);
             updated[id] = { ...item, remaining: nextRemaining };
             changed = true;
             if (nextRemaining <= 0) {
@@ -692,7 +698,7 @@ function TotpPage() {
             name: accountForm.issuer || accountForm.account || '品牌',
           })
         );
-        toast.info(data.data?.message || '未检测到远程图标，已提供系统图标样式');
+        toast.info(data.data?.message || '未检测到远程图标，已提供系统图标样式', { isManual: true });
         return;
       }
       const baseOptions = buildBrandStyleOptions({
@@ -808,7 +814,7 @@ function TotpPage() {
 
   const handlePasteBrandIconFromClipboard = useCallback(async () => {
     if (!navigator.clipboard?.read) {
-      toast.info('当前环境不支持直接读取剪贴板，请在下方区域按 Ctrl+V 粘贴');
+      toast.info('当前环境不支持直接读取剪贴板，请在下方区域按 Ctrl+V 粘贴', { isManual: true });
       return;
     }
     setCustomBrandIconUploading(true);
@@ -1442,7 +1448,7 @@ function TotpPage() {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 sm:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
@@ -1491,7 +1497,7 @@ function TotpPage() {
                   setTotpFilterGroup(nextValue === GROUP_FILTER_ALL ? '' : nextValue);
                 }}
                 tabs={groupFilterTabs}
-                className="min-w-0 max-w-full flex-1 md:flex-none"
+                className="min-w-0 max-w-full flex-1 cq-md:flex-none"
               />
             )}
 
@@ -1500,7 +1506,7 @@ function TotpPage() {
               onChange={e => setTotpSearchQuery(e.target.value)}
               placeholder="搜索账号..."
               ariaLabel="搜索 TOTP 账号"
-              className="md:max-w-48"
+              className="cq-md:max-w-48"
             />
 
             <TabBarOverflowActions
@@ -1536,9 +1542,9 @@ function TotpPage() {
       {totpCurrentTab === 'accounts' && (
         <div>
           {totpLoading ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-2.5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 cq-sm:grid-cols-3 cq-sm:gap-2.5 cq-md:grid-cols-4 cq-lg:grid-cols-5 cq-xl:grid-cols-6">
               {[...Array(6)].map((_, i) => (
-                <LayerCard key={i} className="space-y-2 p-2 sm:space-y-3 sm:p-3">
+                <LayerCard key={i} className="space-y-2 p-2 cq-sm:space-y-3 cq-sm:p-3">
                   <div className="flex items-center gap-2">
                     <SkeletonLine className="h-6 w-6 rounded-md" />
                     <div className="flex-1 space-y-1.5">
@@ -1557,7 +1563,7 @@ function TotpPage() {
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle app-empty-panel">
               <Shield className="w-12 h-12 opacity-30 mb-4" />
               <div className="text-sm">
-                {totpSearchQuery ? '没有找到匹配的账号' : '暂无 2FA 账号，快来添加第一个吧'}
+                {totpSearchQuery ? '没有找到匹配的账号' : '暂无 2FA 账号'}
               </div>
               {!totpSearchQuery && (
                 <Button size="sm" variant="primary" className="mt-4" onClick={handleOpenAddAccount}>
@@ -1566,7 +1572,7 @@ function TotpPage() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-2.5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 cq-sm:grid-cols-3 cq-sm:gap-2.5 cq-md:grid-cols-4 cq-lg:grid-cols-5 cq-xl:grid-cols-6">
               {filteredAccounts.map((account, index) => {
                 const isFirstOfPlatform =
                   index === 0 ||
@@ -1622,19 +1628,19 @@ function TotpPage() {
                       onMouseEnter={() => handleCardMouseEnter(account.id)}
                       onMouseLeave={() => handleCardMouseLeave(account.id)}
                       onClick={() => copyCodeToClipboard(account)}
-                      className="group/card relative grid min-h-[96px] min-w-0 cursor-pointer grid-rows-[auto_1fr_auto] overflow-hidden p-0 transition-colors hover:border-kumo-brand sm:min-h-[112px]"
+                      className="group/card relative grid min-h-[96px] min-w-0 cursor-pointer grid-rows-[auto_1fr_auto] overflow-hidden p-0 transition-colors hover:border-brand cq-sm:min-h-[112px]"
                     >
-                      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 border-b border-kumo-line bg-kumo-recessed/35 px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2">
+                      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 border-b border-kumo-line bg-kumo-recessed/35 px-2 py-1.5 cq-sm:gap-2 cq-sm:px-3 cq-sm:py-2">
                         <TotpBrandMark
                           issuer={account.issuer}
                           icon={account.icon}
                           color={issuerColor}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-[10px] font-semibold leading-tight text-kumo-strong sm:text-[11px]">
+                          <div className="truncate text-[10px] font-semibold leading-tight text-kumo-strong cq-sm:text-[11px]">
                             {account.issuer || '未知平台'}
                           </div>
-                          <div className="mt-0.5 truncate pb-px text-[9px] leading-tight text-kumo-subtle sm:mt-0.5 sm:text-[10px]">
+                          <div className="mt-0.5 truncate pb-px text-[9px] leading-tight text-kumo-subtle cq-sm:mt-0.5 cq-sm:text-[10px]">
                             {totpSettings.maskAccount
                               ? maskEmail(account.account)
                               : account.account}
@@ -1650,7 +1656,7 @@ function TotpPage() {
                               e.stopPropagation();
                               handleOpenEditAccount(account);
                             }}
-                            className="!size-5 !p-0 sm:!size-6"
+                            className="!size-5 !p-0 cq-sm:!size-6"
                             title="编辑"
                           >
                             <Edit className="h-3 w-3" />
@@ -1668,7 +1674,7 @@ function TotpPage() {
                               e.stopPropagation();
                               handleDeleteAccount(account);
                             }}
-                            className="!size-5 !p-0 sm:!size-6"
+                            className="!size-5 !p-0 cq-sm:!size-6"
                             title={
                               isArmed(`totp-account-${account.id}`)
                                 ? '再次点击确认删除'
@@ -1681,21 +1687,21 @@ function TotpPage() {
                       </div>
 
                       <div
-                        className={`flex items-center justify-center gap-1 px-2 py-2 font-mono tabular-nums sm:gap-2 sm:px-3 sm:py-2.5 ${
+                        className={`flex items-center justify-center gap-1 px-2 py-2 font-mono tabular-nums cq-sm:gap-2 cq-sm:px-3 cq-sm:py-2.5 ${
                           remaining <= 5 ? 'text-kumo-danger' : 'text-kumo-strong'
                         }`}
                       >
                         {codeParts.map((part, partIndex) => (
                           <span
                             key={`${account.id}-${partIndex}`}
-                            className="min-w-0 flex-1 rounded-md bg-kumo-recessed px-1.5 py-1 text-center text-[16px] font-semibold leading-none tracking-normal sm:min-w-[4.25rem] sm:flex-none sm:px-2 sm:text-[20px]"
+                            className="min-w-0 flex-1 rounded-md bg-kumo-recessed px-1.5 py-1 text-center text-[16px] font-semibold leading-none tracking-normal cq-sm:min-w-[4.25rem] cq-sm:flex-none cq-sm:px-2 cq-sm:text-[20px]"
                           >
                             {part}
                           </span>
                         ))}
                       </div>
 
-                      <div className="border-t border-kumo-line px-2 py-1.5 font-mono text-[10px] text-kumo-subtle sm:px-3 sm:py-2">
+                      <div className="border-t border-kumo-line px-2 py-1.5 font-mono text-[10px] text-kumo-subtle cq-sm:px-3 cq-sm:py-2">
                         {account.otp_type === 'hotp' ? (
                           <div className="flex items-center justify-between gap-2">
                             <span>counter #{codeDetail.counter || 0}</span>
@@ -1714,7 +1720,7 @@ function TotpPage() {
                           </div>
                         ) : (
                           <div
-                            className="grid grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1.5 sm:grid-cols-[minmax(0,1fr)_2rem] sm:gap-2"
+                            className="grid grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-1.5 cq-sm:grid-cols-[minmax(0,1fr)_2rem] cq-sm:gap-2"
                             style={{ '--issuer-color': issuerColor }}
                           >
                             <Meter
@@ -1745,7 +1751,7 @@ function TotpPage() {
           {totpGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
               <FolderOpen className="w-12 h-12 opacity-30 mb-4" />
-              <span>暂无分组，创建一个吧</span>
+              <span>暂无分组</span>
               <Button size="sm" variant="primary" className="mt-4" onClick={handleOpenAddGroup}>
                 创建分组
               </Button>
@@ -1830,12 +1836,12 @@ function TotpPage() {
 
       {/* ==================== 3. 选项设置 ==================== */}
       {totpCurrentTab === 'settings' && (
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 items-start gap-4 cq-lg:grid-cols-3">
           {/* Settings Options (Span 2) */}
           <SectionCard
             title="安全与显示配置"
-            icon={<Shield className="h-4 w-4 text-kumo-brand" />}
-            className="lg:col-span-2"
+            icon={<Shield className="h-4 w-4 text-brand" />}
+            className="cq-lg:col-span-2"
             bodyPadding="md"
             bodyClassName="divide-y divide-kumo-line/80"
           >
@@ -1994,7 +2000,7 @@ function TotpPage() {
                   title="批量导入 URI"
                   icon={<Download className="h-3.5 w-3.5" />}
                 >
-                  <span className="hidden sm:inline">导入</span>
+                  <span className="hidden cq-sm:inline">导入</span>
                 </Toolbar.Button>
                 <Toolbar.Button
                   onClick={handleExportAccounts}
@@ -2002,7 +2008,7 @@ function TotpPage() {
                   title="批量导出备份"
                   icon={<Upload className="h-3.5 w-3.5" />}
                 >
-                  <span className="hidden sm:inline">导出</span>
+                  <span className="hidden cq-sm:inline">导出</span>
                 </Toolbar.Button>
               </Toolbar>
               <Button size="sm" onClick={refreshCodes} icon={<RotateCw className="w-3.5 h-3.5" />}>
@@ -2014,14 +2020,14 @@ function TotpPage() {
           {/* Right Column: Browser Extension Helper Card */}
           <SectionCard
             title="浏览器插件助手"
-            icon={<Bot className="h-4 w-4 text-kumo-brand" />}
-            className="lg:self-start"
+            icon={<Bot className="h-4 w-4 text-brand" />}
+            className="cq-lg:self-start"
             bodyPadding="md"
             bodyClassName="flex flex-col gap-3"
           >
             <div className="space-y-3.5">
               <p className="text-xs text-kumo-subtle leading-relaxed">
-                下载安装 2FA 浏览器插件，在 PC 端登录账号需要验证码时可一键自动检索与快捷填充。
+                下载安装 2FA 浏览器插件，PC 端登录账号需要验证码时可自动检索并快捷填充。
               </p>
 
               <div className="p-3 bg-kumo-recessed/60 border border-kumo-line rounded-lg flex items-start gap-3 mt-3">
@@ -2083,7 +2089,7 @@ function TotpPage() {
                       点击<strong>加载已解压的扩展程序</strong>，选择刚才解压的目录文件夹。
                     </li>
                   </ol>
-                  <div className="bg-kumo-brand/10 text-kumo-brand p-2 rounded border border-kumo-brand/20 mt-1 font-medium select-all">
+                  <div className="bg-brand/10 text-brand p-2 rounded border border-brand/20 mt-1 font-medium select-all">
                     配置插件地址: {window.location.origin}
                   </div>
                   <p>
@@ -2105,7 +2111,7 @@ function TotpPage() {
           if (!open) void stopQrScan();
         }}
       >
-        <Dialog size="xl" className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0">
+        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0">
           <div className="flex items-start justify-between gap-4 border-b border-kumo-line px-5 py-4">
             <div className="min-w-0">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">
@@ -2244,7 +2250,7 @@ function TotpPage() {
                     />
                   </div>
 
-                  <div className="grid items-start gap-4 sm:grid-cols-2">
+                  <div className="grid items-start gap-4 cq-sm:grid-cols-2">
                     <Input
                       size="sm"
                       label="发行商"
@@ -2288,7 +2294,7 @@ function TotpPage() {
                         </Button>
                       </div>
                     </LayerCard.Secondary>
-                    <LayerCard.Primary className="grid items-end gap-3 p-3 sm:grid-cols-[auto_minmax(0,1fr)_11rem]">
+                    <LayerCard.Primary className="grid items-end gap-3 p-3 cq-sm:grid-cols-[auto_minmax(0,1fr)_11rem]">
                       <Button
                         type="button"
                         size="sm"
@@ -2410,7 +2416,7 @@ function TotpPage() {
 
                     <AnimatedCollapse open={showAdvancedAccountSettings}>
                       <LayerCard className="mt-2 p-3">
-                        <div className="grid items-start gap-3 sm:grid-cols-3">
+                        <div className="grid items-start gap-3 cq-sm:grid-cols-3">
                           <Select
                             label="加密算法"
                             size="sm"
@@ -2518,7 +2524,7 @@ function TotpPage() {
 
       {/* ==================== 模态框: 品牌图标样式选择 ==================== */}
       <Dialog.Root open={showBrandStyleModal} onOpenChange={setShowBrandStyleModal}>
-        <Dialog size="xl" className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0">
+        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0">
           <div className="flex items-start justify-between gap-4 border-b border-kumo-line px-5 py-4">
             <div className="min-w-0">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">
@@ -2595,7 +2601,7 @@ function TotpPage() {
               源码或图片链接，并自动下载应用。
             </div>
 
-            <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-2 cq-sm:grid-cols-2">
               {!customBrandIconsLoading && brandStyleOptions.length === 0 && (
                 <div className="col-span-full rounded-md border border-kumo-line bg-kumo-recessed/20 px-3 py-6 text-center text-xs text-kumo-subtle">
                   当前还没有可选图标。

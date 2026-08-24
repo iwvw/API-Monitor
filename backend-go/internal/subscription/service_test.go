@@ -130,6 +130,127 @@ func TestResetTokenRotatesNodeCredentialsAndQueuesRuntimeSync(t *testing.T) {
 	}
 }
 
+func TestRotateAddressOnlyRotatesTokenWithoutCredentialsOrSync(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,vless_uuid,hysteria2_password,enabled) VALUES('sub','sub','','订阅','old-token','00000000-0000-4000-8000-000000000001','old-password',1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/subscriptions/sub/rotate-address", nil)
+	responseRecorder := httptest.NewRecorder()
+	(&Service{}).rotateAddress(responseRecorder, request, db, "sub")
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var token, uuid, password string
+	if err := db.QueryRowContext(ctx, `SELECT public_token,vless_uuid,hysteria2_password FROM subscription_subscriptions WHERE id='sub'`).Scan(&token, &uuid, &password); err != nil {
+		t.Fatal(err)
+	}
+	if token == "old-token" {
+		t.Fatalf("token was not rotated: token=%q", token)
+	}
+	if uuid != "00000000-0000-4000-8000-000000000001" || password != "old-password" {
+		t.Fatalf("node credentials must stay untouched: uuid=%q password=%q", uuid, password)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_runtime_reconcile`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("rotate-address must not enqueue runtime reconciliation, found %d jobs", count)
+	}
+}
+
+func TestSubscriptionFormatFromUAInfersClientFormat(t *testing.T) {
+	cases := map[string]string{
+		"Mozilla/5.0 (Windows NT 10.0) ClashForWindows/0.20.0": "clash",
+		"Mihomo 1.18.0 (darwin)":                                "clash",
+		"Stash/2.0":                                             "clash",
+		"v2rayN/6.25":                                           "base64",
+		"NekoBox/1.3":                                           "base64",
+		"Quantumult X/1.4":                                      "base64",
+		"Shadowrocket/2023":                                     "base64",
+		"SFA/1.0":                                               "base64",
+		"sing-box 1.11":                                         "base64",
+		"random-unknown-client/1.0":                             "",
+		"":                                                      "",
+	}
+	for ua, want := range cases {
+		if got := subscriptionFormatFromUA(ua); got != want {
+			t.Errorf("subscriptionFormatFromUA(%q)=%q want %q", ua, got, want)
+		}
+	}
+}
+
+func TestWantsBrowserInfoPageDetectsBrowsersOnly(t *testing.T) {
+	browser := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	browser.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+	browser.Header.Set("Accept", "text/html,application/xhtml+xml")
+	if !wantsBrowserInfoPage(browser) {
+		t.Fatal("browser request should get the info page")
+	}
+	browserNoHTML := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	browserNoHTML.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+	browserNoHTML.Header.Set("Accept", "*/*")
+	if wantsBrowserInfoPage(browserNoHTML) {
+		t.Fatal("browser-style UA without text/html Accept must not get the info page")
+	}
+	noAccept := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	noAccept.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	if wantsBrowserInfoPage(noAccept) {
+		t.Fatal("Mozilla UA with no Accept header must not get the info page")
+	}
+	client := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	client.Header.Set("User-Agent", "Mihomo 1.18.0")
+	if wantsBrowserInfoPage(client) {
+		t.Fatal("proxy client must not get the info page")
+	}
+	client2 := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
+	client2.Header.Set("User-Agent", "Mozilla/5.0 SFA/1.0")
+	if wantsBrowserInfoPage(client2) {
+		t.Fatal("sing-box client must not get the info page")
+	}
+}
+
+func TestServePublicSubscriptionInfoExposesDisplayDataOnly(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,vless_uuid,hysteria2_password,enabled) VALUES('sub','sub','','信息订阅','public-token','00000000-0000-4000-8000-000000000001','secret-password',1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/subscription/public/public-token", nil)
+	responseRecorder := httptest.NewRecorder()
+	(&Service{}).servePublicSubscriptionInfo(responseRecorder, request, db, "public-token")
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	body := responseRecorder.Body.String()
+	for _, want := range []string{`"name":"信息订阅"`, `"public_token":"public-token"`, `"status":"active"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("public info payload missing %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "secret-password") || strings.Contains(body, "00000000-0000-4000-8000-000000000001") {
+		t.Fatal("public info payload must not leak node credentials")
+	}
+}
+
 func TestPublishedNodeNamesAreUnique(t *testing.T) {
 	nodes := ensureUniquePublishedNodeNames([]Node{
 		{Name: "🇸🇬 新加坡", Raw: "vless://a@example.com:443#old", ConfigJSON: `{"name":"old","type":"vless"}`},
@@ -1220,7 +1341,7 @@ func TestLoadProfilesReturnsLibrariesWithCountsAndUpstream(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	if err := upsertProfile(ctx, db, "profile_one", Subscription{Name: "DSUK", Enabled: true, UpstreamURL: "https://example.com/sub", UpstreamEnabled: true, RateLimitEnabled: true}, defaultTemplateID, "manual", "none", 1, 30); err != nil {
+	if err := upsertProfile(ctx, db, "profile_one", Subscription{Name: "DSUK", Enabled: true, UpstreamURL: "https://example.com/sub", UpstreamEnabled: true, RateLimitEnabled: true}, defaultTemplateID, "manual", "none", 1, 30, "explicit", false); err != nil {
 		t.Fatalf("upsert profile: %v", err)
 	}
 	if err := upsertDefaultUpstream(ctx, db, "profile_one", Subscription{UpstreamURL: "https://example.com/sub", UpstreamEnabled: true}, 12); err != nil {
@@ -1271,7 +1392,7 @@ func TestDeleteProfileBlocksWhenNodesOrLinksExist(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	if err := upsertProfile(ctx, db, "profile_busy", Subscription{Name: "繁忙节点库", Enabled: true}, defaultTemplateID, "manual", "none", 1, 30); err != nil {
+	if err := upsertProfile(ctx, db, "profile_busy", Subscription{Name: "繁忙节点库", Enabled: true}, defaultTemplateID, "manual", "none", 1, 30, "explicit", false); err != nil {
 		t.Fatalf("upsert profile: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled) VALUES ('link_busy', 'profile_busy', '公开链接', 'token_busy', 1)`); err != nil {
@@ -1847,6 +1968,9 @@ func TestDeleteSubscriptionNeverDeletesSharedNodes(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO subscription_usage_report_keys(server_id,node_id,subscription_id,boot_id,sequence) VALUES('host','managed-node','link','boot',1)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes) VALUES('host','managed-node','link','2026-07-01T12:00:00Z',1,2)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,upload_bytes,download_bytes) VALUES('link','2026-07-01T00:00:00Z',10,20)`); err != nil {
 		t.Fatal(err)
 	}
@@ -1865,6 +1989,7 @@ func TestDeleteSubscriptionNeverDeletesSharedNodes(t *testing.T) {
 	for _, query := range []string{
 		`SELECT COUNT(*) FROM subscription_usage_reports WHERE subscription_id='link'`,
 		`SELECT COUNT(*) FROM subscription_usage_report_keys WHERE subscription_id='link'`,
+		`SELECT COUNT(*) FROM subscription_usage_hourly WHERE subscription_id='link'`,
 		`SELECT COUNT(*) FROM subscription_usage_cycles WHERE subscription_id='link'`,
 	} {
 		if err := db.QueryRow(query).Scan(&count); err != nil || count != 0 {
@@ -2093,5 +2218,100 @@ func TestImportCommitReadsSettingsThroughOpenTransaction(t *testing.T) {
 	}
 	if refreshHours != 24 {
 		t.Fatalf("refreshHours = %d, want 24", refreshHours)
+	}
+}
+
+// TestGetSubscriptionUsage 验证订阅流量明细接口：周期累计（cycles，面板口径）+
+// 逐日明细（hourly）一并返回，percent 按套餐总量计算。
+func TestGetSubscriptionUsage(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// ledger 表由 subscriptionledger.EnsureSchema 建，测试按同构列自行建。
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_cycles (
+		subscription_id TEXT NOT NULL, cycle_start TEXT NOT NULL, cycle_end TEXT NOT NULL DEFAULT '',
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(subscription_id, cycle_start))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_hourly (
+		server_id TEXT NOT NULL, node_id TEXT NOT NULL, subscription_id TEXT NOT NULL, hour TEXT NOT NULL,
+		upload_bytes INTEGER NOT NULL DEFAULT 0, download_bytes INTEGER NOT NULL DEFAULT 0,
+		reported_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(server_id,node_id,subscription_id,hour))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_plans(id,name,enabled,total_bytes,cycle_type,cycle_day,selection_mode,include_internal_nodes,include_external_nodes)
+		VALUES('plan-u','UsagePlan',1,500,'monthly',1,'explicit',1,0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,vless_uuid,hysteria2_password,enabled,created_at,traffic_source)
+		VALUES('sub-u','sub_default_nodes','plan-u','UsageSub','tok-u','uuid-u','pwd-u',1,'2026-08-01 00:00:00','panel')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)
+		VALUES('sub-u','2026-08-01T00:00:00Z','2026-09-01T00:00:00Z',10,20,datetime('now'))`); err != nil {
+		t.Fatal(err)
+	}
+	hour := time.Now().UTC().Truncate(time.Hour).Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO subscription_usage_hourly(server_id,node_id,subscription_id,hour,upload_bytes,download_bytes,reported_at)
+		VALUES('srv','node','sub-u',?,5,7,datetime('now'))`, hour); err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(config.Config{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/subscription/subscriptions/sub-u/usage?days=30", nil)
+	service.getSubscriptionUsage(rec, req, db, "sub-u")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			CycleUploadBytes   int64   `json:"cycleUploadBytes"`
+			CycleDownloadBytes int64   `json:"cycleDownloadBytes"`
+			CycleUsedBytes     int64   `json:"cycleUsedBytes"`
+			TotalBytes         int64   `json:"totalBytes"`
+			Percent            float64 `json:"percent"`
+			Granularity        string  `json:"granularity"`
+			Points             []struct {
+				Bucket        string `json:"bucket"`
+				UploadBytes   int64  `json:"uploadBytes"`
+				DownloadBytes int64  `json:"downloadBytes"`
+			} `json:"points"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success {
+		t.Fatalf("success=false body=%s", rec.Body.String())
+	}
+	if resp.Data.CycleUsedBytes != 30 {
+		t.Fatalf("cycle used = %d, want 30", resp.Data.CycleUsedBytes)
+	}
+	if resp.Data.CycleUploadBytes != 10 || resp.Data.CycleDownloadBytes != 20 {
+		t.Fatalf("cycle components = %d/%d, want 10/20", resp.Data.CycleUploadBytes, resp.Data.CycleDownloadBytes)
+	}
+	if resp.Data.TotalBytes != 500 {
+		t.Fatalf("total = %d, want 500", resp.Data.TotalBytes)
+	}
+	if resp.Data.Percent <= 0 {
+		t.Fatalf("percent = %v, want > 0", resp.Data.Percent)
+	}
+	if resp.Data.Granularity != "day" {
+		t.Fatalf("granularity = %q, want day", resp.Data.Granularity)
+	}
+	if len(resp.Data.Points) != 1 {
+		t.Fatalf("points len = %d, want 1", len(resp.Data.Points))
+	}
+	if resp.Data.Points[0].UploadBytes != 5 || resp.Data.Points[0].DownloadBytes != 7 {
+		t.Fatalf("hourly point mismatch: %+v", resp.Data.Points[0])
 	}
 }

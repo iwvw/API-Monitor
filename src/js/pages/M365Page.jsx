@@ -128,7 +128,7 @@ const publicResourceCardGridClass = 'grid flex-1 grid-cols-2 gap-2 p-3';
 const publicResourceCardFieldClass = 'rounded-lg border border-kumo-line bg-kumo-recessed/15 p-2.5';
 const publicResourceCardActionBarClass =
   'flex items-center gap-2 border-t border-kumo-line px-3 py-3';
-const tenantGridClass = 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4';
+const tenantGridClass = 'grid-cols-1 cq-sm:grid-cols-2 cq-xl:grid-cols-4';
 const tenantCardFrameClass = 'min-h-[11.75rem] rounded-xl px-4 py-3.5';
 const defaultAccountImportState = {
   text: '',
@@ -223,7 +223,7 @@ function CardTableSkeleton({ rows = 6, showToolbar = false }) {
 
 function GroupsTabSkeleton() {
   return (
-    <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+    <div className="grid min-h-0 flex-1 gap-4 cq-lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
       <AppCard padding="none" className="flex min-h-0 flex-col">
         <div className="space-y-3 p-3">
           <SkeletonLine className="h-9 w-full" />
@@ -237,7 +237,7 @@ function GroupsTabSkeleton() {
         className="flex min-h-0 flex-col"
         bodyClassName={panelBodyClass}
         title="组成员"
-        description="输入成员对象 ID 添加成员"
+        description="输入成员对象 ID"
         icon={<Users className="h-4 w-4" />}
         bodyPadding="sm"
         action={
@@ -315,7 +315,7 @@ function clampPercent(value) {
 function formatMetricNumber(value) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) return '0';
-  return numericValue.toLocaleString('en-US');
+  return numericValue.toLocaleString('en-US', { useGrouping: false });
 }
 
 function formatDateOnly(value) {
@@ -1881,7 +1881,7 @@ function M365Page() {
               icon={<Upload className="h-3.5 w-3.5" />}
               onClick={exportAccounts}
             >
-              <span className="hidden sm:inline">导出</span>
+              <span className="hidden cq-sm:inline">导出</span>
             </Toolbar.Button>
             <Toolbar.Button
               title="导入租户"
@@ -1889,7 +1889,7 @@ function M365Page() {
               icon={<Download className="h-3.5 w-3.5" />}
               onClick={openImportAccounts}
             >
-              <span className="hidden sm:inline">导入</span>
+              <span className="hidden cq-sm:inline">导入</span>
             </Toolbar.Button>
           </Toolbar>
           <Button
@@ -1917,8 +1917,8 @@ function M365Page() {
                 tabIndex={0}
                 className={cx(
                   tenantCardFrameClass,
-                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left transition hover:border-kumo-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-kumo-brand/70',
-                  active ? 'border-kumo-brand/70 bg-kumo-brand/5' : 'border-kumo-line/80'
+                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left transition hover:border-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-brand/70',
+                  active ? 'border-brand/70 bg-brand/5' : 'border-kumo-line/80'
                 )}
                 onClick={() => setSelectedAccountId(String(account.id))}
                 onKeyDown={event => {
@@ -1931,7 +1931,7 @@ function M365Page() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kumo-recessed/60 text-kumo-brand">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kumo-recessed/60 text-brand">
                         <Cloud className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
@@ -1992,7 +1992,7 @@ function M365Page() {
                   <span
                     className={cx(
                       'text-[11px] font-medium',
-                      active ? 'text-kumo-brand' : 'text-kumo-subtle'
+                      active ? 'text-brand' : 'text-kumo-subtle'
                     )}
                   >
                     {active ? '已选中' : '选择'}
@@ -2031,13 +2031,13 @@ function M365Page() {
             variant="secondary"
             className={cx(
               tenantCardFrameClass,
-              'group !h-full w-full justify-center border-dashed border-kumo-line/80 bg-kumo-base/35 text-kumo-subtle hover:border-kumo-brand/45 hover:bg-kumo-brand/5 hover:text-kumo-brand'
+              'group !h-full w-full justify-center border-dashed border-kumo-line/80 bg-kumo-base/35 text-kumo-subtle hover:border-brand/45 hover:bg-brand/5 hover:text-brand'
             )}
             onClick={openCreateAccount}
             aria-label="添加新租户"
           >
             <div className="flex flex-col items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle transition group-hover:border-kumo-brand/50 group-hover:text-kumo-brand">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle transition group-hover:border-brand/50 group-hover:text-brand">
                 <Plus className="h-5 w-5" />
               </div>
               <span className="text-xs font-medium opacity-0 transition group-hover:opacity-100">
@@ -2113,7 +2113,7 @@ function M365Page() {
           {publicTab === 'pages' ? (
             <div className="flex min-h-0 flex-1 flex-col">
               {publicPagesLoading ? (
-                <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                <div className="grid auto-rows-fr gap-3 cq-md:grid-cols-2 cq-xl:grid-cols-3 cq-2xl:grid-cols-4">
                   {Array.from({ length: 4 }).map((_, index) => (
                     <SkeletonLine key={index} className="h-60 w-full" />
                   ))}
@@ -2122,12 +2122,12 @@ function M365Page() {
                 <EmptyState
                   icon={Globe}
                   title="还没有公开页"
-                  description="先创建公开页模板"
+                  description="点击右上角新建公开页"
                   card={false}
                 />
               ) : (
                 <div className={cx(scrollViewportClass, 'pr-1')}>
-                  <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  <div className="grid auto-rows-fr gap-3 cq-md:grid-cols-2 cq-xl:grid-cols-3 cq-2xl:grid-cols-4">
                     {filteredPublicPages.map(page => {
                       const pageAccounts = (page.accountIds || [])
                         .map(accountId => accountLookup.get(String(accountId)))
@@ -2289,7 +2289,7 @@ function M365Page() {
                 />
               ) : (
                 <div className={cx(scrollViewportClass, 'pr-1')}>
-                  <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  <div className="grid auto-rows-fr gap-3 cq-md:grid-cols-2 cq-xl:grid-cols-3 cq-2xl:grid-cols-4">
                     {groupedInviteCodeBatches.map(group =>
                       (() => {
                         const totalCount = group.codes.length;
@@ -2448,7 +2448,6 @@ function M365Page() {
                 <EmptyState
                   icon={Users}
                   title="暂无注册记录"
-                  description="显示注册结果"
                   card={false}
                 />
               ) : (
@@ -2613,14 +2612,13 @@ function M365Page() {
         }
       >
         {!selectedAccountId ? (
-          <EmptyState icon={Database} title="请先选择租户" description="需先选择租户" />
+          <EmptyState icon={Database} title="请先选择租户" />
         ) : skuLoading ? (
           <SkuGridSkeleton />
         ) : skus.length === 0 ? (
           <EmptyState
             icon={Database}
             title="暂无 SKU 数据"
-            description="当前租户没有 SKU"
           />
         ) : (
           <div
@@ -2639,7 +2637,7 @@ function M365Page() {
                   ? '!bg-kumo-danger'
                   : usagePct >= 70
                     ? '!bg-kumo-warning'
-                    : '!bg-kumo-brand';
+                    : '!bg-brand';
               const lifecycleText = getSkuLifecycleText(sku);
               return (
                 <div
@@ -2713,7 +2711,7 @@ function M365Page() {
               onSearch={loadUsers}
               placeholder="搜索显示名或 UPN"
               ariaLabel="搜索用户"
-              className="sm:w-56"
+              className="cq-sm:w-56"
             />
             <Button
               size="sm"
@@ -2731,7 +2729,6 @@ function M365Page() {
             <EmptyState
               icon={Users}
               title="请先选择租户"
-              description="需先选择租户"
             />
           </div>
         ) : usersLoading ? (
@@ -2907,7 +2904,7 @@ function M365Page() {
         }
       >
         {!selectedAccountId ? (
-          <EmptyState icon={Folder} title="请先选择租户" description="需先选择租户" />
+          <EmptyState icon={Folder} title="请先选择租户" />
         ) : groupsLoading ? (
           <GroupsTabSkeleton />
         ) : groups.length === 0 ? (
@@ -2917,7 +2914,7 @@ function M365Page() {
             description="先创建一个组"
           />
         ) : (
-          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <div className="grid min-h-0 flex-1 gap-4 cq-lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
             <AppCard padding="none" className="flex min-h-0 flex-col">
               <DataTableFrame variant="embedded" density="compact" className={scrollViewportClass}>
                 <Table layout="auto" className="[&_td]:py-3 [&_th]:py-3">
@@ -2933,7 +2930,7 @@ function M365Page() {
                       <Table.Row
                         key={group.id}
                         className={
-                          String(group.id) === String(selectedGroupId) ? 'bg-kumo-brand/5' : ''
+                          String(group.id) === String(selectedGroupId) ? 'bg-brand/5' : ''
                         }
                         onClick={() => setSelectedGroupId(String(group.id))}
                       >
@@ -2956,7 +2953,7 @@ function M365Page() {
               className="flex min-h-0 flex-col"
               bodyClassName={panelBodyClass}
               title={selectedGroup ? selectedGroup.displayName : '组成员'}
-              description="输入成员对象 ID 添加成员"
+              description="输入成员对象 ID"
               icon={<Users className="h-4 w-4" />}
               bodyPadding="sm"
               action={
@@ -2978,7 +2975,6 @@ function M365Page() {
                 <EmptyState
                   icon={Users}
                   title="请选择一个组"
-                  description="先选择左侧组"
                   card={false}
                 />
               ) : groupMembersLoading ? (
@@ -3138,7 +3134,7 @@ function M365Page() {
       {activeTab === 'public' && renderPublicPages()}
 
       <Dialog.Root open={showAccountDialog} onOpenChange={setShowAccountDialog}>
-        <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 sm:w-full sm:max-w-xl">
+        <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-xl">
           <div className="space-y-4">
             <Dialog.Title>{editingAccount ? '编辑租户' : '新增租户'}</Dialog.Title>
             <div className="grid gap-3">
@@ -3205,7 +3201,7 @@ function M365Page() {
       </Dialog.Root>
 
       <Dialog.Root open={showAccountImportDialog} onOpenChange={setShowAccountImportDialog}>
-        <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 sm:w-full sm:max-w-2xl">
+        <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-2xl">
           <div className="space-y-4">
             <Dialog.Title>导入租户</Dialog.Title>
             <input
@@ -3220,7 +3216,7 @@ function M365Page() {
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-kumo-strong">上传文件或直接粘贴</div>
                   <div className="text-xs text-kumo-subtle">
-                    可导入 `.json`，也可直接粘贴租户 JSON。
+                    仅支持 .json 格式。
                   </div>
                 </div>
                 <Button
@@ -3290,11 +3286,11 @@ function M365Page() {
           if (!open) setRegistrationDetail(null);
         }}
       >
-        <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 sm:w-full sm:max-w-3xl">
+        <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
           {registrationDetail ? (
             <div className="space-y-4">
               <Dialog.Title>注册记录详情</Dialog.Title>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <div className="rounded-lg border border-kumo-line/70 bg-kumo-recessed/10 px-3 py-2.5">
                   <div className="text-[11px] text-kumo-subtle">账号</div>
                   <div className="mt-1 text-sm font-semibold text-kumo-strong">
@@ -3363,7 +3359,7 @@ function M365Page() {
       </Dialog.Root>
 
       <Dialog.Root open={showUserDialog} onOpenChange={setShowUserDialog}>
-        <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 sm:w-full sm:max-w-3xl">
+        <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
           <div className="space-y-4">
             <Dialog.Title>{editingUser ? '编辑用户' : '新增用户'}</Dialog.Title>
             {loadingUserDialog ? (
@@ -3374,7 +3370,7 @@ function M365Page() {
                 <SkeletonLine className="h-40 w-full" />
               </div>
             ) : (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
+              <div className="grid gap-4 cq-lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
                 <div className="grid gap-3">
                   <Input
                     size="sm"
@@ -3611,10 +3607,10 @@ function M365Page() {
       </Dialog.Root>
 
       <Dialog.Root open={showPublicPageDialog} onOpenChange={setShowPublicPageDialog}>
-        <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 sm:w-full sm:max-w-3xl">
+        <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
           <div className="space-y-4">
             <Dialog.Title>{publicPageForm.id ? '编辑公开页' : '新建公开页'}</Dialog.Title>
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+            <div className="grid gap-4 cq-lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
               <div className="grid gap-3">
                 <Input
                   size="sm"
@@ -3628,7 +3624,7 @@ function M365Page() {
                 <div className="rounded-lg border border-kumo-line/80 bg-kumo-recessed/10 p-3">
                   <div className="text-sm font-medium text-kumo-strong">目标租户与域名</div>
                   <div className="text-xs text-kumo-subtle">
-                    先勾选租户，再展开其全部域名做收缩选择。未取消的域名都会被允许注册。
+                    先勾选租户，再展开域名做选择。未取消的域名都会允许注册。
                   </div>
                   <div className="mt-3 grid gap-2">
                     {accounts.map(account => {
@@ -3743,7 +3739,7 @@ function M365Page() {
                       setPublicPageForm(current => ({ ...current, enabled: !!checked }))
                     }
                   />
-                  启用这个公开页
+                  启用公开页
                 </label>
                 <label className="flex items-center gap-2 text-xs text-kumo-subtle">
                   <Checkbox
@@ -3881,7 +3877,7 @@ function M365Page() {
       </Dialog.Root>
 
       <Dialog.Root open={showPermissionDialog} onOpenChange={setShowPermissionDialog}>
-        <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 sm:w-full sm:max-w-3xl">
+        <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
           <div className="space-y-4">
             <div className="space-y-1">
               <Dialog.Title>Graph 权限说明</Dialog.Title>

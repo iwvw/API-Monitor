@@ -336,7 +336,7 @@ export default function PromptLibraryPage() {
   const workspaceView = (
     <LayerCard className="flex min-h-0 flex-1 overflow-hidden p-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 items-center gap-2 border-b border-kumo-line p-2 md:hidden">
+        <div className="flex shrink-0 items-center gap-2 border-b border-kumo-line p-2 cq-md:hidden">
           <div className="min-w-0 flex-1">
             <Select
               size="sm"
@@ -374,7 +374,7 @@ export default function PromptLibraryPage() {
             onSave={saveDraft}
             autosaveDelay={1800}
             showOutline
-            leftPanel={{ content: workspaceSidebar, className: 'hidden !w-64 md:flex xl:!w-72' }}
+            leftPanel={{ content: workspaceSidebar, className: 'hidden !w-64 cq-md:flex cq-xl:!w-72' }}
             rightPanel={{ title: '发布与属性', content: detailsPanel }}
             extraToolbarActions={
               <>
@@ -399,7 +399,7 @@ export default function PromptLibraryPage() {
           />
         ) : (
           <div className="flex min-h-0 flex-1">
-            <div className="hidden w-64 shrink-0 border-r border-kumo-line md:block xl:w-72">
+            <div className="hidden w-64 shrink-0 border-r border-kumo-line cq-md:block cq-xl:w-72">
               {workspaceSidebar}
             </div>
             <Empty
@@ -477,7 +477,7 @@ export default function PromptLibraryPage() {
             <Dialog.Title>草稿冲突</Dialog.Title>
           </div>
           <Dialog.Description className="mt-3 text-kumo-subtle">
-            另一会话已更新此草稿。加载最新内容后再继续编辑。
+            另一会话已更新此草稿。
           </Dialog.Description>
           <div className="mt-6 flex justify-end">
             <Button

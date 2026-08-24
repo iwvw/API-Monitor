@@ -98,8 +98,8 @@ func TestSecureDecryptInvalidEncryptedValue(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "unit-test-key-0123456789abcdef")
 	// Proper format but garbage hex that will fail to decrypt.
 	invalid := "00000000000000000000000000000000:00000000000000000000000000000000:0000000000000000000000000000000000000000"
-	if got := SecureDecrypt(invalid); got != invalid {
-		t.Fatalf("SecureDecrypt(invalid) = %q, want original passthrough on error", got)
+	if got := SecureDecrypt(invalid); got != "" {
+		t.Fatalf("SecureDecrypt(invalid) = %q, want empty string on decryption failure", got)
 	}
 }
 

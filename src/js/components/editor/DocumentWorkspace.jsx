@@ -50,15 +50,16 @@ export default function DocumentWorkspace({
 
   const adapterRef = useRef(null);
 
-  // Sync external markdown changes
+  // Sync external markdown changes（有未保存编辑时不覆盖，避免外部刷新清空输入）
   useEffect(() => {
-    if (initialMarkdown !== state.markdownRef.current && adapterRef.current) {
-      adapterRef.current.setMarkdown(initialMarkdown);
-      state.resetMarkdown(initialMarkdown);
-    } else if (initialMarkdown !== state.markdownRef.current) {
+    if (initialMarkdown !== state.markdownRef.current) {
+      if (state.dirty) return;
+      if (adapterRef.current) {
+        adapterRef.current.setMarkdown(initialMarkdown);
+      }
       state.resetMarkdown(initialMarkdown);
     }
-  }, [initialMarkdown]);  
+  }, [initialMarkdown, state, state.dirty]);  
 
   const handleCreateAdapter = useCallback(({ root }) => {
     const adapter = createMilkdownAdapter({

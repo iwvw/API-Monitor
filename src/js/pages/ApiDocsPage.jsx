@@ -729,19 +729,19 @@ function StatCard({ icon: Icon, label, value, tone = 'brand' }) {
       brand: 'bg-kumo-info/6 text-kumo-info',
       success: 'bg-kumo-success/6 text-kumo-success',
       warning: 'bg-kumo-warning/8 text-kumo-warning',
-      info: 'bg-kumo-brand/7 text-kumo-brand',
+      info: 'bg-brand/7 text-brand',
     }[tone] || 'bg-kumo-info/6 text-kumo-info';
 
   return (
-    <AppCard padding="none" className={cx('min-w-0 p-2 sm:p-3', toneClass)}>
-      <div className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle sm:gap-3 sm:text-xs">
+    <AppCard padding="none" className={cx('min-w-0 p-2 cq-sm:p-3', toneClass)}>
+      <div className="flex items-center justify-between gap-2 text-[11px] text-kumo-subtle cq-sm:gap-3 cq-sm:text-xs">
         <span className="truncate">{label}</span>
         <span className="shrink-0">
           <Icon className="h-5 w-5" />
         </span>
       </div>
       <div className="mt-1">
-        <div className="truncate font-mono text-base font-bold text-kumo-strong sm:text-lg">
+        <div className="truncate font-mono text-base font-bold text-kumo-strong cq-sm:text-lg">
           {value}
         </div>
       </div>
@@ -815,32 +815,24 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
     }));
   }, [routes]);
 
-  const selectedSection = selectedRoute ? sectionOfGroup(selectedRoute.group) : '';
-  const selectedGroup = selectedRoute ? (selectedRoute.group || '基础') : '';
-  const selectedModule = selectedRoute ? (selectedRoute.module || '') : '';
+  const [collapsedSections, setCollapsedSections] = useState(() => new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
+  const [collapsedModules, setCollapsedModules] = useState(() => new Set());
 
-  const [collapsedSections, setCollapsedSections] = useState(() => {
-    const initial = new Set(tree.map(item => item.section));
-    if (selectedSection) initial.delete(selectedSection);
-    return initial;
-  });
-  const [collapsedGroups, setCollapsedGroups] = useState(() => {
-    const initial = new Set(tree.flatMap(item => item.groups.map(group => group.group)));
-    if (selectedGroup) initial.delete(selectedGroup);
-    return initial;
-  });
-  const [collapsedModules, setCollapsedModules] = useState(() => {
-    const initial = new Set(
-      tree.flatMap(item => item.groups.map(group => `${group.group}\u0000${group.module}`))
-    );
-    if (selectedGroup && selectedModule) {
-      initial.delete(`${selectedGroup}\u0000${selectedModule}`);
-    }
-    return initial;
-  });
-
+  // 数据异步到达前 tree 为空，此时 collapsed 集为空会误判为「全部展开」。
+  // 数据到达（或搜索态切换）时重置三份折叠集为「全折叠」，之后由用户交互接管。
   useEffect(() => {
-    if (!selectedRoute) return;
+    if (tree.length === 0) return;
+    setCollapsedSections(new Set(tree.map(item => item.section)));
+    setCollapsedGroups(new Set(tree.flatMap(item => item.groups.map(group => group.group))));
+    setCollapsedModules(
+      new Set(tree.flatMap(item => item.groups.flatMap(group => group.modules.map(mod => `${group.group}\u0000${mod.module}`))))
+    );
+  }, [tree, revealAll]);
+
+  // 用户点击选中某路由后，自动展开其所在层级；初始未选择时保持全部折叠。
+  useEffect(() => {
+    if (!selectedRoute || !selectedKey) return;
     const sectionName = sectionOfGroup(selectedRoute.group);
     const groupName = selectedRoute.group || '基础';
     const moduleName = selectedRoute.module || '';
@@ -863,7 +855,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
       next.delete(key);
       return next;
     });
-  }, [selectedRoute]);
+  }, [selectedRoute, selectedKey]);
 
   const toggleSection = sectionName => {
     setCollapsedSections(current => {
@@ -915,25 +907,25 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
   return (
     <SectionCard
       title={`接口目录 (${routes.length})`}
-      icon={<Search className="h-4 w-4 text-kumo-brand" />}
+      icon={<Search className="h-4 w-4 text-brand" />}
       action={
         <div className="flex items-center gap-1">
           <Button size="sm" variant="ghost" onClick={expandAll} className="gap-1">
             <ChevronDown className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">展开</span>
+            <span className="hidden cq-sm:inline">展开</span>
           </Button>
           <Button size="sm" variant="ghost" onClick={collapseAll} className="gap-1">
             <ChevronUp className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">折叠</span>
+            <span className="hidden cq-sm:inline">折叠</span>
           </Button>
         </div>
       }
-      className="min-h-0"
+      className="min-h-0 self-start"
       bodyPadding="none"
       bodyClassName="flex min-w-0 flex-col"
     >
       {routes.length === 0 ? (
-        <AppCard padding="none" className="flex min-h-0">
+        <AppCard padding="none" className="flex min-h-0 items-center justify-center">
           <EmptyState
             icon={Search}
             title="没有匹配的接口"
@@ -960,9 +952,9 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
                   )}
                   {sectionCollapsed(sectionItem.section) ? (
-                    <Folder className="h-4 w-4 shrink-0 text-kumo-brand/80" />
+                    <Folder className="h-4 w-4 shrink-0 text-brand/80" />
                   ) : (
-                    <FolderOpen className="h-4 w-4 shrink-0 text-kumo-brand" />
+                    <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
                   )}
                   <span className="truncate text-xs font-bold text-kumo-strong">
                     {sectionItem.section}
@@ -1031,7 +1023,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
                                         onClick={() => onSelect(route)}
                                         className={cx(
                                           'h-auto w-full min-w-0 flex-col items-stretch gap-1 rounded-none py-2 pl-14 pr-3 text-left',
-                                          active && 'bg-kumo-brand/10'
+                                          active && 'bg-brand/10'
                                         )}
                                       >
 <div className="flex min-w-0 items-center justify-between gap-2">
@@ -1142,7 +1134,7 @@ function RouteDetail({ route, openapiRoute }) {
   if (!route) {
     return (
       <div>
-        <AppCard padding="none" className="flex min-h-0">
+        <AppCard padding="none" className="flex min-h-0 items-center justify-center">
           <EmptyState
             icon={FileText}
             title="选择一个接口"
@@ -1160,7 +1152,7 @@ function RouteDetail({ route, openapiRoute }) {
   return (
     <SectionCard
       title={<span className="break-all font-mono text-base">{route.prefix}</span>}
-      icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+      icon={<FileText className="h-4 w-4 text-brand" />}
       meta={
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge tone={STATUS_TONE[route.status]}>
@@ -1200,7 +1192,7 @@ function RouteDetail({ route, openapiRoute }) {
       bodyPadding="lg"
       bodyClassName="flex min-w-0 flex-col"
     >
-      <div className="grid gap-3 py-4 sm:grid-cols-2">
+      <div className="grid gap-3 py-4 cq-sm:grid-cols-2">
         <InfoRow label="模块" value={route.module} />
         <InfoRow label="分组" value={route.group} />
         <InfoRow label="归属" value={route.owner} />
@@ -1309,6 +1301,12 @@ function SnippetBox({ label, value, onCopy }) {
   );
 }
 
+const POLICY_CARDS = [
+  { value: 'minimal', title: '只读', Icon: Eye },
+  { value: 'standard', title: '标准', Icon: Shield },
+  { value: 'full', title: '全部权限', Icon: Key },
+];
+
 function AIAccessConsole({
   aiAccess,
   loading,
@@ -1318,6 +1316,7 @@ function AIAccessConsole({
   onRefresh,
   onRotateKey,
   onToggleWrite,
+  onSetPolicy,
   onCopy,
 }) {
   if (loading) {
@@ -1350,11 +1349,11 @@ function AIAccessConsole({
   const policy = aiAccess?.policy || {};
 
   return (
-    <div className="grid h-full min-h-0 min-w-0 gap-4 xl:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
+    <div className="grid h-full min-h-0 min-w-0 gap-4 cq-xl:grid-cols-[minmax(360px,0.82fr)_minmax(0,1.18fr)]">
       <div
         className={cx(fixedPanelClass, 'min-h-0 space-y-4 overflow-y-auto px-px pb-2 pr-1 pt-px')}
       >
-        <SectionCard title="Agent Key" icon={<Key className="h-4 w-4 text-kumo-brand" />}>
+        <SectionCard title="Agent Key" icon={<Key className="h-4 w-4 text-brand" />}>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1 truncate rounded-md border border-kumo-line bg-kumo-recessed/40 px-3 py-2 font-mono text-xs font-bold text-kumo-strong">
               {keyVisible ? agentKey.value : agentKey.masked}
@@ -1376,7 +1375,7 @@ function AIAccessConsole({
           </div>
         </SectionCard>
 
-        <SectionCard title="接入地址" icon={<Plug className="h-4 w-4 text-kumo-brand" />}>
+        <SectionCard title="接入地址" icon={<Plug className="h-4 w-4 text-brand" />}>
           <div className="space-y-2">
             {Object.entries(endpoints).map(([key, value]) => (
               <div key={key} className="grid min-w-0 gap-1">
@@ -1392,7 +1391,7 @@ function AIAccessConsole({
           </div>
         </SectionCard>
 
-        <SectionCard title="调用策略" icon={<Shield className="h-4 w-4 text-kumo-brand" />}>
+        <SectionCard title="调用策略" icon={<Shield className="h-4 w-4 text-brand" />}>
           <div className="grid gap-2 text-xs text-kumo-subtle">
             <div className="flex items-center justify-between gap-2 rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2">
               <span>允许方法</span>
@@ -1409,7 +1408,7 @@ function AIAccessConsole({
             <div className="flex items-center justify-between gap-2 rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2">
               <div className="flex items-center gap-2">
                 <span>允许写入</span>
-                <span className="hidden text-[10px] text-kumo-subtle sm:inline">
+                <span className="hidden text-[10px] text-kumo-subtle cq-sm:inline">
                   开启后 Agent 才能执行 POST/PUT/PATCH/DELETE，全部写入都会审计
                 </span>
               </div>
@@ -1419,8 +1418,28 @@ function AIAccessConsole({
                 aria-label="允许 AI Agent 写入操作"
               />
             </div>
-            <div className="rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2 leading-relaxed">
-              {policy.auth || 'Agent Key 调用会写入审计记录。'}
+            <div className="grid gap-2 cq-md:grid-cols-3">
+              {POLICY_CARDS.map(({ value, title, Icon }) => {
+                const active = (policy.accessPolicy || 'standard') === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onSetPolicy(value)}
+                    aria-pressed={active}
+                    aria-label={`切换到 ${title} 权限模式`}
+className={cx(
+                      'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 transition-colors',
+                      active
+                        ? 'border-(--text-color-brand) bg-kumo-tint text-brand'
+                        : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'
+                    )}
+                  >
+                    <Icon className={cx('h-4 w-4', active ? 'text-brand' : 'text-kumo-strong')} />
+                    <span className="text-xs font-medium">{title}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </SectionCard>
@@ -1431,7 +1450,7 @@ function AIAccessConsole({
       >
         <SectionCard
           title="AI 接入指南"
-          icon={<Bot className="h-4 w-4 text-kumo-brand" />}
+          icon={<Bot className="h-4 w-4 text-brand" />}
           action={
             <Button size="sm" variant="secondary" onClick={onRefresh}>
               刷新
@@ -1439,7 +1458,7 @@ function AIAccessConsole({
           }
           bodyClassName="grid gap-3"
         >
-<div className="grid gap-2 md:grid-cols-3">
+<div className="grid gap-2 cq-md:grid-cols-3">
             {[
               {
                 step: '1',
@@ -1462,7 +1481,7 @@ function AIAccessConsole({
                 className="rounded-md border border-kumo-line/80 bg-kumo-recessed/25 p-3"
               >
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded border border-kumo-brand/30 bg-kumo-brand/10 font-mono text-[10px] font-bold text-kumo-brand">
+                  <span className="flex h-5 w-5 items-center justify-center rounded border border-brand/30 bg-brand/10 font-mono text-[10px] font-bold text-brand">
                     {item.step}
                   </span>
                   <div className="text-xs font-bold text-kumo-strong">{item.title}</div>
@@ -1485,11 +1504,17 @@ function AIAuditConsole({
   pageSize,
   loading,
   error,
+  actionFilter,
+  searchText,
+  onActionFilterChange,
+  onSearchTextChange,
+  onClearFilters,
   onPageChange,
   onPageSizeChange,
   onRefresh,
 }) {
   const [selected, setSelected] = useState(null);
+
   if (loading && records.length === 0) {
     return (
       <AppCard padding="lg">
@@ -1517,12 +1542,44 @@ function AIAuditConsole({
   return (
     <>
     <LayerCard className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
+      <div className="flex items-center gap-2 border-b border-kumo-line px-3 py-2">
+        <Select
+          value={actionFilter}
+          onValueChange={onActionFilterChange}
+          className="w-[140px]"
+          size="sm"
+          aria-label="操作类型"
+          items={[
+            { value: '', label: '全部操作' },
+            { value: 'mcp.describe', label: 'mcp.describe' },
+            { value: 'tools/call', label: 'tools/call' },
+            { value: 'manifest', label: 'manifest' },
+            { value: 'notifications/cancelled', label: 'notifications/cancelled' },
+          ]}
+        />
+        <div className="relative flex-1 max-w-xs">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-kumo-subtle" />
+          <Input
+            value={searchText}
+            onChange={e => onSearchTextChange(e.target.value)}
+            placeholder="搜索时间、动作、目标、IP..."
+            className="w-full pl-7"
+            size="sm"
+            aria-label="搜索调用日志"
+          />
+        </div>
+        {searchText || actionFilter ? (
+          <Button size="sm" variant="ghost" onClick={onClearFilters}>
+            清除
+          </Button>
+        ) : null}
+      </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
         <Table layout="fixed" className="min-w-[1080px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
           <colgroup>
             <col style={{ width: 150 }} />
             <col style={{ width: 110 }} />
-            <col style={{ width: 130 }} />
+            <col style={{ width: 150 }} />
             <col style={{ width: 190 }} />
             <col style={{ width: 84 }} />
             <col style={{ width: 92 }} />
@@ -1584,7 +1641,7 @@ function AIAuditConsole({
                     </StatusBadge>
                   </Table.Cell>
                   <Table.Cell className="text-center font-mono text-kumo-subtle">
-                    {item.latencyMs ? `${item.latencyMs}ms` : '-'}
+                    {item.latencyMs != null ? `${item.latencyMs}ms` : '-'}
                   </Table.Cell>
                   <Table.Cell
                     className="truncate text-center font-mono text-kumo-subtle"
@@ -1665,7 +1722,7 @@ function AIAuditConsole({
                 value: selected?.status || '-',
                 pill: selected?.status === 'success' ? 'success' : 'danger',
               },
-              { label: '耗时', value: selected?.latencyMs ? `${selected.latencyMs}ms` : '-' },
+              { label: '耗时', value: selected?.latencyMs != null ? `${selected.latencyMs}ms` : '-' },
               { label: 'IP', value: selected?.ipAddress || '—' },
             ].map(field => (
               <div key={field.label}>
@@ -1797,7 +1854,7 @@ function APIKeyConsole({
   };
 
   return (
-    <div className="grid h-full min-h-0 min-w-0 gap-4 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
+    <div className="grid h-full min-h-0 min-w-0 gap-4 cq-xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
       <div className="min-h-0 space-y-4 overflow-y-auto px-px pb-2 pr-1 pt-px">
         <div className="grid grid-cols-2 gap-3">
           <StatCard icon={Key} label="密钥总数" value={summary.total || 0} />
@@ -1840,7 +1897,7 @@ function APIKeyConsole({
 
         <SectionCard
           title={editingId ? '编辑密钥' : '生成密钥'}
-          icon={<Plus className="h-4 w-4 text-kumo-brand" />}
+          icon={<Plus className="h-4 w-4 text-brand" />}
           bodyClassName="space-y-3"
         >
           <Input
@@ -1867,7 +1924,7 @@ function APIKeyConsole({
             </div>
           </div>
           {form.kind === 'api' && (
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 cq-sm:grid-cols-2">
               {[
                 { value: 'api:read', label: '读取后台 API' },
                 { value: 'api:write', label: '修改后台 API' },
@@ -1887,7 +1944,10 @@ function APIKeyConsole({
             </div>
           )}
           <div className="space-y-2">
-            <Label showOptional>过期时间</Label>
+            <Label>
+              过期时间
+              <span className="font-normal text-kumo-subtle">（可选）</span>
+            </Label>
             <div className="flex flex-wrap gap-2">
               {API_KEY_EXPIRY_PRESETS.map(preset => {
                 const active = selectedExpiryPreset === preset.value;
@@ -1915,7 +1975,7 @@ function APIKeyConsole({
                       size="sm"
                       variant="outline"
                       icon={CalendarDotsIcon}
-                      className="min-w-[12.5rem] justify-start font-normal sm:min-w-[13.5rem]"
+                      className="min-w-[12.5rem] justify-start font-normal cq-sm:min-w-[13.5rem]"
                     />
                   }
                 >
@@ -2003,7 +2063,7 @@ function APIKeyConsole({
 
       <SectionCard
         title="密钥与使用监控"
-        icon={<Activity className="h-4 w-4 text-kumo-brand" />}
+        icon={<Activity className="h-4 w-4 text-brand" />}
         action={
           <Button size="sm" variant="secondary" onClick={onRefresh} loading={loading}>
             <RefreshCw className="h-3.5 w-3.5" />
@@ -2026,7 +2086,7 @@ function APIKeyConsole({
                   key={key.id}
                   className={cx(
                     'rounded-md border bg-kumo-recessed/20 p-3',
-                    editingId === key.id ? 'border-kumo-brand/70' : 'border-kumo-line/80'
+                    editingId === key.id ? 'border-brand/70' : 'border-kumo-line/80'
                   )}
                 >
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -2045,7 +2105,7 @@ function APIKeyConsole({
                         {(key.scopes || []).map(scope => (
                           <span
                             key={scope}
-                            className="rounded border border-kumo-brand/20 bg-kumo-brand/7 px-1.5 py-0.5 text-[10px] text-kumo-brand"
+                            className="rounded border border-brand/20 bg-brand/7 px-1.5 py-0.5 text-[10px] text-brand"
                           >
                             {API_SCOPE_LABELS[scope] || scope}
                           </span>
@@ -2078,8 +2138,8 @@ function APIKeyConsole({
                       )}
                     </div>
                   </div>
-                  <div className="mt-3 grid gap-2 border-t border-kumo-line/70 pt-3 text-[11px] text-kumo-subtle sm:grid-cols-2 2xl:grid-cols-4">
-                    <div><span className="block">请求次数</span><strong className="font-mono text-kumo-strong">{Number(key.requestCount || 0).toLocaleString()}</strong></div>
+                  <div className="mt-3 grid gap-2 border-t border-kumo-line/70 pt-3 text-[11px] text-kumo-subtle cq-sm:grid-cols-2 cq-2xl:grid-cols-4">
+                    <div><span className="block">请求次数</span><strong className="font-mono text-kumo-strong">{Number(key.requestCount || 0).toLocaleString('en-US', { useGrouping: false })}</strong></div>
                     <div><span className="block">过期时间</span><strong className="font-normal text-kumo-strong">{formatKeyTime(key.expiresAt)}</strong></div>
                     <div><span className="block">最后使用</span><strong className="font-normal text-kumo-strong">{formatKeyTime(key.lastUsedAt)}</strong></div>
                     <div className="min-w-0"><span className="block">最后 IP</span><strong className="block truncate font-mono font-normal text-kumo-strong" title={key.lastIpAddress || ''}>{key.lastIpAddress || '-'}</strong></div>
@@ -2120,6 +2180,8 @@ function ApiDocsPage() {
   const [auditDays, setAuditDays] = useState(7);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState('');
+  const [auditAction, setAuditAction] = useState('');
+  const [auditSearch, setAuditSearch] = useState('');
   const [apiKeyOverview, setApiKeyOverview] = useState(null);
   const [apiKeysLoading, setApiKeysLoading] = useState(false);
   const [apiKeysError, setApiKeysError] = useState('');
@@ -2194,8 +2256,11 @@ function ApiDocsPage() {
     if (!silent) setAuditLoading(true);
     setAuditError('');
     try {
+      const params = new URLSearchParams({ days: auditDays, page: auditPage, pageSize: auditPageSize });
+      if (auditAction) params.set('action', auditAction);
+      if (auditSearch) params.set('search', auditSearch);
       const payload = await fetchJsonEnvelope(
-        `${AI_ACCESS_BASE}/audit?days=${auditDays}&page=${auditPage}&pageSize=${auditPageSize}`
+        `${AI_ACCESS_BASE}/audit?${params}`
       );
       setAuditRecords(payload.records || []);
       setAuditTotal(payload.total || 0);
@@ -2205,12 +2270,31 @@ function ApiDocsPage() {
     } finally {
       setAuditLoading(false);
     }
-  }, [auditDays, auditPage, auditPageSize]);
+  }, [auditDays, auditPage, auditPageSize, auditAction, auditSearch]);
+
+  const handleAuditActionChange = useCallback(value => {
+    setAuditAction(value);
+    setAuditPage(1);
+  }, []);
+
+  const handleAuditSearchChange = useCallback(value => {
+    setAuditSearch(value);
+    setAuditPage(1);
+  }, []);
+
+  const clearAuditFilters = useCallback(() => {
+    setAuditAction('');
+    setAuditSearch('');
+    setAuditPage(1);
+  }, []);
 
   useEffect(() => {
-    if (activeView === 'audit') {
+    if (activeView !== 'audit') return undefined;
+    // 搜索输入防抖：避免每敲一个字符触发一次请求
+    const timer = window.setTimeout(() => {
       loadAIAudit();
-    }
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [activeView, loadAIAudit]);
 
   const loadAPIKeys = useCallback(async (silent = false) => {
@@ -2319,6 +2403,20 @@ function ApiDocsPage() {
       });
       setAiAccess(payload);
       toast.success(enabled ? '已开启 AI 写入，写操作将受到审计' : '已关闭 AI 写入，Agent 仅可读');
+    } catch (error) {
+      toast.error(error.message || '切换失败');
+    }
+  };
+
+  const setAIAccessPolicy = async policy => {
+    try {
+      const payload = await apiRequest(`${AI_ACCESS_BASE}/policy`, {
+        method: 'PUT',
+        body: JSON.stringify({ policy }),
+      });
+      setAiAccess(payload);
+      const label = { minimal: '只读（minimal）', standard: '标准（standard）', full: '全部权限（full）' }[policy] || policy;
+      toast.success(`AI 接入权限模式已切换为 ${label}`);
     } catch (error) {
       toast.error(error.message || '切换失败');
     }
@@ -2454,9 +2552,22 @@ function ApiDocsPage() {
   if (loading) {
     return (
       <PageStack viewport className={apiDocsShellClass}>
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
+          <Tabs
+            {...MODULE_TABS_PROPS}
+            value={activeView}
+            onValueChange={setActiveView}
+            tabs={[
+              { value: 'routes', label: <span className="inline-flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />接口</span> },
+              { value: 'ai', label: <span className="inline-flex items-center gap-1.5"><Bot className="h-3.5 w-3.5" />AI 接入</span> },
+              { value: 'audit', label: <span className="inline-flex items-center gap-1.5"><History className="h-3.5 w-3.5" />调用审计</span> },
+              { value: 'keys', label: <span className="inline-flex items-center gap-1.5"><Key className="h-3.5 w-3.5" />密钥管理</span> },
+            ]}
+          />
+        </div>
+        <div className="grid grid-cols-4 gap-2 cq-sm:gap-3">
           {Array.from({ length: 4 }).map((_, index) => (
-            <AppCard key={index} padding="md">
+            <AppCard key={index} padding="none" className="min-w-0 p-2 cq-sm:p-3">
               <SkeletonLine className="h-4 w-20" />
               <SkeletonLine className="mt-3 h-6 w-14" />
             </AppCard>
@@ -2544,7 +2655,7 @@ function ApiDocsPage() {
       {activeView === 'routes' && (
         <div className="flex min-w-0 flex-col gap-2">
           <div className="space-y-2">
-            <div className="grid grid-cols-4 gap-2 sm:gap-3">
+            <div className="grid grid-cols-4 gap-2 cq-sm:gap-3">
               <StatCard icon={FileText} label="接口总数" value={summary.total} />
               <StatCard
                 icon={Activity}
@@ -2567,7 +2678,7 @@ function ApiDocsPage() {
             </div>
 
             <AppCard padding="md" className="shrink-0">
-              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,0.67fr))] items-center gap-2 sm:grid-cols-[minmax(240px,1.35fr)_repeat(3,minmax(0,0.82fr))]">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,0.67fr))] items-center gap-2 cq-sm:grid-cols-[minmax(240px,1.35fr)_repeat(3,minmax(0,0.82fr))]">
                 <Input
                   size="sm"
                   aria-label="搜索接口"
@@ -2609,14 +2720,14 @@ function ApiDocsPage() {
             </AppCard>
           </div>
 
-          <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)] 2xl:grid-cols-[minmax(360px,0.84fr)_minmax(0,1.16fr)]">
+          <div className="grid min-w-0 gap-3 cq-xl:grid-cols-[minmax(340px,0.9fr)_minmax(0,1.1fr)] cq-2xl:grid-cols-[minmax(360px,0.84fr)_minmax(0,1.16fr)]">
             <RouteTree
               routes={filteredRoutes}
               selectedRoute={selectedRoute}
               onSelect={route => setSelectedKey(getRouteKey(route))}
               revealAll={query.trim().length > 0}
             />
-            <div className="min-w-0 xl:sticky xl:top-[70px] xl:max-h-[calc(100vh-82px)] xl:overflow-y-auto xl:overscroll-contain xl:self-start">
+            <div className="min-w-0 cq-xl:sticky cq-xl:top-[70px] cq-xl:max-h-[calc(100vh-82px)] cq-xl:overflow-y-auto cq-xl:overscroll-contain cq-xl:self-start">
               <RouteDetail route={selectedRoute} openapiRoute={summary.openapiRoute} />
             </div>
           </div>
@@ -2634,6 +2745,7 @@ function ApiDocsPage() {
             onRefresh={refreshAIAccess}
             onRotateKey={rotateAIKey}
             onToggleWrite={toggleAIWrite}
+            onSetPolicy={setAIAccessPolicy}
             onCopy={copyText}
           />
         </div>
@@ -2648,6 +2760,11 @@ function ApiDocsPage() {
             pageSize={auditPageSize}
             loading={auditLoading}
             error={auditError}
+            actionFilter={auditAction}
+            searchText={auditSearch}
+            onActionFilterChange={handleAuditActionChange}
+            onSearchTextChange={handleAuditSearchChange}
+            onClearFilters={clearAuditFilters}
             onPageChange={setAuditPage}
             onPageSizeChange={setAuditPageSize}
             onRefresh={() => loadAIAudit(true)}

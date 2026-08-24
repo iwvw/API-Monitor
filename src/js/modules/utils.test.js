@@ -15,6 +15,8 @@ import {
   formatRegion,
   formatSpeedCompact,
   parseSpeed,
+  setDisplayTimeZone,
+  getDisplayTimeZone,
 } from './utils.js';
 
 describe('escapeHtml', () => {
@@ -46,15 +48,60 @@ describe('formatDateTime', () => {
     expect(formatDateTime('')).toBe('-');
   });
 
-  it('formats a Date object', () => {
+  it('formats a Date object in the requested zone', () => {
     const d = new Date('2026-07-12T08:00:00Z');
-    const out = formatDateTime(d, { timeZone: 'UTC' });
-    expect(out).toContain('2026');
+    expect(formatDateTime(d, { timeZone: 'UTC' })).toBe('2026/7/12 08:00:00');
   });
 
   it('treats SQLite-style timestamps without a zone as UTC', () => {
-    const out = formatDateTime('2026-07-12 08:00:00', { timeZone: 'UTC' });
-    expect(out).toContain('2026');
+    expect(formatDateTime('2026-07-12 08:00:00', { timeZone: 'UTC' })).toBe('2026/7/12 08:00:00');
+  });
+
+  it('appends Z to other zone-less strings', () => {
+    expect(formatDateTime('2026/07/12 08:00:00', { timeZone: 'UTC' })).toBe('2026/7/12 08:00:00');
+  });
+
+  it('passes through strings that already carry a zone', () => {
+    expect(formatDateTime('2026-07-12T08:00:00+02:00', { timeZone: 'UTC' })).toBe('2026/7/12 06:00:00');
+  });
+
+  it('falls back to the globally configured display zone', () => {
+    setDisplayTimeZone('Asia/Shanghai');
+    try {
+      expect(formatDateTime('2026-07-12 08:00:00')).toBe('2026/07/12 16:00:00');
+    } finally {
+      setDisplayTimeZone('system');
+    }
+  });
+
+  it('ignores the global zone when an explicit timeZone is passed', () => {
+    setDisplayTimeZone('Asia/Shanghai');
+    try {
+      expect(formatDateTime('2026-07-12 08:00:00', { timeZone: 'UTC' })).toBe('2026/7/12 08:00:00');
+    } finally {
+      setDisplayTimeZone('system');
+    }
+  });
+});
+
+describe('displayTimeZone helpers', () => {
+  it('returns system by default', () => {
+    expect(getDisplayTimeZone()).toBe('system');
+  });
+
+  it('stores a trimmed zone', () => {
+    setDisplayTimeZone('  Asia/Shanghai  ');
+    expect(getDisplayTimeZone()).toBe('Asia/Shanghai');
+    setDisplayTimeZone('system');
+  });
+
+  it('resets invalid input to system', () => {
+    setDisplayTimeZone('');
+    expect(getDisplayTimeZone()).toBe('system');
+    setDisplayTimeZone(null);
+    expect(getDisplayTimeZone()).toBe('system');
+    setDisplayTimeZone(42);
+    expect(getDisplayTimeZone()).toBe('system');
   });
 });
 

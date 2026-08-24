@@ -408,6 +408,18 @@ func TestDeleteHistoryVacuumShrinksDatabaseFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	// 新建库默认 auto_vacuum=NONE（连接级 PRAGMA 不改既有文件）；先迁移为
+	// INCREMENTAL（等价于设置页「数据库压缩」的迁移路径），使删除后的空间
+	// 可被增量回收（incremental_vacuum），这正是被替换的同步全量 VACUUM
+	// 原本的职责，这里改为在测试内显式完成迁移。
+	if _, err := db.Exec(`PRAGMA auto_vacuum = INCREMENTAL`); err != nil {
+		db.Close()
+		t.Fatalf("enable incremental auto_vacuum: %v", err)
+	}
+	if _, err := db.Exec(`VACUUM`); err != nil {
+		db.Close()
+		t.Fatalf("migrate auto_vacuum: %v", err)
+	}
 	result, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name) VALUES ('openai', 'codex', 'openai/codex')`)
 	if err != nil {
 		db.Close()
@@ -427,11 +439,6 @@ func TestDeleteHistoryVacuumShrinksDatabaseFile(t *testing.T) {
 	}
 	db.Close()
 
-	before, err := os.Stat(service.store.DatabasePath())
-	if err != nil {
-		t.Fatalf("stat database before cleanup: %v", err)
-	}
-
 	req := httptest.NewRequest(http.MethodDelete, "/api/github/history?days=1", nil)
 	rec := httptest.NewRecorder()
 	service.ServeHTTP(rec, req)
@@ -439,12 +446,19 @@ func TestDeleteHistoryVacuumShrinksDatabaseFile(t *testing.T) {
 		t.Fatalf("delete history status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	after, err := os.Stat(service.store.DatabasePath())
+	// 增量回收后空闲页应归零（全量 VACUUM 的副作用「文件必然变小」不适用
+	// 于分批回收，改为验证 freelist 已被回收到位）。
+	db, err = service.open(t.Context())
 	if err != nil {
-		t.Fatalf("stat database after cleanup: %v", err)
+		t.Fatalf("reopen database after cleanup: %v", err)
 	}
-	if after.Size() >= before.Size() {
-		t.Fatalf("expected database file to shrink after vacuum: before=%d after=%d", before.Size(), after.Size())
+	defer db.Close()
+	var freePages int64
+	if err := db.QueryRow(`PRAGMA freelist_count`).Scan(&freePages); err != nil {
+		t.Fatalf("read freelist count: %v", err)
+	}
+	if freePages != 0 {
+		t.Fatalf("expected freelist fully reclaimed after cleanup, got %d free pages", freePages)
 	}
 }
 
@@ -542,5 +556,64 @@ func TestPublicPageIconID(t *testing.T) {
 	iconID, found, err = service.PublicPageIconID(ctx, "missing-slug", false)
 	if err != nil || found {
 		t.Fatalf("missing slug lookup = (%q, %v, %v), want ('', false, nil)", iconID, found, err)
+	}
+}
+
+func TestCleanupHistoryKeepsBoundaryDayRowsPerTimestampFormat(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	days := 30
+	boundary := time.Now().AddDate(0, 0, -days).UTC()
+	keptAt := boundary.Add(2 * time.Hour)
+	deletedAt := boundary.Add(-2 * time.Hour)
+
+	// github_events 等五表时间戳是 CURRENT_TIMESTAMP 空格格式
+	for _, item := range []struct {
+		id   int
+		when time.Time
+	}{
+		{1, keptAt},
+		{2, deletedAt},
+	} {
+		if _, err := db.Exec(`INSERT INTO github_events (repository_id, event_type, title, created_at)
+			VALUES (1, 'issue_opened', '边界事件', ?)`, item.when.Format("2006-01-02 15:04:05")); err != nil {
+			t.Fatalf("insert event %d: %v", item.id, err)
+		}
+	}
+	// github_action_runs.created_at 存 GitHub API 原始 RFC3339「T」格式
+	for _, item := range []struct {
+		runID int64
+		when  time.Time
+	}{
+		{101, keptAt},
+		{102, deletedAt},
+	} {
+		if _, err := db.Exec(`INSERT INTO github_action_runs (repository_id, run_id, workflow_name, created_at)
+			VALUES (1, ?, 'CI', ?)`, item.runID, item.when.Format(time.RFC3339)); err != nil {
+			t.Fatalf("insert run %d: %v", item.runID, err)
+		}
+	}
+
+	if _, err := cleanupHistory(ctx, db, 0, days); err != nil {
+		t.Fatalf("cleanup history: %v", err)
+	}
+
+	var keptEvents, keptRuns int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM github_events WHERE title = '边界事件'`).Scan(&keptEvents); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM github_action_runs`).Scan(&keptRuns); err != nil {
+		t.Fatal(err)
+	}
+	// 保留期首日当天（cutoff 之后）的数据必须保留，只删除 cutoff 之前的行
+	if keptEvents != 1 || keptRuns != 1 {
+		t.Fatalf("keptEvents=%d keptRuns=%d, want 1/1", keptEvents, keptRuns)
 	}
 }

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import io from 'socket.io-client';
 import { Meter, Tabs } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { AlertTriangle, Globe, Home, LogIn, RefreshCw, Shield } from '../components/Icons.jsx';
 import PublicPageIconPicker from '../components/public/PublicPageIconPicker.jsx';
 import useStore from '../store.js';
@@ -312,7 +313,7 @@ const trafficRemaining = (server) => {
 const remainingTone = (percent) => {
   if (percent <= 10) return 'bg-kumo-danger';
   if (percent <= 25) return 'bg-kumo-warning';
-  return 'bg-kumo-brand';
+  return 'bg-brand';
 };
 
 const getByteParts = (value) => {
@@ -402,7 +403,7 @@ function RemainingMini({ traffic }) {
   const unlimited = traffic.unlimited || !hasLimit;
   const displayPercent = unlimited ? '∞' : formatPercent(traffic.remainingPercent);
   const displayValue = unlimited ? '无限' : formatCompactBytes(traffic.remaining);
-  const progressTone = unlimited ? 'bg-kumo-brand' : remainingTone(traffic.remainingPercent);
+  const progressTone = unlimited ? 'bg-brand' : remainingTone(traffic.remainingPercent);
   return (
     <div className="flex h-16 min-w-0 flex-col rounded-md border border-kumo-interact/80 bg-kumo-recessed/35 px-2 py-2">
       <div className="flex items-center justify-between gap-2">
@@ -673,7 +674,7 @@ function PublicServerStatusPage({ domainOnly = false, onDomainNotFound }) {
               config={page?.config}
               isAuthenticated={isAuthenticated}
               onChange={updatePageIcon}
-              triggerClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-base text-kumo-brand"
+              triggerClassName="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-base text-brand"
               iconClassName="h-5 w-5"
             />
             <div className="min-w-0">
@@ -693,7 +694,7 @@ function PublicServerStatusPage({ domainOnly = false, onDomainNotFound }) {
               size="sm"
               variant="secondary"
               shape="square"
-              className={mapOpen ? 'border-kumo-brand/50 text-kumo-brand' : ''}
+              className={mapOpen ? 'border-brand/50 text-brand' : ''}
               onClick={() => setMapOpen(prev => !prev)}
               icon={<Globe className="h-3.5 w-3.5" />}
               aria-label={mapOpen ? '切回主机卡片' : '切换到主机地图'}
@@ -734,14 +735,20 @@ function PublicServerStatusPage({ domainOnly = false, onDomainNotFound }) {
           <div className="flex flex-col gap-4">
             {mapOpen ? (
               <div className="w-full overflow-hidden rounded-lg border border-kumo-line bg-kumo-base max-h-[calc(100vh-140px)] flex items-center justify-center">
-                <div className="w-full max-h-[calc(100vh-140px)]">
-                  <ServerLocationMap
-                    echarts={echarts}
-                    servers={visibleServers}
-                    resolveStatus={(server) => (server?.online ? 'online' : 'offline')}
-                    aspectRatio={wideColumns === 4 ? '2.3 / 1' : '16 / 9'}
-                  />
-                </div>
+                {visibleServers.length === 0 ? (
+                  <div className="w-full" style={{ aspectRatio: wideColumns === 4 ? '2.3 / 1' : '16 / 9' }}>
+                    <SkeletonLine className="h-full w-full rounded-none" />
+                  </div>
+                ) : (
+                  <div className="w-full max-h-[calc(100vh-140px)]">
+                    <ServerLocationMap
+                      echarts={echarts}
+                      servers={visibleServers}
+                      resolveStatus={(server) => (server?.online ? 'online' : 'offline')}
+                      aspectRatio={wideColumns === 4 ? '2.3 / 1' : '16 / 9'}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <section>

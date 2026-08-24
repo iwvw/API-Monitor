@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -375,21 +376,31 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
-		s.RecordAnalytics(ctx, route, "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		return http.StatusBadRequest, nil, fmt.Errorf("request body is not valid JSON: %v", err)
 	}
 
-	targetEndpointID := r.Header.Get("x-endpoint-id")
+	targetEndpointID := s.resolveTargetEndpoint(r)
 	sessionKey := resolveSessionKey(r, parsedBody)
 
 	db, err := s.open(ctx)
 	if err != nil {
-		s.RecordAnalytics(ctx, route, "", model, http.StatusInternalServerError, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusInternalServerError, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "gateway",
+			Message:  "open database failed: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusInternalServerError),
+		})
 		return http.StatusInternalServerError, nil, err
 	}
 	defer db.Close()
 
-	selected, selectedModel, found := s.selectEndpointForModel(ctx, db, model, targetEndpointID)
+	endpointCandidates, selected, chosenIndex, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
 	if !found {
 		s.recordRelayError(RelayErrorRecord{
 			Route: route, Kind: "no_endpoint",
@@ -397,13 +408,39 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
 		})
-		s.RecordAnalytics(ctx, route, "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "")
-		return http.StatusServiceUnavailable, nil, fmt.Errorf("No valid OpenAI endpoints available")
+		// 候选池为空属网关自身状态，仍写入调用日志（含报错信息），便于日志与 AI 排障。
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{
+				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
+				"type":    "service_unavailable",
+			},
+		})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "no_endpoint",
+			Message:  fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
+			Response: errorResponseForLog(errBody, http.StatusServiceUnavailable),
+		})
+		return http.StatusServiceUnavailable, nil, fmt.Errorf("网关无可用渠道（模型 %s）", model)
 	}
 
 	viaProxy := 0
 	if len(selected.ProxyPool) > 0 {
 		viaProxy = 1
+	}
+
+	// 端点白名单候选过滤：failover 循环逐候选尝试时不再校验白名单，必须在
+	// 候选组装阶段过滤，防止白名单内端点故障时把请求打到白名单外端点。
+	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
+		filtered, newChosen := filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates, chosenIndex)
+		if len(filtered) == 0 {
+			// 记录口径与其他入口一致；错误响应由 proxyAnthropicMessages 按
+			// Anthropic 格式写回（本函数不直接写 w）。
+			limitErr := s.recordDisallowedEndpoints(ctx, route, model, stream, clientIP, viaProxy, requestStarted)
+			return http.StatusForbidden, nil, fmt.Errorf("%s", limitErr)
+		}
+		endpointCandidates = filtered
+		chosenIndex = newChosen
+		selected = endpointCandidates[chosenIndex]
 	}
 
 	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
@@ -415,39 +452,204 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 				ElapsedMs: time.Since(requestStarted).Milliseconds(),
 				Error:     limitErr,
 			})
-			s.RecordAnalytics(ctx, route, selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "")
+			errBody, _ := json.Marshal(map[string]interface{}{
+				"error": map[string]string{"message": limitErr, "type": "forbidden"},
+			})
+			s.recordAnalyticsKey(ctx, route, selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+				Kind:     "blocked",
+				Message:  limitErr,
+				Response: errorResponseForLog(errBody, http.StatusForbidden),
+			})
 			return http.StatusForbidden, nil, fmt.Errorf("%s", limitErr)
 		}
 	}
 
-	fullURL := strings.TrimSuffix(selected.BaseURL, "/")
-	if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-		fullURL += "/v1"
-	}
-	fullURL += "/chat/completions"
-
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
-	if selectedModel != model && selectedModel != "" {
-		parsedBody["model"] = selectedModel
+	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
+
+	// 请求体归一化在循环前统一执行（reasoning_effort max→high、带 tool_calls 的
+	// assistant 历史补推理内容）：会话亲和会把某候选提升为首选（k=0），归一化
+	// 只发生在 failover 副本时首选请求会拿到未归一化请求体而被枚举更窄的上游 400。
+	normalizeReasoningEffort(parsedBody)
+	if s.shouldNormalizeToolReasoningForCandidates(endpointCandidates, model, parsedBody) {
+		normalizeChatToolReasoningHistory(parsedBody)
 	}
-	upstreamBodyBytes, _ := json.Marshal(parsedBody)
 
 	// 正文由调用方读取：把 attempt context 的释放挂到 Body.Close 上，
 	// 避免在正文未读完时提前 cancel 掐断响应（非流式且未启用 AutoSwitch 时
-	// 正文是活连接，提前 cancel 会让调用方的 ReadAll 直接失败）。
-	res := s.relayLoop(relayLoopParams{
-		route:          route,
-		ctx:            ctx,
-		db:             db,
-		selected:       selected,
-		model:          model,
-		fullURL:        fullURL,
-		body:           upstreamBodyBytes,
-		stream:         stream,
-		sessionKey:     sessionKey,
-		clientIP:       clientIP,
-		requestStarted: requestStarted,
-	})
+	// 对齐 New API 的 RetryTimes：全部候选失败后不立即返回，等待 interval 后
+	// 重试整轮，最多 endpointRetryRounds 轮，期间客户端保持等待状态。
+	var res *relayLoopResult
+	failCodes := []int{}
+	var lastRes *relayLoopResult
+	retryRoundFinished := false
+	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
+	var failoverSteps []map[string]interface{}
+	// clientCancelled 标记本轮请求期间客户端已断开：断开后不再尝试其他候选，仅静默收尾。
+	clientCancelled := false
+	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
+	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
+	// lastTried 记录最后一次真实转发的端点：整链失败时以真实端点记账，而非 unknown。
+	var lastTried *Endpoint
+	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
+		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+			lastRes = nil
+		}
+		failCodes = failCodes[:0]
+		retryRoundCancelled := false
+		candCount := len(endpointCandidates)
+		for k := 0; k < candCount; k++ {
+			ci := (startIdx + k) % candCount
+			cand := endpointCandidates[ci]
+			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+			candModel, _ := s.resolveEndpointModel(cand, model)
+			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
+			// 候选归一化（写 reasoning_effort）。首个候选不复制、保持原样透传；
+			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
+			candBody := parsedBody
+			needCopy := k > 0 || (candModel != model && candModel != "")
+			if needCopy {
+				cp := make(map[string]interface{}, len(parsedBody))
+				for k2, v := range parsedBody {
+					cp[k2] = v
+				}
+				candBody = cp
+			}
+			if candModel != model && candModel != "" {
+				candBody["model"] = candModel
+			}
+			upstreamBodyBytes, _ := json.Marshal(candBody)
+
+			fullURL := strings.TrimSuffix(cand.BaseURL, "/")
+			if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
+				fullURL += "/v1"
+			}
+			fullURL += "/chat/completions"
+			res = s.relayLoop(relayLoopParams{
+				route:          route,
+				ctx:            ctx,
+				db:             db,
+				selected:       cand,
+				endpoints:      endpointCandidates,
+				model:          model,
+				realModel:      candModel,
+				fullURL:        fullURL,
+				body:           upstreamBodyBytes,
+				stream:         stream,
+				sessionKey:     sessionKey,
+				clientIP:       clientIP,
+				requestStarted: requestStarted,
+			})
+			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			lastTried = &cand
+			stepStatus := res.statusCode
+			if stepStatus == 0 && res.resp != nil {
+				stepStatus = res.resp.StatusCode
+			}
+			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
+			if res.clientCancelled {
+				clientCancelled = true
+				break
+			}
+			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+				selected = cand
+				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
+				// 4xx 客户端错误不记录，避免把会话钉死在无法服务该请求的端点上。
+				if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
+					s.recordChannelAffinity(sessionKey, cand.ID)
+				}
+				retryRoundFinished = true
+				break
+			}
+			// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+			if res.statusCode > 0 {
+				failCodes = append(failCodes, res.statusCode)
+			}
+			if k+1 < candCount {
+				selected = endpointCandidates[k+1]
+			}
+		}
+		if retryRoundFinished {
+			break
+		}
+		// 限流风暴快速收尾：本轮全部候选都返回限流（429/439）时，重试整轮只会继续
+		// 打同一批被限流的出口并串行吃掉全部耗时，直接聚合返回。
+		allRateLimited := len(failCodes) == candCount
+		if allRateLimited {
+			for _, c := range failCodes {
+				if c != http.StatusTooManyRequests && c != 439 {
+					allRateLimited = false
+					break
+				}
+			}
+		}
+		if allRateLimited {
+			break
+		}
+		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。
+		lastRes = res
+		if retryRound < endpointRetryRounds {
+			select {
+			case <-ctx.Done():
+				retryRoundCancelled = true
+			case <-time.After(endpointRetryDelay):
+			}
+		}
+		if retryRoundCancelled {
+			break
+		}
+	}
+	// 客户端已断开（请求上下文被取消，如点击停止）：不聚合错误、不记录故障、回传空结果静默收尾。
+	if clientCancelled || (ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled)) {
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+		}
+		return 0, nil, nil
+	}
+	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
+	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
+		status := unavailableStatusCode(model, failCodes)
+		msg := fmt.Sprintf("网关无可用渠道（模型 %s）", model)
+		// 整链失败：切换过程不落日志，这里按「最终结果」聚合为一条，
+		// 端点取最后一次真实转发的候选（而非 unknown），模型与状态码齐备。
+		lastEpID, lastEpName := "", ""
+		if lastTried != nil {
+			lastEpID = lastTried.ID
+			lastEpName = lastTried.Name
+		}
+		attempts := 0
+		lastProxy := ""
+		if res != nil {
+			attempts = res.attempt + 1
+			lastProxy = hostFromProxyURL(res.lastProxy)
+		}
+		s.recordRelayError(RelayErrorRecord{
+			Route: route, Kind: "failover",
+			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
+			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
+			Attempts:   attempts,
+			ElapsedMs:  time.Since(requestStarted).Milliseconds(),
+			StatusCode: status,
+			Error:      msg,
+		})
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{"message": msg, "type": "service_unavailable"},
+		})
+		s.recordAnalyticsKey(ctx, route, lastEpID, model, status, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "upstream",
+			Message:  msg,
+			Response: errorResponseForLog(errBody, status),
+		}, res.realModel)
+		// 必须携带非 nil error：调用方以 relayErr != nil 决定是否写错误响应，
+		// 此前误用了早已为 nil 的旧 err，导致 (503,nil,nil) 被当成静默收尾。
+		return status, nil, fmt.Errorf("%s", msg)
+	}
+	if lastRes != nil && lastRes.resp != nil {
+		_ = lastRes.resp.Body.Close()
+	}
 	if res.lastErr != nil && res.resp == nil {
 		return res.statusCode, nil, res.lastErr
 	}
@@ -467,7 +669,15 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	if res.firstWritten && len(res.firstChunk) > 0 {
 		res.resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 	}
-	s.RecordAnalytics(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP)
+	fp, _ := json.Marshal(failoverSteps)
+	var errInfo *AnalyticsError
+	if res.resp.StatusCode >= 400 {
+		errInfo = &AnalyticsError{
+			Kind:    "upstream",
+			Message: fmt.Sprintf("upstream returned HTTP %d", res.resp.StatusCode),
+		}
+	}
+	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo, res.realModel)
 	return res.resp.StatusCode, res.resp, nil
 }
 func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request) {
@@ -475,14 +685,20 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	requestStarted := time.Now()
 	clientIP := s.resolveClientIP(r)
 
+	// 请求体上限（与 chat/responses 对齐）：超限经 MaxBytesReader 截断读取，
+	// 由下方 err 分支返回 413，不会把超大 body 全量读入内存。
+	r.Body = http.MaxBytesReader(w, r.Body, s.gatewayBodyLimitBytes())
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
+		// 请求体超限应是客户端违约（413）；其他读取失败是网关侧问题（502）。
+		status, kind := gatewayBodyReadStatus(err)
 		s.recordRelayError(RelayErrorRecord{
-			Route: "messages", Kind: "gateway",
+			Route: "messages", Kind: kind,
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body read failed: " + err.Error(),
 		})
-		response.JSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		// 网关拦截（未到达上游）不写入调用日志。
+		response.JSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -493,6 +709,12 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
 			Error: "request body is not valid JSON: " + err.Error(),
 		})
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "messages", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -500,16 +722,34 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	// 校验必填字段（Anthropic 格式）。
 	model, _ := anthropicBody["model"].(string)
 	if model == "" {
+		errBody, _ := json.Marshal(map[string]string{"error": "model: field required"})
+		s.recordAnalyticsKey(ctx, "messages", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "model: field required",
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", "model: field required")
 		return
 	}
 	if _, ok := anthropicBody["messages"]; !ok {
+		errBody, _ := json.Marshal(map[string]string{"error": "messages: field required"})
+		s.recordAnalyticsKey(ctx, "messages", "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "messages: field required",
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", "messages: field required")
 		return
 	}
 
 	openAIBody, err := anthropicToOpenAI(anthropicBody)
 	if err != nil {
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "messages", "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
 		anthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -531,10 +771,14 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
+	if oaiResp == nil {
+		// 客户端已断开：relayChatOpenAI 已静默收尾，此处仅返回、不写响应。
+		return
+	}
 	defer oaiResp.Body.Close()
 
 	if !stream {
-		respBodyBytes, readErr := io.ReadAll(oaiResp.Body)
+		respBodyBytes, readErr := readUpstreamBodyLimited(oaiResp.Body)
 		if readErr != nil {
 			anthropicError(w, http.StatusBadGateway, "api_error", readErr.Error())
 			return
@@ -557,12 +801,12 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 
 	// 流式：OpenAI SSE → Anthropic SSE。非 200 先判状态码，避免双写 header。
 	if oaiResp.StatusCode != http.StatusOK {
-		respBodyBytes, _ := io.ReadAll(oaiResp.Body)
+		respBodyBytes, _ := readUpstreamBodyLimited(oaiResp.Body)
 		anthropicError(w, oaiResp.StatusCode, "api_error", upstreamErrorMessage(respBodyBytes))
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
+	sw := newSSEStreamWriter(w)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -572,6 +816,9 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	extendDeadline := func() {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(streamWriteDeadline))
 	}
+	// SSE ping 保活：上游长时间不吐流时向客户端发送注释行，穿透 NAT 空闲超时。
+	stopPing := sw.startPing(ctx)
+	defer stopPing()
 	transformer := newAnthropicSSETransformer(upstreamModel)
 	scanner := bufio.NewScanner(oaiResp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -587,19 +834,13 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		events := transformer.consume([]byte(data))
 		for _, ev := range events {
 			extendDeadline()
-			_, _ = w.Write(ev)
-			if ok {
-				flusher.Flush()
-			}
+			sw.write(ev)
 		}
 	}
 	// 流结束收尾（usage 与 message_stop）。
 	for _, ev := range transformer.finish() {
 		extendDeadline()
-		_, _ = w.Write(ev)
-		if ok {
-			flusher.Flush()
-		}
+		sw.write(ev)
 	}
 }
 

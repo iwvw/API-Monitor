@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -26,8 +27,10 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/m365"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
+	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
+	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -39,6 +42,8 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/tencent"
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/adminai"
 )
 
 type Server struct {
@@ -53,6 +58,7 @@ type Server struct {
 	uptime   *uptime.Service
 	koyeb    *koyeb.Service
 	flyio    *flyio.Service
+	onepanel *onepanel.Service
 	github   *githubmodule.Service
 	aliyun   *aliyun.Service
 	tencent  *tencent.Service
@@ -66,6 +72,7 @@ type Server struct {
 	sub      *subscription.Service
 	drawio   *drawiomodule.Service
 	prompts  *promptsmodule.Service
+	adminai  *adminai.Service
 
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
@@ -114,6 +121,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	serverAgentService.SetCloudflareTunnelManager(cloudflareService)
 	cronService := cronjobs.New(cfg)
 	cronService.SetAgentRunner(serverAgentService)
+	cronService.SetNotifier(notifyService)
 	uptimeService := uptime.New(cfg, authService, notifyService)
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
 	githubService := githubmodule.New(cfg)
@@ -126,6 +134,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	backupService.SetNotifier(notifyService)
 	settingsService := settings.New(cfg)
 	settingsService.StartBackgroundCleanup()
+	settingsService.StartWALMaintenance()
+	adminaiService := adminai.New(cfg)
+	adminaiService.SetNotificationSource(notifyService)
 	server := &Server{
 		cfg:      cfg,
 		auth:     authService,
@@ -138,6 +149,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		uptime:   uptimeService,
 		koyeb:    koyeb.New(cfg),
 		flyio:    flyio.New(cfg),
+		onepanel: onepanel.New(cfg),
 		github:   githubService,
 		aliyun:   aliyun.New(cfg),
 		tencent:  tencent.New(cfg),
@@ -151,12 +163,23 @@ func newServer(cfg config.Config) (*Server, error) {
 		sub:      subscriptionService,
 		drawio:   drawioService,
 		prompts:  promptsService,
+		adminai:  adminaiService,
 	}
+	server.onepanel.SetAgentRunner(serverAgentService)
 	systemService.SetAICaller(server.callAPIFromAI)
+	adminaiService.SetAICaller(server.callAPIFromAI)
+	// 管理 AI：启动审批超时清理 goroutine + 频道注册（PRD-03/04）
+	adminaiService.StartBackground()
+	adminaiService.SetupChannels()
 	// 启动代理池预热：预建立各代理到上游的连接，缓解首次请求冷启动握手延迟。
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
 	server.warmupCancel = warmupCancel
+	server.openai.SetNotifier(notifyService)
 	server.openai.StartWarmup(warmupCtx)
+	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
+	server.openai.StartAlertMonitor(warmupCtx)
+	// 启动上游模型列表每小时自动刷新（后台默认开启，无需前端展示）。
+	server.openai.StartModelAutoRefresh(warmupCtx)
 	return server, nil
 }
 
@@ -181,6 +204,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.drawio != nil {
 		s.drawio.Stop()
+	}
+	if s.adminai != nil {
+		// 停止审批清理 goroutine 与频道轮询（runs 通道由 RunLoop 结束时的 defer 清理）
+		s.adminai.StopBackground()
+		s.adminai.StopAllChannels()
 	}
 	if s.cron == nil {
 		return nil
@@ -297,6 +325,12 @@ func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route manifest.Route) bool {
+	// 本机定时任务内部调用（cronjobs internal 任务）：仅放行登记的内部接口，
+	// 且来源必须是本机回环地址，防止外部伪造 X-Internal-Cron 头绕过会话鉴权。
+	// 方法级校验限制为只读动作（admin-ai cron 回调除外），杜绝无会话写操作。
+	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) {
+		return true
+	}
 	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible") {
 		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
 		if err != nil {
@@ -369,11 +403,88 @@ func apiKeyRequiresSession(path string) bool {
 	}
 	protectedSettings := map[string]bool{
 		"/api/settings/database/import":           true,
-		"/api/settings/import-database":           true,
 		"/api/settings/export-database":           true,
 		"/api/settings/cleanup-deprecated-tables": true,
 	}
 	return protectedSettings[path]
+}
+
+// isLoopbackRemoteAddr 判断请求来源是否为本机回环地址。
+func isLoopbackRemoteAddr(remoteAddr string) bool {
+	host := strings.TrimSpace(remoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// isInternalCronRoute 判断路径是否为登记的本机定时任务内部接口。
+// 仅放行本机 cron 任务（经 loopback + X-Internal-Cron 防伪造）可读取的接口：
+//   - 精确登记的系统只读接口与 admin-ai cron 回调；
+//   - 带模块级二次鉴权的模块（uptime/filebox）不在白名单内，属预期安全边界。
+//
+// 该方法判定路径是否可放行；方法级校验（仅 GET 等只读动作）由调用方
+// internalCronAllowsMethod 完成，避免白名单接口被用于写操作。
+func isInternalCronRoute(path string) bool {
+	switch path {
+	case "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/cron/task-run",
+		"/api/system/host-metrics", "/api/system/api-stats",
+		"/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json",
+		"/api/migration/status", "/api/server/s":
+		return true
+	}
+	// 只读 GET 业务家族：无模块级二次鉴权，prefix 前缀 + 调用方 GET 校验兜底。
+	for _, prefix := range internalCronReadonlyPrefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// internalCronAllowsMethod 校验 cron 内部调用允许的方法：除 admin-ai cron 回调外，
+// 业务只读家族只放行 GET/HEAD（防止 cron 无会话写操作）。
+func (s *Server) internalCronAllowsMethod(r *http.Request) bool {
+	path := r.URL.Path
+	switch path {
+	case "/api/admin-ai/cron/task-run":
+		return r.Method == http.MethodPost
+	case "/api/admin-ai/cron/daily-briefing":
+		return r.Method == http.MethodGet
+	}
+	for _, prefix := range internalCronReadonlyPrefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return r.Method == http.MethodGet || r.Method == http.MethodHead
+		}
+	}
+	if isInternalCronRoute(path) {
+		return r.Method == http.MethodGet || r.Method == http.MethodHead
+	}
+	return false
+}
+
+// internalCronReadonlyPrefixes 是 cron 内部任务可只读访问的模块家族前缀。
+// 仅收录无模块级二次鉴权、GET 语义为读取/列表/统计的模块；uptime/filebox
+// 自带模块级会话校验，不在此列。
+var internalCronReadonlyPrefixes = []string{
+	"/api/system",
+	"/api/cloudflare/zones",
+	"/api/openai/analytics",
+	"/api/openai/endpoints",
+	"/api/totp",
+	"/api/notification",
+	"/api/scheduler",
+	"/api/backup",
+	"/api/aliyun",
+	"/api/tencent",
+	"/api/flyio",
+	"/api/koyeb",
+	"/api/github",
+	"/api/drawio",
+	"/api/prompts",
+	"/api/server",
 }
 
 func hasAPIKeyCredential(r *http.Request) bool {
@@ -392,6 +503,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 			"status":    "ok",
 			"service":   "api-monitor-go",
 			"version":   s.cfg.Version,
+			"goVersion": runtime.Version(),
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	case "/api/migration/status":
@@ -403,9 +515,9 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 			"routes":        manifest.Routes(),
 			"retired":       []string{},
 		})
-	case "/api/settings", "/api/settings/site-brand/icons", "/api/settings/site-brand/icons/{id}", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/deprecated-tables", "/api/settings/cleanup-deprecated-tables", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/import-database", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits", "/api/settings/clear-chat-messages":
+	case "/api/settings", "/api/settings/site-brand/icons", "/api/settings/site-brand/icons/{id}", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/deprecated-tables", "/api/settings/cleanup-deprecated-tables", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits":
 		s.settings.ServeHTTP(w, r)
-	case "/api/system/host-metrics", "/api/system/api-stats", "/api/system/api-docs", "/api/system/openapi.json", "/api/api-keys", "/api/system/api-keys", "/api/system/ai-access/key/rotate", "/api/system/ai-access/write", "/api/system/ai-access/audit", "/api/system/ai-access/mcp-servers/{id}", "/api/system/ai-access/mcp-servers", "/api/system/ai-access/skills/{id}", "/api/system/ai-access/skills", "/api/system/ai-access/audit/clear", "/api/system/ai-access", "/api/ai-access/key/rotate", "/api/ai-access/write", "/api/ai-access/audit", "/api/ai-access/mcp-servers/{id}", "/api/ai-access/mcp-servers", "/api/ai-access/skills/{id}", "/api/ai-access/skills", "/api/ai-access/audit/clear", "/api/ai-access", "/api/ai/manifest", "/api/ai/mcp":
+	case "/api/system/host-metrics", "/api/system/api-stats", "/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json", "/api/system/status/stream", "/api/api-keys", "/api/system/api-keys", "/api/system/ai-access/key/rotate", "/api/system/ai-access/write", "/api/system/ai-access/policy", "/api/system/ai-access/audit", "/api/system/ai-access/mcp-servers/{id}", "/api/system/ai-access/mcp-servers", "/api/system/ai-access/skills/{id}", "/api/system/ai-access/skills", "/api/system/ai-access/audit/clear", "/api/system/ai-access", "/api/ai-access/key/rotate", "/api/ai-access/write", "/api/ai-access/policy", "/api/ai-access/audit", "/api/ai-access/mcp-servers/{id}", "/api/ai-access/mcp-servers", "/api/ai-access/skills/{id}", "/api/ai-access/skills", "/api/ai-access/audit/clear", "/api/ai-access", "/api/ai/manifest", "/api/ai/mcp":
 		s.system.ServeHTTP(w, r)
 	case "/api/system/logs/stream", "/api/system/logs/download":
 		s.logs.ServeHTTP(w, r)
@@ -425,6 +537,8 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.koyeb.ServeHTTP(w, r)
 	case "/api/flyio":
 		s.flyio.ServeHTTP(w, r)
+	case "/api/onepanel", "/api/onepanel/config", "/api/onepanel/spec":
+		s.onepanel.ServeHTTP(w, r)
 	case "/api/github", "/api/github/webhook/{repositoryId}", "/api/github/webhook", "/api/github/events/stream":
 		s.github.ServeHTTP(w, r)
 	case "/api/drawio", "/api/drawio/documents", "/api/drawio/documents/{id}", "/api/drawio/documents/{id}/clone", "/api/drawio/documents/{id}/draft", "/api/drawio/documents/{id}/export", "/api/drawio/documents/{id}/versions", "/api/drawio/documents/{id}/versions/{versionId}", "/api/drawio/documents/{id}/versions/{versionId}/restore", "/api/drawio/documents/{id}/thumbnails/rebuild", "/api/drawio/import", "/api/drawio/thumbnails/rebuild", "/api/drawio/render-jobs", "/api/drawio/settings":
@@ -457,8 +571,14 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.server.ServeHTTP(w, r)
 	case "/socket.io/":
 		s.server.ServeHTTP(w, r)
+	case "/api/admin-ai", "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/cron/task-run", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/messages", "/api/admin-ai/messages/stream", "/api/admin-ai/cancel", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/audit", "/api/admin-ai/settings", "/api/admin-ai/memories", "/api/admin-ai/memories/{id}":
+		s.adminai.ServeHTTP(w, r)
 	default:
 		if strings.HasPrefix(route.Prefix, "/sub/") || strings.HasPrefix(r.URL.Path, "/sub/") {
+			s.sub.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(route.Prefix, "/api/subscription") {
 			s.sub.ServeHTTP(w, r)
 			return
 		}
@@ -672,6 +792,10 @@ func setStaticCacheHeaders(w http.ResponseWriter, cleanPath string) {
 	}
 	if strings.HasPrefix(cleanPath, "assets/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	if strings.HasPrefix(cleanPath, "fonts/") || cleanPath == "logo.svg" || cleanPath == "logo-default.svg" || cleanPath == "robots.txt" || cleanPath == "llms.txt" {
+		w.Header().Set("Cache-Control", "public, max-age=2592000")
 	}
 }
 
@@ -785,10 +909,23 @@ func (s *Server) sameOriginRequest(r *http.Request) bool {
 	if strings.EqualFold(parsed.Host, s.originCheckHost(r)) {
 		return true
 	}
-	if !s.cfg.IsProduction() && s.trustForwardedHost(r) && isDevelopmentOriginHost(parsed.Hostname()) {
-		return true
+	if !s.cfg.IsProduction() && s.trustForwardedHost(r) {
+		// 开发模式下本机直接放行：包装 App / 内嵌 WebView 的本地开发来源
+		// （localhost、内网地址、初始化时的 5173 代理），避免本地联调受阻。
+		if originpkg.IsDevelopmentOriginHost(parsed.Hostname()) {
+			return true
+		}
+		// 包装环境来源（Origin: null、app:// 等自定义 scheme）只能由用户自己的
+		// 嵌入容器产生，公网站点无法伪造，放行不构成 CSRF 风险。
+		if originpkg.IsEmbeddedWrapperOrigin(origin) {
+			return true
+		}
 	}
-	return false
+	return s.originAllowedByConfig(origin)
+}
+
+func (s *Server) originAllowedByConfig(origin string) bool {
+	return originpkg.AllowedByConfig(s.cfg.CORSAllowedOrigins, origin)
 }
 
 func (s *Server) originCheckHost(r *http.Request) string {
@@ -872,21 +1009,6 @@ func firstForwardedValue(value string) string {
 	return strings.TrimSpace(strings.Split(value, ",")[0])
 }
 
-func isDevelopmentOriginHost(host string) bool {
-	host = strings.TrimSpace(strings.Trim(host, "[]"))
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "localhost") || strings.EqualFold(host, "host.docker.internal") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate()
-}
-
 func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	method := r.Method
@@ -925,12 +1047,13 @@ func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) int {
 	ctx := r.Context()
 	var mergedModels []map[string]interface{}
 
-	if oaiModels, err := s.openai.GetModelsList(ctx); err == nil {
+	if oaiModels, err := s.openai.GetModelsList(ctx, true); err == nil {
 		mergedModels = append(mergedModels, oaiModels...)
 	} else {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return http.StatusInternalServerError
 	}
+	mergedModels = s.openai.FilterModelsListByKey(ctx, mergedModels)
 
 	sort.Slice(mergedModels, func(i, j int) bool {
 		idI, _ := mergedModels[i]["id"].(string)

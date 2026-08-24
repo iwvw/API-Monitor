@@ -79,6 +79,7 @@ dist/
 build/
 out/
 coverage/
+backend-go/cover
 stats.html
 /public/
 /src/pwa-public/vendor/drawio/
@@ -111,3 +112,14 @@ api-monitor.code-workspace
 # ====================
 docs/archive/
 .zcode/
+
+# ====================
+# 本地工具运行日志
+# ====================
+.playwright-cli/
+
+# ====================
+# 调试会话与工具生成物
+# ====================
+.dsh-session-inspect/
+rulesjs.json

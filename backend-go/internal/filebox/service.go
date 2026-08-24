@@ -30,7 +30,7 @@ import (
 const (
 	defaultMaxFileSize     = 100 * 1024 * 1024
 	defaultExpiryHours     = 24
-	defaultCodeLength      = 5
+	defaultCodeLength      = 8
 	codeAlphabet           = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 	maxAccessLogLimit      = 500
 	multipartMemoryBudget  = 32 << 20
@@ -1099,6 +1099,13 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 		return
 	}
 
+	// 先原子占用下载名额（计数/烧毁删除）再发送内容：并发请求同时通过的
+	// MaxDownloads 检查不会全部放行，超卖窗口关闭。
+	if err := s.AccessEntry(context.Background(), entry.Code, metaFromRequest(r)); err != nil {
+		http.Error(w, "Download quota exceeded or entry expired", http.StatusForbidden)
+		return
+	}
+
 	if entry.Type == "text" {
 		contentType := "text/plain; charset=utf-8"
 		if entry.MIMEType != nil && *entry.MIMEType != "" {
@@ -1111,7 +1118,6 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 		if entry.Content != nil {
 			_, _ = io.WriteString(w, *entry.Content)
 		}
-		_ = s.AccessEntry(context.Background(), entry.Code, metaFromRequest(r))
 		return
 	}
 
@@ -1140,7 +1146,6 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 	}
 	http.ServeContent(w, r, name, stat.ModTime(), file)
 	_ = file.Close()
-	_ = s.AccessEntry(context.Background(), entry.Code, metaFromRequest(r))
 }
 
 func (s *Service) verifyPublicShare(w http.ResponseWriter, r *http.Request, code string) {
@@ -1167,7 +1172,7 @@ func (s *Service) createShare(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	payload, fileHeader, err := parseShareRequest(r, settings.MaxFileSize)
+	payload, fileHeader, err := parseShareRequest(w, r, settings.MaxFileSize)
 	if err != nil {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -1465,19 +1470,39 @@ func (s *Service) AccessEntry(ctx context.Context, code string, meta requestMeta
 	if err != nil || entry == nil {
 		return err
 	}
-	nextDownloads := entry.Downloads + 1
-	if entry.BurnAfterReading || (entry.MaxDownloads > 0 && nextDownloads >= entry.MaxDownloads) {
-		_, err = s.DeleteEntry(ctx, entry.Code)
-	} else {
-		db, openErr := s.open(ctx)
-		if openErr != nil {
-			return openErr
-		}
-		_, err = db.ExecContext(ctx, `UPDATE filebox_entries SET downloads = downloads + 1 WHERE code = ?`, entry.Code)
-		_ = db.Close()
+	// 下载计数用条件原子更新：并发下载时由数据库判定是否放行，
+	// 避免读-改-写竞态导致超过 max_downloads 的超额访问。
+	db, openErr := s.open(ctx)
+	if openErr != nil {
+		return openErr
+	}
+	result, err := db.ExecContext(
+		ctx,
+		`UPDATE filebox_entries SET downloads = downloads + 1 WHERE code = ? AND (max_downloads = 0 OR downloads < max_downloads)`,
+		entry.Code,
+	)
+	if closeErr := db.Close(); err == nil {
+		err = closeErr
 	}
 	if err != nil {
 		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		// 已达下载上限或条目已被并发删除：丢弃本次下载请求（返回错误让上游 403），
+		// 并清理残留条目，避免 max_downloads 超卖依旧放行。
+		_ = s.LogAccess(ctx, entry.Code, "download", meta)
+		_, _ = s.DeleteEntry(ctx, entry.Code)
+		return fmt.Errorf("download quota exceeded or entry expired")
+	}
+	if entry.BurnAfterReading {
+		// burn 同样以本次计数成功为前提，仅在实际扣减后销毁
+		if _, derr := s.DeleteEntry(ctx, entry.Code); derr != nil {
+			return derr
+		}
 	}
 	return s.LogAccess(ctx, entry.Code, "download", meta)
 }
@@ -1907,7 +1932,12 @@ func (s *Service) migrateJSONMetadata(ctx context.Context) error {
 	return tx.Commit()
 }
 
-func parseShareRequest(r *http.Request, maxFileSize int64) (sharePayload, *multipart.FileHeader, error) {
+func parseShareRequest(w http.ResponseWriter, r *http.Request, maxFileSize int64) (sharePayload, *multipart.FileHeader, error) {
+	// 流式请求体上限：先用 MaxBytesReader 卡住超限上传（不落盘），
+	// 再按 multipart 声明继续校验，双重防线。
+	if maxFileSize > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, maxFileSize+(1<<20))
+	}
 	contentType := strings.ToLower(r.Header.Get("Content-Type"))
 	if strings.HasPrefix(contentType, "application/json") {
 		defer r.Body.Close()
@@ -2010,15 +2040,30 @@ func verifyAccessPassword(entry *Entry, accessPassword string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(*entry.AccessPasswordHash), []byte(accessPassword)) == nil
 }
 
+// randomCode 用拒绝采样从 codeAlphabet 均匀取字符：直接对随机字节取模，
+// 在字母表长度不整除 256 时会让靠前字符出现概率偏高；先丢弃落在有效区间
+// 之外的字节再取模，保证每个字符等概率。
 func randomCode(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("generate filebox code: %w", err)
-	}
+	alphabetLen := len(codeAlphabet)
+	// 用 int 计算 256 内最大的可接受字节数，避免 byte 溢出；
+	// 字母表长度整除 256 时等于 256，即不丢弃任何字节。
+	maxValid := 256 / alphabetLen * alphabetLen
 	var builder strings.Builder
 	builder.Grow(length)
-	for _, value := range bytes {
-		builder.WriteByte(codeAlphabet[int(value)%len(codeAlphabet)])
+	buf := make([]byte, length)
+	for builder.Len() < length {
+		if _, err := rand.Read(buf); err != nil {
+			return "", fmt.Errorf("generate filebox code: %w", err)
+		}
+		for _, value := range buf {
+			if int(value) >= maxValid {
+				continue
+			}
+			builder.WriteByte(codeAlphabet[int(value)%alphabetLen])
+			if builder.Len() == length {
+				break
+			}
+		}
 	}
 	return builder.String(), nil
 }
@@ -2035,9 +2080,16 @@ func parseExpiryHours(value string, fallback int) float64 {
 	return parsed
 }
 
+// maxShareExpiryHours 分享有效期上限（100 年）：防止超大值在 float→int64
+// 换算中溢出成负数，导致 isExpired 恒假而变成「永久分享」。
+const maxShareExpiryHours = 876000.0
+
 func expiryTime(now int64, expiryHours float64) int64 {
 	if expiryHours <= 0 {
 		return 0
+	}
+	if expiryHours > maxShareExpiryHours {
+		expiryHours = maxShareExpiryHours
 	}
 	return now + int64(expiryHours*float64(time.Hour/time.Millisecond))
 }

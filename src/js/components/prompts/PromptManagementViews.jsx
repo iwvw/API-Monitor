@@ -48,7 +48,7 @@ export function PromptCollectionsView({
           className="min-h-72"
           icon={<Folder className="h-10 w-10 text-kumo-inactive" />}
           title="还没有集合"
-          description="创建集合，将同一工作流的提示词放在一起。"
+          description="将同一工作流的提示词放在一起。"
           contents={
             <Button
               size="sm"
@@ -61,13 +61,13 @@ export function PromptCollectionsView({
           }
         />
       ) : (
-        <div className="grid items-start grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid items-start grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-xl:grid-cols-3">
           {collections.map(collection => (
             <LayerCard key={collection.id} className="overflow-hidden p-0">
               <LayerCard.Primary className="p-4">
                 <div className="flex items-start gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed/40">
-                    <Folder className="h-4 w-4 text-kumo-brand" />
+                    <Folder className="h-4 w-4 text-brand" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-kumo-strong">
@@ -131,10 +131,10 @@ export function PromptPublishedView({ entries, onOpen, onDelete, deleteIsArmed =
             {entries.map(item => {
               const directUrl = `${window.location.origin}/api/prompts/d/${item.public_id}`;
               return (
-                <div key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+                <div key={item.id} className="flex flex-col gap-3 p-4 cq-sm:flex-row cq-sm:items-center">
                   <div className="flex min-w-0 flex-1 items-start gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed/40">
-                      <FileText className="h-4 w-4 text-kumo-brand" />
+                      <FileText className="h-4 w-4 text-brand" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -142,7 +142,7 @@ export function PromptPublishedView({ entries, onOpen, onDelete, deleteIsArmed =
                           {item.title}
                         </span>
                         {item.starred && (
-                          <Star className="h-3.5 w-3.5 fill-current text-kumo-brand" />
+                          <Star className="h-3.5 w-3.5 fill-current text-brand" />
                         )}
                         <Badge variant="success">v{item.latest_published_version_no}</Badge>
                       </div>
@@ -157,7 +157,7 @@ export function PromptPublishedView({ entries, onOpen, onDelete, deleteIsArmed =
                       />
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
+                  <div className="flex shrink-0 items-center gap-1 self-end cq-sm:self-auto">
                     <Button
                       size="sm"
                       variant="secondary"
@@ -198,7 +198,7 @@ export function PromptSettingsPanel({ settings, onChange, onSave, saving = false
         className="max-w-3xl self-start"
         bodyClassName="grid gap-4"
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 cq-sm:grid-cols-2">
           <Select
             size="sm"
             label="默认可见性"
@@ -233,7 +233,7 @@ export function PromptSettingsPanel({ settings, onChange, onSave, saving = false
           />
         </div>
 
-        <div className="grid gap-3 border-t border-kumo-line pt-4 sm:grid-cols-2">
+        <div className="grid gap-3 border-t border-kumo-line pt-4 cq-sm:grid-cols-2">
           <Switch
             size="sm"
             label="允许公开页面"

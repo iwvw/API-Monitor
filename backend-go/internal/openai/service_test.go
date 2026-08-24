@@ -9,20 +9,43 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	_ "modernc.org/sqlite"
 )
 
+// TestMain 固定候选选路为「第一个候选」：延迟加权选路基于 crypto/rand 随机
+// （无延迟记录时候选等权），而 failover/retry 测试都按「先创建的端点先被选中」
+// 构造场景，随机选路会让这批测试间歇性失败（B 被选中 → failover 断言落空）。
+// 需要验证真实加权行为的测试须显式覆盖/恢复该钩子。
+func TestMain(m *testing.M) {
+	endpointPickOverride = func([]Endpoint) int { return 0 }
+	code := m.Run()
+	endpointPickOverride = nil
+	os.Exit(code)
+}
+
+// newOpenAIService 创建测试 Service 并注册退出清理：在测试返回前关闭异步 analytics
+// worker（等待在途批次落库），避免测试结束后后台线程仍占用 TempDir 中的 SQLite
+// 文件导致 TempDir RemoveAll 清理竞态（CI 偶发 directory not empty）。
+func newOpenAIService(t *testing.T) *Service {
+	t.Helper()
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	t.Cleanup(service.Shutdown)
+	return service
+}
+
 func TestOpenAINormalization(t *testing.T) {
-	s := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	s := newOpenAIService(t)
 
 	testCases := []struct {
 		input    string
@@ -122,10 +145,7 @@ func TestEffectiveProxyAttempts(t *testing.T) {
 }
 
 func TestClientForProtocol(t *testing.T) {
-	s := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	s := newOpenAIService(t)
 
 	http1 := s.clientForProtocol("http1")
 	if tr, ok := http1.Transport.(*http.Transport); !ok {
@@ -213,10 +233,7 @@ func TestEnsureSchemaMigratesGatewayAnalyticsKeyColumn(t *testing.T) {
 }
 
 func TestAnalyticsLogsRespectDaysFilter(t *testing.T) {
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -255,12 +272,13 @@ func TestAnalyticsLogsRespectDaysFilter(t *testing.T) {
 }
 
 func TestRecordAnalyticsSurvivesCancelledRequestContext(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "key-1", Name: "client"})
 	cancel()
 
 	service.RecordAnalytics(ctx, "chat.completions", "endpoint-1", "model-1", http.StatusBadGateway, 42, 0, 0, 0, 0, 0, 0, 0, "203.0.113.9", "198.51.100.7")
+	service.flushAnalyticsQueue(5 * time.Second)
 
 	db, err := service.open(context.Background())
 	if err != nil {
@@ -326,11 +344,8 @@ func TestEnsureSchemaMigratesGatewayKeyCipherColumn(t *testing.T) {
 	}
 }
 
-func TestGatewayKeyIsStoredAndListedAsPlaintext(t *testing.T) {
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+func TestGatewayKeyIsStoredEncrypted(t *testing.T) {
+	service := newOpenAIService(t)
 
 	createRecorder := httptest.NewRecorder()
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/openai/keys", strings.NewReader(`{"name":"desktop client"}`))
@@ -352,8 +367,15 @@ func TestGatewayKeyIsStoredAndListedAsPlaintext(t *testing.T) {
 	if err := db.QueryRow("SELECT key_cipher FROM openai_gateway_keys LIMIT 1").Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored != created.APIKey {
-		t.Fatalf("gateway key was not stored as plaintext: stored=%q created=%q", stored, created.APIKey)
+	if stored == created.APIKey {
+		t.Fatalf("gateway key was stored as plaintext: stored=%q created=%q", stored, created.APIKey)
+	}
+	if !secure.IsEncrypted(stored) {
+		t.Fatalf("gateway key was not encrypted: stored=%q", stored)
+	}
+	decrypted := secure.SecureDecrypt(stored)
+	if decrypted != created.APIKey {
+		t.Fatalf("decrypted key does not match original: decrypted=%q original=%q", decrypted, created.APIKey)
 	}
 
 	listRecorder := httptest.NewRecorder()
@@ -367,10 +389,7 @@ func TestGatewayKeyIsStoredAndListedAsPlaintext(t *testing.T) {
 }
 
 func TestGetModelsListIncludesEnabledEndpointPendingVerification(t *testing.T) {
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -384,7 +403,7 @@ func TestGetModelsListIncludesEnabledEndpointPendingVerification(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	models, err := service.GetModelsList(context.Background())
+	models, err := service.GetModelsList(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,10 +481,7 @@ func TestOpenAILifecycleAndProxy(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	// 1. List initially empty
 	wList := httptest.NewRecorder()
@@ -724,10 +740,7 @@ func TestHealthCheckAcceptsEmptyOutput(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	success := service.healthCheckSingleModel(
 		context.Background(),
@@ -768,10 +781,7 @@ func TestHealthCheckRejects200WithErrorBody(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	record := service.healthCheckSingleModel(
 		context.Background(),
@@ -793,6 +803,92 @@ func TestHealthCheckRejects200WithErrorBody(t *testing.T) {
 func mustDecode(t *testing.T, body string, v interface{}) {
 	if err := json.Unmarshal([]byte(body), v); err != nil {
 		t.Fatalf("json decode failed: %v body=%q", err, body)
+	}
+}
+
+func TestDeletedEndpointKeepsNameInAnalytics(t *testing.T) {
+	service := newOpenAIService(t)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, status, enabled)
+		VALUES ('ep-archived', '已删除站点A', 'https://example.com/v1', 'encrypted-placeholder', 'unknown', 1)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO openai_gateway_analytics (endpoint_id, model, status_code, latency_ms, total_tokens, timestamp)
+		VALUES
+			('ep-archived', 'model-a', 200, 10, 1000, datetime('now', '-1 day')),
+			('ep-archived', 'model-b', 200, 20, 2000, datetime('now', '-2 days'))
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	delRecorder := httptest.NewRecorder()
+	service.ServeHTTP(delRecorder, httptest.NewRequest(http.MethodDelete, "/api/openai/endpoints/ep-archived", nil))
+	if delRecorder.Code != http.StatusOK {
+		t.Fatalf("delete endpoint status = %d, body = %s", delRecorder.Code, delRecorder.Body.String())
+	}
+
+	chartsRecorder := httptest.NewRecorder()
+	service.ServeHTTP(chartsRecorder, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/charts?days=7&granularity=day", nil))
+	if chartsRecorder.Code != http.StatusOK {
+		t.Fatalf("charts status = %d, body = %s", chartsRecorder.Code, chartsRecorder.Body.String())
+	}
+	var charts struct {
+		Endpoints []struct {
+			Model  string `json:"model"`
+			Count  int    `json:"count"`
+			Tokens int    `json:"tokens"`
+		} `json:"endpoints"`
+	}
+	mustDecode(t, chartsRecorder.Body.String(), &charts)
+	if len(charts.Endpoints) != 1 || charts.Endpoints[0].Model != "已删除站点A" {
+		t.Fatalf("charts endpoints did not keep deleted name: %+v", charts.Endpoints)
+	}
+	if charts.Endpoints[0].Count != 2 || charts.Endpoints[0].Tokens != 3000 {
+		t.Fatalf("charts endpoints aggregates wrong: %+v", charts.Endpoints)
+	}
+
+	logsRecorder := httptest.NewRecorder()
+	service.ServeHTTP(logsRecorder, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil))
+	if logsRecorder.Code != http.StatusOK {
+		t.Fatalf("logs status = %d, body = %s", logsRecorder.Code, logsRecorder.Body.String())
+	}
+	var logs struct {
+		Total   int `json:"total"`
+		Records []struct {
+			EndpointName string `json:"endpointName"`
+		} `json:"records"`
+	}
+	mustDecode(t, logsRecorder.Body.String(), &logs)
+	if logs.Total != 2 || len(logs.Records) != 2 {
+		t.Fatalf("unexpected logs count: %+v", logs)
+	}
+	for _, rec := range logs.Records {
+		if rec.EndpointName != "已删除站点A" {
+			t.Fatalf("logs endpoint name not kept: %q", rec.EndpointName)
+		}
+	}
+
+	// 归档名称同样可用于日志按端点筛选（输入名称而非 ID）。
+	filterRecorder := httptest.NewRecorder()
+	service.ServeHTTP(filterRecorder, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20&endpoint="+url.QueryEscape("已删除站点A"), nil))
+	if filterRecorder.Code != http.StatusOK {
+		t.Fatalf("filtered logs status = %d, body = %s", filterRecorder.Code, filterRecorder.Body.String())
+	}
+	var filtered struct {
+		Total int `json:"total"`
+	}
+	mustDecode(t, filterRecorder.Body.String(), &filtered)
+	if filtered.Total != 2 {
+		t.Fatalf("filter by archived name failed: total = %d", filtered.Total)
 	}
 }
 
@@ -828,10 +924,7 @@ func TestEndpointCustomHeadersForwardedToUpstream(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Headers Mock",
@@ -929,10 +1022,7 @@ func TestEndpointModelEnableToggleFiltersRouting(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Model Switch Mock",
@@ -1090,10 +1180,7 @@ func TestProxyPoolRotationAndAutoSwitch(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Proxy Switch Mock",
@@ -1207,10 +1294,7 @@ func TestProxyPoolAutoSwitchOn5xx(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	service := New(config.Config{
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
+	service := newOpenAIService(t)
 
 	createPayload := fmt.Sprintf(`{
 		"name": "Proxy 5xx Switch Mock",
@@ -1293,7 +1377,7 @@ func TestIsRetryableUpstreamResponse(t *testing.T) {
 }
 
 func TestRelayErrorsBufferAndHandler(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 
 	// 记录三条失败事件，模拟最新的最后写入。
 	service.recordRelayError(RelayErrorRecord{Route: "chat.completions", Kind: "dial", Endpoint: "ep-a", Model: "m1", Proxy: "203.0.113.5:8080", Error: "dial tcp: i/o timeout"})
@@ -1347,7 +1431,7 @@ func TestRelayErrorsBufferAndHandler(t *testing.T) {
 }
 
 func TestRelayErrorsBufferCap(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	for i := 0; i < relayErrorBufferSize+37; i++ {
 		service.recordRelayError(RelayErrorRecord{Route: "chat.completions", Kind: "dial", Error: "x"})
 	}
@@ -1398,7 +1482,7 @@ func setupTwoProxyEndpoint(t *testing.T, proxy1Handler, proxy2Handler http.Handl
 	}))
 	t.Cleanup(mockUpstream.Close)
 
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	createPayload := fmt.Sprintf(`{
 		"name": "Session Proxy Mock",
 		"baseUrl": "%s",
@@ -1484,9 +1568,10 @@ func TestSessionProxyRotatesAfterRequestLimit(t *testing.T) {
 	}
 }
 
-func TestUpstream429DoesNotCoolProxy(t *testing.T) {
-	// 上游 429 是上游限额，不是代理故障：单次 429 不惩罚代理（无冷却、无失败计数），
-	// 只切换出口；但 429 会累计计数，达到阈值后触发禁用（见 TestProxy429BannedAfterThreshold）。
+func TestUpstream429GroupFrozen(t *testing.T) {
+	// 上游 429 是上游按出口 IP 的限流：单次 429 不累计连接失败计数（不指数冷却），
+	// 但每次 429 都立即按出口 IP 组冻结该出口 proxy429Cooldown（1 小时），
+	// 随机换代理也不会再抽回该 IP；rate429 仅保留计数供前端展示。
 	service, endpointID, proxy1URL, _ := setupTwoProxyEndpoint(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -1495,6 +1580,7 @@ func TestUpstream429DoesNotCoolProxy(t *testing.T) {
 		okHandler,
 	)
 
+	// 请求内：p1 429 → 组冻结 → 随机换到 p2 成功，p1 不再被选。
 	w := chatRequest(t, service, endpointID, false, "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("request failed: %d %s", w.Code, w.Body.String())
@@ -1502,25 +1588,393 @@ func TestUpstream429DoesNotCoolProxy(t *testing.T) {
 
 	service.proxyMu.Lock()
 	state := service.proxyStateByEndpoint[endpointID]
-	cooldownCount := len(state.cooldown)
 	failureCount := len(state.failures)
 	rateCount := state.rate429[proxy1URL]
-	limitedCount := len(state.rateLimited)
+	limitedUntil, limited := state.rateLimited[proxy1URL]
 	service.proxyMu.Unlock()
-	if cooldownCount != 0 || failureCount != 0 {
-		t.Fatalf("429 must not penalize proxies: cooldown=%d failures=%d", cooldownCount, failureCount)
+	if failureCount != 0 {
+		t.Fatalf("429 must not count toward connection failures, got %d", failureCount)
 	}
 	if rateCount != 1 {
-		t.Fatalf("single 429 should count once toward ban, got %d", rateCount)
+		t.Fatalf("single 429 should count once for display, got %d", rateCount)
 	}
-	if limitedCount != 0 {
-		t.Fatalf("single 429 must not ban the proxy yet, got %d limited", limitedCount)
+	if !limited {
+		t.Fatal("single 429 must immediately group-frozen the proxy (1h)")
+	}
+	expect := time.Now().Add(proxy429Cooldown).Add(-2 * time.Second)
+	if limitedUntil.Before(expect.Add(-time.Second)) || limitedUntil.After(expect.Add(3*time.Second)) {
+		t.Fatalf("group-frozen expiry = %v, want ~now+%v", limitedUntil, proxy429Cooldown)
 	}
 }
 
-func TestProxy429BannedAfterThreshold(t *testing.T) {
-	// 同一代理累计 3 次 429 后禁用 30 分钟；禁用期内选择逻辑跳过它，
-	// 到期后自动释放（时间判断，无需主动清理）。
+// TestClientDisconnectSkips502Record 客户端在请求挂起（等待上游首字节）期间主动断开
+// （点击停止/关闭连接）时，网关应像「流式输出首字节后静默收尾」一样静默收尾：
+// 不写 502 调用日志、不写 relay 错误、不回写错误响应。此前会把「context canceled」
+// 视作终局失败同时写入 bad_gateway（尝试级）+ failover（聚合级）两条 502。
+func TestClientDisconnectSkips502Record(t *testing.T) {
+	var hold atomic.Bool
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			if hold.Load() {
+				// 上游挂起：迟迟不返回首字节。等客户端断开或兜底超时后自行退出，
+				// 不把清理依赖于客户端关闭连接（避免残留连接让 httptest.Close 挂起）。
+				select {
+				case <-r.Context().Done():
+				case <-time.After(3 * time.Second):
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	defer func() {
+		// 被取消的请求会在客户端连接池留下残留连接，先断开再关闭，避免 Close 挂起。
+		mockUpstream.CloseClientConnections()
+		mockUpstream.Close()
+	}()
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{
+		"name": "Slow Upstream",
+		"baseUrl": "%s",
+		"apiKey": "test-api-key"
+	}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+	hold.Store(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}`))
+	r = r.WithContext(ctx)
+	r.Header.Set("x-endpoint-id", createRes.Endpoint.ID)
+
+	// 请求已发给上游、仍挂起时，客户端断开连接。
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	service.ServeHTTP(w, r)
+
+	if w.Body.Len() != 0 {
+		t.Fatalf("client disconnect should return empty body (silent), got: %q", w.Body.String())
+	}
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var c502, cAll int
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM openai_gateway_analytics WHERE status_code = 502").Scan(&c502); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM openai_gateway_analytics").Scan(&cAll); err != nil {
+		t.Fatal(err)
+	}
+	if c502 != 0 || cAll != 0 {
+		t.Fatalf("client disconnect must not be recorded as failure: 502=%d all=%d", c502, cAll)
+	}
+
+	service.relayErrMu.Lock()
+	relayErrCount := len(service.relayErrors)
+	service.relayErrMu.Unlock()
+	if relayErrCount != 0 {
+		t.Fatalf("client disconnect must not write relay errors, got %d: %+v", relayErrCount, service.relayErrors)
+	}
+}
+
+// TestRefreshAllModelsUpdatesEndpointModels 人工刷新与后台每小时自动刷新共用的
+// refreshAllModels 应：验证 API Key → 拉取 /v1/models → 写回端点 models；上游模型
+// 变化后能反映到库中（后台自动刷新依赖同一逻辑）。
+func TestRefreshAllModelsUpdatesEndpointModels(t *testing.T) {
+	var modelIDs atomic.Value
+	modelIDs.Store("gpt-4")
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"data":[{"id":"` + modelIDs.Load().(string) + `","object":"model"}]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer mockUpstream.Close()
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{
+		"name": "Auto Refresh Mock",
+		"baseUrl": "%s",
+		"apiKey": "test-api-key"
+	}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rawBefore string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&rawBefore); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	if !strings.Contains(rawBefore, "gpt-4") {
+		t.Fatalf("expected gpt-4 before refresh, got %q", rawBefore)
+	}
+
+	// 上游新增模型后，refreshAllModels 应把新列表写回（幂等，失败保留旧模型）。
+	modelIDs.Store("gpt-5")
+	results, rerr := service.refreshAllModels(context.Background())
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(results) != 1 {
+		t.Fatalf("refresh results = %+v, want 1 entry", results)
+	}
+	if ok, _ := results[0]["success"].(bool); !ok {
+		t.Fatalf("refresh should succeed, got %+v", results[0])
+	}
+	if results[0]["modelsCount"] != 1 {
+		t.Fatalf("modelsCount = %v, want 1", results[0]["modelsCount"])
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var rawAfter string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&rawAfter); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rawAfter, "gpt-5") {
+		t.Fatalf("models not refreshed to gpt-5: %q", rawAfter)
+	}
+	if strings.Contains(rawAfter, "gpt-4") {
+		t.Fatalf("stale gpt-4 still present after refresh: %q", rawAfter)
+	}
+}
+
+// TestSameExitIPGroupCooled 代理池是「同入口、多出口 IP」的槽池：探测到出口 IP
+// 后，同一出口 IP 的任一个 slot 被 429 冻结（组感知 rateLimited），整组都应让出
+// 候选（把尝试预算留给其他出口 IP），而不同出口 IP 不受影响。
+func TestSameExitIPGroupCooled(t *testing.T) {
+	newOk := func(name string) *httptest.Server {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+		}))
+		t.Cleanup(s.Close)
+		return s
+	}
+	okSameIP := newOk("ok-same-ip")
+	okOtherIP := newOk("ok-other-ip")
+	failSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+	}))
+	t.Cleanup(failSrv.Close)
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	t.Cleanup(mockUpstream.Close)
+
+	service := newOpenAIService(t)
+	// 池序：[fail, okSameIP, okOtherIP]——fail 与 okSameIP 预置为同一出口 IP。
+	poolURLs := []string{failSrv.URL, okSameIP.URL, okOtherIP.URL}
+	poolJSON, _ := json.Marshal(poolURLs)
+	createBody := fmt.Sprintf(`{
+		"name":"GroupCool","baseUrl":"%s","apiKey":"k","skipVerify":true,
+		"proxyPool":%s,"proxyEnabled":true,"autoSwitch":true
+	}`, mockUpstream.URL, string(poolJSON))
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 预置出口 IP：fail 与 okSameIP 同 IP（模拟同入口多出口的真实槽池）。
+	service.proxyMu.Lock()
+	state, ok := service.proxyStateByEndpoint[created.Endpoint.ID]
+	if !ok {
+		state = newEndpointProxyState()
+		service.proxyStateByEndpoint[created.Endpoint.ID] = state
+	}
+	state.lastExitIP[failSrv.URL] = "203.0.113.1"
+	state.lastExitIP[okSameIP.URL] = "203.0.113.1"
+	state.lastExitIP[okOtherIP.URL] = "198.51.100.7"
+	service.proxyMu.Unlock()
+
+	// 触发 fail 槽 429：请求内 fail → 组冻结同 exitIP 的 okSameIP，换 okOtherIP 成功。
+	w := chatRequest(t, service, created.Endpoint.ID, false, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("request failed: %d %s", w.Code, w.Body.String())
+	}
+
+	service.proxyMu.Lock()
+	sameFrozen := proxyRateLimited(state, okSameIP.URL, time.Now())
+	otherFrozen := proxyRateLimited(state, okOtherIP.URL, time.Now())
+	service.proxyMu.Unlock()
+	if !sameFrozen {
+		t.Fatal("same-exit-IP slot must be group-frozen after a sibling slot got 429")
+	}
+	if otherFrozen {
+		t.Fatal("different-exit-IP slot must NOT be frozen by a sibling's 429")
+	}
+}
+
+// TestActiveProxySticky 池级粘性：无会话 ID 的请求复用最近一次成功转发的代理，
+// 直到它被 429 冷却才换下一个出口（「有效就一直用，用到不能用为止」）。
+func TestActiveProxySticky(t *testing.T) {
+	var p1Fail atomic.Bool
+	var p1Hits, p2Hits int32
+	type hitInfo struct {
+		path string
+		ua   string
+	}
+	var hitsMu sync.Mutex
+	var hitLog []hitInfo
+	note := func(p string, r *http.Request) {
+		hitsMu.Lock()
+		hitLog = append(hitLog, hitInfo{path: r.URL.Path, ua: r.Header.Get("User-Agent")})
+		hitsMu.Unlock()
+	}
+	dumpHits := func() string {
+		hitsMu.Lock()
+		defer hitsMu.Unlock()
+		return fmt.Sprintf("p1Hits=%d p2Hits=%d log=%v", p1Hits, p2Hits, hitLog)
+	}
+	okBody := []byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	p1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&p1Hits, 1)
+		note("p1", r)
+		if p1Fail.Load() {
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(okBody)
+	}))
+	t.Cleanup(p1.Close)
+	p2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&p2Hits, 1)
+		note("p2", r)
+		w.WriteHeader(http.StatusOK)
+		w.Write(okBody)
+	}))
+	t.Cleanup(p2.Close)
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	t.Cleanup(mockUpstream.Close)
+
+	service := newOpenAIService(t)
+	createBody := fmt.Sprintf(`{
+		"name":"Sticky","baseUrl":"%s","apiKey":"k","skipVerify":true,
+		"proxyPool":["%s","%s"],"proxyEnabled":true,"autoSwitch":true
+	}`, mockUpstream.URL, p1.URL, p2.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 1) 首次：无 activeProxy，探索选中 p1 → 成功 → 记为粘性出口。
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req1 failed: %d %s", w.Code, w.Body.String())
+	}
+	// 2) 无会话再次请求：应粘住 p1，p2 不被触碰。
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req2 failed: %d %s", w.Code, w.Body.String())
+	}
+	if p1Hits < 2 || p2Hits != 0 {
+		t.Fatalf("sticky reuse expected p1 only, %s", dumpHits())
+	}
+
+	// 3) p1 开始 429：当前请求先打 p1（仍未被冷却）→ 429 → 组冷却 p1 → 换 p2 成功。
+	p1Fail.Store(true)
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req3 failed: %d %s", w.Code, w.Body.String())
+	}
+	if p1Hits != 3 || p2Hits != 1 {
+		t.Fatalf("expected p1 429 then switch to p2, p1Hits=%d p2Hits=%d", p1Hits, p2Hits)
+	}
+	// 新粘性出口为 p2：再次请求应粘 p2（p1 仍被冷却 30s 内不会被选中）。
+	if w := chatRequest(t, service, created.Endpoint.ID, false, ""); w.Code != http.StatusOK {
+		t.Fatalf("req4 failed: %d %s", w.Code, w.Body.String())
+	}
+	if p2Hits != 2 || p1Hits != 3 {
+		t.Fatalf("active proxy should switch to p2 and stay, p1Hits=%d p2Hits=%d", p1Hits, p2Hits)
+	}
+}
+
+func TestProxy429FrozenOnFirstHit(t *testing.T) {
+	// 新策略：单次 429 即立即按出口 IP 组冻结 proxy429Cooldown（1 小时），
+	// 无需累计阈值；冻结期内选择逻辑跳过它，到期自动释放（时间判断）。
 	service, endpointID, proxy1URL, _ := setupTwoProxyEndpoint(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -1529,7 +1983,13 @@ func TestProxy429BannedAfterThreshold(t *testing.T) {
 		okHandler,
 	)
 
-	for i := 0; i < proxy429BanThreshold; i++ {
+	// 第一次调用就应触发冻结：p1 429 → 组冻结 → 请求内随机换到 p2 成功。
+	for i := 0; i < 3; i++ {
+		service.proxyMu.Lock()
+		if st, ok := service.proxyStateByEndpoint[endpointID]; ok {
+			st.activeProxy = ""
+		}
+		service.proxyMu.Unlock()
 		w := chatRequest(t, service, endpointID, false, "")
 		if w.Code != http.StatusOK {
 			t.Fatalf("attempt %d failed: %d %s", i+1, w.Code, w.Body.String())
@@ -1538,18 +1998,17 @@ func TestProxy429BannedAfterThreshold(t *testing.T) {
 
 	service.proxyMu.Lock()
 	state := service.proxyStateByEndpoint[endpointID]
-	until, banned := state.rateLimited[proxy1URL]
+	until, frozen := state.rateLimited[proxy1URL]
 	service.proxyMu.Unlock()
-	if !banned {
-		t.Fatal("expected proxy1 banned after 3×429")
+	if !frozen {
+		t.Fatal("expected proxy1 frozen after first 429")
 	}
-	expect := time.Now().Add(proxy429BanDuration)
+	expect := time.Now().Add(proxy429Cooldown)
 	if until.Before(expect.Add(-5*time.Second)) || until.After(expect.Add(5*time.Second)) {
-		t.Fatalf("ban expiry = %v, want ~%v", until, expect)
+		t.Fatalf("freeze expiry = %v, want ~%v", until, expect)
 	}
-	// 禁用期内：选择应跳过 proxy1（此时 state.cursor 已推进，proxy2 可正常服务）。
 	if !proxyRateLimited(state, proxy1URL, time.Now()) {
-		t.Fatal("proxyRateLimited should report banned while within duration")
+		t.Fatal("proxyRateLimited should report frozen while within duration")
 	}
 	if proxyRateLimited(state, proxy1URL, until.Add(time.Second)) {
 		t.Fatal("proxyRateLimited should release after expiry")
@@ -1558,7 +2017,7 @@ func TestProxy429BannedAfterThreshold(t *testing.T) {
 
 func TestEndpointProxyBatchesRoundTrip(t *testing.T) {
 	// 批次（文件导入）随端点创建/更新持久化，列表接口原样返回；脏批次（空 ID/名称/代理）被清洗。
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	payload := `{
 		"name": "batch demo",
 		"baseUrl": "https://example.com/v1",
@@ -1652,8 +2111,11 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 		state = newEndpointProxyState()
 		service.proxyStateByEndpoint[endpointID] = state
 	}
-	state.rateLimited[proxy1URL] = time.Now().Add(proxy429BanDuration)
-	state.rateLimited[proxy2URL] = time.Now().Add(proxy429BanDuration)
+	state.rateLimited[proxy1URL] = time.Now().Add(proxy429Cooldown)
+	state.rateLimited[proxy2URL] = time.Now().Add(proxy429Cooldown)
+	// 标记最近一次自动解冻发生在现在：使本轮选择直接走「节流窗口内回退直连」，
+	// 不再触发自动解冻（限流风暴快速收尾后不再有多轮重试来兜底恢复直连）。
+	state.lastAllUnfrozen = time.Now()
 	service.proxyMu.Unlock()
 
 	w := chatRequest(t, service, endpointID, false, "")
@@ -1670,6 +2132,7 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 	}
 
 	// 调用日志按实际出口记录：直连回退不应标「代」。
+	service.flushAnalyticsQueue(5 * time.Second)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -1685,8 +2148,55 @@ func TestAllProxiesFrozenFallsBackToDirect(t *testing.T) {
 	}
 }
 
+func TestAutoUnfreezeAllLocked(t *testing.T) {
+	// 全部出口被禁用（429 冻结/坏代理沉淀）时：自动解冻全体代理，清除冷却/
+	// 冻结/沉淀状态；节流窗口内重复触发不再解冻（返回 false）。
+	service := newOpenAIService(t)
+	service.proxyMu.Lock()
+	state := newEndpointProxyState()
+	service.proxyStateByEndpoint["ep-unfreeze"] = state
+	state.cooldown["proxy-a"] = time.Now().Add(30 * time.Minute)
+	state.rateLimited["proxy-a"] = time.Now().Add(30 * time.Minute)
+	state.sunk["proxy-a"] = time.Now().Add(6 * time.Hour)
+	state.rate429["proxy-a"] = 3
+	state.failures["proxy-a"] = 5
+	service.proxyMu.Unlock()
+
+	now := time.Now()
+	if !service.autoUnfreezeAllLocked("ep-unfreeze", []string{"proxy-a", "proxy-b"}, now) {
+		t.Fatalf("first auto-unfreeze must succeed")
+	}
+	service.proxyMu.Lock()
+	state = service.proxyStateByEndpoint["ep-unfreeze"]
+	_, cooled := state.cooldown["proxy-a"]
+	_, banned := state.rateLimited["proxy-a"]
+	_, sunk := state.sunk["proxy-a"]
+	rate429 := state.rate429["proxy-a"]
+	failures := state.failures["proxy-a"]
+	service.proxyMu.Unlock()
+	if cooled || banned || sunk || rate429 != 0 || failures != 0 {
+		t.Fatalf("auto-unfreeze must clear cooldown/rateLimited/sunk/rate429/failures, got cooled=%v banned=%v sunk=%v rate429=%d failures=%d", cooled, banned, sunk, rate429, failures)
+	}
+
+	// 节流：紧接再次触发（仍在 proxyAllFrozenRetryInterval 内）应返回 false。
+	service.proxyMu.Lock()
+	service.proxyStateByEndpoint["ep-unfreeze"].rateLimited["proxy-a"] = time.Now().Add(30 * time.Minute)
+	service.proxyMu.Unlock()
+	if service.autoUnfreezeAllLocked("ep-unfreeze", []string{"proxy-a", "proxy-b"}, time.Now()) {
+		t.Fatalf("throttled auto-unfreeze must return false within retry interval")
+	}
+
+	// 未知端点返回 false。
+	if service.autoUnfreezeAllLocked("ep-missing", []string{"proxy-a"}, time.Now()) {
+		t.Fatalf("auto-unfreeze on missing endpoint must return false")
+	}
+
+	// 等待异步持久化写库完成，避免 TempDir 清理时目录非空。
+	proxyStateWriteWG.Wait()
+}
+
 func TestImportProxyListRoute(t *testing.T) {
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	text := strings.Join([]string{
 		"http://user:pass@1.2.3.4:3128",
 		"http://user:pass@1.2.3.4:3128", // 重复
@@ -1718,7 +2228,7 @@ func TestImportProxyListRoute(t *testing.T) {
 
 func TestMarkProxyFailedExponentialBackoff(t *testing.T) {
 	// 指数退避：1min << min(failures-1, 5)，封顶 30min。
-	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	service := newOpenAIService(t)
 	service.proxyMu.Lock()
 	service.proxyStateByEndpoint["ep-backoff"] = newEndpointProxyState()
 	service.proxyMu.Unlock()
@@ -1763,6 +2273,9 @@ func TestMarkProxyFailedExponentialBackoff(t *testing.T) {
 	if hasCooldown || hasFailures {
 		t.Fatalf("markProxySuccess should clear cooldown and failures")
 	}
+
+	// 等待异步持久化写库完成，避免 TempDir 清理时目录非空。
+	proxyStateWriteWG.Wait()
 }
 
 func TestNormalizeResponsesTools(t *testing.T) {
@@ -1874,7 +2387,6 @@ func TestReadSSEBlock(t *testing.T) {
 	}
 }
 
-
 func TestNormalizeResponsesInput(t *testing.T) {
 	body := map[string]interface{}{
 		"input": []interface{}{
@@ -1897,8 +2409,8 @@ func TestNormalizeResponsesInput(t *testing.T) {
 		t.Errorf("assistant content should be extracted to string, got %v", assistant["content"])
 	}
 	toolCalls, ok := assistant["tool_calls"].([]interface{})
-	if !ok || len(toolCalls) != 2 {
-		t.Fatalf("assistant should have 2 merged tool_calls, got %#v", assistant["tool_calls"])
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("assistant should have 1 merged tool_call (c2 has no output, dropped), got %#v", assistant["tool_calls"])
 	}
 	fc0 := toolCalls[0].(map[string]interface{})
 	if fc0["id"] != "c1" || fc0["type"] != "function" {
@@ -1972,5 +2484,2285 @@ func TestResponsesStreamNormalizerParallelTools(t *testing.T) {
 	}
 	if strings.Count(data, "call_2") == 0 {
 		t.Errorf("call_2 missing")
+	}
+}
+
+// TestMultiEndpointFailoverOn5xx 验证端点级 failover：候选池首个端点返回 5xx（触发
+// retryableUpstream）时，应切换到下一个端点并成功返回，且不因 lastErr 为 nil 而 panic。
+func TestMultiEndpointFailoverOn5xx(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"server exploded"}}`))
+	}))
+	defer failing.Close()
+
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer ok.Close()
+
+	service := newOpenAIService(t)
+
+	// 端点 A：总是 5xx。
+	createA := fmt.Sprintf(`{"name":"Bad A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
+	wA := httptest.NewRecorder()
+	rA, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createA))
+	service.ServeHTTP(wA, rA)
+	if wA.Code != http.StatusOK {
+		t.Fatalf("create A status = %d body=%s", wA.Code, wA.Body.String())
+	}
+	var resA struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wA.Body.String(), &resA)
+
+	// 端点 B：总是 200。
+	createB := fmt.Sprintf(`{"name":"Good B","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, ok.URL)
+	wB := httptest.NewRecorder()
+	rB, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createB))
+	service.ServeHTTP(wB, rB)
+	if wB.Code != http.StatusOK {
+		t.Fatalf("create B status = %d body=%s", wB.Code, wB.Body.String())
+	}
+	var resB struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wB.Body.String(), &resB)
+
+	// 两个端点都配置 gpt-4 模型。
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{resA.Endpoint.ID, resB.Endpoint.ID} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 触发 /v1/chat/completions：A 返回 500，网关应 failover 到 B 并返回 200，不得 panic。
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("failover to healthy endpoint failed: code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+}
+
+// TestSingleEndpoint5xxNoPanic 验证单端点返回 5xx 时（重试耗尽、无下一个候选）不 panic，
+// 且把上游 5xx 响应透传给客户端。
+func TestSingleEndpoint5xxNoPanic(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer failing.Close()
+
+	service := newOpenAIService(t)
+
+	createBody := fmt.Sprintf(`{"name":"Rate Limited","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, failing.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected upstream 429 passthrough, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+}
+
+// TestAllEndpointsSameErrorReturnsThatCode 所有候选端点返回同一错误码（429）时，
+// 客户端应收到 429 且错误信息说明网关无可用渠道。
+func TestAllEndpointsSameErrorReturnsThatCode(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer failing.Close()
+
+	service := newOpenAIService(t)
+
+	createBody := fmt.Sprintf(`{"name":"Limited A","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true,"rateLimitRetryEnabled":false}`, failing.URL)
+	wA := httptest.NewRecorder()
+	rA, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wA, rA)
+	if wA.Code != http.StatusOK {
+		t.Fatalf("create A status = %d body=%s", wA.Code, wA.Body.String())
+	}
+	var resA struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wA.Body.String(), &resA)
+
+	wB := httptest.NewRecorder()
+	rB, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wB, rB)
+	if wB.Code != http.StatusOK {
+		t.Fatalf("create B status = %d body=%s", wB.Code, wB.Body.String())
+	}
+	var resB struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wB.Body.String(), &resB)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{resA.Endpoint.ID, resB.Endpoint.ID} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 when all endpoints return 429, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "网关无可用渠道") {
+		t.Fatalf("expected gateway-unavailable message, got body=%s", wChat.Body.String())
+	}
+}
+
+// TestMixedEndpointErrorsReturns503 各候选端点失败码不一致时，客户端应收到 503 网关无可用渠道。
+func TestMixedEndpointErrorsReturns503(t *testing.T) {
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer rateLimited.Close()
+
+	serverErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"boom"}}`))
+	}))
+	defer serverErr.Close()
+
+	service := newOpenAIService(t)
+
+	mk := func(name, url string) string {
+		w := httptest.NewRecorder()
+		body := fmt.Sprintf(`{"name":%q,"baseUrl":%q,"apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
+		r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(body))
+		service.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, w.Code, w.Body.String())
+		}
+		var out struct {
+			Success  bool     `json:"success"`
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, w.Body.String(), &out)
+		return out.Endpoint.ID
+	}
+	idA := mk("Limited A", rateLimited.URL)
+	idB := mk("Err B", serverErr.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{idA, idB} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when endpoint errors differ, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "网关无可用渠道") {
+		t.Fatalf("expected gateway-unavailable message, got body=%s", wChat.Body.String())
+	}
+}
+
+// TestRetryRoundRecoversOnSubsequentRound 验证对齐 New API RetryTimes 的多轮重试：
+// 全部候选在第一轮都返回 429，但重试轮内上游恢复，最终请求成功返回 200，
+// 客户端无需感知（期间保持等待）。
+func TestRetryRoundRecoversOnSubsequentRound(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		first := calls
+		mu.Unlock()
+		if first <= 2 {
+			// 前两次调用返回 503（模拟首轮 + 首个重试轮仍过载；503 是瞬时可恢复的
+			// 上游故障，可重试，因此重试轮仍会执行——与全 429 限流风暴快速收尾不同）
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":{"message":"server overloaded"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer flaky.Close()
+
+	// 缩短重试间隔，避免测试过慢。
+	oldDelay := endpointRetryDelay
+	defer func() { endpointRetryDelay = oldDelay }()
+	endpointRetryDelay = 50 * time.Millisecond
+
+	service := newOpenAIService(t)
+
+	createBody := fmt.Sprintf(`{"name":"Flaky","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, flaky.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("expected eventual 200 after retry rounds, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls < 3 {
+		t.Fatalf("expected at least 3 upstream calls across retry rounds, got %d", calls)
+	}
+}
+
+// TestAll429ReturnsFastWithoutRetryRounds 全部候选都被上游限流（429）时，网关不再
+// 无意义地重试整轮（原来多轮串行可把 429 拖到 30s+ 才返回），一轮试完即聚合返回 429。
+func TestAll429ReturnsFastWithoutRetryRounds(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rpm exhausted"}}`))
+	}))
+	defer rateLimited.Close()
+
+	service := newOpenAIService(t)
+
+	createBody := fmt.Sprintf(`{"name":"Always429","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true,"rateLimitRetryEnabled":false}`, rateLimited.URL)
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+
+	mu.Lock()
+	gotCalls := calls
+	mu.Unlock()
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 passthrough when all endpoints rate-limited, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if gotCalls != 1 {
+		t.Fatalf("all-429 must not re-run retry rounds, expected exactly 1 upstream call, got %d", gotCalls)
+	}
+}
+
+// TestDistinctProxy429EarlyAbort 不同出口 IP（探测无 lastExitIP 时按 slot 计）连续
+// 429 达到阈值后应提前收尾：不再把池内后续 slot 全部扫一遍，直接以 429 返回。
+func TestDistinctProxy429EarlyAbort(t *testing.T) {
+	var hits [4]int32
+	rateLimited := func(i int) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&hits[i], 1)
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+		}
+	}
+	servers := make([]*httptest.Server, 4)
+	pool := make([]string, 0, 4)
+	for i := 0; i < 4; i++ {
+		servers[i] = httptest.NewServer(rateLimited(i))
+		t.Cleanup(servers[i].Close)
+		pool = append(pool, servers[i].URL)
+	}
+	// 4 个代理均在本机（hostname 相同，与生产「同入口多出口槽池」同构；
+	// 测试未预置 lastExitIP，提前收尾按 slot 计数）。
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	t.Cleanup(mockUpstream.Close)
+
+	service := newOpenAIService(t)
+	poolJSON, _ := json.Marshal(pool)
+	createBody := fmt.Sprintf(`{
+		"name":"Distinct429","baseUrl":"%s","apiKey":"k","skipVerify":true,
+		"proxyPool":%s,"proxyEnabled":true,"autoSwitch":true,"rateLimitRetryEnabled":false
+	}`, mockUpstream.URL, string(poolJSON))
+	wC := httptest.NewRecorder()
+	rC, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createBody))
+	service.ServeHTTP(wC, rC)
+	if wC.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wC.Code, wC.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wC.Body.String(), &created)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+
+	if wChat.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after distinct-proxy early abort, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	// 429 后随机换出口：每次 429 冻结该出口并从「未试过/未冻结」候选随机抽下一个。
+	// 池仅 4 个 slot（小于 proxyRateLimitPicks=5），全部试完后以「出口耗尽」收尾：
+	// 总尝试数 = 4（每 slot 恰好一次），不会重复打同一 slot。
+	total := int32(0)
+	for i := 0; i < 4; i++ {
+		total += atomic.LoadInt32(&hits[i])
+		if h := atomic.LoadInt32(&hits[i]); h > 1 {
+			t.Fatalf("proxy%d should be tried at most once, hits=%d", i+1, h)
+		}
+	}
+	if total != 4 {
+		t.Fatalf("all 4 proxies must be exhausted exactly once, got %d total hits", total)
+	}
+}
+
+// TestStream429NoAutoSwitchFailover 验证流式请求 + autoSwitch=false 的端点返回 429 时，
+// 不因「无切换机会」路径误设 firstWritten 而透传 429，而是触发 retryableUpstream
+// failover 到下一个候选端点（修复 429 在日日新 autoSwitch=false 时被直接透传）。
+func TestStream429NoAutoSwitchFailover(t *testing.T) {
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rpm exhausted","type":"quota_exceeded_error"}}`))
+	}))
+	defer rateLimited.Close()
+
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer ok.Close()
+
+	service := newOpenAIService(t)
+
+	// 端点 A：autoSwitch=false（对齐日日新配置），返回 429。
+	createA := fmt.Sprintf(`{"name":"Limited NoSwitch","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":false}`, rateLimited.URL)
+	wA := httptest.NewRecorder()
+	rA, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createA))
+	service.ServeHTTP(wA, rA)
+	if wA.Code != http.StatusOK {
+		t.Fatalf("create A status = %d body=%s", wA.Code, wA.Body.String())
+	}
+	var resA struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wA.Body.String(), &resA)
+
+	// 端点 B：正常返回 SSE 流。
+	createB := fmt.Sprintf(`{"name":"Good","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, ok.URL)
+	wB := httptest.NewRecorder()
+	rB, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createB))
+	service.ServeHTTP(wB, rB)
+	if wB.Code != http.StatusOK {
+		t.Fatalf("create B status = %d body=%s", wB.Code, wB.Body.String())
+	}
+	var resB struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wB.Body.String(), &resB)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{resA.Endpoint.ID, resB.Endpoint.ID} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 选路确定性由包级 TestMain 钩子保证（第一个候选 = 429 端点 A）。
+	// 流式请求：A(429, autoSwitch=false) → 应 failover 到 B 并成功返回 SSE。
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}],
+		"stream": true
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("expected failover to healthy endpoint, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "[DONE]") {
+		t.Fatalf("expected SSE [DONE], got body=%s", wChat.Body.String())
+	}
+
+	// 切换过程不落日志：请求最终由健康端点 B 成功返回，relay-errors 不应出现
+	// 端点 A 的 429 上游记录（网关内部切换只反映在最终结果里，不逐跳记明细）。
+	wRelay := httptest.NewRecorder()
+	rRelay, _ := http.NewRequest("GET", "/api/openai/relay-errors?limit=20", nil)
+	service.ServeHTTP(wRelay, rRelay)
+	if wRelay.Code != http.StatusOK {
+		t.Fatalf("relay-errors status = %d body=%s", wRelay.Code, wRelay.Body.String())
+	}
+	var relayResp struct {
+		Records []RelayErrorRecord `json:"records"`
+	}
+	mustDecode(t, wRelay.Body.String(), &relayResp)
+	for _, rec := range relayResp.Records {
+		if rec.Kind == "upstream" && rec.StatusCode == http.StatusTooManyRequests && rec.Stream {
+			t.Fatalf("internal 429 switch must not be logged when the request ultimately succeeded, got %+v", rec)
+		}
+	}
+}
+
+// TestNormalizeChatToolReasoningHistory 验证「带 tool_calls 的 assistant 历史回合
+// 补齐推理内容」：仅对命中推理厂商标识或显式开启推理的请求启用；已有
+// reasoning_content 或非 assistant 回合不动（对齐 opencode2api 兼容策略）。
+func TestNormalizeChatToolReasoningHistory(t *testing.T) {
+	body := map[string]interface{}{
+		"model": "deepseek-chat",
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "hi"},
+			map[string]interface{}{
+				"role":    "assistant",
+				"content": "",
+				"tool_calls": []interface{}{
+					map[string]interface{}{"id": "call_1", "type": "function", "function": map[string]interface{}{"name": "f", "arguments": "{}"}},
+				},
+			},
+			map[string]interface{}{"role": "tool", "tool_call_id": "call_1", "content": "ok"},
+			map[string]interface{}{
+				"role":              "assistant",
+				"content":           "done",
+				"tool_calls":        []interface{}{map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "g", "arguments": "{}"}}},
+				"reasoning_content": "已有思考",
+			},
+		},
+	}
+	if !shouldNormalizeToolReasoning("deepseek-chat", "https://api.deepseek.com/v1", body) {
+		t.Fatal("deepseek model must enable tool reasoning normalization")
+	}
+	if !normalizeChatToolReasoningHistory(body) {
+		t.Fatal("expected a change for the empty-reasoning tool-call turn")
+	}
+	messages := body["messages"].([]interface{})
+	m0 := messages[0].(map[string]interface{})
+	if _, has := m0["reasoning_content"]; has {
+		t.Fatal("user turn must not gain reasoning_content")
+	}
+	m1 := messages[1].(map[string]interface{})
+	if got := m1["reasoning_content"].(string); got != toolReasoningPlaceholder {
+		t.Fatalf("assistant tool-call turn reasoning_content = %q, want placeholder", got)
+	}
+	m3 := messages[3].(map[string]interface{})
+	if got := m3["reasoning_content"].(string); got != "已有思考" {
+		t.Fatalf("existing reasoning_content must be kept, got %q", got)
+	}
+
+	// 非推理厂商 + 未显式启用推理：不启用、不改动。
+	plain := map[string]interface{}{
+		"model": "gpt-4",
+		"messages": []interface{}{
+			map[string]interface{}{
+				"role":    "assistant",
+				"content": "",
+				"tool_calls": []interface{}{
+					map[string]interface{}{"id": "call_3", "type": "function", "function": map[string]interface{}{"name": "h", "arguments": "{}"}},
+				},
+			},
+		},
+	}
+	if shouldNormalizeToolReasoning("gpt-4", "https://api.openai.com/v1", plain) {
+		t.Fatal("generic model must not enable tool reasoning normalization")
+	}
+	// 显式 reasoning_effort 时启用。
+	if !requestEnablesReasoning(map[string]interface{}{"reasoning_effort": "high"}) {
+		t.Fatal("reasoning_effort=high must enable reasoning detection")
+	}
+	if requestEnablesReasoning(map[string]interface{}{"reasoning_effort": "none"}) {
+		t.Fatal("reasoning_effort=none must not enable reasoning detection")
+	}
+}
+
+func TestNormalizeReasoningEffort(t *testing.T) {
+	cases := []struct {
+		name  string
+		input map[string]interface{}
+		want  map[string]interface{}
+	}{
+		{
+			name: "chat max normalized to high",
+			input: map[string]interface{}{
+				"model":            "deepseek-v4-flash",
+				"reasoning_effort": "max",
+			},
+			want: map[string]interface{}{
+				"model":            "deepseek-v4-flash",
+				"reasoning_effort": "high",
+			},
+		},
+		{
+			name: "chat standard values preserved",
+			input: map[string]interface{}{
+				"reasoning_effort": "high",
+			},
+			want: map[string]interface{}{
+				"reasoning_effort": "high",
+			},
+		},
+		{
+			name: "responses reasoning.effort max normalized",
+			input: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+				"reasoning": map[string]interface{}{
+					"effort": "max",
+				},
+			},
+			want: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+				"reasoning": map[string]interface{}{
+					"effort": "high",
+				},
+			},
+		},
+		{
+			name: "missing reasoning_effort untouched",
+			input: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+			},
+			want: map[string]interface{}{
+				"model": "deepseek-v4-flash",
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			normalizeReasoningEffort(c.input)
+			got, _ := json.Marshal(c.input)
+			want, _ := json.Marshal(c.want)
+			if string(got) != string(want) {
+				t.Fatalf("normalizeReasoningEffort() = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+// TestFailoverNormalizesReasoningEffort 验证网关在 failover 到候选端点时，会把
+// 非标准的 reasoning_effort（max）归一化为 high 再转发：主端点 429 限流 ->
+// failover 到备端点，备端点只接受 high（收到 max 就 400），客户端应最终拿到 200。
+func TestFailoverNormalizesReasoningEffort(t *testing.T) {
+	var receivedEffort string
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if e, _ := body["reasoning_effort"].(string); e != "" {
+			receivedEffort = e
+		}
+		if receivedEffort == "max" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"ReasoningEffort invalid, should be one of: low, medium, high, xhigh, none"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer ok.Close()
+
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer failing.Close()
+
+	service := newOpenAIService(t)
+
+	mkEndpoint := func(name, url string) string {
+		create := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(create))
+		service.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, w.Code, w.Body.String())
+		}
+		var created struct {
+			Success  bool     `json:"success"`
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, w.Body.String(), &created)
+		return created.Endpoint.ID
+	}
+
+	idA := mkEndpoint("rate limited A", failing.URL)
+	idB := mkEndpoint("strict B", ok.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{idA, idB} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"reasoning_effort": "max",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("failover with normalized reasoning_effort failed: code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if receivedEffort != "high" {
+		t.Fatalf("expected failover endpoint to receive reasoning_effort=high, got %q", receivedEffort)
+	}
+}
+
+// TestFirstCandidateKeepsReasoningEffort 首个候选应原样透传客户端的 reasoning_effort，
+// 保证主链路行为不变（只有 failover 候选才归一化）。
+func TestFirstCandidateGetsNormalizedReasoningEffort(t *testing.T) {
+	// reasoning_effort 归一化（max→high）在候选循环前对请求体统一执行：
+	// 会话亲和会把某候选提升为首选（k=0），若归一化只发生在 failover 副本上，
+	// 亲和路径的首选请求会拿到未归一化的 max 而被枚举更窄的上游 400。
+	var receivedEffort string
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if e, _ := body["reasoning_effort"].(string); e != "" {
+			receivedEffort = e
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer ok.Close()
+
+	service := newOpenAIService(t)
+	create := fmt.Sprintf(`{"name":"ok","baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, ok.URL)
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(create))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, w.Body.String(), &created)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, created.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"reasoning_effort": "max",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("first candidate should succeed: code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if receivedEffort != "high" {
+		t.Fatalf("expected first candidate to receive normalized reasoning_effort=high, got %q", receivedEffort)
+	}
+}
+
+// TestStressEndpointSwitchNormalizesEffort 压测真实端点切换场景：
+// 主端点持续 429 限流 -> 网关 failover 到严格端点（只接受 high，收到 max 即 400）。
+// 以高并发 reasoning_effort=max 请求模拟生产流量，验证：
+//  1. 全部请求最终 200（failover 成功）
+//  2. 严格端点从未收到非标准值 max（归一化可靠）
+//  3. 主端点稳定收到 429，切换确实发生
+func TestStressEndpointSwitchNormalizesEffort(t *testing.T) {
+	var (
+		mu         sync.Mutex
+		rateHit    int
+		strictMax  int
+		strictHigh int
+		nonMaxSeen map[string]int
+	)
+	nonMaxSeen = make(map[string]int)
+
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		rateHit++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer rateLimited.Close()
+
+	strict := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		effort, _ := body["reasoning_effort"].(string)
+		mu.Lock()
+		switch effort {
+		case "max":
+			strictMax++
+		case "high":
+			strictHigh++
+		default:
+			nonMaxSeen[effort]++
+		}
+		mu.Unlock()
+		if effort == "max" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"ReasoningEffort invalid, should be one of: low, medium, high, xhigh, none"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer strict.Close()
+
+	service := newOpenAIService(t)
+
+	mkEndpoint := func(name, url string) string {
+		create := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true,"autoSwitch":true}`, name, url)
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(create))
+		service.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, w.Code, w.Body.String())
+		}
+		var created struct {
+			Success  bool     `json:"success"`
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, w.Body.String(), &created)
+		return created.Endpoint.ID
+	}
+
+	// 顺序创建：A(rate-limited) 在前，B(strict) 在后，保证候选列表 A 优先。
+	mkEndpoint("rate limited A", rateLimited.URL)
+	mkEndpoint("strict B", strict.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 通过直接更新 sort_order 强制 A 排第一（A 先创建本就应在前，双保险）。
+	if _, err := db.Exec(`UPDATE openai_endpoints SET sort_order = 0, models = ?`, `["deepseek-v4-flash"]`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	// 并发压测：100 个并发请求，全部携带 reasoning_effort=max。
+	const workers = 100
+	var wg sync.WaitGroup
+	codes := make([]int, workers)
+	errs := make([]int, workers)
+	start := time.Now()
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			w := httptest.NewRecorder()
+			body := `{
+				"model": "deepseek-v4-flash",
+				"reasoning_effort": "max",
+				"messages": [{"role":"user","content":"hello"}]
+			}`
+			r, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+			service.ServeHTTP(w, r)
+			codes[idx] = w.Code
+			if w.Code == http.StatusBadGateway {
+				errs[idx]++
+			}
+		}(i)
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	// 统计结果
+	counts := map[int]int{}
+	for _, c := range codes {
+		counts[c]++
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
+	t.Logf("并发压测 %d 请求耗时 %v，状态码分布 %v", workers, elapsed, counts)
+	t.Logf("rate-limited 端点命中 %d 次", rateHit)
+	t.Logf("strict 端点收到 high=%d max=%d 其它=%v", strictHigh, strictMax, nonMaxSeen)
+
+	if counts[http.StatusOK] != workers {
+		t.Fatalf("期望全部 %d 请求 200，实际分布 %v", workers, counts)
+	}
+	if strictMax != 0 {
+		t.Fatalf("strict 端点收到 %d 次非标准 reasoning_effort=max，归一化未生效", strictMax)
+	}
+	if strictHigh == 0 {
+		t.Fatalf("strict 端点未收到任何归一化后的 high，failover 未发生（rateHit=%d）", rateHit)
+	}
+	if rateHit == 0 {
+		t.Fatalf("rate-limited 端点未被命中，压测未模拟到限流")
+	}
+}
+
+// TestNormalizeResponsesInputDropsUnrespondedCalls 验证：assistant 已自带 tool_calls
+// 但后续 function_call_output 不足时（codex 多轮并行工具分步回传），未被回应的
+// tool_call 会被剔除，避免 zen 转 chat 报 "insufficient tool messages following
+// tool_calls message"。
+func TestNormalizeResponsesInputDropsUnrespondedCalls(t *testing.T) {
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{"type": "message", "role": "user", "content": "hi"},
+			map[string]interface{}{"type": "message", "role": "assistant", "content": []interface{}{}, "tool_calls": []interface{}{
+				map[string]interface{}{"id": "call_1", "type": "function", "function": map[string]interface{}{"name": "get_weather", "arguments": "{}"}},
+				map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "get_weather", "arguments": "{}"}},
+			}},
+			map[string]interface{}{"type": "function_call_output", "call_id": "call_1", "output": "done"},
+		},
+	}
+	normalizeResponsesInput(body)
+	input := body["input"].([]interface{})
+	// 末尾 function_call_output 后应追加空 user 消息 => 4 条。
+	if len(input) != 4 {
+		t.Fatalf("want 4 items (user, assistant, output, trailing user), got %d", len(input))
+	}
+	assistant := input[1].(map[string]interface{})
+	toolCalls, ok := assistant["tool_calls"].([]interface{})
+	if !ok {
+		t.Fatalf("assistant should keep tool_calls, got %#v", assistant["tool_calls"])
+	}
+	if len(toolCalls) != 1 {
+		t.Fatalf("unresponded call_2 should be dropped, kept %d: %#v", len(toolCalls), toolCalls)
+	}
+	fc := toolCalls[0].(map[string]interface{})
+	if fc["id"] != "call_1" {
+		t.Fatalf("kept tool_call should be the responded one (call_1), got %#v", fc)
+	}
+}
+
+// TestNormalizeResponsesInputKeepsAllRespondedCalls 全部 tool_call 都有对应 output
+// 时不做剔除，保持原样。
+func TestNormalizeResponsesInputKeepsAllRespondedCalls(t *testing.T) {
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{"type": "message", "role": "assistant", "content": []interface{}{}, "tool_calls": []interface{}{
+				map[string]interface{}{"id": "call_1", "type": "function", "function": map[string]interface{}{"name": "a", "arguments": "{}"}},
+				map[string]interface{}{"id": "call_2", "type": "function", "function": map[string]interface{}{"name": "b", "arguments": "{}"}},
+			}},
+			map[string]interface{}{"type": "function_call_output", "call_id": "call_1", "output": "o1"},
+			map[string]interface{}{"type": "function_call_output", "call_id": "call_2", "output": "o2"},
+		},
+	}
+	normalizeResponsesInput(body)
+	assistant := body["input"].([]interface{})[0].(map[string]interface{})
+	toolCalls := assistant["tool_calls"].([]interface{})
+	if len(toolCalls) != 2 {
+		t.Fatalf("all responded, want 2 kept, got %d", len(toolCalls))
+	}
+}
+
+// TestNormalizeResponsesInputMergedCallsDrop 独立 function_call 归并进 assistant
+// 后同样受「未被回应即剔除」约束：只归并有对应 output 的调用。
+func TestNormalizeResponsesInputMergedCallsDrop(t *testing.T) {
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{"type": "message", "role": "user", "content": "hi"},
+			map[string]interface{}{"type": "message", "role": "assistant", "content": []interface{}{}},
+			map[string]interface{}{"type": "function_call", "id": "c1", "call_id": "c1", "name": "get_weather", "arguments": "{}"},
+			map[string]interface{}{"type": "function_call", "id": "c2", "call_id": "c2", "name": "get_weather", "arguments": "{}"},
+			map[string]interface{}{"type": "function_call_output", "call_id": "c1", "output": "done"},
+		},
+	}
+	normalizeResponsesInput(body)
+	assistant := body["input"].([]interface{})[1].(map[string]interface{})
+	toolCalls := assistant["tool_calls"].([]interface{})
+	if len(toolCalls) != 1 {
+		t.Fatalf("unresponded c2 should be dropped, kept %d: %#v", len(toolCalls), toolCalls)
+	}
+	fc := toolCalls[0].(map[string]interface{})
+	if fc["id"] != "c1" {
+		t.Fatalf("kept call should be c1, got %#v", fc)
+	}
+}
+
+// TestNormalizeChatContentBlocks 覆盖 PI 等 agent 客户端以 openai-completions 协议
+// 发送 Anthropic 风格 content blocks 数组时的归一化：thinking→顶层 reasoning_content、
+// toolCall(arguments 对象/字符串)→标准 tool_calls、text→字符串；并保证纯文本/图片
+// 数组与原字符串 content 不受影响。
+func TestNormalizeChatContentBlocks(t *testing.T) {
+	// PI 真实 wire 形态：assistant content 为数组，toolCall 用 arguments(对象)，
+	// reasoning 块带 thinking 文本。归一化后 content 归字符串、reasoning_content 提顶、
+	// tool_calls 转标准 function 结构（arguments 序列化为 JSON 字符串）。
+	body := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "hi"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "thinking", "thinking": "let me think", "signature": "reasoning_content"},
+				map[string]interface{}{"type": "text", "text": "ok"},
+				map[string]interface{}{"type": "toolCall", "id": "call_1", "name": "bash", "arguments": map[string]interface{}{"command": "ls"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(body)
+	assistant := body["messages"].([]interface{})[1].(map[string]interface{})
+	if assistant["reasoning_content"] != "let me think" {
+		t.Errorf("reasoning_content should carry thinking text, got %v", assistant["reasoning_content"])
+	}
+	if assistant["content"] != "ok" {
+		t.Errorf("content should be text string, got %v", assistant["content"])
+	}
+	toolCalls, ok := assistant["tool_calls"].([]interface{})
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("assistant should have 1 tool_call, got %#v", assistant["tool_calls"])
+	}
+	fc := toolCalls[0].(map[string]interface{})
+	if fc["id"] != "call_1" || fc["type"] != "function" {
+		t.Errorf("tool_call malformed: %#v", fc)
+	}
+	fn := fc["function"].(map[string]interface{})
+	if fn["name"] != "bash" {
+		t.Errorf("function.name should be bash, got %v", fn["name"])
+	}
+	if fn["arguments"] != `{"command":"ls"}` {
+		t.Errorf("arguments should be JSON-marshaled, got %q", fn["arguments"])
+	}
+
+	// user 消息的 toolCall 不应转 tool_calls（工具调用只属于 assistant）。
+	bodyUser := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": []interface{}{
+				map[string]interface{}{"type": "toolCall", "id": "call_2", "name": "bash", "arguments": `{"command":"u"}`},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyUser)
+	userMsg := bodyUser["messages"].([]interface{})[0].(map[string]interface{})
+	if _, has := userMsg["tool_calls"]; has {
+		t.Errorf("user message should not get tool_calls")
+	}
+
+	// Claude 风格：tool_use 用 id/name/input(对象)，reasoning 用 text 字段。
+	bodyClaude := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "reasoning", "text": "thinking here"},
+				map[string]interface{}{"type": "tool_use", "id": "call_9", "name": "run_code", "input": map[string]interface{}{"code": "x"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyClaude)
+	claudeMsg := bodyClaude["messages"].([]interface{})[0].(map[string]interface{})
+	if claudeMsg["reasoning_content"] != "thinking here" {
+		t.Errorf("claude reasoning text should map to reasoning_content, got %v", claudeMsg["reasoning_content"])
+	}
+	claudeTC, _ := claudeMsg["tool_calls"].([]interface{})
+	if len(claudeTC) != 1 {
+		t.Fatalf("claude tool_use should convert to 1 tool_call, got %#v", claudeMsg["tool_calls"])
+	}
+	claudeFn := claudeTC[0].(map[string]interface{})["function"].(map[string]interface{})
+	if claudeFn["arguments"] != `{"code":"x"}` {
+		t.Errorf("claude input should be JSON-marshaled, got %q", claudeFn["arguments"])
+	}
+
+	// 纯文本数组（无 thinking/toolCall）归一化为字符串。
+	bodyText := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "text", "text": "a"},
+				map[string]interface{}{"type": "text", "text": "b"},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyText)
+	if got := bodyText["messages"].([]interface{})[0].(map[string]interface{})["content"]; got != "a\nb" {
+		t.Errorf("text parts should join with newline, got %q", got)
+	}
+
+	// 纯字符串 content 与图片数组不动；无 messages 时不动。
+	bodyPlain := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "plain"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": "https://x/y.png"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(bodyPlain)
+	if got := bodyPlain["messages"].([]interface{})[0].(map[string]interface{})["content"]; got != "plain" {
+		t.Errorf("plain string content should be untouched, got %v", got)
+	}
+	imgContent := bodyPlain["messages"].([]interface{})[1].(map[string]interface{})["content"].([]interface{})
+	if len(imgContent) != 1 {
+		t.Errorf("image-only array should stay an array, got %#v", imgContent)
+	}
+
+	normalizeChatContentBlocks(map[string]interface{}{"model": "m"})
+	normalizeChatContentBlocks(nil)
+}
+
+// TestNormalizeChatContentBlocksThinkingChain 覆盖 zen thinking 模式下工具循环的
+// reasoning_content 续传兜底：assistant 开启思考后，后续缺失 reasoning 的 toolCall
+// 轮次必须补空串，否则上游 400 "reasoning_content must be passed back"。
+// 同时保证新用户轮次重置思考状态，不误注入后续独立对话。
+func TestNormalizeChatContentBlocksThinkingChain(t *testing.T) {
+	body := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "review"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "thinking", "thinking": "first", "thinkingSignature": "reasoning_content"},
+				map[string]interface{}{"type": "toolCall", "id": "call_1", "name": "bash", "arguments": map[string]interface{}{"command": "ls"}},
+			}},
+			map[string]interface{}{"role": "tool", "tool_call_id": "call_1", "content": "out"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "toolCall", "id": "call_2", "name": "bash", "arguments": map[string]interface{}{"command": "cat"}},
+			}},
+			map[string]interface{}{"role": "tool", "tool_call_id": "call_2", "content": "data"},
+		},
+	}
+	normalizeChatContentBlocks(body)
+	msgs := body["messages"].([]interface{})
+	a1 := msgs[1].(map[string]interface{})
+	if a1["reasoning_content"] != "first" {
+		t.Errorf("assistant1 should carry thinking text, got %v", a1["reasoning_content"])
+	}
+	a2 := msgs[3].(map[string]interface{})
+	if _, has := a2["reasoning_content"]; !has {
+		t.Error("assistant2 (toolCall round without thinking) should get empty reasoning_content injected")
+	}
+	if a2["reasoning_content"] != "" {
+		t.Errorf("assistant2 reasoning_content should be empty string, got %v", a2["reasoning_content"])
+	}
+	if a2["tool_calls"] == nil {
+		t.Error("assistant2 should keep converted tool_calls")
+	}
+}
+
+// TestNormalizeChatContentBlocksThinkingReset 覆盖 thinking 状态在新用户轮次重置：
+// 思考结束后新对话轮（user→assistant 无 thinking）不应被注入 reasoning_content。
+func TestNormalizeChatContentBlocksThinkingReset(t *testing.T) {
+	body := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "review"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "thinking", "thinking": "first", "thinkingSignature": "reasoning_content"},
+				map[string]interface{}{"type": "text", "text": "done"},
+			}},
+			map[string]interface{}{"role": "user", "content": "now a new question"},
+			map[string]interface{}{"role": "assistant", "content": []interface{}{
+				map[string]interface{}{"type": "toolCall", "id": "call_9", "name": "bash", "arguments": map[string]interface{}{"command": "pwd"}},
+			}},
+		},
+	}
+	normalizeChatContentBlocks(body)
+	msgs := body["messages"].([]interface{})
+	last := msgs[3].(map[string]interface{})
+	if _, has := last["reasoning_content"]; has {
+		t.Error("thinking state should reset after a new user turn; assistant without thinking got injected")
+	}
+}
+
+// TestRecordAnalyticsErrorOnlyOnError 验证报错信息（kind/message/response）仅随失败请求
+// （>= 400）落库，成功请求不占空间；logs 接口能返回 errorKind/errorMessage/errorResponse
+// 字段供界面与 AI 排障读取。
+func TestRecordAnalyticsErrorOnlyOnError(t *testing.T) {
+	service := newOpenAIService(t)
+	ctx := context.Background()
+
+	errorJSON := `{"error":{"message":"insufficient balance","type":"insufficient_quota"}}`
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "m-1", http.StatusOK, 10, 0, 1, 2, 3, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", nil)
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "m-1", http.StatusInternalServerError, 20, 0, 0, 0, 0, 0, 0, 1, "10.0.0.1", "198.51.100.7", 0, "", &AnalyticsError{
+		Kind:     "upstream",
+		Message:  "insufficient balance",
+		Response: errorResponseForLog([]byte(errorJSON), http.StatusInternalServerError),
+	})
+	service.flushAnalyticsQueue(5 * time.Second)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var okKind, okResp, errKind, errMsg, errResp sql.NullString
+	if err := db.QueryRow(`SELECT error_kind, response_body FROM openai_gateway_analytics WHERE status_code = 200`).Scan(&okKind, &okResp); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT error_kind, error_message, response_body FROM openai_gateway_analytics WHERE status_code = 500`).Scan(&errKind, &errMsg, &errResp); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	if okKind.Valid && okKind.String != "" {
+		t.Fatalf("success request should not persist error info, got kind=%q resp=%q", okKind.String, okResp.String)
+	}
+	if !errKind.Valid || errKind.String != "upstream" {
+		t.Fatalf("error request should persist error kind, got %q", errKind.String)
+	}
+	if errMsg.String != "insufficient balance" {
+		t.Fatalf("error request should persist error message, got %q", errMsg.String)
+	}
+	if errResp.String != errorJSON {
+		t.Fatalf("error request should persist error response JSON, got %q", errResp.String)
+	}
+
+	// logs 接口应返回 errorKind/errorMessage/errorResponse 字段。
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil)
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("logs status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var result struct {
+		Records []struct {
+			StatusCode   int    `json:"statusCode"`
+			ErrorKind    string `json:"errorKind"`
+			ErrorMessage string `json:"errorMessage"`
+			ErrorResp    string `json:"errorResponse"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(result.Records))
+	}
+	for _, rec := range result.Records {
+		if rec.StatusCode == http.StatusInternalServerError {
+			if rec.ErrorKind != "upstream" || rec.ErrorMessage != "insufficient balance" || rec.ErrorResp != errorJSON {
+				t.Fatalf("logs should carry error info for error row, got %+v", rec)
+			}
+		}
+		if rec.StatusCode == http.StatusOK && (rec.ErrorKind != "" || rec.ErrorResp != "") {
+			t.Fatalf("logs should not carry error info for success row, got %+v", rec)
+		}
+	}
+}
+
+// TestRecordAnalyticsRealModel 验证命中模型映射时 real_model 落库且 logs 接口返回
+// realModel 字段；未传（未映射）时为空。
+func TestRecordAnalyticsRealModel(t *testing.T) {
+	service := newOpenAIService(t)
+	ctx := context.Background()
+
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "alias-model", http.StatusOK, 10, 0, 1, 2, 3, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", nil, "real-model")
+	service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "plain-model", http.StatusOK, 10, 0, 1, 2, 3, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", nil)
+	service.flushAnalyticsQueue(5 * time.Second)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil)
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("logs status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var result struct {
+		Records []struct {
+			Model      string `json:"model"`
+			RealModel  string `json:"realModel"`
+			StatusCode int    `json:"statusCode"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(result.Records))
+	}
+	byModel := map[string]string{}
+	for _, rec := range result.Records {
+		byModel[rec.Model] = rec.RealModel
+	}
+	if byModel["alias-model"] != "real-model" {
+		t.Fatalf("mapped model should persist real model, got %q", byModel["alias-model"])
+	}
+	if byModel["plain-model"] != "" {
+		t.Fatalf("unmapped model should have empty real model, got %q", byModel["plain-model"])
+	}
+}
+
+// TestErrorResponseForLogTruncatesHugeBody 验证超长报错 JSON 被截断并带标记。
+func TestErrorResponseForLogTruncatesHugeBody(t *testing.T) {
+	huge := strings.Repeat("x", relayErrorResponseLimit+1024)
+	out := errorResponseForLog([]byte(huge), http.StatusBadGateway)
+	if len(out) > relayErrorResponseLimit+len(" ...(truncated)") {
+		t.Fatalf("truncated body too long: %d", len(out))
+	}
+	if !strings.HasSuffix(out, "...(truncated)") {
+		t.Fatalf("truncated body should carry marker, got %q", out[len(out)-40:])
+	}
+	if errorResponseForLog([]byte(`{"a":1}`), http.StatusOK) != "" {
+		t.Fatal("success request should return empty error response")
+	}
+}
+
+// TestTrimErrorDetailRetention 验证超出保留上限的错误详情被清空：
+// 最新的 50 条保留 error_kind/error_message/response_body，更早的全部清空但行不删除。
+func TestTrimErrorDetailRetention(t *testing.T) {
+	service := newOpenAIService(t)
+	ctx := context.Background()
+
+	errInfo := &AnalyticsError{Kind: "upstream", Message: "boom", Response: `{"error":"boom"}`}
+	for i := 0; i < relayErrorResponseRetention+5; i++ {
+		service.recordAnalyticsKey(ctx, "chat.completions", "ep-1", "m-1", http.StatusInternalServerError, 10, 0, 0, 0, 0, 0, 0, 0, "10.0.0.1", "198.51.100.7", 0, "", errInfo)
+	}
+	service.flushAnalyticsQueue(5 * time.Second)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var kept, cleared, total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM openai_gateway_analytics WHERE error_kind IS NOT NULL AND error_kind != ''`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM openai_gateway_analytics WHERE error_kind IS NULL OR error_kind = ''`).Scan(&cleared); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM openai_gateway_analytics`).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if kept != relayErrorResponseRetention {
+		t.Fatalf("expected %d kept error details, got %d", relayErrorResponseRetention, kept)
+	}
+	if cleared != 5 {
+		t.Fatalf("expected 5 cleared error details, got %d", cleared)
+	}
+	if total != relayErrorResponseRetention+5 {
+		t.Fatalf("rows should be preserved, expected %d total, got %d", relayErrorResponseRetention+5, total)
+	}
+}
+
+func TestSafeUploadPathJoin(t *testing.T) {
+	dataDir := t.TempDir()
+	cases := []struct {
+		url      string
+		ok       bool
+		expected string
+	}{
+		{"/uploads/a.png", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "a.png"},
+		{"/uploads/sub/dir/img.webp", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "sub" + string(os.PathSeparator) + "dir" + string(os.PathSeparator) + "img.webp"},
+		{"/uploads/../secret.txt", false, ""},
+		{"/uploads/../../data/api.db", false, ""},
+		{"/uploads/./../secret.txt", false, ""},
+		{"/uploads/../", false, ""},
+		{"/uploads", false, ""},
+		{"/uploads//tmp/evil", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "tmp" + string(os.PathSeparator) + "evil"},
+		{"/uploads/..%2f..%2fsecret", true, dataDir + string(os.PathSeparator) + "uploads" + string(os.PathSeparator) + "..%2f..%2fsecret"},
+		{"//uploads/a.png", false, ""},
+		{"/other/a.png", false, ""},
+		{"uploads/a.png", false, ""},
+		{"", false, ""},
+	}
+	for _, tc := range cases {
+		got, ok := safeUploadPathJoin(dataDir, tc.url)
+		if ok != tc.ok {
+			t.Errorf("safeUploadPathJoin(%q) ok=%v, want %v", tc.url, ok, tc.ok)
+			continue
+		}
+		if ok && got != tc.expected {
+			t.Errorf("safeUploadPathJoin(%q) = %q, want %q", tc.url, got, tc.expected)
+		}
+	}
+	if _, ok := safeUploadPathJoin("", "/uploads/a.png"); ok {
+		t.Error("empty dataDir must be rejected")
+	}
+}
+
+func TestInlineLocalUploadImageRejectsTraversal(t *testing.T) {
+	dataDir := t.TempDir()
+	uploadsDir := filepath.Join(dataDir, "uploads")
+	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secretPath := filepath.Join(dataDir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("TOP-SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	picPath := filepath.Join(uploadsDir, "pic.png")
+	if err := os.WriteFile(picPath, []byte("PNGDATA"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(config.Config{DataDir: dataDir})
+
+	traversal := map[string]interface{}{"url": "/uploads/../secret.txt"}
+	s.inlineLocalUploadImage(traversal, s.cfg.DataDir)
+	if traversal["url"] != "/uploads/../secret.txt" || traversal["_original_url"] != nil {
+		t.Fatalf("traversal must not be inlined: %#v", traversal)
+	}
+
+	valid := map[string]interface{}{"url": "/uploads/pic.png"}
+	s.inlineLocalUploadImage(valid, s.cfg.DataDir)
+	if !strings.HasPrefix(valid["url"].(string), "data:image/png;base64,") {
+		t.Fatalf("valid upload should be inlined, got %#v", valid)
+	}
+	if valid["_original_url"] != "/uploads/pic.png" {
+		t.Fatalf("original url should be preserved, got %#v", valid)
+	}
+}
+
+func TestIsRateLimitResponseExcludesOverloadCodes(t *testing.T) {
+	// 503/529 是过载信号而非客户端限流：不累计进「连续 429 冻结」，
+	// 但仍应可重试（isRetryableUpstreamResponse 单独兜底）。
+	for _, code := range []int{503, 529} {
+		resp := &http.Response{StatusCode: code}
+		if isRateLimitResponse(resp, nil) {
+			t.Fatalf("status %d must not count as rate limit", code)
+		}
+		if !isRetryableUpstreamResponse(resp, nil) {
+			t.Fatalf("status %d should still be retryable", code)
+		}
+	}
+	for _, code := range []int{429, 439} {
+		resp := &http.Response{StatusCode: code}
+		if !isRateLimitResponse(resp, nil) {
+			t.Fatalf("status %d should count as rate limit", code)
+		}
+	}
+	// 503 携限流关键词时仍应判定为限流
+	resp := &http.Response{StatusCode: 503}
+	if !isRateLimitResponse(resp, []byte("rate limit exceeded")) {
+		t.Fatal("rate limit keyword in body should still count")
+	}
+}
+
+func TestEndpointWeightIncludesPriority(t *testing.T) {
+	if got := endpointWeight(Endpoint{Weight: 100}); got != 100 {
+		t.Fatalf("default weight = %d, want 100", got)
+	}
+	if got := endpointWeight(Endpoint{Weight: 100, Priority: 2}); got != 200 {
+		t.Fatalf("priority-weighted = %d, want 200", got)
+	}
+	if got := endpointWeight(Endpoint{Weight: 0, Priority: 1}); got != 51 {
+		t.Fatalf("fallback weight = %d, want 51", got)
+	}
+	if got := endpointWeight(Endpoint{}); got != 1 {
+		t.Fatalf("empty endpoint weight = %d, want 1", got)
+	}
+}
+
+func TestEndpointExportImportPreservesAllFields(t *testing.T) {
+	service := newOpenAIService(t)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	create := Endpoint{
+		Name:           "full-fields",
+		BaseURL:        "https://upstream.example.com/v1",
+		APIKey:         "main-key-123",
+		APIKeys:        []string{"extra-key-456", "extra-key-789"},
+		Enabled:        true,
+		Models:         []string{"gpt-4o", "gpt-4o-mini"},
+		Headers:        []HeaderItem{{Name: "X-Custom", Value: "hello"}},
+		DisabledModels: []string{"gpt-3.5-turbo"},
+		ProxyPool:      []string{"http://p1:8080", "socks5://p2:1080"},
+		ProxyBatches:   []ProxyBatch{{ID: "b1", Name: "batch-a", CreatedAt: "2026-01-01T00:00:00Z", Proxies: []string{"http://p1:8080"}}},
+		ProxyEnabled:   true,
+		AutoSwitch:     true,
+		ForceProxy:     true,
+		Protocol:       "http",
+		ModelMappings:  map[string]string{"deepseek-chat": "deepseek-v3"},
+		Priority:       3,
+		Weight:         7,
+	}
+	modelsJSON, _ := json.Marshal(create.Models)
+	headersJSON, _ := json.Marshal(create.Headers)
+	disabledJSON, _ := json.Marshal(create.DisabledModels)
+	proxyJSON, _ := json.Marshal(create.ProxyPool)
+	batchesJSON, _ := json.Marshal(create.ProxyBatches)
+	mappingsJSON, _ := json.Marshal(create.ModelMappings)
+	apiKeysJSON, _ := json.Marshal(create.APIKeys)
+	id := "oai_full_fields"
+	_, err = db.ExecContext(context.Background(), `
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, priority, weight, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, '2026-01-01T00:00:00Z')`,
+		id, create.Name, create.BaseURL, create.APIKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), 1, 1, 1, create.Protocol, string(modelsJSON), string(mappingsJSON), create.Priority, create.Weight)
+	if err != nil {
+		t.Fatalf("insert full endpoint: %v", err)
+	}
+	_ = id
+
+	wExport := httptest.NewRecorder()
+	rExport, _ := http.NewRequest("GET", "/api/openai/export", nil)
+	service.ServeHTTP(wExport, rExport)
+	if wExport.Code != http.StatusOK {
+		t.Fatalf("export status=%d", wExport.Code)
+	}
+	var exported struct {
+		Endpoints []Endpoint `json:"endpoints"`
+	}
+	mustDecode(t, wExport.Body.String(), &exported)
+	if len(exported.Endpoints) != 1 {
+		t.Fatalf("export endpoints=%d", len(exported.Endpoints))
+	}
+	ep := exported.Endpoints[0]
+	if ep.Priority != 3 || ep.Weight != 7 {
+		t.Errorf("priority/weight lost: %d/%d", ep.Priority, ep.Weight)
+	}
+	if !ep.ProxyEnabled || !ep.ForceProxy || !ep.AutoSwitch {
+		t.Errorf("proxy flags lost: %#v", ep)
+	}
+	if len(ep.ProxyBatches) != 1 || ep.ProxyBatches[0].Name != "batch-a" || len(ep.ProxyBatches[0].Proxies) != 1 {
+		t.Errorf("proxy batches lost: %#v", ep.ProxyBatches)
+	}
+	if len(ep.APIKeys) != 2 {
+		t.Errorf("api keys lost: %#v", ep.APIKeys)
+	}
+	if ep.ModelMappings["deepseek-chat"] != "deepseek-v3" {
+		t.Errorf("model mappings lost: %#v", ep.ModelMappings)
+	}
+	if len(ep.Headers) != 1 || ep.Headers[0].Name != "X-Custom" {
+		t.Errorf("headers lost: %#v", ep.Headers)
+	}
+	if len(ep.Models) != 2 || len(ep.DisabledModels) != 1 {
+		t.Errorf("models/disabled lost: %#v %#v", ep.Models, ep.DisabledModels)
+	}
+
+	// 导入到全新实例（overwrite），再导出验证往返一致
+	service2 := newOpenAIService(t)
+	impBody, _ := json.Marshal(map[string]interface{}{"endpoints": exported.Endpoints, "overwrite": true})
+	rImport, _ := http.NewRequest("POST", "/api/openai/import", bytes.NewReader(impBody))
+	wImport := httptest.NewRecorder()
+	service2.ServeHTTP(wImport, rImport)
+	if wImport.Code != http.StatusOK {
+		t.Fatalf("import status=%d body=%s", wImport.Code, wImport.Body.String())
+	}
+	rExport2, _ := http.NewRequest("GET", "/api/openai/export", nil)
+	wExport2 := httptest.NewRecorder()
+	service2.ServeHTTP(wExport2, rExport2)
+	var exported2 struct {
+		Endpoints []Endpoint `json:"endpoints"`
+	}
+	mustDecode(t, wExport2.Body.String(), &exported2)
+	if len(exported2.Endpoints) != 1 {
+		t.Fatalf("re-export endpoints=%d", len(exported2.Endpoints))
+	}
+	ep2 := exported2.Endpoints[0]
+	if ep2.Priority != 3 || ep2.Weight != 7 || len(ep2.ProxyBatches) != 1 || len(ep2.APIKeys) != 2 || ep2.ModelMappings["deepseek-chat"] != "deepseek-v3" || !ep2.ProxyEnabled || !ep2.ForceProxy {
+		t.Errorf("round-trip lost fields: %#v", ep2)
+	}
+	if ep2.APIKey != "main-key-123" {
+		t.Errorf("round-trip apiKey mismatch: %q", ep2.APIKey)
+	}
+}
+
+// TestResolveEndpointModelPrefersRoutableMapping 覆盖多个内部模型映射到同一
+// 外部名且部分被 disabled_models 禁用的场景：路由必须稳定选中未被禁用的别名，
+// 不能受 Go map 迭代顺序影响而间歇性不可路由。
+func TestResolveEndpointModelPrefersRoutableMapping(t *testing.T) {
+	s := newOpenAIService(t)
+	testCases := []struct {
+		name      string
+		mappings  map[string]string
+		disabled  []string
+		requested string
+		wantReal  string
+		wantOK    bool
+	}{
+		{
+			name:      "dual mapping one disabled picks enabled",
+			mappings:  map[string]string{"gcli-gemini-3.1-pro-preview": "gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search": "gemini-3.1-pro-preview"},
+			disabled:  []string{"gcli-gemini-3.1-pro-preview"},
+			requested: "gemini-3.1-pro-preview",
+			wantReal:  "gcli-gemini-3.1-pro-preview-search",
+			wantOK:    true,
+		},
+		{
+			name:      "dual mapping all disabled not routable",
+			mappings:  map[string]string{"gcli-gemini-3.1-pro-preview": "gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search": "gemini-3.1-pro-preview"},
+			disabled:  []string{"gcli-gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search"},
+			requested: "gemini-3.1-pro-preview",
+			wantReal:  "",
+			wantOK:    false,
+		},
+		{
+			name:      "single mapping enabled",
+			mappings:  map[string]string{"deepseek-v4-flash-free": "deepseek-v4-flash"},
+			disabled:  []string{"big-pickle"},
+			requested: "deepseek-v4-flash",
+			wantReal:  "deepseek-v4-flash-free",
+			wantOK:    true,
+		},
+		{
+			name:      "single mapping disabled not routable",
+			mappings:  map[string]string{"deepseek-v4-flash-free": "deepseek-v4-flash"},
+			disabled:  []string{"deepseek-v4-flash-free"},
+			requested: "deepseek-v4-flash",
+			wantReal:  "",
+			wantOK:    false,
+		},
+		{
+			name:      "no mapping requested enabled",
+			mappings:  map[string]string{},
+			disabled:  []string{"gpt-4"},
+			requested: "gpt-4o",
+			wantReal:  "gpt-4o",
+			wantOK:    true,
+		},
+		{
+			name:      "no mapping requested disabled",
+			mappings:  map[string]string{},
+			disabled:  []string{"gpt-4"},
+			requested: "gpt-4",
+			wantReal:  "gpt-4",
+			wantOK:    false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ep := Endpoint{ModelMappings: tc.mappings, DisabledModels: tc.disabled}
+			for i := 0; i < 50; i++ {
+				real, ok := s.resolveEndpointModel(ep, tc.requested)
+				if real != tc.wantReal || ok != tc.wantOK {
+					t.Fatalf("iteration %d: resolveEndpointModel(%q) = (%q, %v); want (%q, %v)",
+						i, tc.requested, real, ok, tc.wantReal, tc.wantOK)
+				}
+			}
+		})
+	}
+}
+
+// TestSelectEndpointCandidatesDualMapping 验证双映射 + 部分禁用时端点稳定进入
+// 候选（模拟真实场景：gcli-gemini-3.1-pro-preview 被禁用、-search 已启用）。
+func TestSelectEndpointCandidatesDualMapping(t *testing.T) {
+	s := newOpenAIService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	mappingsJSON, _ := json.Marshal(map[string]string{
+		"gcli-gemini-3.1-pro-preview":        "gemini-3.1-pro-preview",
+		"gcli-gemini-3.1-pro-preview-search": "gemini-3.1-pro-preview",
+	})
+	disabledJSON, _ := json.Marshal([]string{"gcli-gemini-3.1-pro-preview"})
+	modelsJSON, _ := json.Marshal([]string{"gcli-gemini-3.1-pro-preview", "gcli-gemini-3.1-pro-preview-search"})
+	_, err = db.ExecContext(context.Background(), `
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, status, enabled, models, model_mappings, disabled_models)
+		VALUES ('oai_dual_mapping', 'catiecli', 'https://example.com/v1', 'sk-test', 'valid', 1, ?, ?, ?)`,
+		string(modelsJSON), string(mappingsJSON), string(disabledJSON))
+	if err != nil {
+		t.Fatalf("insert endpoint: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for i := 0; i < 20; i++ {
+		candidates, _, _, selectedModel, found := s.selectEndpointCandidates(context.Background(), db, "gemini-3.1-pro-preview", "", "")
+		if !found {
+			t.Fatalf("iteration %d: no candidate found", i)
+		}
+		if len(candidates) != 1 || candidates[0].ID != "oai_dual_mapping" {
+			t.Fatalf("iteration %d: candidates=%#v", i, candidates)
+		}
+		if selectedModel != "gcli-gemini-3.1-pro-preview-search" {
+			t.Fatalf("iteration %d: selectedModel=%q", i, selectedModel)
+		}
+		seen[selectedModel] = true
+	}
+	if len(seen) != 1 {
+		t.Fatalf("selected model unstable across iterations: %#v", seen)
+	}
+}
+
+func TestAnalyticsChartsByDimensionCarryTokenSeries(t *testing.T) {
+	service := newOpenAIService(t)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO openai_gateway_analytics (endpoint_id, route, model, status_code, latency_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, timestamp)
+		VALUES
+			('ep1', 'chat.completions', 'model-a', 200, 100, 500, 1000, 1500, 300, datetime('now', '-1 day')),
+			('ep1', 'chat.completions', 'model-a', 200, 200, 200, 800, 1000, 700, datetime('now', '-2 days')),
+			('ep1', 'chat.completions', 'model-b', 200, 150, 100, 100, 200, 0, datetime('now', '-1 day'))
+	`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/charts?days=7&granularity=day", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("charts status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var charts struct {
+		ByModel []struct {
+			Model          string  `json:"model"`
+			Data           []int   `json:"data"`
+			Tokens         []int64 `json:"tokens"`
+			TokensUncached []int64 `json:"tokensUncached"`
+		} `json:"byModel"`
+	}
+	mustDecode(t, rec.Body.String(), &charts)
+
+	idx := -1
+	for i := range charts.ByModel {
+		if charts.ByModel[i].Model == "model-a" {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		t.Fatalf("byModel series missing model-a: %+v", charts.ByModel)
+	}
+	var totalTokens, totalData int64
+	for i := range charts.ByModel[idx].Tokens {
+		totalData += int64(charts.ByModel[idx].Data[i])
+		totalTokens += charts.ByModel[idx].Tokens[i]
+	}
+	if totalData != 2 {
+		t.Fatalf("model-a count series wrong: %+v", charts.ByModel[idx].Data)
+	}
+	if totalTokens != 2500 {
+		t.Fatalf("model-a tokens series wrong: %+v", charts.ByModel[idx].Tokens)
+	}
+	totalUncached := int64(0)
+	for _, v := range charts.ByModel[idx].TokensUncached {
+		totalUncached += v
+	}
+	// 1500 + 1000 全部词元中，300 + 700 为缓存命中，未缓存应为 2500-1000=1500。
+	if totalUncached != 1500 {
+		t.Fatalf("model-a tokensUncached series wrong: %+v", charts.ByModel[idx].TokensUncached)
+	}
+}
+
+// TestIsRateLimitResponseIgnoresSuccessBody 200 成功回复的正文（纯文本或 JSON
+// 成功体）恰好提及限流关键词时，不得被误判为限流：否则非流式 AutoSwitch 分支
+// 会吞掉成功回复、误冻结出口并重复计费。200+JSON 错误体（顶层 error 非空）
+// 携带限流词仍应判为限流（覆盖「200 携带错误体」的上游设计）。
+func TestIsRateLimitResponseIgnoresSuccessBody(t *testing.T) {
+	plainOK := &http.Response{StatusCode: http.StatusOK}
+	if isRateLimitResponse(plainOK, []byte("Here is how to handle rate limit errors.")) {
+		t.Fatal("200 plain-text body mentioning rate limit must not count as rate limited")
+	}
+	if isRetryableUpstreamResponse(plainOK, []byte("Here is how to handle rate limit errors.")) {
+		t.Fatal("200 plain-text body mentioning rate limit must not be retryable")
+	}
+
+	jsonOK := &http.Response{StatusCode: http.StatusOK}
+	successBody := []byte(`{"choices":[{"message":{"role":"assistant","content":"rate limit upstream error"}}],"usage":{"total_tokens":1}}`)
+	if isRateLimitResponse(jsonOK, successBody) {
+		t.Fatal("200 success JSON mentioning rate limit in content must not count as rate limited")
+	}
+	if isRetryableUpstreamResponse(jsonOK, successBody) {
+		t.Fatal("200 success JSON mentioning rate limit in content must not be retryable")
+	}
+
+	jsonErr := &http.Response{StatusCode: http.StatusOK}
+	errBody := []byte(`{"error":{"message":"rate limit exceeded, please retry"}}`)
+	if !isRateLimitResponse(jsonErr, errBody) {
+		t.Fatal("200 JSON error body with rate limit keyword should count as rate limited")
+	}
+	if !isRetryableUpstreamResponse(jsonErr, errBody) {
+		t.Fatal("200 JSON error body with rate limit keyword should be retryable")
+	}
+
+	// 顶层 error 为 null 的 200 正文不算错误体。
+	if isRateLimitResponse(&http.Response{StatusCode: http.StatusOK}, []byte(`{"error":null,"note":"rate limit"}`)) {
+		t.Fatal("200 body with null error member must not count as rate limited")
+	}
+}
+
+// TestAnthropicMessagesAllEndpointsFailedReturnsError /v1/messages 全端点失败聚合
+// 分支必须返回非 nil error：此前误返回 (503,nil,nil)，调用方静默 return，客户端
+// 收到 200 空 body 而不知道请求已失败。
+func TestAnthropicMessagesAllEndpointsFailedReturnsError(t *testing.T) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"server exploded"}}`))
+	}))
+	defer failing.Close()
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"Anthropic Failing","baseUrl":"%s","apiKey":"k","skipVerify":true}`, failing.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["deepseek-v4-flash"]`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("all endpoints failed must surface 500, got %d body=%q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "网关无可用渠道") {
+		t.Fatalf("error body should explain gateway exhaustion, got %q", w.Body.String())
+	}
+}
+
+// TestGatewayKeyEndpointWhitelistNoFailoverBypass 网关密钥端点白名单必须约束
+// failover：白名单内端点失败后不得打到白名单外端点；候选全被过滤掉时以与
+// enforceGatewayKeyLimits 同款的白名单错误拒绝。
+func TestGatewayKeyEndpointWhitelistNoFailoverBypass(t *testing.T) {
+	var aHits, bHits int32
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&aHits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"server exploded"}}`))
+	}))
+	defer failing.Close()
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&bHits, 1)
+		okHandler(w, r)
+	}))
+	defer healthy.Close()
+
+	service := newOpenAIService(t)
+	create := func(name, rawURL string) string {
+		payload := fmt.Sprintf(`{"name":%q,"baseUrl":"%s","apiKey":"k","skipVerify":true}`, name, rawURL)
+		rec := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(payload))
+		service.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("create %s status = %d body=%s", name, rec.Code, rec.Body.String())
+		}
+		var res struct {
+			Endpoint Endpoint `json:"endpoint"`
+		}
+		mustDecode(t, rec.Body.String(), &res)
+		return res.Endpoint.ID
+	}
+	idA := create("Whitelist A", failing.URL)
+	idB := create("Outside B", healthy.URL)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{idA, idB} {
+		if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, id); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	chat := func(identity gatewayKeyIdentity) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}`))
+		r = r.WithContext(context.WithValue(r.Context(), gatewayKeyContextKey{}, identity))
+		service.ServeHTTP(w, r)
+		return w
+	}
+
+	// 白名单只含 A：A 失败后聚合失败，绝不允许 failover 到白名单外的 B。
+	w := chat(gatewayKeyIdentity{ID: "gk-1", Name: "k1", AllowedEndpoints: []string{idA}})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("exhausted whitelisted endpoint should surface 500, got %d body=%q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "网关无可用渠道") {
+		t.Fatalf("error body should explain gateway exhaustion, got %q", w.Body.String())
+	}
+	if atomic.LoadInt32(&bHits) != 0 {
+		t.Fatalf("whitelist bypass: endpoint outside whitelist was hit %d times", bHits)
+	}
+	if atomic.LoadInt32(&aHits) == 0 {
+		t.Fatal("whitelisted endpoint A should have been tried")
+	}
+
+	// 白名单端点不在候选内：以白名单错误拒绝，不触达任何端点。
+	w = chat(gatewayKeyIdentity{ID: "gk-2", Name: "k2", AllowedEndpoints: []string{"oai_missing"}})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("empty filtered candidates should be 403, got %d body=%q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "端点不在该密钥的允许列表中") {
+		t.Fatalf("error body should carry whitelist violation message, got %q", w.Body.String())
+	}
+	if atomic.LoadInt32(&bHits) != 0 {
+		t.Fatalf("rejected request must not reach endpoint B, hits=%d", bHits)
+	}
+}
+
+// TestTrimSessionBindings 会话绑定表的容量上限与过期清理：未达容量不动；
+// 达容量先剔除空闲过期条目；仍达容量则整体重建（会话 key 客户端可控，防泄漏）。
+func TestTrimSessionBindings(t *testing.T) {
+	now := time.Now()
+	stale := now.Add(-2 * time.Hour)
+	fresh := now.Add(-time.Minute)
+
+	state := newEndpointProxyState()
+	for i := 0; i < sessionBindingMax-1; i++ {
+		state.sessionBindings[fmt.Sprintf("s-%d", i)] = &sessionBinding{proxy: "p", updatedAt: stale}
+	}
+	trimSessionBindings(state, now)
+	if len(state.sessionBindings) != sessionBindingMax-1 {
+		t.Fatalf("below cap must keep all bindings, got %d", len(state.sessionBindings))
+	}
+
+	// 达容量且含过期条目：仅剔除过期，新鲜条目保留。
+	state.sessionBindings["fresh"] = &sessionBinding{proxy: "p", updatedAt: fresh}
+	trimSessionBindings(state, now)
+	if len(state.sessionBindings) != 1 {
+		t.Fatalf("stale entries should be pruned at cap, got %d", len(state.sessionBindings))
+	}
+	if _, ok := state.sessionBindings["fresh"]; !ok {
+		t.Fatal("fresh binding must survive pruning")
+	}
+
+	// 达容量且全部新鲜：整体重建，防止客户端可控的 session key 无限增长。
+	for i := 0; i < sessionBindingMax; i++ {
+		state.sessionBindings[fmt.Sprintf("f-%d", i)] = &sessionBinding{proxy: "p", updatedAt: fresh}
+	}
+	trimSessionBindings(state, now)
+	if len(state.sessionBindings) != 0 {
+		t.Fatalf("cap exceeded with all-fresh entries should rebuild, got %d", len(state.sessionBindings))
+	}
+}
+
+// TestMessagesRequestBodyLimit413 /v1/messages 请求体必须有与 chat/responses
+// 一致的上限：超限返回 413，而不是全量读入内存。
+func TestMessagesRequestBodyLimit413(t *testing.T) {
+	service := newOpenAIService(t)
+	service.bodyMaxBytes = 256
+
+	big := `{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"` + strings.Repeat("x", 4096) + `"}]}`
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest("POST", "/v1/messages", strings.NewReader(big))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized messages body should be 413, got %d body=%q", w.Code, w.Body.String())
+	}
+}
+
+// TestReadUpstreamBodyLimited 非流式上游响应体读取必须施加硬上限：
+// 恰好等于上限可通过，超限返回错误（不静默截断）。
+func TestReadUpstreamBodyLimited(t *testing.T) {
+	old := upstreamBodyLimit
+	upstreamBodyLimit = 1024
+	defer func() { upstreamBodyLimit = old }()
+
+	body, err := readUpstreamBodyLimited(bytes.NewReader(bytes.Repeat([]byte("a"), 1024)))
+	if err != nil || len(body) != 1024 {
+		t.Fatalf("body at limit should pass, got len=%d err=%v", len(body), err)
+	}
+	if _, err := readUpstreamBodyLimited(bytes.NewReader(bytes.Repeat([]byte("a"), 1025))); err == nil || !strings.Contains(err.Error(), "上限") {
+		t.Fatalf("body over limit must error (not truncate), got %v", err)
+	}
+}
+
+// TestEgressOutboundIPSingleflightAndNegativeCache 出口 IP 探测的并发合并与
+// 失败负缓存：缓存过期瞬间的并发请求只触发一次探测；探测失败短 TTL 内不重复出网。
+func TestEgressOutboundIPSingleflightAndNegativeCache(t *testing.T) {
+	resetEgressState := func() {
+		egressIPCache.Lock()
+		egressIPCache.entry = egressEntry{}
+		egressIPCache.Unlock()
+		egressProbeFlight.Lock()
+		egressProbeFlight.inflight = nil
+		egressProbeFlight.Unlock()
+	}
+	resetEgressState()
+	defer resetEgressState()
+
+	var calls int32
+	probe := func() string {
+		atomic.AddInt32(&calls, 1)
+		time.Sleep(80 * time.Millisecond)
+		return "198.51.100.7"
+	}
+	const n = 16
+	results := make([]string, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results[i] = egressOutboundIPOnce(probe)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("concurrent calls should share one probe, got %d", got)
+	}
+	for i, r := range results {
+		if r != "198.51.100.7" {
+			t.Fatalf("result[%d] = %q, want 198.51.100.7", i, r)
+		}
+	}
+
+	// 缓存有效期内不重复探测。
+	if got := egressOutboundIPOnce(probe); got != "198.51.100.7" {
+		t.Fatalf("cached call = %q", got)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("cached call must not probe again, calls=%d", calls)
+	}
+
+	// 探测失败：负缓存短 TTL 内不重复探测。
+	resetEgressState()
+	var failCalls int32
+	failProbe := func() string {
+		atomic.AddInt32(&failCalls, 1)
+		return ""
+	}
+	if got := egressOutboundIPOnce(failProbe); got != "" {
+		t.Fatalf("failed probe should return empty, got %q", got)
+	}
+	if got := egressOutboundIPOnce(failProbe); got != "" {
+		t.Fatalf("negative-cached call should return empty, got %q", got)
+	}
+	if atomic.LoadInt32(&failCalls) != 1 {
+		t.Fatalf("failed probe must be negative-cached, calls=%d", failCalls)
+	}
+}
+
+// TestImportExportExtendedKeysRoundTrip 导出的扩展 key 是明文，导入时必须对
+// 整个明文 JSON 数组整串加密（与读取端对称）：导出→导入→列表读取应还原明文 key。
+// 此前导入端逐 key 加密后组数组，读取端整串解密失败，导入的扩展 key 全部失效。
+func TestImportExportExtendedKeysRoundTrip(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+	defer upstream.Close()
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"ExtKeys","baseUrl":"%s","apiKey":"k","apiKeys":["ext-a","ext-b"],"skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+
+	// 导出。
+	wExport := httptest.NewRecorder()
+	rExport, _ := http.NewRequest("GET", "/api/openai/export", nil)
+	service.ServeHTTP(wExport, rExport)
+	if wExport.Code != http.StatusOK {
+		t.Fatalf("export status = %d body=%s", wExport.Code, wExport.Body.String())
+	}
+	var exported struct {
+		Success   bool       `json:"success"`
+		Endpoints []Endpoint `json:"endpoints"`
+	}
+	mustDecode(t, wExport.Body.String(), &exported)
+	if len(exported.Endpoints) != 1 || len(exported.Endpoints[0].APIKeys) != 2 {
+		t.Fatalf("export should carry plaintext extended keys, got %+v", exported.Endpoints)
+	}
+
+	// 导入（覆盖）。
+	importPayload, _ := json.Marshal(map[string]interface{}{"endpoints": exported.Endpoints, "overwrite": true})
+	wImport := httptest.NewRecorder()
+	rImport, _ := http.NewRequest("POST", "/api/openai/import", bytes.NewReader(importPayload))
+	service.ServeHTTP(wImport, rImport)
+	if wImport.Code != http.StatusOK {
+		t.Fatalf("import status = %d body=%s", wImport.Code, wImport.Body.String())
+	}
+
+	// 列表读取：扩展 key 应还原为明文。
+	wList := httptest.NewRecorder()
+	rList, _ := http.NewRequest("GET", "/api/openai/endpoints", nil)
+	service.ServeHTTP(wList, rList)
+	var list []Endpoint
+	mustDecode(t, wList.Body.String(), &list)
+	if len(list) != 1 {
+		t.Fatalf("imported endpoints = %d, want 1", len(list))
+	}
+	keys := list[0].APIKeys
+	if len(keys) != 2 || keys[0] != "ext-a" || keys[1] != "ext-b" {
+		t.Fatalf("extended keys must round-trip to plaintext, got %+v", keys)
+	}
+}
+
+// TestUpdateEndpointVerifyOnlyOnChange 端点更新仅在 API Key 或归一化后的地址
+// 实际变化时触发上游验证/拉模型：前端全量提交（baseUrl 必填）的同值保存不得打上游。
+func TestUpdateEndpointVerifyOnlyOnChange(t *testing.T) {
+	var hits, hits2 int32
+	newUpstream := func(counter *int32) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(counter, 1)
+			if strings.HasSuffix(r.URL.Path, "/models") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+				return
+			}
+			okHandler(w, r)
+		}))
+	}
+	upstream := newUpstream(&hits)
+	defer upstream.Close()
+	upstream2 := newUpstream(&hits2)
+	defer upstream2.Close()
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+	id := createRes.Endpoint.ID
+
+	update := func(payload string) int {
+		w := httptest.NewRecorder()
+		r, _ := http.NewRequest("PUT", "/api/openai/endpoints/"+id, strings.NewReader(payload))
+		service.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	// 同值全量提交（baseUrl 未变、key 未变）：不触发上游验证/拉模型。
+	base := atomic.LoadInt32(&hits)
+	same := fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k1"}`, upstream.URL)
+	if code := update(same); code != http.StatusOK {
+		t.Fatalf("unchanged update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits); got != base {
+		t.Fatalf("unchanged update must not hit upstream, hits %d -> %d", base, got)
+	}
+
+	// 再次同值提交（key 已是 k1）：同样不触发。
+	if code := update(same); code != http.StatusOK {
+		t.Fatalf("second unchanged update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits); got != base {
+		t.Fatalf("repeated unchanged update must not hit upstream, hits %d -> %d", base, got)
+	}
+
+	// Key 变化：触发验证。
+	if code := update(fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k2"}`, upstream.URL)); code != http.StatusOK {
+		t.Fatalf("key-change update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits); got == base {
+		t.Fatal("key change must trigger upstream verification")
+	}
+
+	// 地址变化：触发验证（打新地址）。
+	before2 := atomic.LoadInt32(&hits2)
+	if code := update(fmt.Sprintf(`{"name":"Verify Gate","baseUrl":"%s","apiKey":"k2"}`, upstream2.URL)); code != http.StatusOK {
+		t.Fatalf("url-change update status = %d", code)
+	}
+	if got := atomic.LoadInt32(&hits2); got == before2 {
+		t.Fatal("base URL change must trigger upstream verification")
+	}
+}
+
+// TestUpdateEndpointKeepsModelsOnVerifyFailure 端点更新触发验证但验证失败
+// （上游不可达）时，必须保留旧模型列表：瞬时故障不应清空端点已获取的模型。
+func TestUpdateEndpointKeepsModelsOnVerifyFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"Keep Models","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		upstream.Close()
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		upstream.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4","gpt-4o"]`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		upstream.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 上游下线后变更 key：验证必然失败，模型列表必须保留。
+	upstream.Close()
+	wUpdate := httptest.NewRecorder()
+	rUpdate, _ := http.NewRequest("PUT", "/api/openai/endpoints/"+createRes.Endpoint.ID, strings.NewReader(`{"name":"Keep Models","apiKey":"k2"}`))
+	service.ServeHTTP(wUpdate, rUpdate)
+	if wUpdate.Code != http.StatusOK {
+		t.Fatalf("update status = %d body=%s", wUpdate.Code, wUpdate.Body.String())
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&modelsRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
+		t.Fatalf("verify failure must keep existing models, got %q", modelsRaw)
 	}
 }

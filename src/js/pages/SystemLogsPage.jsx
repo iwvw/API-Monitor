@@ -178,11 +178,11 @@ export default function SystemLogsPage() {
   }, [autoScroll, renderedLines]);
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-3 overflow-hidden sm:gap-4">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-3 overflow-hidden cq-sm:gap-4">
       <SectionCard
         className="shrink-0"
         title="系统日志"
-        icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+        icon={<FileText className="h-4 w-4 text-brand" />}
         actions={<Button size="sm" variant="secondary" onClick={download} icon={<Download className="h-3.5 w-3.5" />}>下载</Button>}
       >
         <div className="flex flex-wrap items-end gap-2.5">
@@ -205,7 +205,7 @@ export default function SystemLogsPage() {
       <SectionCard
         className="flex min-h-0 flex-1"
         title={logPath || 'app.log'}
-        icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+        icon={<FileText className="h-4 w-4 text-brand" />}
         meta={<span className="text-[10px] font-mono text-kumo-subtle">{lines.length} lines</span>}
         bodyPadding="none"
         bodyClassName="app-terminal-surface app-log-surface flex min-h-0 flex-1 flex-col"

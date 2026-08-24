@@ -107,7 +107,7 @@ function PublicPageIconOption({
         </div>
         {description ? <div className="mt-1 text-xs leading-5 text-kumo-subtle">{description}</div> : null}
       </div>
-      {active ? <Check className="h-4 w-4 shrink-0 text-kumo-brand" /> : null}
+      {active ? <Check className="h-4 w-4 shrink-0 text-brand" /> : null}
     </>
   );
 
@@ -120,7 +120,7 @@ function PublicPageIconOption({
         className={cx(
           'flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
-          active ? 'border-kumo-brand bg-kumo-brand/8' : 'border-kumo-line bg-kumo-base',
+          active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
       >
         {content}
@@ -137,7 +137,7 @@ function PublicPageIconOption({
         className={cx(
           'flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
-          active ? 'border-kumo-brand bg-kumo-brand/8' : 'border-kumo-line bg-kumo-base',
+          active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
       >
         {content}
@@ -284,7 +284,7 @@ export default function PublicPageIconPicker({
         triggerClassName,
         hasCustomIcon
           ? 'border-transparent bg-transparent shadow-none'
-          : 'transition-colors hover:border-kumo-brand/45',
+          : 'transition-colors hover:border-brand/45',
       )}
       onClick={() => setOpen(true)}
       aria-label="更换公开页图标"
@@ -313,7 +313,7 @@ export default function PublicPageIconPicker({
       {trigger}
       {isAuthenticated ? (
         <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (!saving && !uploading && !deletingId) setOpen(nextOpen); }}>
-          <Dialog className="flex max-h-[min(calc(100dvh-2rem),36rem)] !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+          <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),36rem)] !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
             <div className="flex items-start justify-between border-b border-kumo-line px-4 py-3">
               <div>
                 <Dialog.Title className="text-base font-semibold text-kumo-strong">公开页图标</Dialog.Title>
@@ -360,11 +360,10 @@ export default function PublicPageIconPicker({
               />
             </div>
             <div className="overflow-y-auto p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <PublicPageIconOption
                   active={!selectedIconId}
                   title="默认图标"
-                  description="恢复该公开页的默认图标。"
                   onClick={() => commitChange('')}
                   disabled={saving}
                   preview={<PublicPageBrandIcon pageKind={pageKind} config={{}} iconClassName="h-6 w-6" />}
@@ -396,7 +395,7 @@ export default function PublicPageIconPicker({
               {loading ? <div className="mt-3 text-xs text-kumo-subtle">正在加载已上传图标...</div> : null}
               {!loading && loaded && items.length === 0 ? (
                 <div className="mt-3 rounded-lg border border-dashed border-kumo-line px-3 py-4 text-xs text-kumo-subtle">
-                  还没有上传过图标。支持 svg/png/jpg/webp/gif，建议使用方形图标。
+                  支持 svg/png/jpg/webp/gif，建议使用方形图标。
                 </div>
               ) : null}
             </div>

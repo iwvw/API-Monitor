@@ -8,11 +8,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
+// defaultEncryptKey is for testing only. Production must set ENCRYPTION_KEY.
 const defaultEncryptKey = "default-encryption-key-change-in-production-32bytes"
 
 var encryptedPattern = regexp.MustCompile(`^[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+$`)
@@ -35,9 +39,26 @@ func SecureDecrypt(value string) string {
 	}
 	decrypted, err := DecryptNodeGCM(value)
 	if err != nil {
-		return value
+		secureDecryptFailLog()
+		return ""
 	}
 	return decrypted
+}
+
+// secureDecryptFailLog 对解密失败做节流日志，避免批量列表时按行刷屏。
+var (
+	decryptFailLogMu       sync.Mutex
+	lastDecryptFailLogTime time.Time
+)
+
+func secureDecryptFailLog() {
+	decryptFailLogMu.Lock()
+	defer decryptFailLogMu.Unlock()
+	if time.Since(lastDecryptFailLogTime) < 5*time.Second {
+		return
+	}
+	lastDecryptFailLogTime = time.Now()
+	log.Printf("SecureDecrypt: failed to decrypt value (密钥不匹配或数据已损坏)")
 }
 
 func EncryptJSON(value interface{}) (string, error) {
@@ -106,6 +127,9 @@ func EncryptNodeGCM(plain string) (string, error) {
 	return fmt.Sprintf("%s:%s:%s", hex.EncodeToString(iv), hex.EncodeToString(authTag), hex.EncodeToString(cipherText)), nil
 }
 
+// encryptionKey 用于加解密。生产环境的密钥强度由 config.ValidateSecurity
+// 强制校验（ENCRYPTION_KEY 至少 32 字符）；未配置时回退默认密钥仅适用于
+// 开发/测试，正式部署必须设置真实密钥。
 func encryptionKey() []byte {
 	keySource := os.Getenv("ENCRYPTION_KEY")
 	if keySource == "" {

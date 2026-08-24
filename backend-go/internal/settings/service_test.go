@@ -1003,6 +1003,20 @@ func TestBackgroundCleanupStartStop(t *testing.T) {
 	service.Stop()
 }
 
+func TestWALMaintenanceStartStop(t *testing.T) {
+	service := New(config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+	service.StartWALMaintenance()
+	service.StartWALMaintenance()
+	service.Stop()
+	service.Stop()
+}
+
 func TestListLogTablesExcludesUserData(t *testing.T) {
 	service := New(config.Config{
 		Version: "test",
@@ -1148,7 +1162,7 @@ func TestDeprecatedTablePreviewAndCleanup(t *testing.T) {
 	}
 }
 
-func TestDatabaseExportImportPreviewCommitAndLegacyImport(t *testing.T) {
+func TestDatabaseExportImportPreviewCommit(t *testing.T) {
 	dataDir := t.TempDir()
 	service := New(config.Config{
 		Version: "test",
@@ -1236,93 +1250,6 @@ func TestDatabaseExportImportPreviewCommitAndLegacyImport(t *testing.T) {
 	}
 	if countRowsForTest(t, db, "imported_records") != 2 {
 		t.Fatalf("expected imported_records to be present")
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	legacyPath := filepath.Join(t.TempDir(), "legacy.db")
-	writeSQLiteFixture(t, legacyPath, "legacy_records", 1)
-	legacyRes := performMultipartSettingsRequest(t, service, "/api/settings/import-database", legacyPath, "legacy.db")
-	if legacyRes.Code != http.StatusOK {
-		t.Fatalf("legacy import status = %d body=%s", legacyRes.Code, legacyRes.Body.String())
-	}
-	db, err = service.store.Open(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if countRowsForTest(t, db, "legacy_records") != 1 {
-		t.Fatalf("expected legacy_records to be present")
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestClearChatMessages(t *testing.T) {
-	service := New(config.Config{
-		Version: "test",
-		Host:    "127.0.0.1",
-		Port:    0,
-		DataDir: t.TempDir(),
-		DBName:  "data.db",
-	})
-
-	db, err := service.store.Open(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.ExecContext(context.Background(), `
-		CREATE TABLE chat_sessions (
-			id TEXT PRIMARY KEY,
-			created_at TEXT,
-			updated_at TEXT
-		);
-		CREATE TABLE chat_messages (
-			id INTEGER PRIMARY KEY,
-			session_id TEXT,
-			content TEXT,
-			reasoning TEXT,
-			created_at TEXT
-		);
-		INSERT INTO chat_sessions (id, created_at, updated_at) VALUES
-			('recent', '2099-01-02T00:00:00Z', '2099-01-02T00:00:00Z'),
-			('old-empty', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z'),
-			('old-with-message', '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z');
-		INSERT INTO chat_messages (session_id, content, created_at) VALUES
-			('recent', 'keep', '2099-01-02T00:00:00Z'),
-			('old-with-message', 'delete', '2000-01-01T00:00:00Z');
-	`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	res := performSettingsRequest(service, http.MethodPost, "/api/settings/clear-chat-messages", `{"keepDays":7,"keepSessions":1}`)
-	if res.Code != http.StatusOK {
-		t.Fatalf("clear chat status = %d body=%s", res.Code, res.Body.String())
-	}
-	var payload struct {
-		Success bool `json:"success"`
-		Data    struct {
-			DeletedMessages int64  `json:"deletedMessages"`
-			DeletedSessions int64  `json:"deletedSessions"`
-			NewDBSizeMB     string `json:"newDbSizeMB"`
-		} `json:"data"`
-	}
-	mustDecodeSettings(t, res, &payload)
-	if !payload.Success || payload.Data.DeletedMessages != 1 || payload.Data.DeletedSessions != 2 || payload.Data.NewDBSizeMB == "" {
-		t.Fatalf("unexpected clear chat payload: %#v", payload)
-	}
-
-	db, err = service.store.Open(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if countRowsForTest(t, db, "chat_messages") != 1 || countRowsForTest(t, db, "chat_sessions") != 1 {
-		t.Fatalf("expected only recent chat data to remain")
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)

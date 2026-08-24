@@ -1,0 +1,782 @@
+package adminai
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
+)
+
+func newTestService(t *testing.T) *Service {
+	t.Helper()
+	cfg := config.Config{Version: "test", Host: "127.0.0.1", Port: 0, DataDir: t.TempDir(), DBName: "test.db"}
+	s := New(cfg)
+	// 核心表（system_config 等）由 database 包创建，再触发 adminai 建表
+	db, err := s.store.Open(context.Background())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := database.EnsureCoreSchema(context.Background(), db); err != nil {
+		t.Fatalf("core schema: %v", err)
+	}
+	db.Close()
+	db, err = s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	db.Close()
+	return s
+}
+
+func insertApproval(t *testing.T, s *Service, status, expiresAt string) string {
+	t.Helper()
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	// 外键约束：审批依赖会话，先幂等插入测试会话
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_test', 'web', '测试会话', 0, ?, ?, ?)`,
+		now, now, now)
+	id, err := randomID("aaa_")
+	if err != nil {
+		t.Fatalf("randomID: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_approvals (id, session_id, status, plan_summary, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, "aas_test", status, "计划摘要", expiresAt, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("insert approval: %v", err)
+	}
+	return id
+}
+
+// registerApprovalWaiter 模拟真实执行中 run（engine.go 在 INSERT 前注册等待通道、
+// 收尾 defer 清理）。缺少它时新守卫会判定「执行已结束，审批失效」而拒绝决议，
+// 与真实流程一致：无等待者的审批本就是僵死审批。
+func registerApprovalWaiter(s *Service, id string) {
+	s.mu.Lock()
+	s.approval[id] = make(chan approvalResolution, 1)
+	s.mu.Unlock()
+}
+
+// 审批超时清理：过期 pending → expired（PRD-04 验收点）。
+func TestApprovalCleanerExpiresOverdue(t *testing.T) {
+	s := newTestService(t)
+	id := insertApproval(t, s, "pending", time.Now().UTC().Add(-time.Minute).Format(time.RFC3339))
+
+	s.expireOverdueApprovals()
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	var status string
+	if err := db.QueryRowContext(context.Background(), "SELECT status FROM admin_ai_approvals WHERE id = ?", id).Scan(&status); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if status != "expired" {
+		t.Fatalf("期望 expired，实际 %s", status)
+	}
+}
+
+// 未过期审批不被清理。
+func TestApprovalCleanerKeepsFresh(t *testing.T) {
+	s := newTestService(t)
+	id := insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	s.expireOverdueApprovals()
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	var status string
+	if err := db.QueryRowContext(context.Background(), "SELECT status FROM admin_ai_approvals WHERE id = ?", id).Scan(&status); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if status != "pending" {
+		t.Fatalf("期望 pending，实际 %s", status)
+	}
+}
+
+// 审批状态机：pending → approve → approved；pending → reject → rejected。
+func TestResolveApprovalStateMachine(t *testing.T) {
+	s := newTestService(t)
+
+	for _, action := range []string{"approve", "reject"} {
+		id := insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+		registerApprovalWaiter(s, id)
+
+		body := strings.NewReader(`{"action":"` + action + `"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/approvals/"+id+"/resolve", body)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("resolve %s 状态码 %d: %s", action, rec.Code, rec.Body.String())
+		}
+
+		db, err := s.open(context.Background())
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
+		var status string
+		_ = db.QueryRowContext(context.Background(), "SELECT status FROM admin_ai_approvals WHERE id = ?", id).Scan(&status)
+		db.Close()
+		if status != action {
+			t.Fatalf("期望 %s，实际 %s", action, status)
+		}
+	}
+}
+
+// 批准 + applyToSession：审批置为 approved 且该会话 write_enabled=1。
+func TestResolveApprovalApplyToSession(t *testing.T) {
+	s := newTestService(t)
+	id := insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	registerApprovalWaiter(s, id)
+
+	body := strings.NewReader(`{"action":"approve","applyToSession":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/approvals/"+id+"/resolve", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	var we int
+	if err := db.QueryRowContext(context.Background(), "SELECT write_enabled FROM admin_ai_sessions WHERE id = 'aas_test'").Scan(&we); err != nil {
+		t.Fatalf("query session: %v", err)
+	}
+	if we != 1 {
+		t.Fatalf("期望会话写授权 write_enabled=1，实际 %d", we)
+	}
+}
+
+// reject + reason：原因写入审批记录，供“请求更改”反馈给模型。
+func TestResolveApprovalStoresReason(t *testing.T) {
+	s := newTestService(t)
+	id := insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	registerApprovalWaiter(s, id)
+
+	body := strings.NewReader(`{"action":"reject","reason":"把端口改成 45654"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/approvals/"+id+"/resolve", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	var status, reason string
+	if err := db.QueryRowContext(context.Background(), "SELECT status, COALESCE(reason,'') FROM admin_ai_approvals WHERE id = ?", id).Scan(&status, &reason); err != nil {
+		t.Fatalf("query approval: %v", err)
+	}
+	if status != "reject" || reason != "把端口改成 45654" {
+		t.Fatalf("期望 reject + 原因，实际 status=%q reason=%q", status, reason)
+	}
+}
+
+// cancel 会真正调用已注册的 runCtx 取消函数（订阅后仍可终止执行）。
+func TestCancelRunInvokesCancel(t *testing.T) {
+	s := newTestService(t)
+	called := false
+	s.mu.Lock()
+	s.cancels["aae_ctx"] = context.CancelFunc(func() { called = true })
+	s.mu.Unlock()
+
+	body := strings.NewReader(`{"runId":"aae_ctx"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/cancel", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	if !called {
+		t.Fatal("cancel 未触发已注册的取消函数")
+	}
+}
+
+// 历史消息返回 reasoning_content（会话恢复可展示思考过程）。
+func TestListMessagesIncludesReasoning(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_test', 'web', '测试会话', 0, ?, ?, ?)`,
+		now, now, now)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_messages (id, session_id, role, content, reasoning_content, created_at) VALUES ('aam_rz', 'aas_test', 'assistant', '回答正文', '思考过程', ?)`,
+		now)
+	db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/sessions/aas_test/messages", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []struct {
+				ID               string `json:"id"`
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	found := false
+	for _, it := range resp.Data.Items {
+		if it.ID == "aam_rz" {
+			found = it.ReasoningContent == "思考过程"
+		}
+	}
+	if !found {
+		t.Fatal("未读取到消息的 reasoning_content")
+	}
+}
+
+// 消息列表携带活跃 run 快照：外部 run（MCP/API/BOT/定时任务）无 SSE 通道，
+// 前端凭 activeRun 在轮询重拉时把最后一条助手消息标为 live，图标保持动态。
+func TestListMessagesIncludesActiveRun(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_live', 'web', '测试会话', 0, ?, ?, ?)`,
+		now, now, now)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_messages (id, session_id, role, content, created_at) VALUES ('aam_live', 'aas_live', 'assistant', '进行中输出', ?)`,
+		now)
+	db.Close()
+
+	s.mu.Lock()
+	s.sessionRuns["aas_live"] = "aae_live_run"
+	s.runPhase["aae_live_run"] = "tooling"
+	s.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/sessions/aas_live/messages", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []struct {
+				ID string `json:"id"`
+			} `json:"items"`
+			ActiveRun *struct {
+				RunID string `json:"runId"`
+				Phase string `json:"phase"`
+			} `json:"activeRun"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if resp.Data.ActiveRun == nil || resp.Data.ActiveRun.RunID != "aae_live_run" || resp.Data.ActiveRun.Phase != "tooling" {
+		t.Fatalf("期望 activeRun={aae_live_run, tooling}，实际 %+v", resp.Data.ActiveRun)
+	}
+	if len(resp.Data.Items) == 0 {
+		t.Fatal("期望消息列表非空")
+	}
+
+	// run 结束后（sessionRuns 清理）快照消失
+	s.mu.Lock()
+	delete(s.sessionRuns, "aas_live")
+	s.mu.Unlock()
+	req = httptest.NewRequest(http.MethodGet, "/api/admin-ai/sessions/aas_live/messages", nil)
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var after struct {
+		Data struct {
+			ActiveRun *struct {
+				RunID string `json:"runId"`
+				Phase string `json:"phase"`
+			} `json:"activeRun"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &after); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if after.Data.ActiveRun != nil {
+		t.Fatalf("run 结束后不应携带 activeRun，实际 %+v", after.Data.ActiveRun)
+	}
+}
+
+// 已 resolve 的审批不可重复操作（WHERE status='pending' 保护）。
+func TestResolveApprovalTwiceDenied(t *testing.T) {
+	s := newTestService(t)
+	id := insertApproval(t, s, "approved", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+
+	body := strings.NewReader(`{"action":"reject"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin-ai/approvals/"+id+"/resolve", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("重复处理已生效审批应返回 409，状态码 %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	var status string
+	_ = db.QueryRowContext(context.Background(), "SELECT status FROM admin_ai_approvals WHERE id = ?", id).Scan(&status)
+	if status != "approved" {
+		t.Fatalf("已批准审批不应被改为 %s", status)
+	}
+}
+
+// 审批列表查询：pending 状态过滤。
+func TestListApprovalsFilter(t *testing.T) {
+	s := newTestService(t)
+	insertApproval(t, s, "pending", time.Now().UTC().Add(time.Hour).Format(time.RFC3339))
+	insertApproval(t, s, "approved", time.Now().UTC().Format(time.RFC3339))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/approvals?status=pending", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []approvalItem `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if len(resp.Data.Items) != 1 || resp.Data.Items[0].Status != "pending" {
+		t.Fatalf("期望 1 条 pending，实际 %d 条", len(resp.Data.Items))
+	}
+}
+
+// 审计查询 API：执行记录可查。
+func TestAuditQuery(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_test', 'web', '测试会话', 0, ?, ?, ?)`,
+		now, now, now)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_executions (id, session_id, source, status, llm_model, started_at) VALUES ('aae_test', 'aas_test', 'web', 'completed', 'm/default', ?)`, now)
+	db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/audit", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []auditItem `json:"items"`
+			Total int         `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if resp.Data.Total < 1 {
+		t.Fatalf("审计至少 1 条，实际 %d", resp.Data.Total)
+	}
+	found := false
+	for _, it := range resp.Data.Items {
+		if it.Kind == "execution" && it.ID == "aae_test" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("未找到插入的执行记录")
+	}
+}
+
+// settings 多键读写（PRD-04 系统配置）。
+func TestSettingsRoundTrip(t *testing.T) {
+	s := newTestService(t)
+
+	putBody := strings.NewReader(`{"admin_ai_enabled":"true","admin_ai_tool_call_limit":"20"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin-ai/settings", putBody)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT 状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/admin-ai/settings", nil)
+	getRec := httptest.NewRecorder()
+	s.ServeHTTP(getRec, getReq)
+	var resp struct {
+		Data struct {
+			Settings map[string]string `json:"settings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("GET 解析失败: %v", err)
+	}
+	if resp.Data.Settings["admin_ai_tool_call_limit"] != "20" {
+		t.Fatalf("期望 tool_call_limit=20，实际 %q", resp.Data.Settings["admin_ai_tool_call_limit"])
+	}
+	if resp.Data.Settings["admin_ai_enabled"] != "true" {
+		t.Fatalf("期望 enabled=true，实际 %q", resp.Data.Settings["admin_ai_enabled"])
+	}
+	// 未配置键回默认值
+	if resp.Data.Settings["admin_ai_timeout_seconds"] != "600" {
+		t.Fatalf("期望 timeout 默认 600，实际 %q", resp.Data.Settings["admin_ai_timeout_seconds"])
+	}
+}
+
+// toolDesc 具体路径也要命中模板路径的中文描述（/api/aliyun/accounts/1/domains
+// → 清单里 /api/aliyun/accounts/{id}/domains 的「列出或添加域名」）。
+func TestToolDescTemplatePathMatch(t *testing.T) {
+	s := newTestService(t)
+	s.catalogMu.Lock()
+	s.catalogDescs = map[string]string{
+		"/api/aliyun/accounts":                       "列出或新增阿里云账号",
+		"/api/aliyun/accounts/{id}/domains":          "列出或添加域名",
+		"/api/tencent/accounts":                      "列出或新增腾讯云账号",
+		"/api/cloudflare/zones":                      "列出 Zone 列表",
+		"/api/cloudflare/zones/{zoneId}/dns_records": "管理 DNS 记录",
+	}
+	s.catalogMu.Unlock()
+
+	cases := []struct {
+		name     string
+		args     string
+		expected string
+	}{
+		{"无参路径精确命中", `{"method":"GET","path":"/api/aliyun/accounts"}`, "列出或新增阿里云账号"},
+		{"具体 id 命中模板", `{"method":"GET","path":"/api/aliyun/accounts/1/domains"}`, "列出或添加域名"},
+		{"多层具体 id 命中模板", `{"method":"GET","path":"/api/cloudflare/zones/zone_abc/dns_records"}`, "管理 DNS 记录"},
+		{"未知路径不回退（语义视图只展示清单内动作描述）", `{"method":"POST","path":"/api/unknown"}`, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := s.toolDesc("call_api", c.args); got != c.expected {
+				t.Fatalf("期望 %q，实际 %q", c.expected, got)
+			}
+		})
+	}
+}
+
+// 完全批准模式：admin_ai_auto_approve=true 时 getAutoApprove 返回 true。
+func TestGetAutoApprove(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	// 未配置 → 默认 false
+	v, err := s.getAutoApprove(context.Background(), db)
+	if err != nil || v {
+		t.Fatalf("期望默认 false，实际 %v (err=%v)", v, err)
+	}
+	// 配置 true → true
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_auto_approve', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+	v, err = s.getAutoApprove(context.Background(), db)
+	if err != nil || !v {
+		t.Fatalf("期望 true，实际 %v (err=%v)", v, err)
+	}
+}
+
+// registerCronPolicy 把会话挂到指定策略的 run 上（模拟 handleCronTaskRun 的注册）。
+func registerCronPolicy(s *Service, sessionID, runID, policy string) {
+	s.mu.Lock()
+	s.sessionRuns[sessionID] = runID
+	s.runPolicy[runID] = policy
+	s.mu.Unlock()
+}
+
+func unregisterCronPolicy(s *Service, sessionID, runID string) {
+	s.mu.Lock()
+	delete(s.sessionRuns, sessionID)
+	delete(s.runPolicy, runID)
+	s.mu.Unlock()
+}
+
+// 定时 AI 任务 allow 策略受「写操作全局开关」硬约束：
+// 开关关闭时写操作被拒（不得借 cron 绕过）；开关打开时免审批直接执行。
+func TestCronAllowPolicyRespectsWriteSwitch(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{"success":true}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	registerCronPolicy(s, "aas_cron_w", "aae_cron_w", "allow")
+	defer unregisterCronPolicy(s, "aas_cron_w", "aae_cron_w")
+
+	eventCh := make(chan SSEEvent, 8)
+	args := map[string]interface{}{"method": "POST", "path": "/api/demo/write"}
+
+	// 写开关未配置（默认关闭）：allow 策略也必须被硬底线拒绝
+	_, err = s.executeCallAPITool(context.Background(), db, args, "aas_cron_w", "tc_w1", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "写操作未启用") {
+		t.Fatalf("写开关关闭时 cron allow 应被拒绝，实际 err=%v", err)
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("写开关关闭时不应发起写调用，实际 %d 次", writeCalls)
+	}
+
+	// 写开关打开：allow 策略免审批直接执行（不进入审批等待）
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+	if _, err := s.executeCallAPITool(context.Background(), db, args, "aas_cron_w", "tc_w2", eventCh); err != nil {
+		t.Fatalf("写开关打开时 cron allow 应免审批执行，实际 err=%v", err)
+	}
+	if atomic.LoadInt32(&writeCalls) != 1 {
+		t.Fatalf("写开关打开时应执行一次写调用，实际 %d 次", writeCalls)
+	}
+}
+
+// readonly 策略仍然直接拒绝写操作（回归保护）。
+func TestCronReadonlyPolicyStillRejectsWrite(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+
+	registerCronPolicy(s, "aas_cron_ro", "aae_cron_ro", "readonly")
+	defer unregisterCronPolicy(s, "aas_cron_ro", "aae_cron_ro")
+
+	_, err = s.executeCallAPITool(context.Background(), db,
+		map[string]interface{}{"method": "POST", "path": "/api/demo/write"}, "aas_cron_ro", "tc_ro", make(chan SSEEvent, 8))
+	if err == nil || !strings.Contains(err.Error(), "readonly 策略禁止写操作") {
+		t.Fatalf("readonly 应拒绝写操作，实际 err=%v", err)
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("readonly 不应发起写调用，实际 %d 次", writeCalls)
+	}
+}
+
+// 普通会话（无定时策略）审批流不变：写开关关闭时快速拒绝；
+// 打开后进入审批等待（发 approval_required 并阻塞到上下文取消）。
+func TestNormalSessionApprovalFlowUnchanged(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	// 审批行有会话外键，先落会话
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_normal', 'web', '测试会话', 0, ?, ?, ?)`,
+		now, now, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	eventCh := make(chan SSEEvent, 8)
+	args := map[string]interface{}{"method": "POST", "path": "/api/demo/write"}
+
+	// 无策略 + 写开关关 → 直接「写操作未启用」（不弹审批）
+	_, err = s.executeCallAPITool(context.Background(), db, args, "aas_normal", "tc_n1", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "写操作未启用") {
+		t.Fatalf("无策略且写开关关应被拒绝，实际 err=%v", err)
+	}
+
+	// 无策略 + 写开关开 → 进入审批等待（approval_required + 等待直到取消）
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = s.executeCallAPITool(ctx, db, args, "aas_normal", "tc_n2", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "等待审批时执行已超时或取消") {
+		t.Fatalf("无策略应进入审批等待后随上下文取消，实际 err=%v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
+		t.Fatalf("应等待审批而非立即返回，实际 %v 即返回", elapsed)
+	}
+	select {
+	case ev := <-eventCh:
+		if ev.Type != "approval_required" {
+			t.Fatalf("首个事件应为 approval_required，实际 %s", ev.Type)
+		}
+	default:
+		t.Fatal("应发出 approval_required 事件")
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("未经批准不得执行写调用，实际 %d 次", writeCalls)
+	}
+}
+
+// 审计分页 offset 越过过滤后总数：返回空页而不是切片越界 panic。
+func TestAuditOffsetBeyondTotalReturnsEmpty(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_audit_off', 'web', '测试', 0, ?, ?, ?)`,
+		now, now, now)
+	_, _ = db.ExecContext(context.Background(),
+		`INSERT INTO admin_ai_executions (id, session_id, source, status, llm_model, started_at) VALUES ('aae_audit_off', 'aas_audit_off', 'web', 'completed', 'm', ?)`, now)
+	db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin-ai/audit?offset=100&limit=50", nil)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req) // 修复前此处 panic：merged[100:1] 无效切片
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Items []auditItem `json:"items"`
+			Total int         `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if len(resp.Data.Items) != 0 {
+		t.Fatalf("越界 offset 应返回空页，实际 %d 条", len(resp.Data.Items))
+	}
+	if resp.Data.Total < 1 {
+		t.Fatalf("total 应保持真实总数，实际 %d", resp.Data.Total)
+	}
+}
+
+// 审批落库失败：撤销已注册的等待通道并立即返回错误，不进入 30 分钟静默等待。
+// 用 BEFORE INSERT 触发器 RAISE(ABORT) 确定性模拟写库失败（非忙锁，重试无意义路径）。
+func TestApprovalInsertFailureCleansWaiter(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true')
+		 ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("insert setting: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE TRIGGER trg_test_block_approval BEFORE INSERT ON admin_ai_approvals
+		 BEGIN SELECT RAISE(ABORT, 'blocked for test'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	eventCh := make(chan SSEEvent, 8)
+	start := time.Now()
+	_, err = s.executeCallAPITool(context.Background(), db,
+		map[string]interface{}{"method": "POST", "path": "/api/demo/write"}, "aas_apins", "tc_ins", eventCh)
+	if err == nil || !strings.Contains(err.Error(), "创建审批记录失败") {
+		t.Fatalf("落库失败应返回创建审批记录失败，实际 err=%v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("落库失败应立即返回而非挂起等待审批，实际耗时 %v", elapsed)
+	}
+	s.mu.Lock()
+	waiters := len(s.approval)
+	s.mu.Unlock()
+	if waiters != 0 {
+		t.Fatalf("落库失败后等待通道应被清理，实际残留 %d 个", waiters)
+	}
+	select {
+	case ev := <-eventCh:
+		t.Fatalf("落库失败不应发出事件，实际收到 %s", ev.Type)
+	default:
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("落库失败不得执行写调用，实际 %d 次", writeCalls)
+	}
+}

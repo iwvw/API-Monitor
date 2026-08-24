@@ -18,7 +18,7 @@ export default function DocumentSidebar({
 }) {
   return (
     <LayerCard
-	  className={`hidden shrink-0 flex-col rounded-none transition-[width] duration-200 xl:flex ${
+	  className={`hidden shrink-0 flex-col rounded-none transition-[width] duration-200 cq-xl:flex ${
         open ? width : 'w-0 overflow-hidden ring-0'
       } ${className}`.trim()}
     >

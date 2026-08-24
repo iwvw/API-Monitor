@@ -293,6 +293,54 @@ func TestMetricsHubPollingClientQueueIsBounded(t *testing.T) {
 	}
 }
 
+func TestEngineIOWebSocketRejectsOversizedFrame(t *testing.T) {
+	// 缩小读上限验证行为：超限帧必须让读取报错并断开连接。
+	original := engineIOWSReadLimit
+	engineIOWSReadLimit = 32
+	defer func() { engineIOWSReadLimit = original }()
+
+	engine := NewEngineIOServer(NewConnectionRegistry())
+	disconnected := make(chan string, 1)
+	engine.SetHandlers(nil, nil, func(sessionID string) {
+		disconnected <- sessionID
+	})
+	server := httptest.NewServer(engine)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/socket.io/?EIO=4&transport=websocket"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket connect: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if _, msg, err := conn.ReadMessage(); err != nil || !strings.HasPrefix(string(msg), "0") {
+		t.Fatalf("read handshake: msg=%q err=%v", msg, err)
+	}
+
+	// 超限帧：服务端读取应失败并断开，而不是全量缓冲。
+	oversized := "4" + strings.Repeat("x", 64)
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(oversized)); err != nil {
+		t.Fatalf("write oversized frame: %v", err)
+	}
+
+	select {
+	case <-disconnected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("oversized frame did not trigger disconnect")
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set close deadline: %v", err)
+	}
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("connection stayed readable after oversized frame")
+	}
+}
+
 func TestEngineIORootNamespaceBroadcastsUptimeHeartbeat(t *testing.T) {
 	hub := NewMetricsHub()
 	engine := NewEngineIOServer(NewConnectionRegistry())

@@ -539,6 +539,141 @@ func TestVoidRoomExpiryAndNetworkCandidates(t *testing.T) {
 	}
 }
 
+func TestRandomCodeUsesRejectionSamplingWithoutBias(t *testing.T) {
+	for _, length := range []int{1, 8, defaultCodeLength} {
+		code, err := randomCode(length)
+		if err != nil {
+			t.Fatalf("randomCode(%d): %v", length, err)
+		}
+		if len(code) != length {
+			t.Fatalf("randomCode(%d) len = %d", length, len(code))
+		}
+		for i := 0; i < len(code); i++ {
+			if !strings.ContainsRune(codeAlphabet, rune(code[i])) {
+				t.Fatalf("randomCode(%d) produced invalid char %q in %q", length, code[i], code)
+			}
+		}
+	}
+
+	// 统计分布：每个字符出现次数不应偏离均匀期望过远，
+	// 若直接取模（无拒绝采样）会系统性偏向字母表前段。
+	const samples = 4000
+	counts := make(map[byte]int)
+	for i := 0; i < samples; i++ {
+		code, err := randomCode(2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for j := 0; j < len(code); j++ {
+			counts[code[j]]++
+		}
+	}
+	total := samples * 2
+	expect := float64(total) / float64(len(codeAlphabet))
+	for index := 0; index < len(codeAlphabet); index++ {
+		char := codeAlphabet[index]
+		got := float64(counts[char])
+		if got < expect*0.7 || got > expect*1.3 {
+			t.Fatalf("char %q count %.0f deviates from expectation %.0f beyond ±30%%", char, got, expect)
+		}
+	}
+}
+
+func TestGenerateCodeDefaultsToLongerLength(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	code, err := service.GenerateCode(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(code) != defaultCodeLength {
+		t.Fatalf("default code length = %d, want %d", len(code), defaultCodeLength)
+	}
+}
+
+func TestAccessEntryCountsDownloadsAtomicallyUntilMaxReached(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	ctx := context.Background()
+
+	entry, err := service.AddText(ctx, "limited", 0, false, 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 1; i <= 2; i++ {
+		if err := service.AccessEntry(ctx, entry.Code, requestMeta{}); err != nil {
+			t.Fatalf("access #%d: %v", i, err)
+		}
+		found, err := service.GetEntry(ctx, entry.Code, true)
+		if err != nil || found == nil {
+			t.Fatalf("entry should survive download #%d: found=%#v err=%v", i, found, err)
+		}
+		if found.Downloads != int64(i) {
+			t.Fatalf("download count after access #%d = %d, want %d", i, found.Downloads, i)
+		}
+	}
+
+	// 达到 max_downloads 后再访问不得继续计数，条目应被清理
+	if err := service.AccessEntry(ctx, entry.Code, requestMeta{}); err != nil {
+		t.Fatalf("over-limit access: %v", err)
+	}
+	found, err := service.GetEntry(ctx, entry.Code, true)
+	if err != nil || found != nil {
+		t.Fatalf("entry should be gone after exceeding max downloads, found=%#v err=%v", found, err)
+	}
+}
+
+func TestAccessEntryBurnAfterReadingDeletesExactlyOnce(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	ctx := context.Background()
+
+	entry, err := service.AddText(ctx, "burn me", 0, true, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AccessEntry(ctx, entry.Code, requestMeta{}); err != nil {
+		t.Fatalf("burn access: %v", err)
+	}
+	found, err := service.GetEntry(ctx, entry.Code, true)
+	if err != nil || found != nil {
+		t.Fatalf("burned entry should be deleted, found=%#v err=%v", found, err)
+	}
+	var logs []AccessLog
+	db, openErr := service.open(ctx)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	rows, qerr := db.QueryContext(ctx, `SELECT action FROM filebox_access_logs WHERE code = ?`, entry.Code)
+	if qerr != nil {
+		_ = db.Close()
+		t.Fatal(qerr)
+	}
+	for rows.Next() {
+		var action string
+		if err := rows.Scan(&action); err != nil {
+			rows.Close()
+			_ = db.Close()
+			t.Fatal(err)
+		}
+		logs = append(logs, AccessLog{Action: action})
+	}
+	rows.Close()
+	if cerr := db.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	downloads, deletes := 0, 0
+	for _, item := range logs {
+		switch item.Action {
+		case "download":
+			downloads++
+		case "delete":
+			deletes++
+		}
+	}
+	if downloads != 1 || deletes != 1 {
+		t.Fatalf("expected exactly one download log and one delete log, got %d/%d", downloads, deletes)
+	}
+}
+
 func newTestService(t *testing.T, auth Authenticator) *Service {
 	t.Helper()
 	return New(config.Config{

@@ -8,7 +8,6 @@ import {
   LayerCard,
   Tabs,
   Text,
-  TimeseriesChart,
   Toolbar,
 } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
@@ -32,7 +31,8 @@ import { useDraggableScroll } from '../hooks/useDraggableScroll.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import useStore from '../store.js';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
-import { AppTable, ChartBoundaryBox, DataTableFrame, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
+import { AppTable, ChartBoundaryBox, ChartWarmupSkeleton, DataTableFrame, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import GitHubPublicPagesPanel from '../components/github/GitHubPublicPagesPanel.jsx';
 import {
   Activity,
@@ -185,7 +185,7 @@ const tokenTestStatusLabel = (status) => ({
   unknown: '未检测',
 }[String(status || '').toLowerCase()] || status || '未检测');
 
-const formatNumber = (value) => Number(value || 0).toLocaleString();
+const formatNumber = (value) => Number(value || 0).toLocaleString('en-US', { useGrouping: false });
 const formatDateTime = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -1280,7 +1280,7 @@ function ActionFlowNode({
   return (
     <div
       ref={nodeRef}
-      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-kumo-brand/60 shadow-lg shadow-kumo-brand/10 ring-2 ring-kumo-brand/20' : 'z-20 shadow-sm'} ${active && !spotlighted ? 'border-kumo-brand/45 ring-1 ring-kumo-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
+      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-brand/60 shadow-lg shadow-brand/10 ring-2 ring-brand/20' : 'z-20 shadow-sm'} ${active && !spotlighted ? 'border-brand/45 ring-1 ring-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
       onMouseEnter={onFocus}
@@ -1604,7 +1604,7 @@ function ActionWorkflowCanvas({ workflow, jobs, now }) {
                 {layout.edges.filter((edge) => !hasExpandedNode && edge.highlighted).map((edge) => (
                   <path
                     key={`${edge.from}-${edge.to}-active`}
-                    className="stroke-kumo-brand transition-[stroke,stroke-opacity,stroke-width] duration-150"
+                    className="stroke-brand transition-[stroke,stroke-opacity,stroke-width] duration-150"
                     d={edge.path}
                     pathLength="1"
                     strokeDasharray="1"
@@ -1616,7 +1616,7 @@ function ActionWorkflowCanvas({ workflow, jobs, now }) {
                   </path>
                 ))}
               </g>
-              <g className="fill-kumo-base stroke-kumo-brand" strokeWidth="2">
+              <g className="fill-kumo-base stroke-brand" strokeWidth="2">
                 {activeConnectorPoints.map((point) => (
                   <circle key={point.key} cx={point.x} cy={point.y} r="4">
                     <animate attributeName="opacity" from="0" to="1" dur="140ms" fill="freeze" />
@@ -1669,7 +1669,7 @@ function PermissionChecks({ token }) {
     if (token.last_test_status === 'success' && token.last_test_at) {
       return <Text variant="secondary" size="xs">基础认证通过。选择仓库后再次检测可验证 Actions 和 Traffic 权限。检测时间：{formatDateTime(token.last_test_at)}</Text>;
     }
-    return <Text variant="secondary" size="xs">尚未检测。点击“检测权限”验证 Token；选择仓库后可同时验证仓库权限。</Text>;
+    return <Text variant="secondary" size="xs">点击“检测权限”验证 Token；选择仓库后可同时验证仓库权限。</Text>;
   }
   return (
     <div className="grid gap-2">
@@ -1680,12 +1680,12 @@ function PermissionChecks({ token }) {
         </div>
       )}
       {checks.length > 0 && (
-        <div className="grid gap-1 sm:grid-cols-2">
+        <div className="grid gap-1 cq-sm:grid-cols-2">
           {checks.map((check) => (
             <div key={check.key || check.label} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-kumo-line px-2 py-1.5 text-[11px]">
               <span className="min-w-0 truncate text-kumo-strong">{check.label}</span>
               <div className="flex min-w-0 items-center gap-1">
-                <span className="hidden max-w-32 truncate text-kumo-subtle md:inline">{check.level}</span>
+                <span className="hidden max-w-32 truncate text-kumo-subtle cq-md:inline">{check.level}</span>
                 <Badge variant={check.status === 'success' ? 'success' : check.status === 'skipped' ? 'neutral' : 'danger'}>
                   {check.status === 'success' ? '通过' : check.status === 'skipped' ? '跳过' : '失败'}
                 </Badge>
@@ -1715,6 +1715,7 @@ function GitHubPage() {
   const [collector, setCollector] = useState(null);
   const [selectedRepoId, setSelectedRepoId] = useState(null);
   const [trends, setTrends] = useState([]);
+  const [trendsLoading, setTrendsLoading] = useState(false);
   const [actions, setActions] = useState([]);
   const [selectedActionRunId, setSelectedActionRunId] = useState(null);
   const [collapsingActionRunId, setCollapsingActionRunId] = useState(null);
@@ -1877,6 +1878,7 @@ function GitHubPage() {
 
   const loadRepoDetails = useCallback(async (repoId = selectedRepo?.id) => {
     if (!repoId) return;
+    setTrendsLoading(true);
     try {
       const [trendData, actionData, eventData, trafficData, contributorData, workflowData, branchData] = await Promise.all([
         api(`/api/github/repositories/${repoId}/trends?days=${rangeDays}`),
@@ -1897,6 +1899,8 @@ function GitHubPage() {
       setDetailsRepoId(String(repoId));
     } catch (error) {
       toast.error(error.message || '加载仓库详情失败');
+    } finally {
+      setTrendsLoading(false);
     }
   }, [api, rangeDays, selectedRepo?.id]);
 
@@ -1989,7 +1993,7 @@ function GitHubPage() {
 
   const createToken = async () => {
     if (!tokenForm.name.trim() || !tokenForm.token.trim()) {
-      toast.warning('请填写 Token 名称和 Token');
+      toast.warning('请填写 Token 名称和值');
       return;
     }
     setSaving(true);
@@ -2411,7 +2415,7 @@ function GitHubPage() {
           <LayerCard className="p-0 shadow-none">
             <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <GitBranch className="h-4 w-4 text-kumo-brand" />
+                <GitBranch className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold>仓库列表</Text>
                 <Badge variant="neutral">{repositories.length} 个仓库</Badge>
                 <Badge variant={collector?.running ? 'success' : 'neutral'}>
@@ -2435,7 +2439,7 @@ function GitHubPage() {
                     title="导出仓库列表"
                     icon={<Upload className="h-3.5 w-3.5" />}
                   >
-                    <span className="hidden sm:inline">导出</span>
+                    <span className="hidden cq-sm:inline">导出</span>
                   </Toolbar.Button>
                   <Toolbar.Button
                     onClick={() => repoImportInputRef.current?.click()}
@@ -2444,7 +2448,7 @@ function GitHubPage() {
                     title="导入仓库列表"
                     icon={<Download className="h-3.5 w-3.5" />}
                   >
-                    <span className="hidden sm:inline">导入</span>
+                    <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                 </Toolbar>
                 <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setRepoDialogOpen(true)}>添加仓库</Button>
@@ -2454,7 +2458,7 @@ function GitHubPage() {
             {repositories.length === 0 ? (
               <FillEmpty title="暂无 GitHub 仓库" description="先添加仓库" />
             ) : (
-              <div className="grid items-start gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              <div className="grid items-start gap-3 p-4 cq-sm:grid-cols-2 cq-xl:grid-cols-3 cq-2xl:grid-cols-4">
                 {repositories.map((repo) => {
                   const isSelected = String(repo.id) === String(selectedRepo?.id);
                   const actionStatus = repo.latest_action_conclusion || repo.latest_action_status || '未知';
@@ -2469,7 +2473,7 @@ function GitHubPage() {
                       onDragOver={handleRepositoryDragOver}
                       onDrop={(event) => handleRepositoryDrop(repo.id, event)}
                       onDragEnd={() => setDraggedRepositoryId(null)}
-                      className={`min-w-0 cursor-move p-0 shadow-none transition-[opacity,transform,border-color] duration-160 ${isSelected ? 'ring-1 ring-kumo-brand/50' : ''} ${draggedRepositoryId === String(repo.id) ? 'scale-[0.99] opacity-50' : ''}`}
+                      className={`min-w-0 cursor-move p-0 shadow-none transition-[opacity,transform,border-color] duration-160 ${isSelected ? 'ring-1 ring-brand/50' : ''} ${draggedRepositoryId === String(repo.id) ? 'scale-[0.99] opacity-50' : ''}`}
                     >
                       <LayerCard.Primary className="grid gap-3 p-3">
                         <div className="flex min-w-0 items-start justify-between gap-2">
@@ -2531,7 +2535,7 @@ function GitHubPage() {
           <LayerCard className="p-0 shadow-none">
             <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <GitHubBrand className="h-4 w-4 text-kumo-brand" />
+                <GitHubBrand className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold truncate>{selectedRepo.full_name}</Text>
               </div>
               <div className="flex flex-wrap items-end gap-2">
@@ -2554,7 +2558,7 @@ function GitHubPage() {
               </div>
             </LayerCard.Secondary>
             <LayerCard.Primary className="p-4">
-              <Grid variant="6up" gap="sm" className="items-start xl:grid-cols-5">
+              <Grid variant="6up" gap="sm" className="items-start cq-xl:grid-cols-5">
                 <RepositoryMetric icon={<Star className="h-3.5 w-3.5" />} label="Stars" value={formatNumber(selectedRepo.stars)} />
                 <RepositoryMetric icon={<GitBranch className="h-3.5 w-3.5" />} label="Forks" value={formatNumber(selectedRepo.forks)} />
                 <RepositoryMetric icon={<Activity className="h-3.5 w-3.5" />} label="Issues / PR" value={`${formatNumber(selectedRepo.open_issues)} / ${formatNumber(selectedRepo.open_pull_requests)}`} />
@@ -2568,7 +2572,7 @@ function GitHubPage() {
             <LayerCard className="p-0 shadow-none">
               <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-kumo-brand" />
+                  <Activity className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>Actions 活动</Text>
                 </div>
                 {canAttemptActionOperations ? (
@@ -2582,7 +2586,7 @@ function GitHubPage() {
                 )}
               </LayerCard.Secondary>
               <LayerCard.Primary className="p-0">
-              {actions.length === 0 ? <FillEmpty title="暂无 Actions 记录" description="刷新后显示 Actions 记录" /> : (
+              {actions.length === 0 ? <FillEmpty title="暂无 Actions 记录" description="刷新后显示" /> : (
                 <DataTableFrame variant="embedded" density="compact" className="min-w-0 overflow-x-auto overflow-y-visible scrollbar-thin">
                   <AppTable layout="fixed" widths={GITHUB_ACTIONS_TABLE_WIDTHS}>
                     <colgroup>
@@ -2654,25 +2658,28 @@ function GitHubPage() {
           )}
 
           {activeTab === 'trends' && (
-            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(20rem,0.7fr)]">
+            <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1.5fr)_minmax(20rem,0.7fr)]">
               <LayerCard className="p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-kumo-brand" />
+                    <TrendingUp className="h-4 w-4 text-brand" />
                     <Text variant="body" size="sm" bold>仓库趋势</Text>
                   </div>
                   <Select size="sm" aria-label="趋势时间范围" value={rangeDays} onValueChange={setRangeDays} items={rangeOptions} />
                 </LayerCard.Secondary>
                 <LayerCard.Primary className="p-4">
-                {trends.length >= 2 ? (
+                {trendsLoading && trends.length < 2 ? (
+                  <ChartWarmupSkeleton height={320} bars={10} />
+                ) : trends.length >= 2 ? (
                   <ChartBoundaryBox>
                     {(tooltipBoundary) => (
-                      <TimeseriesChart
+                      <SiteFontTimeseriesChart
                         echarts={echarts}
                         isDarkMode={isDarkMode}
                         type="line"
                         data={chartData}
                         height={320}
+                        loading={trendsLoading}
                         xAxisName="时间"
                         yAxisName="指标"
                         xAxisTickCount={4}
@@ -2690,7 +2697,7 @@ function GitHubPage() {
               </LayerCard>
               <LayerCard className="self-start p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center gap-2 border-b border-kumo-line px-4 py-3">
-                  <Users className="h-4 w-4 text-kumo-brand" />
+                  <Users className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>流量与贡献者</Text>
                 </LayerCard.Secondary>
                 <LayerCard.Primary className="grid content-start gap-3 p-4">
@@ -2703,10 +2710,10 @@ function GitHubPage() {
           )}
 
           {activeTab === 'events' && (
-            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
+            <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
               <LayerCard className="p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center gap-2 border-b border-kumo-line px-4 py-3">
-                  <Bell className="h-4 w-4 text-kumo-brand" />
+                  <Bell className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>事件与通知源</Text>
                 </LayerCard.Secondary>
                 <LayerCard.Primary className="p-0">
@@ -2740,7 +2747,7 @@ function GitHubPage() {
               <LayerCard className="self-start p-0 shadow-none">
                 <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <Key className="h-4 w-4 text-kumo-brand" />
+                    <Key className="h-4 w-4 text-brand" />
                     <Text variant="body" size="sm" bold>Webhook 配置</Text>
                   </div>
                   <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} onClick={configureWebhook} loading={saving}>自动配置</Button>
@@ -2754,7 +2761,7 @@ function GitHubPage() {
                     <Text variant="secondary" size="xs">Secret</Text>
                     <ClipboardText size="sm" text={selectedRepo.webhook_secret || '-'} />
                   </div>
-                  <Text variant="secondary" size="xs">GitHub Webhook 选择 application/json，并启用 workflow_run、release、issues、pull_request、star 和 ping 事件。</Text>
+                  <Text variant="secondary" size="xs">选择 application/json，启用 workflow_run、release、issues、pull_request、star 和 ping 事件。</Text>
                 </LayerCard.Primary>
               </LayerCard>
             </div>
@@ -2767,11 +2774,11 @@ function GitHubPage() {
       )}
 
       {activeTab === 'settings' && (
-        <div className="grid items-start gap-4 xl:grid-cols-2">
+        <div className="grid items-start gap-4 cq-xl:grid-cols-2">
           <LayerCard className="self-start p-0 shadow-none">
             <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <Key className="h-4 w-4 text-kumo-brand" />
+                <Key className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold>GitHub Token</Text>
               </div>
               <Button
@@ -2785,7 +2792,7 @@ function GitHubPage() {
             </LayerCard.Secondary>
             <LayerCard.Primary className="grid gap-3 p-4">
               <Text variant="secondary" size="xs">
-                组织仓库请在 GitHub 创建页将 Resource owner 设为仓库所属组织，并等待组织审批；仓库 Webhook 使用仓库级 Webhooks: read/write，无需申请组织级权限。
+                组织仓库请将 Resource owner 设为仓库所属组织，并等待组织审批；仓库 Webhook 使用仓库级 Webhooks: read/write，无需组织级权限。
               </Text>
               <Input size="sm" label="Token 名称" value={tokenForm.name} onChange={(e) => setTokenForm((p) => ({ ...p, name: e.target.value }))} placeholder="生产账号" />
               <Input size="sm" label="Token" value={tokenForm.token} onChange={(e) => setTokenForm((p) => ({ ...p, token: e.target.value }))} placeholder="github_pat_..." autoComplete="off" spellCheck={false} className="font-mono" />
@@ -2797,7 +2804,7 @@ function GitHubPage() {
               </Grid>
               <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} onClick={createToken} loading={saving}>保存 Token</Button>
               {tokens.length > 0 && (
-                <div className="grid items-start gap-3 sm:grid-cols-2">
+                <div className="grid items-start gap-3 cq-sm:grid-cols-2">
                   {tokens.map((token) => (
                     <LayerCard key={token.id} className="min-w-0 p-0 shadow-none">
                       <LayerCard.Primary className="grid gap-3 p-3">
@@ -2830,7 +2837,7 @@ function GitHubPage() {
             <LayerCard className="self-start p-0 shadow-none">
               <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Settings className="h-4 w-4 text-kumo-brand" />
+                  <Settings className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>采集与保留</Text>
                 </div>
                 {settings && (
@@ -2855,7 +2862,7 @@ function GitHubPage() {
             <LayerCard className="self-start p-0 shadow-none">
               <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Activity className="h-4 w-4 text-kumo-brand" />
+                  <Activity className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>历史维护</Text>
                 </div>
                 <Badge variant={historyScope === 'current' ? 'info' : 'secondary'}>{historyScope === 'current' ? '当前仓库' : '全部仓库'}</Badge>
@@ -2876,9 +2883,6 @@ function GitHubPage() {
                   value={historyRetentionDays}
                   onChange={(e) => setHistoryRetentionDays(e.target.value)}
                 />
-                <Text variant="secondary" size="xs">
-                  默认按全部仓库执行。当前作用范围：{historyScopeLabel}。
-                </Text>
                 <Text variant="secondary" size="xs">
                   “清理历史”删除旧的趋势、Actions、事件、Webhook 和审计记录；“压缩 Payload”将旧的大 JSON 改写为摘要，并在结束后回收数据库空间。
                 </Text>
@@ -2915,11 +2919,11 @@ function GitHubPage() {
       )}
 
       <Dialog.Root open={repoDialogOpen} onOpenChange={setRepoDialogOpen}>
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),38rem)] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),38rem)] flex-col overflow-hidden p-0">
           <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
             <Dialog.Title className="text-base font-semibold text-kumo-strong">添加 GitHub 仓库</Dialog.Title>
             <Dialog.Description className="mt-1 text-xs text-kumo-subtle">
-              支持 GitHub URL、owner/repo、公开仓库和私有仓库。
+              支持公开和私有仓库。
             </Dialog.Description>
           </div>
           <form
@@ -2938,7 +2942,7 @@ function GitHubPage() {
                 placeholder="owner/repo 或完整 GitHub URL"
                 autoFocus
               />
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 cq-sm:grid-cols-2">
                 <Select
                   size="sm"
                   label="访问凭据"

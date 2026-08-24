@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Loader } from '@cloudflare/kumo';
-import useStore, { applyThemeMode, applyUIFont, getPendingAuthProvider } from './store.js';
+import useStore, { applyThemeMode, applyUIFont, applyUIFontSize, getPendingAuthProvider } from './store.js';
 import AuthPage from './pages/AuthPage.jsx';
 import { GitHubBrand, Shield } from './components/IconsCore.jsx';
 
@@ -13,6 +13,7 @@ const PublicM365RegisterPage = lazy(() => import('./pages/PublicM365RegisterPage
 const PublicStatusPage = lazy(() => import('./pages/PublicStatusPage.jsx'));
 const PublicServerStatusPage = lazy(() => import('./pages/PublicServerStatusPage.jsx'));
 const PublicGitHubPage = lazy(() => import('./pages/PublicGitHubPage.jsx'));
+const PublicSubscriptionInfoPage = lazy(() => import('./pages/PublicSubscriptionInfoPage.jsx'));
 const VoidRoomPage = lazy(() => import('./pages/VoidRoomPage.jsx'));
 const RemoteDesktopPage = lazy(() => import('./pages/RemoteDesktopPage.jsx'));
 const PublicPromptPage = lazy(() => import('./pages/PublicPromptPage.jsx'));
@@ -29,6 +30,7 @@ const isDockerMockPreviewRoute = () => (
 const getPublicStatusRouteMode = () => {
   if (typeof window === 'undefined') return false;
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (/^\/sub\/[^/]+$/.test(path)) return 'subscription-info';
   if (/^\/(?:status|u)\/[^/]+$/.test(path)) return 'slug';
   if (/^\/(?:servers|s)\/[^/]+$/.test(path)) return 'server-slug';
   if (/^\/(?:github|gh)\/[^/]+$/.test(path)) return 'github-slug';
@@ -75,7 +77,7 @@ function AuthTransitionScreen() {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(64,123,255,0.12),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(15,23,42,0.08),transparent_38%)]"
       />
       <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-5 rounded-2xl border border-kumo-line bg-kumo-base/95 px-8 py-10 text-center shadow-none">
-        <div className="flex size-14 items-center justify-center rounded-2xl border border-kumo-line bg-kumo-recessed text-kumo-brand">
+        <div className="flex size-14 items-center justify-center rounded-2xl border border-kumo-line bg-kumo-recessed text-brand">
           {isGitHub ? <GitHubBrand className="size-7" /> : <Shield className="size-7" />}
         </div>
         <div className="space-y-1">
@@ -135,6 +137,17 @@ function App() {
     if (stored) applyUIFont(stored);
   }, []);
 
+  // 未认证页面同样应用本地字号缩放；登录后 applyUserSettings 不会覆盖该偏好。
+  useEffect(() => {
+    let stored = null;
+    try {
+      stored = localStorage.getItem('app_ui_font_size');
+    } catch (e) {
+      /* ignore */
+    }
+    if (stored) applyUIFontSize(stored);
+  }, []);
+
   // 监听系统主题变化（仅在用户未锁定自定义主题时生效）
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
@@ -171,35 +184,41 @@ function App() {
   }
 
   if (publicFileboxRouteMode === 'share') {
-    return <Suspense fallback={null}><PublicSharePage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicSharePage /></Suspense></div>;
   }
 
   if (publicFileboxRouteMode === 'void') {
-    return <Suspense fallback={null}><VoidRoomPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><VoidRoomPage /></Suspense></div>;
   }
 
   if (publicM365RegisterRoute) {
-    return <Suspense fallback={null}><PublicM365RegisterPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicM365RegisterPage /></Suspense></div>;
   }
 
   if (publicStatusRouteMode === 'server-slug') {
-    return <Suspense fallback={null}><PublicServerStatusPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicServerStatusPage /></Suspense></div>;
   }
 
   if (publicStatusRouteMode === 'github-slug') {
-    return <Suspense fallback={null}><PublicGitHubPage /></Suspense>;
+    return <div className="@container"><Suspense fallback={null}><PublicGitHubPage /></Suspense></div>;
+  }
+
+  if (publicStatusRouteMode === 'subscription-info') {
+    return <div className="@container"><Suspense fallback={null}><PublicSubscriptionInfoPage /></Suspense></div>;
   }
 
   if (publicStatusRouteMode === 'slug') {
     return (
-      <Suspense fallback={null}>
-        <PublicStatusPage />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicStatusPage />
+        </Suspense>
+      </div>
     );
   }
 
 	if (publicPromptRoute) {
-		return <Suspense fallback={null}><PublicPromptPage /></Suspense>;
+		return <div className="@container"><Suspense fallback={null}><PublicPromptPage /></Suspense></div>;
 	}
 
   if (isCheckingAuth) {
@@ -208,7 +227,7 @@ function App() {
 
   if (isAuthenticated || dockerMockPreview) {
     if (remoteDesktopRoute) {
-      return <Suspense fallback={null}><RemoteDesktopPage /></Suspense>;
+      return <div className="@container"><Suspense fallback={null}><RemoteDesktopPage /></Suspense></div>;
     }
     return <Suspense fallback={null}><MainLayout /></Suspense>;
   }
@@ -222,7 +241,7 @@ function App() {
     );
   }
 
-  return <AuthPage />;
+  return <div className="@container"><AuthPage /></div>;
 }
 
 function DomainPublicStatusResolver({ route, onRouteChange }) {
@@ -238,7 +257,8 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
       try {
         const uptimeResponse = await fetch(uptimeUrl, { cache: 'no-store' });
-        if (!cancelled && uptimeResponse.ok) {
+        const uptimeBody = uptimeResponse.ok ? await uptimeResponse.json().catch(() => null) : null;
+        if (!cancelled && uptimeBody?.data?.found) {
           onRouteChange('uptime');
           return;
         }
@@ -248,7 +268,8 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
       try {
         const serverResponse = await fetch(serverUrl, { cache: 'no-store' });
-        if (!cancelled && serverResponse.ok) {
+        const serverBody = serverResponse.ok ? await serverResponse.json().catch(() => null) : null;
+        if (!cancelled && serverBody?.data?.found) {
           onRouteChange('server');
           return;
         }
@@ -258,7 +279,8 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
       try {
         const githubResponse = await fetch(githubUrl, { cache: 'no-store' });
-        if (!cancelled && githubResponse.ok) {
+        const githubBody = githubResponse.ok ? await githubResponse.json().catch(() => null) : null;
+        if (!cancelled && githubBody?.data?.found) {
           onRouteChange('github');
           return;
         }
@@ -277,25 +299,31 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
 
   if (route === 'uptime') {
     return (
-      <Suspense fallback={null}>
-        <PublicStatusPage domainOnly />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicStatusPage domainOnly />
+        </Suspense>
+      </div>
     );
   }
 
   if (route === 'server') {
     return (
-      <Suspense fallback={null}>
-        <PublicServerStatusPage domainOnly />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicServerStatusPage domainOnly />
+        </Suspense>
+      </div>
     );
   }
 
   if (route === 'github') {
     return (
-      <Suspense fallback={null}>
-        <PublicGitHubPage domainOnly />
-      </Suspense>
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicGitHubPage domainOnly />
+        </Suspense>
+      </div>
     );
   }
 
@@ -303,7 +331,7 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
     return null;
   }
 
-  return <AuthPage />;
+  return <div className="@container"><AuthPage /></div>;
 }
 
 export default App;

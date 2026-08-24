@@ -192,3 +192,65 @@ func decodeCronData[T any](t *testing.T, res *httptest.ResponseRecorder) T {
 	}
 	return data
 }
+
+type fakeNotifier struct {
+	calls []string
+	data  []map[string]interface{}
+}
+
+func (f *fakeNotifier) Trigger(_ context.Context, sourceModule, eventType string, eventData map[string]interface{}) error {
+	f.calls = append(f.calls, sourceModule+"."+eventType)
+	f.data = append(f.data, eventData)
+	return nil
+}
+
+func TestTaskAndWorkflowNotifyOnResult(t *testing.T) {
+	service := newCronService(t)
+	notifier := &fakeNotifier{}
+	service.SetNotifier(notifier)
+
+	// 创建任务并手动执行（禁用 shell 时任务会失败，验证 failed 事件）。
+	res := performCronRequest(service, http.MethodPost, "/api/cron/tasks", `{"name":"Notify Test","schedule":"0 0 1 1 *","command":"echo notify","type":"shell","enabled":1}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", res.Code, res.Body.String())
+	}
+	task := decodeCronData[SchedulerTask](t, res)
+	service.ExecuteTask(context.Background(), task.ID)
+	if len(notifier.calls) == 0 {
+		t.Fatalf("task execution did not trigger notifier, calls=%#v", notifier.calls)
+	}
+
+	// 工作流：创建含 start/end 标记 + 内联 shell 节点并运行，验证 completed 事件。
+	body := `{
+		"name":"Notify Flow","enabled":1,
+		"nodes":[
+			{"id":"start","name":"开始","type":"start","enabled":1},
+			{"id":"work","name":"Work","type":"shell","command":"echo ok","enabled":1},
+			{"id":"end","name":"结束","type":"end","enabled":1}
+		],
+		"edges":[
+			{"from":"start","to":"work","condition":"success"},
+			{"from":"work","to":"end","condition":"success"}
+		]
+	}`
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/workflows", body)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	wf := decodeCronData[Workflow](t, res)
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/workflows/"+strconv.FormatInt(wf.ID, 10)+"/run", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("run workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+
+	workflowTriggered := false
+	for _, call := range notifier.calls {
+		if strings.HasPrefix(call, "cron.workflow.") {
+			workflowTriggered = true
+			break
+		}
+	}
+	if !workflowTriggered {
+		t.Fatalf("workflow execution did not trigger notifier, calls=%#v", notifier.calls)
+	}
+}

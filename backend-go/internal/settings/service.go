@@ -32,15 +32,33 @@ type Service struct {
 	pendingImports map[string]pendingDatabaseImport
 	importsMu      sync.Mutex
 	cleanupCancel  context.CancelFunc
+	walCancel      context.CancelFunc
 	cleanupWG      sync.WaitGroup
 	vacuumMu       sync.Mutex
-	vacuumRunning  bool
-	vacuumStarted  time.Time
-	vacuumDone     time.Time
-	vacuumError    string
-	vacuumBefore   int64
-	vacuumAfter    int64
+	// 换库互斥统一使用 database.SwapMutex()（进程级、与 backup 恢复共用）：
+	// 串行化「数据库整体替换（导入）/ 备份恢复 / 数据库压缩」。整库重写的
+	// 执行体全程持有；后台周期任务用 TryLock，换库窗口内跳过当轮，
+	// 避免并发连接在换库瞬间读写被移动/替换的库文件。
+	// 锁序约束：swapMu 之后再获取 vacuumMu 等细粒度锁，不得反向嵌套。
+	vacuumRunning bool
+	vacuumMode    string
+	vacuumStarted time.Time
+	vacuumDone    time.Time
+	vacuumError   string
+	vacuumBefore  int64
+	vacuumAfter   int64
 }
+
+// errDatabaseSwapInProgress 表示数据库导入/替换/恢复正持有换库互斥，
+// 压缩任务暂不可启动，调用方应提示用户稍后重试。
+var errDatabaseSwapInProgress = errors.New("数据库导入/替换/恢复进行中，请稍后再试压缩")
+
+// 数据库压缩执行模式：migrate = 首次全量 VACUUM（建立 auto_vacuum
+// pointer-map，1 核机器需数分钟）；incremental = 分批增量回收（秒级）。
+const (
+	vacuumModeMigrate     = "migrate"
+	vacuumModeIncremental = "incremental"
+)
 
 type userSettingsRow struct {
 	CustomCSS             sql.NullString
@@ -115,6 +133,17 @@ const (
 	autoCleanupTimeout      = 2 * time.Minute
 )
 
+// 周期 WAL 维护参数。面板有常驻轮询读者，重置型 checkpoint（TRUNCATE/RESTART）
+// 会无限阻塞并拖死读写，因此维护只做 PASSIVE（见 database.WALMaintenance）；
+// WAL 文件收敛在高水位附近，不主动截断。固定短周期检查，只在 WAL 超过阈值时
+// 触发 PASSIVE 推进，把峰值增长控制在两次检查之间的写入量。
+const (
+	walMaintenanceInterval    = 5 * time.Minute
+	walMaintenanceQuietWindow = time.Minute
+	walMaintenanceSmallBytes  = int64(8 << 20)
+	walMaintenanceRetryFailed = 30 * time.Second
+)
+
 // StartBackgroundCleanup launches the periodic log-retention enforcement loop.
 // It is idempotent and safe to call once at server startup.
 func (s *Service) StartBackgroundCleanup() {
@@ -132,11 +161,88 @@ func (s *Service) StartBackgroundCleanup() {
 
 // Stop cancels the background cleanup loop and waits for it to exit.
 func (s *Service) Stop() {
-	if s.cleanupCancel == nil {
+	if s.cleanupCancel != nil {
+		s.cleanupCancel()
+	}
+	if s.walCancel != nil {
+		s.walCancel()
+	}
+	s.cleanupWG.Wait()
+}
+
+// StartWALMaintenance launches the periodic SQLite WAL checkpoint loop.
+// It is idempotent and safe to call once at server startup.
+func (s *Service) StartWALMaintenance() {
+	if s.walCancel != nil {
 		return
 	}
-	s.cleanupCancel()
-	s.cleanupWG.Wait()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.walCancel = cancel
+	s.cleanupWG.Add(1)
+	go func() {
+		defer s.cleanupWG.Done()
+		s.runWALMaintenance(ctx)
+	}()
+}
+
+// runWALMaintenance periodically checkpoints the WAL（PASSIVE-only）so its
+// frames stay bounded under sustained write + reader traffic. It first waits a
+// quiet window (server boot), then checkpoints on an adaptive interval:
+// success -> every walMaintenanceInterval; failure -> retry sooner.
+func (s *Service) runWALMaintenance(ctx context.Context) {
+	initial := time.NewTimer(walMaintenanceQuietWindow)
+	defer initial.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-initial.C:
+	}
+
+	timer := time.NewTimer(walMaintenanceInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			if s.walMaintenanceOnce(ctx) {
+				timer.Reset(walMaintenanceInterval)
+			} else {
+				timer.Reset(walMaintenanceRetryFailed)
+			}
+		}
+	}
+}
+
+// walMaintenanceOnce runs one WAL maintenance pass: it checks the current WAL
+// size and, when it has grown, runs a PASSIVE checkpoint pass. Returns true
+// when the pass completed (WAL was already small or successfully PASSIVE-compacted).
+func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
+	// 数据库整体替换（导入/恢复）或压缩进行中时跳过本轮：换库瞬间并发连接
+	// 打开/写库文件会与文件移动互踩（曾导致导入回滚后库仍损坏）。TryLock
+	// 失败即跳过。
+	if !database.SwapMutex().TryLock() {
+		return true
+	}
+	defer database.SwapMutex().Unlock()
+
+	path := s.store.DatabasePath()
+	before := fileSizeIfExists(path + "-wal")
+	if before <= walMaintenanceSmallBytes {
+		return true
+	}
+
+	// 只做 PASSIVE（见 database.WALMaintenance）：重置型 checkpoint（RESTART/
+	// TRUNCATE）在读者存续时会无限阻塞并把读者/写者一并拖死，是此前周期
+	// SQLITE_BUSY 的根因；PASSIVE 从不阻塞，帧会被回写复用，WAL 文件收录在
+	// 高水位附近。主动回收磁盘走设置页数据库压缩。
+	ok, err := database.WALMaintenance(ctx, path)
+	if err != nil {
+		applog.Warn(ctx, "settings", "wal maintenance failed", "error", err.Error())
+		return false
+	}
+	applog.Info(ctx, "settings", fmt.Sprintf("wal checkpoint passived (wal before=%s)", sizeMBString(before)))
+	return ok
 }
 
 func (s *Service) runBackgroundCleanup(ctx context.Context) {
@@ -167,6 +273,11 @@ func (s *Service) autoCleanupInterval(ctx context.Context) int {
 }
 
 func (s *Service) autoCleanupOnce(ctx context.Context) {
+	if !database.SwapMutex().TryLock() {
+		return
+	}
+	defer database.SwapMutex().Unlock()
+
 	ctx, cancel := context.WithTimeout(ctx, autoCleanupTimeout)
 	defer cancel()
 	db, err := s.store.Open(ctx)
@@ -174,12 +285,18 @@ func (s *Service) autoCleanupOnce(ctx context.Context) {
 		return
 	}
 	defer db.Close()
-	if getConfigInt(ctx, db, "log_auto_cleanup", 0) == 0 {
+	// 总开关未显式关闭（system_config 中无该键）时默认启用自动清理。
+	// 显式写入 0 的用户仍可整体关闭。
+	if getConfigInt(ctx, db, "log_auto_cleanup", 1) == 0 {
 		return
 	}
-	days := getConfigInt(ctx, db, "log_retention_days", 0)
+	// 未显式配置时启用内置保护默认：日志表 30 天截断、库文件 500MB 空间红线
+	// （仅增量回收 freelist，绝不触发行删除）防生产库无界膨胀；统计表独立
+	// 长保留（statisticsRetentionDays）不受 days 影响。显式配置（含 0=不限）
+	// 优先。
+	days := getConfigInt(ctx, db, "log_retention_days", 30)
 	count := getConfigInt(ctx, db, "log_max_count", 0)
-	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", 0)
+	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", 500)
 	if days == 0 && count == 0 && dbSizeMB == 0 {
 		return
 	}
@@ -265,24 +382,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.exportDatabase(w, r)
-	case "/api/settings/database/import/preview", "/api/settings/import-database/preview":
+	case "/api/settings/database/import/preview":
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		s.previewDatabaseImport(w, r)
-	case "/api/settings/database/import/commit", "/api/settings/import-database/commit":
+	case "/api/settings/database/import/commit":
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		s.commitDatabaseImport(w, r)
-	case "/api/settings/import-database":
-		if r.Method != http.MethodPost {
-			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		s.importDatabaseLegacy(w, r)
 	case "/api/settings/operation-logs":
 		if r.Method != http.MethodGet {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -337,12 +448,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.enforceLogLimits(w, r)
-	case "/api/settings/clear-chat-messages":
-		if r.Method != http.MethodPost {
-			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		s.clearChatMessages(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "settings route not implemented")
 	}
@@ -686,41 +791,6 @@ func (s *Service) commitDatabaseImport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Service) importDatabaseLegacy(w http.ResponseWriter, r *http.Request) {
-	uploaded, err := s.saveUploadedDatabase(r)
-	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, errDatabaseImportTooLarge) {
-			status = http.StatusRequestEntityTooLarge
-		}
-		response.JSON(w, status, map[string]interface{}{"success": false, "error": err.Error()})
-		return
-	}
-	defer os.Remove(uploaded.Path)
-
-	analysis, err := analyzeDatabaseFile(r.Context(), uploaded.Path)
-	if err != nil {
-		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "数据库完整性检查失败: " + err.Error()})
-		return
-	}
-	if analysis.Integrity != "ok" {
-		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "数据库完整性检查失败: " + analysis.Integrity})
-		return
-	}
-
-	backupPath, err := s.replaceDatabase(r.Context(), uploaded.Path)
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "数据库导入失败: " + err.Error()})
-		return
-	}
-
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success":    true,
-		"message":    "数据库导入成功，原数据库已备份",
-		"backupPath": backupPath,
-	})
-}
-
 func (s *Service) getOperationLogs(w http.ResponseWriter, r *http.Request) {
 	db, err := s.store.Open(r.Context())
 	if err != nil {
@@ -942,9 +1012,23 @@ func (s *Service) clearAppLogs(w http.ResponseWriter, r *http.Request) {
 // 同步执行会阻塞单连接池（SetMaxOpenConns(1)）导致整个面板无响应，因此改为
 // 后台任务执行，请求立即返回，前端通过 GET 同路径轮询任务状态。
 func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
-	s.vacuumMu.Lock()
-	if s.vacuumRunning {
-		s.vacuumMu.Unlock()
+	queued, err := s.enqueueVacuumTask(r.Context())
+	if err != nil {
+		if errors.Is(err, errDatabaseSwapInProgress) {
+			response.JSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"message": errDatabaseSwapInProgress.Error(),
+				"data":    s.vacuumSnapshot(),
+			})
+			return
+		}
+		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "读取数据库压缩模式失败: " + err.Error(),
+		})
+		return
+	}
+	if !queued {
 		response.JSON(w, http.StatusConflict, map[string]interface{}{
 			"success": false,
 			"message": "数据库压缩已在运行中",
@@ -952,22 +1036,59 @@ func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "数据库压缩已开始，将在后台执行",
+		"data":    s.vacuumSnapshot(),
+	})
+}
+
+// enqueueVacuumTask 探测 auto_vacuum 模式并排队后台压缩任务（互斥单例）。
+// 返回 queued=false 且 err=nil 表示已有压缩任务在运行（非错误）；
+// 返回 errDatabaseSwapInProgress 表示数据库导入/替换/恢复进行中。
+func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
+	s.vacuumMu.Lock()
+	defer s.vacuumMu.Unlock()
+	if s.vacuumRunning {
+		return false, nil
+	}
+	// 换库互斥必须用 TryLock 在此真实取得，而非依赖 vacuumRunning 标志：
+	// 标志只反映「压缩任务自身」，无法与导入/恢复竞速（TOCTOU）。锁由
+	// runVacuum 在收尾时释放；TryLock 失败说明导入/替换/恢复持有互斥，
+	// 此时 VACUUM 重写库文件会截断正被写入的文件导致库损坏。
+	if !database.SwapMutex().TryLock() {
+		return false, errDatabaseSwapInProgress
+	}
 	s.vacuumRunning = true
 	s.vacuumStarted = time.Now()
 	s.vacuumDone = time.Time{}
 	s.vacuumError = ""
 	s.vacuumBefore = 0
 	s.vacuumAfter = 0
-	s.vacuumMu.Unlock()
+
+	// 探测 auto_vacuum 模式决定压缩路径：NONE 需首次全量迁移（建立
+	// pointer-map，耗时数分钟），INCREMENTAL/FULL 走增量回收（秒级）。
+	mode, err := func() (int, error) {
+		db, openErr := s.store.Open(ctx)
+		if openErr != nil {
+			return 0, openErr
+		}
+		defer db.Close()
+		return autoVacuumMode(ctx, db)
+	}()
+	if err != nil {
+		s.vacuumRunning = false
+		database.SwapMutex().Unlock()
+		return false, err
+	}
+	s.vacuumMode = vacuumModeIncremental
+	if mode == 0 {
+		s.vacuumMode = vacuumModeMigrate
+	}
 
 	s.cleanupWG.Add(1)
-	go s.runVacuum(r.Context())
-
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "数据库压缩已开始，将在后台执行",
-		"data":    s.vacuumSnapshot(),
-	})
+	go s.runVacuum(context.Background())
+	return true, nil
 }
 
 // vacuumStatus 查询数据库压缩任务状态（GET /api/settings/vacuum-database）
@@ -979,10 +1100,11 @@ func (s *Service) vacuumSnapshot() map[string]interface{} {
 	s.vacuumMu.Lock()
 	defer s.vacuumMu.Unlock()
 	return map[string]interface{}{
-		"running": s.vacuumRunning,
-		"started": s.vacuumStarted,
-		"done":    s.vacuumDone,
-		"error":   s.vacuumError,
+		"running":      s.vacuumRunning,
+		"mode":         s.vacuumMode,
+		"started":      s.vacuumStarted,
+		"done":         s.vacuumDone,
+		"error":        s.vacuumError,
 		"beforeSizeMB": sizeMBString(s.vacuumBefore),
 		"afterSizeMB":  sizeMBString(s.vacuumAfter),
 		"savedMB":      sizeMBString(s.vacuumBefore - s.vacuumAfter),
@@ -990,12 +1112,17 @@ func (s *Service) vacuumSnapshot() map[string]interface{} {
 }
 
 func (s *Service) runVacuum(ctx context.Context) {
-	defer s.cleanupWG.Done()
+	// swapMu 由 enqueueVacuumTask 以 TryLock 取得，压缩全程持有：VACUUM /
+	// incremental_vacuum 会重写库文件，期间禁止导入替换、备份恢复并发
+	// 操作同一文件。收尾先释放互斥再清 running 标志——此后的代码不再触碰
+	// 库文件，让下一个任务/导入尽早拿到互斥。
 	defer func() {
+		database.SwapMutex().Unlock()
 		s.vacuumMu.Lock()
 		s.vacuumRunning = false
 		s.vacuumDone = time.Now()
 		s.vacuumMu.Unlock()
+		s.cleanupWG.Done()
 	}()
 
 	db, err := s.store.Open(ctx)
@@ -1007,19 +1134,42 @@ func (s *Service) runVacuum(ctx context.Context) {
 	}
 	defer db.Close()
 
-	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	before := databaseStorageStats(ctx, db, s.store.DatabasePath())
 	s.vacuumMu.Lock()
 	s.vacuumBefore = before.TotalSizeBytes
 	s.vacuumMu.Unlock()
 
-	if _, err := db.ExecContext(ctx, `VACUUM`); err != nil {
-		s.vacuumMu.Lock()
-		s.vacuumError = err.Error()
-		s.vacuumMu.Unlock()
-		return
+	s.vacuumMu.Lock()
+	mode := s.vacuumMode
+	s.vacuumMu.Unlock()
+
+	if mode == vacuumModeMigrate {
+		// 首次迁移：全量 VACUUM 建立 auto_vacuum pointer-map，之后才能
+		// 增量回收。256MB 小容器上 temp_store=MEMORY + 16MB 页缓存容易
+		// OOM，migrateAutoVacuumIncremental 内会临时切 FILE 并把页缓存
+		// 减半，结束后恢复连接级 PRAGMA。
+		if err := migrateAutoVacuumIncremental(ctx, db); err != nil {
+			s.vacuumMu.Lock()
+			s.vacuumError = err.Error()
+			s.vacuumMu.Unlock()
+			return
+		}
+	} else {
+		// 增量回收：分批回收 freelist，每批 4096 页（约 16MB），
+		// 每次持锁仅几十毫秒，1 核机器上对在线请求几乎无感。
+		for rounds := 0; rounds < 64; rounds++ {
+			if ctx.Err() != nil {
+				break
+			}
+			freePages, err := freelistPageCount(ctx, db)
+			if err != nil || freePages == 0 {
+				break
+			}
+			_, _ = db.ExecContext(ctx, `PRAGMA incremental_vacuum(4096)`)
+		}
 	}
-	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	after := databaseStorageStats(ctx, db, s.store.DatabasePath())
 	s.vacuumMu.Lock()
 	s.vacuumAfter = after.TotalSizeBytes
@@ -1120,73 +1270,6 @@ func (s *Service) enforceLogLimits(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": fmt.Sprintf("log cleanup completed, removed %d records", result["deleted"]),
 		"data":    result,
-	})
-}
-
-func (s *Service) clearChatMessages(w http.ResponseWriter, r *http.Request) {
-	payload, ok := decodeOptionalObject(w, r)
-	if !ok {
-		return
-	}
-	keepDays, ok := toInt(payload["keepDays"])
-	if !ok {
-		keepDays = 7
-	}
-	keepSessions, ok := toInt(payload["keepSessions"])
-	if !ok {
-		keepSessions = 10
-	}
-	if keepDays < 0 {
-		keepDays = 0
-	}
-	if keepSessions < 0 {
-		keepSessions = 0
-	}
-
-	db, err := s.store.Open(r.Context())
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer db.Close()
-
-	hasSessions, err := tableExists(r.Context(), db, "chat_sessions")
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	hasMessages, err := tableExists(r.Context(), db, "chat_messages")
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !hasSessions || !hasMessages {
-		response.JSON(w, http.StatusOK, map[string]interface{}{
-			"success":         true,
-			"message":         "旧聊天表不存在，无需清理",
-			"deletedMessages": int64(0),
-			"deletedSessions": int64(0),
-			"newSizeMB":       0,
-		})
-		return
-	}
-
-	result, err := clearLegacyChatMessages(r.Context(), db, keepDays, keepSessions)
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
-		return
-	}
-	_, _ = db.ExecContext(r.Context(), `VACUUM`)
-	newSize, _ := fileSize(s.store.DatabasePath())
-
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "清理完成",
-		"data": map[string]interface{}{
-			"deletedMessages": result["deletedMessages"],
-			"deletedSessions": result["deletedSessions"],
-			"newDbSizeMB":     sizeMBString(newSize),
-		},
 	})
 }
 
@@ -1695,7 +1778,9 @@ func autoVacuumMode(ctx context.Context, db *sql.DB) (int, error) {
 // migrateAutoVacuumIncremental 将数据库迁移到 auto_vacuum=INCREMENTAL：
 // 一次性全量 VACUUM 建立 pointer-map，此后 incremental_vacuum 可长期无痛回收空间。
 // 仅在模式为 NONE 时执行（FULL 已自动截断，无需迁移）。
-// 注意：全量 VACUUM 需要独占锁，应在低峰期/维护窗口执行一次。
+// 注意：全量 VACUUM 需要独占锁，应在低峰期/维护窗口执行一次；执行期间临时
+// 收紧内存参数（temp_store=FILE、页缓存减半）避免 256MB 小容器 OOM，完成后
+// 恢复连接级 PRAGMA（物理连接会被池化复用，必须还原以免污染后续连接）。
 func migrateAutoVacuumIncremental(ctx context.Context, db *sql.DB) error {
 	mode, err := autoVacuumMode(ctx, db)
 	if err != nil {
@@ -1704,6 +1789,17 @@ func migrateAutoVacuumIncremental(ctx context.Context, db *sql.DB) error {
 	if mode != 0 {
 		return nil
 	}
+	if _, err := db.ExecContext(ctx, `PRAGMA temp_store = FILE`); err != nil {
+		return fmt.Errorf("set temp_store file: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `PRAGMA cache_size = -8192`); err != nil {
+		return fmt.Errorf("set cache_size: %w", err)
+	}
+	defer func() {
+		bg := context.Background()
+		_, _ = db.ExecContext(bg, `PRAGMA cache_size = -16000`)
+		_, _ = db.ExecContext(bg, `PRAGMA temp_store = MEMORY`)
+	}()
 	if _, err := db.ExecContext(ctx, `PRAGMA auto_vacuum = INCREMENTAL`); err != nil {
 		return fmt.Errorf("enable auto_vacuum incremental: %w", err)
 	}
@@ -2158,7 +2254,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		}
 		quotedTable := quoteIdentifier(table)
 		quotedTime := quoteIdentifier(timeColumn)
-		cutoff := time.Now().UTC().AddDate(0, 0, -statisticsRetentionDays).Format(time.RFC3339)
+		cutoff := time.Now().UTC().AddDate(0, 0, -statisticsRetentionDays).Format(logCutoffFormat(timeColumn))
 		for ctx.Err() == nil {
 			result, err := db.ExecContext(ctx, `
 				DELETE FROM `+quotedTable+`
@@ -2198,7 +2294,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		quotedTime := quoteIdentifier(timeColumn)
 
 		if days > 0 {
-			cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
+			cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(logCutoffFormat(timeColumn))
 			// 分批删除旧数据：每次只删 cleanupBatchSize 行，避免长事务锁库。
 			for ctx.Err() == nil {
 				result, err := db.ExecContext(ctx, `
@@ -2360,9 +2456,10 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 	if err != nil {
 		return nil, err
 	}
-	cutoff := ""
-	if days > 0 {
-		cutoff = time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
+	var cutoffTime time.Time
+	hasCutoff := days > 0
+	if hasCutoff {
+		cutoffTime = time.Now().UTC().AddDate(0, 0, -days)
 	}
 	plans := make([]logTablePlan, 0, len(tables))
 	for _, table := range tables {
@@ -2372,6 +2469,12 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 		}
 		if timeColumn == "" {
 			continue
+		}
+		// 预览口径必须与 enforceLogTableLimits 的实际删除一致（含 cutoff
+		// 格式），否则预览统计与执行结果出现边界日偏差。
+		cutoff := ""
+		if hasCutoff {
+			cutoff = cutoffTime.Format(logCutoffFormat(timeColumn))
 		}
 		total, err := countTableRows(ctx, db, table)
 		if err != nil {
@@ -2420,6 +2523,18 @@ func logTimeColumn(ctx context.Context, db *sql.DB, table string) (string, error
 		}
 	}
 	return "", nil
+}
+
+// logCutoffFormat 返回清理 cutoff 的时间格式，必须与表内实际存储格式一致：
+// 时间戳列（created_at 等）多由 CURRENT_TIMESTAMP 写入「YYYY-MM-DD HH:MM:SS」，
+// 若用 RFC3339 比较，同日行的 'T' > ' ' 会让保留期首日整天的数据被误删；
+// date 列（如 system_api_stats.date）只存「YYYY-MM-DD」，与带时间的 cutoff
+// 比较同样会因字符串前缀规则多删边界日，因此单独按日期比较。
+func logCutoffFormat(timeColumn string) string {
+	if timeColumn == "date" {
+		return "2006-01-02"
+	}
+	return "2006-01-02 15:04:05"
 }
 
 type uploadedDatabase struct {
@@ -2591,6 +2706,23 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 	s.importsMu.Lock()
 	defer s.importsMu.Unlock()
 
+	// 换库全程持有换库互斥（database.SwapMutex，与 VACUUM/备份恢复共用）：
+	// 阻断后台 WAL 维护/自动清理/压缩并发（它们 TryLock 失败即跳过当轮），
+	// 避免换库瞬间并发连接打开/写被移动或替换的库文件。
+	swapMu := database.SwapMutex()
+	swapMu.Lock()
+	defer swapMu.Unlock()
+
+	// 快速失败提示：压缩任务运行中等待换库互斥可能长达数分钟，与其阻塞
+	// 不如直接报错。真正的互斥由上面的 swapMu 保证（此检查与压缩启动
+	// 之间存在窗口时，Lock 会安全等待压缩结束）。
+	s.vacuumMu.Lock()
+	vacuumRunning := s.vacuumRunning
+	s.vacuumMu.Unlock()
+	if vacuumRunning {
+		return "", fmt.Errorf("数据库正在执行优化任务（VACUUM），请稍后重试导入")
+	}
+
 	backupDir := s.backupDir()
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return "", fmt.Errorf("创建备份目录失败: %w", err)
@@ -2610,6 +2742,17 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 	}
 	defer os.Remove(tempTarget)
 
+	// 替换前预处理导入副本（完整性校验 + 转 WAL）：非法文件必须在此报错，
+	// 避免把库文件换成垃圾后再回滚；WAL 预转换保证就地重写回退后新连接
+	// 的 journal_mode PRAGMA 不被旧句柄残留锁阻塞（详见 database.PrepareSwapFile）。
+	if err := database.PrepareSwapFile(tempTarget); err != nil {
+		return "", fmt.Errorf("导入文件校验失败: %w", err)
+	}
+
+	// 失效连接池：释放对旧文件的空闲句柄，替换后新连接的读写落到新文件。
+	// 注意：进程常驻句柄仍指向旧文件，导入成功后应尽快重启后端。
+	database.ResetPool(dbPath)
+
 	cleanupSQLiteSidecars(dbPath)
 	replaceErr := func() error {
 		if err := os.Remove(dbPath); err == nil || errors.Is(err, os.ErrNotExist) {
@@ -2620,21 +2763,37 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 		return copyFile(tempTarget, dbPath, 0o600)
 	}()
 	if replaceErr != nil {
+		database.ResetPool(dbPath)
 		_ = copyFile(backupPath, dbPath, 0o600)
 		return "", fmt.Errorf("替换数据库失败: %w", replaceErr)
 	}
 	cleanupSQLiteSidecars(dbPath)
 
+	// 替换完成后再失效一次，把替换间隙内可能打开旧文件的新连接也排除掉
+	database.ResetPool(dbPath)
+
 	db, err := s.store.Open(ctx)
 	if err != nil {
+		// 回滚同样要失效连接池并清理残留 sidecar：上面 Open 已在新文件上
+		// 建立过 WAL（-wal/-shm 指向导入库），留着会让恢复后的库做错误的
+		// WAL 回放；不 ResetPool 则池内空闲连接继续指向被放弃的导入文件。
+		// 备份同样经 PrepareSwapFile 预转 WAL，避免恢复后连接被残留锁阻塞。
+		database.ResetPool(dbPath)
+		cleanupSQLiteSidecars(dbPath)
+		_ = database.PrepareSwapFile(backupPath)
 		_ = copyFile(backupPath, dbPath, 0o600)
+		cleanupSQLiteSidecars(dbPath)
 		return "", fmt.Errorf("重新打开导入数据库失败: %w", err)
 	}
 	defer db.Close()
 	var integrity string
 	if err := db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		_ = db.Close()
+		database.ResetPool(dbPath)
+		cleanupSQLiteSidecars(dbPath)
+		_ = database.PrepareSwapFile(backupPath)
 		_ = copyFile(backupPath, dbPath, 0o600)
+		cleanupSQLiteSidecars(dbPath)
 		if err != nil {
 			return "", fmt.Errorf("导入后完整性检查失败: %w", err)
 		}
@@ -2690,110 +2849,6 @@ func copyFile(src, dst string, perm os.FileMode) error {
 		return err
 	}
 	return out.Sync()
-}
-
-func clearLegacyChatMessages(ctx context.Context, db *sql.DB, keepDays, keepSessions int) (map[string]int64, error) {
-	if keepSessions < 1 {
-		return map[string]int64{"deletedMessages": 0, "deletedSessions": 0}, nil
-	}
-	orderColumn, err := firstExistingColumn(ctx, db, "chat_sessions", []string{"updated_at", "created_at", "id"})
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT id FROM chat_sessions
-		ORDER BY `+quoteIdentifier(orderColumn)+` DESC
-		LIMIT ?
-	`, keepSessions)
-	if err != nil {
-		return nil, fmt.Errorf("query recent chat sessions: %w", err)
-	}
-	defer rows.Close()
-
-	ids := make([]interface{}, 0, keepSessions)
-	for rows.Next() {
-		var value interface{}
-		if err := rows.Scan(&value); err != nil {
-			return nil, fmt.Errorf("scan recent chat session: %w", err)
-		}
-		ids = append(ids, normalizeSQLValue(value))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate recent chat sessions: %w", err)
-	}
-	if len(ids) == 0 {
-		return map[string]int64{"deletedMessages": 0, "deletedSessions": 0}, nil
-	}
-
-	cutoff := time.Now().UTC().AddDate(0, 0, -keepDays).Format(time.RFC3339)
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin chat cleanup: %w", err)
-	}
-	defer tx.Rollback()
-
-	args := append([]interface{}{}, ids...)
-	args = append(args, cutoff)
-	msgResult, err := tx.ExecContext(ctx, `
-		DELETE FROM chat_messages
-		WHERE session_id NOT IN (`+placeholders(len(ids))+`)
-		AND created_at < ?
-	`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("delete old chat messages: %w", err)
-	}
-	deletedMessages, _ := msgResult.RowsAffected()
-
-	args = append([]interface{}{}, ids...)
-	args = append(args, cutoff)
-	sessionResult, err := tx.ExecContext(ctx, `
-		DELETE FROM chat_sessions
-		WHERE id NOT IN (`+placeholders(len(ids))+`)
-		AND created_at < ?
-		AND id NOT IN (SELECT DISTINCT session_id FROM chat_messages)
-	`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("delete empty chat sessions: %w", err)
-	}
-	deletedSessions, _ := sessionResult.RowsAffected()
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit chat cleanup: %w", err)
-	}
-	return map[string]int64{"deletedMessages": deletedMessages, "deletedSessions": deletedSessions}, nil
-}
-
-func firstExistingColumn(ctx context.Context, db *sql.DB, table string, candidates []string) (string, error) {
-	columns, err := tableColumns(ctx, db, table)
-	if err != nil {
-		return "", err
-	}
-	for _, candidate := range candidates {
-		if columns[candidate] {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("%s does not contain any supported ordering column", table)
-}
-
-func placeholders(count int) string {
-	if count <= 0 {
-		return ""
-	}
-	values := make([]string, count)
-	for i := range values {
-		values[i] = "?"
-	}
-	return strings.Join(values, ",")
-}
-
-func normalizeSQLValue(value interface{}) interface{} {
-	switch typed := value.(type) {
-	case []byte:
-		return string(typed)
-	default:
-		return typed
-	}
 }
 
 func randomToken() (string, error) {

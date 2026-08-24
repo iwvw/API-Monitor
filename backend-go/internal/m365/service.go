@@ -1214,9 +1214,22 @@ func (s *Service) publicRegister(w http.ResponseWriter, r *http.Request) {
 	mailNickname := strings.TrimSpace(stringValue(payload["mailNickname"], ""))
 	password := strings.TrimSpace(stringValue(payload["password"], ""))
 	displayName := strings.TrimSpace(stringValue(payload["displayName"], mailNickname))
-	if code == "" || mailNickname == "" || password == "" {
-		response.Error(w, http.StatusBadRequest, "code, mailNickname and password are required")
+	if code == "" || mailNickname == "" {
+		response.Error(w, http.StatusBadRequest, "code and mailNickname are required")
 		return
+	}
+
+	// password 可选：留空时由系统生成并随注册结果返回一次（initialPassword），
+	// 与公开注册页「初始密码自动生成」的文案与渲染保持一致。
+	initialPassword := ""
+	if password == "" {
+		generated, err := generateRegistrationPassword()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to generate password")
+			return
+		}
+		password = generated
+		initialPassword = generated
 	}
 
 	db, err := s.open(r.Context())
@@ -1306,6 +1319,7 @@ func (s *Service) publicRegister(w http.ResponseWriter, r *http.Request) {
 		"accountId":         target.ID,
 		"domain":            target.Domain,
 		"userPrincipalName": userPrincipalName,
+		"initialPassword":   emptyToNil(initialPassword),
 		"warning":           emptyToNil(warning),
 	})
 }
@@ -1896,6 +1910,35 @@ func registrationToMap(record registrationRecord) map[string]interface{} {
 		"errorMessage":      emptyToNil(record.ErrorMessage),
 		"createdAt":         record.CreatedAt,
 	}
+}
+
+// generateRegistrationPassword 生成公开注册的初始密码：12 位混合大小写字母、
+// 数字与可见符号，避免弱口令触发 M365 密码策略拒绝。
+func generateRegistrationPassword() (string, error) {
+	const length = 12
+	lower := "abcdefghijklmnopqrstuvwxyz"
+	upper := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digits := "0123456789"
+	symbols := "-_@#$%!?"
+	password := make([]byte, 0, length)
+	for _, charset := range []string{lower, upper, digits, symbols} {
+		next, err := randomCharsetByte(charset)
+		if err != nil {
+			return "", err
+		}
+		password = append(password, next)
+	}
+	for len(password) < length {
+		next, err := randomCharsetByte(lower + upper + digits + symbols)
+		if err != nil {
+			return "", err
+		}
+		password = append(password, next)
+	}
+	if err := shuffleBytes(password); err != nil {
+		return "", err
+	}
+	return string(password), nil
 }
 
 func generateInviteCode() (string, error) {

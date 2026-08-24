@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -342,6 +343,10 @@ func (s *Service) getVersion(ctx context.Context, w http.ResponseWriter, version
 
 func (s *Service) restoreVersion(ctx context.Context, w http.ResponseWriter, entryID, versionID int64) {
 	if err := s.store.RestoreVersion(ctx, entryID, versionID); err != nil {
+		if errors.Is(err, errVersionNotFound) || errors.Is(err, errVersionNotBelong) {
+			response.Error(w, http.StatusNotFound, "Version not found")
+			return
+		}
 		log.Printf("[prompts] restore version: %v", err)
 		response.Error(w, http.StatusInternalServerError, "Failed to restore version")
 		return

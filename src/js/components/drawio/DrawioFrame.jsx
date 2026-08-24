@@ -127,7 +127,7 @@ const DrawioFrame = forwardRef(function DrawioFrame(
       )}
       {status === 'error' && (
         <div className="absolute inset-0 z-10 flex items-center justify-center p-6 text-sm text-kumo-error">
-          图编辑器资源加载失败，请检查自托管资源
+          图编辑器资源加载失败，检查自托管资源
         </div>
       )}
       <iframe

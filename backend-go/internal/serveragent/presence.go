@@ -18,6 +18,9 @@ const (
 	agentPresenceOnline  agentPresenceStatus = "online"
 	agentPresenceSuspect agentPresenceStatus = "suspect"
 	agentPresenceOffline agentPresenceStatus = "offline"
+
+	// maxAcceptableAgentSampleIntervalMs 是 agent 上报采样间隔的采纳上限（5 分钟）。
+	maxAcceptableAgentSampleIntervalMs = 5 * 60 * 1000
 )
 
 type agentPresenceConfig struct {
@@ -283,6 +286,10 @@ func (p *agentPresenceManager) check() {
 			suspectIDs = append(suspectIDs, serverID)
 		} else if rec.Status == agentPresenceSuspect {
 			refreshTargets = append(refreshTargets, refreshTarget{serverID: serverID, status: "interrupted"})
+		} else {
+			// 在线状态也周期触发 resolve 自愈：后端重启后若无状态变化事件，
+			// 残留的 open 生命周期消息（隔离/离线通知）需要被编辑为恢复内容并清除。
+			refreshTargets = append(refreshTargets, refreshTarget{serverID: serverID, status: "online"})
 		}
 	}
 	p.mu.Unlock()
@@ -301,7 +308,14 @@ func (p *agentPresenceManager) check() {
 func (p *agentPresenceManager) offlineAfterFor(rec *agentPresenceRecord) time.Duration {
 	offlineAfter := p.cfg.offlineAfter
 	if rec.SampleIntervalMs > 0 {
-		dynamic := time.Duration(rec.SampleIntervalMs*6) * time.Millisecond
+		// agent 上报的采样间隔仅用于推算离线阈值，必须钳制：
+		// 否则 agent 可上报任意大值让自身永不判定离线。上限 5 分钟采样间隔，
+		// 对应的动态离线阈值最多 30 分钟。
+		sample := rec.SampleIntervalMs
+		if sample > maxAcceptableAgentSampleIntervalMs {
+			sample = maxAcceptableAgentSampleIntervalMs
+		}
+		dynamic := time.Duration(sample*6) * time.Millisecond
 		if dynamic > offlineAfter {
 			offlineAfter = dynamic
 		}
@@ -429,9 +443,12 @@ func (p *agentPresenceManager) refreshNotification(serverID, status string) {
 	updater, ok := p.service.notifier.(interface {
 		RefreshLifecycle(context.Context, string, string, map[string]interface{}) error
 	})
-	if !ok || p.notificationsSuppressed(serverID, time.Now()) {
+	if !ok {
 		return
 	}
+	// 刷新/自愈只编辑或补发已存在的生命周期消息（RefreshLifecycle 内部已有 30s 节流），
+	// 不产生新消息轰炸，因此不受 notificationsSuppressed（启动宽限）抑制；
+	// 新建 open 消息的 Trigger 路径仍受抑制。
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	db, err := p.service.open(ctx)

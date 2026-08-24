@@ -3,22 +3,22 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
-import { DropdownMenu, Popover } from '@cloudflare/kumo';
+import { Popover } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { Info } from '../IconsCore.jsx';
-import { MoreVertical, Search } from '../Icons.jsx';
+import { Menu, Search } from '../Icons.jsx';
 import { resolveTableColumns } from '../../modules/tableLayout.js';
 
-export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 sm:gap-4 pb-6 sm:pb-8';
-export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 sm:gap-4 pb-0';
+export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-4 cq-sm:pb-8';
+export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-0';
 export const pageToolbarClass =
-  'flex min-w-0 flex-col items-stretch gap-3 border-b border-kumo-line pb-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between [&>*]:min-w-0';
+  'flex min-w-0 flex-col items-stretch gap-3 border-b border-kumo-line pb-3 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-between [&>*]:min-w-0';
 export const stickyTabsBaseClass =
   'sticky top-0 z-30 flex min-h-(--app-header-height) items-center bg-[var(--app-main-surface)] px-[var(--app-tab-gutter-x)] -mx-[var(--app-canvas-gutter-x)]';
 export const sectionCardHeaderClass =
-  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2.5 sm:min-h-[56px] sm:flex-row sm:flex-wrap sm:items-center sm:py-3.5';
+  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
 export const sectionCardTitleClass =
   'inline-flex min-w-0 max-w-full items-center gap-2 text-sm font-bold text-kumo-strong';
 export const iconButtonIconClass = 'h-3.5 w-3.5';
@@ -40,7 +40,7 @@ const tableDensityClass = {
 
 const pillToneClass = {
   neutral: 'bg-kumo-recessed text-kumo-subtle border-kumo-line',
-  brand: 'bg-kumo-brand/10 text-kumo-brand border-kumo-brand/20',
+  brand: 'bg-brand/10 text-brand border-brand/20',
   info: 'bg-kumo-info/10 text-kumo-info border-kumo-info/20',
   success: 'bg-kumo-success/10 text-kumo-success border-kumo-success/20',
   warning: 'bg-kumo-warning/10 text-kumo-warning border-kumo-warning/20',
@@ -55,12 +55,12 @@ export function TabBarOverflowActions({
   items = [],
   className = '',
   buttonClassName = '',
-  menuClassName = 'w-60',
+  menuClassName = 'min-w-56 max-w-80',
 }) {
   const wideActions = (
     <div
       className={cx(
-        'hidden min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 md:flex',
+        'hidden min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 cq-md:flex',
         className
       )}
     >
@@ -98,71 +98,69 @@ export function TabBarOverflowActions({
     </div>
   );
 
-  const renderMenuItem = item => {
+  const renderPopupItem = item => {
     if (item.type === 'select') {
       return (
-        <DropdownMenu.Sub key={item.key}>
-          <DropdownMenu.SubTrigger className="flex items-center gap-2 px-2 py-1.5 text-sm">
+        <div key={item.key} className="flex flex-col gap-1.5">
+          <span className="flex items-center gap-2 px-1 text-xs font-medium text-kumo-subtle">
             {item.icon}
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            <span className="max-w-28 truncate text-xs text-kumo-subtle">
-              {item.options.find(option => String(option.value) === String(item.value))?.label || ''}
-            </span>
-          </DropdownMenu.SubTrigger>
-          <DropdownMenu.SubContent className="w-56">
-            <DropdownMenu.RadioGroup
-              value={item.value}
-              onValueChange={item.onValueChange}
-            >
-              {item.options.map(option => (
-                <DropdownMenu.RadioItem key={option.value} value={option.value}>
-                  {option.label}
-                </DropdownMenu.RadioItem>
-              ))}
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.SubContent>
-        </DropdownMenu.Sub>
+            {item.label}
+          </span>
+          <Select
+            size="sm"
+            aria-label={item.label}
+            value={item.value}
+            onValueChange={item.onValueChange}
+            disabled={item.disabled}
+            items={item.options}
+            className="w-full"
+          />
+        </div>
       );
     }
     return (
-      <DropdownMenu.Item
+      <Button
         key={item.key}
+        size="sm"
+        variant={item.danger ? 'destructive' : item.variant || 'secondary'}
         icon={item.icon}
         onClick={item.onClick}
         disabled={item.disabled}
-        variant={item.danger ? 'danger' : 'default'}
+        loading={item.loading}
+        title={item.title || item.label}
+        className="w-full justify-start"
       >
         {item.label}
-      </DropdownMenu.Item>
+      </Button>
     );
   };
-
-  const menuItems = items.map(renderMenuItem);
 
   if (items.length === 0) return null;
 
   return (
     <>
       {wideActions}
-      <div className="shrink-0 md:hidden">
-        <DropdownMenu>
-          <DropdownMenu.Trigger
+      <div className="shrink-0 cq-md:hidden">
+        <Popover>
+          <Popover.Trigger
             render={
               <Button
                 size="sm"
                 shape="square"
                 variant="secondary"
-                icon={<MoreVertical className="h-4 w-4" />}
+                icon={<Menu className="h-4 w-4" />}
                 aria-label="更多操作"
                 title="更多操作"
-                className={cx('h-9 w-9 shrink-0 !rounded-lg', buttonClassName)}
+                className={cx('h-8 w-8 shrink-0 !rounded-lg', buttonClassName)}
               />
             }
           />
-          <DropdownMenu.Content align="end" side="bottom" className={menuClassName}>
-            {menuItems}
-          </DropdownMenu.Content>
-        </DropdownMenu>
+          <Popover.Content side="bottom" align="end" className={`${menuClassName} p-2`}>
+            <div className="flex flex-col gap-1">
+              {items.map(renderPopupItem)}
+            </div>
+          </Popover.Content>
+        </Popover>
       </div>
     </>
   );
@@ -199,8 +197,8 @@ export function ResponsiveSearchInput({
 
   return (
     <>
-      <div className={cx('hidden md:block', className)}>{wideInput}</div>
-      <div className="md:hidden">
+      <div className={cx('hidden cq-md:block', className)}>{wideInput}</div>
+      <div className="cq-md:hidden">
         <Popover>
           <Popover.Trigger
             render={
@@ -270,7 +268,7 @@ function withCompactCardActions(node) {
       return React.cloneElement(node, {
         size: node.props.size || 'sm',
         className: cx(node.props.className, compactClass),
-        children: <span className="hidden sm:inline">{node.props.children}</span>,
+        children: <span className="hidden cq-sm:inline">{node.props.children}</span>,
         'aria-label': node.props['aria-label'] || textLabel || node.props.title,
       });
     }
@@ -292,6 +290,18 @@ export function PageToolbar({ className = '', children }) {
   return <div className={cx(pageToolbarClass, className)}>{children}</div>;
 }
 
+export function FieldRow({ title, description, children }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-tight:grid cq-tight:grid-cols-[minmax(0,1fr)_max-content] cq-tight:items-center">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold text-kumo-strong">{title}</div>
+        {description && <div className="mt-1 hidden truncate text-xs leading-relaxed text-kumo-subtle cq-tight:block">{description}</div>}
+      </div>
+      <div className="flex min-w-0 max-w-[20rem] shrink-0 items-center justify-end gap-2 [&>*]:min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export function AppCard({
   className = '',
   padding = 'md',
@@ -305,7 +315,7 @@ export function AppCard({
       className={cx(
         'rounded-lg border border-kumo-line bg-kumo-base shadow-none ring-0',
         cardPaddingClass[padding] || cardPaddingClass.md,
-        interactive && 'transition-colors hover:border-kumo-brand/60',
+        interactive && 'transition-colors hover:border-brand/60',
         className
       )}
     >
@@ -322,8 +332,8 @@ const insetToneClass = {
 
 const keyValueGridColumnsClass = {
   1: 'grid-cols-1',
-  2: 'md:grid-cols-2',
-  3: 'md:grid-cols-3',
+  2: 'cq-md:grid-cols-2',
+  3: 'cq-md:grid-cols-3',
 };
 
 export function SectionCard({
@@ -357,7 +367,7 @@ export function SectionCard({
       )}
     >
       <LayerCard.Secondary className={cx(sectionCardHeaderClass, headerClassName)}>
-        <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center">
           <div className={cx(sectionCardTitleClass, titleClassName)}>
             {icon}
             {typeof title === 'string' || typeof title === 'number' ? (
@@ -369,7 +379,7 @@ export function SectionCard({
           {description && (
             <div
               className={cx(
-                'hidden min-w-0 flex-1 text-xs font-normal leading-5 text-kumo-subtle sm:block sm:basis-40 sm:truncate',
+                'hidden min-w-0 flex-1 text-xs font-normal leading-5 text-kumo-subtle cq-sm:block cq-sm:basis-40 cq-sm:truncate',
                 descriptionClassName
               )}
             >
@@ -380,7 +390,7 @@ export function SectionCard({
         {trailing.length > 0 && (
           <div
             className={cx(
-              'ml-3 flex shrink-0 items-center justify-end gap-2 whitespace-nowrap sm:ml-auto sm:flex-wrap sm:whitespace-normal [&>*]:shrink-0',
+              'ml-3 flex shrink-0 items-center justify-end gap-2 whitespace-nowrap cq-sm:ml-auto cq-sm:flex-wrap cq-sm:whitespace-normal [&>*]:shrink-0',
               actionsClassName
             )}
           >
@@ -389,7 +399,7 @@ export function SectionCard({
         )}
       </LayerCard.Secondary>
       <LayerCard.Primary
-        className={cx(cardPaddingClass[bodyPadding] || cardPaddingClass.md, bodyClassName)}
+        className={cx('gap-0', cardPaddingClass[bodyPadding] || cardPaddingClass.md, bodyClassName)}
       >
         {children}
       </LayerCard.Primary>

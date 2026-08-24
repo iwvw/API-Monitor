@@ -2,6 +2,7 @@ package cronjobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -73,6 +74,53 @@ func containsString(items []string, want string) bool {
 	return false
 }
 
+func TestCronSecondsFieldNormalization(t *testing.T) {
+	service := newCronService(t)
+
+	// 带秒的 6 段表达式（秒段为 0）应被规范化为标准 5 段并成功预览
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/cron/preview", `{"schedule":"0 0 2 * * *","count":5}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("preview 6-field status = %d body=%s", res.Code, res.Body.String())
+	}
+	preview := decodeCronData[struct {
+		Schedule string  `json:"schedule"`
+		Summary  string  `json:"summary"`
+		Next     []int64 `json:"next"`
+	}](t, res)
+	if preview.Summary == "" || len(preview.Next) != 5 {
+		t.Fatalf("unexpected normalized preview: %#v", preview)
+	}
+	if preview.Summary != "每天 02:00 执行" {
+		t.Fatalf("unexpected normalized summary: %q", preview.Summary)
+	}
+
+	// 秒段非 0 的 6 段表达式应明确拒绝，避免静默改变语义
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/cron/preview", `{"schedule":"30 0 2 * * *","count":5}`)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("preview non-zero seconds status = %d body=%s", res.Code, res.Body.String())
+	}
+
+	// 创建任务时归一化并持久化
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/tasks", `{"name":"Daily2","schedule":"0 0 2 * * *","command":"echo ok","type":"shell","enabled":1}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create scheduler task status = %d body=%s", res.Code, res.Body.String())
+	}
+	task := decodeCronData[SchedulerTask](t, res)
+	if task.Schedule != "0 2 * * *" {
+		t.Fatalf("expected normalized schedule, got %q", task.Schedule)
+	}
+
+	// 工作流同样归一化
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/workflows", `{"name":"Flow","schedule":"0 0 2 * * *","enabled":1,"nodes":[{"id":"a","name":"A","type":"shell","command":"echo hi","enabled":1}],"edges":[]}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	workflow := decodeCronData[Workflow](t, res)
+	if workflow.Schedule != "0 2 * * *" {
+		t.Fatalf("expected normalized workflow schedule, got %q", workflow.Schedule)
+	}
+}
+
 func TestSchedulerWorkflowDagValidationAndRun(t *testing.T) {
 	service := newCronService(t)
 
@@ -138,6 +186,155 @@ func TestSchedulerWorkflowDagValidationAndRun(t *testing.T) {
 		t.Fatalf("unexpected run: %#v", run)
 	}
 	if !strings.Contains(run.Summary, "成功 3") {
+		t.Fatalf("unexpected summary: %q", run.Summary)
+	}
+}
+
+func TestSchedulerWorkflowLegacyTaskNodeExecutesAsShell(t *testing.T) {
+	service := newCronService(t)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	// 模拟存量工作流：直插 DB 绕开 buildWorkflow 规范化，节点保持 type=task
+	// （旧画布默认类型），验证执行路径兜底按 shell 执行且不重存也可恢复。
+	legacy, err := insertWorkflow(context.Background(), db, Workflow{
+		Name:    "Legacy Task Nodes",
+		Schedule: "*/5 * * * *",
+		Enabled: 1,
+		Nodes: []WorkflowNode{
+			{ID: "start", Name: "开始", Type: "start", Enabled: 1},
+			{ID: "check", Name: "检查主机", Type: "task", Command: "echo legacy-ok", Enabled: 1},
+			{ID: "end", Name: "结束", Type: "end", Enabled: 1},
+		},
+		Edges: []WorkflowEdge{
+			{From: "start", To: "check", Condition: "success"},
+			{From: "check", To: "end", Condition: "success"},
+		},
+		ConcurrencyPolicy: "skip",
+		FailurePolicy:     "stop",
+	})
+	if err != nil {
+		t.Fatalf("insert legacy workflow: %v", err)
+	}
+	for _, n := range legacy.Nodes {
+		if n.Type != "task" && n.Type != "start" && n.Type != "end" {
+			t.Fatalf("fixture should keep raw node types, got %q", n.Type)
+		}
+	}
+
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/workflows/"+strconv.FormatInt(legacy.ID, 10)+"/run", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("run legacy workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	run := decodeCronData[WorkflowRun](t, res)
+	if run.Status != "success" {
+		t.Fatalf("legacy task node should fall back to shell, got status=%s summary=%s", run.Status, run.Summary)
+	}
+	for _, nr := range run.NodeRuns {
+		if nr.Status != "success" {
+			t.Fatalf("node %s should succeed, got %s: %s", nr.NodeID, nr.Status, nr.Output)
+		}
+	}
+}
+
+func TestSchedulerWorkflowPayloadAcceptsBooleanEnabled(t *testing.T) {
+	service := newCronService(t)
+
+	// 契约按 boolean 传 enabled（AI 工具按契约构造），后端 intOrBool 兼容解码。
+	body := `{
+		"name":"Boolean Enabled Flow",
+		"description":"boolean enabled",
+		"schedule":"*/5 * * * *",
+		"enabled":false,
+		"nodes":[
+			{"id":"start","name":"开始","type":"start","enabled":true},
+			{"id":"work","name":"Work","command":"echo ok","enabled":true},
+			{"id":"end","name":"结束","type":"end","enabled":true}
+		],
+		"edges":[
+			{"from":"start","to":"work","condition":"success"},
+			{"from":"work","to":"end","condition":"success"}
+		]
+	}`
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/workflows", body)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create workflow with boolean enabled status = %d body=%s", res.Code, res.Body.String())
+	}
+	workflow := decodeCronData[Workflow](t, res)
+	if workflow.Enabled != 0 {
+		t.Fatalf("enabled=false should decode to 0, got %d", workflow.Enabled)
+	}
+
+	res = performCronRequest(service, http.MethodPut, "/api/scheduler/workflows/"+strconv.FormatInt(workflow.ID, 10), `{
+		"name":"Boolean Enabled Flow",
+		"enabled":true,
+		"nodes":[{"id":"start","name":"开始","type":"start"},{"id":"end","name":"结束","type":"end"}],
+		"edges":[{"from":"start","to":"end","condition":"success"}]
+	}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("update workflow with boolean enabled status = %d body=%s", res.Code, res.Body.String())
+	}
+	updated := decodeCronData[Workflow](t, res)
+	if updated.Enabled != 1 {
+		t.Fatalf("enabled=true should decode to 1, got %d", updated.Enabled)
+	}
+}
+
+func TestSchedulerWorkflowStartEndNodesAreMarkers(t *testing.T) {
+	service := newCronService(t)
+
+	body := `{
+		"name":"StartEnd Flow",
+		"enabled":1,
+		"nodes":[
+			{"id":"start","name":"开始","type":"start","enabled":1},
+			{"id":"work","name":"Work","command":"echo ok","enabled":1},
+			{"id":"tasked","name":"Tasked","type":"task","command":"echo tasked-ok","enabled":1},
+			{"id":"end","name":"结束","type":"end","enabled":1}
+		],
+		"edges":[
+			{"from":"start","to":"work","condition":"success"},
+			{"from":"work","to":"tasked","condition":"success"},
+			{"from":"tasked","to":"end","condition":"success"}
+		]
+	}`
+	res := performCronRequest(service, http.MethodPost, "/api/scheduler/workflows", body)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	workflow := decodeCronData[Workflow](t, res)
+	byID := map[string]WorkflowNode{}
+	for _, n := range workflow.Nodes {
+		byID[n.ID] = n
+	}
+	if byID["work"].Type != "shell" {
+		t.Fatalf("inline node without type should normalize to shell, got %q", byID["work"].Type)
+	}
+	if byID["tasked"].Type != "shell" {
+		t.Fatalf("explicit task node should normalize to shell, got %q", byID["tasked"].Type)
+	}
+
+	res = performCronRequest(service, http.MethodPost, "/api/scheduler/workflows/"+strconv.FormatInt(workflow.ID, 10)+"/run", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("run workflow status = %d body=%s", res.Code, res.Body.String())
+	}
+	run := decodeCronData[WorkflowRun](t, res)
+	if run.Status != "success" {
+		t.Fatalf("run should succeed with start/end markers, got status=%s summary=%s", run.Status, run.Summary)
+	}
+	if len(run.NodeRuns) != 4 {
+		t.Fatalf("expected 4 node runs, got %d", len(run.NodeRuns))
+	}
+	for _, nr := range run.NodeRuns {
+		if nr.Status != "success" {
+			t.Fatalf("node %s should succeed, got %s: %s", nr.NodeID, nr.Status, nr.Output)
+		}
+	}
+	if !strings.Contains(run.Summary, "成功 4") {
 		t.Fatalf("unexpected summary: %q", run.Summary)
 	}
 }
@@ -266,4 +463,66 @@ func (r *flakyAgentRunner) RunCommandTaskAndWait(serverID string, command string
 		return "", fmt.Errorf("temporary failure")
 	}
 	return "agent ok", nil
+}
+
+func TestSchedulerTaskEnabledIntOrBool(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		expected int
+	}{
+		{"int zero", `{"name":"t","command":"echo hi","enabled":0}`, 0},
+		{"int one", `{"name":"t","command":"echo hi","enabled":1}`, 1},
+		{"bool false", `{"name":"t","command":"echo hi","enabled":false}`, 0},
+		{"bool true", `{"name":"t","command":"echo hi","enabled":true}`, 1},
+		{"omitted defaults to one", `{"name":"t","command":"echo hi"}`, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var payload schedulerTaskPayload
+			if err := json.Unmarshal([]byte(c.raw), &payload); err != nil {
+				t.Fatalf("unmarshal failed: %v", err)
+			}
+			actual := intOrBoolValue(payload.Enabled, 1)
+			if actual != c.expected {
+				t.Fatalf("enabled = %d, want %d", actual, c.expected)
+			}
+		})
+	}
+}
+
+func TestSchedulerTaskConfigPassthrough(t *testing.T) {
+	raw := `{"name":"AI 任务","command":"说明系统状态","type":"ai","config":"{\"model\":\"test-model\",\"policy\":\"readonly\",\"channelId\":\"aac_1\"}"}`
+	var payload schedulerTaskPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	task, err := buildSchedulerTask(payload, nil)
+	if err != nil {
+		t.Fatalf("buildSchedulerTask failed: %v", err)
+	}
+	if task.Type != "ai" {
+		t.Fatalf("type = %q, want ai", task.Type)
+	}
+	if task.Config == "" {
+		t.Fatal("config was dropped")
+	}
+	var cfg map[string]string
+	if err := json.Unmarshal([]byte(task.Config), &cfg); err != nil {
+		t.Fatalf("config not valid JSON: %v", err)
+	}
+	if cfg["policy"] != "readonly" || cfg["model"] != "test-model" || cfg["channelId"] != "aac_1" {
+		t.Fatalf("unexpected config: %v", cfg)
+	}
+}
+
+func TestSchedulerTaskConfigRejectsInvalidJSON(t *testing.T) {
+	raw := `{"name":"AI 任务","command":"说明系统状态","type":"ai","config":"not-json"}`
+	var payload schedulerTaskPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, err := buildSchedulerTask(payload, nil); err == nil {
+		t.Fatal("expected error for invalid config JSON")
+	}
 }

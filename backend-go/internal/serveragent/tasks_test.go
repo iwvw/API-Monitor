@@ -3,6 +3,8 @@ package serveragent
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -118,5 +120,43 @@ func TestTaskPersistencePrunesHistoryOutsideRetention(t *testing.T) {
 	}
 	if len(loaded) != 0 {
 		t.Fatalf("expected pruned history, got %#v", loaded)
+	}
+}
+
+// TestWriteNamedSSERenewsWriteDeadline 验证：SSE 写入前必须续期写超时，
+// 否则 http.Server.WriteTimeout 的绝对截止时间一到，长连接流会静默死掉。
+func TestWriteNamedSSERenewsWriteDeadline(t *testing.T) {
+	service := &Service{}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("response writer must support flush")
+			return
+		}
+		for i := 0; i < 3; i++ {
+			if err := service.writeNamedSSE(w, "ping", map[string]interface{}{"i": i}); err != nil {
+				return
+			}
+			flusher.Flush()
+			// 每次写入间隔超过 WriteTimeout：不续期的实现在第二写就会失败。
+			time.Sleep(60 * time.Millisecond)
+		}
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(handler))
+	server.Config.WriteTimeout = 50 * time.Millisecond
+	server.Start()
+	defer server.Close()
+
+	res, err := http.Get(server.URL + "/v2/tasks/stream")
+	if err != nil {
+		t.Fatalf("connect stream: %v", err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read stream body: %v", err)
+	}
+	if got := strings.Count(string(body), "event: ping"); got != 3 {
+		t.Fatalf("expected 3 events across the write deadline, got %d, body=%q", got, body)
 	}
 }

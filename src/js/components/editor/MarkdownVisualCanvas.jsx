@@ -81,7 +81,7 @@ export default function MarkdownVisualCanvas({
       )}
       {status === 'error' && (
         <div className="flex min-h-[200px] items-center justify-center p-6 text-sm text-kumo-error">
-          编辑器加载失败，请刷新页面后重试
+          编辑器加载失败，刷新页面后重试
         </div>
       )}
       <div

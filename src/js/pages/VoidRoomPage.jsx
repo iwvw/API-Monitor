@@ -134,7 +134,7 @@ function MessageBubble({ message, mine }) {
   const isImage = message.mime?.startsWith('image/') || message.kind === 'image';
   return (
     <div className={cx('flex', mine ? 'justify-end' : 'justify-start')}>
-      <div className={cx('max-w-[82%] rounded-md border border-kumo-line p-3', mine ? 'bg-kumo-brand/10' : 'bg-kumo-recessed/35')}>
+      <div className={cx('max-w-[82%] rounded-md border border-kumo-line p-3', mine ? 'bg-brand/10' : 'bg-kumo-recessed/35')}>
         <div className="mb-1 flex items-center gap-2 text-[11px] text-kumo-subtle">
           <span className="font-semibold text-kumo-strong">{mine ? '我' : message.name || message.from || '对方'}</span>
           <span>{message.status === 'sending' ? '发送中' : message.status === 'failed' ? '失败' : formatDateTime(message.createdAt)}</span>
@@ -144,7 +144,7 @@ function MessageBubble({ message, mine }) {
         ) : (
           <div className="grid gap-2">
             <div className="flex items-start gap-2">
-              {isImage ? <Image className="mt-0.5 h-4 w-4 shrink-0 text-kumo-brand" /> : <FileText className="mt-0.5 h-4 w-4 shrink-0 text-kumo-brand" />}
+              {isImage ? <Image className="mt-0.5 h-4 w-4 shrink-0 text-brand" /> : <FileText className="mt-0.5 h-4 w-4 shrink-0 text-brand" />}
               <div className="min-w-0">
                 <div className="break-all text-sm font-semibold text-kumo-strong">{message.fileName || '文件'}</div>
                 <div className="mt-0.5 text-[11px] text-kumo-subtle">{formatFileSize(message.size || 0)}</div>
@@ -187,6 +187,7 @@ function VoidRoomPage() {
   const pendingIceRef = useRef(new Map());
   const lastSignalIDRef = useRef(0);
   const stoppedRef = useRef(false);
+  const pollTimerRef = useRef(null); // 轮询定时器句柄：卸载竞态时由 cleanup 兜底再清一次
   const fileInputRef = useRef(null);
 
   useEffect(() => { roleRef.current = role; }, [role]);
@@ -202,7 +203,14 @@ function VoidRoomPage() {
   const upsertMessage = useCallback((message) => {
     setMessages((prev) => {
       const index = prev.findIndex((item) => item.id === message.id);
-      if (index === -1) return [...prev, message].slice(-120);
+      if (index === -1) {
+        const next = [...prev, message];
+        if (next.length > 120) {
+          const removed = next.splice(0, next.length - 120);
+          removed.forEach((m) => { if (m.url) URL.revokeObjectURL(m.url); });
+        }
+        return next;
+      }
       const next = [...prev];
       next[index] = { ...next[index], ...message };
       return next;
@@ -274,9 +282,14 @@ function VoidRoomPage() {
   const broadcastBlob = useCallback(async (blob, meta, excludePeerId = '') => {
     const targets = [...peersRef.current.entries()].filter(([peerId, entry]) => peerId !== excludePeerId && isOpenChannel(entry.channel));
     if (targets.length === 0) return;
-    for (const [, entry] of targets) {
-      await sendBlobOnChannel(entry.channel, blob, meta);
-    }
+    // 并发投递全部目标：单个 peer 失败不影响其余 peer 收到文件
+    await Promise.all(targets.map(async ([, entry]) => {
+      try {
+        await sendBlobOnChannel(entry.channel, blob, meta);
+      } catch {
+        // 失败目标单独忽略（房间会话中 peer 掉线是常态），剩余目标继续投递。
+      }
+    }));
   }, [sendBlobOnChannel]);
 
   const handleChannelMessage = useCallback(async (peerId, event) => {
@@ -572,6 +585,9 @@ function VoidRoomPage() {
         entry.peer?.close?.();
       }
       peersRef.current.clear();
+      for (const message of messagesRef.current) {
+        if (message.url) URL.revokeObjectURL(message.url);
+      }
     };
   }, [clientId, ensurePeer, pollSignals, postSignal, roomId]);
 
@@ -736,7 +752,7 @@ function VoidRoomPage() {
         </div>
 
         <div className="grid items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <SectionCard title="房间会话" icon={<Send className="h-4 w-4 text-kumo-brand" />} meta={<Badge variant="secondary">P2P</Badge>} className="h-full" bodyClassName="flex min-h-[30rem] flex-1 flex-col gap-3">
+          <SectionCard title="房间会话" icon={<Send className="h-4 w-4 text-brand" />} meta={<Badge variant="secondary">P2P</Badge>} className="h-full" bodyClassName="flex min-h-[30rem] flex-1 flex-col gap-3">
             {error && (
               <div className="flex items-start gap-2 rounded-md border border-kumo-error/30 bg-kumo-error/10 p-3 text-xs font-semibold text-kumo-error">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -780,14 +796,14 @@ function VoidRoomPage() {
               <div className="flex flex-wrap justify-end gap-2">
                 <Input ref={fileInputRef} type="file" aria-label="选择文件" className="hidden" onChange={handleFileChange} />
                 <Button size="sm" variant="secondary" disabled={!canSend || sending} loading={sending} onClick={() => fileInputRef.current?.click()} icon={<Paperclip className="h-4 w-4" />}>文件</Button>
-                <Button size="sm" variant="primary" disabled={!canSend || !text.trim()} onClick={sendText} icon={<Send className="h-4 w-4" />}>发送文字</Button>
+                <Button size="sm" variant="primary" disabled={!canSend || !text.trim()} onClick={sendText} icon={<Send className="h-4 w-4" />}>发送</Button>
               </div>
             </div>
           </SectionCard>
 
           <div className="flex h-full flex-col gap-4">
             {role === 'owner' && (
-              <SectionCard title="房间入口" icon={<Users className="h-4 w-4 text-kumo-brand" />} bodyClassName="grid min-w-0 gap-3">
+              <SectionCard title="房间入口" icon={<Users className="h-4 w-4 text-brand" />} bodyClassName="grid min-w-0 gap-3">
                 <div className="grid min-w-0 gap-3">
                   {qrCode && (
                     <div className="flex justify-center rounded-md border border-kumo-line bg-kumo-base p-3">
@@ -805,7 +821,7 @@ function VoidRoomPage() {
               </SectionCard>
             )}
 
-            <SectionCard title="连接状态" icon={<Users className="h-4 w-4 text-kumo-brand" />}>
+            <SectionCard title="连接状态" icon={<Users className="h-4 w-4 text-brand" />}>
               <div className="grid gap-3 text-xs">
                 <div className="grid grid-cols-2 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
                   <div><span className="text-kumo-subtle">有效期</span><div className="mt-1 font-semibold text-kumo-strong">{isPersistentRoom ? '持久' : room?.expiresAt ? formatDateTime(room.expiresAt) : '-'}</div></div>

@@ -437,10 +437,43 @@ func (s *Service) handleWebhookEvent(ctx context.Context, db *sql.DB, repo Repos
 		s.emitRepositoryEvent(ctx, db, repo, "webhook_ping", "info", "GitHub Webhook 已连接", fmt.Sprintf("%s webhook ping 成功", repo.FullName), "webhook", payload)
 	}
 	if webhookUsesActionsRefresh(eventType) {
-		go s.refreshActionsRepositoryByID(context.Background(), repo.ID, "webhook")
+		s.scheduleWebhookRefresh(repo.ID, s.refreshActionsRepositoryByID, "webhook")
 		return
 	}
-	go s.refreshRepositoryByID(context.Background(), repo.ID, "webhook")
+	s.scheduleWebhookRefresh(repo.ID, s.refreshRepositoryByID, "webhook")
+}
+
+// scheduleWebhookRefresh 调度 webhook 触发的仓库刷新：同一仓库刷新进行中
+// 时不再并发发起（事件风暴去重）；刷新刚结束的 5 秒内到达的事件会被抖动
+// 延迟合并为一次补刷，避免每个事件都开一个 goroutine 打爆 GitHub API。
+func (s *Service) scheduleWebhookRefresh(repoID int64, refresh func(context.Context, int64, string) error, reason string) {
+	const cooldown = 5 * time.Second
+	s.webhookRefreshMu.Lock()
+	if s.webhookRefreshBusy[repoID] {
+		s.webhookRefreshMu.Unlock()
+		return
+	}
+	if timer, ok := s.webhookRefreshTimer[repoID]; ok {
+		timer.Reset(cooldown)
+		s.webhookRefreshMu.Unlock()
+		return
+	}
+	timer := time.AfterFunc(cooldown, func() {
+		s.webhookRefreshMu.Lock()
+		if s.webhookRefreshBusy[repoID] {
+			s.webhookRefreshMu.Unlock()
+			return
+		}
+		s.webhookRefreshBusy[repoID] = true
+		delete(s.webhookRefreshTimer, repoID)
+		s.webhookRefreshMu.Unlock()
+		refresh(context.Background(), repoID, reason)
+		s.webhookRefreshMu.Lock()
+		delete(s.webhookRefreshBusy, repoID)
+		s.webhookRefreshMu.Unlock()
+	})
+	s.webhookRefreshTimer[repoID] = timer
+	s.webhookRefreshMu.Unlock()
 }
 
 func webhookUsesActionsRefresh(eventType string) bool {

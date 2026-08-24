@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChartPalette, ClipboardText, LayerCard, Popover, Tabs, TimeseriesChart, Toolbar } from '@cloudflare/kumo';
+import { ChartPalette, ClipboardText, LayerCard, Popover, Tabs, Toolbar } from '@cloudflare/kumo';
+import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
@@ -589,11 +590,14 @@ function DnsPage() {
     }
   }, [cfApi, selectedAccountId, setLoadingKey]);
 
+  const recordsSeqRef = useRef(0); // 切 zone/筛选竞态防护：过期响应直接丢弃
+
   const loadRecords = useCallback(async (zoneId = selectedZoneId, options = recordFilter) => {
     if (!selectedAccountId || !zoneId) {
       setRecords([]);
       return;
     }
+    const seq = ++recordsSeqRef.current;
     const params = new URLSearchParams();
     if (options.type) params.set('type', options.type);
     if (options.name) params.set('name', options.name);
@@ -604,12 +608,14 @@ function DnsPage() {
       const data = await cfApi(
         `/accounts/${selectedAccountId}/zones/${zoneId}/records${query ? `?${query}` : ''}`
       );
+      if (seq !== recordsSeqRef.current) return; // 已有更新的请求，丢弃本次结果
       setRecords(data.records || []);
       setSelectedRecordIds([]);
     } catch (error) {
+      if (seq !== recordsSeqRef.current) return;
       toast.error(`加载 DNS 记录失败：${error.message}`);
     } finally {
-      setLoadingKey('records', false);
+      if (seq === recordsSeqRef.current) setLoadingKey('records', false);
     }
   }, [cfApi, recordFilter, selectedAccountId, selectedZoneId, setLoadingKey]);
 
@@ -1151,14 +1157,17 @@ function DnsPage() {
     if (!confirmPress('batch-records', `删除选中的 ${selectedRecordIds.length} 条 DNS 记录`)) return;
     setLoadingKey('batchDeleteRecords', true);
     try {
-      await Promise.all(selectedRecords.map((record) => cfApi(
+      const results = await Promise.allSettled(selectedRecords.map((record) => cfApi(
         `/accounts/${selectedAccountId}/zones/${selectedZoneId}/records/${record.id}`,
         { method: 'DELETE' }
       )));
-      toast.success('选中记录已删除');
+      const errors = results.filter(r => r.status === 'rejected');
+      if (errors.length > 0) {
+        toast.error(`批量删除完成，但 ${errors.length}/${selectedRecords.length} 条失败：${errors[0].reason?.message || '未知错误'}`);
+      } else {
+        toast.success('选中记录已删除');
+      }
       loadRecords();
-    } catch (error) {
-      toast.error(`批量删除失败：${error.message}`);
     } finally {
       setLoadingKey('batchDeleteRecords', false);
     }
@@ -1622,16 +1631,19 @@ function DnsPage() {
     if (files.length === 0) return;
     setLoadingKey('uploadR2', true);
     try {
-      await Promise.all(files.map((file) => {
+      const results = await Promise.allSettled(files.map((file) => {
         const relativePath = file.webkitRelativePath || file.name;
         const key = `${r2CurrentPrefix}${relativePath}`.replace(/^\/+/, '');
         return uploadR2Object(key, file, file.type || 'application/octet-stream');
       }));
-      toast.success(`已上传 ${files.length} 个文件`);
+      const errors = results.filter(r => r.status === 'rejected');
+      if (errors.length > 0) {
+        toast.error(`R2 上传完成，但 ${errors.length}/${files.length} 个文件失败：${errors[0].reason?.message || '未知错误'}`);
+      } else {
+        toast.success(`已上传 ${files.length} 个文件`);
+      }
       clearR2BucketCache(r2SelectedBucket.name);
       await loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix);
-    } catch (error) {
-      toast.error(`上传 R2 对象失败：${error.message}`);
     } finally {
       setLoadingKey('uploadR2', false);
     }
@@ -1678,11 +1690,21 @@ function DnsPage() {
   };
 
   const deleteR2KeysChunked = async (bucketName, keys, chunkSize = 25) => {
+    let totalErrors = 0;
+    const firstError = [];
     for (let i = 0; i < keys.length; i += chunkSize) {
-      await Promise.all(keys.slice(i, i + chunkSize).map((key) => cfApi(
+      const results = await Promise.allSettled(keys.slice(i, i + chunkSize).map((key) => cfApi(
         `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(bucketName)}/objects/${encodeURIComponent(key)}`,
         { method: 'DELETE' }
       )));
+      const rejected = results.filter(r => r.status === 'rejected');
+      totalErrors += rejected.length;
+      if (rejected.length > 0 && firstError.length === 0) {
+        firstError.push(rejected[0].reason?.message || '未知错误');
+      }
+    }
+    if (totalErrors > 0) {
+      throw new Error(`${totalErrors}/${keys.length} 个对象删除失败：${firstError[0]}`);
     }
   };
 
@@ -1965,7 +1987,7 @@ function DnsPage() {
     [r2CurrentPrefix]
   );
   const isViewportWorkspaceTab = ['dns', 'r2'].includes(activeTab);
-  const pageShellClassName = 'dns-workspace min-h-full max-w-full md:h-full md:min-h-0 md:flex-1';
+  const pageShellClassName = 'dns-workspace min-h-full max-w-full cq-md:h-full cq-md:min-h-0 cq-md:flex-1';
   const contentAreaClassName = 'flex min-w-0 flex-col';
   const renderResizeHead = (label, index, startResize, align = 'left') => {
     const alignClassName = {
@@ -2030,14 +2052,14 @@ function DnsPage() {
         {!selectedAccountId && !['accounts', 'templates'].includes(activeTab) ? (
           <SectionCard
             title="Cloudflare 账号"
-            icon={<Cloud className="h-4 w-4 text-kumo-brand" />}
+            icon={<Cloud className="h-4 w-4 text-brand" />}
             bodyPadding="xl"
           >
             <div className="flex flex-col items-center gap-3 text-center text-sm text-kumo-subtle">
               <Cloud className="h-10 w-10 text-kumo-subtle" />
-              <div>尚未配置 Cloudflare 账号。</div>
+              <div>尚未配置账号。</div>
               <Button size="sm" onClick={() => setActiveTab('accounts')}>
-                去添加账号
+                添加账号
               </Button>
             </div>
           </SectionCard>
@@ -2045,18 +2067,18 @@ function DnsPage() {
           <>
           {activeTab === 'dns' && (
             <div className="dns-split grid min-w-0 gap-3">
-              <section className="flex min-w-0 flex-col gap-2 lg:sticky lg:top-[70px] lg:max-h-[calc(100vh-82px)] lg:overflow-y-auto lg:overscroll-contain lg:self-start">
-              <div className="flex min-h-8 shrink-0 flex-col gap-2 pl-px sm:flex-row sm:items-center sm:justify-between">
-                <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
-                  <Button size="sm" variant="secondary" onClick={openZoneModal} icon={<Plus className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
+              <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[70px] cq-lg:max-h-[calc(100vh-82px)] cq-lg:overflow-y-auto cq-lg:overscroll-contain cq-lg:self-start">
+              <div className="flex min-h-8 shrink-0 flex-col gap-2 pl-px cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
+                <div className="grid grid-cols-3 gap-2 cq-sm:flex cq-sm:flex-wrap cq-sm:items-center">
+                  <Button size="sm" variant="secondary" onClick={openZoneModal} icon={<Plus className="h-4 w-4" />} className="w-full justify-center cq-sm:w-auto">
                     添加域名
                   </Button>
                   {selectedZone && (
                     <>
-                      <Button size="sm" variant={isArmed(`zone-cache:${selectedZoneId}`) ? 'destructive' : 'secondary-destructive'} onClick={purgeZoneCache} disabled={loading.purge} icon={<Shield className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
+                      <Button size="sm" variant={isArmed(`zone-cache:${selectedZoneId}`) ? 'destructive' : 'secondary-destructive'} onClick={purgeZoneCache} disabled={loading.purge} icon={<Shield className="h-4 w-4" />} className="w-full justify-center cq-sm:w-auto">
                         清除缓存
                       </Button>
-                      <Button size="sm" variant={isArmed(`zone:${selectedZone.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteZone(selectedZone)} icon={<Trash className="h-4 w-4" />} className="w-full justify-center sm:w-auto">
+                      <Button size="sm" variant={isArmed(`zone:${selectedZone.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteZone(selectedZone)} icon={<Trash className="h-4 w-4" />} className="w-full justify-center cq-sm:w-auto">
                         删除域名
                       </Button>
                     </>
@@ -2064,7 +2086,7 @@ function DnsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 md:hidden">
+              <div className="grid grid-cols-2 gap-2 @[370px]:grid-cols-3 cq-md:hidden">
                 {loading.zones ? (
                   Array.from({ length: 4 }).map((_, index) => (
                     <LayerCard key={index} className="min-w-0 p-2">
@@ -2077,11 +2099,11 @@ function DnsPage() {
                 ) : zones.map((zone) => (
                   <LayerCard
                     key={zone.id}
-                    className={`min-w-0 cursor-pointer p-2 transition-colors ${zone.id === selectedZoneId ? 'border-kumo-brand/60 bg-kumo-brand/5 ring-1 ring-kumo-brand/35' : ''}`}
+                    className={`min-w-0 cursor-pointer p-2 transition-colors ${zone.id === selectedZoneId ? 'border-brand/60 bg-brand/5 ring-1 ring-brand/35' : ''}`}
                     onClick={() => selectZone(zone)}
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-kumo-strong" title={zone.name}>{zone.name}</div>
+                      <div className="truncate text-sm font-bold leading-[1.35] text-kumo-strong" title={zone.name}>{zone.name}</div>
                       <div className="mt-2 flex items-center gap-1.5">
                         <Badge variant={statusVariant(zone.status)} className="text-[10px] leading-4">{zoneStatusLabel(zone.status)}</Badge>
                         <Badge variant="secondary" className="text-[10px] leading-4">{zoneTypeLabel(zone.type)}</Badge>
@@ -2091,7 +2113,7 @@ function DnsPage() {
                 ))}
               </div>
 
-              <div className="dns-table-frame hidden max-w-full md:flex">
+              <div className="dns-table-frame hidden max-w-full cq-md:flex">
                 <div className="dns-table-scroll scrollbar-thin">
                 <Table layout="fixed" className="w-full text-xs">
                   <colgroup>
@@ -2262,7 +2284,7 @@ function DnsPage() {
               </div>
               {selectedZone ? (
                 <>
-                  <div className="dns-summary-grid order-3 grid shrink-0 gap-2 md:order-none">
+                  <div className="dns-summary-grid order-3 grid shrink-0 gap-2 cq-md:order-none">
                     <DnsPanelCard className="flex min-h-9 items-center justify-between gap-2 p-2">
                       <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">SSL 模式</div>
                       <Select size="sm"
@@ -2299,7 +2321,7 @@ function DnsPage() {
 
                   <AnimatedCollapse
                     open={showAnalyticsPanel}
-                    className={showAnalyticsPanel ? 'order-5 shrink-0 md:order-none' : 'contents'}
+                    className={showAnalyticsPanel ? 'order-5 shrink-0 cq-md:order-none' : 'contents'}
                   >
                     <div className="dns-chart-grid grid gap-2 pt-0.5">
                     {analyticsChartCards.map((card) => (
@@ -2309,7 +2331,7 @@ function DnsPage() {
                           <div className="shrink-0 text-xs font-semibold text-kumo-subtle">{loading.analytics ? '加载中' : card.value}</div>
                         </div>
                         <div className="mt-2 min-w-0 overflow-hidden" style={{ height: 108 }}>
-                          <TimeseriesChart
+                          <SiteFontTimeseriesChart
                             echarts={echarts}
                             data={card.data}
                             height={108}
@@ -2330,37 +2352,37 @@ function DnsPage() {
                     </div>
                   </AnimatedCollapse>
 
-                  <div className="dns-toolbar-frame order-1 flex shrink-0 flex-wrap items-center justify-between gap-2 p-2 md:order-none">
-                    <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(7rem,0.7fr)_auto] gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+                  <div className="dns-toolbar-frame order-1 flex shrink-0 flex-wrap items-center justify-between gap-2 p-2 cq-md:order-none">
+                    <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(7rem,0.7fr)_auto] gap-2 cq-sm:flex cq-sm:w-auto cq-sm:flex-wrap cq-sm:items-center">
                       <Input size="sm"
                         aria-label="按名称筛选 DNS 记录"
                         value={recordFilter.name}
                         onChange={(event) => setRecordFilter((prev) => ({ ...prev, name: event.target.value }))}
                         placeholder="筛选名称"
-                        className="w-full sm:w-48"
+                        className="w-full cq-sm:w-48"
                       />
                       <Select size="sm"
                         aria-label="按类型筛选 DNS 记录"
                         value={recordFilter.type || null}
                         onValueChange={(value) => setRecordFilter((prev) => ({ ...prev, type: value ? String(value) : '' }))}
                         placeholder="全部类型"
-                        className="w-full sm:w-36"
+                        className="w-full cq-sm:w-36"
                         items={recordTypes.map((type) => ({ value: type, label: type }))}
                       />
                       <Button size="sm" variant="secondary" onClick={() => loadRecords(selectedZoneId, recordFilter)}>
                         查询
                       </Button>
                     </div>
-                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                    <div className="flex w-full flex-wrap items-center gap-2 cq-sm:w-auto">
                       <Button size="sm" onClick={() => openRecordModal()} icon={<Plus className="h-4 w-4" />}>
                         添加记录
                       </Button>
                       <Toolbar size="sm" aria-label="导出导入 DNS 记录" className="shrink-0">
                         <Toolbar.Button onClick={exportRecords} aria-label="导出 DNS 记录" icon={<Upload className="h-3.5 w-3.5" />}>
-                          <span className="hidden sm:inline">导出</span>
+                          <span className="hidden cq-sm:inline">导出</span>
                         </Toolbar.Button>
                         <Toolbar.Button onClick={() => openImportModal('records')} aria-label="导入 DNS 记录" icon={<Download className="h-3.5 w-3.5" />}>
-                          <span className="hidden sm:inline">导入</span>
+                          <span className="hidden cq-sm:inline">导入</span>
                         </Toolbar.Button>
                       </Toolbar>
                       {selectedRecordIds.length > 0 && (
@@ -2371,7 +2393,7 @@ function DnsPage() {
                     </div>
                   </div>
 
-                  <div className="order-2 grid gap-2 pb-3 md:hidden">
+                  <div className="order-2 grid gap-2 pb-3 cq-md:hidden">
                     {loading.records ? (
                       Array.from({ length: 5 }).map((_, index) => (
                         <LayerCard key={index} className="p-3">
@@ -2385,7 +2407,7 @@ function DnsPage() {
                     ) : records.map((record) => (
                       <LayerCard
                         key={record.id}
-                        className={`p-3 ${selectedRecordIds.includes(record.id) ? 'ring-1 ring-kumo-brand/35' : ''}`}
+                        className={`p-3 ${selectedRecordIds.includes(record.id) ? 'ring-1 ring-brand/35' : ''}`}
                         onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openRecordModal(record))}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -2412,7 +2434,7 @@ function DnsPage() {
                     ))}
                   </div>
 
-                  <div className="dns-table-frame order-2 hidden max-w-full md:flex md:order-none">
+                  <div className="dns-table-frame order-2 hidden max-w-full cq-md:flex cq-md:order-none">
                     <div className="dns-table-scroll scrollbar-thin">
                     <Table layout="fixed" className="w-full text-xs" style={{ minWidth: recordColWidths.reduce((sum, width) => sum + width, 0) }}>
                       <colgroup>
@@ -2496,7 +2518,7 @@ function DnsPage() {
                 <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-kumo-line bg-kumo-base p-8 shadow-none">
                   <div className="flex flex-col items-center gap-3 text-center text-sm text-kumo-subtle">
                     <Globe className="h-10 w-10 text-kumo-subtle" />
-                    <div>请选择左侧域名后管理 DNS 记录。</div>
+                    <div>选择左侧域名后管理记录。</div>
                   </div>
                 </div>
               )}
@@ -2507,8 +2529,8 @@ function DnsPage() {
           {activeTab === 'workers' && (
             <SectionCard
               title="Workers"
-              description={workerSubdomain ? <>默认子域名：<span className="font-mono text-kumo-strong">{workerSubdomain}.workers.dev</span></> : 'Workers 默认子域名未返回'}
-              icon={<Terminal className="h-4 w-4 text-kumo-brand" />}
+              description={workerSubdomain ? <>默认子域名：<span className="font-mono text-kumo-strong">{workerSubdomain}.workers.dev</span></> : '默认子域名未返回'}
+              icon={<Terminal className="h-4 w-4 text-brand" />}
               action={(
                 <Button size="sm" onClick={() => openWorkerModal()} icon={<Plus className="h-4 w-4" />}>
                   新建 Worker
@@ -2562,7 +2584,7 @@ function DnsPage() {
           {activeTab === 'pages' && (
             <SectionCard
               title="Pages 项目"
-              icon={<Layers className="h-4 w-4 text-kumo-brand" />}
+              icon={<Layers className="h-4 w-4 text-brand" />}
               bodyPadding="none"
               bodyClassName="overflow-x-auto"
             >
@@ -2613,15 +2635,15 @@ function DnsPage() {
           )}
 
           {activeTab === 'r2' && (
-            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[18rem_minmax(0,1fr)]">
-              <AppCard padding="sm" className="flex min-h-0 flex-col gap-3 lg:h-full">
+            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 cq-lg:grid-cols-[18rem_minmax(0,1fr)]">
+              <AppCard padding="sm" className="flex min-h-0 flex-col gap-3 cq-lg:h-full">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-kumo-strong">存储桶</div>
                     <div className="text-xs text-kumo-subtle">
                       {r2Buckets.length} 个 Bucket
                       {r2Metrics && (r2MetricsTotals.bytes > 0 || r2MetricsTotals.objects > 0) && (
-                        <span> · 已用 {formatBytes(r2MetricsTotals.bytes)} · {r2MetricsTotals.objects.toLocaleString()} 个对象</span>
+                        <span> · 已用 {formatBytes(r2MetricsTotals.bytes)} · {r2MetricsTotals.objects.toLocaleString('en-US', { useGrouping: false })} 个对象</span>
                       )}
                     </div>
                   </div>
@@ -2659,7 +2681,7 @@ function DnsPage() {
                     return (
                       <div
                         key={bucket.name}
-                        className={`group rounded-md border p-2.5 transition ${isSelected ? 'border-kumo-brand/70 bg-kumo-brand/10 shadow-sm' : 'border-kumo-line bg-kumo-base hover:border-kumo-brand/50 hover:bg-kumo-recessed/40'}`}
+                        className={`group rounded-md border p-2.5 transition ${isSelected ? 'border-brand/70 bg-brand/10 shadow-sm' : 'border-kumo-line bg-kumo-base hover:border-brand/50 hover:bg-kumo-recessed/40'}`}
                       >
                         <Button
                           type="button"
@@ -2668,9 +2690,9 @@ function DnsPage() {
                           className="h-auto w-full min-w-0 items-start justify-start gap-2 px-0 py-0 text-left bg-transparent! hover:bg-transparent! active:bg-transparent! data-[active=true]:bg-transparent! data-[selected=true]:bg-transparent! focus-visible:bg-transparent!"
                           onClick={() => selectR2Bucket(bucket)}
                         >
-                          <Box className={`mt-0.5 h-4 w-4 shrink-0 ${isSelected ? 'text-kumo-brand' : 'text-kumo-subtle'}`} />
+                          <Box className={`mt-0.5 h-4 w-4 shrink-0 ${isSelected ? 'text-brand' : 'text-kumo-subtle'}`} />
                           <span className="min-w-0 flex-1">
-                            <span className={`block truncate text-sm font-medium ${isSelected ? 'text-kumo-brand' : 'text-kumo-strong'}`}>{bucket.name}</span>
+                            <span className={`block truncate text-sm font-medium ${isSelected ? 'text-brand' : 'text-kumo-strong'}`}>{bucket.name}</span>
                             <span className="mt-1 block truncate text-xs text-kumo-subtle" title={`创建于 ${formatDate(bucket.creation_date || bucket.created_at)}`}>
                               {formatDate(bucket.creation_date || bucket.created_at)}
                             </span>
@@ -2688,13 +2710,13 @@ function DnsPage() {
                 </div>
               </AppCard>
 
-              <AppCard padding="none" className="flex min-h-0 min-w-0 flex-col overflow-hidden lg:h-full">
+              <AppCard padding="none" className="flex min-h-0 min-w-0 flex-col overflow-hidden cq-lg:h-full">
                 {!r2SelectedBucket ? (
                   <div className="flex min-h-72 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
                     <Database className="h-8 w-8 text-kumo-subtle" />
                     <div>
-                      <div className="font-medium text-kumo-strong">选择一个存储桶开始管理</div>
-                      <div className="mt-1 text-sm text-kumo-subtle">左侧可以创建、搜索并进入 Bucket。</div>
+                      <div className="font-medium text-kumo-strong">选择一个存储桶</div>
+                      <div className="mt-1 text-sm text-kumo-subtle">左侧可搜索并进入 Bucket。</div>
                     </div>
                     <Button size="sm" disabled={!selectedAccountId} onClick={() => { setR2BucketForm({ name: '', location: 'auto' }); setModal({ type: 'r2Bucket', data: null }); }} icon={<Plus className="h-4 w-4" />}>
                       创建存储桶
@@ -2713,7 +2735,7 @@ function DnsPage() {
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2 py-1.5 text-sm">
-                            <Database className="h-4 w-4 shrink-0 text-kumo-brand" />
+                            <Database className="h-4 w-4 shrink-0 text-brand" />
                             <Button type="button" size="xs" variant="ghost" className="h-auto max-w-48 truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => loadR2Objects(r2SelectedBucket.name, '')}>
                               {r2SelectedBucket.name}
                             </Button>
@@ -2778,7 +2800,7 @@ function DnsPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex flex-col gap-2 cq-lg:flex-row cq-lg:items-center cq-lg:justify-between">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-kumo-subtle">
                           <Badge variant="outline">{r2Prefixes.length} 个文件夹</Badge>
                           <Badge variant="outline">{r2Objects.filter((object) => !String(object.key || object.name || '').endsWith('/.keep')).length} 个对象</Badge>
@@ -2850,7 +2872,7 @@ function DnsPage() {
                                         title={`重试加载 ${row.prefix}`}
                                       >
                                         <AlertTriangle className="h-4 w-4 shrink-0 text-kumo-warning" />
-                                        <span className="truncate text-kumo-danger">加载失败，点击重试</span>
+                                        <span className="truncate text-kumo-danger">加载失败，重试</span>
                                       </Button>
                                     ) : row.isLoading ? (
                                       <span className="inline-flex items-center gap-2 px-1 text-xs text-kumo-subtle"><SkeletonLine className="h-3.5 w-3.5" />加载中…</span>
@@ -2862,7 +2884,7 @@ function DnsPage() {
                                         size="xs"
                                         shape="square"
                                         variant="ghost"
-                                        className="h-6 w-6 shrink-0 bg-transparent! text-kumo-subtle hover:bg-transparent! active:bg-transparent! hover:text-kumo-brand! focus-visible:bg-transparent!"
+                                        className="h-6 w-6 shrink-0 bg-transparent! text-kumo-subtle hover:bg-transparent! active:bg-transparent! hover:text-brand! focus-visible:bg-transparent!"
                                         onClick={(event) => { event.stopPropagation(); toggleR2FolderExpanded(row.key); }}
                                         aria-label={r2ExpandedPrefixes.includes(row.key) ? `折叠目录 ${row.name}` : `展开目录 ${row.name}`}
                                         title={r2ExpandedPrefixes.includes(row.key) ? '折叠目录' : '展开目录'}
@@ -2874,7 +2896,7 @@ function DnsPage() {
                                       type="button"
                                       size="xs"
                                       variant="ghost"
-                                      className={`h-auto min-w-0 flex-1 justify-start gap-2 px-0 py-0 text-left bg-transparent! hover:bg-transparent! active:bg-transparent! focus-visible:bg-transparent! ${row.isFolder ? 'font-medium text-kumo-strong hover:text-kumo-brand!' : 'text-kumo-strong'}`}
+                                      className={`h-auto min-w-0 flex-1 justify-start gap-2 px-0 py-0 text-left bg-transparent! hover:bg-transparent! active:bg-transparent! focus-visible:bg-transparent! ${row.isFolder ? 'font-medium text-kumo-strong hover:text-brand!' : 'text-kumo-strong'}`}
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         if (row.isLoading) return;
@@ -2883,7 +2905,7 @@ function DnsPage() {
                                       }}
                                       title={row.key}
                                     >
-                                      {row.isLoading ? <SkeletonLine className="h-3.5 w-3.5" /> : row.isFolder ? <Folder className="h-4 w-4 shrink-0 text-kumo-brand" /> : <FileText className="h-4 w-4 shrink-0 text-kumo-subtle" />}
+                                      {row.isLoading ? <SkeletonLine className="h-3.5 w-3.5" /> : row.isFolder ? <Folder className="h-4 w-4 shrink-0 text-brand" /> : <FileText className="h-4 w-4 shrink-0 text-kumo-subtle" />}
                                       <span className="truncate">{row.isLoading ? '加载中…' : (row.name || row.key)}</span>
                                     </Button>
                                       </>
@@ -2920,7 +2942,7 @@ function DnsPage() {
           {activeTab === 'tunnels' && (
             <SectionCard
               title="Tunnel"
-              icon={<Lock className="h-4 w-4 text-kumo-brand" />}
+              icon={<Lock className="h-4 w-4 text-brand" />}
               action={(
                 <Button size="sm" onClick={() => { setTunnelForm({ name: '' }); setModal({ type: 'tunnelCreate', data: null }); }} icon={<Plus className="h-4 w-4" />}>
                   创建 Tunnel
@@ -2975,15 +2997,15 @@ function DnsPage() {
           {activeTab === 'templates' && (
             <SectionCard
               title="DNS 模板"
-              icon={<FileText className="h-4 w-4 text-kumo-brand" />}
+              icon={<FileText className="h-4 w-4 text-brand" />}
               actions={(
                 <>
                 <Toolbar size="sm" aria-label="导出导入模板" className="shrink-0">
                   <Toolbar.Button onClick={() => openImportModal('templates')} aria-label="导入模板" title="导入模板" icon={<Download className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导入</span>
+                    <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                   <Toolbar.Button onClick={() => downloadJson(`cloudflare-dns-templates-${Date.now()}.json`, { version: '1.0', templates })} aria-label="导出模板" title="导出模板" icon={<Upload className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导出</span>
+                    <span className="hidden cq-sm:inline">导出</span>
                   </Toolbar.Button>
                 </Toolbar>
                 <Button size="sm" onClick={() => openTemplateModal()} icon={<Plus className="h-4 w-4" />}>添加模板</Button>
@@ -3034,15 +3056,15 @@ function DnsPage() {
           {activeTab === 'accounts' && (
             <SectionCard
               title="Cloudflare 账号"
-              icon={<Settings className="h-4 w-4 text-kumo-brand" />}
+              icon={<Settings className="h-4 w-4 text-brand" />}
               actions={(
                 <>
                 <Toolbar size="sm" aria-label="导出导入账号" className="shrink-0">
                   <Toolbar.Button onClick={exportAccounts} aria-label="导出账号" title="导出账号" icon={<Upload className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导出</span>
+                    <span className="hidden cq-sm:inline">导出</span>
                   </Toolbar.Button>
                   <Toolbar.Button onClick={() => openImportModal('accounts')} aria-label="导入账号" title="导入账号" icon={<Download className="h-3.5 w-3.5" />}>
-                    <span className="hidden sm:inline">导入</span>
+                    <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                 </Toolbar>
                 <Button size="sm" variant="primary" onClick={() => openAccountModal()} icon={<Plus className="h-4 w-4" />}>添加账号</Button>
@@ -3106,7 +3128,7 @@ function DnsPage() {
 
       <Dialog.Root open={Boolean(modal.type)} onOpenChange={(open) => { if (!open) closeModal(); }}>
         {modal.type && (
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),48rem)] !w-[min(760px,calc(100vw-2rem))] !max-w-[min(760px,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),48rem)] !w-[min(760px,calc(100vw-2rem))] !max-w-[min(760px,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
           {modal.type === 'account' && (
             <div className="flex flex-col gap-4">
@@ -3116,7 +3138,7 @@ function DnsPage() {
               <Dialog.Description className="text-sm text-kumo-subtle">
                 推荐使用 API Token，邮箱可留空；账户 Token（cfat_）需额外填 Account ID。Origin CA Key（v1.0-）已弃用。
               </Dialog.Description>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="备注名称" value={accountForm.name} onChange={(event) => setAccountForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="生产账号" />
                 <Input size="sm" label="邮箱" type="email" value={accountForm.email} onChange={(event) => setAccountForm((prev) => ({ ...prev, email: event.target.value }))} placeholder="name@example.com" />
               </div>
@@ -3124,7 +3146,6 @@ function DnsPage() {
                 label="Account ID"
                 value={accountForm.cfAccountId}
                 onChange={(event) => setAccountForm((prev) => ({ ...prev, cfAccountId: event.target.value }))}
-                placeholder="输入 Cloudflare Account ID"
                 className="font-mono"
               />
               <Input size="sm"
@@ -3181,7 +3202,7 @@ function DnsPage() {
               <Dialog.Title className="text-base font-semibold text-kumo-strong">
                 {modal.data ? '编辑 DNS 记录' : '添加 DNS 记录'}
               </Dialog.Title>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-3">
                 <Select size="sm"
                   label="类型"
                   value={recordForm.type}
@@ -3192,7 +3213,7 @@ function DnsPage() {
                 <Input size="sm" label="TTL" type="number" value={String(recordForm.ttl)} onChange={(event) => setRecordForm((prev) => ({ ...prev, ttl: event.target.value }))} />
               </div>
               <Input size="sm" label="内容" value={recordForm.content} onChange={(event) => setRecordForm((prev) => ({ ...prev, content: event.target.value }))} placeholder="IP、域名或文本内容" />
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="优先级" type="number" value={String(recordForm.priority)} onChange={(event) => setRecordForm((prev) => ({ ...prev, priority: event.target.value }))} />
                 <div className="flex items-center justify-between rounded-md border border-kumo-line p-3">
                   <div>
@@ -3205,7 +3226,7 @@ function DnsPage() {
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
                 <Button size="sm" onClick={saveRecord} disabled={loading.saveRecord} icon={<Save className="h-4 w-4" />}>
-                  保存记录
+                  保存
                 </Button>
               </div>
             </div>
@@ -3216,11 +3237,11 @@ function DnsPage() {
               <Dialog.Title className="text-base font-semibold text-kumo-strong">
                 {modal.data ? '编辑 DNS 模板' : '添加 DNS 模板'}
               </Dialog.Title>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="模板名称" value={templateForm.name} onChange={(event) => setTemplateForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="默认 A 记录" />
                 <Input size="sm" label="描述" value={templateForm.description} onChange={(event) => setTemplateForm((prev) => ({ ...prev, description: event.target.value }))} placeholder="可选" />
               </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-4">
                 <Select size="sm"
                   label="类型"
                   value={templateForm.type}
@@ -3240,7 +3261,7 @@ function DnsPage() {
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
                 <Button size="sm" onClick={saveTemplate} disabled={loading.saveTemplate} icon={<Save className="h-4 w-4" />}>
-                  保存模板
+                  保存
                 </Button>
               </div>
             </div>
@@ -3269,7 +3290,7 @@ function DnsPage() {
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
                 <Button size="sm" onClick={saveWorker} disabled={loading.saveWorker} icon={<Save className="h-4 w-4" />}>
-                  保存 Worker
+                  保存
                 </Button>
               </div>
             </div>
@@ -3278,7 +3299,7 @@ function DnsPage() {
           {modal.type === 'workerRoutes' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">Worker 路由：{workerRouteState.worker?.name}</Dialog.Title>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_auto]">
+              <div className="grid grid-cols-1 gap-3 cq-md:grid-cols-[1fr_220px_auto]">
                 <Input size="sm"
                   label="路由规则"
                   value={workerRouteState.form.pattern}
@@ -3329,7 +3350,7 @@ function DnsPage() {
           {modal.type === 'workerDomains' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">Worker 自定义域名：{workerDomainState.worker?.name}</Dialog.Title>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_auto]">
+              <div className="grid grid-cols-1 gap-3 cq-md:grid-cols-[1fr_180px_auto]">
                 <Input size="sm" label="域名" value={workerDomainState.hostname} onChange={(event) => setWorkerDomainState((prev) => ({ ...prev, hostname: event.target.value }))} placeholder="worker.example.com" />
                 <Input size="sm" label="环境" value={workerDomainState.environment} onChange={(event) => setWorkerDomainState((prev) => ({ ...prev, environment: event.target.value }))} />
                 <div className="flex items-end"><Button size="sm" onClick={addWorkerDomain}>添加域名</Button></div>
@@ -3402,7 +3423,7 @@ function DnsPage() {
           {modal.type === 'pagesDomains' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">Pages 自定义域名：{pagesDomainState.project?.name}</Dialog.Title>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+              <div className="grid grid-cols-1 gap-3 cq-md:grid-cols-[1fr_auto]">
                 <Input size="sm" label="域名" value={pagesDomainState.domain} onChange={(event) => setPagesDomainState((prev) => ({ ...prev, domain: event.target.value }))} placeholder="www.example.com" />
                 <div className="flex items-end"><Button size="sm" onClick={addPagesDomain}>添加域名</Button></div>
               </div>
@@ -3432,7 +3453,7 @@ function DnsPage() {
           {modal.type === 'r2Bucket' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">创建 R2 存储桶</Dialog.Title>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-2">
                 <Input size="sm" label="存储桶名称" value={r2BucketForm.name} onChange={(event) => setR2BucketForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="my-bucket" />
                 <Input size="sm" label="位置" value={r2BucketForm.location} onChange={(event) => setR2BucketForm((prev) => ({ ...prev, location: event.target.value }))} placeholder="auto" />
               </div>
@@ -3448,7 +3469,7 @@ function DnsPage() {
               <div>
                 <Dialog.Title className="text-base font-semibold text-kumo-strong">新建文件夹</Dialog.Title>
                 <Dialog.Description className="mt-1 text-xs text-kumo-subtle">
-                  将在当前路径 {r2CurrentPrefix || '/'} 下创建文件夹。
+                  在当前路径 {r2CurrentPrefix || '/'} 下创建文件夹。
                 </Dialog.Description>
               </div>
               <Input
@@ -3505,7 +3526,7 @@ function DnsPage() {
                     <FileText className="h-8 w-8 text-kumo-subtle" />
                       <div>
                         <div className="font-medium text-kumo-strong">该类型暂不支持内嵌预览</div>
-                        <div className="mt-1 text-sm text-kumo-subtle">可在新窗口打开，由浏览器按文件类型处理。</div>
+                        <div className="mt-1 text-sm text-kumo-subtle">由浏览器按文件类型处理。</div>
                       </div>
                     <Button size="sm" onClick={() => window.open(modal.data?.url, '_blank', 'noopener,noreferrer')} icon={<ExternalLink className="h-4 w-4" />}>
                       打开对象
@@ -3598,7 +3619,7 @@ function DnsPage() {
               )}
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
-                <Button size="sm" onClick={saveTunnelConfig} icon={<Save className="h-4 w-4" />}>保存配置</Button>
+                <Button size="sm" onClick={saveTunnelConfig} icon={<Save className="h-4 w-4" />}>保存</Button>
               </div>
             </div>
           )}

@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // 进程级 SQLite 物理连接池。
@@ -33,6 +34,7 @@ var (
 	pools   = map[string]*connPool{}
 )
 
+// poolFor 返回 dbPath 对应的连接池；已通过 ResetPool 失效的路径会被重建。
 func poolFor(dbPath string) *connPool {
 	poolsMu.Lock()
 	defer poolsMu.Unlock()
@@ -44,13 +46,58 @@ func poolFor(dbPath string) *connPool {
 	return p
 }
 
+// ResetPool 使 dbPath 对应连接池失效：关闭所有空闲物理连接并从注册表移除。
+// 之后任何新的 Store.Open 都会重新建立连接、重新打开磁盘上的数据库文件。
+// 用于数据库文件被整体替换（导入）后，保证后续访问不会再读写旧文件句柄。
+// 已在使用的连接（包括进程常驻句柄）不受影响，仍指向替换前的旧文件，
+// 因此导入成功后应尽快重启后端，避免常驻句柄读到旧快照。
+func ResetPool(dbPath string) {
+	poolsMu.Lock()
+	p, ok := pools[dbPath]
+	if !ok {
+		poolsMu.Unlock()
+		return
+	}
+	delete(pools, dbPath)
+	poolsMu.Unlock()
+
+	p.mu.Lock()
+	drained := p.idle
+	p.idle = nil
+	p.mu.Unlock()
+	for _, conn := range drained {
+		_ = conn.Close()
+	}
+}
+
 type connPool struct {
-	dbPath     string
-	mu         sync.Mutex
-	idle       []driver.Conn
-	refs       int
-	schemaOnce sync.Once
-	schemaErr  error
+	dbPath string
+	mu     sync.Mutex
+	idle   []driver.Conn
+	refs   int
+	// schemaMu/schemaDone 串行化同一池内的 core schema 保障；schemaOnce
+	// 语义（失败也固化）会让一次瞬时失败永久粘池——进程内所有后续 Open
+	// 持续报错直到重启，因此改为「成功才缓存，失败不缓存」。
+	schemaMu   sync.Mutex
+	schemaDone bool
+}
+
+// ensureSchema 确保核心 schema 就绪：同一池内并发 Open 互斥执行，
+// 成功结果缓存；失败不缓存，由下一次 Open 重试（EnsureCoreSchema 全部
+// 语句幂等，可安全重入）。
+func (p *connPool) ensureSchema(ctx context.Context, db *sql.DB) error {
+	p.schemaMu.Lock()
+	defer p.schemaMu.Unlock()
+	if p.schemaDone {
+		return nil
+	}
+	if err := WithSchemaLock(ctx, func() error {
+		return EnsureCoreSchema(ctx, db)
+	}); err != nil {
+		return err
+	}
+	p.schemaDone = true
+	return nil
 }
 
 // addRef 记录一个存活的 *sql.DB 逻辑句柄。
@@ -113,18 +160,25 @@ func (p *connPool) put(conn driver.Conn) error {
 	return conn.Close()
 }
 
-// connPragmas 中除 journal_mode（数据库级、持久化于文件）外均为连接级设置，
-// 必须对每个新物理连接执行；连接复用后不再重复。
+// connPragmas 每条都会在「新物理连接」上执行，因此只适合放连接级设置。
+// journal_mode/auto_vacuum/cache_size 等数据库级、持久化于文件的设置不应放在
+// 这里：每连接重复执行会让新连接在繁忙期抢库文件头的排他写锁（SQLITE_BUSY，
+// 例如「get session: configure sqlite (PRAGMA auto_vacuum = INCREMENTAL)」）。
+// auto_vacuum 由迁移路径（settings 数据库压缩 / github 清理）在需要时设置，
+// 连接打开阶段不再触碰。
 var connPragmas = []string{
 	"PRAGMA foreign_keys = ON",
-	"PRAGMA busy_timeout = 5000",
+	"PRAGMA busy_timeout = 30000",
 	"PRAGMA journal_mode = WAL",
 	// NORMAL keeps WAL commits durable across process crashes while avoiding an
 	// fsync for every transaction. Temporary sort/index data stays in memory.
 	"PRAGMA synchronous = NORMAL",
 	"PRAGMA temp_store = MEMORY",
-	// 约 16MB 页缓存（负值单位为 KB）。默认 ~2MB 对 metrics 历史等范围查询偏小。
-	"PRAGMA cache_size = -16000",
+	// 约 4MB 页缓存（负值单位为 KB）。页缓存按物理连接独立持有
+	// （最多 maxIdlePhysicalConns 个常驻连接 = 上限 16MB），WAL 下共享
+	// 场景数据量不大（百 MB 级库），4MB 对范围查询足够；小内存主机
+	// （Fly 256MB）上过大缓存会白白占住堆外内存预算。
+	"PRAGMA cache_size = -4096",
 	"PRAGMA wal_autocheckpoint = 256",
 	"PRAGMA journal_size_limit = 8388608",
 }
@@ -157,7 +211,7 @@ func execOnConn(ctx context.Context, conn driver.Conn, query string) error {
 type pooledConn struct {
 	conn   driver.Conn
 	pool   *connPool
-	inTx   bool
+	inTx   atomic.Bool
 	closed bool
 }
 
@@ -170,7 +224,7 @@ func (c *pooledConn) Close() error {
 		return nil
 	}
 	c.closed = true
-	if c.inTx {
+	if c.inTx.Load() {
 		return c.conn.Close()
 	}
 	return c.pool.put(c.conn)
@@ -181,7 +235,7 @@ func (c *pooledConn) Begin() (driver.Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.inTx = true
+	c.inTx.Store(true)
 	return &pooledTx{tx: tx, conn: c}, nil
 }
 
@@ -194,7 +248,7 @@ func (c *pooledConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver
 	if err != nil {
 		return nil, err
 	}
-	c.inTx = true
+	c.inTx.Store(true)
 	return &pooledTx{tx: tx, conn: c}, nil
 }
 
@@ -246,12 +300,12 @@ type pooledTx struct {
 }
 
 func (t *pooledTx) Commit() error {
-	t.conn.inTx = false
+	t.conn.inTx.Store(false)
 	return t.tx.Commit()
 }
 
 func (t *pooledTx) Rollback() error {
-	t.conn.inTx = false
+	t.conn.inTx.Store(false)
 	return t.tx.Rollback()
 }
 

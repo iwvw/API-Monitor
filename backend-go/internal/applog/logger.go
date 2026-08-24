@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,9 @@ type contextKey string
 const (
 	requestIDKey contextKey = "request_id"
 	defaultMaxMB            = 10
+	// maxRotatedLogFiles 是轮转历史文件保留上限：超过后删除最旧的轮转文件，
+	// 避免 logs 目录随时间无限堆积磁盘空间。
+	maxRotatedLogFiles = 10
 )
 
 var (
@@ -209,7 +213,44 @@ func rotateLocked() error {
 	if err := os.Rename(logPath, rotatedPath); err != nil {
 		return err
 	}
+	pruneRotatedLogs()
 	return nil
+}
+
+// pruneRotatedLogs 清理最旧的轮转日志，使 app-*.log 数量不超过 maxRotatedLogFiles。
+// 仅在持锁状态下被 rotateLocked 调用；删除失败不影响日志轮转本身。
+func pruneRotatedLogs() {
+	if logPath == "" {
+		return
+	}
+	dir := filepath.Dir(logPath)
+	base := filepath.Base(logPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	var rotated []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || name == base || !strings.HasPrefix(name, "app-") || !strings.HasSuffix(name, ".log") {
+			continue
+		}
+		rotated = append(rotated, filepath.Join(dir, name))
+	}
+	if len(rotated) <= maxRotatedLogFiles {
+		return
+	}
+	sort.Slice(rotated, func(i, j int) bool {
+		li, errI := os.Stat(rotated[i])
+		lj, errJ := os.Stat(rotated[j])
+		if errI != nil || errJ != nil {
+			return rotated[i] < rotated[j]
+		}
+		return li.ModTime().Before(lj.ModTime())
+	})
+	for _, path := range rotated[:len(rotated)-maxRotatedLogFiles] {
+		_ = os.Remove(path)
+	}
 }
 
 type statusRecorder struct {
@@ -255,6 +296,10 @@ func shouldSkipRequestLog(r *http.Request, status int) bool {
 	if status < http.StatusBadRequest && r.URL.Path == "/api/system/logs/stream" {
 		return true
 	}
+	// 看板 2s 轮询的指标接口，成功响应不记日志避免刷屏；失败照常记录
+	if status < http.StatusBadRequest && r.URL.Path == "/api/system/host-metrics" {
+		return true
+	}
 	if status < http.StatusBadRequest && isStaticAssetRequest(r.URL.Path) {
 		return true
 	}
@@ -297,6 +342,12 @@ func (r *statusRecorder) Flush() {
 		r.status = http.StatusOK
 	}
 	flusher.Flush()
+}
+
+// Unwrap 透传底层 ResponseWriter：让 http.NewResponseController 能下钻到真实
+// response 设置写 deadline（SSE 长连接续期），否则封装层挡住 SetWriteDeadline。
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 func Middleware(next http.Handler) http.Handler {

@@ -21,7 +21,7 @@ const legacyFrontendPatterns = [
   /from\s+['"][^'"]+\.vue['"]/,
   /from\s+['"]pinia['"]/,
   /from\s+['"][^'"]*pinia[^'"]*['"]/,
-  /chart\.js/i,
+  /chart\.js(?!x)/i,
 ];
 const hardcodedColorRe =
   /#[0-9A-Fa-f]{3,8}\b|\b(?:bg|text|border|ring|from|to|via)-(?:red|orange|amber|yellow|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone|black|white)(?:-[0-9]{2,3})?\b/g;
@@ -79,6 +79,9 @@ function isAllowedRawControl(tag, line, lines, index) {
   if (tag === 'button' && /\brounded border px-2 py-0\.5/.test(block)) {
     return 'compact list row selectable button';
   }
+  if (tag === 'button' && /\bflex flex-col items-center gap-1\.5 rounded-lg border/.test(block)) {
+    return 'icon+label selectable card';
+  }
   if (tag === 'label' && /\bapp-file-dropzone\b/.test(block)) {
     return 'file dropzone label overlay';
   }
@@ -92,7 +95,7 @@ function isAllowedRawControl(tag, line, lines, index) {
   return null;
 }
 
-function allowedColorReason(rel, line, value) {
+function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/modules/pwa.js' && value.startsWith('#')) {
     return 'browser titlebar theme-color metadata';
   }
@@ -107,6 +110,9 @@ function allowedColorReason(rel, line, value) {
   }
   if (rel === 'src/css/app.css' && line.includes('--app-terminal-')) {
     return 'terminal fallback color';
+  }
+  if (rel === 'src/css/app.css' && (line.includes('--color-brand') || line.includes('#dc7d40') || line.includes('#fb923c'))) {
+    return 'site brand token definition in @theme inline';
   }
   if (rel === 'src/js/pages/ServerPage.jsx' && line.includes('--app-terminal-')) {
     return 'terminal fallback color';
@@ -169,6 +175,31 @@ function allowedColorReason(rel, line, value) {
   if ((rel === 'src/js/pages/ApiDocsPage.jsx' || rel === 'src/js/pages/SettingsPage.jsx') && value === 'text-white') {
     return 'contrast text on colored status block';
   }
+  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'bg-black') {
+    return 'Ask AI 侧栏半透明遮罩（PRD 指定 bg-black/30）';
+  }
+  if (rel === 'src/js/components/adminai/MessageList.jsx' && (value === 'text-white' || value === 'bg-white')) {
+    const blockStart = Math.max(0, index - 40);
+    const block = lines.slice(blockStart, index + 1).join('\n');
+    if (block.includes('from-brand') || block.includes('from-kumo-brand') || block.includes('editing && editing.id === msg.id')) {
+      return 'Ask AI 用户消息气泡（含编辑态）对比文字';
+    }
+  }
+  if (rel === 'src/js/components/adminai/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
+    return 'Ask AI 批准按钮白色对比文字';
+  }
+  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'text-white' && line.includes('from-kumo-brand')) {
+    return 'Ask AI 发送按钮白色对比文字';
+  }
+  if (
+    rel === 'src/js/components/MainLayout.jsx' &&
+    (value === '#dc7d40' || (value === 'text-white' && line.includes('askai-entry-sparkle')))
+  ) {
+    return 'Ask AI 入口按钮品牌橙（docs/重构验证与例外清单.md 登记）';
+  }
+  if (rel === 'src/css/app.css' && (value === '#FFF' || value === '#FFEDDD' || value === '#FF9335' || value === '#FFB371')) {
+    return 'Ask AI 云朵动画 Cloudflare 品牌色';
+  }
   return null;
 }
 
@@ -196,7 +227,7 @@ function scanFile(rel) {
 
     for (const match of line.matchAll(hardcodedColorRe)) {
       const value = match[0];
-      const reason = allowedColorReason(rel, line, value);
+      const reason = allowedColorReason(rel, line, value, lines, index);
       if (reason) {
         noteAllowed(rel, lineNumber, value, reason);
       } else {

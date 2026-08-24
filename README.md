@@ -97,6 +97,8 @@ npm run backend-go:build
 | `DIST_DIR` | 可选 | `./dist` | 前端构建产物目录 |
 | `PUBLIC_DIR` | 可选 | `./public` | 静态资源目录 |
 | `NODE_LEGACY_URL` | 可选 | - | 旧 Node sidecar 后端地址（迁移期兼容用，当前版本无需设置） |
+| `ADMIN_AI_DEFAULT_MODEL` | 可选 | - | 管理 AI 默认模型名，留空则面板内手动选择 |
+| `GATEWAY_BODY_MAX_MB` | 可选 | `16` | 模型网关转发入口可接受的请求体上限（MB），小内存主机可调小 |
 
 ### 安全与网络（均可选）
 
@@ -113,8 +115,8 @@ npm run backend-go:build
 | 变量 | 默认值 |
 | --- | --- |
 | `CLOUDFLARE_API_BASE_URL` | `https://api.cloudflare.com` |
-| `ALIYUN_DNS_ENDPOINT` / `ALIYUN_ECS_ENDPOINT` / `ALIYUN_SWAS_ENDPOINT` / `ALIYUN_CMS_ENDPOINT` | 阿里云各产品官方端点 |
-| `TENCENT_DNSPOD_ENDPOINT` / `TENCENT_CVM_ENDPOINT` / `TENCENT_LIGHTHOUSE_ENDPOINT` / `TENCENT_MONITOR_ENDPOINT` | 腾讯云各产品官方端点 |
+| `ALIYUN_API_BASE_URL` / `ALIYUN_DNS_ENDPOINT` / `ALIYUN_ECS_ENDPOINT` / `ALIYUN_SWAS_ENDPOINT` / `ALIYUN_CMS_ENDPOINT` | 阿里云整体 API 基址 / 各产品官方端点 |
+| `TENCENT_API_BASE_URL` / `TENCENT_DNSPOD_ENDPOINT` / `TENCENT_CVM_ENDPOINT` / `TENCENT_LIGHTHOUSE_ENDPOINT` / `TENCENT_MONITOR_ENDPOINT` | 腾讯云整体 API 基址 / 各产品官方端点 |
 | `FLY_GRAPHQL_URL` / `FLY_MACHINES_URL` / `FLY_LOGS_URL` | Fly.io 官方 API 端点 |
 | `KOYEB_API_BASE_URL` | `https://app.koyeb.com` |
 | `M365_GRAPH_BASE_URL` / `M365_LOGIN_BASE_URL` | Microsoft 365 官方端点 |
@@ -134,6 +136,14 @@ npm run backend-go:build
 | `API_MONITOR_AGENT_OFFLINE_AFTER_MS` / `API_MONITOR_AGENT_SUSPECT_AFTER_MS` / `API_MONITOR_AGENT_STARTUP_GRACE_MS` / `API_MONITOR_AGENT_RECOVERY_SAMPLES` | 可选 | - | Agent 在线状态判定调参 |
 | `API_MONITOR_AGENT_METRICS_PERSIST_INTERVAL_MS` | 可选 | - | Agent 指标持久化间隔（毫秒） |
 | `API_MONITOR_AGENT_NETWORK_QUALITY_PERSIST_INTERVAL_MS` | 可选 | - | Agent 网络质量采集持久化间隔（毫秒） |
+| `API_MONITOR_PPROF` | 可选 | `0` | 设为 `1` 开启 pprof 性能剖析（仅排查性能问题时使用） |
+
+### 开发工具脚本（可选）
+
+| 变量 | 必选 | 说明 |
+| --- | --- | --- |
+| `API_MONITOR_BASE_URL` | 可选 | 后端冒烟与巡检脚本默认地址（默认 `http://127.0.0.1:3000`） |
+| `VIRTUAL_AGENT_URL` / `VIRTUAL_AGENT_SERVER_ID` / `VIRTUAL_AGENT_KEY` | 可选 | 虚拟 Agent 联调参数 |
 
 ### Agent（Rust，由安装脚本自动写入，通常无需手动设置）
 
@@ -144,6 +154,7 @@ npm run backend-go:build
 | `API_MONITOR_SERVER_ID` | 可选 | 所属主机实例 ID |
 | `API_MONITOR_SING_BOX_BIN` | 可选 | sing-box 运行时二进制路径（托管代理用） |
 | `API_MONITOR_DOCKER_REGISTRY_MIRRORS` | 可选 | Docker Hub 镜像加速地址，逗号分隔 |
+| `API_MONITOR_TRAFFIC_REPORT_SECS` | 可选 | 流量上报间隔（秒，默认 `300`，最小 `60`） |
 
 ## 技术栈
 

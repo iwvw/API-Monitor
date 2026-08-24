@@ -3,6 +3,7 @@ import { BubbleMap } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
+import { createSiteFontEcharts } from '../../chartFont.js';
 import { Minus, Plus, RotateCw } from '../Icons.jsx';
 
 const rawWorldGeoJson = feature(worldCountries, worldCountries.objects.countries);
@@ -14,7 +15,9 @@ const WORLD_GEO_JSON = {
       if (f.properties?.name === 'Russia' || f.properties?.name === 'Fiji') {
         const cleanCoords = (coords) => {
           if (typeof coords[0] === 'number') {
-            const lon = coords[0] < 0 ? 180 : coords[0];
+            // 负经度（俄罗斯/斐济等跨反经线国家）平移 +360 保持几何连续，
+            // 直接锚定 180 会把整条边界压成反经线上的竖条。
+            const lon = coords[0] < 0 ? coords[0] + 360 : coords[0];
             const lat = coords[1];
             return [lon, lat];
           }
@@ -174,6 +177,7 @@ function ServerLocationMap({
 }) {
   const isDarkMode = useDocumentDarkMode();
   const chartRef = useRef(null);
+  const siteFontEcharts = useMemo(() => createSiteFontEcharts(echarts), [echarts]);
   const chartHeight = height ?? (aspectRatio ? undefined : 190);
   const points = useMemo(() => {
     const rawPoints = (Array.isArray(servers) ? servers : [])
@@ -275,7 +279,7 @@ function ServerLocationMap({
       <div className="bg-kumo-recessed/20 px-2 py-1.5">
         <BubbleMap
           ref={chartRef}
-          echarts={echarts}
+          echarts={siteFontEcharts}
           geoJson={WORLD_GEO_JSON}
           mapName="api-monitor-world-hosts"
           data={points}
@@ -292,6 +296,7 @@ function ServerLocationMap({
           aspectRatio={chartHeight === undefined ? aspectRatio : undefined}
           zoom={1.15}
           roam
+          projection={null}
           isDarkMode={isDarkMode}
           tooltipFormatter={formatServerListTooltip}
         />
