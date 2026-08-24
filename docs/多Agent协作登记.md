@@ -52,3 +52,4 @@
 | 日期 | 任务摘要 | 结果 |
 |---|---|---|
 | done | 2026-08-20 | 侧栏 AI 稳定性/安全全量修复（停流即取消、SSE 通道收尾、多消费者竞争、并发限额、retention、cron loopback、审批防线、前端竞态） | opencode 本窗口 | backend-go/internal/adminai/（engine.go、service.go、approvals.go、scheduled.go、daily_briefing.go、channels.go）、backend-go/internal/adminai/stability_fix_test.go（新建）、backend-go/internal/server/ai_caller.go、src/js/components/adminai/（AskAiPanel.jsx、ApprovalCard.jsx、AdminConsole.jsx）、src/js/modules/adminAiMessages.js、docs/多Agent协作登记.md | dev | go test ./internal/adminai/ ./internal/server/、go vet ./internal/adminai/、npm run lint、npm test、npm run build、npm run audit:full |
+| done | 2026-08-24 | dev→main 合并发版 v2.1.0（主程序 2.1.0 + Agent 0.6.0，推送并触发 release.yml，Release 已发布）| opencode 本窗口 | 整体流程：main 分支 merge dev + package.json + agent-rust/Cargo.toml 版本 bump | main | gh run watch release + npm run audit:full |
