@@ -30,7 +30,7 @@
     "agent:publish:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Publish-WindowsAgent.ps1",
     "db:audit": "cd backend-go && go run ./cmd/schema-audit",
     "ui:governance": "node tools/ui-governance-check.mjs",
-    "governance:check": "node tools/three-side-governance-check.mjs",
+    "governance:check": "node tools/three-side-governance-check.mjs && node tools/tz-governance-check.mjs",
     "backend-go:smoke": "node tools/backend-go-smoke.mjs",
     "backend:perf-baseline": "node tools/backend-performance-baseline.mjs",
     "audit:fast": "npm run icons:generate && npm run governance:check && npm run ui:governance && npm run lint && npm test",

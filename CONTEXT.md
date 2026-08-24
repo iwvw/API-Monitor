@@ -46,6 +46,16 @@ Touch these files only for focused reasons. Avoid broad formatting or opportunis
   使用 TRUNCATE/RESTART 重置型 checkpoint：面板有常驻轮询读者，modernc 驱动下它们在
   读者存续时会无视 busy_timeout 与 ctx 无限阻塞，是周期性 `database is locked`
   风暴的根因。主动截断/回收磁盘只走设置页「数据库压缩」或 GitHub 历史清理等用户动作。
+- 全站时区统一由设置控制（`user_settings.time_zone`，唯一的时区控制点），业务一律经
+  `internal/timeutil`（`LocationFromSettings`/`LocationFromName`/`ReadTimeZone`）取站点时区；
+  禁止在业务代码中直接使用 `time.Local`/`time.UTC` 做日期归属（「几点执行」「星期几」
+  「月/周期日界」「按『今天』的日期桶/文件名」）。绝对时刻（instant）写库/日志保持
+  UTC/RFC3339（`time.Now().UTC().Format(time.RFC3339)` 正确，前端负责显示时区）。
+  新增调度器必须 `cron.New(cron.WithLocation(站点时区))` 并带 TZ watcher（参考
+  `internal/cronjobs`）；不改用 `cron.New()` 裸调用。已对齐：cronjobs、backup、
+  uptime 维护窗口、notification、openai analytics、system API 日报、订阅计费/用量周期
+  （`subscriptionledger.CycleWindow`/`planCycleWindow`）。CI 由 `tools/tz-governance-check.mjs`
+  （含在 `governance:check`）把守，新增功能默认遵守。
 
 ## AI Maintenance Commands
 
