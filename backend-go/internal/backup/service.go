@@ -26,6 +26,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 	"github.com/robfig/cron/v3"
 )
 
@@ -35,6 +36,7 @@ type Notifier interface {
 
 type Service struct {
 	cfg       config.Config
+	store     *database.Store
 	scheduler *cron.Cron
 	entry     cron.EntryID
 	mu        sync.Mutex
@@ -64,8 +66,10 @@ type Record struct {
 }
 
 func New(cfg config.Config) *Service {
-	s := &Service{cfg: cfg, scheduler: cron.New(), client: &http.Client{Timeout: 10 * time.Minute}}
+	s := &Service{cfg: cfg, store: database.New(cfg), client: &http.Client{Timeout: 10 * time.Minute}}
+	s.scheduler = cron.New(cron.WithLocation(s.settingsLocation()))
 	s.scheduler.Start()
+	s.startTZWatcher()
 	_ = s.reloadSchedule(context.Background())
 	return s
 }
@@ -241,7 +245,7 @@ func (s *Service) createBackup(ctx context.Context) (Record, error) {
 	if err := os.MkdirAll(cfg.LocalDir, 0o755); err != nil {
 		return Record{}, err
 	}
-	name := "api-monitor-backup-" + time.Now().Format("20060102-150405.000000") + ".zip"
+	name := "api-monitor-backup-" + time.Now().In(s.schedulerLocation()).Format("20060102-150405.000000") + ".zip"
 	target := filepath.Join(cfg.LocalDir, name)
 	file, err := os.Create(target)
 	if err != nil {
@@ -388,6 +392,7 @@ func (s *Service) reloadSchedule(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.rebuildIfLocationChangedLocked(s.settingsLocation())
 	if s.entry != 0 {
 		s.scheduler.Remove(s.entry)
 		s.entry = 0
@@ -405,6 +410,69 @@ func (s *Service) reloadSchedule(ctx context.Context) error {
 	}
 	s.entry = entry
 	return nil
+}
+
+// settingsLocation 读取站点设置时区作为备份调度器时区，与 cronjobs 一致：
+// 保证「每天 03:00 自动备份」按用户配置的站点时区执行，而非容器系统的时区。
+func (s *Service) settingsLocation() *time.Location {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return time.Local
+	}
+	defer db.Close()
+	return timeutil.LocationFromSettings(ctx, db)
+}
+
+// schedulerLocation 返回调度器当前时区；未初始化时回退服务器本地时区。
+func (s *Service) schedulerLocation() *time.Location {
+	if s.scheduler == nil {
+		return time.Local
+	}
+	return s.scheduler.Location()
+}
+
+// rebuildIfLocationChangedLocked 在持有 s.mu 的前提下检测站点时区变化并重建调度器。
+func (s *Service) rebuildIfLocationChangedLocked(loc *time.Location) {
+	if loc == nil || s.scheduler == nil || loc == s.scheduler.Location() {
+		return
+	}
+	stopCtx := s.scheduler.Stop()
+	select {
+	case <-stopCtx.Done():
+	case <-time.After(2 * time.Second):
+	}
+	s.scheduler = cron.New(cron.WithLocation(loc))
+	s.scheduler.Start()
+}
+
+// startTZWatcher 每分钟核对一次站点时区；检测到变化时重载调度，使备份计划跟随站点时区。
+func (s *Service) startTZWatcher() {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			db, err := s.store.Open(ctx)
+			if err != nil {
+				cancel()
+				continue
+			}
+			loc := timeutil.LocationFromSettings(ctx, db)
+			db.Close()
+			cancel()
+			if loc == nil {
+				continue
+			}
+			s.mu.Lock()
+			changed := s.scheduler != nil && loc != s.scheduler.Location()
+			s.mu.Unlock()
+			if changed {
+				_ = s.reloadSchedule(context.Background())
+			}
+		}
+	}()
 }
 
 func (s *Service) triggerBackupNotify(ctx context.Context, record Record, err error) {

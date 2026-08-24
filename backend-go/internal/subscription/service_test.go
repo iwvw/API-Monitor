@@ -1900,11 +1900,11 @@ func TestSubscriptionUsageReportsAreIdempotentAndCycleScoped(t *testing.T) {
 }
 
 func TestPlanCycleWindowUsesPlanResetDay(t *testing.T) {
-	start, end := planCycleWindow(time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC), "monthly", 9)
+	start, end := planCycleWindow(time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC), "monthly", 9, time.UTC)
 	if start != "2026-07-09T00:00:00Z" || end != "2026-08-09T00:00:00Z" {
 		t.Fatalf("cycle window=%q..%q", start, end)
 	}
-	start, end = planCycleWindow(time.Date(2026, time.February, 15, 12, 0, 0, 0, time.UTC), "monthly", 31)
+	start, end = planCycleWindow(time.Date(2026, time.February, 15, 12, 0, 0, 0, time.UTC), "monthly", 31, time.UTC)
 	if start != "2026-01-31T00:00:00Z" || end != "2026-02-28T00:00:00Z" {
 		t.Fatalf("clamped cycle window=%q..%q", start, end)
 	}
@@ -2231,6 +2231,14 @@ func TestGetSubscriptionUsage(t *testing.T) {
 	}
 	defer db.Close()
 	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// 站点时区固定为 UTC，保证插入的周期窗口与 getSubscriptionUsage 内部
+	// CycleWindow（按 user_settings.time_zone 求值）一致，测试与机器本地时区无关。
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_settings(id INTEGER PRIMARY KEY, time_zone TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO user_settings(id,time_zone) VALUES(1,'UTC') ON CONFLICT(id) DO UPDATE SET time_zone='UTC'`); err != nil {
 		t.Fatal(err)
 	}
 	// ledger 表由 subscriptionledger.EnsureSchema 建，测试按同构列自行建。

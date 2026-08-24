@@ -537,18 +537,20 @@ func TestMaintenanceRowActiveEvaluatesCron(t *testing.T) {
 	at := time.Date(2026, 8, 18, 10, 30, 0, 0, time.UTC)
 
 	cases := []struct {
-		name string
-		row  map[string]interface{}
-		want bool
+		name    string
+		row     map[string]interface{}
+		siteLoc *time.Location
+		want    bool
 	}{
-		{"once window always active", map[string]interface{}{"cron": nil}, true},
-		{"cron hits minute", map[string]interface{}{"cron": "30 * * * *", "timezone": "UTC"}, true},
-		{"cron misses minute", map[string]interface{}{"cron": "0 * * * *", "timezone": "UTC"}, false},
-		{"cron in recurrence json", map[string]interface{}{"recurrence_json": `{"cron":"30 * * * *"}`, "timezone": "UTC"}, true},
-		{"invalid cron never active", map[string]interface{}{"cron": "not a cron", "timezone": "UTC"}, false},
+		{"once window always active", map[string]interface{}{"cron": nil}, time.UTC, true},
+		{"cron hits minute", map[string]interface{}{"cron": "30 * * * *", "timezone": "UTC"}, time.UTC, true},
+		{"cron misses minute", map[string]interface{}{"cron": "0 * * * *", "timezone": "UTC"}, time.UTC, false},
+		{"cron in recurrence json", map[string]interface{}{"recurrence_json": `{"cron":"30 * * * *"}`, "timezone": "UTC"}, time.UTC, true},
+		{"invalid cron never active", map[string]interface{}{"cron": "not a cron", "timezone": "UTC"}, time.UTC, false},
+		{"defaults to site zone when no timezone", map[string]interface{}{"cron": "30 * * * *"}, time.FixedZone("mine", 30*60), false},
 	}
 	for _, tc := range cases {
-		got, err := maintenanceRowActive(tc.row, at)
+		got, err := maintenanceRowActive(tc.row, at, tc.siteLoc)
 		if err != nil {
 			t.Fatalf("%s: unexpected error %v", tc.name, err)
 		}

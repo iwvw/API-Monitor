@@ -30,6 +30,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	"github.com/iwvw/api-monitor/backend-go/internal/subscriptionledger"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1343,7 +1344,7 @@ func applyPlanToSubscription(ctx context.Context, db *sql.DB, sub *Subscription)
 	sub.CycleType = p.CycleType
 	sub.CycleDay = p.CycleDay
 	sub.ExpireAt = ""
-	sub.CycleStart, sub.CycleEnd = planCycleWindow(time.Now().UTC(), p.CycleType, p.CycleDay)
+	sub.CycleStart, sub.CycleEnd = planCycleWindow(time.Now(), p.CycleType, p.CycleDay, timeutil.LocationFromSettings(ctx, db))
 	sub.RateLimitEnabled = p.RateLimitEnabled
 	sub.RateLimitPerMinute = p.RateLimitPerMinute
 	sub.NodeFilterIDs = append([]string(nil), p.NodeIDs...)
@@ -1824,7 +1825,7 @@ func (s *Service) getSubscriptionUsage(w http.ResponseWriter, r *http.Request, d
 	_ = planID
 
 	// 当前周期累计（cycles：面板口径，不受 hourly 采集历史影响）。
-	cycleStart, cycleEnd := subscriptionledger.CycleWindow(now, cycleType, cycleDay, createdAt)
+	cycleStart, cycleEnd := subscriptionledger.CycleWindow(now, cycleType, cycleDay, createdAt, timeutil.LocationFromSettings(ctx, db))
 	var cycleUpload, cycleDownload int64
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(upload_bytes,0), COALESCE(download_bytes,0) FROM subscription_usage_cycles WHERE subscription_id=? AND cycle_start=?`, id, cycleStart).Scan(&cycleUpload, &cycleDownload); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -3762,31 +3763,36 @@ func recordSubscriptionUsage(ctx context.Context, db *sql.DB, report subscriptio
 	}, time.Now().UTC())
 }
 
-func planCycleWindow(now time.Time, cycleType string, cycleDay int) (string, string) {
+// planCycleWindow 面板展示用周期窗口（仅 monthly；非 monthly 返回空）。
+// 与 subscriptionledger.CycleWindow 同时边界，统一按站点时区结算日界。
+func planCycleWindow(now time.Time, cycleType string, cycleDay int, loc *time.Location) (string, string) {
 	if normalizeCycleType(cycleType) != "monthly" {
 		return "", ""
+	}
+	if loc == nil {
+		loc = time.Local
 	}
 	if cycleDay < 1 || cycleDay > 31 {
 		cycleDay = 1
 	}
-	now = now.UTC()
 	boundary := func(year int, month time.Month) time.Time {
-		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
 		day := cycleDay
 		if day > lastDay {
 			day = lastDay
 		}
-		return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+		return time.Date(year, month, day, 0, 0, 0, 0, loc).UTC()
 	}
-	current := boundary(now.Year(), now.Month())
+	local := now.In(loc)
+	current := boundary(local.Year(), local.Month())
 	var start, end time.Time
 	if now.Before(current) {
-		previous := now.AddDate(0, -1, 0)
+		previous := local.AddDate(0, -1, 0)
 		start = boundary(previous.Year(), previous.Month())
 		end = current
 	} else {
 		start = current
-		next := now.AddDate(0, 1, 0)
+		next := local.AddDate(0, 1, 0)
 		end = boundary(next.Year(), next.Month())
 	}
 	return start.Format(time.RFC3339), end.Format(time.RFC3339)

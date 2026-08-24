@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/reconcilequeue"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 // Report is an Agent-produced delta for one subscriber credential on one node.
@@ -189,6 +190,7 @@ func pruneHistory(ctx context.Context, db *sql.DB, now time.Time, reportRetentio
 // a new quota cycle so previously exhausted subscribers become usable again.
 // Profile-based subscriptions are also included.
 func ScheduleCycleTransitions(ctx context.Context, db *sql.DB, now time.Time) error {
+	loc := timeutil.LocationFromSettings(ctx, db)
 	rows, err := db.QueryContext(ctx, `SELECT s.id,COALESCE(s.plan_id,''),COALESCE(s.profile_id,''),
 		COALESCE(p.cycle_type,pf.cycle_type,'none'),COALESCE(p.cycle_day,pf.cycle_day,1),COALESCE(s.created_at,datetime('now'))
 		FROM subscription_subscriptions s
@@ -216,7 +218,7 @@ func ScheduleCycleTransitions(ctx context.Context, db *sql.DB, now time.Time) er
 		return err
 	}
 	for _, value := range items {
-		cycleStart, _ := CycleWindow(now, value.cycleType, value.cycleDay, value.createdAt)
+		cycleStart, _ := CycleWindow(now, value.cycleType, value.cycleDay, value.createdAt, loc)
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -290,6 +292,7 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 		now = time.Now().UTC()
 	}
 	now = now.UTC()
+	loc := timeutil.LocationFromSettings(ctx, db)
 	hour := now.Truncate(time.Hour).Format(time.RFC3339)
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -366,7 +369,7 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 			continue
 		}
 
-		cycleStart, cycleEnd := CycleWindow(now, cycleType, cycleDay, createdAt)
+		cycleStart, cycleEnd := CycleWindow(now, cycleType, cycleDay, createdAt, loc)
 		keyResult, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO subscription_usage_report_keys
 			(server_id,node_id,subscription_id,boot_id,sequence,reported_at)
 			VALUES(?,?,?,?,?,?)`, report.ServerID, report.NodeID, subscriptionID, report.BootID, report.Sequence, now.Format(time.RFC3339))
@@ -457,7 +460,7 @@ func Current(ctx context.Context, db *sql.DB, subscriptionID, cycleType string, 
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	start, end := CycleWindow(now.UTC(), cycleType, cycleDay, createdAt)
+	start, end := CycleWindow(now, cycleType, cycleDay, createdAt, timeutil.LocationFromSettings(ctx, db))
 	usage := Usage{CycleStart: start, CycleEnd: end, Metering: "pending"}
 	err := db.QueryRowContext(ctx, `SELECT upload_bytes,download_bytes FROM subscription_usage_cycles WHERE subscription_id=? AND cycle_start=?`, subscriptionID, start).Scan(&usage.UploadBytes, &usage.DownloadBytes)
 	if err == nil {
@@ -588,32 +591,40 @@ func ActiveCredentialsForNode(ctx context.Context, db *sql.DB, nodeID, protocol 
 	return credentials, nil
 }
 
-func CycleWindow(now time.Time, cycleType string, cycleDay int, createdAt string) (string, string) {
-	now = now.UTC()
+// CycleWindow computes the current monthly quota window (start,end) for a
+// subscription in site-local time. Boundaries land at local midnight of the
+// configured cycle day; end is exclusive and both are returned as absolute
+// RFC3339 instants so downstream SQL comparisons stay instant-based.
+// A nil loc falls back to the server-local timezone.
+func CycleWindow(now time.Time, cycleType string, cycleDay int, createdAt string, loc *time.Location) (string, string) {
+	if loc == nil {
+		loc = time.Local
+	}
 	if strings.ToLower(strings.TrimSpace(cycleType)) != "monthly" {
 		start := now
 		if parsed, err := parseSQLiteTime(createdAt); err == nil {
 			start = parsed.UTC()
 		}
-		return start.Format(time.RFC3339), ""
+		return start.UTC().Format(time.RFC3339), ""
 	}
 	if cycleDay < 1 || cycleDay > 31 {
 		cycleDay = 1
 	}
 	boundary := func(year int, month time.Month) time.Time {
-		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
 		day := cycleDay
 		if day > lastDay {
 			day = lastDay
 		}
-		return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+		return time.Date(year, month, day, 0, 0, 0, 0, loc).UTC()
 	}
-	current := boundary(now.Year(), now.Month())
+	local := now.In(loc)
+	current := boundary(local.Year(), local.Month())
 	if now.Before(current) {
-		previous := now.AddDate(0, -1, 0)
+		previous := local.AddDate(0, -1, 0)
 		return boundary(previous.Year(), previous.Month()).Format(time.RFC3339), current.Format(time.RFC3339)
 	}
-	next := now.AddDate(0, 1, 0)
+	next := local.AddDate(0, 1, 0)
 	return current.Format(time.RFC3339), boundary(next.Year(), next.Month()).Format(time.RFC3339)
 }
 

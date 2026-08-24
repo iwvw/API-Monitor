@@ -58,6 +58,10 @@ type Service struct {
 	apiStatsCacheDays int
 	apiStatsCacheAt   time.Time
 	apiStatsCacheVal  map[string]interface{}
+
+	siteTzMu       sync.Mutex
+	siteTzName     string
+	siteTzRefreshAt time.Time
 }
 
 type APICounters struct {
@@ -291,7 +295,7 @@ func (s *Service) RecordAPICall(method string, path string) {
 		return
 	}
 
-	date := time.Now().Format("2006-01-02")
+	date := time.Now().In(s.siteLocation()).Format("2006-01-02")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1493,6 +1497,28 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 		"serverTime":  authTime,
 		"displayTime": fmt.Sprintf("%s (%s)", authTime["local"], authTime["timezone"]),
 	}, nil
+}
+
+// siteLocation 返回站点时区的 *time.Location（带 1 分钟 TTL 缓存），
+// 供高频路径（如 API 统计日报的日期键）使用，避免每次请求查询 user_settings。
+// 读取失败回退服务器本地时区。
+func (s *Service) siteLocation() *time.Location {
+	s.siteTzMu.Lock()
+	defer s.siteTzMu.Unlock()
+	if s.siteTzName != "" && time.Since(s.siteTzRefreshAt) < time.Minute {
+		return timeutil.LocationFromName(s.siteTzName)
+	}
+	zone := "system"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	db, err := s.store.Open(ctx)
+	if err == nil {
+		zone = timeutil.ReadTimeZone(ctx, db)
+		_ = db.Close()
+	}
+	s.siteTzName = zone
+	s.siteTzRefreshAt = time.Now()
+	return timeutil.LocationFromName(zone)
 }
 
 // authoritativeTime 返回站点设置的权威时间信息（供 AI 工具读取，避免模型凭记忆编造时间）。

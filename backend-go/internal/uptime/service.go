@@ -27,6 +27,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 const (
@@ -2689,6 +2690,9 @@ func maintenanceTargets(ctx context.Context, db *sql.DB, maintenanceID int64) ([
 
 func activeMaintenanceForMonitor(ctx context.Context, db *sql.DB, monitorID int64) (map[string]interface{}, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	// 必须在 SQL 查询前取站点时区：维护窗口 cron 需要按站点时区求值，
+	// 且 sqlite 单连接库下查询前取值可避免 rows 持有连接时的二次查询死锁。
+	siteLoc := timeutil.LocationFromSettings(ctx, db)
 	rows, err := db.QueryContext(ctx, `
 		SELECT mw.*
 		FROM uptime_maintenance_windows mw
@@ -2713,7 +2717,7 @@ func activeMaintenanceForMonitor(ctx context.Context, db *sql.DB, monitorID int6
 		if err != nil {
 			return nil, err
 		}
-		active, err := maintenanceRowActive(row, time.Now())
+		active, err := maintenanceRowActive(row, time.Now(), siteLoc)
 		if err != nil {
 			return nil, err
 		}
@@ -2728,9 +2732,10 @@ func activeMaintenanceForMonitor(ctx context.Context, db *sql.DB, monitorID int6
 
 // maintenanceRowActive 判断维护窗口在指定时刻是否处于生效期。
 // 一次性窗口（cron 为空）：SQL 已按 start_at/end_at 过滤，直接生效；
-// cron 型窗口：当前分钟必须命中 cron 表达式（按 timezone 评估），
+// cron 型窗口：当前分钟必须命中 cron 表达式（按窗口自身的 timezone 列评估，
+// 未配置时默认跟随站点时区，站点时区不可用时回退服务器本地时区），
 // 避免「配置了 cron 却按一次性起止时间永久生效」。
-func maintenanceRowActive(row map[string]interface{}, at time.Time) (bool, error) {
+func maintenanceRowActive(row map[string]interface{}, at time.Time, siteLoc *time.Location) (bool, error) {
 	cronExpr := strings.TrimSpace(stringValue(row["cron"], ""))
 	if cronExpr == "" {
 		// 兼容 recurrence_json 内携带 cron 表达式的情况
@@ -2743,7 +2748,10 @@ func maintenanceRowActive(row map[string]interface{}, at time.Time) (bool, error
 	if cronExpr == "" {
 		return true, nil
 	}
-	loc := time.UTC
+	loc := siteLoc
+	if loc == nil {
+		loc = time.Local
+	}
 	if tzName := strings.TrimSpace(stringValue(row["timezone"], "")); tzName != "" {
 		if loaded, err := time.LoadLocation(tzName); err == nil {
 			loc = loaded
