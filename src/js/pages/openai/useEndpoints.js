@@ -16,7 +16,6 @@ const [endpointsLoading, setEndpointsLoading] = useState(false);
 const [endpointsRefreshing, setEndpointsRefreshing] = useState(false);
 const [endpointToggleLoading, setEndpointToggleLoading] = useState({});
 const [selectedEndpointId, setSelectedEndpointId] = useState('');
-const [draggedEndpointId, setDraggedEndpointId] = useState(null);
 const [endpointReorderSaving, setEndpointReorderSaving] = useState(false);
 const [endpointFormOpen, setEndpointFormOpen] = useState(false);
 const [editingEndpoint, setEditingEndpoint] = useState(null);
@@ -301,37 +300,16 @@ const saveEndpointOrder = async nextEndpoints => {
   }
 };
 
-const handleEndpointDragStart = (item, event) => {
-  // 如果拖拽起点是输入框，忽略拖拽（避免 priority/weight inline 编辑时误触）。
-  if (event.target && event.target.tagName === 'INPUT') return;
-  setDraggedEndpointId(String(item.id));
-  event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', String(item.id));
-};
-
-const handleEndpointDragOver = event => {
-  if (!draggedEndpointId) return;
-  event.preventDefault();
-  event.dataTransfer.dropEffect = 'move';
-};
-
-const handleEndpointDrop = async (targetItem, event) => {
-  event.preventDefault();
-  const sourceId = draggedEndpointId || event.dataTransfer.getData('text/plain');
-  setDraggedEndpointId(null);
-  if (!sourceId || String(sourceId) === String(targetItem.id)) return;
-  const fromIndex = endpoints.findIndex(ep => String(ep.id) === String(sourceId));
-  const toIndex = endpoints.findIndex(ep => String(ep.id) === String(targetItem.id));
-  if (fromIndex < 0 || toIndex < 0) return;
+// 端点列表按钮式排序：上移/下移后本地更新顺序并持久化（排序键 sort_order，刷新保持）。
+const moveEndpoint = async (index, direction) => {
+  const target = index + direction;
+  const max = endpoints.length - 1;
+  if (target < 0 || target > max) return;
   const next = [...endpoints];
-  const [moved] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, moved);
+  const [moved] = next.splice(index, 1);
+  next.splice(target, 0, moved);
   setEndpoints(next);
   await saveEndpointOrder(next);
-};
-
-const handleEndpointDragEnd = () => {
-  setDraggedEndpointId(null);
 };
 
 // 模型开关的进行中标记：ref 用于同步去重，state 用于驱动按钮禁用态渲染。
@@ -1034,8 +1012,6 @@ const batchEnableDisabledModels = async endpoint => {
     setEndpointToggleLoading,
     selectedEndpointId,
     setSelectedEndpointId,
-    draggedEndpointId,
-    setDraggedEndpointId,
     endpointReorderSaving,
     setEndpointReorderSaving,
     endpointFormOpen,
@@ -1071,10 +1047,7 @@ const batchEnableDisabledModels = async endpoint => {
     toggleEndpointEnabled,
     saveEndpointRouting,
     saveEndpointOrder,
-    handleEndpointDragStart,
-    handleEndpointDragOver,
-    handleEndpointDrop,
-    handleEndpointDragEnd,
+    moveEndpoint,
     modelSwitchLoadingRef,
     modelSwitchLoading,
     setModelSwitchLoading,

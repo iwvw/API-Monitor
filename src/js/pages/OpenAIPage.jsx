@@ -111,6 +111,7 @@ import {
   Globe,
   Sliders,
   ChevronDown,
+  ChevronUp,
 } from '../components/Icons.jsx';
 import {
   ENDPOINT_PROTOCOL_OPTIONS,
@@ -642,7 +643,6 @@ function OpenAIPage() {
     endpointsRefreshing, setEndpointsRefreshing,
     endpointToggleLoading, setEndpointToggleLoading,
     selectedEndpointId, setSelectedEndpointId,
-    draggedEndpointId, setDraggedEndpointId,
     endpointReorderSaving, setEndpointReorderSaving,
     endpointFormOpen, setEndpointFormOpen,
     editingEndpoint, setEditingEndpoint,
@@ -667,10 +667,7 @@ function OpenAIPage() {
     toggleEndpointEnabled,
     saveEndpointRouting,
     saveEndpointOrder,
-    handleEndpointDragStart,
-    handleEndpointDragOver,
-    handleEndpointDrop,
-    handleEndpointDragEnd,
+    moveEndpoint,
     modelSwitchLoadingRef,
     modelSwitchLoading, setModelSwitchLoading,
     toggleModelEnabled,
@@ -1209,6 +1206,7 @@ function OpenAIPage() {
                       <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
                         <Table layout="fixed" className="w-full max-w-fit min-w-[420px] text-xs cq-lg:max-w-none">
                           <colgroup>
+                            <col style={{ width: 56 }} />
                             <col style={{ width: 176 }} />
                             <col style={{ width: 64 }} />
                             <col style={{ width: 64 }} />
@@ -1217,6 +1215,7 @@ function OpenAIPage() {
                           </colgroup>
                           <Table.Header sticky variant="compact">
                             <Table.Row className="h-8">
+                              <Table.Head className="!px-1 !py-1.5 text-center">排序</Table.Head>
                               <Table.Head className="!px-2.5 !py-1.5">端点</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">模型</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center" title="路由优先级（值越大越优先）">优先</Table.Head>
@@ -1225,19 +1224,32 @@ function OpenAIPage() {
                             </Table.Row>
                           </Table.Header>
                           <Table.Body>
-                            {endpoints.map(item => (
+                            {endpoints.map((item, index) => (
                               <Table.Row
                                 key={item.id}
                                 variant={item.id === endpoint.id ? 'selected' : 'default'}
-                                className={`h-11 cursor-pointer ${draggedEndpointId === String(item.id) ? 'opacity-40' : ''}`}
-                                draggable={!endpointReorderSaving}
-                                onDragStart={event => handleEndpointDragStart(item, event)}
-                                onDragOver={handleEndpointDragOver}
-                                onDrop={event => handleEndpointDrop(item, event)}
-                                onDragEnd={handleEndpointDragEnd}
+                                className="h-11 cursor-pointer"
                                 onClick={() => setSelectedEndpointId(item.id)}
                                 onDoubleClick={() => openEditEndpointModal(item)}
                               >
+                                <Table.Cell className="!px-1 !py-1.5 text-center">
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <button type="button" title="上移" aria-label="上移"
+                                      onClick={e => { e.stopPropagation(); moveEndpoint(index, -1); }}
+                                      disabled={endpointReorderSaving || index === 0}
+                                      className="flex h-5 w-5 items-center justify-center rounded text-kumo-subtle hover:bg-kumo-hover disabled:opacity-30 disabled:cursor-not-allowed"
+                                    >
+                                      <ChevronUp className="h-3 w-3" />
+                                    </button>
+                                    <button type="button" title="下移" aria-label="下移"
+                                      onClick={e => { e.stopPropagation(); moveEndpoint(index, 1); }}
+                                      disabled={endpointReorderSaving || index === endpoints.length - 1}
+                                      className="flex h-5 w-5 items-center justify-center rounded text-kumo-subtle hover:bg-kumo-hover disabled:opacity-30 disabled:cursor-not-allowed"
+                                    >
+                                      <ChevronDown className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </Table.Cell>
                                 <Table.Cell className="!px-2.5 !py-1.5">
                                   <div className="min-w-0">
                                     <div
