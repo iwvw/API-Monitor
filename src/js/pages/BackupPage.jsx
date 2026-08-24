@@ -21,10 +21,10 @@ const PROVIDERS = [
 const DEFAULT_CONFIG = { provider: 'local', local_dir: '', cron: '', endpoint: '', bucket: '', access_key_id: '', access_key_secret: '', max_records: 0 };
 
 const BACKUP_RECORD_COLUMNS = [
-  { id: 'file', role: 'primary', grow: 1, minWidth: 200 },
-  { id: 'size', role: 'number', grow: 1, minWidth: 200, align: 'center' },
-  { id: 'createdAt', role: 'datetime', grow: 1, minWidth: 200, align: 'center' },
-  { id: 'actions', role: 'actions-lg', width: 200, maxWidth: 220 },
+  { id: 'file', role: 'primary', grow: 1, minWidth: 150 },
+  { id: 'size', role: 'number', width: 90, align: 'center' },
+  { id: 'createdAt', role: 'datetime', width: 170, align: 'center' },
+  { id: 'actions', role: 'actions-lg', width: 260, maxWidth: 280 },
 ];
 
 const SCHEDULE_TYPES = [
