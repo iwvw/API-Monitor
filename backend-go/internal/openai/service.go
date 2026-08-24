@@ -103,6 +103,8 @@ type Endpoint struct {
 	ForceProxy     bool              `json:"forceProxy"`
 	Protocol       string            `json:"protocol,omitempty"`
 	ModelMappings  map[string]string `json:"modelMappings,omitempty"`
+	// Pricing 保存上游 /models 接口返回的模型定价（按模型 id 索引），用于按量计费。
+	Pricing PricingMap `json:"pricing,omitempty"`
 	// RateLimitRetryEnabled 开启「429 等待重试」：收到 429/439 后在 Retry-After
 	// （缺省 RateLimitRetryWaitSeconds 秒）内等待配额恢复并重试，适用低 RPM 端点。
 	RateLimitRetryEnabled bool `json:"rateLimitRetryEnabled"`
@@ -900,6 +902,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "cached_tokens", "INTEGER DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "cost", "REAL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "cost_currency", "TEXT"); err != nil {
+		return err
+	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_gateway_analytics", "client_ip", "TEXT"); err != nil {
 		return err
 	}
@@ -934,6 +942,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "headers", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "pricing", "TEXT"); err != nil {
 		return err
 	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "disabled_models", "TEXT"); err != nil {
@@ -1284,9 +1295,15 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		// 验证或拉模型失败时保留旧模型列表：一次超时/临时网络故障不应清空
 		// 已获取的模型（对齐 verifyEndpoint/refreshAllModels 的失败保留语义）。
 		modelsList := []string{}
-		var currentModelsRaw sql.NullString
-		if err := db.QueryRowContext(ctx, "SELECT models FROM openai_endpoints WHERE id = ?", id).Scan(&currentModelsRaw); err == nil && currentModelsRaw.Valid && currentModelsRaw.String != "" {
-			_ = json.Unmarshal([]byte(currentModelsRaw.String), &modelsList)
+		pricing := PricingMap{}
+		var currentModelsRaw, currentPricingRaw sql.NullString
+		if err := db.QueryRowContext(ctx, "SELECT models, pricing FROM openai_endpoints WHERE id = ?", id).Scan(&currentModelsRaw, &currentPricingRaw); err == nil {
+			if currentModelsRaw.Valid && currentModelsRaw.String != "" {
+				_ = json.Unmarshal([]byte(currentModelsRaw.String), &modelsList)
+			}
+			if currentPricingRaw.Valid && currentPricingRaw.String != "" {
+				_ = json.Unmarshal([]byte(currentPricingRaw.String), &pricing)
+			}
 		}
 
 		verifyHeaders := []HeaderItem(nil)
@@ -1305,9 +1322,10 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 			vOk, _, err := s.verifyAPIKeyRaw(verifyCtx, targetBaseURL, targetAPIKey, id, verifyPool, verifyHeaders)
 			if err == nil && vOk {
 				status = "valid"
-				mList, mErr := s.listModelsRaw(verifyCtx, targetBaseURL, targetAPIKey, id, verifyPool, verifyHeaders)
+				mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, targetBaseURL, targetAPIKey, id, verifyPool, verifyHeaders)
 				if mErr == nil {
 					modelsList = mList
+					pricing = mPrice
 				}
 			} else {
 				status = "invalid"
@@ -1316,6 +1334,7 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		}
 
 		modelsJSON, _ := json.Marshal(modelsList)
+		pricingJSON, _ := json.Marshal(pricing)
 		encryptedKey, err := secure.SecureEncrypt(targetAPIKey)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "数据加密失败"})
@@ -1325,9 +1344,9 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 		_, err = db.ExecContext(ctx, `
 			UPDATE openai_endpoints
-			SET name = ?, base_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, last_checked = ?
+			SET name = ?, base_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, pricing = ?, last_checked = ?
 			WHERE id = ?`,
-			req.Name, targetBaseURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), lastChecked, id)
+			req.Name, targetBaseURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), string(pricingJSON), lastChecked, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

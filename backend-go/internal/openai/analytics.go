@@ -209,6 +209,10 @@ func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
 	}
 	defer db.Close()
 
+	// 批量加载端点定价用于按量计费：必须在事务外执行（SQLite 连接池单连接，
+	// 事务内再查询会与写锁互相等待）。
+	pricingByEndpoint := s.loadAnalyticsPricing(writeCtx, db, batch)
+
 	tx, err := db.BeginTx(writeCtx, nil)
 	if err != nil {
 		applog.Error(writeCtx, "openai", "Failed to begin analytics batch", "error", err.Error())
@@ -217,14 +221,16 @@ func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
 	}
 	records := make([]map[string]interface{}, 0, len(batch))
 	hasError := false
+
 	for _, item := range batch {
 		if item.flush != nil {
 			continue
 		}
+		cost, costCurrency := computeRecordCost(item, pricingByEndpoint[item.endpointID])
 		result, execErr := tx.ExecContext(writeCtx, `
-			INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, real_model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path, error_kind, error_message, response_body)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, item.endpointID, item.gatewayKeyID, item.route, item.model, item.realModel, item.statusCode, item.latencyMs, item.ttfbMs, item.promptTokens, item.completionTokens, item.totalTokens, item.cachedTokens, item.stream, item.viaProxy, item.clientIP, item.upstreamIP, item.keyIndex, item.failoverPath, errorKindOf(item), errorMessageOf(item), errorResponseOf(item))
+			INSERT INTO openai_gateway_analytics (endpoint_id, gateway_key_id, route, model, real_model, status_code, latency_ms, ttfb_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, stream, via_proxy, client_ip, upstream_ip, key_index, failover_path, error_kind, error_message, response_body, cost, cost_currency)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, item.endpointID, item.gatewayKeyID, item.route, item.model, item.realModel, item.statusCode, item.latencyMs, item.ttfbMs, item.promptTokens, item.completionTokens, item.totalTokens, item.cachedTokens, item.stream, item.viaProxy, item.clientIP, item.upstreamIP, item.keyIndex, item.failoverPath, errorKindOf(item), errorMessageOf(item), errorResponseOf(item), cost, costCurrency)
 		if execErr != nil {
 			_ = tx.Rollback()
 			applog.Error(writeCtx, "openai", "Failed to insert gateway analytics", "error", execErr.Error())
@@ -262,6 +268,8 @@ func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
 			"errorKind":        errorKindOf(item),
 			"errorMessage":     errorMessageOf(item),
 			"errorResponse":    errorResponseOf(item),
+			"cost":             cost,
+			"costCurrency":     costCurrency,
 			"timestamp":        time.Now().UTC().Format(time.RFC3339),
 		})
 	}
@@ -288,6 +296,71 @@ func makePlaceholders(n int) []string {
 		marks[i] = "?"
 	}
 	return marks
+}
+
+// loadAnalyticsPricing 批量加载一批调用记录涉及的端点定价表（endpoint_id -> PricingMap）。
+// 每个落库批次至多执行一次查询；端点无定价或查询失败时返回空表，费用记为 0。
+func (s *Service) loadAnalyticsPricing(ctx context.Context, db *sql.DB, batch []analyticsWriteItem) map[string]PricingMap {
+	idSet := map[string]bool{}
+	for _, item := range batch {
+		if item.endpointID != "" {
+			idSet[item.endpointID] = true
+		}
+	}
+	result := map[string]PricingMap{}
+	if len(idSet) == 0 {
+		return result
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	marks := strings.Join(makePlaceholders(len(ids)), ",")
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	rows, err := db.QueryContext(ctx, "SELECT id, pricing FROM openai_endpoints WHERE id IN ("+marks+")", args...)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var raw sql.NullString
+		if err := rows.Scan(&id, &raw); err != nil {
+			break
+		}
+		if raw.Valid && raw.String != "" {
+			var pm PricingMap
+			if json.Unmarshal([]byte(raw.String), &pm) == nil && len(pm) > 0 {
+				result[id] = pm
+			}
+		}
+	}
+	return result
+}
+
+// computeRecordCost 依据端点定价计算单次调用的费用。模型名优先用真实模型
+// （命中模型映射时对外别名与上游模型不同），其次用对外 model 字段。
+// 无定价、无 token 或费用为 0 时返回 (0, "")，表示该调用未计费。
+func computeRecordCost(item analyticsWriteItem, pricing PricingMap) (float64, string) {
+	if len(pricing) == 0 || item.totalTokens <= 0 {
+		return 0, ""
+	}
+	model := item.realModel
+	if model == "" {
+		model = item.model
+	}
+	p, ok := pricing[model]
+	if !ok {
+		return 0, ""
+	}
+	cost := p.Cost(item.promptTokens, item.completionTokens, item.cachedTokens)
+	if cost <= 0 {
+		return 0, ""
+	}
+	return cost, p.CurrencyName()
 }
 
 // stringValue 取 map 值中的字符串，非字符串时返回 fallback。
@@ -484,6 +557,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 	var totalCachedTokens int
 	var totalPromptTokens int
 	var totalCompletionTokens int
+	var totalCost float64
 	var errorCount int
 
 	err = db.QueryRowContext(ctx, `
@@ -495,10 +569,11 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 			COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(cached_tokens), 0),
 			COALESCE(SUM(prompt_tokens), 0),
-			COALESCE(SUM(completion_tokens), 0)
+			COALESCE(SUM(completion_tokens), 0),
+			COALESCE(SUM(cost), 0)
 		FROM openai_gateway_analytics
 		WHERE timestamp >= ? AND route != 'models'
-	`, timeFilter).Scan(&totalRequests, &avgLatency, &avgTtfbMs, &totalTokens, &errorCount, &totalCachedTokens, &totalPromptTokens, &totalCompletionTokens)
+	`, timeFilter).Scan(&totalRequests, &avgLatency, &avgTtfbMs, &totalTokens, &errorCount, &totalCachedTokens, &totalPromptTokens, &totalCompletionTokens, &totalCost)
 
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -552,6 +627,29 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 按货币分组的费用汇总：多币种端点并存时避免把不同货币金额直接相加。
+	type costStat struct {
+		Currency string  `json:"currency"`
+		Amount   float64 `json:"amount"`
+	}
+	costs := []costStat{}
+	cRows, err := db.QueryContext(ctx, `
+		SELECT COALESCE(cost_currency, ''), COALESCE(SUM(cost), 0)
+		FROM openai_gateway_analytics
+		WHERE timestamp >= ? AND route != 'models' AND cost > 0
+		GROUP BY COALESCE(cost_currency, '')
+		ORDER BY SUM(cost) DESC
+	`, timeFilter)
+	if err == nil {
+		for cRows.Next() {
+			var cs costStat
+			if cErr := cRows.Scan(&cs.Currency, &cs.Amount); cErr == nil {
+				costs = append(costs, cs)
+			}
+		}
+		cRows.Close()
+	}
+
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"totalRequests":         totalRequests,
 		"avgLatency":            avgLatency,
@@ -564,6 +662,8 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		"errorRate":             errorRate,
 		"errorCount":            errorCount,
 		"endpointErrorRates":    endpointStats,
+		"totalCost":             totalCost,
+		"costs":                 costs,
 	})
 }
 
@@ -905,6 +1005,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		SELECT 
 			g.id,
 			g.route,
+			g.endpoint_id,
 			CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END as endpoint_name,
 			COALESCE(k.name, '未识别密钥') as gateway_key_name,
 			g.model,
@@ -925,7 +1026,9 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			COALESCE(g.failover_path, '') as failover_path,
 			COALESCE(g.error_kind, '') as error_kind,
 			COALESCE(g.error_message, '') as error_message,
-			COALESCE(g.response_body, '') as response_body
+			COALESCE(g.response_body, '') as response_body,
+			COALESCE(g.cost, 0) as cost,
+			COALESCE(g.cost_currency, '') as cost_currency
 		FROM openai_gateway_analytics g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id
@@ -942,9 +1045,10 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type LogRecord struct {
-		ID               int    `json:"id"`
-		Route            string `json:"route"`
-		EndpointName     string `json:"endpointName"`
+		ID               int     `json:"id"`
+		Route            string  `json:"route"`
+		EndpointID       string  `json:"endpointId"`
+		EndpointName     string  `json:"endpointName"`
 		GatewayKeyName   string `json:"gatewayKeyName"`
 		Model            string `json:"model"`
 		RealModel        string `json:"realModel"`
@@ -962,9 +1066,11 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		KeyIndex         int    `json:"keyIndex"`
 		Timestamp        string `json:"timestamp"`
 		FailoverPath     string `json:"failoverPath"`
-		ErrorKind        string `json:"errorKind"`
-		ErrorMessage     string `json:"errorMessage"`
-		ErrorResponse    string `json:"errorResponse"`
+		ErrorKind        string  `json:"errorKind"`
+		ErrorMessage     string  `json:"errorMessage"`
+		ErrorResponse    string  `json:"errorResponse"`
+		Cost             float64 `json:"cost"`
+		CostCurrency     string  `json:"costCurrency"`
 	}
 
 	records := []LogRecord{}
@@ -974,6 +1080,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(
 			&rec.ID,
 			&rec.Route,
+			&rec.EndpointID,
 			&rec.EndpointName,
 			&rec.GatewayKeyName,
 			&rec.Model,
@@ -995,6 +1102,8 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			&rec.ErrorKind,
 			&rec.ErrorMessage,
 			&rec.ErrorResponse,
+			&rec.Cost,
+			&rec.CostCurrency,
 		); err == nil {
 			rec.Stream = streamVal == 1
 			rec.ViaProxy = viaProxyVal == 1

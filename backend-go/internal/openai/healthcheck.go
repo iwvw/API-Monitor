@@ -526,12 +526,19 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 }
 
 // listModelsRaw 拉取上游模型列表（GET /models）。endpointID 用于把 429 限流
-// 累计到对应端点的代理池状态（见 verifyAPIKeyRaw）。
+// 累计到对应端点的代理池状态（见 verifyAPIKeyRaw）。定价信息被丢弃，仅返回模型名。
 func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, pool []string, headers ...[]HeaderItem) ([]string, error) {
+	models, _, err := s.listModelsWithPricing(ctx, u, key, endpointID, pool, headers...)
+	return models, err
+}
+
+// listModelsWithPricing 拉取上游模型列表（GET /models）并解析每个模型的定价。
+// 返回模型 id 列表与按 id 索引的定价表；无法解析出定价的模型不出现在定价表中。
+func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID string, pool []string, headers ...[]HeaderItem) ([]string, PricingMap, error) {
 	reqURL := fmt.Sprintf("%s/models", strings.TrimSuffix(u, "/"))
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	if len(headers) > 0 {
@@ -550,7 +557,7 @@ func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
@@ -558,40 +565,50 @@ func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, 
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
 			s.markProxy429(endpointID, selectedProxy, retryAfterFromHeader(resp))
 		}
-		return nil, fmt.Errorf("list models failed: HTTP %d", resp.StatusCode)
+		return nil, nil, fmt.Errorf("list models failed: HTTP %d", resp.StatusCode)
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	models := []string{}
+	pricing := PricingMap{}
 	var parsed map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &parsed); err == nil {
 		// OpenAI structure
 		if dataArr, ok := parsed["data"].([]interface{}); ok {
 			for _, item := range dataArr {
 				if itemMap, ok := item.(map[string]interface{}); ok {
-					if id, ok := itemMap["id"].(string); ok {
+					if id, ok := itemMap["id"].(string); ok && id != "" {
 						models = append(models, id)
+						if p, ok := parsePricingFromItem(itemMap); ok {
+							pricing[id] = p
+						}
 					}
 				}
 			}
-			return models, nil
+			return models, pricing, nil
 		}
 		// Custom models key
 		if modelsArr, ok := parsed["models"].([]interface{}); ok {
 			for _, item := range modelsArr {
 				if itemMap, ok := item.(map[string]interface{}); ok {
-					if id, ok := itemMap["id"].(string); ok {
+					if id, ok := itemMap["id"].(string); ok && id != "" {
 						models = append(models, id)
-					} else if name, ok := itemMap["name"].(string); ok {
+						if p, ok := parsePricingFromItem(itemMap); ok {
+							pricing[id] = p
+						}
+					} else if name, ok := itemMap["name"].(string); ok && name != "" {
 						models = append(models, name)
+						if p, ok := parsePricingFromItem(itemMap); ok {
+							pricing[name] = p
+						}
 					}
 				}
 			}
-			return models, nil
+			return models, pricing, nil
 		}
 	}
 
@@ -599,15 +616,18 @@ func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, 
 	if err := json.Unmarshal(bodyBytes, &parsedArr); err == nil {
 		for _, item := range parsedArr {
 			if itemMap, ok := item.(map[string]interface{}); ok {
-				if id, ok := itemMap["id"].(string); ok {
+				if id, ok := itemMap["id"].(string); ok && id != "" {
 					models = append(models, id)
+					if p, ok := parsePricingFromItem(itemMap); ok {
+						pricing[id] = p
+					}
 				}
 			}
 		}
-		return models, nil
+		return models, pricing, nil
 	}
 
-	return nil, fmt.Errorf("unexpected models structure")
+	return nil, nil, fmt.Errorf("unexpected models structure")
 }
 
 func healthCheckFastFailStatus(statusCode int) bool {
