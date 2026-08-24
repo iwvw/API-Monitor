@@ -1206,7 +1206,7 @@ function OpenAIPage() {
                       <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
                         <Table layout="fixed" className="w-full max-w-fit min-w-[420px] text-xs cq-lg:max-w-none">
                           <colgroup>
-                            <col style={{ width: 56 }} />
+                            <col style={{ width: 64 }} />
                             <col style={{ width: 176 }} />
                             <col style={{ width: 64 }} />
                             <col style={{ width: 64 }} />
@@ -1232,22 +1232,22 @@ function OpenAIPage() {
                                 onClick={() => setSelectedEndpointId(item.id)}
                                 onDoubleClick={() => openEditEndpointModal(item)}
                               >
-                                <Table.Cell className="!px-1 !py-1.5 text-center">
-                                  <div className="flex flex-col items-center gap-0.5">
-                                    <button type="button" title="上移" aria-label="上移"
-                                      onClick={e => { e.stopPropagation(); moveEndpoint(index, -1); }}
+                                <Table.Cell className="!px-1 !py-1.5">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <Button size="sm" variant="ghost" className="h-7 w-7 min-w-0 !px-0"
+                                      icon={<ChevronUp className="h-3.5 w-3.5" />}
+                                      title="上移"
+                                      aria-label="上移"
                                       disabled={endpointReorderSaving || index === 0}
-                                      className="flex h-5 w-5 items-center justify-center rounded text-kumo-subtle hover:bg-kumo-hover disabled:opacity-30 disabled:cursor-not-allowed"
-                                    >
-                                      <ChevronUp className="h-3 w-3" />
-                                    </button>
-                                    <button type="button" title="下移" aria-label="下移"
-                                      onClick={e => { e.stopPropagation(); moveEndpoint(index, 1); }}
+                                      onClick={e => { e.stopPropagation(); moveEndpoint(index, -1); }}
+                                    />
+                                    <Button size="sm" variant="ghost" className="h-7 w-7 min-w-0 !px-0"
+                                      icon={<ChevronDown className="h-3.5 w-3.5" />}
+                                      title="下移"
+                                      aria-label="下移"
                                       disabled={endpointReorderSaving || index === endpoints.length - 1}
-                                      className="flex h-5 w-5 items-center justify-center rounded text-kumo-subtle hover:bg-kumo-hover disabled:opacity-30 disabled:cursor-not-allowed"
-                                    >
-                                      <ChevronDown className="h-3 w-3" />
-                                    </button>
+                                      onClick={e => { e.stopPropagation(); moveEndpoint(index, 1); }}
+                                    />
                                   </div>
                                 </Table.Cell>
                                 <Table.Cell className="!px-2.5 !py-1.5">
