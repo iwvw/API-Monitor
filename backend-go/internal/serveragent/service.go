@@ -64,6 +64,8 @@ type Service struct {
 	tunnelHealthCheckInterval     time.Duration
 	tunnelHealthCheckAttempts     int
 	tunnelHealthCheckDelay        time.Duration
+	tunnelReconcileMaxAttempts    int
+	tunnelReconcileBaseInterval   time.Duration
 	agentTaskWaiters              sync.Map
 	autoLocationRefreshes         sync.Map
 	lastAutoLocationRefresh       sync.Map
@@ -157,6 +159,8 @@ func New(cfg config.Config) *Service {
 		tunnelHealthCheckInterval:     5 * time.Minute,
 		tunnelHealthCheckAttempts:     3,
 		tunnelHealthCheckDelay:        3 * time.Second,
+		tunnelReconcileMaxAttempts:    3,
+		tunnelReconcileBaseInterval:   5 * time.Minute,
 	}
 	engineIO.service = s
 	s.presence = newAgentPresenceManager(s)
@@ -956,6 +960,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			apply_status TEXT NOT NULL DEFAULT 'pending',
 			last_stage TEXT NOT NULL DEFAULT '',
 			last_error TEXT NOT NULL DEFAULT '',
+			reconcile_attempts INTEGER NOT NULL DEFAULT 0,
+			last_reconcile_at TEXT NOT NULL DEFAULT '',
 			created_at TEXT DEFAULT (datetime('now')),
 			updated_at TEXT DEFAULT (datetime('now')),
 			FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
@@ -1115,6 +1121,17 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 		if exists, err := hasColumn(ctx, db, "managed_proxy_runtimes", f.Name); err == nil && !exists {
 			if _, err := db.ExecContext(ctx, f.SQL); err != nil {
 				return fmt.Errorf("migrate managed proxy runtime %s: %w", f.Name, err)
+			}
+		}
+	}
+	tunnelFields := []struct{ Name, SQL string }{
+		{"reconcile_attempts", "ALTER TABLE managed_proxy_tunnels ADD COLUMN reconcile_attempts INTEGER NOT NULL DEFAULT 0"},
+		{"last_reconcile_at", "ALTER TABLE managed_proxy_tunnels ADD COLUMN last_reconcile_at TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, f := range tunnelFields {
+		if exists, err := hasColumn(ctx, db, "managed_proxy_tunnels", f.Name); err == nil && !exists {
+			if _, err := db.ExecContext(ctx, f.SQL); err != nil {
+				return fmt.Errorf("migrate managed proxy tunnel %s: %w", f.Name, err)
 			}
 		}
 	}

@@ -375,7 +375,7 @@ func (s *Service) reconcileManagedTunnelHealth(ctx context.Context) {
 		return
 	}
 	defer db.Close()
-	rows, err := db.QueryContext(ctx, `SELECT server_id FROM managed_proxy_tunnels WHERE desired_status='running' AND apply_status IN ('running','disconnected') ORDER BY updated_at ASC`)
+	rows, err := db.QueryContext(ctx, `SELECT server_id FROM managed_proxy_tunnels WHERE desired_status='running' AND apply_status IN ('running','disconnected','reconciling') ORDER BY updated_at ASC`)
 	if err != nil {
 		return
 	}
@@ -406,9 +406,14 @@ func (s *Service) reconcileManagedTunnelConnection(serverID string) {
 		return
 	}
 	defer db.Close()
-	var accountID, tunnelID string
-	if err := db.QueryRowContext(ctx, `SELECT account_id,tunnel_id FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running'`, serverID).Scan(&accountID, &tunnelID); err != nil || tunnelID == "" {
+	var accountID, tunnelID, applyStatus, lastReconcileAt string
+	if err := db.QueryRowContext(ctx, `SELECT account_id,tunnel_id,apply_status,COALESCE(last_reconcile_at,'') FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running'`, serverID).Scan(&accountID, &tunnelID, &applyStatus, &lastReconcileAt); err != nil || tunnelID == "" {
 		return
+	}
+	if applyStatus == "reconciling" && lastReconcileAt != "" {
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", lastReconcileAt); parseErr == nil && time.Since(t) < 10*time.Minute {
+			return
+		}
 	}
 	connected := false
 	var checkErr error
@@ -426,7 +431,7 @@ func (s *Service) reconcileManagedTunnelConnection(serverID string) {
 		}
 	}
 	if connected {
-		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='running',last_stage='health_check',last_error='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='running',last_stage='health_check',last_error='',reconcile_attempts=0,last_reconcile_at='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
 		return
 	}
 	if checkErr != nil {
@@ -434,6 +439,76 @@ func (s *Service) reconcileManagedTunnelConnection(serverID string) {
 		return
 	}
 	_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_stage='health_check',last_error='Cloudflare 未检测到 cloudflared 连接',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+	s.attemptTunnelSelfHeal(serverID)
+}
+
+func (s *Service) attemptTunnelSelfHeal(serverID string) {
+	conn, ok := s.registry.Get(serverID)
+	if !ok || !conn.GetCapabilities()["cloudflared_runtime_v1"] {
+		return
+	}
+	if _, busy := s.taskRegistry.ActiveTask(proxyTaskResource(serverID)); busy {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	var attempts int
+	var tokenEncrypted, lastReconcileAt string
+	if err := db.QueryRowContext(ctx, `SELECT reconcile_attempts,token_encrypted,COALESCE(last_reconcile_at,'') FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running' AND apply_status='disconnected'`, serverID).Scan(&attempts, &tokenEncrypted, &lastReconcileAt); err != nil {
+		return
+	}
+	if attempts >= s.tunnelReconcileMaxAttempts {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET last_error='自愈重试已达上限，需人工排查',updated_at=datetime('now') WHERE server_id=?`, serverID)
+		return
+	}
+	if lastReconcileAt != "" {
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", lastReconcileAt); parseErr == nil {
+			backoff := time.Duration(attempts) * s.tunnelReconcileBaseInterval
+			if time.Since(t) < backoff {
+				return
+			}
+		}
+	}
+	_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='reconciling',last_stage='self_heal',reconcile_attempts=reconcile_attempts+1,last_reconcile_at=datetime('now'),last_error='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+	token := secure.SecureDecrypt(tokenEncrypted)
+	if token == "" {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈解密 token 失败',updated_at=datetime('now') WHERE server_id=?`, serverID)
+		return
+	}
+	payload, _ := json.Marshal(cloudflaredTaskPayload("install", token))
+	if _, err := s.RunCloudflaredTaskAndWait(serverID, string(payload)); err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈重装 cloudflared 失败: '||?,updated_at=datetime('now') WHERE server_id=?`, err.Error(), serverID)
+		return
+	}
+	var accountID, tunnelID string
+	if err := db.QueryRowContext(ctx, `SELECT account_id,tunnel_id FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running'`, serverID).Scan(&accountID, &tunnelID); err != nil || tunnelID == "" {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈后读取隧道状态失败',updated_at=datetime('now') WHERE server_id=?`, serverID)
+		return
+	}
+	connected := false
+	for attempt := 0; attempt < s.tunnelHealthCheckAttempts; attempt++ {
+		count, checkErr := s.cloudflare.ManagedTunnelConnections(ctx, accountID, tunnelID)
+		if checkErr == nil && count > 0 {
+			connected = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.tunnelHealthCheckDelay):
+		}
+	}
+	if connected {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='running',last_stage='self_heal',last_error='',reconcile_attempts=0,last_reconcile_at='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+		applog.Info(ctx, "serveragent", "managed tunnel self-heal succeeded", "server_id", serverID)
+	} else {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈后 Cloudflare 仍未检测到连接',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+	}
 }
 
 func rewriteTunnelClientURI(raw, oldHostname, newHostname string) (string, error) {

@@ -384,6 +384,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/admin-ai/channels/{id}/start", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道启动", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/channels/{id}/stop", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道停止", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/channels/{id}/status", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道状态", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/channels/{id}/wechat/qrcode", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 微信频道扫码登录二维码", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/channels/{id}/wechat/qrcode/status", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 微信频道扫码登录状态轮询", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/channel-bindings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定列表/新增", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channel-bindings/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定删除", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/settings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 系统设置", MatchMode: MatchExact},

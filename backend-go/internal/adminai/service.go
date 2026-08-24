@@ -385,6 +385,9 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.channelAction(w, r, channelID, action)
 			return
 		}
+		if s.handleWechatChannelPath(w, r, channelID, action) {
+			return
+		}
 		response.Error(w, http.StatusNotFound, "频道路由不存在")
 	case path == "/channel-bindings" && r.Method == http.MethodGet:
 		s.listBindings(w, r)
@@ -430,13 +433,15 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
 		ID             string `json:"id"`
 		Source         string `json:"source"`
 		ChannelRef     string `json:"channelRef,omitempty"`
+		ChannelType    string `json:"channelType,omitempty"`
+		ChannelName    string `json:"channelName,omitempty"`
 		Title          string `json:"title,omitempty"`
 		Model          string `json:"model,omitempty"`
 		WriteEnabled   bool   `json:"writeEnabled"`
 		Mode           string `json:"mode"`
 		CreatedAt      string `json:"createdAt"`
 		UpdatedAt      string `json:"updatedAt"`
-LastActivityAt string `json:"lastActivityAt"`
+	LastActivityAt string `json:"lastActivityAt"`
 	MessageCount   int    `json:"messageCount"`
 	ActiveRun      *struct {
 		RunID string `json:"runId"`
@@ -445,6 +450,7 @@ LastActivityAt string `json:"lastActivityAt"`
 }
 
 	sessions := make([]sessionItem, 0)
+	chIDs := map[string]string{} // sessionID -> 频道配置 id（channel 来源会话）
 	for rows.Next() {
 		var item sessionItem
 		var we int
@@ -454,6 +460,16 @@ LastActivityAt string `json:"lastActivityAt"`
 			return
 		}
 		item.WriteEnabled = we == 1
+		if strings.HasPrefix(item.Source, "channel:") {
+			var idStruct struct {
+				ChannelID string `json:"channelId"`
+			}
+			if json.Unmarshal([]byte(identity), &idStruct) == nil && idStruct.ChannelID != "" {
+				chIDs[item.ID] = idStruct.ChannelID
+			} else {
+				chIDs[item.ID] = strings.TrimPrefix(item.Source, "channel:")
+			}
+		}
 		sessions = append(sessions, item)
 	}
 	rows.Close() // 先收行再查询：单连接池（SetMaxOpenConns(1)）下 rows 未关时同连接嵌套查询会自锁
@@ -470,6 +486,13 @@ LastActivityAt string `json:"lastActivityAt"`
 	s.mu.Unlock()
 	for i := range sessions {
 		_ = db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM admin_ai_messages WHERE session_id = ?", sessions[i].ID).Scan(&sessions[i].MessageCount)
+		if cid, ok := chIDs[sessions[i].ID]; ok {
+			var ctype, cname string
+			if err := db.QueryRowContext(r.Context(), "SELECT type, name FROM admin_ai_channels WHERE id = ?", cid).Scan(&ctype, &cname); err == nil {
+				sessions[i].ChannelType = ctype
+				sessions[i].ChannelName = cname
+			}
+		}
 		if ar, ok := activeSnapshot[sessions[i].ID]; ok {
 			sessions[i].ActiveRun = &struct {
 				RunID string `json:"runId"`

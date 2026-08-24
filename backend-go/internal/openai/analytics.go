@@ -650,6 +650,78 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		cRows.Close()
 	}
 
+	// 按端点分组的费用明细（仅 cost > 0），每个端点下再按 gateway key 分层展示，
+	// 供词元用量详情 Popover 展示「端点 → 多 key」的费用构成。
+	type costKeyStat struct {
+		KeyName  string  `json:"keyName"`
+		Cost     float64 `json:"cost"`
+		Currency string  `json:"currency"`
+	}
+	type costEndpointStat struct {
+		EndpointID   string        `json:"endpointId"`
+		EndpointName string        `json:"endpointName"`
+		Cost         float64       `json:"cost"`
+		Currency     string        `json:"currency"`
+		Keys         []costKeyStat `json:"keys"`
+	}
+	costByEndpoint := []costEndpointStat{}
+	ceRows, err := db.QueryContext(ctx, `
+		SELECT
+			COALESCE(g.endpoint_id, ''),
+			CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END,
+			COALESCE(SUM(g.cost), 0),
+			COALESCE(MAX(g.cost_currency), '')
+		FROM openai_gateway_analytics g
+		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
+		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id
+		WHERE g.timestamp >= ? AND g.route != 'models'
+		GROUP BY g.endpoint_id
+		HAVING SUM(g.cost) > 0
+		ORDER BY SUM(g.cost) DESC
+		LIMIT 10
+	`, timeFilter)
+	if err == nil {
+		for ceRows.Next() {
+			var es costEndpointStat
+			if eErr := ceRows.Scan(&es.EndpointID, &es.EndpointName, &es.Cost, &es.Currency); eErr == nil {
+				es.Keys = []costKeyStat{}
+				costByEndpoint = append(costByEndpoint, es)
+			}
+		}
+		ceRows.Close()
+	}
+
+	// 按 端点 × gateway key 分组的费用（仅 cost > 0），挂接到对应端点下。
+	ckRows, err := db.QueryContext(ctx, `
+		SELECT
+			COALESCE(g.endpoint_id, ''),
+			COALESCE(k.name, '未识别密钥'),
+			COALESCE(SUM(g.cost), 0),
+			COALESCE(MAX(g.cost_currency), '')
+		FROM openai_gateway_analytics g
+		LEFT JOIN openai_gateway_keys k ON g.gateway_key_id = k.id
+		WHERE g.timestamp >= ? AND g.route != 'models'
+		GROUP BY g.endpoint_id, g.gateway_key_id
+		HAVING SUM(g.cost) > 0
+		ORDER BY SUM(g.cost) DESC
+	`, timeFilter)
+	if err == nil {
+		endpointIndex := map[string]int{}
+		for i, es := range costByEndpoint {
+			endpointIndex[es.EndpointID] = i
+		}
+		for ckRows.Next() {
+			var ks costKeyStat
+			var endpointID string
+			if kErr := ckRows.Scan(&endpointID, &ks.KeyName, &ks.Cost, &ks.Currency); kErr == nil {
+				if i, ok := endpointIndex[endpointID]; ok {
+					costByEndpoint[i].Keys = append(costByEndpoint[i].Keys, ks)
+				}
+			}
+		}
+		ckRows.Close()
+	}
+
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"totalRequests":         totalRequests,
 		"avgLatency":            avgLatency,
@@ -664,6 +736,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		"endpointErrorRates":    endpointStats,
 		"totalCost":             totalCost,
 		"costs":                 costs,
+		"costByEndpoint":        costByEndpoint,
 	})
 }
 
@@ -1049,23 +1122,23 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 		Route            string  `json:"route"`
 		EndpointID       string  `json:"endpointId"`
 		EndpointName     string  `json:"endpointName"`
-		GatewayKeyName   string `json:"gatewayKeyName"`
-		Model            string `json:"model"`
-		RealModel        string `json:"realModel"`
-		StatusCode       int    `json:"statusCode"`
-		LatencyMs        int64  `json:"latencyMs"`
-		TTFbMs           int64  `json:"ttfbMs"`
-		PromptTokens     int    `json:"promptTokens"`
-		CompletionTokens int    `json:"completionTokens"`
-		TotalTokens      int    `json:"totalTokens"`
-		CachedTokens     int    `json:"cachedTokens"`
-		ClientIP         string `json:"clientIp"`
-		UpstreamIP       string `json:"upstreamIp"`
-		Stream           bool   `json:"stream"`
-		ViaProxy         bool   `json:"viaProxy"`
-		KeyIndex         int    `json:"keyIndex"`
-		Timestamp        string `json:"timestamp"`
-		FailoverPath     string `json:"failoverPath"`
+		GatewayKeyName   string  `json:"gatewayKeyName"`
+		Model            string  `json:"model"`
+		RealModel        string  `json:"realModel"`
+		StatusCode       int     `json:"statusCode"`
+		LatencyMs        int64   `json:"latencyMs"`
+		TTFbMs           int64   `json:"ttfbMs"`
+		PromptTokens     int     `json:"promptTokens"`
+		CompletionTokens int     `json:"completionTokens"`
+		TotalTokens      int     `json:"totalTokens"`
+		CachedTokens     int     `json:"cachedTokens"`
+		ClientIP         string  `json:"clientIp"`
+		UpstreamIP       string  `json:"upstreamIp"`
+		Stream           bool    `json:"stream"`
+		ViaProxy         bool    `json:"viaProxy"`
+		KeyIndex         int     `json:"keyIndex"`
+		Timestamp        string  `json:"timestamp"`
+		FailoverPath     string  `json:"failoverPath"`
 		ErrorKind        string  `json:"errorKind"`
 		ErrorMessage     string  `json:"errorMessage"`
 		ErrorResponse    string  `json:"errorResponse"`
