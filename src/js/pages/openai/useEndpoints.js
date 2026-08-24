@@ -16,7 +16,6 @@ const [endpointsLoading, setEndpointsLoading] = useState(false);
 const [endpointsRefreshing, setEndpointsRefreshing] = useState(false);
 const [endpointToggleLoading, setEndpointToggleLoading] = useState({});
 const [selectedEndpointId, setSelectedEndpointId] = useState('');
-const [endpointReorderSaving, setEndpointReorderSaving] = useState(false);
 const [endpointFormOpen, setEndpointFormOpen] = useState(false);
 const [editingEndpoint, setEditingEndpoint] = useState(null);
 const [endpointForm, setEndpointForm] = useState({
@@ -277,39 +276,6 @@ const saveEndpointRouting = async (endpointId, field, value) => {
   } catch (error) {
     toast.error('路由设置保存失败: ' + error.message);
   }
-};
-
-// 端点列表拖拽排序：本地先更新顺序，再持久化到后端；失败时回滚。
-const saveEndpointOrder = async nextEndpoints => {
-  const orderedIds = nextEndpoints.map(ep => ep.id);
-  setEndpointReorderSaving(true);
-  try {
-    const response = await fetch('/api/openai/endpoints/reorder', {
-      method: 'POST',
-      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpointIds: orderedIds }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.success) throw new Error(data.error || '保存失败');
-    toast.success('端点顺序已保存');
-  } catch (error) {
-    toast.error('排序保存失败: ' + error.message);
-    await loadEndpoints(true);
-  } finally {
-    setEndpointReorderSaving(false);
-  }
-};
-
-// 端点列表按钮式排序：上移/下移后本地更新顺序并持久化（排序键 sort_order，刷新保持）。
-const moveEndpoint = async (index, direction) => {
-  const target = index + direction;
-  const max = endpoints.length - 1;
-  if (target < 0 || target > max) return;
-  const next = [...endpoints];
-  const [moved] = next.splice(index, 1);
-  next.splice(target, 0, moved);
-  setEndpoints(next);
-  await saveEndpointOrder(next);
 };
 
 // 模型开关的进行中标记：ref 用于同步去重，state 用于驱动按钮禁用态渲染。
@@ -853,7 +819,18 @@ const appendEndpointKey = () => {
   setEndpointKeyChecks(prev => [...prev, null]);
 };
 
+// 密钥删除两段式防误触：首次点击进入待确认态（3s 过期），再次点击才真正移除。
+const [pendingKeyDelete, setPendingKeyDelete] = useState(null);
+const KEY_DELETE_CONFIRM_MS = 3000;
+const keyDeleteConfirmActive = rowIndex =>
+  pendingKeyDelete?.rowIndex === rowIndex && pendingKeyDelete.expiresAt > Date.now();
+
 const removeEndpointKey = rowIndex => {
+  if (!keyDeleteConfirmActive(rowIndex)) {
+    setPendingKeyDelete({ rowIndex, expiresAt: Date.now() + KEY_DELETE_CONFIRM_MS });
+    return;
+  }
+  setPendingKeyDelete(null);
   setEndpointForm(current => {
     const keys = [current.apiKey || '', ...(current.apiKeys || [])];
     keys.splice(rowIndex, 1);
@@ -1012,8 +989,6 @@ const batchEnableDisabledModels = async endpoint => {
     setEndpointToggleLoading,
     selectedEndpointId,
     setSelectedEndpointId,
-    endpointReorderSaving,
-    setEndpointReorderSaving,
     endpointFormOpen,
     setEndpointFormOpen,
     editingEndpoint,
@@ -1046,8 +1021,6 @@ const batchEnableDisabledModels = async endpoint => {
     refreshAllEndpoints,
     toggleEndpointEnabled,
     saveEndpointRouting,
-    saveEndpointOrder,
-    moveEndpoint,
     modelSwitchLoadingRef,
     modelSwitchLoading,
     setModelSwitchLoading,
@@ -1101,6 +1074,7 @@ const batchEnableDisabledModels = async endpoint => {
     checkEndpointKeys,
     appendEndpointKey,
     removeEndpointKey,
+    keyDeleteConfirmActive,
     pendingDeleteEndpointId,
     setPendingDeleteEndpointId,
     DELETE_ENDPOINT_CONFIRM_MS,

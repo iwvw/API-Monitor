@@ -643,7 +643,6 @@ function OpenAIPage() {
     endpointsRefreshing, setEndpointsRefreshing,
     endpointToggleLoading, setEndpointToggleLoading,
     selectedEndpointId, setSelectedEndpointId,
-    endpointReorderSaving, setEndpointReorderSaving,
     endpointFormOpen, setEndpointFormOpen,
     editingEndpoint, setEditingEndpoint,
     endpointForm, setEndpointForm,
@@ -666,8 +665,6 @@ function OpenAIPage() {
     refreshAllEndpoints,
     toggleEndpointEnabled,
     saveEndpointRouting,
-    saveEndpointOrder,
-    moveEndpoint,
     modelSwitchLoadingRef,
     modelSwitchLoading, setModelSwitchLoading,
     toggleModelEnabled,
@@ -708,6 +705,7 @@ function OpenAIPage() {
     checkEndpointKeys,
     appendEndpointKey,
     removeEndpointKey,
+    keyDeleteConfirmActive,
     pendingDeleteEndpointId, setPendingDeleteEndpointId,
     DELETE_ENDPOINT_CONFIRM_MS,
     deleteEndpointConfirmActive,
@@ -1206,8 +1204,7 @@ function OpenAIPage() {
                       <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
                         <Table layout="fixed" className="w-full max-w-fit min-w-[420px] text-xs cq-lg:max-w-none">
                           <colgroup>
-                            <col style={{ width: 176 }} />
-                            <col style={{ width: 64 }} />
+                            <col style={{ width: 200 }} />
                             <col style={{ width: 64 }} />
                             <col style={{ width: 64 }} />
                             <col style={{ width: 64 }} />
@@ -1215,14 +1212,13 @@ function OpenAIPage() {
                           <Table.Header sticky variant="compact">
                             <Table.Row className="h-8">
                               <Table.Head className="!px-2.5 !py-1.5">端点</Table.Head>
-                              <Table.Head className="!px-2 !py-1.5 text-center">模型</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center" title="路由优先级（值越大越优先）">优先</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center" title="同优先级内的加权因子">权重</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
                             </Table.Row>
                           </Table.Header>
                           <Table.Body>
-                            {endpoints.map((item, index) => (
+                            {endpoints.map(item => (
                               <Table.Row
                                 key={item.id}
                                 variant={item.id === endpoint.id ? 'selected' : 'default'}
@@ -1231,7 +1227,10 @@ function OpenAIPage() {
                                 onDoubleClick={() => openEditEndpointModal(item)}
                               >
                                 <Table.Cell className="!px-2.5 !py-1.5">
-                                  <div className="flex items-start gap-1.5">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <Badge variant="teal" className="shrink-0" title="启用模型数">
+                                      {activeModelIdsForEndpoint(item).length}
+                                    </Badge>
                                     <div className="min-w-0 flex-1">
                                       <div className="truncate font-semibold leading-5 text-kumo-strong" title={item.name}>
                                         {item.name || '未命名端点'}
@@ -1240,26 +1239,7 @@ function OpenAIPage() {
                                         {item.baseUrl}
                                       </div>
                                     </div>
-                                    <div className="flex shrink-0 flex-col gap-0.5 pt-0.5">
-                                      <Button size="sm" variant="ghost" className="h-4 w-4 min-w-0 !px-0"
-                                        icon={<ChevronUp className="h-2.5 w-2.5" />}
-                                        title="上移"
-                                        aria-label="上移"
-                                        disabled={endpointReorderSaving || index === 0}
-                                        onClick={e => { e.stopPropagation(); moveEndpoint(index, -1); }}
-                                      />
-                                      <Button size="sm" variant="ghost" className="h-4 w-4 min-w-0 !px-0"
-                                        icon={<ChevronDown className="h-2.5 w-2.5" />}
-                                        title="下移"
-                                        aria-label="下移"
-                                        disabled={endpointReorderSaving || index === endpoints.length - 1}
-                                        onClick={e => { e.stopPropagation(); moveEndpoint(index, 1); }}
-                                      />
-                                    </div>
                                   </div>
-                                </Table.Cell>
-                                <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
-                                  {activeModelIdsForEndpoint(item).length}
                                 </Table.Cell>
                                 <Table.Cell className="!px-1.5 !py-1.5 text-center">
                                 {routingEditKey === `${item.id}:priority` ? (
@@ -3241,10 +3221,18 @@ function OpenAIPage() {
                         <Button
                           shape="square"
                           size="sm"
-                          variant="secondary-destructive"
-                          aria-label={`删除 Key K${rowIndex + 1}`}
+                          variant={keyDeleteConfirmActive(rowIndex) ? 'destructive' : 'secondary-destructive'}
+                          aria-label={
+                            keyDeleteConfirmActive(rowIndex)
+                              ? `再次点击确认删除 Key K${rowIndex + 1}`
+                              : `删除 Key K${rowIndex + 1}`
+                          }
                           onClick={() => removeEndpointKey(rowIndex)}
-                          title="删除此 Key"
+                          title={
+                            keyDeleteConfirmActive(rowIndex)
+                              ? '再次点击确认删除'
+                              : '删除此 Key'
+                          }
                           icon={<Trash className="h-3.5 w-3.5" />}
                         />
                         <KeyStatusBadge check={endpointKeyChecks?.[rowIndex]} />
