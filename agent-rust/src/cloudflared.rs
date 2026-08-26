@@ -200,14 +200,17 @@ fn binary_path_windows(request: &Request) -> Result<PathBuf, String> {
         .map_err(|err| format!("create cloudflared runtime directory: {err}"))?;
     let candidate = version_dir.join(".cloudflared.download.exe");
     let _ = std::fs::remove_file(&candidate);
-    // 用 PowerShell Invoke-WebRequest 下载：走系统代理（Windows 常需代理访问 GitHub），
-    // curl.exe 不读系统代理、且对国内网络易失败。
-    let script = "param($u,$o) $ErrorActionPreference='Stop'; try { Invoke-WebRequest -Uri $u -OutFile $o -TimeoutSec 300 -UseBasicParsing -MaximumRedirection 5; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }";
+    // 用 PowerShell Invoke-WebRequest 下载：走系统代理（Windows 常需代理访问 GitHub）。
+    // 以 -File 方式调用（命名参数最稳，-Command + param() 绑定在旧版 PS 不可靠）。
+    let script = version_dir.join("download-cloudflared.ps1");
+    std::fs::write(&script, "param([string]$Uri,[string]$OutFile)\n$ErrorActionPreference='Stop'\ntry {\n  Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec 300 -UseBasicParsing -MaximumRedirection 5\n  exit 0\n} catch {\n  Write-Error $_.Exception.Message\n  exit 1\n}\n")
+        .map_err(|err| format!("write cloudflared download script: {err}"))?;
     let status = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script,
-        ])
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .arg("-Uri")
         .arg(url)
+        .arg("-OutFile")
         .arg(&candidate)
         .status()
         .map_err(|err| format!("download cloudflared: {err}"))?;
