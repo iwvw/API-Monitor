@@ -46,6 +46,8 @@ fn agent_capabilities() -> Vec<String> {
     let mut capabilities = vec![
         "terminal_stream_v2".to_string(),
         "self_update_v1".to_string(),
+        "cloudflared_runtime_v1".to_string(),
+        "tcp_forwarder_v1".to_string(),
     ];
     #[cfg(target_os = "linux")]
     capabilities.push("proxy_runtime_v1".to_string());
@@ -53,10 +55,6 @@ fn agent_capabilities() -> Vec<String> {
     capabilities.push("proxy_runtime_lifecycle_v2".to_string());
     #[cfg(target_os = "linux")]
     capabilities.push("proxy_user_traffic_v1".to_string());
-    #[cfg(target_os = "linux")]
-    capabilities.push("cloudflared_runtime_v1".to_string());
-    #[cfg(target_os = "linux")]
-    capabilities.push("tcp_forwarder_v1".to_string());
     #[cfg(target_os = "linux")]
     capabilities.push("self_uninstall_v1".to_string());
     #[cfg(target_os = "windows")]

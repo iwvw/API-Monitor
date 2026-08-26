@@ -1,20 +1,11 @@
-#[cfg(unix)]
 use serde::{Deserialize, Serialize};
-#[cfg(unix)]
 use std::collections::HashMap;
-#[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(unix)]
 use std::sync::{Arc, Mutex, OnceLock};
-#[cfg(unix)]
 use std::time::{Duration, Instant};
-#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-#[cfg(unix)]
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-#[cfg(unix)]
 use tokio::net::TcpStream;
-#[cfg(unix)]
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 // ==================== 复用隧道协议 ====================
@@ -24,7 +15,6 @@ use tokio::sync::{oneshot, Mutex as AsyncMutex};
 // conn_id 由中继（连接发起/客户端侧）分配，本机镜像使用；本机为每个 conn
 // 维护到 local_host:local_port 的本地连接。
 
-#[cfg(unix)]
 mod frame {
     pub const DATA: u8 = 0x01;
     pub const CLOSE: u8 = 0x02;
@@ -33,7 +23,6 @@ mod frame {
     pub const HDR_LEN: usize = 7;
 }
 
-#[cfg(unix)]
 #[derive(Debug, Clone, Deserialize)]
 struct Request {
     operation: String,
@@ -49,7 +38,6 @@ struct Request {
     local_port: u16,
 }
 
-#[cfg(unix)]
 #[derive(Debug, Serialize)]
 struct Status {
     forward_id: String,
@@ -58,15 +46,12 @@ struct Status {
     uptime_seconds: u64,
 }
 
-#[cfg(unix)]
 static TUNNEL_MGR: OnceLock<TunnelManager> = OnceLock::new();
 
-#[cfg(unix)]
 fn tunnel_manager() -> &'static TunnelManager {
     TUNNEL_MGR.get_or_init(TunnelManager::new)
 }
 
-#[cfg(unix)]
 struct TunnelEntry {
     forward_id: String,
     local_host: String,
@@ -81,12 +66,10 @@ struct TunnelEntry {
     control: Mutex<Option<oneshot::Sender<()>>>,
 }
 
-#[cfg(unix)]
 struct TunnelManager {
     tunnels: Mutex<HashMap<String, Arc<TunnelEntry>>>,
 }
 
-#[cfg(unix)]
 impl TunnelManager {
     fn new() -> Self {
         TunnelManager { tunnels: Mutex::new(HashMap::new()) }
@@ -105,7 +88,6 @@ impl TunnelManager {
     }
 }
 
-#[cfg(unix)]
 impl TunnelEntry {
     fn new(request: &Request) -> Self {
         TunnelEntry {
@@ -152,7 +134,6 @@ impl TunnelEntry {
     }
 }
 
-#[cfg(unix)]
 async fn write_frame(w: &mut OwnedWriteHalf, typ: u8, conn_id: u16, payload: &[u8]) -> std::io::Result<()> {
     let mut hdr = [0u8; frame::HDR_LEN];
     hdr[0] = typ;
@@ -165,7 +146,6 @@ async fn write_frame(w: &mut OwnedWriteHalf, typ: u8, conn_id: u16, payload: &[u
     Ok(())
 }
 
-#[cfg(unix)]
 async fn read_frame(r: &mut OwnedReadHalf) -> std::io::Result<(u8, u16, Vec<u8>)> {
     let mut hdr = [0u8; frame::HDR_LEN];
     r.read_exact(&mut hdr).await?;
@@ -183,7 +163,6 @@ async fn read_frame(r: &mut OwnedReadHalf) -> std::io::Result<(u8, u16, Vec<u8>)
 }
 
 // connect_tunnel 建立反向隧道并完成握手（面板要求的转发协议头）。
-#[cfg(unix)]
 async fn connect_tunnel(entry: &Arc<TunnelEntry>) -> Result<TcpStream, String> {
     let addr = format!("{}:{}", entry.relay_host, entry.relay_port);
     let stream = tokio::time::timeout(Duration::from_secs(10), TcpStream::connect(&addr))
@@ -210,7 +189,6 @@ async fn connect_tunnel(entry: &Arc<TunnelEntry>) -> Result<TcpStream, String> {
 }
 
 // run_read_loop 读取隧道帧并分发；隧道断开或收到控制信号即返回。
-#[cfg(unix)]
 async fn run_read_loop(entry: Arc<TunnelEntry>, mut reader: OwnedReadHalf, mut control_rx: oneshot::Receiver<()>) {
     loop {
         tokio::select! {
@@ -237,7 +215,6 @@ async fn run_read_loop(entry: Arc<TunnelEntry>, mut reader: OwnedReadHalf, mut c
 }
 
 // dispatch_data 把中继数据投递给本地连接；无连接时按需建立到本地服务的连接。
-#[cfg(unix)]
 async fn dispatch_data(entry: &Arc<TunnelEntry>, conn_id: u16, payload: Vec<u8>) {
     {
         let guard = entry.conns.lock().await;
@@ -269,7 +246,6 @@ async fn dispatch_data(entry: &Arc<TunnelEntry>, conn_id: u16, payload: Vec<u8>)
 }
 
 // local_to_tunnel 本地服务 → 中继：读本地字节流并帧化上送。
-#[cfg(unix)]
 async fn local_to_tunnel(entry: Arc<TunnelEntry>, conn_id: u16, mut local_read: OwnedReadHalf) {
     let mut buf = vec![0u8; 32 * 1024];
     loop {
@@ -287,7 +263,6 @@ async fn local_to_tunnel(entry: Arc<TunnelEntry>, conn_id: u16, mut local_read: 
 }
 
 // keepalive 每 30s 发一帧保活，防止 NAT/中间盒回收隧道。
-#[cfg(unix)]
 async fn keepalive_loop(entry: Arc<TunnelEntry>) {
     loop {
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -301,7 +276,6 @@ async fn keepalive_loop(entry: Arc<TunnelEntry>) {
 }
 
 // supervisor 维护隧道生命周期：首次握手成功后立刻回报面板，随后断开时指数退避自动重连。
-#[cfg(unix)]
 async fn supervisor(entry: Arc<TunnelEntry>, mut first_result: Option<oneshot::Sender<Result<(), String>>>) {
     let mut backoff = Duration::from_secs(1);
     loop {
@@ -344,7 +318,6 @@ async fn supervisor(entry: Arc<TunnelEntry>, mut first_result: Option<oneshot::S
 }
 
 // start_session 基于已握手的 stream 启动会话（读循环+保活），返回会话结束信号。
-#[cfg(unix)]
 async fn start_session(entry: &Arc<TunnelEntry>, stream: TcpStream) -> oneshot::Receiver<()> {
     let (reader, writer) = stream.into_split();
     *entry.writer.lock().await = Some(writer);
@@ -365,7 +338,6 @@ async fn start_session(entry: &Arc<TunnelEntry>, stream: TcpStream) -> oneshot::
 }
 
 // end_session 清理会话残留状态（幂等）。
-#[cfg(unix)]
 async fn end_session(entry: &Arc<TunnelEntry>) {
     entry.connected.store(false, Ordering::Relaxed);
     *entry.writer.lock().await = None;
@@ -373,7 +345,6 @@ async fn end_session(entry: &Arc<TunnelEntry>) {
     entry.close_all_conns().await;
 }
 
-#[cfg(unix)]
 async fn install(request: &Request) -> Result<String, String> {
     if tunnel_manager().get(&request.forward_id).is_some() {
         return Ok(serde_json::json!({"status":"connected","forward_id":request.forward_id}).to_string());
@@ -405,7 +376,6 @@ async fn install(request: &Request) -> Result<String, String> {
     }
 }
 
-#[cfg(unix)]
 async fn remove(forward_id: &str) -> Result<String, String> {
     if let Some(entry) = tunnel_manager().unregister(forward_id) {
         entry.active.store(false, Ordering::Relaxed);
@@ -417,7 +387,6 @@ async fn remove(forward_id: &str) -> Result<String, String> {
     Ok(serde_json::json!({"status":"removed","forward_id":forward_id}).to_string())
 }
 
-#[cfg(unix)]
 async fn status(forward_id: &str) -> Result<String, String> {
     let connected;
     let connector_count;
@@ -441,17 +410,14 @@ async fn status(forward_id: &str) -> Result<String, String> {
 
 // ==================== 入口主机 Agent：中继监听配置 ====================
 
-#[cfg(unix)]
 fn relay_admin_endpoint() -> String {
     std::env::var("API_MONITOR_RELAY_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into())
 }
 
-#[cfg(unix)]
 fn relay_admin_token() -> String {
     std::env::var("API_MONITOR_RELAY_TOKEN").unwrap_or_default()
 }
 
-#[cfg(unix)]
 async fn relay_request(
     method: reqwest::Method,
     path: &str,
@@ -478,7 +444,6 @@ async fn relay_request(
 }
 
 // listen 在入口主机的中继器上注册公开监听端口并放行防火墙。
-#[cfg(unix)]
 async fn listen(request: &Request) -> Result<String, String> {
     let port = request.relay_port;
     if request.forward_id.is_empty() || port == 0 {
@@ -486,12 +451,12 @@ async fn listen(request: &Request) -> Result<String, String> {
     }
     let body = serde_json::json!({"id": request.forward_id, "listen_port": port});
     relay_request(reqwest::Method::POST, "/forwards", Some(body)).await?;
+    #[cfg(unix)]
     let _ = crate::proxy_runtime::ensure_firewall_port(port, "tcp");
     Ok(serde_json::json!({"status":"listening","forward_id":request.forward_id,"port":port}).to_string())
 }
 
 // unlisten 关闭入口主机的监听端口并移除防火墙规则。
-#[cfg(unix)]
 async fn unlisten(request: &Request) -> Result<String, String> {
     if request.forward_id.is_empty() {
         return Err("unlisten 需要 forward_id".to_string());
@@ -499,13 +464,15 @@ async fn unlisten(request: &Request) -> Result<String, String> {
     // forward_id 仅含 [a-z0-9_]，可直接放入路径
     let path = format!("/forwards/{}", request.forward_id);
     let _ = relay_request(reqwest::Method::DELETE, &path, None).await;
-    if request.relay_port > 0 {
-        crate::proxy_runtime::remove_firewall_port(request.relay_port, "tcp");
+    #[cfg(unix)]
+    {
+        if request.relay_port > 0 {
+            crate::proxy_runtime::remove_firewall_port(request.relay_port, "tcp");
+        }
     }
     Ok(serde_json::json!({"status":"unlistened","forward_id":request.forward_id}).to_string())
 }
 
-#[cfg(unix)]
 pub async fn reconcile(raw: &str) -> Result<String, String> {
     let request: Request = serde_json::from_str(raw).map_err(|e| format!("invalid tcp_forwarder request: {e}"))?;
     match request.operation.trim().to_ascii_lowercase().as_str() {
@@ -518,12 +485,8 @@ pub async fn reconcile(raw: &str) -> Result<String, String> {
     }
 }
 
-#[cfg(not(unix))]
-pub async fn reconcile(_raw: &str) -> Result<String, String> {
-    Err("TCP forwarder is supported on Linux only".to_string())
-}
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

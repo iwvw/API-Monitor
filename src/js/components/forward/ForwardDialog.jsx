@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, ClipboardText, Tabs } from '@cloudflare/kumo';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
@@ -67,6 +67,15 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   // 高级：健康检查 / 故障转移（仅编辑态可调）
   const [healthCheckEnabled, setHealthCheckEnabled] = useState(false);
   const [failoverEnabled, setFailoverEnabled] = useState(false);
+  // 一键部署 CF Tunnel：源主机未部署隧道时的内联部署表单
+  const [tunnelDeployOpen, setTunnelDeployOpen] = useState(false);
+  const [tunnelZones, setTunnelZones] = useState([]);
+  const [tunnelZonesLoading, setTunnelZonesLoading] = useState(false);
+  const [tunnelAccountId, setTunnelAccountId] = useState('');
+  const [tunnelZoneId, setTunnelZoneId] = useState('');
+  const [tunnelHostname, setTunnelHostname] = useState('');
+  const [tunnelDeploying, setTunnelDeploying] = useState(false);
+  const [tunnelDeployError, setTunnelDeployError] = useState('');
 
   // 预检
   const [preflight, setPreflight] = useState(null);
@@ -236,6 +245,103 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   const port = parseInt(localPort, 10);
   const preflightReady = !!serverId && !!port && port >= 1 && port <= 65535;
 
+  // ===== 一键部署 CF Tunnel =====
+  const cfTunnelCheckFailed = () => {
+    if (!preflight?.checks) return false;
+    const check = preflight.checks.find((c) => c.name === 'CF Tunnel 已就绪');
+    return Boolean(check && !check.passed);
+  };
+  const loadTunnelZones = useCallback(async () => {
+    setTunnelZonesLoading(true);
+    try {
+      const res = await fetch('/api/cloudflare/zones');
+      const json = await res.json();
+      const zones = Array.isArray(json?.data) ? json.data : [];
+      setTunnelZones(zones);
+      if (zones.length > 0) {
+        const account = zones[0].account?.id || '';
+        setTunnelAccountId(account);
+        setTunnelZoneId(zones[0].id || '');
+        setTunnelHostname(`fwd-${Math.random().toString(36).slice(2, 8)}.${zones[0].name}`);
+      }
+    } catch (e) {
+      setTunnelDeployError('获取 Cloudflare Zone 失败');
+    } finally {
+      setTunnelZonesLoading(false);
+    }
+  }, []);
+  const openTunnelDeploy = () => {
+    setTunnelDeployOpen(true);
+    setTunnelDeployError('');
+    if (tunnelZones.length === 0) loadTunnelZones();
+  };
+  const tunnelAccounts = useMemo(() => {
+    const map = new Map();
+    tunnelZones.forEach((z) => { if (z.account?.id) map.set(z.account.id, z.account.name || z.account.id); });
+    return Array.from(map, ([id, name]) => ({ value: id, label: name }));
+  }, [tunnelZones]);
+  const tunnelZoneItems = useMemo(
+    () => tunnelZones.filter((z) => z.account?.id === tunnelAccountId).map((z) => ({ value: z.id, label: z.name })),
+    [tunnelZones, tunnelAccountId]
+  );
+  const onTunnelAccountChange = (v) => {
+    setTunnelAccountId(v);
+    const first = tunnelZones.find((z) => z.account?.id === v);
+    setTunnelZoneId(first?.id || '');
+    if (first) setTunnelHostname(`fwd-${Math.random().toString(36).slice(2, 8)}.${first.name}`);
+  };
+  const onTunnelZoneChange = (v) => {
+    setTunnelZoneId(v);
+    const zone = tunnelZones.find((z) => z.id === v);
+    if (zone) setTunnelHostname(`fwd-${Math.random().toString(36).slice(2, 8)}.${zone.name}`);
+  };
+  const deploySourceTunnel = async () => {
+    if (!serverId) return;
+    if (!tunnelAccountId || !tunnelZoneId || !tunnelHostname.trim()) {
+      setTunnelDeployError('请选择 Cloudflare 账号、Zone 并填写域名');
+      return;
+    }
+    setTunnelDeploying(true);
+    setTunnelDeployError('');
+    try {
+      const res = await fetch(`/api/server/agent/proxy/tunnels/${encodeURIComponent(serverId)}/deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: tunnelAccountId, zone_id: tunnelZoneId, hostname: tunnelHostname.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.success === false) throw new Error(json.error || json.message || 'Tunnel 部署失败');
+      toast.success('Tunnel 部署已提交');
+      // 轮询托管隧道列表直到 running（部署是异步任务，避免读过期闭包）
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts += 1;
+        try {
+          const listRes = await fetch(`/api/server/agent/proxy/tunnels?server_id=${encodeURIComponent(serverId)}`);
+          const listJson = await listRes.json();
+          const tunnels = Array.isArray(listJson?.data) ? listJson.data : [];
+          const ready = tunnels.some((t) => t.apply_status === 'running');
+          if (ready) {
+            clearInterval(poll);
+            setTunnelDeploying(false);
+            setTunnelDeployOpen(false);
+            runPreflight();
+            toast.success('Cloudflare Tunnel 已就绪');
+            return;
+          }
+        } catch (e) { /* 继续轮询 */ }
+        if (attempts >= 40) {
+          clearInterval(poll);
+          setTunnelDeploying(false);
+          setTunnelDeployError('部署仍在后台进行，稍后可点击「重新预检」查看状态');
+        }
+      }, 3000);
+    } catch (e) {
+      setTunnelDeployError(e?.message || 'Tunnel 部署失败');
+      setTunnelDeploying(false);
+    }
+  };
+
   const serverItems = servers.map((s) => ({ value: s.id, label: s.name || s.id }));
   const relayItems = servers.filter((s) => s.id !== serverId).map((s) => ({ value: s.id, label: s.name || s.id }));
   const standbyItems = relayItems;
@@ -350,6 +456,28 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                   <div className="mt-1">
                     <Button size="sm" variant="outline" onClick={runPreflight} disabled={!preflightReady || preflightLoading}>重新预检</Button>
                   </div>
+                  {transport === 'cloudflare_tunnel' && cfTunnelCheckFailed() && (
+                    <div className="rounded-lg border border-kumo-warning/40 bg-kumo-fill px-3 py-2">
+                      <p className="text-xs leading-5 text-kumo-text-secondary">
+                        源主机尚未部署 Cloudflare Tunnel，部署转发规则前需先建立隧道。
+                      </p>
+                      {!tunnelDeployOpen ? (
+                        <Button size="sm" variant="secondary" className="mt-1.5" onClick={openTunnelDeploy} disabled={tunnelDeploying}>
+                          一键部署隧道
+                        </Button>
+                      ) : (
+                        <div className="mt-1.5 flex flex-col gap-2">
+                          <Select size="sm" value={tunnelAccountId} onValueChange={onTunnelAccountChange} items={tunnelAccounts} placeholder="Cloudflare 账号" aria-label="Cloudflare 账号" disabled={tunnelZonesLoading} />
+                          <Select size="sm" value={tunnelZoneId} onValueChange={onTunnelZoneChange} items={tunnelZoneItems} placeholder="Zone（域名）" aria-label="Cloudflare Zone" disabled={tunnelZonesLoading} />
+                          <Input size="sm" value={tunnelHostname} onChange={(e) => setTunnelHostname(e.target.value)} placeholder="tunnel.example.com" aria-label="Tunnel 域名" />
+                          {tunnelDeployError && <p className="text-xs text-kumo-danger">{tunnelDeployError}</p>}
+                          <Button size="sm" variant="primary" onClick={deploySourceTunnel} disabled={tunnelDeploying || !tunnelAccountId || !tunnelZoneId || !tunnelHostname.trim()}>
+                            {tunnelDeploying ? '部署中…' : '开始部署'}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </FormCard>
 

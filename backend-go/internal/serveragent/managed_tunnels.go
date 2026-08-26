@@ -21,11 +21,13 @@ import (
 )
 
 const (
-	cloudflaredVersion     = "2026.7.2"
-	cloudflaredAMD64URL    = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-amd64"
-	cloudflaredAMD64SHA256 = "ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd"
-	cloudflaredARM64URL    = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-arm64"
-	cloudflaredARM64SHA256 = "405df476437e027fc6d18729a5a77155c0a33a6082aeee60a799a688f3052e66"
+	cloudflaredVersion             = "2026.7.2"
+	cloudflaredAMD64URL            = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-amd64"
+	cloudflaredAMD64SHA256         = "ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd"
+	cloudflaredARM64URL            = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-arm64"
+	cloudflaredARM64SHA256         = "405df476437e027fc6d18729a5a77155c0a33a6082aeee60a799a688f3052e66"
+	cloudflaredWindowsAMD64URL     = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-windows-amd64.exe"
+	cloudflaredWindowsAMD64SHA256  = "cdb5d4432f6ae1595654a692a51308b69d2bf7af961f5578d9391837cf072df9"
 )
 
 type managedTunnelState struct {
@@ -580,6 +582,7 @@ func cloudflaredTaskPayload(operation, token string) map[string]interface{} {
 		"operation": operation, "token": token, "version": cloudflaredVersion,
 		"asset_url_amd64": cloudflaredAMD64URL, "asset_sha256_amd64": cloudflaredAMD64SHA256,
 		"asset_url_arm64": cloudflaredARM64URL, "asset_sha256_arm64": cloudflaredARM64SHA256,
+		"asset_url_windows_amd64": cloudflaredWindowsAMD64URL, "asset_sha256_windows_amd64": cloudflaredWindowsAMD64SHA256,
 	}
 }
 

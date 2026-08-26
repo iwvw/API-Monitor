@@ -1,13 +1,45 @@
-#[cfg(unix)]
 use serde::Deserialize;
-#[cfg(unix)]
-use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
 use std::path::{Path, PathBuf};
-#[cfg(unix)]
-use std::process::{Command, Stdio};
+
+#[derive(Debug, Deserialize, Default)]
+struct Request {
+    operation: String,
+    #[serde(default)]
+    token: String,
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    #[allow(dead_code)] // Windows 分支不读取 Linux 资产字段
+    asset_url_amd64: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    asset_sha256_amd64: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    asset_url_arm64: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    asset_sha256_arm64: String,
+    #[serde(default)]
+    #[allow(dead_code)] // Linux 分支不读取 Windows 资产字段
+    asset_url_windows_amd64: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    asset_sha256_windows_amd64: String,
+}
+
+pub fn reconcile(raw: &str) -> Result<String, String> {
+    let request: Request = serde_json::from_str(raw)
+        .map_err(|err| format!("invalid cloudflared desired state: {err}"))?;
+    match request.operation.trim().to_ascii_lowercase().as_str() {
+        "install" | "reconcile" => install(&request),
+        "remove" | "uninstall" => remove(),
+        "status" => status(),
+        _ => Err("cloudflared operation must be install, remove, or status".to_string()),
+    }
+}
+
+// ==================== Unix（systemd 服务） ====================
 
 #[cfg(unix)]
 const CONFIG_ROOT: &str = "/etc/api-monitor/cloudflared";
@@ -17,44 +49,12 @@ const RUNTIME_ROOT: &str = "/opt/api-monitor/cloudflared/versions";
 const UNIT_PATH: &str = "/etc/systemd/system/api-monitor-cloudflared.service";
 
 #[cfg(unix)]
-#[derive(Debug, Deserialize)]
-struct Request {
-    operation: String,
-    #[serde(default)]
-    token: String,
-    #[serde(default)]
-    version: String,
-    #[serde(default)]
-    asset_url_amd64: String,
-    #[serde(default)]
-    asset_sha256_amd64: String,
-    #[serde(default)]
-    asset_url_arm64: String,
-    #[serde(default)]
-    asset_sha256_arm64: String,
-}
-
-#[cfg(unix)]
-pub fn reconcile(raw: &str) -> Result<String, String> {
-    let request: Request = serde_json::from_str(raw)
-        .map_err(|err| format!("invalid cloudflared desired state: {err}"))?;
-    if !Path::new("/run/systemd/system").exists() {
-        return Err("Cloudflare Tunnel deployment requires systemd".to_string());
-    }
-    match request.operation.trim().to_ascii_lowercase().as_str() {
-        "install" | "reconcile" => install(&request),
-        "remove" | "uninstall" => remove(),
-        "status" => status(),
-        _ => Err("cloudflared operation must be install, remove, or status".to_string()),
-    }
-}
-
-#[cfg(unix)]
 fn install(request: &Request) -> Result<String, String> {
-    if request.token.trim().len() < 32 || request.token.chars().any(char::is_whitespace) {
-        return Err("invalid scoped Cloudflare Tunnel token".to_string());
-    }
-    let binary = ensure_binary(request)?;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    validate_token(request)?;
+    let binary = ensure_binary_unix(request)?;
     let root = Path::new(CONFIG_ROOT);
     fs::create_dir_all(root)
         .map_err(|err| format!("create cloudflared config directory: {err}"))?;
@@ -76,6 +76,8 @@ fn install(request: &Request) -> Result<String, String> {
 
 #[cfg(unix)]
 fn remove() -> Result<String, String> {
+    use std::fs;
+
     let _ = systemctl(&["disable", "--now", "api-monitor-cloudflared.service"]);
     let _ = fs::remove_file(UNIT_PATH);
     let _ = fs::remove_dir_all(CONFIG_ROOT);
@@ -87,6 +89,8 @@ fn remove() -> Result<String, String> {
 
 #[cfg(unix)]
 fn status() -> Result<String, String> {
+    use std::process::Command;
+
     let active = Command::new("systemctl")
         .args(["is-active", "--quiet", "api-monitor-cloudflared.service"])
         .status()
@@ -95,7 +99,11 @@ fn status() -> Result<String, String> {
 }
 
 #[cfg(unix)]
-fn ensure_binary(request: &Request) -> Result<PathBuf, String> {
+fn ensure_binary_unix(request: &Request) -> Result<PathBuf, String> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+
     if request.version.trim().is_empty() {
         return Err("cloudflared version is required".to_string());
     }
@@ -104,12 +112,7 @@ fn ensure_binary(request: &Request) -> Result<PathBuf, String> {
         "aarch64" => (&request.asset_url_arm64, &request.asset_sha256_arm64),
         arch => return Err(format!("unsupported cloudflared architecture: {arch}")),
     };
-    if !url.starts_with("https://")
-        || digest.len() != 64
-        || !digest.bytes().all(|value| value.is_ascii_hexdigit())
-    {
-        return Err("cloudflared asset must use HTTPS and a SHA-256 digest".to_string());
-    }
+    validate_asset(url, digest)?;
     let version_dir = PathBuf::from(RUNTIME_ROOT).join(request.version.trim());
     let binary = version_dir.join("cloudflared");
     if binary.is_file()
@@ -166,28 +169,247 @@ fn ensure_binary(request: &Request) -> Result<PathBuf, String> {
     Ok(binary)
 }
 
+// ==================== Windows（后台进程 + 开机计划任务） ====================
+
+#[cfg(windows)]
+fn config_root_windows() -> PathBuf {
+    let base = std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("C:\\ProgramData"));
+    base.join("api-monitor").join("cloudflared")
+}
+
+#[cfg(windows)]
+fn binary_path_windows(request: &Request) -> Result<PathBuf, String> {
+    if request.version.trim().is_empty() {
+        return Err("cloudflared version is required".to_string());
+    }
+    let url = &request.asset_url_windows_amd64;
+    let digest = &request.asset_sha256_windows_amd64;
+    if url.is_empty() {
+        return Err("cloudflared Windows 资产未配置（asset_url_windows_amd64）".to_string());
+    }
+    validate_asset(url, digest)?;
+    let root = config_root_windows();
+    let version_dir = root.join("versions").join(request.version.trim());
+    let binary = version_dir.join("cloudflared.exe");
+    if binary.is_file() {
+        return Ok(binary);
+    }
+    std::fs::create_dir_all(&version_dir)
+        .map_err(|err| format!("create cloudflared runtime directory: {err}"))?;
+    let candidate = version_dir.join(".cloudflared.download.exe");
+    let _ = std::fs::remove_file(&candidate);
+    let status = std::process::Command::new("curl.exe")
+        .args(["--fail", "--location", "--retry", "3", "--connect-timeout", "15", "--output"])
+        .arg(&candidate)
+        .arg(url)
+        .status()
+        .map_err(|err| format!("download cloudflared: {err}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&candidate);
+        return Err("cloudflared 下载失败".to_string());
+    }
+    let actual = sha256_of(&candidate)?;
+    if actual != digest.to_ascii_lowercase() {
+        let _ = std::fs::remove_file(&candidate);
+        return Err("cloudflared SHA-256 verification failed".to_string());
+    }
+    std::fs::rename(&candidate, &binary).map_err(|err| format!("activate cloudflared: {err}"))?;
+    Ok(binary)
+}
+
+#[cfg(windows)]
+fn sha256_of(path: &Path) -> Result<String, String> {
+    // certutil: 输出行形如 "SHA256 的 = <hash>"
+    let output = std::process::Command::new("certutil")
+        .args(["-hashfile"])
+        .arg(path)
+        .arg("SHA256")
+        .output()
+        .map_err(|err| format!("run certutil: {err}"))?;
+    if !output.status.success() {
+        return Err("certutil 计算哈希失败".to_string());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.len() == 64 && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Ok(trimmed.to_ascii_lowercase());
+        }
+    }
+    Err("无法从 certutil 输出解析 SHA-256".to_string())
+}
+
+#[cfg(windows)]
+fn spawn_cloudflared_windows(binary: &Path, token_file: &Path) -> Result<u32, String> {
+    use std::os::windows::process::CommandExt;
+
+    let log_file = config_root_windows().join("cloudflared.log");
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)
+        .map_err(|err| format!("open cloudflared log: {err}"))?;
+    let child = std::process::Command::new(binary)
+        .args([
+            "--no-autoupdate", "tunnel", "run", "--token-file",
+        ])
+        .arg(token_file)
+        .stdout(std::process::Stdio::from(log.try_clone().map_err(|err| format!("clone log: {err}"))?))
+        .stderr(std::process::Stdio::from(log))
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .spawn()
+        .map_err(|err| format!("spawn cloudflared: {err}"))?;
+    let pid = child.id();
+    std::fs::write(config_root_windows().join("cloudflared.pid"), pid.to_string())
+        .map_err(|err| format!("write cloudflared pid: {err}"))?;
+    Ok(pid)
+}
+
+#[cfg(windows)]
+fn pid_alive_windows(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .output();
+    match output {
+        Ok(out) => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            text.contains(&pid.to_string())
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(windows)]
+fn kill_pid_windows(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F", "/T"])
+        .status();
+}
+
+#[cfg(windows)]
+fn install(request: &Request) -> Result<String, String> {
+    use std::fs;
+
+    validate_token(request)?;
+    let binary = binary_path_windows(request)?;
+    let root = config_root_windows();
+    fs::create_dir_all(&root).map_err(|err| format!("create cloudflared config directory: {err}"))?;
+    let token_file = root.join("token");
+    fs::write(&token_file, request.token.trim()).map_err(|err| format!("write cloudflared token: {err}"))?;
+
+    // 重启当前实例（幂等：停旧进程再拉起新实例，保证使用最新 token/二进制）
+    stop_cloudflared_windows();
+    let pid = spawn_cloudflared_windows(&binary, &token_file)?;
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    if !pid_alive_windows(pid) {
+        return Err("cloudflared 启动后进程即退出，请查看 %ProgramData%\\api-monitor\\cloudflared\\cloudflared.log".to_string());
+    }
+    // 开机自启：SYSTEM 启动任务（尽力而为；agent 存活期间进程也始终跟随）
+    let _ = ensure_boot_task_windows(&binary, &token_file);
+    Ok(serde_json::json!({"status":"running","version":request.version,"pid":pid}).to_string())
+}
+
+#[cfg(windows)]
+fn ensure_boot_task_windows(binary: &Path, token_file: &Path) -> Result<(), String> {
+    let tr = format!(
+        "\\\"{}\\\" --no-autoupdate tunnel run --token-file \\\"{}\\\"",
+        binary.display().to_string().replace('\\', "\\\\"),
+        token_file.display().to_string().replace('\\', "\\\\")
+    );
+    let status = std::process::Command::new("schtasks")
+        .args(["/Create", "/TN", "api-monitor-cloudflared", "/TR", &tr, "/SC", "ONSTART", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"])
+        .status();
+    match status {
+        Ok(st) if st.success() => Ok(()),
+        Ok(_) => Err("schtasks 创建任务失败".to_string()),
+        Err(err) => Err(format!("schtasks: {err}")),
+    }
+}
+
+#[cfg(windows)]
+fn stop_cloudflared_windows() {
+    let pid_file = config_root_windows().join("cloudflared.pid");
+    if let Ok(text) = std::fs::read_to_string(&pid_file) {
+        if let Ok(pid) = text.trim().parse::<u32>() {
+            kill_pid_windows(pid);
+        }
+    }
+    // 兜底：清理可能残留的同名工作进程（OLDER agent 可能未写 pid 文件）
+    let _ = std::process::Command::new("taskkill")
+        .args(["/IM", "cloudflared.exe", "/F", "/T"])
+        .status();
+}
+
+#[cfg(windows)]
+fn remove() -> Result<String, String> {
+    stop_cloudflared_windows();
+    let _ = std::process::Command::new("schtasks").args(["/Delete", "/TN", "api-monitor-cloudflared", "/F"]).status();
+    let root = config_root_windows();
+    if std::env::var_os("ProgramData").is_some() {
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    Ok(serde_json::json!({"status":"removed"}).to_string())
+}
+
+#[cfg(windows)]
+fn status() -> Result<String, String> {
+    let pid_file = config_root_windows().join("cloudflared.pid");
+    let running = std::fs::read_to_string(&pid_file)
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .map(pid_alive_windows)
+        .unwrap_or(false);
+    Ok(serde_json::json!({"status": if running { "running" } else { "stopped" }}).to_string())
+}
+
+// ==================== 通用 ====================
+
+fn validate_token(request: &Request) -> Result<(), String> {
+    if request.token.trim().len() < 32 || request.token.chars().any(char::is_whitespace) {
+        return Err("invalid scoped Cloudflare Tunnel token".to_string());
+    }
+    Ok(())
+}
+
+fn validate_asset(url: &str, digest: &str) -> Result<(), String> {
+    if !url.starts_with("https://")
+        || digest.len() != 64
+        || !digest.bytes().all(|value| value.is_ascii_hexdigit())
+    {
+        return Err("cloudflared asset must use HTTPS and a SHA-256 digest".to_string());
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
     let temporary = path.with_extension("tmp");
-    fs::write(&temporary, bytes).map_err(|err| format!("write {}: {err}", temporary.display()))?;
-    fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))
+    std::fs::write(&temporary, bytes).map_err(|err| format!("write {}: {err}", temporary.display()))?;
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(mode))
         .map_err(|err| format!("secure {}: {err}", temporary.display()))?;
-    fs::rename(&temporary, path).map_err(|err| format!("commit {}: {err}", path.display()))
+    std::fs::rename(&temporary, path).map_err(|err| format!("commit {}: {err}", path.display()))
 }
 
 #[cfg(unix)]
 fn systemctl(args: &[&str]) -> Result<(), String> {
-    run(
-        Command::new("systemctl").args(args),
-        &format!("systemctl {}", args.join(" ")),
-    )
+    run(std::process::Command::new("systemctl").args(args), &format!("systemctl {}", args.join(" ")))
 }
 
 #[cfg(unix)]
-fn run(command: &mut Command, label: &str) -> Result<(), String> {
+fn run(command: &mut std::process::Command, label: &str) -> Result<(), String> {
     let output = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .output()
         .map_err(|err| format!("{label}: {err}"))?;
     if output.status.success() {
@@ -198,9 +420,4 @@ fn run(command: &mut Command, label: &str) -> Result<(), String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
-}
-
-#[cfg(not(unix))]
-pub fn reconcile(_raw: &str) -> Result<String, String> {
-    Err("Cloudflare Tunnel management is supported on Linux only".to_string())
 }

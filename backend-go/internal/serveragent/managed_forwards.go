@@ -564,8 +564,8 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 		response.Error(w, http.StatusConflict, "中继入口主机 Agent 版本过旧，不支持 tcp_forwarder_v1")
 		return
 	}
-	if s.sourceClientCapability(item.ServerID) == "" {
-		response.Error(w, http.StatusBadGateway, "源主机 Agent 离线或版本过旧")
+	if issue := s.sourceClientCapabilityIssue(item.ServerID); issue != "" {
+		response.Error(w, http.StatusBadGateway, issue)
 		return
 	}
 
@@ -600,16 +600,16 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 	response.OK(w, updated)
 }
 
-// sourceClientCapability 校验源主机在线并具备 tcp_forwarder_v1 能力。
-func (s *Service) sourceClientCapability(serverID string) string {
+// sourceClientCapabilityIssue 校验源主机在线且具备 tcp_forwarder_v1 能力，返回问题描述（空=可用）。
+func (s *Service) sourceClientCapabilityIssue(serverID string) string {
 	conn, ok := s.registry.Get(serverID)
 	if !ok {
-		return ""
+		return "源主机 Agent 离线，无法建立隧道"
 	}
 	if !conn.GetCapabilities()["tcp_forwarder_v1"] {
-		return ""
+		return "源主机 Agent 未启用 TCP 转发能力（请先将 Agent 升级到支持跨平台的版本）"
 	}
-	return serverID
+	return ""
 }
 
 // allocateRelayPort 在事务内分配并占用中继端口，避免并发部署撞同端口。
