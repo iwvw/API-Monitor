@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, Button, ClipboardText, Tabs } from '@cloudflare/kumo';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
@@ -69,6 +69,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   const [failoverEnabled, setFailoverEnabled] = useState(false);
   // 一键部署 CF Tunnel：源主机未部署隧道时的内联部署表单
   const [tunnelDeployOpen, setTunnelDeployOpen] = useState(false);
+  const [tunnelAccounts, setTunnelAccounts] = useState([]);
   const [tunnelZones, setTunnelZones] = useState([]);
   const [tunnelZonesLoading, setTunnelZonesLoading] = useState(false);
   const [tunnelAccountId, setTunnelAccountId] = useState('');
@@ -251,44 +252,52 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
     const check = preflight.checks.find((c) => c.name === 'CF Tunnel 已就绪');
     return Boolean(check && !check.passed);
   };
-  const loadTunnelZones = useCallback(async () => {
+  const loadTunnelZones = useCallback(async (accountId) => {
     setTunnelZonesLoading(true);
     try {
-      const res = await fetch('/api/cloudflare/zones');
+      const res = await fetch(`/api/cloudflare/accounts/${encodeURIComponent(accountId)}/zones`);
       const json = await res.json();
-      const zones = Array.isArray(json?.data) ? json.data : [];
+      const zones = Array.isArray(json?.zones) ? json.zones : [];
       setTunnelZones(zones);
-      if (zones.length > 0) {
-        const account = zones[0].account?.id || '';
-        setTunnelAccountId(account);
-        setTunnelZoneId(zones[0].id || '');
-        setTunnelHostname(`fwd-${Math.random().toString(36).slice(2, 8)}.${zones[0].name}`);
-      }
+      const first = zones[0];
+      setTunnelZoneId(first?.id || '');
+      setTunnelHostname(`fwd-${Math.random().toString(36).slice(2, 8)}.${first?.name || ''}`);
     } catch (e) {
+      setTunnelZones([]);
       setTunnelDeployError('获取 Cloudflare Zone 失败');
     } finally {
       setTunnelZonesLoading(false);
     }
   }, []);
+  const loadTunnelAccounts = useCallback(async () => {
+    setTunnelZonesLoading(true);
+    try {
+      const res = await fetch('/api/cloudflare/accounts');
+      const json = await res.json();
+      const accounts = Array.isArray(json) ? json : [];
+      setTunnelAccounts(accounts);
+      if (accounts.length > 0) {
+        setTunnelAccountId(accounts[0].id);
+        loadTunnelZones(accounts[0].id);
+      }
+    } catch (e) {
+      setTunnelDeployError('获取 Cloudflare 账号失败');
+      setTunnelZonesLoading(false);
+    }
+  }, [loadTunnelZones]);
   const openTunnelDeploy = () => {
     setTunnelDeployOpen(true);
     setTunnelDeployError('');
-    if (tunnelZones.length === 0) loadTunnelZones();
+    if (tunnelAccounts.length === 0) loadTunnelAccounts();
   };
-  const tunnelAccounts = useMemo(() => {
-    const map = new Map();
-    tunnelZones.forEach((z) => { if (z.account?.id) map.set(z.account.id, z.account.name || z.account.id); });
-    return Array.from(map, ([id, name]) => ({ value: id, label: name }));
-  }, [tunnelZones]);
-  const tunnelZoneItems = useMemo(
-    () => tunnelZones.filter((z) => z.account?.id === tunnelAccountId).map((z) => ({ value: z.id, label: z.name })),
-    [tunnelZones, tunnelAccountId]
-  );
+  const tunnelAccountItems = tunnelAccounts.map((a) => ({ value: a.id, label: a.name || a.id }));
+  const tunnelZoneItems = tunnelZones.map((z) => ({ value: z.id, label: z.name }));
   const onTunnelAccountChange = (v) => {
     setTunnelAccountId(v);
-    const first = tunnelZones.find((z) => z.account?.id === v);
-    setTunnelZoneId(first?.id || '');
-    if (first) setTunnelHostname(`fwd-${Math.random().toString(36).slice(2, 8)}.${first.name}`);
+    setTunnelZones([]);
+    setTunnelZoneId('');
+    setTunnelHostname('');
+    loadTunnelZones(v);
   };
   const onTunnelZoneChange = (v) => {
     setTunnelZoneId(v);
@@ -467,7 +476,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                         </Button>
                       ) : (
                         <div className="mt-1.5 flex flex-col gap-2">
-                          <Select size="sm" value={tunnelAccountId} onValueChange={onTunnelAccountChange} items={tunnelAccounts} placeholder="Cloudflare 账号" aria-label="Cloudflare 账号" disabled={tunnelZonesLoading} />
+                          <Select size="sm" value={tunnelAccountId} onValueChange={onTunnelAccountChange} items={tunnelAccountItems} placeholder="Cloudflare 账号" aria-label="Cloudflare 账号" disabled={tunnelZonesLoading} />
                           <Select size="sm" value={tunnelZoneId} onValueChange={onTunnelZoneChange} items={tunnelZoneItems} placeholder="Zone（域名）" aria-label="Cloudflare Zone" disabled={tunnelZonesLoading} />
                           <Input size="sm" value={tunnelHostname} onChange={(e) => setTunnelHostname(e.target.value)} placeholder="tunnel.example.com" aria-label="Tunnel 域名" />
                           {tunnelDeployError && <p className="text-xs text-kumo-danger">{tunnelDeployError}</p>}

@@ -200,10 +200,15 @@ fn binary_path_windows(request: &Request) -> Result<PathBuf, String> {
         .map_err(|err| format!("create cloudflared runtime directory: {err}"))?;
     let candidate = version_dir.join(".cloudflared.download.exe");
     let _ = std::fs::remove_file(&candidate);
-    let status = std::process::Command::new("curl.exe")
-        .args(["--fail", "--location", "--retry", "3", "--connect-timeout", "15", "--output"])
-        .arg(&candidate)
+    // 用 PowerShell Invoke-WebRequest 下载：走系统代理（Windows 常需代理访问 GitHub），
+    // curl.exe 不读系统代理、且对国内网络易失败。
+    let script = "param($u,$o) $ErrorActionPreference='Stop'; try { Invoke-WebRequest -Uri $u -OutFile $o -TimeoutSec 300 -UseBasicParsing -MaximumRedirection 5; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }";
+    let status = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script,
+        ])
         .arg(url)
+        .arg(&candidate)
         .status()
         .map_err(|err| format!("download cloudflared: {err}"))?;
     if !status.success() {
