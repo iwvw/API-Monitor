@@ -10,7 +10,8 @@ import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Empty, Loader, Tabs } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, cx } from '../ui/AppPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
-import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ChevronDown, WechatBrand, TelegramBrand } from '../Icons.jsx';
+import { useConfirmPress } from '../../hooks/useConfirmPress.js';
+import { MessageSquare, Plus, Play, Send, Settings, Trash, X, Bot, ShieldCheck, Sliders, Database, Brain, Search, Edit, ChevronDown, WechatBrand, TelegramBrand, WeComBrand } from '../Icons.jsx';
 
 /* ==================== 通用小组件 ==================== */
 
@@ -381,6 +382,8 @@ const EMPTY_FORM = {
   name: '',
   notificationChannelId: '',
   botTokenSet: false,
+  botId: '',
+  secret: '',
 };
 
 function ChannelsCard() {
@@ -392,7 +395,7 @@ function ChannelsCard() {
   const [error, setError] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [confirmDelete, setConfirmDelete] = useState('');
+  const { isArmed, confirmPress } = useConfirmPress();
   // 白名单并入频道编辑：新增成员输入（编辑频道表单内即时生效）。
   const [bindInput, setBindInput] = useState({ userId: '', username: '' });
 
@@ -438,6 +441,8 @@ function ChannelsCard() {
       name: channel.name,
       notificationChannelId: channel.notificationChannelId || '',
       botTokenSet: channel.type === 'wechat' ? !!(channel.config?.botToken) : false,
+      botId: channel.config?.botId || '',
+      secret: '',
     });
     setError('');
     setFormOpen(true);
@@ -451,17 +456,39 @@ function ChannelsCard() {
       return;
     }
     const isTelegram = form.type === 'telegram';
+    const isWeCom = form.type === 'wecom';
     if (!form.id && isTelegram && !form.notificationChannelId) {
       setError('选择来源通知渠道（bot token 复用通知中心配置）');
       return;
     }
+    if (isWeCom && !form.botId.trim()) {
+      setError('填写企业微信 Bot ID');
+      return;
+    }
+    if (!form.id && isWeCom && !form.secret.trim()) {
+      setError('填写企业微信 Secret');
+      return;
+    }
+    const weComConfig = isWeCom
+      ? { botId: form.botId.trim(), ...(form.secret.trim() ? { secret: form.secret.trim() } : {}) }
+      : null;
     setSaving(true);
     setError('');
     try {
       const url = form.id ? `/api/admin-ai/channels/${form.id}` : '/api/admin-ai/channels';
       const payload = form.id
-        ? { name: form.name.trim(), ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}) }
-        : { type: form.type || 'telegram', name: form.name.trim(), enabled: isTelegram, ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}) };
+        ? {
+            name: form.name.trim(),
+            ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}),
+            ...(weComConfig ? { config: weComConfig } : {}),
+          }
+        : {
+            type: form.type || 'telegram',
+            name: form.name.trim(),
+            enabled: isTelegram || isWeCom,
+            ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}),
+            ...(weComConfig ? { config: weComConfig } : {}),
+          };
       const res = await fetch(url, {
         method: form.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -512,11 +539,7 @@ function ChannelsCard() {
   };
 
   const deleteChannel = async (channel) => {
-    if (confirmDelete !== channel.id) {
-      setConfirmDelete(channel.id);
-      return;
-    }
-    setConfirmDelete('');
+    if (!confirmPress(`adminai-channel:${channel.id}`, `删除频道「${channel.name || channel.id}」`)) return;
     try {
       await fetch(`/api/admin-ai/channels/${channel.id}`, { method: 'DELETE' });
       load();
@@ -558,6 +581,7 @@ function ChannelsCard() {
   };
 
   const deleteBinding = async (binding) => {
+    if (!confirmPress(`adminai-binding:${binding.id}`, '移除白名单成员')) return;
     try {
       await fetch(`/api/admin-ai/channel-bindings/${binding.id}`, { method: 'DELETE' });
       load();
@@ -692,6 +716,8 @@ function ChannelsCard() {
                     <WechatBrand className="size-6" />
                   ) : channel.type === 'telegram' ? (
                     <TelegramBrand className="size-6" />
+                  ) : channel.type === 'wecom' ? (
+                    <WeComBrand className="size-6" />
                   ) : (
                     <Send className="h-4 w-4" />
                   )}
@@ -702,6 +728,10 @@ function ChannelsCard() {
                     {channel.type === 'wechat' ? (
                       <span className="truncate text-xs text-kumo-subtle">
                         {channel.config?.botToken ? '已授权' : '未授权（需扫码）'}
+                      </span>
+                    ) : channel.type === 'wecom' ? (
+                      <span className="truncate text-xs text-kumo-subtle">
+                        {channel.config?.botId && channel.config?.secret ? '已配置' : '待配置（需填 Bot ID / Secret）'}
                       </span>
                     ) : (
                       <span className="truncate text-xs text-kumo-subtle">
@@ -740,12 +770,11 @@ function ChannelsCard() {
                 </Button>
                 <Button
                   size="sm"
-                  variant="secondary"
-                  className={confirmDelete === channel.id ? '!text-kumo-danger' : ''}
+                  variant={isArmed(`adminai-channel:${channel.id}`) ? 'destructive' : 'secondary'}
                   onClick={() => deleteChannel(channel)}
                 >
                   <Trash className="h-3 w-3" />
-                  {confirmDelete === channel.id ? '确认删除' : ''}
+                  {isArmed(`adminai-channel:${channel.id}`) ? '确认删除' : ''}
                 </Button>
               </div>
             </div>
@@ -773,7 +802,7 @@ function ChannelsCard() {
                 className="w-full"
                 value={form.type || 'telegram'}
                 onValueChange={(v) => { setFormField('type', String(v)); setError(''); }}
-                items={[{ value: 'telegram', label: 'Telegram Bot' }, { value: 'wechat', label: '微信（个人号扫码）' }]}
+                items={[{ value: 'telegram', label: 'Telegram Bot' }, { value: 'wechat', label: '微信（个人号扫码）' }, { value: 'wecom', label: '企业微信（智能机器人）' }]}
               />
             </div>
             <div>
@@ -800,7 +829,7 @@ function ChannelsCard() {
                 复用通知中心已配置的 Telegram 渠道（需含 bot_token 与 chat_id），无需在此填写；同一渠道只能被一个 AI 频道引用。
               </p>
             </>
-          ) : (
+          ) : form.type === 'wechat' ? (
             <>
               <p className="mt-3 text-xs leading-5 text-kumo-subtle">
                 微信频道通过扫码登录个人微信号获取 Bot 权限，bot_token 加密存储在频道配置中。创建频道后在下方扫码登录。
@@ -845,9 +874,33 @@ function ChannelsCard() {
                 </div>
               )}
             </>
+          ) : (
+            <>
+              <p className="mt-3 text-xs leading-5 text-kumo-subtle">
+                企业微信「智能机器人」长链接模式：出站 WebSocket 连接，无需公网回调地址。凭据来自企微管理后台 → 工作台 → 智能机器人 → 创建机器人（API 模式·通过长链接配置）。Secret 加密存储；编辑时留空表示保持不变。
+              </p>
+              <div className="mt-3 grid gap-3 cq-sm:grid-cols-2">
+                <div>
+                  <div className="mb-1 text-xs font-medium text-kumo-subtle">Bot ID</div>
+                  <Input size="sm" className="w-full" placeholder="企微智能机器人 Bot ID" aria-label="企业微信 Bot ID" value={form.botId} onChange={(e) => setFormField('botId', e.target.value)} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-medium text-kumo-subtle">Secret</div>
+                  <Input
+                    size="sm"
+                    type="password"
+                    className="w-full"
+                    placeholder={form.id ? '已配置，留空保持不变' : '企微智能机器人 Secret'}
+                    aria-label="企业微信 Secret"
+                    value={form.secret}
+                    onChange={(e) => setFormField('secret', e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
           )}
 
-          {/* 白名单管理（并入频道编辑设置）：仅 Telegram 显示；微信不设白名单 */}
+          {/* 白名单管理（并入频道编辑设置）：仅 Telegram 显示；微信/企微不设白名单 */}
           {form.id && form.type === 'telegram' && (
             <div className="mt-4 rounded-lg border border-kumo-line bg-kumo-base p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -867,8 +920,8 @@ function ChannelsCard() {
                         <span className="truncate font-mono text-xs font-medium text-kumo-strong">{binding.channelUserId}</span>
                         {binding.username && <span className="truncate text-xs text-kumo-subtle">{binding.username}</span>}
                       </div>
-                      <Button size="sm" variant="secondary" onClick={() => deleteBinding(binding)} aria-label="移除白名单成员">
-                        <X className="h-3 w-3" />
+                      <Button size="sm" variant={isArmed(`adminai-binding:${binding.id}`) ? 'destructive' : 'secondary'} onClick={() => deleteBinding(binding)} aria-label="移除白名单成员">
+                        {isArmed(`adminai-binding:${binding.id}`) ? <Trash className="h-3 w-3" /> : <X className="h-3 w-3" />}
                       </Button>
                     </div>
                   ))}
@@ -1028,7 +1081,7 @@ function MemoriesCard() {
   const [editContent, setEditContent] = useState('');
   const [editImportance, setEditImportance] = useState('5');
   const [editTriggers, setEditTriggers] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState('');
+  const { isArmed: memIsArmed, confirmPress: memConfirmPress } = useConfirmPress();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const memHoverRef = useRef(false);
@@ -1118,12 +1171,7 @@ function MemoriesCard() {
   };
 
   const handleDelete = async (item) => {
-    if (confirmDelete !== item.id) {
-      setConfirmDelete(item.id);
-      window.setTimeout(() => setConfirmDelete((cur) => (cur === item.id ? '' : cur)), 2500);
-      return;
-    }
-    setConfirmDelete('');
+    if (!memConfirmPress(`adminai-memory:${item.id}`, '删除记忆条目')) return;
     try {
       await fetch(`/api/admin-ai/memories/${item.id}`, { method: 'DELETE' });
       await load(q);
@@ -1330,8 +1378,8 @@ function MemoriesCard() {
                       </Button>
                       <Button
                         size="sm"
-                        variant="secondary"
-                        className={`!px-2 ${confirmDelete === item.id ? '!text-kumo-danger' : ''}`}
+                        variant={memIsArmed(`adminai-memory:${item.id}`) ? 'destructive' : 'secondary'}
+                        className="!px-2"
                         onClick={() => handleDelete(item)}
                       >
                         <Trash className="h-3.5 w-3.5" />

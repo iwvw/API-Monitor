@@ -7,7 +7,7 @@ import { getAuthHeaders, activeModelIdsForEndpoint, parseProxyEntry } from './ut
 
 // useEndpoints：端点 CRUD/排序/模型开关与批量/代理池/导入导出/模型映射/模型列表。
 export function useEndpoints() {
-  const { confirmPress } = useConfirmPress();
+  const { isArmed, confirmPress } = useConfirmPress();
 
   // 批量模型开关（含健康联动关停）的进行中标记。
   const [modelBatchActionLoading, setModelBatchActionLoading] = useState(false);
@@ -819,18 +819,13 @@ const appendEndpointKey = () => {
   setEndpointKeyChecks(prev => [...prev, null]);
 };
 
-// 密钥删除两段式防误触：首次点击进入待确认态（3s 过期），再次点击才真正移除。
-const [pendingKeyDelete, setPendingKeyDelete] = useState(null);
-const KEY_DELETE_CONFIRM_MS = 3000;
+const [endpointKeyEpoch, setEndpointKeyEpoch] = useState(0);
 const keyDeleteConfirmActive = rowIndex =>
-  pendingKeyDelete?.rowIndex === rowIndex && pendingKeyDelete.expiresAt > Date.now();
+  isArmed(`openai-endpoint-key:${endpointKeyEpoch}:${rowIndex}`);
 
 const removeEndpointKey = rowIndex => {
-  if (!keyDeleteConfirmActive(rowIndex)) {
-    setPendingKeyDelete({ rowIndex, expiresAt: Date.now() + KEY_DELETE_CONFIRM_MS });
-    return;
-  }
-  setPendingKeyDelete(null);
+  if (!confirmPress(`openai-endpoint-key:${endpointKeyEpoch}:${rowIndex}`, '删除此 Key')) return;
+  setEndpointKeyEpoch(epoch => epoch + 1);
   setEndpointForm(current => {
     const keys = [current.apiKey || '', ...(current.apiKeys || [])];
     keys.splice(rowIndex, 1);
@@ -847,18 +842,11 @@ const removeEndpointKey = rowIndex => {
   });
 };
 
-const [pendingDeleteEndpointId, setPendingDeleteEndpointId] = useState(null);
-const DELETE_ENDPOINT_CONFIRM_MS = 3000;
 const deleteEndpointConfirmActive = id =>
-  pendingDeleteEndpointId?.id === id && pendingDeleteEndpointId.expiresAt > Date.now();
+  isArmed(`openai-endpoint-delete:${id}`);
 
 const deleteEndpoint = async endpoint => {
-  if (!deleteEndpointConfirmActive(endpoint.id)) {
-    setPendingDeleteEndpointId({ id: endpoint.id, expiresAt: Date.now() + DELETE_ENDPOINT_CONFIRM_MS });
-    toast.info(`删除端点 ${endpoint.name || endpoint.baseUrl}？再次点击确认`, { isManual: true });
-    return;
-  }
-  setPendingDeleteEndpointId(null);
+  if (!confirmPress(`openai-endpoint-delete:${endpoint.id}`, `删除端点 ${endpoint.name || endpoint.baseUrl}`)) return;
   try {
     const response = await fetch(`/api/openai/endpoints/${endpoint.id}`, {
       method: 'DELETE',
@@ -1075,9 +1063,6 @@ const batchEnableDisabledModels = async endpoint => {
     appendEndpointKey,
     removeEndpointKey,
     keyDeleteConfirmActive,
-    pendingDeleteEndpointId,
-    setPendingDeleteEndpointId,
-    DELETE_ENDPOINT_CONFIRM_MS,
     deleteEndpointConfirmActive,
     deleteEndpoint,
     allModels,

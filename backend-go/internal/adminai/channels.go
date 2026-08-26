@@ -227,6 +227,13 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 			}
 			wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
 			s.chanMgr.registry.Register(wc)
+		case "wecom":
+			var wccfg channel.WeComConfig
+			if err := secure.DecryptJSON(encrypted, &wccfg); err != nil {
+				continue
+			}
+			wc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+			s.chanMgr.registry.Register(wc)
 		}
 	}
 }
@@ -287,6 +294,13 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		}
 		wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
 		ch = wc
+	case "wecom":
+		var wccfg channel.WeComConfig
+		if err := secure.DecryptJSON(encrypted, &wccfg); err != nil {
+			return fmt.Errorf("频道配置解密失败: %w", err)
+		}
+		wcc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+		ch = wcc
 	default:
 		return fmt.Errorf("不支持的频道类型: %s", ctype)
 	}
@@ -392,7 +406,7 @@ func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 	var msgID string
 	if supportsEdit {
 		var err error
-		msgID, err = ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在处理中…"})
+		msgID, err = ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在处理中…", Stream: true})
 		if err != nil {
 			slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
 			return
@@ -440,7 +454,7 @@ func (s *Service) queueChannelConversation(env channel.InboundEnvelope, sessionI
 	if se, ok := ch.(interface{ SupportsEdit() bool }); ok {
 		supportsEdit = se.SupportsEdit()
 	}
-	msgID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在排队（上一条仍在执行），完成后自动继续…"})
+	msgID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在排队（上一条仍在执行），完成后自动继续…", Stream: supportsEdit})
 	if err != nil {
 		slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
 		return
@@ -888,7 +902,19 @@ func maskBotToken(cfg map[string]interface{}) map[string]interface{} {
 	if token, ok := cfg["botToken"].(string); ok && len(token) > 8 {
 		cfg["botToken"] = token[:4] + "****" + token[len(token)-4:]
 	}
+	if secret, ok := cfg["secret"].(string); ok && secret != "" {
+		cfg["secret"] = maskSecret(secret)
+	}
 	return cfg
+}
+
+// maskSecret 对任意非空密钥打码：过短（≤4 位）整段打码，其余保留首尾 2 位。
+func maskSecret(secret string) string {
+	r := []rune(secret)
+	if len(r) <= 4 {
+		return "****"
+	}
+	return string(r[:2]) + "****" + string(r[len(r)-2:])
 }
 
 // listChannels GET /api/admin-ai/channels
@@ -957,14 +983,17 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request) {
 	if req.Type == "" {
 		req.Type = "telegram"
 	}
-	if req.Type != "telegram" && req.Type != "wechat" {
-		response.Error(w, http.StatusBadRequest, "仅支持 telegram / wechat 频道")
+	if req.Type != "telegram" && req.Type != "wechat" && req.Type != "wecom" {
+		response.Error(w, http.StatusBadRequest, "仅支持 telegram / wechat / wecom 频道")
 		return
 	}
 	if req.Name == "" {
-		if req.Type == "wechat" {
+		switch req.Type {
+		case "wechat":
 			req.Name = "微信"
-		} else {
+		case "wecom":
+			req.Name = "企业微信"
+		default:
 			req.Name = "Telegram"
 		}
 	}
@@ -1106,7 +1135,27 @@ func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id strin
 	if req.Config != nil {
 		var channelType string
 		_ = db.QueryRowContext(r.Context(), `SELECT type FROM admin_ai_channels WHERE id = ?`, id).Scan(&channelType)
-		if channelType != "wechat" {
+		if channelType == "wecom" {
+			// 企微凭据存自有配置：合并旧配置，空字符串不覆盖（secret 留空 = 保持不变）
+			var oldEncrypted string
+			_ = db.QueryRowContext(r.Context(), `SELECT config_encrypted FROM admin_ai_channels WHERE id = ?`, id).Scan(&oldEncrypted)
+			merged := map[string]interface{}{}
+			if oldEncrypted != "" {
+				var oldCfg map[string]interface{}
+				if secure.DecryptJSON(oldEncrypted, &oldCfg) == nil && oldCfg != nil {
+					for k, v := range oldCfg {
+						merged[k] = v
+					}
+				}
+			}
+			for k, v := range req.Config {
+				if sv, isStr := v.(string); isStr && sv == "" {
+					continue
+				}
+				merged[k] = v
+			}
+			req.Config = merged
+		} else if channelType != "wechat" {
 			delete(req.Config, "botToken")
 		}
 		encrypted, err := secure.EncryptJSON(req.Config)

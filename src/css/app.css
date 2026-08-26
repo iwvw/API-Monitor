@@ -1405,6 +1405,23 @@ samp {
   max-height: calc(100dvh - 1rem);
 }
 
+/* Kumo Dialog 固定定位用 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 居中：
+   视口或弹窗尺寸为奇数时 translate 会落在半像素上，元素被抬进 GPU 合成层，
+   Windows 下 ClearType 亚像素抗锯齿失效，弹窗内文字整体发糊。
+   此处改为 inset:0 + margin:auto 居中（纯布局偏移，无 transform），
+   文字渲染回到像素级清晰。仅作用于 modal 弹窗（.fixed + role=dialog），
+   Popover/Select/Tooltip 等 floating 定位弹层走内联样式，不受影响。 */
+[role='dialog']:is(.fixed),
+[role='alertdialog']:is(.fixed) {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: auto;
+  height: fit-content;
+  translate: none;
+}
+
 th > button[aria-label='Resize column'] {
   right: 0 !important;
   z-index: 10;
@@ -2686,4 +2703,78 @@ input[type='number'] {
 @keyframes scheduler-node-running-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.35); }
   50% { box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12); }
+}
+
+/* ==================== 转发中心星座画布（主题自适应，Cloudflare mesh 风格） ==================== */
+
+/* 画布背景：点阵网格纹理 + 中心品牌色柔光（浅/深模式均走 kumo 变量，bg 随页面主题） */
+.fwd-mesh-bg {
+  background-image:
+    radial-gradient(ellipse at center, color-mix(in oklab, var(--color-kumo-brand) 7%, transparent) 0%, transparent 58%),
+    radial-gradient(circle, color-mix(in oklab, var(--color-kumo-line) 42%, transparent) 1px, transparent 1.6px);
+  background-size: auto, 52px 52px;
+  background-position: center, 26px 26px;
+}
+
+/* 轨道虚线环 */
+.fwd-orbit {
+  fill: none;
+  stroke: var(--color-kumo-line);
+  stroke-width: 1;
+  stroke-dasharray: 3 8;
+  opacity: 0.55;
+}
+
+/* 边底层：主题线 */
+.fwd-edge-base {
+  stroke: var(--color-kumo-line);
+  stroke-width: 2;
+  opacity: 0.55;
+}
+
+/* 边上层：状态色流动虚线（pathLength=1 + dasharray，CF meshFlowDash 同款 dashoffset 流动） */
+.fwd-edge-flow {
+  stroke-dasharray: 0.16 0.84;
+  stroke-linecap: round;
+  animation: fwd-flow 2.2s linear infinite;
+  will-change: stroke-dashoffset;
+}
+@keyframes fwd-flow {
+  to { stroke-dashoffset: -1; }
+}
+
+/* 卫星卡状态点：deploying / disconnected 呼吸提示 */
+.fwd-dot-pulse {
+  animation: fwd-dot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes fwd-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 卫星卡选中：品牌色描边 + 呼吸高亮（与站点画布选中态一致） */
+.fwd-satellite {
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.fwd-satellite:hover {
+  border-color: color-mix(in oklab, var(--color-kumo-brand) 55%, transparent);
+}
+.fwd-satellite-selected {
+  border-color: var(--color-kumo-brand);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-kumo-brand) 22%, transparent);
+}
+
+/* 新增卫星入场（淡入 + 上浮） */
+.fwd-satellite-enter {
+  animation: fwd-satellite-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes fwd-satellite-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fwd-edge-flow, .fwd-hub-ring, .fwd-hub-breathe, .fwd-hub-core, .fwd-dot-pulse {
+    animation: none;
+  }
 }

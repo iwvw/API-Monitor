@@ -144,6 +144,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-robot',
     description: '智能助手',
   },
+  forward: {
+    name: '转发中心',
+    shortName: '转发',
+    icon: 'fa-random',
+    description: '端口转发与隧道',
+  },
 };
 
 // ==================== 模块分组配置 ====================
@@ -171,7 +177,7 @@ export const MODULE_GROUPS = [
         modules: ['github'],
       },
     ],
-    trailingModules: ['server', 'paas'],
+    trailingModules: ['server', 'paas', 'forward'],
   },
   {
     id: 'toolbox',

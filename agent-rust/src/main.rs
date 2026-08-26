@@ -10,6 +10,7 @@ mod protocol;
 mod proxy_runtime;
 mod proxy_traffic;
 mod pty;
+mod tcp_forwarder;
 mod remote_desktop;
 
 use futures_util::{SinkExt, StreamExt};
@@ -54,6 +55,8 @@ fn agent_capabilities() -> Vec<String> {
     capabilities.push("proxy_user_traffic_v1".to_string());
     #[cfg(target_os = "linux")]
     capabilities.push("cloudflared_runtime_v1".to_string());
+    #[cfg(target_os = "linux")]
+    capabilities.push("tcp_forwarder_v1".to_string());
     #[cfg(target_os = "linux")]
     capabilities.push("self_uninstall_v1".to_string());
     #[cfg(target_os = "windows")]
@@ -1118,6 +1121,15 @@ async fn run_client(
                                         Ok(()) => {
                                             successful = true;
                                             res_data = "Agent 卸载任务已在后台安排".to_string();
+                                        }
+                                        Err(err) => {
+                                            res_data = err;
+                                        }
+                                    },
+                                    53 => match tcp_forwarder::reconcile(&task.data).await {
+                                        Ok(out) => {
+                                            successful = true;
+                                            res_data = out;
                                         }
                                         Err(err) => {
                                             res_data = err;

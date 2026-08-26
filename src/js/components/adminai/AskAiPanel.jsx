@@ -9,11 +9,12 @@ import useStore from '../../store.js';
 import {
   Sparkle, X, Send, Plus, ChevronDown, Settings as SettingsIcon,
   Sliders, ShieldCheck, Globe, Cloud, Server, Check, Trash, Maximize2, ArrowLeft, Terminal, MessageSquare, Clock, Bell,
-  FlyIoBrand, KoyebBrand, WechatBrand, TelegramBrand,
+  FlyIoBrand, KoyebBrand, WechatBrand, TelegramBrand, WeComBrand,
 } from '../Icons.jsx';
 import MessageList from './MessageList.jsx';
 import AdminConsole, { TAB_OPTIONS } from './AdminConsole.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
+import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { parseAdminAiEvent } from '../../modules/adminAiEvents.js';
 import {
   MSG,
@@ -128,16 +129,18 @@ function sessionSourceLabel(source, channelType) {
   if (source === 'cron') return '任务';
   if (channelType === 'wechat') return '微信';
   if (channelType === 'telegram') return 'TG';
+  if (channelType === 'wecom') return '企微';
   return 'BOT';
 }
 
 /* 会话列表条目（全屏侧栏与下拉菜单共用）：机器人会话带来源标签 */
-function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
+function SessionItem({ s, active, deleteArmed, onSelect, onDelete }) {
   const bot = isBotSession(s);
   // 不同渠道用对应品牌图标（TG/微信），其余（web/BOT 通用）沿用聊天气泡图标
   let ChannelIcon = ChatsCircle;
   if (s.channelType === 'wechat') ChannelIcon = WechatBrand;
   else if (s.channelType === 'telegram') ChannelIcon = TelegramBrand;
+  else if (s.channelType === 'wecom') ChannelIcon = WeComBrand;
   return (
     <div className="group relative">
       <Sidebar.MenuButton
@@ -146,8 +149,8 @@ function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
         onClick={onSelect}
         icon={
           <ChannelIcon
-            weight={s.channelType === 'wechat' || s.channelType === 'telegram' ? undefined : 'duotone'}
-            className={`${s.channelType === 'wechat' || s.channelType === 'telegram' ? 'size-5' : 'size-4'} shrink-0 transition-all duration-200 ${
+            weight={s.channelType === 'wechat' || s.channelType === 'telegram' || s.channelType === 'wecom' ? undefined : 'duotone'}
+            className={`${s.channelType === 'wechat' || s.channelType === 'telegram' || s.channelType === 'wecom' ? 'size-5' : 'size-4'} shrink-0 transition-all duration-200 ${
               active
                 ? 'text-brand'
                 : 'text-kumo-subtle group-hover:scale-110 group-hover:text-kumo-default'
@@ -181,16 +184,16 @@ function SessionItem({ s, active, confirmDeleteId, onSelect, onDelete }) {
       <Button
         size="sm"
         shape="square"
-        variant={confirmDeleteId === s.id ? 'destructive' : 'ghost'}
+        variant={deleteArmed ? 'destructive' : 'ghost'}
         aria-label="删除会话"
         onClick={() => onDelete(s.id)}
         className={`!absolute right-1.5 top-1/2 z-10 -translate-y-1/2 !h-6 !w-6 !rounded-md !shadow-sm opacity-0 transition-all duration-200 group-hover:opacity-100 ${
-          confirmDeleteId === s.id
+          deleteArmed
             ? '!opacity-100 !bg-kumo-danger !text-kumo-inverse'
             : '!bg-kumo-base ring-1 ring-kumo-line hover:!bg-kumo-tint hover:!text-kumo-danger'
         }`}
       >
-        {confirmDeleteId === s.id ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
+        {deleteArmed ? <Check className="h-3 w-3" /> : <Trash className="h-3 w-3" />}
       </Button>
     </div>
   );
@@ -226,7 +229,7 @@ function BotTaskList({
   collapsedTaskGroups,
   onToggleTaskGroup,
   activeSessionId,
-  confirmDeleteId,
+  deleteIsArmed,
   onSelect,
   onDelete,
 }) {
@@ -257,7 +260,7 @@ function BotTaskList({
                     key={s.id}
                     s={s}
                     active={s.id === activeSessionId}
-                    confirmDeleteId={confirmDeleteId}
+                    deleteArmed={deleteIsArmed(s.id)}
                     onSelect={() => onSelect(s)}
                     onDelete={onDelete}
                   />
@@ -463,7 +466,11 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   // 会话列表 tab：切换查看用户对话（web）或机器人会话（cron/channel，只读）。
   const [sessionListTab, setSessionListTab] = useState('web');
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const { isArmed, confirmPress } = useConfirmPress();
+  const isAskAiSessionArmed = useCallback(
+    (sessionId) => isArmed(`askai-session:${sessionId}`),
+    [isArmed]
+  );
   const [panelWidth, setPanelWidth] = useState(() => {
     try { const v = Number(localStorage.getItem('adminai-sidebar-w')); return (v >= PANEL_MIN_WIDTH && v <= PANEL_MAX_WIDTH) ? v : PANEL_DEFAULT_WIDTH; } catch { return PANEL_DEFAULT_WIDTH; }
   });
@@ -758,13 +765,6 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
   }, [showAskAI]);
-
-  /* 会话删除二次确认：2 秒后自动复原 */
-  useEffect(() => {
-    if (confirmDeleteId == null) return undefined;
-    const t = window.setTimeout(() => setConfirmDeleteId(null), 2000);
-    return () => window.clearTimeout(t);
-  }, [confirmDeleteId]);
 
   /* SSE 断线自动重连：网络抖动/代理切换/服务端释放连接时，后台 run 仍在执行，
      凭 runId + fromSeq 指数退避重连恢复事件流（终态/工具状态事件由后端缓冲重放，
@@ -1141,7 +1141,6 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     try {
       await fetch(`/api/admin-ai/sessions/${sessionId}`, { method: 'DELETE' });
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      setConfirmDeleteId(null);
       if (activeSessionId === sessionId) {
         setActiveSessionId(sessions.find((s) => s.id !== sessionId)?.id || null);
         setMessages([]);
@@ -1151,10 +1150,8 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   };
 
   const requestDelete = (sessionId) => {
-    if (confirmDeleteId === sessionId) {
+    if (confirmPress(`askai-session:${sessionId}`, '删除会话')) {
       handleDeleteSession(sessionId);
-    } else {
-      setConfirmDeleteId(sessionId);
     }
   };
    const handleResolveApproval = async (approvalId, action, applyToSession, reason) => {
@@ -1458,15 +1455,15 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                       <SessionItem
                         key={s.id}
                         s={s}
-                        active={s.id === activeSessionId}
-                        confirmDeleteId={confirmDeleteId}
-                        onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
-                        onDelete={requestDelete}
-                      />
-                    ))}
-                  </Sidebar.Menu>
-                )
-              ) : sessionListTab === 'bot' ? (
+                          active={s.id === activeSessionId}
+                          deleteArmed={isAskAiSessionArmed(s.id)}
+                          onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
+                          onDelete={requestDelete}
+                        />
+                      ))}
+                    </Sidebar.Menu>
+                  )
+                ) : sessionListTab === 'bot' ? (
                 channelSessions.length === 0 ? (
                   <p className="px-2.5 py-6 text-center text-xs text-kumo-subtle">暂无 BOT 会话</p>
                 ) : (
@@ -1479,7 +1476,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                             key={s.id}
                             s={s}
                             active={s.id === activeSessionId}
-                            confirmDeleteId={confirmDeleteId}
+                            deleteArmed={isAskAiSessionArmed(s.id)}
                             onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                             onDelete={requestDelete}
                           />
@@ -1497,7 +1494,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                     collapsedTaskGroups={collapsedTaskGroups}
                     onToggleTaskGroup={toggleTaskGroup}
                     activeSessionId={activeSessionId}
-                    confirmDeleteId={confirmDeleteId}
+                    deleteIsArmed={isAskAiSessionArmed}
                     onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                     onDelete={requestDelete}
                   />
@@ -1726,7 +1723,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                           key={s.id}
                           s={s}
                           active={s.id === activeSessionId}
-                          confirmDeleteId={confirmDeleteId}
+                            deleteArmed={isAskAiSessionArmed(s.id)}
                           onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                           onDelete={requestDelete}
                         />
@@ -1746,7 +1743,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                               key={s.id}
                               s={s}
                               active={s.id === activeSessionId}
-                              confirmDeleteId={confirmDeleteId}
+                              deleteArmed={isAskAiSessionArmed(s.id)}
                               onSelect={() => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                               onDelete={requestDelete}
                             />
@@ -1764,7 +1761,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                       collapsedTaskGroups={collapsedTaskGroups}
                       onToggleTaskGroup={toggleTaskGroup}
                       activeSessionId={activeSessionId}
-                      confirmDeleteId={confirmDeleteId}
+                      deleteIsArmed={isAskAiSessionArmed}
                       onSelect={(s) => { setActiveSessionId(s.id); setMessages([]); loadMessages(s.id); if (s.mode === 'ask' || s.mode === 'agent') { setBehavior(s.mode); try { localStorage.setItem('adminai-behavior', s.mode); } catch { } } }}
                       onDelete={requestDelete}
                     />

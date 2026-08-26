@@ -218,7 +218,6 @@ const SERVER_CHART_UPDATE_ANIMATION_MS = 70;
 const SERVER_FAST_CHART_UPDATE_BEHAVIOR = { lazyUpdate: false };
 const SERVER_NETWORK_QUALITY_REFRESH_MS = 60 * 1000;
 const SERVER_NETWORK_QUALITY_CHART_UPDATE_BEHAVIOR = { lazyUpdate: true };
-const DOCKER_UPDATE_CONFIRM_MS = 3000;
 
 function ServerConnectionActions({
   remoteDesktopAvailable,
@@ -2623,7 +2622,6 @@ function ServerPage() {
   const [dockerUpdateCheckLoading, setDockerUpdateCheckLoading] = useState({});
   const [dockerActionPending, setDockerActionPending] = useState({});
   const [dockerSelectedContainerKeys, setDockerSelectedContainerKeys] = useState([]);
-  const [dockerUpdateConfirm, setDockerUpdateConfirm] = useState({ key: '', expiresAt: 0 });
   const [dockerBulkUpdateChecking, setDockerBulkUpdateChecking] = useState(false);
   const [dockerBulkUpdateCheckServers, setDockerBulkUpdateCheckServers] = useState({});
   const [showDockerCreateModal, setShowDockerCreateModal] = useState(false);
@@ -4915,19 +4913,9 @@ function ServerPage() {
     return task ? clampPercent(toNumber(task.progress, 0)) : 0;
   };
 
-  const isDockerUpdateConfirmActive = (key) => (
-    dockerUpdateConfirm.key === key && dockerUpdateConfirm.expiresAt > Date.now()
-  );
+  const isDockerUpdateConfirmActive = isArmed;
 
-  const confirmDockerUpdatePress = (key, label) => {
-    if (isDockerUpdateConfirmActive(key)) {
-      setDockerUpdateConfirm({ key: '', expiresAt: 0 });
-      return true;
-    }
-    setDockerUpdateConfirm({ key, expiresAt: Date.now() + DOCKER_UPDATE_CONFIRM_MS });
-    toast.info(`${label}，再次点击确认`);
-    return false;
-  };
+  const confirmDockerUpdatePress = confirmPress;
 
   const handleDockerContainerUpdate = (payload = {}) => {
     const serverId = payload.serverId || dockerSelectedServer;

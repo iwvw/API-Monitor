@@ -108,6 +108,8 @@ func (s *Service) handleAgentRoutes(w http.ResponseWriter, r *http.Request, db *
 		s.handleManagedTunnelRoutes(w, r, db, subparts[2:])
 	case len(subparts) >= 2 && subparts[0] == "proxy" && subparts[1] == "preferred-addresses":
 		s.handlePreferredAddressRoutes(w, r, db, subparts[2:])
+	case len(subparts) >= 1 && subparts[0] == "forward":
+		s.handleManagedForwardRoutes(w, r, db, subparts[1:])
 	case len(subparts) == 3 && subparts[0] == "proxy" && subparts[1] == "nodes":
 		s.handleManagedProxyNodes(w, r, db, subparts[2])
 	case len(subparts) == 4 && subparts[0] == "proxy" && subparts[1] == "nodes" && subparts[3] == "reconcile" && r.Method == http.MethodPost:

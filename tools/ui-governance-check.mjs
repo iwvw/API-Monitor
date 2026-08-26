@@ -107,9 +107,9 @@ function allowedColorReason(rel, line, value, lines, index) {
   }
   if (
     rel === 'src/js/components/Icons.jsx' &&
-    ['#00c70a', '#37aee2', '#c8daea', '#a9c9dd', '#f6fbfe', '#ffffff'].includes(value.toLowerCase())
+    ['#00c70a', '#37aee2', '#c8daea', '#a9c9dd', '#f6fbfe', '#0082ef', '#ffffff'].includes(value.toLowerCase())
   ) {
-    return 'official WeChat / Telegram brand mark colors (Icons.jsx WechatBrand/TelegramBrand)';
+    return 'official WeChat / Telegram / WeCom brand mark colors (Icons.jsx brand components)';
   }
   if (rel === 'src/css/simple-icons.css' && value.startsWith('#')) {
     return 'generated external brand identity color';

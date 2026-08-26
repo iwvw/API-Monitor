@@ -295,6 +295,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/agent/proxy/preferred-addresses/{id}/check", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address health check", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/preferred-addresses/{id}", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/preferred-addresses", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address list/create", MatchMode: MatchExact},
+		{Prefix: "/api/server/forward", Module: "server-agent-forward", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "转发中心", MatchMode: MatchPrefix},
 		{Prefix: "/api/server/agent/proxy/runtimes/{id}/{action}", Module: "server-agent-proxy-runtime", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed proxy runtime lifecycle", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/runtimes", Module: "server-agent-proxy-runtime", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed proxy runtime inventory", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/uninstall/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent uninstall", MatchMode: MatchPattern},

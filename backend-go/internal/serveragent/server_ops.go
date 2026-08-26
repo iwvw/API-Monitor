@@ -2022,6 +2022,33 @@ func (s *Service) RunCloudflaredTaskAndWait(serverID, desiredState string) (stri
 	return s.runAgentTaskAndWait(serverID, 51, desiredState, 3*time.Minute)
 }
 
+// RunForwardHealthProbeAndWait asks a server's Agent to TCP-probe a host:port (task 40),
+// returning true when the target is reachable. Forward health checks must probe from the
+// target server's Agent — dialing from the panel process would hit the wrong machine.
+func (s *Service) RunForwardHealthProbeAndWait(serverID, host string, port, timeoutSeconds int) bool {
+	timeoutMS := timeoutSeconds * 1000
+	if timeoutMS < 200 {
+		timeoutMS = 200
+	}
+	if timeoutMS > 10000 {
+		timeoutMS = 10000
+	}
+	payload := fmt.Sprintf(`{"targets":[{"id":null,"name":"forward-health","host":%q,"port":%d,"type":"tcp"}],"timeout_ms":%d}`, host, port, timeoutMS)
+	out, err := s.runAgentTaskAndWaitTransient(serverID, 40, payload, 15*time.Second)
+	if err != nil {
+		return false
+	}
+	var resp struct {
+		Results []struct {
+			Success bool `json:"success"`
+		} `json:"results"`
+	}
+	if json.Unmarshal([]byte(out), &resp) != nil || len(resp.Results) == 0 {
+		return false
+	}
+	return resp.Results[0].Success
+}
+
 // RunAgentSelfUninstallTaskAndWait schedules removal from a detached helper
 // owned by the Agent. The helper acknowledges before stopping the Agent
 // service, so the control-plane task can complete deterministically.

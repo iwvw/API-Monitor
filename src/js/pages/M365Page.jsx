@@ -594,7 +594,6 @@ function M365Page() {
   const [submittingUser, setSubmittingUser] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [togglingUserId, setTogglingUserId] = useState('');
-  const [pendingUserDeleteId, setPendingUserDeleteId] = useState('');
 
   const [skuLoading, setSkuLoading] = useState(false);
   const [skus, setSkus] = useState([]);
@@ -634,7 +633,6 @@ function M365Page() {
     defaultInviteCodeGeneratorForm
   );
   const [generatingInviteCodes, setGeneratingInviteCodes] = useState(false);
-  const [pendingInviteBatchDeleteKey, setPendingInviteBatchDeleteKey] = useState('');
   const [permissionItems, setPermissionItems] = useState(
     M365_REQUIRED_PERMISSIONS.map(permission => ({
       ...permission,
@@ -1173,24 +1171,6 @@ function M365Page() {
     );
   }, [selectedAccountId]);
 
-  useEffect(() => {
-    if (!pendingInviteBatchDeleteKey) return undefined;
-    const timer = window.setTimeout(() => {
-      setPendingInviteBatchDeleteKey(current =>
-        current === pendingInviteBatchDeleteKey ? '' : current
-      );
-    }, 2200);
-    return () => window.clearTimeout(timer);
-  }, [pendingInviteBatchDeleteKey]);
-
-  useEffect(() => {
-    if (!pendingUserDeleteId) return undefined;
-    const timer = window.setTimeout(() => {
-      setPendingUserDeleteId(current => (current === pendingUserDeleteId ? '' : current));
-    }, 2200);
-    return () => window.clearTimeout(timer);
-  }, [pendingUserDeleteId]);
-
   const openCreateAccount = () => {
     setEditingAccount(null);
     setAccountForm(defaultAccountForm);
@@ -1598,11 +1578,11 @@ function M365Page() {
   };
 
   const deleteUser = async user => {
+    if (!confirmPress(`m365-user-delete:${user.id}`, `删除用户「${getDisplayText(user.displayName)}」`)) return;
     try {
       await requestJSON(`/api/m365/accounts/${selectedAccountId}/users/${user.id}`, {
         method: 'DELETE',
       });
-      setPendingUserDeleteId('');
       toast.success('用户已删除');
       if (String(selectedUserId) === String(user.id)) {
         setSelectedUserId('');
@@ -1811,6 +1791,7 @@ function M365Page() {
       toast.warning('当前批次没有可删除的邀请码');
       return;
     }
+    if (!confirmPress(`m365-invite-batch:${group.key}`, `删除邀请码批次（${ids.length} 个）`)) return;
     try {
       const payload = group.batchId
         ? { publicPageId: Number(group.publicPageId) || undefined, batchId: group.batchId }
@@ -1819,7 +1800,6 @@ function M365Page() {
         method: 'DELETE',
         body: JSON.stringify(payload),
       });
-      setPendingInviteBatchDeleteKey('');
       toast.success(`已删除 ${result.deletedCount || ids.length} 个邀请码`);
       await Promise.all([loadPublicPages({ silent: true }), loadInviteCodes({ silent: true })]);
     } catch (error) {
@@ -2391,18 +2371,12 @@ function M365Page() {
                               </Button>
                               <Button
                                 size="sm"
-                                variant="destructive"
+                                variant={isArmed(`m365-invite-batch:${group.key}`) ? 'destructive' : 'secondary-destructive'}
                                 className="basis-0 !justify-center text-center"
                                 style={{ flex: 1 }}
-                                onClick={() => {
-                                  if (pendingInviteBatchDeleteKey === group.key) {
-                                    void deleteInviteBatch(group);
-                                    return;
-                                  }
-                                  setPendingInviteBatchDeleteKey(group.key);
-                                }}
+                                onClick={() => void deleteInviteBatch(group)}
                               >
-                                {pendingInviteBatchDeleteKey === group.key ? '确认' : '删除'}
+                                {isArmed(`m365-invite-batch:${group.key}`) ? '确认' : '删除'}
                               </Button>
                             </div>
                           </div>
@@ -2775,7 +2749,7 @@ function M365Page() {
                     assignedSkuLabels.length <= 2
                       ? assignedSkuLabels.join('、') || '-'
                       : `${assignedSkuLabels.slice(0, 2).join('、')} +${assignedSkuLabels.length - 2}`;
-                  const deleteArmed = String(pendingUserDeleteId) === String(user.id);
+                  const deleteArmed = isArmed(`m365-user-delete:${user.id}`);
                   return (
                     <Table.Row
                       key={user.id}
@@ -2852,13 +2826,7 @@ function M365Page() {
                             aria-label={deleteArmed ? '确认' : '删除用户'}
                             icon={<Trash className="h-3.5 w-3.5" />}
                             className={deleteArmed ? 'ring-1 ring-kumo-danger/50' : ''}
-                            onClick={() => {
-                              if (deleteArmed) {
-                                void deleteUser(user);
-                                return;
-                              }
-                              setPendingUserDeleteId(String(user.id));
-                            }}
+                            onClick={() => void deleteUser(user)}
                           >
                             {deleteArmed ? '确认' : '删除'}
                           </Button>

@@ -735,6 +735,75 @@ function OpenAIPage() {
     openHealthCheckForEndpoint,
   } = useHealthChecks({ endpoints, selectedEndpointId });
 
+  // 对外暴露模型实时查询（/v1/models 同源的 /api/openai/models，每次打开 popover 即时拉取）
+  const [exposedModels, setExposedModels] = useState([]);
+  const [exposedModelsLoading, setExposedModelsLoading] = useState(false);
+  const [exposedModelsError, setExposedModelsError] = useState(null);
+  const exposedModelsAbortRef = useRef(null);
+  const loadExposedModels = useCallback(async () => {
+    if (exposedModelsAbortRef.current) exposedModelsAbortRef.current.abort();
+    const controller = new AbortController();
+    exposedModelsAbortRef.current = controller;
+    setExposedModelsLoading(true);
+    setExposedModelsError(null);
+    try {
+      const res = await fetch('/api/openai/models', { signal: controller.signal, headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setExposedModels(Array.isArray(json?.data) ? json.data : []);
+    } catch (e) {
+      if (e?.name === 'AbortError') return;
+      setExposedModelsError(e?.message || '加载失败');
+    } finally {
+      if (exposedModelsAbortRef.current === controller) {
+        exposedModelsAbortRef.current = null;
+        setExposedModelsLoading(false);
+      }
+    }
+  }, []);
+  const handleExposedModelsOpenChange = useCallback((open) => {
+    if (open) loadExposedModels();
+  }, [loadExposedModels]);
+  const copyExposedModelName = useCallback(async (id) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      toast.success(`模型名已复制：${id}`);
+    } catch {
+      toast.error('复制失败');
+    }
+  }, []);
+  const renderExposedModels = () => {
+    if (exposedModelsLoading && exposedModels.length === 0) {
+      return <p className="px-2 py-4 text-center text-xs leading-normal text-kumo-subtle">加载中…</p>;
+    }
+    if (exposedModelsError) {
+      return <p className="px-2 py-4 text-center text-xs leading-normal text-kumo-danger">{exposedModelsError}</p>;
+    }
+    if (exposedModels.length === 0) {
+      return <p className="px-2 py-4 text-center text-xs leading-normal text-kumo-subtle">暂无对外模型</p>;
+    }
+    return (
+      <div className="grid gap-0.5">
+        {exposedModels.map((m, i) => (
+          <Button
+            type="button"
+            key={m.id || i}
+            variant="ghost"
+            size="sm"
+            onClick={() => copyExposedModelName(m.id)}
+            title="点击复制模型名"
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-kumo-recessed"
+          >
+            <span className="min-w-0 flex-1 truncate font-mono text-[0.8em] leading-normal text-kumo-strong">{m.id}</span>
+            {m.owned_by && (
+              <span className="shrink-0 text-[0.7em] leading-normal text-kumo-subtle">{m.owned_by}</span>
+            )}
+          </Button>
+        ))}
+      </div>
+    );
+  };
+
   // ==================== 2. Models 联动（健康检测结果驱动的批量关停） ====================
 
   useEffect(() => {
@@ -1151,16 +1220,42 @@ function OpenAIPage() {
                   未设置默认密钥
                 </span>
               )}
+              <Popover onOpenChange={handleExposedModelsOpenChange}>
+                <Popover.Trigger
+                  nativeButton={false}
+                  render={
+                    <Button type="button" size="sm" variant="secondary" className="shrink-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0">
+                      模型
+                      <Badge variant="secondary">{exposedModels.length}</Badge>
+                    </Button>
+                  }
+                />
+                <Popover.Content side="bottom" align="start" className="w-72 shrink-0 px-3 pb-2 pt-2.5 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain scrollbar-thin">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold leading-normal text-kumo-strong">对外暴露的模型</span>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
+                      onClick={loadExposedModels}
+                      disabled={exposedModelsLoading}
+                      aria-label="刷新对外模型"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${exposedModelsLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                  <div className="mt-1.5">
+                    {renderExposedModels()}
+                  </div>
+                  <div className="mt-1.5 border-t border-kumo-line pt-1.5 pb-0.5">
+                    <span className="text-[0.7em] leading-normal text-kumo-subtle">
+                      共 {exposedModels.length} 个模型 · 实时取自 /v1/models
+                    </span>
+                  </div>
+                </Popover.Content>
+              </Popover>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <StatusBadge tone="neutral">
-                {endpoints.filter(endpoint => endpoint.enabled).length} 个启用端点
-              </StatusBadge>
-              <StatusBadge tone="brand">
-                {enabledModelCount} 个启用模型
-              </StatusBadge>
             </div>
-          </div>
           {endpointsLoading ? (
             <div className="space-y-2.5">
               {[...Array(2)].map((_, i) => (

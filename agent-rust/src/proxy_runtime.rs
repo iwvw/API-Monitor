@@ -473,7 +473,7 @@ fn install_unit(unit: &str, runtime: &str, binary: &Path, config: &Path) -> Resu
 }
 
 #[cfg(unix)]
-fn ensure_firewall_port(port: u16, transport: &str) -> Result<String, String> {
+pub(crate) fn ensure_firewall_port(port: u16, transport: &str) -> Result<String, String> {
     let rule = format!("{port}/{transport}");
     if Command::new("firewall-cmd")
         .arg("--state")
@@ -507,7 +507,7 @@ fn ensure_firewall_port(port: u16, transport: &str) -> Result<String, String> {
 }
 
 #[cfg(unix)]
-fn remove_firewall_port(port: u16, transport: &str) {
+pub(crate) fn remove_firewall_port(port: u16, transport: &str) {
     let rule = format!("{port}/{transport}");
     if Command::new("firewall-cmd")
         .arg("--state")

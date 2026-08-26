@@ -123,3 +123,9 @@ docs/archive/
 # ====================
 .dsh-session-inspect/
 rulesjs.json
+
+# ====================
+# api-monitor-relay 中继二进制构建产物（源码在 backend-go/cmd/api-monitor-relay）
+# ====================
+backend-go/api-monitor-relay
+backend-go/api-monitor-relay.exe

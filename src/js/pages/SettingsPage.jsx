@@ -561,6 +561,7 @@ function SettingsPage() {
   }, [activeTab, loadSiteBrandIcons, siteBrandIconsLoaded, siteBrandIconsLoading]);
 
   const forceSessionOffline = async (session) => {
+    if (!confirmPress(`session-offline:${session.id}`, session.current ? '下线当前设备' : '强制下线该设备')) return;
     try {
       const response = await fetch(`/api/auth/sessions/${encodeURIComponent(session.id)}`, { method: 'DELETE', headers: getAuthHeaders() });
       const result = await response.json();
@@ -1686,10 +1687,10 @@ function SettingsPage() {
                   </div>
                   <Button
                     size="sm"
-                    variant="secondary-destructive"
+                    variant={isArmed(`session-offline:${session.id}`) ? 'destructive' : 'secondary-destructive'}
                     onClick={() => forceSessionOffline(session)}
                   >
-                    强制下线
+                    {isArmed(`session-offline:${session.id}`) ? '确认下线' : '强制下线'}
                   </Button>
                 </div>
               ))}

@@ -539,7 +539,7 @@ func New(cfg config.Config) *Service {
 		s.presence.start()
 	}
 	backgroundCtx := s.backgroundCtx
-	s.backgroundWG.Add(4)
+	s.backgroundWG.Add(5)
 	go func() {
 		defer s.backgroundWG.Done()
 		s.startMetricsCollectorLoop(backgroundCtx)
@@ -555,6 +555,10 @@ func New(cfg config.Config) *Service {
 	go func() {
 		defer s.backgroundWG.Done()
 		s.startManagedTunnelHealthLoop(backgroundCtx)
+	}()
+	go func() {
+		defer s.backgroundWG.Done()
+		s.startForwardHealthLoop(backgroundCtx)
 	}()
 
 	return s
@@ -996,6 +1000,57 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			)
 			BEGIN SELECT RAISE(ABORT, 'managed proxy port already reserved'); END`,
 		`CREATE INDEX IF NOT EXISTS idx_managed_proxy_preferences_order ON managed_proxy_preferences(enabled DESC, is_default DESC, sort_order ASC)`,
+		`CREATE TABLE IF NOT EXISTS managed_forwards (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			server_id TEXT NOT NULL,
+			local_host TEXT NOT NULL DEFAULT '127.0.0.1',
+			local_port INTEGER NOT NULL CHECK(local_port BETWEEN 1 AND 65535),
+			protocol TEXT NOT NULL DEFAULT 'tcp' CHECK(protocol IN ('tcp','http','https')),
+			transport TEXT NOT NULL CHECK(transport IN ('cloudflare_tunnel','tcp_relay','p2p')),
+			tunnel_hostname TEXT NOT NULL DEFAULT '',
+			tunnel_path TEXT NOT NULL DEFAULT '',
+			relay_server_id TEXT NOT NULL DEFAULT '',
+			remote_port INTEGER DEFAULT 0,
+			access_mode TEXT NOT NULL DEFAULT 'public' CHECK(access_mode IN ('public','token','panel')),
+			access_token TEXT NOT NULL DEFAULT '',
+			group_id TEXT NOT NULL DEFAULT '',
+			health_check_enabled INTEGER NOT NULL DEFAULT 0,
+			health_check_interval INTEGER NOT NULL DEFAULT 30,
+			health_check_timeout INTEGER NOT NULL DEFAULT 5,
+			health_check_unhealthy_threshold INTEGER NOT NULL DEFAULT 3,
+			health_check_healthy_threshold INTEGER NOT NULL DEFAULT 2,
+			failover_enabled INTEGER NOT NULL DEFAULT 0,
+			failover_current_server_id TEXT NOT NULL DEFAULT '',
+			failover_switched_at TEXT NOT NULL DEFAULT '',
+			failover_reason TEXT NOT NULL DEFAULT '',
+			desired_status TEXT NOT NULL DEFAULT 'running' CHECK(desired_status IN ('running','stopped')),
+			apply_status TEXT NOT NULL DEFAULT 'pending' CHECK(apply_status IN ('pending','deploying','running','stopped','failed','disconnected')),
+			last_stage TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			connector_count INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT DEFAULT (datetime('now')),
+			updated_at TEXT DEFAULT (datetime('now')),
+			FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_managed_forwards_server ON managed_forwards(server_id, updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_managed_forwards_transport ON managed_forwards(transport, apply_status)`,
+		`CREATE TABLE IF NOT EXISTS managed_forward_targets (
+			id TEXT PRIMARY KEY,
+			forward_id TEXT NOT NULL,
+			server_id TEXT NOT NULL,
+			priority INTEGER NOT NULL DEFAULT 0,
+			role TEXT NOT NULL DEFAULT 'standby' CHECK(role IN ('primary','standby','backup')),
+			health_status TEXT NOT NULL DEFAULT 'unknown' CHECK(health_status IN ('unknown','healthy','unhealthy','offline')),
+			last_checked_at TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at TEXT DEFAULT (datetime('now')),
+			updated_at TEXT DEFAULT (datetime('now')),
+			FOREIGN KEY (forward_id) REFERENCES managed_forwards(id) ON DELETE CASCADE,
+			FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE,
+			UNIQUE(forward_id, server_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_forward_targets_forward ON managed_forward_targets(forward_id, priority)`,
 		`CREATE INDEX IF NOT EXISTS idx_proxy_traffic_server_time ON server_proxy_traffic_reports(server_id, reported_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS server_network_quality_targets (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1132,6 +1187,26 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 		if exists, err := hasColumn(ctx, db, "managed_proxy_tunnels", f.Name); err == nil && !exists {
 			if _, err := db.ExecContext(ctx, f.SQL); err != nil {
 				return fmt.Errorf("migrate managed proxy tunnel %s: %w", f.Name, err)
+			}
+		}
+	}
+	forwardFields := []struct{ Name, SQL string }{
+		{"group_id", "ALTER TABLE managed_forwards ADD COLUMN group_id TEXT NOT NULL DEFAULT ''"},
+		{"health_check_enabled", "ALTER TABLE managed_forwards ADD COLUMN health_check_enabled INTEGER NOT NULL DEFAULT 0"},
+		{"health_check_interval", "ALTER TABLE managed_forwards ADD COLUMN health_check_interval INTEGER NOT NULL DEFAULT 30"},
+		{"health_check_timeout", "ALTER TABLE managed_forwards ADD COLUMN health_check_timeout INTEGER NOT NULL DEFAULT 5"},
+		{"health_check_unhealthy_threshold", "ALTER TABLE managed_forwards ADD COLUMN health_check_unhealthy_threshold INTEGER NOT NULL DEFAULT 3"},
+		{"health_check_healthy_threshold", "ALTER TABLE managed_forwards ADD COLUMN health_check_healthy_threshold INTEGER NOT NULL DEFAULT 2"},
+		{"failover_enabled", "ALTER TABLE managed_forwards ADD COLUMN failover_enabled INTEGER NOT NULL DEFAULT 0"},
+		{"failover_current_server_id", "ALTER TABLE managed_forwards ADD COLUMN failover_current_server_id TEXT NOT NULL DEFAULT ''"},
+		{"failover_switched_at", "ALTER TABLE managed_forwards ADD COLUMN failover_switched_at TEXT NOT NULL DEFAULT ''"},
+		{"failover_reason", "ALTER TABLE managed_forwards ADD COLUMN failover_reason TEXT NOT NULL DEFAULT ''"},
+		{"connector_count", "ALTER TABLE managed_forwards ADD COLUMN connector_count INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, f := range forwardFields {
+		if exists, err := hasColumn(ctx, db, "managed_forwards", f.Name); err == nil && !exists {
+			if _, err := db.ExecContext(ctx, f.SQL); err != nil {
+				applog.Error(ctx, "serveragent", "schema migration failed", "column", f.Name, "error", err.Error())
 			}
 		}
 	}
@@ -1280,6 +1355,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case len(parts) >= 1 && parts[0] == "remote-desktop":
 		s.handleRemoteDesktopRoutes(w, r, parts[1:])
+
+	// 托管转发规则（面板侧路径 /api/server/forward，与 agent/forward 同 handler）
+	case len(parts) >= 1 && parts[0] == "forward":
+		s.handleManagedForwardRoutes(w, r, db, parts[1:])
 
 	// Metrics routes (Wave 5b)
 	case len(parts) >= 1 && parts[0] == "metrics":
