@@ -2027,6 +2027,32 @@ func (s *Service) RunTCPForwarderTaskAndWait(serverID, payload string) (string, 
 	return s.runAgentTaskAndWait(serverID, 53, payload, 3*time.Minute)
 }
 
+// RunTCPForwarderBootstrap 让目标主机的 Agent 安装并常驻 api-monitor-relay（幂等）。
+func (s *Service) RunTCPForwarderBootstrap(serverID, assetURL, assetSHA string) error {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"operation": "bootstrap_relay", "relay_asset_url": assetURL, "relay_asset_sha256": assetSHA,
+	})
+	_, err := s.runAgentTaskAndWait(serverID, 53, string(payload), 3*time.Minute)
+	return err
+}
+
+// RunTCPForwarderStatus 查询源主机 Agent 隧道状态，返回（活跃连接数, 隧道是否在线）。
+func (s *Service) RunTCPForwarderStatus(serverID, forwardID string) (int, bool) {
+	payload, _ := json.Marshal(map[string]interface{}{"operation": "status", "forward_id": forwardID})
+	out, err := s.runAgentTaskAndWaitTransient(serverID, 53, string(payload), 6*time.Second)
+	if err != nil {
+		return 0, false
+	}
+	var st struct {
+		Connected      bool `json:"connected"`
+		ConnectorCount int  `json:"connector_count"`
+	}
+	if json.Unmarshal([]byte(out), &st) != nil {
+		return 0, false
+	}
+	return st.ConnectorCount, st.Connected
+}
+
 // RunForwardHealthProbeAndWait asks a server's Agent to TCP-probe a host:port (task 40),
 // returning true when the target is reachable. Forward health checks must probe from the
 // target server's Agent — dialing from the panel process would hit the wrong machine.

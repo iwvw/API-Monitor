@@ -77,6 +77,39 @@ func TestCreateManagedForwardPublicModeHasNoToken(t *testing.T) {
 	}
 }
 
+// 同一源主机允许多条转发规则共用同一本地端口（如 5173 同时走 CF Tunnel 与 tcp_relay）
+func TestCreateManagedForwardAllowsSharedLocalPort(t *testing.T) {
+	service, db := testService(t)
+	if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type) VALUES('host-t','测试主机','192.0.2.10','root','password'),('relay-id','中继','relay.example.com','root','password')`); err != nil {
+		t.Fatal(err)
+	}
+	first := `{"name":"fwd-http","server_id":"host-t","local_host":"127.0.0.1","local_port":5173,"protocol":"http","transport":"cloudflare_tunnel","access_mode":"public"}`
+	rec := httptest.NewRecorder()
+	service.handleManagedForwardRoutes(rec, httptest.NewRequest("POST", "/api/server/forward", strings.NewReader(first)), db, nil)
+	if rec.Code != 201 {
+		t.Fatalf("first create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	second := `{"name":"fwd-tcp","server_id":"host-t","local_host":"127.0.0.1","local_port":5173,"protocol":"tcp","transport":"tcp_relay","relay_server_id":"relay-id","access_mode":"public"}`
+	rec2 := httptest.NewRecorder()
+	service.handleManagedForwardRoutes(rec2, httptest.NewRequest("POST", "/api/server/forward", strings.NewReader(second)), db, nil)
+	if rec2.Code != 201 {
+		t.Fatalf("second create with shared local port status = %d body=%s", rec2.Code, rec2.Body.String())
+	}
+	// 预检不再把「端口无冲突」当作冲突项
+	pre := httptest.NewRecorder()
+	service.handleManagedForwardRoutes(pre, httptest.NewRequest("POST", "/api/server/forward/preflight", strings.NewReader(`{"server_id":"host-t","local_host":"127.0.0.1","local_port":5173,"transport":"cloudflare_tunnel"}`)), db, []string{"preflight"})
+	if pre.Code != 200 {
+		t.Fatalf("preflight status = %d body=%s", pre.Code, pre.Body.String())
+	}
+	if strings.Contains(pre.Body.String(), `"端口无冲突"`) {
+		t.Fatalf("preflight should no longer include port-conflict check: %s", pre.Body.String())
+	}
+	// 仅剩与冲突无关的检查项（源主机在线 / CF Tunnel 已就绪）
+	if !strings.Contains(pre.Body.String(), `"源主机在线"`) || !strings.Contains(pre.Body.String(), `"CF Tunnel 已就绪"`) {
+		t.Fatalf("preflight unexpected checks: %s", pre.Body.String())
+	}
+}
+
 // available-ports：已占用端口被剔除
 func TestAvailablePortsExcludesOccupied(t *testing.T) {
 	service, db := testService(t)

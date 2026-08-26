@@ -539,7 +539,7 @@ func New(cfg config.Config) *Service {
 		s.presence.start()
 	}
 	backgroundCtx := s.backgroundCtx
-	s.backgroundWG.Add(5)
+	s.backgroundWG.Add(6)
 	go func() {
 		defer s.backgroundWG.Done()
 		s.startMetricsCollectorLoop(backgroundCtx)
@@ -559,6 +559,10 @@ func New(cfg config.Config) *Service {
 	go func() {
 		defer s.backgroundWG.Done()
 		s.startForwardHealthLoop(backgroundCtx)
+	}()
+	go func() {
+		defer s.backgroundWG.Done()
+		s.startForwardConnectorSyncLoop(backgroundCtx)
 	}()
 
 	return s

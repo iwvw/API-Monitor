@@ -481,19 +481,22 @@ func (s *RelayServer) handleAddForward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	existing, ok := s.forwards[req.ID]
-	if ok {
+	existing, existed := s.forwards[req.ID]
+	// 幂等：同端口直接认为成功；端口变化则关闭旧监听重绑新端口（面板重试/换端口必须收敛，而非 409）
+	if existed && existing.port == req.ListenPort {
 		s.mu.Unlock()
-		if existing.port == req.ListenPort {
-			json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": req.ID, "port": req.ListenPort})
-			return
-		}
-		http.Error(w, "forward id already exists with different port", http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": req.ID, "port": req.ListenPort})
 		return
+	}
+	if existed {
+		delete(s.forwards, req.ID)
 	}
 	f := newForward(req.ID, req.ListenPort)
 	s.forwards[req.ID] = f
 	s.mu.Unlock()
+	if existed {
+		existing.shutdown()
+	}
 	s.listenForward(f)
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": req.ID, "port": req.ListenPort})
 }
@@ -543,7 +546,7 @@ func (s *RelayServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 // ==================== main ====================
 
 var (
-	listenAddr = flag.String("listen", ":8080", "管理 API 监听地址")
+	listenAddr = flag.String("listen", "127.0.0.1:18080", "管理 API 监听地址")
 	configFile = flag.String("config", "/etc/api-monitor-relay/config.json", "配置文件路径")
 )
 

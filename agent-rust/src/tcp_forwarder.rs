@@ -36,6 +36,10 @@ struct Request {
     local_host: String,
     #[serde(default)]
     local_port: u16,
+    #[serde(default)]
+    relay_asset_url: String,
+    #[serde(default)]
+    relay_asset_sha256: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -411,7 +415,7 @@ async fn status(forward_id: &str) -> Result<String, String> {
 // ==================== 入口主机 Agent：中继监听配置 ====================
 
 fn relay_admin_endpoint() -> String {
-    std::env::var("API_MONITOR_RELAY_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into())
+    std::env::var("API_MONITOR_RELAY_ADDR").unwrap_or_else(|_| "127.0.0.1:18080".into())
 }
 
 fn relay_admin_token() -> String {
@@ -473,6 +477,165 @@ async fn unlisten(request: &Request) -> Result<String, String> {
     Ok(serde_json::json!({"status":"unlistened","forward_id":request.forward_id}).to_string())
 }
 
+// ==================== 中继入口自举（默认安装 relay） ====================
+// 让任意主机都能作为中继入口：面板在部署前先发 bootstrap_relay（幂等，已运行则跳过）。
+
+#[cfg(unix)]
+fn relay_systemd_unit(binary: &std::path::Path) -> String {
+    format!(
+        "[Unit]\nDescription=API Monitor TCP relay\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart={} -listen 127.0.0.1:18080 -config /etc/api-monitor-relay/config.json\nRestart=always\nRestartSec=5s\nLimitNOFILE=1048576\n\n[Install]\nWantedBy=multi-user.target\n",
+        binary.display()
+    )
+}
+
+#[cfg(unix)]
+fn relay_cmd_run(command: &mut std::process::Command, label: &str) -> Result<(), String> {
+    let output = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|err| format!("{label}: {err}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("{label}: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+#[cfg(unix)]
+async fn bootstrap_relay(request: &Request) -> Result<String, String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // 幂等：已运行直接返回
+    let active = std::process::Command::new("systemctl")
+        .args(["is-active", "--quiet", "api-monitor-relay.service"])
+        .status()
+        .is_ok_and(|s| s.success());
+    if active {
+        return Ok(serde_json::json!({"status":"already_running"}).to_string());
+    }
+    let url = request.relay_asset_url.trim();
+    let sha = request.relay_asset_sha256.trim();
+    if !url.starts_with("https://") || sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("relay 资产必须为 HTTPS 地址并带 SHA-256".to_string());
+    }
+    let dir = std::path::Path::new("/opt/api-monitor-relay");
+    std::fs::create_dir_all(dir).map_err(|e| format!("创建 relay 目录失败: {e}"))?;
+    let binary = dir.join("api-monitor-relay");
+    let candidate = dir.join(".api-monitor-relay.download");
+    let _ = std::fs::remove_file(&candidate);
+    relay_cmd_run(
+        std::process::Command::new("curl").args(["--fail", "--location", "--retry", "3", "--proto", "=https", "--output"]).arg(&candidate).arg(url),
+        "下载 api-monitor-relay",
+    )?;
+    let sum = std::process::Command::new("sha256sum").arg(&candidate).output()
+        .map_err(|e| format!("sha256sum: {e}"))?;
+    let actual = String::from_utf8_lossy(&sum.stdout).split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+    if !sum.status.success() || actual != sha.to_ascii_lowercase() {
+        let _ = std::fs::remove_file(&candidate);
+        return Err("api-monitor-relay SHA-256 校验失败".to_string());
+    }
+    std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| format!("chmod relay: {e}"))?;
+    std::fs::rename(&candidate, &binary).map_err(|e| format!("激活 relay 二进制: {e}"))?;
+
+    std::fs::create_dir_all("/etc/api-monitor-relay").map_err(|e| format!("创建 relay 配置目录: {e}"))?;
+    std::fs::write("/etc/api-monitor-relay/config.json", "{\"forwards\":[]}").map_err(|e| format!("写 relay 配置: {e}"))?;
+    std::fs::write("/etc/systemd/system/api-monitor-relay.service", relay_systemd_unit(&binary))
+        .map_err(|e| format!("写 systemd 单元: {e}"))?;
+    relay_cmd_run(std::process::Command::new("systemctl").args(["daemon-reload"]), "systemctl daemon-reload")?;
+    relay_cmd_run(std::process::Command::new("systemctl").args(["enable", "--now", "api-monitor-relay.service"]), "enable relay")?;
+    relay_cmd_run(std::process::Command::new("systemctl").args(["restart", "api-monitor-relay.service"]), "restart relay")?;
+    relay_cmd_run(std::process::Command::new("systemctl").args(["is-active", "--quiet", "api-monitor-relay.service"]), "校验 relay 服务")?;
+    Ok(serde_json::json!({"status":"running"}).to_string())
+}
+
+#[cfg(windows)]
+fn relay_windows_root() -> std::path::PathBuf {
+    std::env::var_os("ProgramData")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData"))
+        .join("api-monitor-relay")
+}
+
+#[cfg(windows)]
+async fn bootstrap_relay(request: &Request) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+
+    let root = relay_windows_root();
+    let pid_file = root.join("relay.pid");
+    let running = std::fs::read_to_string(&pid_file)
+        .ok().and_then(|t| t.trim().parse::<u32>().ok())
+        .map(|pid| {
+            std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH"]).output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+    if running {
+        return Ok(serde_json::json!({"status":"already_running"}).to_string());
+    }
+
+    let url = request.relay_asset_url.trim();
+    let sha = request.relay_asset_sha256.trim();
+    if !url.starts_with("https://") || sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("relay 资产必须为 HTTPS 地址并带 SHA-256".to_string());
+    }
+    std::fs::create_dir_all(&root).map_err(|e| format!("创建 relay 目录失败: {e}"))?;
+    let binary = root.join("api-monitor-relay.exe");
+    let candidate = root.join(".api-monitor-relay.download.exe");
+    let _ = std::fs::remove_file(&candidate);
+    let script = root.join("download-relay.ps1");
+    std::fs::write(&script, "param([string]$Uri,[string]$OutFile)\n$ErrorActionPreference='Stop'\ntry {\n  Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec 300 -UseBasicParsing -MaximumRedirection 5\n  exit 0\n} catch {\n  Write-Error $_.Exception.Message\n  exit 1\n}\n")
+        .map_err(|e| format!("写下载脚本: {e}"))?;
+    let st = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(&script)
+        .arg("-Uri").arg(url)
+        .arg("-OutFile").arg(&candidate)
+        .status().map_err(|e| format!("下载 api-monitor-relay: {e}"))?;
+    if !st.success() {
+        let _ = std::fs::remove_file(&candidate);
+        return Err("api-monitor-relay 下载失败".to_string());
+    }
+    // certutil 校验 SHA-256
+    let sum = std::process::Command::new("certutil").args(["-hashfile"]).arg(&candidate).arg("SHA256").output()
+        .map_err(|e| format!("certutil: {e}"))?;
+    let sum_text = String::from_utf8_lossy(&sum.stdout).into_owned();
+    let mut actual = String::new();
+    for line in sum_text.lines() {
+        let t = line.trim();
+        if t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) {
+            actual = t.to_ascii_lowercase();
+            break;
+        }
+    }
+    if !sum.status.success() || actual != sha.to_ascii_lowercase() {
+        let _ = std::fs::remove_file(&candidate);
+        return Err("api-monitor-relay SHA-256 校验失败".to_string());
+    }
+    std::fs::rename(&candidate, &binary).map_err(|e| format!("激活 relay 二进制: {e}"))?;
+
+    let log_file = root.join("relay.log");
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(&log_file)
+        .map_err(|e| format!("打开 relay 日志: {e}"))?;
+    let child = std::process::Command::new(&binary)
+        .args(["-listen", "127.0.0.1:18080", "-config"])
+        .arg(root.join("config.json"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log.try_clone().map_err(|e| format!("clone log: {e}"))?))
+        .stderr(std::process::Stdio::from(log))
+        .creation_flags(0x08000000)
+        .spawn()
+        .map_err(|e| format!("启动 relay: {e}"))?;
+    std::fs::write(&pid_file, child.id().to_string()).map_err(|e| format!("写 pid: {e}"))?;
+    // 开机自启（尽力而为）
+    let tr = format!("\\\"{}\\\" -listen 127.0.0.1:18080 -config \\\"{}\\\"", binary.display().to_string().replace('\\', "\\\\"), root.join("config.json").display().to_string().replace('\\', "\\\\"));
+    let _ = std::process::Command::new("schtasks")
+        .args(["/Create", "/TN", "api-monitor-relay", "/TR", &tr, "/SC", "ONSTART", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"])
+        .status();
+    Ok(serde_json::json!({"status":"running"}).to_string())
+}
+
 pub async fn reconcile(raw: &str) -> Result<String, String> {
     let request: Request = serde_json::from_str(raw).map_err(|e| format!("invalid tcp_forwarder request: {e}"))?;
     match request.operation.trim().to_ascii_lowercase().as_str() {
@@ -481,6 +644,7 @@ pub async fn reconcile(raw: &str) -> Result<String, String> {
         "status" => status(&request.forward_id).await,
         "listen" => listen(&request).await,
         "unlisten" => unlisten(&request).await,
+        "bootstrap_relay" => bootstrap_relay(&request).await,
         other => Err(format!("unknown tcp_forwarder operation: {other}")),
     }
 }
@@ -526,6 +690,8 @@ mod tests {
             relay_port: relay_addr.port(),
             local_host: "127.0.0.1".into(),
             local_port: echo_addr.port(),
+            relay_asset_url: String::new(),
+            relay_asset_sha256: String::new(),
         };
         let install_req = request.clone();
         let install_handle = tokio::spawn(async move { install(&install_req).await });

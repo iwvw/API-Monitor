@@ -137,6 +137,29 @@ func generateForwardID() string {
 	return "fwd_" + hex.EncodeToString(bytes)
 }
 
+// api-monitor-relay 中继二进制资产（与 GitHub Release v0.6.1 一致）
+const (
+	relayLinuxAMD64URL    = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-relay-linux-amd64"
+	relayLinuxAMD64SHA256 = "455051b47cb1d4da2ece0b29c2b469191e68e712fabc43f21651ce0fdf52640f"
+	relayLinuxARM64URL    = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-relay-linux-arm64"
+	relayLinuxARM64SHA256 = "e163a95eb5b24945a834a8ca2ffc1d2112d1449f4ff839425d9630ab6f90aa85"
+	relayWindowsAMD64URL   = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-relay-windows-amd64.exe"
+	relayWindowsAMD64SHA256 = "226fffc6450591b5b5bbe2c3f2c2d59dcc1594824cf593e338c0b79284f67948"
+)
+
+// relayAssetFor 按主机平台/架构返回 relay 二进制下载地址与 SHA-256。
+func relayAssetFor(platform, arch string) (url, sha string, ok bool) {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	arch = strings.ToLower(strings.TrimSpace(arch))
+	if strings.Contains(platform, "windows") || strings.Contains(platform, "win") {
+		return relayWindowsAMD64URL, relayWindowsAMD64SHA256, true
+	}
+	if strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64") {
+		return relayLinuxARM64URL, relayLinuxARM64SHA256, true
+	}
+	return relayLinuxAMD64URL, relayLinuxAMD64SHA256, true
+}
+
 func generateTargetID() string {
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {
@@ -164,7 +187,14 @@ func buildAccessURL(fwd managedForward) string {
 			if host == "" {
 				host = fwd.RelayServerID
 			}
-			return fmt.Sprintf("tcp://%s:%d", host, fwd.RemotePort)
+			scheme := "tcp"
+			switch fwd.Protocol {
+			case "http":
+				scheme = "http"
+			case "https":
+				scheme = "https"
+			}
+			return fmt.Sprintf("%s://%s:%d", scheme, host, fwd.RemotePort)
 		}
 		return ""
 	case "p2p":
@@ -301,11 +331,6 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 			response.Error(w, 404, "relay server not found")
 			return
 		}
-	}
-	var dup int
-	if err := db.QueryRowContext(r.Context(), `SELECT 1 FROM managed_forwards WHERE server_id=? AND local_host=? AND local_port=?`, input.ServerID, input.LocalHost, input.LocalPort).Scan(&dup); err == nil {
-		response.Error(w, 409, "a forward rule with this server and port already exists")
-		return
 	}
 	id := generateForwardID()
 	// token 模式：自动生成 32 字符访问令牌并加密存储，明文仅在创建响应中返回一次
@@ -569,6 +594,17 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// 0) 默认安装中继入口：任何主机都能成为中继（agent 侧幂等，已运行即跳过）
+	relayMeta := relayConn.GetMetadata()
+	relayURL, relaySHA, relayOK := relayAssetFor(fmt.Sprint(relayMeta["platform"]), fmt.Sprint(relayMeta["arch"]))
+	if relayOK {
+		if err := s.RunTCPForwarderBootstrap(item.RelayServerID, relayURL, relaySHA); err != nil {
+			_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay_bootstrap',last_error=?,updated_at=datetime('now') WHERE id=?`, "中继安装失败: "+err.Error(), item.ID)
+			response.Error(w, 500, "中继入口安装失败: "+err.Error())
+			return
+		}
+	}
+
 	port := allocateRelayPort(r.Context(), db, item, item.RelayServerID)
 	if port == 0 {
 		response.Error(w, 422, "中继端口已满（55655-60655），请清理不需要的转发规则")
@@ -613,6 +649,7 @@ func (s *Service) sourceClientCapabilityIssue(serverID string) string {
 }
 
 // allocateRelayPort 在事务内分配并占用中继端口，避免并发部署撞同端口。
+// 排除规则自身当前占用：重试/重启部署时沿用同一端口，避免入口地址每次漂移。
 func allocateRelayPort(ctx context.Context, db *sql.DB, item *managedForward, relayServerID string) int {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -621,7 +658,7 @@ func allocateRelayPort(ctx context.Context, db *sql.DB, item *managedForward, re
 	defer tx.Rollback()
 	for port := 55655; port <= 60655; port++ {
 		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM managed_forwards WHERE relay_server_id=? AND remote_port=?`, relayServerID, port).Scan(&exists); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM managed_forwards WHERE relay_server_id=? AND remote_port=? AND id<>?`, relayServerID, port, item.ID).Scan(&exists); err != nil {
 			// 端口空闲：更新占用并提交
 			if _, err := tx.ExecContext(ctx, `UPDATE managed_forwards SET remote_port=? WHERE id=?`, port, item.ID); err == nil {
 				_ = tx.Commit()
@@ -763,21 +800,8 @@ func (s *Service) preflightManagedForward(w http.ResponseWriter, r *http.Request
 			allPassed = false
 		}
 	}
-	if input.ServerID != "" && input.LocalPort > 0 {
-		localHost := input.LocalHost
-		if localHost == "" {
-			localHost = "127.0.0.1"
-		}
-		// 与创建接口的查重口径一致（server+host+port）；编辑时排除规则自身，避免误报
-		var dup int
-		_ = db.QueryRowContext(r.Context(), `SELECT 1 FROM managed_forwards WHERE server_id=? AND local_host=? AND local_port=? AND id<>?`, input.ServerID, localHost, input.LocalPort, input.ForwardID).Scan(&dup)
-		checks = append(checks, map[string]interface{}{
-			"name": "端口无冲突", "passed": dup == 0,
-		})
-		if dup != 0 {
-			allPassed = false
-		}
-	}
+	// 同一源主机允许多条转发规则共用同一本地服务（local_host:local_port）：每条规则
+	// 各有独立入口（CF 隧道路径 / 中继远程端口），端口共享为受支持语义，不做冲突拦截。
 	response.OK(w, map[string]interface{}{
 		"passed": allPassed,
 		"checks": checks,
@@ -853,6 +877,51 @@ func (s *Service) startForwardHealthLoop(ctx context.Context) {
 		case <-ticker.C:
 			s.checkForwardHealth(ctx)
 		}
+	}
+}
+
+// startForwardConnectorSyncLoop 周期同步 tcp_relay 活跃连接数（连接数来自源主机 Agent 的 status）。
+func (s *Service) startForwardConnectorSyncLoop(ctx context.Context) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.syncForwardConnectors(ctx)
+		}
+	}
+}
+
+func (s *Service) syncForwardConnectors(ctx context.Context) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT id, server_id FROM managed_forwards WHERE transport='tcp_relay' AND desired_status='running'`)
+	if err != nil {
+		return
+	}
+	type frow struct{ id, serverID string }
+	var list []frow
+	for rows.Next() {
+		var r frow
+		if rows.Scan(&r.id, &r.serverID) == nil {
+			list = append(list, r)
+		}
+	}
+	rows.Close()
+	if len(list) == 0 {
+		return
+	}
+	for _, r := range list {
+		n, connected := s.RunTCPForwarderStatus(r.serverID, r.id)
+		if !connected {
+			continue // 离线/未建立隧道：保留上次值，避免误报「无连接」
+		}
+		_, _ = db.ExecContext(context.Background(), `UPDATE managed_forwards SET connector_count=? WHERE id=?`, n, r.id)
 	}
 }
 
