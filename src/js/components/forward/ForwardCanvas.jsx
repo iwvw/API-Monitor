@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, ClipboardText } from '@cloudflare/kumo';
 import { Input } from '@cloudflare/kumo/components/input';
+import { useCloudflareSpotlight } from '../../hooks/useCloudflareSpotlight.js';
 import {
   buildTreeLayout,
   STATUS_COLORS,
@@ -26,6 +27,7 @@ const STATUS_BADGE_VARIANT = {
 
 export default function ForwardCanvas({ forwards, servers, deploying, acting, onEdit, onDeploy, onStop, onStart, onDelete, deleteConfirmActive, isDeleting }) {
   const viewportRef = useRef(null);
+  const spotlightSurfaceRef = useCloudflareSpotlight();
   const flashTimerRef = useRef(null);
   const prevStatusRef = useRef({});
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
@@ -394,7 +396,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
 
       <div
         ref={viewportRef}
-        className={`fwd-mesh-bg relative select-none overflow-hidden rounded-lg border border-kumo-line bg-kumo-base ${isPanning ? 'cursor-grabbing' : ''}`}
+        className={`relative select-none overflow-hidden rounded-lg border border-kumo-line bg-kumo-base ${isPanning ? 'cursor-grabbing' : ''}`}
         style={{ height: canvasHeight }}
         onClick={handleCanvasClick}
         onDoubleClick={(event) => {
@@ -406,6 +408,11 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
         onPointerUp={handlePanPointerEnd}
         onPointerCancel={handlePanPointerEnd}
       >
+        <div
+          ref={spotlightSurfaceRef}
+          className="cf-ai-background-surface cf-ai-background fwd-spotlight pointer-events-none absolute inset-0"
+          aria-hidden="true"
+        />
         {forwards.length === 0 && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-kumo-subtle">
             <span className="text-sm">暂无转发规则</span>

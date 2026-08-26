@@ -11242,7 +11242,7 @@ function ServerPage() {
 
       {/* ==================== 模态框: 凭据预设新增 ==================== */}
       <Dialog.Root open={showAddCredentialModal} onOpenChange={setShowAddCredentialModal}>
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-96 cq-sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
           <div ref={credentialModalPortalRef} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
               <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
@@ -11364,7 +11364,7 @@ function ServerPage() {
 
       {/* ==================== 模态框: 导入主机备份 ==================== */}
       <Dialog.Root open={showImportServerModal} onOpenChange={setShowImportServerModal}>
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-96 cq-sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               导入主机备份配置
@@ -11608,7 +11608,7 @@ function ServerPage() {
           setShowBatchAgentModal(open);
         }}
       >
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[48rem] cq-sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               批量部署 Agent
@@ -11648,7 +11648,7 @@ function ServerPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 cq-sm:grid-cols-2 cq-md:grid-cols-3">
                 {serverList.map(server => {
                   const deployable = canSshDeployAgent(server);
                   return (
@@ -11758,7 +11758,7 @@ function ServerPage() {
           setShowUpgradeModal(open);
         }}
       >
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[32rem] cq-sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               升级 Agent
@@ -11810,7 +11810,7 @@ function ServerPage() {
                 />
               )}
 
-              <div className="grid min-w-0 gap-4 cq-lg:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] cq-lg:items-stretch">
+              <div className="grid min-w-0 gap-4 cq-md:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] cq-md:items-stretch">
                 <div className="min-w-0 space-y-1.5">
                   <div className="text-xs font-semibold text-kumo-strong">主机状态</div>
                   {upgradeBatchSnapshot?.items?.length > 0 ? (
@@ -12117,7 +12117,7 @@ function ServerPage() {
         </Dialog>
       </Dialog.Root>
       <Dialog.Root open={showNetworkTargetModal} onOpenChange={setShowNetworkTargetModal}>
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-96 cq-sm:max-w-[calc(100vw-3rem)]">
+        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
           <form onSubmit={saveNetworkTarget} className="flex flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 items-center justify-between border-b border-kumo-line/80 px-4 py-3">
               <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">

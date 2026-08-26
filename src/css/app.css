@@ -2707,13 +2707,10 @@ input[type='number'] {
 
 /* ==================== 转发中心星座画布（主题自适应，Cloudflare mesh 风格） ==================== */
 
-/* 画布背景：点阵网格纹理 + 中心品牌色柔光（浅/深模式均走 kumo 变量，bg 随页面主题） */
-.fwd-mesh-bg {
-  background-image:
-    radial-gradient(ellipse at center, color-mix(in oklab, var(--color-kumo-brand) 7%, transparent) 0%, transparent 58%),
-    radial-gradient(circle, color-mix(in oklab, var(--color-kumo-line) 42%, transparent) 1px, transparent 1.6px);
-  background-size: auto, 52px 52px;
-  background-position: center, 26px 26px;
+/* 画布聚光点阵表层：复用登录页 .cf-ai-background 的点阵 + 鼠标光斑互动背景。
+   仅穿透自身底色，让画布容器主题色继续生效（光斑/点阵由 useCloudflareSpotlight 驱动） */
+.fwd-spotlight {
+  background: transparent;
 }
 
 /* 轨道虚线环 */
