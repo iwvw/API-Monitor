@@ -2022,6 +2022,11 @@ func (s *Service) RunCloudflaredTaskAndWait(serverID, desiredState string) (stri
 	return s.runAgentTaskAndWait(serverID, 51, desiredState, 3*time.Minute)
 }
 
+// RunTCPForwarderTaskAndWait sends a tcp_forwarder reconcile task (task 53) and waits.
+func (s *Service) RunTCPForwarderTaskAndWait(serverID, payload string) (string, error) {
+	return s.runAgentTaskAndWait(serverID, 53, payload, 3*time.Minute)
+}
+
 // RunForwardHealthProbeAndWait asks a server's Agent to TCP-probe a host:port (task 40),
 // returning true when the target is reachable. Forward health checks must probe from the
 // target server's Agent — dialing from the panel process would hit the wrong machine.

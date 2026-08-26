@@ -579,7 +579,7 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 	listenPayload, _ := json.Marshal(map[string]interface{}{
 		"operation": "listen", "forward_id": item.ID, "relay_port": port,
 	})
-	if _, err := s.RunCloudflaredTaskAndWait(item.RelayServerID, string(listenPayload)); err != nil {
+	if _, err := s.RunTCPForwarderTaskAndWait(item.RelayServerID, string(listenPayload)); err != nil {
 		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
 		response.Error(w, 500, "中继入口部署失败: "+err.Error())
 		return
@@ -590,7 +590,7 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 		"relay_host": relayHost, "relay_port": port,
 		"local_host": item.LocalHost, "local_port": item.LocalPort,
 	})
-	if _, err := s.RunCloudflaredTaskAndWait(item.ServerID, string(sourcePayload)); err != nil {
+	if _, err := s.RunTCPForwarderTaskAndWait(item.ServerID, string(sourcePayload)); err != nil {
 		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_source',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
 		response.Error(w, 500, "源主机隧道建立失败: "+err.Error())
 		return
@@ -651,13 +651,13 @@ func (s *Service) removeTCPRelayTunnels(ctx context.Context, db *sql.DB, item *m
 			"operation": "unlisten", "forward_id": item.ID, "relay_port": relayPort,
 		})
 		if _, ok := s.registry.Get(item.RelayServerID); ok {
-			_, _ = s.RunCloudflaredTaskAndWait(item.RelayServerID, string(unlistenPayload))
+			_, _ = s.RunTCPForwarderTaskAndWait(item.RelayServerID, string(unlistenPayload))
 		}
 	}
 	// 源主机：断隧道
 	removePayload, _ := json.Marshal(map[string]interface{}{"operation": "remove", "forward_id": item.ID})
 	if _, ok := s.registry.Get(item.ServerID); ok {
-		_, _ = s.RunCloudflaredTaskAndWait(item.ServerID, string(removePayload))
+		_, _ = s.RunTCPForwarderTaskAndWait(item.ServerID, string(removePayload))
 	}
 }
 
@@ -986,7 +986,7 @@ func (s *Service) applyTCPRelayTarget(db *sql.DB, forwardID, targetServerID stri
 	if _, ok := s.registry.Get(targetServerID); !ok {
 		return
 	}
-	_, _ = s.RunCloudflaredTaskAndWait(targetServerID, string(payload))
+	_, _ = s.RunTCPForwarderTaskAndWait(targetServerID, string(payload))
 }
 
 // removeTunnelFrom 让指定服务器 Agent 拆除隧道。
@@ -998,7 +998,7 @@ func (s *Service) removeTunnelFrom(db *sql.DB, forwardID, serverID string) {
 		return
 	}
 	payload, _ := json.Marshal(map[string]interface{}{"operation": "remove", "forward_id": forwardID})
-	_, _ = s.RunCloudflaredTaskAndWait(serverID, string(payload))
+	_, _ = s.RunTCPForwarderTaskAndWait(serverID, string(payload))
 }
 
 func (s *Service) handleAvailablePorts(w http.ResponseWriter, r *http.Request, db *sql.DB) {
