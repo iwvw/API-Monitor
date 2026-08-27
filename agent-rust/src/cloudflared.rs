@@ -63,7 +63,7 @@ fn install(request: &Request) -> Result<String, String> {
     atomic_write(&root.join("token"), request.token.trim().as_bytes(), 0o600)?;
 
     let unit = format!(
-        "[Unit]\nDescription=API Monitor managed Cloudflare Tunnel\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart={} --no-autoupdate tunnel run --token-file {}/token\nRestart=always\nRestartSec=5s\nStartLimitIntervalSec=0\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadOnlyPaths={}\nCapabilityBoundingSet=\nLockPersonality=true\nMemoryDenyWriteExecute=true\nRestrictSUIDSGID=true\n\n[Install]\nWantedBy=multi-user.target\n",
+        "[Unit]\nDescription=API Monitor managed Cloudflare Tunnel\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart={} --no-autoupdate tunnel run --protocol http2 --token-file {}/token\nRestart=always\nRestartSec=5s\nStartLimitIntervalSec=0\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadOnlyPaths={}\nCapabilityBoundingSet=\nLockPersonality=true\nMemoryDenyWriteExecute=true\nRestrictSUIDSGID=true\n\n[Install]\nWantedBy=multi-user.target\n",
         binary.display(), CONFIG_ROOT, CONFIG_ROOT
     );
     atomic_write(Path::new(UNIT_PATH), unit.as_bytes(), 0o644)?;
@@ -261,7 +261,7 @@ fn spawn_cloudflared_windows(binary: &Path, token_file: &Path) -> Result<u32, St
         .map_err(|err| format!("open cloudflared log: {err}"))?;
     let child = std::process::Command::new(binary)
         .args([
-            "--no-autoupdate", "tunnel", "run", "--token-file",
+            "--no-autoupdate", "tunnel", "run", "--protocol", "http2", "--token-file",
         ])
         .arg(token_file)
         .stdout(std::process::Stdio::from(log.try_clone().map_err(|err| format!("clone log: {err}"))?))
@@ -328,7 +328,7 @@ fn install(request: &Request) -> Result<String, String> {
 #[cfg(windows)]
 fn ensure_boot_task_windows(binary: &Path, token_file: &Path) -> Result<(), String> {
     let tr = format!(
-        "\\\"{}\\\" --no-autoupdate tunnel run --token-file \\\"{}\\\"",
+        "\\\"{}\\\" --no-autoupdate tunnel run --protocol http2 --token-file \\\"{}\\\"",
         binary.display().to_string().replace('\\', "\\\\"),
         token_file.display().to_string().replace('\\', "\\\\")
     );
