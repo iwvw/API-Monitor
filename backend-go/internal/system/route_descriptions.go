@@ -397,7 +397,7 @@ var routeDescriptions = map[string]string{
 	"/api/server/info":                         "读取主机实例信息",
 	"/api/server/test-connection":              "测试主机连接是否可用",
 	"/api/server/action":                       "对主机执行指定动作（重启、关机等）",
-	"/api/server/check-all":                    "批量检查所有主机的在线状态",
+	"/api/server/check-all":                    "批量检查所有主机的在线状态（响应含 name，可直接识别主机）",
 	"/api/server/accounts":                     "列出主机实例账号",
 	"/api/server/accounts/{id}":                "更新或删除主机实例账号",
 	"/api/server/accounts/export":              "导出主机实例账号",

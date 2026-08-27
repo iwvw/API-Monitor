@@ -265,7 +265,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/info", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server info", MatchMode: MatchExact},
 		{Prefix: "/api/server/test-connection", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Test server connection", MatchMode: MatchExact},
 		{Prefix: "/api/server/action", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server actions (reboot, shutdown)", MatchMode: MatchExact},
-		{Prefix: "/api/server/check-all", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Check all servers", MatchMode: MatchExact},
+		{Prefix: "/api/server/check-all", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Check all servers (with name)", MatchMode: MatchExact},
 
 		{Prefix: "/api/server/agent/quick-install", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent quick install", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/regenerate-key", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Regenerate agent key", MatchMode: MatchExact},

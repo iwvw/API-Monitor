@@ -184,9 +184,9 @@ func (s *Service) handleServerAction(w http.ResponseWriter, r *http.Request, db 
 	})
 }
 
-// handleCheckAll 批量检查所有服务器状态
+// handleCheckAll 批量检查所有服务器状态（含名称，供 agent/API 消费方直接识别主机）
 func (s *Service) handleCheckAll(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	rows, err := db.QueryContext(r.Context(), "SELECT id, status FROM server_accounts")
+	rows, err := db.QueryContext(r.Context(), "SELECT id, COALESCE(name, ''), status FROM server_accounts")
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -198,8 +198,9 @@ func (s *Service) handleCheckAll(w http.ResponseWriter, r *http.Request, db *sql
 	offline := 0
 	for rows.Next() {
 		var id string
+		var name string
 		var status string
-		if err := rows.Scan(&id, &status); err != nil {
+		if err := rows.Scan(&id, &name, &status); err != nil {
 			continue
 		}
 		agentOnline := false
@@ -213,6 +214,7 @@ func (s *Service) handleCheckAll(w http.ResponseWriter, r *http.Request, db *sql
 		}
 		results = append(results, map[string]interface{}{
 			"serverId":     id,
+			"name":         name,
 			"status":       status,
 			"agent_online": agentOnline,
 		})

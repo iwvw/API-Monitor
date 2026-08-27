@@ -403,7 +403,7 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/server/test-connection", Module: "server-operations", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Server connection test", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/server/check-all", Module: "server-operations", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Server batch status check", MatchMode: manifest.MatchExact},
+	{Route: manifest.Route{Prefix: "/api/server/check-all", Module: "server-operations", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Server batch status check (with name)", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/server/docker/check-update", Module: "server-operations", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Docker update check", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
