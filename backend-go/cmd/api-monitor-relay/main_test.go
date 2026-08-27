@@ -74,8 +74,13 @@ func mgmtReq(t *testing.T, method, url, token string, body io.Reader, wantStatus
 
 func addForward(t *testing.T, relay *RelayServer, mgmtPort int, id string, port int) {
 	t.Helper()
+	addForwardToken(t, relay, mgmtPort, id, port, "")
+}
+
+func addForwardToken(t *testing.T, relay *RelayServer, mgmtPort int, id string, port int, token string) {
+	t.Helper()
 	url := fmt.Sprintf("http://127.0.0.1:%d/forwards", mgmtPort)
-	body := fmt.Sprintf(`{"id":%q,"listen_port":%d}`, id, port)
+	body := fmt.Sprintf(`{"id":%q,"listen_port":%d,"token":%q}`, id, port, token)
 	mgmtReq(t, "POST", url, "test-token", bytes.NewBufferString(body), 200)
 }
 
@@ -346,5 +351,125 @@ func TestRelayRejectsWrongHandshakeAsClient(t *testing.T) {
 	_, payload := accumulateData(t, tun, len(want), 3*time.Second)
 	if string(payload) != want {
 		t.Fatalf("client prefix corrupted: got %q", payload)
+	}
+}
+
+// 隧道（forward_id 握手）在 token 模式转发上仍应被接受。
+func TestRelayTokenTunnelStillWorks(t *testing.T) {
+	relay, mgmt := newTestRelay(t)
+	fwdPort := freePort(t)
+	addForwardToken(t, relay, mgmt, "fwd_tk", fwdPort, "am_secret")
+	tun := dialTunnel(t, fwdPort, "fwd_tk")
+	defer tun.Close()
+
+	// 客户端用 raw 握手通过校验后桥接
+	c, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	tk := []byte("am_secret")
+	hdr := make([]byte, 4)
+	binary.BigEndian.PutUint32(hdr, uint32(len(tk)))
+	_, _ = c.Write(append(hdr, tk...))
+	_, _ = c.Write([]byte("ping"))
+	_, payload := accumulateData(t, tun, 4, 3*time.Second)
+	if string(payload) != "ping" {
+		t.Fatalf("bridged payload=%q, token should be stripped", payload)
+	}
+}
+
+// token 模式：raw 握手通过才桥接，token 被剥离；错误/缺失 token 被关闭。
+func TestRelayTokenRawHandshakeGate(t *testing.T) {
+	relay, mgmt := newTestRelay(t)
+	fwdPort := freePort(t)
+	addForwardToken(t, relay, mgmt, "fwd_tk2", fwdPort, "am_abc123")
+	tun := dialTunnel(t, fwdPort, "fwd_tk2")
+	defer tun.Close()
+
+	// 1) 缺 token：连接应立即被关闭
+	bad, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bad.Close()
+	_, _ = bad.Write([]byte("no token here"))
+	_ = bad.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := bad.Read(make([]byte, 1)); err == nil {
+		t.Fatalf("expected connection closed without token")
+	}
+
+	// 2) 错误 token：关闭
+	wrong, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wrong.Close()
+	wt := []byte("am_wrong")
+	wh := make([]byte, 4)
+	binary.BigEndian.PutUint32(wh, uint32(len(wt)))
+	_, _ = wrong.Write(append(wh, wt...))
+	_ = wrong.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := wrong.Read(make([]byte, 1)); err == nil {
+		t.Fatalf("expected connection closed with wrong token")
+	}
+
+	// 3) 正确 token：桥接且 token 被剥离
+	ok, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ok.Close()
+	tk := []byte("am_abc123")
+	oh := make([]byte, 4)
+	binary.BigEndian.PutUint32(oh, uint32(len(tk)))
+	_, _ = ok.Write(append(oh, tk...))
+	_, _ = ok.Write([]byte("hello"))
+	_, payload := accumulateData(t, tun, 5, 3*time.Second)
+	if string(payload) != "hello" {
+		t.Fatalf("token stripped, got %q", payload)
+	}
+}
+
+// token 模式：HTTP 客户端用 Authorization: Bearer 校验，整请求原样桥接。
+func TestRelayTokenHTTPBearerGate(t *testing.T) {
+	relay, mgmt := newTestRelay(t)
+	fwdPort := freePort(t)
+	addForwardToken(t, relay, mgmt, "fwd_tk3", fwdPort, "am_http")
+	tun := dialTunnel(t, fwdPort, "fwd_tk3")
+	defer tun.Close()
+
+	// 1) 无 Bearer：关闭
+	nb, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nb.Close()
+	_, _ = nb.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+	_ = nb.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := nb.Read(make([]byte, 1)); err == nil {
+		t.Fatalf("expected HTTP without bearer closed")
+	}
+
+	// 2) 带正确 Bearer：整请求（含 Authorization 头）桥接到隧道
+	hc, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hc.Close()
+	req := "GET / HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer am_http\r\n\r\n"
+	_, _ = hc.Write([]byte(req))
+	id, payload := accumulateData(t, tun, len(req), 3*time.Second)
+	if string(payload) != req {
+		t.Fatalf("HTTP request not forwarded intact: got %q", payload)
+	}
+	// 回程正常
+	if err := writeFrame(tun, frameTypeData, id, []byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, len("HTTP/1.1 200 OK\r\n\r\n"))
+	_ = hc.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := io.ReadFull(hc, buf); err != nil {
+		t.Fatalf("client read: %v", err)
 	}
 }

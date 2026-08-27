@@ -40,6 +40,8 @@ struct Request {
     relay_asset_url: String,
     #[serde(default)]
     relay_asset_sha256: String,
+    #[serde(default)]
+    token: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -453,7 +455,7 @@ async fn listen(request: &Request) -> Result<String, String> {
     if request.forward_id.is_empty() || port == 0 {
         return Err("listen 需要 forward_id 与 relay_port".to_string());
     }
-    let body = serde_json::json!({"id": request.forward_id, "listen_port": port});
+    let body = serde_json::json!({"id": request.forward_id, "listen_port": port, "token": request.token});
     relay_request(reqwest::Method::POST, "/forwards", Some(body)).await?;
     #[cfg(unix)]
     let _ = crate::proxy_runtime::ensure_firewall_port(port, "tcp");
@@ -692,6 +694,7 @@ mod tests {
             local_port: echo_addr.port(),
             relay_asset_url: String::new(),
             relay_asset_sha256: String::new(),
+            token: String::new(),
         };
         let install_req = request.clone();
         let install_handle = tokio::spawn(async move { install(&install_req).await });

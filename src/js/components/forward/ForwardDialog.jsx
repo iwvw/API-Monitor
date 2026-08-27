@@ -438,7 +438,13 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
               <FormCard icon={<Lock className="h-4 w-4" />} title="访问控制" description="客户端连接所需凭证">
                 <div className="flex flex-col gap-3 py-3">
                   <Tabs size="sm" variant="segmented" className="w-full" value={accessMode} onValueChange={setAccessMode} tabs={ACCESS_TABS} />
-                  {accessMode === 'token' && !createdToken && <p className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">创建后自动生成 32 位访问令牌，仅展示一次。当前版本 token/panel 访问控制尚未在数据通路启用，部署会被拒绝，请先用「公开」模式。</p>}
+                  {accessMode === 'token' && !createdToken && (
+                    <p className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">
+                      {transport === 'tcp_relay'
+                        ? '创建后自动生成 32 位访问令牌，仅展示一次。TCP 中继部署时入口强制校验：TCP 客户端先发 [4 字节长度+token] 握手，HTTP 客户端用 Authorization: Bearer 头。'
+                        : '创建后自动生成 32 位访问令牌，仅展示一次。当前 CF 隧道 + token 尚未落地，部署会被拒绝，请先用「公开」模式。'}
+                    </p>
+                  )}
                   {accessMode === 'panel' && <p className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">需登录面板后访问（预留）。当前版本不可部署，请先用「公开」模式。</p>}
                   {createdToken && (
                     <div className="rounded-lg border border-kumo-brand/30 bg-kumo-fill px-3 py-2">

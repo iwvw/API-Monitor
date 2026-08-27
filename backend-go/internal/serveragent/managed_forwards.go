@@ -532,9 +532,15 @@ func (s *Service) deployManagedForward(w http.ResponseWriter, r *http.Request, d
 		response.Error(w, 404, "forward rule not found")
 		return
 	}
-	// token/panel 访问控制的校验尚未在数据通路落地：杜绝「声称有鉴权实则公开」的假安全。
-	if item.AccessMode != "public" {
-		response.Error(w, 422, "access_mode=token/panel 的访问控制尚在实现中，部署前请改为 public")
+	// token/panel 访问控制的落地范围：仅 tcp_relay + token 已在 relay 侧强制校验。
+	// 其余组合（CF 隧道 token、panel 认证代理）尚在实现中，保持拒绝以防「声称有鉴权实则公开」。
+	switch {
+	case item.AccessMode == "public":
+		// 公开访问，无需校验
+	case item.Transport == "tcp_relay" && item.AccessMode == "token":
+		// 已落地：relay 入口强制 token 握手校验
+	default:
+		response.Error(w, 422, "access_mode=token/panel 仅 tcp_relay 的 token 模式已落地；其余组合部署前请改为 public")
 		return
 	}
 	switch item.Transport {
@@ -623,9 +629,15 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// 1) 入口主机：让中继器监听公开端口并放行防火墙
+	// 1) 入口主机：让中继器监听公开端口并放行防火墙（token 模式下发解密凭证强制校验）
+	token := ""
+	if item.AccessMode == "token" {
+		var enc string
+		_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
+		token = secure.SecureDecrypt(enc)
+	}
 	listenPayload, _ := json.Marshal(map[string]interface{}{
-		"operation": "listen", "forward_id": item.ID, "relay_port": port,
+		"operation": "listen", "forward_id": item.ID, "relay_port": port, "token": token,
 	})
 	if _, err := s.RunTCPForwarderTaskAndWait(item.RelayServerID, string(listenPayload)); err != nil {
 		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)

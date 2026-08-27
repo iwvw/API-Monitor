@@ -85,6 +85,7 @@ type RelayConfig struct {
 type ForwardConfig struct {
 	ID         string `json:"id"`
 	ListenPort int    `json:"listen_port"`
+	Token      string `json:"token,omitempty"`
 }
 
 // ==================== 单转发规则 ====================
@@ -92,6 +93,7 @@ type ForwardConfig struct {
 type forward struct {
 	id         string
 	port       int
+	token      string
 	mu         sync.Mutex
 	ln         net.Listener
 	tunnel     net.Conn // 当前活跃隧道（nil=无）
@@ -102,10 +104,11 @@ type forward struct {
 	close      sync.Once
 }
 
-func newForward(id string, port int) *forward {
+func newForward(id string, port int, token string) *forward {
 	return &forward{
 		id:     id,
 		port:   port,
+		token:  token,
 		conns:  make(map[uint16]net.Conn),
 		closCh: make(chan struct{}),
 	}
@@ -338,49 +341,113 @@ func (s *RelayServer) acceptLoop(f *forward) {
 	}
 }
 
-// handleIncoming 区分隧道与普通客户端。
-// 隧道总是在建立后立刻发送长度+forward_id 头；普通客户端则随机开头。用很短的
-// 分类窗口（300ms）读 4 字节：读满且与 forward_id 精确匹配 → 隧道；其余 → 客户端，
-// 并把已读字节作为流前缀原样桥接（不因读取早停丢失任何客户端数据）。
+// handleIncoming 区分隧道与普通客户端，并按访问模式校验。
+// 隧道总是建立后立刻发送 [4B len][forward_id]；普通客户端按 access 模式：
+//   - public：原样桥接；
+//   - token：需先完成 raw 握手 [4B len][token] 或 HTTP 头 Authorization: Bearer <token>。
+// 分类窗口内收集到的字节作为流前缀原样桥接，不因读取早停丢失客户端数据。
 func (s *RelayServer) handleIncoming(f *forward, conn net.Conn) {
-	hdr := make([]byte, 4)
-	total := 0
+	buf := make([]byte, 0, 4096)
+	tmp := make([]byte, 1024)
 	_ = conn.SetReadDeadline(time.Now().Add(classifyClientWindow))
-	for total < 4 {
-		n, err := conn.Read(hdr[total:])
-		total += n
-		if err != nil {
+	for {
+		n, err := conn.Read(tmp)
+		buf = append(buf, tmp[:n]...)
+		if err != nil || len(buf) >= cap(buf) {
 			break
 		}
 	}
 	_ = conn.SetReadDeadline(time.Time{})
-	if total == 0 {
+	if len(buf) == 0 {
 		_ = conn.Close()
 		return
 	}
 
-	prefix := make([]byte, 0, total)
-	prefix = append(prefix, hdr[:total]...)
-	if total >= 4 {
-		n := binary.BigEndian.Uint32(hdr[:4])
-		if n == uint32(len(f.id)) && n > 0 && n <= 256 {
+	// 1) 隧道：前 4 字节为 forward_id 长度且内容匹配
+	if len(buf) >= 4 {
+		n := binary.BigEndian.Uint32(buf[:4])
+		if n > 0 && n <= 256 && uint32(len(f.id)) == n {
 			idBytes := make([]byte, n)
-			rn := 0
-			for rn < int(n) {
-				m, err := conn.Read(idBytes[rn:])
-				rn += m
-				if err != nil {
-					break
+			copied := copy(idBytes, buf[4:])
+			if copied < int(n) {
+				if _, err := io.ReadFull(conn, idBytes[copied:]); err == nil {
+					if string(idBytes) == f.id {
+						s.acceptTunnel(f, conn)
+						return
+					}
 				}
-			}
-			prefix = append(prefix, idBytes[:rn]...)
-			if rn == int(n) && string(idBytes) == f.id {
+			} else if string(idBytes) == f.id {
 				s.acceptTunnel(f, conn)
 				return
 			}
 		}
 	}
-	s.handleClient(f, conn, prefix)
+
+	// 2) token 模式：校验客户端凭证
+	if f.token != "" {
+		consumed, ok := tryAuth(f, conn, buf)
+		if ok {
+			s.handleClient(f, conn, buf[consumed:])
+			return
+		}
+		_ = conn.Close()
+		return
+	}
+
+	// 3) public：整包作为前缀桥接
+	s.handleClient(f, conn, buf)
+}
+
+// tryAuth 用 raw 握手或 HTTP Bearer 校验 token；返回 (已消费字节数, 是否通过)。
+// raw 握手消费掉 [4B len][token]；HTTP 不消费（整请求原样转发，仅作访问闸门）。
+func tryAuth(f *forward, conn net.Conn, buf []byte) (int, bool) {
+	if len(buf) >= 4 {
+		n := binary.BigEndian.Uint32(buf[:4])
+		if n > 0 && n <= 512 && n == uint32(len(f.token)) {
+			tok := make([]byte, n)
+			copied := copy(tok, buf[4:])
+			if copied < int(n) {
+				if _, err := io.ReadFull(conn, tok[copied:]); err != nil {
+					return 0, false
+				}
+			}
+			if string(tok) == f.token {
+				return 4 + int(n), true
+			}
+		}
+	}
+	if isHTTP(buf) {
+		for _, line := range strings.Split(string(buf), "\r\n") {
+			t := strings.TrimSpace(line)
+			if len(t) >= len("authorization:") && strings.EqualFold(t[:len("authorization:")], "authorization:") {
+				val := strings.TrimSpace(t[len("authorization:"):])
+				if strings.HasPrefix(val, "Bearer ") && strings.TrimSpace(val[len("Bearer "):]) == f.token {
+					return 0, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// isHTTP 粗略判断 buf 是否为 HTTP 请求开头（含换行且首词为大写方法）。
+func isHTTP(buf []byte) bool {
+	if len(buf) < 3 {
+		return false
+	}
+	space := 0
+	for space < len(buf) && buf[space] != ' ' {
+		space++
+	}
+	if space == 0 {
+		return false
+	}
+	method := strings.ToUpper(string(buf[:space]))
+	switch method {
+	case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+		return true
+	}
+	return false
 }
 
 // acceptTunnel 完成隧道握手并注册；同时替换旧隧道。
@@ -470,6 +537,7 @@ func (s *RelayServer) handleAddForward(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID         string `json:"id"`
 		ListenPort int    `json:"listen_port"`
+		Token      string `json:"token"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -482,8 +550,8 @@ func (s *RelayServer) handleAddForward(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	existing, existed := s.forwards[req.ID]
-	// 幂等：同端口直接认为成功；端口变化则关闭旧监听重绑新端口（面板重试/换端口必须收敛，而非 409）
-	if existed && existing.port == req.ListenPort {
+	// 幂等：同端口且 token 一致认为成功；否则关闭旧监听重绑（面板重试/换端口必须收敛）
+	if existed && existing.port == req.ListenPort && existing.token == req.Token {
 		s.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": req.ID, "port": req.ListenPort})
 		return
@@ -491,7 +559,7 @@ func (s *RelayServer) handleAddForward(w http.ResponseWriter, r *http.Request) {
 	if existed {
 		delete(s.forwards, req.ID)
 	}
-	f := newForward(req.ID, req.ListenPort)
+	f := newForward(req.ID, req.ListenPort, req.Token)
 	s.forwards[req.ID] = f
 	s.mu.Unlock()
 	if existed {
@@ -522,7 +590,7 @@ func (s *RelayServer) handleListForwards(w http.ResponseWriter, r *http.Request)
 	list := make([]map[string]any, 0, len(s.forwards))
 	for _, f := range s.forwards {
 		tun := f.getTunnel()
-		list = append(list, map[string]any{"id": f.id, "port": f.port, "has_tunnel": tun != nil})
+		list = append(list, map[string]any{"id": f.id, "port": f.port, "has_tunnel": tun != nil, "token_required": f.token != ""})
 	}
 	s.mu.Unlock()
 	json.NewEncoder(w).Encode(map[string]any{"forwards": list})
@@ -569,7 +637,7 @@ func main() {
 				}
 				relay.mu.Lock()
 				if _, ok := relay.forwards[fwd.ID]; !ok {
-					relay.forwards[fwd.ID] = newForward(fwd.ID, fwd.ListenPort)
+					relay.forwards[fwd.ID] = newForward(fwd.ID, fwd.ListenPort, fwd.Token)
 				}
 				relay.mu.Unlock()
 				log.Printf("forward %s configured on :%d", fwd.ID, fwd.ListenPort)
