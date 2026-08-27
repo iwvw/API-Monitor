@@ -247,7 +247,6 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
           <div className="mt-2 rounded-lg border border-kumo-line bg-kumo-elevated p-4">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <div className="min-w-0"><span className="text-kumo-text-secondary">规则 ID: </span><ClipboardText size="sm" text={row.id} /></div>
-              <div className="min-w-0"><span className="text-kumo-text-secondary">访问地址: </span><ClipboardText size="sm" text={row.access_url || '-'} /></div>
               <div><span className="text-kumo-text-secondary">本地服务: </span>{row.local_host}:{row.local_port}</div>
               <div><span className="text-kumo-text-secondary">传输方式: </span>{TRANSPORT_LABELS[row.transport] || row.transport}</div>
               <div><span className="text-kumo-text-secondary">创建时间: </span>{row.created_at}</div>
