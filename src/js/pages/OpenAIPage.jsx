@@ -1330,17 +1330,17 @@ function OpenAIPage() {
                                 onDoubleClick={() => openEditEndpointModal(item)}
                               >
                                 <Table.Cell className="!px-2.5 !py-1.5">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <Badge variant="teal" className="shrink-0" title="启用模型数">
-                                      {activeModelIdsForEndpoint(item).length}
-                                    </Badge>
-                                    <div className="min-w-0 flex-1">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 min-w-0">
                                       <div className="truncate font-semibold leading-5 text-kumo-strong" title={item.name}>
                                         {item.name || '未命名端点'}
                                       </div>
-                                      <div className="truncate font-mono text-[10px] leading-4 text-kumo-subtle" title={item.baseUrl}>
-                                        {item.baseUrl}
-                                      </div>
+                                      <Badge variant="teal" className="shrink-0" title="启用模型数">
+                                        {activeModelIdsForEndpoint(item).length}
+                                      </Badge>
+                                    </div>
+                                    <div className="truncate font-mono text-[10px] leading-4 text-kumo-subtle" title={item.baseUrl}>
+                                      {item.baseUrl}
                                     </div>
                                   </div>
                                 </Table.Cell>
