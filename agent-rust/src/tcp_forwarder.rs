@@ -46,6 +46,16 @@ struct Request {
     token: String,
     #[serde(default)]
     udp: bool,
+    #[serde(default)]
+    auth_proxy_port: u16,
+    #[serde(default)]
+    method: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    headers: HashMap<String, String>,
+    #[serde(default)]
+    body: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -958,6 +968,42 @@ async fn auth_proxy_start(request: &Request) -> Result<String, String> {
     Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":port}).to_string())
 }
 
+// http_proxy 面板代理通道：面板经 Agent 直连源主机 auth-proxy（127.0.0.1:<port>），
+// 携带该转发的 token 通过数据面校验，完全绕过 Cloudflare 边缘（规避数据中心出口被拒）。
+async fn http_proxy(request: &Request) -> Result<String, String> {
+    if request.forward_id.is_empty() || request.token.is_empty() || request.auth_proxy_port < 1 {
+        return Err("http_proxy 需要 forward_id、token 与 auth_proxy_port".to_string());
+    }
+    let path = request.path.clone().unwrap_or_else(|| "/".to_string());
+    let target = format!("http://127.0.0.1:{}{}", request.auth_proxy_port, path);
+    let method = request.method.clone().unwrap_or_else(|| "GET".to_string());
+    let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("http client 构建失败: {e}"))?;
+    let mut req = client.request(m, &target).header("Authorization", format!("Bearer {}", request.token));
+    for (k, v) in &request.headers {
+        if k.eq_ignore_ascii_case("host") || k.eq_ignore_ascii_case("authorization") {
+            continue;
+        }
+        req = req.header(k, v);
+    }
+    if let Some(body) = &request.body {
+        if !body.is_empty() {
+            req = req.body(body.clone());
+        }
+    }
+    let resp = req.send().await.map_err(|e| format!("auth-proxy 请求失败: {e}"))?;
+    let status = resp.status().as_u16();
+    let mut headers = serde_json::Map::new();
+    if let Some(ct) = resp.headers().get("content-type") {
+        headers.insert("content-type".to_string(), serde_json::Value::String(ct.to_str().unwrap_or("").to_string()));
+    }
+    let body = resp.text().await.unwrap_or_default();
+    Ok(serde_json::json!({"status": status, "headers": headers, "body": body}).to_string())
+}
+
 async fn auth_proxy_stop(request: &Request) -> Result<String, String> {
     if let Some(e) = auth_proxies().lock().unwrap().remove(&request.forward_id) {
         #[cfg(unix)]
@@ -985,9 +1031,10 @@ pub async fn reconcile(raw: &str) -> Result<String, String> {
         "listen" => listen(&request).await,
         "unlisten" => unlisten(&request).await,
         "bootstrap_relay" => bootstrap_relay(&request).await,
-        "auth_proxy_start" => auth_proxy_start(&request).await,
-        "auth_proxy_stop" => auth_proxy_stop(&request).await,
-        other => Err(format!("unknown tcp_forwarder operation: {other}")),
+    "auth_proxy_start" => auth_proxy_start(&request).await,
+    "auth_proxy_stop" => auth_proxy_stop(&request).await,
+    "http_proxy" => http_proxy(&request).await,
+    other => Err(format!("unknown tcp_forwarder operation: {other}")),
     }
 }
 
@@ -1036,6 +1083,11 @@ mod tests {
             relay_asset_sha256: String::new(),
             token: String::new(),
             udp: false,
+            auth_proxy_port: 0,
+            method: None,
+            path: None,
+            headers: HashMap::new(),
+            body: None,
         };
         let install_req = request.clone();
         let install_handle = tokio::spawn(async move { install(&install_req).await });
@@ -1111,6 +1163,11 @@ mod tests {
             relay_asset_sha256: String::new(),
             token: String::new(),
             udp: false,
+            auth_proxy_port: 0,
+            method: None,
+            path: None,
+            headers: HashMap::new(),
+            body: None,
         };
         let install_req = request.clone();
         let install_handle = tokio::spawn(async move { install(&install_req).await });
