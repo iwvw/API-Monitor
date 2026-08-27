@@ -471,8 +471,8 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string, pool []string, headers ...[]HeaderItem) (bool, int, error) {
-	reqURL := fmt.Sprintf("%s/models", strings.TrimSuffix(u, "/"))
+func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL string, headers ...[]HeaderItem) (bool, int, error) {
+	reqURL := modelListURL(u, modelsURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return false, 0, err
@@ -515,6 +515,13 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 		if dataArr, ok := parsed["data"].([]interface{}); ok {
 			return true, len(dataArr), nil
 		}
+		// 分类分组结构（如 Cline recommended-models 的 recommended/free/clinePass 分区）：
+		// 非 data 结构时逐字段收集含 id 的数组元素，据此统计模型数量。
+		var grouped []string
+		pricing := PricingMap{}
+		if count := collectGroupedModels(parsed, &grouped, &pricing); count > 0 {
+			return true, count, nil
+		}
 	}
 
 	var parsedArr []interface{}
@@ -525,17 +532,58 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 	return true, 0, nil
 }
 
+// collectGroupedModels 解析「按分类分组的模型列表」结构（如 Cline recommended-models 的
+// recommended/free/clinePass 分区）：顶层为若干数组键值对，元素是含 id 的对象。
+// 返回收集到的模型数量；未识别出任何模型时返回 0 且不修改调用方数据。
+// 定价解析成功则写入 pricing（为 nil 时跳过）。
+func collectGroupedModels(parsed map[string]interface{}, models *[]string, pricing *PricingMap) int {
+	collected := 0
+	seen := map[string]bool{}
+	for _, v := range parsed {
+		arr, ok := v.([]interface{})
+		if !ok {
+			continue
+		}
+		for _, item := range arr {
+			itemMap, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			id, ok := itemMap["id"].(string)
+			if !ok || id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			*models = append(*models, id)
+			if p, ok := parsePricingFromItem(itemMap); ok && pricing != nil {
+				(*pricing)[id] = p
+			}
+			collected++
+		}
+	}
+	return collected
+}
+
+// modelListURL 返回模型列表拉取地址：显式配置了 modelsURL 时按原样请求（可含完整路径，
+// 如 Cline 的 /api/v1/ai/cline/recommended-models），否则回退 {baseURL}/models。
+func modelListURL(baseURL, modelsURL string) string {
+	if modelsURL = strings.TrimSpace(modelsURL); modelsURL != "" {
+		return modelsURL
+	}
+	return fmt.Sprintf("%s/models", strings.TrimSuffix(baseURL, "/"))
+}
+
 // listModelsRaw 拉取上游模型列表（GET /models）。endpointID 用于把 429 限流
 // 累计到对应端点的代理池状态（见 verifyAPIKeyRaw）。定价信息被丢弃，仅返回模型名。
-func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, pool []string, headers ...[]HeaderItem) ([]string, error) {
-	models, _, err := s.listModelsWithPricing(ctx, u, key, endpointID, pool, headers...)
+func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL string, headers ...[]HeaderItem) ([]string, error) {
+	models, _, err := s.listModelsWithPricing(ctx, u, key, endpointID, pool, modelsURL, headers...)
 	return models, err
 }
 
 // listModelsWithPricing 拉取上游模型列表（GET /models）并解析每个模型的定价。
 // 返回模型 id 列表与按 id 索引的定价表；无法解析出定价的模型不出现在定价表中。
-func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID string, pool []string, headers ...[]HeaderItem) ([]string, PricingMap, error) {
-	reqURL := fmt.Sprintf("%s/models", strings.TrimSuffix(u, "/"))
+func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID string, pool []string, modelsURL string, headers ...[]HeaderItem) ([]string, PricingMap, error) {
+	reqURL := modelListURL(u, modelsURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, nil, err
@@ -608,6 +656,11 @@ func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID 
 					}
 				}
 			}
+			return models, pricing, nil
+		}
+		// 分类分组结构（如 Cline recommended-models 的 recommended/free/clinePass 分区）：
+		// 非 data/models 结构时逐字段收集含 id 的数组元素。
+		if collectGroupedModels(parsed, &models, &pricing) > 0 {
 			return models, pricing, nil
 		}
 	}

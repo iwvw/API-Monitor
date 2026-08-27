@@ -3282,6 +3282,16 @@ function OpenAIPage() {
                   className="w-full text-kumo-strong text-[0.9em] font-mono"
                 />
 
+                <Input
+                  size="sm"
+                  label="模型列表 API（可选）"
+                  type="text"
+                  value={endpointForm.modelsUrl || ''}
+                  onChange={e => setEndpointForm({ ...endpointForm, modelsUrl: e.target.value })}
+                  placeholder="默认取 BaseURL/models；模型列表不在标准路径时在此填完整地址，如 api.cline.bot 的 recommended-models 接口"
+                  className="w-full text-kumo-strong text-[0.9em] font-mono"
+                />
+
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <Label>API Key 列表</Label>

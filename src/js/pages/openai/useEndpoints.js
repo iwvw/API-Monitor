@@ -21,6 +21,7 @@ const [editingEndpoint, setEditingEndpoint] = useState(null);
 const [endpointForm, setEndpointForm] = useState({
   name: '',
   baseUrl: '',
+  modelsUrl: '',
   apiKey: '',
   apiKeys: [],
   headers: [],
@@ -344,6 +345,7 @@ const openAddEndpointModal = () => {
   setEndpointForm({
     name: '',
     baseUrl: '',
+    modelsUrl: '',
     apiKey: '',
     apiKeys: [],
     headers: [],
@@ -366,6 +368,7 @@ const openEditEndpointModal = endpoint => {
   setEndpointForm({
     name: endpoint.name || '',
     baseUrl: endpoint.baseUrl || '',
+    modelsUrl: endpoint.modelsUrl || '',
     apiKey: endpoint.apiKey || '',
     apiKeys: Array.isArray(endpoint.apiKeys) ? endpoint.apiKeys : [],
     headers: Array.isArray(endpoint.headers) ? endpoint.headers : [],

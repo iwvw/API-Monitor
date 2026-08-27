@@ -215,6 +215,7 @@ func init() {
 	routeRequestContracts["/api/openai/endpoints"] = obj([]string{"name", "baseUrl", "apiKey"}, map[string]prop{
 		"name":         {t: "string", req: true},
 		"baseUrl":      {t: "string", req: true, d: "OpenAI 兼容地址，如 https://api.example.com/v1"},
+		"modelsUrl":    {t: "string", d: "模型列表 API（可选），默认 {BaseURL}/models；非标准路径端点在此填写完整 URL"},
 		"apiKey":       {t: "string", req: true},
 		"headers":      {t: "array", d: "自定义请求头 [{name,value}]"},
 		"proxyPool":    {t: "array", d: "代理池"},
