@@ -1305,7 +1305,7 @@ function OpenAIPage() {
                     </div>
                     <LayerCard className="min-w-0 p-0 shadow-none">
                       <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
-                        <Table layout="fixed" className="w-full max-w-fit min-w-[420px] text-xs cq-lg:max-w-none">
+                        <Table layout="fixed" className="w-full min-w-[420px] text-xs">
                           <colgroup>
                             <col style={{ width: 200 }} />
                             <col style={{ width: 64 }} />
