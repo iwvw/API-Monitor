@@ -748,14 +748,15 @@ async fn download_auth_proxy(url: &str, sha: &str) -> Result<std::path::PathBuf,
     }
 }
 
+// find_free_auth_proxy_port 让 OS 分配一个空闲的 loopback 临时端口，避开任何被
+// 本机程序/Hyper-V/WSL 保留的固定段（如 Windows 上曾有 45100-45653 整段被占用）。
 async fn find_free_auth_proxy_port() -> Result<u16, String> {
-    for port in 45100u16..45654 {
-        if let Ok(l) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
-            drop(l);
-            return Ok(port);
-        }
-    }
-    Err("auth-proxy 端口范围 45100-45653 已满".to_string())
+    let l = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .map_err(|e| format!("无法分配 auth-proxy 临时端口: {e}"))?;
+    let port = l.local_addr().map_err(|e| format!("local_addr: {e}"))?.port();
+    drop(l);
+    Ok(port)
 }
 
 async fn auth_proxy_start(request: &Request) -> Result<String, String> {
