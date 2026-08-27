@@ -217,6 +217,37 @@ func (r *TaskRegistry) ActiveTask(resource string) (*Task, bool) {
 	return task, task != nil
 }
 
+// maxProxyTaskAge 排他代理任务的合理上限：超过即视为孤儿任务（agent 升级/断连等导致
+// 任务结果丢失），自动失败并释放租约，避免永久阻塞该服务器的后续编排。
+const maxProxyTaskAge = 12 * time.Minute
+
+// ReleaseStaleLeases 将「长时间未结束」且持有租约的排他任务标记失败并释放资源。
+// 在创建新排他任务前调用，保证卡死状态可自愈。
+func (r *TaskRegistry) ReleaseStaleLeases(now time.Time, maxAge time.Duration) {
+	var stale []string
+	r.mu.RLock()
+	for _, taskID := range r.leases {
+		task := r.tasks[taskID]
+		if task == nil {
+			continue
+		}
+		task.mu.RLock()
+		active := task.Status == TaskPending || task.Status == TaskRunning
+		start := task.CreatedAt
+		if task.StartedAt != nil && task.StartedAt.After(start) {
+			start = *task.StartedAt
+		}
+		task.mu.RUnlock()
+		if active && now.Sub(start) > maxAge {
+			stale = append(stale, taskID)
+		}
+	}
+	r.mu.RUnlock()
+	for _, id := range stale {
+		r.Fail(id, "编排任务执行超时，已自动清理并释放排他锁")
+	}
+}
+
 func proxyTaskResource(serverID string) string { return "proxy:" + serverID }
 
 func (s *Service) requireAgentCapability(w http.ResponseWriter, serverID, capability string) bool {
@@ -233,6 +264,8 @@ func (s *Service) requireAgentCapability(w http.ResponseWriter, serverID, capabi
 }
 
 func (s *Service) createExclusiveProxyTask(w http.ResponseWriter, serverID, taskType, command string) (*Task, bool) {
+	// 先清理该服务器上可能存在的超时孤儿任务，避免误报「已有任务在执行」
+	s.taskRegistry.ReleaseStaleLeases(time.Now(), maxProxyTaskAge)
 	task, err := s.taskRegistry.CreateExclusive(serverID, taskType, command, proxyTaskResource(serverID))
 	if err == nil {
 		return task, true
