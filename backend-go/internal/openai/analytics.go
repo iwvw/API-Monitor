@@ -237,6 +237,17 @@ func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
 			s.completeAnalyticsBatch(batch)
 			return
 		}
+		// 同步维护看板聚合表：跳过 models 路由（与看板查询口径一致），
+		// 与原始日志在同一事务内增量 UPSERT 小时桶。
+		if item.route != "models" {
+			statsErr := upsertAnalyticsHourly(writeCtx, tx, item, cost, costCurrency)
+			if statsErr != nil {
+				_ = tx.Rollback()
+				applog.Error(writeCtx, "openai", "Failed to upsert gateway stats hourly", "error", statsErr.Error())
+				s.completeAnalyticsBatch(batch)
+				return
+			}
+		}
 		if item.errInfo != nil {
 			hasError = true
 		}
@@ -287,6 +298,39 @@ func (s *Service) persistAnalyticsBatch(batch []analyticsWriteItem) {
 		s.trimErrorDetailRetention(writeCtx, db)
 	}
 	s.completeAnalyticsBatch(batch)
+}
+
+// upsertAnalyticsHourly 将一次网关调用增量写入看板小时聚合表（与原始日志同一事务）。
+// 按小时桶 + 端点 + 网关 key + 模型 + 路由 + 币种归并，用 UPSERT 累加计数与求和，
+// 保证日志清空后看板历史可独立保留，也避免 count(*) 全表膨胀。
+func upsertAnalyticsHourly(ctx context.Context, tx *sql.Tx, item analyticsWriteItem, cost float64, costCurrency string) error {
+	hour := time.Now().UTC().Truncate(time.Hour).Format("2006-01-02 15:04:05")
+	errors := 0
+	if item.statusCode >= 400 {
+		errors = 1
+	}
+	ttfbSum := int64(0)
+	ttfbCount := 0
+	if item.ttfbMs > 0 {
+		ttfbSum = item.ttfbMs
+		ttfbCount = 1
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO openai_gateway_stats_hourly (hour, endpoint_id, gateway_key_id, model, route, requests, errors, latency_sum, ttfb_sum, ttfb_count, prompt_tokens, completion_tokens, total_tokens, cached_tokens, cost, cost_currency)
+		VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour, endpoint_id, gateway_key_id, model, route, cost_currency) DO UPDATE SET
+			requests = openai_gateway_stats_hourly.requests + 1,
+			errors = openai_gateway_stats_hourly.errors + excluded.errors,
+			latency_sum = openai_gateway_stats_hourly.latency_sum + excluded.latency_sum,
+			ttfb_sum = openai_gateway_stats_hourly.ttfb_sum + excluded.ttfb_sum,
+			ttfb_count = openai_gateway_stats_hourly.ttfb_count + excluded.ttfb_count,
+			prompt_tokens = openai_gateway_stats_hourly.prompt_tokens + excluded.prompt_tokens,
+			completion_tokens = openai_gateway_stats_hourly.completion_tokens + excluded.completion_tokens,
+			total_tokens = openai_gateway_stats_hourly.total_tokens + excluded.total_tokens,
+			cached_tokens = openai_gateway_stats_hourly.cached_tokens + excluded.cached_tokens,
+			cost = openai_gateway_stats_hourly.cost + excluded.cost
+	`, hour, item.endpointID, item.gatewayKeyID, item.model, item.route, errors, item.latencyMs, ttfbSum, ttfbCount, item.promptTokens, item.completionTokens, item.totalTokens, item.cachedTokens, cost, costCurrency)
+	return err
 }
 
 // makePlaceholders 生成 n 个 SQL 占位符（用于 IN (...) 查询）。
@@ -562,17 +606,17 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 
 	err = db.QueryRowContext(ctx, `
 		SELECT 
-			COUNT(*), 
-			COALESCE(AVG(latency_ms), 0.0), 
-			COALESCE(AVG(CASE WHEN ttfb_ms > 0 THEN ttfb_ms END), 0.0),
+			COALESCE(SUM(requests), 0),
+			COALESCE(CAST(SUM(latency_sum) AS REAL) / NULLIF(SUM(requests), 0), 0.0),
+			COALESCE(CAST(SUM(ttfb_sum) AS REAL) / NULLIF(SUM(ttfb_count), 0), 0.0),
 			COALESCE(SUM(total_tokens), 0),
-			COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(errors), 0),
 			COALESCE(SUM(cached_tokens), 0),
 			COALESCE(SUM(prompt_tokens), 0),
 			COALESCE(SUM(completion_tokens), 0),
 			COALESCE(SUM(cost), 0)
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models'
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models'
 	`, timeFilter).Scan(&totalRequests, &avgLatency, &avgTtfbMs, &totalTokens, &errorCount, &totalCachedTokens, &totalPromptTokens, &totalCompletionTokens, &totalCost)
 
 	if err != nil {
@@ -603,14 +647,14 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		SELECT
 			COALESCE(g.endpoint_id, ''),
 			CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END,
-			COUNT(*),
-			SUM(CASE WHEN g.status_code >= 400 THEN 1 ELSE 0 END)
-		FROM openai_gateway_analytics g
+			COALESCE(SUM(g.requests), 0),
+			COALESCE(SUM(g.errors), 0)
+		FROM openai_gateway_stats_hourly g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id
-		WHERE g.timestamp >= ? AND g.route != 'models'
+		WHERE g.hour >= ? AND g.route != 'models'
 		GROUP BY g.endpoint_id
-		ORDER BY COUNT(*) DESC
+		ORDER BY SUM(g.requests) DESC
 	`, timeFilter)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -635,8 +679,8 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 	costs := []costStat{}
 	cRows, err := db.QueryContext(ctx, `
 		SELECT COALESCE(cost_currency, ''), COALESCE(SUM(cost), 0)
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models' AND cost > 0
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models' AND cost > 0
 		GROUP BY COALESCE(cost_currency, '')
 		ORDER BY SUM(cost) DESC
 	`, timeFilter)
@@ -671,10 +715,10 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 			CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END,
 			COALESCE(SUM(g.cost), 0),
 			COALESCE(MAX(g.cost_currency), '')
-		FROM openai_gateway_analytics g
+		FROM openai_gateway_stats_hourly g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id
-		WHERE g.timestamp >= ? AND g.route != 'models'
+		WHERE g.hour >= ? AND g.route != 'models'
 		GROUP BY g.endpoint_id
 		HAVING SUM(g.cost) > 0
 		ORDER BY SUM(g.cost) DESC
@@ -698,9 +742,9 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 			COALESCE(k.name, '未识别密钥'),
 			COALESCE(SUM(g.cost), 0),
 			COALESCE(MAX(g.cost_currency), '')
-		FROM openai_gateway_analytics g
+		FROM openai_gateway_stats_hourly g
 		LEFT JOIN openai_gateway_keys k ON g.gateway_key_id = k.id
-		WHERE g.timestamp >= ? AND g.route != 'models'
+		WHERE g.hour >= ? AND g.route != 'models'
 		GROUP BY g.endpoint_id, g.gateway_key_id
 		HAVING SUM(g.cost) > 0
 		ORDER BY SUM(g.cost) DESC
@@ -767,15 +811,15 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	var tsExpr string
 	switch granularity {
 	case "hour":
-		timeGroup = "strftime('%m-%d %H:00', timestamp, '" + offsetModifier + "')"
-		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', timestamp) AS INTEGER) + %d) / 3600 * 3600 - %d", offsetSec, offsetSec)
+		timeGroup = "strftime('%m-%d %H:00', hour, '" + offsetModifier + "')"
+		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 3600 * 3600 - %d", offsetSec, offsetSec)
 	case "week":
-		timeGroup = "strftime('%Y-W%W', timestamp, '" + offsetModifier + "')"
-		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', timestamp) AS INTEGER) + %d) / 604800 * 604800 - %d", offsetSec, offsetSec)
+		timeGroup = "strftime('%Y-W%W', hour, '" + offsetModifier + "')"
+		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 604800 * 604800 - %d", offsetSec, offsetSec)
 	default:
 		granularity = "day"
-		timeGroup = "strftime('%m-%d', timestamp, '" + offsetModifier + "')"
-		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', timestamp) AS INTEGER) + %d) / 86400 * 86400 - %d", offsetSec, offsetSec)
+		timeGroup = "strftime('%m-%d', hour, '" + offsetModifier + "')"
+		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 86400 * 86400 - %d", offsetSec, offsetSec)
 	}
 
 	// 1. Trend buckets（小时 / 天 / 周聚合，多指标）
@@ -783,14 +827,14 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		SELECT 
 			`+timeGroup+` as bucket,
 			`+tsExpr+` as ts_sec,
-			COUNT(*) as count, 
-			COALESCE(AVG(latency_ms), 0.0) as avg_latency, 
-			COALESCE(AVG(CASE WHEN ttfb_ms > 0 THEN ttfb_ms END), 0.0) as avg_ttfb,
+			COALESCE(SUM(requests), 0) as count, 
+			COALESCE(CAST(SUM(latency_sum) AS REAL) / NULLIF(SUM(requests), 0), 0.0) as avg_latency, 
+			COALESCE(CAST(SUM(ttfb_sum) AS REAL) / NULLIF(SUM(ttfb_count), 0), 0.0) as avg_ttfb,
 			COALESCE(SUM(total_tokens), 0) as tokens,
 			COALESCE(SUM(cached_tokens), 0) as cached,
-			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models'
+			COALESCE(SUM(errors), 0) as errors
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models'
 		GROUP BY ts_sec
 		ORDER BY ts_sec ASC
 	`, timeFilter)
@@ -850,20 +894,20 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		return shares
 	}
 	modelShares := buildShares(`
-		SELECT model, COUNT(*) as count, COALESCE(SUM(total_tokens), 0) as tokens
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models'
+		SELECT model, COALESCE(SUM(requests), 0) as count, COALESCE(SUM(total_tokens), 0) as tokens
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models'
 		GROUP BY model
 		ORDER BY count DESC, tokens DESC
 	`)
 	endpointShares := buildShares(`
-		SELECT CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END, COUNT(*), COALESCE(SUM(g.total_tokens), 0)
-		FROM openai_gateway_analytics g
+		SELECT CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END, COALESCE(SUM(g.requests), 0), COALESCE(SUM(g.total_tokens), 0)
+		FROM openai_gateway_stats_hourly g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id
-		WHERE g.timestamp >= ? AND g.route != 'models'
+		WHERE g.hour >= ? AND g.route != 'models'
 		GROUP BY g.endpoint_id
-		ORDER BY COUNT(*) DESC, SUM(g.total_tokens) DESC
+		ORDER BY SUM(g.requests) DESC, SUM(g.total_tokens) DESC
 	`)
 
 	// 3. 按“维度 × 时段”展开调用量，供全宽趋势图多系列使用。
@@ -945,11 +989,11 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	byModel, err := buildDimensionTrends(`
-		SELECT model, ` + tsExpr + ` as ts_sec, COUNT(*) as count,
+		SELECT model, ` + tsExpr + ` as ts_sec, COALESCE(SUM(requests), 0) as count,
 			COALESCE(SUM(total_tokens), 0) as tokens,
 			COALESCE(SUM(cached_tokens), 0) as cached
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models'
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models'
 		GROUP BY ts_sec, model
 		ORDER BY model ASC, ts_sec ASC
 	`)
@@ -959,13 +1003,13 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	}
 	// 站点（endpoint）维度：与模型维度同构，供前端切换「模型 / 站点调用次数」。
 	byEndpoint, err := buildDimensionTrends(`
-		SELECT CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END, ` + tsExpr + ` as ts_sec, COUNT(*) as count,
+		SELECT CASE WHEN g.endpoint_id = '' THEN '无可用端点' ELSE COALESCE(e.name, a.name, '已移除端点') END, ` + tsExpr + ` as ts_sec, COALESCE(SUM(g.requests), 0) as count,
 			COALESCE(SUM(g.total_tokens), 0) as tokens,
 			COALESCE(SUM(g.cached_tokens), 0) as cached
-		FROM openai_gateway_analytics g
+		FROM openai_gateway_stats_hourly g
 		LEFT JOIN openai_endpoints e ON g.endpoint_id = e.id
 		LEFT JOIN openai_endpoint_name_archive a ON g.endpoint_id = a.endpoint_id
-		WHERE g.timestamp >= ? AND g.route != 'models'
+		WHERE g.hour >= ? AND g.route != 'models'
 		GROUP BY ts_sec, g.endpoint_id
 	`)
 	if err != nil {
@@ -983,7 +1027,8 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// clearAnalyticsLogs 清空网关日志表（会话鉴权由路由层保证）。
+// clearAnalyticsLogs 清空网关明细日志表（openai_gateway_analytics）。
+// 只清日志明细：数据看板历史走独立聚合表（openai_gateway_stats_hourly），不受影响。
 func (s *Service) clearAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	db, err := s.open(ctx)
@@ -993,6 +1038,25 @@ func (s *Service) clearAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 	result, err := db.ExecContext(ctx, "DELETE FROM openai_gateway_analytics")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	deleted, _ := result.RowsAffected()
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "deleted": deleted})
+}
+
+// clearAnalyticsHistory 清空数据看板历史（openai_gateway_stats_hourly 聚合表）。
+// 由看板页独立清除按钮调用，不影响网关明细日志。
+func (s *Service) clearAnalyticsHistory(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+	result, err := db.ExecContext(ctx, "DELETE FROM openai_gateway_stats_hourly")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

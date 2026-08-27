@@ -127,6 +127,7 @@ var routeAliases = map[string][]string{
 	"/api/api-keys":       {"api 密钥", "apikey", "密钥列表", "api key", "密钥管理"},
 
 	"/api/openai/analytics/logs":  {"网关日志", "调用日志", "请求日志", "openai 日志"},
+	"/api/openai/analytics/clear-history": {"清理看板历史", "清空看板历史", "清除看板历史"},
 	"/api/openai/analytics":       {"网关统计", "用量统计", "令牌统计"},
 	"/api/github/actions":         {"workflow 运行", "actions", "工作流运行", "github 运行"},
 	"/api/github/repositories":    {"仓库列表", "github 仓库列表"},

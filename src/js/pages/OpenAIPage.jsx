@@ -606,6 +606,7 @@ function OpenAIPage() {
     logDetailExpanded, setLogDetailExpanded,
     fetchAnalytics,
     clearGatewayLogs,
+    clearDashboardHistory,
   } = useAnalytics(activeTab);
 
   // 网关 API 密钥（列表/表单/轮换/默认，由 useGatewayKeys 统一管理）
@@ -1065,6 +1066,13 @@ function OpenAIPage() {
                     selectClassName: 'w-36',
                   },
                   {
+                    key: 'clear-history',
+                    label: '清除历史',
+                    icon: <Trash className="w-3.5 h-3.5" />,
+                    onClick: clearDashboardHistory,
+                    danger: true,
+                  },
+                  {
                     key: 'refresh',
                     label: '刷新',
                     icon: <RefreshCw className="w-3.5 h-3.5" />,
@@ -1119,7 +1127,7 @@ function OpenAIPage() {
                     },
                     {
                       key: 'clear',
-                      label: '清除数据',
+                      label: '清除日志',
                       icon: <Trash className="h-3.5 w-3.5" />,
                       onClick: clearGatewayLogs,
                       danger: true,

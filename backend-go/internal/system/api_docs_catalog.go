@@ -291,6 +291,10 @@ var apiDocSeeds = []apiDocSeed{
 		Route: manifest.Route{Prefix: "/api/openai/analytics/clear", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI analytics log clear", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}},
 	},
+	{
+		Route: manifest.Route{Prefix: "/api/openai/analytics/clear-history", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI analytics dashboard history clear", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"POST"}},
+	},
 	{Route: manifest.Route{Prefix: "/api/openai/health-check-all", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI full health check", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/openai/export", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint export", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/openai/import", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI endpoint import", MatchMode: manifest.MatchExact}},

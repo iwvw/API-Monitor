@@ -294,6 +294,41 @@ func TestRecordAnalyticsSurvivesCancelledRequestContext(t *testing.T) {
 	}
 }
 
+// TestRecordAnalyticsWritesLogsAndStats 验证一次调用同时落入原生日志表与看板聚合表，
+// 且聚合值（请求数/错误数/词元/延迟）与明细一致。
+func TestRecordAnalyticsWritesLogsAndStats(t *testing.T) {
+	service := newOpenAIService(t)
+	ctx := context.WithValue(context.Background(), gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "key-1", Name: "client"})
+
+	// 成功请求 + 失败请求：聚合表的错误计数应与明细一致。
+	service.RecordAnalytics(ctx, "chat.completions", "ep-success", "gpt-4o", 200, 120, 30, 100, 200, 300, 50, 1, 0, "203.0.113.10", "198.51.100.8")
+	service.RecordAnalytics(ctx, "chat.completions", "ep-fail", "gpt-4o", 502, 80, 0, 10, 0, 10, 0, 1, 0, "203.0.113.11", "198.51.100.9")
+	service.flushAnalyticsQueue(5 * time.Second)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var logCount, errCount int
+	if err := db.QueryRow("SELECT COUNT(*), COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),0) FROM openai_gateway_analytics").Scan(&logCount, &errCount); err != nil {
+		t.Fatal(err)
+	}
+	if logCount != 2 || errCount != 1 {
+		t.Fatalf("raw logs inconsistent: count=%d errors=%d", logCount, errCount)
+	}
+
+	var statsRequests, statsErrors int
+	var latencySum int64
+	if err := db.QueryRow("SELECT COALESCE(SUM(requests),0), COALESCE(SUM(errors),0), COALESCE(SUM(latency_sum),0) FROM openai_gateway_stats_hourly").Scan(&statsRequests, &statsErrors, &latencySum); err != nil {
+		t.Fatal(err)
+	}
+	if statsRequests != 2 || statsErrors != 1 || latencySum != 200 {
+		t.Fatalf("stats table inconsistent: requests=%d errors=%d latency_sum=%d", statsRequests, statsErrors, latencySum)
+	}
+}
+
 func TestEnsureSchemaMigratesGatewayKeyCipherColumn(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -806,6 +841,37 @@ func mustDecode(t *testing.T, body string, v interface{}) {
 	}
 }
 
+// seedStatsFromAnalytics 把测试直插的原始日志按小时聚合进看板聚合表，
+// 模拟生产中 persistAnalyticsBatch 的同步 UPSERT 效果（charts/summary 走聚合表）。
+func seedStatsFromAnalytics(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO openai_gateway_stats_hourly (hour, endpoint_id, gateway_key_id, model, route, requests, errors, latency_sum, ttfb_sum, ttfb_count, prompt_tokens, completion_tokens, total_tokens, cached_tokens, cost, cost_currency)
+		SELECT
+			strftime('%Y-%m-%d %H:00:00', timestamp),
+			COALESCE(endpoint_id, ''),
+			COALESCE(gateway_key_id, ''),
+			COALESCE(model, ''),
+			COALESCE(route, ''),
+			COUNT(*),
+			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+			COALESCE(SUM(latency_ms), 0),
+			COALESCE(SUM(CASE WHEN ttfb_ms > 0 THEN ttfb_ms ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN ttfb_ms > 0 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(prompt_tokens), 0),
+			COALESCE(SUM(completion_tokens), 0),
+			COALESCE(SUM(total_tokens), 0),
+			COALESCE(SUM(cached_tokens), 0),
+			COALESCE(SUM(cost), 0),
+			COALESCE(cost_currency, '')
+		FROM openai_gateway_analytics
+		WHERE route != 'models'
+		GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp), COALESCE(endpoint_id, ''), COALESCE(gateway_key_id, ''), COALESCE(model, ''), COALESCE(route, ''), COALESCE(cost_currency, '')
+	`); err != nil {
+		t.Fatalf("seedStatsFromAnalytics: %v", err)
+	}
+}
+
 func TestDeletedEndpointKeepsNameInAnalytics(t *testing.T) {
 	service := newOpenAIService(t)
 	db, err := service.open(context.Background())
@@ -828,6 +894,7 @@ func TestDeletedEndpointKeepsNameInAnalytics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedStatsFromAnalytics(t, db)
 	db.Close()
 
 	delRecorder := httptest.NewRecorder()
@@ -4218,6 +4285,7 @@ func TestAnalyticsChartsByDimensionCarryTokenSeries(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
+	seedStatsFromAnalytics(t, db)
 	db.Close()
 
 	rec := httptest.NewRecorder()
@@ -4764,5 +4832,182 @@ func TestUpdateEndpointKeepsModelsOnVerifyFailure(t *testing.T) {
 	}
 	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
 		t.Fatalf("verify failure must keep existing models, got %q", modelsRaw)
+	}
+}
+
+// seedRawAndStats 同时写入原始日志表与看板聚合表（模拟写路径双写）。
+func seedRawAndStats(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO openai_gateway_analytics (endpoint_id, route, model, status_code, latency_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, timestamp)
+		VALUES
+			('ep-keep', 'chat.completions', 'model-a', 200, 120, 300, 700, 1000, 200, datetime('now', '-1 hour'))
+	`); err != nil {
+		t.Fatal(err)
+	}
+	seedStatsFromAnalytics(t, db)
+}
+
+func TestClearAnalyticsLogsKeepsDashboardHistory(t *testing.T) {
+	service := newOpenAIService(t)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedRawAndStats(t, db)
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/openai/analytics/clear", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var cleared struct {
+		Success bool  `json:"success"`
+		Deleted int64 `json:"deleted"`
+	}
+	mustDecode(t, rec.Body.String(), &cleared)
+	if !cleared.Success || cleared.Deleted != 1 {
+		t.Fatalf("unexpected clear result: %+v", cleared)
+	}
+
+	// 日志明细已清空：/logs 返回 0 条。
+	logsRec := httptest.NewRecorder()
+	service.ServeHTTP(logsRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil))
+	var logs struct {
+		Total int `json:"total"`
+	}
+	mustDecode(t, logsRec.Body.String(), &logs)
+	if logs.Total != 0 {
+		t.Fatalf("logs not cleared, total=%d", logs.Total)
+	}
+
+	// 数据看板历史仍保留：summary 请求量不为 0。
+	sumRec := httptest.NewRecorder()
+	service.ServeHTTP(sumRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/summary?days=7", nil))
+	if sumRec.Code != http.StatusOK {
+		t.Fatalf("summary status = %d, body = %s", sumRec.Code, sumRec.Body.String())
+	}
+	var summary struct {
+		TotalRequests int `json:"totalRequests"`
+		TotalTokens   int `json:"totalTokens"`
+	}
+	mustDecode(t, sumRec.Body.String(), &summary)
+	if summary.TotalRequests != 1 || summary.TotalTokens != 1000 {
+		t.Fatalf("dashboard history lost after log clear: %+v", summary)
+	}
+}
+
+func TestClearDashboardHistoryKeepsLogs(t *testing.T) {
+	service := newOpenAIService(t)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedRawAndStats(t, db)
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/openai/analytics/clear-history", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear-history status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var cleared struct {
+		Success bool  `json:"success"`
+		Deleted int64 `json:"deleted"`
+	}
+	mustDecode(t, rec.Body.String(), &cleared)
+	if !cleared.Success || cleared.Deleted != 1 {
+		t.Fatalf("unexpected clear-history result: %+v", cleared)
+	}
+
+	// 数据看板历史已清空：summary 归零。
+	sumRec := httptest.NewRecorder()
+	service.ServeHTTP(sumRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/summary?days=7", nil))
+	var summary struct {
+		TotalRequests int `json:"totalRequests"`
+	}
+	mustDecode(t, sumRec.Body.String(), &summary)
+	if summary.TotalRequests != 0 {
+		t.Fatalf("dashboard history not cleared, totalRequests=%d", summary.TotalRequests)
+	}
+
+	// 网关日志明细保留：/logs 仍有数据。
+	logsRec := httptest.NewRecorder()
+	service.ServeHTTP(logsRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil))
+	var logs struct {
+		Total int `json:"total"`
+	}
+	mustDecode(t, logsRec.Body.String(), &logs)
+	if logs.Total != 1 {
+		t.Fatalf("logs lost after dashboard history clear, total=%d", logs.Total)
+	}
+}
+
+// TestEnsureSchemaBackfillsStatsOnce 首次建表应从存量日志回填看板聚合表，
+// 且清空看板历史后重启不会重新回填（留单独的清理按钮控制看板数据）。
+func TestEnsureSchemaBackfillsStatsOnce(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// 先建旧版 schema（只有原始日志表，没有看板聚合表），并写入存量日志。
+	if _, err := db.Exec(`CREATE TABLE openai_gateway_analytics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		endpoint_id TEXT,
+		gateway_key_id TEXT,
+		route TEXT NOT NULL DEFAULT 'chat.completions',
+		model TEXT NOT NULL,
+		status_code INTEGER NOT NULL,
+		latency_ms INTEGER NOT NULL,
+		ttfb_ms INTEGER DEFAULT 0,
+		prompt_tokens INTEGER DEFAULT 0,
+		completion_tokens INTEGER DEFAULT 0,
+		total_tokens INTEGER DEFAULT 0,
+		cached_tokens INTEGER DEFAULT 0,
+		cost REAL DEFAULT 0,
+		cost_currency TEXT,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO openai_gateway_analytics (endpoint_id, route, model, status_code, latency_ms, total_tokens, timestamp)
+		VALUES
+			('old-ep', 'chat.completions', 'legacy-model', 200, 50, 500, datetime('now', '-3 days')),
+			('old-ep', 'chat.completions', 'legacy-model', 500, 80, 300, datetime('now', '-3 days'))
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	// 首次 ensureSchema：聚合表不存在，触发建表 + 存量回填。
+	if err := ensureSchema(context.Background(), db); err != nil {
+		t.Fatalf("ensureSchema v1: %v", err)
+	}
+	var statsCount int
+	var requestsSum int
+	if err := db.QueryRow("SELECT COUNT(*), COALESCE(SUM(requests),0) FROM openai_gateway_stats_hourly").Scan(&statsCount, &requestsSum); err != nil {
+		t.Fatalf("stats table query failed: %v", err)
+	}
+	if statsCount != 1 || requestsSum != 2 {
+		t.Fatalf("expected 1 backfilled bucket with 2 requests, got count=%d requests=%d", statsCount, requestsSum)
+	}
+
+	// 清空看板历史（模拟用户点看板清除按钮）：聚合表会连行一起删掉，只剩空表。
+	if _, err := db.Exec("DELETE FROM openai_gateway_stats_hourly"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 再次 ensureSchema（模拟重启）：聚合表已存在，不得重新回填已被清空的历史。
+	if err := ensureSchema(context.Background(), db); err != nil {
+		t.Fatalf("ensureSchema v2: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM openai_gateway_stats_hourly").Scan(&statsCount); err != nil {
+		t.Fatal(err)
+	}
+	if statsCount != 0 {
+		t.Fatalf("cleared dashboard history resurrected after restart: count=%d", statsCount)
 	}
 }

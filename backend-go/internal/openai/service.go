@@ -854,7 +854,27 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			max_tokens_quota INTEGER DEFAULT 0,
 			total_tokens_used INTEGER DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS openai_gateway_stats_hourly (
+			hour TEXT NOT NULL,
+			endpoint_id TEXT NOT NULL DEFAULT '',
+			gateway_key_id TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			route TEXT NOT NULL DEFAULT '',
+			requests INTEGER NOT NULL DEFAULT 0,
+			errors INTEGER NOT NULL DEFAULT 0,
+			latency_sum INTEGER NOT NULL DEFAULT 0,
+			ttfb_sum INTEGER NOT NULL DEFAULT 0,
+			ttfb_count INTEGER NOT NULL DEFAULT 0,
+			prompt_tokens INTEGER NOT NULL DEFAULT 0,
+			completion_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			cached_tokens INTEGER NOT NULL DEFAULT 0,
+			cost REAL NOT NULL DEFAULT 0,
+			cost_currency TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (hour, endpoint_id, gateway_key_id, model, route, cost_currency)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_analytics_timestamp ON openai_gateway_analytics(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_openai_stats_hourly_hour ON openai_gateway_stats_hourly(hour)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_gateway_keys_hash ON openai_gateway_keys(key_hash)`,
 		`CREATE TABLE IF NOT EXISTS openai_proxy_state (
 			endpoint_id TEXT NOT NULL,
@@ -864,6 +884,15 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (endpoint_id, proxy, kind)
 		)`,
+	}
+	// 看板聚合表首次建表时，把存量网关调用日志聚合回填进 openai_gateway_stats_hourly，
+	// 避免升级后看板历史空白。仅在建表当次执行一次：若用户后续手动清空了看板历史
+	// （聚合表仍存在但为空），重启不会从日志表重新回填。
+	statsTableExists := false
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM sqlite_master WHERE type='table' AND name='openai_gateway_stats_hourly'
+	)`).Scan(&statsTableExists); err != nil {
+		return fmt.Errorf("openai check stats table: %w", err)
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -991,6 +1020,36 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_openai_analytics_gateway_key ON openai_gateway_analytics(gateway_key_id, timestamp)`); err != nil {
 		return fmt.Errorf("openai ensure schema: %w", err)
+	}
+
+	// 首次建表回填：从存量原始日志聚合出小时桶写入看板聚合表。
+	// 只回填非 models 路由（与看板查询口径一致）。
+	if !statsTableExists {
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO openai_gateway_stats_hourly (hour, endpoint_id, gateway_key_id, model, route, requests, errors, latency_sum, ttfb_sum, ttfb_count, prompt_tokens, completion_tokens, total_tokens, cached_tokens, cost, cost_currency)
+			SELECT
+				strftime('%Y-%m-%d %H:00:00', timestamp) as hour,
+				COALESCE(endpoint_id, ''),
+				COALESCE(gateway_key_id, ''),
+				COALESCE(model, ''),
+				COALESCE(route, ''),
+				COUNT(*),
+				SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+				COALESCE(SUM(latency_ms), 0),
+				COALESCE(SUM(CASE WHEN ttfb_ms > 0 THEN ttfb_ms ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN ttfb_ms > 0 THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(prompt_tokens), 0),
+				COALESCE(SUM(completion_tokens), 0),
+				COALESCE(SUM(total_tokens), 0),
+				COALESCE(SUM(cached_tokens), 0),
+				COALESCE(SUM(cost), 0),
+				COALESCE(cost_currency, '')
+			FROM openai_gateway_analytics
+			WHERE route != 'models'
+			GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp), COALESCE(endpoint_id, ''), COALESCE(gateway_key_id, ''), COALESCE(model, ''), COALESCE(route, ''), COALESCE(cost_currency, '')
+		`); err != nil {
+			return fmt.Errorf("openai ensure schema backfill stats: %w", err)
+		}
 	}
 	return nil
 }
@@ -1132,6 +1191,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.analyticsEventStream(w, r)
 	case len(parts) == 2 && parts[0] == "analytics" && parts[1] == "clear" && method == http.MethodPost:
 		s.clearAnalyticsLogs(w, r)
+	case len(parts) == 2 && parts[0] == "analytics" && parts[1] == "clear-history" && method == http.MethodPost:
+		s.clearAnalyticsHistory(w, r)
 	case len(parts) == 1 && parts[0] == "relay-errors" && method == http.MethodGet:
 		s.handleRelayErrors(w, r)
 	default:

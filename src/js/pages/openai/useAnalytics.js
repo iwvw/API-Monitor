@@ -173,9 +173,9 @@ export function useAnalytics(activeTab) {
     localStorage.setItem('openai_analytics_days', String(analyticsDays));
   }, [analyticsDays]);
 
-  // 清空全部网关日志数据。
+  // 清空全部网关日志记录（只清明细日志，数据看板聚合历史不受影响）。
   const clearGatewayLogs = useCallback(async () => {
-    if (!(await dialog.confirm('确认清除全部网关日志记录？此操作不可恢复。'))) return;
+    if (!(await dialog.confirm('确认清除全部网关日志记录？数据看板历史保留。此操作不可恢复。'))) return;
     try {
       const response = await fetch('/api/openai/analytics/clear', {
         method: 'POST',
@@ -187,6 +187,23 @@ export function useAnalytics(activeTab) {
       await fetchAnalytics();
     } catch (error) {
       toast.error('清除日志失败: ' + error.message);
+    }
+  }, [fetchAnalytics]);
+
+  // 清空数据看板历史（独立的聚合表，不影响网关明细日志）。
+  const clearDashboardHistory = useCallback(async () => {
+    if (!(await dialog.confirm('确认清除全部数据看板历史？网关日志保留。此操作不可恢复。'))) return;
+    try {
+      const response = await fetch('/api/openai/analytics/clear-history', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || '清除失败');
+      toast.success(`已清除 ${data.deleted ?? 0} 条看板历史`);
+      await fetchAnalytics({ silent: true });
+    } catch (error) {
+      toast.error('清除看板历史失败: ' + error.message);
     }
   }, [fetchAnalytics]);
 
@@ -215,5 +232,6 @@ export function useAnalytics(activeTab) {
     logDetailExpanded, setLogDetailExpanded,
     fetchAnalytics,
     clearGatewayLogs,
+    clearDashboardHistory,
   };
 }

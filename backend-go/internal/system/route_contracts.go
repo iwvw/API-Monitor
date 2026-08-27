@@ -808,6 +808,7 @@ func init() {
 		"url": {t: "string", req: true, d: "订阅链接，必须以 http:// 或 https:// 开头"},
 	})
 	routeRequestContracts["/api/openai/analytics/clear"] = noBody
+	routeRequestContracts["/api/openai/analytics/clear-history"] = noBody
 	routeRequestContracts["/api/openai/relay-errors"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/routing"] = obj([]string{"priority", "weight"}, map[string]prop{
 		"priority": {t: "number", d: "路由优先级（越小越优先），与 weight 至少提供一个"},

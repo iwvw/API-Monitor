@@ -1425,9 +1425,9 @@ func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) 
 	startRFC3339 := now.AddDate(0, 0, -(days - 1)).Format(time.RFC3339)
 	tokensByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
-		SELECT strftime('%Y-%m-%d', timestamp) AS day, COALESCE(SUM(total_tokens), 0)
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models'
+		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(total_tokens), 0)
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models'
 		GROUP BY day`, start); err != nil {
 		// 表可能尚未建好，返回空表即可。
 		tokensByDay = nil
