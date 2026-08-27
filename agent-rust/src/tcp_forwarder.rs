@@ -769,12 +769,64 @@ fn pid_alive(pid: u32) -> bool {
     }
 }
 
+// 面板定位 auth-proxy 激活后的二进制完整路径（平台相关扩展名）
+fn auth_proxy_binary_path() -> std::path::PathBuf {
+    let root = auth_proxy_root();
+    #[cfg(unix)]
+    let name = "api-monitor-auth-proxy";
+    #[cfg(windows)]
+    let name = "api-monitor-auth-proxy.exe";
+    root.join(name)
+}
+
+// 计算文件 SHA-256（用平台本地工具，与下载后校验一致）
+fn compute_file_sha256(path: &std::path::Path) -> Result<String, String> {
+    #[cfg(unix)]
+    {
+        let out = std::process::Command::new("sha256sum").arg(path).output()
+            .map_err(|e| format!("sha256sum: {e}"))?;
+        if !out.status.success() {
+            return Err("sha256sum 校验失败".to_string());
+        }
+        let actual = String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+        if actual.is_empty() {
+            return Err("sha256sum 输出为空".to_string());
+        }
+        Ok(actual)
+    }
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("certutil").args(["-hashfile"]).arg(path).arg("SHA256").output()
+            .map_err(|e| format!("certutil: {e}"))?;
+        if !out.status.success() {
+            return Err("certutil 校验失败".to_string());
+        }
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let line = line.trim();
+            if line.len() == 64 && line.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Ok(line.to_ascii_lowercase());
+            }
+        }
+        Err("certutil 输出未包含 SHA-256".to_string())
+    }
+}
+
 async fn download_auth_proxy(url: &str, sha: &str) -> Result<std::path::PathBuf, String> {
     if !url.starts_with("https://") || sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("auth-proxy 资产必须为 HTTPS 地址并带 SHA-256".to_string());
     }
     let root = auth_proxy_root();
     std::fs::create_dir_all(&root).map_err(|e| format!("创建 auth-proxy 目录失败: {e}"))?;
+    // 已激活且哈希匹配则直接复用：多个 token/panel 转发共用同一二进制时，
+    // 覆盖运行中实例在 Windows 上会因文件占用而 rename 失败（Access Denied）。
+    let binary = auth_proxy_binary_path();
+    if binary.exists() {
+        if let Ok(actual) = compute_file_sha256(&binary) {
+            if actual == sha.to_ascii_lowercase() {
+                return Ok(binary);
+            }
+        }
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
