@@ -522,10 +522,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
-			fullURL := strings.TrimSuffix(cand.BaseURL, "/")
-			if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-				fullURL += "/v1"
-			}
+			fullURL := ensureVersionPath(cand.BaseURL)
 			fullURL += "/chat/completions"
 			res = s.relayLoop(relayLoopParams{
 				route:          route,

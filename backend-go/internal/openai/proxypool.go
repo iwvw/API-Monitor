@@ -1518,10 +1518,7 @@ func (s *Service) probeEndpointProxyOnce(ctx context.Context, endpointID, baseUR
 	if err != nil {
 		return false
 	}
-	fullURL := strings.TrimSuffix(baseURL, "/")
-	if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-		fullURL += "/v1"
-	}
+	fullURL := ensureVersionPath(baseURL)
 	fullURL += "/models"
 
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

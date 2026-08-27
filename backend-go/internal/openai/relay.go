@@ -1145,10 +1145,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 本地端点判断：只在前端填入的 base_url 上判定（首个候选），
 	// 决定是否启用 /uploads/ 相对路径的本地图片内联。
-	primaryURL := strings.TrimSuffix(selected.BaseURL, "/")
-	if !strings.HasSuffix(strings.ToLower(primaryURL), "/v1") && !strings.Contains(strings.ToLower(primaryURL), "/v1/") {
-		primaryURL += "/v1"
-	}
+	primaryURL := ensureVersionPath(selected.BaseURL)
 	primaryURL += "/chat/completions"
 	isLocal := localURLRegex.MatchString(primaryURL)
 
@@ -1251,10 +1248,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
-			fullURL := strings.TrimSuffix(cand.BaseURL, "/")
-			if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-				fullURL += "/v1"
-			}
+			fullURL := ensureVersionPath(cand.BaseURL)
 			fullURL += "/chat/completions"
 			res = s.relayLoop(relayLoopParams{
 				route:          "chat.completions",
@@ -2328,12 +2322,9 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Responses API 的路径为 /responses。
-	fullURL := strings.TrimSuffix(selected.BaseURL, "/")
-	if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-		fullURL += "/v1"
-	}
-	fullURL += "/responses"
+// Responses API 的路径为 /responses。
+		fullURL := ensureVersionPath(selected.BaseURL)
+		fullURL += "/responses"
 
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
 	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
@@ -2395,10 +2386,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			}
 			upstreamBodyBytes, _ := json.Marshal(candBody)
 
-			fullURL := strings.TrimSuffix(cand.BaseURL, "/")
-			if !strings.HasSuffix(strings.ToLower(fullURL), "/v1") && !strings.Contains(strings.ToLower(fullURL), "/v1/") {
-				fullURL += "/v1"
-			}
+			fullURL := ensureVersionPath(cand.BaseURL)
 			fullURL += "/responses"
 			res = s.relayLoop(relayLoopParams{
 				route:          "responses",
@@ -2789,6 +2777,17 @@ func (s *Service) proxyModels(w http.ResponseWriter, r *http.Request) {
 }
 
 // ==================== Helper methods ====================
+
+// ensureVersionPath 保证基址带 OpenAI 兼容版本段：已含 /v\d+ 段（如 /v1、
+// /api/v3）则原样返回，否则补 /v1。ark 等上游以 /api/v3 为版本前缀，若沿用
+// 「以 /v1 结尾或含 /v1/」的旧判断会把 /api/v3 误拼成 /api/v3/v1/... 而 404。
+func ensureVersionPath(baseURL string) string {
+	u := strings.TrimSuffix(baseURL, "/")
+	if versionPathRegex.MatchString(u) {
+		return u
+	}
+	return u + "/v1"
+}
 
 func (s *Service) normalizeBaseURL(u string) string {
 	u = strings.TrimSpace(u)

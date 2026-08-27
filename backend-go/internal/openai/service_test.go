@@ -66,6 +66,27 @@ func TestOpenAINormalization(t *testing.T) {
 	}
 }
 
+func TestEnsureVersionPath(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"https://api.openai.com/v1", "https://api.openai.com/v1"},
+		{"https://api.openai.com/v1/", "https://api.openai.com/v1"},
+		{"https://my-proxy.com", "https://my-proxy.com/v1"},
+		{"https://my-proxy.com/v2/", "https://my-proxy.com/v2"},
+		{"https://ark.cn-beijing.volces.com/api/v3", "https://ark.cn-beijing.volces.com/api/v3"},
+		{"https://api-gateway.merge.dev/v1/openai", "https://api-gateway.merge.dev/v1/openai"},
+		{"https://opencode.ai/zen/v1", "https://opencode.ai/zen/v1"},
+	}
+	for _, tc := range testCases {
+		res := ensureVersionPath(tc.input)
+		if res != tc.expected {
+			t.Errorf("ensureVersionPath(%q) = %q; want %q", tc.input, res, tc.expected)
+		}
+	}
+}
+
 func TestNormalizeProtocol(t *testing.T) {
 	testCases := []struct {
 		input    string
