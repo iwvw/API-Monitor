@@ -1015,6 +1015,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			tunnel_hostname TEXT NOT NULL DEFAULT '',
 			tunnel_path TEXT NOT NULL DEFAULT '',
 			whole_host INTEGER NOT NULL DEFAULT 0,
+			udp INTEGER NOT NULL DEFAULT 0,
 			relay_server_id TEXT NOT NULL DEFAULT '',
 			remote_port INTEGER DEFAULT 0,
 			auth_proxy_port INTEGER NOT NULL DEFAULT 0,
@@ -1210,6 +1211,7 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 		{"connector_count", "ALTER TABLE managed_forwards ADD COLUMN connector_count INTEGER NOT NULL DEFAULT 0"},
 		{"whole_host", "ALTER TABLE managed_forwards ADD COLUMN whole_host INTEGER NOT NULL DEFAULT 0"},
 		{"auth_proxy_port", "ALTER TABLE managed_forwards ADD COLUMN auth_proxy_port INTEGER NOT NULL DEFAULT 0"},
+		{"udp", "ALTER TABLE managed_forwards ADD COLUMN udp INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, f := range forwardFields {
 		if exists, err := hasColumn(ctx, db, "managed_forwards", f.Name); err == nil && !exists {

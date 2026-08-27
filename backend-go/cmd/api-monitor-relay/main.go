@@ -33,9 +33,13 @@ const (
 	frameTypeData        byte = 0x01
 	frameTypeClose       byte = 0x02
 	frameTypeKeepalive   byte = 0x03
+	frameTypeUDPData     byte = 0x04
+	frameTypeUDPClose    byte = 0x05
 	maxFramePayload           = 1 << 20 // 单帧载荷上限 1MB
 	classifyClientWindow      = 300 * time.Millisecond
 	keepaliveInterval         = 30 * time.Second
+	udpSessionIdleTimeout     = 2 * time.Minute
+	udpSessionSweepInterval   = 30 * time.Second
 )
 
 // ==================== 帧编解码 ====================
@@ -86,16 +90,26 @@ type ForwardConfig struct {
 	ID         string `json:"id"`
 	ListenPort int    `json:"listen_port"`
 	Token      string `json:"token,omitempty"`
+	UDP        bool   `json:"udp"`
 }
 
 // ==================== 单转发规则 ====================
+
+type udpSession struct {
+	client   *net.UDPAddr
+	lastSeen time.Time
+}
 
 type forward struct {
 	id         string
 	port       int
 	token      string
+	udp        bool
 	mu         sync.Mutex
 	ln         net.Listener
+	udpConn    *net.UDPConn
+	udpSess    map[uint16]udpSession // connID -> 客户端地址（UDP 会话）
+	udpNextID  uint16
 	tunnel     net.Conn // 当前活跃隧道（nil=无）
 	tunWriteMu sync.Mutex
 	conns      map[uint16]net.Conn
@@ -104,13 +118,15 @@ type forward struct {
 	close      sync.Once
 }
 
-func newForward(id string, port int, token string) *forward {
+func newForward(id string, port int, token string, udp bool) *forward {
 	return &forward{
-		id:     id,
-		port:   port,
-		token:  token,
-		conns:  make(map[uint16]net.Conn),
-		closCh: make(chan struct{}),
+		id:      id,
+		port:    port,
+		token:   token,
+		udp:     udp,
+		udpSess: make(map[uint16]udpSession),
+		conns:   make(map[uint16]net.Conn),
+		closCh:  make(chan struct{}),
 	}
 }
 
@@ -120,10 +136,18 @@ func (f *forward) shutdown() {
 	if f.ln != nil {
 		_ = f.ln.Close()
 	}
+	udpConn := f.udpConn
+	f.udpConn = nil
+	f.mu.Unlock()
+	if udpConn != nil {
+		_ = udpConn.Close()
+	}
+	f.mu.Lock()
 	tun := f.tunnel
 	f.tunnel = nil
 	conns := f.conns
 	f.conns = make(map[uint16]net.Conn)
+	f.udpSess = make(map[uint16]udpSession)
 	f.mu.Unlock()
 	if tun != nil {
 		_ = tun.Close()
@@ -299,6 +323,132 @@ func (s *RelayServer) listenForward(f *forward) {
 		defer s.wg.Done()
 		s.keepaliveLoop(f)
 	}()
+	if f.udp {
+		uaddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", f.port))
+		if err != nil {
+			log.Printf("udp resolve port %d (forward %s): %v", f.port, f.id, err)
+			return
+		}
+		uc, err := net.ListenUDP("udp", uaddr)
+		if err != nil {
+			log.Printf("udp listen port %d (forward %s): %v", f.port, f.id, err)
+			return
+		}
+		f.mu.Lock()
+		f.udpConn = uc
+		f.mu.Unlock()
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.udpReadLoop(f, uc)
+		}()
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.udpSweepLoop(f)
+		}()
+	}
+}
+
+// udpSessionID 返回 clientAddr 对应的会话 connID；新客户端分配并登记。
+func (f *forward) udpSessionID(addr *net.UDPAddr) uint16 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id, ses := range f.udpSess {
+		if ses.client.IP.Equal(addr.IP) && ses.client.Port == addr.Port {
+			ses.lastSeen = time.Now()
+			f.udpSess[id] = ses
+			return id
+		}
+	}
+	for {
+		f.udpNextID++
+		id := f.udpNextID
+		if id == 0 {
+			continue
+		}
+		if _, used := f.udpSess[id]; !used {
+			f.udpSess[id] = udpSession{client: &net.UDPAddr{IP: append(net.IP(nil), addr.IP...), Port: addr.Port}, lastSeen: time.Now()}
+			return id
+		}
+	}
+}
+
+// udpReadLoop 接收客户端 UDP 数据报，按会话封装为 UDP_DATA 帧送入隧道。
+func (s *RelayServer) udpReadLoop(f *forward, uc *net.UDPConn) {
+	buf := make([]byte, 64*1024)
+	for {
+		n, addr, err := uc.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		tun := f.getTunnel()
+		if tun == nil {
+			continue
+		}
+		id := f.udpSessionID(addr)
+		select {
+		case <-f.closCh:
+			return
+		default:
+		}
+		_ = f.writeFrameLocked(tun, frameTypeUDPData, id, buf[:n])
+	}
+}
+
+// udpSweepLoop 定期清理空闲 UDP 会话并向源主机发 UDP_CLOSE。
+func (s *RelayServer) udpSweepLoop(f *forward) {
+	t := time.NewTicker(udpSessionSweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.closCh:
+			return
+		case <-f.closCh:
+			return
+		case <-t.C:
+			now := time.Now()
+			f.mu.Lock()
+			var expired []uint16
+			for id, ses := range f.udpSess {
+				if now.Sub(ses.lastSeen) > udpSessionIdleTimeout {
+					expired = append(expired, id)
+				}
+			}
+			for _, id := range expired {
+				delete(f.udpSess, id)
+			}
+			f.mu.Unlock()
+			for _, id := range expired {
+				_ = f.writeFrameLocked(f.getTunnel(), frameTypeUDPClose, id, nil)
+			}
+		}
+	}
+}
+
+// udpToClient 把来自源主机的 UDP_DATA 回程数据报到对应客户端。
+func (f *forward) udpToClient(id uint16, payload []byte) {
+	f.mu.Lock()
+	ses, ok := f.udpSess[id]
+	f.mu.Unlock()
+	if !ok {
+		return
+	}
+	uc := func() *net.UDPConn {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.udpConn
+	}()
+	if uc == nil {
+		return
+	}
+	_, _ = uc.WriteToUDP(payload, ses.client)
+}
+
+func (f *forward) udpDropSession(id uint16) {
+	f.mu.Lock()
+	delete(f.udpSess, id)
+	f.mu.Unlock()
 }
 
 func (s *RelayServer) keepaliveLoop(f *forward) {
@@ -492,6 +642,10 @@ func (s *RelayServer) tunnelReadLoop(f *forward, conn net.Conn) {
 			if c := f.removeClient(connID); c != nil {
 				_ = c.Close()
 			}
+		case frameTypeUDPData:
+			f.udpToClient(connID, payload)
+		case frameTypeUDPClose:
+			f.udpDropSession(connID)
 		case frameTypeKeepalive:
 			// 消耗即可
 		default:
@@ -538,6 +692,7 @@ func (s *RelayServer) handleAddForward(w http.ResponseWriter, r *http.Request) {
 		ID         string `json:"id"`
 		ListenPort int    `json:"listen_port"`
 		Token      string `json:"token"`
+		UDP        bool   `json:"udp"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
@@ -550,8 +705,8 @@ func (s *RelayServer) handleAddForward(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	existing, existed := s.forwards[req.ID]
-	// 幂等：同端口且 token 一致认为成功；否则关闭旧监听重绑（面板重试/换端口必须收敛）
-	if existed && existing.port == req.ListenPort && existing.token == req.Token {
+	// 幂等：同端口、token、udp 标志一致认为成功；否则关闭旧监听重绑（面板重试/换端口必须收敛）
+	if existed && existing.port == req.ListenPort && existing.token == req.Token && existing.udp == req.UDP {
 		s.mu.Unlock()
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": req.ID, "port": req.ListenPort})
 		return
@@ -559,7 +714,7 @@ func (s *RelayServer) handleAddForward(w http.ResponseWriter, r *http.Request) {
 	if existed {
 		delete(s.forwards, req.ID)
 	}
-	f := newForward(req.ID, req.ListenPort, req.Token)
+	f := newForward(req.ID, req.ListenPort, req.Token, req.UDP)
 	s.forwards[req.ID] = f
 	s.mu.Unlock()
 	if existed {
@@ -637,7 +792,7 @@ func main() {
 				}
 				relay.mu.Lock()
 				if _, ok := relay.forwards[fwd.ID]; !ok {
-					relay.forwards[fwd.ID] = newForward(fwd.ID, fwd.ListenPort, fwd.Token)
+					relay.forwards[fwd.ID] = newForward(fwd.ID, fwd.ListenPort, fwd.Token, fwd.UDP)
 				}
 				relay.mu.Unlock()
 				log.Printf("forward %s configured on :%d", fwd.ID, fwd.ListenPort)

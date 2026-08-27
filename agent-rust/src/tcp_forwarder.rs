@@ -19,6 +19,8 @@ mod frame {
     pub const DATA: u8 = 0x01;
     pub const CLOSE: u8 = 0x02;
     pub const KEEPALIVE: u8 = 0x03;
+    pub const UDP_DATA: u8 = 0x04;
+    pub const UDP_CLOSE: u8 = 0x05;
     pub const MAX_PAYLOAD: usize = 1 << 20;
     pub const HDR_LEN: usize = 7;
 }
@@ -42,6 +44,8 @@ struct Request {
     relay_asset_sha256: String,
     #[serde(default)]
     token: String,
+    #[serde(default)]
+    udp: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,7 +73,13 @@ struct TunnelEntry {
     started_at: Mutex<Option<Instant>>,
     writer: AsyncMutex<Option<OwnedWriteHalf>>,
     conns: AsyncMutex<HashMap<u16, OwnedWriteHalf>>,
+    udp_conns: AsyncMutex<HashMap<u16, UdpSession>>,
     control: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+struct UdpSession {
+    socket: Arc<tokio::net::UdpSocket>,
+    cancel: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 struct TunnelManager {
@@ -107,6 +117,7 @@ impl TunnelEntry {
             started_at: Mutex::new(None),
             writer: AsyncMutex::new(None),
             conns: AsyncMutex::new(HashMap::new()),
+            udp_conns: AsyncMutex::new(HashMap::new()),
             control: Mutex::new(None),
         }
     }
@@ -207,6 +218,8 @@ async fn run_read_loop(entry: Arc<TunnelEntry>, mut reader: OwnedReadHalf, mut c
                             frame::CLOSE => {
                                 entry.remove_conn(conn_id).await;
                             }
+                            frame::UDP_DATA => dispatch_udp(&entry, conn_id, payload).await,
+                            frame::UDP_CLOSE => close_udp(&entry, conn_id).await,
                             frame::KEEPALIVE => {}
                             other => eprintln!("[tcp_forwarder] {} weird frame type {other}", entry.forward_id),
                         }
@@ -217,6 +230,7 @@ async fn run_read_loop(entry: Arc<TunnelEntry>, mut reader: OwnedReadHalf, mut c
         }
     }
     entry.connected.store(false, Ordering::Relaxed);
+    close_all_udp(&entry).await;
     entry.close_all_conns().await;
 }
 
@@ -247,6 +261,77 @@ async fn dispatch_data(entry: &Arc<TunnelEntry>, conn_id: u16, payload: Vec<u8>)
         _ => {
             eprintln!("[tcp_forwarder] forward {}: cannot reach {target}, dropping conn {conn_id}", entry.forward_id);
             let _ = entry.write_tunnel_frame(frame::CLOSE, conn_id, &[]).await;
+        }
+    }
+}
+
+// ==================== UDP 转发 ====================
+// 中继封装客户端 UDP 会话为 UDP_DATA/UDP_CLOSE 帧；源主机为每个 conn_id 建立连接到
+// 本地 UDP 服务的 socket，回程数据报再帧化为 UDP_DATA 上行。会话回收由中继驱动的
+// UDP_CLOSE 完成（客户端空闲超时）。
+
+// udp_response_loop 本地 UDP 服务 → 中继：把回程数据报帧化上送。
+async fn udp_response_loop(
+    entry: Arc<TunnelEntry>,
+    conn_id: u16,
+    socket: Arc<tokio::net::UdpSocket>,
+    mut cancel_rx: oneshot::Receiver<()>,
+) {
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        tokio::select! {
+            _ = &mut cancel_rx => break,
+            r = socket.recv(&mut buf) => {
+                match r {
+                    Ok(n) => {
+                        if entry.write_tunnel_frame(frame::UDP_DATA, conn_id, &buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+}
+
+// dispatch_udp 把中继来的 UDP 数据报投递给本地 UDP 服务；无会话时按 conn_id 新建。
+async fn dispatch_udp(entry: &Arc<TunnelEntry>, conn_id: u16, payload: Vec<u8>) {
+    // 已存在会话则直接发送
+    if let Some(sock) = entry.udp_conns.lock().await.get(&conn_id).map(|s| s.socket.clone()) {
+        let _ = sock.send(&payload).await;
+        return;
+    }
+    let target = format!("{}:{}", entry.local_host, entry.local_port);
+    if let Ok(sock) = tokio::net::UdpSocket::bind("127.0.0.1:0").await {
+        if sock.connect(&target).await.is_err() {
+            return;
+        }
+        let sock = Arc::new(sock);
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        entry.udp_conns.lock().await.insert(
+            conn_id,
+            UdpSession { socket: sock.clone(), cancel: Mutex::new(Some(cancel_tx)) },
+        );
+        tokio::spawn(udp_response_loop(entry.clone(), conn_id, sock.clone(), cancel_rx));
+        let _ = sock.send(&payload).await;
+    }
+}
+
+// close_udp 回收指定 conn_id 的 UDP 会话（中继超时回收时调用）。
+async fn close_udp(entry: &Arc<TunnelEntry>, conn_id: u16) {
+    if let Some(s) = entry.udp_conns.lock().await.remove(&conn_id) {
+        if let Some(tx) = s.cancel.lock().unwrap().take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+async fn close_all_udp(entry: &Arc<TunnelEntry>) {
+    let sessions: Vec<UdpSession> = entry.udp_conns.lock().await.drain().map(|(_, v)| v).collect();
+    for s in sessions {
+        if let Some(tx) = s.cancel.lock().unwrap().take() {
+            let _ = tx.send(());
         }
     }
 }
@@ -348,6 +433,7 @@ async fn end_session(entry: &Arc<TunnelEntry>) {
     entry.connected.store(false, Ordering::Relaxed);
     *entry.writer.lock().await = None;
     *entry.control.lock().unwrap() = None;
+    close_all_udp(&entry).await;
     entry.close_all_conns().await;
 }
 
@@ -388,7 +474,8 @@ async fn remove(forward_id: &str) -> Result<String, String> {
         if let Some(tx) = entry.control.lock().unwrap().take() {
             let _ = tx.send(());
         }
-        entry.close_all_conns().await;
+        close_all_udp(&entry).await;
+    entry.close_all_conns().await;
     }
     Ok(serde_json::json!({"status":"removed","forward_id":forward_id}).to_string())
 }
@@ -455,7 +542,7 @@ async fn listen(request: &Request) -> Result<String, String> {
     if request.forward_id.is_empty() || port == 0 {
         return Err("listen 需要 forward_id 与 relay_port".to_string());
     }
-    let body = serde_json::json!({"id": request.forward_id, "listen_port": port, "token": request.token});
+    let body = serde_json::json!({"id": request.forward_id, "listen_port": port, "token": request.token, "udp": request.udp});
     relay_request(reqwest::Method::POST, "/forwards", Some(body)).await?;
     #[cfg(unix)]
     let _ = crate::proxy_runtime::ensure_firewall_port(port, "tcp");
@@ -896,6 +983,7 @@ mod tests {
             relay_asset_url: String::new(),
             relay_asset_sha256: String::new(),
             token: String::new(),
+            udp: false,
         };
         let install_req = request.clone();
         let install_handle = tokio::spawn(async move { install(&install_req).await });
@@ -933,5 +1021,68 @@ mod tests {
         remove(&fwd_id).await.unwrap();
         let st = status(&fwd_id).await.unwrap();
         assert!(!st.contains("\"connected\":true"), "tunnel should be gone after remove: {st}");
+    }
+
+    // 环回集成测试：UDP 数据报经隧道到达本地 UDP 回显服务，回程帧回传中继。
+    #[tokio::test]
+    async fn forwarder_bridges_udp_to_local_service() {
+        let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay_addr = relay_listener.local_addr().unwrap();
+        // 本地 UDP 回显服务
+        let echo_sock = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let echo_addr = echo_sock.local_addr().unwrap();
+        let echo_sock = std::sync::Arc::new(echo_sock);
+        {
+            let echo_sock = echo_sock.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                loop {
+                    match echo_sock.recv_from(&mut buf).await {
+                        Ok((n, src)) => {
+                            let _ = echo_sock.send_to(&buf[..n], src).await;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        let fwd_id = "fwd_udp_agent".to_string();
+        let request = Request {
+            operation: "install".into(),
+            forward_id: fwd_id.clone(),
+            relay_host: "127.0.0.1".into(),
+            relay_port: relay_addr.port(),
+            local_host: "127.0.0.1".into(),
+            local_port: echo_addr.port(),
+            relay_asset_url: String::new(),
+            relay_asset_sha256: String::new(),
+            token: String::new(),
+            udp: false,
+        };
+        let install_req = request.clone();
+        let install_handle = tokio::spawn(async move { install(&install_req).await });
+
+        let (mut tun_read, mut tun_write) = {
+            let (sock, _) = relay_listener.accept().await.unwrap();
+            sock.into_split()
+        };
+        let mut len_bytes = [0u8; 4];
+        tun_read.read_exact(&mut len_bytes).await.unwrap();
+        let len = u32::from_be_bytes(len_bytes) as usize;
+        let mut id_bytes = vec![0u8; len];
+        tun_read.read_exact(&mut id_bytes).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&id_bytes), fwd_id);
+        tun_write.write_all(&[0, 0, 0, 0]).await.unwrap();
+        install_handle.await.unwrap().expect("install failed");
+
+        // 中继投递一个 UDP 数据报 → 框架应回传回显的相同内容
+        write_frame(&mut tun_write, frame::UDP_DATA, 9, b"udp datagram").await.unwrap();
+        let (typ, cid, payload) = read_frame(&mut tun_read).await.expect("no udp reply frame");
+        assert_eq!(typ, frame::UDP_DATA, "expected UDP_DATA echo, got {typ} cid={cid}");
+        assert_eq!(cid, 9);
+        assert_eq!(payload, b"udp datagram");
+
+        remove(&fwd_id).await.unwrap();
     }
 }

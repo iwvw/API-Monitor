@@ -84,6 +84,13 @@ func addForwardToken(t *testing.T, relay *RelayServer, mgmtPort int, id string, 
 	mgmtReq(t, "POST", url, "test-token", bytes.NewBufferString(body), 200)
 }
 
+func addForwardUDP(t *testing.T, relay *RelayServer, mgmtPort int, id string, port int) {
+	t.Helper()
+	url := fmt.Sprintf("http://127.0.0.1:%d/forwards", mgmtPort)
+	body := fmt.Sprintf(`{"id":%q,"listen_port":%d,"udp":true}`, id, port)
+	mgmtReq(t, "POST", url, "test-token", bytes.NewBufferString(body), 200)
+}
+
 // 隧道握手：源主机 Agent 建立反向隧道
 func dialTunnel(t *testing.T, port int, id string) net.Conn {
 	t.Helper()
@@ -471,5 +478,62 @@ func TestRelayTokenHTTPBearerGate(t *testing.T) {
 	_ = hc.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if _, err := io.ReadFull(hc, buf); err != nil {
 		t.Fatalf("client read: %v", err)
+	}
+}
+
+// UDP 转发：客户端数据报封装为 UDP_DATA 帧进入隧道，源主机回程帧写回客户端。
+func TestRelayUDPForwarding(t *testing.T) {
+	relay, mgmt := newTestRelay(t)
+	fwdPort := freePort(t)
+	addForwardUDP(t, relay, mgmt, "fwd_udp", fwdPort)
+
+	tun := dialTunnel(t, fwdPort, "fwd_udp")
+	defer tun.Close()
+
+	srv, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, err := net.DialUDP("udp", nil, srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+	if _, err := cli.Write([]byte("udp-hello")); err != nil {
+		t.Fatal(err)
+	}
+
+	typ, id, payload := readFrameFrom(t, tun, 3*time.Second)
+	if typ != frameTypeUDPData {
+		t.Fatalf("expected UDP_DATA, got type=%d", typ)
+	}
+	if string(payload) != "udp-hello" {
+		t.Fatalf("payload=%q", payload)
+	}
+
+	if err := writeFrame(tun, frameTypeUDPData, id, []byte("udp-reply")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 32)
+	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
+	n, err := cli.Read(buf)
+	if err != nil {
+		t.Fatalf("client read reply: %v", err)
+	}
+	if string(buf[:n]) != "udp-reply" {
+		t.Fatalf("client got %q", buf[:n])
+	}
+
+if err := writeFrame(tun, frameTypeUDPClose, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	// 等 relay 处理 UDP_CLOSE（异步），确保会话被回收后再发下一个数据报
+	time.Sleep(150 * time.Millisecond)
+	if _, err := cli.Write([]byte("udp-second")); err != nil {
+		t.Fatal(err)
+	}
+	typ2, id2, payload2 := readFrameFrom(t, tun, 3*time.Second)
+	if typ2 != frameTypeUDPData || id2 == id || string(payload2) != "udp-second" {
+		t.Fatalf("after close, expected new UDP_DATA; got type=%d id=%d payload=%q", typ2, id2, payload2)
 	}
 }
