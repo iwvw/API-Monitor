@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Badge, Button, ClipboardText, Select, Table } from '@cloudflare/kumo';
 import { Input } from '@cloudflare/kumo/components/input';
+import { ArrowUpRight } from '@phosphor-icons/react';
 import { AnimatedCollapse } from '../AnimatedCollapse.jsx';
 import { STATUS_COLORS, STATUS_LABELS, TRANSPORT_LABELS } from './useMeshLayout.js';
 
@@ -115,7 +116,21 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
         <div className="flex min-w-0 items-center gap-1.5">
           {row.whole_host && <Badge variant="blue" size="sm">整域</Badge>}
           {val ? (
-            <ClipboardText size="sm" text={val} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
+            <>
+              <ClipboardText size="sm" text={val} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
+              {/^https?:\/\//.test(val) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  shape="square"
+                  aria-label="打开访问地址"
+                  title="打开访问地址"
+                  onClick={(e) => { e.stopPropagation(); window.open(val, '_blank', 'noopener'); }}
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" weight="bold" />
+                </Button>
+              )}
+            </>
           ) : <span className="text-xs text-kumo-text-secondary">部署后显示</span>}
         </div>
       ),
