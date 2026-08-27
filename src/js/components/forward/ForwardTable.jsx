@@ -111,9 +111,14 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
       key: 'access_url',
       label: '访问地址',
       content: true,
-      render: (val) => val ? (
-        <ClipboardText size="sm" text={val} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
-      ) : <span className="text-xs text-kumo-text-secondary">部署后显示</span>,
+      render: (val, row) => (
+        <div className="flex min-w-0 items-center gap-1.5">
+          {row.whole_host && <Badge variant="blue" size="sm">整域</Badge>}
+          {val ? (
+            <ClipboardText size="sm" text={val} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
+          ) : <span className="text-xs text-kumo-text-secondary">部署后显示</span>}
+        </div>
+      ),
     },
     {
       key: 'apply_status',

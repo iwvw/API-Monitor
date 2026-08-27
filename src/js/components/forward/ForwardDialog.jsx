@@ -55,6 +55,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   const [localPort, setLocalPort] = useState('');
   const [protocol, setProtocol] = useState('tcp');
   const [transport, setTransport] = useState('cloudflare_tunnel');
+  const [wholeHost, setWholeHost] = useState(false);
   const [relayServerId, setRelayServerId] = useState('');
   const [accessMode, setAccessMode] = useState('public');
   const [submitting, setSubmitting] = useState(false);
@@ -101,6 +102,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         setLocalPort(String(editing.local_port));
         setProtocol(editing.protocol);
         setTransport(editing.transport);
+        setWholeHost(!!editing.whole_host);
         setRelayServerId(editing.relay_server_id || '');
         setAccessMode(editing.access_mode);
         setHealthCheckEnabled(!!editing.health_check_enabled);
@@ -113,6 +115,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         setLocalPort('');
         setProtocol('tcp');
         setTransport('cloudflare_tunnel');
+        setWholeHost(false);
         setRelayServerId('');
         setAccessMode('public');
         setHealthCheckEnabled(false);
@@ -199,6 +202,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         local_port: port,
         protocol,
         transport,
+        whole_host: transport === 'cloudflare_tunnel' && wholeHost,
         relay_server_id: transport === 'tcp_relay' ? relayServerId : '',
         access_mode: accessMode,
         ...(editing ? { health_check_enabled: healthCheckEnabled, failover_enabled: failoverEnabled } : {}),
@@ -424,9 +428,28 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                 <div className="flex flex-col gap-3 py-3">
                   <Tabs size="sm" variant="segmented" className="w-full" value={transport} onValueChange={(v) => { if (!editing) setTransport(v); }} tabs={TRANSPORT_TABS} />
                   {transport === 'cloudflare_tunnel' && (
-                    <div className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">
-                      <p>走源主机已有的 Cloudflare Tunnel，自动追加 ingress 路径：</p>
-                      <p className="mt-1 font-mono text-[11px] text-kumo-text-secondary">{editing?.tunnel_path || '/fwd/自动生成'}</p>
+                    <div className="flex flex-col gap-2">
+                      <Switch
+                        size="sm"
+                        label="整域部署（根路径直达本地服务）"
+                        controlFirst={false}
+                        checked={wholeHost}
+                        onCheckedChange={setWholeHost}
+                      />
+                      {wholeHost ? (
+                        <div className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">
+                          <p>整个域名路由到本地服务，资源路径不会被子路径拦截，适合完整网站 / SPA。</p>
+                          <p className="mt-1 font-mono text-[11px] text-kumo-brand">
+                            {editing?.tunnel_hostname ? `${protocol === 'http' ? 'http' : 'https'}://${editing.tunnel_hostname}` : 'https://域名根路径'}
+                          </p>
+                          <p className="mt-1 text-[11px] text-kumo-text-warning">整域部署会独占该域名，不再与子路径转发共享。</p>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">
+                          <p>走源主机已有的 Cloudflare Tunnel，自动追加 ingress 路径：</p>
+                          <p className="mt-1 font-mono text-[11px] text-kumo-text-secondary">{editing?.tunnel_path || '/fwd/自动生成'}</p>
+                        </div>
+                      )}
                     </div>
                   )}
                   {transport === 'tcp_relay' && (
