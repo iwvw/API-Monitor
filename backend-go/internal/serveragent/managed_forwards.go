@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -626,39 +627,45 @@ func (s *Service) deployManagedForward(w http.ResponseWriter, r *http.Request, d
 }
 
 func (s *Service) deployCloudflareTunnelForward(w http.ResponseWriter, r *http.Request, db *sql.DB, item *managedForward) {
-	if s.cloudflare == nil {
-		response.Error(w, http.StatusServiceUnavailable, "Cloudflare integration is unavailable")
+	code, err := s.deployCloudflareTunnelCore(r.Context(), db, item)
+	if err != nil {
+		response.Error(w, code, err.Error())
 		return
+	}
+	response.OK(w, s.loadForward(r.Context(), db, item.ID))
+}
+
+// deployCloudflareTunnelCore 实际部署 CF 隧道转发，返回 HTTP 状态码与错误；
+// 供 HTTP 入口与「agent 上线对账重放」共用。
+func (s *Service) deployCloudflareTunnelCore(ctx context.Context, db *sql.DB, item *managedForward) (int, error) {
+	if s.cloudflare == nil {
+		return http.StatusServiceUnavailable, errors.New("Cloudflare integration is unavailable")
 	}
 	var tunnelExists int
 	var tunnelHostname, tunnelID string
-	err := db.QueryRowContext(r.Context(), `SELECT 1,tunnel_id,hostname FROM managed_proxy_tunnels WHERE server_id=? AND apply_status='running'`, item.ServerID).Scan(&tunnelExists, &tunnelID, &tunnelHostname)
+	err := db.QueryRowContext(ctx, `SELECT 1,tunnel_id,hostname FROM managed_proxy_tunnels WHERE server_id=? AND apply_status='running'`, item.ServerID).Scan(&tunnelExists, &tunnelID, &tunnelHostname)
 	if err != nil {
 		var anyTunnel int
-		_ = db.QueryRowContext(r.Context(), `SELECT 1 FROM managed_proxy_tunnels WHERE server_id=?`, item.ServerID).Scan(&anyTunnel)
+		_ = db.QueryRowContext(ctx, `SELECT 1 FROM managed_proxy_tunnels WHERE server_id=?`, item.ServerID).Scan(&anyTunnel)
 		if anyTunnel == 0 {
-			response.Error(w, 422, "该主机尚未部署 Cloudflare Tunnel，请先部署隧道")
-			return
+			return 422, errors.New("该主机尚未部署 Cloudflare Tunnel，请先部署隧道")
 		}
-		response.Error(w, 422, "该主机的 Cloudflare Tunnel 不在运行状态，请先部署隧道")
-		return
+		return 422, errors.New("该主机的 Cloudflare Tunnel 不在运行状态，请先部署隧道")
 	}
 	// token/panel 模式：cloudflared 本身不鉴权，需在源主机启动鉴权代理，ingress 指向代理端口
 	authProxyPort := item.AuthProxyPort
 	if needsTokenAuth(item) {
 		srcConn, ok := s.registry.Get(item.ServerID)
 		if !ok {
-			response.Error(w, http.StatusBadGateway, "源主机 Agent 离线，无法启动鉴权代理")
-			return
+			return http.StatusBadGateway, errors.New("源主机 Agent 离线，无法启动鉴权代理")
 		}
 		meta := srcConn.GetMetadata()
 		proxyURL, proxySHA, proxyOK := authProxyAssetFor(fmt.Sprint(meta["platform"]), fmt.Sprint(meta["arch"]))
 		if !proxyOK {
-			response.Error(w, 422, "不支持该主机的 auth-proxy 资产")
-			return
+			return 422, errors.New("不支持该主机的 auth-proxy 资产")
 		}
 		var enc string
-		_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
+		_ = db.QueryRowContext(ctx, `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
 		token := secure.SecureDecrypt(enc)
 		// 端口由源主机 agent 自选（避开已占用端口），agent 校验进程存活后返回实际端口
 		proxyPayload, _ := json.Marshal(map[string]interface{}{
@@ -669,58 +676,60 @@ func (s *Service) deployCloudflareTunnelForward(w http.ResponseWriter, r *http.R
 		})
 		out, err := s.RunTCPForwarderTaskAndWait(item.ServerID, string(proxyPayload))
 		if err != nil {
-			_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_auth_proxy',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
-			response.Error(w, 500, "鉴权代理启动失败: "+err.Error())
-			return
+			_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_auth_proxy',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+			return 500, errors.New("鉴权代理启动失败: "+err.Error())
 		}
 		var proxyResp struct {
 			Port int `json:"port"`
 		}
 		if err := json.Unmarshal([]byte(out), &proxyResp); err != nil || proxyResp.Port < 1 || proxyResp.Port > 65535 {
-			_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_auth_proxy',last_error=?,updated_at=datetime('now') WHERE id=?`, "鉴权代理未返回有效端口", item.ID)
-			response.Error(w, 500, "鉴权代理未返回有效端口: "+out)
-			return
+			_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_auth_proxy',last_error=?,updated_at=datetime('now') WHERE id=?`, "鉴权代理未返回有效端口", item.ID)
+			return 500, errors.New("鉴权代理未返回有效端口: "+out)
 		}
 		authProxyPort = proxyResp.Port
-		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET auth_proxy_port=? WHERE id=?`, authProxyPort, item.ID)
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET auth_proxy_port=? WHERE id=?`, authProxyPort, item.ID)
 	}
 	path := "/fwd/" + item.ID
 	if item.WholeHost {
 		path = ""
 	}
-	_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET tunnel_hostname=?,tunnel_path=?,apply_status='deploying',last_stage='deploying',updated_at=datetime('now') WHERE id=?`, tunnelHostname, path, item.ID)
-	if err := s.syncForwardIngress(r.Context(), db, item.ServerID); err != nil {
-		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_ingress',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
-		response.Error(w, 500, "deploy failed: "+err.Error())
-		return
+	_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_hostname=?,tunnel_path=?,apply_status='deploying',last_stage='deploying',updated_at=datetime('now') WHERE id=?`, tunnelHostname, path, item.ID)
+	if err := s.syncForwardIngress(ctx, db, item.ServerID); err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_ingress',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+		return 500, errors.New("deploy failed: "+err.Error())
 	}
-	_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='running',last_stage='completed',last_error='',updated_at=datetime('now') WHERE id=?`, item.ID)
-	updated := s.loadForward(r.Context(), db, item.ID)
-	response.OK(w, updated)
+	_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='running',last_stage='completed',last_error='',updated_at=datetime('now') WHERE id=?`, item.ID)
+	return 0, nil
 }
 
 func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, db *sql.DB, item *managedForward) {
-	if item.RelayServerID == "" {
-		response.Error(w, 422, "中继入口主机未指定")
+	code, err := s.deployTCPRelayCore(r.Context(), db, item)
+	if err != nil {
+		response.Error(w, code, err.Error())
 		return
 	}
+	response.OK(w, s.loadForward(r.Context(), db, item.ID))
+}
+
+// deployTCPRelayCore 实际部署 tcp_relay 转发链路，返回 HTTP 状态码与错误；
+// 供 HTTP 入口与「agent 上线对账重放」共用。
+func (s *Service) deployTCPRelayCore(ctx context.Context, db *sql.DB, item *managedForward) (int, error) {
+	if item.RelayServerID == "" {
+		return 422, errors.New("中继入口主机未指定")
+	}
 	var relayHost string
-	if err := db.QueryRowContext(r.Context(), `SELECT COALESCE(host,'') FROM server_accounts WHERE id=?`, item.RelayServerID).Scan(&relayHost); err != nil || relayHost == "" {
-		response.Error(w, 422, "中继入口主机未配置可连接地址（server_accounts.host）")
-		return
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(host,'') FROM server_accounts WHERE id=?`, item.RelayServerID).Scan(&relayHost); err != nil || relayHost == "" {
+		return 422, errors.New("中继入口主机未配置可连接地址（server_accounts.host）")
 	}
 	relayConn, ok := s.registry.Get(item.RelayServerID)
 	if !ok {
-		response.Error(w, http.StatusBadGateway, "中继入口主机 Agent 离线")
-		return
+		return http.StatusBadGateway, errors.New("中继入口主机 Agent 离线")
 	}
 	if !relayConn.GetCapabilities()["tcp_forwarder_v1"] {
-		response.Error(w, http.StatusConflict, "中继入口主机 Agent 版本过旧，不支持 tcp_forwarder_v1")
-		return
+		return http.StatusConflict, errors.New("中继入口主机 Agent 版本过旧，不支持 tcp_forwarder_v1")
 	}
 	if issue := s.sourceClientCapabilityIssue(item.ServerID); issue != "" {
-		response.Error(w, http.StatusBadGateway, issue)
-		return
+		return http.StatusBadGateway, errors.New(issue)
 	}
 
 	// 0) 默认安装中继入口：任何主机都能成为中继（agent 侧幂等，已运行即跳过）
@@ -728,32 +737,29 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 	relayURL, relaySHA, relayOK := relayAssetFor(fmt.Sprint(relayMeta["platform"]), fmt.Sprint(relayMeta["arch"]))
 	if relayOK {
 		if err := s.RunTCPForwarderBootstrap(item.RelayServerID, relayURL, relaySHA); err != nil {
-			_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay_bootstrap',last_error=?,updated_at=datetime('now') WHERE id=?`, "中继安装失败: "+err.Error(), item.ID)
-			response.Error(w, 500, "中继入口安装失败: "+err.Error())
-			return
+			_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay_bootstrap',last_error=?,updated_at=datetime('now') WHERE id=?`, "中继安装失败: "+err.Error(), item.ID)
+			return 500, errors.New("中继入口安装失败: "+err.Error())
 		}
 	}
 
-	port := allocateRelayPort(r.Context(), db, item, item.RelayServerID)
+	port := allocateRelayPort(ctx, db, item, item.RelayServerID)
 	if port == 0 {
-		response.Error(w, 422, "中继端口已满（55655-60655），请清理不需要的转发规则")
-		return
+		return 422, errors.New("中继端口已满（55655-60655），请清理不需要的转发规则")
 	}
 
 	// 1) 入口主机：让中继器监听公开端口并放行防火墙（token 模式下发解密凭证强制校验）
 	token := ""
 	if needsTokenAuth(item) {
 		var enc string
-		_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
+		_ = db.QueryRowContext(ctx, `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
 		token = secure.SecureDecrypt(enc)
 	}
 	listenPayload, _ := json.Marshal(map[string]interface{}{
 		"operation": "listen", "forward_id": item.ID, "relay_port": port, "token": token, "udp": item.UDP,
 	})
 	if _, err := s.RunTCPForwarderTaskAndWait(item.RelayServerID, string(listenPayload)); err != nil {
-		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
-		response.Error(w, 500, "中继入口部署失败: "+err.Error())
-		return
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+		return 500, errors.New("中继入口部署失败: "+err.Error())
 	}
 	// 2) 源主机：建立反向隧道并代理本地服务
 	sourcePayload, _ := json.Marshal(map[string]interface{}{
@@ -762,13 +768,68 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 		"local_host": item.LocalHost, "local_port": item.LocalPort,
 	})
 	if _, err := s.RunTCPForwarderTaskAndWait(item.ServerID, string(sourcePayload)); err != nil {
-		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_source',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
-		response.Error(w, 500, "源主机隧道建立失败: "+err.Error())
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_source',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+		return 500, errors.New("源主机隧道建立失败: "+err.Error())
+	}
+	_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET remote_port=?,apply_status='running',last_stage='completed',last_error='',updated_at=datetime('now') WHERE id=?`, port, item.ID)
+	return 0, nil
+}
+
+// reconcileRunningForwards 在 Agent 重连/上线后重放其负责的 running 转发：
+// 源角色重建反向桥接隧道、中继角色重下发监听规则，解决 agent/relay 重启后
+// 转发链路不自动恢复（relay 监听仍在但数据不通）的问题。
+// 同一主机 60 秒内只执行一次，避免 agent 频繁重连触发部署风暴。
+func (s *Service) reconcileRunningForwards(ctx context.Context, db *sql.DB, serverID string) {
+	if serverID == "" {
 		return
 	}
-	_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET remote_port=?,apply_status='running',last_stage='completed',last_error='',updated_at=datetime('now') WHERE id=?`, port, item.ID)
-	updated := s.loadForward(r.Context(), db, item.ID)
-	response.OK(w, updated)
+	if _, busy := s.taskRegistry.ActiveTask("fwd-reconcile-" + serverID); busy {
+		return
+	}
+	now := time.Now()
+	s.forwardReconcileMu.Lock()
+	last, ok := s.forwardReconcileAt[serverID]
+	if ok && now.Sub(last) < 60*time.Second {
+		s.forwardReconcileMu.Unlock()
+		return
+	}
+	s.forwardReconcileAt[serverID] = now
+	s.forwardReconcileMu.Unlock()
+
+	rows, err := db.QueryContext(ctx, `SELECT id FROM managed_forwards WHERE apply_status='running' AND desired_status='running' AND (server_id=? OR relay_server_id=?)`, serverID, serverID)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		item := s.loadForward(ctx, db, id)
+		if item == nil {
+			continue
+		}
+		var code int
+		var reapplyErr error
+		switch item.Transport {
+		case "tcp_relay":
+			code, reapplyErr = s.deployTCPRelayCore(ctx, db, item)
+		case "cloudflare_tunnel":
+			if item.ServerID != serverID {
+				continue
+			}
+			code, reapplyErr = s.deployCloudflareTunnelCore(ctx, db, item)
+		default:
+			continue
+		}
+		if reapplyErr != nil {
+			applog.Warn(ctx, "serveragent", "forward reconcile reapply failed", "forward_id", id, "status", code, "error", reapplyErr.Error())
+		}
+	}
 }
 
 // sourceClientCapabilityIssue 校验源主机在线且具备 tcp_forwarder_v1 能力，返回问题描述（空=可用）。
@@ -915,7 +976,14 @@ func (s *Service) handleForwardPanelProxy(w http.ResponseWriter, r *http.Request
 			response.Error(w, 422, "转发尚未部署")
 			return
 		}
-		upstream = item.AccessURL
+		// 面板代理从后端（Fly）访问隧道，强制 https 与整域证书一致，
+		// 避免 http 请求从数据中心出口被 CF 边缘拒绝（1001）。
+		if u, err := url.Parse(item.AccessURL); err == nil && u.Scheme == "http" {
+			u.Scheme = "https"
+			upstream = u.String()
+		} else {
+			upstream = item.AccessURL
+		}
 	default:
 		response.Error(w, 422, "panel 代理仅支持 tcp_relay / cloudflare_tunnel")
 		return

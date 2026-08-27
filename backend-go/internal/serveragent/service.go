@@ -74,6 +74,8 @@ type Service struct {
 	notifier                      Notifier
 	cloudflare                    cloudflare.ManagedTunnelAPI
 	alertStates                   sync.Map // serverID -> *alertState
+	forwardReconcileMu            sync.Mutex
+	forwardReconcileAt            map[string]time.Time // serverID -> 最近一次转发对账时间（防风暴）
 	backgroundCtx                 context.Context
 	backgroundCancel              context.CancelFunc
 	backgroundWG                  sync.WaitGroup
@@ -164,6 +166,7 @@ func New(cfg config.Config) *Service {
 	}
 	engineIO.service = s
 	s.presence = newAgentPresenceManager(s)
+	s.forwardReconcileAt = map[string]time.Time{}
 
 	s.backgroundCtx, s.backgroundCancel = context.WithCancel(context.Background())
 
@@ -221,13 +224,29 @@ func New(cfg config.Config) *Service {
 							s.refreshAccountLocationFromAgentIfMissing(serverID)
 						}()
 					}
-					if s.trackPending() {
-						go func(id string) {
-							defer s.pendingWG.Done()
-							time.Sleep(2 * time.Second)
-							s.reconcileManagedProxyFacts(id)
-						}(serverID)
-					}
+				if s.trackPending() {
+					go func(id string) {
+						defer s.pendingWG.Done()
+						time.Sleep(2 * time.Second)
+						s.reconcileManagedProxyFacts(id)
+					}(serverID)
+				}
+				// agent 重连后重放其负责的 running 转发（源桥接/中继监听），
+				// 解决 agent/relay 重启后转发链路不自动恢复的问题。
+				if s.trackPending() {
+					go func(id string) {
+						defer s.pendingWG.Done()
+						time.Sleep(3 * time.Second)
+						ctx, cancel := context.WithTimeout(s.backgroundCtx, 3*time.Minute)
+						defer cancel()
+						db, err := s.open(ctx)
+						if err != nil {
+							return
+						}
+						defer db.Close()
+						s.reconcileRunningForwards(ctx, db, id)
+					}(serverID)
+				}
 				}
 			}
 		},
