@@ -40,6 +40,7 @@ const PROTOCOL_ITEMS = [
   { value: 'tcp', label: 'TCP' },
   { value: 'http', label: 'HTTP' },
   { value: 'https', label: 'HTTPS' },
+  { value: 'udp', label: 'UDP' },
 ];
 
 const SERVICE_PRESETS = [
@@ -114,7 +115,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         setServerId(editing.server_id);
         setLocalHost(editing.local_host);
         setLocalPort(String(editing.local_port));
-        setProtocol(editing.protocol);
+        setProtocol(editing.udp ? 'udp' : editing.protocol);
         setTransport(editing.transport);
         setWholeHost(!!editing.whole_host);
         setRelayServerId(editing.relay_server_id || '');
@@ -217,6 +218,11 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
       toast.error('端口范围 1-65535');
       return;
     }
+    const isUdp = protocol === 'udp';
+    if (isUdp && transport !== 'tcp_relay') {
+      toast.error('UDP 转发仅支持 TCP 中继传输方式');
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await onSubmit({
@@ -224,7 +230,8 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         server_id: serverId,
         local_host: localHost,
         local_port: port,
-        protocol,
+        protocol: isUdp ? 'tcp' : protocol,
+        udp: isUdp,
         transport,
         whole_host: transport === 'cloudflare_tunnel' && wholeHost,
         relay_server_id: transport === 'tcp_relay' ? relayServerId : '',
@@ -393,7 +400,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
           <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
             {editing ? '编辑转发规则' : '创建转发规则'}
           </Dialog.Title>
-          <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+          <Dialog.Description className="mb-1 text-sm text-kumo-subtle">
             将内网服务通过 {TRANSPORT_NAMES[transport] || 'TCP 中继'} 暴露到公网。
           </Dialog.Description>
         </div>
@@ -429,7 +436,16 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">协议</label>
-                      <Select size="sm" value={protocol} onValueChange={setProtocol} items={PROTOCOL_ITEMS} aria-label="协议" />
+                      <Select
+                        size="sm"
+                        value={protocol}
+                        onValueChange={setProtocol}
+                        items={transport === 'tcp_relay' ? PROTOCOL_ITEMS : PROTOCOL_ITEMS.filter((p) => p.value !== 'udp')}
+                        aria-label="协议"
+                      />
+                      {protocol === 'udp' && (
+                        <p className="text-[11px] text-kumo-text-secondary">UDP 转发仅支持 TCP 中继 + 公开访问。</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -460,7 +476,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
             <div className="space-y-4">
               <FormCard icon={<LinkSimple className="h-4 w-4" />} title="传输方式" description="创建后不可变更">
                 <div className="flex flex-col gap-3 py-3">
-                  <Tabs size="sm" variant="segmented" className="w-full" value={transport} onValueChange={(v) => { if (!editing) setTransport(v); }} tabs={TRANSPORT_TABS} />
+                  <Tabs size="sm" variant="segmented" className="w-full" value={transport} onValueChange={(v) => { if (!editing) setTransport(v); if (!editing && protocol === 'udp' && v !== 'tcp_relay') setProtocol('tcp'); }} tabs={TRANSPORT_TABS} />
                   {transport === 'cloudflare_tunnel' && (
                     <div className="flex flex-col gap-2">
                       <Switch

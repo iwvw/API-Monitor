@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, ClipboardText } from '@cloudflare/kumo';
+import { ArrowUpRight } from '@phosphor-icons/react';
 import { Input } from '@cloudflare/kumo/components/input';
 import { useCloudflareSpotlight } from '../../hooks/useCloudflareSpotlight.js';
 import {
@@ -10,11 +11,11 @@ import {
   TRANSPORT_SHORT,
 } from './useMeshLayout.js';
 
-const DETAIL_W = 248;
+const DETAIL_W = 320;
 const FIT_PAD = 24;
-const DEFAULT_SCALE = 0.85;
-const MIN_SCALE = 0.2;
-const MAX_SCALE = 3.5;
+const DEFAULT_SCALE = 1.0;
+const MIN_SCALE = 0.6;
+const MAX_SCALE = 2.0;
 
 const STATUS_BADGE_VARIANT = {
   running: 'success',
@@ -113,14 +114,18 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
     return { scale: s, x: (vw - layout.width * s) / 2, y: (vh - layout.height * s) / 2 };
   }, [viewportSize.width, viewportSize.height, layout.width, layout.height]);
 
-  // 用户未手动操作前，视口或数据（布局尺寸）变化都自动重新适配。
-  // canvasHeight 也进依赖：首帧测量时画布可能还是 0 高，撑开后必须重算
+  // 用户未手动操作前：默认 100% 缩放并居中显示（不做自动缩放适配）。
+  // 点「适应画布」仍可整体铺满；canvasHeight 进依赖，首帧画布撑开后居中基准重算
   const didInteractRef = useRef(false);
   useEffect(() => {
     if (viewportSize.width > 0 && viewportSize.height > 40 && !didInteractRef.current) {
-      setView(computeFit());
+      setView({
+        scale: DEFAULT_SCALE,
+        x: (viewportSize.width - layout.width * DEFAULT_SCALE) / 2,
+        y: (viewportSize.height - layout.height * DEFAULT_SCALE) / 2,
+      });
     }
-  }, [viewportSize.width, viewportSize.height, canvasHeight, computeFit]);
+  }, [viewportSize.width, viewportSize.height, canvasHeight, layout.width, layout.height]);
 
   // 滚轮缩放：以光标为锚点；Ctrl/⌘ 滚轮保留页面缩放。
   // 只注册一次，函数式更新读最新 view，避免闭包旧值导致的错位
@@ -259,18 +264,13 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
     return map;
   }, [layout.hosts]);
 
-  // 悬停主机：保留它 + 中继依赖两端的关联主机、它们的卡片与连线，其余淡化
+  // 悬停主机：保留它与它自身的卡片和连线，其余淡化
   const related = useMemo(() => {
     if (!hoverHostId) return null;
     const hosts = new Set([hoverHostId]);
-    layout.edges.forEach((edge) => {
-      if (edge.kind !== 'dep') return;
-      if (edge.hostId === hoverHostId) hosts.add(edge.fromHostId);
-      else if (edge.fromHostId === hoverHostId) hosts.add(edge.hostId);
-    });
     const fwds = new Set();
     layout.hosts.forEach((host) => {
-      if (!hosts.has(host.serverId)) return;
+      if (host.serverId !== hoverHostId) return;
       host.cards.forEach((card) => fwds.add(card.fwd.id));
     });
     return { hosts, fwds };
@@ -281,13 +281,12 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
     [inactiveHosts, related]
   );
   const cardIsDim = useCallback(
-    (fwd, serverId) => isDimmedCard(fwd, serverId) || Boolean(related && !related.fwds.has(fwd.id)),
+    (fwd, serverId) => isDimmedCard(fwd, serverId) || Boolean(related && fwd && !related.fwds.has(fwd.id)),
     [isDimmedCard, related]
   );
   const edgeDimmed = useCallback(
     (edge) => {
       if (edge.kind === 'trunk' || edge.kind === 'spine') return inactiveHosts.has(edge.hostId);
-      if (edge.kind === 'dep') return inactiveHosts.has(edge.hostId) || inactiveHosts.has(edge.fromHostId);
       const card = cardIndex.get(edge.fwdId);
       if (!card) return false;
       return isDimmedCard(card.fwd, edge.hostId);
@@ -298,9 +297,6 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
     (edge) => {
       if (hasFilter && edgeDimmed(edge)) return true;
       if (!related) return false;
-      if (edge.kind === 'dep') {
-        return !(related.hosts.has(edge.hostId) && related.hosts.has(edge.fromHostId));
-      }
       if (edge.kind === 'branch') return !related.fwds.has(edge.fwdId);
       return !related.hosts.has(edge.hostId);
     },
@@ -432,20 +428,6 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
             <g fill="none" strokeLinecap="round" strokeLinejoin="round">
               {layout.edges.map((edge) => {
                 const dim = edgeIsDim(edge);
-                if (edge.kind === 'dep') {
-                  return (
-                    <path
-                      key={edge.id}
-                      d={edge.path}
-                      stroke="var(--color-kumo-warning)"
-                      strokeWidth={1.5}
-                      strokeDasharray="3 4"
-                      opacity={dim ? 0.12 : 0.6}
-                      className="transition-opacity"
-                      fill="none"
-                    />
-                  );
-                }
                 if (edge.kind === 'trunk' || edge.kind === 'spine') {
                   return (
                     <path
@@ -499,9 +481,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                     ? 'border-kumo-line opacity-40'
                     : hoverHostId === host.serverId
                       ? 'border-kumo-brand bg-kumo-elevated shadow-md'
-                      : host.isRelay
-                        ? 'border-kumo-warning/50 bg-kumo-warning/5 shadow-sm'
-                        : 'border-kumo-line bg-kumo-elevated shadow-sm'
+                      : 'border-kumo-line bg-kumo-elevated shadow-sm'
                 }`}
                 style={{ left: host.x, top: host.y, width: host.w, height: host.h }}
                 aria-label={`主机 ${host.name}，点击切换显示`}
@@ -511,11 +491,6 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                   style={{ background: host.online ? 'var(--color-kumo-success)' : 'var(--color-kumo-line)', opacity: host.online ? 1 : 0.45 }}
                 />
                 <span className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-kumo-strong">{host.name}</span>
-                {host.isRelay && (
-                  <span className="shrink-0 rounded bg-kumo-warning/15 px-1 py-0.5 text-[10px] font-medium text-kumo-warning dark:text-kumo-warning">
-                    中继
-                  </span>
-                )}
                 <Badge variant="neutral" size="sm">{host.cards.length}</Badge>
               </Button>
             );
@@ -529,10 +504,11 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
               const statusColor = STATUS_COLORS[status] || 'var(--color-kumo-line)';
               const selected = selectedId === fwd.id;
               const dim = cardIsDim(fwd, host.serverId);
+              const isTcpRelay = fwd.transport === 'tcp_relay' && fwd.relay_server_id && fwd.relay_server_id !== fwd.server_id;
               return (
                 <div
                   key={fwd.id}
-                  className={`fwd-satellite absolute z-[2] flex flex-col justify-center rounded-lg border px-3 py-2.5 transition-opacity ${
+                  className={`fwd-satellite absolute z-[2] flex flex-col justify-center rounded-lg border px-3 transition-opacity ${
                     selected ? 'fwd-satellite-selected' : 'border-kumo-line'
                   } ${flashId === fwd.id ? 'fwd-satellite-enter' : ''} ${dim ? 'bg-kumo-elevated opacity-30' : 'bg-kumo-elevated'}`}
                   style={{ left: card.x, top: card.y, width: card.w, height: card.h, cursor: 'pointer' }}
@@ -548,7 +524,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                     onEdit?.(fwd);
                   }}
                 >
-                  <span className="flex min-w-0 items-center gap-1.5">
+                  <div className="flex min-w-0 items-center gap-1.5 truncate leading-5">
                     <span
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'deploying' || status === 'disconnected' ? 'fwd-dot-pulse' : ''}`}
                       style={{ background: statusColor }}
@@ -557,17 +533,22 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                     <span className="ml-auto shrink-0 text-xs tabular-nums text-kumo-subtle">
                       {fwd.connector_count || 0} 连
                     </span>
-                  </span>
-                  <span className="mt-1 flex min-w-0 items-center gap-1 truncate text-xs text-kumo-subtle">
+                  </div>
+                  <div className="truncate leading-5 text-xs text-kumo-subtle">
                     <span className="truncate">{fwd.local_host}:{fwd.local_port}</span>
-                    <span className="shrink-0 rounded bg-kumo-fill px-1 text-[10px] font-medium text-kumo-text-secondary">
+                    <span className="ml-1 shrink-0 rounded bg-kumo-fill px-1 text-[10px] font-medium text-kumo-text-secondary">
                       {TRANSPORT_SHORT[fwd.transport] || fwd.transport}
                     </span>
-                  </span>
+                  </div>
+                  {isTcpRelay && (
+                    <div className="truncate leading-5 text-xs font-medium text-kumo-brand">
+                      → {fwd.relay_server_name || fwd.relay_server_id}{fwd.remote_port ? ' :' + fwd.remote_port : ''}
+                    </div>
+                  )}
                   {fwd.failover_current_server_id && (
-                    <span className="mt-0.5 truncate text-xs font-medium text-kumo-text-warning">
+                    <div className="truncate leading-5 text-xs font-medium text-kumo-text-warning">
                       已切换 → {fwd.failover_current_server_id}
-                    </span>
+                    </div>
                   )}
                 </div>
               );
@@ -580,7 +561,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
           {selectedCard && detailScreen && (
             <div
               data-detail-card
-              className="absolute z-[7] rounded-lg border-2 border-kumo-brand bg-kumo-elevated p-3 shadow-lg ring-4 ring-kumo-brand/15"
+              className="absolute z-[7] rounded-lg border border-kumo-brand/50 bg-kumo-elevated p-3 shadow-md ring-1 ring-kumo-brand/10"
               style={{ left: detailScreen.x, top: detailScreen.y, width: DETAIL_W }}
               onClick={(event) => event.stopPropagation()}
             >
@@ -598,11 +579,22 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                 <div className="flex items-center justify-between gap-2">
                   <span className="shrink-0 text-kumo-subtle">访问地址</span>
                   {selectedCard.fwd.access_url ? (
-                    <ClipboardText
-                      size="sm"
-                      text={selectedCard.fwd.access_url}
-                      tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }}
-                    />
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span className="min-w-0 truncate text-xs text-kumo-default">{selectedCard.fwd.access_url}</span>
+                      <ClipboardText size="sm" text={selectedCard.fwd.access_url} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
+                      {/^https?:\/\//.test(selectedCard.fwd.access_url) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          shape="square"
+                          aria-label="打开访问地址"
+                          title="打开访问地址"
+                          onClick={(e) => { e.stopPropagation(); window.open(selectedCard.fwd.access_url, '_blank', 'noopener'); }}
+                        >
+                          <ArrowUpRight className="h-3.5 w-3.5" weight="bold" />
+                        </Button>
+                      )}
+                    </span>
                   ) : (
                     <span className="text-kumo-subtle">部署后显示</span>
                   )}

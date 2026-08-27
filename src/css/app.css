@@ -2754,11 +2754,11 @@ input[type='number'] {
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 .fwd-satellite:hover {
-  border-color: color-mix(in oklab, var(--color-kumo-brand) 55%, transparent);
+  border-color: color-mix(in oklab, var(--color-kumo-brand) 38%, transparent);
 }
 .fwd-satellite-selected {
-  border-color: var(--color-kumo-brand);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-kumo-brand) 22%, transparent);
+  border-color: color-mix(in oklab, var(--color-kumo-brand) 70%, var(--color-kumo-line));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-kumo-brand) 10%, transparent);
 }
 
 /* 新增卫星入场（淡入 + 上浮） */

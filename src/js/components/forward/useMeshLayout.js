@@ -54,10 +54,19 @@ const PAD = 28;
 const GUTTER_W = 34; // 主机左缘与卡片之间的分支竖槽走廊
 const PITCH_X = CARD_W + GUTTER_W + 28; // 主机列间距
 const CARD_GAP_V = 12;
+const LINE_H = 20;   // 卡片内每行高度（与 text-sm/text-xs 行高对齐）
+const CARD_PAD = 16; // 卡片上下内边距余量
 
-// 卡片高度自适应：带故障转移行的卡片更高，避免三行内容被截断
+// 卡片内容行数：名称行；地址+传输行；tcp_relay 的「→ 中继 :端口」行；故障转移行
+export function cardLineCount(fwd) {
+  let n = 2;
+  if (fwd.transport === 'tcp_relay' && fwd.relay_server_id && fwd.relay_server_id !== fwd.server_id) n += 1;
+  if (fwd.failover_current_server_id) n += 1;
+  return n;
+}
+// 卡片高度 = 内容行数 × 行高 + 内边距，保证字体底部完整不被截断
 export function cardHeightOf(fwd) {
-  return fwd && fwd.failover_current_server_id ? 82 : CARD_H;
+  return cardLineCount(fwd) * LINE_H + CARD_PAD;
 }
 
 export function buildTreeLayout(forwards = [], servers = []) {
@@ -72,27 +81,14 @@ export function buildTreeLayout(forwards = [], servers = []) {
     index.get(key).fwds.push(fwd);
   });
 
-  // 中继识别：被任意规则的 relay_server_id 引用的主机视为中继节点
+  // 中继识别：被任意规则的 relay_server_id 引用的主机视为中继节点（仅在节点卡上标「中继」徽章）
   const relayIds = new Set(
     forwards.map((f) => f.relay_server_id).filter(Boolean)
   );
-  // 依赖关系：中继机 ← 上游源主机集合（自中继除外）
-  const deps = [];
-  const seenPairs = new Set();
-  forwards.forEach((f) => {
-    if (!f.relay_server_id || f.relay_server_id === f.server_id) return;
-    if (!index.has(f.relay_server_id)) return; // 中继主机自身无规则时不出列
-    const pairKey = `${f.server_id}->${f.relay_server_id}`;
-    if (seenPairs.has(pairKey)) return;
-    seenPairs.add(pairKey);
-    deps.push({ from: f.server_id, to: f.relay_server_id });
-  });
   // 源主机在前、中继在后（稳定排序）
   groups.sort((a, b) => Number(relayIds.has(a.key)) - Number(relayIds.has(b.key)));
 
-  // 有依赖弧线时在主机行上方预留走廊
-  const DEP_BAND = deps.length > 0 ? 52 : 0;
-  const hostTop = PAD + DEP_BAND;
+  const hostTop = PAD;
   const cardsTop = hostTop + HOST_H + 22;
   // 每列高度按各自卡片实际高度累计，画布高度取最高列
   const colHeights = groups.map((g) =>
@@ -102,11 +98,6 @@ export function buildTreeLayout(forwards = [], servers = []) {
   const height = Math.max(cardsTop + maxColH + PAD, 260);
   const width =
     groups.length > 0 ? PAD + groups.length * PITCH_X - (PITCH_X - CARD_W) + PAD : 480;
-
-  const hostCXByKey = new Map();
-  groups.forEach((g, i) => {
-    hostCXByKey.set(g.key, PAD + i * PITCH_X + HOST_W / 2);
-  });
 
   const hosts = [];
   const edges = [];
@@ -170,36 +161,5 @@ export function buildTreeLayout(forwards = [], servers = []) {
     hosts.push(host);
   });
 
-// 依赖折线：每条独占一个水平轨道（不同 y，互不重叠）；同一主机顶边的全部
-    // 连接点（发出 + 落入）统一编号、沿顶边均匀分槽——任何两段线不共点不共段
-    const topTotal = new Map();
-    deps.forEach((d) => {
-      topTotal.set(d.from, (topTotal.get(d.from) || 0) + 1);
-      topTotal.set(d.to, (topTotal.get(d.to) || 0) + 1);
-    });
-    const topUsed = new Map();
-    const slotX = (hostKey) => {
-      const base = hostCXByKey.get(hostKey);
-      const total = topTotal.get(hostKey) || 1;
-      const idx = topUsed.get(hostKey) || 0;
-      topUsed.set(hostKey, idx + 1);
-      if (total <= 1) return base;
-      return base - (HOST_W / 2 - 20) + (HOST_W - 40) * (idx / (total - 1));
-    };
-    const laneStepDep = Math.min(12, Math.floor((DEP_BAND - 10) / Math.max(deps.length, 1)));
-    deps.forEach((d, laneIdx) => {
-      const ux = slotX(d.from);
-      const rx = slotX(d.to);
-      if (ux == null || rx == null || ux === rx) return;
-      const laneY = PAD + 8 + laneIdx * laneStepDep;
-      edges.push({
-        id: `dep-${d.from}-${d.to}`,
-        kind: 'dep',
-        hostId: d.to,
-        fromHostId: d.from,
-        path: `M ${ux} ${hostTop} V ${laneY} H ${rx} V ${hostTop}`,
-      });
-    });
-
-  return { width, height, hosts, edges };
+return { width, height, hosts, edges };
 }

@@ -9,6 +9,10 @@ import ForwardCanvas from '../components/forward/ForwardCanvas.jsx';
 import ForwardDialog from '../components/forward/ForwardDialog.jsx';
 import ForwardTable from '../components/forward/ForwardTable.jsx';
 
+// 开发 mock：仅本地调试（Vite dev）加载与生产一致的快照；生产构建自动走真实 API。
+const USE_MOCK = import.meta.env.DEV;
+import { forwards as mockForwards, servers as mockServers } from '../components/forward/_mock.js';
+
 const FORWARD_API = '/api/server/forward';
 
 export default function ForwardPage() {
@@ -31,6 +35,11 @@ export default function ForwardPage() {
   const [activeTab, setActiveTab] = useState('canvas');
 
   const loadForwards = useCallback(async () => {
+    if (USE_MOCK) {
+      setForwards(mockForwards);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`${FORWARD_API}?limit=100&offset=0`);
       const json = await res.json();
@@ -49,6 +58,10 @@ export default function ForwardPage() {
   }, [loadForwards]);
 
   const loadServers = useCallback(async () => {
+    if (USE_MOCK) {
+      setServers(mockServers);
+      return;
+    }
     try {
       const res = await fetch('/api/server/accounts?limit=200');
       const json = await res.json();
