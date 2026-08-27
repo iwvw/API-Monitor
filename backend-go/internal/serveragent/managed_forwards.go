@@ -619,27 +619,31 @@ func (s *Service) deployCloudflareTunnelForward(w http.ResponseWriter, r *http.R
 			response.Error(w, 422, "不支持该主机的 auth-proxy 资产")
 			return
 		}
-		if authProxyPort == 0 {
-			authProxyPort = allocateAuthProxyPort(r.Context(), db, item.ServerID, item.ID)
-			if authProxyPort == 0 {
-				response.Error(w, 422, "auth-proxy 端口已满（45100-45653），请清理不再使用的转发")
-				return
-			}
-		}
 		var enc string
 		_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
 		token := secure.SecureDecrypt(enc)
+		// 端口由源主机 agent 自选（避开已占用端口），agent 校验进程存活后返回实际端口
 		proxyPayload, _ := json.Marshal(map[string]interface{}{
 			"operation": "auth_proxy_start", "forward_id": item.ID,
-			"proxy_port": authProxyPort, "token": token,
+			"token": token,
 			"local_host": item.LocalHost, "local_port": item.LocalPort,
 			"relay_asset_url": proxyURL, "relay_asset_sha256": proxySHA,
 		})
-		if _, err := s.RunTCPForwarderTaskAndWait(item.ServerID, string(proxyPayload)); err != nil {
+		out, err := s.RunTCPForwarderTaskAndWait(item.ServerID, string(proxyPayload))
+		if err != nil {
 			_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_auth_proxy',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
 			response.Error(w, 500, "鉴权代理启动失败: "+err.Error())
 			return
 		}
+		var proxyResp struct {
+			Port int `json:"port"`
+		}
+		if err := json.Unmarshal([]byte(out), &proxyResp); err != nil || proxyResp.Port < 1 || proxyResp.Port > 65535 {
+			_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_auth_proxy',last_error=?,updated_at=datetime('now') WHERE id=?`, "鉴权代理未返回有效端口", item.ID)
+			response.Error(w, 500, "鉴权代理未返回有效端口: "+out)
+			return
+		}
+		authProxyPort = proxyResp.Port
 		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET auth_proxy_port=? WHERE id=?`, authProxyPort, item.ID)
 	}
 	path := "/fwd/" + item.ID
@@ -754,27 +758,6 @@ func allocateRelayPort(ctx context.Context, db *sql.DB, item *managedForward, re
 		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM managed_forwards WHERE relay_server_id=? AND remote_port=? AND id<>?`, relayServerID, port, item.ID).Scan(&exists); err != nil {
 			// 端口空闲：更新占用并提交
 			if _, err := tx.ExecContext(ctx, `UPDATE managed_forwards SET remote_port=? WHERE id=?`, port, item.ID); err == nil {
-				_ = tx.Commit()
-				return port
-			}
-			return 0
-		}
-	}
-	return 0
-}
-
-// allocateAuthProxyPort 在事务内分配源主机上的鉴权代理端口（45100-45653），避免并发撞端口。
-// 与 relay 端口一样排除规则自身当前占用，重试/重启沿用同一端口。
-func allocateAuthProxyPort(ctx context.Context, db *sql.DB, serverID, forwardID string) int {
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return 0
-	}
-	defer tx.Rollback()
-	for port := 45100; port <= 45653; port++ {
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM managed_forwards WHERE server_id=? AND auth_proxy_port=? AND id<>?`, serverID, port, forwardID).Scan(&exists); err != nil {
-			if _, err := tx.ExecContext(ctx, `UPDATE managed_forwards SET auth_proxy_port=? WHERE id=?`, port, forwardID); err == nil {
 				_ = tx.Commit()
 				return port
 			}

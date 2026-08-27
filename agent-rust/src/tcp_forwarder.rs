@@ -42,8 +42,6 @@ struct Request {
     relay_asset_sha256: String,
     #[serde(default)]
     token: String,
-    #[serde(default)]
-    proxy_port: u16,
 }
 
 #[derive(Debug, Serialize)]
@@ -750,29 +748,44 @@ async fn download_auth_proxy(url: &str, sha: &str) -> Result<std::path::PathBuf,
     }
 }
 
-async fn auth_proxy_start(request: &Request) -> Result<String, String> {
-    let port = request.proxy_port;
-    if request.forward_id.is_empty() || port == 0 || request.token.is_empty() {
-        return Err("auth_proxy_start 需要 forward_id、proxy_port 与 token".to_string());
+async fn find_free_auth_proxy_port() -> Result<u16, String> {
+    for port in 45100u16..45654 {
+        if let Ok(l) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            drop(l);
+            return Ok(port);
+        }
     }
-    // 幂等：内存或 pid 文件中存活的实例直接复用
+    Err("auth-proxy 端口范围 45100-45653 已满".to_string())
+}
+
+async fn auth_proxy_start(request: &Request) -> Result<String, String> {
+    if request.forward_id.is_empty() || request.token.is_empty() {
+        return Err("auth_proxy_start 需要 forward_id 与 token".to_string());
+    }
+    // 幂等：内存或 pid/port 文件中存活的实例直接复用
     {
         let map = auth_proxies().lock().unwrap();
         if let Some(e) = map.get(&request.forward_id) {
-            if e.port == port && pid_alive(e.pid) {
+            if e.port > 0 && pid_alive(e.pid) {
                 return Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":e.port}).to_string());
             }
         }
     }
     let pid_file = auth_proxy_root().join(format!("{}.pid", request.forward_id));
+    let port_file = auth_proxy_root().join(format!("{}.port", request.forward_id));
     if let Ok(p) = std::fs::read_to_string(&pid_file) {
         if let Ok(pid) = p.trim().parse::<u32>() {
             if pid_alive(pid) {
-                auth_proxies().lock().unwrap().insert(request.forward_id.clone(), AuthProxyEntry { port, pid });
-                return Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":port}).to_string());
+                let port = std::fs::read_to_string(&port_file)
+                    .ok().and_then(|t| t.trim().parse::<u16>().ok()).unwrap_or(0);
+                if port > 0 {
+                    auth_proxies().lock().unwrap().insert(request.forward_id.clone(), AuthProxyEntry { port, pid });
+                    return Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":port}).to_string());
+                }
             }
         }
     }
+    let port = find_free_auth_proxy_port().await?;
     let binary = download_auth_proxy(&request.relay_asset_url, &request.relay_asset_sha256).await?;
     let log_file = auth_proxy_root().join(format!("{}.log", request.forward_id));
     let log = std::fs::OpenOptions::new().create(true).append(true).open(&log_file)
@@ -790,8 +803,18 @@ async fn auth_proxy_start(request: &Request) -> Result<String, String> {
     }
     let child = cmd.spawn().map_err(|e| format!("启动 auth-proxy: {e}"))?;
     let pid = child.id();
+    // 验证进程存活（bind 失败/端口冲突时会立即退出），避免面板拿到死端口
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    if !pid_alive(pid) {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).status();
+        #[cfg(windows)]
+        let _ = std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).status();
+        return Err(format!("auth-proxy 启动失败（端口 {port} 被占用或进程退出），请查看 {}.log", request.forward_id));
+    }
     auth_proxies().lock().unwrap().insert(request.forward_id.clone(), AuthProxyEntry { port, pid });
     let _ = std::fs::write(&pid_file, pid.to_string());
+    let _ = std::fs::write(&port_file, port.to_string());
     Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":port}).to_string())
 }
 
@@ -872,7 +895,6 @@ mod tests {
             relay_asset_url: String::new(),
             relay_asset_sha256: String::new(),
             token: String::new(),
-            proxy_port: 0,
         };
         let install_req = request.clone();
         let install_handle = tokio::spawn(async move { install(&install_req).await });
