@@ -1017,6 +1017,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			whole_host INTEGER NOT NULL DEFAULT 0,
 			relay_server_id TEXT NOT NULL DEFAULT '',
 			remote_port INTEGER DEFAULT 0,
+			auth_proxy_port INTEGER NOT NULL DEFAULT 0,
 			access_mode TEXT NOT NULL DEFAULT 'public' CHECK(access_mode IN ('public','token','panel')),
 			access_token TEXT NOT NULL DEFAULT '',
 			group_id TEXT NOT NULL DEFAULT '',
@@ -1208,6 +1209,7 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 		{"failover_reason", "ALTER TABLE managed_forwards ADD COLUMN failover_reason TEXT NOT NULL DEFAULT ''"},
 		{"connector_count", "ALTER TABLE managed_forwards ADD COLUMN connector_count INTEGER NOT NULL DEFAULT 0"},
 		{"whole_host", "ALTER TABLE managed_forwards ADD COLUMN whole_host INTEGER NOT NULL DEFAULT 0"},
+		{"auth_proxy_port", "ALTER TABLE managed_forwards ADD COLUMN auth_proxy_port INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, f := range forwardFields {
 		if exists, err := hasColumn(ctx, db, "managed_forwards", f.Name); err == nil && !exists {

@@ -42,6 +42,8 @@ struct Request {
     relay_asset_sha256: String,
     #[serde(default)]
     token: String,
+    #[serde(default)]
+    proxy_port: u16,
 }
 
 #[derive(Debug, Serialize)]
@@ -638,6 +640,179 @@ async fn bootstrap_relay(request: &Request) -> Result<String, String> {
     Ok(serde_json::json!({"status":"running"}).to_string())
 }
 
+// ==================== 鉴权代理（CF 隧道 token 转发，源主机侧） ====================
+// 面板对 CF+token 转发部署时下发 auth_proxy_start：下载 api-monitor-auth-proxy 二进制
+// 并托管在 127.0.0.1:<proxy_port>，cloudflared ingress 指向它；转发停止时 auth_proxy_stop 回收。
+
+fn auth_proxy_root() -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        std::path::PathBuf::from("/opt/api-monitor-auth-proxy")
+    }
+    #[cfg(windows)]
+    {
+        std::env::var_os("ProgramData")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData"))
+            .join("api-monitor-auth-proxy")
+    }
+}
+
+struct AuthProxyEntry {
+    port: u16,
+    pid: u32,
+}
+
+static AUTH_PROXIES: OnceLock<std::sync::Mutex<HashMap<String, AuthProxyEntry>>> = OnceLock::new();
+
+fn auth_proxies() -> &'static std::sync::Mutex<HashMap<String, AuthProxyEntry>> {
+    AUTH_PROXIES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        std::path::Path::new(&format!("/proc/{pid}")).exists()
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
+    }
+}
+
+async fn download_auth_proxy(url: &str, sha: &str) -> Result<std::path::PathBuf, String> {
+    if !url.starts_with("https://") || sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("auth-proxy 资产必须为 HTTPS 地址并带 SHA-256".to_string());
+    }
+    let root = auth_proxy_root();
+    std::fs::create_dir_all(&root).map_err(|e| format!("创建 auth-proxy 目录失败: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let binary = root.join("api-monitor-auth-proxy");
+        let candidate = root.join(".api-monitor-auth-proxy.download");
+        let _ = std::fs::remove_file(&candidate);
+        let st = std::process::Command::new("curl")
+            .args(["--fail", "--location", "--retry", "3", "--proto", "=https", "--output"]).arg(&candidate).arg(url)
+            .status().map_err(|e| format!("curl: {e}"))?;
+        if !st.success() {
+            let _ = std::fs::remove_file(&candidate);
+            return Err("下载 api-monitor-auth-proxy 失败".to_string());
+        }
+        let sum = std::process::Command::new("sha256sum").arg(&candidate).output()
+            .map_err(|e| format!("sha256sum: {e}"))?;
+        let actual = String::from_utf8_lossy(&sum.stdout).split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+        if !sum.status.success() || actual != sha.to_ascii_lowercase() {
+            let _ = std::fs::remove_file(&candidate);
+            return Err("api-monitor-auth-proxy SHA-256 校验失败".to_string());
+        }
+        std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755)).map_err(|e| format!("chmod auth-proxy: {e}"))?;
+        std::fs::rename(&candidate, &binary).map_err(|e| format!("激活 auth-proxy 二进制: {e}"))?;
+        Ok(binary)
+    }
+    #[cfg(windows)]
+    {
+        let binary = root.join("api-monitor-auth-proxy.exe");
+        let candidate = root.join(".api-monitor-auth-proxy.download.exe");
+        let _ = std::fs::remove_file(&candidate);
+        let script = root.join("download-auth-proxy.ps1");
+        std::fs::write(&script, "param([string]$Uri,[string]$OutFile)\n$ErrorActionPreference='Stop'\ntry {\n  Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec 300 -UseBasicParsing -MaximumRedirection 5\n  exit 0\n} catch {\n  Write-Error $_.Exception.Message\n  exit 1\n}\n")
+            .map_err(|e| format!("写下载脚本: {e}"))?;
+        let st = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(&script)
+            .arg("-Uri").arg(url)
+            .arg("-OutFile").arg(&candidate)
+            .status().map_err(|e| format!("下载 api-monitor-auth-proxy: {e}"))?;
+        if !st.success() {
+            let _ = std::fs::remove_file(&candidate);
+            return Err("api-monitor-auth-proxy 下载失败".to_string());
+        }
+        let sum = std::process::Command::new("certutil").args(["-hashfile"]).arg(&candidate).arg("SHA256").output()
+            .map_err(|e| format!("certutil: {e}"))?;
+        let mut actual = String::new();
+        for line in String::from_utf8_lossy(&sum.stdout).lines() {
+            let t = line.trim();
+            if t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) {
+                actual = t.to_ascii_lowercase();
+                break;
+            }
+        }
+        if !sum.status.success() || actual != sha.to_ascii_lowercase() {
+            let _ = std::fs::remove_file(&candidate);
+            return Err("api-monitor-auth-proxy SHA-256 校验失败".to_string());
+        }
+        std::fs::rename(&candidate, &binary).map_err(|e| format!("激活 auth-proxy 二进制: {e}"))?;
+        Ok(binary)
+    }
+}
+
+async fn auth_proxy_start(request: &Request) -> Result<String, String> {
+    let port = request.proxy_port;
+    if request.forward_id.is_empty() || port == 0 || request.token.is_empty() {
+        return Err("auth_proxy_start 需要 forward_id、proxy_port 与 token".to_string());
+    }
+    // 幂等：内存或 pid 文件中存活的实例直接复用
+    {
+        let map = auth_proxies().lock().unwrap();
+        if let Some(e) = map.get(&request.forward_id) {
+            if e.port == port && pid_alive(e.pid) {
+                return Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":e.port}).to_string());
+            }
+        }
+    }
+    let pid_file = auth_proxy_root().join(format!("{}.pid", request.forward_id));
+    if let Ok(p) = std::fs::read_to_string(&pid_file) {
+        if let Ok(pid) = p.trim().parse::<u32>() {
+            if pid_alive(pid) {
+                auth_proxies().lock().unwrap().insert(request.forward_id.clone(), AuthProxyEntry { port, pid });
+                return Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":port}).to_string());
+            }
+        }
+    }
+    let binary = download_auth_proxy(&request.relay_asset_url, &request.relay_asset_sha256).await?;
+    let log_file = auth_proxy_root().join(format!("{}.log", request.forward_id));
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(&log_file)
+        .map_err(|e| format!("打开 auth-proxy 日志: {e}"))?;
+    let upstream = format!("http://{}:{}", request.local_host, request.local_port);
+    let mut cmd = std::process::Command::new(&binary);
+    cmd.args(["-listen", &format!("127.0.0.1:{port}"), "-upstream", &upstream, "-token", &request.token]);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::from(log.try_clone().map_err(|e| format!("clone log: {e}"))?));
+    cmd.stderr(std::process::Stdio::from(log));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let child = cmd.spawn().map_err(|e| format!("启动 auth-proxy: {e}"))?;
+    let pid = child.id();
+    auth_proxies().lock().unwrap().insert(request.forward_id.clone(), AuthProxyEntry { port, pid });
+    let _ = std::fs::write(&pid_file, pid.to_string());
+    Ok(serde_json::json!({"status":"running","forward_id":request.forward_id,"port":port}).to_string())
+}
+
+async fn auth_proxy_stop(request: &Request) -> Result<String, String> {
+    if let Some(e) = auth_proxies().lock().unwrap().remove(&request.forward_id) {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill").args(["-9", &e.pid.to_string()]).status();
+        #[cfg(windows)]
+        let _ = std::process::Command::new("taskkill").args(["/F", "/PID", &e.pid.to_string()]).status();
+    } else if let Ok(p) = std::fs::read_to_string(auth_proxy_root().join(format!("{}.pid", request.forward_id))) {
+        if let Ok(pid) = p.trim().parse::<u32>() {
+            #[cfg(unix)]
+            let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).status();
+            #[cfg(windows)]
+            let _ = std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).status();
+        }
+    }
+    let _ = std::fs::remove_file(auth_proxy_root().join(format!("{}.pid", request.forward_id)));
+    Ok(serde_json::json!({"status":"stopped","forward_id":request.forward_id}).to_string())
+}
+
 pub async fn reconcile(raw: &str) -> Result<String, String> {
     let request: Request = serde_json::from_str(raw).map_err(|e| format!("invalid tcp_forwarder request: {e}"))?;
     match request.operation.trim().to_ascii_lowercase().as_str() {
@@ -647,6 +822,8 @@ pub async fn reconcile(raw: &str) -> Result<String, String> {
         "listen" => listen(&request).await,
         "unlisten" => unlisten(&request).await,
         "bootstrap_relay" => bootstrap_relay(&request).await,
+        "auth_proxy_start" => auth_proxy_start(&request).await,
+        "auth_proxy_stop" => auth_proxy_stop(&request).await,
         other => Err(format!("unknown tcp_forwarder operation: {other}")),
     }
 }
@@ -695,6 +872,7 @@ mod tests {
             relay_asset_url: String::new(),
             relay_asset_sha256: String::new(),
             token: String::new(),
+            proxy_port: 0,
         };
         let install_req = request.clone();
         let install_handle = tokio::spawn(async move { install(&install_req).await });

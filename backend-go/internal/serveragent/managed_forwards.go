@@ -32,9 +32,10 @@ type managedForward struct {
 	WholeHost               bool   `json:"whole_host"`
 	RelayServerID           string `json:"relay_server_id,omitempty"`
 	RelayServerName         string `json:"relay_server_name,omitempty"`
-	RelayServerHost         string `json:"relay_server_host,omitempty"`
-	RemotePort              int    `json:"remote_port,omitempty"`
-	AccessMode              string `json:"access_mode"`
+	RelayServerHost          string `json:"relay_server_host,omitempty"`
+	RemotePort               int    `json:"remote_port,omitempty"`
+	AuthProxyPort            int    `json:"auth_proxy_port,omitempty"`
+	AccessMode               string `json:"access_mode"`
 	AccessURL               string `json:"access_url"`
 	HasToken                bool   `json:"has_token"`
 	GroupID                 string `json:"group_id"`
@@ -161,6 +162,29 @@ func relayAssetFor(platform, arch string) (url, sha string, ok bool) {
 	return relayLinuxAMD64URL, relayLinuxAMD64SHA256, true
 }
 
+// api-monitor-auth-proxy 鉴权代理二进制资产（与 GitHub Release v0.6.1 一致）
+const (
+	authProxyLinuxAMD64URL      = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-auth-proxy-linux-amd64"
+	authProxyLinuxAMD64SHA256   = "c32c9b9e738043c8b212f54785f8cafeafdb4c65b4fabaf99a514e8b20d9553a"
+	authProxyLinuxARM64URL      = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-auth-proxy-linux-arm64"
+	authProxyLinuxARM64SHA256   = "2d6ac72ebd9815a9019b4e0af29d272e57d68b5f533243c19476cdcf56ce0619"
+	authProxyWindowsAMD64URL    = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-auth-proxy-windows-amd64.exe"
+	authProxyWindowsAMD64SHA256 = "8343ea6d6c88cd319e1fd0f71803d8d159030aca0480ee0de4add745b278a381"
+)
+
+// authProxyAssetFor 按主机平台/架构返回 auth-proxy 二进制下载地址与 SHA-256。
+func authProxyAssetFor(platform, arch string) (url, sha string, ok bool) {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	arch = strings.ToLower(strings.TrimSpace(arch))
+	if strings.Contains(platform, "windows") || strings.Contains(platform, "win") {
+		return authProxyWindowsAMD64URL, authProxyWindowsAMD64SHA256, true
+	}
+	if strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64") {
+		return authProxyLinuxARM64URL, authProxyLinuxARM64SHA256, true
+	}
+	return authProxyLinuxAMD64URL, authProxyLinuxAMD64SHA256, true
+}
+
 func generateTargetID() string {
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {
@@ -234,7 +258,7 @@ func (s *Service) listManagedForwards(w http.ResponseWriter, r *http.Request, db
 		response.Error(w, 500, err.Error())
 		return
 	}
-	query := `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.whole_host,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE ` + whereClause + ` ORDER BY f.updated_at DESC LIMIT ? OFFSET ?`
+	query := `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.whole_host,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE ` + whereClause + ` ORDER BY f.updated_at DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := db.QueryContext(r.Context(), query, args...)
 	if err != nil {
@@ -247,7 +271,7 @@ func (s *Service) listManagedForwards(w http.ResponseWriter, r *http.Request, db
 		var item managedForward
 		var healthEnabled, failoverEnabled, wholeHost int
 		var accessToken string
-		if err := rows.Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &wholeHost, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &wholeHost, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			response.Error(w, 500, err.Error())
 			return
 		}
@@ -378,7 +402,7 @@ func (s *Service) loadForward(ctx context.Context, db *sql.DB, id string) *manag
 	var item managedForward
 	var healthEnabled, failoverEnabled, wholeHost int
 	var accessToken string
-	err := db.QueryRowContext(ctx, `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.whole_host,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE f.id=?`, id).Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &wholeHost, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt)
+	err := db.QueryRowContext(ctx, `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.whole_host,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE f.id=?`, id).Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &wholeHost, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
 		return nil
 	}
@@ -521,6 +545,8 @@ func (s *Service) deleteManagedForward(w http.ResponseWriter, r *http.Request, d
 	if item.Transport == "cloudflare_tunnel" && (item.TunnelPath != "" || item.WholeHost) && item.ApplyStatus == "running" {
 		s.removeForwardIngress(context.Background(), db, item.ServerID, item.TunnelPath)
 	}
+	// CF 隧道 token：回收源主机鉴权代理进程
+	s.removeCFAuthProxy(context.Background(), db, item)
 	// tcp_relay 给源/中继 agent 发卸载指令，避免「已删除」的隧道仍在转发、端口被占用
 	s.removeTCPRelayTunnels(context.Background(), db, item)
 	response.OK(w, map[string]string{"message": "转发规则已删除"})
@@ -532,15 +558,21 @@ func (s *Service) deployManagedForward(w http.ResponseWriter, r *http.Request, d
 		response.Error(w, 404, "forward rule not found")
 		return
 	}
-	// token/panel 访问控制的落地范围：仅 tcp_relay + token 已在 relay 侧强制校验。
-	// 其余组合（CF 隧道 token、panel 认证代理）尚在实现中，保持拒绝以防「声称有鉴权实则公开」。
+	// token/panel 访问控制的落地范围：tcp_relay + token 由 relay 强制校验；CF 隧道 + token
+	// 由源主机鉴权代理（auth-proxy）强制校验（仅 http/https，tcp 请走 tcp_relay+token）。
+	// panel 认证代理尚在实现中，保持拒绝以防「声称有鉴权实则公开」。
 	switch {
 	case item.AccessMode == "public":
 		// 公开访问，无需校验
 	case item.Transport == "tcp_relay" && item.AccessMode == "token":
 		// 已落地：relay 入口强制 token 握手校验
+	case item.Transport == "cloudflare_tunnel" && item.AccessMode == "token":
+		if item.Protocol != "http" && item.Protocol != "https" {
+			response.Error(w, 422, "CF 隧道 + token 仅支持 http/https 协议（tcp 请改用 tcp_relay + token）")
+			return
+		}
 	default:
-		response.Error(w, 422, "access_mode=token/panel 仅 tcp_relay 的 token 模式已落地；其余组合部署前请改为 public")
+		response.Error(w, 422, "access_mode=token/panel 仅 tcp_relay 或 CF 隧道(http/https) 的 token 模式已落地；其余组合部署前请改为 public")
 		return
 	}
 	switch item.Transport {
@@ -572,6 +604,43 @@ func (s *Service) deployCloudflareTunnelForward(w http.ResponseWriter, r *http.R
 		}
 		response.Error(w, 422, "该主机的 Cloudflare Tunnel 不在运行状态，请先部署隧道")
 		return
+	}
+	// token 模式：cloudflared 本身不鉴权，需在源主机启动鉴权代理，ingress 指向代理端口
+	authProxyPort := item.AuthProxyPort
+	if item.AccessMode == "token" {
+		srcConn, ok := s.registry.Get(item.ServerID)
+		if !ok {
+			response.Error(w, http.StatusBadGateway, "源主机 Agent 离线，无法启动鉴权代理")
+			return
+		}
+		meta := srcConn.GetMetadata()
+		proxyURL, proxySHA, proxyOK := authProxyAssetFor(fmt.Sprint(meta["platform"]), fmt.Sprint(meta["arch"]))
+		if !proxyOK {
+			response.Error(w, 422, "不支持该主机的 auth-proxy 资产")
+			return
+		}
+		if authProxyPort == 0 {
+			authProxyPort = allocateAuthProxyPort(r.Context(), db, item.ServerID, item.ID)
+			if authProxyPort == 0 {
+				response.Error(w, 422, "auth-proxy 端口已满（45100-45653），请清理不再使用的转发")
+				return
+			}
+		}
+		var enc string
+		_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
+		token := secure.SecureDecrypt(enc)
+		proxyPayload, _ := json.Marshal(map[string]interface{}{
+			"operation": "auth_proxy_start", "forward_id": item.ID,
+			"proxy_port": authProxyPort, "token": token,
+			"local_host": item.LocalHost, "local_port": item.LocalPort,
+			"relay_asset_url": proxyURL, "relay_asset_sha256": proxySHA,
+		})
+		if _, err := s.RunTCPForwarderTaskAndWait(item.ServerID, string(proxyPayload)); err != nil {
+			_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_auth_proxy',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+			response.Error(w, 500, "鉴权代理启动失败: "+err.Error())
+			return
+		}
+		_, _ = db.ExecContext(r.Context(), `UPDATE managed_forwards SET auth_proxy_port=? WHERE id=?`, authProxyPort, item.ID)
 	}
 	path := "/fwd/" + item.ID
 	if item.WholeHost {
@@ -694,6 +763,38 @@ func allocateRelayPort(ctx context.Context, db *sql.DB, item *managedForward, re
 	return 0
 }
 
+// allocateAuthProxyPort 在事务内分配源主机上的鉴权代理端口（45100-45653），避免并发撞端口。
+// 与 relay 端口一样排除规则自身当前占用，重试/重启沿用同一端口。
+func allocateAuthProxyPort(ctx context.Context, db *sql.DB, serverID, forwardID string) int {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return 0
+	}
+	defer tx.Rollback()
+	for port := 45100; port <= 45653; port++ {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM managed_forwards WHERE server_id=? AND auth_proxy_port=? AND id<>?`, serverID, port, forwardID).Scan(&exists); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE managed_forwards SET auth_proxy_port=? WHERE id=?`, port, forwardID); err == nil {
+				_ = tx.Commit()
+				return port
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+// removeCFAuthProxy 停止并回收 CF 隧道 token 转发的源主机鉴权代理（agent 离线时静默跳过）。
+func (s *Service) removeCFAuthProxy(ctx context.Context, db *sql.DB, item *managedForward) {
+	if item.Transport != "cloudflare_tunnel" || item.ID == "" || item.AccessMode != "token" {
+		return
+	}
+	if _, ok := s.registry.Get(item.ServerID); ok {
+		stopPayload, _ := json.Marshal(map[string]interface{}{"operation": "auth_proxy_stop", "forward_id": item.ID})
+		_, _ = s.RunTCPForwarderTaskAndWait(item.ServerID, string(stopPayload))
+	}
+}
+
 // removeTCPRelayTunnels 拆除 tcp_relay 链路：源主机关隧道，入口主机关监听。
 // 在 stop/delete 时调用；agent 离线时静默跳过。
 func (s *Service) removeTCPRelayTunnels(ctx context.Context, db *sql.DB, item *managedForward) {
@@ -731,19 +832,22 @@ func (s *Service) syncForwardIngress(ctx context.Context, db *sql.DB, serverID s
 	if err := db.QueryRowContext(ctx, `SELECT account_id,tunnel_id,zone_name FROM managed_proxy_tunnels WHERE server_id=?`, serverID).Scan(&accountID, &tunnelID, &zoneName); err != nil {
 		return fmt.Errorf("tunnel not found: %w", err)
 	}
-	forwardRows, err := db.QueryContext(ctx, `SELECT id,protocol,local_host,local_port,tunnel_hostname,tunnel_path FROM managed_forwards WHERE server_id=? AND transport='cloudflare_tunnel' AND desired_status='running' AND apply_status IN ('running','deploying') ORDER BY whole_host ASC, created_at ASC`, serverID)
+	forwardRows, err := db.QueryContext(ctx, `SELECT id,protocol,local_host,local_port,tunnel_hostname,tunnel_path,access_mode,auth_proxy_port FROM managed_forwards WHERE server_id=? AND transport='cloudflare_tunnel' AND desired_status='running' AND apply_status IN ('running','deploying') ORDER BY whole_host ASC, created_at ASC`, serverID)
 	if err != nil {
 		return fmt.Errorf("query forwards: %w", err)
 	}
 	defer forwardRows.Close()
 	for forwardRows.Next() {
-		var fwdID, protocol, localHost, tunnelHostname, tunnelPath string
-		var localPort int
-		if err := forwardRows.Scan(&fwdID, &protocol, &localHost, &localPort, &tunnelHostname, &tunnelPath); err != nil {
+		var fwdID, protocol, localHost, tunnelHostname, tunnelPath, accessMode string
+		var localPort, authProxyPort int
+		if err := forwardRows.Scan(&fwdID, &protocol, &localHost, &localPort, &tunnelHostname, &tunnelPath, &accessMode, &authProxyPort); err != nil {
 			return fmt.Errorf("scan forward: %w", err)
 		}
 		svc := fmt.Sprintf("http://%s:%d", localHost, localPort)
-		if protocol == "tcp" {
+		// token 模式：由源主机鉴权代理把关，ingress 指向代理端口而非本地服务
+		if accessMode == "token" && authProxyPort > 0 {
+			svc = fmt.Sprintf("http://127.0.0.1:%d", authProxyPort)
+		} else if protocol == "tcp" {
 			svc = fmt.Sprintf("tcp://%s:%d", localHost, localPort)
 		}
 		ingress = append(ingress, cloudflare.ManagedTunnelIngress{
@@ -772,6 +876,8 @@ func (s *Service) stopManagedForward(w http.ResponseWriter, r *http.Request, db 
 	if item.Transport == "cloudflare_tunnel" && (item.TunnelPath != "" || item.WholeHost) {
 		s.removeForwardIngress(context.Background(), db, item.ServerID, item.TunnelPath)
 	}
+	// CF 隧道 token：回收源主机鉴权代理进程
+	s.removeCFAuthProxy(context.Background(), db, item)
 	// tcp_relay：置 stopped 只是数据库状态，还需给 agent 发卸载指令才能真正断流
 	s.removeTCPRelayTunnels(context.Background(), db, item)
 	response.OK(w, map[string]string{"message": "转发规则已停止"})

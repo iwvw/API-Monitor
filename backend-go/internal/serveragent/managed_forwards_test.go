@@ -186,23 +186,39 @@ func min(a, b int) int {
 	return b
 }
 
-// token/panel 访问控制的校验未落地前，部署必须被拒绝（防止「声称有鉴权实则公开」）。
+// token/panel 访问控制：仅已落地组合（tcp_relay+token、CF 隧道(http/https)+token）通过守卫，
+// 其余必须拒绝，防止「声称有鉴权实则公开」。
 func TestDeployRejectsNonPublicAccessMode(t *testing.T) {
 	service, db := testService(t)
 	if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type) VALUES('host-t','测试主机','192.0.2.10','root','password')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,access_mode,desired_status,apply_status) VALUES('fwdtk','token-fwd','host-t','127.0.0.1',9000,'tcp','cloudflare_tunnel','token','running','pending')`); err != nil {
+	// CF 隧道 + token + tcp：tcp 无鉴权代理可用，必须拒绝并提示改 http/https
+	if _, err := db.Exec(`INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,access_mode,desired_status,apply_status) VALUES('fwdtk','token-fwd-tcp','host-t','127.0.0.1',9000,'tcp','cloudflare_tunnel','token','running','pending')`); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest("POST", "/api/server/forward/fwdtk/deploy", nil)
 	rec := httptest.NewRecorder()
 	service.handleManagedForwardRoutes(rec, req, db, []string{"fwdtk", "deploy"})
 	if rec.Code != 422 {
-		t.Fatalf("deploy non-public status = %d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("CF token tcp deploy status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "public") {
-		t.Fatalf("deploy rejection should mention public mode: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "http/https") {
+		t.Fatalf("CF token tcp rejection should mention http/https: %s", rec.Body.String())
+	}
+
+	// CF 隧道 + panel：面板认证代理尚未落地，必须拒绝
+	if _, err := db.Exec(`INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,access_mode,desired_status,apply_status) VALUES('fwdp','panel-fwd','host-t','127.0.0.1',9001,'http','cloudflare_tunnel','panel','running','pending')`); err != nil {
+		t.Fatal(err)
+	}
+	req2 := httptest.NewRequest("POST", "/api/server/forward/fwdp/deploy", nil)
+	rec2 := httptest.NewRecorder()
+	service.handleManagedForwardRoutes(rec2, req2, db, []string{"fwdp", "deploy"})
+	if rec2.Code != 422 {
+		t.Fatalf("panel deploy status = %d body=%s", rec2.Code, rec2.Body.String())
+	}
+	if !strings.Contains(rec2.Body.String(), "public") {
+		t.Fatalf("panel rejection should mention public mode: %s", rec2.Body.String())
 	}
 }
 
