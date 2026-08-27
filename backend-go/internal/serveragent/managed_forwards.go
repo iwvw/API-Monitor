@@ -972,18 +972,51 @@ func (s *Service) handleForwardPanelProxy(w http.ResponseWriter, r *http.Request
 		}
 		upstream = fmt.Sprintf("http://%s:%d", host, item.RemotePort)
 	case "cloudflare_tunnel":
-		if item.AccessURL == "" {
-			response.Error(w, 422, "转发尚未部署")
+		if item.AuthProxyPort < 1 {
+			response.Error(w, 422, "转发尚未部署（无鉴权代理端口）")
 			return
 		}
-		// 面板代理从后端（Fly）访问隧道，强制 https 与整域证书一致，
-		// 避免 http 请求从数据中心出口被 CF 边缘拒绝（1001）。
-		if u, err := url.Parse(item.AccessURL); err == nil && u.Scheme == "http" {
-			u.Scheme = "https"
-			upstream = u.String()
-		} else {
-			upstream = item.AccessURL
+		// 面板经 Agent 通道直连源主机 auth-proxy（127.0.0.1:<port> + token 校验），
+		// 完全绕过 Cloudflare 边缘——数据中心出口经公网域名访问 CF 隧道会被边缘
+		// 1001/403 拒绝，此通道不受影响。
+		var enc string
+		_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
+		token := secure.SecureDecrypt(enc)
+		if token == "" {
+			response.Error(w, 500, "无法读取转发令牌")
+			return
 		}
+		headers := map[string]string{}
+		for _, k := range []string{"accept", "accept-language", "user-agent"} {
+			if v := r.Header.Get(k); v != "" {
+				headers[k] = v
+			}
+		}
+		payload, _ := json.Marshal(map[string]interface{}{
+			"operation": "http_proxy", "forward_id": item.ID,
+			"auth_proxy_port": item.AuthProxyPort, "token": token,
+			"method": r.Method, "path": "/" + strings.Join(rest, "/"),
+			"headers": headers,
+		})
+		out, err := s.RunTCPForwarderTaskAndWait(item.ServerID, string(payload))
+		if err != nil {
+			response.Error(w, http.StatusBadGateway, "经 Agent 访问源主机失败: "+err.Error())
+			return
+		}
+		var pr struct {
+			Status  int               `json:"status"`
+			Headers map[string]string `json:"headers"`
+			Body    string            `json:"body"`
+		}
+		if json.Unmarshal([]byte(out), &pr) != nil {
+			response.Error(w, http.StatusBadGateway, "Agent 返回异常: "+out)
+			return
+		}
+		for k, v := range pr.Headers {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(pr.Status)
+		_, _ = w.Write([]byte(pr.Body))
 	default:
 		response.Error(w, 422, "panel 代理仅支持 tcp_relay / cloudflare_tunnel")
 		return
