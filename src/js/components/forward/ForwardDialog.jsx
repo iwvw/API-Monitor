@@ -42,6 +42,19 @@ const PROTOCOL_ITEMS = [
   { value: 'https', label: 'HTTPS' },
 ];
 
+const SERVICE_PRESETS = [
+  { value: '', label: '常用服务预设…' },
+  { value: 'ssh', label: 'SSH (22)', port: 22, protocol: 'tcp', name: 'SSH' },
+  { value: 'rdp', label: 'RDP 远程桌面 (3389)', port: 3389, protocol: 'tcp', name: 'RDP 远程桌面' },
+  { value: 'http', label: 'HTTP (80)', port: 80, protocol: 'http', name: 'HTTP' },
+  { value: 'https', label: 'HTTPS (443)', port: 443, protocol: 'https', name: 'HTTPS' },
+  { value: 'mysql', label: 'MySQL (3306)', port: 3306, protocol: 'tcp', name: 'MySQL' },
+  { value: 'postgres', label: 'PostgreSQL (5432)', port: 5432, protocol: 'tcp', name: 'PostgreSQL' },
+  { value: 'redis', label: 'Redis (6379)', port: 6379, protocol: 'tcp', name: 'Redis' },
+  { value: 'mongo', label: 'MongoDB (27017)', port: 27017, protocol: 'tcp', name: 'MongoDB' },
+  { value: 'docker', label: 'Docker API (2375)', port: 2375, protocol: 'tcp', name: 'Docker API' },
+];
+
 const TRANSPORT_NAMES = {
   cloudflare_tunnel: 'Cloudflare Tunnel',
   tcp_relay: 'TCP 中继',
@@ -54,6 +67,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   const [localHost, setLocalHost] = useState('127.0.0.1');
   const [localPort, setLocalPort] = useState('');
   const [protocol, setProtocol] = useState('tcp');
+  const [preset, setPreset] = useState('');
   const [transport, setTransport] = useState('cloudflare_tunnel');
   const [wholeHost, setWholeHost] = useState(false);
   const [relayServerId, setRelayServerId] = useState('');
@@ -124,6 +138,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
       }
       setTargetServerId('');
       setTargetPriority('1');
+      setPreset('');
       setPreflight(null);
       setCreatedToken('');
       setRelayPorts(null);
@@ -182,6 +197,15 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
       .catch(() => {});
     return () => { cancelled = true; };
   }, [open, transport, relayServerId]);
+
+  const applyPreset = (value) => {
+    setPreset(value);
+    const p = SERVICE_PRESETS.find((s) => s.value === value);
+    if (!p) return;
+    setProtocol(p.protocol);
+    setLocalPort(String(p.port));
+    if (!name.trim()) setName(p.name);
+  };
 
   const handleSubmit = async () => {
     if (!name.trim() || !serverId || !localPort) {
@@ -383,6 +407,10 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                   <div className="flex flex-col gap-1">
                     <label className="text-xs text-kumo-text-secondary">规则名称</label>
                     <Input size="sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="如 调试 API" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-kumo-text-secondary">常用服务预设</label>
+                    <Select size="sm" value={preset} onValueChange={applyPreset} items={SERVICE_PRESETS} placeholder="选择后自动填充端口与协议" aria-label="常用服务预设" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
