@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -128,6 +130,11 @@ func (s *Service) handleManagedForwardRoutes(w http.ResponseWriter, r *http.Requ
 		s.handleForwardStatus(w, r, db, subparts[0])
 		return
 	}
+	// 面板认证代理：/{id}/panel/proxy/{rest...}，会话认证后反代到转发并注入 token
+	if len(subparts) >= 3 && subparts[1] == "panel" && subparts[2] == "proxy" {
+		s.handleForwardPanelProxy(w, r, db, subparts[0], subparts[3:])
+		return
+	}
 	response.Error(w, http.StatusNotFound, "forward route not found")
 }
 
@@ -194,6 +201,11 @@ func generateTargetID() string {
 }
 
 func forwardTaskResource(forwardID string) string { return "forward:" + forwardID }
+
+// needsTokenAuth 该转发是否需在传输层强制 token 校验（token 模式与 panel 模式共用同一套 token 数据面机制）。
+func needsTokenAuth(f *managedForward) bool {
+	return f.AccessMode == "token" || f.AccessMode == "panel"
+}
 
 func buildAccessURL(fwd managedForward) string {
 	switch fwd.Transport {
@@ -558,21 +570,21 @@ func (s *Service) deployManagedForward(w http.ResponseWriter, r *http.Request, d
 		response.Error(w, 404, "forward rule not found")
 		return
 	}
-	// token/panel 访问控制的落地范围：tcp_relay + token 由 relay 强制校验；CF 隧道 + token
-	// 由源主机鉴权代理（auth-proxy）强制校验（仅 http/https，tcp 请走 tcp_relay+token）。
-	// panel 认证代理尚在实现中，保持拒绝以防「声称有鉴权实则公开」。
+	// token/panel 访问控制：token 由传输层强制校验；panel 复用同一 token 数据面机制，
+	// 另加面板会话反向代理入口（/api/server/forward/{id}/panel/proxy/*）注入 token。
+	// 仅 http/https 支持（tcp 走 tcp_relay+token）。
 	switch {
 	case item.AccessMode == "public":
 		// 公开访问，无需校验
-	case item.Transport == "tcp_relay" && item.AccessMode == "token":
+	case item.Transport == "tcp_relay" && needsTokenAuth(item):
 		// 已落地：relay 入口强制 token 握手校验
-	case item.Transport == "cloudflare_tunnel" && item.AccessMode == "token":
+	case item.Transport == "cloudflare_tunnel" && needsTokenAuth(item):
 		if item.Protocol != "http" && item.Protocol != "https" {
-			response.Error(w, 422, "CF 隧道 + token 仅支持 http/https 协议（tcp 请改用 tcp_relay + token）")
+			response.Error(w, 422, "CF 隧道 + token/panel 仅支持 http/https 协议（tcp 请改用 tcp_relay + token）")
 			return
 		}
 	default:
-		response.Error(w, 422, "access_mode=token/panel 仅 tcp_relay 或 CF 隧道(http/https) 的 token 模式已落地；其余组合部署前请改为 public")
+		response.Error(w, 422, "access_mode=token/panel 仅 tcp_relay 或 CF 隧道(http/https) 已落地；其余组合部署前请改为 public")
 		return
 	}
 	switch item.Transport {
@@ -605,9 +617,9 @@ func (s *Service) deployCloudflareTunnelForward(w http.ResponseWriter, r *http.R
 		response.Error(w, 422, "该主机的 Cloudflare Tunnel 不在运行状态，请先部署隧道")
 		return
 	}
-	// token 模式：cloudflared 本身不鉴权，需在源主机启动鉴权代理，ingress 指向代理端口
+	// token/panel 模式：cloudflared 本身不鉴权，需在源主机启动鉴权代理，ingress 指向代理端口
 	authProxyPort := item.AuthProxyPort
-	if item.AccessMode == "token" {
+	if needsTokenAuth(item) {
 		srcConn, ok := s.registry.Get(item.ServerID)
 		if !ok {
 			response.Error(w, http.StatusBadGateway, "源主机 Agent 离线，无法启动鉴权代理")
@@ -704,7 +716,7 @@ func (s *Service) deployTCPRelayForward(w http.ResponseWriter, r *http.Request, 
 
 	// 1) 入口主机：让中继器监听公开端口并放行防火墙（token 模式下发解密凭证强制校验）
 	token := ""
-	if item.AccessMode == "token" {
+	if needsTokenAuth(item) {
 		var enc string
 		_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
 		token = secure.SecureDecrypt(enc)
@@ -767,9 +779,9 @@ func allocateRelayPort(ctx context.Context, db *sql.DB, item *managedForward, re
 	return 0
 }
 
-// removeCFAuthProxy 停止并回收 CF 隧道 token 转发的源主机鉴权代理（agent 离线时静默跳过）。
+// removeCFAuthProxy 停止并回收 CF 隧道 token/panel 转发的源主机鉴权代理（agent 离线时静默跳过）。
 func (s *Service) removeCFAuthProxy(ctx context.Context, db *sql.DB, item *managedForward) {
-	if item.Transport != "cloudflare_tunnel" || item.ID == "" || item.AccessMode != "token" {
+	if item.Transport != "cloudflare_tunnel" || item.ID == "" || !needsTokenAuth(item) {
 		return
 	}
 	if _, ok := s.registry.Get(item.ServerID); ok {
@@ -827,8 +839,8 @@ func (s *Service) syncForwardIngress(ctx context.Context, db *sql.DB, serverID s
 			return fmt.Errorf("scan forward: %w", err)
 		}
 		svc := fmt.Sprintf("http://%s:%d", localHost, localPort)
-		// token 模式：由源主机鉴权代理把关，ingress 指向代理端口而非本地服务
-		if accessMode == "token" && authProxyPort > 0 {
+		// token/panel 模式：由源主机鉴权代理把关，ingress 指向代理端口而非本地服务
+		if (accessMode == "token" || accessMode == "panel") && authProxyPort > 0 {
 			svc = fmt.Sprintf("http://127.0.0.1:%d", authProxyPort)
 		} else if protocol == "tcp" {
 			svc = fmt.Sprintf("tcp://%s:%d", localHost, localPort)
@@ -849,6 +861,58 @@ func (s *Service) removeForwardIngress(ctx context.Context, db *sql.DB, serverID
 	_ = s.syncForwardIngress(ctx, db, serverID)
 }
 
+func (s *Service) handleForwardPanelProxy(w http.ResponseWriter, r *http.Request, db *sql.DB, id string, rest []string) {
+	item := s.loadForward(r.Context(), db, id)
+	if item == nil {
+		response.Error(w, 404, "forward rule not found")
+		return
+	}
+	if item.AccessMode != "panel" {
+		response.Error(w, 422, "该转发非 panel 访问模式")
+		return
+	}
+	var upstream string
+	switch item.Transport {
+	case "tcp_relay":
+		host := item.RelayServerHost
+		if host == "" {
+			response.Error(w, 422, "中继入口主机未配置可连接地址")
+			return
+		}
+		if item.RemotePort < 1 {
+			response.Error(w, 422, "转发尚未部署（无中继端口）")
+			return
+		}
+		upstream = fmt.Sprintf("http://%s:%d", host, item.RemotePort)
+	case "cloudflare_tunnel":
+		if item.AccessURL == "" {
+			response.Error(w, 422, "转发尚未部署")
+			return
+		}
+		upstream = item.AccessURL
+	default:
+		response.Error(w, 422, "panel 代理仅支持 tcp_relay / cloudflare_tunnel")
+		return
+	}
+	var enc string
+	_ = db.QueryRowContext(r.Context(), `SELECT access_token FROM managed_forwards WHERE id=?`, item.ID).Scan(&enc)
+	token := secure.SecureDecrypt(enc)
+	if token == "" {
+		response.Error(w, 500, "无法读取转发令牌")
+		return
+	}
+	target, err := url.Parse(upstream)
+	if err != nil {
+		response.Error(w, 500, "upstream 解析失败: "+err.Error())
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	r.URL.Path = "/" + strings.Join(rest, "/")
+	// 面板会话已鉴权（前缀路由），此处注入转发 token 通过数据面校验
+	r.Header.Set("Authorization", "Bearer "+token)
+	proxy.ServeHTTP(w, r)
+}
+
 func (s *Service) stopManagedForward(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
 	item := s.loadForward(r.Context(), db, id)
 	if item == nil {
@@ -859,7 +923,7 @@ func (s *Service) stopManagedForward(w http.ResponseWriter, r *http.Request, db 
 	if item.Transport == "cloudflare_tunnel" && (item.TunnelPath != "" || item.WholeHost) {
 		s.removeForwardIngress(context.Background(), db, item.ServerID, item.TunnelPath)
 	}
-	// CF 隧道 token：回收源主机鉴权代理进程
+	// CF 隧道 token/panel：回收源主机鉴权代理进程
 	s.removeCFAuthProxy(context.Background(), db, item)
 	// tcp_relay：置 stopped 只是数据库状态，还需给 agent 发卸载指令才能真正断流
 	s.removeTCPRelayTunnels(context.Background(), db, item)

@@ -207,18 +207,15 @@ func TestDeployRejectsNonPublicAccessMode(t *testing.T) {
 		t.Fatalf("CF token tcp rejection should mention http/https: %s", rec.Body.String())
 	}
 
-	// CF 隧道 + panel：面板认证代理尚未落地，必须拒绝
+	// CF 隧道 + panel：守卫已放开，部署应进入传输层（测试环境无 agent → 报 agent 离线，而非访问控制拒绝）
 	if _, err := db.Exec(`INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,access_mode,desired_status,apply_status) VALUES('fwdp','panel-fwd','host-t','127.0.0.1',9001,'http','cloudflare_tunnel','panel','running','pending')`); err != nil {
 		t.Fatal(err)
 	}
 	req2 := httptest.NewRequest("POST", "/api/server/forward/fwdp/deploy", nil)
 	rec2 := httptest.NewRecorder()
 	service.handleManagedForwardRoutes(rec2, req2, db, []string{"fwdp", "deploy"})
-	if rec2.Code != 422 {
-		t.Fatalf("panel deploy status = %d body=%s", rec2.Code, rec2.Body.String())
-	}
-	if !strings.Contains(rec2.Body.String(), "public") {
-		t.Fatalf("panel rejection should mention public mode: %s", rec2.Body.String())
+	if strings.Contains(rec2.Body.String(), "改为 public") {
+		t.Fatalf("panel mode should no longer be rejected by the access guard: %s", rec2.Body.String())
 	}
 }
 

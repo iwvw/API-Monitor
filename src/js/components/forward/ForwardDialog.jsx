@@ -445,7 +445,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                         : '创建后自动生成 32 位访问令牌，仅展示一次。CF 隧道经源主机鉴权代理校验（Authorization: Bearer / ?token= / cookie），仅支持 http/https（tcp 请改用 TCP 中继 + token）。'}
                     </p>
                   )}
-                  {accessMode === 'panel' && <p className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">需登录面板后访问（预留）。当前版本不可部署，请先用「公开」模式。</p>}
+                  {accessMode === 'panel' && <p className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">需登录面板后经 /forward/&lt;id&gt;/panel/proxy 会话化访问（panel 模式复用 token 数据面保护，仅支持 http/https）。</p>}
                   {createdToken && (
                     <div className="rounded-lg border border-kumo-brand/30 bg-kumo-fill px-3 py-2">
                       <p className="mb-1 text-xs text-kumo-text-secondary">访问令牌（仅展示一次，请立即保存）</p>
