@@ -372,10 +372,10 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 		}
 	}
 	id := generateForwardID()
-	// token 模式：自动生成 32 字符访问令牌并加密存储，明文仅在创建响应中返回一次
+	// token/panel 模式：生成 32 字符访问令牌并加密存储，明文仅在 token 模式创建响应中返回一次
 	encryptedToken := ""
 	plainToken := ""
-	if input.AccessMode == "token" {
+	if input.AccessMode == "token" || input.AccessMode == "panel" {
 		plainToken = generateAccessToken()
 		cipher, err := secure.SecureEncrypt(plainToken)
 		if err != nil {
@@ -383,6 +383,9 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 			return
 		}
 		encryptedToken = cipher
+	}
+	if input.AccessMode != "token" {
+		plainToken = ""
 	}
 	_, err := db.ExecContext(r.Context(), `INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,relay_server_id,access_mode,access_token,group_id,whole_host,desired_status,apply_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'running','pending')`, id, input.Name, input.ServerID, input.LocalHost, input.LocalPort, input.Protocol, input.Transport, input.RelayServerID, input.AccessMode, encryptedToken, input.GroupID, boolToInt(input.WholeHost))
 	if err != nil {
