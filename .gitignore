@@ -67,6 +67,8 @@ Desktop.ini
 config/
 !backend-go/internal/config/
 !backend-go/internal/config/*.go
+!backend-go/internal/openaibeta/engine/config/
+!backend-go/internal/openaibeta/engine/config/*.go
 tmp/
 test/tmp/
 test/
