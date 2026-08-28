@@ -754,6 +754,57 @@ func init() {
 	routeRequestContracts["/api/koyeb/services/{serviceId}/instances"] = obj([]string{"accountId"}, map[string]prop{
 		"accountId": {t: "string", req: true},
 	})
+	routeRequestContracts["/api/koyeb/services/{serviceId}/update"] = obj(nil, map[string]prop{
+		"accountId":    {t: "string", req: true, d: "Koyeb 账号 ID"},
+		"image":        {t: "string", d: "新的容器镜像地址（如 registry.hub.docker.com/xxx/app:latest）"},
+		"command":      {t: "string", d: "容器启动命令"},
+		"args":         {t: "array", d: "启动参数列表"},
+		"env":          {t: "array", d: "环境变量（[{key,value}] 或 [\"K=V\"]）"},
+		"ports":        {t: "array", d: "端口列表（[{port,protocol}]）"},
+		"regions":      {t: "array", d: "部署区域列表"},
+		"instanceType": {t: "string", d: "实例规格（nano/micro/small/medium/large）"},
+		"skipBuild":    {t: "boolean", d: "跳过构建直接复用上次构建镜像"},
+	})
+	routeRequestContracts["/api/koyeb/deployments/{deploymentId}/cancel"] = obj([]string{"accountId"}, map[string]prop{
+		"accountId": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/koyeb/services/{serviceId}/scale"] = obj([]string{"accountId", "scalings"}, map[string]prop{
+		"accountId": {t: "string", req: true},
+		"scalings":  {t: "array", req: true, d: "手动扩容配置（[{scopes,instances}]）"},
+	})
+	routeRequestContracts["/api/koyeb/apps/{appId}/pause"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/apps/{appId}/resume"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/domains"] = obj([]string{"name"}, map[string]prop{
+		"name":    {t: "string", req: true, d: "域名（CUSTOM）或自动分配域名（AUTOASSIGNED）"},
+		"type":    {t: "string", e: []string{"AUTOASSIGNED", "CUSTOM"}},
+		"accountId": {t: "string", req: true, d: "Koyeb 账号 ID"},
+		"appId":   {t: "string", d: "绑定到的应用 ID"},
+	})
+	routeRequestContracts["/api/koyeb/domains/{domainId}"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/domains/{domainId}/refresh"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/secrets"] = obj([]string{"name", "value"}, map[string]prop{
+		"name":      {t: "string", req: true, d: "密钥名称"},
+		"value":     {t: "string", req: true, d: "密钥值"},
+		"type":      {t: "string", e: []string{"SIMPLE", "REGISTRY", "MANAGED"}},
+		"accountId": {t: "string", req: true, d: "Koyeb 账号 ID"},
+	})
+	routeRequestContracts["/api/koyeb/secrets/{secretId}"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/secrets/{secretId}/update"] = obj([]string{"value"}, map[string]prop{
+		"value":     {t: "string", req: true, d: "新的密钥值"},
+		"accountId": {t: "string", req: true, d: "Koyeb 账号 ID"},
+	})
+	routeRequestContracts["/api/koyeb/services"] = obj([]string{"appId", "name"}, map[string]prop{
+		"accountId":    {t: "string", req: true, d: "Koyeb 账号 ID"},
+		"appId":        {t: "string", req: true, d: "所属应用 ID"},
+		"name":         {t: "string", req: true, d: "服务名称"},
+		"type":         {t: "string", e: []string{"web", "worker", "job"}},
+		"image":        {t: "string", d: "容器镜像地址"},
+		"command":      {t: "string", d: "启动命令"},
+		"env":          {t: "array", d: "环境变量（[{key,value}]）"},
+		"ports":        {t: "array", d: "端口列表（[{port,protocol}]）"},
+		"regions":      {t: "array", d: "部署区域列表"},
+		"instanceType": {t: "string", d: "实例规格（nano/micro/small/medium/large）"},
+	})
 
 	// ===== 定时任务 scheduler / cron =====
 	routeRequestContracts["/api/scheduler/nodes"] = obj([]string{"name"}, map[string]prop{

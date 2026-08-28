@@ -483,7 +483,7 @@ func mentionSpecificAPIs(t, id string, item map[string]interface{}) string {
 	case mentionTypeFlyio:
 		return "；专属接口：POST /api/flyio/apps/" + id + "/update-image（更新应用镜像）"
 	case mentionTypeKoyeb:
-		return "；专属接口：POST /api/koyeb/services/" + id + "/pause（暂停服务）、DELETE /api/koyeb/services/" + id + "（删除服务）"
+		return "；专属接口：POST /api/koyeb/services/" + id + "/update（更新镜像/配置）、POST /api/koyeb/services/" + id + "/redeploy（重新部署）、POST /api/koyeb/services/" + id + "/pause（暂停服务）、GET /api/koyeb/services/" + id + "/deployments（部署历史）、DELETE /api/koyeb/services/" + id + "（删除服务）"
 	case mentionTypeNode:
 		return "；专属接口：PUT /api/scheduler/nodes/" + id + "（更新节点）"
 	case mentionTypeChannel:
