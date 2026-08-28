@@ -745,6 +745,11 @@ jobs:
   # ==========================================
   security-scan:
     needs: merge-docker
+    # merge-docker 在复用路径下是 always() 放行的"条件性 success"，不会自动
+    # 放行下游；必须显式 always() + needs 判定，否则 dev 镜像不会被扫描。
+    if: >-
+      always() &&
+      needs.merge-docker.result == 'success'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
