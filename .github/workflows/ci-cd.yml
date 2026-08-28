@@ -13,7 +13,6 @@
 #   PR / 手动触发 / 其它分支一律走完整全流程（与既有行为一致），正式发布由
 #   release.yml 全量编译、不受影响。
 # - 阶段 1 (CI)：前端 ESLint 检查、测试、构建验证
-# - 阶段 1 (CI)：前端 ESLint 检查、测试、构建验证
 # - 阶段 2 (Build Agent)：并行编译部署所需的 Linux / Windows Agent（仅变更时）
 # - 阶段 2c (Publish)：发布新编译的 agent / relay 到滚动 release 供后续复用
 # - 阶段 2d (Fetch)：从滚动 release 取回 agent 三件套，统一产物供镜像构建
