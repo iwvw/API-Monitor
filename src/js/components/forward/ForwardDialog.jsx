@@ -71,7 +71,13 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   const [preset, setPreset] = useState('');
   const [transport, setTransport] = useState('cloudflare_tunnel');
   const [wholeHost, setWholeHost] = useState(false);
-  const [forwardDomain, setForwardDomain] = useState('');
+  // 整域自定义域名：已有 Cloudflare 账号 + Zone 下拉 + 自定义前缀
+  const [fwdAccounts, setFwdAccounts] = useState([]);
+  const [fwdZones, setFwdZones] = useState([]);
+  const [fwdZonesLoading, setFwdZonesLoading] = useState(false);
+  const [fwdAccountId, setFwdAccountId] = useState('');
+  const [fwdZoneId, setFwdZoneId] = useState('');
+  const [fwdPrefix, setFwdPrefix] = useState('');
   const [relayServerId, setRelayServerId] = useState('');
   const [accessMode, setAccessMode] = useState('public');
   const [submitting, setSubmitting] = useState(false);
@@ -109,6 +115,39 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
     } catch (e) {}
   }, []);
 
+  const loadFwdZones = useCallback(async (accountId, preferredZoneId = '') => {
+    if (!accountId) { setFwdZones([]); setFwdZoneId(''); return; }
+    setFwdZonesLoading(true);
+    try {
+      const res = await fetch(`/api/cloudflare/accounts/${encodeURIComponent(accountId)}/zones`);
+      const json = await res.json();
+      const zones = Array.isArray(json?.zones) ? json.zones : [];
+      setFwdZones(zones);
+      const hasPref = zones.some((z) => z.id === preferredZoneId);
+      setFwdZoneId(hasPref ? preferredZoneId : (zones[0]?.id || ''));
+    } catch (e) {
+      setFwdZones([]);
+      setFwdZoneId('');
+    } finally {
+      setFwdZonesLoading(false);
+    }
+  }, []);
+
+  const loadFwdAccounts = useCallback(async (preferredAccountId = '', preferredZoneId = '') => {
+    try {
+      const res = await fetch('/api/cloudflare/accounts');
+      const json = await res.json();
+      const accounts = Array.isArray(json) ? json : [];
+      setFwdAccounts(accounts);
+      if (accounts.length === 0) return;
+      const accId = preferredAccountId || accounts[0].id;
+      setFwdAccountId(accId);
+      await loadFwdZones(accId, preferredZoneId);
+    } catch (e) {
+      setFwdAccounts([]);
+    }
+  }, [loadFwdZones]);
+
   useEffect(() => {
     if (open) {
       if (editing) {
@@ -119,7 +158,11 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         setProtocol(editing.udp ? 'udp' : editing.protocol);
         setTransport(editing.transport);
         setWholeHost(!!editing.whole_host);
-        setForwardDomain(editing.tunnel_hostname || '');
+        const zoneName = editing.tunnel_zone_name || '';
+        setFwdPrefix(zoneName && editing.tunnel_hostname && editing.tunnel_hostname.endsWith('.' + zoneName)
+          ? editing.tunnel_hostname.slice(0, -(zoneName.length + 1))
+          : (editing.tunnel_hostname || ''));
+        loadFwdAccounts(editing.tunnel_account_id || '', editing.tunnel_zone_id || '');
         setRelayServerId(editing.relay_server_id || '');
         setAccessMode(editing.access_mode);
         setHealthCheckEnabled(!!editing.health_check_enabled);
@@ -133,7 +176,10 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         setProtocol('tcp');
         setTransport('cloudflare_tunnel');
         setWholeHost(false);
-        setForwardDomain('');
+        setFwdPrefix('');
+        setFwdAccountId('');
+        setFwdZoneId('');
+        loadFwdAccounts('', '');
         setRelayServerId('');
         setAccessMode('public');
         setHealthCheckEnabled(false);
@@ -227,8 +273,13 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
       return;
     }
     const isWholeHostCF = transport === 'cloudflare_tunnel' && wholeHost;
-    if (isWholeHostCF && !forwardDomain.trim()) {
-      toast.error('整域部署需要填写自定义域名');
+    const selectedZone = fwdZones.find((z) => z.id === fwdZoneId);
+    const fwdZoneName = selectedZone?.name || '';
+    const composedHostname = isWholeHostCF && fwdPrefix.trim() && fwdZoneName
+      ? `${fwdPrefix.trim().toLowerCase()}.${fwdZoneName}`
+      : '';
+    if (isWholeHostCF && (!fwdPrefix.trim() || !fwdAccountId || !fwdZoneId || !fwdZoneName)) {
+      toast.error('整域部署需要选择 Cloudflare 账号与域名，并填写前缀');
       return;
     }
     setSubmitting(true);
@@ -242,7 +293,9 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         udp: isUdp,
         transport,
         whole_host: isWholeHostCF,
-        tunnel_hostname: isWholeHostCF ? forwardDomain.trim().toLowerCase() : '',
+        tunnel_hostname: isWholeHostCF ? composedHostname : '',
+        tunnel_account_id: isWholeHostCF ? fwdAccountId : '',
+        tunnel_zone_id: isWholeHostCF ? fwdZoneId : '',
         relay_server_id: transport === 'tcp_relay' ? relayServerId : '',
         access_mode: accessMode,
         ...(editing ? { health_check_enabled: healthCheckEnabled, failover_enabled: failoverEnabled } : {}),
@@ -398,6 +451,10 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   const serverItems = servers.map((s) => ({ value: s.id, label: s.name || s.id }));
   const relayItems = servers.filter((s) => s.id !== serverId).map((s) => ({ value: s.id, label: s.name || s.id }));
   const standbyItems = relayItems;
+  const selectedZone = fwdZones.find((z) => z.id === fwdZoneId);
+  const composedHostname = (transport === 'cloudflare_tunnel' && wholeHost && fwdPrefix.trim() && selectedZone?.name)
+    ? `${fwdPrefix.trim().toLowerCase()}.${selectedZone.name}`
+    : '';
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -498,22 +555,44 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                       {wholeHost ? (
                         <div className="flex flex-col gap-2">
                           <div className="flex flex-col gap-1">
-                            <label className="text-xs text-kumo-text-secondary">自定义域名（独立 Tunnel，必填）</label>
+                            <label className="text-xs text-kumo-text-secondary">Cloudflare 账号</label>
+                            <Select
+                              size="sm"
+                              value={fwdAccountId}
+                              onValueChange={(v) => { setFwdAccountId(v); setFwdZoneId(''); loadFwdZones(v, ''); }}
+                              items={fwdAccounts.map((a) => ({ value: a.id, label: a.name || a.id }))}
+                              placeholder="选择 Cloudflare 账号"
+                              aria-label="Cloudflare 账号"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs text-kumo-text-secondary">已有域名（Zone）</label>
+                            <Select
+                              size="sm"
+                              value={fwdZoneId}
+                              onValueChange={setFwdZoneId}
+                              items={fwdZones.map((z) => ({ value: z.id, label: z.name }))}
+                              placeholder={fwdZonesLoading ? '加载中…' : '选择域名'}
+                              aria-label="已有域名"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs text-kumo-text-secondary">前缀（自定义子域名）</label>
                             <Input
                               size="sm"
-                              value={forwardDomain}
-                              onChange={(e) => setForwardDomain(e.target.value)}
-                              placeholder="fwd-api.example.com"
-                              aria-label="自定义域名"
+                              value={fwdPrefix}
+                              onChange={(e) => setFwdPrefix(e.target.value)}
+                              placeholder="fwd-api"
+                              aria-label="前缀"
                               spellCheck={false}
                             />
                           </div>
                           <div className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">
                             <p>整域部署为每条规则创建独立 Cloudflare Tunnel 与独立域名，不再共享主机隧道。</p>
                             <p className="mt-1 font-mono text-[11px] text-kumo-brand">
-                              {forwardDomain ? `${protocol === 'http' ? 'http' : 'https'}://${forwardDomain}` : 'https://自定义域名'}
+                              {composedHostname ? `${protocol === 'http' ? 'http' : 'https'}://${composedHostname}` : 'https://前缀.域名'}
                             </p>
-                            <p className="mt-1 text-[11px] text-kumo-text-warning">域名需属于该主机 Cloudflare 账号的 Zone，部署时自动建 DNS 记录。</p>
+                            <p className="mt-1 text-[11px] text-kumo-text-warning">部署时自动为该域名建 DNS 记录并指向独立 Tunnel。</p>
                           </div>
                         </div>
                       ) : (
