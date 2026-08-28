@@ -477,8 +477,15 @@ jobs:
     # Dockerfile builds the frontend and Go backend inside the image. The only
     # upstream artifacts needed here are the prebuilt Agent binaries, so start
     # image builds as soon as Agent bundle is ready and keep CI as a publish gate.
+    # 注意：fetch-agents 可能在 build-agent 被跳过（agent 未变更复用路径）时经 always()
+    # 成功；GitHub 不会把这种"救活"的 success 自动放行下游，因此这里必须显式
+    # always() + needs 引用，否则复用路径下 build-docker 会被级联跳过、镜像不构建。
     needs: [fetch-agents, ci-frontend]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      always() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.fetch-agents.result != 'failure' &&
+      needs.ci-frontend.result != 'failure'
     strategy:
       fail-fast: false
       matrix:
@@ -589,6 +596,13 @@ jobs:
   # ==========================================
   merge-docker:
     needs: [ci-frontend, ci-backend, build-docker]
+    # build-docker 在 agent 未变更复用路径下同样依赖 always() 放行，merge 必须
+    # 显式 always() + needs 全 success 判定，否则会被级联跳过、manifest 不合并。
+    if: >-
+      always() &&
+      needs.ci-frontend.result == 'success' &&
+      needs.ci-backend.result == 'success' &&
+      needs.build-docker.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Download digests
