@@ -89,6 +89,7 @@ import {
   X,
   RefreshCw,
   History,
+  Rocket,
   PieChart,
   Bot,
   Star,
@@ -145,6 +146,7 @@ import { useAnalytics } from './openai/useAnalytics.js';
 import { useGatewayKeys } from './openai/useGatewayKeys.js';
 import { useHealthChecks } from './openai/useHealthChecks.js';
 import { useEndpoints } from './openai/useEndpoints.js';
+import { BetaPluginPanel } from './openai/BetaPluginPanel.jsx';
 
 // 自绘 ECharts 柱状时间桶：每个桶(小时/天/周)一根柱，类目轴标签 = 桶名，避免时间轴重复标签。
 
@@ -1025,6 +1027,15 @@ function OpenAIPage() {
                 <span className="inline-flex items-center gap-1.5">
                   <History className="w-3.5 h-3.5" />
                   网关日志
+                </span>
+              ),
+            },
+            {
+              value: 'beta',
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <Rocket className="w-3.5 h-3.5" />
+                  Beta 插件
                 </span>
               ),
             },
@@ -4306,6 +4317,7 @@ function OpenAIPage() {
           </div>
         </Dialog>
       </Dialog.Root>
+      {activeTab === 'beta' && <BetaPluginPanel />}
     </PageStack>
   );
 }

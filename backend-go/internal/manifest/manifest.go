@@ -255,6 +255,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/prompts", Module: "prompts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Prompt library API"},
 
 		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
+		{Prefix: "/api/openaibeta", Module: "openaibeta", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "模型网关 Beta 插件（内嵌 Gemini 免费中继）管理"},
+		{Prefix: "/api/openaibeta/v1", Module: "openaibeta-compatible", Owner: OwnerGo, Auth: AuthAPIKey, ResponseMode: ResponseStream, Description: "模型网关 Beta 插件 OpenAI 兼容中继（复用网关密钥鉴权）"},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
 		{Prefix: "/sub/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Public subscription endpoint (UA-adaptive formats, info page, Clash/raw/base64)", MatchMode: MatchPattern},

@@ -29,6 +29,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
+	"github.com/iwvw/api-monitor/backend-go/internal/openaibeta"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
@@ -66,6 +67,7 @@ type Server struct {
 	cf       *cloudflare.Service
 	m365     *m365.Service
 	openai   *openai.Service
+	openaibeta *openaibeta.Service
 	server   *serveragent.Service
 	backup   *backup.Service
 	logs     *systemlogs.Service
@@ -157,6 +159,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		cf:       cloudflareService,
 		m365:     m365.New(cfg),
 		openai:   openai.New(cfg),
+		openaibeta: openaibeta.New(cfg),
 		server:   serverAgentService,
 		backup:   backupService,
 		logs:     systemlogs.New(cfg),
@@ -331,7 +334,7 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) {
 		return true
 	}
-	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible") {
+	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "openaibeta-compatible") {
 		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
 		if err != nil {
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -559,6 +562,8 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.cf.ServeHTTP(w, r)
 	case "/api/openai":
 		s.openai.ServeHTTP(w, r)
+	case "/api/openaibeta", "/api/openaibeta/v1":
+		s.openaibeta.ServeHTTP(w, r)
 	case "/api/subscription":
 		s.sub.ServeHTTP(w, r)
 	case "/sub/{token}":
