@@ -33,6 +33,7 @@ type managedForward struct {
 	TunnelHostname          string `json:"tunnel_hostname,omitempty"`
 	TunnelPath              string `json:"tunnel_path,omitempty"`
 	TunnelID                string `json:"tunnel_id,omitempty"`
+	TunnelAccountID         string `json:"tunnel_account_id,omitempty"`
 	TunnelZoneID            string `json:"tunnel_zone_id,omitempty"`
 	TunnelZoneName          string `json:"tunnel_zone_name,omitempty"`
 	DNSRecordID             string `json:"dns_record_id,omitempty"`
@@ -282,7 +283,7 @@ func (s *Service) listManagedForwards(w http.ResponseWriter, r *http.Request, db
 		response.Error(w, 500, err.Error())
 		return
 	}
-	query := `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.tunnel_id,f.tunnel_zone_id,f.tunnel_zone_name,f.dns_record_id,f.tunnel_apply_status,f.tunnel_last_stage,f.tunnel_last_error,f.whole_host,f.udp,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE ` + whereClause + ` ORDER BY f.updated_at DESC LIMIT ? OFFSET ?`
+	query := `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.tunnel_id,f.tunnel_account_id,f.tunnel_zone_id,f.tunnel_zone_name,f.dns_record_id,f.tunnel_apply_status,f.tunnel_last_stage,f.tunnel_last_error,f.whole_host,f.udp,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE ` + whereClause + ` ORDER BY f.updated_at DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := db.QueryContext(r.Context(), query, args...)
 	if err != nil {
@@ -295,7 +296,7 @@ func (s *Service) listManagedForwards(w http.ResponseWriter, r *http.Request, db
 		var item managedForward
 	var healthEnabled, failoverEnabled, wholeHost, udpFlag int
 		var accessToken string
-		if err := rows.Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &item.TunnelID, &item.TunnelZoneID, &item.TunnelZoneName, &item.DNSRecordID, &item.TunnelApplyStatus, &item.TunnelLastStage, &item.TunnelLastError, &wholeHost, &udpFlag, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &item.TunnelID, &item.TunnelAccountID, &item.TunnelZoneID, &item.TunnelZoneName, &item.DNSRecordID, &item.TunnelApplyStatus, &item.TunnelLastStage, &item.TunnelLastError, &wholeHost, &udpFlag, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			response.Error(w, 500, err.Error())
 			return
 		}
@@ -327,6 +328,8 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 		WholeHost     bool   `json:"whole_host"`
 		UDP           bool   `json:"udp"`
 		TunnelHostname string `json:"tunnel_hostname"`
+		TunnelAccountID string `json:"tunnel_account_id"`
+		TunnelZoneID    string `json:"tunnel_zone_id"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&input); err != nil {
 		response.Error(w, 400, "invalid request body")
@@ -391,6 +394,10 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 		response.Error(w, 400, "tunnel_hostname 不是合法的域名")
 		return
 	}
+	if input.Transport == "cloudflare_tunnel" && input.WholeHost && input.TunnelHostname != "" && (input.TunnelAccountID == "" || input.TunnelZoneID == "") {
+		response.Error(w, 400, "整域 CF 转发需要提供 Cloudflare 账号与 Zone（tunnel_account_id / tunnel_zone_id）")
+		return
+	}
 	var exists int
 	if err := db.QueryRowContext(r.Context(), `SELECT 1 FROM server_accounts WHERE id=?`, input.ServerID).Scan(&exists); err != nil {
 		response.Error(w, 404, "server not found")
@@ -418,7 +425,7 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 	if input.AccessMode != "token" {
 		plainToken = ""
 	}
-	_, err := db.ExecContext(r.Context(), `INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,tunnel_hostname,relay_server_id,access_mode,access_token,group_id,whole_host,udp,desired_status,apply_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'running','pending')`, id, input.Name, input.ServerID, input.LocalHost, input.LocalPort, input.Protocol, input.Transport, input.TunnelHostname, input.RelayServerID, input.AccessMode, encryptedToken, input.GroupID, boolToInt(input.WholeHost), boolToInt(input.UDP))
+	_, err := db.ExecContext(r.Context(), `INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,tunnel_hostname,tunnel_account_id,tunnel_zone_id,relay_server_id,access_mode,access_token,group_id,whole_host,udp,desired_status,apply_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'running','pending')`, id, input.Name, input.ServerID, input.LocalHost, input.LocalPort, input.Protocol, input.Transport, input.TunnelHostname, input.TunnelAccountID, input.TunnelZoneID, input.RelayServerID, input.AccessMode, encryptedToken, input.GroupID, boolToInt(input.WholeHost), boolToInt(input.UDP))
 	if err != nil {
 		response.Error(w, 500, err.Error())
 		return
@@ -448,7 +455,7 @@ func (s *Service) loadForward(ctx context.Context, db *sql.DB, id string) *manag
 	var item managedForward
 	var healthEnabled, failoverEnabled, wholeHost, udpFlag int
 	var accessToken string
-	err := db.QueryRowContext(ctx, `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.tunnel_id,f.tunnel_zone_id,f.tunnel_zone_name,f.dns_record_id,f.tunnel_apply_status,f.tunnel_last_stage,f.tunnel_last_error,f.whole_host,f.udp,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE f.id=?`, id).Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &item.TunnelID, &item.TunnelZoneID, &item.TunnelZoneName, &item.DNSRecordID, &item.TunnelApplyStatus, &item.TunnelLastStage, &item.TunnelLastError, &wholeHost, &udpFlag, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt)
+	err := db.QueryRowContext(ctx, `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.tunnel_id,f.tunnel_account_id,f.tunnel_zone_id,f.tunnel_zone_name,f.dns_record_id,f.tunnel_apply_status,f.tunnel_last_stage,f.tunnel_last_error,f.whole_host,f.udp,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE f.id=?`, id).Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &item.TunnelID, &item.TunnelAccountID, &item.TunnelZoneID, &item.TunnelZoneName, &item.DNSRecordID, &item.TunnelApplyStatus, &item.TunnelLastStage, &item.TunnelLastError, &wholeHost, &udpFlag, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
 		return nil
 	}
@@ -487,6 +494,8 @@ func (s *Service) updateManagedForward(w http.ResponseWriter, r *http.Request, d
 		WholeHost          *bool   `json:"whole_host"`
 		UDP                *bool   `json:"udp"`
 		TunnelHostname     *string `json:"tunnel_hostname"`
+		TunnelAccountID    *string `json:"tunnel_account_id"`
+		TunnelZoneID       *string `json:"tunnel_zone_id"`
 		HealthCheckEnabled *bool   `json:"health_check_enabled"`
 		FailoverEnabled    *bool   `json:"failover_enabled"`
 	}
@@ -570,6 +579,14 @@ func (s *Service) updateManagedForward(w http.ResponseWriter, r *http.Request, d
 			return
 		}
 	}
+	tunnelAccountID := existing.TunnelAccountID
+	if input.TunnelAccountID != nil {
+		tunnelAccountID = strings.TrimSpace(*input.TunnelAccountID)
+	}
+	tunnelZoneID := existing.TunnelZoneID
+	if input.TunnelZoneID != nil {
+		tunnelZoneID = strings.TrimSpace(*input.TunnelZoneID)
+	}
 	var healthFlag, failoverFlag int
 	if healthCheckEnabled {
 		healthFlag = 1
@@ -577,7 +594,7 @@ func (s *Service) updateManagedForward(w http.ResponseWriter, r *http.Request, d
 	if failoverEnabled {
 		failoverFlag = 1
 	}
-	_, err := db.ExecContext(r.Context(), `UPDATE managed_forwards SET name=?,local_host=?,local_port=?,protocol=?,tunnel_hostname=?,relay_server_id=?,access_mode=?,group_id=?,whole_host=?,udp=?,health_check_enabled=?,failover_enabled=?,updated_at=datetime('now') WHERE id=?`, name, localHost, localPort, protocol, tunnelHostname, relayServerID, accessMode, groupID, boolToInt(wholeHost), boolToInt(udp), healthFlag, failoverFlag, id)
+	_, err := db.ExecContext(r.Context(), `UPDATE managed_forwards SET name=?,local_host=?,local_port=?,protocol=?,tunnel_hostname=?,tunnel_account_id=?,tunnel_zone_id=?,relay_server_id=?,access_mode=?,group_id=?,whole_host=?,udp=?,health_check_enabled=?,failover_enabled=?,updated_at=datetime('now') WHERE id=?`, name, localHost, localPort, protocol, tunnelHostname, tunnelAccountID, tunnelZoneID, relayServerID, accessMode, groupID, boolToInt(wholeHost), boolToInt(udp), healthFlag, failoverFlag, id)
 	if err != nil {
 		response.Error(w, 500, err.Error())
 		return
@@ -605,9 +622,13 @@ func (s *Service) deleteManagedForward(w http.ResponseWriter, r *http.Request, d
 		return
 	}
 	_, _ = db.ExecContext(r.Context(), `DELETE FROM managed_forward_targets WHERE forward_id=?`, id)
-	// 整域独立隧道：先卸载（停实例 + 删 Named Tunnel + 删 DNS）再删行，避免隧道残留
-	if item.Transport == "cloudflare_tunnel" && item.WholeHost {
-		s.removeForwardTunnel(context.Background(), db, item, false)
+	// 整域独立隧道：先级联卸载（停实例 + 删 Named Tunnel + 删 DNS）再删行；
+	// 云端清理失败则保留规则行（cleanup_failed）供重试，避免孤儿隧道无法追踪。
+	if item.Transport == "cloudflare_tunnel" && item.WholeHost && item.TunnelID != "" {
+		if err := s.removeForwardTunnel(context.Background(), db, item, false); err != nil {
+			response.Error(w, http.StatusInternalServerError, "级联清理未完成，已保留规则可重试："+err.Error())
+			return
+		}
 	}
 	_, err := db.ExecContext(r.Context(), `DELETE FROM managed_forwards WHERE id=?`, id)
 	if err != nil {
@@ -1094,7 +1115,7 @@ func (s *Service) stopManagedForward(w http.ResponseWriter, r *http.Request, db 
 	if item.Transport == "cloudflare_tunnel" {
 		if item.WholeHost {
 			// 整域独立隧道：停实例，保留 Named Tunnel/DNS 便于快速恢复
-			s.removeForwardTunnel(context.Background(), db, item, true)
+			_ = s.removeForwardTunnel(context.Background(), db, item, true)
 		} else if item.TunnelPath != "" {
 			s.removeForwardIngress(context.Background(), db, item.ServerID, item.TunnelPath)
 		}

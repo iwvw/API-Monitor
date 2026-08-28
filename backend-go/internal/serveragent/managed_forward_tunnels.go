@@ -137,10 +137,13 @@ func (s *Service) runForwardTunnelDeploy(taskID, forwardID string) {
 		fail("validate_hostname", errors.New("整域转发需要自定义 Tunnel 域名"))
 		return
 	}
-	var accountID, zoneID string
-	if err := db.QueryRowContext(ctx, `SELECT account_id,zone_id FROM managed_proxy_tunnels WHERE server_id=?`, item.ServerID).Scan(&accountID, &zoneID); err != nil {
-		fail("load_host_tunnel", errors.New("源主机未部署主机级 Tunnel，无法确定 Cloudflare 账号与 Zone"))
-		return
+	accountID, zoneID := item.TunnelAccountID, item.TunnelZoneID
+	if accountID == "" || zoneID == "" {
+		// 旧数据未存规则级账号/Zone：回退主机级 Tunnel 的账号与 Zone
+		if err := db.QueryRowContext(ctx, `SELECT account_id,zone_id FROM managed_proxy_tunnels WHERE server_id=?`, item.ServerID).Scan(&accountID, &zoneID); err != nil {
+			fail("load_host_tunnel", errors.New("源主机未部署主机级 Tunnel，无法确定 Cloudflare 账号与 Zone"))
+			return
+		}
 	}
 
 	progress(10, "preflight", "正在校验自定义域名所属 Zone 与权限")
@@ -286,32 +289,45 @@ func (s *Service) startForwardAuthProxy(ctx context.Context, db *sql.DB, item *m
 	return proxyResp.Port, nil
 }
 
-// removeForwardTunnel 卸载整域规则独立隧道。keepTunnel=true（stop）时仅停实例保留 Named Tunnel 与 DNS。
-func (s *Service) removeForwardTunnel(ctx context.Context, db *sql.DB, item *managedForward, keepTunnel bool) {
+// removeForwardTunnel 卸载整域规则独立隧道。keepTunnel=true（stop）仅停实例保留 Named Tunnel 与 DNS；
+// keepTunnel=false（删除）级联清空：停实例 + 删 Named Tunnel + 删 DNS，任一 Cloudflare 清理失败返回错误。
+func (s *Service) removeForwardTunnel(ctx context.Context, db *sql.DB, item *managedForward, keepTunnel bool) error {
 	if item.Transport != "cloudflare_tunnel" || !item.WholeHost || item.TunnelID == "" {
-		return
+		return nil
 	}
-	var zoneID, tunnelID, dnsRecordID string
-	if err := db.QueryRowContext(ctx, `SELECT COALESCE(tunnel_zone_id,''),COALESCE(tunnel_id,''),COALESCE(dns_record_id,'') FROM managed_forwards WHERE id=?`, item.ID).Scan(&zoneID, &tunnelID, &dnsRecordID); err != nil || tunnelID == "" {
-		return
+	var accountID, zoneID, tunnelID, dnsRecordID string
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(tunnel_account_id,''),COALESCE(tunnel_zone_id,''),COALESCE(tunnel_id,''),COALESCE(dns_record_id,'') FROM managed_forwards WHERE id=?`, item.ID).Scan(&accountID, &zoneID, &tunnelID, &dnsRecordID); err != nil || tunnelID == "" {
+		return nil
 	}
+	// 源主机 Agent 在线则停/卸 cloudflared 实例（尽力而为，失败不阻断云端清理）
 	if _, ok := s.registry.Get(item.ServerID); ok {
 		payload, _ := json.Marshal(forwardCloudflaredTaskPayload("remove", "", item.ID))
 		_, _ = s.RunCloudflaredTaskAndWait(item.ServerID, string(payload))
 	}
 	if keepTunnel {
 		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_apply_status='stopped',tunnel_last_stage='stopped',updated_at=datetime('now') WHERE id=?`, item.ID)
-		return
+		return nil
 	}
-	var accountID string
-	_ = db.QueryRowContext(ctx, `SELECT account_id FROM managed_proxy_tunnels WHERE server_id=?`, item.ServerID).Scan(&accountID)
+	if accountID == "" {
+		_ = db.QueryRowContext(ctx, `SELECT account_id FROM managed_proxy_tunnels WHERE server_id=?`, item.ServerID).Scan(&accountID)
+	}
+	var failures []string
+	if tunnelID != "" && accountID != "" {
+		if err := s.cloudflare.DeleteManagedTunnel(context.Background(), accountID, tunnelID); err != nil {
+			failures = append(failures, "删除 Named Tunnel 失败: "+err.Error())
+		}
+	}
 	if dnsRecordID != "" && accountID != "" && zoneID != "" {
-		_ = s.cloudflare.DeleteManagedTunnelDNS(context.Background(), accountID, zoneID, dnsRecordID)
+		if err := s.cloudflare.DeleteManagedTunnelDNS(context.Background(), accountID, zoneID, dnsRecordID); err != nil {
+			failures = append(failures, "删除 DNS 记录失败: "+err.Error())
+		}
 	}
-	if accountID != "" {
-		_ = s.cloudflare.DeleteManagedTunnel(context.Background(), accountID, tunnelID)
+	if len(failures) > 0 {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_apply_status='cleanup_failed',tunnel_last_stage='cleanup_failed',tunnel_last_error=?,updated_at=datetime('now') WHERE id=?`, strings.Join(failures, "; "), item.ID)
+		return errors.New(strings.Join(failures, "; "))
 	}
-	_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_id='',tunnel_zone_id='',tunnel_zone_name='',dns_record_id='',tunnel_token_encrypted='',tunnel_apply_status='',tunnel_last_stage='',tunnel_last_error='',auth_proxy_port=0,updated_at=datetime('now') WHERE id=?`, item.ID)
+	_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_id='',tunnel_account_id='',tunnel_zone_id='',tunnel_zone_name='',dns_record_id='',tunnel_token_encrypted='',tunnel_apply_status='',tunnel_last_stage='',tunnel_last_error='',auth_proxy_port=0,updated_at=datetime('now') WHERE id=?`, item.ID)
+	return nil
 }
 
 // reconcileForwardTunnelHealth 周期检查整域规则独立隧道的边缘连接，断开则自愈；
@@ -516,12 +532,12 @@ func migrateLegacyWholeHostTunnels(ctx context.Context, db *sql.DB) error {
 	}
 	rows.Close()
 	for _, it := range list {
-		var zoneName string
-		if err := db.QueryRowContext(ctx, `SELECT zone_name FROM managed_proxy_tunnels WHERE server_id=?`, it.serverID).Scan(&zoneName); err != nil || zoneName == "" {
+		var accountID, zoneID, zoneName string
+		if err := db.QueryRowContext(ctx, `SELECT account_id,zone_id,zone_name FROM managed_proxy_tunnels WHERE server_id=?`, it.serverID).Scan(&accountID, &zoneID, &zoneName); err != nil || zoneName == "" {
 			continue
 		}
 		hostname := forwardTunnelInstance(it.id) + "." + zoneName
-		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_hostname=?,updated_at=datetime('now') WHERE id=?`, hostname, it.id)
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_hostname=?,tunnel_account_id=?,tunnel_zone_id=?,updated_at=datetime('now') WHERE id=?`, hostname, accountID, zoneID, it.id)
 	}
 	return nil
 }

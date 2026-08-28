@@ -57,6 +57,13 @@ func TestMigrateLegacyWholeHostTunnels(t *testing.T) {
 	if hostname != "fwd-56a28e363cfe9cac.085014.xyz" {
 		t.Fatalf("legacy whole-host domain = %q, want fwd-56a28e363cfe9cac.085014.xyz", hostname)
 	}
+	var acctID, zoneID string
+	if err := db.QueryRowContext(ctx, `SELECT tunnel_account_id,tunnel_zone_id FROM managed_forwards WHERE id='fwd_56a28e363cfe9cac'`).Scan(&acctID, &zoneID); err != nil {
+		t.Fatal(err)
+	}
+	if acctID != "acc" || zoneID != "zone" {
+		t.Fatalf("legacy migrated account/zone = %q/%q, want acc/zone", acctID, zoneID)
+	}
 	// 非整域规则不受迁移影响
 	if err := db.QueryRowContext(ctx, `SELECT tunnel_hostname FROM managed_forwards WHERE id='legacy-sub'`).Scan(&hostname); err != nil {
 		t.Fatal(err)
