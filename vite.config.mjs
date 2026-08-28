@@ -143,6 +143,10 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true, // 监听所有网络接口，允许手机访问
       port: 5173,
+      // 转发中心把自定义域名代理到本地开发端时，Host 头不在默认允许列表内会被
+      // Vite 以 Blocked request 拦截。本地开发放行任意 Host（DNS rebinding 风险
+      // 仅限本机 dev server，生产构建走静态托管/后端，不受此配置影响）。
+      allowedHosts: true,
       hmr: {
         protocol: 'ws',
         host: 'localhost',
