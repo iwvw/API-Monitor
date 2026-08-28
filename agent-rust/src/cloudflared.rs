@@ -4,6 +4,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Deserialize, Default)]
 struct Request {
     operation: String,
+    // 隧道实例标识：空串表示主机级（默认）隧道（兼容旧协议）；非空（如转发规则 id）
+    // 表示该主机上的独立隧道实例，按实例隔离 systemd 单元 / 配置 / pid / 日志 / token。
+    #[serde(default)]
+    instance: String,
     #[serde(default)]
     token: String,
     #[serde(default)]
@@ -33,20 +37,66 @@ pub fn reconcile(raw: &str) -> Result<String, String> {
         .map_err(|err| format!("invalid cloudflared desired state: {err}"))?;
     match request.operation.trim().to_ascii_lowercase().as_str() {
         "install" | "reconcile" => install(&request),
-        "remove" | "uninstall" => remove(),
-        "status" => status(),
+        "remove" | "uninstall" => remove(&request),
+        "status" => status(&request),
         _ => Err("cloudflared operation must be install, remove, or status".to_string()),
     }
 }
 
-// ==================== Unix（systemd 服务） ====================
+// 实例标识清洗：仅保留小写字母/数字/连字符，截断，空串保持空串（主机级）。
+fn instance_slug(raw: &str) -> String {
+    let cleaned: String = raw
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    let cleaned = cleaned.trim_matches('-').to_string();
+    if cleaned.is_empty() {
+        return String::new();
+    }
+    if cleaned.len() > 32 {
+        cleaned[..32].to_string()
+    } else {
+        cleaned
+    }
+}
+
+// ==================== Unix（systemd 服务，按实例隔离） ====================
 
 #[cfg(unix)]
-const CONFIG_ROOT: &str = "/etc/api-monitor/cloudflared";
-#[cfg(unix)]
 const RUNTIME_ROOT: &str = "/opt/api-monitor/cloudflared/versions";
+
 #[cfg(unix)]
-const UNIT_PATH: &str = "/etc/systemd/system/api-monitor-cloudflared.service";
+fn instance_root(instance: &str) -> PathBuf {
+    let base = Path::new("/etc/api-monitor/cloudflared");
+    if instance.is_empty() {
+        base.to_path_buf()
+    } else {
+        base.join(instance)
+    }
+}
+
+#[cfg(unix)]
+fn unit_path(instance: &str) -> PathBuf {
+    if instance.is_empty() {
+        PathBuf::from("/etc/systemd/system/api-monitor-cloudflared.service")
+    } else {
+        PathBuf::from(format!(
+            "/etc/systemd/system/api-monitor-cloudflared-{}.service",
+            instance
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn unit_name(instance: &str) -> String {
+    if instance.is_empty() {
+        "api-monitor-cloudflared.service".to_string()
+    } else {
+        format!("api-monitor-cloudflared-{}.service", instance)
+    }
+}
 
 #[cfg(unix)]
 fn install(request: &Request) -> Result<String, String> {
@@ -55,47 +105,62 @@ fn install(request: &Request) -> Result<String, String> {
 
     validate_token(request)?;
     let binary = ensure_binary_unix(request)?;
-    let root = Path::new(CONFIG_ROOT);
-    fs::create_dir_all(root)
+    let instance = instance_slug(&request.instance);
+    let root = instance_root(&instance);
+    fs::create_dir_all(&root)
         .map_err(|err| format!("create cloudflared config directory: {err}"))?;
-    fs::set_permissions(root, fs::Permissions::from_mode(0o700))
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
         .map_err(|err| format!("secure cloudflared config directory: {err}"))?;
     atomic_write(&root.join("token"), request.token.trim().as_bytes(), 0o600)?;
 
+    let unit_file = unit_path(&instance);
+    let unit_service = unit_name(&instance);
     let unit = format!(
-        "[Unit]\nDescription=API Monitor managed Cloudflare Tunnel\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart={} --no-autoupdate tunnel run --protocol http2 --token-file {}/token\nRestart=always\nRestartSec=5s\nStartLimitIntervalSec=0\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadOnlyPaths={}\nCapabilityBoundingSet=\nLockPersonality=true\nMemoryDenyWriteExecute=true\nRestrictSUIDSGID=true\n\n[Install]\nWantedBy=multi-user.target\n",
-        binary.display(), CONFIG_ROOT, CONFIG_ROOT
+        "[Unit]\nDescription=API Monitor managed Cloudflare Tunnel{}\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart={} --no-autoupdate tunnel run --protocol http2 --token-file {}/token\nRestart=always\nRestartSec=5s\nStartLimitIntervalSec=0\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadOnlyPaths={}\nCapabilityBoundingSet=\nLockPersonality=true\nMemoryDenyWriteExecute=true\nRestrictSUIDSGID=true\n\n[Install]\nWantedBy=multi-user.target\n",
+        if instance.is_empty() { String::new() } else { format!(" ({instance})") },
+        binary.display(), root.display(), root.display()
     );
-    atomic_write(Path::new(UNIT_PATH), unit.as_bytes(), 0o644)?;
+    atomic_write(&unit_file, unit.as_bytes(), 0o644)?;
     systemctl(&["daemon-reload"])?;
-    systemctl(&["enable", "--now", "api-monitor-cloudflared.service"])?;
-    systemctl(&["restart", "api-monitor-cloudflared.service"])?;
-    systemctl(&["is-active", "--quiet", "api-monitor-cloudflared.service"])?;
-    Ok(serde_json::json!({"status":"running","version":request.version}).to_string())
+    systemctl(&["enable", "--now", unit_service.as_str()])?;
+    systemctl(&["restart", unit_service.as_str()])?;
+    systemctl(&["is-active", "--quiet", unit_service.as_str()])?;
+    Ok(serde_json::json!({"status":"running","version":request.version,"instance":instance}).to_string())
 }
 
 #[cfg(unix)]
-fn remove() -> Result<String, String> {
+fn remove(request: &Request) -> Result<String, String> {
     use std::fs;
 
-    let _ = systemctl(&["disable", "--now", "api-monitor-cloudflared.service"]);
-    let _ = fs::remove_file(UNIT_PATH);
-    let _ = fs::remove_dir_all(CONFIG_ROOT);
-    let _ = fs::remove_dir_all("/opt/api-monitor/cloudflared");
+    let instance = instance_slug(&request.instance);
+    let unit_name = unit_name(&instance);
+    let _ = systemctl(&["disable", "--now", unit_name.as_str()]);
+    let _ = fs::remove_file(unit_path(&instance));
+    if instance.is_empty() {
+        // 主机级：清理整块配置与共享运行时
+        let _ = fs::remove_dir_all("/etc/api-monitor/cloudflared");
+        let _ = fs::remove_dir_all("/opt/api-monitor/cloudflared");
+    } else {
+        // 独立实例：只清理该实例配置目录，共享运行时二进制保留
+        let _ = fs::remove_dir_all(instance_root(&instance));
+    }
     systemctl(&["daemon-reload"])?;
-    let _ = systemctl(&["reset-failed", "api-monitor-cloudflared.service"]);
-    Ok(serde_json::json!({"status":"removed"}).to_string())
+    let _ = systemctl(&["reset-failed", unit_name.as_str()]);
+    Ok(serde_json::json!({"status":"removed","instance":instance}).to_string())
 }
 
 #[cfg(unix)]
-fn status() -> Result<String, String> {
+fn status(request: &Request) -> Result<String, String> {
     use std::process::Command;
 
+    let instance = instance_slug(&request.instance);
+    let unit_name = unit_name(&instance);
     let active = Command::new("systemctl")
-        .args(["is-active", "--quiet", "api-monitor-cloudflared.service"])
+        .args(["is-active", "--quiet"])
+        .arg(&unit_name)
         .status()
         .is_ok_and(|status| status.success());
-    Ok(serde_json::json!({"status": if active { "running" } else { "stopped" }}).to_string())
+    Ok(serde_json::json!({"status": if active { "running" } else { "stopped" }, "instance": instance}).to_string())
 }
 
 #[cfg(unix)]
@@ -169,7 +234,7 @@ fn ensure_binary_unix(request: &Request) -> Result<PathBuf, String> {
     Ok(binary)
 }
 
-// ==================== Windows（后台进程 + 开机计划任务） ====================
+// ==================== Windows（按实例的后台进程 + 开机计划任务） ====================
 
 #[cfg(windows)]
 fn config_root_windows() -> PathBuf {
@@ -177,6 +242,44 @@ fn config_root_windows() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("C:\\ProgramData"));
     base.join("api-monitor").join("cloudflared")
+}
+
+#[cfg(windows)]
+fn instance_root_windows(instance: &str) -> PathBuf {
+    let base = config_root_windows();
+    if instance.is_empty() {
+        base
+    } else {
+        base.join(instance)
+    }
+}
+
+#[cfg(windows)]
+fn pid_file_windows(instance: &str) -> PathBuf {
+    instance_root_windows(instance).join(format!("cloudflared{}.pid", instance_suffix(instance)))
+}
+
+#[cfg(windows)]
+fn log_file_windows(instance: &str) -> PathBuf {
+    instance_root_windows(instance).join(format!("cloudflared{}.log", instance_suffix(instance)))
+}
+
+#[cfg(windows)]
+fn boot_task_name_windows(instance: &str) -> String {
+    if instance.is_empty() {
+        "api-monitor-cloudflared".to_string()
+    } else {
+        format!("api-monitor-cloudflared-{instance}")
+    }
+}
+
+#[cfg(windows)]
+fn instance_suffix(instance: &str) -> String {
+    if instance.is_empty() {
+        String::new()
+    } else {
+        format!("-{instance}")
+    }
 }
 
 #[cfg(windows)]
@@ -250,14 +353,17 @@ fn sha256_of(path: &Path) -> Result<String, String> {
 }
 
 #[cfg(windows)]
-fn spawn_cloudflared_windows(binary: &Path, token_file: &Path) -> Result<u32, String> {
+fn spawn_cloudflared_windows(binary: &Path, token_file: &Path, pid_path: &Path, log_path: &Path) -> Result<u32, String> {
     use std::os::windows::process::CommandExt;
 
-    let log_file = config_root_windows().join("cloudflared.log");
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create cloudflared log directory: {err}"))?;
+    }
     let log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&log_file)
+        .open(log_path)
         .map_err(|err| format!("open cloudflared log: {err}"))?;
     let child = std::process::Command::new(binary)
         .args([
@@ -270,7 +376,11 @@ fn spawn_cloudflared_windows(binary: &Path, token_file: &Path) -> Result<u32, St
         .spawn()
         .map_err(|err| format!("spawn cloudflared: {err}"))?;
     let pid = child.id();
-    std::fs::write(config_root_windows().join("cloudflared.pid"), pid.to_string())
+    if let Some(parent) = pid_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create cloudflared pid directory: {err}"))?;
+    }
+    std::fs::write(pid_path, pid.to_string())
         .map_err(|err| format!("write cloudflared pid: {err}"))?;
     Ok(pid)
 }
@@ -308,32 +418,34 @@ fn install(request: &Request) -> Result<String, String> {
 
     validate_token(request)?;
     let binary = binary_path_windows(request)?;
-    let root = config_root_windows();
+    let instance = instance_slug(&request.instance);
+    let root = instance_root_windows(&instance);
     fs::create_dir_all(&root).map_err(|err| format!("create cloudflared config directory: {err}"))?;
     let token_file = root.join("token");
     fs::write(&token_file, request.token.trim()).map_err(|err| format!("write cloudflared token: {err}"))?;
 
-    // 重启当前实例（幂等：停旧进程再拉起新实例，保证使用最新 token/二进制）
-    stop_cloudflared_windows();
-    let pid = spawn_cloudflared_windows(&binary, &token_file)?;
+    // 重启该实例（幂等：只停本实例的旧进程，不干扰其它实例）
+    stop_cloudflared_windows(&instance);
+    let pid = spawn_cloudflared_windows(&binary, &token_file, &pid_file_windows(&instance), &log_file_windows(&instance))?;
     std::thread::sleep(std::time::Duration::from_millis(1200));
     if !pid_alive_windows(pid) {
-        return Err("cloudflared 启动后进程即退出，请查看 %ProgramData%\\api-monitor\\cloudflared\\cloudflared.log".to_string());
+        return Err(format!("cloudflared 启动后进程即退出，请查看 {}",
+            log_file_windows(&instance).display()));
     }
     // 开机自启：SYSTEM 启动任务（尽力而为；agent 存活期间进程也始终跟随）
-    let _ = ensure_boot_task_windows(&binary, &token_file);
-    Ok(serde_json::json!({"status":"running","version":request.version,"pid":pid}).to_string())
+    let _ = ensure_boot_task_windows(&binary, &token_file, &boot_task_name_windows(&instance));
+    Ok(serde_json::json!({"status":"running","version":request.version,"pid":pid,"instance":instance}).to_string())
 }
 
 #[cfg(windows)]
-fn ensure_boot_task_windows(binary: &Path, token_file: &Path) -> Result<(), String> {
+fn ensure_boot_task_windows(binary: &Path, token_file: &Path, task_name: &str) -> Result<(), String> {
     let tr = format!(
         "\\\"{}\\\" --no-autoupdate tunnel run --protocol http2 --token-file \\\"{}\\\"",
         binary.display().to_string().replace('\\', "\\\\"),
         token_file.display().to_string().replace('\\', "\\\\")
     );
     let status = std::process::Command::new("schtasks")
-        .args(["/Create", "/TN", "api-monitor-cloudflared", "/TR", &tr, "/SC", "ONSTART", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"])
+        .args(["/Create", "/TN", task_name, "/TR", &tr, "/SC", "ONSTART", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"])
         .status();
     match status {
         Ok(st) if st.success() => Ok(()),
@@ -343,39 +455,39 @@ fn ensure_boot_task_windows(binary: &Path, token_file: &Path) -> Result<(), Stri
 }
 
 #[cfg(windows)]
-fn stop_cloudflared_windows() {
-    let pid_file = config_root_windows().join("cloudflared.pid");
-    if let Ok(text) = std::fs::read_to_string(&pid_file) {
+fn stop_cloudflared_windows(instance: &str) {
+    let pid_path = pid_file_windows(instance);
+    if let Ok(text) = std::fs::read_to_string(&pid_path) {
         if let Ok(pid) = text.trim().parse::<u32>() {
             kill_pid_windows(pid);
         }
     }
-    // 兜底：清理可能残留的同名工作进程（OLDER agent 可能未写 pid 文件）
-    let _ = std::process::Command::new("taskkill")
-        .args(["/IM", "cloudflared.exe", "/F", "/T"])
-        .status();
+    let _ = std::fs::remove_file(&pid_path);
 }
 
 #[cfg(windows)]
-fn remove() -> Result<String, String> {
-    stop_cloudflared_windows();
-    let _ = std::process::Command::new("schtasks").args(["/Delete", "/TN", "api-monitor-cloudflared", "/F"]).status();
-    let root = config_root_windows();
+fn remove(request: &Request) -> Result<String, String> {
+    let instance = instance_slug(&request.instance);
+    stop_cloudflared_windows(&instance);
+    let task_name = boot_task_name_windows(&instance);
+    let _ = std::process::Command::new("schtasks").args(["/Delete", "/TN", &task_name, "/F"]).status();
+    let root = instance_root_windows(&instance);
     if std::env::var_os("ProgramData").is_some() {
         let _ = std::fs::remove_dir_all(&root);
     }
-    Ok(serde_json::json!({"status":"removed"}).to_string())
+    Ok(serde_json::json!({"status":"removed","instance":instance}).to_string())
 }
 
 #[cfg(windows)]
-fn status() -> Result<String, String> {
-    let pid_file = config_root_windows().join("cloudflared.pid");
+fn status(request: &Request) -> Result<String, String> {
+    let instance = instance_slug(&request.instance);
+    let pid_file = pid_file_windows(&instance);
     let running = std::fs::read_to_string(&pid_file)
         .ok()
         .and_then(|text| text.trim().parse::<u32>().ok())
         .map(pid_alive_windows)
         .unwrap_or(false);
-    Ok(serde_json::json!({"status": if running { "running" } else { "stopped" }}).to_string())
+    Ok(serde_json::json!({"status": if running { "running" } else { "stopped" }, "instance": instance}).to_string())
 }
 
 // ==================== 通用 ====================
@@ -427,5 +539,25 @@ fn run(command: &mut std::process::Command, label: &str) -> Result<(), String> {
             "{label}: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::instance_slug;
+
+    #[test]
+    fn instance_slug_keeps_empty_for_host_level() {
+        assert_eq!(instance_slug(""), "");
+        assert_eq!(instance_slug("  "), "");
+        assert_eq!(instance_slug("---"), "");
+    }
+
+    #[test]
+    fn instance_slug_normalizes_and_truncates() {
+        assert_eq!(instance_slug("fwd_123"), "fwd-123");
+        assert_eq!(instance_slug("Fwd.Demo_085014"), "fwd-demo-085014");
+        assert_eq!(instance_slug("a".repeat(64).as_str()), "a".repeat(32));
+        assert_eq!(instance_slug("fwd-abc.xyz"), "fwd-abc-xyz");
     }
 }
