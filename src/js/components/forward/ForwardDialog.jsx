@@ -71,6 +71,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
   const [preset, setPreset] = useState('');
   const [transport, setTransport] = useState('cloudflare_tunnel');
   const [wholeHost, setWholeHost] = useState(false);
+  const [forwardDomain, setForwardDomain] = useState('');
   const [relayServerId, setRelayServerId] = useState('');
   const [accessMode, setAccessMode] = useState('public');
   const [submitting, setSubmitting] = useState(false);
@@ -118,6 +119,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         setProtocol(editing.udp ? 'udp' : editing.protocol);
         setTransport(editing.transport);
         setWholeHost(!!editing.whole_host);
+        setForwardDomain(editing.tunnel_hostname || '');
         setRelayServerId(editing.relay_server_id || '');
         setAccessMode(editing.access_mode);
         setHealthCheckEnabled(!!editing.health_check_enabled);
@@ -131,6 +133,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         setProtocol('tcp');
         setTransport('cloudflare_tunnel');
         setWholeHost(false);
+        setForwardDomain('');
         setRelayServerId('');
         setAccessMode('public');
         setHealthCheckEnabled(false);
@@ -223,6 +226,11 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
       toast.error('UDP 转发仅支持 TCP 中继传输方式');
       return;
     }
+    const isWholeHostCF = transport === 'cloudflare_tunnel' && wholeHost;
+    if (isWholeHostCF && !forwardDomain.trim()) {
+      toast.error('整域部署需要填写自定义域名');
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await onSubmit({
@@ -233,7 +241,8 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
         protocol: isUdp ? 'tcp' : protocol,
         udp: isUdp,
         transport,
-        whole_host: transport === 'cloudflare_tunnel' && wholeHost,
+        whole_host: isWholeHostCF,
+        tunnel_hostname: isWholeHostCF ? forwardDomain.trim().toLowerCase() : '',
         relay_server_id: transport === 'tcp_relay' ? relayServerId : '',
         access_mode: accessMode,
         ...(editing ? { health_check_enabled: healthCheckEnabled, failover_enabled: failoverEnabled } : {}),
@@ -487,12 +496,25 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                         onCheckedChange={setWholeHost}
                       />
                       {wholeHost ? (
-                        <div className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">
-                          <p>整个域名路由到本地服务，资源路径不会被子路径拦截，适合完整网站 / SPA。</p>
-                          <p className="mt-1 font-mono text-[11px] text-kumo-brand">
-                            {editing?.tunnel_hostname ? `${protocol === 'http' ? 'http' : 'https'}://${editing.tunnel_hostname}` : 'https://域名根路径'}
-                          </p>
-                          <p className="mt-1 text-[11px] text-kumo-text-warning">整域部署会独占该域名，不再与子路径转发共享。</p>
+                        <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs text-kumo-text-secondary">自定义域名（独立 Tunnel，必填）</label>
+                            <Input
+                              size="sm"
+                              value={forwardDomain}
+                              onChange={(e) => setForwardDomain(e.target.value)}
+                              placeholder="fwd-api.example.com"
+                              aria-label="自定义域名"
+                              spellCheck={false}
+                            />
+                          </div>
+                          <div className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">
+                            <p>整域部署为每条规则创建独立 Cloudflare Tunnel 与独立域名，不再共享主机隧道。</p>
+                            <p className="mt-1 font-mono text-[11px] text-kumo-brand">
+                              {forwardDomain ? `${protocol === 'http' ? 'http' : 'https'}://${forwardDomain}` : 'https://自定义域名'}
+                            </p>
+                            <p className="mt-1 text-[11px] text-kumo-text-warning">域名需属于该主机 Cloudflare 账号的 Zone，部署时自动建 DNS 记录。</p>
+                          </div>
                         </div>
                       ) : (
                         <div className="rounded-lg bg-kumo-fill px-3 py-2 text-xs text-kumo-text-secondary">

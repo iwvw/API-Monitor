@@ -26,6 +26,15 @@ const STATUS_BADGE_VARIANT = {
   pending: 'neutral',
 };
 
+const TUNNEL_STATUS_LABELS = {
+  running: '已连接',
+  deploying: '部署中',
+  disconnected: '已断开',
+  reconciling: '自愈中',
+  stopped: '已停止',
+  failed: '失败',
+};
+
 export default function ForwardCanvas({ forwards, servers, deploying, acting, onEdit, onDeploy, onStop, onStart, onDelete, deleteConfirmActive, isDeleting }) {
   const viewportRef = useRef(null);
   const spotlightSurfaceRef = useCloudflareSpotlight();
@@ -580,8 +589,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                   <span className="shrink-0 text-kumo-subtle">访问地址</span>
                   {selectedCard.fwd.access_url ? (
                     <span className="flex min-w-0 items-center gap-1">
-                      <span className="min-w-0 truncate text-xs text-kumo-default">{selectedCard.fwd.access_url}</span>
-                      <ClipboardText size="sm" text={selectedCard.fwd.access_url} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
+                      <ClipboardText size="sm" text={selectedCard.fwd.access_url} className="min-w-0 flex-1" tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
                       {/^https?:\/\//.test(selectedCard.fwd.access_url) && (
                         <Button
                           size="sm"
@@ -611,6 +619,14 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                     {TRANSPORT_LABELS[selectedCard.fwd.transport] || selectedCard.fwd.transport}
                   </span>
                 </div>
+                {selectedCard.fwd.transport === 'cloudflare_tunnel' && selectedCard.fwd.whole_host && selectedCard.fwd.tunnel_apply_status && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="shrink-0 text-kumo-subtle">独立隧道</span>
+                    <span className="text-kumo-default">
+                      {TUNNEL_STATUS_LABELS[selectedCard.fwd.tunnel_apply_status] || selectedCard.fwd.tunnel_apply_status}
+                    </span>
+                  </div>
+                )}
                 {selectedCard.fwd.transport === 'tcp_relay' && selectedCard.fwd.relay_server_name && (
                   <div className="flex items-center justify-between gap-2">
                     <span className="shrink-0 text-kumo-subtle">中转节点</span>
