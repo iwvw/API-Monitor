@@ -20,6 +20,8 @@ type Settings struct {
 	// ProxyEndpointID 复用模型网关某个端点的出口代理池（proxy_pool）；空 = 直连。
 	// 代理冷却/禁用状态读取 openai_proxy_state，与网关共享同一份代理健康数据。
 	ProxyEndpointID string `json:"proxyEndpointId"`
+	// ManualProxies 手动代理列表（http/https/socks5），优先级高于 ProxyEndpointID。
+	ManualProxies []string `json:"manualProxies"`
 
 	RequestTimeout           int    `json:"requestTimeout"`
 	MaxRetries               int    `json:"maxRetries"`

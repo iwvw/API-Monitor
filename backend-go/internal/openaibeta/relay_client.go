@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -26,9 +27,15 @@ func newRelayClient(p settingsProvider) *relayClient {
 	}
 }
 
-// pickProxy 读取指定网关端点的出口代理池，过滤冷却/禁用后按下标轮询返回。
-// proxyEndpointID 为空或池为空/全禁用时返回 ""（直连）。
-func (c *relayClient) pickProxy(ctx context.Context, db *sql.DB, proxyEndpointID string) (string, error) {
+// pickProxy 选择出口代理，优先级：ManualProxies 手动列表 > 网关端点代理池。
+// 手动列表按下标轮询（无健康状态，因为不落库）；代理池复用网关健康数据。
+// 均无可用代理时返回 ""（直连）。
+func (c *relayClient) pickProxy(ctx context.Context, db *sql.DB, proxyEndpointID string, manualProxies []string) (string, error) {
+	manual := cleanProxyList(manualProxies)
+	if len(manual) > 0 {
+		idx := atomic.AddUint64(&c.cursor, 1) - 1
+		return manual[idx%uint64(len(manual))], nil
+	}
 	if proxyEndpointID == "" {
 		return "", nil
 	}
@@ -70,6 +77,23 @@ func (c *relayClient) pickProxy(ctx context.Context, db *sql.DB, proxyEndpointID
 	return available[idx%uint64(len(available))], nil
 }
 
+// cleanProxyList 清洗代理列表：去空、去空白、去重。
+func cleanProxyList(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		p := strings.TrimSpace(raw)
+		if p == "" || seen[p] {
+			continue
+		}
+		if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") || strings.HasPrefix(p, "socks5://") {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // loadProxyPool 读取 openai_endpoints.proxy_pool（JSON 字符串数组）。
 func (c *relayClient) loadProxyPool(ctx context.Context, db *sql.DB, endpointID string) ([]string, error) {
 	var raw sql.NullString
@@ -108,7 +132,8 @@ func (s *Service) completeChat(ctx context.Context, db *sql.DB, model string, pa
 		return nil, enginevertex.NewInternalError("Beta 插件客户端未初始化")
 	}
 	if proxyURI == "" {
-		proxyURI, _ = c.pickProxy(ctx, db, s.Settings().ProxyEndpointID)
+		st := s.Settings()
+		proxyURI, _ = c.pickProxy(ctx, db, st.ProxyEndpointID, st.ManualProxies)
 	}
 	return c.vc.CompleteChatViaProxy(ctx, model, payload, proxyURI)
 }
@@ -123,7 +148,8 @@ func (s *Service) streamChat(ctx context.Context, db *sql.DB, model string, payl
 		return
 	}
 	if proxyURI == "" {
-		proxyURI, _ = c.pickProxy(ctx, db, s.Settings().ProxyEndpointID)
+		st := s.Settings()
+		proxyURI, _ = c.pickProxy(ctx, db, st.ProxyEndpointID, st.ManualProxies)
 	}
 	c.vc.StreamChatViaProxy(ctx, model, payload, proxyURI, yield)
 }

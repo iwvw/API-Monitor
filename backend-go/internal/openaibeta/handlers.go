@@ -36,6 +36,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleTest(w, r)
 	case path == "/api/openaibeta/status":
 		s.handleStatus(w, r)
+	case path == "/api/openaibeta/link":
+		s.handleLink(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "openaibeta route not found")
 	}
@@ -246,7 +248,8 @@ func (s *Service) proxyForRequest(ctx context.Context, db *sql.DB) (string, erro
 	if c == nil {
 		return "", nil
 	}
-	return c.pickProxy(ctx, db, s.Settings().ProxyEndpointID)
+	st := s.Settings()
+	return c.pickProxy(ctx, db, st.ProxyEndpointID, st.ManualProxies)
 }
 
 // writeVertexError 把引擎错误映射为 OpenAI 错误响应；安全拦截返回 content_filter。
