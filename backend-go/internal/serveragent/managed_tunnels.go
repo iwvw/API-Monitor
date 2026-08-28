@@ -392,6 +392,8 @@ func (s *Service) reconcileManagedTunnelHealth(ctx context.Context) {
 	for _, serverID := range serverIDs {
 		go s.reconcileManagedTunnelConnection(serverID)
 	}
+	// 整域转发规则的独立隧道同样纳入健康检查与自愈
+	s.reconcileForwardTunnelHealth(ctx)
 }
 
 func (s *Service) reconcileManagedTunnelConnection(serverID string) {

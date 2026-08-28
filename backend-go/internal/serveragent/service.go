@@ -1033,6 +1033,17 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			transport TEXT NOT NULL CHECK(transport IN ('cloudflare_tunnel','tcp_relay','p2p')),
 			tunnel_hostname TEXT NOT NULL DEFAULT '',
 			tunnel_path TEXT NOT NULL DEFAULT '',
+			tunnel_id TEXT NOT NULL DEFAULT '',
+			tunnel_zone_id TEXT NOT NULL DEFAULT '',
+			tunnel_zone_name TEXT NOT NULL DEFAULT '',
+			dns_record_id TEXT NOT NULL DEFAULT '',
+			tunnel_token_encrypted TEXT NOT NULL DEFAULT '',
+			tunnel_revision INTEGER NOT NULL DEFAULT 0,
+			tunnel_apply_status TEXT NOT NULL DEFAULT '',
+			tunnel_last_stage TEXT NOT NULL DEFAULT '',
+			tunnel_last_error TEXT NOT NULL DEFAULT '',
+			tunnel_reconcile_attempts INTEGER NOT NULL DEFAULT 0,
+			tunnel_last_reconcile_at TEXT NOT NULL DEFAULT '',
 			whole_host INTEGER NOT NULL DEFAULT 0,
 			udp INTEGER NOT NULL DEFAULT 0,
 			relay_server_id TEXT NOT NULL DEFAULT '',
@@ -1173,6 +1184,11 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := repairLegacyTunnelSubscriberFlow(ctx, db); err != nil {
 		return err
 	}
+	// 存量整域 CF 转发迁移：为每条规则从主机级 Tunnel 的 Zone 自动分配独立子域名
+	// （tunnel_hostname 空则分配 fwd-<id>.<zone>），由转发隧道健康循环自动部署独立隧道。
+	if err := migrateLegacyWholeHostTunnels(ctx, db); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -1231,6 +1247,17 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 		{"whole_host", "ALTER TABLE managed_forwards ADD COLUMN whole_host INTEGER NOT NULL DEFAULT 0"},
 		{"auth_proxy_port", "ALTER TABLE managed_forwards ADD COLUMN auth_proxy_port INTEGER NOT NULL DEFAULT 0"},
 		{"udp", "ALTER TABLE managed_forwards ADD COLUMN udp INTEGER NOT NULL DEFAULT 0"},
+		{"tunnel_id", "ALTER TABLE managed_forwards ADD COLUMN tunnel_id TEXT NOT NULL DEFAULT ''"},
+		{"tunnel_zone_id", "ALTER TABLE managed_forwards ADD COLUMN tunnel_zone_id TEXT NOT NULL DEFAULT ''"},
+		{"tunnel_zone_name", "ALTER TABLE managed_forwards ADD COLUMN tunnel_zone_name TEXT NOT NULL DEFAULT ''"},
+		{"dns_record_id", "ALTER TABLE managed_forwards ADD COLUMN dns_record_id TEXT NOT NULL DEFAULT ''"},
+		{"tunnel_token_encrypted", "ALTER TABLE managed_forwards ADD COLUMN tunnel_token_encrypted TEXT NOT NULL DEFAULT ''"},
+		{"tunnel_revision", "ALTER TABLE managed_forwards ADD COLUMN tunnel_revision INTEGER NOT NULL DEFAULT 0"},
+		{"tunnel_apply_status", "ALTER TABLE managed_forwards ADD COLUMN tunnel_apply_status TEXT NOT NULL DEFAULT ''"},
+		{"tunnel_last_stage", "ALTER TABLE managed_forwards ADD COLUMN tunnel_last_stage TEXT NOT NULL DEFAULT ''"},
+		{"tunnel_last_error", "ALTER TABLE managed_forwards ADD COLUMN tunnel_last_error TEXT NOT NULL DEFAULT ''"},
+		{"tunnel_reconcile_attempts", "ALTER TABLE managed_forwards ADD COLUMN tunnel_reconcile_attempts INTEGER NOT NULL DEFAULT 0"},
+		{"tunnel_last_reconcile_at", "ALTER TABLE managed_forwards ADD COLUMN tunnel_last_reconcile_at TEXT NOT NULL DEFAULT ''"},
 	}
 	for _, f := range forwardFields {
 		if exists, err := hasColumn(ctx, db, "managed_forwards", f.Name); err == nil && !exists {
