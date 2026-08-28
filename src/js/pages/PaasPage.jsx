@@ -181,7 +181,10 @@ function PaasPage() {
   const [logLevelFilter, setLogLevelFilter] = useState('ALL');
   const [logWrapText, setLogWrapText] = useState(true);
   const [logAutoScroll, setLogAutoScroll] = useState(true);
+  const [logTailActive, setLogTailActive] = useState(false);
+  const [logTailConnected, setLogTailConnected] = useState(false);
   const logContainerRef = useRef(null);
+  const logTailAbortRef = useRef(null);
 
   const appendLogs = useCallback((newLogs) => {
     const processEntry = (log) => {
@@ -245,6 +248,79 @@ function PaasPage() {
       setLogLoading(false);
     }
   }, [appendLogs]);
+
+  const stopLogTail = useCallback(() => {
+    logTailAbortRef.current?.abort();
+    logTailAbortRef.current = null;
+    setLogTailActive(false);
+    setLogTailConnected(false);
+  }, []);
+
+  const parseLogTailEvent = useCallback((eventText) => {
+    const dataLines = eventText.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim());
+    for (const data of dataLines) {
+      if (!data || data === '[DONE]') continue;
+      try {
+        const payload = JSON.parse(data);
+        const entry = payload.result || payload;
+        const msg = entry.msg ?? (typeof entry.message === 'string' ? entry.message : null);
+        if (msg == null) continue;
+        appendLogs({
+          timestamp: entry.created_at ? new Date(entry.created_at).getTime() : Date.now(),
+          level: 'INFO',
+          message: msg,
+        });
+      } catch (e) {
+        // 非 JSON（如心跳/注释行）忽略
+      }
+    }
+  }, [appendLogs]);
+
+  const startKoyebLogTail = useCallback((account, service) => {
+    stopLogTail();
+    setLogTitle(`实时日志: ${service.name}`);
+    setLogSubtitle(`${account.name} · 实时跟随中`);
+    setLogs([]);
+    setLogViewerOpen(true);
+    setLogLoading(true);
+    const controller = new AbortController();
+    logTailAbortRef.current = controller;
+    const url = `/api/koyeb/services/${service._id}/logs/tail?accountId=${account.id}&stream=stdout`;
+    fetch(url, { headers: getAuthHeaders(), signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          throw new Error(`HTTP ${response.status}${errText ? ': ' + errText : ''}`);
+        }
+        if (!response.body) throw new Error('浏览器不支持流式读取');
+        setLogLoading(false);
+        setLogTailActive(true);
+        setLogTailConnected(true);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let boundary;
+          while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+            const event = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            parseLogTailEvent(event);
+          }
+        }
+      })
+      .catch((error) => {
+        if (error.name === 'AbortError') return;
+        appendLogs({ timestamp: Date.now(), level: 'ERROR', message: '实时日志连接中断: ' + error.message });
+      })
+      .finally(() => {
+        setLogLoading(false);
+        setLogTailActive(false);
+        setLogTailConnected(false);
+      });
+  }, [getAuthHeaders, stopLogTail, parseLogTailEvent, appendLogs]);
 
   // Filtered logs
   const filteredLogs = useMemo(() => {
@@ -718,6 +794,528 @@ function PaasPage() {
     if (value === 'worker') return 'purple';
     if (value === 'job') return 'orange';
     return 'neutral';
+  };
+
+  // ==================== 3.5 Koyeb Advanced Operations ====================
+  // 服务配置编辑（镜像 / 命令 / 环境变量 / 端口 / 区域 / 实例规格）
+  const [koyebConfigTarget, setKoyebConfigTarget] = useState(null);
+  const [koyebConfigForm, setKoyebConfigForm] = useState({ image: '', command: '', args: '', env: '', ports: '', regions: '', instanceType: '', skipBuild: false });
+  const [koyebConfigSaving, setKoyebConfigSaving] = useState(false);
+  const [koyebConfigError, setKoyebConfigError] = useState('');
+
+  // 部署历史 + 取消
+  const [koyebDeployTarget, setKoyebDeployTarget] = useState(null);
+  const [koyebDeployments, setKoyebDeployments] = useState([]);
+  const [koyebDeployLoading, setKoyebDeployLoading] = useState(false);
+  const [koyebDeployError, setKoyebDeployError] = useState('');
+
+  // 手动扩容
+  const [koyebScaleTarget, setKoyebScaleTarget] = useState(null);
+  const [koyebScaleScope, setKoyebScaleScope] = useState('');
+  const [koyebScaleInstances, setKoyebScaleInstances] = useState(1);
+  const [koyebScaleSaving, setKoyebScaleSaving] = useState(false);
+  const [koyebScaleError, setKoyebScaleError] = useState('');
+
+  // 域名管理
+  const [koyebDomainsTarget, setKoyebDomainsTarget] = useState(null);
+  const [koyebDomains, setKoyebDomains] = useState([]);
+  const [koyebDomainsLoading, setKoyebDomainsLoading] = useState(false);
+  const [koyebDomainsError, setKoyebDomainsError] = useState('');
+  const [koyebNewDomain, setKoyebNewDomain] = useState('');
+
+  // Secrets 管理
+  const [koyebSecretsTarget, setKoyebSecretsTarget] = useState(null);
+  const [koyebSecrets, setKoyebSecrets] = useState([]);
+  const [koyebSecretsLoading, setKoyebSecretsLoading] = useState(false);
+  const [koyebSecretsError, setKoyebSecretsError] = useState('');
+  const [koyebNewSecretName, setKoyebNewSecretName] = useState('');
+  const [koyebNewSecretValue, setKoyebNewSecretValue] = useState('');
+
+  // 创建服务
+  const [koyebCreateTarget, setKoyebCreateTarget] = useState(null);
+  const [koyebCreateForm, setKoyebCreateForm] = useState({ name: '', type: 'web', image: '', command: '', env: '', ports: '', regions: '', instanceType: '' });
+  const [koyebCatalogInstances, setKoyebCatalogInstances] = useState([]);
+  const [koyebCatalogRegions, setKoyebCatalogRegions] = useState([]);
+  const [koyebCreateSaving, setKoyebCreateSaving] = useState(false);
+  const [koyebCreateError, setKoyebCreateError] = useState('');
+
+  // 用量明细
+  const [koyebUsageTarget, setKoyebUsageTarget] = useState(null);
+  const [koyebUsageData, setKoyebUsageData] = useState(null);
+  const [koyebUsageLoading, setKoyebUsageLoading] = useState(false);
+  const [koyebUsageError, setKoyebUsageError] = useState('');
+
+  const koyebParseDefinition = (service) => {
+    const def = service?.latestDeployment?.definition || {};
+    const docker = def.docker || {};
+    const envText = (def.env || []).map((e) => {
+      const key = e?.key ?? '';
+      const val = e?.value ?? '';
+      return val ? `${key}=${val}` : key;
+    }).join('\n');
+    const portsText = (def.ports || []).map((p) => `${p.port}${p.protocol ? ':' + p.protocol : ''}`).join(',');
+    const regionsText = (def.regions || []).join(',');
+    const instanceType = (def.instance_types || [])[0]?.type || '';
+    return {
+      image: docker.image || '',
+      command: docker.command || '',
+      args: (docker.args || []).join(','),
+      env: envText,
+      ports: portsText,
+      regions: regionsText,
+      instanceType,
+    };
+  };
+
+  const openKoyebConfig = (account, service) => {
+    setKoyebConfigForm({ ...koyebParseDefinition(service), skipBuild: false });
+    setKoyebConfigError('');
+    setKoyebConfigTarget({ account, service });
+  };
+
+  const saveKoyebConfig = async () => {
+    const { account, service } = koyebConfigTarget;
+    const env = koyebConfigForm.env.split('\n').map((l) => l.trim()).filter(Boolean);
+    const ports = koyebConfigForm.ports.split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
+      const [port, protocol] = s.split(':');
+      const p = Number(port);
+      return p ? { port: p, protocol: protocol || 'http' } : null;
+    }).filter(Boolean);
+    const regions = koyebConfigForm.regions.split(',').map((s) => s.trim()).filter(Boolean);
+    const args = koyebConfigForm.args.split(',').map((s) => s.trim()).filter(Boolean);
+    setKoyebConfigSaving(true);
+    setKoyebConfigError('');
+    try {
+      const response = await fetch(`/api/koyeb/services/${service._id}/update`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          accountId: account.id,
+          image: koyebConfigForm.image.trim(),
+          command: koyebConfigForm.command,
+          args,
+          env,
+          ports,
+          regions,
+          instanceType: koyebConfigForm.instanceType,
+          skipBuild: koyebConfigForm.skipBuild,
+        }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success(`服务 ${service.name} 配置已更新，正在部署...`);
+        setKoyebConfigTarget(null);
+        setTimeout(() => loadKoyebData(false), 2500);
+      } else {
+        setKoyebConfigError(result.error || '更新失败');
+      }
+    } catch (e) {
+      setKoyebConfigError('请求出错: ' + e.message);
+    } finally {
+      setKoyebConfigSaving(false);
+    }
+  };
+
+  const openKoyebDeployments = async (account, service) => {
+    setKoyebDeployTarget({ account, service });
+    setKoyebDeployments([]);
+    setKoyebDeployError('');
+    setKoyebDeployLoading(true);
+    try {
+      const response = await fetch(`/api/koyeb/services/${service._id}/deployments?accountId=${account.id}&limit=20`, { headers: getAuthHeaders() });
+      const result = await response.json();
+      if (result.success) {
+        setKoyebDeployments(result.deployments || []);
+      } else {
+        setKoyebDeployError(result.error || '获取失败');
+      }
+    } catch (e) {
+      setKoyebDeployError('请求出错: ' + e.message);
+    } finally {
+      setKoyebDeployLoading(false);
+    }
+  };
+
+  const cancelKoyebDeployment = async (deployment) => {
+    if (!(await dialog.confirm(`取消部署 ${deployment.id}？`))) return;
+    const { account, service } = koyebDeployTarget;
+    try {
+      const response = await fetch(`/api/koyeb/deployments/${deployment.id}/cancel`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('已提交取消');
+        openKoyebDeployments(account, service);
+      } else {
+        toast.error('取消失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const openKoyebScale = async (account, service) => {
+    setKoyebScaleTarget({ account, service });
+    setKoyebScaleScope('');
+    setKoyebScaleInstances(1);
+    setKoyebScaleError('');
+    try {
+      const response = await fetch(`/api/koyeb/services/${service._id}/scale?accountId=${account.id}`, { headers: getAuthHeaders() });
+      const result = await response.json();
+      if (result.success && result.scale?.scalings?.length) {
+        const s = result.scale.scalings[0];
+        setKoyebScaleScope((s.scopes || []).join(','));
+        setKoyebScaleInstances(s.instances ?? 1);
+      }
+    } catch (e) {
+      setKoyebScaleError('读取当前扩容配置失败: ' + e.message);
+    }
+  };
+
+  const saveKoyebScale = async () => {
+    const { account, service } = koyebScaleTarget;
+    setKoyebScaleSaving(true);
+    setKoyebScaleError('');
+    try {
+      const scopes = koyebScaleScope.split(',').map((s) => s.trim()).filter(Boolean);
+      const response = await fetch(`/api/koyeb/services/${service._id}/scale`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id, scalings: [{ scopes, instances: Number(koyebScaleInstances) || 1 }] }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('扩容配置已保存');
+        setKoyebScaleTarget(null);
+      } else {
+        setKoyebScaleError(result.error || '保存失败');
+      }
+    } catch (e) {
+      setKoyebScaleError('请求出错: ' + e.message);
+    } finally {
+      setKoyebScaleSaving(false);
+    }
+  };
+
+  const resetKoyebScale = async () => {
+    if (!(await dialog.confirm('重置手动扩容配置，恢复为部署定义中的扩缩容设置？'))) return;
+    const { account, service } = koyebScaleTarget;
+    try {
+      const response = await fetch(`/api/koyeb/services/${service._id}/scale`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('已重置扩容配置');
+        setKoyebScaleTarget(null);
+      } else {
+        toast.error('重置失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const openKoyebDomains = async (account, app) => {
+    setKoyebDomainsTarget({ account, app });
+    setKoyebNewDomain('');
+    setKoyebDomainsError('');
+    setKoyebDomainsLoading(true);
+    try {
+      const qs = app ? `?accountId=${account.id}&appId=${app._id}` : `?accountId=${account.id}`;
+      const response = await fetch(`/api/koyeb/domains${qs}`, { headers: getAuthHeaders() });
+      const result = await response.json();
+      if (result.success) {
+        setKoyebDomains(result.domains || []);
+      } else {
+        setKoyebDomainsError(result.error || '获取失败');
+      }
+    } catch (e) {
+      setKoyebDomainsError('请求出错: ' + e.message);
+    } finally {
+      setKoyebDomainsLoading(false);
+    }
+  };
+
+  const addKoyebDomain = async () => {
+    const name = koyebNewDomain.trim();
+    if (!name) return;
+    const { account, app } = koyebDomainsTarget;
+    try {
+      const response = await fetch('/api/koyeb/domains', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id, name, appId: app?._id || '', type: 'CUSTOM' }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('域名已添加');
+        setKoyebNewDomain('');
+        openKoyebDomains(account, app);
+      } else {
+        toast.error('添加失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const deleteKoyebDomain = async (domain) => {
+    if (!confirmPress(`koyeb-domain:${domain.id}`, '删除域名')) return;
+    const { account, app } = koyebDomainsTarget;
+    try {
+      const response = await fetch(`/api/koyeb/domains/${domain.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('域名已删除');
+        openKoyebDomains(account, app);
+      } else {
+        toast.error('删除失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const refreshKoyebDomain = async (domain) => {
+    const { account, app } = koyebDomainsTarget;
+    try {
+      const response = await fetch(`/api/koyeb/domains/${domain.id}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('已请求刷新校验');
+        openKoyebDomains(account, app);
+      } else {
+        toast.error('刷新失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const openKoyebSecrets = async (account) => {
+    setKoyebSecretsTarget(account);
+    setKoyebSecrets([]);
+    setKoyebSecretsError('');
+    setKoyebNewSecretName('');
+    setKoyebNewSecretValue('');
+    setKoyebSecretsLoading(true);
+    try {
+      const response = await fetch(`/api/koyeb/secrets?accountId=${account.id}`, { headers: getAuthHeaders() });
+      const result = await response.json();
+      if (result.success) {
+        setKoyebSecrets(result.secrets || []);
+      } else {
+        setKoyebSecretsError(result.error || '获取失败');
+      }
+    } catch (e) {
+      setKoyebSecretsError('请求出错: ' + e.message);
+    } finally {
+      setKoyebSecretsLoading(false);
+    }
+  };
+
+  const addKoyebSecret = async () => {
+    const name = koyebNewSecretName.trim();
+    if (!name || !koyebNewSecretValue) return;
+    const account = koyebSecretsTarget;
+    try {
+      const response = await fetch('/api/koyeb/secrets', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id, name, value: koyebNewSecretValue }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('密钥已创建');
+        setKoyebNewSecretName('');
+        setKoyebNewSecretValue('');
+        openKoyebSecrets(account);
+      } else {
+        toast.error('创建失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const updateKoyebSecretValue = async (secret) => {
+    const newValue = await dialog.prompt({ message: `为密钥 ${secret.name} 输入新值：`, defaultValue: '', placeholder: '新密钥值' });
+    if (newValue === null || newValue === '') return;
+    const account = koyebSecretsTarget;
+    try {
+      const response = await fetch(`/api/koyeb/secrets/${secret.id}/update`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id, value: newValue }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('密钥已更新');
+        openKoyebSecrets(account);
+      } else {
+        toast.error('更新失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const deleteKoyebSecret = async (secret) => {
+    if (!confirmPress(`koyeb-secret:${secret.id}`, `删除密钥 ${secret.name}`)) return;
+    const account = koyebSecretsTarget;
+    try {
+      const response = await fetch(`/api/koyeb/secrets/${secret.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success('密钥已删除');
+        openKoyebSecrets(account);
+      } else {
+        toast.error('删除失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const openKoyebCreate = async (account, app) => {
+    setKoyebCreateTarget({ account, app });
+    setKoyebCreateForm({ name: '', type: 'web', image: '', command: '', env: '', ports: '', regions: '', instanceType: '' });
+    setKoyebCreateError('');
+    try {
+      const [inst, reg] = await Promise.all([
+        fetch(`/api/koyeb/catalog/instances?accountId=${account.id}`, { headers: getAuthHeaders() }).then((r) => r.json()),
+        fetch(`/api/koyeb/catalog/regions?accountId=${account.id}`, { headers: getAuthHeaders() }).then((r) => r.json()),
+      ]);
+      if (inst.success) setKoyebCatalogInstances(inst.items || []);
+      if (reg.success) setKoyebCatalogRegions(reg.items || []);
+    } catch (e) {
+      // 目录加载失败不阻塞创建
+    }
+  };
+
+  const createKoyebService = async () => {
+    const { account, app } = koyebCreateTarget;
+    const name = koyebCreateForm.name.trim();
+    if (!name) {
+      setKoyebCreateError('请填写服务名称');
+      return;
+    }
+    const env = koyebCreateForm.env.split('\n').map((l) => l.trim()).filter(Boolean);
+    const ports = koyebCreateForm.ports.split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
+      const [port, protocol] = s.split(':');
+      const p = Number(port);
+      return p ? { port: p, protocol: protocol || 'http' } : null;
+    }).filter(Boolean);
+    const regions = koyebCreateForm.regions.split(',').map((s) => s.trim()).filter(Boolean);
+    setKoyebCreateSaving(true);
+    setKoyebCreateError('');
+    try {
+      const response = await fetch('/api/koyeb/services', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          accountId: account.id,
+          appId: app._id,
+          name,
+          type: koyebCreateForm.type,
+          image: koyebCreateForm.image.trim(),
+          command: koyebCreateForm.command,
+          env,
+          ports,
+          regions,
+          instanceType: koyebCreateForm.instanceType,
+        }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success(`服务 ${name} 创建成功，正在部署...`);
+        setKoyebCreateTarget(null);
+        setTimeout(() => loadKoyebData(false), 2500);
+      } else {
+        setKoyebCreateError(result.error || '创建失败');
+      }
+    } catch (e) {
+      setKoyebCreateError('请求出错: ' + e.message);
+    } finally {
+      setKoyebCreateSaving(false);
+    }
+  };
+
+  const openKoyebUsage = async (account) => {
+    setKoyebUsageTarget(account);
+    setKoyebUsageData(null);
+    setKoyebUsageError('');
+    setKoyebUsageLoading(true);
+    try {
+      const response = await fetch(`/api/koyeb/usage/details?accountId=${account.id}`, { headers: getAuthHeaders() });
+      const result = await response.json();
+      if (result.success) {
+        setKoyebUsageData(result.usage || {});
+      } else {
+        setKoyebUsageError(result.error || '获取失败');
+      }
+    } catch (e) {
+      setKoyebUsageError('请求出错: ' + e.message);
+    } finally {
+      setKoyebUsageLoading(false);
+    }
+  };
+
+  const pauseKoyebApp = async (account, app) => {
+    if (!(await dialog.confirm(`暂停应用 "${app.name}"？其下所有服务将停止，暂停期间不产生计费。`))) return;
+    try {
+      const response = await fetch(`/api/koyeb/apps/${app._id}/pause`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success(`应用 ${app.name} 暂停中...`);
+        setTimeout(() => loadKoyebData(false), 3000);
+      } else {
+        toast.error('暂停失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
+  };
+
+  const resumeKoyebApp = async (account, app) => {
+    try {
+      const response = await fetch(`/api/koyeb/apps/${app._id}/resume`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        toast.success(`应用 ${app.name} 恢复中...`);
+        setTimeout(() => loadKoyebData(false), 3000);
+      } else {
+        toast.error('恢复失败: ' + result.error);
+      }
+    } catch (e) {
+      toast.error('请求出错: ' + e.message);
+    }
   };
 
   // ==================== 4. Fly.io State & Logic ====================
@@ -1771,6 +2369,12 @@ function PaasPage() {
                           </span>
                         </Button>
                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                          <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); openKoyebSecrets(account); }} icon={<Lock className="h-3.5 w-3.5" />}>
+                            Secrets
+                          </Button>
+                          <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); openKoyebUsage(account); }} icon={<Activity className="h-3.5 w-3.5" />}>
+                            用量
+                          </Button>
                           {account.data?.email ? (
                             <Badge variant="outline" className="max-w-full">
                               <Mail className="h-3 w-3 shrink-0" />
@@ -1850,6 +2454,12 @@ function PaasPage() {
                                 </LayerCard.Secondary>
 
                                 <LayerCard.Primary className="space-y-3">
+                                  <div className="flex flex-wrap justify-start gap-1">
+                                    <Button shape="square" size="sm" variant="secondary" aria-label="新建服务" title="新建服务" onClick={() => openKoyebCreate(account, app)} icon={<Plus className="h-3.5 w-3.5" />} />
+                                    <Button shape="square" size="sm" variant="secondary" aria-label="暂停应用" title="暂停应用" onClick={() => pauseKoyebApp(account, app)} icon={<Pause className="h-3.5 w-3.5" />} />
+                                    <Button shape="square" size="sm" variant="secondary" aria-label="恢复应用" title="恢复应用" onClick={() => resumeKoyebApp(account, app)} icon={<Play className="h-3.5 w-3.5" />} />
+                                    <Button shape="square" size="sm" variant="secondary" aria-label="管理域名" title="管理域名" onClick={() => openKoyebDomains(account, app)} icon={<Globe className="h-3.5 w-3.5" />} />
+                                  </div>
                                   {services.length === 0 ? (
                                     <Empty
                                       size="sm"
@@ -1971,8 +2581,12 @@ function PaasPage() {
                                           <div className="flex flex-wrap justify-start gap-1">
                                             <Button shape="square" size="sm" variant="secondary" aria-label="重启服务" onClick={() => restartKoyebService(account, app, service)} title={service.status === 'SUSPENDED' ? '启动服务' : '重启服务'} icon={<RefreshCw className="h-3.5 w-3.5" />} />
                                             <Button shape="square" size="sm" variant="secondary" aria-label="重新部署服务" onClick={() => redeployKoyebService(account, app, service)} title="重新部署" icon={<Rocket className="h-3.5 w-3.5" />} />
+                                            <Button shape="square" size="sm" variant="secondary" aria-label="编辑服务配置/镜像" onClick={() => openKoyebConfig(account, service)} title="编辑配置/镜像" icon={<Settings className="h-3.5 w-3.5" />} />
+                                            <Button shape="square" size="sm" variant="secondary" aria-label="部署历史" onClick={() => openKoyebDeployments(account, service)} title="部署历史" icon={<History className="h-3.5 w-3.5" />} />
+                                            <Button shape="square" size="sm" variant="secondary" aria-label="手动扩容" onClick={() => openKoyebScale(account, service)} title="手动扩容" icon={<Activity className="h-3.5 w-3.5" />} />
                                             <Button shape="square" size="sm" variant="secondary" aria-label="查看服务实例" onClick={() => fetchKoyebServiceInstances(account, service)} title="查看实例" loading={service.loadingInstances} icon={<Server className="h-3.5 w-3.5" />} />
                                             <Button shape="square" size="sm" variant="secondary" aria-label="查看服务日志" onClick={() => showKoyebServiceLogs(account, app, service)} title="查看日志" icon={<FileText className="h-3.5 w-3.5" />} />
+                                            <Button shape="square" size="sm" variant="secondary" aria-label="实时日志" onClick={() => startKoyebLogTail(account, service)} title="实时日志（跟随）" icon={<Terminal className="h-3.5 w-3.5" />} />
                                           </div>
                                         </div>
                                       ))}
@@ -2478,8 +3092,379 @@ function PaasPage() {
         </Dialog>
       </Dialog.Root>
 
+      {/* Koyeb 服务配置编辑 Dialog */}
+      <Dialog.Root open={!!koyebConfigTarget} onOpenChange={(open) => { if (!open) setKoyebConfigTarget(null); }}>
+        <Dialog className="@container flex !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] flex-col p-6">
+          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
+            编辑服务配置
+          </Dialog.Title>
+          <Dialog.Description className="text-xs text-kumo-subtle mb-4">
+            {koyebConfigTarget ? `${koyebConfigTarget.service.name} · 更新后将触发一次新部署` : ''}
+          </Dialog.Description>
+          <div className="space-y-3 overflow-y-auto">
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-kumo-subtle">镜像地址</label>
+              <Input size="sm" aria-label="镜像地址" type="text" value={koyebConfigForm.image} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, image: e.target.value }))} placeholder="registry.hub.docker.com/xxx/app:latest" className="w-full text-xs" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">启动命令</label>
+                <Input size="sm" aria-label="启动命令" type="text" value={koyebConfigForm.command} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, command: e.target.value }))} placeholder="留空使用镜像默认" className="w-full text-xs" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">参数（逗号分隔）</label>
+                <Input size="sm" aria-label="启动参数" type="text" value={koyebConfigForm.args} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, args: e.target.value }))} placeholder="--port,3000" className="w-full text-xs" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">端口（port:protocol）</label>
+                <Input size="sm" aria-label="端口" type="text" value={koyebConfigForm.ports} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, ports: e.target.value }))} placeholder="8080:http, 3000:tcp" className="w-full text-xs" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">区域（逗号分隔）</label>
+                <Input size="sm" aria-label="区域" type="text" value={koyebConfigForm.regions} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, regions: e.target.value }))} placeholder="fra,sin,tok" className="w-full text-xs" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-kumo-subtle">实例规格</label>
+              <Select
+                aria-label="实例规格" size="sm"
+                value={koyebConfigForm.instanceType}
+                onValueChange={(value) => setKoyebConfigForm((f) => ({ ...f, instanceType: String(value) }))}
+                items={['nano', 'micro', 'small', 'medium', 'large', 'xlarge'].map((t) => ({ value: t, label: t }))}
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-kumo-subtle">环境变量（每行 K=V）</label>
+              <Textarea size="sm" aria-label="环境变量" value={koyebConfigForm.env} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, env: e.target.value }))} placeholder={'DB_HOST=db.internal\nPORT=3000'} className="min-h-24 w-full text-xs font-mono" />
+            </div>
+            <Checkbox
+              checked={koyebConfigForm.skipBuild}
+              onCheckedChange={(checked) => setKoyebConfigForm((f) => ({ ...f, skipBuild: !!checked }))}
+              label="跳过构建（复用上次构建镜像，仅改配置不重建）"
+            />
+            {koyebConfigError && (
+              <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebConfigError}</div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Dialog.Close render={(props) => <Button size="sm" {...props} variant="secondary" className="text-xs">取消</Button>} />
+            <Button size="sm" onClick={saveKoyebConfig} disabled={koyebConfigSaving} className="text-xs">
+              {koyebConfigSaving ? '更新中...' : '保存并部署'}
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      {/* Koyeb 部署历史 Dialog */}
+      <Dialog.Root open={!!koyebDeployTarget} onOpenChange={(open) => { if (!open) setKoyebDeployTarget(null); }}>
+        <Dialog className="flex h-[70vh] !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
+            <div>
+              <Dialog.Title className="text-sm font-bold text-kumo-strong">部署历史</Dialog.Title>
+              {koyebDeployTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebDeployTarget.service.name}</p>}
+            </div>
+            <div className="flex items-center gap-2">
+              {koyebDeployTarget && (
+                <Button size="sm" variant="secondary" onClick={() => openKoyebDeployments(koyebDeployTarget.account, koyebDeployTarget.service)} icon={<RefreshCw className="h-3.5 w-3.5" />}>刷新</Button>
+              )}
+              <Button shape="square" size="sm" variant="ghost" aria-label="关闭" onClick={() => setKoyebDeployTarget(null)} icon={<X className="h-4 w-4" />} />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {koyebDeployLoading ? (
+              <div className="flex h-full items-center justify-center gap-2 text-kumo-subtle"><Loader size={16} />正在加载部署记录...</div>
+            ) : koyebDeployError ? (
+              <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebDeployError}</div>
+            ) : koyebDeployments.length === 0 ? (
+              <div className="py-12 text-center text-kumo-subtle text-sm">暂无部署记录</div>
+            ) : (
+              <div className="space-y-2">
+                {koyebDeployments.map((dep) => {
+                  const image = dep.definition?.docker?.image || '';
+                  const status = String(dep.status || '').toUpperCase();
+                  const cancellable = ['PENDING', 'PROVISIONING', 'SCHEDULED', 'ALLOCATING', 'STARTING'].includes(status);
+                  return (
+                    <div key={dep.id} className="space-y-1.5 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 p-3">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <ClipboardText size="sm" text={dep.id} />
+                          {image && <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">{image}</div>}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge variant={getKoyebStatusTone(status)} appearance="dot">{getKoyebStatusText(status)}</Badge>
+                          {dep.version ? <Badge variant="neutral">v{dep.version}</Badge> : null}
+                          {cancellable && (
+                            <Button shape="square" size="xs" variant="secondary-destructive" aria-label="取消部署" title="取消部署" onClick={() => cancelKoyebDeployment(dep)} icon={<X className="h-3 w-3" />} />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-kumo-subtle">
+                        <span>创建于 {dep.created_at ? new Date(dep.created_at).toLocaleString() : '-'}</span>
+                        {dep.metadata?.git?.sha ? <span>· SHA {String(dep.metadata.git.sha).slice(0, 12)}</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      {/* Koyeb 手动扩容 Dialog */}
+      <Dialog.Root open={!!koyebScaleTarget} onOpenChange={(open) => { if (!open) setKoyebScaleTarget(null); }}>
+        <Dialog className="!w-[min(28rem,calc(100vw-2rem))] !max-w-[min(28rem,calc(100vw-2rem))] p-6">
+          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">手动扩容</Dialog.Title>
+          <Dialog.Description className="text-xs text-kumo-subtle mb-4">
+            {koyebScaleTarget ? `${koyebScaleTarget.service.name} · 设置实例副本数（覆盖自动扩缩容策略）` : ''}
+          </Dialog.Description>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-kumo-subtle">作用域（scopes，逗号分隔，通常为服务类型名）</label>
+              <Input size="sm" aria-label="作用域" type="text" value={koyebScaleScope} onChange={(e) => setKoyebScaleScope(e.target.value)} placeholder="web" className="w-full text-xs" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-kumo-subtle">实例数量</label>
+              <Input size="sm" aria-label="实例数量" type="number" min="1" value={koyebScaleInstances} onChange={(e) => setKoyebScaleInstances(Number(e.target.value) || 1)} className="w-full text-xs" />
+            </div>
+            {koyebScaleError && (
+              <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebScaleError}</div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button size="sm" variant="secondary-destructive" onClick={resetKoyebScale} className="text-xs">重置为自动</Button>
+            <Dialog.Close render={(props) => <Button size="sm" {...props} variant="secondary" className="text-xs">取消</Button>} />
+            <Button size="sm" onClick={saveKoyebScale} disabled={koyebScaleSaving} className="text-xs">
+              {koyebScaleSaving ? '保存中...' : '保存'}
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      {/* Koyeb 域名管理 Dialog */}
+      <Dialog.Root open={!!koyebDomainsTarget} onOpenChange={(open) => { if (!open) setKoyebDomainsTarget(null); }}>
+        <Dialog className="flex h-[70vh] !w-[min(44rem,calc(100vw-2rem))] !max-w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
+            <div>
+              <Dialog.Title className="text-sm font-bold text-kumo-strong">域名管理</Dialog.Title>
+              {koyebDomainsTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebDomainsTarget.app ? `应用 ${koyebDomainsTarget.app.name}` : '组织全部域名'}</p>}
+            </div>
+            <Button shape="square" size="sm" variant="ghost" aria-label="关闭" onClick={() => setKoyebDomainsTarget(null)} icon={<X className="h-4 w-4" />} />
+          </div>
+          <div className="border-b border-kumo-line p-4">
+            <div className="flex gap-2">
+              <Input size="sm" aria-label="新域名" type="text" value={koyebNewDomain} onChange={(e) => setKoyebNewDomain(e.target.value)} placeholder="app.example.com" className="flex-1 text-xs" onKeyDown={(e) => { if (e.key === 'Enter') addKoyebDomain(); }} />
+              <Button size="sm" onClick={addKoyebDomain} icon={<Plus className="h-3.5 w-3.5" />} className="text-xs">添加</Button>
+            </div>
+            <p className="mt-1.5 text-[10px] text-kumo-subtle">绑定后按 Koyeb 提示配置 DNS 记录（CNAME/A 记录）。</p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {koyebDomainsLoading ? (
+              <div className="flex h-full items-center justify-center gap-2 text-kumo-subtle"><Loader size={16} />正在加载域名...</div>
+            ) : koyebDomainsError ? (
+              <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebDomainsError}</div>
+            ) : koyebDomains.length === 0 ? (
+              <div className="py-12 text-center text-kumo-subtle text-sm">暂无域名</div>
+            ) : (
+              <div className="space-y-2">
+                {koyebDomains.map((domain) => (
+                  <div key={domain.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 p-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-kumo-strong">{domain.name}</span>
+                        <Badge variant={domain.type === 'AUTOASSIGNED' ? 'outline' : 'success'}>{domain.type === 'AUTOASSIGNED' ? '自动' : '自定义'}</Badge>
+                      </div>
+                      <div className="mt-1 text-[10px] text-kumo-subtle">
+                        状态 {getKoyebStatusText(domain.status)}
+                        {domain.verified_at ? ` · 已验证 ${new Date(domain.verified_at).toLocaleString()}` : ''}
+                        {domain.intended_cname ? ` · CNAME: ${domain.intended_cname}` : ''}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button shape="square" size="xs" variant="secondary" aria-label="刷新校验" title="刷新校验" onClick={() => refreshKoyebDomain(domain)} icon={<RefreshCw className="h-3 w-3" />} />
+                      <Button shape="square" size="xs" variant={isArmed(`koyeb-domain:${domain.id}`) ? 'destructive' : 'secondary-destructive'} aria-label="删除域名" title="删除域名" onClick={() => deleteKoyebDomain(domain)} icon={<Trash className="h-3 w-3" />} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      {/* Koyeb Secrets 管理 Dialog */}
+      <Dialog.Root open={!!koyebSecretsTarget} onOpenChange={(open) => { if (!open) setKoyebSecretsTarget(null); }}>
+        <Dialog className="flex h-[70vh] !w-[min(44rem,calc(100vw-2rem))] !max-w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
+            <div>
+              <Dialog.Title className="text-sm font-bold text-kumo-strong">Secrets 密钥管理</Dialog.Title>
+              {koyebSecretsTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebSecretsTarget.name} · 组织级密钥，可在部署环境变量中以 secret 引用</p>}
+            </div>
+            <Button shape="square" size="sm" variant="ghost" aria-label="关闭" onClick={() => setKoyebSecretsTarget(null)} icon={<X className="h-4 w-4" />} />
+          </div>
+          <div className="border-b border-kumo-line p-4">
+            <div className="flex gap-2">
+              <Input size="sm" aria-label="密钥名称" type="text" value={koyebNewSecretName} onChange={(e) => setKoyebNewSecretName(e.target.value)} placeholder="密钥名称（如 DB_PASSWORD）" className="w-48 text-xs" />
+              <Input size="sm" aria-label="密钥值" type="password" value={koyebNewSecretValue} onChange={(e) => setKoyebNewSecretValue(e.target.value)} placeholder="密钥值" className="flex-1 text-xs" onKeyDown={(e) => { if (e.key === 'Enter') addKoyebSecret(); }} />
+              <Button size="sm" onClick={addKoyebSecret} icon={<Plus className="h-3.5 w-3.5" />} className="text-xs">添加</Button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {koyebSecretsLoading ? (
+              <div className="flex h-full items-center justify-center gap-2 text-kumo-subtle"><Loader size={16} />正在加载密钥...</div>
+            ) : koyebSecretsError ? (
+              <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebSecretsError}</div>
+            ) : koyebSecrets.length === 0 ? (
+              <div className="py-12 text-center text-kumo-subtle text-sm">暂无密钥</div>
+            ) : (
+              <div className="space-y-2">
+                {koyebSecrets.map((secret) => (
+                  <div key={secret.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 p-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-kumo-strong">{secret.name}</span>
+                        <Badge variant="neutral">{secret.type || 'SIMPLE'}</Badge>
+                      </div>
+                      <div className="mt-1 text-[10px] text-kumo-subtle">
+                        更新于 {secret.updated_at ? new Date(secret.updated_at).toLocaleString() : '-'}
+                        {secret.project_id ? ' · 项目级' : ' · 组织级'}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button shape="square" size="xs" variant="secondary" aria-label="更新值" title="更新值" onClick={() => updateKoyebSecretValue(secret)} icon={<Settings className="h-3 w-3" />} />
+                      <Button shape="square" size="xs" variant={isArmed(`koyeb-secret:${secret.id}`) ? 'destructive' : 'secondary-destructive'} aria-label="删除密钥" title="删除密钥" onClick={() => deleteKoyebSecret(secret)} icon={<Trash className="h-3 w-3" />} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      {/* Koyeb 创建服务 Dialog */}
+      <Dialog.Root open={!!koyebCreateTarget} onOpenChange={(open) => { if (!open) setKoyebCreateTarget(null); }}>
+        <Dialog className="flex max-h-[90vh] !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] flex-col p-6">
+          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">新建服务</Dialog.Title>
+          <Dialog.Description className="text-xs text-kumo-subtle mb-4">
+            {koyebCreateTarget ? `在应用 ${koyebCreateTarget.app.name} 下创建服务` : ''}
+          </Dialog.Description>
+          <div className="space-y-3 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">服务名称</label>
+                <Input size="sm" aria-label="服务名称" type="text" value={koyebCreateForm.name} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="web" className="w-full text-xs" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">类型</label>
+                <Select
+                  aria-label="服务类型" size="sm"
+                  value={koyebCreateForm.type}
+                  onValueChange={(value) => setKoyebCreateForm((f) => ({ ...f, type: String(value) }))}
+                  items={[{ value: 'web', label: 'web' }, { value: 'worker', label: 'worker' }, { value: 'job', label: 'job' }]}
+                  className="w-full"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-kumo-subtle">镜像地址</label>
+              <Input size="sm" aria-label="镜像地址" type="text" value={koyebCreateForm.image} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, image: e.target.value }))} placeholder="registry.hub.docker.com/xxx/app:latest" className="w-full text-xs" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">启动命令</label>
+                <Input size="sm" aria-label="启动命令" type="text" value={koyebCreateForm.command} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, command: e.target.value }))} placeholder="留空使用镜像默认" className="w-full text-xs" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">端口（port:protocol）</label>
+                <Input size="sm" aria-label="端口" type="text" value={koyebCreateForm.ports} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, ports: e.target.value }))} placeholder="8080:http" className="w-full text-xs" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">实例规格</label>
+                <Select
+                  aria-label="实例规格" size="sm"
+                  value={koyebCreateForm.instanceType}
+                  onValueChange={(value) => setKoyebCreateForm((f) => ({ ...f, instanceType: String(value) }))}
+                  items={(koyebCatalogInstances.length > 0 ? koyebCatalogInstances : ['nano', 'micro', 'small', 'medium', 'large', 'xlarge']).map((t) => {
+                    const id = typeof t === 'string' ? t : (t.id || t.name || '');
+                    const label = typeof t === 'string' ? t : `${id}${t.memory ? ' · ' + t.memory : ''}${t.price_monthly ? ' · $' + t.price_monthly + '/月' : ''}`;
+                    return { value: id, label };
+                  })}
+                  className="w-full"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-kumo-subtle">区域（逗号分隔）</label>
+                <Input size="sm" aria-label="区域" type="text" value={koyebCreateForm.regions} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, regions: e.target.value }))} placeholder="fra,sin,tok" className="w-full text-xs" />
+              </div>
+            </div>
+            {koyebCatalogRegions.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {koyebCatalogRegions.slice(0, 12).map((region) => {
+                  const id = region.id || region.name || '';
+                  return (
+                    <Button key={id} size="xs" variant={koyebCreateForm.regions.split(',').map((s) => s.trim()).includes(id) ? 'primary' : 'secondary'} onClick={() => {
+                      const current = koyebCreateForm.regions.split(',').map((s) => s.trim()).filter(Boolean);
+                      const next = current.includes(id) ? current.filter((r) => r !== id) : [...current, id];
+                      setKoyebCreateForm((f) => ({ ...f, regions: next.join(',') }));
+                    }} className="text-[10px]">{region.name || id}</Button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-kumo-subtle">环境变量（每行 K=V）</label>
+              <Textarea size="sm" aria-label="环境变量" value={koyebCreateForm.env} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, env: e.target.value }))} placeholder={'DB_HOST=db.internal\nPORT=3000'} className="min-h-24 w-full text-xs font-mono" />
+            </div>
+            {koyebCreateError && (
+              <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebCreateError}</div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Dialog.Close render={(props) => <Button size="sm" {...props} variant="secondary" className="text-xs">取消</Button>} />
+            <Button size="sm" onClick={createKoyebService} disabled={koyebCreateSaving} className="text-xs">
+              {koyebCreateSaving ? '创建中...' : '创建并部署'}
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      {/* Koyeb 用量明细 Dialog */}
+      <Dialog.Root open={!!koyebUsageTarget} onOpenChange={(open) => { if (!open) setKoyebUsageTarget(null); }}>
+        <Dialog className="flex h-[70vh] !w-[min(52rem,calc(100vw-2rem))] !max-w-[min(52rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
+            <div>
+              <Dialog.Title className="text-sm font-bold text-kumo-strong">用量明细</Dialog.Title>
+              {koyebUsageTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebUsageTarget.name}</p>}
+            </div>
+            <div className="flex items-center gap-2">
+              {koyebUsageTarget && (
+                <Button size="sm" variant="secondary" onClick={() => openKoyebUsage(koyebUsageTarget)} icon={<RefreshCw className="h-3.5 w-3.5" />}>刷新</Button>
+              )}
+              <Button shape="square" size="sm" variant="ghost" aria-label="关闭" onClick={() => setKoyebUsageTarget(null)} icon={<X className="h-4 w-4" />} />
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto p-4">
+            {koyebUsageLoading ? (
+              <div className="flex h-full items-center justify-center gap-2 text-kumo-subtle"><Loader size={16} />正在加载用量...</div>
+            ) : koyebUsageError ? (
+              <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebUsageError}</div>
+            ) : !koyebUsageData ? (
+              <div className="py-12 text-center text-kumo-subtle text-sm">暂无用量数据</div>
+            ) : (
+              <pre className="whitespace-pre-wrap break-all rounded-md bg-kumo-recessed/40 p-4 text-xs text-kumo-strong">{JSON.stringify(koyebUsageData, null, 2)}</pre>
+            )}
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
       {/* Global Self-Contained Log Viewer Dialog */}
-      <Dialog.Root open={logViewerOpen} onOpenChange={setLogViewerOpen}>
+      <Dialog.Root open={logViewerOpen} onOpenChange={(open) => { setLogViewerOpen(open); if (!open) stopLogTail(); }}>
         <Dialog className="@container flex h-[80vh] !w-[min(56rem,calc(100vw-2rem))] !max-w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           {/* Header */}
           <div className="p-4 border-b border-kumo-line bg-kumo-recessed/40 flex justify-between items-center">
@@ -2535,6 +3520,17 @@ function PaasPage() {
                 onCheckedChange={(checked) => setLogAutoScroll(checked)}
                 label="滚动到底部"
               />
+
+              {logTailActive && (
+                <>
+                  <Badge variant={logTailConnected ? 'success' : 'warning'} appearance="dot">
+                    {logTailConnected ? '已连接' : '已断开'}
+                  </Badge>
+                  <Button size="sm" variant="secondary-destructive" onClick={stopLogTail} className="text-kumo-danger font-semibold">
+                    停止跟随
+                  </Button>
+                </>
+              )}
 
               <Button size="sm"
                 variant="secondary-destructive"
