@@ -367,6 +367,7 @@ jobs:
   publish-agents:
     needs: [detect-agent-changes, build-agent, build-relay]
     if: >-
+      always() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/dev' &&
       needs.detect-agent-changes.outputs.binaries_changed == 'true' &&
@@ -430,6 +431,7 @@ jobs:
   fetch-agents:
     needs: [detect-agent-changes, build-agent]
     if: >-
+      always() &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.build-agent.result != 'failure'
     runs-on: ubuntu-latest
