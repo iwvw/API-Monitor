@@ -121,6 +121,11 @@ type Endpoint struct {
 	LastUsed     *string `json:"lastUsed"`
 	LastChecked  *string `json:"lastChecked"`
 	HealthStatus string  `json:"healthStatus,omitempty"`
+	// PluginID 标记该端点由哪个插件注册（如独立插件），普通端点为空。
+	PluginID string `json:"pluginId,omitempty"`
+	// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；非空时转发出口
+	// 从该池选择（忽略内联 proxyPool）。用于让网关端点复用插件管理的代理池。
+	ProxyPoolID string `json:"proxyPoolId,omitempty"`
 }
 
 // AllKeys 返回端点全部可用 API Key（主 key + 扩展 key，去重）。
@@ -250,6 +255,22 @@ type Service struct {
 	// alertState 记录告警边沿状态，避免同状态反复触发通知。
 	alertMu    sync.Mutex
 	alertState gatewayAlertState
+
+	// externalPool 是独立代理池插件（proxypool）的选择器；由 server 注入。
+	// 端点在配置了 proxy_pool_id 时，转发出口经它选择（复用插件健康数据）。
+	externalPool ProxyPoolSelector
+}
+
+// ProxyPoolSelector 供 openai 网关复用独立代理池插件（proxypool）的选择能力。
+// 由 server 注入实现，避免包级循环依赖。
+type ProxyPoolSelector interface {
+	SelectProxy(ctx context.Context, poolID, sessionKey string) (string, error)
+	ReportResult(ctx context.Context, poolID, proxy string, ok, ratelimit bool, retryAfter *time.Duration) error
+}
+
+// SetProxyPoolSelector 注入独立代理池选择器（server 组装时调用）。
+func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
+	s.externalPool = sel
 }
 
 // Notifier 是 openai 网关向外部通知系统上报告警的最小接口。
@@ -644,11 +665,12 @@ func (s *Service) warmupOnceNow(ctx context.Context) {
 
 	for rows.Next() {
 		var id, baseURL, apiKey string
-		var modelsURL string
+		var modelsURLRaw sql.NullString
 		var proxyRaw string
-		if err := rows.Scan(&id, &baseURL, &modelsURL, &apiKey, &proxyRaw); err != nil {
+		if err := rows.Scan(&id, &baseURL, &modelsURLRaw, &apiKey, &proxyRaw); err != nil {
 			continue
 		}
+		modelsURL := modelsURLRaw.String
 		var pool []string
 		if err := json.Unmarshal([]byte(proxyRaw), &pool); err != nil {
 			continue
@@ -1021,6 +1043,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "models_url", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "plugin_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "proxy_pool_id", "TEXT"); err != nil {
+		return err
+	}
 	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_openai_analytics_gateway_key ON openai_gateway_analytics(gateway_key_id, timestamp)`); err != nil {
 		return fmt.Errorf("openai ensure schema: %w", err)
 	}
@@ -1224,6 +1252,8 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		RateLimitRetryEnabled *bool `json:"rateLimitRetryEnabled"`
 		RateLimitRetryWaitSeconds *int `json:"rateLimitRetryWaitSeconds"`
 		Protocol     *string       `json:"protocol"`
+		// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；空串表示不引用。
+		ProxyPoolID *string `json:"proxyPoolId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -1238,13 +1268,15 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	}
 	defer db.Close()
 
-	var currentBaseURL, currentAPIKey string
-	var currentModelsURL string
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key FROM openai_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURL, &currentAPIKey)
+		var currentBaseURL, currentAPIKey string
+	var currentModelsURLRaw, currentProxyPoolIDRaw sql.NullString
+	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, proxy_pool_id FROM openai_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURLRaw, &currentAPIKey, &currentProxyPoolIDRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
+	currentModelsURL := currentModelsURLRaw.String
 	currentAPIKey = secure.SecureDecrypt(currentAPIKey)
 
 	targetBaseURL := currentBaseURL
@@ -1356,6 +1388,17 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		protocol = normalizeProtocol(*req.Protocol)
 		protocolChanged = true
 	}
+	proxyPoolID := ""
+	proxyPoolIDChanged := false
+	if req.ProxyPoolID != nil {
+		proxyPoolID = strings.TrimSpace(*req.ProxyPoolID)
+		proxyPoolIDChanged = true
+	} else {
+		// 未提交代理池引用时保留存量：局部更新（仅改 key/开关等）不应解绑已选池。
+		if currentProxyPoolIDRaw.Valid {
+			proxyPoolID = currentProxyPoolIDRaw.String
+		}
+	}
 
 	// 仅当 API Key 或地址实际变化时才重新验证/拉模型：纯改代理池、开关等局部
 	// 保存不应触发上游请求（大池端点保存慢的主要成因其一）。前端全量提交时
@@ -1415,16 +1458,16 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 		_, err = db.ExecContext(ctx, `
 			UPDATE openai_endpoints
-			SET name = ?, base_url = ?, models_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, pricing = ?, last_checked = ?
+			SET name = ?, base_url = ?, models_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, pricing = ?, last_checked = ?, proxy_pool_id = ?
 			WHERE id = ?`,
-			req.Name, targetBaseURL, targetModelsURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), string(pricingJSON), lastChecked, id)
+			req.Name, targetBaseURL, targetModelsURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), string(pricingJSON), lastChecked, proxyPoolID, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged || rateLimitRetryChanged || rateLimitRetryWaitChanged {
-		_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ? WHERE id = ?",
-			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, id)
+	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged || rateLimitRetryChanged || rateLimitRetryWaitChanged || proxyPoolIDChanged {
+		_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, proxy_pool_id = ? WHERE id = ?",
+			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, proxyPoolID, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -1470,7 +1513,7 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 
 	endpoints := []Endpoint{}
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_mappings, sort_order, priority, weight
+		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_mappings, sort_order, priority, weight, proxy_pool_id
 		FROM openai_endpoints WHERE enabled = 1
 		ORDER BY priority DESC, sort_order ASC, created_at ASC`)
 	if err != nil {
@@ -1479,9 +1522,10 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 	defer rows.Close()
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, proxyPoolIDRaw sql.NullString
 		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight int
-		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight); errScan == nil {
+		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight, &proxyPoolIDRaw); errScan == nil {
+			ep.ProxyPoolID = proxyPoolIDRaw.String
 			ep.APIKey = secure.SecureDecrypt(ep.APIKey)
 			ep.Enabled = enabledInt == 1
 			ep.AutoSwitch = autoSwitchInt == 1

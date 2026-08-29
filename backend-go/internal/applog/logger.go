@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -70,7 +71,23 @@ func Init(dataDir string, maxFileSizeMB int) error {
 	stdoutHandler := &consoleHandler{level: slog.LevelInfo}
 	logger = slog.New(&multiHandler{handlers: []slog.Handler{jsonHandler, stdoutHandler}})
 	slog.SetDefault(logger)
+	// 桥接标准库 log：把散落的 log.Printf 调用统一到 applog 格式（console + app.log）。
+	// 去掉标准库自带时间前缀，避免与 applog 时间重复。
+	log.SetOutput(&stdlogWriter{})
+	log.SetFlags(0)
 	return nil
+}
+
+// stdlogWriter 把标准库 log 的每一行转成 applog 日志，统一格式。
+type stdlogWriter struct{}
+
+func (w *stdlogWriter) Write(p []byte) (int, error) {
+	msg := strings.TrimRight(string(p), "\n")
+	if msg == "" {
+		return len(p), nil
+	}
+	Logger().Info("std", "msg", msg)
+	return len(p), nil
 }
 
 func Logger() *slog.Logger {

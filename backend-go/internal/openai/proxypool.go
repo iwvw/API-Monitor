@@ -249,11 +249,31 @@ func trimSessionBindings(state *endpointProxyState, now time.Time) {
 // clientForEndpoint 按端点代理池选择下一个可用代理，返回绑定该代理的 http.Client。
 // 规则：
 //   - proxyEnabled 关闭：忽略代理池，返回按端点 protocol 配置的直连客户端
+//   - proxyPoolID 非空（引用独立代理池插件）：转发出口由插件选择（复用插件健康数据），
+//     忽略内联 proxyPool；插件无可用代理时按 forceProxy 决定回退直连或报错
 //   - proxyEnabled 开启且池为空：forceProxy 开启时报错（禁止直连），否则回退直连
 //   - proxyEnabled 开启且有池：按池选择代理；非空 sessionKey 时优先复用
 //     会话粘性绑定的代理（同一会话固定出口，请求数达 sessionProxyRequestLimit 后
 //     主动轮换下一个出口，规避上游按出口 IP 的限额）
-func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabled, forceProxy bool, sessionKey, protocol string) (*http.Client, string, error) {
+func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabled, forceProxy bool, sessionKey, protocol, proxyPoolID string) (*http.Client, string, error) {
+	// 独立代理池：走插件选择器（不动内联 proxy_pool 逻辑与转发热路径）。
+	if proxyPoolID != "" && s.externalPool != nil {
+		proxyURL, selErr := s.externalPool.SelectProxy(context.Background(), proxyPoolID, sessionKey)
+		if selErr != nil {
+			return nil, "", fmt.Errorf("独立代理池选择失败: %w", selErr)
+		}
+		if proxyURL == "" {
+			if forceProxy {
+				return nil, "", fmt.Errorf("端点配置为强制走代理，但独立代理池无可用出口")
+			}
+			return s.client, "", nil
+		}
+		client, err := s.proxyClient(proxyURL)
+		if err != nil {
+			return s.client, proxyURL, err
+		}
+		return client, proxyURL, nil
+	}
 	if !proxyEnabled {
 		return s.clientForProtocol(protocol), "", nil
 	}
@@ -422,6 +442,43 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 		return s.client, selectedProxy, err
 	}
 	return client, selectedProxy, nil
+}
+
+// externalPoolInUse 判断端点是否绑定独立代理池插件。
+func (s *Service) externalPoolInUse(poolID string) bool {
+	return poolID != "" && s.externalPool != nil
+}
+
+// reportExternalPoolResult 将一次出口使用结果反馈给独立代理池插件。
+// ok=false 且 ratelimit 时 429 冻结；ok=false 非限流时冷却；ok=true 清除失败状态。
+// 反馈失败仅记录日志，不阻塞转发。
+func (s *Service) reportExternalPoolResult(poolID, proxy string, ok, ratelimit bool, retryAfter *time.Duration) {
+	if !s.externalPoolInUse(poolID) || proxy == "" {
+		return
+	}
+	fbCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := s.externalPool.ReportResult(fbCtx, poolID, proxy, ok, ratelimit, retryAfter); err != nil {
+		applog.Error(fbCtx, "openai", "report external proxy pool result failed", "poolID", poolID, "proxy", proxy, "error", err.Error())
+	}
+}
+
+// externalPoolNextProxy 在独立代理池场景下：反馈 429 冻结当前出口后，重选池内下一个可用出口。
+// 返回 "" 表示池内已无可用出口（调用方按出口耗尽收尾）。
+func (s *Service) externalPoolNextProxy(ctx context.Context, poolID, currentProxy string, retryAfter *time.Duration) string {
+	if !s.externalPoolInUse(poolID) || currentProxy == "" {
+		return ""
+	}
+	s.reportExternalPoolResult(poolID, currentProxy, false, true, retryAfter)
+	selCtx := ctx
+	if selCtx == nil {
+		selCtx = context.Background()
+	}
+	next, err := s.externalPool.SelectProxy(selCtx, poolID, "")
+	if err != nil || next == "" || next == currentProxy {
+		return ""
+	}
+	return next
 }
 
 // poolIndex 返回 proxy 在 cleaned 池中的下标；不在池中返回 -1。

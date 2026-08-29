@@ -11,10 +11,11 @@ type ResponseMode string
 type MatchMode string
 
 const (
-	AuthPublic  AuthMode = "public"
-	AuthSession AuthMode = "session"
-	AuthAPIKey  AuthMode = "api_key"
-	AuthAgent   AuthMode = "agent_key"
+	AuthPublic    AuthMode = "public"
+	AuthSession   AuthMode = "session"
+	AuthAPIKey    AuthMode = "api_key"
+	AuthAgent     AuthMode = "agent_key"
+	AuthInternal  AuthMode = "internal"
 
 	OwnerGo      Owner = "go"
 	OwnerNode    Owner = "node"
@@ -255,8 +256,11 @@ func buildRoutes() []Route {
 		{Prefix: "/api/prompts", Module: "prompts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Prompt library API"},
 
 		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
-		{Prefix: "/api/openaibeta", Module: "openaibeta", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "模型网关 Beta 插件（内嵌 Gemini 免费中继）管理"},
-		{Prefix: "/api/openaibeta/v1", Module: "openaibeta-compatible", Owner: OwnerGo, Auth: AuthAPIKey, ResponseMode: ResponseStream, Description: "模型网关 Beta 插件 OpenAI 兼容中继（复用网关密钥鉴权）"},
+		{Prefix: "/api/proxypool", Module: "proxypool", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "独立出口代理池管理（端点与插件可复用）"},
+		{Prefix: "/api/antigravity", Module: "antigravity", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Antigravity 插件（Claude 订阅转 API）管理"},
+		{Prefix: "/api/antigravity/v1", Module: "antigravity-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Antigravity 插件 Anthropic 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/ds2api", Module: "ds2api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "DS2API 插件（DeepSeek 网页版免费池）管理"},
+		{Prefix: "/api/ds2api/v1", Module: "ds2api-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "DS2API 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
 		{Prefix: "/sub/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Public subscription endpoint (UA-adaptive formats, info page, Clash/raw/base64)", MatchMode: MatchPattern},

@@ -1,0 +1,378 @@
+package ds2api
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	engineserver "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/server"
+)
+
+// newURLFrom 返回一个把 path 换成 stripped 的新 URL（保留其它字段）。
+func newURLFrom(u *url.URL, stripped string) *url.URL {
+	cp := *u
+	cp.Path = stripped
+	cp.RawPath = ""
+	return &cp
+}
+
+// internalKey 是插件内部固定调用密钥：仅在 loopback 内部转发时注入，用于通过
+// 引擎自身的 API Key 校验，无需用户为插件配置任何 key。
+const internalKey = "sk-ds2api-internal"
+
+// isLoopback 判断请求来源是否为本机回环地址。
+func isLoopback(remoteAddr string) bool {
+	host := strings.TrimSpace(remoteAddr)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// Settings 是 DS2API 插件持久化配置。
+// 引擎核心配置（账号池 / API keys / 模型别名 / 代理）以 config JSON 形式随
+// 插件设置落库；启用时写入 data 目录的 config.json 并实例化引擎 App。
+type Settings struct {
+	// Enabled 总开关；关闭时引擎不实例化，/v1/* 返回 404。
+	Enabled bool `json:"enabled"`
+	// ConfigJSON 引擎 config.json 的完整内容（ds2api 原生格式）。
+	ConfigJSON string `json:"configJson"`
+	// ProxyPoolID 引用独立代理池插件的池；启用时写入引擎 config 的 proxy 相关字段。
+	ProxyPoolID string `json:"proxyPoolId"`
+	// DisabledModels 被停用的模型（引擎列表中不对外提供）。
+	DisabledModels []string `json:"disabledModels"`
+}
+
+func defaultSettings() Settings {
+	return Settings{
+		Enabled:        false,
+		ConfigJSON:     `{"keys":[],"accounts":[],"models":{}}`,
+		DisabledModels: []string{},
+	}
+}
+
+// Service 是 DS2API 插件后端：持有内嵌引擎 App，暴露 OpenAI 兼容端点。
+type Service struct {
+	cfg   config.Config
+	store *database.Store
+
+	mu       sync.RWMutex
+	settings Settings
+	app      *engineserver.App
+	engineMu sync.Mutex
+
+	externalPool ProxyPoolSelector
+}
+
+// ProxyPoolSelector 复用独立代理池选择器（server 注入）。
+type ProxyPoolSelector interface {
+	SelectProxy(ctx context.Context, poolID, sessionKey string) (string, error)
+}
+
+// SetProxyPoolSelector 注入独立代理池选择器。
+func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
+	s.externalPool = sel
+}
+
+// New 构造服务并加载持久化设置。
+func New(cfg config.Config) *Service {
+	s := &Service{
+		cfg:   cfg,
+		store: database.New(cfg),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if db, err := s.open(ctx); err == nil {
+		s.loadSettings(ctx, db)
+		db.Close()
+	}
+	return s
+}
+
+func (s *Service) open(ctx context.Context) (*sql.DB, error) {
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS ds2api_settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		data TEXT NOT NULL
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ds2api ensure schema: %w", err)
+	}
+	return db, nil
+}
+
+func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
+	row := db.QueryRowContext(ctx, `SELECT data FROM ds2api_settings WHERE id = 1`)
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		cfg := defaultSettings()
+		s.mu.Lock()
+		s.settings = cfg
+		s.mu.Unlock()
+		data, _ := json.Marshal(cfg)
+		_, _ = db.ExecContext(ctx, `INSERT INTO ds2api_settings (id, data) VALUES (1, ?)`, string(data))
+		return
+	}
+	var cfg Settings
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		cfg = defaultSettings()
+	}
+	if cfg.DisabledModels == nil {
+		cfg.DisabledModels = []string{}
+	}
+	s.mu.Lock()
+	s.settings = cfg
+	s.mu.Unlock()
+	if cfg.Enabled {
+		_ = s.startEngineLocked()
+	}
+}
+
+// Settings 返回当前设置的只读副本。
+func (s *Service) Settings() Settings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := s.settings
+	out.DisabledModels = append([]string(nil), s.settings.DisabledModels...)
+	return out
+}
+
+// SaveSettings 校验并持久化设置，随后按 Enabled 启停引擎。
+func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
+	if next.ConfigJSON == "" {
+		next.ConfigJSON = defaultSettings().ConfigJSON
+	}
+	if next.DisabledModels == nil {
+		next.DisabledModels = []string{}
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	data, _ := json.Marshal(next)
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO ds2api_settings (id, data) VALUES (1, ?)
+		ON CONFLICT(id) DO UPDATE SET data = excluded.data`, string(data)); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.settings = next
+	s.mu.Unlock()
+	s.engineMu.Lock()
+	defer s.engineMu.Unlock()
+	if next.Enabled {
+		return s.startEngineLocked()
+	}
+	s.app = nil
+	return nil
+}
+
+// configPath 返回引擎 config.json 落盘路径（data 目录下）。
+func (s *Service) configPath() string {
+	return filepath.Join(s.cfg.DataDir, "ds2api", "config.json")
+}
+
+// startEngineLocked 写入配置并实例化引擎 App。须持有 engineMu。
+func (s *Service) startEngineLocked() error {
+	st := s.Settings()
+	dir := filepath.Join(s.cfg.DataDir, "ds2api")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("创建 ds2api 目录失败: %w", err)
+	}
+	cfgPath := s.configPath()
+	cfgJSON, err := ensureInternalKey(st.ConfigJSON)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o600); err != nil {
+		return fmt.Errorf("写入引擎配置失败: %w", err)
+	}
+	_ = os.Setenv("DS2API_CONFIG_PATH", cfgPath)
+	app, err := engineserver.NewApp()
+	if err != nil {
+		return fmt.Errorf("初始化引擎失败: %w", err)
+	}
+	s.app = app
+	return nil
+}
+
+// ensureInternalKey 保证引擎 config 的 keys 列表包含插件内部密钥，
+// 使 loopback 内部调用免外部 key 也能通过引擎校验。
+func ensureInternalKey(cfgJSON string) (string, error) {
+	var cfg map[string]interface{}
+	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
+		return cfgJSON, nil
+	}
+	keys, _ := cfg["keys"].([]interface{})
+	has := false
+	for _, k := range keys {
+		if str, ok := k.(string); ok && str == internalKey {
+			has = true
+			break
+		}
+	}
+	if !has {
+		cfg["keys"] = append(keys, internalKey)
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			return cfgJSON, fmt.Errorf("注入内部密钥失败: %w", err)
+		}
+		cfgJSON = string(data)
+	}
+	return cfgJSON, nil
+}
+
+// ServeHTTP 是 DS2API 插件总入口：
+//   - /v1/*、/admin/*：内嵌引擎路由（OpenAI 兼容 + 引擎管理页）
+//   - /api/ds2api/*：插件管理接口
+func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	switch {
+	case path == "/api/ds2api/settings":
+		s.handleSettings(w, r)
+	case path == "/api/ds2api/status":
+		s.handleStatus(w, r)
+	case path == "/api/ds2api/test":
+		s.handleTest(w, r)
+	case path == "/api/ds2api/models":
+		s.handleModels(w, r)
+	case path == "/api/ds2api/models/toggle":
+		s.handleToggleModel(w, r, "")
+	case path == "/api/ds2api/models/toggle-batch":
+		s.handleBatchToggleModels(w, r)
+	case strings.HasPrefix(path, "/api/ds2api/models/toggle/"):
+		s.handleToggleModel(w, r, strings.TrimPrefix(path, "/api/ds2api/models/toggle/"))
+	case path == "/api/ds2api/link":
+		s.handleLink(w, r)
+	case path == "/api/ds2api/accounts/export":
+		s.handleExportAccounts(w, r)
+	case path == "/api/ds2api/accounts/import":
+		s.handleImportAccounts(w, r)
+	case path == "/api/ds2api/accounts":
+		s.handleAccounts(w, r)
+	case strings.HasPrefix(path, "/api/ds2api/accounts/"):
+		rest := strings.TrimPrefix(path, "/api/ds2api/accounts/")
+		switch {
+		case strings.HasSuffix(rest, "/test"):
+			s.handleTestAccount(w, r, strings.TrimSuffix(rest, "/test"))
+		case r.Method == http.MethodPut:
+			s.handleUpdateAccount(w, r, rest)
+		default:
+			s.handleDeleteAccount(w, r, rest)
+		}
+	default:
+		s.mu.RLock()
+		app := s.app
+		enabled := s.settings.Enabled
+		s.mu.RUnlock()
+		if !enabled || app == nil || app.Router == nil {
+			http.NotFound(w, r)
+			return
+		}
+		// 引擎 Router 只认识 /v1/... 等相对路径，需剥掉 /api/ds2api 前缀。
+		stripped := strings.TrimPrefix(path, "/api/ds2api")
+		if stripped == "" {
+			stripped = "/"
+		}
+		rr := r.Clone(r.Context())
+		rr.URL = newURLFrom(r.URL, stripped)
+		// 本机内部调用（模型网关经 loopback 转发）免 key：注入插件内部密钥
+		// 通过引擎校验；外部请求已被 server 层 AuthInternal 拒绝。
+		// 注意：net/http 会 trim 头值尾随空格，`Bearer ` 到达时已是 `Bearer`，
+		// 因此解析时用 "Bearer" 前缀剥离（不依赖尾随空格）。
+		if isLoopback(r.RemoteAddr) && strings.HasPrefix(stripped, "/v1/") {
+			auth := rr.Header.Get("Authorization")
+			caller := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer"))
+			if caller == "" {
+				caller = strings.TrimSpace(rr.Header.Get("X-API-Key"))
+			}
+			if caller == "" {
+				rr.Header.Set("Authorization", "Bearer "+internalKey)
+			}
+		}
+		app.Router.ServeHTTP(w, rr)
+	}
+}
+
+func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
+	st := s.Settings()
+	s.mu.RLock()
+	engineUp := s.app != nil
+	s.mu.RUnlock()
+	responseJSON(w, map[string]interface{}{
+		"enabled":      st.Enabled,
+		"engineUp":     engineUp,
+		"proxyPoolId":  st.ProxyPoolID,
+		"configBytes":  len(st.ConfigJSON),
+	})
+}
+
+func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		responseJSON(w, map[string]interface{}{"success": true, "settings": s.Settings()})
+	case http.MethodPut, http.MethodPost:
+		var body Settings
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
+			return
+		}
+		if err := s.SaveSettings(r.Context(), body); err != nil {
+			responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		responseJSON(w, map[string]interface{}{"success": true, "settings": s.Settings()})
+	default:
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
+}
+
+func (s *Service) handleTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	s.mu.RLock()
+	engineUp := s.app != nil
+	s.mu.RUnlock()
+	responseJSON(w, map[string]interface{}{"success": engineUp})
+}
+
+// helper：本包轻量 JSON 输出（避免与引擎的 httpapi 冲突）。
+func responseJSON(w http.ResponseWriter, statusOrPayload interface{}, payload ...interface{}) {
+	status := http.StatusOK
+	var body interface{}
+	switch v := statusOrPayload.(type) {
+	case int:
+		status = v
+		if len(payload) > 0 {
+			body = payload[0]
+		}
+	default:
+		body = statusOrPayload
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if body == nil {
+		body = map[string]interface{}{}
+	}
+	b, _ := json.Marshal(body)
+	w.WriteHeader(status)
+	_, _ = w.Write(b)
+}

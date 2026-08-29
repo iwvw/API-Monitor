@@ -29,7 +29,9 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
-	"github.com/iwvw/api-monitor/backend-go/internal/openaibeta"
+	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
+	"github.com/iwvw/api-monitor/backend-go/internal/ds2api"
+	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
@@ -67,7 +69,9 @@ type Server struct {
 	cf       *cloudflare.Service
 	m365     *m365.Service
 	openai   *openai.Service
-	openaibeta *openaibeta.Service
+	antigravity *antigravity.Service
+	ds2api   *ds2api.Service
+	proxypool *proxypool.Service
 	server   *serveragent.Service
 	backup   *backup.Service
 	logs     *systemlogs.Service
@@ -159,7 +163,9 @@ func newServer(cfg config.Config) (*Server, error) {
 		cf:       cloudflareService,
 		m365:     m365.New(cfg),
 		openai:   openai.New(cfg),
-		openaibeta: openaibeta.New(cfg),
+		antigravity: antigravity.New(cfg),
+		ds2api:   ds2api.New(cfg),
+		proxypool: proxypool.New(cfg),
 		server:   serverAgentService,
 		backup:   backupService,
 		logs:     systemlogs.New(cfg),
@@ -178,11 +184,21 @@ func newServer(cfg config.Config) (*Server, error) {
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
 	server.warmupCancel = warmupCancel
 	server.openai.SetNotifier(notifyService)
+	// 注入独立代理池选择器：端点配置 proxy_pool_id 时复用插件管理的池与健康数据。
+	server.openai.SetProxyPoolSelector(server.proxypool)
+	// Antigravity 插件可引用独立代理池作为出网出口。
+	server.antigravity.SetProxyPoolSelector(server.proxypool)
+	// Antigravity 插件配额刷新检测：上报事件走统一通知中心。
+	server.antigravity.SetNotifier(notifyService)
+	// DS2API 插件可引用独立代理池作为出网出口。
+	server.ds2api.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
 	// 启动上游模型列表每小时自动刷新（后台默认开启，无需前端展示）。
 	server.openai.StartModelAutoRefresh(warmupCtx)
+	// 启动 Antigravity 配额刷新检测（开关由前端控制，关闭时后台静默跳过）。
+	server.antigravity.StartQuotaMonitor(warmupCtx)
 	return server, nil
 }
 
@@ -334,7 +350,16 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) {
 		return true
 	}
-	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "openaibeta-compatible") {
+	// 仅本机内部调用：网关转发等 loopback 来源免密钥放行，外部一律拒绝。
+	// 适用于插件兼容中继（antigravity/ds2api /v1），避免把独立兼容端点暴露到公网。
+	if route.Auth == manifest.AuthInternal {
+		if isLoopbackRemoteAddr(r.RemoteAddr) {
+			return true
+		}
+		response.JSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "该接口仅限本机内部调用"})
+		return false
+	}
+	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "ds2api-compatible") {
 		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
 		if err != nil {
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -562,8 +587,12 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.cf.ServeHTTP(w, r)
 	case "/api/openai":
 		s.openai.ServeHTTP(w, r)
-	case "/api/openaibeta", "/api/openaibeta/v1":
-		s.openaibeta.ServeHTTP(w, r)
+	case "/api/proxypool":
+		s.proxypool.ServeHTTP(w, r)
+	case "/api/antigravity", "/api/antigravity/v1":
+		s.antigravity.ServeHTTP(w, r)
+	case "/api/ds2api", "/api/ds2api/v1":
+		s.ds2api.ServeHTTP(w, r)
 	case "/api/subscription":
 		s.sub.ServeHTTP(w, r)
 	case "/sub/{token}":

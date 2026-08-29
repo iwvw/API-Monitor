@@ -600,7 +600,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			client, clientErr = s.proxyClient(retryProxy)
 			currentProxy = retryProxy
 		} else {
-			client, currentProxy, clientErr = s.clientForEndpoint(selected.ID, selected.ProxyPool, selected.ProxyEnabled, selected.ForceProxy, p.sessionKey, selected.Protocol)
+			client, currentProxy, clientErr = s.clientForEndpoint(selected.ID, selected.ProxyPool, selected.ProxyEnabled, selected.ForceProxy, p.sessionKey, selected.Protocol, selected.ProxyPoolID)
 		}
 		if clientErr != nil {
 			cancel()
@@ -707,6 +707,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		if lastErr != nil {
 			// 连接失败（例如该代理不可用）：key 不冻结，只标记代理失败，若有池则切下一个。
 			s.markProxyFailed(selected.ID, currentProxy)
+			if s.externalPoolInUse(selected.ProxyPoolID) {
+				s.reportExternalPoolResult(selected.ProxyPoolID, currentProxy, false, false, nil)
+			}
 			cancel()
 			if errors.Is(lastErr, context.Canceled) {
 				res.clientCancelled = true
@@ -753,7 +756,13 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 						break
 					}
 					if currentProxy != "" {
-						next := s.pickRandomAvailableProxy(selected.ID, cleanProxyPool(selected.ProxyPool), triedProxies, currentProxy)
+						var next string
+						if s.externalPoolInUse(selected.ProxyPoolID) {
+							// 独立代理池：反馈 429 冻结当前出口后重选池内下一出口。
+							next = s.externalPoolNextProxy(ctx, selected.ProxyPoolID, currentProxy, retryAfterFromHeader(resp))
+						} else {
+							next = s.pickRandomAvailableProxy(selected.ID, cleanProxyPool(selected.ProxyPool), triedProxies, currentProxy)
+						}
 						if next == "" {
 							// 全部出口已试/已冻结：无可换出口，提前收尾。
 							resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
@@ -800,7 +809,13 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 					lastErr = fmt.Errorf("上游按出口限流（连续 %d 个出口 429）", proxyRateLimitPicks)
 					break
 				}
-				next := s.pickRandomAvailableProxy(selected.ID, cleanProxyPool(selected.ProxyPool), triedProxies, currentProxy)
+				var next string
+				if s.externalPoolInUse(selected.ProxyPoolID) {
+					// 独立代理池：反馈 429 冻结当前出口后重选池内下一出口。
+					next = s.externalPoolNextProxy(ctx, selected.ProxyPoolID, currentProxy, retryAfterFromHeader(resp))
+				} else {
+					next = s.pickRandomAvailableProxy(selected.ID, cleanProxyPool(selected.ProxyPool), triedProxies, currentProxy)
+				}
 				if next == "" {
 					// 全部出口已试/已冻结：无可换出口，提前收尾。
 					res.retryableUpstream = true
@@ -968,6 +983,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// 最后一次尝试（无重试机会）返回限流：同样累计计数，供 429 熔断使用。
 	if resp != nil && isRateLimitResponse(resp, nil) {
 		s.markProxy429(selected.ID, lastProxy, retryAfterFromHeader(resp))
+		if s.externalPoolInUse(selected.ProxyPoolID) {
+			s.reportExternalPoolResult(selected.ProxyPoolID, lastProxy, false, true, retryAfterFromHeader(resp))
+		}
 	}
 	// 统一判定「上游可重试错误」：无论是否启用 AutoSwitch / 是否有代理池，
 	// 只要最终响应是限流或 5xx（且流式尚未写出首字节），都交给端点级 failover
