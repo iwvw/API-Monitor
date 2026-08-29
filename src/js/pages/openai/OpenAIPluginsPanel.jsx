@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { AppCard, EmptyState, PageStack } from '../../components/ui/AppPrimitives.jsx';
-import { Rocket } from '../../components/Icons.jsx';
+import { SectionCard, EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
+import { ChevronRight, Plug, Rocket } from '../../components/Icons.jsx';
 import { Vertex2APIPlugin } from './plugins/Vertex2APIPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
-// 插件中心是卡片式容器，本身不承载具体模块逻辑。
+// 插件中心是列表式容器，本身不承载具体模块逻辑。
 const PLUGINS = [
   {
     id: 'vertex2api',
@@ -12,12 +12,11 @@ const PLUGINS = [
     shortName: '免费 Gemini 中继',
     description: '内嵌免费 Gemini 代理引擎，OpenAI 兼容。可复用模型网关端点代理池出网，并一键接入网关端点列表。',
     icon: Rocket,
-    statusHint: '免费 Gemini 中继',
     detail: Vertex2APIPlugin,
   },
 ];
 
-// OpenAIPluginsPanel：模型网关「插件」中心（卡片式，可扩展）。
+// OpenAIPluginsPanel：模型网关「插件」中心（列表式，可扩展）。
 export function OpenAIPluginsPanel() {
   const [activePlugin, setActivePlugin] = useState(null);
 
@@ -27,38 +26,59 @@ export function OpenAIPluginsPanel() {
   }
 
   return (
-    <PageStack viewport>
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
-        <AppCard title="插件中心" description="模型网关的扩展插件。每个插件独立开关、独立配置，可整体移除。">
-          <p className="text-xs text-kumo-subtle">
-            插件以内嵌引擎或外部服务的方式扩展网关能力；接入后会在下方以卡片展示，点击进入配置。
-          </p>
-        </AppCard>
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <SectionCard
+        title="插件中心"
+        icon={<Plug className="h-4 w-4 text-brand" />}
+        description="模型网关的扩展插件。每个插件独立开关、独立配置，可整体移除。"
+        bodyPadding="none"
+      >
+        <div className="flex flex-col gap-1.5 px-4 py-3">
+          <div className="text-xs leading-relaxed text-kumo-subtle">
+            插件以内嵌引擎或外部服务的方式扩展网关能力；点击插件卡片进入配置。
+          </div>
+        </div>
+      </SectionCard>
 
-        <div className="grid min-w-0 grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
+      {PLUGINS.length === 0 ? (
+        <EmptyState title="暂无插件" description="插件注册表为空。" />
+      ) : (
+        <div className="grid gap-1.5 cq-lg:grid-cols-2">
           {PLUGINS.map(plugin => {
             const Icon = plugin.icon;
             return (
-              <AppCard key={plugin.id} interactive className="cursor-pointer" onClick={() => setActivePlugin(plugin)}>
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-kumo-recessed text-brand">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-kumo-strong">{plugin.name}</div>
-                    <div className="mt-0.5 text-xs text-kumo-subtle">{plugin.shortName}</div>
-                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-kumo-subtle">{plugin.description}</p>
-                  </div>
+              <div
+                key={plugin.id}
+                role="button"
+                tabIndex={0}
+                className={cx(
+                  'group flex min-h-15 cursor-pointer items-center gap-3 rounded-lg border border-kumo-line bg-kumo-base px-3 py-2.5 transition-colors hover:border-brand/60 cq-sm:min-h-16',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50'
+                )}
+                onClick={() => setActivePlugin(plugin)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setActivePlugin(plugin);
+                  }
+                }}
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-brand">
+                  <Icon className="h-4 w-4" />
                 </div>
-              </AppCard>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-kumo-strong">{plugin.name}</span>
+                    <span className="shrink-0 text-xs text-kumo-subtle">{plugin.shortName}</span>
+                  </div>
+                  <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-kumo-subtle">{plugin.description}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-kumo-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-kumo-strong" />
+              </div>
             );
           })}
         </div>
-
-        {PLUGINS.length === 0 && (
-          <EmptyState title="暂无插件" description="插件注册表为空。" />
-        )}
-      </div>
-    </PageStack>
+      )}
+    </div>
   );
 }
