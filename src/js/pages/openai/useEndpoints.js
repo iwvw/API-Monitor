@@ -264,15 +264,21 @@ const saveEndpointRouting = async (endpointId, field, value) => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
     setEndpoints(prev =>
-      prev.map(e =>
-        e.id === endpointId
-          ? {
-              ...e,
-              priority: typeof data.priority === 'number' ? data.priority : e.priority,
-              weight: typeof data.weight === 'number' ? data.weight : e.weight,
-            }
-          : e
-      )
+      [...prev]
+        .map(e =>
+          e.id === endpointId
+            ? {
+                ...e,
+                priority: typeof data.priority === 'number' ? data.priority : e.priority,
+                weight: typeof data.weight === 'number' ? data.weight : e.weight,
+              }
+            : e
+        )
+        .sort(
+          (a, b) =>
+            (b.priority ?? 0) - (a.priority ?? 0) ||
+            (b.weight ?? 0) - (a.weight ?? 0)
+        )
     );
   } catch (error) {
     toast.error('路由设置保存失败: ' + error.message);
@@ -357,6 +363,7 @@ const openAddEndpointModal = () => {
     rateLimitRetryEnabled: true,
     rateLimitRetryWaitSeconds: 10,
     protocol: 'auto',
+    proxyPoolId: '',
   });
   setEndpointFormError('');
   setEndpointFormOpen(true);
@@ -380,6 +387,7 @@ const openEditEndpointModal = endpoint => {
     rateLimitRetryEnabled: endpoint.rateLimitRetryEnabled !== false,
     rateLimitRetryWaitSeconds: endpoint.rateLimitRetryWaitSeconds || 10,
     protocol: endpoint.protocol || 'auto',
+    proxyPoolId: endpoint.proxyPoolId || '',
   });
   setEndpointFormError('');
   setEndpointFormOpen(true);

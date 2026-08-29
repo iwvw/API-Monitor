@@ -582,6 +582,22 @@ function OpenAIPage() {
   // Tab State
   const [activeTab, setActiveTab] = useState('analytics'); // 'analytics' | 'endpoints' | 'keys' | 'logs'
 
+  // 独立代理池插件列表（/api/proxypool），供端点表单「使用独立代理池」下拉选择。
+  const [proxypoolPools, setProxypoolPools] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/proxypool', { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (res.ok && data?.success && !cancelled) setProxypoolPools(data.pools || []);
+      } catch {
+        /* 插件未启用时静默 */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
   // Gateway Analytics（状态/拉取/SSE/日志清理由 useAnalytics 统一管理）
   const {
     analyticsDays, setAnalyticsDays,
@@ -724,6 +740,15 @@ function OpenAIPage() {
     saveEndpointMapping,
     batchEnableDisabledModels,
   } = useEndpoints();
+
+  // 进入「API 端点」页时静默刷新端点与模型列表：插件中心接入/断开端点后
+  // 无需手动刷新即可看到最新状态（端点列表只在挂载时拉取过一次）。
+  useEffect(() => {
+    if (activeTab === 'endpoints') {
+      loadEndpoints(true);
+      loadAllModels(true);
+    }
+  }, [activeTab, loadEndpoints, loadAllModels]);
 
   // 端点模型健康检测（单测/批量/进度，由 useHealthChecks 统一管理）
   const {
@@ -1346,6 +1371,11 @@ function OpenAIPage() {
                                       <div className="truncate font-semibold leading-5 text-kumo-strong" title={item.name}>
                                         {item.name || '未命名端点'}
                                       </div>
+                                      {item.pluginId && (
+                                        <Badge variant="info" className="shrink-0" title="由插件注册">
+                                          插件
+                                        </Badge>
+                                      )}
                                       <Badge variant="teal" className="shrink-0" title="启用模型数">
                                         {activeModelIdsForEndpoint(item).length}
                                       </Badge>
@@ -1716,7 +1746,7 @@ function OpenAIPage() {
                                           }}
                                         >
                                           {endpoint.modelMappings?.[modelId] ? (
-                                            <span className="text-brand">
+                                            <span className="text-base text-brand">
                                               {endpoint.modelMappings[modelId]}
                                             </span>
                                           ) : (
@@ -3472,6 +3502,29 @@ function OpenAIPage() {
 
               {/* ====== 右列：连接与代理 ====== */}
               <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <Label>
+                      使用独立代理池
+                      <span className="font-normal text-kumo-subtle">（可选）</span>
+                    </Label>
+                  </div>
+                  <Select
+                    size="sm"
+                    className="w-full"
+                    value={endpointForm.proxyPoolId || ''}
+                    onValueChange={value => setEndpointForm(f => ({ ...f, proxyPoolId: value || '' }))}
+                    placeholder="不使用（用下方内联代理池或直连）"
+                  >
+                    <Select.Option value="">不使用（用下方内联代理池或直连）</Select.Option>
+                    {proxypoolPools.map(p => (
+                      <Select.Option key={p.id} value={p.id}>
+                        {p.name || p.id}（{p.proxies?.length || 0} 个出口）
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </div>
+
                 <div className="space-y-1.5">
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <Label>

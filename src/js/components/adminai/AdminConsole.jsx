@@ -384,6 +384,7 @@ const EMPTY_FORM = {
   botTokenSet: false,
   botId: '',
   secret: '',
+  notifyOnStart: true,
 };
 
 function ChannelsCard() {
@@ -443,6 +444,7 @@ function ChannelsCard() {
       botTokenSet: channel.type === 'wechat' ? !!(channel.config?.botToken) : false,
       botId: channel.config?.botId || '',
       secret: '',
+      notifyOnStart: channel.config?.notifyOnStart ?? true,
     });
     setError('');
     setFormOpen(true);
@@ -472,6 +474,7 @@ function ChannelsCard() {
     const weComConfig = isWeCom
       ? { botId: form.botId.trim(), ...(form.secret.trim() ? { secret: form.secret.trim() } : {}) }
       : null;
+    const tgConfig = isTelegram ? { notifyOnStart: !!form.notifyOnStart } : null;
     setSaving(true);
     setError('');
     try {
@@ -481,6 +484,7 @@ function ChannelsCard() {
             name: form.name.trim(),
             ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}),
             ...(weComConfig ? { config: weComConfig } : {}),
+            ...(tgConfig ? { config: tgConfig } : {}),
           }
         : {
             type: form.type || 'telegram',
@@ -488,6 +492,7 @@ function ChannelsCard() {
             enabled: isTelegram || isWeCom,
             ...(isTelegram ? { notificationChannelId: form.notificationChannelId } : {}),
             ...(weComConfig ? { config: weComConfig } : {}),
+            ...(tgConfig ? { config: tgConfig } : {}),
           };
       const res = await fetch(url, {
         method: form.id ? 'PUT' : 'POST',
@@ -828,6 +833,19 @@ function ChannelsCard() {
               <p className="mt-3 text-xs leading-5 text-kumo-subtle">
                 复用通知中心已配置的 Telegram 渠道（需含 bot_token 与 chat_id），无需在此填写；同一渠道只能被一个 AI 频道引用。
               </p>
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-kumo-line bg-kumo-base px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-kumo-strong">服务器启动时发送通知</div>
+                  <p className="mt-0.5 text-[11px] leading-4 text-kumo-subtle">
+                    频道启动（含面板服务器重启）时向白名单成员发送就绪提醒，关闭后不再打扰
+                  </p>
+                </div>
+                <Switch
+                  checked={form.notifyOnStart}
+                  onCheckedChange={(v) => setFormField('notifyOnStart', !!v)}
+                  aria-label="服务器启动时发送通知"
+                />
+              </div>
             </>
           ) : form.type === 'wechat' ? (
             <>

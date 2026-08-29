@@ -1651,13 +1651,13 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
             <Tabs value={adminTab} onValueChange={setAdminTab} tabs={TAB_OPTIONS} />
             <Button
               type="button"
+              size="sm"
               variant="ghost"
-              shape="square"
               onClick={() => setManageOpen(false)}
-              aria-label="关闭设置"
-              title="关闭设置"
+              aria-label="返回"
+              title="返回对话"
             >
-              <X className="h-4 w-4" />
+              <ArrowLeft className="h-4 w-4" /> 返回
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4">
