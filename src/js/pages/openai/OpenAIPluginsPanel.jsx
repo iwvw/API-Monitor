@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { SectionCard, EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { ChevronRight, Plug, Rocket } from '../../components/Icons.jsx';
+import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
+import { ChevronRight, Rocket } from '../../components/Icons.jsx';
 import { Vertex2APIPlugin } from './plugins/Vertex2APIPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
@@ -27,19 +27,6 @@ export function OpenAIPluginsPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <SectionCard
-        title="插件中心"
-        icon={<Plug className="h-4 w-4 text-brand" />}
-        description="模型网关的扩展插件。每个插件独立开关、独立配置，可整体移除。"
-        bodyPadding="none"
-      >
-        <div className="flex flex-col gap-1.5 px-4 py-3">
-          <div className="text-xs leading-relaxed text-kumo-subtle">
-            插件以内嵌引擎或外部服务的方式扩展网关能力；点击插件卡片进入配置。
-          </div>
-        </div>
-      </SectionCard>
-
       {PLUGINS.length === 0 ? (
         <EmptyState title="暂无插件" description="插件注册表为空。" />
       ) : (
