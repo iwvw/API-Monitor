@@ -492,9 +492,15 @@ func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 			case "path":
 				path = a.Value.String()
 			case "status":
-				status = a.Value.Int64()
+				// 业务日志可能以任意类型携带 status（如字符串状态码），
+				// 仅在确为整数时解析，避免 Int64() 对 String 取值 panic。
+				if a.Value.Kind() == slog.KindInt64 {
+					status = a.Value.Int64()
+				}
 			case "duration_ms":
-				duration = a.Value.Int64()
+				if a.Value.Kind() == slog.KindInt64 {
+					duration = a.Value.Int64()
+				}
 			default:
 				if a.Key != "user_agent" && a.Key != "remote_addr" {
 					extraAttrs = append(extraAttrs, fmt.Sprintf("%s=%v", a.Key, a.Value.Any()))
