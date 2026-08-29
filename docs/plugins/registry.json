@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "doc": "模型网关插件登记清单。安装/开发插件时，必须在 plugins 里追加一项，如实记录动了哪些文件、哪些接线点、建了哪些表、引入了哪些依赖。卸载插件时按此清单逐项回滚即可快速、完整地删除。",
+  "plugins": {
+    "proxypool": {
+      "name": "代理池",
+      "version": "1",
+      "status": "installed",
+      "kind": "builtin-plugin",
+      "summary": "独立出口代理池管理：CRUD、批量添加、文件/订阅导入、批量测试探活、一键解封；可被其他插件或网关端点复用。",
+      "backendDirs": ["backend-go/internal/proxypool/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": ["\t\t{Prefix: \"/api/proxypool\", Module: \"proxypool\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"独立出口代理池管理（端点与插件可复用）\"},"]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/proxypool\""],
+        "structField": "proxypool *proxypool.Service",
+        "constructor": "proxypool: proxypool.New(cfg),",
+        "injections": ["server.openai.SetProxyPoolSelector(server.proxypool)"],
+        "serveCases": ["case \"/api/proxypool\":"]
+      },
+      "dbTables": ["proxy_pools", "proxypool_state"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/ProxyPoolPlugin.jsx"],
+        "registrations": [
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "proxypool"
+          }
+        ],
+        "hostIntegration": "OpenAIPage.jsx 端点表单「使用独立代理池」下拉（proxyPoolId），属 openai 主模块接入，卸载时保留列、仅清空端点引用"
+      },
+      "goDeps": [],
+      "systemContracts": [],
+      "docs": ["docs/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/proxypool/",
+        "manifest.go：删除 /api/proxypool 前缀行",
+        "server.go：删除 import、proxypool 字段、proxypool.New(cfg)、SetProxyPoolSelector 注入、/api/proxypool case",
+        "go mod tidy（如引入过依赖）",
+        "DB：DROP TABLE proxypool_state; DROP TABLE proxy_pools;（并清空 openai_endpoints.proxy_pool_id 引用）",
+        "删除 src/js/pages/openai/plugins/ProxyPoolPlugin.jsx",
+        "OpenAIPluginsPanel.jsx：移除 proxypool 注册条目"
+      ]
+    },
+    "antigravity": {
+      "name": "Antigravity",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "Claude 订阅账号（Google OAuth）转 Anthropic 兼容 API：OAuth 授权、token 管理、Claude→Gemini→v1internal 协议转换、SSE 回转。",
+      "backendDirs": ["backend-go/internal/antigravity/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/antigravity\", Module: \"antigravity\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"Antigravity 插件（Claude 订阅转 API）管理\"},",
+          "\t\t{Prefix: \"/api/antigravity/v1\", Module: \"antigravity-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"Antigravity 插件 Anthropic 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/antigravity\""],
+        "structField": "antigravity *antigravity.Service",
+        "constructor": "antigravity: antigravity.New(cfg),",
+        "injections": ["server.antigravity.SetProxyPoolSelector(server.proxypool)"],
+        "serveCases": ["case \"/api/antigravity\", \"/api/antigravity/v1\":"],
+        "authModules": ["antigravity-compatible"]
+      },
+      "dbTables": ["antigravity_settings"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/AntigravityPlugin.jsx"],
+        "registrations": [
+          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "antigravity" }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [],
+      "systemContracts": [],
+      "docs": ["docs/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/antigravity/",
+        "manifest.go：删除 /api/antigravity 与 /api/antigravity/v1 前缀行",
+        "server.go：删除 import、antigravity 字段、antigravity.New(cfg)、SetProxyPoolSelector 注入、/api/antigravity case、antigravity-compatible 鉴权分支",
+        "go mod tidy",
+        "DB：DROP TABLE antigravity_settings;",
+        "删除 src/js/pages/openai/plugins/AntigravityPlugin.jsx",
+        "OpenAIPluginsPanel.jsx：移除 antigravity 注册条目"
+      ]
+    },
+    "ds2api": {
+      "name": "DS2API",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "DeepSeek 网页版账号池转 OpenAI 兼容 API：账号登录、PoW、TLS 指纹、prompt 转换、SSE 流式。",
+      "backendDirs": ["backend-go/internal/ds2api/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/ds2api\", Module: \"ds2api\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"DS2API 插件（DeepSeek 网页版免费池）管理\"},",
+          "\t\t{Prefix: \"/api/ds2api/v1\", Module: \"ds2api-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"DS2API 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/ds2api\""],
+        "structField": "ds2api   *ds2api.Service",
+        "constructor": "ds2api:   ds2api.New(cfg),",
+        "injections": ["server.ds2api.SetProxyPoolSelector(server.proxypool)"],
+        "serveCases": ["case \"/api/ds2api\", \"/api/ds2api/v1\":"],
+        "authModules": ["ds2api-compatible"]
+      },
+      "dbTables": ["ds2api_settings"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/DS2APIPlugin.jsx"],
+        "registrations": [
+          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "ds2api" }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [
+        "github.com/andybalholm/brotli",
+        "github.com/go-chi/chi/v5",
+        "github.com/hupe1980/go-tiktoken",
+        "github.com/klauspost/compress",
+        "github.com/sardanioss/httpcloak",
+        "github.com/router-for-me/CLIProxyAPI/v6"
+      ],
+      "systemContracts": [],
+      "docs": ["docs/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/ds2api/",
+        "manifest.go：删除 /api/ds2api 与 /api/ds2api/v1 前缀行",
+        "server.go：删除 import、ds2api 字段、ds2api.New(cfg)、SetProxyPoolSelector 注入、/api/ds2api case、ds2api-compatible 鉴权分支",
+        "go mod tidy（自动移除 goDeps）",
+        "DB：DROP TABLE ds2api_settings;（并删除 data/ds2api/config.json 落盘文件）",
+        "删除 src/js/pages/openai/plugins/DS2APIPlugin.jsx",
+        "OpenAIPluginsPanel.jsx：移除 ds2api 注册条目"
+      ]
+    }
+  }
+}
