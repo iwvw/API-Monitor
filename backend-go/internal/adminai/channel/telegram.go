@@ -24,10 +24,16 @@ type TelegramConfig struct {
 	Groups      map[string]struct {
 		RequireMention bool `json:"requireMention"`
 	} `json:"groups"`
-	TextChunkLimit int `json:"textChunkLimit"` // 单条消息分片上限（Telegram 4096）
+	TextChunkLimit int   `json:"textChunkLimit"` // 单条消息分片上限（Telegram 4096）
+	NotifyOnStart  *bool `json:"notifyOnStart"`  // 启动（含服务器启动）时是否发送就绪通知；nil=默认开启
 	Streaming      struct {
 		Mode string `json:"mode"` // "partial" | "none"
 	} `json:"streaming"`
+}
+
+// NotifyOnStartEnabled 判断频道启动时是否发送就绪通知（缺省视为开启，兼容存量频道）。
+func (t *TelegramChannel) NotifyOnStartEnabled() bool {
+	return t.cfg.NotifyOnStart == nil || *t.cfg.NotifyOnStart
 }
 
 // AuthorizeFunc 判定渠道用户是否被允许使用（由上层注入绑定表/白名单逻辑）。
@@ -96,9 +102,11 @@ func (t *TelegramChannel) Start(ctx context.Context) error {
 	stop := t.stop
 	t.mu.Unlock()
 
-	// 发送就绪消息给 allowlist 用户（DM）：附中文命令面板
-	for _, uid := range t.cfg.AllowFrom {
-		_, _ = t.Send(ctx, uid, OutboundMessage{Text: CommandPanel()})
+	// 发送就绪消息给 allowlist 用户（DM）：附中文命令面板（可由 notifyOnStart 开关控制）
+	if t.NotifyOnStartEnabled() {
+		for _, uid := range t.cfg.AllowFrom {
+			_, _ = t.Send(ctx, uid, OutboundMessage{Text: CommandPanel()})
+		}
 	}
 
 	for {

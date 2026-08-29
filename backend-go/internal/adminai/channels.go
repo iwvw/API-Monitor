@@ -273,6 +273,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 	}
 
 	var ch channel.Channel
+	notifyOnStart := false
 	switch ctype {
 	case "telegram":
 		var cfg channel.TelegramConfig
@@ -287,6 +288,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
 		tg.SetAuthorize(auth)
 		ch = tg
+		notifyOnStart = tg.NotifyOnStartEnabled()
 	case "wechat":
 		var wcfg channel.WeChatConfig
 		if err := secure.DecryptJSON(encrypted, &wcfg); err != nil {
@@ -311,6 +313,11 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 	s.chanMgr.mu.Unlock()
 
 	s.chanMgr.registry.Register(ch)
+	// 启动就绪通知（开关开启时）：向白名单成员发送命令面板，与 telegram.go 内的
+	// AllowFrom 就绪消息共用同一开关；独立 goroutine 发送，不阻塞启动流程。
+	if notifyOnStart {
+		go s.sendChannelStartNotify(id)
+	}
 	go func() {
 		// Start 阻塞；退出后清理 cancel 注册（含异常退出）
 		err := ch.Start(runCtx)
@@ -325,6 +332,60 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		s.chanMgr.mu.Unlock()
 	}()
 	return nil
+}
+
+// sendChannelStartNotify 向频道白名单成员发送启动就绪消息（命令面板）。
+// 与 telegram.go 内 AllowFrom 就绪消息互补：白名单成员走 bindings 表，旧 allowFrom 走频道实例。
+func (s *Service) sendChannelStartNotify(channelID string) {
+	ch, ok := s.chanMgr.registry.Get(channelID)
+	if !ok {
+		return
+	}
+	db, err := s.open(context.Background())
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	// 去重：telegram.go Start() 已给 AllowFrom 用户发送就绪消息，这里排除，避免同一用户收两条。
+	var chType, encrypted string
+	_ = db.QueryRowContext(context.Background(), `SELECT type, config FROM admin_ai_channels WHERE id = ?`, channelID).Scan(&chType, &encrypted)
+	allowFrom := map[string]bool{}
+	if chType == "telegram" && encrypted != "" {
+		var cfg channel.TelegramConfig
+		if err := secure.DecryptJSON(encrypted, &cfg); err == nil {
+			for _, uid := range cfg.AllowFrom {
+				if uid = strings.TrimSpace(uid); uid != "" {
+					allowFrom[uid] = true
+				}
+			}
+		}
+	}
+	rows, err := db.QueryContext(context.Background(),
+		`SELECT channel_user_id FROM admin_ai_channel_bindings WHERE channel_id = ? ORDER BY created_at DESC`, channelID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	var uids []string
+	for rows.Next() {
+		var uid string
+		if rows.Scan(&uid) == nil {
+			uid = strings.TrimSpace(uid)
+			if uid != "" && !allowFrom[uid] {
+				uids = append(uids, uid)
+			}
+		}
+	}
+	if len(uids) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, uid := range uids {
+		if _, err := ch.Send(ctx, uid, channel.OutboundMessage{Text: channel.CommandPanel()}); err != nil {
+			slog.Warn("channel-start-notify-failed", "channelId", channelID, "userId", uid, "err", err.Error())
+		}
+	}
 }
 
 // stopChannelInstance 停止频道轮询并从注册表移除实例：
@@ -1135,8 +1196,9 @@ func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id strin
 	if req.Config != nil {
 		var channelType string
 		_ = db.QueryRowContext(r.Context(), `SELECT type FROM admin_ai_channels WHERE id = ?`, id).Scan(&channelType)
-		if channelType == "wecom" {
-			// 企微凭据存自有配置：合并旧配置，空字符串不覆盖（secret 留空 = 保持不变）
+		if channelType == "wecom" || channelType == "telegram" {
+			// 企微/Telegram 凭据与偏好存自有配置：合并旧配置，空字符串不覆盖（secret 留空 = 保持不变）。
+			// telegram 合并保证新增字段（如 notifyOnStart）只更新本字段，不抹掉 allowFrom 等旧字段。
 			var oldEncrypted string
 			_ = db.QueryRowContext(r.Context(), `SELECT config_encrypted FROM admin_ai_channels WHERE id = ?`, id).Scan(&oldEncrypted)
 			merged := map[string]interface{}{}
@@ -1153,6 +1215,9 @@ func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id strin
 					continue
 				}
 				merged[k] = v
+			}
+			if channelType == "telegram" {
+				delete(merged, "botToken")
 			}
 			req.Config = merged
 		} else if channelType != "wechat" {
