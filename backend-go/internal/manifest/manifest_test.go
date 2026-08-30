@@ -417,3 +417,38 @@ func TestSummaryCoversAllRoutes(t *testing.T) {
 		t.Fatalf("summary counted %d routes, want %d", total, len(Routes()))
 	}
 }
+
+func TestCompareRouteSpecificityPrefersLiteralOverParam(t *testing.T) {
+	cases := []struct {
+		name      string
+		literal   string
+		param     string
+	}{
+		{
+			name:    "prune beats imageRef placeholder",
+			literal: "/api/server/v2/docker/{serverId}/images/prune",
+			param:   "/api/server/v2/docker/{serverId}/images/{imageRef}",
+		},
+		{
+			name:    "sync beats project placeholder",
+			literal: "/api/server/v2/docker/{serverId}/stacks/sync",
+			param:   "/api/server/v2/docker/{serverId}/stacks/{project}",
+		},
+		{
+			name:    "exact beats pattern for same path",
+			literal: "/api/x/foo",
+			param:   "/api/x/{id}",
+		},
+	}
+	for _, tc := range cases {
+		if got := CompareRouteSpecificity(tc.literal, tc.param); got != 1 {
+			t.Errorf("%s: CompareRouteSpecificity(literal, param) = %d, want 1", tc.name, got)
+		}
+		if got := CompareRouteSpecificity(tc.param, tc.literal); got != -1 {
+			t.Errorf("%s: CompareRouteSpecificity(param, literal) = %d, want -1", tc.name, got)
+		}
+	}
+	if got := CompareRouteSpecificity("/api/a/b", "/api/a/b"); got != 0 {
+		t.Errorf("equal prefixes should compare 0, got %d", got)
+	}
+}

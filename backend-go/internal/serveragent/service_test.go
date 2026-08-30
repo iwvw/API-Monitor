@@ -3466,3 +3466,76 @@ func TestDetectDangerousCommandVariants(t *testing.T) {
 		}
 	}
 }
+
+// TestDockerPruneNotMisroutedAsResourceRemove 回归：/images|networks|volumes/prune
+// 是字面量动作，只能走 POST prune；DELETE 命中该路径时不得当作资源引用交给
+// remove（此前会误删 "prune" 镜像，报 No such image: prune:latest）。
+func TestDockerPruneNotMisroutedAsResourceRemove(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('docker-prune', 'docker', '', 'root', 'password', '{"docker":{"installed":true}}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	type dispatched struct {
+		taskType int
+		data     string
+	}
+	var calls []dispatched
+	service.registry.Register("docker-prune", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			calls = append(calls, dispatched{taskType: taskType, data: data})
+			return "ok"
+		},
+	})
+
+	// POST prune 正确分发为 image prune 动作
+	res := perform(service, http.MethodPost, "/api/server/v2/docker/docker-prune/images/prune", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("images prune status=%d body=%s", res.Code, res.Body.String())
+	}
+	if len(calls) != 1 || calls[0].taskType != dockerTaskImageAction || !strings.Contains(calls[0].data, `"action":"prune"`) {
+		t.Fatalf("expected single image prune dispatch, got %#v", calls)
+	}
+	calls = nil
+
+	// DELETE prune 必须被拒绝，绝不当作镜像删除分发
+	res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-prune/images/prune", "")
+	if res.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("images prune DELETE status=%d body=%s", res.Code, res.Body.String())
+	}
+	if len(calls) != 0 {
+		t.Fatalf("DELETE prune must not dispatch any docker task, got %#v", calls)
+	}
+
+	// 真实镜像引用仍走删除
+	res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-prune/images/nginx", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("image remove status=%d body=%s", res.Code, res.Body.String())
+	}
+	if len(calls) != 1 || calls[0].taskType != dockerTaskImageAction || !strings.Contains(calls[0].data, `"image":"nginx"`) {
+		t.Fatalf("expected single image remove dispatch, got %#v", calls)
+	}
+	calls = nil
+
+	// networks/volumes 的 prune 字面量同样受保护
+	for _, sub := range []string{"networks", "volumes"} {
+		res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-prune/"+sub+"/prune", "")
+		if res.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s prune DELETE status=%d body=%s", sub, res.Code, res.Body.String())
+		}
+		if len(calls) != 0 {
+			t.Fatalf("%s prune DELETE must not dispatch any docker task, got %#v", sub, calls)
+		}
+		res = perform(service, http.MethodPost, "/api/server/v2/docker/docker-prune/"+sub+"/prune", "")
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s prune status=%d body=%s", sub, res.Code, res.Body.String())
+		}
+		if len(calls) != 1 || !strings.Contains(calls[0].data, `"action":"prune"`) {
+			t.Fatalf("expected single %s prune dispatch, got %#v", sub, calls)
+		}
+		calls = nil
+	}
+}

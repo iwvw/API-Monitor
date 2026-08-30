@@ -479,6 +479,51 @@ func splitPath(path string) []string {
 	return strings.Split(trimmed, "/")
 }
 
+// CompareRouteSpecificity 比较两个路由前缀谁更具体，用于契约/清单匹配时从
+// 多个同段数命中的 pattern 路由里挑选字面量更明确者（如 .../images/prune 应
+// 胜过 .../images/{imageRef}，.../stacks/sync 应胜过 .../stacks/{project}）。
+// 仅按字面量段数与字面量字符数比较，绝不因 {placeholder} 名字长短而误判。
+// 返回 1 表示 a 更具体，-1 表示 b 更具体，0 表示等价。
+func CompareRouteSpecificity(a, b string) int {
+	segA, charA := literalSpecificity(a)
+	segB, charB := literalSpecificity(b)
+	switch {
+	case segA != segB:
+		if segA > segB {
+			return 1
+		}
+		return -1
+	case charA != charB:
+		if charA > charB {
+			return 1
+		}
+		return -1
+	case len(a) != len(b):
+		if len(a) > len(b) {
+			return 1
+		}
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	return 0
+}
+
+func literalSpecificity(prefix string) (segments, chars int) {
+	for _, part := range splitPath(prefix) {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			continue
+		}
+		segments++
+		chars += len(part)
+	}
+	return segments, chars
+}
+
 func routeScore(route Route) int {
 	score := len(route.Prefix)
 	switch route.MatchMode {

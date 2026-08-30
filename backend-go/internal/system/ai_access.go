@@ -829,13 +829,13 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 			continue
 		}
 		if routePrefixMatches(item.Prefix, item.MatchMode, matchPath) {
-			if best == nil || len(item.Prefix) > len(best.Prefix) {
+			if best == nil || manifest.CompareRouteSpecificity(item.Prefix, best.Prefix) > 0 {
 				best = item
 			}
 		}
 	}
 	if best != nil {
-		// 具体路由胜出（pattern/exact 最长前缀）；即使父前缀存在也优先具体路由
+		// 具体路由胜出（pattern/exact 字面量更具体者）；即使父前缀存在也优先具体路由
 		_ = prefixHit
 	} else if prefixHit != nil {
 		children := make([]string, 0, 5)

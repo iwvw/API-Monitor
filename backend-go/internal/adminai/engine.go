@@ -2591,19 +2591,17 @@ func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 }
 
 // routeContractFromCache 从契约缓存中匹配具体路径，返回该路由的完整契约视图。
-// 匹配规则：exact 精确相等；pattern 按 {param} 通配且段数一致；其余按前缀。多命中取最长前缀。
+// 匹配规则：exact 精确相等；pattern 按 {param} 通配且段数一致；其余按前缀。多命中取字面量更具体者。
 func routeContractFromCache(routes []map[string]interface{}, path string) map[string]interface{} {
 	best := (map[string]interface{})(nil)
-	bestLen := -1
 	for _, r := range routes {
 		prefix, _ := r["prefix"].(string)
 		mode, _ := r["matchMode"].(string)
 		if !catalogRouteMatches(prefix, mode, path) {
 			continue
 		}
-		if len(prefix) > bestLen {
+		if best == nil || manifest.CompareRouteSpecificity(prefix, best["prefix"].(string)) > 0 {
 			best = r
-			bestLen = len(prefix)
 		}
 	}
 	if best == nil {

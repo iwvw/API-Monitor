@@ -121,7 +121,11 @@ func (s *Service) handleDockerProxyImages(w http.ResponseWriter, r *http.Request
 		s.writeDockerTaskJSON(w, r, serverID, dockerTaskImages, "", 30*time.Second)
 		return
 	}
-	if len(rest) == 1 && rest[0] == "prune" && r.Method == http.MethodPost {
+	if len(rest) == 1 && rest[0] == "prune" {
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "docker images prune requires POST")
+			return
+		}
 		s.writeDockerActionResult(w, r, serverID, dockerTaskImageAction, map[string]interface{}{"action": "prune"}, 60*time.Second)
 		return
 	}
@@ -152,7 +156,11 @@ func (s *Service) handleDockerProxyNetworks(w http.ResponseWriter, r *http.Reque
 		s.writeDockerTaskJSON(w, r, serverID, dockerTaskNetworks, "", 30*time.Second)
 		return
 	}
-	if len(rest) == 1 && rest[0] == "prune" && r.Method == http.MethodPost {
+	if len(rest) == 1 && rest[0] == "prune" {
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "docker networks prune requires POST")
+			return
+		}
 		s.writeDockerActionResult(w, r, serverID, dockerTaskNetworkAct, map[string]interface{}{"action": "prune"}, 60*time.Second)
 		return
 	}
@@ -174,7 +182,11 @@ func (s *Service) handleDockerProxyVolumes(w http.ResponseWriter, r *http.Reques
 		s.writeDockerTaskJSON(w, r, serverID, dockerTaskVolumes, "", 30*time.Second)
 		return
 	}
-	if len(rest) == 1 && rest[0] == "prune" && r.Method == http.MethodPost {
+	if len(rest) == 1 && rest[0] == "prune" {
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "docker volumes prune requires POST")
+			return
+		}
 		s.writeDockerActionResult(w, r, serverID, dockerTaskVolumeAct, map[string]interface{}{"action": "prune"}, 60*time.Second)
 		return
 	}
