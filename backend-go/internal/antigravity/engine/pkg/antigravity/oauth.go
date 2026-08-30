@@ -69,17 +69,21 @@ var (
 	userAgentVersionResolver UserAgentVersionResolver
 )
 
-// defaultClientSecret 通过环境变量 ANTIGRAVITY_OAUTH_CLIENT_SECRET 配置；
-// 未配置时不提供兜底值，由 getClientSecret 返回明确错误。
-var defaultClientSecret string
+// defaultClientSecret 对应 Antigravity-Manager 开源项目的公共 Google OAuth
+// 客户端凭据（client_id 亦为公开值）。该插件复用该开源项目的 OAuth 客户端，
+// 因此此 secret 属公开项目凭据而非用户私有密钥；可通过环境变量
+// ANTIGRAVITY_OAUTH_CLIENT_SECRET 覆盖（例如使用自有 OAuth 客户端时）。
+var defaultClientSecret = "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"
 
 func init() {
 	// 从环境变量读取版本号，未设置则使用默认值
 	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityUserAgentVersionEnv)); version != "" {
 		defaultUserAgentVersion = version
 	}
-	// 从环境变量读取 client_secret，未设置则保持为空
-	defaultClientSecret = os.Getenv(AntigravityOAuthClientSecretEnv)
+	// 从环境变量读取 client_secret，未设置则使用开源项目默认值
+	if secret := os.Getenv(AntigravityOAuthClientSecretEnv); secret != "" {
+		defaultClientSecret = secret
+	}
 }
 
 // NormalizeUserAgentVersion 校验并归一化 Antigravity User-Agent 版本号。
