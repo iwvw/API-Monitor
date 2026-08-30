@@ -73,6 +73,7 @@ export function AntigravityPlugin() {
   const [quotaLoading, setQuotaLoading] = useState(false);
   const quotaPrevRef = useRef(null); // 上次 remainingFraction 快照，用于检测窗口是否在消耗
   const fileInputRef = useRef(null);
+  const [prefixDraft, setPrefixDraft] = useState(null);
 
   const load = async () => {
     try {
@@ -359,6 +360,13 @@ export function AntigravityPlugin() {
     </FieldRow>
   );
 
+  // 模型前缀：输入过程用本地草稿，失焦才提交（避免每次击键 PUT）。
+  const commitModelPrefix = () => {
+    const v = String(prefixDraft ?? '').trim();
+    setPrefixDraft(null);
+    if (v !== (settings?.modelPrefix || '')) update({ modelPrefix: v });
+  };
+
   if (loading) {
     return (
       <div className="flex h-full min-w-0 items-center justify-center">
@@ -412,6 +420,22 @@ export function AntigravityPlugin() {
                 </Select.Option>
               ))}
             </Select>
+          )}
+          {field(
+            '模型前缀',
+            '给本插件对外暴露的所有模型名统一加前缀（如 agy-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型。建议自定义每个插件使用的前缀并互不重复。',
+            <div className="flex items-center gap-2">
+              <Input
+                size="sm"
+                className="w-40"
+                placeholder="agy-"
+                value={prefixDraft ?? settings?.modelPrefix ?? ''}
+                onChange={e => setPrefixDraft(e.target.value)}
+                onBlur={commitModelPrefix}
+                disabled={saving}
+              />
+              <span className="text-xs text-kumo-subtle">前缀示例：agy-、ds2-、claude-，各插件互不相同</span>
+            </div>
           )}
           {field(
             '配额刷新检测',

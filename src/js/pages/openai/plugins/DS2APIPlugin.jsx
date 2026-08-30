@@ -40,6 +40,7 @@ export function DS2APIPlugin() {
   const [configOpen, setConfigOpen] = useState(false);
   const [configText, setConfigText] = useState('');
   const [testingId, setTestingId] = useState('');
+  const [prefixDraft, setPrefixDraft] = useState(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [editAccount, setEditAccount] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', mobile: '', password: '', poolType: '' });
@@ -220,6 +221,13 @@ export function DS2APIPlugin() {
   const exportApiFile = () => window.open(`${API}/accounts/export`, '_blank');
   const exportAuthFile = () => exportApiFile();
 
+  // 模型前缀：输入过程用本地草稿，失焦才提交（避免每次击键 PUT）。
+  const commitModelPrefix = () => {
+    const v = String(prefixDraft ?? '').trim();
+    setPrefixDraft(null);
+    if (v !== (settings?.modelPrefix || '')) update({ modelPrefix: v }, true);
+  };
+
   const saveConfig = () => {
     try {
       JSON.parse(configText || '{}');
@@ -313,6 +321,20 @@ export function DS2APIPlugin() {
                 <Button size="sm" variant="secondary" onClick={() => setConfigOpen(true)}>
                   编辑配置
                 </Button>
+              </div>
+            </FieldRow>
+            <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 ds2-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
+              <div className="flex min-w-0 items-center gap-2">
+                <Input
+                  size="sm"
+                  className="w-40"
+                  placeholder="ds2-"
+                  value={prefixDraft ?? settings?.modelPrefix ?? ''}
+                  onChange={e => setPrefixDraft(e.target.value)}
+                  onBlur={commitModelPrefix}
+                  disabled={saving}
+                />
+                <span className="text-xs text-kumo-subtle">前缀示例：ds2-、agy-、deepseek-，各插件互不相同</span>
               </div>
             </FieldRow>
           </SectionCard>
