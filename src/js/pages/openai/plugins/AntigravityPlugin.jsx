@@ -438,7 +438,7 @@ export function AntigravityPlugin() {
           )}
           {field(
             '配额刷新检测',
-            '后台每 15 分钟检测各账号配额窗口是否在消耗/已刷新，状态变化时按通知规则推送',
+            '后台每 15 分钟检测各账号配额窗口，剩余比例回升（窗口刷新）时通知；拉取失败记录到系统日志；消耗中、不变不通知。需在通知中心为 Antigravity 配置规则',
             <Switch checked={!!settings?.quotaMonitorEnabled} onCheckedChange={v => update({ quotaMonitorEnabled: v })} />
           )}
         </SectionCard>
