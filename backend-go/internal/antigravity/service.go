@@ -228,6 +228,9 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
+	if cfg.Enabled {
+		go s.syncEndpointModels()
+	}
 }
 
 // Settings 返回当前设置的只读副本。
@@ -762,3 +765,35 @@ func (s *Service) quotaMonitorOnceNow(ctx context.Context) {
 	}
 }
 
+
+// syncEndpointModels 在插件启动后异步同步模型列表到网关端点表（只更新 models 列）。
+func (s *Service) syncEndpointModels() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	// 获取一个启用账号
+	acc := s.pickAccount()
+	if acc == nil {
+		return
+	}
+	// 获取模型列表
+	modelsMap, err := s.FetchModels(ctx, acc.Email)
+	if err != nil {
+		return
+	}
+	// 提取模型ID并加前缀
+	ids := make([]string, 0, len(modelsMap))
+	for id := range modelsMap {
+		ids = append(ids, id)
+	}
+	prefixed := s.prefixModelNames(ids)
+	modelsJSON, _ := json.Marshal(prefixed)
+	// 只更新 models 列，不动映射/禁用
+	_, _ = db.ExecContext(ctx, `
+		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
+		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
+}
