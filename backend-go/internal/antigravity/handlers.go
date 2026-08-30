@@ -329,6 +329,9 @@ func (s *Service) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"authUrl": authURL,
 		"state":   state,
+		// verifier 一并返回给前端持有：服务重启/多实例/TTL 过期时
+		// exchange 仍可用请求体里的 verifier 完成授权，不依赖服务端内存。
+		"verifier": verifier,
 	})
 }
 
