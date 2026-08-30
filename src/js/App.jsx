@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Loader } from '@cloudflare/kumo';
 import useStore, { applyThemeMode, applyUIFont, applyUIFontSize, getPendingAuthProvider } from './store.js';
+import { installAuthGuard } from './modules/authGuard.js';
 import AuthPage from './pages/AuthPage.jsx';
 import { GitHubBrand, Shield } from './components/IconsCore.jsx';
 
@@ -103,6 +104,9 @@ function App() {
 
   // 挂载时自动运行初始身份校验
   useEffect(() => {
+    installAuthGuard(() => {
+      useStore.getState().handleAuthExpired?.();
+    });
     if (dockerMockPreview) {
       useStore.setState({
         isAuthenticated: true,

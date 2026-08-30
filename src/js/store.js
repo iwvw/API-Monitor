@@ -1149,6 +1149,23 @@ const useStore = create((set, get) => ({
     }
   },
 
+  // 处理会话过期（由 authGuard 在受保护接口返回 401 时触发）
+  handleAuthExpired: () => {
+    if (!get().isAuthenticated) return;
+    clearPendingAuthProvider();
+    set({
+      isAuthenticated: false,
+      showLoginModal: true,
+      showSetPasswordModal: false,
+      loginPassword: '',
+      loginError: '',
+      loginLoading: false,
+      loginRequire2FA: false,
+      loginTotpToken: '',
+    });
+    toastManager.warning('登录已过期，请重新登录');
+  },
+
   // 登出
   logout: async () => {
     try {
