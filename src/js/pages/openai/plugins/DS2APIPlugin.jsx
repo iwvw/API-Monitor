@@ -238,16 +238,17 @@ export function DS2APIPlugin() {
     reader.onload = async () => {
       try {
         const parsed = JSON.parse(String(reader.result || '{}'));
-        const list = Array.isArray(parsed) ? parsed : parsed?.accounts || [];
-        if (!list.length) throw new Error('文件中没有账号');
+        const isAccountsOnly = Array.isArray(parsed) || (parsed && Array.isArray(parsed.accounts) && Object.keys(parsed).length <= 1);
+        const payload = Array.isArray(parsed) ? { accounts: parsed } : parsed;
         const res = await fetch(`${API}/accounts/import`, {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ accounts: list }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
         if (!res.ok || !data?.success) throw new Error(data?.error || '导入失败');
-        toast.success(`已导入 ${list.length} 个账号`);
+        const n = isAccountsOnly ? (data.added ?? data.imported_accounts ?? 0) : (data.imported_accounts ?? 0);
+        toast.success(`已导入 ${n} 个账号${data.imported_keys ? `、${data.imported_keys} 个密钥` : ''}`);
         await loadAccounts();
       } catch (e) {
         toast.error(`导入失败：${e.message}`);

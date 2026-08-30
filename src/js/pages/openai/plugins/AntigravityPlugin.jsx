@@ -63,6 +63,8 @@ export function AntigravityPlugin() {
   const [oauthAuthUrl, setOauthAuthUrl] = useState('');
   const [oauthCallback, setOauthCallback] = useState('');
   const [oauthName, setOauthName] = useState('');
+  const [oauthVerifier, setOauthVerifier] = useState('');
+  const [oauthState, setOauthState] = useState('');
   const [oauthBusy, setOauthBusy] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
   const [editAccount, setEditAccount] = useState(null);
@@ -205,6 +207,8 @@ export function AntigravityPlugin() {
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '生成授权链接失败');
       setOauthAuthUrl(data.authUrl);
+      setOauthVerifier(data.verifier || '');
+      setOauthState(data.state || '');
       setOauthCallback('');
       setOauthOpen(true);
     } catch (e) {
@@ -220,7 +224,12 @@ export function AntigravityPlugin() {
       const res = await fetch(`${API}/oauth/exchange`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ callbackUrl: oauthCallback.trim(), name: oauthName.trim() }),
+        body: JSON.stringify({
+          callbackUrl: oauthCallback.trim(),
+          name: oauthName.trim(),
+          verifier: oauthVerifier.trim(),
+          state: oauthState.trim(),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '授权失败');
