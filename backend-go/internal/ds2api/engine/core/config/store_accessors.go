@@ -179,7 +179,10 @@ func (s *Store) ExpertPromptSegmentEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.cfg.ExpertPromptSegment.Enabled == nil {
-		return true
+		// 默认关闭：专家长提示分段（fire-and-stop）在受限内存主机上会产生
+		// 多次并发 SSE 流 + 超大 payload 的内存尖峰（实测单请求 +50~70MB），
+		// 256MB 容器会被 OOM 杀死。需要时在 config.json 显式开启。
+		return false
 	}
 	return *s.cfg.ExpertPromptSegment.Enabled
 }

@@ -202,6 +202,18 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 		calls = mergeRepairedToolCalls(calls, repaired)
 	}
 	parsed.Calls = calls
+	// A truncated tool-call block (upstream stream cut mid-emission) must not
+	// leak as visible text. If nothing parsed or repaired, clear the raw
+	// fragment so the empty-output retry can regenerate a complete response.
+	truncatedEmpty := false
+	if len(calls) == 0 {
+		if toolcall.IsPureTruncatedToolCallText(result.Text) {
+			text = ""
+			truncatedEmpty = true
+		} else if toolcall.HasUnclosedToolCallMarkup(result.Text) {
+			text = toolcall.StripTruncatedToolFragment(text)
+		}
+	}
 
 	stopReason := StopReasonStop
 	if result.ContentFilter {
@@ -232,6 +244,18 @@ func BuildTurnFromCollected(result sse.CollectResult, opts BuildOptions) Turn {
 	if turn.Error != nil {
 		turn.StopReason = StopReasonError
 	}
+	if truncatedEmpty && turn.Error != nil && turn.Error.Code == "upstream_unavailable" {
+		// A truncated tool-call stream is a transient upstream partial failure
+		// (the model began a tool call and the stream was cut), not a generic
+		// silent empty response. Classify it as the canonical empty-output
+		// retry so the runtime regenerates a complete response and surfaces a
+		// meaningful terminal status if regeneration is exhausted.
+		turn.Error = &OutputError{
+			Status:  http.StatusTooManyRequests,
+			Message: "Upstream stream was interrupted mid-tool-call and returned no usable output.",
+			Code:    "upstream_empty_output",
+		}
+	}
 	return turn
 }
 
@@ -260,6 +284,18 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 		}
 	}
 	parsed.Calls = calls
+	// A truncated tool-call block (upstream stream cut mid-emission) must not
+	// leak as visible text. If nothing parsed or repaired, clear the raw
+	// fragment so the empty-output retry can regenerate a complete response.
+	truncatedEmpty := false
+	if len(calls) == 0 {
+		if toolcall.IsPureTruncatedToolCallText(snapshot.RawText) {
+			text = ""
+			truncatedEmpty = true
+		} else if toolcall.HasUnclosedToolCallMarkup(snapshot.RawText) {
+			text = toolcall.StripTruncatedToolFragment(text)
+		}
+	}
 
 	stopReason := StopReasonStop
 	if snapshot.ContentFilter {
@@ -291,6 +327,16 @@ func BuildTurnFromStreamSnapshot(snapshot StreamSnapshot, opts BuildOptions) Tur
 	}
 	if turn.Error != nil && len(calls) == 0 {
 		turn.StopReason = StopReasonError
+	}
+	if truncatedEmpty && turn.Error != nil && turn.Error.Code == "upstream_unavailable" {
+		// Same classification as the collected builder: a truncated tool-call
+		// stream is a transient partial failure that the empty-output retry
+		// should regenerate, not a generic silent empty response.
+		turn.Error = &OutputError{
+			Status:  http.StatusTooManyRequests,
+			Message: "Upstream stream was interrupted mid-tool-call and returned no usable output.",
+			Code:    "upstream_empty_output",
+		}
 	}
 	return turn
 }

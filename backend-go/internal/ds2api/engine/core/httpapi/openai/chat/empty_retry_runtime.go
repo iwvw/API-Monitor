@@ -231,6 +231,15 @@ func (h *Handler) consumeChatStreamAttempt(r *http.Request, resp *http.Response,
 		return completionruntime.ConsumeAttemptResult{Retryable: true, ResumeContinue: true}
 	}
 	if interrupted && streamRuntime.accumulator.HasPartialOutput() {
+		// No resumable message id. If nothing visible has been delivered to the
+		// client yet (only thinking accumulated, no content/tool_calls), schedule
+		// an empty-output regeneration so the turn self-heals instead of
+		// surfacing a hard 502 interruption to the client.
+		if streamRuntime.accumulator.Text.Len() == 0 && !streamRuntime.toolCallsEmitted && !streamRuntime.toolCallsDoneEmitted {
+			config.Logger.Warn("[openai_chat_stream] upstream stream interrupted before visible output; scheduling empty-output retry",
+				"surface", "chat.completions", "stream", true, "reason", stopReason, "error", fmt.Sprint(scannerErr))
+			return completionruntime.ConsumeAttemptResult{Retryable: true}
+		}
 		// Partial output but no resumable message id: surface the truncation.
 		streamRuntime.sendFailedChunk(http.StatusBadGateway, "Upstream stream interrupted before completion and cannot be resumed.", "upstream_interrupted")
 		recordChatStreamHistory(streamRuntime, historySession)

@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	dsprotocol "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/deepseek/protocol"
 	"encoding/json"
+	dsprotocol "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/deepseek/protocol"
 	"io"
 	"net/http"
 	"strings"
@@ -106,18 +106,29 @@ func detectMutedCompletion(body io.ReadCloser) (io.ReadCloser, bool, float64, er
 	if len(b) == 0 || b[0] != '{' {
 		return io.NopCloser(br), false, 0, nil
 	}
-	all, err := io.ReadAll(br)
+	// Muted/error responses are small JSON payloads. Reading the whole body
+	// here for a giant (non-SSE) response would blow up memory, so cap the
+	// inspection at 1 MiB — enough for any real mute/error envelope.
+	capped, err := io.ReadAll(io.LimitReader(br, 1<<20))
 	if err != nil {
 		return io.NopCloser(bytes.NewReader(nil)), false, 0, err
 	}
+	// Rebuild the untouched stream for the downstream SSE parser: the data we
+	// already consumed plus whatever remains in br. When the body fits under
+	// the cap, br is at EOF so this is lossless; when we hit the cap it is
+	// still exactly the original byte order.
+	replay := io.NopCloser(io.MultiReader(bytes.NewReader(capped), br))
+	if len(capped) >= 1<<20 {
+		return replay, false, 0, nil
+	}
 	var parsed map[string]any
-	if err := json.Unmarshal(all, &parsed); err != nil {
-		return io.NopCloser(bytes.NewReader(all)), false, 0, nil
+	if err := json.Unmarshal(capped, &parsed); err != nil {
+		return replay, false, 0, nil
 	}
 	if isMutedJSONResponse(parsed) {
 		return nil, true, extractMuteUntil(parsed), nil
 	}
-	return io.NopCloser(bytes.NewReader(all)), false, 0, nil
+	return io.NopCloser(bytes.NewReader(capped)), false, 0, nil
 }
 
 // isMutedJSONResponse checks whether a parsed JSON response indicates a muted account.

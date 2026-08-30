@@ -776,7 +776,7 @@ func bigExpertTextFileRequest(t *testing.T, contentStore *files.MemoryContentSto
 func TestHandleVercelStreamPrepareSegmentsExpertPrompt(t *testing.T) {
 	t.Setenv("VERCEL", "1")
 	t.Setenv("DS2API_VERCEL_INTERNAL_SECRET", "stream-secret")
-	t.Setenv("DS2API_CONFIG_JSON", `{"keys":["k"],"accounts":[{"email":"a@b.c","password":"p"}]}`)
+	t.Setenv("DS2API_CONFIG_JSON", `{"keys":["k"],"accounts":[{"email":"a@b.c","password":"p"}],"expert_prompt_segment":{"enabled":true}}`)
 	store := config.LoadStore()
 
 	contentStore := files.NewMemoryContentStore(100<<20, time.Hour)
@@ -849,7 +849,8 @@ func TestHandleVercelStreamSwitchSegmentsExpertPrompt(t *testing.T) {
 		"accounts":[
 			{"email":"acc1@test.com","password":"pwd"},
 			{"email":"acc2@test.com","password":"pwd"}
-		]
+		],
+		"expert_prompt_segment":{"enabled":true}
 	}`)
 	store := config.LoadStore()
 	resolver := auth.NewResolver(store, account.NewPool(store), func(_ context.Context, acc config.Account) (string, error) {

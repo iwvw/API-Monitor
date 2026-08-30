@@ -182,8 +182,8 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	s.settings = next
 	s.mu.Unlock()
 	if next.ModelPrefix != oldPrefix {
-		// 前缀变更后同步已链接网关端点的 models（仅命中时更新）。
-		s.refreshLinkedEndpointModels(ctx)
+		// 前缀变更后同步已链接网关端点的模型名单、映射与禁用状态。
+		s.refreshLinkedEndpointModels(ctx, oldPrefix)
 	}
 	s.engineMu.Lock()
 	defer s.engineMu.Unlock()
@@ -194,19 +194,50 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	return nil
 }
 
-// refreshLinkedEndpointModels 把「前缀 + 引擎模型」后的模型名单写回已链接的网关端点。
-// 未链接/不存在时静默跳过；失败不影响设置保存，网关路由缓存 TTL 后会自愈。
-func (s *Service) refreshLinkedEndpointModels(ctx context.Context) {
+// refreshLinkedEndpointModels 把「前缀 + 引擎模型」后的模型名单写回已链接的网关端点，
+// 并把 model_mappings 的 key 与 disabled_models 里的模型名从旧前缀迁移到新前缀，
+// 保持三列命名空间一致。未链接/不存在时静默跳过；失败不影响设置保存。
+func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix string) {
 	db, err := s.open(ctx)
 	if err != nil {
 		return
 	}
 	defer db.Close()
+
+	newPrefix := s.modelPrefix()
 	models := s.prefixModelNames(s.engineModelNames(ctx))
 	modelsJSON, _ := json.Marshal(models)
+
+	// 读取当前模型映射与禁用列表，做前缀迁移（别名 value 不受前缀影响，保留不动）。
+	var mappingsRaw, disabledRaw sql.NullString
+	_ = db.QueryRowContext(ctx, `
+		SELECT model_mappings, disabled_models FROM openai_endpoints WHERE id = ?`,
+		linkedEndpointID).Scan(&mappingsRaw, &disabledRaw)
+
+	mappings := map[string]string{}
+	if mappingsRaw.Valid && mappingsRaw.String != "" {
+		_ = json.Unmarshal([]byte(mappingsRaw.String), &mappings)
+	}
+	migratedMappings := make(map[string]string, len(mappings))
+	for real, alias := range mappings {
+		migratedMappings[remapPrefixedName(real, oldPrefix, newPrefix)] = alias
+	}
+	mappingsJSON, _ := json.Marshal(migratedMappings)
+
+	disabled := []string{}
+	if disabledRaw.Valid && disabledRaw.String != "" {
+		_ = json.Unmarshal([]byte(disabledRaw.String), &disabled)
+	}
+	migratedDisabled := make([]string, 0, len(disabled))
+	for _, name := range disabled {
+		migratedDisabled = append(migratedDisabled, remapPrefixedName(name, oldPrefix, newPrefix))
+	}
+	disabledJSON, _ := json.Marshal(migratedDisabled)
+
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
-		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
+		UPDATE openai_endpoints SET models = ?, model_mappings = ?, disabled_models = ?, last_checked = ? WHERE id = ?`,
+		string(modelsJSON), string(mappingsJSON), string(disabledJSON),
+		time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
 
 // modelPrefix 返回归一化的对外模型前缀（去空白；空串表示不加前缀）。
@@ -243,6 +274,19 @@ func (s *Service) prefixModelNames(ids []string) []string {
 		out = append(out, p+id)
 	}
 	return out
+}
+
+// remapPrefixedName 把模型名从旧前缀命名空间迁移到新前缀命名空间：
+// 先剥掉旧前缀，再套上新前缀。用于前缀变更时同步 model_mappings 的 key
+// 与 disabled_models 里的模型名，保持与 models 列表同一命名空间。
+func remapPrefixedName(name, oldPrefix, newPrefix string) string {
+	if oldPrefix != "" {
+		name = strings.TrimPrefix(name, oldPrefix)
+	}
+	if newPrefix != "" {
+		name = newPrefix + name
+	}
+	return name
 }
 
 // configPath 返回引擎 config.json 落盘路径（data 目录下）。

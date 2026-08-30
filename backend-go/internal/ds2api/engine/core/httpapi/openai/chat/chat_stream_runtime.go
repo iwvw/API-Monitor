@@ -276,6 +276,11 @@ func (s *chatStreamRuntime) finalize(finishReason string, deferEmptyOutput bool)
 				// 与 onParsed 中的行为保持一致。
 				continue
 			}
+			if toolcall.HasUnclosedToolCallMarkup(evt.Content) {
+				// 上游流在工具调用中途被截断：残缺工具块不得作为正文泄漏
+				// 给客户端，交由 BuildTurn/Finalize 的空输出重试自愈。
+				continue
+			}
 			cleaned := cleanVisibleOutput(evt.Content, s.stripReferenceMarkers)
 			if cleaned == "" || (s.searchEnabled && sse.IsCitation(cleaned)) {
 				continue
