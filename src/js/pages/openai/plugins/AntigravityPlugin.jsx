@@ -434,7 +434,6 @@ export function AntigravityPlugin() {
                 onBlur={commitModelPrefix}
                 disabled={saving}
               />
-              <span className="text-xs text-kumo-subtle">前缀示例：agy-、ds2-、claude-，各插件互不相同</span>
             </div>
           )}
           {field(

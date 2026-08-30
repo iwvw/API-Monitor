@@ -334,7 +334,6 @@ export function DS2APIPlugin() {
                   onBlur={commitModelPrefix}
                   disabled={saving}
                 />
-                <span className="text-xs text-kumo-subtle">前缀示例：ds2-、agy-、deepseek-，各插件互不相同</span>
               </div>
             </FieldRow>
           </SectionCard>
