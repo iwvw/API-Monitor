@@ -48,6 +48,9 @@ type Settings struct {
 	// ModelAliases 模型别名映射：key=上游模型 ID，value=对外别名。
 	// 外部客户端只看到/调用别名，转发时反查回上游 ID。
 	ModelAliases map[string]string `json:"modelAliases,omitempty"`
+	// ModelPrefix 对外模型名统一前缀（如 "agy-"）：模型列表暴露的名字带此前缀，
+	// 请求转发前先剥掉前缀再走别名/原生 ID 解析。为空表示不加前缀。
+	ModelPrefix string `json:"modelPrefix,omitempty"`
 	// QuotaMonitorEnabled 配额刷新自动化检测：后台轮询各账号配额窗口的剩余比例，
 	// 判断窗口是「消耗中」还是「冻结」，状态变化时触发通知。
 	QuotaMonitorEnabled bool `json:"quotaMonitorEnabled"`
@@ -60,6 +63,44 @@ func defaultSettings() Settings {
 		DisabledModels: []string{},
 		ModelAliases:   map[string]string{},
 	}
+}
+
+// modelPrefix 返回归一化的对外模型前缀（去空白；空串表示不加前缀）。
+func (s *Service) modelPrefix() string {
+	return strings.TrimSpace(s.Settings().ModelPrefix)
+}
+
+// prefixModel 把内部模型 ID 加上对外前缀，空前缀时原样返回。
+// 用于模型列表暴露（linkCreate 写入网关端点 models、/v1/models 响应）。
+func (s *Service) prefixModel(id string) string {
+	p := s.modelPrefix()
+	if p == "" {
+		return id
+	}
+	return p + id
+}
+
+// stripModelPrefix 剥掉请求模型名上的本插件前缀（不命中或空前缀时原样返回）。
+// 用于 OpenAI/Anthropic 兼容转发入口，把对外模型名还原为内部模型 ID 再进别名反查。
+func (s *Service) stripModelPrefix(id string) string {
+	p := s.modelPrefix()
+	if p == "" {
+		return id
+	}
+	return strings.TrimPrefix(id, p)
+}
+
+// prefixModelNames 批量对模型清单加前缀（跳过禁用模型由调用方处理）。
+func (s *Service) prefixModelNames(ids []string) []string {
+	p := s.modelPrefix()
+	if p == "" {
+		return ids
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, p+id)
+	}
+	return out
 }
 
 // Notifier 是 antigravity 向外部通知系统上报事件的最小接口。
@@ -194,6 +235,7 @@ func (s *Service) Settings() Settings {
 // 遍历 ModelAliases，若 value（对外别名）== requested，返回对应 key（上游 ID）；
 // 未命中则原样返回 requested（未配别名或本来就是上游 ID）。
 func (s *Service) resolveUpstreamModel(requested string) string {
+	requested = s.stripModelPrefix(requested)
 	if strings.TrimSpace(requested) == "" {
 		return requested
 	}
@@ -237,9 +279,30 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 		return err
 	}
 	s.mu.Lock()
+	oldPrefix := s.settings.ModelPrefix
 	s.settings = next
 	s.mu.Unlock()
+	if next.ModelPrefix != oldPrefix {
+		// 前缀变更后同步已链接网关端点的 models（仅命中时更新）。
+		s.refreshLinkedEndpointModels(ctx)
+	}
 	return nil
+}
+
+// refreshLinkedEndpointModels 把「prefix + 别名/原模型」后的模型名单写回已链接的网关端点。
+// 未链接/不存在时静默跳过（无旁路，失败仅留待路由兜底）。网关路由缓存 TTL 2s，后续即时生效。
+func (s *Service) refreshLinkedEndpointModels(ctx context.Context) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	models := s.prefixModelNames(s.fetchModelNames(ctx))
+	modelsJSON, _ := json.Marshal(models)
+	// 目标行不存在时静默跳过（未链接）。失败仅记录日志，不阻断设置保存。
+	_, _ = db.ExecContext(ctx, `
+		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
+		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
 
 // externalSelector 返回注入的独立代理池选择器。

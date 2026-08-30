@@ -1,10 +1,12 @@
 package ds2api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -54,6 +56,9 @@ type Settings struct {
 	ProxyPoolID string `json:"proxyPoolId"`
 	// DisabledModels 被停用的模型（引擎列表中不对外提供）。
 	DisabledModels []string `json:"disabledModels"`
+	// ModelPrefix 对外模型名统一前缀（如 "ds2-"）：模型列表暴露的名字带此前缀，
+	// 转发时剥掉前缀再交给引擎；空串表示不加前缀。
+	ModelPrefix string `json:"modelPrefix,omitempty"`
 }
 
 func defaultSettings() Settings {
@@ -173,8 +178,13 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 		return err
 	}
 	s.mu.Lock()
+	oldPrefix := s.settings.ModelPrefix
 	s.settings = next
 	s.mu.Unlock()
+	if next.ModelPrefix != oldPrefix {
+		// 前缀变更后同步已链接网关端点的 models（仅命中时更新）。
+		s.refreshLinkedEndpointModels(ctx)
+	}
 	s.engineMu.Lock()
 	defer s.engineMu.Unlock()
 	if next.Enabled {
@@ -182,6 +192,57 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	}
 	s.app = nil
 	return nil
+}
+
+// refreshLinkedEndpointModels 把「前缀 + 引擎模型」后的模型名单写回已链接的网关端点。
+// 未链接/不存在时静默跳过；失败不影响设置保存，网关路由缓存 TTL 后会自愈。
+func (s *Service) refreshLinkedEndpointModels(ctx context.Context) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	models := s.prefixModelNames(s.engineModelNames(ctx))
+	modelsJSON, _ := json.Marshal(models)
+	_, _ = db.ExecContext(ctx, `
+		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
+		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
+}
+
+// modelPrefix 返回归一化的对外模型前缀（去空白；空串表示不加前缀）。
+func (s *Service) modelPrefix() string {
+	return strings.TrimSpace(s.Settings().ModelPrefix)
+}
+
+// prefixModel 把内部模型 ID 加上对外前缀，空前缀时原样返回。
+func (s *Service) prefixModel(id string) string {
+	p := s.modelPrefix()
+	if p == "" {
+		return id
+	}
+	return p + id
+}
+
+// stripModelPrefix 剥掉请求模型名上的本插件前缀（不命中或空前缀时原样返回）。
+func (s *Service) stripModelPrefix(id string) string {
+	p := s.modelPrefix()
+	if p == "" {
+		return id
+	}
+	return strings.TrimPrefix(id, p)
+}
+
+// prefixModelNames 批量对模型清单加前缀。
+func (s *Service) prefixModelNames(ids []string) []string {
+	p := s.modelPrefix()
+	if p == "" {
+		return ids
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, p+id)
+	}
+	return out
 }
 
 // configPath 返回引擎 config.json 落盘路径（data 目录下）。
@@ -307,9 +368,70 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				rr.Header.Set("Authorization", "Bearer "+internalKey)
 			}
 		}
+		// /v1/models GET：网关验证/刷新端点模型时调用，带前缀输出。
+		if r.Method == http.MethodGet && (stripped == "/v1/models" || stripped == "/v1/models/") {
+			s.servePrefixedModels(w)
+			return
+		}
+		// POST 请求：模型名剥本插件前缀后转交引擎（模型在 JSON body 里）。
+		// 无前缀时直接穿透，不读 body。
+		if s.modelPrefix() != "" && r.Method == http.MethodPost && strings.HasPrefix(stripped, "/v1/") {
+			rr = s.stripModelPrefixInRequest(rr)
+		}
 		app.Router.ServeHTTP(w, rr)
 	}
 }
+
+// servePrefixedModels 给网关验证 / 外部客户端展示带前缀的模型列表。
+func (s *Service) servePrefixedModels(w http.ResponseWriter) {
+	names := s.engineModelNames(context.Background())
+	out := make([]map[string]interface{}, 0, len(names))
+	for _, n := range names {
+		out = append(out, map[string]interface{}{
+			"id":       s.prefixModel(n),
+			"object":   "model",
+			"created":  0,
+			"owned_by": "ds2api",
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"object": "list", "data": out})
+}
+
+// stripModelPrefixInRequest 读取请求体，剥掉 model 字段的前缀后复构建请求。
+func (s *Service) stripModelPrefixInRequest(r *http.Request) *http.Request {
+	if r.Body == nil {
+		return r
+	}
+	// 模型 JSON body 体积限额（16MB），超出安全直接：剥掉 *可选* 前缀
+	// 仅从 JSON object 顶层读 model 字段处理，其余字段保留不动。
+	body, err := io.ReadAll(io.LimitReader(r.Body, 16*1024*1024+512))
+	_ = r.Body.Close()
+	if err != nil || len(body) == 0 {
+		r.Body = io.NopCloser(rbodyReset(body))
+		return r
+	}
+	var payload map[string]interface{}
+	if json.Unmarshal(body, &payload) != nil {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		return r
+	}
+	if m, ok := payload["model"].(string); ok {
+		m = strings.TrimSpace(m)
+		if strings.HasPrefix(m, s.modelPrefix()) {
+			payload["model"] = s.stripModelPrefix(m)
+			out, _ := json.Marshal(payload)
+			r.Body = io.NopCloser(bytes.NewReader(out))
+			r.ContentLength = int64(len(out))
+			return r
+		}
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	return r
+}
+
+// rbodyReset 用一个空 reader 替代已读尽的 body（避免 body 已被读到 EOF 而无法重读）。
+func rbodyReset(b []byte) io.Reader { return bytes.NewReader(b) }
 
 func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.Settings()

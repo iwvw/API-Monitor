@@ -104,7 +104,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models := s.engineModelNames(ctx)
+	models := s.prefixModelNames(s.engineModelNames(ctx))
 	modelsJSON, _ := json.Marshal(models)
 	now := time.Now().UTC().Format(time.RFC3339)
 

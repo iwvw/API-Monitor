@@ -786,7 +786,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models := s.fetchModelNames(ctx)
+	models := s.prefixModelNames(s.fetchModelNames(ctx))
 	modelsJSON, _ := json.Marshal(models)
 	now := time.Now().UTC().Format(time.RFC3339)
 

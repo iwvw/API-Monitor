@@ -57,6 +57,7 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 		if alias := s.aliasForUpstream(id); alias != "" {
 			outID = alias
 		}
+		outID = s.prefixModel(outID)
 		data = append(data, map[string]interface{}{
 			"id":          outID,
 			"object":      "model",
