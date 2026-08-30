@@ -46,7 +46,10 @@ func main() {
 		applog.Error(nil, "startup", "backend initialization failed", "error", err.Error())
 		os.Exit(1)
 	}
-	handler := applog.Middleware(httpcompress.Middleware(appServer))
+	// SSEWriteDeadline 为 SSE 流式响应（如 DS2API 引擎的 DeepSeek 思考/生成流）
+	// 做写超时续期：Go http.Server 的 WriteTimeout 是总时长硬限，引擎只 Flush
+	// 不续期，60s 一到长流就会被掐断。此中间件让持续有输出的 SSE 不受该限制。
+	handler := applog.Middleware(httpcompress.Middleware(httpcompress.SSEWriteDeadline(appServer)))
 
 	applog.Info(nil, "startup", "api-monitor go shell listening", "address", cfg.ListenAddress())
 	applog.Info(nil, "startup", "static files configured", "dist", cfg.DistDir, "public", cfg.PublicDir)
@@ -59,9 +62,11 @@ func main() {
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       120 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		// SSE 流由 SSEWriteDeadline 中间件按写入续期，不受此总时长限制；
+		// 600s 是给未走续期路径的响应留的兜底（原 60s 会掐断思考超一分钟的长流）。
+		WriteTimeout:   600 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 	if err := httpServer.ListenAndServe(); err != nil {
 		applog.Error(nil, "startup", "http server stopped", "error", err.Error())
