@@ -52,7 +52,7 @@ type Settings struct {
 	// 请求转发前先剥掉前缀再走别名/原生 ID 解析。为空表示不加前缀。
 	ModelPrefix string `json:"modelPrefix,omitempty"`
 	// QuotaMonitorEnabled 配额刷新自动化检测：后台轮询各账号配额窗口的剩余比例，
-	// 判断窗口是「消耗中」还是「冻结」，状态变化时触发通知。
+	// 比例回升（窗口被重置/刷新）时触发通知。
 	QuotaMonitorEnabled bool `json:"quotaMonitorEnabled"`
 }
 
@@ -569,11 +569,15 @@ func (s *Service) FetchQuota(ctx context.Context, email string) (*QuotaView, err
 	loadResp, _, err := agClient.LoadCodeAssist(ctx, freshToken)
 	if err == nil && loadResp != nil && loadResp.PaidTier != nil {
 		view.Credits = loadResp.GetAvailableCredits()
+	} else if err != nil {
+		applog.Warn(nil, "antigravity", "拉取 AI Credits 失败", "email", acc.Email, "error", err.Error())
 	}
 	summary, raw, err := agClient.FetchUserQuotaSummary(ctx, freshToken, acc.ProjectID)
 	if err == nil && summary != nil {
 		view.Groups = summary.Groups
 		view.Raw = raw
+	} else if err != nil {
+		applog.Warn(nil, "antigravity", "拉取配额窗口失败", "email", acc.Email, "error", err.Error())
 	}
 	if view.Credits == nil && len(view.Groups) == 0 {
 		return nil, fmt.Errorf("上游未返回配额信息")
@@ -621,7 +625,8 @@ func (s *Service) StartQuotaMonitor(ctx context.Context) {
 }
 
 // quotaMonitorOnceNow 执行一轮配额检测：拉取各账号 bucket 剩余比例，
-// 跨轮次对比判定窗口「消耗中/冻结/已刷新」，状态变化时触发通知。
+// 跨轮次对比；剩余比例上升（窗口已刷新/重置）时触发通知。
+// 比例下降（消耗中）与持平（冻结）不通知；新出现的窗口 key 只入基线，避免误报。
 func (s *Service) quotaMonitorOnceNow(ctx context.Context) {
 	if s.notifier == nil {
 		return
@@ -644,12 +649,16 @@ func (s *Service) quotaMonitorOnceNow(ctx context.Context) {
 	s.quotaPrevMu.Unlock()
 
 	now := map[string]float64{}
+	eligible := 0
+	failed := 0
 	for _, acc := range st.Accounts {
 		if acc.Disabled || strings.TrimSpace(acc.AccessToken) == "" || strings.TrimSpace(acc.ProjectID) == "" {
 			continue
 		}
+		eligible++
 		view, err := s.FetchQuota(cycleCtx, acc.Email)
 		if err != nil || view == nil {
+			failed++
 			continue
 		}
 		for _, g := range view.Groups {
@@ -658,6 +667,9 @@ func (s *Service) quotaMonitorOnceNow(ctx context.Context) {
 				now[key] = b.RemainingFraction
 			}
 		}
+	}
+	if failed > 0 {
+		applog.Warn(nil, "antigravity", "本轮配额检测存在拉取失败账号", "failed", failed, "total", eligible)
 	}
 
 	if firstRound || len(now) == 0 {
@@ -674,7 +686,6 @@ func (s *Service) quotaMonitorOnceNow(ctx context.Context) {
 	for k, cur := range now {
 		last, ok := s.quotaPrev[k]
 		if !ok {
-			changed[k] = cur
 			continue
 		}
 		// 值上升 = 窗口已刷新；值不变 = 冻结（额度未用时间浪费）；下降 = 消耗中。

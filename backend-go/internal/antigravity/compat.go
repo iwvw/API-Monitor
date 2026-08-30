@@ -377,6 +377,7 @@ func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter
 
 	processor := engineag.NewStreamingProcessor(claudeReq.Model)
 	scanner := newScanner(resp.Body)
+	inTok, outTok := 0, 0
 	delivered := false
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -384,7 +385,17 @@ func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter
 		if len(event) == 0 {
 			continue
 		}
-		// event 是 Claude SSE 的 "event:...\ndata:{...}\n\n"，提取 data 里的 delta。
+		// 提取 Claude SSE 里的 usage（message_start 的 input_tokens / message_delta 的 output_tokens）。
+		// 此前只抽文本增量，token 全程为 0，网关看板统计不到消耗。
+		if it, ot, ok := extractClaudeStreamUsage(event); ok {
+			if it > 0 {
+				inTok = it
+			}
+			if ot > 0 {
+				outTok = ot
+			}
+		}
+		// event 是 Claude SSE 的 "data:{...}\n\n"，提取 data 里的 delta 文本。
 		text := extractClaudeStreamText(event)
 		if text == "" {
 			continue
@@ -402,10 +413,17 @@ func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter
 			flusher.Flush()
 		}
 	}
-	// 收尾 chunk。
+	// 收尾 chunk：携带累计 usage，外部消费方/网关可读出消耗。
 	end := map[string]any{
 		"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
 		"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}},
+	}
+	if inTok > 0 || outTok > 0 {
+		end["usage"] = map[string]any{
+			"prompt_tokens":     inTok,
+			"completion_tokens": outTok,
+			"total_tokens":      inTok + outTok,
+		}
 	}
 	b, _ := json.Marshal(end)
 	_, _ = w.Write(append([]byte("data: "), append(b, '\n', '\n')...))
@@ -471,6 +489,58 @@ func extractClaudeStreamText(event []byte) string {
 			continue
 		}
 		return payload.Delta.Text
+	}
+}
+
+// extractClaudeStreamUsage 从 Claude SSE 事件中提取 token 用量。
+// Claude 在 message_start.message.usage 带 input_tokens（流起点），
+// message_delta.usage.output_tokens 累积输出。只处理这两种事件。
+func extractClaudeStreamUsage(event []byte) (int, int, bool) {
+	s := string(event)
+	for {
+		idx := strings.Index(s, "data: ")
+		if idx < 0 {
+			return 0, 0, false
+		}
+		rest := s[idx+len("data: "):]
+		lineEnd := strings.IndexByte(rest, '\n')
+		var dataStr string
+		if lineEnd < 0 {
+			dataStr = strings.TrimSpace(rest)
+			s = ""
+		} else {
+			dataStr = strings.TrimSpace(rest[:lineEnd])
+			s = rest[lineEnd:]
+		}
+		if dataStr == "" || dataStr == "[DONE]" {
+			continue
+		}
+		var payload struct {
+			Type    string `json:"type"`
+			Message struct {
+				Usage struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
+				} `json:"usage"`
+			} `json:"message,omitempty"`
+			Usage struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage,omitempty"`
+		}
+		if json.Unmarshal([]byte(dataStr), &payload) != nil {
+			continue
+		}
+		switch payload.Type {
+		case "message_start":
+			if payload.Message.Usage.InputTokens > 0 || payload.Message.Usage.OutputTokens > 0 {
+				return payload.Message.Usage.InputTokens, payload.Message.Usage.OutputTokens, true
+			}
+		case "message_delta":
+			if payload.Usage.InputTokens > 0 || payload.Usage.OutputTokens > 0 {
+				return payload.Usage.InputTokens, payload.Usage.OutputTokens, true
+			}
+		}
 	}
 }
 
