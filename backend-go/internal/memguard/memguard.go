@@ -32,6 +32,17 @@ const (
 	// 周期性开销与日志刷屏（线上实证：旧参数每 60 秒归还一次）。
 	memoryReturnSlackBytes = 48 << 20
 	memoryReturnInterval   = 5 * time.Minute
+	// smallHostLimitRatio / smallHostThresholdBytes：检测到的容器内存预算
+	// ≤ 512MB 时，GOMEMLIMIT 比率从 0.70 降到 0.60。Go 运行时自身在小容器里
+	// 也要占 30-50MB（栈/元数据/页缓存），0.70 会让 RSS 逼近容器上限，
+	// 在 200MB 级主机上极易被 OOM-kill；0.60 为运行时与分配尖峰留出余量。
+	smallHostLimitRatio     = 0.60
+	smallHostThresholdBytes = 512 << 20
+	// smallHostReturnSlackBytes / smallHostReturnInterval：小内存主机上
+	// 空闲页归还更激进（余量 32MB、间隔 3 分钟），尽快把高峰后的 RSS 压下来，
+	// 为下一波高峰腾出水位。
+	smallHostReturnSlackBytes = 32 << 20
+	smallHostReturnInterval   = 3 * time.Minute
 )
 
 type Config struct {
@@ -62,11 +73,16 @@ func Start(ctx context.Context) Config {
 			"limit_bytes", cfg.LimitBytes)
 	}
 
-	go run(ctx, cfg)
+	slackBytes, returnInterval := uint64(memoryReturnSlackBytes), memoryReturnInterval
+	if cfg.LimitBytes <= smallHostThresholdBytes {
+		slackBytes, returnInterval = smallHostReturnSlackBytes, smallHostReturnInterval
+	}
+
+	go run(ctx, cfg, slackBytes, returnInterval)
 	return cfg
 }
 
-func run(ctx context.Context, cfg Config) {
+func run(ctx context.Context, cfg Config, slackBytes uint64, returnInterval time.Duration) {
 	ticker := time.NewTicker(cfg.CheckInterval)
 	defer ticker.Stop()
 
@@ -84,8 +100,8 @@ func run(ctx context.Context, cfg Config) {
 				// 峰值）。高峰期过后堆已收缩但 RSS 仍远高于活跃堆时，主动
 				// GC+FreeOSMemory 把空闲页还给系统，为下一波高峰腾出水位；
 				// 带冷却避免频繁 syscall。
-				if time.Since(lastReturn) >= memoryReturnInterval &&
-					rss > stats.HeapAlloc+memoryReturnSlackBytes {
+				if time.Since(lastReturn) >= returnInterval &&
+					rss > stats.HeapAlloc+slackBytes {
 					beforeHeap := stats.HeapAlloc
 					beforeRSS := rss
 					runtime.GC()
@@ -135,10 +151,20 @@ func resolveConfig() Config {
 	}
 
 	if limit, source := containerMemoryLimit(); limit >= minContainerLimitByte {
-		return configForLimit(int64(float64(limit)*defaultLimitRatio), source)
+		return configForLimit(int64(float64(limit)*limitRatioFor(limit)), source)
 	}
 
 	return Config{}
+}
+
+// limitRatioFor 按检测到的内存预算选择 GOMEMLIMIT 比率：小内存主机
+// （≤ smallHostThresholdBytes）用更保守的 smallHostLimitRatio，避免
+// 运行时自身开销把 RSS 顶到容器上限被 OOM-kill。
+func limitRatioFor(limit uint64) float64 {
+	if limit <= smallHostThresholdBytes {
+		return smallHostLimitRatio
+	}
+	return defaultLimitRatio
 }
 
 // containerMemoryLimit 读取容器内存上限：优先 cgroup；cgroup 上限缺失、

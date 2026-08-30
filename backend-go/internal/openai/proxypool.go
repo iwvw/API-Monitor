@@ -1216,7 +1216,8 @@ func (s *Service) proxyClient(proxyURL string) (*http.Client, error) {
 
 // readWithIdleTimeout 为阻塞式上游读加中段空闲超时：idle 内无任何字节到达
 // 则返回 errStreamIdleTimeout，避免上游流中途停滞时请求无限挂死。
-// 超时后遗留的读取 goroutine 会在上游数据到达或连接关闭后自行退出。
+// 超时时主动关闭底层 reader（若是 io.Closer），让阻塞在 Read 上的 goroutine
+// 立即返回并退出，避免上游停滞时累积僵尸读取 goroutine。
 func readWithIdleTimeout(ctx context.Context, r io.Reader, p []byte, idle time.Duration) (int, error) {
 	type readResult struct {
 		n   int
@@ -1234,6 +1235,11 @@ func readWithIdleTimeout(ctx context.Context, r io.Reader, p []byte, idle time.D
 	case res := <-ch:
 		return res.n, res.err
 	case <-time.After(idle):
+		// 超时即放弃这条上游流：关闭底层连接让阻塞读返回，释放 goroutine
+		// 与连接缓冲区。调用方后续无需再读该 body（重复 Close 幂等）。
+		if c, ok := r.(io.Closer); ok {
+			_ = c.Close()
+		}
 		return 0, errStreamIdleTimeout
 	}
 }

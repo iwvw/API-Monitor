@@ -167,7 +167,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 				return
 			}
 			if nextResp.StatusCode != http.StatusOK {
-				body, readErr := io.ReadAll(nextResp.Body)
+				body, readErr := io.ReadAll(io.LimitReader(nextResp.Body, 2<<20))
 				if readErr != nil {
 					config.Logger.Warn("[completion_runtime_continue_resume] continue error body read failed", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", readErr)
 				}
@@ -232,7 +232,7 @@ func ExecuteStreamWithRetry(ctx context.Context, ds DeepSeekCaller, a *auth.Requ
 			return
 		}
 		if nextResp.StatusCode != http.StatusOK {
-			body, readErr := io.ReadAll(nextResp.Body)
+			body, readErr := io.ReadAll(io.LimitReader(nextResp.Body, 2<<20))
 			if readErr != nil {
 				config.Logger.Warn("[completion_runtime_empty_retry] retry error body read failed", "surface", surface, "stream", opts.Stream, "retry_attempt", attempts, "error", readErr)
 			}

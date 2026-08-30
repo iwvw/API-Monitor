@@ -23,7 +23,7 @@ func IsTooLarge(err error) bool {
 	return errors.As(err, &maxErr)
 }
 
-const maxJSONUTF8ValidationSize = 100 << 20
+const maxJSONUTF8ValidationSize = 16 << 20
 
 // ValidateJSONUTF8 validates complete JSON request bodies before downstream
 // decoders can silently replace malformed UTF-8 or stop before trailing bytes.

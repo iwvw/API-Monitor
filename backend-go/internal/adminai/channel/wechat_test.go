@@ -114,7 +114,7 @@ func TestWeChatSendText(t *testing.T) {
 	wc, mock := newTestWeChatChannel(WeChatConfig{BotToken: "t"}, reg)
 	defer mock.Close()
 
-	wc.ctxTokens.Store("wxid_abc@im.wechat", "ctx-1")
+	wc.setCtxToken("wxid_abc@im.wechat", "ctx-1")
 
 	_, err := wc.Send(context.Background(), "wxid_abc@im.wechat", OutboundMessage{Text: "你好"})
 	if err != nil {
@@ -194,9 +194,8 @@ func TestWeChatHandleMessageText(t *testing.T) {
 	}
 
 	// context_token 应被缓存
-	token, ok := wc.ctxTokens.Load("wxid_abc@im.wechat")
-	if !ok || token.(string) != "ctx-1" {
-		t.Fatalf("context_token 未缓存: %v/%v", token, ok)
+	if got := wc.getCtxToken("wxid_abc@im.wechat"); got != "ctx-1" {
+		t.Fatalf("context_token 未缓存: %q", got)
 	}
 }
 

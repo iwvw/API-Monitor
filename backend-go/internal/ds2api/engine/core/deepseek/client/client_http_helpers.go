@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+// maxControlResponseBytes caps fully-buffered control-plane responses
+// (login, session, PoW, upload). These are small JSON envelopes; the cap is a
+// hard memory guard so an oversized upstream response can never be fully
+// buffered on a small-memory host (200 MB total).
+const maxControlResponseBytes = 2 << 20
+
 // readResponseBody reads a fully-buffered response body.
 //
 // Decompression normally already happened in wireDoer, which strips
@@ -15,17 +21,17 @@ func readResponseBody(resp *http.Response) ([]byte, error) {
 	encoding := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding")))
 	switch encoding {
 	case "", "identity":
-		return io.ReadAll(resp.Body)
+		return io.ReadAll(io.LimitReader(resp.Body, maxControlResponseBytes))
 	}
 	decoded, err := decompressReader(resp.Body, encoding)
 	if err != nil {
 		return nil, err
 	}
 	if decoded == nil {
-		return io.ReadAll(resp.Body)
+		return io.ReadAll(io.LimitReader(resp.Body, maxControlResponseBytes))
 	}
 	defer func() { _ = decoded.Close() }()
-	return io.ReadAll(decoded)
+	return io.ReadAll(io.LimitReader(decoded, maxControlResponseBytes))
 }
 
 func preview(b []byte) string {

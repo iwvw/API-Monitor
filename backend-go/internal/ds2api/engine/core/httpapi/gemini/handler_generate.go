@@ -201,7 +201,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 		h.OpenAI.ChatCompletions(rec, proxyReq)
 		res := rec.Result()
 		defer func() { _ = res.Body.Close() }()
-		body, _ := io.ReadAll(res.Body)
+		body, _ := io.ReadAll(io.LimitReader(res.Body, shared.GeneralMaxSize))
 		for k, vv := range res.Header {
 			for _, v := range vv {
 				w.Header().Add(k, v)
@@ -231,7 +231,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 	h.OpenAI.ChatCompletions(rec, proxyReq)
 	res := rec.Result()
 	defer func() { _ = res.Body.Close() }()
-	body, _ := io.ReadAll(res.Body)
+	body, _ := io.ReadAll(io.LimitReader(res.Body, shared.GeneralMaxSize))
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		for k, vv := range res.Header {
 			for _, v := range vv {
@@ -344,7 +344,7 @@ func writeGeminiErrorFromOpenAI(w http.ResponseWriter, status int, raw []byte) {
 func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *http.Response, model, finalPrompt string, thinkingEnabled bool, toolNames []string) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
 			config.Logger.Warn("[gemini_nonstream] captcha challenge detected on initial response", "detail", detail)
 		}

@@ -111,3 +111,29 @@ func (s *MemoryContentStore) CleanupExpired() {
 		}
 	}
 }
+
+// StartCleanup 启动后台清理循环，按 interval 定期删除过期条目，避免只依赖
+// Read/Delete 的懒清理时过期文件字节长期滞留内存。返回的 stop 函数幂等，
+// 可安全多次调用；调用后循环在下一次 tick 前退出。
+func (s *MemoryContentStore) StartCleanup(interval time.Duration) func() {
+	if s == nil || interval <= 0 {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	var once sync.Once
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				s.CleanupExpired()
+			}
+		}
+	}()
+	return func() {
+		once.Do(func() { close(stop) })
+	}
+}

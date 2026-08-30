@@ -76,9 +76,36 @@ func (st *wecomStreamState) stop() {
 // inboundReqTTL 入站回调 req_id 有效期：超过后不再被动回复，避免对已失效 req_id 干等超时。
 const inboundReqTTL = 60 * time.Second
 
+// inboundReqCleanupInterval 过期入站回调 req_id 的清理扫描间隔。
+const inboundReqCleanupInterval = 60 * time.Second
+
 type inboundReqRec struct {
 	reqID string
 	at    time.Time
+}
+
+// cleanupInboundReqLoop 定期清理过期入站回调 req_id。req_id 需在一轮对话的
+// 占位/编辑/finish 多帧间复用（deliver 用 Load），故不能每次回复即删；只能
+// 由本循环按 TTL 过期删除，防止成功回复后条目长期残留。
+func (w *WeComChannel) cleanupInboundReqLoop(ctx context.Context, stop <-chan struct{}) {
+	ticker := time.NewTicker(inboundReqCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			w.inboundReq.Range(func(key, value any) bool {
+				if rec, ok := value.(inboundReqRec); ok && now.Sub(rec.at) > inboundReqTTL {
+					w.inboundReq.Delete(key)
+				}
+				return true
+			})
+		}
+	}
 }
 
 // WeComChannel 是企业微信智能机器人长链接实现。
@@ -186,6 +213,7 @@ func (w *WeComChannel) Start(ctx context.Context) error {
 	w.stop = make(chan struct{})
 	stop := w.stop
 	w.mu.Unlock()
+	go w.cleanupInboundReqLoop(ctx, stop)
 
 	backoff := time.Second
 	for {
@@ -528,6 +556,9 @@ func (w *WeComChannel) deliver(chatID string, body map[string]interface{}, allow
 	if conn == nil {
 		return nil, fmt.Errorf("企微连接未就绪")
 	}
+	// 被动回复通道复用本消息回调的 req_id：占位/流式编辑/finish 多帧都须透传
+	// 同一 req_id，故这里用 Load（不能取走即删）；条目由后台清理循环按
+	// inboundReqTTL 过期删除，防止成功回复后永久残留（见 cleanupInboundReqLoop）。
 	if reqIDVal, ok := w.inboundReq.Load(chatID); ok {
 		rec, recOK := reqIDVal.(inboundReqRec)
 		// 回调 req_id 只对「本次消息」有效：久未互动后失效，转主动推送省去 10s 干等

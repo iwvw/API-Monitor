@@ -345,7 +345,7 @@ func vercelRequest(ctx context.Context, client *http.Client, method, endpoint st
 		return nil, 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	b, _ := io.ReadAll(resp.Body)
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	parsed := map[string]any{}
 	_ = json.Unmarshal(b, &parsed)
 	if len(parsed) == 0 {

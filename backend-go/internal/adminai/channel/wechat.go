@@ -244,12 +244,68 @@ type WeChatChannel struct {
 	// getupdates 游标
 	cursor string
 
-	// 每用户的 context_token 缓存（发送回复时必需）
-	ctxTokens sync.Map // userID -> context_token
+	// 每用户的 context_token 缓存（发送回复时必需）。
+	// 值类型为 *ctxTokenEntry，携带过期时间；由后台循环定期清理过期条目，
+	// 防止频道长期运行下用户 token 无限累积。
+	ctxTokens sync.Map // userID -> *ctxTokenEntry
 
 	// 打字指示管理：userID -> *typingState
 	typingMu sync.Mutex
 	typing   map[string]*typingState
+}
+
+// ctxTokenTTL 是 context_token 缓存的有效期：超过后条目会被后台清理循环删除，
+// 避免频道长期运行下用户 token 无限累积（token 在用户每次发消息时刷新）。
+const ctxTokenTTL = 7 * 24 * time.Hour
+
+// ctxTokenCleanupInterval 是 context_token 过期清理的扫描间隔。
+const ctxTokenCleanupInterval = time.Hour
+
+// ctxTokenEntry 是 context_token 缓存条目，携带过期时间。
+type ctxTokenEntry struct {
+	token     string
+	expiresAt time.Time
+}
+
+// getCtxToken 读取缓存 token；已过期返回 ""。
+func (w *WeChatChannel) getCtxToken(userID string) string {
+	v, ok := w.ctxTokens.Load(userID)
+	if !ok {
+		return ""
+	}
+	entry, ok := v.(*ctxTokenEntry)
+	if !ok || time.Now().After(entry.expiresAt) {
+		return ""
+	}
+	return entry.token
+}
+
+// setCtxToken 缓存 token 并刷新过期时间。
+func (w *WeChatChannel) setCtxToken(userID, token string) {
+	w.ctxTokens.Store(userID, &ctxTokenEntry{token: token, expiresAt: time.Now().Add(ctxTokenTTL)})
+}
+
+// cleanupCtxTokensLoop 周期性清理过期 token，直到 ctx 结束或 stop 关闭。
+func (w *WeChatChannel) cleanupCtxTokensLoop(ctx context.Context, stop <-chan struct{}) {
+	ticker := time.NewTicker(ctxTokenCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			w.ctxTokens.Range(func(key, value any) bool {
+				entry, ok := value.(*ctxTokenEntry)
+				if !ok || now.After(entry.expiresAt) {
+					w.ctxTokens.Delete(key)
+				}
+				return true
+			})
+		}
+	}
 }
 
 // NewWeChatChannel 构造微信频道（id 如 "wechat" 或自定义频道配置 ID）。
@@ -312,6 +368,7 @@ func (w *WeChatChannel) Start(ctx context.Context) error {
 	w.mu.Unlock()
 
 	slog.Info("wechat-channel-start", "channelId", w.id)
+	go w.cleanupCtxTokensLoop(ctx, stop)
 
 	for {
 		select {
@@ -400,8 +457,7 @@ func (w *WeChatChannel) Send(ctx context.Context, to string, msg OutboundMessage
 	var lastID string
 	for _, chunk := range chunks {
 		// 从缓存中取 context_token（发送回复时必需）
-		token, _ := w.ctxTokens.Load(to)
-		tokenStr, _ := token.(string)
+		tokenStr := w.getCtxToken(to)
 		if tokenStr == "" {
 			return "", fmt.Errorf("无 %s 的 context_token（用户尚未发过消息）", to)
 		}
@@ -498,8 +554,7 @@ func (w *WeChatChannel) typingLoop(ctx context.Context, userID string, ts *typin
 	client := w.client
 
 	// 获取 typing_ticket
-	tokenVal, _ := w.ctxTokens.Load(userID)
-	contextToken, _ := tokenVal.(string)
+	contextToken := w.getCtxToken(userID)
 	if contextToken == "" {
 		return
 	}
@@ -564,7 +619,7 @@ func (w *WeChatChannel) handleMessage(msg map[string]interface{}) {
 
 	// 缓存 context_token（发送回复时必需）
 	if contextToken != "" {
-		w.ctxTokens.Store(fromUserID, contextToken)
+		w.setCtxToken(fromUserID, contextToken)
 	}
 
 	// 提取文本内容

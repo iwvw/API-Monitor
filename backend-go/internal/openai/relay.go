@@ -739,7 +739,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		// 避免上游故障污染整个代理池。但限流（429）会累计计数，
 		// 达到阈值后临时禁用该代理（IP 级限流下继续选择只会反复 429）。
 		if !stream && selected.AutoSwitch && attempt+1 < maxProxyAttempts {
-			bodyBytesRead, readErr := io.ReadAll(resp.Body)
+			// 非流式重试判定：施加 upstreamBodyLimit 硬上限，避免超大上游响应
+			// 被完整读入内存（与请求体 :284 的 readUpstreamBodyLimited 一致）。
+			bodyBytesRead, readErr := readUpstreamBodyLimited(resp.Body)
 			resp.Body.Close()
 			cancel()
 			if readErr != nil || isRetryableUpstreamResponse(resp, bodyBytesRead) {

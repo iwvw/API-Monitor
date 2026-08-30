@@ -209,7 +209,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 		h.OpenAI.ChatCompletions(rec, proxyReq)
 		res := rec.Result()
 		defer func() { _ = res.Body.Close() }()
-		body, _ := io.ReadAll(res.Body)
+		body, _ := io.ReadAll(io.LimitReader(res.Body, shared.GeneralMaxSize))
 		for k, vv := range res.Header {
 			for _, v := range vv {
 				w.Header().Add(k, v)
@@ -239,7 +239,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, store C
 	h.OpenAI.ChatCompletions(rec, proxyReq)
 	res := rec.Result()
 	defer func() { _ = res.Body.Close() }()
-	body, _ := io.ReadAll(res.Body)
+	body, _ := io.ReadAll(io.LimitReader(res.Body, shared.GeneralMaxSize))
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		for k, vv := range res.Header {
 			for _, v := range vv {
@@ -327,7 +327,7 @@ func (h *Handler) handleClaudeStreamRealtime(w http.ResponseWriter, r *http.Requ
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
 			config.Logger.Warn("[claude_stream] captcha challenge detected on initial response", "detail", detail)
 		}
@@ -388,7 +388,7 @@ func (h *Handler) handleClaudeStreamRealtime(w http.ResponseWriter, r *http.Requ
 func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow string, stdReq promptcompat.StandardRequest, model string, messages []any, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, promptTokenText string, historySession *responsehistory.Session) {
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
 			config.Logger.Warn("[claude_stream_realtime] captcha challenge detected on initial response", "account", a.AccountID, "detail", detail)
 		}

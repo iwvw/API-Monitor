@@ -369,7 +369,7 @@ func collectAttempt(resp *http.Response, stdReq promptcompat.StandardRequest, us
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		message := strings.TrimSpace(string(body))
 		if message == "" {
 			message = http.StatusText(resp.StatusCode)

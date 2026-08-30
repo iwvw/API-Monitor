@@ -12,10 +12,13 @@ import (
 )
 
 const (
-	// UploadMaxSize limits total multipart request body size (100 MiB).
-	UploadMaxSize = 100 << 20
-	// GeneralMaxSize limits total JSON request body size (100 MiB).
-	GeneralMaxSize = 100 << 20
+	// UploadMaxSize limits total multipart request body size (16 MiB).
+	// Capped for small-memory hosts (200 MB total): a 100 MiB request body
+	// could single-handedly exhaust the container and be OOM-killed.
+	UploadMaxSize = 16 << 20
+	// GeneralMaxSize limits total JSON request body size (16 MiB).
+	// Same small-memory rationale as UploadMaxSize.
+	GeneralMaxSize = 16 << 20
 )
 
 type AuthResolver interface {

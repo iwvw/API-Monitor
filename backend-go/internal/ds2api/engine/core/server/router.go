@@ -38,6 +38,24 @@ type App struct {
 	DS       *dsclient.Client
 	Mihomo   *mihomo.Manager
 	Router   http.Handler
+
+	// cleanupStop 停止内容缓存的后台过期清理循环（App.Stop 时调用）。
+	cleanupStop func()
+}
+
+// Stop 释放 App 持有的后台资源：mihomo 子进程、内容缓存清理循环。
+// 幂等，可安全多次调用。
+func (a *App) Stop() {
+	if a == nil {
+		return
+	}
+	if a.Mihomo != nil {
+		a.Mihomo.Stop()
+	}
+	if a.cleanupStop != nil {
+		a.cleanupStop()
+		a.cleanupStop = nil
+	}
 }
 
 func NewApp() (*App, error) {
@@ -64,7 +82,10 @@ func NewApp() (*App, error) {
 	usagestats.SetGlobal(usageStatsStore)
 	backfillUsageStatsOnce(chatHistoryStore, usageStatsStore)
 
-	contentStore := files.NewMemoryContentStore(100<<20, 30*time.Minute)
+	contentStore := files.NewMemoryContentStore(16<<20, 30*time.Minute)
+	// 后台定期清理过期上传内容，避免过期字节长期滞留内存（TTL 30 分钟，
+	// 每 5 分钟扫一次；随 App.Stop 停止）。
+	cleanupStop := contentStore.StartCleanup(5 * time.Minute)
 
 	modelsHandler := &shared.ModelsHandler{Store: store}
 	chatHandler := &chat.Handler{Store: store, Auth: resolver, DS: dsClient, ChatHistory: chatHistoryStore, ContentStore: contentStore}
@@ -138,7 +159,7 @@ func NewApp() (*App, error) {
 	// 配置启用时后台拉起 mihomo 子进程（Vercel 等不支持子进程的环境自动跳过）。
 	mihomoMgr.StartIfEnabled()
 
-	return &App{Store: store, Pool: pool, Resolver: resolver, DS: dsClient, Mihomo: mihomoMgr, Router: r}, nil
+	return &App{Store: store, Pool: pool, Resolver: resolver, DS: dsClient, Mihomo: mihomoMgr, Router: r, cleanupStop: cleanupStop}, nil
 }
 
 func timeout(d time.Duration) func(http.Handler) http.Handler {

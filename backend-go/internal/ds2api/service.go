@@ -179,6 +179,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	}
 	s.mu.Lock()
 	oldPrefix := s.settings.ModelPrefix
+	oldCfgJSON := s.settings.ConfigJSON
 	s.settings = next
 	s.mu.Unlock()
 	if next.ModelPrefix != oldPrefix {
@@ -188,6 +189,11 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	s.engineMu.Lock()
 	defer s.engineMu.Unlock()
 	if next.Enabled {
+		// 引擎配置未变且引擎已在运行：仅改前缀/禁用模型等设置时无需重建引擎，
+		// 避免账号池 token 缓存、内存内容缓存被反复重置，也避免反复拉起 mihomo 子进程。
+		if next.ConfigJSON == oldCfgJSON && s.app != nil {
+			return nil
+		}
 		return s.startEngineLocked()
 	}
 	s.app = nil
@@ -296,6 +302,11 @@ func (s *Service) configPath() string {
 
 // startEngineLocked 写入配置并实例化引擎 App。须持有 engineMu。
 func (s *Service) startEngineLocked() error {
+	// 重建前先释放旧引擎的后台资源（mihomo 子进程、内容缓存清理循环），
+	// 避免重复拉起子进程与清理 goroutine 造成进程/goroutine/内存泄漏。
+	if old := s.app; old != nil {
+		old.Stop()
+	}
 	st := s.Settings()
 	dir := filepath.Join(s.cfg.DataDir, "ds2api")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -315,6 +326,9 @@ func (s *Service) startEngineLocked() error {
 		return fmt.Errorf("初始化引擎失败: %w", err)
 	}
 	s.app = app
+	if app != nil {
+		go s.syncEndpointModels()
+	}
 	return nil
 }
 
@@ -541,4 +555,23 @@ func responseJSON(w http.ResponseWriter, statusOrPayload interface{}, payload ..
 	b, _ := json.Marshal(body)
 	w.WriteHeader(status)
 	_, _ = w.Write(b)
+}
+
+// syncEndpointModels 在引擎启动后异步同步模型列表到网关端点表（只更新 models 列）。
+func (s *Service) syncEndpointModels() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	// 获取引擎模型列表并加前缀
+	names := s.engineModelNames(ctx)
+	prefixed := s.prefixModelNames(names)
+	modelsJSON, _ := json.Marshal(prefixed)
+	// 只更新 models 列，不动映射/禁用
+	_, _ = db.ExecContext(ctx, `
+		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
+		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }

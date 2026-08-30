@@ -28,7 +28,7 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
 			config.Logger.Warn("[gemini_stream] captcha challenge detected on initial response", "detail", detail)
 		}
@@ -103,7 +103,7 @@ type geminiStreamRuntime struct {
 func (h *Handler) handleStreamGenerateContentWithRetry(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, resp *http.Response, payload map[string]any, pow string, stdReq promptcompat.StandardRequest, model, finalPrompt string, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, historySession *responsehistory.Session) {
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
 			config.Logger.Warn("[gemini_stream_retry] captcha challenge detected on initial response", "account", a.AccountID, "detail", detail)
 		}

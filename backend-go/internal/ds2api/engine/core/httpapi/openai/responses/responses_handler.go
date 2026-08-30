@@ -170,7 +170,7 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleResponsesNonStream(w http.ResponseWriter, resp *http.Response, owner, responseID, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, toolChoice promptcompat.ToolChoicePolicy, traceID string) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
 			config.Logger.Warn("[openai_responses_nonstream] captcha challenge detected on initial response", "detail", detail)
 		}
@@ -204,7 +204,7 @@ func (h *Handler) handleResponsesNonStream(w http.ResponseWriter, resp *http.Res
 func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, resp *http.Response, owner, responseID, model, finalPrompt string, refFileTokens int, thinkingEnabled, searchEnabled bool, toolNames []string, toolsRaw any, toolChoice promptcompat.ToolChoicePolicy, traceID string) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		if detail := completionruntime.TryDetectCaptchaFromBody(body); detail != "" {
 			config.Logger.Warn("[openai_responses_stream] captcha challenge detected on initial response", "detail", detail)
 		}

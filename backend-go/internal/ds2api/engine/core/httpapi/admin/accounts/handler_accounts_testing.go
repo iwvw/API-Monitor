@@ -248,7 +248,7 @@ func (h *Handler) testAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if resp.StatusCode == http.StatusOK {
 		var parsed any
 		_ = json.Unmarshal(body, &parsed)
