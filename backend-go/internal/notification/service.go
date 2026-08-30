@@ -2460,6 +2460,7 @@ func eventCatalog() []map[string]interface{} {
 		{"module": "github", "events": []string{"action_failed", "action_recovered", "release_published", "star_spike", "issue_opened", "pull_request_opened", "repository_unreachable", "token_invalid", "rate_limit_low", "webhook_delivery_failed", "webhook_ping"}, "dynamic_events": []string{"action_failed", "action_recovered"}},
 		{"module": "totp", "events": []string{"resource.created", "resource.updated", "resource.deleted", "security.revealed", "backup.imported", "backup.exported"}},
 		{"module": "openai", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
+		{"module": "antigravity", "events": []string{"quota_window_refreshed"}},
 		{"module": "cron", "events": []string{"task.completed", "task.failed", "workflow.completed", "workflow.failed"}, "dynamic_events": []string{}},
 	}
 }
@@ -2690,6 +2691,7 @@ func notificationEventLabel(eventType string) string {
 		"resource.created": "资源已创建", "resource.updated": "资源已更新", "resource.deleted": "资源已删除", "cleanup": "清理任务",
 		"security.revealed": "敏感信息已查看", "backup.imported": "备份已导入", "backup.exported": "备份已导出",
 		"gateway_error_high": "网关错误率过高", "gateway_error_normal": "网关错误率恢复正常",
+		"quota_window_refreshed": "Antigravity 配额窗口已刷新",
 		"task.completed": "定时任务执行完成", "task.failed": "定时任务执行失败",
 		"workflow.completed": "工作流执行完成", "workflow.failed": "工作流执行失败",
 	}
