@@ -28,6 +28,8 @@ export function useAnalytics(activeTab) {
     costs: [],
     costByEndpoint: [],
   });
+  // 请求量趋势视角：all（全部请求）| success（成功请求）| failed（失败请求）。
+  const [requestTrendMode, setRequestTrendMode] = useState('all');
   // 词元趋势视角：all（全部词元）| uncached（未缓存词元）。
   const [tokenTrendMode, setTokenTrendMode] = useState('all');
   // 延迟趋势视角：total（端到端总耗时均值）| ttfb（首字延迟均值）。
@@ -211,6 +213,7 @@ export function useAnalytics(activeTab) {
     analyticsDays, setAnalyticsDays,
     analyticsGranularity, setAnalyticsGranularity,
     analyticsSummary,
+    requestTrendMode, setRequestTrendMode,
     tokenTrendMode, setTokenTrendMode,
     latencyTrendMode, setLatencyTrendMode,
     errorTrendMode, setErrorTrendMode,

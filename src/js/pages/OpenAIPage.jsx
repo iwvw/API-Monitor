@@ -603,6 +603,7 @@ function OpenAIPage() {
     analyticsDays, setAnalyticsDays,
     analyticsGranularity, setAnalyticsGranularity,
     analyticsSummary,
+    requestTrendMode, setRequestTrendMode,
     tokenTrendMode, setTokenTrendMode,
     latencyTrendMode, setLatencyTrendMode,
     errorTrendMode, setErrorTrendMode,
@@ -851,6 +852,20 @@ function OpenAIPage() {
     return {
       requests: {
         ...build(ChartPalette.categorical(0, isDarkMode), p => p.count, '请求数'),
+        formatValue: value => formatCompact(value, 0),
+        formatAxis: value => formatCompact(value, 0),
+      },
+      requestsSuccess: {
+        ...build(
+          ChartPalette.semantic('Success', isDarkMode),
+          p => Math.max(0, (Number(p.count) || 0) - (Number(p.errors) || 0)),
+          '成功请求'
+        ),
+        formatValue: value => formatCompact(value, 0),
+        formatAxis: value => formatCompact(value, 0),
+      },
+      requestsFailed: {
+        ...build(ChartPalette.semantic('Attention', isDarkMode), p => p.errors, '失败请求'),
         formatValue: value => formatCompact(value, 0),
         formatAxis: value => formatCompact(value, 0),
       },
@@ -2407,21 +2422,39 @@ function OpenAIPage() {
               },
             ].map(card => {
               const series =
-                card.key === 'tokens'
-                  ? tokenTrendMode === 'uncached'
-                    ? trendSeries.tokensUncached
-                    : trendSeries.tokens
-                  : card.key === 'latency'
-                    ? latencyTrendMode === 'ttfb'
-                      ? trendSeries.latencyTtfb
-                      : trendSeries.latency
-                    : card.key === 'errors'
-                      ? errorTrendMode === 'count'
-                        ? trendSeries.errorCount
-                        : trendSeries.errorRate
-                      : card.series;
+                card.key === 'requests'
+                  ? requestTrendMode === 'success'
+                    ? trendSeries.requestsSuccess
+                    : requestTrendMode === 'failed'
+                      ? trendSeries.requestsFailed
+                      : trendSeries.requests
+                  : card.key === 'tokens'
+                    ? tokenTrendMode === 'uncached'
+                      ? trendSeries.tokensUncached
+                      : trendSeries.tokens
+                    : card.key === 'latency'
+                      ? latencyTrendMode === 'ttfb'
+                        ? trendSeries.latencyTtfb
+                        : trendSeries.latency
+                      : card.key === 'errors'
+                        ? errorTrendMode === 'count'
+                          ? trendSeries.errorCount
+                          : trendSeries.errorRate
+                        : card.series;
               const toggleTabs =
-                card.key === 'tokens' ? (
+                card.key === 'requests' ? (
+                  <Tabs
+                    variant="segmented"
+                    size="sm"
+                    value={requestTrendMode}
+                    onValueChange={setRequestTrendMode}
+                    tabs={[
+                      { value: 'all', label: '全部' },
+                      { value: 'success', label: '成功' },
+                      { value: 'failed', label: '失败' },
+                    ]}
+                  />
+                ) : card.key === 'tokens' ? (
                   <Tabs
                     variant="segmented"
                     size="sm"
