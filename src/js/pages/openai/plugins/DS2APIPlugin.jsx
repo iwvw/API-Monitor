@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Textarea, Toolbar } from '@cloudflare/kumo';
+import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Textarea, Toolbar, Select } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, Settings as SettingsIcon, Plus, Upload, Download, RefreshCw, Trash, Edit } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
@@ -240,6 +240,55 @@ export function DS2APIPlugin() {
     toast.success('引擎配置已保存');
   };
 
+  // 自动删除会话：读取/回写 configJson 里的 auto_delete.mode（none/single/all）。
+  const parseConfigJson = () => {
+    try {
+      return JSON.parse(settings?.configJson || '{}');
+    } catch {
+      return {};
+    }
+  };
+
+  const getAutoDeleteMode = () => {
+    const mode = parseConfigJson()?.auto_delete?.mode;
+    return mode === 'single' || mode === 'all' ? mode : 'none';
+  };
+
+  const setAutoDeleteMode = mode => {
+    const parsed = parseConfigJson();
+    const next = JSON.stringify(
+      { ...parsed, auto_delete: { ...(parsed.auto_delete || {}), mode } },
+      null,
+      2,
+    );
+    setConfigText(next);
+    update({ configJson: next }, true);
+    toast.success('自动删除会话设置已保存');
+  };
+
+  // 专家长提示分段：读取/回写 configJson 里的 expert_prompt_segment.enabled。
+  // 受限内存主机（如 256MB 容器）开启分段会产生多次并发上游流的瞬时内存尖峰（实测单请求 +50~70MB），
+  // 因此默认关闭；需要把超大专家提示词切段发送时再开启。
+  const getExpertPromptSegmentEnabled = () => {
+    const val = parseConfigJson()?.expert_prompt_segment?.enabled;
+    return val === true;
+  };
+
+  const setExpertPromptSegmentEnabled = value => {
+    const parsed = parseConfigJson();
+    const next = JSON.stringify(
+      {
+        ...parsed,
+        expert_prompt_segment: { ...(parsed.expert_prompt_segment || {}), enabled: !!value },
+      },
+      null,
+      2,
+    );
+    setConfigText(next);
+    update({ configJson: next }, true);
+    toast.success(value ? '专家长提示分段已开启' : '专家长提示分段已关闭');
+  };
+
   const importFile = file => {
     if (!file) return;
     const reader = new FileReader();
@@ -332,6 +381,29 @@ export function DS2APIPlugin() {
                   value={prefixDraft ?? settings?.modelPrefix ?? ''}
                   onChange={e => setPrefixDraft(e.target.value)}
                   onBlur={commitModelPrefix}
+                  disabled={saving}
+                />
+              </div>
+            </FieldRow>
+            <FieldRow title={<span title="每次会话结束后自动删除远端会话：none 不删除；single 仅删当前会话；all 删除该密钥全部会话。写回引擎配置 configJson 的 auto_delete.mode">自动删除会话</span>}>
+              <Select
+                size="sm"
+                className="w-44"
+                value={getAutoDeleteMode()}
+                onValueChange={setAutoDeleteMode}
+                items={[
+                  { value: 'none', label: '不删除' },
+                  { value: 'single', label: '仅删除当前会话' },
+                  { value: 'all', label: '删除全部会话' },
+                ]}
+                disabled={saving}
+              />
+            </FieldRow>
+            <FieldRow title={<span title="超大专家提示词（超过 expert_prompt_segment.max_chars，默认 160000 字符）是否切成多段逐段发送。受限内存主机开启后每次分段请求会产生多次并发上游流，瞬时内存 +50~70MB，易被 OOM 杀死，故默认关闭。写回引擎配置 configJson 的 expert_prompt_segment.enabled">专家长提示分段</span>}>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={getExpertPromptSegmentEnabled()}
+                  onCheckedChange={setExpertPromptSegmentEnabled}
                   disabled={saving}
                 />
               </div>
