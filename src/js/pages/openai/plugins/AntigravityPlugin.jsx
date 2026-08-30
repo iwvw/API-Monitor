@@ -129,6 +129,16 @@ export function AntigravityPlugin() {
     }
   };
 
+  const loadStatus = async () => {
+    try {
+      const res = await fetch(`${API}/status`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok) setStatus(data);
+    } catch {
+      setStatus(null);
+    }
+  };
+
   useEffect(() => {
     load();
   }, []);
@@ -312,6 +322,7 @@ export function AntigravityPlugin() {
         if (!res.ok || !data?.success) throw new Error(data?.error || '导入失败');
         toast.success(`已导入 ${data.added || 0} 个账号`);
         await loadAccounts();
+        await loadStatus();
       } catch (e) {
         toast.error(`导入失败：${e.message}`);
       }
