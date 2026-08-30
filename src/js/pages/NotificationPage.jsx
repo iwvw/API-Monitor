@@ -57,6 +57,7 @@ const getSourceModuleName = (module) => {
     system: '系统设置',
     filebox: '文件柜',
     totp: '双因子认证',
+    antigravity: 'Antigravity',
     cron: '定时任务',
   };
   return names[module] || module;
@@ -108,6 +109,7 @@ const getEventTypeName = (type) => {
     rate_limit_low: 'API 限额偏低',
     webhook_delivery_failed: 'Webhook 投递失败',
     webhook_ping: 'Webhook 连通成功',
+    quota_window_refreshed: '配额窗口已刷新',
     'task.completed': '定时任务执行完成',
     'task.failed': '定时任务执行失败',
     'workflow.completed': '工作流执行完成',
@@ -129,6 +131,7 @@ const FALLBACK_EVENT_CATALOG = [
   { module: 'system', events: ['database.backup', 'database.import', 'log.cleanup', 'migration.failed', 'cpu_high', 'cpu_normal', 'memory_high', 'memory_normal', 'disk_high', 'disk_normal'], dynamic_events: ['cpu_high', 'cpu_normal', 'memory_high', 'memory_normal', 'disk_high', 'disk_normal'] },
   { module: 'filebox', events: ['resource.created', 'resource.deleted', 'cleanup'] },
   { module: 'totp', events: ['resource.created', 'resource.updated', 'resource.deleted', 'security.revealed', 'backup.imported', 'backup.exported'] },
+  { module: 'antigravity', events: ['quota_window_refreshed'] },
   { module: 'cron', events: ['task.completed', 'task.failed', 'workflow.completed', 'workflow.failed'] },
 ];
 
