@@ -444,6 +444,7 @@ export function DS2APIPlugin() {
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">调用</Table.Head>
                     <Table.Head className="!w-24 !px-2 !py-1.5 text-center">状态</Table.Head>
                     <Table.Head className="!w-44 !px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
@@ -460,6 +461,9 @@ export function DS2APIPlugin() {
                             {[a.email, a.mobile].filter(Boolean).join(' · ') || a.identifier}
                           </div>
                         </div>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span className="font-mono text-xs text-kumo-strong" title="该账号被选中调度服务的累计次数">{a.callCount ?? 0}</span>
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         {a.banned ? (

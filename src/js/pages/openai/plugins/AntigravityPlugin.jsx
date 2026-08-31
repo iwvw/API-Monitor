@@ -478,6 +478,7 @@ export function AntigravityPlugin() {
                 <Table.Row className="h-8">
                   <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
                   <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                  <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
                   <Table.Head className="!w-24 !px-2 !py-1.5 text-center">套餐</Table.Head>
                   <Table.Head className="!w-20 !px-2 !py-1.5 text-center">状态</Table.Head>
                   <Table.Head className="!w-24 !px-2 !py-1.5 text-center">操作</Table.Head>
@@ -500,6 +501,9 @@ export function AntigravityPlugin() {
                           {a.projectId}
                         </div>
                       </div>
+                    </Table.Cell>
+                    <Table.Cell className="!px-2 !py-1.5 text-center">
+                      <span className="font-mono text-xs text-kumo-strong" title="该账号被选中处理推理请求的累计次数">{a.callCount ?? 0}</span>
                     </Table.Cell>
                     <Table.Cell className="!px-2 !py-1.5 text-center">
                       <span className="truncate text-sm text-kumo-subtle" title={a.planType}>{a.planType || '-'}</span>
