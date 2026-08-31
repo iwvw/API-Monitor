@@ -244,7 +244,7 @@ function ServerLocationMap({
 
   return (
     <section className="relative overflow-hidden rounded-md border border-kumo-line bg-kumo-base">
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-kumo-line bg-kumo-base/90 p-1 shadow-sm backdrop-blur-sm">
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-kumo-line bg-kumo-base/90 p-1 backdrop-blur-sm">
         <Button
           type="button"
           size="sm"

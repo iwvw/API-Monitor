@@ -32,6 +32,7 @@ import {
   SectionCard,
   stickyTabsBaseClass,
   TabBarOverflowActions,
+  sectionCardHeaderClass,
 } from '../components/ui/AppPrimitives.jsx';
 import { PublicPageBrandIcon } from '../components/public/PublicPageIconPicker.jsx';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed } from '../modules/utils.js';
@@ -207,7 +208,7 @@ const COMPACT_INLINE_BOX_CLASS = 'border border-kumo-interact/70 shadow-none';
 const COMPACT_INLINE_SUBBOX_CLASS = 'border border-kumo-interact/70 shadow-none';
 const COMPACT_STICKY_ACTION_CLASS = 'border-l border-kumo-interact/60 before:!w-1 before:!-left-1';
 const COMPACT_ACTION_BUTTON_CLASS = '!shadow-none';
-const SERVER_SECTION_HEADER_CLASS = 'flex min-h-[56px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-4 py-3.5';
+const SERVER_SECTION_HEADER_CLASS = sectionCardHeaderClass;
 const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-wrap items-center gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 cq-lg:justify-between';
 const SERVER_SECONDARY_TABS_GROUP_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap p-0.5 scrollbar-thin cq-sm:gap-2';
 const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-brand';
@@ -395,7 +396,7 @@ function ServerModuleTabLabel({ icon: Icon, children, short, badge = null }) {
       <span className="hidden cq-sm:inline">{children}</span>
       <span className="cq-sm:hidden">{short || children}</span>
       {badge !== null && (
-        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-brand/10 px-1 text-[10px] font-bold leading-none text-brand">
+        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-brand/10 px-1 text-[10px] font-semibold leading-none text-brand">
           {badge}
         </span>
       )}
@@ -455,7 +456,7 @@ function CompactMetricBarComponent({ label, value, valueClassName, barClassName,
     <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 cq-sm:w-14 cq-sm:border-0 cq-sm:bg-transparent cq-sm:px-0 cq-sm:py-0">
       <div className="flex min-w-0 items-center justify-between gap-1">
         <span className="truncate">{label}</span>
-        <span className={`shrink-0 font-bold ${color ? '' : valueClassName}`} style={color ? { color } : undefined}>{value}</span>
+        <span className={`shrink-0 font-semibold ${color ? '' : valueClassName}`} style={color ? { color } : undefined}>{value}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed">
         <div className={`h-full transition-[width] duration-300 ease-out ${color ? '' : barClassName}`} style={{ width: resolvedWidth, backgroundColor: color || undefined }}></div>
@@ -529,7 +530,7 @@ function FlowUnitBadge({ unit, muted = false }) {
 
 function FlowArrow({ children, muted = false }) {
   return (
-    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-[4px] bg-kumo-recessed/70 text-[14px] font-bold leading-none ${muted ? 'text-kumo-subtle' : 'text-kumo-default'} ${COMPACT_INLINE_SUBBOX_CLASS}`}>
+    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-[4px] bg-kumo-recessed/70 text-[14px] font-semibold leading-none ${muted ? 'text-kumo-subtle' : 'text-kumo-default'} ${COMPACT_INLINE_SUBBOX_CLASS}`}>
       {children}
     </span>
   );
@@ -588,7 +589,7 @@ function ExpandedSection({ title, tone = 'brand', action, className = '', childr
   return (
     <AppCard as="section" padding="none" className={`min-w-0 overflow-hidden p-1.5 ${className}`}>
       <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
-        <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
+        <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-kumo-strong">
           <span className={`h-3 w-1 shrink-0 rounded-full ${EXPANDED_SECTION_ACCENTS[tone] || EXPANDED_SECTION_ACCENTS.brand}`}></span>
           <span className="truncate">{title}</span>
         </h4>
@@ -615,7 +616,7 @@ function ExpandedProgressMetricComponent({
     <div className="flex min-w-0 flex-col gap-1.5 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2.5 py-2">
       <div className="flex min-w-0 items-start justify-between gap-2">
         <span className="text-[11px] font-medium text-kumo-subtle">{label}</span>
-        <span className={`min-w-0 truncate text-right text-sm font-bold tabular-nums ${muted ? 'text-kumo-subtle' : valueClassName}`} title={String(displayValue)}>{displayValue}</span>
+        <span className={`min-w-0 truncate text-right text-sm font-semibold tabular-nums ${muted ? 'text-kumo-subtle' : valueClassName}`} title={String(displayValue)}>{displayValue}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-base">
         <div
@@ -651,13 +652,13 @@ function TrafficTotalSummary({ txTotal, rxTotal, quota, compact = false }) {
       <div className="grid min-w-0 grid-cols-2 gap-1 rounded-md bg-kumo-recessed/20 p-1 cq-sm:flex cq-sm:h-full cq-sm:flex-col cq-sm:justify-center cq-sm:gap-1">
         <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1">
           <div className="text-[10px] font-semibold leading-none text-kumo-subtle">累计上行</div>
-          <div className="mt-0.5 truncate text-xs font-bold tabular-nums text-kumo-info" title={txTotal?.text || '-'}>
+          <div className="mt-0.5 truncate text-xs font-semibold tabular-nums text-kumo-info" title={txTotal?.text || '-'}>
             {txTotal?.text || '-'}
           </div>
         </div>
         <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1">
           <div className="text-[10px] font-semibold leading-none text-kumo-subtle">累计下行</div>
-          <div className="mt-0.5 truncate text-xs font-bold tabular-nums text-kumo-success" title={rxTotal?.text || '-'}>
+          <div className="mt-0.5 truncate text-xs font-semibold tabular-nums text-kumo-success" title={rxTotal?.text || '-'}>
             {rxTotal?.text || '-'}
           </div>
         </div>
@@ -686,13 +687,13 @@ function TrafficTotalSummary({ txTotal, rxTotal, quota, compact = false }) {
     <div className="grid min-w-0 grid-cols-2 gap-1.5 cq-sm:grid-cols-1">
       <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 ${itemClassName}`}>
         <div className="text-[10px] font-semibold text-kumo-subtle">累计上行</div>
-        <div className={`mt-0.5 truncate font-bold tabular-nums text-kumo-info ${valueClassName}`} title={txTotal?.text || '-'}>
+        <div className={`mt-0.5 truncate font-semibold tabular-nums text-kumo-info ${valueClassName}`} title={txTotal?.text || '-'}>
           {txTotal?.text || '-'}
         </div>
       </div>
       <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 ${itemClassName}`}>
         <div className="text-[10px] font-semibold text-kumo-subtle">累计下行</div>
-        <div className={`mt-0.5 truncate font-bold tabular-nums text-kumo-success ${valueClassName}`} title={rxTotal?.text || '-'}>
+        <div className={`mt-0.5 truncate font-semibold tabular-nums text-kumo-success ${valueClassName}`} title={rxTotal?.text || '-'}>
           {rxTotal?.text || '-'}
         </div>
       </div>
@@ -748,7 +749,7 @@ function ExpandedStatTileComponent({ label, value, caption, tone = 'default', cl
     return (
       <div className={`flex min-w-0 items-center justify-between gap-2.5 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2 ${className}`}>
         <span className="shrink-0 text-[11px] font-medium text-kumo-subtle">{label}</span>
-        <span className={`min-w-0 truncate text-right text-sm font-bold tabular-nums ${EXPANDED_VALUE_TONES[tone] || EXPANDED_VALUE_TONES.default}`} title={String(displayValue)}>
+        <span className={`min-w-0 truncate text-right text-sm font-semibold tabular-nums ${EXPANDED_VALUE_TONES[tone] || EXPANDED_VALUE_TONES.default}`} title={String(displayValue)}>
           {displayValue}
         </span>
       </div>
@@ -757,7 +758,7 @@ function ExpandedStatTileComponent({ label, value, caption, tone = 'default', cl
   return (
     <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2 ${className}`}>
       <div className="text-[10px] font-medium text-kumo-subtle">{label}</div>
-      <div className={`mt-1 truncate text-sm font-bold tabular-nums ${EXPANDED_VALUE_TONES[tone] || EXPANDED_VALUE_TONES.default}`} title={String(displayValue)}>
+      <div className={`mt-1 truncate text-sm font-semibold tabular-nums ${EXPANDED_VALUE_TONES[tone] || EXPANDED_VALUE_TONES.default}`} title={String(displayValue)}>
         {displayValue}
       </div>
       {caption && (
@@ -801,7 +802,7 @@ function NetworkQualitySummaryStrip({ summary = [] }) {
             className="grid min-h-6 min-w-0 grid-cols-[auto_auto_minmax(0,1fr)] items-baseline gap-x-1.5 rounded-md border border-kumo-line/70 bg-kumo-recessed/15 px-2 py-1 text-[10px] leading-none"
           >
             <span className="shrink-0 font-semibold text-kumo-subtle">{item.name}</span>
-            <span className={`shrink-0 text-xs font-bold tabular-nums ${getNetworkQualityToneClass(tone)}`} title={`24h 平均 ${latestValue}`}>
+            <span className={`shrink-0 text-xs font-semibold tabular-nums ${getNetworkQualityToneClass(tone)}`} title={`24h 平均 ${latestValue}`}>
               {latestValue}
             </span>
             <span className="min-w-0 truncate font-medium text-kumo-subtle" title={caption}>
@@ -833,7 +834,7 @@ function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false
       {(tooltipBoundary) => (
         <div className="flex h-full min-w-0 flex-col">
           <div className={`grid min-w-0 grid-cols-[minmax(0,max-content)_minmax(0,1fr)] items-center gap-2 overflow-hidden ${headerHeightClassName}`}>
-            <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
+            <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-kumo-strong">
               <span className={`h-3 w-1 shrink-0 rounded-full ${accentClassName}`}></span>
               <span className="truncate">{title}</span>
             </h4>
@@ -888,7 +889,7 @@ function NetworkQualityPanel({
       {(tooltipBoundary) => (
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className={`flex min-w-0 flex-wrap items-center justify-between gap-2 ${compact ? 'min-h-2' : ''}`}>
-            <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
+            <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-kumo-strong">
               <span className="h-3 w-1 shrink-0 rounded-full bg-brand"></span>
               <span className="truncate">网络波动 24h</span>
             </h4>
@@ -985,7 +986,7 @@ function CompactColumnMenu({ menu, visibleColumns, onToggle, onShowAll, onClose 
       onContextMenu={(event) => event.preventDefault()}
     >
       <div className="mb-2 flex items-center justify-between gap-2 border-b border-kumo-line pb-2">
-        <span className="font-bold text-kumo-strong">显示列</span>
+        <span className="font-semibold text-kumo-strong">显示列</span>
         <Button type="button" size="sm" variant="ghost" onClick={onShowAll}>
           全部
         </Button>
@@ -5960,8 +5961,8 @@ function ServerPage() {
     const visibleTasks = tasks.slice(0, 8);
     return (
       <LayerCard className={`overflow-hidden p-0 ${className}`}>
-        <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
-          <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
+        <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
+          <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
             <Activity className="h-4 w-4 shrink-0 text-brand" />
             日志
           </span>
@@ -6049,8 +6050,8 @@ function ServerPage() {
     return (
       <div className="flex min-w-0 flex-col gap-3 cq-xl:sticky cq-xl:top-0 cq-xl:self-start">
         <LayerCard className="overflow-hidden p-0">
-          <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
-            <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
+          <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
+            <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
               <Settings className="h-4 w-4 shrink-0 text-brand" />
               管理
             </span>
@@ -6074,7 +6075,7 @@ function ServerPage() {
               {statItems.map(item => (
                 <div key={item.label} className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">{item.label}</div>
-                  <div className={`mt-0.5 truncate text-sm font-bold ${item.className || 'text-kumo-strong'}`}>{item.value}</div>
+                  <div className={`mt-0.5 truncate text-sm font-semibold ${item.className || 'text-kumo-strong'}`}>{item.value}</div>
                 </div>
               ))}
             </div>
@@ -6099,7 +6100,7 @@ function ServerPage() {
                       >
                         <span className="flex min-w-0 items-center gap-2">
                           {React.cloneElement(icon, { className: 'h-3.5 w-3.5 shrink-0 text-brand' })}
-                          <span className="min-w-0 truncate text-xs font-bold text-kumo-strong">{server.name}</span>
+                          <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">
                           <Badge variant="neutral">{getHostCount(server)}</Badge>
@@ -6516,7 +6517,7 @@ function ServerPage() {
           >
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {icon}
-              <span className="min-w-0 truncate text-xs font-bold text-kumo-strong">{server.name}</span>
+              <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
               <Badge variant="neutral">{count} {countLabel}</Badge>
               {badges.map((badge) => (
                 <Badge key={badge.label} variant={badge.variant || 'neutral'} appearance={badge.appearance}>
@@ -7853,7 +7854,7 @@ function ServerPage() {
                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
                               <PublicPageBrandIcon pageKind="server" config={page.config} iconClassName="h-4 w-4" customIconClassName="h-4 w-4" />
                             </span>
-                            <span className="truncate text-sm font-bold text-kumo-strong">{page.title || page.slug}</span>
+                            <span className="truncate text-sm font-semibold text-kumo-strong">{page.title || page.slug}</span>
                             <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${page.public ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}>{page.public ? '公开' : '私有'}</span>
                             <span className="rounded bg-kumo-recessed px-2 py-0.5 font-mono text-[10px] text-kumo-subtle">{page.cacheSeconds || 300}s</span>
                           </div>
@@ -8088,11 +8089,11 @@ function ServerPage() {
                                         <div className={`mx-auto flex w-[96px] items-center gap-2 ${rowMuted ? 'text-kumo-subtle' : ''}`}>
                                           <i className={`${getOSIconClass(server.info?.platform)} ${rowMuted ? 'opacity-60 grayscale' : ''}`}></i>
                                           <div className="min-w-0">
-                                            <div className={`truncate font-bold ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`} title={server.name}>{server.name}</div>
+                                            <div className={`truncate font-semibold ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`} title={server.name}>{server.name}</div>
                                             {/* {(server.tags || []).filter(t => t !== 'Agent').length > 0 && (
                                         <div className="flex min-w-0 gap-1">
                                           {(server.tags || []).filter(t => t !== 'Agent').slice(0, 2).map(tag => (
-                                            <span key={tag} className="truncate rounded bg-kumo-recessed/60 px-1 text-[9px] font-bold text-kumo-subtle" title={tag}>
+                                            <span key={tag} className="truncate rounded bg-kumo-recessed/60 px-1 text-[9px] font-semibold text-kumo-subtle" title={tag}>
                                               {tag}
                                             </span>
                                           ))}
@@ -8472,7 +8473,7 @@ function ServerPage() {
                         onDragOver={handleServerDragOver}
                         onDrop={(event) => handleServerDrop(server.id, event)}
                         onDragEnd={() => setDraggedServerId(null)}
-                        className={`bg-kumo-base border rounded-lg transition-all duration-200 ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
+                        className={`bg-kumo-base border rounded-lg ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
                       >
                         <div
                           onClick={() => toggleServerExpand(server.id)}
@@ -8492,7 +8493,7 @@ function ServerPage() {
                                     e.stopPropagation();
                                     startRenameServer(server);
                                   }}
-                                  className="text-xs font-bold text-kumo-strong truncate hover:text-brand"
+                                  className="text-xs font-semibold text-kumo-strong truncate hover:text-brand"
                                 >
                                   {country && (
                                     <CountryFlag countryCode={country} className="mr-1.5 h-3 w-4 align-[-1px] text-xs" />
@@ -8500,7 +8501,7 @@ function ServerPage() {
                                   {server.name}
                                 </span>
                                 {server.tags && server.tags.filter(t => t !== 'Agent').map(t => (
-                                  <span key={t} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-kumo-recessed/60 text-kumo-subtle">
+                                  <span key={t} className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-kumo-recessed/60 text-kumo-subtle">
                                     {t}
                                   </span>
                                 ))}
@@ -8572,7 +8573,7 @@ function ServerPage() {
                                   </div>
                                 )}
                                 {server.info.network && (
-                                  <div className="hidden h-8 w-[126px] shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-bold leading-[1.2] tabular-nums cq-sm:flex">
+                                  <div className="hidden h-8 w-[126px] shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-semibold leading-[1.2] tabular-nums cq-sm:flex">
                                     <span className="flex items-center justify-between whitespace-nowrap font-mono text-kumo-info">
                                       <span className="flex flex-1 items-center">
                                         <span className="w-2 text-center opacity-70">&uarr;</span>
@@ -8829,7 +8830,7 @@ function ServerPage() {
                                         toggleDockerPanel(server.id);
                                       }}
                                     >
-                                      <span className="text-xs font-bold text-kumo-strong">Docker 容器</span>
+                                      <span className="text-xs font-semibold text-kumo-strong">Docker 容器</span>
                                       <span className="flex min-w-0 items-center gap-1.5">
                                         <Badge variant="success" appearance="dot">{runningContainers} 运行</Badge>
                                         {pausedContainers > 0 && <Badge variant="warning" appearance="dot">{pausedContainers} 暂停</Badge>}
@@ -9065,7 +9066,7 @@ function ServerPage() {
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2">
                           <Activity className="h-3.5 w-3.5 shrink-0 text-brand" />
-                          <span className="shrink-0 font-bold text-brand">Docker 任务</span>
+                          <span className="shrink-0 font-semibold text-brand">Docker 任务</span>
                           <Badge variant={stateVariant} appearance="dot">{getDockerTaskStateLabel(latestTask.state)}</Badge>
                           <span className="min-w-0 truncate text-kumo-subtle">{getDockerTaskActionLabel(latestTask.action)}</span>
                           <span className="min-w-0 truncate text-kumo-subtle">{summarizeDockerTaskMessage(latestTask)}</span>
@@ -9159,7 +9160,7 @@ function ServerPage() {
                             >
                               <div className="flex min-w-0 items-center gap-2">
                                 <Box className="h-4 w-4 shrink-0 text-brand" />
-                                <span className="truncate text-xs font-bold text-kumo-strong">{server.name}</span>
+                                <span className="truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
                                 {renderDockerFilterChip(server.id, 'all', `${summary.total} 容器`, 'neutral', `${server.name} 全部容器`)}
                                 {renderDockerFilterChip(server.id, 'running', `${summary.running} 运行`, 'success', `${server.name} 运行容器`)}
                                 {summary.paused > 0 && renderDockerFilterChip(server.id, 'paused', `${summary.paused} 暂停`, 'warning', `${server.name} 暂停容器`)}
@@ -9234,7 +9235,7 @@ function ServerPage() {
                                     />
                                     <div className="min-w-0 flex-1">
                                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                        <span className="min-w-0 truncate text-xs font-bold leading-5 text-kumo-strong" title={containerName}>{containerName}</span>
+                                        <span className="min-w-0 truncate text-xs font-semibold leading-5 text-kumo-strong" title={containerName}>{containerName}</span>
                                         <span className="min-w-0 truncate font-mono text-[10px] text-kumo-subtle" title={containerImage}>{containerImage}</span>
                                       </div>
                                       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
@@ -9321,8 +9322,8 @@ function ServerPage() {
                     {renderDockerSimpleLogCard('order-3')}
 
                     <LayerCard className="order-1 overflow-hidden p-0">
-                      <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
-                        <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
+                      <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
+                        <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
                           <Settings className="h-4 w-4 shrink-0 text-brand" />
                           管理
                         </span>
@@ -9360,19 +9361,19 @@ function ServerPage() {
                         <div className="grid grid-cols-4 gap-1.5">
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">容器</div>
-                            <div className="mt-0.5 text-sm font-bold text-kumo-strong">{dockerContainerManagementTotals.total}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-strong">{dockerContainerManagementTotals.total}</div>
                           </div>
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">运行</div>
-                            <div className="mt-0.5 text-sm font-bold text-kumo-success">{dockerContainerManagementTotals.running}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-success">{dockerContainerManagementTotals.running}</div>
                           </div>
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">停止</div>
-                            <div className="mt-0.5 text-sm font-bold text-kumo-subtle">{dockerContainerManagementTotals.stopped}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-subtle">{dockerContainerManagementTotals.stopped}</div>
                           </div>
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">更新</div>
-                            <div className="mt-0.5 text-sm font-bold text-kumo-warning">{dockerContainerManagementTotals.updatable}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-warning">{dockerContainerManagementTotals.updatable}</div>
                           </div>
                         </div>
 
@@ -9398,7 +9399,7 @@ function ServerPage() {
                                   >
                                     <span className="flex min-w-0 items-center gap-2">
                                       <Box className="h-3.5 w-3.5 shrink-0 text-brand" />
-                                      <span className="min-w-0 truncate text-xs font-bold text-kumo-strong">{server.name}</span>
+                                      <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
                                     </span>
                                     <span className="flex shrink-0 items-center gap-1.5">
                                       {renderDockerFilterChip(server.id, 'all', String(summary.total), 'neutral', `${server.name} 全部容器`)}
@@ -9508,7 +9509,7 @@ function ServerPage() {
                                     <div key={`${server.id}-${projectName}-${configFiles}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
                                       <div className="min-w-0 flex-1">
                                         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                          <span className="truncate text-xs font-bold leading-5 text-kumo-strong">{projectName}</span>
+                                          <span className="truncate text-xs font-semibold leading-5 text-kumo-strong">{projectName}</span>
                                           <Badge variant={statusLower.includes('running') ? 'success' : 'error'} appearance="dot">{statusLabel}</Badge>
                                         </div>
                                         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
@@ -9698,7 +9699,7 @@ function ServerPage() {
                                   return (
                                     <div key={`${server.id}-${imageId || repository}-${i}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
                                       <div className="min-w-0 flex-1">
-                                        <div className="truncate text-xs font-bold leading-5 text-kumo-strong" title={repository}>{repository}</div>
+                                        <div className="truncate text-xs font-semibold leading-5 text-kumo-strong" title={repository}>{repository}</div>
                                         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
                                           <Badge variant="secondary" className="font-mono text-[10px]">{tag}</Badge>
                                           <span className="shrink-0">{getDockerImageSize(img)}</span>
@@ -9828,7 +9829,7 @@ function ServerPage() {
                                   return (
                                     <div key={`${server.id}-${networkId || networkName}-${i}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
                                       <div className="min-w-0 flex-1">
-                                        <div className="truncate text-xs font-bold leading-5 text-kumo-strong" title={networkName}>{networkName}</div>
+                                        <div className="truncate text-xs font-semibold leading-5 text-kumo-strong" title={networkName}>{networkName}</div>
                                         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
                                           <span className="truncate font-mono">{networkId || '-'}</span>
                                           <Badge variant="teal" className="font-mono text-[10px]">{getDockerNetworkDriver(network)}</Badge>
@@ -9943,7 +9944,7 @@ function ServerPage() {
                                   return (
                                     <div key={`${server.id}-${volumeName}-${i}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
                                       <div className="min-w-0 flex-1">
-                                        <div className="truncate text-xs font-bold leading-5 text-kumo-strong" title={volumeName}>{volumeName}</div>
+                                        <div className="truncate text-xs font-semibold leading-5 text-kumo-strong" title={volumeName}>{volumeName}</div>
                                         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
                                           <Badge variant="teal" className="font-mono text-[10px]">{getDockerVolumeDriver(volume)}</Badge>
                                           <Badge variant="neutral" className="font-mono text-[10px]">{getDockerVolumeScope(volume)}</Badge>
@@ -10099,7 +10100,7 @@ function ServerPage() {
                                       <div className="min-w-0">
                                         <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
                                           <div className="min-w-0">
-                                            <div className="truncate text-sm font-bold text-kumo-strong">{chart.title}</div>
+                                            <div className="truncate text-sm font-semibold text-kumo-strong">{chart.title}</div>
                                             <div className="mt-0.5 truncate text-xs text-kumo-subtle">{chart.description}</div>
                                           </div>
                                           <Badge variant="neutral">{chart.value}</Badge>
@@ -10641,11 +10642,11 @@ function ServerPage() {
                   </div>
 
                   {activeTerminalSidebar && (
-                    <div className="absolute bottom-0 right-0 top-0 z-10 flex min-h-0 w-[clamp(18rem,24vw,26rem)] flex-col overflow-hidden border-l border-kumo-line bg-kumo-base shadow-[-12px_0_24px_-24px_rgba(0,0,0,0.5)]">
+                    <div className="absolute bottom-0 right-0 top-0 z-10 flex min-h-0 w-[clamp(18rem,24vw,26rem)] flex-col overflow-hidden border-l border-kumo-line bg-kumo-base">
                       {showServerStatusSidebar && (
                         <div className="flex h-full min-h-0 flex-col p-2.5 text-xs">
                           <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">
-                            <span className="text-[11px] font-bold text-kumo-strong">资源监控</span>
+                            <span className="text-[11px] font-semibold text-kumo-strong">资源监控</span>
                             <Button
                               shape="square" size="sm"
                               variant="ghost"
@@ -10660,7 +10661,7 @@ function ServerPage() {
                               <div className="flex min-w-0 items-center gap-2">
                                 <i className={getOSIconClass(activeInfo.platform)}></i>
                                 <div className="min-w-0">
-                                  <div className="truncate text-xs font-bold text-kumo-strong">{activeSession?.name || activeServer?.name || '-'}</div>
+                                  <div className="truncate text-xs font-semibold text-kumo-strong">{activeSession?.name || activeServer?.name || '-'}</div>
                                   <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">{getHostAddress(activeServer, serverIpDisplayMode) || activeServer?.host || 'Agent'}</div>
                                 </div>
                               </div>
@@ -10804,7 +10805,7 @@ function ServerPage() {
         <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[48rem] flex-col overflow-hidden p-0 cq-sm:max-w-[calc(100vw-3rem)]">
           <div ref={serverModalPortalRef} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+              <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
                 {serverModalMode === 'add' ? '新增主机实例' : '编辑主机实例'}
               </Dialog.Title>
               <Dialog.Close
@@ -10877,7 +10878,7 @@ function ServerPage() {
 
                   <section className="rounded-lg border border-kumo-line bg-kumo-recessed/20 p-3.5">
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="font-bold text-kumo-strong">流量配置</h3>
+                      <h3 className="font-semibold text-kumo-strong">流量配置</h3>
                       <span className="text-[11px] text-kumo-subtle">配额、报警与重置周期</span>
                     </div>
 
@@ -11020,7 +11021,7 @@ function ServerPage() {
 
                   <section className="rounded-lg border border-kumo-line bg-kumo-recessed/20 p-3.5">
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="font-bold text-kumo-strong">连接与验证</h3>
+                      <h3 className="font-semibold text-kumo-strong">连接与验证</h3>
                       <span className="text-[11px] text-kumo-subtle">SSH 登录信息</span>
                     </div>
 
@@ -11214,7 +11215,7 @@ function ServerPage() {
               )}
 
               {serverModalError && (
-                <div className="text-xs text-kumo-danger font-bold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
+                <div className="text-xs text-kumo-danger font-semibold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
                   {serverModalError}
                 </div>
               )}
@@ -11246,7 +11247,7 @@ function ServerPage() {
                 variant="primary"
                 onClick={saveServer}
                 disabled={serverModalSaving}
-                className={`w-full px-4 py-1.5 text-kumo-inverse text-xs font-bold cq-sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
+                className={`w-full px-4 py-1.5 text-kumo-inverse text-xs font-semibold cq-sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 {serverModalSaving ? '保存中...' : '保存'}
               </Button>
@@ -11260,7 +11261,7 @@ function ServerPage() {
         <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
           <div ref={credentialModalPortalRef} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+              <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
                 新增 SSH 验证凭据
               </Dialog.Title>
               <Dialog.Close
@@ -11371,7 +11372,7 @@ function ServerPage() {
 
             <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs cq-sm:flex-row cq-sm:justify-end">
               <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="w-full cq-sm:w-auto">取消</Button>
-              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-bold cq-sm:w-auto">保存</Button>
+              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-semibold cq-sm:w-auto">保存</Button>
             </div>
           </div>
         </Dialog>
@@ -11381,7 +11382,7 @@ function ServerPage() {
       <Dialog.Root open={showImportServerModal} onOpenChange={setShowImportServerModal}>
         <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
               导入主机备份配置
             </Dialog.Title>
             <Dialog.Close
@@ -11415,13 +11416,13 @@ function ServerPage() {
             </div>
 
             {importPreview && (
-              <div className="bg-kumo-success/10 border border-kumo-success/20 p-2.5 rounded text-xs text-kumo-success font-bold">
+              <div className="bg-kumo-success/10 border border-kumo-success/20 p-2.5 rounded text-xs text-kumo-success font-semibold">
                 ✓ 已识别 {importPreview.length} 台主机，确认恢复？
               </div>
             )}
 
             {importModalError && (
-              <div className="text-xs text-kumo-danger font-bold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
+              <div className="text-xs text-kumo-danger font-semibold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
                 {importModalError}
               </div>
             )}
@@ -11433,7 +11434,7 @@ function ServerPage() {
               variant="primary"
               onClick={confirmImportServers}
               disabled={importModalSaving || !importPreview}
-              className="w-full text-kumo-inverse font-bold disabled:opacity-50 cq-sm:w-auto"
+              className="w-full text-kumo-inverse font-semibold disabled:opacity-50 cq-sm:w-auto"
             >
               {importModalSaving ? '恢复中...' : '确认恢复导入'}
             </Button>
@@ -11451,7 +11452,7 @@ function ServerPage() {
       >
         <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-lg:!w-[min(72rem,calc(100vw-3rem))] cq-lg:!max-w-[min(72rem,calc(100vw-3rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
               部署 Agent
             </Dialog.Title>
             <Dialog.Close
@@ -11625,7 +11626,7 @@ function ServerPage() {
       >
         <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
               批量部署 Agent
             </Dialog.Title>
             <Dialog.Close
@@ -11775,7 +11776,7 @@ function ServerPage() {
       >
         <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
               升级 Agent
             </Dialog.Title>
             <Dialog.Close
@@ -11799,7 +11800,7 @@ function ServerPage() {
               <div className="grid grid-cols-1 gap-2 cq-sm:grid-cols-2">
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">目标 Agent</div>
-                  <div className="mt-1 text-lg font-bold text-kumo-strong">{upgradeBatchSnapshot?.items?.length || getAgentUpgradeTargets().length}</div>
+                  <div className="mt-1 text-sm font-semibold text-kumo-strong">{upgradeBatchSnapshot?.items?.length || getAgentUpgradeTargets().length}</div>
                 </div>
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">状态</div>
@@ -11918,7 +11919,7 @@ function ServerPage() {
       >
         <Dialog size="xl" className="@container flex h-[min(78dvh,760px)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[56rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/35 px-4 py-3">
-            <Dialog.Title className="flex min-w-0 items-center gap-2 truncate text-sm font-bold text-kumo-strong">
+            <Dialog.Title className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold text-kumo-strong">
               <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
               <span className="truncate">{dockerComposeEditor?.mode === 'edit' ? '修改 Compose 配置' : '查看 Compose 配置'}</span>
             </Dialog.Title>
@@ -11939,8 +11940,8 @@ function ServerPage() {
 
           <div className="grid min-h-0 flex-1 gap-3 overflow-hidden p-4 text-xs cq-lg:grid-cols-[18rem_minmax(0,1fr)]">
             <LayerCard className="flex min-h-0 flex-col overflow-hidden p-0">
-              <LayerCard.Secondary className="flex min-h-[52px] items-center justify-between gap-2 px-3 py-3.5">
-                <span className="inline-flex min-w-0 items-center gap-2 text-xs font-bold text-kumo-strong">
+              <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
+                <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
                   <Settings className="h-4 w-4 shrink-0 text-brand" />
                   项目信息
                 </span>
@@ -11951,11 +11952,11 @@ function ServerPage() {
               <LayerCard.Primary className="flex flex-1 flex-col space-y-2 p-3">
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">主机</div>
-                  <div className="mt-0.5 truncate text-sm font-bold text-kumo-strong">{dockerComposeEditor?.serverName || '-'}</div>
+                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">{dockerComposeEditor?.serverName || '-'}</div>
                 </div>
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">项目</div>
-                  <div className="mt-0.5 truncate text-sm font-bold text-kumo-strong">{dockerComposeEditor?.projectName || '-'}</div>
+                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">{dockerComposeEditor?.projectName || '-'}</div>
                 </div>
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">工作目录</div>
@@ -12058,7 +12059,7 @@ function ServerPage() {
       >
         <Dialog size="lg" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[48rem] cq-sm:max-w-[calc(100vw-3rem)]">
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong flex items-center gap-2">
+            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong flex items-center gap-2">
               <FileText className="h-4 w-4 text-brand" />
               <span>容器日志: {dockerLogsContainer ? getDockerContainerName(dockerLogsContainer) : ''}</span>
             </Dialog.Title>
@@ -12135,7 +12136,7 @@ function ServerPage() {
         <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
           <form onSubmit={saveNetworkTarget} className="flex flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 items-center justify-between border-b border-kumo-line/80 px-4 py-3">
-              <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+              <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
                 {networkTargetModalMode === 'add' ? '添加拨测目标' : '编辑拨测目标'}
               </Dialog.Title>
               <Dialog.Close

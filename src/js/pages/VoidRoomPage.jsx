@@ -738,7 +738,7 @@ function VoidRoomPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-base font-bold text-kumo-strong">虚空传输</h1>
+              <h1 className="text-base font-semibold text-kumo-strong">虚空传输</h1>
               <Badge variant={role === 'owner' ? 'success' : 'secondary'}>{role === 'owner' ? '房主' : '访客'}</Badge>
               <Badge variant={isPersistentRoom ? 'success' : 'secondary'}>{isPersistentRoom ? '持久' : '临时'}</Badge>
               <Badge variant={canSend ? 'success' : 'warning'}>{connectionStatusLabel}</Badge>

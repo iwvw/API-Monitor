@@ -9,7 +9,7 @@ export default function AdminAIPage() {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 cq-sm:p-6">
       <div className="flex items-center gap-2">
         <Bot className="h-5 w-5 text-brand" />
-        <h1 className="text-lg font-bold text-kumo-strong">管理 AI</h1>
+        <h1 className="text-lg font-semibold text-kumo-strong">管理 AI</h1>
       </div>
 
       <AppCard>

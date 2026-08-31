@@ -1897,7 +1897,7 @@ function M365Page() {
                 tabIndex={0}
                 className={cx(
                   tenantCardFrameClass,
-                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left transition hover:border-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-brand/70',
+                  'group flex h-full cursor-pointer flex-col justify-between border bg-kumo-base/95 text-left hover:border-brand/40 hover:bg-kumo-base focus:outline-none focus-visible:border-brand/70',
                   active ? 'border-brand/70 bg-brand/5' : 'border-kumo-line/80'
                 )}
                 onClick={() => setSelectedAccountId(String(account.id))}
@@ -2017,7 +2017,7 @@ function M365Page() {
             aria-label="添加新租户"
           >
             <div className="flex flex-col items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle transition group-hover:border-brand/50 group-hover:text-brand">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-kumo-line/90 text-kumo-subtle group-hover:border-brand/50 group-hover:text-brand">
                 <Plus className="h-5 w-5" />
               </div>
               <span className="text-xs font-medium opacity-0 transition group-hover:opacity-100">

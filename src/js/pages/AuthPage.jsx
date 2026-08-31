@@ -314,7 +314,7 @@ function AuthErrorBanner({ message }) {
         <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-current/15">
           <AlertTriangle className="size-3.5" />
         </span>
-        <div className="text-xs font-bold leading-none">{title}</div>
+        <div className="text-xs font-semibold leading-none">{title}</div>
       </div>
       <div className="text-[11.5px] leading-relaxed opacity-90 break-all pl-7 font-mono">
         {normalized}
@@ -340,7 +340,7 @@ function AuthStatusNotice({ statusKey, message }) {
       ) : status ? (
         <div className="flex w-full items-center gap-2.5 rounded-lg border border-brand/35 bg-brand/10 p-3 text-brand">
           <Loader size={16} className="shrink-0 text-brand" />
-          <div className="text-xs font-bold leading-tight">{status}</div>
+          <div className="text-xs font-semibold leading-tight">{status}</div>
         </div>
       ) : null}
     </div>
@@ -739,7 +739,7 @@ function AuthPage() {
           spellCheck={false}
           className={cx(
             'auth-login-input w-full text-center transition-all duration-200',
-            requiresSecondStep && 'font-mono tracking-widest text-lg',
+            requiresSecondStep && 'font-mono text-sm',
             loginError && 'auth-login-input--error'
           )}
           autoFocus

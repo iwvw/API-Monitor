@@ -18,7 +18,7 @@ import { buildTotpAccountPayload } from '../modules/totpPayload.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import BrandIcon, { BRAND_COLOR_FALLBACK, getIssuerColor } from '../components/ui/BrandIcon.jsx';
-import { AppCard, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, cx, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { AppCard, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, sectionCardHeaderClass, cx, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
 import {
   Key,
@@ -1628,7 +1628,7 @@ function TotpPage() {
                       onMouseEnter={() => handleCardMouseEnter(account.id)}
                       onMouseLeave={() => handleCardMouseLeave(account.id)}
                       onClick={() => copyCodeToClipboard(account)}
-                      className="group/card relative grid min-h-[96px] min-w-0 cursor-pointer grid-rows-[auto_1fr_auto] overflow-hidden p-0 transition-colors hover:border-brand cq-sm:min-h-[112px]"
+                      className="group/card relative grid min-h-[96px] min-w-0 cursor-pointer grid-rows-[auto_1fr_auto] overflow-hidden p-0 hover:border-brand cq-sm:min-h-[112px]"
                     >
                       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 border-b border-kumo-line bg-kumo-recessed/35 px-2 py-1.5 cq-sm:gap-2 cq-sm:px-3 cq-sm:py-2">
                         <TotpBrandMark
@@ -1694,7 +1694,7 @@ function TotpPage() {
                         {codeParts.map((part, partIndex) => (
                           <span
                             key={`${account.id}-${partIndex}`}
-                            className="min-w-0 flex-1 rounded-md bg-kumo-recessed px-1.5 py-1 text-center text-[16px] font-semibold leading-none tracking-normal cq-sm:min-w-[4.25rem] cq-sm:flex-none cq-sm:px-2 cq-sm:text-[20px]"
+                            className="min-w-0 flex-1 rounded-md bg-kumo-recessed px-1.5 py-1 text-center text-sm font-semibold leading-none tracking-normal cq-sm:min-w-[4.25rem] cq-sm:flex-none cq-sm:px-2"
                           >
                             {part}
                           </span>
@@ -2039,7 +2039,7 @@ function TotpPage() {
                   />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs font-bold text-kumo-strong">API Monitor 2FA 助手</h4>
+                  <h4 className="text-xs font-semibold text-kumo-strong">API Monitor 2FA 助手</h4>
                   <p className="text-[10px] text-kumo-subtle mt-0.5">
                     一次性配对，使用受限、可撤销的 API Key
                   </p>
@@ -2078,7 +2078,7 @@ function TotpPage() {
 
               <AnimatedCollapse open={showExtensionGuide}>
                 <div className="text-[11px] text-kumo-subtle space-y-2 mt-4 p-3 bg-kumo-recessed/50 rounded-lg border border-kumo-line">
-                  <p className="font-bold text-kumo-strong">三步完成安装：</p>
+                  <p className="font-semibold text-kumo-strong">三步完成安装：</p>
                   <ol className="list-decimal pl-4 space-y-1">
                     <li>解压下载的 ZIP 压缩包至本地固定目录；</li>
                     <li>
@@ -2272,7 +2272,7 @@ function TotpPage() {
                   </div>
 
                   <LayerCard>
-                    <LayerCard.Secondary className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <LayerCard.Secondary className={sectionCardHeaderClass}>
                       <div className="text-sm font-semibold leading-none text-kumo-strong">
                         品牌标识与主题色
                       </div>
@@ -2684,7 +2684,7 @@ function TotpPage() {
       {/* ==================== 模态框 2: 新建/编辑分组 ==================== */}
       <Dialog.Root open={showGroupModal} onOpenChange={setShowGroupModal}>
         <Dialog className="!w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-base font-bold text-kumo-strong mb-1">
+          <Dialog.Title className="text-base font-semibold text-kumo-strong mb-1">
             {groupModalMode === 'add' ? '创建新分组' : '编辑分组属性'}
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
@@ -2755,7 +2755,7 @@ function TotpPage() {
       {/* ==================== 模态框 3: 备份导出账号 ==================== */}
       <Dialog.Root open={showExportModal} onOpenChange={setShowExportModal}>
         <Dialog className="!w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-base font-bold text-kumo-strong mb-1">
+          <Dialog.Title className="text-base font-semibold text-kumo-strong mb-1">
             备份与导出
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">

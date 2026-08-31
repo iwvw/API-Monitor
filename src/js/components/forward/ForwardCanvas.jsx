@@ -481,8 +481,8 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
                   dim
                     ? 'border-kumo-line opacity-40'
                     : hoverHostId === host.serverId
-                      ? 'border-kumo-brand bg-kumo-elevated shadow-md'
-                      : 'border-kumo-line bg-kumo-elevated shadow-sm'
+                      ? 'border-kumo-brand bg-kumo-elevated ring-1 ring-kumo-brand/20'
+                      : 'border-kumo-line bg-kumo-elevated'
                 }`}
                 style={{ left: host.x, top: host.y, width: host.w, height: host.h }}
                 aria-label={`主机 ${host.name}，点击切换显示`}
@@ -562,7 +562,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
           {selectedCard && detailScreen && (
             <div
               data-detail-card
-              className="absolute z-[7] rounded-lg border border-kumo-brand/50 bg-kumo-elevated p-3 shadow-md ring-1 ring-kumo-brand/10"
+              className="absolute z-[7] rounded-lg border border-kumo-brand/50 bg-kumo-elevated p-3 ring-1 ring-kumo-brand/10"
               style={{ left: detailScreen.x, top: detailScreen.y, width: DETAIL_W }}
               onClick={(event) => event.stopPropagation()}
             >
@@ -677,7 +677,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
             const visW = Math.min(minimapViewRect?.w ?? 0, layout.width - visX / mmScale) * mmScale;
             const visH = Math.min(minimapViewRect?.h ?? 0, layout.height - visY / mmScale) * mmScale;
             return (
-              <div className="absolute bottom-3 right-3 z-[7] flex select-none flex-col gap-1.5 rounded-lg border border-kumo-line bg-kumo-elevated/95 p-1.5 shadow-lg backdrop-blur">
+              <div className="absolute bottom-3 right-3 z-[7] flex select-none flex-col gap-1.5 rounded-lg border border-kumo-line bg-kumo-elevated/95 p-1.5 backdrop-blur">
                 <div
                   ref={minimapRef}
                   title="鸟瞰图：点击或拖动定位画布"

@@ -121,7 +121,7 @@ class ModuleErrorBoundary extends React.Component {
                   url.searchParams.set('_reload', String(Date.now()));
                   window.location.replace(url.toString());
                 }}
-                className="font-bold"
+                className="font-semibold"
               >
                 重新加载
               </Button>
@@ -700,7 +700,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
             <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-kumo-line bg-kumo-recessed text-brand shadow-none">
               <ActiveIcon className="w-7 h-7" />
             </div>
-            <h2 className="text-base font-bold text-kumo-strong mb-2.5">
+            <h2 className="text-base font-semibold text-kumo-strong mb-2.5">
               {getModuleName(mainActiveTab)} 模块重构中
             </h2>
             <p className="text-xs text-kumo-subtle max-w-sm leading-relaxed">
@@ -893,7 +893,7 @@ return (
                     href="https://beian.miit.gov.cn/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="min-w-0 truncate text-right text-kumo-subtle transition-colors hover:text-kumo-strong hover:underline"
+                    className="min-w-0 truncate text-right text-kumo-subtle hover:text-kumo-strong hover:underline"
                   >
                     {dashboardFooterRecordNumber}
                   </a>
@@ -902,7 +902,7 @@ return (
                   href="https://github.com/iwvw/API-Monitor"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="shrink-0 text-kumo-subtle transition-colors hover:text-kumo-strong hover:underline"
+                  className="shrink-0 text-kumo-subtle hover:text-kumo-strong hover:underline"
                 >
                   GitHub
                 </a>

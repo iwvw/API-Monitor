@@ -371,7 +371,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
               iconClassName="h-5 w-5"
             />
             <div className="min-w-0">
-              <div className="truncate text-base font-bold text-kumo-strong">{page?.title || '服务状态'}</div>
+              <div className="truncate text-base font-semibold text-kumo-strong">{page?.title || '服务状态'}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -394,7 +394,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
         {!loading && error && (
           <div className="public-status-card flex flex-1 flex-col items-center justify-center rounded-lg border border-kumo-interact/80 bg-kumo-base p-10 text-center">
             <AlertTriangle className="mb-3 h-9 w-9 text-kumo-warning" />
-            <h1 className="text-lg font-bold text-kumo-strong">无法显示状态页</h1>
+            <h1 className="text-lg font-semibold text-kumo-strong">无法显示状态页</h1>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-kumo-subtle">{error}</p>
             {!slug && isLocalHost(window.location.host) && (
               <p className="mt-2 text-xs text-kumo-subtle">本地访问请使用 /status/slug 或 /u/slug。</p>
@@ -407,7 +407,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
             <section className={`public-status-card rounded-lg border px-4 py-3.5 ${statusPanelClass[statusTone]}`}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="flex items-center gap-2 text-base font-bold">
+                  <div className="flex items-center gap-2 text-base font-semibold">
                     {statusTone === 'success' ? <Check className="h-4 w-4" /> : statusTone === 'neutral' ? <Activity className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
                     {statusText}
                   </div>
@@ -430,7 +430,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
 
             <section className="public-status-card overflow-hidden rounded-lg border border-kumo-interact/80 bg-kumo-base">
               <div className="flex items-center justify-between gap-3 border-b border-kumo-interact/70 px-4 py-3">
-                <h2 className="text-sm font-bold text-kumo-strong">服务状态</h2>
+                <h2 className="text-sm font-semibold text-kumo-strong">服务状态</h2>
                 <span className="text-xs text-kumo-subtle">30天可用率</span>
               </div>
               {monitors.length === 0 ? (
@@ -464,13 +464,13 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                   href={targetUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="truncate text-base font-bold text-kumo-strong hover:text-brand hover:underline"
+                                  className="truncate text-base font-semibold text-kumo-strong hover:text-brand hover:underline"
                                   onClick={(event) => event.stopPropagation()}
                                 >
                                   {monitor.name}
                                 </a>
                               ) : (
-                                <div className="truncate text-base font-bold text-kumo-strong">{monitor.name}</div>
+                                <div className="truncate text-base font-semibold text-kumo-strong">{monitor.name}</div>
                               )}
                               <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-kumo-subtle transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                             </div>
@@ -520,11 +520,11 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                               <div className="grid grid-cols-2 gap-2 lg:grid-cols-1 lg:self-start">
                                 <div className="rounded-md border border-kumo-interact/75 bg-kumo-base p-2">
                                   <div className="text-[10px] text-kumo-subtle">24小时可用率</div>
-                                  <div className="mt-1 tabular-nums text-sm font-bold text-kumo-strong">{formatUptimePercent(monitor.uptime24h)}%</div>
+                                  <div className="mt-1 tabular-nums text-sm font-semibold text-kumo-strong">{formatUptimePercent(monitor.uptime24h)}%</div>
                                 </div>
                                 <div className="rounded-md border border-kumo-interact/75 bg-kumo-base p-2">
                                   <div className="text-[10px] text-kumo-subtle">30天可用率</div>
-                                  <div className="mt-1 tabular-nums text-sm font-bold text-kumo-strong">{monitor.uptime30d ? `${formatUptimePercent(monitor.uptime30d)}%` : '--'}</div>
+                                  <div className="mt-1 tabular-nums text-sm font-semibold text-kumo-strong">{monitor.uptime30d ? `${formatUptimePercent(monitor.uptime30d)}%` : '--'}</div>
                                 </div>
                               </div>
                             </div>

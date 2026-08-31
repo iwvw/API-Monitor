@@ -118,7 +118,7 @@ function PublicPageIconOption({
         onClick={onClick}
         disabled={disabled}
         className={cx(
-          'flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
+          'flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
           active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
@@ -135,7 +135,7 @@ function PublicPageIconOption({
         onClick={onClick}
         disabled={disabled}
         className={cx(
-          'flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
+          'flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3 py-3 text-left',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
           active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
@@ -148,7 +148,7 @@ function PublicPageIconOption({
           size="sm"
           variant="ghost"
           className={cx(
-            'border border-kumo-line !bg-kumo-base shadow-sm transition-all',
+            'border border-kumo-line !bg-kumo-base transition-all',
             deleteBusy
               ? 'cursor-wait opacity-100'
               : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:!border-kumo-danger/45 hover:!bg-kumo-danger/10 hover:!text-kumo-danger',
@@ -284,7 +284,7 @@ export default function PublicPageIconPicker({
         triggerClassName,
         hasCustomIcon
           ? 'border-transparent bg-transparent shadow-none'
-          : 'transition-colors hover:border-brand/45',
+          : 'hover:border-brand/45',
       )}
       onClick={() => setOpen(true)}
       aria-label="更换公开页图标"

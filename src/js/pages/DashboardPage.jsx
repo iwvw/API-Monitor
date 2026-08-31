@@ -77,7 +77,7 @@ const API_TREND_RANGE_TABS = [
   { value: '14', label: '14 天' },
   { value: '30', label: '30 天' },
 ];
-const SERVICE_TOOL_ITEM_CLASS = 'group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/45 px-2.5 py-1.5 transition-colors hover:border-brand/60 hover:bg-kumo-base cq-sm:h-12 cq-sm:px-3 cq-xl:h-auto cq-xl:min-h-12';
+const SERVICE_TOOL_ITEM_CLASS = 'group flex h-11 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/45 px-2.5 py-1.5 hover:border-brand/60 hover:bg-kumo-base cq-sm:h-12 cq-sm:px-3 cq-xl:h-auto cq-xl:min-h-12';
 const SERVICE_TOOL_ICON_CLASS = 'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-sm cq-sm:h-8 cq-sm:w-8';
 const SERVICE_TOOL_BADGE_CLASS = 'flex h-6 min-w-9 shrink-0 items-center justify-center gap-1 rounded-md border border-kumo-line bg-kumo-base px-1.5 text-[10px] font-semibold text-kumo-strong tabular-nums cq-sm:min-w-10 cq-sm:text-[11px]';
 
@@ -264,7 +264,7 @@ function ServerStatusCapsules({ servers = [], total = 0, online = 0, error = 0 }
       {hiddenCount > 0 && (
         <Badge
           variant="secondary"
-          className="h-4 min-w-5 shrink-0 rounded-full px-1.5 text-[9px] font-bold leading-none tabular-nums"
+          className="h-4 min-w-5 shrink-0 rounded-full px-1.5 text-[9px] font-semibold leading-none tabular-nums"
           title={hiddenTitle}
           aria-label={`还有 ${hiddenCount} 台主机: ${hiddenTitle.replace(/\n/g, '，')}`}
         >
@@ -368,7 +368,7 @@ function DashboardOverviewCard({
       </div>
 
       <div className="flex h-8 min-w-0 items-center justify-between gap-2 cq-sm:h-9">
-        <span className="flex min-w-0 items-baseline gap-0.5 truncate text-[1.15rem] font-bold leading-none text-kumo-strong tabular-nums cq-sm:text-[1.45rem] cq-sm:gap-1">
+        <span className="flex min-w-0 items-baseline gap-0.5 truncate text-[1.15rem] font-semibold leading-none text-kumo-strong tabular-nums cq-sm:text-[1.45rem] cq-sm:gap-1">
           {value}
           <span className="truncate text-[10px] font-normal leading-none text-kumo-subtle cq-sm:text-[11px]">
             {unit}
@@ -381,7 +381,7 @@ function DashboardOverviewCard({
         )}
       </div>
 
-      <div className="hidden min-h-5 items-center justify-between gap-1.5 border-t border-kumo-line pt-1.5 text-[10px] leading-tight text-kumo-subtle transition-colors group-hover:text-kumo-strong cq-sm:flex cq-sm:min-h-6 cq-sm:pt-2 cq-sm:text-[11px]">
+      <div className="hidden min-h-5 items-center justify-between gap-1.5 border-t border-kumo-line pt-1.5 text-[10px] leading-tight text-kumo-subtle group-hover:text-kumo-strong cq-sm:flex cq-sm:min-h-6 cq-sm:pt-2 cq-sm:text-[11px]">
         <span className={`min-w-0 truncate ${detailClassName}`}>
           {detail}
         </span>
@@ -1176,7 +1176,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <KoyebBrand className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">Koyeb</h4>
+                  <h4 className="text-xs font-semibold text-kumo-strong group-hover:text-brand">Koyeb</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">边缘计算应用服务</p>
                 </div>
               </div>
@@ -1196,7 +1196,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <FlyIoBrand className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">Fly.io</h4>
+                  <h4 className="text-xs font-semibold text-kumo-strong group-hover:text-brand">Fly.io</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">全球微型虚拟机</p>
                 </div>
               </div>
@@ -1216,7 +1216,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <Activity className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">可用性监测</h4>
+                  <h4 className="truncate text-xs font-semibold text-kumo-strong group-hover:text-brand">可用性监测</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">HTTP、TCP 与 Ping 监测</p>
                 </div>
               </div>
@@ -1236,7 +1236,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <Clock className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">定时任务</h4>
+                  <h4 className="truncate text-xs font-semibold text-kumo-strong group-hover:text-brand">定时任务</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">任务、工作流与运行记录</p>
                 </div>
               </div>
@@ -1256,7 +1256,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <Shield className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">双因子认证</h4>
+                  <h4 className="truncate text-xs font-semibold text-kumo-strong group-hover:text-brand">双因子认证</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">OTP 动态验证码账号</p>
                 </div>
               </div>
@@ -1276,7 +1276,7 @@ function DashboardPage({ onNavigate } = {}) {
                   <FolderOpen className="h-3.5 w-3.5 cq-sm:h-4 cq-sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-brand transition-colors">文件分享柜</h4>
+                  <h4 className="truncate text-xs font-semibold text-kumo-strong group-hover:text-brand">文件分享柜</h4>
                   <p className="mt-0.5 hidden truncate text-[10px] text-kumo-subtle cq-sm:block">文件与片段</p>
                 </div>
               </div>

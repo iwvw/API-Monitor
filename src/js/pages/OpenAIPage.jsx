@@ -74,6 +74,7 @@ import {
   TabBarOverflowActions,
   iconButtonIconClass,
   actionIconClass,
+  sectionCardHeaderClass,
   cx,
 } from '../components/ui/AppPrimitives.jsx';
 import {
@@ -2071,7 +2072,7 @@ function OpenAIPage() {
                         nativeButton={false}
                         title="查看成功/失败详情"
                         render={
-                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-strong cq-sm:text-xl cq-xl:text-2xl">
+                          <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-kumo-strong">
                             {String(analyticsSummary.totalRequests)}
                           </span>
                         }
@@ -2123,8 +2124,8 @@ function OpenAIPage() {
                         nativeButton={false}
                         title="查看首字/总耗时详情"
                         render={
-                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-warning cq-sm:text-xl cq-xl:text-2xl">
-                            {(analyticsSummary.avgLatency / 1000).toFixed(2)}
+                          <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-kumo-warning">
+                            {analyticsSummary.avgLatency ? (analyticsSummary.avgLatency / 1000).toFixed(2) : '0.00'}
                           </span>
                         }
                       />
@@ -2179,7 +2180,7 @@ function OpenAIPage() {
                         nativeButton={false}
                         title="查看输入/输出详情"
                         render={
-                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-brand cq-sm:text-xl cq-xl:text-2xl">
+                          <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-brand">
                             {formatTokensM(analyticsSummary.totalTokens)}
                           </span>
                         }
@@ -2302,12 +2303,12 @@ function OpenAIPage() {
                     <Cpu className="h-3.5 w-3.5" />
                   </span>
                 </div>
-                <div className="flex h-8 min-w-0 items-center">
+                <div className="flex h-8 min-w-0 items-baseline">
                   {analyticsLoading ? (
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-lg font-semibold leading-none text-brand cq-sm:text-xl cq-xl:text-2xl">
+                      <span className="truncate font-mono text-2xl font-semibold leading-none text-brand">
                         {((analyticsSummary.totalTokens || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
@@ -2323,12 +2324,12 @@ function OpenAIPage() {
                     <TrendingUp className="h-3.5 w-3.5" />
                   </span>
                 </div>
-                <div className="flex h-8 min-w-0 items-center">
+                <div className="flex h-8 min-w-0 items-baseline">
                   {analyticsLoading ? (
                     <SkeletonLine className="h-6 w-20" />
                   ) : (
                     <>
-                      <span className="truncate font-mono text-lg font-semibold leading-none text-brand cq-sm:text-xl cq-xl:text-2xl">
+                      <span className="truncate font-mono text-2xl font-semibold leading-none text-brand">
                         {((analyticsSummary.totalRequests || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
@@ -2353,7 +2354,7 @@ function OpenAIPage() {
                         nativeButton={false}
                         title="查看各渠道错误率"
                         render={
-                          <span className="w-fit cursor-pointer truncate font-mono text-lg font-semibold leading-none text-kumo-danger cq-sm:text-xl cq-xl:text-2xl">
+                          <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-kumo-danger">
                             {(analyticsSummary.errorRate * 100).toFixed(1)}
                           </span>
                         }
@@ -2490,7 +2491,7 @@ function OpenAIPage() {
                 ) : null;
               return (
               <LayerCard key={card.key} className="min-w-0 p-0">
-                <LayerCard.Secondary>
+                <LayerCard.Secondary className={sectionCardHeaderClass}>
                   {toggleTabs ? (
                     <div className="flex w-full items-center justify-between gap-2">
                       <span>{card.title}</span>
@@ -2526,7 +2527,7 @@ function OpenAIPage() {
 
             <div className="grid">
             <LayerCard className="min-w-0 p-0">
-              <LayerCard.Secondary>
+              <LayerCard.Secondary className={sectionCardHeaderClass}>
                 <div className="flex w-full items-center justify-between gap-2">
                   <span>模型调用趋势</span>
                   <div className="flex flex-wrap items-center justify-end gap-2">
@@ -2591,7 +2592,7 @@ function OpenAIPage() {
 
             <div className="grid items-start gap-3 cq-xl:grid-cols-2">
             <LayerCard className="min-w-0 p-0">
-              <LayerCard.Secondary>
+              <LayerCard.Secondary className={sectionCardHeaderClass}>
                 <div className="flex w-full items-center justify-between gap-2">
                   <span>模型词元分布</span>
                   <Tabs
@@ -2674,7 +2675,7 @@ function OpenAIPage() {
             </LayerCard>
 
             <LayerCard className="min-w-0 p-0">
-              <LayerCard.Secondary>
+              <LayerCard.Secondary className={sectionCardHeaderClass}>
                 <div className="flex w-full items-center justify-between gap-2">
                   <span>模型调用次数</span>
                   <Tabs

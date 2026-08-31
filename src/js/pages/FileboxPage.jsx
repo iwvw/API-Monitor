@@ -832,7 +832,7 @@ function FileboxPage() {
                     <div key={roomId} className="grid gap-3 px-4 py-3 cq-lg:grid-cols-[minmax(0,1fr)_auto] cq-lg:items-center">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-sm font-bold text-kumo-strong">{roomId}</span>
+                          <span className="font-mono text-sm font-semibold text-kumo-strong">{roomId}</span>
                           <Badge variant={mode === 'persistent' ? 'success' : 'secondary'}>{mode === 'persistent' ? '持久' : '临时'}</Badge>
                           <Badge variant="secondary">{(room.participants || []).filter((item) => item.online).length} 在线</Badge>
                         </div>

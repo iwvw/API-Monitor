@@ -302,7 +302,7 @@ function SettingsCard({ form }) {
             aria-pressed={checked}
             onClick={() => setField(field.key, checked ? 'false' : 'true')}
 className={cx(
-              'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 transition-colors',
+              'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3',
               checked
                 ? 'border-(--text-color-brand) bg-kumo-tint text-brand'
                 : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'

@@ -99,14 +99,14 @@ function EmptyState({ onPrompt }) {
                 variant="ghost"
                 type="button"
                 onClick={() => onPrompt(p.subtitle || p.title)}
-                className="group relative flex !h-auto w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left transition-all duration-200 hover:border-brand/40 hover:bg-kumo-base hover:shadow-[0_0_12px_-2px_var(--color-kumo-shadow-drop)]"
+                className="group relative flex !h-auto w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left hover:border-brand/40 hover:bg-kumo-base"
               >
                 <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-brand/80 to-brand transition-all duration-200 group-hover:h-5" />
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 transition-colors duration-200 group-hover:bg-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-brand/20">
-                  <PromptIcon className="h-3.5 w-3.5 text-kumo-subtle transition-colors duration-200 group-hover:text-brand" />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 group-hover:bg-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-brand/20">
+                  <PromptIcon className="h-3.5 w-3.5 text-kumo-subtle group-hover:text-brand" />
                 </span>
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-xs font-medium text-kumo-subtle transition-colors group-hover:text-kumo-default">{p.title}</span>
+                  <span className="truncate text-xs font-medium text-kumo-subtle group-hover:text-kumo-default">{p.title}</span>
                   <span className="truncate text-xs text-kumo-subtle">{p.subtitle}</span>
                 </span>
               </Button>
@@ -162,7 +162,7 @@ function SessionItem({ s, active, deleteArmed, onSelect, onDelete }) {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
             <span
-              className={`truncate text-xs transition-colors ${
+              className={`truncate text-xs ${
                 active
                   ? 'font-semibold text-kumo-default'
                   : 'font-medium text-kumo-subtle group-hover:text-kumo-default'
@@ -421,7 +421,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
               title={g.label}
               onClick={() => { setTab(g.type); setQ(''); }}
               aria-label={g.label}
-              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors focus-visible:!outline-none ${
+              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] focus-visible:!outline-none ${
                 tab === g.type
                   ? 'bg-brand/15 font-medium text-brand'
                   : 'text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default'
@@ -1434,7 +1434,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
         '--sidebar-easing': 'cubic-bezier(0.77, 0, 0.175, 1)',
       }}
     >
-      <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-brand/80 bg-kumo-canvas shadow-2xl">
+      <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-brand/80 bg-kumo-canvas">
         <div
           className={`flex h-full shrink-0 flex-col overflow-hidden bg-kumo-base transition-[width] duration-300 ease-in-out ${fullscreenSidebar ? 'w-64 border-r border-kumo-line' : 'w-0'}`}
           aria-hidden={!fullscreenSidebar}
@@ -1445,7 +1445,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
               <Sparkle className="h-4 w-4" />
             </span>
-            <span className="truncate text-sm font-bold text-kumo-strong">会话</span>
+            <span className="truncate text-sm font-semibold text-kumo-strong">会话</span>
             <Badge variant="secondary">{sessions.length}</Badge>
           </div>
           <Tooltip
@@ -1498,7 +1498,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                   <Sidebar.Menu>
                     {channelGroups.map((g) => (
                       <div key={g.key}>
-                        <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-subtle/70">{g.label}</div>
+                        <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase text-kumo-subtle/70">{g.label}</div>
                         {g.items.map((s) => (
                           <SessionItem
                             key={s.id}
@@ -1765,7 +1765,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                     <Sidebar.Menu>
                       {channelGroups.map((g) => (
                         <div key={g.key}>
-                          <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-kumo-subtle/70">{g.label}</div>
+                          <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase text-kumo-subtle/70">{g.label}</div>
                           {g.items.map((s) => (
                             <SessionItem
                               key={s.id}

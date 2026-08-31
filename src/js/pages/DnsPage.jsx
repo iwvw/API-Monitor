@@ -2103,7 +2103,7 @@ function DnsPage() {
                     onClick={() => selectZone(zone)}
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-bold leading-[1.35] text-kumo-strong" title={zone.name}>{zone.name}</div>
+                      <div className="truncate text-sm font-semibold leading-[1.35] text-kumo-strong" title={zone.name}>{zone.name}</div>
                       <div className="mt-2 flex items-center gap-1.5">
                         <Badge variant={statusVariant(zone.status)} className="text-[10px] leading-4">{zoneStatusLabel(zone.status)}</Badge>
                         <Badge variant="secondary" className="text-[10px] leading-4">{zoneTypeLabel(zone.type)}</Badge>
@@ -2414,7 +2414,7 @@ function DnsPage() {
                           <div className="min-w-0">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                               <Badge variant={recordTypeBadgeVariant(record.type)} className="min-w-10 justify-center text-[10px] leading-4">{record.type}</Badge>
-                              <span className="min-w-0 truncate text-sm font-bold text-kumo-strong" title={recordShortName(record.name, selectedZone.name)}>
+                              <span className="min-w-0 truncate text-sm font-semibold text-kumo-strong" title={recordShortName(record.name, selectedZone.name)}>
                                 {recordShortName(record.name, selectedZone.name)}
                               </span>
                               <Badge variant={record.proxied ? 'success' : 'outline'} className="text-[10px] leading-4">{record.proxied ? '代理' : '仅 DNS'}</Badge>
@@ -2681,7 +2681,7 @@ function DnsPage() {
                     return (
                       <div
                         key={bucket.name}
-                        className={`group rounded-md border p-2.5 transition ${isSelected ? 'border-brand/70 bg-brand/10 shadow-sm' : 'border-kumo-line bg-kumo-base hover:border-brand/50 hover:bg-kumo-recessed/40'}`}
+                        className={`group rounded-md border p-2.5 ${isSelected ? 'border-brand/70 bg-brand/10 ring-1 ring-brand/20' : 'border-kumo-line bg-kumo-base hover:border-brand/50 hover:bg-kumo-recessed/40'}`}
                       >
                         <Button
                           type="button"

@@ -9,7 +9,7 @@ import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Badge, ClipboardText, DropdownMenu, LayerCard, Meter, Tabs } from '@cloudflare/kumo';
-import { AppTable, DataTableFrame, PageStack, SectionCard, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { AppTable, DataTableFrame, PageStack, SectionCard, sectionCardHeaderClass, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { getOSIconClass, getServerPlatformLabel } from '../modules/osPlatform.js';
@@ -53,7 +53,7 @@ const SUBSCRIPTION_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'subscription', role: 'primary', minWidth: 176, maxWidth: 220, grow: 0 },
   { id: 'status', role: 'status' },
-  { id: 'traffic', role: 'content', grow: 1, minWidth: 200, align: 'center', verticalAlign: 'middle' },
+  { id: 'traffic', role: 'content', grow: 1, minWidth: 200, align: 'left', verticalAlign: 'middle' },
   { id: 'access', role: 'meta', grow: 1, minWidth: 200, align: 'center' },
   { id: 'actions', role: 'actions-lg', width: 208, maxWidth: 220 },
 ];
@@ -73,8 +73,8 @@ const NODE_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'name', role: 'primary', minWidth: 176, maxWidth: 200, grow: 0 },
   { id: 'type', role: 'type', grow: 1, minWidth: 160 },
-  { id: 'connection', role: 'content', grow: 1, minWidth: 216, align: 'center', verticalAlign: 'middle' },
-  { id: 'host', role: 'meta', grow: 1, minWidth: 200, align: 'center' },
+  { id: 'connection', role: 'content', grow: 1, minWidth: 216, align: 'left', verticalAlign: 'middle' },
+  { id: 'host', role: 'meta', grow: 1, minWidth: 200, align: 'left' },
   { id: 'actions', role: 'actions-lg', width: 160, maxWidth: 200 },
 ];
 
@@ -735,7 +735,19 @@ const normalizePublicBase = (configured, fallback = '') => {
 
 const copyText = async (text, message = '已复制') => {
   try {
-    await navigator.clipboard.writeText(text);
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
     toast.success(message);
   } catch {
     toast.error('复制失败');
@@ -1957,7 +1969,7 @@ function SubscriptionPage() {
                 <Table.Head className="text-center">启用</Table.Head>
                 <Table.Head>订阅链接</Table.Head>
                 <Table.Head className="text-center">状态</Table.Head>
-                <Table.Head className="text-center">流量</Table.Head>
+                <Table.Head>流量</Table.Head>
                 <Table.Head className="text-center">访问</Table.Head>
                 <Table.Head className="app-table-action">操作</Table.Head>
               </Table.Row>
@@ -2089,7 +2101,7 @@ function SubscriptionPage() {
     >
       <DataTableFrame variant="embedded">
         <AppTable tableId="internal-proxy-nodes" columns={NODE_COLUMNS}>
-          <Table.Header sticky variant="compact"><Table.Row><Table.Head className="text-center">状态</Table.Head><Table.Head>节点名称</Table.Head><Table.Head className="text-center">类型</Table.Head><Table.Head className="text-center">连接</Table.Head><Table.Head className="text-center">主机 / 延迟</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
+          <Table.Header sticky variant="compact"><Table.Row><Table.Head className="text-center">状态</Table.Head><Table.Head>节点名称</Table.Head><Table.Head className="text-center">类型</Table.Head><Table.Head>连接</Table.Head><Table.Head>主机 / 延迟</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
           <Table.Body>
             {internalNodes.map((node) => {
               const server = servers.find((item) => item.id === node.server_id);
@@ -2112,7 +2124,7 @@ function SubscriptionPage() {
               const confirmingDelete = isArmed(deleteConfirmKey);
               return <Table.Row key={node.id} onDoubleClick={() => openEditInternalNode(node)} className="cursor-pointer">
                 <Table.Cell className="text-center"><Switch size="sm" aria-label={node.enabled ? '停用内部节点' : '启用内部节点'} checked={!!node.enabled} onCheckedChange={(checked) => toggleInternalNodeEnabled(node, checked)} /></Table.Cell>
-                <Table.Cell><div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-bold text-kumo-strong">{node.stable && <Star className="h-3.5 w-3.5 shrink-0 text-kumo-warning" />}{node.name}{node.stable && <Badge variant="success">稳定</Badge>}</div>{!node.publishable && (() => { const [stateLabel, stateVariant] = managedNodeState(node); return <div className="mt-1"><Badge variant={stateVariant}>{stateLabel}</Badge></div>; })()}</Table.Cell>
+                <Table.Cell><div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-kumo-strong">{node.stable && <Star className="h-3.5 w-3.5 shrink-0 text-kumo-warning" />}{node.name}{node.stable && <Badge variant="success">稳定</Badge>}</div>{!node.publishable && (() => { const [stateLabel, stateVariant] = managedNodeState(node); return <div className="mt-1"><Badge variant={stateVariant}>{stateLabel}</Badge></div>; })()}</Table.Cell>
                 <Table.Cell className="text-center"><Badge variant={nodeTypeBadgeVariant(protocol)} className="uppercase">{node.protocol === 'vless-reality' ? 'VLESS' : node.protocol === 'hysteria2' ? 'HYSTERIA2' : node.protocol === 'socks' ? 'SOCKS5' : node.protocol === 'http' ? 'HTTP' : String(node.protocol || 'UNKNOWN').toUpperCase()}</Badge></Table.Cell>
                 <Table.Cell><div className="truncate font-mono text-xs text-kumo-strong">{displayHost}:{displayPort}</div><div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none">{connectionTags.map((tag) => <span key={tag} className={`${tag === node.runtime ? 'hidden cq-sm:inline-flex' : 'inline-flex'} shrink-0 rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] leading-4 ${nodeNetworkTagClass({ key: tag === 'tls' ? 'tls' : 'network', tone: tag })}`}>{tag}</span>)}</div></Table.Cell>
                 <Table.Cell>{server?.status === 'online' ? <NodeHostQuality node={{ ...node, traffic_server_id: node.server_id }} serverNameById={serverNameById} /> : <div className="flex min-w-0 flex-col items-start gap-1"><span className="inline-flex max-w-full rounded-[3px] border border-kumo-info/25 bg-kumo-info/10 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-kumo-info"><span className="truncate">{server?.name || node.server_name || node.server_id}</span></span><span className={`inline-flex rounded-[3px] border px-1.5 py-0.5 text-[10px] font-semibold leading-4 ${latencyChipClass(0)}`}>主机离线</span></div>}</Table.Cell>
@@ -2160,8 +2172,8 @@ function SubscriptionPage() {
               <Table.Head className="text-center">状态</Table.Head>
               <Table.Head>节点名称</Table.Head>
               <Table.Head className="text-center">类型</Table.Head>
-              <Table.Head className="text-center">连接</Table.Head>
-              <Table.Head className="text-center">主机 / 延迟</Table.Head>
+              <Table.Head>连接</Table.Head>
+              <Table.Head>主机 / 延迟</Table.Head>
               <Table.Head className="app-table-action">操作</Table.Head>
             </Table.Row>
           </Table.Header>
@@ -2182,7 +2194,7 @@ function SubscriptionPage() {
                     />
                   </Table.Cell>
                   <Table.Cell>
-                    <div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-bold text-kumo-strong">
+                    <div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-kumo-strong">
                       <NodeFlag node={node} />
                       {node.stable && <Star className="h-3.5 w-3.5 shrink-0 text-kumo-warning" />}
                       <span className="truncate">{node.name}</span>
@@ -2272,7 +2284,7 @@ function SubscriptionPage() {
               return (
                 <Table.Row key={server.id}>
                   <Table.CheckCell disabled={!supportsRuntimeLifecycle || server.status !== 'online'} checked={selectedRuntimeHosts.has(server.id)} onCheckedChange={(checked) => setSelectedRuntimeHosts((previous) => { const next = new Set(previous); if (checked) next.add(server.id); else next.delete(server.id); return next; })} />
-<Table.Cell><div className="flex min-w-0 items-center gap-2"><i className={getOSIconClass(getServerPlatformLabel(server), { offline: server.status !== 'online' })} title={getServerPlatformLabel(server) || 'Linux'} /><span className={`truncate font-bold ${server.status === 'online' ? 'text-kumo-strong' : 'text-kumo-subtle'}`} title={server.name}>{server.name}</span></div></Table.Cell>
+<Table.Cell><div className="flex min-w-0 items-center gap-2"><i className={getOSIconClass(getServerPlatformLabel(server), { offline: server.status !== 'online' })} title={getServerPlatformLabel(server) || 'Linux'} /><span className={`truncate font-semibold ${server.status === 'online' ? 'text-kumo-strong' : 'text-kumo-subtle'}`} title={server.name}>{server.name}</span></div></Table.Cell>
 						<Table.Cell className="text-center"><Badge variant={server.status === 'online' ? 'success' : server.status === 'offline' ? 'error' : 'neutral'} appearance="dot">{server.status === 'online' ? '在线' : server.status === 'offline' ? '离线' : '未知'}</Badge></Table.Cell>
                   <Table.Cell className="text-center"><div className="mx-auto flex w-[64px] items-center justify-center gap-1.5">{countryCode && <CountryFlag preferSvg countryCode={countryCode} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />}<span className="truncate font-semibold uppercase text-kumo-strong" title={server.location || locationLabel}>{locationLabel}</span></div></Table.Cell>
                   <Table.Cell className="text-center"><span className="font-semibold tabular-nums text-kumo-strong">{formatInstanceUptime(server.uptime)}</span></Table.Cell>
@@ -2292,7 +2304,7 @@ function SubscriptionPage() {
 
   const renderTunnelControls = () => (
     <LayerCard className="mb-3 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-0 shadow-none ring-0">
-      <LayerCard.Secondary className="flex min-h-12 items-center justify-between gap-3 px-3 cq-sm:px-4">
+      <LayerCard.Secondary className={sectionCardHeaderClass}>
         <div className="text-sm font-semibold text-kumo-strong">Tunnel 与优选地址</div>
         <div className="flex shrink-0 items-center gap-2">
           <Button className="cq-sm:hidden" size="sm" variant="secondary" onClick={() => setPreferredModalOpen(true)}><Plus className="h-3.5 w-3.5" />管理</Button>
@@ -2306,19 +2318,16 @@ function SubscriptionPage() {
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <span className="text-xs font-semibold text-kumo-subtle">Tunnel</span>
                 {managedTunnels.map((item) => {
-                  const meta = tunnelStatusMeta(item.apply_status);
                   return (
-                    <span
-                      key={item.server_id}
-                      className="cursor-pointer"
-                      title={item.last_error ? `${item.last_error}；${item.hostname}（点击复制）` : `${item.hostname}（点击复制）`}
-                      onClick={() => copyText(item.hostname, `已复制 ${item.server_name} 的 Tunnel 地址`)}
-                    >
-                      <Badge variant="secondary" className="gap-1.5 !text-xs">
-                        <Badge variant={meta.variant} appearance="dot">{meta.label}</Badge>
-                        <span className="font-semibold">{item.server_name}</span>
-                        <Copy className="h-3 w-3 shrink-0 text-kumo-subtle" />
-                      </Badge>
+                    <span key={item.server_id} className="inline-flex items-center gap-1.5">
+                      <ClipboardText
+                        size="sm"
+                        text={item.server_name}
+                        textToCopy={item.hostname}
+                        className="min-w-0 max-w-64"
+                        tooltip={{ text: item.last_error ? `${item.last_error}；复制 Tunnel 地址` : `复制 ${item.server_name} 的 Tunnel 地址`, copiedText: `已复制 ${item.server_name} 的 Tunnel 地址` }}
+                        labels={{ copyAction: `复制 ${item.server_name} 的 Tunnel 地址` }}
+                      />
                     </span>
                   );
                 })}
@@ -2328,18 +2337,14 @@ function SubscriptionPage() {
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <span className="text-xs font-semibold text-kumo-subtle">优选地址</span>
                 {preferredAddresses.map((item) => (
-                  <span
-                    key={item.id}
-                    className={`cursor-pointer ${item.enabled === false ? 'opacity-50' : ''}`}
-                    title={item.last_error ? `${item.last_error}；${item.address}:${item.port}（点击复制）` : `${item.address}:${item.port}（点击复制）`}
-                    onClick={() => copyText(`${item.address}:${item.port}`, `已复制 ${item.name} 的地址`)}
-                  >
-                    <Badge variant="secondary" className="gap-1.5 !text-xs">
-                      <span className={`font-semibold ${item.enabled === false ? 'text-kumo-subtle' : ''}`}>{item.name}</span>
-                      <Copy className="h-3 w-3 shrink-0 text-kumo-subtle" />
-                      {item.last_status === 'healthy' && <Badge variant="success" appearance="dot">{item.last_latency_ms > 0 ? `${item.last_latency_ms}ms` : '正常'}</Badge>}
-                      {item.last_status === 'failed' && <Badge variant="error" appearance="dot">不可达</Badge>}
-                    </Badge>
+                  <span key={item.id} className="inline-flex items-center gap-1.5">
+                    <ClipboardText
+                      size="sm"
+                      text={`${item.address}:${item.port}`}
+                      className={`min-w-0 max-w-64 ${item.enabled === false ? 'opacity-50' : ''}`}
+                      tooltip={{ text: item.last_error ? `${item.last_error}；复制 ${item.name} 的地址` : `复制 ${item.name} 的地址`, copiedText: `已复制 ${item.name} 的地址` }}
+                      labels={{ copyAction: `复制 ${item.name} 的地址` }}
+                    />
                   </span>
                 ))}
               </div>
@@ -2355,7 +2360,7 @@ function SubscriptionPage() {
   const renderNodesSkeleton = () => (
     <div className="grid gap-3" aria-busy="true" aria-label="正在加载节点">
       <LayerCard className="flex flex-col overflow-hidden p-0 shadow-none">
-        <LayerCard.Secondary className="flex min-h-[56px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-4 py-3.5">
+        <LayerCard.Secondary className={sectionCardHeaderClass}>
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <SkeletonLine className="h-4 w-20" />
             <SkeletonLine className="h-3 w-72 max-w-[42vw]" />
@@ -2464,10 +2469,10 @@ function SubscriptionPage() {
 
       {templates.map((tpl) => (
           <LayerCard key={tpl.id} className="overflow-hidden">
-            <LayerCard.Secondary className="flex items-center justify-between gap-3">
+            <LayerCard.Secondary className={sectionCardHeaderClass}>
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-bold text-kumo-strong">{tpl.name}</span>
+                  <span className="truncate text-sm font-semibold text-kumo-strong">{tpl.name}</span>
                   {tpl.is_default && <Badge variant="success">默认</Badge>}
 					{tpl.builtin && <Badge variant="neutral">内置</Badge>}
 					{tpl.valid === false && <Badge variant="error">配置错误</Badge>}
@@ -2725,7 +2730,7 @@ function SubscriptionPage() {
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 text-xs scrollbar-thin cq-sm:px-5 cq-sm:py-4">
               <div className="space-y-4">
                 <section className="space-y-3">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-kumo-subtle">基础信息</div>
+                  <div className="text-[11px] font-semibold uppercase text-kumo-subtle">基础信息</div>
                   <div className="grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(16rem,100%),1fr))]">
                     <div className="min-w-0">
                       <Input size="sm" label="名称" value={subscriptionForm.name} onChange={(e) => setSubscriptionForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full min-w-0" />
@@ -2772,7 +2777,7 @@ function SubscriptionPage() {
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin cq-sm:px-5 cq-sm:py-4">
               <div className="space-y-4">
                 <section className="min-w-0 space-y-3">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-kumo-subtle">连接信息</div>
+                  <div className="text-[11px] font-semibold uppercase text-kumo-subtle">连接信息</div>
                   <div className="grid min-w-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(14rem,100%),1fr))]">
                     <Input size="sm" label="节点名称" value={nodeForm.name} onChange={(e) => setNodeForm((prev) => syncNodeForm(prev, 'name', e.target.value))} className="w-full min-w-0" />
                     <Input size="sm" label="协议类型" value={nodeForm.type} onChange={(e) => setNodeForm((prev) => syncNodeForm(prev, 'type', e.target.value))} className="w-full min-w-0" />
@@ -2785,7 +2790,7 @@ function SubscriptionPage() {
                 </section>
 
                 <section className="min-w-0 space-y-3 border-t border-kumo-line pt-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-kumo-subtle">外部节点属性</div>
+                  <div className="text-[11px] font-semibold uppercase text-kumo-subtle">外部节点属性</div>
                   <div className="grid min-w-0 items-end gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(14rem,100%),1fr))]">
                     <Input size="sm" label="排序" type="number" value={nodeForm.sort_order || 0} onChange={(e) => setNodeForm((prev) => ({ ...prev, sort_order: Number(e.target.value) || 0 }))} className="w-full min-w-0" />
                     <div className="grid min-h-8 min-w-0 gap-3 rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 cq-sm:grid-cols-2">
@@ -2796,7 +2801,7 @@ function SubscriptionPage() {
                 </section>
 
                 <section className="min-w-0 space-y-3 border-t border-kumo-line pt-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-kumo-subtle">原始配置</div>
+                  <div className="text-[11px] font-semibold uppercase text-kumo-subtle">原始配置</div>
                   <div className="grid min-w-0 gap-3">
                     <CodeEditor label="原始节点链接" language="text" minHeight="9rem" value={nodeForm.raw || ''} onChange={(raw) => setNodeForm((prev) => syncNodeForm(prev, 'raw', raw))} />
                     <CodeEditor label="节点配置 JSON" language="json" minHeight="9rem" value={nodeForm.config_json || ''} onChange={(config_json) => setNodeForm((prev) => syncNodeForm(prev, 'config_json', config_json))} />
@@ -2844,8 +2849,8 @@ function SubscriptionPage() {
                   <CodeEditor className="h-[18rem] min-w-0" label="节点链接 / YAML / Base64 内容" language="yaml" minHeight="18rem" placeholder="可粘贴节点链接、Base64 订阅，或 Clash/Mihomo YAML 的 proxies。" value={importText} onChange={setImportText} />
                 </div>
                 <LayerCard className="flex h-[18rem] min-h-0 min-w-0 flex-col overflow-hidden border border-kumo-line bg-kumo-elevated p-0 shadow-none cq-lg:mt-[3.5rem]">
-                  <LayerCard.Secondary className="flex min-h-11 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-4 py-2.5">
-                    <div className="min-w-0 truncate text-sm font-bold text-kumo-strong">解析预览</div>
+                  <LayerCard.Secondary className={sectionCardHeaderClass}>
+                    <div className="min-w-0 truncate text-sm font-semibold text-kumo-strong">解析预览</div>
 					<Badge variant="neutral">{importPreview.length} 个节点</Badge>
                   </LayerCard.Secondary>
                   <LayerCard.Primary className="min-h-0 flex-1 overflow-y-auto p-0 scrollbar-thin">

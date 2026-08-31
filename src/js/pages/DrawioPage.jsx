@@ -479,7 +479,7 @@ export default function DrawioPage() {
           <Button
             type="button"
             variant="ghost"
-            className="flex h-[30.5px] shrink-0 items-center justify-between gap-2 rounded-none border-b border-kumo-line px-3 text-left transition hover:bg-kumo-recessed/20"
+            className="flex h-[30.5px] shrink-0 items-center justify-between gap-2 rounded-none border-b border-kumo-line px-3 text-left hover:bg-kumo-recessed/20"
             onClick={() => setXmlOpen(value => !value)}
             aria-label={xmlOpen ? '收起 XML 编辑区' : '展开 XML 编辑区'}
           >
@@ -744,7 +744,7 @@ export default function DrawioPage() {
           <div className="grid gap-2">
             <button
               type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-brand/35 hover:bg-kumo-recessed/40"
+              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left hover:border-brand/35 hover:bg-kumo-recessed/40"
               onClick={() => copyCanvas('png')}
             >
               <div className="min-w-0 flex-1">
@@ -755,7 +755,7 @@ export default function DrawioPage() {
             </button>
             <button
               type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-brand/35 hover:bg-kumo-recessed/40"
+              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left hover:border-brand/35 hover:bg-kumo-recessed/40"
               onClick={() => copyCanvas('svg')}
             >
               <div className="min-w-0 flex-1">

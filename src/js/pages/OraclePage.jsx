@@ -1416,7 +1416,7 @@ function OraclePage() {
 
       <Dialog.Root open={resizeDialogOpen} onOpenChange={setResizeDialogOpen}>
         <Dialog className="@container !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-bold text-kumo-strong">实例升降配</Dialog.Title>
+          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">实例升降配</Dialog.Title>
           <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
             调整 shape 或 Flex 规格时，Oracle 可能重启实例，建议在低峰期执行。
           </Dialog.Description>
@@ -1549,7 +1549,7 @@ function OraclePage() {
 
       <Dialog.Root open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
         <Dialog className="@container !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-bold text-kumo-strong">
+          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
             {editingAccount ? '编辑 Oracle 账号' : '添加 Oracle 账号'}
           </Dialog.Title>
           <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
@@ -1671,7 +1671,7 @@ key_file=<path to your private keyfile>`}
 
       <Dialog.Root open={accountImportDialogOpen} onOpenChange={setAccountImportDialogOpen}>
         <Dialog className="!w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-bold text-kumo-strong">导入 Oracle 账号</Dialog.Title>
+          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">导入 Oracle 账号</Dialog.Title>
           <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
             支持导入本页导出的 Oracle 账号 JSON，可选文件或直接粘贴。
           </Dialog.Description>
@@ -1928,7 +1928,7 @@ function CostSummaryCard({ title, amount, month }) {
   return (
     <SectionCard title={title} description={month ? `月份 ${month}` : undefined} className="min-h-0" bodyPadding="none" bodyClassName="flex items-center justify-center p-6">
       <div className="text-center">
-        <div className="text-2xl font-semibold text-kumo-strong">{formatCurrency(amount)}</div>
+        <div className="text-sm font-semibold text-kumo-strong">{formatCurrency(amount)}</div>
         <div className="mt-1 text-xs text-kumo-subtle">当前估算成本</div>
       </div>
     </SectionCard>

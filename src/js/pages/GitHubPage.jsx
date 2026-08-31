@@ -32,7 +32,7 @@ import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import useStore from '../store.js';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
-import { AppTable, ChartBoundaryBox, ChartWarmupSkeleton, DataTableFrame, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { AppTable, ChartBoundaryBox, ChartWarmupSkeleton, DataTableFrame, TabBarOverflowActions, sectionCardHeaderClass, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import GitHubPublicPagesPanel from '../components/github/GitHubPublicPagesPanel.jsx';
 import {
   Activity,
@@ -1280,7 +1280,7 @@ function ActionFlowNode({
   return (
     <div
       ref={nodeRef}
-      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-brand/60 shadow-lg shadow-brand/10 ring-2 ring-brand/20' : 'z-20 shadow-sm'} ${active && !spotlighted ? 'border-brand/45 ring-1 ring-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
+      className={`absolute grid min-w-0 content-start gap-1.5 overflow-visible rounded-md border bg-kumo-base px-3 py-2.5 transition-[border-color,box-shadow,opacity,filter] ${spotlighted ? 'z-40 border-brand/60 ring-2 ring-brand/20' : 'z-20'} ${active && !spotlighted ? 'border-brand/45 ring-1 ring-brand/20' : ''} ${!active && !spotlighted ? 'border-kumo-interact/70' : ''} ${muted ? 'opacity-[0.42] saturate-75' : 'opacity-100'}`}
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
       onMouseEnter={onFocus}
@@ -1515,7 +1515,7 @@ function ActionWorkflowCanvas({ workflow, jobs, now }) {
       style={{ height: canvasFit.height }}
     >
       {(layout.graph.fallback || workflow?.error) && (
-        <div className="absolute left-3 top-2 z-30 max-w-[60%] truncate rounded-md border border-kumo-line bg-kumo-base/95 px-2 py-1 text-xs leading-5 text-kumo-subtle shadow-sm" title={workflow?.error || ''}>
+        <div className="absolute left-3 top-2 z-30 max-w-[60%] truncate rounded-md border border-kumo-line bg-kumo-base/95 px-2 py-1 text-xs leading-5 text-kumo-subtle" title={workflow?.error || ''}>
           已按 Job 顺序显示{workflow?.error ? `：${workflow.error}` : ''}
         </div>
       )}
@@ -1636,7 +1636,7 @@ function ActionFlowPlaceholder() {
       <div className="flex w-full max-w-4xl items-center justify-center gap-4">
         {[0, 1, 2, 3].map((item) => (
           <React.Fragment key={item}>
-            <div className="w-52 rounded-md border border-kumo-line bg-kumo-base p-3 shadow-sm">
+            <div className="w-52 rounded-md border border-kumo-line bg-kumo-base p-3">
               <div className="flex items-center justify-between gap-3">
                 <SkeletonLine className="h-4 w-24" />
                 <SkeletonLine className="h-5 w-14 rounded-full" />
@@ -1656,7 +1656,7 @@ function RepositoryStat({ label, value }) {
   return (
     <LayerCard className="min-w-0 p-2 text-center shadow-none">
       <div className="truncate text-[10px] font-medium text-kumo-subtle">{label}</div>
-      <div className="truncate text-xs font-bold text-kumo-strong">{value}</div>
+      <div className="truncate text-xs font-semibold text-kumo-strong">{value}</div>
     </LayerCard>
   );
 }
@@ -2413,7 +2413,7 @@ function GitHubPage() {
       {activeTab === 'repositories' && (
         <div className="min-w-0">
           <LayerCard className="p-0 shadow-none">
-            <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
+            <LayerCard.Secondary className={sectionCardHeaderClass}>
               <div className="flex min-w-0 items-center gap-2">
                 <GitBranch className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold>仓库列表</Text>
@@ -2466,20 +2466,20 @@ function GitHubPage() {
                   const actionStartedAt = repo.latest_action_started_at || repo.latest_action_created_at;
                   const actionDuration = formatActionDuration(actionStartedAt, repo.latest_action_updated_at, currentTime);
                   return (
-                    <LayerCard
+                    <div
                       key={repo.id}
                       draggable
                       onDragStart={(event) => handleRepositoryDragStart(repo, event)}
                       onDragOver={handleRepositoryDragOver}
                       onDrop={(event) => handleRepositoryDrop(repo.id, event)}
                       onDragEnd={() => setDraggedRepositoryId(null)}
-                      className={`min-w-0 cursor-move p-0 shadow-none transition-[opacity,transform,border-color] duration-160 ${isSelected ? 'ring-1 ring-brand/50' : ''} ${draggedRepositoryId === String(repo.id) ? 'scale-[0.99] opacity-50' : ''}`}
+                      className={`min-w-0 cursor-move rounded-lg border border-kumo-line bg-kumo-base p-0 shadow-none transition-[opacity,transform,border-color] duration-160 ${isSelected ? 'ring-1 ring-brand/50' : ''} ${draggedRepositoryId === String(repo.id) ? 'scale-[0.99] opacity-50' : ''}`}
                     >
-                      <LayerCard.Primary className="grid gap-3 p-3">
+                      <div className="grid gap-3 p-3">
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <Button type="button" variant="ghost" className="h-auto min-w-0 flex-1 !items-start !justify-start !px-0 text-left" onClick={() => setSelectedRepoId(repo.id)}>
                             <span className="block min-w-0">
-                              <span className="block truncate text-sm font-bold text-kumo-strong">{repo.full_name}</span>
+                              <span className="block truncate text-sm font-semibold text-kumo-strong">{repo.full_name}</span>
                               <span className="block truncate text-[11px] text-kumo-subtle">{formatGitHubRepositoryDescription(repo.description, repo.html_url)}</span>
                             </span>
                           </Button>
@@ -2519,8 +2519,8 @@ function GitHubPage() {
                           <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={(event) => { event.stopPropagation(); refreshRepository(repo.id); }} loading={refreshingRepositoryId === String(repo.id)} aria-label="刷新仓库" title="刷新仓库" />
                           <Button size="sm" shape="square" variant={isArmed(`github-repo:${repo.id}`) ? 'destructive' : 'secondary-destructive'} icon={<Trash className="h-3.5 w-3.5" />} onClick={(event) => { event.stopPropagation(); deleteRepository(repo.id); }} aria-label="删除仓库" title="删除仓库" />
                         </div>
-                      </LayerCard.Primary>
-                    </LayerCard>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -2533,7 +2533,7 @@ function GitHubPage() {
       {selectedRepo && ['actions', 'trends', 'events'].includes(activeTab) && (
         <div className="flex min-w-0 flex-col gap-4">
           <LayerCard className="p-0 shadow-none">
-            <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+            <LayerCard.Secondary className={sectionCardHeaderClass}>
               <div className="flex min-w-0 items-center gap-2">
                 <GitHubBrand className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold truncate>{selectedRepo.full_name}</Text>
@@ -2570,7 +2570,7 @@ function GitHubPage() {
 
           {activeTab === 'actions' && (
             <LayerCard className="p-0 shadow-none">
-              <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+              <LayerCard.Secondary className={sectionCardHeaderClass}>
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>Actions 活动</Text>
@@ -2608,7 +2608,7 @@ function GitHubPage() {
                         <React.Fragment key={run.run_id}>
                         <Table.Row className="cursor-pointer" onClick={() => toggleActionRun(run)}>
                           <Table.Cell className="align-middle text-center"><Badge variant={statusTone(run.conclusion || run.status)}>{`${statusLabel(run.conclusion || run.status)} · ${formatActionDuration(run.run_started_at || run.created_at, run.updated_at, currentTime)}`}</Badge></Table.Cell>
-                          <Table.Cell><div className="min-w-0 truncate font-bold text-kumo-strong" title={run.workflow_name || String(run.run_id)}>{run.workflow_name || run.run_id}</div><div className="min-w-0 truncate text-[11px] text-kumo-subtle" title={`${run.actor || '-'} · ${String(run.commit_sha || '').slice(0, 8)}`}>{run.actor} · {String(run.commit_sha || '').slice(0, 8)}</div></Table.Cell>
+                          <Table.Cell><div className="min-w-0 truncate font-semibold text-kumo-strong" title={run.workflow_name || String(run.run_id)}>{run.workflow_name || run.run_id}</div><div className="min-w-0 truncate text-[11px] text-kumo-subtle" title={`${run.actor || '-'} · ${String(run.commit_sha || '').slice(0, 8)}`}>{run.actor} · {String(run.commit_sha || '').slice(0, 8)}</div></Table.Cell>
                           <Table.Cell className="align-middle"><div className="truncate text-sm leading-6 text-kumo-strong" title={run.commit_message || run.display_title || ''}>{run.commit_message || run.display_title || '暂无提交说明'}</div></Table.Cell>
                           <Table.Cell className="align-middle"><div className="min-w-0 truncate" title={run.branch || '-'}>{run.branch || '-'}</div></Table.Cell>
                           <Table.Cell className="align-middle text-center"><div className="min-w-0 truncate text-sm leading-6 text-kumo-strong" title={formatDateTime(run.run_started_at || run.created_at)}>{formatDateTime(run.run_started_at || run.created_at)}</div></Table.Cell>
@@ -2660,7 +2660,7 @@ function GitHubPage() {
           {activeTab === 'trends' && (
             <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1.5fr)_minmax(20rem,0.7fr)]">
               <LayerCard className="p-0 shadow-none">
-                <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                <LayerCard.Secondary className={sectionCardHeaderClass}>
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-brand" />
                     <Text variant="body" size="sm" bold>仓库趋势</Text>
@@ -2696,7 +2696,7 @@ function GitHubPage() {
                 </LayerCard.Primary>
               </LayerCard>
               <LayerCard className="self-start p-0 shadow-none">
-                <LayerCard.Secondary className="flex min-h-14 items-center gap-2 border-b border-kumo-line px-4 py-3">
+                <LayerCard.Secondary className={sectionCardHeaderClass}>
                   <Users className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>流量与贡献者</Text>
                 </LayerCard.Secondary>
@@ -2712,7 +2712,7 @@ function GitHubPage() {
           {activeTab === 'events' && (
             <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
               <LayerCard className="p-0 shadow-none">
-                <LayerCard.Secondary className="flex min-h-14 items-center gap-2 border-b border-kumo-line px-4 py-3">
+                <LayerCard.Secondary className={sectionCardHeaderClass}>
                   <Bell className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>事件与通知源</Text>
                 </LayerCard.Secondary>
@@ -2732,7 +2732,7 @@ function GitHubPage() {
                       <Table.Body>
                         {events.map((event, index) => (
                           <Table.Row key={event.id || `${event.event_type}-${index}`}>
-                            <Table.Cell><div className="font-bold text-kumo-strong">{event.title || event.event_type}</div><div className="max-w-2xl truncate text-[11px] text-kumo-subtle">{event.message}</div></Table.Cell>
+                            <Table.Cell><div className="font-semibold text-kumo-strong">{event.title || event.event_type}</div><div className="max-w-2xl truncate text-[11px] text-kumo-subtle">{event.message}</div></Table.Cell>
                             <Table.Cell className="align-middle text-center"><Badge variant={statusTone(event.severity)}>{statusLabel(event.severity)}</Badge></Table.Cell>
                             <Table.Cell className="align-middle text-center">{event.source || 'stream'}</Table.Cell>
                             <Table.Cell className="align-middle text-center text-[11px] text-kumo-subtle">{formatDateTime(event.created_at)}</Table.Cell>
@@ -2745,7 +2745,7 @@ function GitHubPage() {
                 </LayerCard.Primary>
               </LayerCard>
               <LayerCard className="self-start p-0 shadow-none">
-                <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
+                <LayerCard.Secondary className={sectionCardHeaderClass}>
                   <div className="flex items-center gap-2">
                     <Key className="h-4 w-4 text-brand" />
                     <Text variant="body" size="sm" bold>Webhook 配置</Text>
@@ -2776,7 +2776,7 @@ function GitHubPage() {
       {activeTab === 'settings' && (
         <div className="grid items-start gap-4 cq-xl:grid-cols-2">
           <LayerCard className="self-start p-0 shadow-none">
-            <LayerCard.Secondary className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
+            <LayerCard.Secondary className={sectionCardHeaderClass}>
               <div className="flex min-w-0 items-center gap-2">
                 <Key className="h-4 w-4 text-brand" />
                 <Text variant="body" size="sm" bold>GitHub Token</Text>
@@ -2806,8 +2806,8 @@ function GitHubPage() {
               {tokens.length > 0 && (
                 <div className="grid items-start gap-3 cq-sm:grid-cols-2">
                   {tokens.map((token) => (
-                    <LayerCard key={token.id} className="min-w-0 p-0 shadow-none">
-                      <LayerCard.Primary className="grid gap-3 p-3">
+                    <div key={token.id} className="min-w-0 rounded-lg border border-kumo-line bg-kumo-base p-0 shadow-none">
+                      <div className="grid gap-3 p-3">
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
                             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2825,8 +2825,8 @@ function GitHubPage() {
                           </Button>
                           <Button size="sm" shape="square" variant={isArmed(`github-token:${token.id}`) ? 'destructive' : 'secondary-destructive'} icon={<Trash className="h-3.5 w-3.5" />} onClick={() => deleteToken(token)} aria-label="删除 Token" title="删除 Token" />
                         </div>
-                      </LayerCard.Primary>
-                    </LayerCard>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -2835,7 +2835,7 @@ function GitHubPage() {
 
           <div className="grid gap-4 self-start">
             <LayerCard className="self-start p-0 shadow-none">
-              <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+              <LayerCard.Secondary className={sectionCardHeaderClass}>
                 <div className="flex min-w-0 items-center gap-2">
                   <Settings className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>采集与保留</Text>
@@ -2860,7 +2860,7 @@ function GitHubPage() {
             </LayerCard>
 
             <LayerCard className="self-start p-0 shadow-none">
-              <LayerCard.Secondary className="flex min-h-14 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+              <LayerCard.Secondary className={sectionCardHeaderClass}>
                 <div className="flex min-w-0 items-center gap-2">
                   <Activity className="h-4 w-4 text-brand" />
                   <Text variant="body" size="sm" bold>历史维护</Text>

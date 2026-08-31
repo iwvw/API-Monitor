@@ -12,7 +12,7 @@ import { Badge, ClipboardText, Empty, LayerCard, Link, Loader, Tabs, Text, Toolb
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
-import { getStatusPillClass, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { getStatusPillClass, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, sectionCardHeaderClass, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import {
   Server,
   Users,
@@ -2406,7 +2406,7 @@ function PaasPage() {
                             const services = app.services || [];
                             return (
                               <LayerCard key={app._id} className="self-start">
-                                <LayerCard.Secondary className="flex min-w-0 items-start justify-between gap-3">
+                                <LayerCard.Secondary className={sectionCardHeaderClass}>
                                   <div className="min-w-0 flex-1">
                                     {app.isEditing ? (
                                       <Input
@@ -2687,7 +2687,7 @@ function PaasPage() {
                         <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3 cq-lg:grid-cols-4">
                           {account.projects.map((app) => (
                             <LayerCard key={app.id} className="self-start">
-                              <LayerCard.Secondary className="flex min-w-0 items-start justify-between gap-3">
+                              <LayerCard.Secondary className={sectionCardHeaderClass}>
                                 <div className="min-w-0 flex-1">
                                   {app.isEditing ? (
                                     <Input
@@ -2969,7 +2969,7 @@ function PaasPage() {
       {/* Add Koyeb Dialog */}
       <Dialog.Root open={showAddKoyebModal} onOpenChange={setShowAddKoyebModal}>
         <Dialog className="!w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
+          <Dialog.Title className="text-sm font-semibold text-kumo-strong mb-1">
             添加 Koyeb 账号
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
@@ -2977,7 +2977,7 @@ function PaasPage() {
           </Dialog.Description>
           <div className="space-y-4">
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">备注名称</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">备注名称</label>
               <Input size="sm"
                 aria-label="Koyeb 备注名称"
                 type="text"
@@ -2988,7 +2988,7 @@ function PaasPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">API 令牌</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">API 令牌</label>
               <Input size="sm"
                 aria-label="Koyeb API 令牌"
                 type="text"
@@ -3032,7 +3032,7 @@ function PaasPage() {
       {/* Add Fly Dialog */}
       <Dialog.Root open={showAddFlyModal} onOpenChange={setShowAddFlyModal}>
         <Dialog className="!w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
+          <Dialog.Title className="text-sm font-semibold text-kumo-strong mb-1">
             添加 Fly.io 账号
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
@@ -3040,7 +3040,7 @@ function PaasPage() {
           </Dialog.Description>
           <div className="space-y-4">
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">备注名称</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">备注名称</label>
               <Input size="sm"
                 aria-label="Fly.io 备注名称"
                 type="text"
@@ -3051,7 +3051,7 @@ function PaasPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">API 令牌</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">API 令牌</label>
               <Input size="sm"
                 aria-label="Fly.io API 令牌"
                 type="text"
@@ -3095,7 +3095,7 @@ function PaasPage() {
       {/* Koyeb 服务配置编辑 Dialog */}
       <Dialog.Root open={!!koyebConfigTarget} onOpenChange={(open) => { if (!open) setKoyebConfigTarget(null); }}>
         <Dialog className="@container flex !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] flex-col p-6">
-          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
+          <Dialog.Title className="text-sm font-semibold text-kumo-strong mb-1">
             编辑服务配置
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
@@ -3103,31 +3103,31 @@ function PaasPage() {
           </Dialog.Description>
           <div className="space-y-3 overflow-y-auto">
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">镜像地址</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">镜像地址</label>
               <Input size="sm" aria-label="镜像地址" type="text" value={koyebConfigForm.image} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, image: e.target.value }))} placeholder="registry.hub.docker.com/xxx/app:latest" className="w-full text-xs" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">启动命令</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">启动命令</label>
                 <Input size="sm" aria-label="启动命令" type="text" value={koyebConfigForm.command} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, command: e.target.value }))} placeholder="留空使用镜像默认" className="w-full text-xs" />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">参数（逗号分隔）</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">参数（逗号分隔）</label>
                 <Input size="sm" aria-label="启动参数" type="text" value={koyebConfigForm.args} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, args: e.target.value }))} placeholder="--port,3000" className="w-full text-xs" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">端口（port:protocol）</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">端口（port:protocol）</label>
                 <Input size="sm" aria-label="端口" type="text" value={koyebConfigForm.ports} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, ports: e.target.value }))} placeholder="8080:http, 3000:tcp" className="w-full text-xs" />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">区域（逗号分隔）</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">区域（逗号分隔）</label>
                 <Input size="sm" aria-label="区域" type="text" value={koyebConfigForm.regions} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, regions: e.target.value }))} placeholder="fra,sin,tok" className="w-full text-xs" />
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">实例规格</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">实例规格</label>
               <Select
                 aria-label="实例规格" size="sm"
                 value={koyebConfigForm.instanceType}
@@ -3137,7 +3137,7 @@ function PaasPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">环境变量（每行 K=V）</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">环境变量（每行 K=V）</label>
               <Textarea size="sm" aria-label="环境变量" value={koyebConfigForm.env} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, env: e.target.value }))} placeholder={'DB_HOST=db.internal\nPORT=3000'} className="min-h-24 w-full text-xs font-mono" />
             </div>
             <Checkbox
@@ -3163,7 +3163,7 @@ function PaasPage() {
         <Dialog className="flex h-[70vh] !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
             <div>
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">部署历史</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-kumo-strong">部署历史</Dialog.Title>
               {koyebDeployTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebDeployTarget.service.name}</p>}
             </div>
             <div className="flex items-center gap-2">
@@ -3217,17 +3217,17 @@ function PaasPage() {
       {/* Koyeb 手动扩容 Dialog */}
       <Dialog.Root open={!!koyebScaleTarget} onOpenChange={(open) => { if (!open) setKoyebScaleTarget(null); }}>
         <Dialog className="!w-[min(28rem,calc(100vw-2rem))] !max-w-[min(28rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">手动扩容</Dialog.Title>
+          <Dialog.Title className="text-sm font-semibold text-kumo-strong mb-1">手动扩容</Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
             {koyebScaleTarget ? `${koyebScaleTarget.service.name} · 设置实例副本数（覆盖自动扩缩容策略）` : ''}
           </Dialog.Description>
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">作用域（scopes，逗号分隔，通常为服务类型名）</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">作用域（scopes，逗号分隔，通常为服务类型名）</label>
               <Input size="sm" aria-label="作用域" type="text" value={koyebScaleScope} onChange={(e) => setKoyebScaleScope(e.target.value)} placeholder="web" className="w-full text-xs" />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">实例数量</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">实例数量</label>
               <Input size="sm" aria-label="实例数量" type="number" min="1" value={koyebScaleInstances} onChange={(e) => setKoyebScaleInstances(Number(e.target.value) || 1)} className="w-full text-xs" />
             </div>
             {koyebScaleError && (
@@ -3249,7 +3249,7 @@ function PaasPage() {
         <Dialog className="flex h-[70vh] !w-[min(44rem,calc(100vw-2rem))] !max-w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
             <div>
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">域名管理</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-kumo-strong">域名管理</Dialog.Title>
               {koyebDomainsTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebDomainsTarget.app ? `应用 ${koyebDomainsTarget.app.name}` : '组织全部域名'}</p>}
             </div>
             <Button shape="square" size="sm" variant="ghost" aria-label="关闭" onClick={() => setKoyebDomainsTarget(null)} icon={<X className="h-4 w-4" />} />
@@ -3300,7 +3300,7 @@ function PaasPage() {
         <Dialog className="flex h-[70vh] !w-[min(44rem,calc(100vw-2rem))] !max-w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
             <div>
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">Secrets 密钥管理</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-kumo-strong">Secrets 密钥管理</Dialog.Title>
               {koyebSecretsTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebSecretsTarget.name} · 组织级密钥，可在部署环境变量中以 secret 引用</p>}
             </div>
             <Button shape="square" size="sm" variant="ghost" aria-label="关闭" onClick={() => setKoyebSecretsTarget(null)} icon={<X className="h-4 w-4" />} />
@@ -3348,18 +3348,18 @@ function PaasPage() {
       {/* Koyeb 创建服务 Dialog */}
       <Dialog.Root open={!!koyebCreateTarget} onOpenChange={(open) => { if (!open) setKoyebCreateTarget(null); }}>
         <Dialog className="flex max-h-[90vh] !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] flex-col p-6">
-          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">新建服务</Dialog.Title>
+          <Dialog.Title className="text-sm font-semibold text-kumo-strong mb-1">新建服务</Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
             {koyebCreateTarget ? `在应用 ${koyebCreateTarget.app.name} 下创建服务` : ''}
           </Dialog.Description>
           <div className="space-y-3 overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">服务名称</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">服务名称</label>
                 <Input size="sm" aria-label="服务名称" type="text" value={koyebCreateForm.name} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="web" className="w-full text-xs" />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">类型</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">类型</label>
                 <Select
                   aria-label="服务类型" size="sm"
                   value={koyebCreateForm.type}
@@ -3370,22 +3370,22 @@ function PaasPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">镜像地址</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">镜像地址</label>
               <Input size="sm" aria-label="镜像地址" type="text" value={koyebCreateForm.image} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, image: e.target.value }))} placeholder="registry.hub.docker.com/xxx/app:latest" className="w-full text-xs" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">启动命令</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">启动命令</label>
                 <Input size="sm" aria-label="启动命令" type="text" value={koyebCreateForm.command} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, command: e.target.value }))} placeholder="留空使用镜像默认" className="w-full text-xs" />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">端口（port:protocol）</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">端口（port:protocol）</label>
                 <Input size="sm" aria-label="端口" type="text" value={koyebCreateForm.ports} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, ports: e.target.value }))} placeholder="8080:http" className="w-full text-xs" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">实例规格</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">实例规格</label>
                 <Select
                   aria-label="实例规格" size="sm"
                   value={koyebCreateForm.instanceType}
@@ -3399,7 +3399,7 @@ function PaasPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">区域（逗号分隔）</label>
+                <label className="text-[11px] font-semibold text-kumo-subtle">区域（逗号分隔）</label>
                 <Input size="sm" aria-label="区域" type="text" value={koyebCreateForm.regions} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, regions: e.target.value }))} placeholder="fra,sin,tok" className="w-full text-xs" />
               </div>
             </div>
@@ -3418,7 +3418,7 @@ function PaasPage() {
               </div>
             )}
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">环境变量（每行 K=V）</label>
+              <label className="text-[11px] font-semibold text-kumo-subtle">环境变量（每行 K=V）</label>
               <Textarea size="sm" aria-label="环境变量" value={koyebCreateForm.env} onChange={(e) => setKoyebCreateForm((f) => ({ ...f, env: e.target.value }))} placeholder={'DB_HOST=db.internal\nPORT=3000'} className="min-h-24 w-full text-xs font-mono" />
             </div>
             {koyebCreateError && (
@@ -3439,7 +3439,7 @@ function PaasPage() {
         <Dialog className="flex h-[70vh] !w-[min(52rem,calc(100vw-2rem))] !max-w-[min(52rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-2 border-b border-kumo-line p-4">
             <div>
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">用量明细</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-kumo-strong">用量明细</Dialog.Title>
               {koyebUsageTarget && <p className="text-[10px] text-kumo-subtle mt-0.5">{koyebUsageTarget.name}</p>}
             </div>
             <div className="flex items-center gap-2">
@@ -3469,7 +3469,7 @@ function PaasPage() {
           {/* Header */}
           <div className="p-4 border-b border-kumo-line bg-kumo-recessed/40 flex justify-between items-center">
             <div>
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">{logTitle}</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-kumo-strong">{logTitle}</Dialog.Title>
               {logSubtitle && <p className="text-[10px] text-kumo-subtle mt-0.5">{logSubtitle}</p>}
             </div>
             <Button
@@ -3578,7 +3578,7 @@ function PaasPage() {
                       className={`${logWrapText ? 'break-all whitespace-pre-wrap' : 'whitespace-nowrap'} hover:bg-kumo-base/40 py-0.5`}
                     >
                       <span className="text-kumo-subtle mr-2">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
-                      <span className={`${levelColor} font-bold mr-2`}>[{log.level}]</span>
+                      <span className={`${levelColor} font-semibold mr-2`}>[{log.level}]</span>
                       <span>{log.message}</span>
                     </div>
                   );

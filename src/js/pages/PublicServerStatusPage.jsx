@@ -272,7 +272,7 @@ function MetricBar({ label, value, subValue = '', offline = false }) {
     <div className="flex h-16 min-w-0 flex-col rounded-md border border-kumo-interact/80 bg-kumo-recessed/35 px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold text-kumo-strong sm:text-xs">{label}</span>
-        <span className="text-[10px] font-bold tabular-nums text-kumo-strong sm:text-xs">{offline ? '--' : formatPercent(percent)}</span>
+        <span className="text-[10px] font-semibold tabular-nums text-kumo-strong sm:text-xs">{offline ? '--' : formatPercent(percent)}</span>
       </div>
       <Meter
         label={`${label} 使用率`}
@@ -352,7 +352,7 @@ function FlowUnitBadge({ unit, suffix = '' }) {
 
 function FlowArrow({ children }) {
   return (
-    <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[4px] border border-kumo-line/70 bg-kumo-recessed/70 text-[11px] font-bold leading-none text-kumo-default sm:h-5 sm:w-5 sm:text-sm">
+    <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[4px] border border-kumo-line/70 bg-kumo-recessed/70 text-[11px] font-semibold leading-none text-kumo-default sm:h-5 sm:w-5 sm:text-sm">
       {children}
     </span>
   );
@@ -361,7 +361,7 @@ function FlowArrow({ children }) {
 function FlowPair({ left, right, leftTitle, rightTitle, kind = 'speed', suffix = '' }) {
   const kindClass = FLOW_KIND_CLASS[kind] || FLOW_KIND_CLASS.speed;
   return (
-    <div className={`grid h-6 min-w-0 grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] items-center overflow-hidden rounded-md border px-1 text-[11px] font-bold tabular-nums leading-none text-kumo-strong sm:text-xs ${kindClass.box}`}>
+    <div className={`grid h-6 min-w-0 grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] items-center overflow-hidden rounded-md border px-1 text-[11px] font-semibold tabular-nums leading-none text-kumo-strong sm:text-xs ${kindClass.box}`}>
       <div className="flex min-w-0 items-center justify-end gap-1 px-0.5" title={leftTitle || formatFlowPart(left, suffix)}>
         <span className="min-w-[2.2rem] truncate text-right text-[11px] sm:min-w-[2.6rem] sm:text-[13px]">{left.num}</span>
         <FlowUnitBadge unit={left.unit} suffix={suffix} />
@@ -381,7 +381,7 @@ function FlowRow({ label, left, right, leftTitle, rightTitle, kind = 'speed', su
   const kindClass = FLOW_KIND_CLASS[kind] || FLOW_KIND_CLASS.speed;
   return (
     <div className="grid h-full min-h-0 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] items-center gap-1 sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-1.5">
-      <span className={`text-[10px] font-bold leading-none sm:text-xs ${kindClass.label}`}>{label}</span>
+      <span className={`text-[10px] font-semibold leading-none sm:text-xs ${kindClass.label}`}>{label}</span>
       <FlowPair left={left} right={right} leftTitle={leftTitle} rightTitle={rightTitle} kind={kind} suffix={suffix} />
     </div>
   );
@@ -408,7 +408,7 @@ function RemainingMini({ traffic }) {
     <div className="flex h-16 min-w-0 flex-col rounded-md border border-kumo-interact/80 bg-kumo-recessed/35 px-2 py-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold text-kumo-strong sm:text-xs">剩余流量</span>
-        <span className="text-[10px] font-bold tabular-nums text-kumo-strong sm:text-xs">{displayPercent}</span>
+        <span className="text-[10px] font-semibold tabular-nums text-kumo-strong sm:text-xs">{displayPercent}</span>
       </div>
       <Meter
         label="剩余流量"
@@ -418,7 +418,7 @@ function RemainingMini({ traffic }) {
         trackClassName="h-1.5 bg-kumo-line/70"
         indicatorClassName={progressTone}
       />
-      <div className="mt-auto truncate pt-1 text-right text-[10px] font-bold leading-snug text-kumo-strong sm:text-[11px]" title={unlimited ? '无限' : `${formatCompactBytes(traffic.remaining)} / ${formatCompactBytes(traffic.limit)}`}>
+      <div className="mt-auto truncate pt-1 text-right text-[10px] font-semibold leading-snug text-kumo-strong sm:text-[11px]" title={unlimited ? '无限' : `${formatCompactBytes(traffic.remaining)} / ${formatCompactBytes(traffic.limit)}`}>
         {displayValue}
       </div>
     </div>
@@ -460,7 +460,7 @@ function ServerCard({ server }) {
               <i className={getOSIconClass(server.platform)} />
             </Button>
             {country && <CountryFlag preferSvg countryCode={country} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />}
-            <h3 className="min-w-0 truncate text-[13px] font-bold leading-tight text-kumo-strong sm:text-sm" title={server.name}>{server.name}</h3>
+            <h3 className="min-w-0 truncate text-[13px] font-semibold leading-tight text-kumo-strong sm:text-sm" title={server.name}>{server.name}</h3>
           </div>
           {showPlatform && platformText && (
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-kumo-subtle sm:text-xs">
@@ -470,7 +470,7 @@ function ServerCard({ server }) {
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[11px] sm:text-xs">
           {server.online ? (
-            <div className="font-bold tabular-nums text-kumo-strong">{formatUptime(server)}</div>
+            <div className="font-semibold tabular-nums text-kumo-strong">{formatUptime(server)}</div>
           ) : null}
           <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-semibold sm:text-xs ${server.online ? 'border-kumo-success/30 bg-kumo-success/10 text-kumo-success' : 'border-kumo-danger/30 bg-kumo-danger/10 text-kumo-danger'}`}>
             {server.online ? '在线' : '离线'}
@@ -678,7 +678,7 @@ function PublicServerStatusPage({ domainOnly = false, onDomainNotFound }) {
               iconClassName="h-5 w-5"
             />
             <div className="min-w-0">
-              <div className="truncate text-base font-bold text-kumo-strong">{page?.title || '主机状态'}</div>
+              <div className="truncate text-base font-semibold text-kumo-strong">{page?.title || '主机状态'}</div>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -726,7 +726,7 @@ function PublicServerStatusPage({ domainOnly = false, onDomainNotFound }) {
         {!initialLoading && error && !page && (
           <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-kumo-line bg-kumo-base p-10 text-center">
             <AlertTriangle className="mb-3 h-9 w-9 text-kumo-warning" />
-            <h1 className="text-lg font-bold text-kumo-strong">无法显示主机状态页</h1>
+            <h1 className="text-lg font-semibold text-kumo-strong">无法显示主机状态页</h1>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-kumo-subtle">{error}</p>
           </div>
         )}

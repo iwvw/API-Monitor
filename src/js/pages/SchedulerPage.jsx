@@ -15,7 +15,7 @@ import { Tooltip, TooltipProvider } from '@cloudflare/kumo/components/tooltip';
 import { LayerCard, Tabs } from '@cloudflare/kumo';
 import useDraggableScroll from '../hooks/useDraggableScroll.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
-import { SectionCard, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { SectionCard, TabBarOverflowActions, sectionCardHeaderClass, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import FormCard from '../components/ui/FormCard.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
 import JsonHighlight from '../components/ui/JsonHighlight.jsx';
@@ -707,7 +707,7 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
           height: rect.height,
           cursor: onSelectNode ? 'pointer' : 'default',
         }}
-        className={`absolute flex flex-col overflow-hidden rounded-md border bg-kumo-base text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45 ${compact ? 'px-2.5 py-2' : editor ? 'px-3.5 py-2.5' : 'px-4 py-3'} ${selected ? 'border-brand ring-2 ring-brand/25' : 'border-kumo-line hover:border-brand/50'} ${node.enabled === 0 ? 'opacity-60' : ''} ${status === 'running' ? 'scheduler-node-running' : ''}`}
+        className={`absolute flex flex-col overflow-hidden rounded-md border bg-kumo-base text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45 ${compact ? 'px-2.5 py-2' : editor ? 'px-3.5 py-2.5' : 'px-4 py-3'} ${selected ? 'border-brand ring-2 ring-brand/25' : 'border-kumo-line hover:border-brand/50'} ${node.enabled === 0 ? 'opacity-60' : ''} ${status === 'running' ? 'scheduler-node-running' : ''}`}
       >
         <span className={`flex min-w-0 items-start justify-between ${compact ? 'gap-1.5' : editor ? 'gap-2.5' : 'gap-3'}`}>
           <span className="min-w-0">
@@ -810,7 +810,7 @@ function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId = '', 
           <div
             ref={minimapRef}
             title="鸟瞰图：点击或拖动定位画布"
-            className="absolute bottom-2 left-2 z-10 overflow-hidden rounded-md border border-kumo-line bg-kumo-base/95 shadow-sm"
+            className="absolute bottom-2 left-2 z-10 overflow-hidden rounded-md border border-kumo-line bg-kumo-base/95"
             style={{ width: frameW, height: frameH }}
             onPointerDown={(event) => {
               if (event.button !== 0) return;
@@ -1611,7 +1611,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                 <span className="truncate">{label}</span>
                 <span className="shrink-0">{icon}</span>
               </div>
-              <div className="mt-1 font-mono text-base font-bold text-kumo-strong cq-sm:text-lg">{value}</div>
+              <div className="mt-1 font-mono text-sm font-semibold text-kumo-strong">{value}</div>
             </LayerCard>
           ))}
         </div>
@@ -1823,7 +1823,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
 
         <Dialog.Root open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
           <Dialog className="@container scheduler-task-dialog flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-5 cq-sm:p-6">
-            <Dialog.Title className="mb-4 shrink-0 text-base font-bold text-kumo-strong">{taskForm.id ? '编辑任务' : '新建任务'}</Dialog.Title>
+            <Dialog.Title className="mb-4 shrink-0 text-base font-semibold text-kumo-strong">{taskForm.id ? '编辑任务' : '新建任务'}</Dialog.Title>
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <div className="grid gap-4 cq-xs:grid-cols-2 cq-xs:items-start">
                 <div className="min-w-0 space-y-4">
@@ -1924,7 +1924,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                     </div>
                   </FormCard>
                   <LayerCard className="scheduler-workflow-canvas-editor-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
-                    <LayerCard.Secondary className="my-0 flex shrink-0 items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                    <LayerCard.Secondary className={`${sectionCardHeaderClass} my-0 shrink-0`}>
                       <div className="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-kumo-strong">
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-brand">
                           <GitBranch className="h-4 w-4" />
@@ -1945,7 +1945,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                 <div className="flex min-h-0 flex-col gap-3">
                   <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2 pr-1">
                     <LayerCard className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
-                      <LayerCard.Secondary className="my-0 flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                      <LayerCard.Secondary className={`${sectionCardHeaderClass} my-0`}>
                         <div className="flex min-w-0 items-center gap-2.5 text-sm font-semibold text-kumo-strong">
                           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-brand">
                             <Layers className="h-4 w-4" />
@@ -2025,7 +2025,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                     </LayerCard>
 
                     <LayerCard className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
-                      <LayerCard.Secondary className="my-0 flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                      <LayerCard.Secondary className={`${sectionCardHeaderClass} my-0`}>
                         <div className="flex items-center gap-2.5 text-sm font-semibold text-kumo-strong">
                           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-kumo-fill text-brand">
                             <Sliders className="h-4 w-4" />
@@ -2066,7 +2066,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
 
         <Dialog.Root open={Boolean(taskLogsTarget)} onOpenChange={(open) => !open && setTaskLogsTarget(null)}>
           <Dialog className="@container scheduler-task-dialog flex h-[min(680px,calc(100dvh-2rem))] w-[min(960px,calc(100vw-2rem))] flex-col overflow-hidden p-5 cq-sm:p-6">
-            <Dialog.Title className="mb-4 shrink-0 text-base font-bold text-kumo-strong">运行日志{taskLogsTarget ? `：${taskLogsTarget.name}` : ''}</Dialog.Title>
+            <Dialog.Title className="mb-4 shrink-0 text-base font-semibold text-kumo-strong">运行日志{taskLogsTarget ? `：${taskLogsTarget.name}` : ''}</Dialog.Title>
             <div className="grid min-h-0 flex-1 gap-0 cq-md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
               <div className="flex min-h-0 flex-col gap-1 overflow-y-auto cq-md:border-r cq-md:border-kumo-line cq-md:pr-3">
                 {taskLogsLoading ? (
@@ -2105,7 +2105,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                   }
                   return (
                     <LayerCard className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
-                      <LayerCard.Secondary className="my-0 flex shrink-0 items-center justify-between gap-3 border-b border-kumo-line px-4 py-2.5">
+                      <LayerCard.Secondary className={`${sectionCardHeaderClass} my-0 shrink-0`}>
                         <div className="flex min-w-0 items-center gap-3 text-xs text-kumo-subtle">
                           <span className="whitespace-nowrap font-mono">{formatTimestamp(active.start_time)}</span>
                           {active.duration != null && <span className="whitespace-nowrap">｜耗时 {active.duration}s</span>}
@@ -2128,7 +2128,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
 
         <Dialog.Root open={Boolean(selectedRun)} onOpenChange={(open) => !open && setSelectedRun(null)}>
           <Dialog className="@container scheduler-task-dialog flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-5 cq-sm:p-6">
-            <Dialog.Title className="mb-4 shrink-0 text-base font-bold text-kumo-strong">运行详情</Dialog.Title>
+            <Dialog.Title className="mb-4 shrink-0 text-base font-semibold text-kumo-strong">运行详情</Dialog.Title>
             {selectedRun && (
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
                 {selectedRun.workflow && <WorkflowCanvas workflow={selectedRun.workflow} runs={[selectedRun]} tasks={tasks} />}
@@ -2139,7 +2139,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                     const isAi = wfNode?.type === 'ai' || linkedTask?.type === 'ai';
                     return (
                       <LayerCard key={nodeRun.id} className="flex flex-col overflow-hidden rounded-xl border border-kumo-line bg-kumo-elevated shadow-none ring-0">
-                        <LayerCard.Secondary className="my-0 flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+                        <LayerCard.Secondary className={`${sectionCardHeaderClass} my-0`}>
                           <div className="flex min-w-0 items-center gap-2.5">
                             <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${isAi ? 'bg-brand/10 text-brand' : 'bg-kumo-fill text-brand'}`}>
                               {isAi ? <Sparkle className="h-4 w-4" /> : <Activity className="h-4 w-4" />}

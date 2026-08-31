@@ -945,7 +945,7 @@ function NotificationPage() {
                   key={channel.id}
                   padding="none"
                   interactive
-                  className="flex min-h-[128px] flex-col justify-between p-4 transition-all duration-200 hover:border-brand/50 hover:shadow-sm"
+                  className="flex min-h-[128px] flex-col justify-between p-4 hover:border-brand/50"
                 >
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     {/* Icon */}
@@ -958,7 +958,7 @@ function NotificationPage() {
                     {/* Information */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <h4 className="text-xs font-bold text-kumo-strong truncate leading-tight" title={channel.name}>
+                        <h4 className="text-xs font-semibold text-kumo-strong truncate leading-tight" title={channel.name}>
                           {channel.name}
                         </h4>
                         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${channel.enabled ? 'bg-kumo-success' : 'bg-kumo-subtle/50'}`} />
@@ -1067,7 +1067,7 @@ function NotificationPage() {
                   key={rule.id}
                   padding="none"
                   interactive
-                  className={`flex min-h-[148px] flex-col justify-between p-4 transition-all duration-200 hover:border-brand/50 hover:shadow-sm ${
+                  className={`flex min-h-[148px] flex-col justify-between p-4 hover:border-brand/50 ${
                     highlightRuleId === rule.id ? 'border-brand/60 ring-2 ring-brand/20' : ''
                   }`}
                 >
@@ -1085,10 +1085,10 @@ function NotificationPage() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-xs font-bold text-kumo-strong truncate leading-tight" title={rule.name}>
+                        <span className="text-xs font-semibold text-kumo-strong truncate leading-tight" title={rule.name}>
                           {rule.name}
                         </span>
-                        <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-bold uppercase select-none ${
+                        <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-semibold uppercase select-none ${
                           rule.severity === 'critical'
                             ? 'bg-kumo-danger/10 text-kumo-danger border border-kumo-danger/20'
                             : rule.severity === 'warning'
@@ -1165,7 +1165,7 @@ function NotificationPage() {
                     {dryRunResults[rule.id] && (
                       <div className="rounded-md border border-kumo-line/60 bg-kumo-recessed/40 p-2.5 text-[10px] leading-relaxed text-kumo-subtle space-y-1">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-kumo-strong">
+                          <span className="font-semibold text-kumo-strong">
                             {dryRunResults[rule.id].wouldNotify ? '✅ 预演结果：触发发送' : 'ℹ️ 预演结果：未触发'}
                           </span>
                           <span className="font-mono text-[9px] text-kumo-subtle">{dryRunResults[rule.id].fingerprint}</span>
@@ -1312,7 +1312,7 @@ function NotificationPage() {
                   <AppCard
                     key={log.id}
                     padding="none"
-                    className="grid grid-cols-1 gap-3 p-3.5 transition-all duration-200 hover:border-brand/40 hover:shadow-sm cq-md:grid-cols-[280px_1fr] cq-md:items-start"
+                    className="grid grid-cols-1 gap-3 p-3.5 hover:border-brand/40 cq-md:grid-cols-[280px_1fr] cq-md:items-start"
                   >
                     {/* 左栏：状态与元数据快照 (固定 280px 宽度，饱满工整) */}
                     <div className="flex flex-col gap-2 min-w-0 pr-0 cq-md:pr-3.5 cq-md:border-r cq-md:border-kumo-line/50">
@@ -1326,7 +1326,7 @@ function NotificationPage() {
                                 ? 'bg-kumo-danger'
                                 : 'bg-kumo-warning'
                           }`} />
-                          <span className="text-[13px] font-bold text-kumo-strong truncate leading-snug" title={log.title}>
+                          <span className="text-[13px] font-semibold text-kumo-strong truncate leading-snug" title={log.title}>
                             {log.title}
                           </span>
                         </div>
@@ -1503,7 +1503,7 @@ function NotificationPage() {
       {/* ==================== 6. 弹窗 1: 添加/编辑通道 ==================== */}
       <Dialog.Root open={showChannelModal} onOpenChange={setShowChannelModal}>
         <Dialog className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-base font-bold text-kumo-strong mb-1 select-none">
+          <Dialog.Title className="text-base font-semibold text-kumo-strong mb-1 select-none">
             {channelForm.id ? '编辑通知渠道' : '新建通知渠道'}
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4 select-none">
@@ -1742,7 +1742,7 @@ function NotificationPage() {
       {/* ==================== 7. 弹窗 2: 添加/编辑规则 ==================== */}
       <Dialog.Root open={showRuleModal} onOpenChange={setShowRuleModal}>
         <Dialog className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-base font-bold text-kumo-strong mb-1 select-none">
+          <Dialog.Title className="text-base font-semibold text-kumo-strong mb-1 select-none">
             {ruleForm.id ? '编辑告警规则' : '添加告警规则'}
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4 select-none">
@@ -1922,8 +1922,8 @@ function NotificationPage() {
               <div className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base">
                 <div className="h-1 bg-brand" />
                 <div className="p-3.5">
-                  <div className="text-[9px] font-bold uppercase text-brand">API Monitor</div>
-                  <div className="mt-1 text-xs font-bold text-kumo-strong">{templatePreview.title}</div>
+                  <div className="text-[9px] font-semibold uppercase text-brand">API Monitor</div>
+                  <div className="mt-1 text-xs font-semibold text-kumo-strong">{templatePreview.title}</div>
                   <div className="mt-3 max-h-36 space-y-1 overflow-y-auto border-l-2 border-brand bg-kumo-recessed/60 px-3 py-2">
                     {(templatePreview.message || '').split('\n').map((line, index) => {
                       const item = parseNotificationPreviewLine(line);

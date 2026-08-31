@@ -84,7 +84,7 @@ function PublicSubscriptionInfoPage() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-base font-bold text-kumo-strong">订阅信息</div>
+            <div className="text-base font-semibold text-kumo-strong">订阅信息</div>
             <div className="mt-1 truncate font-mono text-xs text-kumo-subtle">{token || '-'}</div>
           </div>
           <Button

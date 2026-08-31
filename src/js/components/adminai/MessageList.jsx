@@ -233,7 +233,7 @@ function RenderLines({ text }) {
     const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
       const level = heading[1].length;
-      const cls = level <= 1 ? 'text-base font-bold' : level === 2 ? 'text-sm font-bold' : level === 3 ? 'text-sm font-semibold' : 'text-[13px] font-semibold text-kumo-default';
+      const cls = level <= 1 ? 'text-base font-semibold' : level === 2 ? 'text-sm font-semibold' : level === 3 ? 'text-sm font-semibold' : 'text-[13px] font-semibold text-kumo-default';
       elements.push(<h4 key={elements.length} className={`${cls} text-kumo-strong`}>{renderInline(heading[2])}</h4>);
       continue;
     }
@@ -729,7 +729,7 @@ export default function MessageList({ messages, mode, live, onResolveApproval, o
                       setEditWidth(bubble ? bubble.getBoundingClientRect().width : null);
                       setEditing({ id: msg.id, text: msg.content || '' });
                     }}
-                    className="mb-0.5 !h-6 !w-6 shrink-0 !rounded-full !p-0 !text-kumo-subtle opacity-0 transition-all duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
+                    className="mb-0.5 !h-6 !w-6 shrink-0 !rounded-full !p-0 !text-kumo-subtle opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
                     aria-label="编辑重发"
                   >
                     <Edit className="h-3 w-3" />

@@ -407,7 +407,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       <Dialog.Root open={editorOpen && Boolean(editFile)} onOpenChange={(open) => (open ? setEditorOpen(true) : requestCloseEditor())}>
         <Dialog size="xl" className="flex h-[min(72dvh,720px)] w-[min(920px,calc(100vw-2rem))] max-h-[calc(100dvh-1rem)] max-w-none flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">编辑 {editFile?.name}</Dialog.Title>
+            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">编辑 {editFile?.name}</Dialog.Title>
             <Dialog.Close />
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-4">
@@ -430,7 +430,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
 
       <Dialog.Root open={mkdirOpen} onOpenChange={setMkdirOpen}>
         <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">新建目录</Dialog.Title><Dialog.Close /></div>
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-semibold text-kumo-strong">新建目录</Dialog.Title><Dialog.Close /></div>
           <div className="p-4">
             <Input size="sm" label="目录名" value={mkdirName} onChange={event => setMkdirName(event.target.value)} />
           </div>
@@ -443,7 +443,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
 
       <Dialog.Root open={Boolean(renameFile)} onOpenChange={open => !open && setRenameFile(null)}>
         <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">重命名</Dialog.Title><Dialog.Close /></div>
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-semibold text-kumo-strong">重命名</Dialog.Title><Dialog.Close /></div>
           <div className="p-4">
             <Input size="sm" label="新名称" value={renameValue} onChange={event => setRenameValue(event.target.value)} />
           </div>
@@ -456,7 +456,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
 
       <Dialog.Root open={Boolean(chmodFile)} onOpenChange={open => !open && setChmodFile(null)}>
         <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">修改权限</Dialog.Title><Dialog.Close /></div>
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-semibold text-kumo-strong">修改权限</Dialog.Title><Dialog.Close /></div>
           <div className="p-4">
             <Input size="sm" label="权限值" value={chmodValue} onChange={event => setChmodValue(event.target.value)} className="font-mono" />
           </div>

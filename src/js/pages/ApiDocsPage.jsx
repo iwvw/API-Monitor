@@ -741,7 +741,7 @@ function StatCard({ icon: Icon, label, value, tone = 'brand' }) {
         </span>
       </div>
       <div className="mt-1">
-        <div className="truncate font-mono text-base font-bold text-kumo-strong cq-sm:text-lg">
+        <div className="truncate font-mono text-sm font-semibold text-kumo-strong">
           {value}
         </div>
       </div>
@@ -769,7 +769,7 @@ function RouteMethodPills({ methods = [] }) {
         <span
           key={method}
           className={cx(
-            'inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold',
+            'inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold',
             methodClassName(method)
           )}
         >
@@ -956,7 +956,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
                   ) : (
                     <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
                   )}
-                  <span className="truncate text-xs font-bold text-kumo-strong">
+                  <span className="truncate text-xs font-semibold text-kumo-strong">
                     {sectionItem.section}
                   </span>
                 </span>
@@ -1027,7 +1027,7 @@ function RouteTree({ routes, selectedRoute, onSelect, revealAll }) {
                                         )}
                                       >
 <div className="flex min-w-0 items-center justify-between gap-2">
-                                          <div className="min-w-0 truncate font-mono text-xs font-bold text-kumo-strong">
+                                          <div className="min-w-0 truncate font-mono text-xs font-semibold text-kumo-strong">
                                             {route.prefix}
                                           </div>
                                           <StatusBadge tone={STATUS_TONE[route.status]}>
@@ -1076,7 +1076,7 @@ function ParamTable({ title, items }) {
             className="rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2"
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-xs font-bold text-kumo-strong">{item.name}</span>
+              <span className="font-mono text-xs font-semibold text-kumo-strong">{item.name}</span>
               <StatusBadge tone="neutral">{item.in}</StatusBadge>
               <StatusBadge tone={item.required ? 'warning' : 'neutral'}>
                 {item.required ? '必填' : '可选'}
@@ -1272,7 +1272,7 @@ function InfoRow({ label, value }) {
   return (
     <div className="min-w-0 rounded-md border border-kumo-line/80 bg-kumo-recessed/30 px-3 py-2">
       <div className="text-[11px] font-semibold text-kumo-subtle">{label}</div>
-      <div className="mt-1 truncate font-mono text-xs font-bold text-kumo-strong">
+      <div className="mt-1 truncate font-mono text-xs font-semibold text-kumo-strong">
         {value || '-'}
       </div>
     </div>
@@ -1283,7 +1283,7 @@ function SnippetBox({ label, value, onCopy }) {
   return (
     <div className="min-w-0 rounded-md border border-kumo-line bg-kumo-recessed/35">
       <div className="flex items-center justify-between gap-2 border-b border-kumo-line px-3 py-2">
-        <div className="truncate text-xs font-bold text-kumo-strong">{label}</div>
+        <div className="truncate text-xs font-semibold text-kumo-strong">{label}</div>
         <Button
           size="sm"
           variant="ghost"
@@ -1355,7 +1355,7 @@ function AIAccessConsole({
       >
         <SectionCard title="Agent Key" icon={<Key className="h-4 w-4 text-brand" />}>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="min-w-0 flex-1 truncate rounded-md border border-kumo-line bg-kumo-recessed/40 px-3 py-2 font-mono text-xs font-bold text-kumo-strong">
+            <div className="min-w-0 flex-1 truncate rounded-md border border-kumo-line bg-kumo-recessed/40 px-3 py-2 font-mono text-xs font-semibold text-kumo-strong">
               {keyVisible ? agentKey.value : agentKey.masked}
             </div>
             <Button size="sm" variant="secondary" onClick={() => setKeyVisible(!keyVisible)}>
@@ -1379,7 +1379,7 @@ function AIAccessConsole({
           <div className="space-y-2">
             {Object.entries(endpoints).map(([key, value]) => (
               <div key={key} className="grid min-w-0 gap-1">
-                <span className="text-xs font-bold text-kumo-subtle">{key}</span>
+                <span className="text-xs font-semibold text-kumo-subtle">{key}</span>
                 <ClipboardText
                   size="sm"
                   text={value}
@@ -1429,7 +1429,7 @@ function AIAccessConsole({
                     aria-pressed={active}
                     aria-label={`切换到 ${title} 权限模式`}
 className={cx(
-                      'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 transition-colors',
+                      'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3',
                       active
                         ? 'border-(--text-color-brand) bg-kumo-tint text-brand'
                         : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'
@@ -1481,10 +1481,10 @@ className={cx(
                 className="rounded-md border border-kumo-line/80 bg-kumo-recessed/25 p-3"
               >
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded border border-brand/30 bg-brand/10 font-mono text-[10px] font-bold text-brand">
+                  <span className="flex h-5 w-5 items-center justify-center rounded border border-brand/30 bg-brand/10 font-mono text-[10px] font-semibold text-brand">
                     {item.step}
                   </span>
-                  <div className="text-xs font-bold text-kumo-strong">{item.title}</div>
+                  <div className="text-xs font-semibold text-kumo-strong">{item.title}</div>
                 </div>
                 <p className="text-xs leading-relaxed text-kumo-subtle">{item.text}</p>
               </div>
@@ -1706,7 +1706,7 @@ function AIAuditConsole({
 
       <Dialog.Root open={!!selected} onOpenChange={open => !open && setSelected(null)}>
         <Dialog className="!w-[min(44rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 select-none text-base font-bold text-kumo-strong">
+          <Dialog.Title className="mb-1 select-none text-base font-semibold text-kumo-strong">
             审计详情
           </Dialog.Title>
           <Dialog.Description className="mb-4 select-none text-xs text-kumo-subtle">
@@ -1879,7 +1879,7 @@ function APIKeyConsole({
             }
           >
             <div className="space-y-2">
-              <div className="break-all rounded-md border border-kumo-warning/30 bg-kumo-warning/8 px-3 py-2 font-mono text-xs font-bold text-kumo-strong">
+              <div className="break-all rounded-md border border-kumo-warning/30 bg-kumo-warning/8 px-3 py-2 font-mono text-xs font-semibold text-kumo-strong">
                 {issuedSecret}
               </div>
               <Button
@@ -1958,7 +1958,7 @@ function APIKeyConsole({
                     variant={active ? 'primary' : 'secondary'}
                     onClick={() => applyExpiryPreset(preset)}
                     className={cx(
-                      'min-w-[4.5rem] transition-colors',
+                      'min-w-[4.5rem]',
                       active && 'shadow-[0_0_0_1px_rgba(255,255,255,0.12)]'
                     )}
                   >
@@ -2092,7 +2092,7 @@ function APIKeyConsole({
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate text-xs font-bold text-kumo-strong">{key.name}</span>
+                        <span className="truncate text-xs font-semibold text-kumo-strong">{key.name}</span>
                         <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
                         <span className="rounded border border-kumo-line px-1.5 py-0.5 text-[10px] text-kumo-subtle">
                           {kind?.label || key.kind}

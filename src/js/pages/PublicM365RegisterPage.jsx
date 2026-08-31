@@ -312,7 +312,7 @@ function PublicM365RegisterPage() {
             style={{ filter: theme === 'dark' ? 'brightness(0) invert(1)' : 'none' }}
           />
           <div className="min-w-0">
-            <div className="text-base font-bold text-kumo-strong">Microsoft 365 公开注册</div>
+            <div className="text-base font-semibold text-kumo-strong">Microsoft 365 公开注册</div>
             <div className="mt-1">
               <Badge variant="secondary">{batch || code || '-'}</Badge>
             </div>

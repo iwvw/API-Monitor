@@ -151,7 +151,7 @@ function PublicSharePage() {
       <div className="mx-auto flex h-full w-full max-w-5xl min-h-0 flex-col gap-4">
         <div className="flex shrink-0 items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-base font-bold text-kumo-strong">
+            <div className="text-base font-semibold text-kumo-strong">
               {entry ? (isFile ? '文件分享' : '文本分享') : '分享内容'}
             </div>
             <div className="mt-1 font-mono text-xs text-kumo-subtle">{code || '-'}</div>

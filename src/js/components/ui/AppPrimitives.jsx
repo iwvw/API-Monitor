@@ -18,9 +18,9 @@ export const pageToolbarClass =
 export const stickyTabsBaseClass =
   'sticky top-0 z-30 flex min-h-(--app-header-height) items-center bg-[var(--app-main-surface)] px-[var(--app-tab-gutter-x)] -mx-[var(--app-canvas-gutter-x)]';
 export const sectionCardHeaderClass =
-  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
+  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
 export const sectionCardTitleClass =
-  'inline-flex min-w-0 max-w-full items-center gap-2 text-sm font-bold text-kumo-strong';
+  'inline-flex min-w-0 max-w-full items-center gap-2 text-sm font-semibold text-kumo-strong';
 export const iconButtonIconClass = 'h-3.5 w-3.5';
 export const actionIconClass = 'h-4 w-4';
 
@@ -315,7 +315,7 @@ export function AppCard({
       className={cx(
         'rounded-lg border border-kumo-line bg-kumo-base shadow-none ring-0',
         cardPaddingClass[padding] || cardPaddingClass.md,
-        interactive && 'transition-colors hover:border-brand/60',
+        interactive && 'hover:border-brand/60',
         className
       )}
     >
