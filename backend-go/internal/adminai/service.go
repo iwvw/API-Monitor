@@ -108,10 +108,15 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 }
 
 func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
-	// FTS 触发器升级：旧版为全列 AFTER UPDATE（访问计数更新也会重插 FTS 索引），
-	// 新版仅 content 变更触发；DROP 后由下方 CREATE IF NOT EXISTS 重建，幂等。
-	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS trg_admin_ai_memories_au`); err != nil {
-		return fmt.Errorf("adminai ensureSchema drop trg: %w", err)
+	// FTS 索引升级：旧版仅索引 content，新版将 triggers（触发词）也纳入检索。
+	// 先删全部旧触发器与旧 FTS 表，再由下方 CREATE 重建并回填，幂等。
+	for _, trg := range []string{"trg_admin_ai_memories_ai", "trg_admin_ai_memories_ad", "trg_admin_ai_memories_au"} {
+		if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS `+trg); err != nil {
+			return fmt.Errorf("adminai ensureSchema drop trg %s: %w", trg, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS admin_ai_memories_fts`); err != nil {
+		return fmt.Errorf("adminai ensureSchema drop fts: %w", err)
 	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS admin_ai_sessions (
@@ -205,17 +210,18 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS admin_ai_memories_fts USING fts5(content, id UNINDEXED, content='admin_ai_memories', content_rowid='rowid', tokenize='trigram case_sensitive 0')`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS admin_ai_memories_fts USING fts5(content, triggers, id UNINDEXED, content='admin_ai_memories', content_rowid='rowid', tokenize='trigram case_sensitive 0')`,
 		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_ai AFTER INSERT ON admin_ai_memories BEGIN
-			INSERT INTO admin_ai_memories_fts(rowid, content, id) VALUES (new.rowid, new.content, new.id);
+			INSERT INTO admin_ai_memories_fts(rowid, content, triggers, id) VALUES (new.rowid, new.content, new.triggers, new.id);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_ad AFTER DELETE ON admin_ai_memories BEGIN
-			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, id) VALUES ('delete', old.rowid, old.content, old.id);
+			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, triggers, id) VALUES ('delete', old.rowid, old.content, old.triggers, old.id);
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_au AFTER UPDATE OF content ON admin_ai_memories BEGIN
-			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, id) VALUES ('delete', old.rowid, old.content, old.id);
-			INSERT INTO admin_ai_memories_fts(rowid, content, id) VALUES (new.rowid, new.content, new.id);
+		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_au AFTER UPDATE OF content, triggers ON admin_ai_memories BEGIN
+			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, triggers, id) VALUES ('delete', old.rowid, old.content, old.triggers, old.id);
+			INSERT INTO admin_ai_memories_fts(rowid, content, triggers, id) VALUES (new.rowid, new.content, new.triggers, new.id);
 		END`,
+		`INSERT INTO admin_ai_memories_fts(rowid, content, triggers, id) SELECT rowid, content, triggers, id FROM admin_ai_memories`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_sessions_activity ON admin_ai_sessions(last_activity_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_messages_session ON admin_ai_messages(session_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_executions_session ON admin_ai_executions(session_id, started_at)`,

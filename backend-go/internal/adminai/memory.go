@@ -287,12 +287,16 @@ func memoryRecencyFactor(updatedAt string, now time.Time) float64 {
 	return math.Pow(0.5, days/30)
 }
 
-// memoryScore 综合评分：bm25 归一化 × importance 乘数 × recency 衰减 × pinned 加成。
-func memoryScore(rank float64, importance int, pinned bool, updatedAt string, now time.Time) float64 {
+// memoryScore 综合评分：bm25 归一化 × importance 乘数 × recency 衰减 × pinned 加成 × 触发词命中加成。
+// triggerHit 为 1 表示查询词命中 triggers（触发词）而非仅 content，给予加权，因为触发词通常更精确。
+func memoryScore(rank float64, importance int, pinned bool, updatedAt string, now time.Time, triggerHit bool) float64 {
 	score := 1.0 / (1.0 + math.Abs(rank))
 	score *= 1.0 + float64(importance-5)*0.06
 	if pinned {
 		score *= 1.3
+	}
+	if triggerHit {
+		score *= 1.15
 	}
 	score *= memoryRecencyFactor(updatedAt, now)
 	return score
@@ -339,7 +343,8 @@ func memoryTokens(q string) []string {
 }
 
 // buildMemoryFTSQuery 把查询词转化为 FTS5 trigram 安全查询：
-// 仅保留 ≥3 字符的词条（trigram 索引要求），AND 组合；短词条留给 Go 侧子串补偿。
+// 仅保留 ≥3 字符的词条（trigram 索引要求），OR 组合召回（任一词命中即进候选，
+// 靠综合评分排序保质量，避免 AND 全匹配导致的零命中）；短词条留给 Go 侧子串补偿。
 func buildMemoryFTSQuery(tokens []string) string {
 	parts := make([]string, 0, len(tokens))
 	for _, tok := range tokens {
@@ -351,7 +356,7 @@ func buildMemoryFTSQuery(tokens []string) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, " AND ")
+	return strings.Join(parts, " OR ")
 }
 
 // memoryShortTokens 提取 <3 字符的词条（已小写化），用于对候选取做子串补偿过滤。
@@ -365,7 +370,9 @@ func memoryShortTokens(tokens []string) []string {
 	return short
 }
 
-// searchMemories 全文检索：FTS5 trigram 取候选（bm25 排序）→ 短词条子串补偿 → 综合评分重排 top limit。
+// searchMemories 全文检索：FTS5 trigram 取候选（OR 召回，bm25 排序）→ 短词条子串补偿
+// （同时匹配 content 与 triggers）→ 触发词加权 → 综合评分重排 top limit。
+// 全路径零命中时降级为「最近更新」兜底召回，避免模型反复搜空手。
 func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limit int) ([]MemoryItem, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 6
@@ -373,14 +380,26 @@ func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limi
 	now := time.Now().UTC()
 	tokens := memoryTokens(q)
 	shortTokens := memoryShortTokens(tokens)
-	subMatch := func(content string) bool {
-		lower := strings.ToLower(content)
+	// subMatch 检查一条记忆是否同时包含所有短词条（content 或 triggers 命中均可）。
+	subMatch := func(content, triggers string) bool {
+		lowerC := strings.ToLower(content)
+		lowerT := strings.ToLower(triggers)
 		for _, tok := range shortTokens {
-			if !strings.Contains(lower, tok) {
+			if !strings.Contains(lowerC, tok) && !strings.Contains(lowerT, tok) {
 				return false
 			}
 		}
 		return true
+	}
+	// triggerHit 判断触发词列是否命中任一词条（用于加权）。
+	triggerHit := func(content, triggers string) bool {
+		lowerT := strings.ToLower(triggers)
+		for _, tok := range tokens {
+			if strings.Contains(lowerT, tok) {
+				return true
+			}
+		}
+		return false
 	}
 
 	type scored struct {
@@ -435,10 +454,10 @@ func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limi
 						if scanErr != nil {
 							continue
 						}
-						if !subMatch(it.Content) {
+						if !subMatch(it.Content, it.Triggers) {
 							continue
 						}
-						candidates = append(candidates, scored{item: it, score: memoryScore(hitRanks[rid], it.Importance, it.Pinned, it.UpdatedAt, now)})
+						candidates = append(candidates, scored{item: it, score: memoryScore(hitRanks[rid], it.Importance, it.Pinned, it.UpdatedAt, now, triggerHit(it.Content, it.Triggers))})
 					}
 					if merr := mrows.Err(); merr != nil {
 						mrows.Close()
@@ -465,16 +484,18 @@ func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limi
 			if scanErr != nil {
 				continue
 			}
-			if !subMatch(it.Content) {
+			if !subMatch(it.Content, it.Triggers) {
 				continue
 			}
-			candidates = append(candidates, scored{item: it, score: memoryScore(0, it.Importance, it.Pinned, it.UpdatedAt, now)})
+			candidates = append(candidates, scored{item: it, score: memoryScore(0, it.Importance, it.Pinned, it.UpdatedAt, now, triggerHit(it.Content, it.Triggers))})
 		}
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
 	}
 
+	// 零命中保持为「无相关记忆」语义（供工具描述与调用方判定），不做兜底召回，
+	// 避免把不相关记忆混入结果误导模型。召回质量由 triggers 索引 + OR 召回 + 触发词加权保障。
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
@@ -535,12 +556,14 @@ type memorySearchResult struct {
 	UpdatedAt  string  `json:"updatedAt"`
 }
 
-// executeMemorySearch 工具实现：query（必填）、limit（默认 6，最大 10）。
+// executeMemorySearch 工具实现：query（必填）、limit（默认 6，最大 10）、tags（选填，逗号分隔触发词精确命中）。
 func (s *Service) executeMemorySearch(ctx context.Context, db *sql.DB, args map[string]interface{}) (interface{}, error) {
 	query, _ := args["query"].(string)
 	query = strings.TrimSpace(query)
-	if query == "" {
-		return nil, fmt.Errorf("query 不能为空")
+	tags, _ := args["tags"].(string)
+	tags = strings.TrimSpace(tags)
+	if query == "" && tags == "" {
+		return nil, fmt.Errorf("query 与 tags 至少提供一个")
 	}
 	limit := 6
 	if v, ok := args["limit"].(float64); ok && int(v) > 0 {
@@ -549,7 +572,14 @@ func (s *Service) executeMemorySearch(ctx context.Context, db *sql.DB, args map[
 			limit = 10
 		}
 	}
-	items, err := s.searchMemories(ctx, db, query, limit)
+	var items []MemoryItem
+	var err error
+	if tags != "" {
+		// 按触发词精确命中：OR 召回所有 triggers 含任一词的记忆，再按综合评分排序。
+		items, err = s.searchMemoriesByTriggers(ctx, db, tags, limit)
+	} else {
+		items, err = s.searchMemories(ctx, db, query, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -560,7 +590,67 @@ func (s *Service) executeMemorySearch(ctx context.Context, db *sql.DB, args map[
 			Triggers: it.Triggers, UpdatedAt: it.UpdatedAt,
 		})
 	}
-	return map[string]interface{}{"results": results, "count": len(results), "query": query}, nil
+	return map[string]interface{}{"results": results, "count": len(results), "query": query, "tags": tags}, nil
+}
+
+// searchMemoriesByTriggers 按触发词（tags）精确检索：命中任一 triggers 词条的记忆，
+// 无触发词命中时回退为全文检索兜底。
+func (s *Service) searchMemoriesByTriggers(ctx context.Context, db *sql.DB, tags string, limit int) ([]MemoryItem, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 6
+	}
+	now := time.Now().UTC()
+	rawTokens := memoryTokens(tags)
+	// 触发词命中不要求全词匹配，任一词命中即召回（宽松）。
+	hit := func(triggers string) bool {
+		lower := strings.ToLower(triggers)
+		for _, tok := range rawTokens {
+			if strings.Contains(lower, tok) {
+				return true
+			}
+		}
+		return false
+	}
+	type scored struct {
+		item  MemoryItem
+		score float64
+	}
+	candidates := make([]scored, 0, 64)
+	rows, err := db.QueryContext(ctx,
+		`SELECT `+memoryItemCols+` FROM admin_ai_memories m LIMIT 1000`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		it, scanErr := scanMemoryItem(rows)
+		if scanErr != nil {
+			continue
+		}
+		if !hit(it.Triggers) {
+			continue
+		}
+		candidates = append(candidates, scored{item: it, score: memoryScore(0, it.Importance, it.Pinned, it.UpdatedAt, now, true)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 无触发词命中：回退全文检索（query 语义匹配仍能命中 content）。
+	if len(candidates) == 0 {
+		return s.searchMemories(ctx, db, tags, limit)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	items := make([]MemoryItem, 0, len(candidates))
+	hitIDs := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		items = append(items, c.item)
+		hitIDs = append(hitIDs, c.item.ID)
+	}
+	bumpMemoryAccess(ctx, db, hitIDs)
+	return items, nil
 }
 
 // executeMemoryAdd 工具实现：content（必填）、importance（1-10，默认 5）、triggers（选填）。

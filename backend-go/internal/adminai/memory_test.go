@@ -306,6 +306,87 @@ func TestMemoryBuildFTSQuery(t *testing.T) {
 	if buildMemoryFTSQuery(memoryTokens("短")) != "" {
 		t.Fatalf("short-only tokens should yield empty fts query")
 	}
+	// OR 召回：多个长词条以 OR 组合（任一命中即进候选），避免 AND 全匹配零命中。
+	orQ := buildMemoryFTSQuery(memoryTokens("部署主机 基础硬件 系统状态"))
+	if orQ != `"部署主机" OR "基础硬件" OR "系统状态"` {
+		t.Fatalf("unexpected OR fts query: %s", orQ)
+	}
+}
+
+// triggers（触发词）纳入检索：命中 triggers 即可召回，且触发词命中加权排前。
+func TestMemorySearchTriggers(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	// 记忆正文不含「内存」字样，仅 triggers 命中。
+	if _, err := s.insertMemory(context.Background(), db, "系统部署主机已更换为容器环境", 6, "硬件,规格,内存", false, "agent", ""); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	items, err := s.searchMemories(context.Background(), db, "内存", 6)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected triggers hit, got %d", len(items))
+	}
+	if !strings.Contains(items[0].Triggers, "内存") {
+		t.Fatalf("unexpected item: %+v", items[0])
+	}
+}
+
+// 短词条补偿同时匹配 content 与 triggers（中文两字词不依赖 FTS trigram）。
+func TestMemorySearchShortTokenTriggers(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := s.insertMemory(context.Background(), db, "用户偏好：回复默认用中文", 5, "", false, "manual", ""); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	// 正文不含「硬件」，仅 triggers 命中，且「硬件」为两字短词（走子串补偿）。
+	if _, err := s.insertMemory(context.Background(), db, "系统部署主机已更换", 6, "硬件,规格", false, "agent", ""); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	items, err := s.searchMemories(context.Background(), db, "硬件", 6)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 short-token triggers hit, got %d", len(items))
+	}
+}
+
+// executeMemorySearch 支持 tags 参数：按触发词精确命中。
+func TestMemorySearchByTags(t *testing.T) {
+	s := newTestService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := s.insertMemory(context.Background(), db, "系统部署主机为容器环境", 6, "硬件,规格,内存", false, "agent", ""); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	res, err := s.executeMemorySearch(context.Background(), db, map[string]interface{}{"tags": "内存"})
+	if err != nil {
+		t.Fatalf("search by tags: %v", err)
+	}
+	resMap := res.(map[string]interface{})
+	if resMap["count"] != 1 {
+		t.Fatalf("expected 1 tags hit, got %v", resMap["count"])
+	}
+	// query 与 tags 都为空应报错
+	if _, err := s.executeMemorySearch(context.Background(), db, map[string]interface{}{}); err == nil {
+		t.Fatalf("empty query and tags should fail")
+	}
 }
 
 func strPtr(s string) *string { return &s }

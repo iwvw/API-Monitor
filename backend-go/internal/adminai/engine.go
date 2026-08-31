@@ -246,18 +246,19 @@ var adminAITools = []map[string]interface{}{
 			"required": []string{"channelId", "chatId", "text"},
 		},
 	}},
-	{"type": "function", "function": map[string]interface{}{
-		"name":        "memory_search",
-		"description": "搜索长期记忆（跨会话持久事实、用户偏好、历史决策，支持中文模糊检索）；回答涉及历史决策、环境偏好、曾做过的配置或用户习惯之前，先调用它；返回 0 命中即代表无相关记忆，不要更换关键词重复搜索，直接继续执行",
-		"parameters": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"query": map[string]interface{}{"type": "string", "description": "检索关键词，如「默认模型 网关」"},
-				"limit": map[string]interface{}{"type": "integer", "description": "返回条数上限（默认 6，最大 10）"},
+		{"type": "function", "function": map[string]interface{}{
+			"name":        "memory_search",
+			"description": "搜索长期记忆（跨会话持久事实、用户偏好、历史决策，支持中文模糊检索与触发词标签命中）；回答涉及历史决策、环境偏好、曾做过的配置或用户习惯之前，先调用它。query 用记忆原文措辞或触发词更易命中；若用户明确给出记忆标签（如「用 xx 标签搜索记忆」），用 tags 参数按触发词精确检索。返回 0 命中即代表无相关记忆，不要更换关键词重复搜索，直接继续执行",
+			"parameters": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{"type": "string", "description": "检索关键词，如「默认模型 网关」"},
+					"tags":  map[string]interface{}{"type": "string", "description": "触发词标签（逗号分隔），按记忆的 triggers 精确命中；用户明确指定标签时用（选填）"},
+					"limit": map[string]interface{}{"type": "integer", "description": "返回条数上限（默认 6，最大 10）"},
+				},
+				"required": []string{"query"},
 			},
-			"required": []string{"query"},
-		},
-	}},
+		}},
 	{"type": "function", "function": map[string]interface{}{
 		"name":        "memory_add",
 		"description": "写入一条长期记忆（跨会话保留的用户偏好/环境事实/重要决策）；用户说「记住…」时必须调用，内容要具体到名称/ID/取值；禁止记录可通过系统接口实时查询的动态资源状态（如实例规格、IP、端口、DNS 记录、任务配置、使用量等），这类数据以接口查询为准；内容编辑重发等场景不适用",
