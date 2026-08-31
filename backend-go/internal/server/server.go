@@ -199,6 +199,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.openai.StartModelAutoRefresh(warmupCtx)
 	// 启动 Antigravity 配额刷新检测（开关由前端控制，关闭时后台静默跳过）。
 	server.antigravity.StartQuotaMonitor(warmupCtx)
+	// 启动两个插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
+	server.ds2api.StartCallStatsFlush(warmupCtx)
+	server.antigravity.StartCallStatsFlush(warmupCtx)
 	return server, nil
 }
 

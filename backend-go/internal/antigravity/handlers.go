@@ -136,6 +136,7 @@ type accountView struct {
 	TokenSet  bool   `json:"tokenSet"`
 	Disabled  bool   `json:"disabled"`
 	ExpiresAt int64  `json:"expiresAt"`
+	CallCount int64  `json:"callCount"`
 }
 
 // handleAccounts 列出账号或导入授权文件。
@@ -153,6 +154,7 @@ func (s *Service) handleAccounts(w http.ResponseWriter, r *http.Request) {
 				TokenSet:  strings.TrimSpace(a.AccessToken) != "",
 				Disabled:  a.Disabled,
 				ExpiresAt: a.ExpiresAt,
+				CallCount: s.callCount(a.Email),
 			})
 		}
 		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "accounts": out})

@@ -51,6 +51,10 @@ type Resolver struct {
 
 	mu               sync.Mutex
 	tokenRefreshedAt map[string]time.Time
+	callCounts       map[string]int64
+
+	// callObserver 每次账号被选中调度服务请求时回调（插件侧持久化计数用，可为 nil）。
+	callObserver func(string)
 }
 
 func NewResolver(store *config.Store, pool *account.Pool, login LoginFunc) *Resolver {
@@ -59,7 +63,39 @@ func NewResolver(store *config.Store, pool *account.Pool, login LoginFunc) *Reso
 		Pool:             pool,
 		Login:            login,
 		tokenRefreshedAt: map[string]time.Time{},
+		callCounts:       map[string]int64{},
 	}
+}
+
+// IncrementCall 记录一次账号被选中调度服务请求（成功绑定账号后调用）。
+func (r *Resolver) IncrementCall(accountID string) {
+	if accountID == "" {
+		return
+	}
+	r.mu.Lock()
+	if r.callCounts == nil {
+		r.callCounts = map[string]int64{}
+	}
+	r.callCounts[accountID]++
+	r.mu.Unlock()
+	if r.callObserver != nil {
+		r.callObserver(accountID)
+	}
+}
+
+// SetCallObserver 注入账号调用回调（引擎外插件用于持久化累计）。
+// 回调在锁外同步调用，内部自行保证并发安全。
+func (r *Resolver) SetCallObserver(fn func(string)) {
+	r.mu.Lock()
+	r.callObserver = fn
+	r.mu.Unlock()
+}
+
+// CallCount 返回账号自引擎启动以来被选中调度服务的累计次数。
+func (r *Resolver) CallCount(accountID string) int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.callCounts[accountID]
 }
 
 func (r *Resolver) Determine(req *http.Request) (*RequestAuth, error) {
@@ -131,6 +167,7 @@ func (r *Resolver) acquireManagedRequestAuth(ctx context.Context, callerID, targ
 			}
 			continue
 		}
+		r.IncrementCall(a.AccountID)
 		return a, nil
 	}
 }
@@ -322,6 +359,7 @@ func (r *Resolver) SwitchAccount(ctx context.Context, a *RequestAuth) bool {
 			r.Pool.Release(a.AccountID)
 			continue
 		}
+		r.IncrementCall(a.AccountID)
 		return true
 	}
 }

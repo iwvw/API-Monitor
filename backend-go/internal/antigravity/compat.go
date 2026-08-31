@@ -252,6 +252,7 @@ func (s *Service) forwardOpenAINonStream(ctx context.Context, w http.ResponseWri
 	if acc == nil {
 		return fmt.Errorf("尚无可用账号")
 	}
+	s.incrementCall(acc.Email)
 	proxyURI := s.resolveProxy(ctx)
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
@@ -338,6 +339,7 @@ func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter
 	if acc == nil {
 		return fmt.Errorf("尚无可用账号")
 	}
+	s.incrementCall(acc.Email)
 	proxyURI := s.resolveProxy(ctx)
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {

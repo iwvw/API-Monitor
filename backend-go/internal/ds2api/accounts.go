@@ -27,6 +27,7 @@ type accountView struct {
 	CooldownUntil   float64 `json:"cooldownUntil,omitempty"`
 	NodeCooldownUntil float64 `json:"nodeCooldownUntil,omitempty"`
 	Available       bool    `json:"available"`
+	CallCount       int64   `json:"callCount"`
 }
 
 // handleAccounts 管理 DeepSeek 网页版账号池。
@@ -75,6 +76,7 @@ func (s *Service) listAccounts(w http.ResponseWriter, r *http.Request) {
 	accs := store.Snapshot().Accounts
 	out := make([]accountView, 0, len(accs))
 	for _, a := range accs {
+		id := a.Identifier()
 		out = append(out, accountView{
 			Name:            a.Name,
 			Email:           a.Email,
@@ -82,11 +84,12 @@ func (s *Service) listAccounts(w http.ResponseWriter, r *http.Request) {
 			Disabled:        a.Disabled,
 			Banned:          a.Banned,
 			PoolType:        a.PoolType,
-			Identifier:      a.Identifier(),
+			Identifier:      id,
 			MutedUntil:      a.MutedUntil,
 			CooldownUntil:   a.CooldownUntil,
 			NodeCooldownUntil: a.NodeCooldownUntil,
 			Available:       a.IsEnabled() && !a.IsMuted() && !a.IsBanned() && !a.IsCoolingDown(),
+			CallCount:       s.callDisplay(id),
 		})
 	}
 	responseJSON(w, map[string]interface{}{"success": true, "accounts": out})

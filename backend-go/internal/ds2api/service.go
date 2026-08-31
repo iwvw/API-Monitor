@@ -79,6 +79,12 @@ type Service struct {
 	app      *engineserver.App
 	engineMu sync.Mutex
 
+	// 调用次数持久化：callBase 为已落盘累计基线，callPending 为尚未落盘的增量。
+	callMu      sync.Mutex
+	callBase    map[string]int64
+	callPending map[string]int64
+	callFlush   sync.Once
+
 	externalPool ProxyPoolSelector
 }
 
@@ -95,8 +101,10 @@ func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
 // New 构造服务并加载持久化设置。
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:   cfg,
-		store: database.New(cfg),
+		cfg:        cfg,
+		store:      database.New(cfg),
+		callBase:   map[string]int64{},
+		callPending: map[string]int64{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -118,6 +126,13 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ds2api ensure schema: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS ds2api_call_stats (
+		identifier TEXT PRIMARY KEY,
+		count INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ds2api ensure call stats schema: %w", err)
 	}
 	return db, nil
 }
@@ -144,6 +159,7 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
+	s.loadCallStats(ctx, db)
 	if cfg.Enabled {
 		_ = s.startEngineLocked()
 	}
@@ -295,6 +311,103 @@ func remapPrefixedName(name, oldPrefix, newPrefix string) string {
 	return name
 }
 
+// loadCallStats 从 DB 恢复已落盘的调用累计基线。
+func (s *Service) loadCallStats(ctx context.Context, db *sql.DB) {
+	rows, err := db.QueryContext(ctx, `SELECT identifier, count FROM ds2api_call_stats`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	base := map[string]int64{}
+	for rows.Next() {
+		var id string
+		var c int64
+		if rows.Scan(&id, &c) == nil {
+			base[id] = c
+		}
+	}
+	s.callMu.Lock()
+	s.callBase = base
+	s.callMu.Unlock()
+}
+
+// recordCall 是 Resolver 注入的账号调用回调：把本次调用记入未落盘增量。
+func (s *Service) recordCall(identifier string) {
+	if identifier == "" {
+		return
+	}
+	s.callMu.Lock()
+	if s.callPending == nil {
+		s.callPending = map[string]int64{}
+	}
+	s.callPending[identifier]++
+	s.callMu.Unlock()
+}
+
+// callDisplay 返回账号已持久化的累计调用次数 = 已落盘基线 + 未落盘增量。
+func (s *Service) callDisplay(identifier string) int64 {
+	s.callMu.Lock()
+	defer s.callMu.Unlock()
+	return s.callBase[identifier] + s.callPending[identifier]
+}
+
+// flushCallStats 把未落盘增量合并进 DB，并同步进内存基线。
+// 逐条 UPSERT 累加，避免先读后写在并发下丢增量。
+func (s *Service) flushCallStats(ctx context.Context) {
+	s.callMu.Lock()
+	if len(s.callPending) == 0 {
+		s.callMu.Unlock()
+		return
+	}
+	pend := s.callPending
+	s.callPending = map[string]int64{}
+	s.callMu.Unlock()
+
+	db, err := s.open(ctx)
+	if err != nil {
+		// 落库失败时把增量放回，等待下轮重试，避免计数丢失。
+		s.callMu.Lock()
+		for k, v := range pend {
+			s.callPending[k] += v
+		}
+		s.callMu.Unlock()
+		return
+	}
+	defer db.Close()
+	for id, delta := range pend {
+		_, _ = db.ExecContext(ctx, `
+			INSERT INTO ds2api_call_stats (identifier, count) VALUES (?, ?)
+			ON CONFLICT(identifier) DO UPDATE SET count = count + excluded.count`, id, delta)
+	}
+	s.callMu.Lock()
+	for k, v := range pend {
+		s.callBase[k] += v
+	}
+	s.callMu.Unlock()
+}
+
+// callStatsFlushInterval 是调用次数定期落盘的周期。
+const callStatsFlushInterval = time.Minute
+
+// StartCallStatsFlush 启动调用次数定期落盘；ctx 取消时做最后一次落盘后退出。
+func (s *Service) StartCallStatsFlush(ctx context.Context) {
+	s.callFlush.Do(func() {
+		go func() {
+			ticker := time.NewTicker(callStatsFlushInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					s.flushCallStats(context.Background())
+				case <-ctx.Done():
+					s.flushCallStats(context.Background())
+					return
+				}
+			}
+		}()
+	})
+}
+
 // configPath 返回引擎 config.json 落盘路径（data 目录下）。
 func (s *Service) configPath() string {
 	return filepath.Join(s.cfg.DataDir, "ds2api", "config.json")
@@ -324,6 +437,9 @@ func (s *Service) startEngineLocked() error {
 	app, err := engineserver.NewApp()
 	if err != nil {
 		return fmt.Errorf("初始化引擎失败: %w", err)
+	}
+	if app.Resolver != nil {
+		app.Resolver.SetCallObserver(s.recordCall)
 	}
 	s.app = app
 	if app != nil {

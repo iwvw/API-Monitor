@@ -142,6 +142,13 @@ type Service struct {
 	// quotaPrevMu 保护 quotaPrev；quotaPrev 记录 邮箱+窗口 → 上次剩余比例快照。
 	quotaPrevMu sync.Mutex
 	quotaPrev   map[string]float64
+
+	// callMu 保护调用计数持久化状态：callCounts 是自上次落盘以来的未落盘增量，
+	// callBase 是已落盘累计基线（进程启动时从 DB 恢复）。
+	callMu         sync.Mutex
+	callCounts     map[string]int64
+	callBase       map[string]int64
+	callFlushOnce  sync.Once
 }
 
 // SetNotifier 注入外部通知系统。
@@ -162,8 +169,10 @@ func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
 // New 构造服务并加载持久化设置。
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:   cfg,
-		store: database.New(cfg),
+		cfg:        cfg,
+		store:      database.New(cfg),
+		callCounts: map[string]int64{},
+		callBase:   map[string]int64{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -185,6 +194,13 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("antigravity ensure schema: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS antigravity_call_stats (
+		email TEXT PRIMARY KEY,
+		count INTEGER NOT NULL DEFAULT 0
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("antigravity ensure call stats schema: %w", err)
 	}
 	return db, nil
 }
@@ -228,6 +244,7 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
+	s.loadCallStats(db)
 	if cfg.Enabled {
 		go s.syncEndpointModels()
 	}
@@ -391,6 +408,103 @@ func (s *Service) pickAccount() *Account {
 	return &acc
 }
 
+// incrementCall 记录一次账号被选中处理推理请求（计入未落盘增量，定期合并落库）。
+func (s *Service) incrementCall(email string) {
+	if email == "" {
+		return
+	}
+	s.callMu.Lock()
+	defer s.callMu.Unlock()
+	if s.callCounts == nil {
+		s.callCounts = map[string]int64{}
+	}
+	s.callCounts[email]++
+}
+
+// callCount 返回账号持久化的累计调用次数 = 已落盘基线 + 未落盘增量。
+func (s *Service) callCount(email string) int64 {
+	s.callMu.Lock()
+	defer s.callMu.Unlock()
+	return s.callBase[email] + s.callCounts[email]
+}
+
+// loadCallStats 从 DB 恢复已落盘的调用累计基线。
+func (s *Service) loadCallStats(db *sql.DB) {
+	rows, err := db.Query(`SELECT email, count FROM antigravity_call_stats`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	base := map[string]int64{}
+	for rows.Next() {
+		var email string
+		var c int64
+		if rows.Scan(&email, &c) == nil {
+			base[email] = c
+		}
+	}
+	s.callMu.Lock()
+	s.callBase = base
+	s.callMu.Unlock()
+}
+
+// flushCallStats 把未落盘增量合并进 DB，并同步进内存基线。
+// 逐条 UPSERT 累加，避免先读后写在并发下丢增量。
+func (s *Service) flushCallStats(ctx context.Context) {
+	s.callMu.Lock()
+	if len(s.callCounts) == 0 {
+		s.callMu.Unlock()
+		return
+	}
+	pend := s.callCounts
+	s.callCounts = map[string]int64{}
+	s.callMu.Unlock()
+
+	db, err := s.open(ctx)
+	if err != nil {
+		// 落库失败时把增量放回，等待下轮重试，避免计数丢失。
+		s.callMu.Lock()
+		for k, v := range pend {
+			s.callCounts[k] += v
+		}
+		s.callMu.Unlock()
+		return
+	}
+	defer db.Close()
+	for email, delta := range pend {
+		_, _ = db.ExecContext(ctx, `
+			INSERT INTO antigravity_call_stats (email, count) VALUES (?, ?)
+			ON CONFLICT(email) DO UPDATE SET count = count + excluded.count`, email, delta)
+	}
+	s.callMu.Lock()
+	for k, v := range pend {
+		s.callBase[k] += v
+	}
+	s.callMu.Unlock()
+}
+
+// callStatsFlushInterval 是调用次数定期落盘的周期。
+const callStatsFlushInterval = time.Minute
+
+// StartCallStatsFlush 启动调用次数定期落盘；ctx 取消时做最后一次落盘后退出。
+func (s *Service) StartCallStatsFlush(ctx context.Context) {
+	s.callFlushOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(callStatsFlushInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					s.flushCallStats(context.Background())
+				case <-ctx.Done():
+					s.flushCallStats(context.Background())
+					return
+				}
+			}
+		}()
+	})
+}
+
 // forwardBaseURL 按账号 planType 选择转发端点。
 // 与 Antigravity 官方一致：付费账号（Pro/Ultra）使用 daily 端点，其余用 prod。
 func forwardBaseURL(acc *Account) string {
@@ -468,6 +582,7 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 	if acc == nil {
 		return fmt.Errorf("尚无可用账号，请先完成 Google 账号授权")
 	}
+	s.incrementCall(acc.Email)
 	var claudeReq engineag.ClaudeRequest
 	if err := json.Unmarshal(body, &claudeReq); err != nil {
 		return fmt.Errorf("请求体解析失败: %w", err)
