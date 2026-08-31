@@ -5,9 +5,11 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/oracle/oci-go-sdk/v65/budget"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
+	"github.com/oracle/oci-go-sdk/v65/usageapi"
 )
 
 const (
@@ -40,6 +42,14 @@ func (f clientFactory) blockstorage(account Account) (core.BlockstorageClient, e
 
 func (f clientFactory) identity(account Account) (identity.IdentityClient, error) {
 	return identity.NewIdentityClientWithConfigurationProvider(f.provider(account))
+}
+
+func (f clientFactory) usage(account Account) (usageapi.UsageapiClient, error) {
+	return usageapi.NewUsageapiClientWithConfigurationProvider(f.provider(account))
+}
+
+func (f clientFactory) budget(account Account) (budget.BudgetClient, error) {
+	return budget.NewBudgetClientWithConfigurationProvider(f.provider(account))
 }
 
 func contextWithReadTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

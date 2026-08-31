@@ -80,6 +80,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.deleteConsoleConnectionHTTP(w, r, parts[1], parts[3])
 	case len(parts) == 3 && parts[0] == "accounts" && parts[2] == "shapes" && r.Method == http.MethodGet:
 		s.shapes(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "accounts" && parts[2] == "cost" && r.Method == http.MethodGet:
+		s.costOverviewHandler(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "accounts" && (parts[2] == "images" || parts[2] == "subnets"):
 		response.OK(w, map[string]interface{}{"items": []interface{}{}, "message": "该选择器将在启动实例阶段启用"})
 	default:
@@ -310,6 +312,20 @@ func (s *Service) shapes(w http.ResponseWriter, r *http.Request, idText string) 
 		r.URL.Query().Get("imageId"),
 	)
 	writeResult(w, map[string]interface{}{"items": items}, err)
+}
+
+func (s *Service) costOverviewHandler(w http.ResponseWriter, r *http.Request, idText string) {
+	account, db, ok := s.accountForRequest(w, r, idText)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	ov, err := s.costOverview(r.Context(), account)
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, "拉取 Oracle 成本数据失败："+err.Error())
+		return
+	}
+	response.OK(w, ov)
 }
 
 func (s *Service) instances(w http.ResponseWriter, r *http.Request, idText string) {

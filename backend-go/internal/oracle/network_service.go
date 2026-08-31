@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"context"
+	"sync"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -78,16 +79,22 @@ func (s *Service) listVNICs(ctx context.Context, account Account, compartmentID,
 	if err != nil {
 		return nil, err
 	}
-	items := []NormalizedVNIC{}
-	for _, attachment := range attachments.Items {
-		var vnic *core.Vnic
-		if attachment.VnicId != nil {
-			detail, err := network.GetVnic(callCtx, core.GetVnicRequest{VnicId: attachment.VnicId})
-			if err == nil {
-				vnic = &detail.Vnic
+	items := make([]NormalizedVNIC, len(attachments.Items))
+	var wg sync.WaitGroup
+	for i, attachment := range attachments.Items {
+		wg.Add(1)
+		go func(idx int, att core.VnicAttachment) {
+			defer wg.Done()
+			var vnic *core.Vnic
+			if att.VnicId != nil {
+				detail, err := network.GetVnic(callCtx, core.GetVnicRequest{VnicId: att.VnicId})
+				if err == nil {
+					vnic = &detail.Vnic
+				}
 			}
-		}
-		items = append(items, normalizeVNIC(attachment, vnic))
+			items[idx] = normalizeVNIC(att, vnic)
+		}(i, attachment)
 	}
+	wg.Wait()
 	return items, nil
 }
