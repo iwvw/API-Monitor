@@ -579,7 +579,6 @@ func init() {
 		"serverId": {t: "string"},
 	})
 	routeRequestContracts["/api/server/agent/proxy/preferred-addresses/{id}"] = routeRequestContracts["/api/server/agent/proxy/preferred-addresses"]
-	routeRequestContracts["/api/server/agent/proxy/preferred-addresses/{id}/check"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/runtimes"] = obj([]string{"name", "version"}, map[string]prop{
 		"name":    {t: "string", req: true},
 		"version": {t: "string", req: true},

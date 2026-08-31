@@ -493,7 +493,6 @@ var routeDescriptions = map[string]string{
 	"/api/server/agent/proxy/tunnels/preflight": "托管隧道部署前检查",
 	"/api/server/agent/proxy/preferred-addresses": "列出或新增优选地址",
 	"/api/server/agent/proxy/preferred-addresses/{id}": "更新或删除优选地址",
-	"/api/server/agent/proxy/preferred-addresses/{id}/check": "检测优选地址连通性",
 	"/api/server/agent/proxy/runtimes":         "列出或注册代理运行时",
 	"/api/server/agent/proxy/runtimes/{id}/{action}": "对代理运行时执行安装 / 更新等动作",
 	"/api/server/remote-desktop/sessions":      "创建远程桌面会话",

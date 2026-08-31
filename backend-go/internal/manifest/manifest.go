@@ -298,7 +298,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/agent/proxy/tunnels/{serverId}/deploy", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Deploy managed Named Tunnel", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/tunnels/{serverId}", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed Tunnel uninstall", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/tunnels", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed Tunnel states", MatchMode: MatchExact},
-		{Prefix: "/api/server/agent/proxy/preferred-addresses/{id}/check", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address health check", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/preferred-addresses/{id}", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/preferred-addresses", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address list/create", MatchMode: MatchExact},
 		{Prefix: "/api/server/forward", Module: "server-agent-forward", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "转发中心", MatchMode: MatchPrefix},

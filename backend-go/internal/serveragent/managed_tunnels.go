@@ -89,8 +89,6 @@ func (s *Service) handlePreferredAddressRoutes(w http.ResponseWriter, r *http.Re
 		s.savePreferredAddress(w, r, db, subparts[0])
 	case len(subparts) == 1 && r.Method == http.MethodDelete:
 		s.deletePreferredAddress(w, r, db, subparts[0])
-	case len(subparts) == 2 && subparts[1] == "check" && r.Method == http.MethodPost:
-		s.checkPreferredAddress(w, r, db, subparts[0])
 	default:
 		response.Error(w, http.StatusNotFound, "preferred address route not found")
 	}
@@ -843,28 +841,4 @@ func (s *Service) deletePreferredAddress(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	response.OK(w, map[string]bool{"deleted": true})
-}
-
-func (s *Service) checkPreferredAddress(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
-	var address string
-	var port int
-	if err := db.QueryRowContext(r.Context(), `SELECT address,port FROM managed_proxy_preferences WHERE id=?`, id).Scan(&address, &port); err != nil {
-		response.Error(w, 404, "preferred address not found")
-		return
-	}
-	started := time.Now()
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(port)), 5*time.Second)
-	latency := int(time.Since(started).Milliseconds())
-	status, message := "healthy", ""
-	if err != nil {
-		status, message, latency = "failed", err.Error(), 0
-	} else {
-		_ = conn.Close()
-	}
-	_, _ = db.ExecContext(r.Context(), `UPDATE managed_proxy_preferences SET last_status=?,last_latency_ms=?,last_error=?,checked_at=datetime('now'),updated_at=datetime('now') WHERE id=?`, status, latency, message, id)
-	if err != nil {
-		response.Error(w, 502, message)
-		return
-	}
-	response.OK(w, map[string]interface{}{"status": status, "latency_ms": latency})
 }
