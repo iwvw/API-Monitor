@@ -172,6 +172,33 @@ func (s *Service) fetchMentionList(ctx context.Context, path, key string) ([]map
 	return items, nil
 }
 
+// mentionArrayStrongResource 数组元素是否带「强资源标识」（id/_id/appName/channelId）：
+// 用于判断扁平资源数组（如 /api/server/accounts 的 data 主机列表），与 mentionArrayIsResource
+// 不同——后者把仅带 name 的包裹对象（如 koyeb accounts 元素、flyio account 包裹）也算作资源，
+// 会误伤跨元素合并/嵌套穿透。强标识只认真正可作引用 ID 的字段。
+func mentionArrayStrongResource(arr []interface{}) bool {
+	if len(arr) == 0 {
+		return false
+	}
+	for _, el := range arr {
+		m, ok := el.(map[string]interface{})
+		if !ok {
+			return false
+		}
+		hasID := false
+		for _, k := range []string{"id", "_id", "appName", "channelId"} {
+			if v, ok := m[k]; ok && fmt.Sprintf("%v", v) != "" {
+				hasID = true
+				break
+			}
+		}
+		if !hasID {
+			return false
+		}
+	}
+	return true
+}
+
 // mentionArrayIsResource 数组元素是否带资源标识（id/_id/appName/name）：
 // 区分真正的资源列表与内部数据数组（如主机 info.disk），避免任意子值深入时被截胡。
 func mentionArrayIsResource(arr []interface{}) bool {
@@ -204,6 +231,12 @@ func mentionArrayIsResource(arr []interface{}) bool {
 func findMentionArray(body interface{}, key string) []interface{} {
 	if body == nil {
 		return nil
+	}
+	// 顶层即为扁平资源数组（如 /api/server/accounts 的 data 主机列表，元素带 id）：
+	// 直接返回，避免被「任意子值深入」截胡成内部数据数组（如主机 info.gpu 只取到
+	// 1 个 GPU）。koyeb 的 accounts 元素仅带 name（无强标识），此处不命中。
+	if arr, ok := body.([]interface{}); ok && mentionArrayStrongResource(arr) {
+		return arr
 	}
 	var walk func(v interface{}, depth int) []interface{}
 	walk = func(v interface{}, depth int) []interface{} {
@@ -277,6 +310,14 @@ func findMentionArray(body interface{}, key string) []interface{} {
 			for _, k := range []string{"data", "items", "list", "results"} {
 				if arr, ok := val[k].([]interface{}); ok && len(arr) > 0 {
 					if _, ok := arr[0].(map[string]interface{}); ok {
+						// 扁平资源数组（如 /api/server/accounts 的 data 主机列表）直接采纳：
+						// 元素带强标识，避免被数组分支「任意子值深入」截胡成内部数据数组
+						// （如主机 info.gpu 只取到 1 个 GPU）。flyio 的 data 是 account 包裹对象
+						// （仅 accountName/name）、koyeb 的 accounts 元素仅 name，均不带强标识，
+						// 仍走下方数组分支做跨元素合并/嵌套穿透。
+						if mentionArrayStrongResource(arr) {
+							return arr
+						}
 						// 交给数组分支统一处理：跨元素合并（flyio data[].apps 多账号）与
 						// 嵌套穿透（koyeb data[].projects[].services）都集中在那里
 						if inner := walk(arr, depth+1); inner != nil {
