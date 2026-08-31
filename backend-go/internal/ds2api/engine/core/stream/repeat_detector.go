@@ -1,87 +1,42 @@
 package stream
 
 import (
-	"strings"
-
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/sse"
 )
 
-// contentRepeatGuard detects consecutive identical content blocks in parsed
-// SSE lines and reports when the same block repeats limit times in a row.
-// Counters are kept per part type so repeated visible text and repeated
-// thinking text each have their own sequence.
+// contentRepeatGuard detects output loops in accumulated content. A naive
+// "is the previous block identical" check misses incremental delta streams,
+// where adjacent SSE blocks are almost never byte-identical even when the model
+// is looping. Instead this guard keeps a bounded tail window of accumulated
+// text and reports when the tail ends in a repeating period (three identical
+// trailing substrings). This covers both consecutive repeats (AAAA...) and
+// periodic/alternating loops (ABAB...).
+//
+// Text and thinking are accumulated separately so one stream's loop does not
+// corrupt the other's period detection. The heavy lifting lives in sse.RepeatTail
+// so the non-streaming path (sse.CollectStream) reuses the same detector.
 type contentRepeatGuard struct {
-	limit int
-	last  map[string]string
-	count map[string]int
+	tail sse.RepeatTail
 }
 
 func newContentRepeatGuard(limit int) *contentRepeatGuard {
 	if limit <= 0 {
 		return nil
 	}
-	return &contentRepeatGuard{
-		limit: limit,
-		last:  make(map[string]string),
-		count: make(map[string]int),
-	}
+	return &contentRepeatGuard{tail: sse.NewRepeatTail(limit)}
 }
 
 func (g *contentRepeatGuard) observe(parts []sse.ContentPart) bool {
-	if g == nil || g.limit <= 0 {
+	if g == nil {
 		return false
 	}
-
-	// Build one block per part type. Consecutive parts of the same type in a
-	// single SSE line are joined so the line is one observation rather than
-	// several; this avoids over-counting a line that merely contains multiple
-	// fragments of the same repeated chunk.
-	blocks := map[string]string{}
 	for _, p := range parts {
-		text := strings.TrimSpace(p.Text)
-		if text == "" {
+		if p.Text == "" {
 			continue
 		}
-		typ := p.Type
-		if typ == "" {
-			typ = "text"
-		}
-		if blocks[typ] == "" {
-			blocks[typ] = text
-		} else {
-			blocks[typ] += "\n" + text
-		}
-	}
-
-	for typ, block := range blocks {
-		block = strings.TrimSpace(block)
-		if block == "" {
-			continue
-		}
-		// Ignore blocks composed of a single rune. Normal token coalescing can
-		// legitimately produce long runs of the same character (for example a
-		// stream of single-character deltas), so those are not repetition loops.
-		if distinctRuneCount(block) < 2 {
-			continue
-		}
-		if g.last[typ] == block {
-			g.count[typ]++
-			if g.count[typ] >= g.limit {
-				return true
-			}
-		} else {
-			g.last[typ] = block
-			g.count[typ] = 1
+		if g.tail.Observe(p.Text, p.Type == "thinking") {
+			return true
 		}
 	}
 	return false
-}
-
-// distinctRuneCount reports how many different runes a block contains.
-func distinctRuneCount(s string) int {
-	seen := make(map[rune]struct{})
-	for _, r := range s {
-		seen[r] = struct{}{}
-	}
-	return len(seen)
 }

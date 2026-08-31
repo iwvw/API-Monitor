@@ -38,8 +38,7 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 	stopped := false
 	collector := newCitationLinkCollector()
 	responseMessageID := 0
-	repeatKey := ""
-	repeatCount := 0
+	var repeatTail = NewRepeatTail(0)
 	currentType := "text"
 	if thinkingEnabled {
 		currentType = "thinking"
@@ -61,16 +60,9 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 		if !result.Parsed {
 			return true
 		}
-		key := contentPartsKey(result.Parts)
-		if key != "" {
-			if key == repeatKey {
-				repeatCount++
-			} else {
-				repeatKey = key
-				repeatCount = 1
-			}
-			if repeatCount >= 3 {
-				upstreamError = "identical content repeated"
+		for _, p := range result.Parts {
+			if repeatTail.Observe(p.Text, p.Type == "thinking") {
+				upstreamError = "output loop detected"
 				return false
 			}
 		}
@@ -111,20 +103,6 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 		CitationLinks:         collector.build(),
 		ResponseMessageID:     responseMessageID,
 	}
-}
-
-func contentPartsKey(parts []ContentPart) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, p := range parts {
-		b.WriteString(p.Type)
-		b.WriteByte(':')
-		b.WriteString(p.Text)
-		b.WriteByte('|')
-	}
-	return b.String()
 }
 
 // observeResponseMessageID extracts the response_message_id from a parsed SSE
