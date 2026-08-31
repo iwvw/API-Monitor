@@ -108,8 +108,9 @@ var routeAliases = map[string][]string{
 
 	"/api/server/info":            {"主机信息", "服务器信息"},
 	"/api/server/action":          {"重启主机", "关机主机", "开机", "重启", "重启服务器", "关机", "reboot", "shutdown", "重启机器"},
-	"/api/server/check-all":       {"批量检查", "在线状态"},
-	"/api/server/accounts":        {"主机账号", "服务器账号", "机器列表"},
+	"/api/server/check-all":       {"批量检查", "在线状态", "所有主机在线状态"},
+	"/api/server/accounts":        {"主机账号", "服务器账号", "机器列表", "主机列表", "服务器列表", "列出主机", "所有主机", "全部主机", "主机列表接口", "获取主机列表", "查看主机"},
+	"/api/server/docker/check-update": {"检查镜像更新", "镜像是否有更新", "容器镜像更新", "docker 镜像更新", "远程主机镜像更新"},
 	"/api/server/credentials":     {"凭据", "连接凭据", "ssh 密钥"},
 	"/api/server/network-quality": {"网络测速", "测速", "网络质量"},
 	"/api/server/sftp":            {"sftp", "远程文件", "上传文件", "下载文件", "sftp 列表"},

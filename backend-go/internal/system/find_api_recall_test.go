@@ -38,6 +38,9 @@ func TestFindAPIRecallQuality(t *testing.T) {
 		{"给 onepanel 应用安装", "/api/onepanel/{serverId}/apps/install"},
 		{"获取 github 仓库列表", "/api/github/repositories"},
 		{"查看 2fa 状态", "/api/auth/2fa/status"},
+		{"列出所有主机", "/api/server/accounts"},
+		{"查看主机服务器列表", "/api/server/accounts"},
+		{"检查远程主机容器镜像是否有更新", "/api/server/docker/check-update"},
 	}
 
 	hitTop, hitAny, total := 0, 0, len(intents)
