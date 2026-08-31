@@ -81,7 +81,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
     if (!el) return;
     const update = () => {
       const top = el.getBoundingClientRect().top;
-      const h = window.innerHeight - top - 10;
+      const h = window.innerHeight - top - 12;
       setCanvasHeight((prev) => {
         const next = h > 0 ? h : 240;
         return prev === next ? prev : next;
@@ -312,31 +312,27 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
     [hasFilter, edgeDimmed, related]
   );
 
-  // 右下角总览图：布局等比缩略 + 当前视口框，点击/拖拽导航
-  const MINIMAP_W = 150;
-  const MINIMAP_H = 110;
-  const minimap = useMemo(() => {
-    const s = Math.min(MINIMAP_W / layout.width, MINIMAP_H / layout.height);
-    return { s, w: layout.width * s, h: layout.height * s };
-  }, [layout.width, layout.height]);
+  // 右下角总览图：工作流画布同款「外层定框 + <g transform=scale>」模式。
+  // svg 铺满外层内容区，布局形状用原始坐标放进 <g transform={scale(mmScale)}>，
+  // 视口框在 <g> 外按 mmScale 换算 —— 鹰眼内容始终铺满外框、无右侧留白。
+  const minimapRef = useRef(null);
   const minimapViewRect = useMemo(() => {
     if (!viewportSize.width || !viewportSize.height) return null;
-    const s = minimap.s;
     return {
-      x: (-view.x / view.scale) * s,
-      y: (-view.y / view.scale) * s,
-      w: (viewportSize.width / view.scale) * s,
-      h: (viewportSize.height / view.scale) * s,
+      x: -view.x / view.scale,
+      y: -view.y / view.scale,
+      w: viewportSize.width / view.scale,
+      h: viewportSize.height / view.scale,
     };
-  }, [view, viewportSize, minimap]);
-  const minimapRef = useRef(null);
+  }, [view, viewportSize]);
   const jumpOnMinimap = useCallback(
     (clientX, clientY) => {
       const el = minimapRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const lx = (clientX - rect.left) / minimap.s;
-      const ly = (clientY - rect.top) / minimap.s;
+      const mmScale = Math.min(rect.width / Math.max(layout.width, 1), rect.height / Math.max(layout.height, 1));
+      const lx = (clientX - rect.left) / mmScale;
+      const ly = (clientY - rect.top) / mmScale;
       didInteractRef.current = true;
       setView((prev) => {
         const vw = viewportSize.width || 800;
@@ -344,16 +340,12 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
         return { scale: prev.scale, x: vw / 2 - lx * prev.scale, y: vh / 2 - ly * prev.scale };
       });
     },
-    [minimap.s, viewportSize]
+    [layout.width, layout.height, viewportSize]
   );
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs text-kumo-text-secondary">
-        <Button size="sm" variant="outline" shape="square" aria-label="放大" onClick={() => zoomBy(1.25)}>+</Button>
-        <Button size="sm" variant="outline" shape="square" aria-label="缩小" onClick={() => zoomBy(0.8)}>−</Button>
-        <Button size="sm" variant="outline" onClick={fit}>适应画布</Button>
-        <span className="w-12 tabular-nums">{Math.round(view.scale * 100)}%</span>
         <Input
           size="sm"
           value={query}
@@ -675,65 +667,84 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
             </div>
           )}
 
-          {/* 右下角总览图：等比缩略 + 当前视口框，点击/拖拽导航 */}
-          {forwards.length > 0 && (
-            <div className="absolute bottom-3 right-3 z-[7] select-none rounded-lg border border-kumo-line bg-kumo-elevated/95 p-1.5 shadow-lg backdrop-blur">
-              <div
-                ref={minimapRef}
-                className="relative cursor-crosshair overflow-hidden rounded"
-                style={{ width: minimap.w, height: minimap.h }}
-                onPointerDown={(event) => {
-                  event.currentTarget.setPointerCapture?.(event.pointerId);
-                  jumpOnMinimap(event.clientX, event.clientY);
-                }}
-                onPointerMove={(event) => {
-                  if (event.buttons & 1) jumpOnMinimap(event.clientX, event.clientY);
-                }}
-              >
-                <svg width={minimap.w} height={minimap.h}>
-                  {layout.hosts.map((host) => (
-                    <rect
-                      key={host.id}
-                      x={host.x * minimap.s}
-                      y={host.y * minimap.s}
-                      width={host.w * minimap.s}
-                      height={host.h * minimap.s}
-                      rx={4}
-                      fill="var(--color-kumo-line)"
-                      opacity={0.6}
-                    />
-                  ))}
-                  {layout.hosts.flatMap((host) =>
-                    host.cards.map((card) => (
+          {/* 右下角浮层：总览图（工作流画布同款 <g transform=scale>）+ 下方缩放控制 */}
+          {forwards.length > 0 && (() => {
+            const frameW = Math.min(180, Math.max(120, viewportSize.width * 0.3));
+            const frameH = Math.min(130, Math.max(90, layout.height / layout.width * frameW + 8));
+            const mmScale = Math.min((frameW - 12) / Math.max(layout.width, 1), (frameH - 12) / Math.max(layout.height, 1));
+            const visX = Math.max(0, Math.min(minimapViewRect?.x ?? 0, layout.width)) * mmScale;
+            const visY = Math.max(0, Math.min(minimapViewRect?.y ?? 0, layout.height)) * mmScale;
+            const visW = Math.min(minimapViewRect?.w ?? 0, layout.width - visX / mmScale) * mmScale;
+            const visH = Math.min(minimapViewRect?.h ?? 0, layout.height - visY / mmScale) * mmScale;
+            return (
+              <div className="absolute bottom-3 right-3 z-[7] flex select-none flex-col gap-1.5 rounded-lg border border-kumo-line bg-kumo-elevated/95 p-1.5 shadow-lg backdrop-blur">
+                <div
+                  ref={minimapRef}
+                  title="鸟瞰图：点击或拖动定位画布"
+                  className="relative cursor-crosshair overflow-hidden rounded"
+                  style={{ width: frameW, height: frameH }}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    jumpOnMinimap(event.clientX, event.clientY);
+                  }}
+                  onPointerMove={(event) => {
+                    if (event.buttons & 1) jumpOnMinimap(event.clientX, event.clientY);
+                  }}
+                >
+                  <svg width={frameW - 12} height={frameH - 12} className="pointer-events-none absolute left-1.5 top-1.5">
+                    <g transform={`scale(${mmScale})`} fill="none">
+                      {layout.hosts.map((host) => (
+                        <rect
+                          key={host.id}
+                          x={host.x}
+                          y={host.y}
+                          width={host.w}
+                          height={host.h}
+                          rx={4}
+                          fill="var(--color-kumo-line)"
+                          opacity={0.6}
+                        />
+                      ))}
+                      {layout.hosts.flatMap((host) =>
+                        host.cards.map((card) => (
+                          <rect
+                            key={card.fwd.id}
+                            x={card.x}
+                            y={card.y}
+                            width={card.w || 200}
+                            height={card.h || 64}
+                            rx={2}
+                            fill={STATUS_COLORS[card.fwd.apply_status] || 'var(--color-kumo-line)'}
+                            opacity={0.75}
+                          />
+                        ))
+                      )}
+                    </g>
+                    {minimapViewRect && (
                       <rect
-                        key={card.fwd.id}
-                        x={card.x * minimap.s}
-                        y={card.y * minimap.s}
-                        width={(card.w || 200) * minimap.s}
-                        height={(card.h || 64) * minimap.s}
+                        x={visX}
+                        y={visY}
+                        width={Math.max(12, visW)}
+                        height={Math.max(8, visH)}
+                        fill="var(--color-kumo-brand)"
+                        fillOpacity={0.12}
+                        stroke="var(--color-kumo-brand)"
+                        strokeWidth={1.5}
                         rx={2}
-                        fill={STATUS_COLORS[card.fwd.apply_status] || 'var(--color-kumo-line)'}
-                        opacity={0.75}
                       />
-                    ))
-                  )}
-                  {minimapViewRect && (
-                    <rect
-                      x={Math.max(0, minimapViewRect.x)}
-                      y={Math.max(0, minimapViewRect.y)}
-                      width={Math.min(minimapViewRect.w, minimap.w - Math.max(0, minimapViewRect.x))}
-                      height={Math.min(minimapViewRect.h, minimap.h - Math.max(0, minimapViewRect.y))}
-                      fill="var(--color-kumo-brand)"
-                      fillOpacity={0.1}
-                      stroke="var(--color-kumo-brand)"
-                      strokeWidth={1}
-                      rx={2}
-                    />
-                  )}
-                </svg>
+                    )}
+                  </svg>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-kumo-text-secondary">
+                  <Button size="sm" variant="outline" shape="square" aria-label="放大" onClick={() => zoomBy(1.25)}>+</Button>
+                  <Button size="sm" variant="outline" shape="square" aria-label="缩小" onClick={() => zoomBy(0.8)}>−</Button>
+                  <Button size="sm" variant="outline" onClick={fit}>适应</Button>
+                  <span className="w-12 tabular-nums">{Math.round(view.scale * 100)}%</span>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
       </div>
     </div>
   );

@@ -378,6 +378,7 @@ export function DS2APIPlugin() {
                   size="sm"
                   className="w-40"
                   placeholder="ds2-"
+                  aria-label="模型前缀"
                   value={prefixDraft ?? settings?.modelPrefix ?? ''}
                   onChange={e => setPrefixDraft(e.target.value)}
                   onBlur={commitModelPrefix}

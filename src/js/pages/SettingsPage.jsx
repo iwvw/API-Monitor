@@ -1222,6 +1222,7 @@ function SettingsPage() {
                 value={settings.publicApiUrl}
                 onChange={(e) => patchSettings({ publicApiUrl: e.target.value })}
                 placeholder="https://monitor.example.com"
+                aria-label="公网 API 地址"
               />
             </FieldRow>
             <FieldRow title="系统时区" description="本地化时间；跟随服务器用默认时区。">

@@ -479,7 +479,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                 <div className="flex flex-col gap-3 py-3">
                   <div className="flex flex-col gap-1">
                     <label className="text-xs text-kumo-text-secondary">规则名称</label>
-                    <Input size="sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="如 调试 API" />
+                    <Input size="sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="如 调试 API" aria-label="规则名称" />
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-xs text-kumo-text-secondary">常用服务预设</label>
@@ -492,13 +492,13 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">本地地址</label>
-                      <Input size="sm" value={localHost} onChange={(e) => setLocalHost(e.target.value)} placeholder="127.0.0.1" />
+                      <Input size="sm" value={localHost} onChange={(e) => setLocalHost(e.target.value)} placeholder="127.0.0.1" aria-label="本地地址" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">本地端口</label>
-                      <Input size="sm" type="number" value={localPort} onChange={(e) => setLocalPort(e.target.value)} placeholder="5000" min={1} max={65535} />
+                      <Input size="sm" type="number" value={localPort} onChange={(e) => setLocalPort(e.target.value)} placeholder="5000" min={1} max={65535} aria-label="本地端口" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">协议</label>

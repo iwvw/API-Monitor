@@ -1,17 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Tabs } from '@cloudflare/kumo';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import { Loader } from '@cloudflare/kumo/components/loader';
-import { toast } from '../modules/toast.js';
-import { PageStack, stickyTabsBaseClass, TabBarOverflowActions } from '../components/ui/AppPrimitives.jsx';
-import useConfirmPress from '../hooks/useConfirmPress.js';
-import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
-import ForwardCanvas from '../components/forward/ForwardCanvas.jsx';
-import ForwardDialog from '../components/forward/ForwardDialog.jsx';
-import ForwardTable from '../components/forward/ForwardTable.jsx';
+import { toast } from '../../modules/toast.js';
+import useConfirmPress from '../../hooks/useConfirmPress.js';
+import ForwardCanvas from './ForwardCanvas.jsx';
+import ForwardDialog from './ForwardDialog.jsx';
 
 const FORWARD_API = '/api/server/forward';
 
-export default function ForwardPage() {
+/**
+ * 端口转发面板 — 内嵌于主机实例页「端口转发」tab。
+ * 负责转发规则的数据加载与全部操作编排，渲染画布与创建/编辑弹窗。
+ * 通过 ref 暴露 openCreate()，供宿主页在主 tab 栏触发「创建转发规则」。
+ */
+const ForwardPanel = forwardRef(function ForwardPanel(_props, ref) {
   const [forwards, setForwards] = useState([]);
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,7 +29,6 @@ export default function ForwardPage() {
   });
   // 站点标准两段式删除（4 秒确认窗 + toast 提示 + 自动复位）
   const { isArmed, confirmPress } = useConfirmPress();
-  const [activeTab, setActiveTab] = useState('canvas');
 
   const loadForwards = useCallback(async () => {
     try {
@@ -179,40 +179,22 @@ export default function ForwardPage() {
     setDialogOpen(true);
   };
 
+  useImperativeHandle(ref, () => ({
+    openCreate,
+  }), []);
+
   const openEdit = (row) => {
     setEditingForward(row);
     setDialogOpen(true);
   };
 
   return (
-    <PageStack className={activeTab === 'canvas' ? '!pb-0 !cq-sm:pb-0' : ''}>
-      <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
-        <Tabs
-          {...MODULE_TABS_PROPS}
-          value={activeTab}
-          onValueChange={setActiveTab}
-          tabs={[
-            { value: 'canvas', label: '画布' },
-            { value: 'rules', label: '转发规则' },
-          ]}
-        />
-        <TabBarOverflowActions
-          items={[
-            {
-              key: 'create',
-              label: '创建转发规则',
-              icon: null,
-              onClick: openCreate,
-            },
-          ]}
-        />
-      </div>
-
+    <div className="flex min-w-0 flex-col gap-3">
       {loading && (
         <div className="flex items-center justify-center py-20"><Loader /></div>
       )}
 
-      {!loading && activeTab === 'canvas' && (
+      {!loading && (
         <ForwardCanvas
           forwards={forwards}
           servers={servers}
@@ -228,22 +210,6 @@ export default function ForwardPage() {
         />
       )}
 
-      {!loading && activeTab === 'rules' && (
-        <ForwardTable
-          forwards={forwards}
-          deploying={deploying}
-          acting={acting}
-          onEdit={openEdit}
-          onDeploy={handleDeploy}
-          onStop={handleStop}
-          onStart={handleStart}
-          onDelete={handleDelete}
-          deleteConfirmActive={isArmed}
-          isDeleting={isDeleting}
-          onCreate={openCreate}
-        />
-      )}
-
       <ForwardDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -251,6 +217,8 @@ export default function ForwardPage() {
         servers={servers}
         editing={editingForward}
       />
-    </PageStack>
+    </div>
   );
-}
+});
+
+export default ForwardPanel;

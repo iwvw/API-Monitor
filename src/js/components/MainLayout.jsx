@@ -54,7 +54,6 @@ const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
 const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
-const ForwardPage = lazy(() => import('../pages/ForwardPage.jsx'));
 
 import { pageStackClass } from './ui/AppPrimitives.jsx';
 import AskAiPanel from './adminai/AskAiPanel.jsx';
@@ -624,7 +623,6 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'tencent',
     'm365',
     'adminai',
-    'forward',
   ].includes(mainActiveTab);
   const mainCanvasClassName =
     (stickyHeaderScrollModule
@@ -692,8 +690,6 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <PromptLibraryPage />;
       case 'adminai':
         return <AdminAIPage />;
-      case 'forward':
-        return <ForwardPage />;
       default:
         const ActiveIcon = getModuleIconComponent(mainActiveTab, Server);
         return (

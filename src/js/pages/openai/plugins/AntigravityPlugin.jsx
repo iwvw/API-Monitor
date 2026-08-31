@@ -429,6 +429,7 @@ export function AntigravityPlugin() {
                 size="sm"
                 className="w-40"
                 placeholder="agy-"
+                aria-label="模型前缀"
                 value={prefixDraft ?? settings?.modelPrefix ?? ''}
                 onChange={e => setPrefixDraft(e.target.value)}
                 onBlur={commitModelPrefix}
@@ -634,7 +635,7 @@ export function AntigravityPlugin() {
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
             <div className="space-y-4">
               <Input size="sm" label="名称（可选）" type="text" value={oauthName} onChange={e => setOauthName(e.target.value)} className="w-full" />
-              <Input size="sm" type="text" readOnly className="w-full font-mono text-[0.8em]" value={oauthAuthUrl} />
+              <Input size="sm" type="text" readOnly aria-label="授权链接" className="w-full font-mono text-[0.8em]" value={oauthAuthUrl} />
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="secondary" onClick={() => window.open(oauthAuthUrl, '_blank')} disabled={!oauthAuthUrl}>
                   打开授权链接

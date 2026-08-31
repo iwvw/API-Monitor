@@ -3666,6 +3666,7 @@ function OpenAIPage() {
                         type="number"
                         min={1}
                         max={60}
+                        aria-label="429 重试等待秒数"
                         value={endpointForm.rateLimitRetryWaitSeconds ?? 10}
                         onChange={e => {
                           const value = parseInt(e.target.value, 10);

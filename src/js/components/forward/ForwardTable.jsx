@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, ClipboardText, Select, Table } from '@cloudflare/kumo';
+import { Badge, Button, ClipboardText, Select } from '@cloudflare/kumo';
+import { Table } from '@cloudflare/kumo/components/table';
 import { Input } from '@cloudflare/kumo/components/input';
 import { ArrowUpRight } from '@phosphor-icons/react';
 import { AnimatedCollapse } from '../AnimatedCollapse.jsx';
+import { AppTable, DataTableFrame } from '../ui/AppPrimitives.jsx';
 import { STATUS_COLORS, STATUS_LABELS, TRANSPORT_LABELS } from './useMeshLayout.js';
 
 const FORWARD_API = '/api/server/forward';
@@ -80,124 +82,97 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
     return true;
   });
 
-  const columns = [
-    {
-      key: 'name',
-      label: '规则名称',
-      primary: true,
-      render: (val, row) => (
-        <div className="flex flex-col gap-0.5">
-          <span className="truncate font-medium text-kumo-strong">{val}</span>
-          <span className="truncate text-xs text-kumo-text-secondary">
-            {row.server_name || row.server_id} · {(row.protocol || 'tcp').toUpperCase()}
-          </span>
-          {row.failover_enabled && row.failover_current_server_id && (
-            <span className="truncate text-xs text-kumo-text-warning">
-              已切换到 {row.failover_current_server_id}
-              {row.failover_switched_at ? ` ${row.failover_switched_at}` : ''}
-            </span>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'transport',
-      label: '传输方式',
-      width: 110,
-      render: (val) => (
-        <Badge variant={TRANSPORT_BADGE_VARIANT[val] || 'neutral'} size="sm">{TRANSPORT_LABELS[val] || val}</Badge>
-      ),
-    },
-    {
-      key: 'access_url',
-      label: '访问地址',
-      content: true,
-      render: (val, row) => (
-        <div className="flex min-w-0 items-center gap-1.5">
-          {row.whole_host && <Badge variant="blue" size="sm">整域</Badge>}
-          {val ? (
-            <>
-              <ClipboardText size="sm" text={val} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
-              {/^https?:\/\//.test(val) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  shape="square"
-                  aria-label="打开访问地址"
-                  title="打开访问地址"
-                  onClick={(e) => { e.stopPropagation(); window.open(val, '_blank', 'noopener'); }}
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5" weight="bold" />
-                </Button>
-              )}
-            </>
-          ) : <span className="text-xs text-kumo-text-secondary">部署后显示</span>}
-        </div>
-      ),
-    },
-    {
-      key: 'apply_status',
-      label: '状态',
-      width: 96,
-      render: (_, row) => (
-        <span title={row.last_error || undefined}>
-          <Badge variant={STATUS_BADGE_VARIANT[row.apply_status] || 'neutral'} appearance="dot" size="sm">
-            {STATUS_LABELS[row.apply_status] || row.apply_status}
-          </Badge>
-        </span>
-      ),
-    },
-    {
-      key: 'failover',
-      label: '故障转移',
-      width: 120,
-      render: (_, row) => {
-        if (!row.failover_enabled) return <span className="text-xs text-kumo-text-secondary">未启用</span>;
-        if (row.failover_current_server_id) return (
-          <Badge variant="warning" appearance="dot" size="sm">
-            已切换 → {row.failover_current_server_id}
-          </Badge>
-        );
-        return <Badge variant="success" appearance="dot" size="sm">正常</Badge>;
-      },
-    },
-    {
-      key: 'connector_count',
-      label: '连接',
-      width: 56,
-      render: (val) => <span className="text-xs tabular-nums text-kumo-default">{val || 0}</span>,
-    },
-    {
-      key: 'actions',
-      label: '操作',
-      width: 280,
-      render: (_, row) => (
-        <div className="actions-xl flex items-center gap-1">
-          <Button size="sm" variant="outline" onClick={() => onEdit(row)}>编辑</Button>
-          {row.apply_status === 'running' ? (
-            <Button size="sm" variant="outline" onClick={() => onStop(row.id)} disabled={acting?.has(`stop:${row.id}`)}>
-              {acting?.has(`stop:${row.id}`) ? '停止中' : '停止'}
-            </Button>
-          ) : row.apply_status !== 'deploying' ? (
-            <Button size="sm" variant="outline" onClick={() => onStart(row.id)} disabled={acting?.has(`start:${row.id}`)}>
-              {acting?.has(`start:${row.id}`) ? '启动中' : '启动'}
-            </Button>
-          ) : null}
-          <Button size="sm" variant="outline" onClick={() => onDeploy(row.id)} disabled={deploying.has(row.id)}>
-            {deploying.has(row.id) ? '部署中' : '部署'}
-          </Button>
-          <Button
-            size="sm"
-            variant={deleteConfirmActive?.(`fwd:${row.id}`) ? 'destructive' : 'secondary-destructive'}
-            disabled={isDeleting}
-            onClick={() => onDelete(row)}
-          >
-            {deleteConfirmActive?.(`fwd:${row.id}`) ? '确认删除' : '删除'}
-          </Button>
-        </div>
-      ),
-    },
+  const COLUMNS = [
+    { id: 'name', role: 'primary', minWidth: 220 },
+    { id: 'transport', role: 'status', width: 110 },
+    { id: 'access_url', role: 'identifier', grow: 1, minWidth: 220 },
+    { id: 'apply_status', role: 'status', width: 96 },
+    { id: 'failover', role: 'meta', width: 120 },
+    { id: 'connector_count', role: 'meta', width: 56 },
+    { id: 'actions', role: 'actions-lg', width: 300, maxWidth: 320 },
   ];
+
+  const renderNameCell = (row) => (
+    <div className="flex flex-col gap-0.5">
+      <span className="truncate font-medium text-kumo-strong">{row.name}</span>
+      <span className="truncate text-xs text-kumo-text-secondary">
+        {row.server_name || row.server_id} · {(row.protocol || 'tcp').toUpperCase()}
+      </span>
+      {row.failover_enabled && row.failover_current_server_id && (
+        <span className="truncate text-xs text-kumo-text-warning">
+          已切换到 {row.failover_current_server_id}
+          {row.failover_switched_at ? ` ${row.failover_switched_at}` : ''}
+        </span>
+      )}
+    </div>
+  );
+
+  const renderAccessUrlCell = (row) => (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {row.whole_host && <Badge variant="blue" size="sm">整域</Badge>}
+      {row.access_url ? (
+        <>
+          <ClipboardText size="sm" text={row.access_url} tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }} />
+          {/^https?:\/\//.test(row.access_url) && (
+            <Button
+              size="sm"
+              variant="outline"
+              shape="square"
+              aria-label="打开访问地址"
+              title="打开访问地址"
+              onClick={(e) => { e.stopPropagation(); window.open(row.access_url, '_blank', 'noopener'); }}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" weight="bold" />
+            </Button>
+          )}
+        </>
+      ) : <span className="text-xs text-kumo-text-secondary">部署后显示</span>}
+    </div>
+  );
+
+  const renderStatusCell = (row) => (
+    <span title={row.last_error || undefined}>
+      <Badge variant={STATUS_BADGE_VARIANT[row.apply_status] || 'neutral'} appearance="dot" size="sm">
+        {STATUS_LABELS[row.apply_status] || row.apply_status}
+      </Badge>
+    </span>
+  );
+
+  const renderFailoverCell = (row) => {
+    if (!row.failover_enabled) return <span className="text-xs text-kumo-text-secondary">未启用</span>;
+    if (row.failover_current_server_id) return (
+      <Badge variant="warning" appearance="dot" size="sm">
+        已切换 → {row.failover_current_server_id}
+      </Badge>
+    );
+    return <Badge variant="success" appearance="dot" size="sm">正常</Badge>;
+  };
+
+  const renderActionsCell = (row) => (
+    <div className="actions-xl flex items-center gap-1">
+      <Button size="sm" variant="outline" onClick={() => onEdit(row)}>编辑</Button>
+      {row.apply_status === 'running' ? (
+        <Button size="sm" variant="outline" onClick={() => onStop(row.id)} disabled={acting?.has(`stop:${row.id}`)}>
+          {acting?.has(`stop:${row.id}`) ? '停止中' : '停止'}
+        </Button>
+      ) : row.apply_status !== 'deploying' ? (
+        <Button size="sm" variant="outline" onClick={() => onStart(row.id)} disabled={acting?.has(`start:${row.id}`)}>
+          {acting?.has(`start:${row.id}`) ? '启动中' : '启动'}
+        </Button>
+      ) : null}
+      <Button size="sm" variant="outline" onClick={() => onDeploy(row.id)} disabled={deploying.has(row.id)}>
+        {deploying.has(row.id) ? '部署中' : '部署'}
+      </Button>
+      <Button
+        size="sm"
+        variant={deleteConfirmActive?.(`fwd:${row.id}`) ? 'destructive' : 'secondary-destructive'}
+        disabled={isDeleting}
+        onClick={() => onDelete(row)}
+      >
+        {deleteConfirmActive?.(`fwd:${row.id}`) ? '确认删除' : '删除'}
+      </Button>
+    </div>
+  );
 
   return (
     <>
@@ -218,7 +193,7 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
           aria-label="状态"
           className="w-28"
         />
-        <Input size="sm" placeholder="搜索规则名称..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs flex-1" />
+        <Input size="sm" placeholder="搜索规则名称..." aria-label="搜索规则名称" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs flex-1" />
       </div>
 
       {filtered.length === 0 ? (
@@ -235,11 +210,36 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
           )}
         </div>
       ) : (
-        <Table
-          columns={columns}
-          data={filtered}
-          onRowClick={(row) => setExpandedId(expandedId === row.id ? null : row.id)}
-        />
+        <DataTableFrame variant="embedded" className="min-h-0 flex-1 overflow-auto rounded-none border-0 scrollbar-thin">
+          <AppTable columns={COLUMNS} tableId="forward-rules">
+            <Table.Header sticky variant="compact">
+              <Table.Row>
+                <Table.Head>规则名称</Table.Head>
+                <Table.Head>传输方式</Table.Head>
+                <Table.Head>访问地址</Table.Head>
+                <Table.Head>状态</Table.Head>
+                <Table.Head>故障转移</Table.Head>
+                <Table.Head>连接</Table.Head>
+                <Table.Head className="app-table-action">操作</Table.Head>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {filtered.map((row) => (
+                <Table.Row key={row.id} onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}>
+                  <Table.Cell>{renderNameCell(row)}</Table.Cell>
+                  <Table.Cell>
+                    <Badge variant={TRANSPORT_BADGE_VARIANT[row.transport] || 'neutral'} size="sm">{TRANSPORT_LABELS[row.transport] || row.transport}</Badge>
+                  </Table.Cell>
+                  <Table.Cell>{renderAccessUrlCell(row)}</Table.Cell>
+                  <Table.Cell>{renderStatusCell(row)}</Table.Cell>
+                  <Table.Cell>{renderFailoverCell(row)}</Table.Cell>
+                  <Table.Cell><span className="text-xs tabular-nums text-kumo-default">{row.connector_count || 0}</span></Table.Cell>
+                  <Table.Cell>{renderActionsCell(row)}</Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </AppTable>
+        </DataTableFrame>
       )}
 
       {filtered.map((row) => (

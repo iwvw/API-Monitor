@@ -20,6 +20,7 @@ import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse
 import CountryFlag from '../components/CountryFlag.jsx';
 import QuickCommandBar from '../components/server/QuickCommandBar.jsx';
 import SftpPanel from '../components/server/SftpPanel.jsx';
+import ForwardPanel from '../components/forward/ForwardPanel.jsx';
 import ServerLocationMap from '../components/server/ServerLocationMap.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
 import {
@@ -127,7 +128,8 @@ import {
   ChevronDown,
   ChevronUp,
   Menu,
-  Star
+  Star,
+  Shuffle
 } from '../components/Icons.jsx';
 
 echarts.use([
@@ -2488,7 +2490,8 @@ function ServerPage() {
   const staticTimeseriesEcharts = useMemo(() => createFastTimeseriesEcharts(echarts, SERVER_STATIC_CHART_ANIMATION_OPTIONS), []);
 
 
-  const [serverCurrentTab, setServerCurrentTab] = useState('list'); // 'list', 'status-pages', 'docker', 'management', 'terminal'
+  const [serverCurrentTab, setServerCurrentTab] = useState('list'); // 'list', 'status-pages', 'docker', 'management', 'terminal', 'forward'
+  const forwardPanelRef = useRef(null);
 
   // 主机列表状态
   const [serverList, setServerList] = useState([]);
@@ -7661,6 +7664,7 @@ function ServerPage() {
           tabs={[
             { value: 'list', label: <ServerModuleTabLabel icon={Server} short="主机">主机</ServerModuleTabLabel> },
             { value: 'docker', label: <ServerModuleTabLabel icon={Box} short="容器">容器</ServerModuleTabLabel> },
+            { value: 'forward', label: <ServerModuleTabLabel icon={Shuffle} short="转发">端口转发</ServerModuleTabLabel> },
             { value: 'status-pages', label: <ServerModuleTabLabel icon={Globe} short="公开">公开</ServerModuleTabLabel> },
             { value: 'management', label: <ServerModuleTabLabel icon={Settings} short="管理">管理</ServerModuleTabLabel> },
             ...(sshSessions.length > 0
@@ -7674,6 +7678,12 @@ function ServerPage() {
 
         {/* 右侧快速连接 */}
         <div className="flex shrink-0 items-center gap-2">
+          {serverCurrentTab === 'forward' && (
+            <Button size="sm" variant="primary" onClick={() => forwardPanelRef.current?.openCreate()}>
+              <Plus className="h-3.5 w-3.5" />
+              创建转发规则
+            </Button>
+          )}
           {serverCurrentTab === 'list' && (
             <Toolbar size="sm" aria-label="导出导入主机配置" className="shrink-0">
               <Toolbar.Button onClick={exportServers} aria-label="导出主机配置" icon={<Upload className="h-3.5 w-3.5" />}>
@@ -7877,6 +7887,11 @@ function ServerPage() {
             </LayerCard.Primary>
           </LayerCard>
         </div>
+      )}
+
+      {/* ==================== 端口转发 ==================== */}
+      {serverCurrentTab === 'forward' && (
+        <ForwardPanel ref={forwardPanelRef} />
       )}
 
       {/* ==================== 1. 主机管理 ==================== */}
