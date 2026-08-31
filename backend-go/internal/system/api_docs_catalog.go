@@ -483,6 +483,11 @@ var apiDocSeeds = []apiDocSeed{
 	// ---- admin-ai 管理接口（修正误登方法 + 补缺失写路由）----
 	{Route: manifest.Route{Prefix: "/api/admin-ai/sessions/{id}", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI session update/delete", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"PATCH", "DELETE"}}},
+	{Route: manifest.Route{Prefix: "/api/admin-ai/sessions/{id}/messages", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI session message history（游标翻页）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "cursor", In: "query", Required: false, Description: "上一页响应的 nextCursor；为空返回第一页"},
+			{Name: "limit", In: "query", Required: false, Description: "每页条数，最大 200，默认 50"},
+		}}},
 	{Route: manifest.Route{Prefix: "/api/admin-ai/messages", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI message send（历史读取经 /sessions/{id}/messages）", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/admin-ai/cancel", Module: "admin-ai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Admin AI run cancel", MatchMode: manifest.MatchExact},
@@ -1037,6 +1042,88 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/system/status/stream", Module: "system", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "System status SSE stream", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"GET"}}},
+
+	// ---- server/forward 转发中心（此前整棵子树未登记，AI 无法发现/调用）----
+	{Route: manifest.Route{Prefix: "/api/server/forward", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule list/create", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET", "POST"}, QueryParams: []apiDocParameter{
+			{Name: "offset", In: "query", Required: false, Description: "分页偏移，默认 0"},
+			{Name: "limit", In: "query", Required: false, Description: "每页条数，默认 20、上限 100"},
+			{Name: "server_id", In: "query", Required: false, Description: "按主机过滤"},
+			{Name: "transport", In: "query", Required: false, Description: "按传输方式过滤：cloudflare_tunnel/tcp_relay/p2p"},
+			{Name: "apply_status", In: "query", Required: false, Description: "按应用状态过滤"},
+			{Name: "search", In: "query", Required: false, Description: "按名称模糊匹配"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule read/update/delete", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"GET", "PUT", "DELETE"}, QueryParams: []apiDocParameter{
+			{Name: "cascade", In: "query", Required: false, Description: "DELETE 时 =1 允许仍有活跃连接时强制删除"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/deploy", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule deploy", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/start", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule start", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/stop", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule stop", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/status", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule runtime status", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"GET"}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/targets", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward failover targets list/add", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"GET", "POST"}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/targets/{targetId}", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward failover target delete", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"DELETE"}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/preflight", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward deploy preflight check", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/server/forward/available-ports", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward available relay ports", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "server_id", In: "query", Required: true, Description: "中继入口主机 ID，必填"},
+		}}},
+
+	// ---- openai analytics 查询参数补齐（路径已登记，参数此前缺失）----
+	{Route: manifest.Route{Prefix: "/api/openai/analytics/summary", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI analytics summary", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "days", In: "query", Required: false, Description: "统计天数，默认 7、须 >0"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/openai/analytics/charts", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI analytics charts", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "days", In: "query", Required: false, Description: "统计天数，默认 7、须 >0"},
+			{Name: "granularity", In: "query", Required: false, Description: "聚合粒度 hour/day/week，默认 day"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/openai/analytics/logs", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI analytics logs", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "page", In: "query", Required: false, Description: "页码，默认 1、须 >0"},
+			{Name: "pageSize", In: "query", Required: false, Description: "每页条数，默认 20、上限 100"},
+			{Name: "days", In: "query", Required: false, Description: "统计天数，默认 7、须 >0"},
+			{Name: "status", In: "query", Required: false, Description: "状态筛选 error/429/5xx/success"},
+			{Name: "model", In: "query", Required: false, Description: "按模型名过滤"},
+			{Name: "endpoint", In: "query", Required: false, Description: "按端点 id 或名称过滤"},
+			{Name: "errors", In: "query", Required: false, Description: "=1 时只看失败(status>=400)"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/openai/relay-errors", Module: "openai", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "OpenAI recent relay failure details", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "limit", In: "query", Required: false, Description: "返回条数，默认 50、上限 200"},
+		}}},
+
+	// ---- scheduler / cron 查询参数补齐（路径已登记，参数此前缺失）----
+	{Route: manifest.Route{Prefix: "/api/scheduler/runs", Module: "scheduler", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Scheduler workflow run list/clear", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET", "DELETE"}, QueryParams: []apiDocParameter{
+			{Name: "all", In: "query", Required: false, Description: "DELETE 时 =true 清空全部运行"},
+			{Name: "days", In: "query", Required: false, Description: "DELETE 时删除早于 N 天的运行，默认 30"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/cron/logs", Module: "cron", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Cron log list/cleanup", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET", "DELETE"}, QueryParams: []apiDocParameter{
+			{Name: "task_id", In: "query", Required: false, Description: "GET 时按任务 ID 过滤，默认返回全部最多 100 条"},
+			{Name: "all", In: "query", Required: false, Description: "DELETE 时 =true 清空全部日志"},
+			{Name: "days", In: "query", Required: false, Description: "DELETE 时删除早于 N 天的日志，默认 7"},
+		}}},
+
+	// ---- docker 容器日志/镜像删除 查询参数补齐 ----
+	{Route: manifest.Route{Prefix: "/api/server/v2/docker/{serverId}/containers/{containerId}/logs", Module: "server-docker", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Docker container logs", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "tail", In: "query", Required: false, Description: "日志尾部行数，默认 200、仅接受 1-10000"},
+			{Name: "since", In: "query", Required: false, Description: "仅返回该时间点之后的日志，原样透传"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/server/v2/docker/{serverId}/images/{imageRef}", Module: "server-docker", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Docker image delete（非多段引用可用 images?image= 查询参数）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"DELETE"}, QueryParams: []apiDocParameter{
+			{Name: "image", In: "query", Required: false, Description: "要删除的镜像名/ID（多段镜像引用走路径段）"},
+		}}},
 }
 
 func supplementalRoutes() []manifest.Route {

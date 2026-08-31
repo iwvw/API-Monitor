@@ -1141,6 +1141,7 @@ func init() {
 	routeRequestContracts["/api/admin-ai/sessions/{id}"] = obj(nil, map[string]prop{
 		"writeEnabled": {t: "boolean", d: "撤销会话级写授权（仅允许显式 false，授权只能由审批流授予）"},
 	})
+	routeRequestContracts["/api/admin-ai/sessions/{id}/messages"] = noBody
 	routeRequestContracts["/api/admin-ai/messages"] = obj([]string{"sessionId", "prompt"}, map[string]prop{
 		"sessionId": {t: "string", req: true, d: "会话 ID"},
 		"prompt":    {t: "string", req: true, d: "用户消息"},
@@ -1575,5 +1576,43 @@ func init() {
 		"clientId":     {t: "string"},
 		"clientSecret": {t: "string"},
 		"enabled":      {t: "boolean"},
+	})
+
+	// ---- server/forward 转发中心（写路由契约补登）----
+	routeRequestContracts["/api/server/forward/{id}"] = obj(nil, map[string]prop{
+		"name":              {t: "string", d: "转发规则名称"},
+		"server_id":         {t: "string", d: "源主机 ID"},
+		"local_host":        {t: "string", d: "源主机本地监听地址"},
+		"local_port":        {t: "integer", d: "源主机本地端口"},
+		"protocol":          {t: "string", d: "协议"},
+		"transport":         {t: "string", d: "传输方式：cloudflare_tunnel/tcp_relay/p2p"},
+		"relay_server_id":   {t: "string", d: "中继入口主机 ID"},
+		"access_mode":       {t: "string", d: "访问模式"},
+		"group_id":          {t: "string", d: "分组 ID"},
+		"whole_host":        {t: "boolean", d: "是否整域转发"},
+		"udp":               {t: "boolean", d: "是否支持 UDP"},
+		"tunnel_hostname":   {t: "string", d: "隧道主机名"},
+		"tunnel_account_id": {t: "string", d: "隧道账号 ID"},
+		"tunnel_zone_id":       {t: "string", d: "隧道域名 ID"},
+		"health_check_enabled": {t: "boolean", d: "是否启用健康检查"},
+		"failover_enabled":     {t: "boolean", d: "是否启用容灾"},
+	})
+	routeRequestContracts["/api/server/forward/{id}/deploy"] = obj(nil, map[string]prop{
+		"transport": {t: "string", d: "传输方式：cloudflare_tunnel/tcp_relay"},
+	})
+	routeRequestContracts["/api/server/forward/{id}/start"] = noBody
+	routeRequestContracts["/api/server/forward/{id}/stop"] = noBody
+	routeRequestContracts["/api/server/forward/{id}/targets"] = obj([]string{"server_id"}, map[string]prop{
+		"server_id": {t: "string", req: true, d: "容灾目标主机 ID"},
+		"priority":  {t: "integer", d: "优先级"},
+		"role":      {t: "string", d: "角色，默认 standby"},
+	})
+	routeRequestContracts["/api/server/forward/preflight"] = obj([]string{"server_id"}, map[string]prop{
+		"forward_id":       {t: "string", d: "转发规则 ID"},
+		"server_id":        {t: "string", req: true, d: "源主机 ID"},
+		"local_host":       {t: "string", d: "本地监听地址"},
+		"transport":        {t: "string", d: "传输方式"},
+		"local_port":       {t: "integer", d: "本地端口"},
+		"relay_server_id":  {t: "string", d: "中继主机 ID"},
 	})
 }

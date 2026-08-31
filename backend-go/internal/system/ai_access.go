@@ -857,7 +857,7 @@ func (s *Service) getRouteContract(args map[string]interface{}) (interface{}, er
 		return nil, fmt.Errorf("%s", hint)
 	}
 	if best == nil {
-		return nil, fmt.Errorf("API 路由不存在: %s", path)
+		return nil, fmt.Errorf("API 路由不存在: %s（%s）", path, s.suggestNearbyRoutes(matchPath, items))
 	}
 	desc := best.Detail
 	if desc == "" {
@@ -925,6 +925,56 @@ func routePatternMatches(prefix, path string) bool {
 		}
 	}
 	return true
+}
+
+// suggestNearbyRoutes 在 get_route 完全未命中时，给出与目标路径最相近的可调用候选，
+// 帮助 AI 从「路由不存在」的僵局里纠偏：优先同前缀的叶子，其次同段数/编辑距离相近者。
+func (s *Service) suggestNearbyRoutes(matchPath string, items []apiDocRoute) string {
+	candidates := make([]string, 0, 4)
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p != "" && p != matchPath && !seen[p] {
+			seen[p] = true
+			candidates = append(candidates, p)
+		}
+	}
+	// 1) 同前缀族：去掉尾部一段后，仍能作为前缀命中/被 pattern 匹配的叶子
+	for i := range items {
+		item := &items[i]
+		if item.MatchMode == manifest.MatchPrefix {
+			continue
+		}
+		// 精确同前缀（/api/x/y → /api/x/y/...）
+		if strings.HasPrefix(matchPath, strings.TrimRight(item.Prefix, "/")+"/") {
+			add(item.Prefix)
+			continue
+		}
+		// 占位符化后 pattern 同段数命中（/api/x/{id} → /api/x/123）
+		if routePatternMatches(item.Prefix, matchPath) {
+			add(item.Prefix)
+		}
+	}
+	// 2) 编辑距离相近（同段数，字面段不同的候选）
+	if len(candidates) < 4 {
+		parts := strings.Split(matchPath, "/")
+		for i := range items {
+			item := &items[i]
+			if item.MatchMode == manifest.MatchPrefix {
+				continue
+			}
+			ip := strings.Split(item.Prefix, "/")
+			if len(ip) == len(parts) {
+				add(item.Prefix)
+				if len(candidates) >= 4 {
+					break
+				}
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return "可用 list_apis 按 group/module 检索，或核对路径是否缺/多了一段"
+	}
+	return "相近接口：" + strings.Join(candidates, "、")
 }
 
 func (s *Service) callAPIFromAI(ctx context.Context, args map[string]interface{}) (interface{}, error) {
