@@ -327,10 +327,25 @@ function isResourceArray(arr) {
   });
 }
 
+// 数组元素是否带「强资源标识」（id/_id/appName/channelId）：用于判断扁平资源数组
+// （如 /api/server/accounts 的 data 主机列表）。isResourceArray 把仅带 name 的包裹对象
+// （如 koyeb accounts 元素、flyio account 包裹）也算作资源，会误伤跨元素合并/嵌套穿透，
+// 因此扁平判断只用真正可作引用 ID 的强标识。
+function isStrongResourceArray(arr) {
+  return arr.length > 0 && arr.every((el) => {
+    if (!el || typeof el !== 'object') return false;
+    return ['id', '_id', 'appName', 'channelId'].some((k) => el[k] !== undefined && el[k] !== null && el[k] !== '');
+  });
+}
+
 // 列表响应宽容解析：精确键、信封（data/items/list）、跨元素合并（多账号 apps 嵌套）、
 // 包裹穿透（koyeb accounts[].projects[].services）；内部数据数组会被过滤
 function extractResourceList(data, keys) {
   if (!data) return [];
+  // 顶层即为扁平资源数组（如 /api/server/accounts 的 data 主机列表，元素带 id）：
+  // 直接返回，避免被「任意子值深入」截胡成内部数据数组（如主机 info.gpu 只取到
+  // 1 个 GPU）。koyeb 的 accounts 元素仅带 name（无强标识），此处不命中。
+  if (Array.isArray(data) && isStrongResourceArray(data)) return data;
   const walk = (v, depth) => {
     if (depth > 4) return null;
     if (Array.isArray(v)) {
