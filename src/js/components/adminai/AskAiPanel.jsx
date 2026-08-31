@@ -313,6 +313,11 @@ const MENTION_GROUPS = [
   { type: 'channel', label: '通知渠道', icon: Bell },
 ];
 
+// @ 资源加载：单桶超时（外部聚合接口可能很慢，超时即跳过，不阻塞整列）；
+// 刷新窗口（面板常驻挂载，超过该时长再开 @ 会重新拉取，避免列表长期过期与实际不符）
+const RESOURCE_FETCH_TIMEOUT_MS = 8000;
+const RESOURCE_REFRESH_MS = 60000;
+
 // 数组元素是否带资源标识（id/_id/appName/name）：区分真正的资源列表与
 // 内部数据数组（如主机 info.disk），后者被拒绝，避免任意子值深入时被截胡
 function isResourceArray(arr) {
@@ -426,12 +431,12 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
-          {loading && <p className="px-3 py-2 text-xs text-kumo-subtle">加载中…</p>}
+          {loading && list.length === 0 && <p className="px-3 py-2 text-xs text-kumo-subtle">加载中…</p>}
           {!loading && !error && list.length === 0 && (
             <p className="px-3 py-2 text-xs text-kumo-subtle">暂无{q ? '匹配结果' : `可引用${group.label}`}</p>
           )}
-          {!loading && error && <p className="px-3 py-2 text-xs text-kumo-subtle">加载失败</p>}
-          {!loading && list.map((r) => (
+          {!loading && error && list.length === 0 && <p className="px-3 py-2 text-xs text-kumo-subtle">加载失败</p>}
+          {list.map((r) => (
             <Button
               key={r.id || r.name}
               size="sm"
@@ -495,6 +500,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const [atTab, setAtTab] = useState('zone');
   const [atQuery, setAtQuery] = useState('');
   const resourcesLoadedRef = useRef(false);
+  const resourcesLoadedAtRef = useRef(0);
   // 当前输入框已引用（插入了 @名称）的资源：chips 展示，发送时随消息携带 {type, id, name}
   const [pendingMentions, setPendingMentions] = useState([]);
 
@@ -892,12 +898,16 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   };
    /* @ 资源：懒加载四类引用资源（域名用聚合接口覆盖全部账号；单类失败不阻塞其他类） */
   const loadResources = useCallback(async () => {
-    if (resourcesLoadedRef.current || atLoading) return;
+    const now = Date.now();
+    if (resourcesLoadedRef.current && now - resourcesLoadedAtRef.current < RESOURCE_REFRESH_MS) return;
+    if (atLoading) return;
     setAtLoading(true);
     setAtError(false);
     const fetchBucket = async (type, path, keys) => {
+      const ctrl = new AbortController();
+      const timer = window.setTimeout(() => ctrl.abort(), RESOURCE_FETCH_TIMEOUT_MS);
       try {
-        const res = await fetch(path);
+        const res = await fetch(path, { signal: ctrl.signal });
         const data = await res.json();
         const body = data && data.data !== undefined ? data.data : data;
         const raw = extractResourceList(body, keys);
@@ -910,6 +920,8 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
           .filter((r) => r.id && r.name);
       } catch {
         return null;
+      } finally {
+        window.clearTimeout(timer);
       }
     };
     const [zones, hosts, tasks, accounts, flyioApps, koyebServices, nodes, channels] = await Promise.all([
@@ -930,6 +942,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     if (failed) setAtError(true);
     setResources((prev) => ({ ...prev, ...next }));
     resourcesLoadedRef.current = true;
+    resourcesLoadedAtRef.current = Date.now();
     setAtLoading(false);
   }, [atLoading]);
 
