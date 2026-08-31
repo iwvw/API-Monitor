@@ -43,10 +43,12 @@ type BudgetItem struct {
 	ResetPeriod   string  `json:"resetPeriod"`
 }
 
-// monthlyRange 返回某月首日/末日（UTC）。
-func monthlyRange(year int, month time.Month) (time.Time, time.Time) {
+// monthRange 返回某月首日与下月首日（均对齐 UTC 午夜 00:00:00.000）。
+// Usage API 的 MONTHLY 粒度要求时间边界的小时/分/秒/小数均为 0，故用「下月首日」
+// 作为 end，而非「月末减 1 纳秒」。
+func monthRange(year int, month time.Month) (time.Time, time.Time) {
 	start := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0).Add(-time.Nanosecond)
+	end := start.AddDate(0, 1, 0)
 	return start, end
 }
 
@@ -166,24 +168,24 @@ func (s *Service) listBudgets(ctx context.Context, account Account) ([]BudgetIte
 func (s *Service) costOverview(ctx context.Context, account Account) (CostOverview, error) {
 	now := time.Now().UTC()
 	curY, curM := now.Year(), now.Month()
-	prevStart, _ := monthlyRange(curY, curM)
-	prevEnd := prevStart.Add(-time.Nanosecond)
-	prevY, prevM := prevEnd.Year(), prevEnd.Month()
+	curStart, curEnd := monthRange(curY, curM)
+	// 上月：当前月往前推一个月（跨年正确）
+	prevStart := curStart.AddDate(0, -1, 0)
+	prevEnd := curStart
 
 	var ov CostOverview
 	var err error
 
-	// 当前月成本
-	if ov.CurrentMonth, err = s.summarizeMonth(ctx, account, prevStart, now, usageapi.RequestSummarizedUsagesDetailsQueryTypeCost); err != nil {
+	// 当前月成本（本月首日 ~ 下月首日，含整月）
+	if ov.CurrentMonth, err = s.summarizeMonth(ctx, account, curStart, curEnd, usageapi.RequestSummarizedUsagesDetailsQueryTypeCost); err != nil {
 		return ov, err
 	}
 	// 上月成本
-	pmStart, pmEnd := monthlyRange(prevY, prevM)
-	if ov.PreviousMonth, err = s.summarizeMonth(ctx, account, pmStart, pmEnd, usageapi.RequestSummarizedUsagesDetailsQueryTypeCost); err != nil {
+	if ov.PreviousMonth, err = s.summarizeMonth(ctx, account, prevStart, prevEnd, usageapi.RequestSummarizedUsagesDetailsQueryTypeCost); err != nil {
 		return ov, err
 	}
 	// 按服务分解（当前月）
-	if ov.ByService, err = s.summarizeByService(ctx, account, prevStart, now); err != nil {
+	if ov.ByService, err = s.summarizeByService(ctx, account, curStart, curEnd); err != nil {
 		return ov, err
 	}
 	// 预算
@@ -198,10 +200,7 @@ func (s *Service) costOverview(ctx context.Context, account Account) (CostOvervi
 			mm += 12
 			y--
 		}
-		start, end := monthlyRange(y, time.Month(mm))
-		if y == curY && time.Month(mm) == curM {
-			end = now
-		}
+		start, end := monthRange(y, time.Month(mm))
 		bucket, err := s.summarizeMonth(ctx, account, start, end, usageapi.RequestSummarizedUsagesDetailsQueryTypeCost)
 		if err != nil {
 			continue
