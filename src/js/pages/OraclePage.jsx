@@ -25,6 +25,7 @@ import {
   Key,
   Layers,
   MoreVertical,
+  PieChart,
   Play,
   Plus,
   RefreshCw,
@@ -63,6 +64,7 @@ const tabs = [
   { value: 'network', label: <span className="inline-flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" />网络</span> },
   { value: 'storage', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="h-3.5 w-3.5" />卷</span> },
   { value: 'console', label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-3.5 w-3.5" />控制台</span> },
+  { value: 'cost', label: <span className="inline-flex items-center gap-1.5"><PieChart className="h-3.5 w-3.5" />成本</span> },
   { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Key className="h-3.5 w-3.5" />账号管理</span> },
 ];
 
@@ -96,6 +98,7 @@ const CACHE_TTL_MS = {
   instances: 45_000,
   detail: 45_000,
   shapes: 5 * 60_000,
+  cost: 10 * 60_000,
 };
 
 const ADVANCED_INSTANCE_ACTIONS = [
@@ -228,6 +231,8 @@ function OraclePage() {
   const [submittingResize, setSubmittingResize] = useState(false);
   const [deletingConsoleId, setDeletingConsoleId] = useState('');
   const [consolePublicKey, setConsolePublicKey] = useState('');
+  const [costOverview, setCostOverview] = useState(null);
+  const [loadingCost, setLoadingCost] = useState(false);
   const privateKeyFileRef = useRef(null);
   const accountImportFileRef = useRef(null);
   const cacheRef = useRef({
@@ -236,6 +241,7 @@ function OraclePage() {
     instances: new Map(),
     details: new Map(),
     shapes: new Map(),
+    cost: new Map(),
   });
   const inflightRef = useRef({
     accounts: null,
@@ -243,6 +249,7 @@ function OraclePage() {
     instances: new Map(),
     details: new Map(),
     shapes: new Map(),
+    cost: new Map(),
   });
   const previousScopeRef = useRef('');
 
@@ -496,6 +503,39 @@ function OraclePage() {
     }
   }, [getCachedValue, selectedAccountId, selectedCompartmentId, selectedInstance]);
 
+  const loadCost = useCallback(async ({ force = false, silent = false, accountId = selectedAccountId } = {}) => {
+    if (!accountId) return null;
+    const cacheKey = String(accountId);
+    const cached = force ? null : getCachedValue(cacheRef.current.cost.get(cacheKey), CACHE_TTL_MS.cost);
+    if (cached) {
+      setCostOverview(cached);
+      return cached;
+    }
+    if (!force && inflightRef.current.cost.get(cacheKey)) return inflightRef.current.cost.get(cacheKey);
+    if (!silent) setLoadingCost(true);
+    try {
+      const request = (async () => {
+        const response = await fetch(`/api/oracle/accounts/${accountId}/cost`, { headers: getAuthHeaders() });
+        const result = await response.json();
+        if (!response.ok || result.success === false) throw new Error(result.error || '加载成本数据失败');
+        const data = unwrap(result);
+        cacheRef.current.cost.set(cacheKey, { value: data, at: Date.now() });
+        setCostOverview(data);
+        return data;
+      })();
+      inflightRef.current.cost.set(cacheKey, request);
+      const data = await request;
+      inflightRef.current.cost.delete(cacheKey);
+      return data;
+    } catch (error) {
+      toast.error(error.message || '加载成本数据失败');
+      inflightRef.current.cost.delete(cacheKey);
+      return null;
+    } finally {
+      if (!silent) setLoadingCost(false);
+    }
+  }, [getCachedValue, selectedAccountId]);
+
   const invalidateScopeCache = useCallback((accountId = selectedAccountId) => {
     if (!accountId) return;
     const prefix = `${accountId}:`;
@@ -543,6 +583,10 @@ function OraclePage() {
   useEffect(() => {
     if (selectedAccountId && activeTab !== 'accounts') loadInstances();
   }, [selectedAccountId, selectedCompartmentId, activeTab, loadInstances]);
+
+  useEffect(() => {
+    if (selectedAccountId && activeTab === 'cost') loadCost();
+  }, [selectedAccountId, activeTab, loadCost]);
 
   useEffect(() => {
     if (selectedInstanceId && activeTab !== 'accounts') loadInstanceDetail();
@@ -1183,6 +1227,107 @@ function OraclePage() {
         </div>
       )}
 
+      {activeTab === 'cost' && (
+        <SectionCard
+          title="成本监控"
+          icon={<PieChart className="h-4 w-4 text-brand" />}
+          description={costOverview?.currency ? `货币 ${costOverview.currency}` : 'OCI 成本与预算概览'}
+          className="min-h-0 flex-1"
+          bodyPadding="none"
+          bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+          actions={(
+            <Button type="button" size="sm" variant="secondary" onClick={() => loadCost({ force: true })} loading={loadingCost} icon={<RefreshCw className="h-3.5 w-3.5" />}>
+              刷新
+            </Button>
+          )}
+        >
+          {loadingCost && !costOverview ? (
+            <div className="grid gap-4 p-4 cq-lg:grid-cols-2">
+              {[0, 1, 2, 3].map((i) => <SkeletonLine key={i} className="h-28 w-full" />)}
+            </div>
+          ) : !costOverview ? (
+            <div className="p-6 text-center text-sm text-kumo-subtle">暂无成本数据，请选择账号后刷新。</div>
+          ) : (
+            <div className="grid gap-4 overflow-auto p-4 cq-lg:grid-cols-2">
+              <CostSummaryCard title="本月成本" amount={costOverview.currentMonth?.cost} month={costOverview.currentMonth?.month} />
+              <CostSummaryCard title="上月成本" amount={costOverview.previousMonth?.cost} month={costOverview.previousMonth?.month} />
+              <SectionCard title="按服务分解" className="min-h-0" bodyPadding="none" bodyClassName="overflow-auto">
+                {costOverview.byService?.length ? (
+                  <DataTableFrame variant="embedded" density="dense" className="min-h-0 overflow-auto">
+                    <AppTable tableId="oracle-cost-by-service" columns={[{ id: 'service', role: 'primary' }, { id: 'cost', role: 'number', width: 120 }]}>
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.Head>服务</Table.Head>
+                          <Table.Head>成本</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {costOverview.byService.map((item) => (
+                          <Table.Row key={item.service}>
+                            <Table.Cell>{item.service}</Table.Cell>
+                            <Table.Cell>{formatCurrency(item.cost)}</Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </AppTable>
+                  </DataTableFrame>
+                ) : (
+                  <div className="p-4 text-center text-sm text-kumo-subtle">暂无按服务成本数据</div>
+                )}
+              </SectionCard>
+              <SectionCard title="预算" className="min-h-0" bodyPadding="none" bodyClassName="overflow-auto">
+                {costOverview.budgets?.length ? (
+                  <DataTableFrame variant="embedded" density="dense" className="min-h-0 overflow-auto">
+                    <AppTable tableId="oracle-cost-budgets" columns={[{ id: 'name', role: 'primary' }, { id: 'amount', role: 'number', width: 120 }, { id: 'actual', role: 'number', width: 120 }]}>
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.Head>预算</Table.Head>
+                          <Table.Head>额度</Table.Head>
+                          <Table.Head>已花费</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {costOverview.budgets.map((b) => (
+                          <Table.Row key={b.id}>
+                            <Table.Cell>{b.name}</Table.Cell>
+                            <Table.Cell>{formatCurrency(b.amount)}</Table.Cell>
+                            <Table.Cell>{formatCurrency(b.actualSpend)}</Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </AppTable>
+                  </DataTableFrame>
+                ) : (
+                  <div className="p-4 text-center text-sm text-kumo-subtle">未配置预算</div>
+                )}
+              </SectionCard>
+              {costOverview.monthlyHistory?.length > 0 && (
+                <SectionCard title="近 6 月成本趋势" className="min-h-0 cq-lg:col-span-2" bodyPadding="none" bodyClassName="overflow-auto">
+                  <DataTableFrame variant="embedded" density="dense" className="min-h-0 overflow-auto">
+                    <AppTable tableId="oracle-cost-history" columns={[{ id: 'month', role: 'primary' }, { id: 'cost', role: 'number', width: 140 }]}>
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.Head>月份</Table.Head>
+                          <Table.Head>成本</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {costOverview.monthlyHistory.map((m) => (
+                          <Table.Row key={m.month}>
+                            <Table.Cell>{m.month}</Table.Cell>
+                            <Table.Cell>{formatCurrency(m.cost)}</Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </AppTable>
+                  </DataTableFrame>
+                </SectionCard>
+              )}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
       {activeTab === 'accounts' && (
         <SectionCard
           title="Oracle 账号"
@@ -1766,6 +1911,28 @@ function formatOciDate(value) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatCurrency(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '-';
+  return numeric.toLocaleString('zh-CN', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function CostSummaryCard({ title, amount, month }) {
+  return (
+    <SectionCard title={title} description={month ? `月份 ${month}` : undefined} className="min-h-0" bodyPadding="none" bodyClassName="flex items-center justify-center p-6">
+      <div className="text-center">
+        <div className="text-2xl font-semibold text-kumo-strong">{formatCurrency(amount)}</div>
+        <div className="mt-1 text-xs text-kumo-subtle">当前估算成本</div>
+      </div>
+    </SectionCard>
+  );
 }
 
 export default OraclePage;
