@@ -3373,7 +3373,7 @@ function OpenAIPage() {
                   type="text"
                   value={endpointForm.modelsUrl || ''}
                   onChange={e => setEndpointForm({ ...endpointForm, modelsUrl: e.target.value })}
-                  placeholder="默认取 BaseURL/models；模型列表不在标准路径时在此填完整地址，如 api.cline.bot 的 recommended-models 接口"
+                  placeholder="模型列表不在标准路径时在此填完整地址"
                   className="w-full text-kumo-strong text-[0.9em] font-mono"
                 />
 
@@ -3479,7 +3479,7 @@ function OpenAIPage() {
                   <span className="text-xs text-kumo-strong">多 Key 单请求重试次数</span>
                   <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
                     <Input
-                      size="sm"
+                      size="xs"
                       className="w-20"
                       type="number"
                       min={1}
@@ -3496,9 +3496,6 @@ function OpenAIPage() {
                     />
                     <span className="text-xs text-kumo-subtle">次</span>
                   </div>
-                  <p className="w-full text-[11px] text-kumo-subtle">
-                    单个请求内每把 Key 最多尝试的次数：2 表示多 Key 轮询循环两遍后再切换端点。仅在配置了多把 Key 时生效。
-                  </p>
                 </div>
 
                 <div className="space-y-1.5">
