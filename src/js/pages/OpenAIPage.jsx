@@ -3475,6 +3475,32 @@ function OpenAIPage() {
                   </div>
                 </div>
 
+                <div className="flex min-h-8 flex-wrap items-center gap-2">
+                  <span className="text-xs text-kumo-strong">多 Key 单请求重试次数</span>
+                  <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+                    <Input
+                      size="sm"
+                      className="w-20"
+                      type="number"
+                      min={1}
+                      max={5}
+                      aria-label="多 Key 单请求重试次数"
+                      value={endpointForm.keyRetryRounds ?? 2}
+                      onChange={e => {
+                        const value = parseInt(e.target.value, 10);
+                        setEndpointForm(current => ({
+                          ...current,
+                          keyRetryRounds: Number.isNaN(value) || value < 1 ? 1 : value,
+                        }));
+                      }}
+                    />
+                    <span className="text-xs text-kumo-subtle">次</span>
+                  </div>
+                  <p className="w-full text-[11px] text-kumo-subtle">
+                    单个请求内每把 Key 最多尝试的次数：2 表示多 Key 轮询循环两遍后再切换端点。仅在配置了多把 Key 时生效。
+                  </p>
+                </div>
+
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <Label>

@@ -5,10 +5,21 @@ import { formatDateTime } from '../../modules/utils.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { getAuthHeaders, activeModelIdsForEndpoint, parseProxyEntry } from './utils.js';
 
+// sortEndpoints：端点列表统一排序规则——插件端点（pluginId 存在）始终置顶，
+// 内部保持原始相对顺序；非插件端点按路由优先级 priority 降序、同级按 weight 降序。
+// loadEndpoints 与 saveEndpointRouting 共用，避免优先级调整打乱插件置顶。
+export function sortEndpoints(list) {
+  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+    const pa = a?.pluginId ? 1 : 0;
+    const pb = b?.pluginId ? 1 : 0;
+    if (pa !== pb) return pb - pa;
+    return (b.priority ?? 0) - (a.priority ?? 0) || (b.weight ?? 0) - (a.weight ?? 0);
+  });
+}
+
 // useEndpoints：端点 CRUD/排序/模型开关与批量/代理池/导入导出/模型映射/模型列表。
 export function useEndpoints() {
   const { isArmed, confirmPress } = useConfirmPress();
-
   // 批量模型开关（含健康联动关停）的进行中标记。
   const [modelBatchActionLoading, setModelBatchActionLoading] = useState(false);
 const [endpoints, setEndpoints] = useState([]);
@@ -31,6 +42,7 @@ const [endpointForm, setEndpointForm] = useState({
   allowDirectFallback: true,
   rateLimitRetryEnabled: true,
   rateLimitRetryWaitSeconds: 10,
+  keyRetryRounds: 2,
   protocol: 'auto',
 });
 const [endpointFormError, setEndpointFormError] = useState('');
@@ -50,9 +62,8 @@ const loadEndpoints = useCallback(
       });
       const data = await response.json();
       if (Array.isArray(data)) {
-        // 插件端点（pluginId 存在）置顶显示，其余保持原有相对顺序。
-        const list = [...data].sort((a, b) => ((b.pluginId ? 1 : 0) - (a.pluginId ? 1 : 0)));
-        setEndpoints(list.map(ep => ({ ...ep, showKey: false, refreshing: false })));
+        // 插件端点置顶，非插件按后端顺序（priority/weight/sort_order）排列。
+        setEndpoints(sortEndpoints(data).map(ep => ({ ...ep, showKey: false, refreshing: false })));
       }
     } catch (error) {
       console.error('Failed to load endpoints:', error);
@@ -266,8 +277,8 @@ const saveEndpointRouting = async (endpointId, field, value) => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
     setEndpoints(prev =>
-      [...prev]
-        .map(e =>
+      sortEndpoints(
+        prev.map(e =>
           e.id === endpointId
             ? {
                 ...e,
@@ -276,11 +287,7 @@ const saveEndpointRouting = async (endpointId, field, value) => {
               }
             : e
         )
-        .sort(
-          (a, b) =>
-            (b.priority ?? 0) - (a.priority ?? 0) ||
-            (b.weight ?? 0) - (a.weight ?? 0)
-        )
+      )
     );
   } catch (error) {
     toast.error('路由设置保存失败: ' + error.message);
@@ -364,6 +371,7 @@ const openAddEndpointModal = () => {
     allowDirectFallback: true,
     rateLimitRetryEnabled: true,
     rateLimitRetryWaitSeconds: 10,
+    keyRetryRounds: 2,
     protocol: 'auto',
     proxyPoolId: '',
   });
@@ -388,6 +396,7 @@ const openEditEndpointModal = endpoint => {
     allowDirectFallback: !endpoint.forceProxy,
     rateLimitRetryEnabled: endpoint.rateLimitRetryEnabled !== false,
     rateLimitRetryWaitSeconds: endpoint.rateLimitRetryWaitSeconds || 10,
+    keyRetryRounds: endpoint.keyRetryRounds || 2,
     protocol: endpoint.protocol || 'auto',
     proxyPoolId: endpoint.proxyPoolId || '',
   });
