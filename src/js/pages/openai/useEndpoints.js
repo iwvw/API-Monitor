@@ -50,7 +50,9 @@ const loadEndpoints = useCallback(
       });
       const data = await response.json();
       if (Array.isArray(data)) {
-        setEndpoints(data.map(ep => ({ ...ep, showKey: false, refreshing: false })));
+        // 插件端点（pluginId 存在）置顶显示，其余保持原有相对顺序。
+        const list = [...data].sort((a, b) => ((b.pluginId ? 1 : 0) - (a.pluginId ? 1 : 0)));
+        setEndpoints(list.map(ep => ({ ...ep, showKey: false, refreshing: false })));
       }
     } catch (error) {
       console.error('Failed to load endpoints:', error);

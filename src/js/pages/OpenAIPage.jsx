@@ -127,7 +127,8 @@ import {
   errorKindLabel,
   kumoHex,
   formatCompact,
-  formatTokensM,
+  formatTokensZh,
+  formatTokensAxis,
   createHealthCheckProgress,
   parseProxyEntry,
   activeModelIdsForEndpoint,
@@ -557,7 +558,7 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
             key={item.model}
             name={item.model}
             color={item.color}
-            value={tokensMetric ? formatTokensM(item.total) : formatCompact(item.total, 0)}
+            value={tokensMetric ? formatTokensZh(item.total) : formatCompact(item.total, 0)}
             unit={tokensMetric ? '' : '次'}
             inactive={hiddenSeries[item.model] ?? false}
             onClick={() => handleClick(item.model)}
@@ -871,18 +872,18 @@ function OpenAIPage() {
         formatAxis: value => formatCompact(value, 0),
       },
       tokens: {
-        ...build(ChartPalette.categorical(1, isDarkMode), p => p.tokens, '词元 (M)'),
-        formatValue: formatTokensM,
-        formatAxis: value => `${Math.round(Number(value) / 1e6)}M`,
+        ...build(ChartPalette.categorical(1, isDarkMode), p => p.tokens, '词元用量'),
+        formatValue: formatTokensZh,
+        formatAxis: value => formatTokensAxis(value),
       },
       tokensUncached: {
         ...build(
           ChartPalette.categorical(1, isDarkMode),
           p => Math.max(0, (Number(p.tokens) || 0) - (Number(p.cachedTokens) || 0)),
-          '未缓存词元 (M)'
+          '未缓存词元'
         ),
-        formatValue: formatTokensM,
-        formatAxis: value => `${Math.round(Number(value) / 1e6)}M`,
+        formatValue: formatTokensZh,
+        formatAxis: value => formatTokensAxis(value),
       },
       latency: {
         ...build(ChartPalette.categorical(2, isDarkMode), p => p.avgLatency, '平均延迟 (s)'),
@@ -1384,6 +1385,12 @@ function OpenAIPage() {
                                 <Table.Cell className="!px-2.5 !py-1.5">
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 min-w-0">
+                                      <span
+                                        className="shrink-0 rounded px-1 text-center font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
+                                        title="启用模型数"
+                                      >
+                                        {activeModelIdsForEndpoint(item).length}
+                                      </span>
                                       <div className="truncate font-semibold leading-5 text-kumo-strong" title={item.name}>
                                         {item.name || '未命名端点'}
                                       </div>
@@ -1392,9 +1399,6 @@ function OpenAIPage() {
                                           插件
                                         </Badge>
                                       )}
-                                      <Badge variant="teal" className="shrink-0" title="启用模型数">
-                                        {activeModelIdsForEndpoint(item).length}
-                                      </Badge>
                                     </div>
                                     <div className="truncate font-mono text-[10px] leading-4 text-kumo-subtle" title={item.baseUrl}>
                                       {item.baseUrl}
@@ -1605,10 +1609,13 @@ function OpenAIPage() {
                               : `删除 ${endpoint.name || endpoint.baseUrl}`
                           }
                           onClick={() => deleteEndpoint(endpoint)}
+                          disabled={!!endpoint.pluginId}
                           title={
-                            deleteEndpointConfirmActive(endpoint.id)
-                              ? '再次点击确认删除'
-                              : '删除端点'
+                            endpoint.pluginId
+                              ? '插件端点不可删除'
+                              : deleteEndpointConfirmActive(endpoint.id)
+                                ? '再次点击确认删除'
+                                : '删除端点'
                           }
                         >
                           <Trash className={actionIconClass} />
@@ -2074,6 +2081,7 @@ function OpenAIPage() {
                         render={
                           <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-kumo-strong">
                             {String(analyticsSummary.totalRequests)}
+                            <span className="ml-0.5 text-sm font-medium text-kumo-subtle">次</span>
                           </span>
                         }
                       />
@@ -2126,6 +2134,7 @@ function OpenAIPage() {
                         render={
                           <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-kumo-warning">
                             {analyticsSummary.avgLatency ? (analyticsSummary.avgLatency / 1000).toFixed(2) : '0.00'}
+                            <span className="ml-0.5 text-sm font-medium text-kumo-subtle">s</span>
                           </span>
                         }
                       />
@@ -2181,7 +2190,7 @@ function OpenAIPage() {
                         title="查看输入/输出详情"
                         render={
                           <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-brand">
-                            {formatTokensM(analyticsSummary.totalTokens)}
+                            {formatTokensZh(analyticsSummary.totalTokens)}
                           </span>
                         }
                       />
@@ -2193,19 +2202,19 @@ function OpenAIPage() {
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-kumo-subtle">输入（含缓存）</span>
                             <span className="font-mono">
-                              {formatTokensM(analyticsSummary.totalPromptTokens || 0)}
+                              {formatTokensZh(analyticsSummary.totalPromptTokens || 0)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-kumo-subtle" title="非缓存输入 = 输入（含缓存）− 缓存命中的词元">缓存命中</span>
                             <span className="font-mono">
-                              {formatTokensM(analyticsSummary.totalCachedTokens || 0)}
+                              {formatTokensZh(analyticsSummary.totalCachedTokens || 0)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-kumo-subtle" title="非缓存输入 = 输入（含缓存）− 缓存命中的词元">未缓存输入</span>
                             <span className="font-mono">
-                              {formatTokensM(
+                              {formatTokensZh(
                                 Math.max(0, (analyticsSummary.totalPromptTokens || 0) - (analyticsSummary.totalCachedTokens || 0))
                               )}
                             </span>
@@ -2213,13 +2222,13 @@ function OpenAIPage() {
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-kumo-subtle">输出</span>
                             <span className="font-mono">
-                              {formatTokensM(analyticsSummary.totalCompletionTokens || 0)}
+                              {formatTokensZh(analyticsSummary.totalCompletionTokens || 0)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3 pt-1.5 text-kumo-strong border-t border-kumo-line">
                             <span className="text-kumo-subtle">合计</span>
                             <span className="font-mono">
-                              {formatTokensM(analyticsSummary.totalTokens || 0)}
+                              {formatTokensZh(analyticsSummary.totalTokens || 0)}
                             </span>
                           </div>
                           {(analyticsSummary.costs?.length > 0) && (
@@ -2284,7 +2293,7 @@ function OpenAIPage() {
                     className="inline h-3 w-3 align-[-1px]"
                     aria-hidden="true"
                   />{' '}
-                  {formatTokensM(Math.max(0, analyticsSummary.totalPromptTokens - analyticsSummary.totalCachedTokens))}（
+                  {formatTokensZh(Math.max(0, analyticsSummary.totalPromptTokens - analyticsSummary.totalCachedTokens))}（
                   {analyticsSummary.totalPromptTokens > 0
                     ? `${(
                         (Math.max(0, analyticsSummary.totalPromptTokens - analyticsSummary.totalCachedTokens) /
@@ -2293,7 +2302,7 @@ function OpenAIPage() {
                       ).toFixed(1)}%`
                     : '0.0%'}
                   ） · <ArrowUp className="inline h-3 w-3 align-[-1px]" aria-hidden="true" />{' '}
-                  {formatTokensM(analyticsSummary.totalCompletionTokens || 0)}
+                  {formatTokensZh(analyticsSummary.totalCompletionTokens || 0)}
                 </span>
               </AppCard>
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
@@ -2356,6 +2365,7 @@ function OpenAIPage() {
                         render={
                           <span className="w-fit cursor-pointer truncate font-mono text-2xl font-semibold leading-none text-kumo-danger">
                             {(analyticsSummary.errorRate * 100).toFixed(1)}
+                            <span className="ml-0.5 text-sm font-medium text-kumo-subtle">%</span>
                           </span>
                         }
                       />
@@ -2657,8 +2667,8 @@ function OpenAIPage() {
                                   }}
                                 />
                               </div>
-                              <span className="w-14 shrink-0 text-right font-mono text-[11px] text-kumo-subtle">
-                                {formatTokensM(tokens)}
+                              <span className="w-16 shrink-0 text-right font-mono text-[11px] text-kumo-subtle">
+                                {formatTokensZh(tokens)}
                               </span>
                               <span className="w-11 shrink-0 text-right font-mono text-[10px] text-kumo-subtle">
                                 {percent.toFixed(1)}%

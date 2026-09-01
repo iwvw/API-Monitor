@@ -55,6 +55,31 @@ export const formatCompact = (value, decimals = 2) => {
 // 词元统一以百万（M）为单位，保留 2 位小数。
 export const formatTokensM = value => `${(Number(value) / 1e6).toFixed(2)}M`;
 
+// 词元用量中文单位：亿 / 千万 / 百万，保留 2 位小数；更小数量回退到万/原值。
+export const formatTokensZh = value => {
+  const num = Number(value) || 0;
+  if (!(num > 0)) return '0';
+  const abs = Math.abs(num);
+  if (abs >= 1e8) return `${(num / 1e8).toFixed(2)}亿`;
+  if (abs >= 1e7) return `${(num / 1e7).toFixed(2)}千万`;
+  if (abs >= 1e6) return `${(num / 1e6).toFixed(2)}百万`;
+  if (abs >= 1e4) return `${(num / 1e4).toFixed(2)}万`;
+  return String(Math.round(num));
+};
+
+// 词元用量坐标轴刻度：中文单位取整数（向下取整），避免两位小数造成轴标签过长。
+// 内部数值与 formatTokensZh 保持一致，仅展示粒度不同。
+export const formatTokensAxis = value => {
+  const num = Number(value) || 0;
+  if (!(num > 0)) return '0';
+  const abs = Math.abs(num);
+  if (abs >= 1e8) return `${Math.floor(num / 1e8)}亿`;
+  if (abs >= 1e7) return `${Math.floor(num / 1e7)}千万`;
+  if (abs >= 1e6) return `${Math.floor(num / 1e6)}百万`;
+  if (abs >= 1e4) return `${Math.floor(num / 1e4)}万`;
+  return String(Math.round(num));
+};
+
 // 货币符号映射：覆盖常见币种，未知货币回退到「code 空格」前缀。
 const CURRENCY_SYMBOLS = {
   CNY: '¥',
