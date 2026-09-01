@@ -2827,10 +2827,10 @@ function OpenAIPage() {
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
               <Table layout="fixed" className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
 <colgroup>
-                  <col style={{ width: 160 }} />
-                  <col style={{ width: 104 }} />
-                  <col style={{ width: 64 }} />
                   <col style={{ width: 140 }} />
+                  <col style={{ width: 104 }} />
+                  <col style={{ width: 140 }} />
+                  <col style={{ width: 64 }} />
                   <col style={{ width: 100 }} />
                   <col style={{ width: 100 }} />
                   <col style={{ width: 160 }} />
@@ -2843,8 +2843,8 @@ function OpenAIPage() {
                   <Table.Row>
                     <Table.Head className="text-left">时间</Table.Head>
                     <Table.Head className="text-left">端点</Table.Head>
-                    <Table.Head className="text-center">状态</Table.Head>
                     <Table.Head className="text-left">模型</Table.Head>
+                    <Table.Head className="text-center">状态</Table.Head>
                     <Table.Head className="text-left">出口 IP</Table.Head>
                     <Table.Head className="text-left">客户端 IP</Table.Head>
                     <Table.Head className="text-left">耗时/首字</Table.Head>
@@ -2884,18 +2884,6 @@ function OpenAIPage() {
                               {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
                                 <StatusBadge tone="info" title={`使用的 API Key 序号（0=主 key）`}>
                                   K{log.keyIndex + 1}
-                                </StatusBadge>
-                              )}
-                            </span>
-                          </Table.Cell>
-                          <Table.Cell className="text-center">
-                            <span className="inline-flex items-center gap-2">
-                              <StatusBadge tone={statusCodeTone(log.statusCode)}>
-                                {log.statusCode}
-                              </StatusBadge>
-                              {log.statusCode === 503 && (
-                                <StatusBadge tone="warning" title="网关无可用渠道">
-                                  无
                                 </StatusBadge>
                               )}
                             </span>
@@ -2945,6 +2933,18 @@ function OpenAIPage() {
                                 </Popover>
                               ) : (
                                 <span className="truncate">{log.model}</span>
+                              )}
+                            </span>
+                          </Table.Cell>
+                          <Table.Cell className="text-center">
+                            <span className="inline-flex items-center gap-2">
+                              <StatusBadge tone={statusCodeTone(log.statusCode)}>
+                                {log.statusCode}
+                              </StatusBadge>
+                              {log.statusCode === 503 && (
+                                <StatusBadge tone="warning" title="网关无可用渠道">
+                                  无
+                                </StatusBadge>
                               )}
                             </span>
                           </Table.Cell>

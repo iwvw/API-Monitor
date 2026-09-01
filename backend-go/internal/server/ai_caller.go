@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
+	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
 )
 
@@ -93,10 +94,18 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 		body = bytes.NewReader(call.Body)
 	}
 	req := httptest.NewRequest(method, "http://ai.internal"+targetPath, body).WithContext(ctx)
+	// 管理 AI 完全批准模式：把内部标记写入 request context（而非 HTTP 头，
+	// 因为头可被外部登录用户伪造绕过危险操作拦截）。无该标记时保持默认拦截。
+	if call.Headers != nil {
+		if v, ok := call.Headers["X-Admin-AI-Full-Approve"]; ok && strings.EqualFold(v, "true") {
+			req = req.WithContext(serveragent.WithAdminAIFullApprove(req.Context()))
+		}
+	}
 	for key, value := range call.Headers {
 		// 保留内部专用头不可由 Agent 伪造：X-Internal-Cron 仅服务端 cron 执行器会携带，
 		// 否则侧栏 AI 可借 call_api 触发仅限本机调用的内部端点。
-		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie") || strings.EqualFold(key, "X-Admin-Password") || strings.EqualFold(key, "X-Internal-Cron") {
+		// X-Admin-AI-Full-Approve 已作为 context 标记消费，不再作为普通头下传。
+		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie") || strings.EqualFold(key, "X-Admin-Password") || strings.EqualFold(key, "X-Internal-Cron") || strings.EqualFold(key, "X-Admin-AI-Full-Approve") {
 			continue
 		}
 		req.Header.Set(key, value)

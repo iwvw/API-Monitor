@@ -1044,7 +1044,7 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"GET"}}},
 
 	// ---- server/forward 转发中心（此前整棵子树未登记，AI 无法发现/调用）----
-	{Route: manifest.Route{Prefix: "/api/server/forward", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule list/create", MatchMode: manifest.MatchExact},
+	{Route: manifest.Route{Prefix: "/api/server/forward", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "转发中心：列出全部转发规则（GET）；创建转发规则（POST）", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"GET", "POST"}, QueryParams: []apiDocParameter{
 			{Name: "offset", In: "query", Required: false, Description: "分页偏移，默认 0"},
 			{Name: "limit", In: "query", Required: false, Description: "每页条数，默认 20、上限 100"},
@@ -1052,28 +1052,31 @@ var apiDocSeeds = []apiDocSeed{
 			{Name: "transport", In: "query", Required: false, Description: "按传输方式过滤：cloudflare_tunnel/tcp_relay/p2p"},
 			{Name: "apply_status", In: "query", Required: false, Description: "按应用状态过滤"},
 			{Name: "search", In: "query", Required: false, Description: "按名称模糊匹配"},
+		}, Notes: []string{
+			"转发中心：创建规则用 POST 此路径（body 含 server_id 目标主机、local_host/local_port 源站、transport、hostname 等）。创建成功后返回规则 ID（fwd-xxx），再用 /api/server/forward/{id}/deploy 把它部署下发；随后用 /{id}/status 查看连接状态。请勿用 /api/server/agent/command/{id} 原生命令去启动 cloudflared 守护进程——转发画布的正确流程是先 POST 创建规则再 deploy。",
+			"路径参数 {id} 一律是【转发规则 ID】，不是主机 ID；主机 ID（server_id，形如 957a711a-…）只出现在 body 与 available-ports 查询参数里。不要把两者混淆。",
 		}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/{id}", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule read/update/delete", MatchMode: manifest.MatchPattern},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "转发规则读取/更新/删除（{id} 为转发规则 ID）", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"GET", "PUT", "DELETE"}, QueryParams: []apiDocParameter{
 			{Name: "cascade", In: "query", Required: false, Description: "DELETE 时 =1 允许仍有活跃连接时强制删除"},
 		}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/deploy", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule deploy", MatchMode: manifest.MatchPattern},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/deploy", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "部署转发规则（把公网入口下发到目标主机；{id} 为转发规则 ID）", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/start", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule start", MatchMode: manifest.MatchPattern},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/start", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "启动转发规则", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/stop", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule stop", MatchMode: manifest.MatchPattern},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/stop", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "停止转发规则", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/status", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward rule runtime status", MatchMode: manifest.MatchPattern},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/status", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取转发规则运行状态与连接数", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"GET"}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/targets", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward failover targets list/add", MatchMode: manifest.MatchPattern},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/targets", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "转发规则容灾目标列表/新增", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"GET", "POST"}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/targets/{targetId}", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward failover target delete", MatchMode: manifest.MatchPattern},
+	{Route: manifest.Route{Prefix: "/api/server/forward/{id}/targets/{targetId}", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "转发规则容灾目标删除", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"DELETE"}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/preflight", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward deploy preflight check", MatchMode: manifest.MatchExact},
+	{Route: manifest.Route{Prefix: "/api/server/forward/preflight", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "转发部署前置检查（确认源主机在线、隧道就绪）", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/server/forward/available-ports", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Forward available relay ports", MatchMode: manifest.MatchExact},
+	{Route: manifest.Route{Prefix: "/api/server/forward/available-ports", Module: "server-forward", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "查询指定中继主机的可用转发端口", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
-			{Name: "server_id", In: "query", Required: true, Description: "中继入口主机 ID，必填"},
+			{Name: "server_id", In: "query", Required: true, Description: "中继宿主主机 ID（形如 957a711a-…），必填"},
 		}}},
 
 	// ---- openai analytics 查询参数补齐（路径已登记，参数此前缺失）----

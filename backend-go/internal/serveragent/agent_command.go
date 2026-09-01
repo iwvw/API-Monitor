@@ -84,8 +84,11 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 	}
 
 	// 危险命令拦截（对原始明文检测，防 base64 绕过）
+	// 完全批准放行：仅当请求由管理 AI 内部调用发出（X-AI-Agent 头由服务端
+	// ai_caller 注入，外部不可伪造）且携带完全批准标记时才跳过拦截，
+	// 否则任何调用方一律在危险命令前被拒。
 	danger := DetectDangerousCommand(command)
-	if danger.Dangerous {
+	if danger.Dangerous && !s.allowDangerousFromAdminAI(r) {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{
 			"success":       false,
 			"error":         "dangerous command rejected: " + strings.Join(danger.Reasons, ", "),
@@ -145,12 +148,25 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 	// 记录命令历史（复用片段历史写入逻辑，executionMode=api）
 	s.recordExecCommandHistory(r.Context(), db, serverID, command, status, output)
 
-	response.JSON(w, http.StatusOK, map[string]interface{}{
+	// 失败时把实际输出塞进 error，避免 AI 工具层 EnvelopeError 只看到 info 为空的
+	// "success:false" 而误判为「未知业务错误」，导致无法诊断命令为何失败。
+	resp := map[string]interface{}{
 		"success": status == "success",
 		"output":  output,
 		"task_id": task.ID,
 		"status":  status,
-	})
+	}
+	if status != "success" {
+		reason := strings.TrimSpace(output)
+		if reason == "" {
+			reason = "命令在目标主机上执行失败，未返回输出"
+		}
+		if len([]rune(reason)) > 1000 {
+			reason = string([]rune(reason)[:1000])
+		}
+		resp["error"] = "命令执行失败: " + reason
+	}
+	response.JSON(w, http.StatusOK, resp)
 }
 
 // recordExecCommandHistory 将 API 发起的命令执行写入命令历史表
@@ -247,4 +263,27 @@ func utf16LEBytes(s string) []byte {
 		}
 	}
 	return out
+}
+
+// allowDangerousFromAdminAI 判断危险命令放行是否成立：请求必须由管理 AI 引擎在
+// 「完全批准模式」下发起（通过 server 内部 ai_caller 注入到 request context，
+// HTTP 客户端无法伪造 context 值），否则一律在危险命令前拦截。
+func (s *Service) allowDangerousFromAdminAI(r *http.Request) bool {
+	return AdminAIFullApprove(r.Context())
+}
+
+// adminAIFullApproveKey 是内部只读标记的 context key 类型，避免与外部冲突。
+type adminAIFullApproveKey struct{}
+
+// WithAdminAIFullApprove 返回带「管理 AI 完全批准」标记的 context。
+// 只在服务端内部（server/ai_caller.go 处理内部 AI 调用）使用，
+// 普通 HTTP 请求不可能携带该 context 值。
+func WithAdminAIFullApprove(ctx context.Context) context.Context {
+	return context.WithValue(ctx, adminAIFullApproveKey{}, true)
+}
+
+// AdminAIFullApprove 判断 context 是否携带「管理 AI 完全批准」内部标记。
+func AdminAIFullApprove(ctx context.Context) bool {
+	v, _ := ctx.Value(adminAIFullApproveKey{}).(bool)
+	return v
 }

@@ -38,8 +38,8 @@ export function OpenAIPluginsPanel() {
   const selected = PLUGINS.find(p => p.id === selectedId) ?? PLUGINS[0];
 
   return (
-    <div className="grid min-w-0 items-start gap-3 grid-cols-3">
-      <div className="flex min-w-0 flex-col gap-1.5 pr-1">
+    <div className="grid min-w-0 items-start gap-3 grid-cols-1 cq-lg:grid-cols-3">
+      <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-1 cq-sm:flex-col cq-sm:overflow-visible cq-sm:pb-0 cq-lg:pr-1">
         {PLUGINS.length === 0 ? (
           <EmptyState title="暂无插件" description="插件注册表为空。" />
         ) : (
@@ -52,7 +52,7 @@ export function OpenAIPluginsPanel() {
                 role="button"
                 tabIndex={0}
                 className={cx(
-                  'group flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5',
+                  'group flex shrink-0 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5',
                   isActive
                     ? 'border-brand/60 bg-kumo-brand/10'
                     : 'border-kumo-line bg-kumo-base hover:border-brand/60',
@@ -88,7 +88,7 @@ export function OpenAIPluginsPanel() {
         )}
       </div>
 
-      <div className="min-w-0 col-span-2">
+      <div className="min-w-0 cq-lg:col-span-2">
         {selected ? (
           <selected.detail />
         ) : (

@@ -441,13 +441,14 @@ export function DS2APIPlugin() {
             }
           >
             {engineUp && accounts.length ? (
-              <Table layout="fixed" className="w-full text-xs">
+              <div className="overflow-x-auto">
+              <Table layout="fixed" className="w-full min-w-[42rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">调用</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">状态</Table.Head>
-                    <Table.Head className="!w-44 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">状态</Table.Head>
+                    <Table.Head className="!w-40 !px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -503,6 +504,7 @@ export function DS2APIPlugin() {
                   ))}
                 </Table.Body>
               </Table>
+              </div>
             ) : (
               <div className="p-4">
                 <EmptyState

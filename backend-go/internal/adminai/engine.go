@@ -39,6 +39,11 @@ const (
 	// 可经设置 admin_ai_max_concurrent_runs 调整（RunLoop 时读取）。
 	maxConcurrentRunsDefault = 8
 
+	// adminAIFullApproveHeader 内部头：管理 AI 引擎在写操作已授权（完全批准/
+	// cron allow/会话级授权/用户批准）后注入，供命令执行等受危险操作拦截的
+	// 端点识别放行。配合服务端 ai_caller 注入的 X-AI-Agent 头使用，防止外部伪造。
+	adminAIFullApproveHeader = "X-Admin-AI-Full-Approve"
+
 	// toolLoopWarnThreshold/toolLoopBlockThreshold 是跨轮重复调用（工具循环）的风暴阈值：
 	// 同一执行内相同指纹调用 ≥5 次记日志警告，≥10 次阻断本轮继续执行（OpenClaw loop-detection 轻量版）。
 	toolLoopWarnThreshold  = 5
@@ -2676,6 +2681,10 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 	}
 
 	isWrite := method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
+	// fullApprove 标记本次写操作是否在「完全批准」语境下被自动放行：
+	// 开启时向目标接口注入内部头 X-Admin-AI-Full-Approve，供命令执行等受
+	// 危险操作拦截的端点识别（配合 X-AI-Agent 内部头放行危险操作）。
+	fullApprove := false
 	if isWrite {
 		// 完全批准模式（admin_ai_auto_approve）：所有写操作免审批直接执行，
 		// 不再弹审批卡片；对模型标记「已自动批准」避免困惑。
@@ -2775,6 +2784,13 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 				}
 			}
 		}
+		// 走到此处即写操作已被授权（完全批准 / cron allow / 会话级授权 / 用户批准）。
+		// 注入内部头，允许命令执行等受危险操作拦截的端点在本调用中放行危险命令。
+		fullApprove = true
+	}
+
+	if fullApprove {
+		headers[adminAIFullApproveHeader] = "true"
 	}
 
 	resp, err := s.aiCaller(ctx, systemmetrics.AICallRequest{

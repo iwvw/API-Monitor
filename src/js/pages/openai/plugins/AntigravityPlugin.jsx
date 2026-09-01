@@ -474,11 +474,12 @@ export function AntigravityPlugin() {
           }
         >
           {accounts.length ? (
-            <Table layout="fixed" className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <Table layout="fixed" className="w-full min-w-[42rem] text-xs">
               <Table.Header variant="compact">
                 <Table.Row className="h-8">
                   <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                  <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                  <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
                   <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
                   <Table.Head className="!w-24 !px-2 !py-1.5 text-center">套餐</Table.Head>
                   <Table.Head className="!w-20 !px-2 !py-1.5 text-center">状态</Table.Head>
@@ -535,6 +536,7 @@ export function AntigravityPlugin() {
                 ))}
               </Table.Body>
             </Table>
+            </div>
           ) : (
             <div className="p-4">
               <EmptyState title="暂无账号" description="添加 Google 账号后即可使用 Claude 订阅能力。" />
