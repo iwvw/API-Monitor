@@ -164,7 +164,7 @@ const HOST_COMPACT_COLUMNS = [
   { id: 'cpu', label: 'CPU' },
   { id: 'memory', label: '内存' },
   { id: 'disk', label: '硬盘' },
-  { id: 'remaining', label: '到期' },
+  { id: 'remaining', label: '余期' },
   { id: 'quotaRemaining', label: '余量' },
   { id: 'actions', label: '', required: true },
 ];
