@@ -41,6 +41,9 @@ func TestFindAPIRecallQuality(t *testing.T) {
 		{"列出所有主机", "/api/server/accounts"},
 		{"查看主机服务器列表", "/api/server/accounts"},
 		{"检查远程主机容器镜像是否有更新", "/api/server/docker/check-update"},
+		{"查看AI助手侧的对话记录", "/api/admin-ai/sessions"},
+		{"获取AI的会话列表", "/api/admin-ai/sessions"},
+		{"查看某个会话的对话历史消息", "/api/admin-ai/sessions/{id}/messages"},
 	}
 
 	hitTop, hitAny, total := 0, 0, len(intents)

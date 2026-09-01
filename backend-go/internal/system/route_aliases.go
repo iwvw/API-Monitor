@@ -133,6 +133,12 @@ var routeAliases = map[string][]string{
 	"/api/github/actions":         {"workflow 运行", "actions", "工作流运行", "github 运行"},
 	"/api/github/repositories":    {"仓库列表", "github 仓库列表"},
 	"/api/cron":                   {"定时任务列表", "cron 任务"},
+	"/api/admin-ai":               {"AI 助手", "ai助手", "管理 AI", "智能助手"},
+	"/api/admin-ai/sessions":       {"AI 助手", "会话列表", "AI 对话", "对话记录", "聊天记录", "AI 会话", "侧栏对话", "AI 助手对话"},
+	"/api/admin-ai/sessions/{id}/messages": {"消息历史", "对话历史", "聊天历史", "AI 对话记录", "消息记录"},
+	"/api/admin-ai/messages":      {"发送 AI 消息", "AI 消息发送", "提问 AI"},
+	"/api/admin-ai/approvals":     {"AI 审批", "写操作审批", "审批列表"},
+	"/api/admin-ai/memories":      {"AI 长期记忆", "记忆列表"},
 }
 
 // aliasesForPrefix 返回路由或其最近父前缀登记的别名列表。

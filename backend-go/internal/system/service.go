@@ -1256,7 +1256,7 @@ func inferRouteMethods(route manifest.Route) []string {
 	// 更新」各自归位。把握不大的词不放这里，交给显式标注或保守 GET 兜底。
 	zh := description
 	switch {
-	case strings.Contains(zh, "列出") || strings.Contains(zh, "查询列表"):
+	case strings.Contains(zh, "列表") || strings.Contains(zh, "列出") || strings.Contains(zh, "查询列表"):
 		if strings.Contains(zh, "新增") || strings.Contains(zh, "创建") {
 			return []string{"GET", "POST"}
 		}
