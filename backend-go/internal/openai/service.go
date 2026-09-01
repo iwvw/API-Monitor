@@ -113,6 +113,10 @@ type Endpoint struct {
 	RateLimitRetryEnabled bool `json:"rateLimitRetryEnabled"`
 	// RateLimitRetryWaitSeconds 是无 Retry-After 响应头时的缺省等待秒数。
 	RateLimitRetryWaitSeconds int `json:"rateLimitRetryWaitSeconds"`
+	// KeyRetryRounds 是单个请求内每个 API Key 最多可被尝试的次数（默认 2）。
+	// 多 key 轮询时，每个 key 在「同一请求」内最多被尝试 KeyRetryRounds 次
+	// （0/负值回退默认 2），而不是只试一次即换端点。单 key 端点不受影响（仍只试一次）。
+	KeyRetryRounds int `json:"keyRetryRounds,omitempty"`
 	// Priority 是端点优先级档位：值越大越优先被选中（同模型多端点时先高优先级）。
 	// Weight 是同档位内的加权因子：值越大在该档位内被选中的概率越高。
 	Priority     int     `json:"priority,omitempty"`
@@ -126,6 +130,17 @@ type Endpoint struct {
 	// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；非空时转发出口
 	// 从该池选择（忽略内联 proxyPool）。用于让网关端点复用插件管理的代理池。
 	ProxyPoolID string `json:"proxyPoolId,omitempty"`
+}
+
+// defaultKeyRetryRounds 是端点未显式配置时每个 key 在单请求内可被尝试的轮次。
+const defaultKeyRetryRounds = 2
+
+// effectiveKeyRetryRounds 返回端点的每 key 单请求尝试次数（0/负值回退默认 2）。
+func (ep Endpoint) effectiveKeyRetryRounds() int {
+	if ep.KeyRetryRounds >= 1 {
+		return ep.KeyRetryRounds
+	}
+	return defaultKeyRetryRounds
 }
 
 // AllKeys 返回端点全部可用 API Key（主 key + 扩展 key，去重）。
@@ -820,7 +835,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			last_checked DATETIME,
 			sort_order INTEGER DEFAULT 0,
 			priority INTEGER DEFAULT 0,
-			weight INTEGER DEFAULT 100
+			weight INTEGER DEFAULT 100,
+			key_retry_rounds INTEGER DEFAULT 2
 		)`,
 		`CREATE TABLE IF NOT EXISTS openai_health_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1032,6 +1048,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "weight", "INTEGER DEFAULT 100"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "key_retry_rounds", "INTEGER DEFAULT 2"); err != nil {
 		return err
 	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "rate_limit_retry_enabled", "INTEGER DEFAULT 1"); err != nil {
@@ -1251,6 +1270,7 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		ForceProxy   *bool         `json:"forceProxy"`
 		RateLimitRetryEnabled *bool `json:"rateLimitRetryEnabled"`
 		RateLimitRetryWaitSeconds *int `json:"rateLimitRetryWaitSeconds"`
+		KeyRetryRounds      *int   `json:"keyRetryRounds"`
 		Protocol     *string       `json:"protocol"`
 		// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；空串表示不引用。
 		ProxyPoolID *string `json:"proxyPoolId"`
@@ -1270,8 +1290,9 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 		var currentBaseURL, currentAPIKey string
 	var currentModelsURLRaw, currentProxyPoolIDRaw sql.NullString
+	var currentKeyRetryRounds int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, proxy_pool_id FROM openai_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURLRaw, &currentAPIKey, &currentProxyPoolIDRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, proxy_pool_id, key_retry_rounds FROM openai_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURLRaw, &currentAPIKey, &currentProxyPoolIDRaw, &currentKeyRetryRounds)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -1382,6 +1403,17 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		}
 		rateLimitRetryWaitChanged = true
 	}
+	keyRetryRounds := 0
+	keyRetryRoundsChanged := false
+	if req.KeyRetryRounds != nil && *req.KeyRetryRounds >= 1 {
+		keyRetryRounds = *req.KeyRetryRounds
+		keyRetryRoundsChanged = true
+	}
+	// 全量更新分支总是写 key_retry_rounds：未变更时保留存量，避免全量保存把已配置值冲掉。
+	targetKeyRetryRounds := currentKeyRetryRounds
+	if keyRetryRoundsChanged {
+		targetKeyRetryRounds = keyRetryRounds
+	}
 	protocol := ""
 	protocolChanged := false
 	if req.Protocol != nil {
@@ -1458,16 +1490,16 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 		_, err = db.ExecContext(ctx, `
 			UPDATE openai_endpoints
-			SET name = ?, base_url = ?, models_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, pricing = ?, last_checked = ?, proxy_pool_id = ?
+			SET name = ?, base_url = ?, models_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, pricing = ?, last_checked = ?, proxy_pool_id = ?, key_retry_rounds = ?
 			WHERE id = ?`,
-			req.Name, targetBaseURL, targetModelsURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), string(pricingJSON), lastChecked, proxyPoolID, id)
+			req.Name, targetBaseURL, targetModelsURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), string(pricingJSON), lastChecked, proxyPoolID, targetKeyRetryRounds, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged || rateLimitRetryChanged || rateLimitRetryWaitChanged || proxyPoolIDChanged {
-		_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, proxy_pool_id = ? WHERE id = ?",
-			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, proxyPoolID, id)
+	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged || rateLimitRetryChanged || rateLimitRetryWaitChanged || proxyPoolIDChanged || keyRetryRoundsChanged {
+		_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, proxy_pool_id = ?, key_retry_rounds = ? WHERE id = ?",
+			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, proxyPoolID, targetKeyRetryRounds, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -1513,7 +1545,7 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 
 	endpoints := []Endpoint{}
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_mappings, sort_order, priority, weight, proxy_pool_id
+		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_mappings, sort_order, priority, weight, key_retry_rounds, proxy_pool_id
 		FROM openai_endpoints WHERE enabled = 1
 		ORDER BY priority DESC, sort_order ASC, created_at ASC`)
 	if err != nil {
@@ -1523,8 +1555,8 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 	for rows.Next() {
 		var ep Endpoint
 		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, proxyPoolIDRaw sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight int
-		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight, &proxyPoolIDRaw); errScan == nil {
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight, keyRetryRounds int
+		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &proxyPoolIDRaw); errScan == nil {
 			ep.ProxyPoolID = proxyPoolIDRaw.String
 			ep.APIKey = secure.SecureDecrypt(ep.APIKey)
 			ep.Enabled = enabledInt == 1
@@ -1534,6 +1566,7 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 			ep.RateLimitRetryEnabled = rateLimitRetryInt == 1
 			ep.RateLimitRetryWaitSeconds = rateLimitRetryWaitSeconds
 			ep.Protocol = normalizeProtocol(protocolRaw.String)
+			ep.KeyRetryRounds = keyRetryRounds
 			if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 				_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
 			}
@@ -1612,13 +1645,14 @@ func (s *Service) enabledEndpointSnapshot(ctx context.Context, db *sql.DB) ([]En
 func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, model, targetEndpointID, sessionKey string) (candidates []Endpoint, chosen Endpoint, chosenIndex int, selectedModel string, found bool) {
 	selectedModel = model
 
-	loadEndpoint := func(ep *Endpoint, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt int) {
+	loadEndpoint := func(ep *Endpoint, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds int) {
 		ep.APIKey = secure.SecureDecrypt(ep.APIKey)
 		ep.Enabled = enabledInt == 1
 		ep.AutoSwitch = autoSwitchInt == 1
 		ep.ProxyEnabled = proxyEnabledInt == 1
 		ep.ForceProxy = forceProxyInt == 1
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
+		ep.KeyRetryRounds = keyRetryRounds
 		if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 			_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
 		}
@@ -1645,13 +1679,13 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 	if targetEndpointID != "" {
 		var ep Endpoint
 		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt int
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds int
 		err := db.QueryRowContext(ctx, `
-			SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings
+			SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, key_retry_rounds
 			FROM openai_endpoints WHERE id = ? AND enabled = 1`, targetEndpointID).
-			Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw)
+			Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &keyRetryRounds)
 		if err == nil {
-			loadEndpoint(&ep, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt)
+			loadEndpoint(&ep, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds)
 			if s.endpointHasModel(ep, model) {
 				if real, routable := s.resolveEndpointModel(ep, model); routable {
 					selectedModel = real

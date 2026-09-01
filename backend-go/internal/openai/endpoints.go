@@ -111,7 +111,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, sort_order, priority, weight, plugin_id, proxy_pool_id FROM openai_endpoints ORDER BY priority DESC, weight DESC, sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, sort_order, priority, weight, key_retry_rounds, plugin_id, proxy_pool_id FROM openai_endpoints ORDER BY priority DESC, weight DESC, sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -123,9 +123,9 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		var ep Endpoint
 		var headersRaw, modelsRaw, disabledRaw, proxyRaw, batchesRaw, mappingsRaw, protocolRaw, apiKeysRaw, pricingRaw, modelsUrlRaw, pluginIDRaw, proxyPoolIDRaw sql.NullString
 		var created, used, checked sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight int
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight, keyRetryRounds int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &batchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &sortOrder, &priority, &weight, &pluginIDRaw, &proxyPoolIDRaw)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &batchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &pluginIDRaw, &proxyPoolIDRaw)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -143,6 +143,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
 		ep.Priority = priority
 		ep.Weight = weight
+		ep.KeyRetryRounds = keyRetryRounds
 		ep.CreatedAt = created.String
 		if used.Valid {
 			v := used.String
@@ -206,6 +207,7 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		ForceProxy   bool         `json:"forceProxy"`
 		RateLimitRetryEnabled *bool `json:"rateLimitRetryEnabled"`
 		RateLimitRetryWaitSeconds *int `json:"rateLimitRetryWaitSeconds"`
+		KeyRetryRounds    *int   `json:"keyRetryRounds"`
 		Protocol     string       `json:"protocol"`
 		SkipVerify   bool         `json:"skipVerify"`
 		// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；空串表示不引用。
@@ -243,6 +245,11 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	rateLimitRetryWaitSeconds := 10
 	if req.RateLimitRetryWaitSeconds != nil && *req.RateLimitRetryWaitSeconds >= 1 {
 		rateLimitRetryWaitSeconds = *req.RateLimitRetryWaitSeconds
+	}
+	// 每 key 单请求尝试次数：未显式设置时默认 2（多 key 轮询循环两遍）。
+	keyRetryRounds := defaultKeyRetryRounds
+	if req.KeyRetryRounds != nil && *req.KeyRetryRounds >= 1 {
+		keyRetryRounds = *req.KeyRetryRounds
 	}
 	protocol := normalizeProtocol(req.Protocol)
 
@@ -302,9 +309,9 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	proxyPoolID := strings.TrimSpace(req.ProxyPoolID)
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, created_at, last_checked, sort_order, proxy_pool_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, req.Name, normalizedURL, strings.TrimSpace(req.ModelsURL), encryptedKey, encryptedAPIKeys, string(headersJSON), "[]", string(proxyJSON), string(batchesJSON), autoSwitchInt, boolToInt(req.ProxyEnabled), boolToInt(req.ForceProxy), rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, 1, string(modelsJSON), string(pricingJSON), createdAt, lastCheckedVal, time.Now().UnixMilli(), proxyPoolID)
+		INSERT INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, created_at, last_checked, sort_order, proxy_pool_id, key_retry_rounds)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, req.Name, normalizedURL, strings.TrimSpace(req.ModelsURL), encryptedKey, encryptedAPIKeys, string(headersJSON), "[]", string(proxyJSON), string(batchesJSON), autoSwitchInt, boolToInt(req.ProxyEnabled), boolToInt(req.ForceProxy), rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, 1, string(modelsJSON), string(pricingJSON), createdAt, lastCheckedVal, time.Now().UnixMilli(), proxyPoolID, keyRetryRounds)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -328,6 +335,7 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		AutoSwitch:                req.AutoSwitch,
 		RateLimitRetryEnabled:     rateLimitRetryInt == 1,
 		RateLimitRetryWaitSeconds: rateLimitRetryWaitSeconds,
+		KeyRetryRounds:            keyRetryRounds,
 		Protocol:                  protocol,
 		ProxyPoolID:               proxyPoolID,
 		Status:                    status,
@@ -1271,7 +1279,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, priority, weight FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, priority, weight, key_retry_rounds FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -1283,9 +1291,9 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		var ep Endpoint
 		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw sql.NullString
 		var created, used, checked sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, priority, weight int
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, priority, weight, keyRetryRounds int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &priority, &weight)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &priority, &weight, &keyRetryRounds)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -1299,6 +1307,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
 		ep.Priority = priority
 		ep.Weight = weight
+		ep.KeyRetryRounds = keyRetryRounds
 		if mappingsRaw.Valid && mappingsRaw.String != "" {
 			_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)
 		}
@@ -1496,9 +1505,9 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 			rateLimitRetryWaitSeconds = 10
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, created_at, last_used, last_checked, priority, weight)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight)
+			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, created_at, last_used, last_checked, priority, weight, key_retry_rounds)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight, ep.effectiveKeyRetryRounds())
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

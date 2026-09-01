@@ -538,9 +538,17 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// 代理开关未开启或池为空时只尝试一次（重试只是对同一链路的重复请求，
 	// 首字超时重发反而放大慢响应，见 effectiveProxyAttempts）。
 	maxProxyAttempts := effectiveProxyAttempts(selected)
-	// 多 key 时保证每个 key 至少有一次尝试机会（覆盖 401 冻结后自动切 key 的场景）。
-	if keyCount := len(cleanKeyList(selected.AllKeys())); keyCount > 1 && maxProxyAttempts < keyCount {
-		maxProxyAttempts = keyCount
+	// 多 key 时保证每个 key 至少有 keyRetryRounds 次尝试机会（默认 2 = 循环两遍，
+	// 覆盖 401 冻结后自动切 key 再试的场景）。单 key 端点不放大（重试同 key 无意义）。
+	// 预算比 keyCount*keyMaxTries 多 1：预留一个「耗尽检测位」，让全部 key 达到上限后
+	// 的下一轮 pickKey 有机会返回 ("", -1) 触发端点级切换，而不是因预算耗尽静默退出
+	// （后者会把最后一跳已关闭的响应体当最终结果透传，产生 502 而不是干净的耗尽错误）。
+	keyMaxTries := 1
+	if keyCount := len(cleanKeyList(selected.AllKeys())); keyCount > 1 {
+		keyMaxTries = selected.effectiveKeyRetryRounds()
+		if need := keyCount*keyMaxTries + 1; maxProxyAttempts < need {
+			maxProxyAttempts = need
+		}
 	}
 
 	var resp *http.Response
@@ -554,9 +562,9 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	var firstChunk []byte
 	var ttfbMs int64
 	firstWritten := false
-	// triedKeys 记录本轮请求内已尝试失败的 key（key 永不冻结，仅请求内去重），
-	// 避免单 key 场景 401 后对同一 key 无限重试。
-	triedKeys := map[string]bool{}
+	// triedKeys 记录本轮请求内每个 key 已尝试失败的次数（key 永不冻结，仅请求内计数），
+	// 未达到 keyMaxTries 的 key 仍会被 pickKey 选中重试，避免单 key 场景 401 后对同一 key 无限重试。
+	triedKeys := map[string]int{}
 	// 不同出口 IP 的 429 计数：达到 proxyRateLimitPicks 视为上游限流已扩散到
 	// 整池，提前收尾（单 IP 被限时组冻结已让候选自动跳到其他 IP，不在此计数）。
 	observed429IPs := map[string]bool{}
@@ -651,15 +659,16 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		}
 		applyCustomHeaders(httpReq, selected.Headers)
 
-		// 多 API Key 选择：轮询选一个 key（key 永不冻结，本轮已尝试失败的 key 会被跳过）。
+		// 多 API Key 选择：轮询选一个 key（key 永不冻结，未达单请求最大尝试次数的
+		// key 会被继续选中，已耗尽的 key 被跳过）。
 		keys := selected.AllKeys()
-		currentKey, currentKeyIndex := s.pickKey(selected.ID, keys, triedKeys)
+		currentKey, currentKeyIndex := s.pickKey(selected.ID, keys, triedKeys, keyMaxTries)
 		if currentKey == "" {
-			// 本轮全部 key 均已尝试失败：本端点不可用，标记该端点后尝试下一个候选端点。
+			// 本轮全部 key 均已达到单请求最大尝试次数：本端点不可用，标记该端点后尝试下一个候选端点。
 			cancel()
 			s.markProxyFailed(selected.ID, currentProxy)
 			res.endpointExhausted = true
-			lastErr = fmt.Errorf("端点 %s 本轮全部 API Key 均尝试失败", selected.Name)
+			lastErr = fmt.Errorf("端点 %s 本轮全部 API Key 均已尝试 %d 次失败", selected.Name, keyMaxTries)
 			lastProxy = currentProxy
 			break
 		}
@@ -724,11 +733,12 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			break
 		}
 
-		// 401/403 鉴权失败：key 本身失效，但不冻结；本轮请求内已尝试的 key 记入
-		// triedKeys，避免无限重试，继续尝试下一个 key（或由 pickKey 耗尽后切换端点）。
+		// 401/403 鉴权失败：key 本身失效，但不冻结；本轮请求内该 key 的失败次数
+		// 计入 triedKeys（达到 keyMaxTries 后不再被选中），继续尝试下一个 key
+		// （或由 pickKey 耗尽后切换端点）。
 		// 不消耗代理切换次数，因为 key 问题是凭据级非代理级。
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			triedKeys[currentKey] = true
+			triedKeys[currentKey]++
 			resp.Body.Close()
 			cancel()
 			continue

@@ -1071,13 +1071,18 @@ func (s *Service) proxyExitIPOf(endpointID, proxy string) string {
 }
 
 // pickKey 从端点全部 key 中按轮询选出一个 key，返回 (key, index)。
-// key 永不冻结：triedKeys 记录本次请求内已尝试失败的 key，跳过它们避免无限重试；
-// 全部 key 均已在本轮尝试失败时返回 ("", -1)，由调用方触发端点级切换。
+// key 永不冻结：triedKeys 记录本次请求内每个 key 已尝试失败的次数（map[string]int），
+// 只跳过「已达到单请求最大尝试次数（maxTries）」的 key，从而允许同一 key 在
+// 一个请求内被尝试 maxTries 次（默认 2 = 循环两遍），而不是一次失败即换端点。
+// 全部 key 均已达到 maxTries 时返回 ("", -1)，由调用方触发端点级切换。
 // 429 绝不冻结 key，只靠轮询天然分散 RPM 压力。
-func (s *Service) pickKey(endpointID string, keys []string, triedKeys map[string]bool) (string, int) {
+func (s *Service) pickKey(endpointID string, keys []string, triedKeys map[string]int, maxTries int) (string, int) {
 	cleaned := cleanKeyList(keys)
 	if len(cleaned) == 0 {
 		return "", -1
+	}
+	if maxTries < 1 {
+		maxTries = 1
 	}
 	s.keyMu.Lock()
 	defer s.keyMu.Unlock()
@@ -1092,7 +1097,7 @@ func (s *Service) pickKey(endpointID string, keys []string, triedKeys map[string
 	start := state.cursor
 	for i := 0; i < len(cleaned); i++ {
 		idx := (start + i) % len(cleaned)
-		if triedKeys != nil && triedKeys[cleaned[idx]] {
+		if triedKeys != nil && triedKeys[cleaned[idx]] >= maxTries {
 			continue
 		}
 		state.cursor = (idx + 1) % len(cleaned)
