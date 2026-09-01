@@ -42,6 +42,7 @@ export function DS2APIPlugin() {
   const [testingId, setTestingId] = useState('');
   const [prefixDraft, setPrefixDraft] = useState(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [editAccount, setEditAccount] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', mobile: '', password: '', poolType: '' });
   const fileInputRef = useRef(null);
@@ -67,6 +68,15 @@ export function DS2APIPlugin() {
       if (res.ok && data?.success) setAccounts(data.accounts || []);
     } catch {
       /* 引擎未启用时静默 */
+    }
+  };
+
+  const refreshAccounts = async () => {
+    setRefreshing(true);
+    try {
+      await loadAccounts();
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -103,6 +113,12 @@ export function DS2APIPlugin() {
       loadAccounts();
       loadLink();
     }
+  }, [status?.engineUp]);
+
+  useEffect(() => {
+    if (!status?.engineUp) return;
+    const timer = setInterval(() => { loadAccounts(); }, 5000);
+    return () => clearInterval(timer);
   }, [status?.engineUp]);
 
   const save = async (next, msg = '设置已保存') => {
@@ -180,6 +196,22 @@ export function DS2APIPlugin() {
       await loadAccounts();
     } catch (e) {
       toast.error(`删除失败：${e.message}`);
+    }
+  };
+
+  const toggleAccount = async (identifier, disabled) => {
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(identifier)}/toggle`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ disabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      toast.success(disabled ? '账号已禁用' : '账号已启用');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(e.message);
     }
   };
 
@@ -424,6 +456,9 @@ export function DS2APIPlugin() {
                     <span className="hidden cq-sm:inline">导入</span>
                   </Toolbar.Button>
                 </Toolbar>
+                <Button size="sm" variant="outline" disabled={!engineUp || refreshing} onClick={refreshAccounts} title="重新拉取账号池状态">
+                  <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> <span className="hidden cq-sm:inline">刷新</span>
+                </Button>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -445,7 +480,8 @@ export function DS2APIPlugin() {
               <Table layout="fixed" className="w-full min-w-[42rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!w-52 !px-2.5 !py-1.5">账号</Table.Head>
                     <Table.Head className="!w-28 !px-2 !py-1.5 text-center">调用</Table.Head>
                     <Table.Head className="!w-32 !px-2 !py-1.5 text-center">状态</Table.Head>
                     <Table.Head className="!w-40 !px-2 !py-1.5 text-center">操作</Table.Head>
@@ -454,6 +490,11 @@ export function DS2APIPlugin() {
                 <Table.Body>
                   {accounts.map(a => (
                     <Table.Row key={a.identifier} className="h-10">
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <div className="flex justify-center">
+                          <Switch size="sm" checked={!!a.available} disabled={a.banned} onCheckedChange={v => toggleAccount(a.identifier, !v)} aria-label={`${a.disabled ? '启用' : '停用'} ${a.identifier}`} />
+                        </div>
+                      </Table.Cell>
                       <Table.Cell className="!px-2.5 !py-1.5">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-kumo-strong" title={a.identifier}>
