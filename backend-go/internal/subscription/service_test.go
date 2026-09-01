@@ -2262,8 +2262,12 @@ func TestGetSubscriptionUsage(t *testing.T) {
 		VALUES('sub-u','sub_default_nodes','plan-u','UsageSub','tok-u','uuid-u','pwd-u',1,'2026-08-01 00:00:00','panel')`); err != nil {
 		t.Fatal(err)
 	}
+	// 以当前时刻动态计算 monthly/cycle_day=1 的周期窗口，使测试不受"跨过月界后
+	// CycleWindow 回滚到新周期"的影响（否则硬编码 2026-08-01~09-01 在 9/1 后
+	// 会被判定为旧周期，cycle used 归零）。
+	cycleStart, cycleEnd := planCycleWindow(time.Now(), "monthly", 1, time.UTC)
 	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)
-		VALUES('sub-u','2026-08-01T00:00:00Z','2026-09-01T00:00:00Z',10,20,datetime('now'))`); err != nil {
+		VALUES('sub-u',?,?,10,20,datetime('now'))`, cycleStart, cycleEnd); err != nil {
 		t.Fatal(err)
 	}
 	hour := time.Now().UTC().Truncate(time.Hour).Format(time.RFC3339)
