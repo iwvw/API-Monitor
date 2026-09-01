@@ -156,6 +156,17 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	if cfg.DisabledModels == nil {
 		cfg.DisabledModels = []string{}
 	}
+	// 启动时优先复用已有落盘 config.json：引擎运行期把账号冻结/禁用/禁言/冷却等
+	// 状态直接写进 config.json，不回写插件设置 DB 的 ConfigJSON。若用 DB 里可能
+	// 过期的 ConfigJSON 覆盖，会丢失这些运行期状态（重启后账号误显示为启用）。
+	// config.json 缺失或不合法时才退回 DB ConfigJSON。此处仅在进程启动加载时
+	// 生效，用户后续通过设置/配置对话框保存走 SaveSettings 仍以 DB 为准。
+	if content, err := os.ReadFile(s.configPath()); err == nil && len(bytes.TrimSpace(content)) > 0 {
+		var probe map[string]interface{}
+		if json.Unmarshal(content, &probe) == nil {
+			cfg.ConfigJSON = string(content)
+		}
+	}
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
@@ -507,6 +518,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(rest, "/test"):
 			s.handleTestAccount(w, r, strings.TrimSuffix(rest, "/test"))
+		case strings.HasSuffix(rest, "/toggle"):
+			s.handleToggleAccount(w, r, strings.TrimSuffix(rest, "/toggle"))
 		case r.Method == http.MethodPut:
 			s.handleUpdateAccount(w, r, rest)
 		default:

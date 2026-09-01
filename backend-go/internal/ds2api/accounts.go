@@ -259,3 +259,49 @@ func (s *Service) handleTestAccount(w http.ResponseWriter, r *http.Request, iden
 	_ = store.UpdateAccountToken(identifier, tok)
 	responseJSON(w, map[string]interface{}{"success": true, "tokenSet": strings.TrimSpace(tok) != ""})
 }
+
+// handleToggleAccount 启停指定账号（禁用/启用）。禁用即从号池摘除，启用恢复调度。
+func (s *Service) handleToggleAccount(w http.ResponseWriter, r *http.Request, identifier string) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Disabled bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
+		return
+	}
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "缺少账号标识"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	found := false
+	err := s.persistEngineStore(ctx, func(cfg *engineconfig.Config) error {
+		for i := range cfg.Accounts {
+			if cfg.Accounts[i].Identifier() != identifier {
+				continue
+			}
+			found = true
+			cfg.Accounts[i].Disabled = body.Disabled
+			if !body.Disabled {
+				cfg.Accounts[i].DisabledReason = ""
+			}
+			return nil
+		}
+		return nil
+	})
+	if err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	if !found {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true})
+}
