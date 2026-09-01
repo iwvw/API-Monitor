@@ -368,6 +368,15 @@ func ValidateTurn(turn Turn, policy promptcompat.ToolChoicePolicy) *OutputError 
 		return nil
 	}
 	if strings.TrimSpace(turn.UpstreamError) != "" {
+		// 上游限流提示（如「消息发送过于频繁，请稍后重试」）：映射 429
+		// 触发账号切换重试，而不是 400 直接失败透传。
+		if sse.IsRateLimitMessage(turn.UpstreamError) {
+			return &OutputError{
+				Status:  http.StatusTooManyRequests,
+				Message: turn.UpstreamError,
+				Code:    "upstream_rate_limited",
+			}
+		}
 		return &OutputError{
 			Status:  http.StatusBadRequest,
 			Message: turn.UpstreamError,
@@ -392,11 +401,13 @@ func UpstreamEmptyOutputDetail(contentFilter bool, text, thinking string) (int, 
 // ShouldRetryEmptyOutput returns true when the turn produced no visible text
 // and has no tool calls or content filter. This includes thinking-only responses,
 // where the model returned reasoning but no answer — a retry may yield text.
+// Rate-limit upstream errors（「消息发送过于频繁」）are also retryable via
+// account switch: the same message on a different account often succeeds.
 func ShouldRetryEmptyOutput(turn Turn, attempts, maxAttempts int) bool {
 	return attempts < maxAttempts &&
 		!turn.ContentFilter &&
 		len(turn.ToolCalls) == 0 &&
-		strings.TrimSpace(turn.UpstreamError) == "" &&
+		(strings.TrimSpace(turn.UpstreamError) == "" || sse.IsRateLimitMessage(turn.UpstreamError)) &&
 		strings.TrimSpace(turn.Text) == ""
 }
 

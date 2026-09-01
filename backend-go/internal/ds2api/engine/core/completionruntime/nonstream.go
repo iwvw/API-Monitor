@@ -378,6 +378,12 @@ func collectAttempt(resp *http.Response, stdReq promptcompat.StandardRequest, us
 			config.Logger.Warn("[completion_runtime] captcha challenge detected, mapping to 429 for account switch", "surface", stdReq.Surface, "detail", captchaBody)
 			return assistantturn.Turn{}, &assistantturn.OutputError{Status: http.StatusTooManyRequests, Message: "Captcha challenge detected, account may be rate-limited.", Code: "captcha_required"}
 		}
+		// 限流提示（如「消息发送过于频繁，请稍后重试」）：映射 429 触发账号
+		// 切换重试，同一条消息换号发送通常能成功。
+		if sse.IsRateLimitMessage(message) {
+			config.Logger.Warn("[completion_runtime] upstream rate limited, mapping to 429 for account switch", "surface", stdReq.Surface, "status", resp.StatusCode)
+			return assistantturn.Turn{}, &assistantturn.OutputError{Status: http.StatusTooManyRequests, Message: message, Code: "upstream_rate_limited"}
+		}
 		return assistantturn.Turn{}, &assistantturn.OutputError{Status: resp.StatusCode, Message: message, Code: "error"}
 	}
 	result := sse.CollectStream(resp, stdReq.Thinking, false)

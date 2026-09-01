@@ -21,6 +21,10 @@ const (
 	StopReasonRepetitionLoop    StopReason = "repetition_loop"
 )
 
+// defaultFirstTokenTimeout 是等待上游首字的默认窗口。DeepSeek 网页端正常
+// 1s 内开始输出思考/文字；5s 仍无任何内容即判定上游阻塞（循环/风控挂起）。
+const defaultFirstTokenTimeout = 5 * time.Second
+
 type ConsumeConfig struct {
 	Context             context.Context
 	Body                io.Reader
@@ -29,6 +33,12 @@ type ConsumeConfig struct {
 	KeepAliveInterval   time.Duration
 	IdleTimeout         time.Duration
 	MaxKeepAliveNoInput int
+
+	// FirstTokenTimeout 是「发出请求后等待上游首字」的硬上限。DeepSeek 网页
+	// 端正常在 1s 内输出首个思考/文字；超过该窗口仍无任何内容，大概率是
+	// 上游陷入循环阻塞或风控挂起，应立即断流交给重试链路，而不是干等。
+	// 零值启用默认 5s；负值禁用。
+	FirstTokenTimeout time.Duration
 
 	// RepeatLimit is how many consecutive identical content blocks must be
 	// observed before the stream is cut off. Zero enables the default (3);
@@ -75,6 +85,10 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 		repeatLimit = 3
 	}
 	repeatGuard := newContentRepeatGuard(repeatLimit)
+	firstTokenTimeout := cfg.FirstTokenTimeout
+	if firstTokenTimeout == 0 {
+		firstTokenTimeout = defaultFirstTokenTimeout
+	}
 	parsedLines, done := sse.StartParsedLinePump(cfg.Context, cfg.Body, cfg.ThinkingEnabled, initialType)
 
 	var ticker *time.Ticker
@@ -86,6 +100,16 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 	hasContent := false
 	lastContent := time.Now()
 	keepaliveCount := 0
+
+	// 首字定时器：独立于 keepalive ticker，保证 FirstTokenTimeout 精确触发
+	// （ticker 间隔 5s 时在 tick 上比较会漂移到 2 倍窗口）。
+	var firstTokenTimer *time.Timer
+	var firstTokenCh <-chan time.Time
+	if firstTokenTimeout > 0 {
+		firstTokenTimer = time.NewTimer(firstTokenTimeout)
+		defer firstTokenTimer.Stop()
+		firstTokenCh = firstTokenTimer.C
+	}
 
 	finalize := func(reason StopReason, scannerErr error) {
 		if hooks.OnFinalize != nil {
@@ -129,6 +153,13 @@ func ConsumeSSE(cfg ConsumeConfig, hooks ConsumeHooks) {
 			}
 			if hooks.OnKeepAlive != nil {
 				hooks.OnKeepAlive()
+			}
+		case <-firstTokenCh:
+			if !hasContent {
+				// 首字超时：FirstTokenTimeout 内无任何内容，判定上游阻塞
+				//（陷入循环后消息发不回来 / 风控挂起），立即断流交重试链路。
+				finalize(StopReasonNoContentTimeout, fmt.Errorf("no content received from upstream within %s", firstTokenTimeout))
+				return
 			}
 		case parsed, ok := <-parsedLines:
 			if contextDone() {
