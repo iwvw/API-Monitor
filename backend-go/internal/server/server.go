@@ -922,6 +922,12 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.IsProduction() {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
+	if isGatewayRoute(r.URL.Path) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Client-Version")
+		return
+	}
 	origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
 	for _, allowed := range s.cfg.CORSAllowedOrigins {
 		if origin != "" && origin == allowed {
@@ -932,6 +938,10 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+func isGatewayRoute(path string) bool {
+	return strings.HasPrefix(path, "/v1/") || path == "/v1"
 }
 
 func (s *Server) sameOriginRequest(r *http.Request) bool {

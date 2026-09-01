@@ -1235,6 +1235,68 @@ func TestDevProxyCookieRequestStillRejectsPublicOrigin(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesEmitWildcardCORSHeaders(t *testing.T) {
+	handler := testServer(t)
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/models", nil)
+	req.Header.Set("Origin", "https://chat.example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	req.Header.Set("Access-Control-Request-Headers", "authorization, content-type")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("preflight ACAO = %q, want *", got)
+	}
+	if got := res.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("preflight ACAC must stay unset, got %q", got)
+	}
+	allowHeaders := strings.ToLower(res.Header().Get("Access-Control-Allow-Headers"))
+	for _, want := range []string{"authorization", "content-type", "x-api-key"} {
+		if !strings.Contains(allowHeaders, want) {
+			t.Fatalf("preflight allow-headers missing %q, got %q", want, res.Header().Get("Access-Control-Allow-Headers"))
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Origin", "https://chat.example.com")
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("response ACAO = %q, want *", got)
+	}
+	if got := res.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("response ACAC must stay unset, got %q", got)
+	}
+}
+
+func TestGatewayRootPathEmitsWildcardCORS(t *testing.T) {
+	handler := testServer(t)
+	req := httptest.NewRequest(http.MethodOptions, "/v1", nil)
+	req.Header.Set("Origin", "app://obsidian.md")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("preflight ACAO = %q, want *", got)
+	}
+}
+
+func TestNonGatewayRoutesDoNotEmitWildcardCORS(t *testing.T) {
+	handler := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	req.Header.Set("Origin", "https://attacker.example.com")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("non-gateway route leaked ACAO %q", got)
+	}
+}
+
 func TestAuth2FAManagementRoutesAreServedByGo(t *testing.T) {
 	t.Setenv("ADMIN_PASSWORD", "")
 	t.Setenv("DEMO_MODE", "")
