@@ -259,6 +259,59 @@ func TestWithImageTagPreservesRepository(t *testing.T) {
 	}
 }
 
+func TestCreateAppBlankNameAutoGenerates(t *testing.T) {
+	var captured string
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/graphql" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		var payload struct {
+			Query     string                 `json:"query"`
+			Variables map[string]interface{} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		if strings.Contains(payload.Query, "viewer") {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"data": map[string]interface{}{
+				"viewer":        map[string]interface{}{"email": "fly@example.com"},
+				"organizations": map[string]interface{}{"nodes": []map[string]interface{}{{"id": "org-1", "slug": "org", "name": "Org"}}},
+			}})
+			return
+		}
+		if !strings.Contains(payload.Query, "createApp") {
+			t.Fatalf("unexpected query: %s", payload.Query)
+		}
+		input := objectValue(payload.Variables["input"])
+		captured = stringValue(objectValue(input)["name"], "")
+		writeJSON(w, http.StatusOK, map[string]interface{}{"data": map[string]interface{}{
+			"createApp": map[string]interface{}{"app": map[string]interface{}{"id": "app-id", "name": captured, "status": "deployed", "hostname": captured + ".fly.dev"}},
+		}})
+	}))
+	t.Cleanup(fake.Close)
+
+	t.Setenv("FLY_GRAPHQL_URL", fake.URL+"/graphql")
+	t.Setenv("FLY_MACHINES_URL", fake.URL+"/machines")
+	t.Setenv("FLY_LOGS_URL", fake.URL+"/logsapi")
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+
+	res := perform(service, http.MethodPost, "/api/flyio/accounts", `{"name":"prod","api_token":"token-1"}`)
+	var created map[string]interface{}
+	mustDecode(t, res, &created)
+	id := stringValue(objectAt(created, "data")["id"], "")
+
+	res = perform(service, http.MethodPost, "/api/flyio/apps", `{"accountId":"`+id+`"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create app status = %d body=%s", res.Code, res.Body.String())
+	}
+	var payload map[string]interface{}
+	mustDecode(t, res, &payload)
+	if payload["success"] != true {
+		t.Fatalf("create app success = %#v", payload)
+	}
+	if captured == "" || !strings.HasPrefix(captured, "app-") {
+		t.Fatalf("expected auto-generated app name, got %q", captured)
+	}
+}
+
 func TestNormalizeFlyImageForUpdateStripsDockerHubMirror(t *testing.T) {
 	tests := map[string]string{
 		"docker-hub-mirror.fly.io/iwvw/api-monitor:dev": "iwvw/api-monitor:dev",

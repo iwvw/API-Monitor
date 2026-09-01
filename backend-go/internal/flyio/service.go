@@ -281,9 +281,13 @@ func (s *Service) createApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer db.Close()
+	name := strings.TrimSpace(stringValue(payload["name"], ""))
+	if name == "" {
+		name = randomAppName()
+	}
 	variables := map[string]interface{}{
 		"input": map[string]interface{}{
-			"name":           emptyToNil(stringValue(payload["name"], "")),
+			"name":           name,
 			"organizationId": emptyToNil(stringValue(account["organization_id"], "")),
 		},
 	}
@@ -1256,6 +1260,10 @@ func emptyToNil(value string) interface{} {
 	return value
 }
 
+func randomAppName() string {
+	return "app-" + strings.ToLower(strings.ReplaceAll(uuid.NewString(), "-", ""))[:12]
+}
+
 func objectValue(value interface{}) map[string]interface{} {
 	if typed, ok := value.(map[string]interface{}); ok {
 		return typed
@@ -1454,7 +1462,7 @@ func mutationCreateApp() string {
 }
 
 func mutationDeleteApp() string {
-	return `mutation($appId: String!) {
+	return `mutation($appId: ID!) {
 		deleteApp(appId: $appId) { organization { id } }
 	}`
 }
