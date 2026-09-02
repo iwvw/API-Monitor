@@ -37,7 +37,6 @@ import {
   Home,
   LogIn,
   RefreshCw,
-  Shield,
 } from '../components/Icons.jsx';
 
 const STATE_META = {
@@ -540,7 +539,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
 
             <footer className="flex flex-col gap-2 py-4 text-xs text-kumo-subtle sm:flex-row sm:items-center sm:justify-between">
               <span className="inline-flex items-center gap-1">
-                <Shield className="h-3.5 w-3.5" />
+                <img src="/logo.svg" className="h-3.5 w-3.5 object-contain" alt="" />
                 由 API Monitor 提供
               </span>
               <span>最后更新：{formatDateTime(lastDataUpdate || page.updatedAt || page.createdAt)}</span>

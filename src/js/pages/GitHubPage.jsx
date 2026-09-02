@@ -318,7 +318,7 @@ const buildWorkflowGraph = (workflow, jobs, now) => {
 };
 
 const ACTION_FLOW_CARD_WIDTH = 260;
-const ACTION_FLOW_STAGE_GAP = 72;
+const ACTION_FLOW_STAGE_GAP = 48;
 const ACTION_FLOW_PADDING_X = 28;
 const ACTION_FLOW_PADDING_Y = 28;
 const ACTION_FLOW_ROW_GAP = 38;

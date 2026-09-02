@@ -33,7 +33,6 @@ import {
   Home,
   LogIn,
   RefreshCw,
-  Shield,
 } from '../components/Icons.jsx';
 
 const normalizePublicPath = () => {
@@ -229,7 +228,7 @@ const buildWorkflowGraph = (workflow, jobs, now) => {
 };
 
 const ACTION_FLOW_CARD_WIDTH = 260;
-const ACTION_FLOW_STAGE_GAP = 72;
+const ACTION_FLOW_STAGE_GAP = 48;
 const ACTION_FLOW_PADDING_X = 28;
 const ACTION_FLOW_PADDING_Y = 28;
 const ACTION_FLOW_ROW_GAP = 38;
@@ -2230,7 +2229,7 @@ function PublicGitHubPage({ domainOnly = false, onDomainNotFound }) {
 
             <footer className="flex flex-col gap-2 py-3 text-xs text-kumo-subtle sm:flex-row sm:items-center sm:justify-between">
               <span className="inline-flex items-center gap-1">
-                <Shield className="h-3.5 w-3.5" />
+                <img src="/logo.svg" className="h-3.5 w-3.5 object-contain" alt="" />
                 由 API Monitor 提供
               </span>
               <span>最后更新：{formatDateTime(dataUpdatedAt)}</span>

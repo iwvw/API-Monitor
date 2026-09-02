@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 import { Meter, Tabs } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { AlertTriangle, Globe, Home, LogIn, RefreshCw, Shield } from '../components/Icons.jsx';
+import { AlertTriangle, Globe, Home, LogIn, RefreshCw } from '../components/Icons.jsx';
 import PublicPageIconPicker from '../components/public/PublicPageIconPicker.jsx';
 import useStore from '../store.js';
 import CountryFlag from '../components/CountryFlag.jsx';
@@ -764,7 +764,7 @@ function PublicServerStatusPage({ domainOnly = false, onDomainNotFound }) {
             )}
 
             <footer className="flex flex-col gap-2 py-4 text-xs text-kumo-subtle sm:flex-row sm:items-center sm:justify-between">
-              <span className="inline-flex items-center gap-1"><Shield className="h-3.5 w-3.5" />由 API Monitor 提供</span>
+              <span className="inline-flex items-center gap-1"><img src="/logo.svg" className="h-3.5 w-3.5 object-contain" alt="" />由 API Monitor 提供</span>
               <span>数据时间：{formatDateTime(fetchedAt || page.updatedAt || page.createdAt)}</span>
             </footer>
           </div>

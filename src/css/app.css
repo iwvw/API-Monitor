@@ -1600,42 +1600,6 @@ th > button[aria-label='Resize column'] > span {
   background: var(--app-main-bg);
 }
 
-.public-server-status-card {
-  box-shadow:
-    0 1px 2px color-mix(in oklab, var(--color-kumo-line) 38%, transparent),
-    0 10px 24px color-mix(in oklab, var(--color-kumo-canvas) 18%, transparent);
-}
-
-.public-github-card {
-  box-shadow:
-    0 1px 2px color-mix(in oklab, var(--color-kumo-line) 38%, transparent),
-    0 10px 24px color-mix(in oklab, var(--color-kumo-canvas) 18%, transparent);
-}
-
-.public-status-card {
-  box-shadow:
-    0 1px 2px color-mix(in oklab, var(--color-kumo-line) 38%, transparent),
-    0 10px 24px color-mix(in oklab, var(--color-kumo-canvas) 18%, transparent);
-}
-
-:root[data-mode='dark'] .public-server-status-card {
-  box-shadow:
-    0 2px 6px color-mix(in oklab, var(--color-kumo-line) 24%, transparent),
-    0 12px 28px color-mix(in oklab, var(--color-kumo-canvas) 34%, transparent);
-}
-
-:root[data-mode='dark'] .public-github-card {
-  box-shadow:
-    0 1px 0 color-mix(in oklab, var(--color-kumo-line) 82%, transparent),
-    0 12px 28px color-mix(in oklab, var(--color-kumo-canvas) 34%, transparent);
-}
-
-:root[data-mode='dark'] .public-status-card {
-  box-shadow:
-    0 1px 0 color-mix(in oklab, var(--color-kumo-line) 82%, transparent),
-    0 12px 28px color-mix(in oklab, var(--color-kumo-canvas) 34%, transparent);
-}
-
 .public-status-meter-compact {
   gap: 0;
 }
