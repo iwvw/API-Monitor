@@ -1670,7 +1670,8 @@ function GcpPage() {
                 label="Service Account JSON"
                 fileName="service-account.json"
                 language="json"
-                minHeight="10rem"
+                minHeight="6rem"
+                maxHeight="16rem"
                 value={accountForm.serviceAccountJson}
                 onChange={(serviceAccountJson) => setAccountForm({ ...accountForm, serviceAccountJson })}
                 placeholder="粘贴完整的 Service Account JSON 密钥文件内容，或点击上方按钮导入文件"
@@ -1685,6 +1686,7 @@ function GcpPage() {
                 fileName="service-account.json"
                 language="json"
                 minHeight="6rem"
+                maxHeight="16rem"
                 value={accountForm.serviceAccountJson}
                 onChange={(serviceAccountJson) => setAccountForm({ ...accountForm, serviceAccountJson })}
                 placeholder="不修改则留空"

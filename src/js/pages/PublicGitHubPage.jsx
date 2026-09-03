@@ -512,18 +512,17 @@ const makeActionStageBranchPath = (sourceX, sourceY, targetX, targetY, busX) => 
   const dir = Math.sign(targetY - sourceY) || 1;
   const availableLeft = Math.max(8, busX - sourceX);
   const availableRight = Math.max(8, targetX - busX);
-  const availableVertical = Math.max(8, Math.abs(targetY - sourceY) / 2);
-  const curve = Math.max(8, Math.min(24, availableLeft, availableRight, availableVertical));
-  const handle = Math.max(4, curve / 2);
+  const curve = Math.max(8, Math.min(18, availableLeft, availableRight));
+  const handle = curve * 0.5522847498;
   const startCurveX = busX - curve;
   const startCurveY = sourceY + dir * curve;
   const endCurveY = targetY - dir * curve;
   return [
     `M ${sourceX} ${sourceY}`,
     `H ${startCurveX}`,
-    `C ${busX - handle} ${sourceY} ${busX} ${sourceY + dir * handle} ${busX} ${startCurveY}`,
+    `C ${busX - curve + handle} ${sourceY} ${busX} ${sourceY + dir * (curve - handle)} ${busX} ${startCurveY}`,
     `V ${endCurveY}`,
-    `C ${busX} ${targetY - dir * handle} ${busX + handle} ${targetY} ${busX + curve} ${targetY}`,
+    `C ${busX} ${targetY - dir * (curve - handle)} ${busX + curve - handle} ${targetY} ${busX + curve} ${targetY}`,
     `H ${targetX}`,
   ].join(' ');
 };
@@ -760,7 +759,33 @@ const alignAdjacentFanoutStages = (stages, visualChildren, visualStageById, node
   });
 };
 
-const routeActionConnector = (edge, stages) => {
+const resolveActionConnectorBusX = (edge, stages) => {
+  const sourceX = edge.sourceRect.x + edge.sourceRect.width;
+  const targetX = edge.targetRect.x;
+  const isAdjacent = edge.toStage - edge.fromStage <= 1;
+
+  if (isAdjacent) {
+    if (edge.fanOut && !edge.fanIn) {
+      return sourceX + Math.min(ACTION_FLOW_BRANCH_INSET, (targetX - sourceX) * 0.45);
+    }
+    if (edge.fanIn && !edge.fanOut) {
+      return targetX - Math.min(ACTION_FLOW_BRANCH_INSET, (targetX - sourceX) * 0.45);
+    }
+    return sourceX + (targetX - sourceX) / 2;
+  }
+
+  const intermediateRects = stages
+    .slice(edge.fromStage + 1, edge.toStage)
+    .flatMap((stage) => stage.nodes.map((item) => item.rect));
+  const crossesCard = (y) => intermediateRects.some((rect) => y >= rect.y - 4 && y <= rect.y + rect.height + 4);
+  const canLateSplit = !crossesCard(edge.sourceY);
+  if ((edge.fanOut || edge.fanIn || Math.abs(edge.sourceY - edge.targetY) <= 24) && canLateSplit) {
+    return actionFlowLateSplitBusX(sourceX, targetX);
+  }
+  return targetX - ACTION_FLOW_STAGE_GAP / 2;
+};
+
+const routeActionConnector = (edge, stages, busXOverride = null) => {
   const sourceX = edge.sourceRect.x + edge.sourceRect.width;
   const targetX = edge.targetRect.x;
   const sourceBusX = sourceX + ACTION_FLOW_STAGE_GAP / 2;
@@ -769,7 +794,7 @@ const routeActionConnector = (edge, stages) => {
     if (Math.abs(edge.sourceY - edge.targetY) < 4) {
       return { path: `M ${sourceX} ${edge.sourceY} H ${targetX}`, maxY: Math.max(edge.sourceY, edge.targetY) };
     }
-    const busX = actionFlowLateSplitBusX(sourceX, targetX);
+    const busX = Number.isFinite(busXOverride) ? busXOverride : actionFlowLateSplitBusX(sourceX, targetX);
     return {
       path: makeActionStageBranchPath(sourceX, edge.sourceY, targetX, edge.targetY, busX),
       maxY: Math.max(edge.sourceY, edge.targetY),
@@ -782,7 +807,7 @@ const routeActionConnector = (edge, stages) => {
   const crossesCard = (y) => intermediateRects.some((rect) => y >= rect.y - 4 && y <= rect.y + rect.height + 4);
   const canLateSplit = !crossesCard(edge.sourceY);
   if ((edge.fanOut || edge.fanIn || Math.abs(edge.sourceY - edge.targetY) <= 24) && canLateSplit) {
-    const busX = actionFlowLateSplitBusX(sourceX, targetX);
+    const busX = Number.isFinite(busXOverride) ? busXOverride : actionFlowLateSplitBusX(sourceX, targetX);
     return {
       path: makeActionStageBranchPath(sourceX, edge.sourceY, targetX, edge.targetY, busX),
       maxY: Math.max(edge.sourceY, edge.targetY),
@@ -1084,8 +1109,39 @@ const buildActionCanvasLayout = (workflow, jobs, now, focusedDefinitionIds = nul
     edge.sourceY = rightAnchors.get(edge.from);
     edge.targetY = leftAnchors.get(edge.to);
   });
+  const edgeBusXMap = new Map();
+  candidateEdges.forEach((edge) => {
+    edgeBusXMap.set(edge, resolveActionConnectorBusX(edge, stages));
+  });
+
+  outgoing.forEach((edgesFromSource) => {
+    if (edgesFromSource.length <= 1) return;
+    const adjacentEdges = edgesFromSource.filter((edge) => edge.toStage - edge.fromStage <= 1);
+    if (adjacentEdges.length <= 1) return;
+    const sampleEdge = adjacentEdges[0];
+    const sourceX = sampleEdge.sourceRect.x + sampleEdge.sourceRect.width;
+    const targetX = sampleEdge.targetRect.x;
+    const unifiedBusX = sourceX + Math.min(ACTION_FLOW_BRANCH_INSET, (targetX - sourceX) * 0.45);
+    adjacentEdges.forEach((edge) => edgeBusXMap.set(edge, unifiedBusX));
+  });
+
+  incoming.forEach((edgesToTarget) => {
+    if (edgesToTarget.length <= 1) return;
+    const adjacentEdges = edgesToTarget.filter((edge) => edge.toStage - edge.fromStage <= 1);
+    if (adjacentEdges.length <= 1) return;
+    const sampleEdge = adjacentEdges[0];
+    const sourceX = sampleEdge.sourceRect.x + sampleEdge.sourceRect.width;
+    const targetX = sampleEdge.targetRect.x;
+    const unifiedBusX = targetX - Math.min(ACTION_FLOW_BRANCH_INSET, (targetX - sourceX) * 0.45);
+    adjacentEdges.forEach((edge) => {
+      if (!edge.fanOut) {
+        edgeBusXMap.set(edge, unifiedBusX);
+      }
+    });
+  });
+
   const edges = candidateEdges.map((edge) => {
-    const route = routeActionConnector(edge, stages);
+    const route = routeActionConnector(edge, stages, edgeBusXMap.get(edge));
     return {
       from: edge.from,
       to: edge.to,
