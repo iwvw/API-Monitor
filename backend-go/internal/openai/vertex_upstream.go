@@ -632,8 +632,12 @@ type vertexSSETransformer struct {
 	finished  bool
 	doneSent  bool
 	finishStr string
-	sawTool   bool
-	usage     *vertexUsage
+	// toolCallsEmitted 标记已真正向流中输出过 tool_calls delta。
+	// partialArgs 累积中途不得以 tool_calls 收尾；若流在参数完整前被读中断，
+	// 从未发出任何 tool_calls delta，finish 不得以 tool_calls 收尾（避免
+	// 「工具调用已结束但无工具可执行」的幻影收尾）。仅 delta 实际写出时置 true。
+	toolCallsEmitted bool
+	usage           *vertexUsage
 	// partialToolByName 重组流式工具调用的部分参数：Vertex 通过 partialArgs
 	// JSONPath 分片下发参数，name 跨 chunk 必须一致，参数按路径增量累加，
 	// willContinue=false 时输出完整 tool_calls delta。按工具名区分，
@@ -779,8 +783,6 @@ func (t *vertexSSETransformer) consumeToolCall(fc *struct {
 	WillContinue *bool                 `json:"willContinue"`
 	ID           string                `json:"id"`
 }) [][]byte {
-	t.sawTool = true
-
 	// 完整参数：整块输出一个 tool_calls delta（name + 完整 args）。
 	if len(fc.PartialArgs) == 0 && len(fc.Args) > 0 {
 		toolIdx := t.toolIdxFor(fc.ID)
@@ -789,6 +791,7 @@ func (t *vertexSSETransformer) consumeToolCall(fc *struct {
 			toolID = "call_" + strconv.FormatInt(time.Now().UnixNano(), 10)
 		}
 		argsBytes, _ := json.Marshal(fc.Args)
+		t.toolCallsEmitted = true
 		return [][]byte{t.chunk(map[string]interface{}{
 			"tool_calls": []interface{}{
 				map[string]interface{}{
@@ -841,6 +844,7 @@ func (t *vertexSSETransformer) consumeToolCall(fc *struct {
 		toolID = "call_" + strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 	delete(t.partialToolByName, partialKey)
+	t.toolCallsEmitted = true
 	return [][]byte{t.chunk(map[string]interface{}{
 		"tool_calls": []interface{}{
 			map[string]interface{}{
@@ -1046,12 +1050,12 @@ func (t *vertexSSETransformer) finish() [][]byte {
 	if !t.finished {
 		t.finished = true
 		finish := "stop"
-		if t.sawTool {
+		if t.toolCallsEmitted {
 			finish = "tool_calls"
 		}
 		if t.finishStr != "" {
 			finish = vertexFinishReason(t.finishStr)
-			if t.sawTool {
+			if t.toolCallsEmitted {
 				finish = "tool_calls"
 			}
 		}

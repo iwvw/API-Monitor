@@ -850,9 +850,10 @@ func (t *geminiInteractionSSETransformer) consume(data []byte) [][]byte {
 		}
 	case "step.complete":
 		// 工具调用步骤：Interaction API 在步骤结束时下发完整 function_call
-		// step（id/name/arguments）。输出 tool_calls delta 并标记 sawTool，
-		// interaction.completed 的 requires_action 才能输出 tool_calls 收尾。
-		if ev.Step.Type == "function_call" && ev.Step.Name != "" && !t.sawTool {
+		// step（id/name/arguments）。每次下发都输出对应 tool_calls delta，
+		// 支持并行工具调用（可能多次 step.complete）；sawTool 仅用于标记
+		// interaction.completed 的 requires_action 是否以 tool_calls 收尾。
+		if ev.Step.Type == "function_call" && ev.Step.Name != "" {
 			t.sawTool = true
 			args := ev.Step.Arguments
 			if args == "" {
