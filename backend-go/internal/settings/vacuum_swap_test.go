@@ -78,6 +78,9 @@ func TestVacuumHoldsSwapMutexUntilDone(t *testing.T) {
 // 非法文件导入必须被拒且不影响现有库；合法库导入必须真实生效。
 // 常驻逻辑句柄（held）保持 refs>0：连接池在失败后不被销毁，这是
 // schema 失败粘池缺陷的触发条件。
+// 注意：合法导入在 Windows 上要求目标文件无打开句柄（issue #25 已杜绝
+// 就地 copy 覆盖活库的回退路径，rename 是唯一换库方式），故合法导入前
+// 关闭 held，让换名能原子完成。
 func TestReplaceDatabaseRollbackRecoversPool(t *testing.T) {
 	service := newSwapTestService(t)
 	ctx := context.Background()
@@ -96,7 +99,6 @@ func TestReplaceDatabaseRollbackRecoversPool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer held.Close()
 
 	badImport := filepath.Join(t.TempDir(), "bad.db")
 	if err := os.WriteFile(badImport, []byte("not a sqlite database"), 0o600); err != nil {
@@ -118,6 +120,9 @@ func TestReplaceDatabaseRollbackRecoversPool(t *testing.T) {
 		t.Fatalf("marker after failed import = %q, want before", value)
 	}
 	if err := after.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := held.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -244,6 +249,59 @@ func TestStatisticsRetentionCutoffKeepsBoundaryDay(t *testing.T) {
 		if !keep && count != 0 {
 			t.Fatalf("system_api_stats expired date %s was kept, want deleted", date)
 		}
+	}
+}
+
+// 失败恢复路径「备份→恢复→校验」：先对活库做备份，再破坏活库文件并残留
+// 指向坏库的 sidecar，调用 restoreDatabaseFromBackup 后应恢复出完整、可读、
+// 校验通过的库，且不遗留 sidecar。杜绝只 copy 不校验的静默回退。
+func TestRestoreDatabaseFromBackupRecoversAndVerifies(t *testing.T) {
+	service := newSwapTestService(t)
+	ctx := context.Background()
+	dbPath := service.store.DatabasePath()
+
+	db, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO system_config (key, value) VALUES ('restore-marker', 'original')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	backupPath := filepath.Join(t.TempDir(), "before-corrupt.db")
+	if err := service.backupCurrentDatabase(ctx, backupPath); err != nil {
+		t.Fatalf("backupCurrentDatabase: %v", err)
+	}
+
+	// 破坏活库并伪造指向坏库的 WAL sidecar，验证恢复能清理并重建可用库。
+	if err := os.WriteFile(dbPath, []byte("corrupted-not-sqlite"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dbPath+"-wal", []byte("stale-wal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dbPath+"-shm", []byte("stale-shm"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.restoreDatabaseFromBackup(ctx, dbPath, backupPath); err != nil {
+		t.Fatalf("restoreDatabaseFromBackup: %v", err)
+	}
+
+	recovered, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatalf("open after restore: %v", err)
+	}
+	defer recovered.Close()
+	var value string
+	if err := recovered.QueryRowContext(ctx, `SELECT value FROM system_config WHERE key = 'restore-marker'`).Scan(&value); err != nil {
+		t.Fatalf("read marker after restore: %v", err)
+	}
+	if value != "original" {
+		t.Fatalf("marker after restore = %q, want original", value)
 	}
 }
 

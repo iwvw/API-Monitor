@@ -2754,17 +2754,22 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 	database.ResetPool(dbPath)
 
 	cleanupSQLiteSidecars(dbPath)
+	// 杜绝「把导入文件直接 copy 覆盖到活库路径」的回退路径：就地 O_TRUNC
+	// 重写不原子，中途中断或并发读到半成品会把活库弄坏且无法回滚。换库只
+	// 允许 rename 原子换名；rename 失败即视为导入失败，走「从备份恢复+校验」。
 	replaceErr := func() error {
-		if err := os.Remove(dbPath); err == nil || errors.Is(err, os.ErrNotExist) {
-			if err := os.Rename(tempTarget, dbPath); err == nil {
-				return nil
-			}
+		if err := os.Remove(dbPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
-		return copyFile(tempTarget, dbPath, 0o600)
+		if err := os.Rename(tempTarget, dbPath); err != nil {
+			return err
+		}
+		return nil
 	}()
 	if replaceErr != nil {
-		database.ResetPool(dbPath)
-		_ = copyFile(backupPath, dbPath, 0o600)
+		if rollbackErr := s.restoreDatabaseFromBackup(ctx, dbPath, backupPath); rollbackErr != nil {
+			return "", fmt.Errorf("替换数据库失败(%v)，且回滚恢复失败: %v", replaceErr, rollbackErr)
+		}
 		return "", fmt.Errorf("替换数据库失败: %w", replaceErr)
 	}
 	cleanupSQLiteSidecars(dbPath)
@@ -2774,32 +2779,56 @@ func (s *Service) replaceDatabase(ctx context.Context, importPath string) (strin
 
 	db, err := s.store.Open(ctx)
 	if err != nil {
-		// 回滚同样要失效连接池并清理残留 sidecar：上面 Open 已在新文件上
-		// 建立过 WAL（-wal/-shm 指向导入库），留着会让恢复后的库做错误的
-		// WAL 回放；不 ResetPool 则池内空闲连接继续指向被放弃的导入文件。
-		// 备份同样经 PrepareSwapFile 预转 WAL，避免恢复后连接被残留锁阻塞。
-		database.ResetPool(dbPath)
-		cleanupSQLiteSidecars(dbPath)
-		_ = database.PrepareSwapFile(backupPath)
-		_ = copyFile(backupPath, dbPath, 0o600)
-		cleanupSQLiteSidecars(dbPath)
+		if rollbackErr := s.restoreDatabaseFromBackup(ctx, dbPath, backupPath); rollbackErr != nil {
+			return "", fmt.Errorf("重新打开导入数据库失败(%v)，且回滚恢复失败: %v", err, rollbackErr)
+		}
 		return "", fmt.Errorf("重新打开导入数据库失败: %w", err)
 	}
 	defer db.Close()
 	var integrity string
 	if err := db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		_ = db.Close()
-		database.ResetPool(dbPath)
-		cleanupSQLiteSidecars(dbPath)
-		_ = database.PrepareSwapFile(backupPath)
-		_ = copyFile(backupPath, dbPath, 0o600)
-		cleanupSQLiteSidecars(dbPath)
+		if rollbackErr := s.restoreDatabaseFromBackup(ctx, dbPath, backupPath); rollbackErr != nil {
+			return "", fmt.Errorf("导入后完整性检查失败(%v)，且回滚恢复失败: %v", integrity, rollbackErr)
+		}
 		if err != nil {
 			return "", fmt.Errorf("导入后完整性检查失败: %w", err)
 		}
 		return "", fmt.Errorf("导入后完整性检查失败: %s", integrity)
 	}
 	return backupPath, nil
+}
+
+// restoreDatabaseFromBackup 在换库失败后从备份恢复 dbPath。调用方须持有
+// 换库互斥。流程：失效连接池 → 清理旧 sidecar → 备份经 PrepareSwapFile
+// 预处理（完整性校验 + 转 WAL，防止恢复后连接被残留锁阻塞）→ 写回 dbPath
+// → 清理 sidecar → 失效池 → 重新打开并校验完整性。任一环节失败都返回
+// 确切错误，绝不静默吞掉。
+func (s *Service) restoreDatabaseFromBackup(ctx context.Context, dbPath, backupPath string) error {
+	database.ResetPool(dbPath)
+	cleanupSQLiteSidecars(dbPath)
+	if err := database.PrepareSwapFile(backupPath); err != nil {
+		return fmt.Errorf("备份预处理失败: %w", err)
+	}
+	if err := copyFile(backupPath, dbPath, 0o600); err != nil {
+		return fmt.Errorf("写回恢复的库失败: %w", err)
+	}
+	cleanupSQLiteSidecars(dbPath)
+	database.ResetPool(dbPath)
+
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return fmt.Errorf("打开恢复后的库失败: %w", err)
+	}
+	defer db.Close()
+	var integrity string
+	if err := db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
+		if err != nil {
+			return fmt.Errorf("恢复后完整性校验失败: %w", err)
+		}
+		return fmt.Errorf("恢复后完整性校验失败: %s", integrity)
+	}
+	return nil
 }
 
 func (s *Service) backupCurrentDatabase(ctx context.Context, backupPath string) error {
