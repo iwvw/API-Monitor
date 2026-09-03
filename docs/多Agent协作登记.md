@@ -1,6 +1,6 @@
 # 多 Agent 协作登记表
 
-在同一仓库并行运行多个 Agent 任务时，**开工前先在此登记，开工后立即更新状态**。规则见 `CONTEXT.md` 的「Multi-Window Agent Collaboration」一节。
+> **已废弃（历史存档）**：本登记表已被 GitHub Issues 取代，仅作历史记录保留。活跃任务的登记、状态与文件域声明请改用 `iwvw/API-Monitor` 仓库的 Issue（标签 `backlog`/`in-progress`/`done`），规则见 `CONTEXT.md` 的「Multi-Window Agent Collaboration · Task Tracking」一节。请勿再在此追加新任务。
 
 ## 如何登记
 

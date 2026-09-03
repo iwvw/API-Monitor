@@ -61,6 +61,19 @@
 - `overflow-hidden` 容器可被程序性横向滚动产生 `scrollLeft` 漂移（内容被 translate 撑宽时尤其容易），整体偏移排查优先查滚动容器，改用 `overflow-clip` 彻底禁止。
 - 站点品牌色是橙色（`--color-brand: #dc7d40`，见 [AI面板布局与交互规范](./AI面板布局与交互规范.md)）；`kumo-brand` 是 Kumo 库默认蓝紫，不是站点品牌色，品牌视觉（入口按钮、hover 边框）用 `brand` 不要用 `kumo-brand`。
 
+## 归档（历史 / 一次性文档）
+
+以下文档为历史巡检、审查、交接或迁移记录，仅作回溯参考，不视为现行标准，也不转为 GitHub Issue：
+
+- `接口巡检报告-本地.md` / `接口巡检报告-生产.md`（一次性全量接口巡检）
+- `生产环境流程审查.md`（一次性审查）
+- `修复审查清单.md` / `Bug审计与修复交接文档.md`（一次性交接）
+- `kumo-design-违规审计清单.md`（一次性审计）
+- `Go后端迁移状态.md`（迁移历史）
+- `handoff-zcode-ask-ai-sidebar.md`（交接）
+
+活跃开发工作改由 GitHub Issues + `backlog`/`in-progress`/`done` 标签跟踪，见下方「开发规范」与 `CONTEXT.md` 协作约定。
+
 ## 参考资料
 
 - [PRD](./prd/)

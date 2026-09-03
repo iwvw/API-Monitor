@@ -153,9 +153,16 @@ Keep each step independently verifiable.
 
 Applies when multiple Agent windows run different tasks against this repo at the same time. The core principle: conflict may only happen at the controlled, serialized merge moment — never in the shared workspace.
 
+### Task Tracking (GitHub Issues)
+
+- All active dev work is tracked as GitHub Issues on `iwvw/API-Monitor` with `backlog`/`in-progress`/`done` labels. Each task = one issue; keep sensitive details in repo files and reference them from the issue body.
+- Before starting work: find or create the issue for the task, set it `in-progress`, and note the file domain + branch in the issue body. Never touch a file another active issue/task holds.
+- When done, close the issue (or set `done`) and note the verification commands used.
+- `docs/多Agent协作登记.md` is deprecated as the coordination surface; keep it only as historical record.
+
 ### File Ownership (first line of defense)
 
-- Before starting work, register in `docs/多Agent协作登记.md`: task name, window/agent ID, file domain, branch. Read it before starting; never touch a file another active task holds.
+- Ownership is per active task (see Task Tracking above): each task declares its file domain in its issue body.
 - Hard rule: a file is held by at most one active task at a time.
 - Single-owner files (only one task may modify at a time): `src/js/pages/ServerPage.jsx`, `src/js/pages/DnsPage.jsx`, `src/js/pages/OpenAIPage.jsx`, `src/js/components/MainLayout.jsx`, `src/js/store.js`, `backend-go/internal/server/server.go`, `backend-go/internal/manifest/manifest.go`, `backend-go/internal/serveragent/service.go`.
 - Natural parallelism: backend-go/ (Go), src/js/ (frontend), agent-rust/ (Rust) are independent domains.
