@@ -747,6 +747,27 @@ const persistAskAIOpen = (open) => {
   }
 };
 
+// 网关/反向代理出错时响应体可能为空或非 JSON，response.json() 会抛引擎级
+// SyntaxError；向用户展示原始英文报错没有意义，统一转成可读提示。
+const readJsonSafely = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
+const toFriendlyAuthError = (error) => {
+  const message = String(error?.message || '');
+  if (
+    message.toLowerCase().includes('failed to fetch') ||
+    message.toLowerCase().includes('unexpected end of json input')
+  ) {
+    return '无法连接服务器，请检查网络后重试';
+  }
+  return message || '网络验证失败';
+};
+
 const useStore = create((set, get) => ({
   // --- 1. 认证状态 ---
   isAuthenticated: false,
@@ -1030,8 +1051,8 @@ const useStore = create((set, get) => ({
       // 1. 优先检查当前 Session 是否已认证；显式退出后不再信任残留 Cookie。
       if (!explicitlyLoggedOut) {
         const sessionRes = await fetch('/api/auth/session');
-        const { authenticated } = await sessionRes.json();
-        if (authenticated) {
+        const sessionData = await readJsonSafely(sessionRes);
+        if (sessionData?.authenticated) {
           clearPendingAuthProvider();
           set({ isAuthenticated: true, showLoginModal: false, isCheckingAuth: false });
           return true;
@@ -1040,7 +1061,13 @@ const useStore = create((set, get) => ({
 
       // 2. 如果 Session 不存在，再检查基本配置并尝试自动登录
       const res = await fetch('/api/auth/check-password');
-      const { hasPassword, isDemoMode } = await res.json();
+      const checkData = await readJsonSafely(res);
+      if (checkData === null) {
+        // 后端不可达或响应非 JSON：回到登录页，避免误判为首次安装
+        set({ showLoginModal: true });
+        return false;
+      }
+      const { hasPassword, isDemoMode } = checkData;
       set({ isDemoMode });
 
       if (isDemoMode) {
@@ -1086,7 +1113,16 @@ const useStore = create((set, get) => ({
         body: JSON.stringify(requestBody),
       });
 
-      const result = await response.json();
+      const result = await readJsonSafely(response);
+
+      if (result === null) {
+        const errorMsg = response.ok ? '服务器响应异常，请稍后重试' : '无法连接服务器，请检查网络后重试';
+        set({ loginError: errorMsg });
+        if (!silent) {
+          toastManager.error(errorMsg);
+        }
+        return false;
+      }
 
       if (response.status === 429) {
         const errorMsg = result.error || '登录过于频繁，请稍后再试';
@@ -1138,7 +1174,7 @@ const useStore = create((set, get) => ({
         return false;
       }
     } catch (error) {
-      const catchMsg = error.message || '网络验证失败';
+      const catchMsg = toFriendlyAuthError(error);
       set({ loginError: catchMsg });
       if (!silent) {
         toastManager.error(catchMsg);
