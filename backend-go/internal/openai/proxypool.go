@@ -1239,6 +1239,13 @@ func readWithIdleTimeout(ctx context.Context, r io.Reader, p []byte, idle time.D
 	select {
 	case res := <-ch:
 		return res.n, res.err
+	case <-ctx.Done():
+		// 请求被取消（客户端断连/超时）：立即关闭底层连接让阻塞读返回，
+		// 停止上游继续生成（不浪费 token），并释放读 goroutine。
+		if c, ok := r.(io.Closer); ok {
+			_ = c.Close()
+		}
+		return 0, ctx.Err()
 	case <-time.After(idle):
 		// 超时即放弃这条上游流：关闭底层连接让阻塞读返回，释放 goroutine
 		// 与连接缓冲区。调用方后续无需再读该 body（重复 Close 幂等）。

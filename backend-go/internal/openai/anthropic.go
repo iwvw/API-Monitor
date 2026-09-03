@@ -539,13 +539,13 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 				clientIP:       clientIP,
 				requestStarted: requestStarted,
 			})
-			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			// 记录该候选的尝试结果（端点名 + 状态码 + 最终使用的 key 序号），供前端展示迁移趋势。
 			lastTried = &cand
 			stepStatus := res.statusCode
 			if stepStatus == 0 && res.resp != nil {
 				stepStatus = res.resp.StatusCode
 			}
-			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus, "keyIndex": res.stepKeyIndex})
 			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
 			if res.clientCancelled {
 				clientCancelled = true

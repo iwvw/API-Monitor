@@ -525,10 +525,11 @@ var sessionProxyRequestLimit = 50
 
 func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	res := &relayLoopResult{
-		statusCode: http.StatusBadGateway,
-		realModel:  p.realModel,
-		egressIP:   s.egressOutbound(),
-		startTime:  time.Now(),
+		statusCode:   http.StatusBadGateway,
+		realModel:    p.realModel,
+		egressIP:     s.egressOutbound(),
+		startTime:    time.Now(),
+		stepKeyIndex: -1,
 	}
 	ctx := p.ctx
 	selected := p.selected
@@ -663,6 +664,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		// key 会被继续选中，已耗尽的 key 被跳过）。
 		keys := selected.AllKeys()
 		currentKey, currentKeyIndex := s.pickKey(selected.ID, keys, triedKeys, keyMaxTries)
+		res.stepKeyIndex = currentKeyIndex
 		if currentKey == "" {
 			// 本轮全部 key 均已达到单请求最大尝试次数：本端点不可用，标记该端点后尝试下一个候选端点。
 			cancel()
@@ -672,7 +674,11 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			lastProxy = currentProxy
 			break
 		}
-		httpReq.Header.Set("Authorization", "Bearer "+currentKey)
+		if isGoogleAPIKeyUpstream(selected) {
+			httpReq.Header.Set("X-Goog-Api-Key", currentKey)
+		} else {
+			httpReq.Header.Set("Authorization", "Bearer "+currentKey)
+		}
 
 		// 逐跳响应头等待上限：仍有可切换出口时，代理在 attemptHeaderTimeout 内
 		// 不返回响应头即视为该出口链路不可用，立即切下一个，避免挂死代理拖住
@@ -1276,10 +1282,39 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
 			}
-			upstreamBodyBytes, _ := json.Marshal(candBody)
 
-			fullURL := ensureVersionPath(cand.BaseURL)
-			fullURL += "/chat/completions"
+			// Gemini 上游：OpenAI chat 请求体 → Interactions API 请求体，
+			// 目标地址指向 {base}/v1beta/interactions；Vertex 上游：→ generateContent
+			// 请求体，地址指向 {base}/models/{model}:generateContent（或流式
+			// :streamGenerateContent?alt=sse）；其余候选走 OpenAI 协议。
+			var fullURL string
+			var upstreamBodyBytes []byte
+			if isGeminiUpstream(cand) {
+				geminiBody, gErr := openAIChatToGemini(candBody)
+				if gErr != nil {
+					response.JSON(w, http.StatusBadRequest, map[string]string{"error": gErr.Error()})
+					return
+				}
+				fullURL = geminiInteractionsURL(cand.BaseURL)
+				upstreamBodyBytes, _ = json.Marshal(geminiBody)
+			} else if isVertexUpstream(cand) {
+				vertexBody, vErr := openAIChatToVertex(candBody)
+				if vErr != nil {
+					response.JSON(w, http.StatusBadRequest, map[string]string{"error": vErr.Error()})
+					return
+				}
+				vertexModel, _ := candBody["model"].(string)
+				if stream {
+					fullURL = vertexGenerateURL(cand.BaseURL, vertexModel, true)
+				} else {
+					fullURL = vertexGenerateURL(cand.BaseURL, vertexModel, false)
+				}
+				upstreamBodyBytes, _ = json.Marshal(vertexBody)
+			} else {
+				fullURL = ensureVersionPath(cand.BaseURL)
+				fullURL += "/chat/completions"
+				upstreamBodyBytes, _ = json.Marshal(candBody)
+			}
 			res = s.relayLoop(relayLoopParams{
 				route:          "chat.completions",
 				ctx:            ctx,
@@ -1295,13 +1330,13 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				clientIP:       clientIP,
 				requestStarted: requestStarted,
 			})
-			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			// 记录该候选的尝试结果（端点名 + 状态码 + 最终使用的 key 序号），供前端展示迁移趋势。
 			lastTried = &cand
 			stepStatus := res.statusCode
 			if stepStatus == 0 && res.resp != nil {
 				stepStatus = res.resp.StatusCode
 			}
-			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus, "keyIndex": res.stepKeyIndex})
 			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
 			if res.clientCancelled {
 				clientCancelled = true
@@ -1475,33 +1510,86 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		stopPing := sw.startPing(ctx)
 		defer stopPing()
 
-		// 首字等待阶段已读到的数据块，直接作为流式响应的首批内容写回。
-		if res.firstWritten && len(res.firstChunk) > 0 {
+		emit := func(data []byte) {
 			extendStreamDeadline()
-			sw.write(res.firstChunk)
-			tail = append(tail, res.firstChunk...)
+			sw.write(data)
+			tail = append(tail, data...)
+			if len(tail) > usageTailLimit {
+				tail = tail[len(tail)-usageTailLimit:]
+			}
 		}
 
-		for {
-			// 上游流中段停滞保护：idle 内无数据则终止流，防止请求无限挂死。
-			n, err := readWithIdleTimeout(ctx, res.resp.Body, buf, streamIdleTimeout)
-			if n > 0 {
-				extendStreamDeadline()
-				sw.write(buf[:n])
-				tail = append(tail, buf[:n]...)
-				if len(tail) > usageTailLimit {
-					tail = tail[len(tail)-usageTailLimit:]
+		if isGeminiUpstream(selected) {
+			// Gemini 上游：Interactions 流式 SSE → OpenAI chat.completions 流式 chunk。
+			// firstChunk 作为 pending 前缀接入，保证跨块的部分行完整拼回。
+			transformer := newGeminiInteractionSSETransformer(model)
+			lr := newGeminiLineReader(res.resp.Body, res.firstChunk)
+			for {
+				line, lErr := lr.readLine(ctx, streamIdleTimeout)
+				if lErr != nil {
+					break
+				}
+				line = bytes.TrimSpace(line)
+				if !bytes.HasPrefix(line, []byte("data: ")) {
+					continue
+				}
+				data := line[len("data: "):]
+				if bytes.Equal(data, []byte("[DONE]")) {
+					break
+				}
+				for _, c := range transformer.consume(data) {
+					emit(c)
 				}
 			}
-			if err != nil {
-				break
+			for _, c := range transformer.finish() {
+				emit(c)
 			}
-		}
-		// 对齐 new-api：首字节后的流式中断也静默收尾，绝不向客户端报错。
-		// 若上游未发送结束标记（[DONE]），补发收尾，保证前端对话正常结束。
-		if !bytes.Contains(tail, []byte("[DONE]")) {
-			extendStreamDeadline()
-			sw.write([]byte("data: [DONE]\n\n"))
+		} else if isVertexUpstream(selected) {
+			// Vertex 上游：streamGenerateContent SSE（增量 chunk）→ OpenAI 流式 chunk。
+			transformer := newVertexSSETransformer(model)
+			lr := newGeminiLineReader(res.resp.Body, res.firstChunk)
+			for {
+				line, lErr := lr.readLine(ctx, streamIdleTimeout)
+				if lErr != nil {
+					break
+				}
+				line = bytes.TrimSpace(line)
+				if !bytes.HasPrefix(line, []byte("data: ")) {
+					continue
+				}
+				data := line[len("data: "):]
+				if bytes.Equal(data, []byte("[DONE]")) {
+					break
+				}
+				for _, c := range transformer.consume(data) {
+					emit(c)
+				}
+			}
+			for _, c := range transformer.finish() {
+				emit(c)
+			}
+		} else {
+			// 首字等待阶段已读到的数据块，直接作为流式响应的首批内容写回。
+			if res.firstWritten && len(res.firstChunk) > 0 {
+				emit(res.firstChunk)
+			}
+
+			for {
+				// 上游流中段停滞保护：idle 内无数据则终止流，防止请求无限挂死。
+				n, err := readWithIdleTimeout(ctx, res.resp.Body, buf, streamIdleTimeout)
+				if n > 0 {
+					emit(buf[:n])
+				}
+				if err != nil {
+					break
+				}
+			}
+			// 对齐 new-api：首字节后的流式中断也静默收尾，绝不向客户端报错。
+			// 若上游未发送结束标记（[DONE]），补发收尾，保证前端对话正常结束。
+			if !bytes.Contains(tail, []byte("[DONE]")) {
+				extendStreamDeadline()
+				sw.write([]byte("data: [DONE]\n\n"))
+			}
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
@@ -1556,6 +1644,32 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
+
+		// Gemini / Vertex 上游：Interactions / generateContent 响应（JSON）→
+		// OpenAI chat.completions 格式；错误响应也转换为 OpenAI 错误格式。
+		// 统计按转换后的 OpenAI 结构解析。
+		if isGeminiUpstream(selected) {
+			if res.resp.StatusCode >= 400 {
+				respBodyBytes = geminiErrorToOpenAI(respBodyBytes)
+			} else {
+				if conv, cErr := geminiToOpenAIChat(respBodyBytes, model); cErr == nil {
+					respBodyBytes = conv
+				}
+			}
+		} else if isVertexUpstream(selected) {
+			if res.resp.StatusCode >= 400 {
+				respBodyBytes = geminiErrorToOpenAI(respBodyBytes)
+			} else {
+				if conv, cErr := vertexToOpenAIChat(respBodyBytes, model); cErr == nil {
+					respBodyBytes = conv
+				}
+			}
+			// 安全拦截（prompt_blocked）：上游返回 200+空候选，语义上是对请求的
+			// 拒绝，写回前提升为 400（对齐 new-api 的 prompt_blocked 语义）。
+			if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 && vertexIsBlockedResponse(respBodyBytes) {
+				res.resp.StatusCode = http.StatusBadRequest
+			}
+		}
 
 		var usageInfo struct {
 			Usage struct {
@@ -2433,13 +2547,13 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				clientIP:       clientIP,
 				requestStarted: requestStarted,
 			})
-			// 记录该候选的尝试结果（端点名 + 状态码），供前端展示迁移趋势。
+			// 记录该候选的尝试结果（端点名 + 状态码 + 最终使用的 key 序号），供前端展示迁移趋势。
 			lastTried = &cand
 			stepStatus := res.statusCode
 			if stepStatus == 0 && res.resp != nil {
 				stepStatus = res.resp.StatusCode
 			}
-			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus})
+			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus, "keyIndex": res.stepKeyIndex})
 			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
 			if res.clientCancelled {
 				clientCancelled = true

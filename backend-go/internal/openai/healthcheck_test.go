@@ -43,7 +43,7 @@ func TestListModelsWithPricingGroupedStructure(t *testing.T) {
 	}))
 	defer mock.Close()
 
-	models, pricing, err := s.listModelsWithPricing(context.Background(), mock.URL, "sk-test", "ep", nil, "")
+	models, pricing, err := s.listModelsWithPricing(context.Background(), mock.URL, "sk-test", "ep", nil, "", "openai")
 	if err != nil {
 		t.Fatalf("listModelsWithPricing error: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestVerifyAPIKeyRawGroupedStructure(t *testing.T) {
 	}))
 	defer mock.Close()
 
-	ok, count, err := s.verifyAPIKeyRaw(context.Background(), mock.URL, "sk-test", "ep", nil, "")
+	ok, count, err := s.verifyAPIKeyRaw(context.Background(), mock.URL, "sk-test", "ep", nil, "", "openai")
 	if err != nil {
 		t.Fatalf("verifyAPIKeyRaw error: %v", err)
 	}

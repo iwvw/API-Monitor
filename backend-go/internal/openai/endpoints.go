@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -111,7 +112,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, sort_order, priority, weight, key_retry_rounds, plugin_id, proxy_pool_id FROM openai_endpoints ORDER BY priority DESC, weight DESC, sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, sort_order, priority, weight, key_retry_rounds, plugin_id, proxy_pool_id, upstream_type FROM openai_endpoints ORDER BY priority DESC, weight DESC, sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -121,17 +122,18 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 	endpoints := []Endpoint{}
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, batchesRaw, mappingsRaw, protocolRaw, apiKeysRaw, pricingRaw, modelsUrlRaw, pluginIDRaw, proxyPoolIDRaw sql.NullString
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, batchesRaw, mappingsRaw, protocolRaw, apiKeysRaw, pricingRaw, modelsUrlRaw, pluginIDRaw, proxyPoolIDRaw, upstreamTypeRaw sql.NullString
 		var created, used, checked sql.NullString
 		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight, keyRetryRounds int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &batchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &pluginIDRaw, &proxyPoolIDRaw)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &batchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &pluginIDRaw, &proxyPoolIDRaw, &upstreamTypeRaw)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 		ep.PluginID = pluginIDRaw.String
 		ep.ProxyPoolID = proxyPoolIDRaw.String
+		ep.UpstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
 
 		ep.APIKey = secure.SecureDecrypt(ep.APIKey)
 		ep.Enabled = enabledInt == 1
@@ -209,6 +211,7 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		RateLimitRetryWaitSeconds *int `json:"rateLimitRetryWaitSeconds"`
 		KeyRetryRounds    *int   `json:"keyRetryRounds"`
 		Protocol     string       `json:"protocol"`
+		UpstreamType string       `json:"upstreamType"`
 		SkipVerify   bool         `json:"skipVerify"`
 		// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；空串表示不引用。
 		ProxyPoolID string `json:"proxyPoolId"`
@@ -222,7 +225,17 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	normalizedURL := s.normalizeBaseURL(req.BaseURL)
+	// Gemini / Vertex 上游 baseURL 不追加 OpenAI 风格的 /v1 版本路径：
+	// Gemini 在 /v1beta 下，Vertex 的 baseURL 已含 /v1/publishers/google（按区域填写）。
+	var normalizedURL string
+	switch normalizeUpstreamType(req.UpstreamType) {
+	case upstreamTypeGemini:
+		normalizedURL = normalizeGeminiBaseURL(req.BaseURL)
+	case upstreamTypeVertex:
+		normalizedURL = normalizeVertexBaseURL(req.BaseURL)
+	default:
+		normalizedURL = s.normalizeBaseURL(req.BaseURL)
+	}
 	ctx := r.Context()
 	db, err := s.open(ctx)
 	if err != nil {
@@ -252,6 +265,7 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		keyRetryRounds = *req.KeyRetryRounds
 	}
 	protocol := normalizeProtocol(req.Protocol)
+	upstreamType := normalizeUpstreamType(req.UpstreamType)
 
 	id := fmt.Sprintf("oai_%d_%s", time.Now().UnixNano(), s.randString(9))
 	status := "unknown"
@@ -262,14 +276,14 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	if !req.SkipVerify && req.APIKey != "" {
 		// 验证与拉取模型加总超时：挂死的出口/上游不能把保存拖成「等超时」。
 		verifyCtx, cancelVerify := context.WithTimeout(ctx, endpointVerifyTimeout)
-		vOk, count, err := s.verifyAPIKeyRaw(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), req.ModelsURL, cleanHeaders(req.Headers))
+		vOk, count, err := s.verifyAPIKeyRaw(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), req.ModelsURL, upstreamType, cleanHeaders(req.Headers))
 		if err == nil && vOk {
 			status = "valid"
 			verification = map[string]interface{}{
 				"valid":       true,
 				"modelsCount": count,
 			}
-			mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), req.ModelsURL, cleanHeaders(req.Headers))
+			mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), req.ModelsURL, upstreamType, cleanHeaders(req.Headers))
 			if mErr == nil {
 				modelsList = mList
 				pricing = mPrice
@@ -309,9 +323,9 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	proxyPoolID := strings.TrimSpace(req.ProxyPoolID)
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, created_at, last_checked, sort_order, proxy_pool_id, key_retry_rounds)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, req.Name, normalizedURL, strings.TrimSpace(req.ModelsURL), encryptedKey, encryptedAPIKeys, string(headersJSON), "[]", string(proxyJSON), string(batchesJSON), autoSwitchInt, boolToInt(req.ProxyEnabled), boolToInt(req.ForceProxy), rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, 1, string(modelsJSON), string(pricingJSON), createdAt, lastCheckedVal, time.Now().UnixMilli(), proxyPoolID, keyRetryRounds)
+		INSERT INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, created_at, last_checked, sort_order, proxy_pool_id, key_retry_rounds, upstream_type)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, req.Name, normalizedURL, strings.TrimSpace(req.ModelsURL), encryptedKey, encryptedAPIKeys, string(headersJSON), "[]", string(proxyJSON), string(batchesJSON), autoSwitchInt, boolToInt(req.ProxyEnabled), boolToInt(req.ForceProxy), rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, 1, string(modelsJSON), string(pricingJSON), createdAt, lastCheckedVal, time.Now().UnixMilli(), proxyPoolID, keyRetryRounds, upstreamType)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -337,6 +351,7 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		RateLimitRetryWaitSeconds: rateLimitRetryWaitSeconds,
 		KeyRetryRounds:            keyRetryRounds,
 		Protocol:                  protocol,
+		UpstreamType:              upstreamType,
 		ProxyPoolID:               proxyPoolID,
 		Status:                    status,
 		Enabled:                   true,
@@ -511,16 +526,17 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	defer verifyCancel()
 
 	var name, baseURL, apiKey string
-	var modelsURLRaw sql.NullString
+	var modelsURLRaw, upstreamTypeRaw sql.NullString
 	var headersRaw, proxyRaw sql.NullString
 	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。
-	err = db.QueryRowContext(ctx, "SELECT name, base_url, models_url, api_key, headers, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&name, &baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw)
+	err = db.QueryRowContext(ctx, "SELECT name, base_url, models_url, api_key, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE id = ?", id).Scan(&name, &baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	modelsURL := modelsURLRaw.String
 	apiKey = secure.SecureDecrypt(apiKey)
+	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 	headers := decodeEndpointHeaders(headersRaw)
 	pool := decodeProxyPool(proxyRaw)
 
@@ -530,12 +546,12 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	pricing := PricingMap{}
 	var errMsg string
 
-	vOk, _, vErr := s.verifyAPIKeyRaw(verifyCtx, baseURL, apiKey, id, pool, modelsURL, headers)
+	vOk, _, vErr := s.verifyAPIKeyRaw(verifyCtx, baseURL, apiKey, id, pool, modelsURL, upstreamType, headers)
 	responseTime := time.Since(startTime).Milliseconds()
 
 	if vErr == nil && vOk {
 		status = "valid"
-		mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, baseURL, apiKey, id, pool, modelsURL, headers)
+		mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, baseURL, apiKey, id, pool, modelsURL, upstreamType, headers)
 		if mErr == nil {
 			modelsList = mList
 			pricing = mPrice
@@ -556,7 +572,21 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		modelsJSON = "[]"
 	}
 
+	// Vertex AI 不提供模型列表端点，models 全部来自手动添加：刷新/验证时
+	// 保留现有列表（不覆盖为拉取结果），仅更新状态与 last_checked。
 	pricingJSON := "{}"
+	if upstreamType == upstreamTypeVertex {
+		var existingRaw, pricingRaw sql.NullString
+		if err := db.QueryRowContext(ctx, "SELECT models, pricing FROM openai_endpoints WHERE id = ?", id).Scan(&existingRaw, &pricingRaw); err == nil && existingRaw.Valid && existingRaw.String != "" {
+			modelsJSON = existingRaw.String
+			modelsList = []string{}
+			_ = json.Unmarshal([]byte(existingRaw.String), &modelsList)
+		}
+		if pricingRaw.Valid && pricingRaw.String != "" {
+			pricingJSON = pricingRaw.String
+		}
+	}
+
 	if len(pricing) > 0 {
 		pricingBytes, _ := json.Marshal(pricing)
 		pricingJSON = string(pricingBytes)
@@ -627,15 +657,16 @@ func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, i
 	defer db.Close()
 
 	var baseURL string
-	var modelsURLRaw sql.NullString
+	var modelsURLRaw, upstreamTypeRaw sql.NullString
 	var headersRaw, proxyRaw sql.NullString
 	// models_url 为 NULL（插件注册等历史行）时按空串处理。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, headers, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &headersRaw, &proxyRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &headersRaw, &proxyRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	modelsURL := modelsURLRaw.String
+	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 
 	timeout := 8 * time.Second
 	if req.Timeout > 0 {
@@ -650,7 +681,7 @@ func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, i
 		wg.Add(1)
 		go func(idx int, k string) {
 			defer wg.Done()
-			results[idx] = s.checkAPIKeyStatus(ctx, baseURL, k, id, timeout, pool, modelsURL, headers, idx)
+			results[idx] = s.checkAPIKeyStatus(ctx, baseURL, k, id, timeout, pool, modelsURL, upstreamType, headers, idx)
 		}(i, key)
 	}
 	wg.Wait()
@@ -660,19 +691,50 @@ func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, i
 
 // checkAPIKeyStatus 用 GET {baseURL}/models 检测单个 key 的有效性。
 // 2xx=valid；401/403=invalid（鉴权失败）；402=overdue（欠费）；其余/网络错误=error。
-func (s *Service) checkAPIKeyStatus(ctx context.Context, baseURL, key, endpointID string, timeout time.Duration, pool []string, modelsURL string, headers []HeaderItem, index int) KeyCheckResult {
+func (s *Service) checkAPIKeyStatus(ctx context.Context, baseURL, key, endpointID string, timeout time.Duration, pool []string, modelsURL, upstreamType string, headers []HeaderItem, index int) KeyCheckResult {
 	result := KeyCheckResult{Index: index, Key: key}
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	reqURL := modelListURL(baseURL, modelsURL)
-	httpReq, err := http.NewRequestWithContext(childCtx, "GET", reqURL, nil)
+	gemini := normalizeUpstreamType(upstreamType) == upstreamTypeGemini
+	vertex := normalizeUpstreamType(upstreamType) == upstreamTypeVertex
+	var reqURL string
+	var reqMethod string
+	var reqBody io.Reader
+	switch {
+	case gemini:
+		reqURL = geminiModelsURL(baseURL)
+		reqMethod = "GET"
+	case vertex:
+		// Vertex 不提供模型列表端点（GET /models 404），用 generateContent
+		// 简单请求判定 key 有效性。
+		body, _ := json.Marshal(map[string]interface{}{
+			"contents": []interface{}{
+				map[string]interface{}{"role": "user", "parts": []interface{}{map[string]interface{}{"text": "hi"}}},
+			},
+			"generationConfig": map[string]interface{}{"maxOutputTokens": 1},
+		})
+		reqURL = vertexGenerateURL(baseURL, "gemini-2.5-flash", false)
+		reqMethod = "POST"
+		reqBody = bytes.NewReader(body)
+	default:
+		reqURL = modelListURL(baseURL, modelsURL)
+		reqMethod = "GET"
+	}
+	httpReq, err := http.NewRequestWithContext(childCtx, reqMethod, reqURL, reqBody)
 	if err != nil {
 		result.Status = "error"
 		result.Message = err.Error()
 		return result
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+key)
+	if gemini || vertex {
+		httpReq.Header.Set("X-Goog-Api-Key", key)
+	} else {
+		httpReq.Header.Set("Authorization", "Bearer "+key)
+	}
+	if vertex {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
 	applyCustomHeaders(httpReq, headers)
 
 	client := s.client
@@ -700,6 +762,10 @@ func (s *Service) checkAPIKeyStatus(ctx context.Context, baseURL, key, endpointI
 	case resp.StatusCode == http.StatusPaymentRequired:
 		result.Status = "overdue"
 		result.Message = "欠费"
+	case vertex:
+		// 与 verifyVertexKey 同口径：Vertex 探测用 generateContent，模型未启用/区域
+		// 参数问题（4xx）不影响 key 有效性，仅 401/403/402 判为无效/欠费。
+		result.Status = "valid"
 	default:
 		result.Status = "error"
 		result.Message = fmt.Sprintf("HTTP %d", resp.StatusCode)
@@ -721,26 +787,51 @@ func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id s
 	defer modelsCancel()
 
 	var baseURL, apiKey string
-	var modelsURLRaw sql.NullString
+	var modelsURLRaw, upstreamTypeRaw sql.NullString
 	var headersRaw, proxyRaw sql.NullString
 	// models_url 为 NULL（插件注册等历史行）时按空串处理。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, headers, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	modelsURL := modelsURLRaw.String
 	apiKey = secure.SecureDecrypt(apiKey)
+	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 
-	modelsList, pricing, err := s.listModelsWithPricing(modelsCtx, baseURL, apiKey, id, decodeProxyPool(proxyRaw), modelsURL, decodeEndpointHeaders(headersRaw))
+	modelsList, pricing, err := s.listModelsWithPricing(modelsCtx, baseURL, apiKey, id, decodeProxyPool(proxyRaw), modelsURL, upstreamType, decodeEndpointHeaders(headersRaw))
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	checkedAt := time.Now().Format(time.RFC3339)
+
+	if upstreamType == upstreamTypeVertex {
+		// Vertex AI 不提供模型列表端点，models 全部来自手动添加：刷新时
+		// 保留现有列表（不覆盖），仅更新 last_checked。
+		var modelsRaw, pricingRaw sql.NullString
+		_ = db.QueryRowContext(ctx, "SELECT models, pricing FROM openai_endpoints WHERE id = ?", id).Scan(&modelsRaw, &pricingRaw)
+		existing := []string{}
+		if modelsRaw.Valid && modelsRaw.String != "" {
+			_ = json.Unmarshal([]byte(modelsRaw.String), &existing)
+		}
+		existingPricing := PricingMap{}
+		if pricingRaw.Valid && pricingRaw.String != "" {
+			_ = json.Unmarshal([]byte(pricingRaw.String), &existingPricing)
+		}
+		_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET last_checked = ? WHERE id = ?", checkedAt, id)
+		s.invalidateRouteCache()
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"models":  existing,
+			"pricing": existingPricing,
+		})
+		return
+	}
+
 	modelsJSON, _ := json.Marshal(modelsList)
 	pricingJSON, _ := json.Marshal(pricing)
-	checkedAt := time.Now().Format(time.RFC3339)
 
 	_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ?, pricing = ?, last_checked = ? WHERE id = ?", string(modelsJSON), string(pricingJSON), checkedAt, id)
 	s.invalidateRouteCache()
@@ -894,6 +985,93 @@ func (s *Service) toggleEndpointModelsBatch(w http.ResponseWriter, r *http.Reque
 		"success":        true,
 		"enabled":        req.Enabled,
 		"disabledModels": next,
+	})
+}
+
+// addEndpointModels 手动维护端点模型列表。Vertex AI 等上游不提供模型列表端点
+// （无法自动拉取），需要用户手动添加/修改模型名。默认追加合并（去重）；replace=true
+// 时为全量替换（文本框内容即最终列表，删除行后提交即可移除模型）。
+// 入参支持一次粘贴多个模型名（逗号/换行/分号分隔）。
+func (s *Service) addEndpointModels(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		Models  []string `json:"models"`
+		Replace bool     `json:"replace"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	cleaned := make([]string, 0, len(req.Models))
+	seen := make(map[string]bool, len(req.Models))
+	for _, m := range req.Models {
+		for _, piece := range strings.FieldsFunc(m, func(c rune) bool { return c == ',' || c == '\n' || c == ';' }) {
+			trimmed := strings.TrimSpace(piece)
+			if trimmed == "" || seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	if len(cleaned) == 0 && !req.Replace {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "模型名称不能为空"})
+		return
+	}
+
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	var modelsRaw, disabledRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT models, disabled_models FROM openai_endpoints WHERE id = ?", id).Scan(&modelsRaw, &disabledRaw)
+	if err != nil {
+		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
+		return
+	}
+
+	var next []string
+	if req.Replace {
+		// 全量替换：提交列表即最终列表。清空文本提交即清空手动模型。
+		next = cleaned
+	} else {
+		existing := []string{}
+		if modelsRaw.Valid && modelsRaw.String != "" {
+			_ = json.Unmarshal([]byte(modelsRaw.String), &existing)
+		}
+		set := make(map[string]bool, len(existing)+len(cleaned))
+		for _, m := range existing {
+			set[m] = true
+		}
+		for _, m := range cleaned {
+			set[m] = true
+		}
+		next = make([]string, 0, len(set))
+		for m := range set {
+			next = append(next, m)
+		}
+	}
+	sort.Strings(next)
+
+	modelsJSON, _ := json.Marshal(next)
+	_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ? WHERE id = ?", string(modelsJSON), id)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.invalidateRouteCache()
+
+	disabled := []string{}
+	if disabledRaw.Valid && disabledRaw.String != "" {
+		_ = json.Unmarshal([]byte(disabledRaw.String), &disabled)
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":        true,
+		"models":         next,
+		"disabledModels": disabled,
 	})
 }
 
@@ -1177,24 +1355,25 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, models_url, api_key, headers, proxy_pool FROM openai_endpoints WHERE enabled = 1")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, models_url, api_key, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE enabled = 1")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	type item struct {
-		id, name, url, key, modelsURL string
-		headers                       []HeaderItem
-		pool                          []string
+		id, name, url, key, modelsURL, upstreamType string
+		headers                                     []HeaderItem
+		pool                                        []string
 	}
 	items := []item{}
 	for rows.Next() {
 		var it item
-		var modelsURLRaw, headersRaw, proxyRaw sql.NullString
+		var modelsURLRaw, headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
 		// models_url 为 NULL（插件注册等历史行）时按空串处理，避免该端点被静默跳过。
-		if err := rows.Scan(&it.id, &it.name, &it.url, &modelsURLRaw, &it.key, &headersRaw, &proxyRaw); err == nil {
+		if err := rows.Scan(&it.id, &it.name, &it.url, &modelsURLRaw, &it.key, &headersRaw, &proxyRaw, &upstreamTypeRaw); err == nil {
 			it.modelsURL = modelsURLRaw.String
+			it.upstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
 			it.key = secure.SecureDecrypt(it.key)
 			it.headers = decodeEndpointHeaders(headersRaw)
 			it.pool = decodeProxyPool(proxyRaw)
@@ -1215,10 +1394,10 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 			pricing := PricingMap{}
 			var errStr string
 
-			vOk, _, err := s.verifyAPIKeyRaw(ctx, it.url, it.key, it.id, it.pool, it.modelsURL, it.headers)
+			vOk, _, err := s.verifyAPIKeyRaw(ctx, it.url, it.key, it.id, it.pool, it.modelsURL, it.upstreamType, it.headers)
 			if err == nil && vOk {
 				status = "valid"
-				mList, mPrice, mErr := s.listModelsWithPricing(ctx, it.url, it.key, it.id, it.pool, it.modelsURL, it.headers)
+				mList, mPrice, mErr := s.listModelsWithPricing(ctx, it.url, it.key, it.id, it.pool, it.modelsURL, it.upstreamType, it.headers)
 				if mErr == nil {
 					modelsList = mList
 					pricing = mPrice
@@ -1234,6 +1413,25 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 				modelsJSONBytes, _ := json.Marshal(modelsList)
 				modelsJSON = string(modelsJSONBytes)
 			}
+			// Vertex AI 不提供模型列表端点，models 全部来自手动添加：刷新时
+			// 保留现有列表（不覆盖为拉取结果），仅更新状态与 last_checked。
+			// DB 读取失败时不覆盖 models（原值保留），避免误清空手动模型。
+			preserveVertexModels := false
+			if it.upstreamType == upstreamTypeVertex {
+				if dbConn, dbErr := s.open(ctx); dbErr == nil {
+					var existingRaw sql.NullString
+					if err := dbConn.QueryRowContext(ctx, "SELECT models FROM openai_endpoints WHERE id = ?", it.id).Scan(&existingRaw); err == nil && existingRaw.Valid && existingRaw.String != "" {
+						modelsJSON = existingRaw.String
+						modelsList = []string{}
+						_ = json.Unmarshal([]byte(existingRaw.String), &modelsList)
+					} else {
+						preserveVertexModels = true
+					}
+					dbConn.Close()
+				} else {
+					preserveVertexModels = true
+				}
+			}
 
 			pricingJSON := "{}"
 			if len(pricing) > 0 {
@@ -1244,11 +1442,19 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 			// Update in DB
 			if dbConn, dbErr := s.open(ctx); dbErr == nil {
 				defer dbConn.Close()
-				_, _ = dbConn.ExecContext(ctx, `
-					UPDATE openai_endpoints
-					SET status = ?, models = ?, pricing = ?, last_checked = ?
-					WHERE id = ?`,
-					status, modelsJSON, pricingJSON, checkedAt, it.id)
+				if preserveVertexModels {
+					_, _ = dbConn.ExecContext(ctx, `
+						UPDATE openai_endpoints
+						SET status = ?, pricing = ?, last_checked = ?
+						WHERE id = ?`,
+						status, pricingJSON, checkedAt, it.id)
+				} else {
+					_, _ = dbConn.ExecContext(ctx, `
+						UPDATE openai_endpoints
+						SET status = ?, models = ?, pricing = ?, last_checked = ?
+						WHERE id = ?`,
+						status, modelsJSON, pricingJSON, checkedAt, it.id)
+				}
 			}
 
 			mu.Lock()
@@ -1279,7 +1485,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, priority, weight, key_retry_rounds FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, priority, weight, key_retry_rounds, upstream_type FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -1289,11 +1495,11 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	endpoints := []Endpoint{}
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw sql.NullString
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw, upstreamTypeRaw sql.NullString
 		var created, used, checked sql.NullString
 		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, priority, weight, keyRetryRounds int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &priority, &weight, &keyRetryRounds)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &priority, &weight, &keyRetryRounds, &upstreamTypeRaw)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -1305,6 +1511,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		ep.ProxyEnabled = proxyEnabledInt == 1
 		ep.ForceProxy = forceProxyInt == 1
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
+		ep.UpstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
 		ep.Priority = priority
 		ep.Weight = weight
 		ep.KeyRetryRounds = keyRetryRounds
@@ -1505,9 +1712,9 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 			rateLimitRetryWaitSeconds = 10
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, created_at, last_used, last_checked, priority, weight, key_retry_rounds)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight, ep.effectiveKeyRetryRounds())
+			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, created_at, last_used, last_checked, priority, weight, key_retry_rounds, upstream_type)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight, ep.effectiveKeyRetryRounds(), normalizeUpstreamType(ep.UpstreamType))
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

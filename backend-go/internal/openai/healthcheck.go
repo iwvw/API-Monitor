@@ -40,34 +40,55 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 	defer db.Close()
 
 	var baseURL, apiKey string
-	var headersRaw, proxyRaw sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw)
+	var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	apiKey = secure.SecureDecrypt(apiKey)
 	pool := decodeProxyPool(proxyRaw)
+	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 
 	// Touch endpoint
 	_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET last_used = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
 
 	chatPayload := map[string]interface{}{
 		"model": modelName,
-		"messages": []map[string]string{
-			{"role": "user", "content": "Say \"Hello, API test successful!\" in exactly those words."},
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "Say \"Hello, API test successful!\" in exactly those words."},
 		},
 		"max_tokens": 50,
 	}
 	bodyBytes, _ := json.Marshal(chatPayload)
 
-	reqURL := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(baseURL, "/"))
+	// Gemini 上游：Interactions API（x-goog-api-key + 转换后的请求体）；
+	// Vertex 上游：generateContent API；其余走 OpenAI /chat/completions。
+	var reqURL string
+	switch upstreamType {
+	case upstreamTypeGemini:
+		reqURL = geminiInteractionsURL(baseURL)
+		if gb, gErr := openAIChatToGemini(chatPayload); gErr == nil {
+			bodyBytes, _ = json.Marshal(gb)
+		}
+	case upstreamTypeVertex:
+		reqURL = vertexGenerateURL(baseURL, modelName, false)
+		if vb, vErr := openAIChatToVertex(chatPayload); vErr == nil {
+			bodyBytes, _ = json.Marshal(vb)
+		}
+	default:
+		reqURL = fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(baseURL, "/"))
+	}
 	httpReq, err := http.NewRequestWithContext(testCtx, "POST", reqURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	if upstreamType == upstreamTypeGemini || upstreamType == upstreamTypeVertex {
+		httpReq.Header.Set("X-Goog-Api-Key", apiKey)
+	} else {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	applyCustomHeaders(httpReq, decodeEndpointHeaders(headersRaw))
 
@@ -97,29 +118,57 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 
-	var chatResponse struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage interface{} `json:"usage"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&chatResponse); err != nil {
-		response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": "无法解析响应 JSON"})
-		return
-	}
-
 	reply := ""
-	if len(chatResponse.Choices) > 0 {
-		reply = chatResponse.Choices[0].Message.Content
+	var usage interface{}
+	if upstreamType == upstreamTypeGemini || upstreamType == upstreamTypeVertex {
+		// Gemini / Vertex 上游响应 → OpenAI chat 格式后提取文本与 usage。
+		respBody, _ := io.ReadAll(resp.Body)
+		var conv []byte
+		var convErr error
+		if upstreamType == upstreamTypeGemini {
+			conv, convErr = geminiToOpenAIChat(respBody, modelName)
+		} else {
+			conv, convErr = vertexToOpenAIChat(respBody, modelName)
+		}
+		if convErr == nil {
+			var oai struct {
+				Choices []struct {
+					Message struct {
+						Content string `json:"content"`
+					} `json:"message"`
+				} `json:"choices"`
+				Usage interface{} `json:"usage"`
+			}
+			if err := json.Unmarshal(conv, &oai); err == nil {
+				if len(oai.Choices) > 0 {
+					reply = oai.Choices[0].Message.Content
+				}
+				usage = oai.Usage
+			}
+		}
+	} else {
+		var chatResponse struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+			Usage interface{} `json:"usage"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&chatResponse); err != nil {
+			response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": "无法解析响应 JSON"})
+			return
+		}
+		if len(chatResponse.Choices) > 0 {
+			reply = chatResponse.Choices[0].Message.Content
+		}
+		usage = chatResponse.Usage
 	}
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":  true,
 		"response": reply,
-		"usage":    chatResponse.Usage,
+		"usage":    usage,
 	})
 }
 
@@ -146,8 +195,8 @@ func (s *Service) healthCheckModelRoute(w http.ResponseWriter, r *http.Request, 
 	defer db.Close()
 
 	var baseURL, apiKey string
-	var headersRaw, proxyRaw sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw)
+	var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -163,7 +212,7 @@ func (s *Service) healthCheckModelRoute(w http.ResponseWriter, r *http.Request, 
 	_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET last_used = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
 
 	pool := decodeProxyPool(proxyRaw)
-	result := s.healthCheckSingleModel(ctx, id, baseURL, apiKey, req.Model, timeoutDuration, pool, decodeEndpointHeaders(headersRaw))
+	result := s.healthCheckSingleModel(ctx, id, baseURL, apiKey, req.Model, timeoutDuration, pool, normalizeUpstreamType(upstreamTypeRaw.String), decodeEndpointHeaders(headersRaw))
 
 	// Save check to health history
 	var errMsg sql.NullString
@@ -195,13 +244,14 @@ func (s *Service) healthCheckAllModelsRoute(w http.ResponseWriter, r *http.Reque
 	defer db.Close()
 
 	var baseURL, apiKey, modelsRaw string
-	var headersRaw, proxyRaw sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, models, headers, proxy_pool FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &modelsRaw, &headersRaw, &proxyRaw)
+	var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, models, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &modelsRaw, &headersRaw, &proxyRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	apiKey = secure.SecureDecrypt(apiKey)
+	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 	endpointHeaders := decodeEndpointHeaders(headersRaw)
 	endpointPool := decodeProxyPool(proxyRaw)
 
@@ -233,7 +283,7 @@ func (s *Service) healthCheckAllModelsRoute(w http.ResponseWriter, r *http.Reque
 	}
 	concurrency = min(max(concurrency, 1), healthConcurrencyMax)
 
-	summary := s.runBatchHealthCheck(ctx, id, baseURL, apiKey, models, timeoutDuration, concurrency, endpointPool, endpointHeaders)
+	summary := s.runBatchHealthCheck(ctx, id, baseURL, apiKey, models, timeoutDuration, concurrency, endpointPool, upstreamType, endpointHeaders)
 
 	// Save check results to db history
 	for _, result := range summary.Results {
@@ -352,7 +402,7 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, models, headers, proxy_pool FROM openai_endpoints WHERE enabled = 1")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, models, headers, proxy_pool, upstream_type FROM openai_endpoints WHERE enabled = 1")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -360,15 +410,16 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type item struct {
-		id, name, url, key, modelsRaw string
-		headers                       []HeaderItem
-		pool                          []string
+		id, name, url, key, modelsRaw, upstreamType string
+		headers                                     []HeaderItem
+		pool                                        []string
 	}
 	items := []item{}
 	for rows.Next() {
 		var it item
-		var headersRaw, proxyRaw sql.NullString
-		if err := rows.Scan(&it.id, &it.name, &it.url, &it.key, &it.modelsRaw, &headersRaw, &proxyRaw); err == nil {
+		var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
+		if err := rows.Scan(&it.id, &it.name, &it.url, &it.key, &it.modelsRaw, &headersRaw, &proxyRaw, &upstreamTypeRaw); err == nil {
+			it.upstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
 			it.key = secure.SecureDecrypt(it.key)
 			it.headers = decodeEndpointHeaders(headersRaw)
 			it.pool = decodeProxyPool(proxyRaw)
@@ -414,7 +465,7 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 				}
 				defer func() { <-sem }()
 
-				result := s.healthCheckSingleModel(ctx, target.id, target.url, target.key, model, timeoutDuration, target.pool, target.headers)
+				result := s.healthCheckSingleModel(ctx, target.id, target.url, target.key, model, timeoutDuration, target.pool, target.upstreamType, target.headers)
 				resultsMu.Lock()
 				resultsByEndpoint[target.id] = append(resultsByEndpoint[target.id], result)
 				resultsMu.Unlock()
@@ -471,13 +522,27 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL string, headers ...[]HeaderItem) (bool, int, error) {
-	reqURL := modelListURL(u, modelsURL)
+func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL, upstreamType string, headers ...[]HeaderItem) (bool, int, error) {
+	vertex := normalizeUpstreamType(upstreamType) == upstreamTypeVertex
+	if vertex {
+		return s.verifyVertexKey(ctx, u, key, endpointID, pool, headers...)
+	}
+	gemini := normalizeUpstreamType(upstreamType) == upstreamTypeGemini
+	var reqURL string
+	if gemini {
+		reqURL = geminiModelsURL(u)
+	} else {
+		reqURL = modelListURL(u, modelsURL)
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return false, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	if gemini {
+		req.Header.Set("X-Goog-Api-Key", key)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 	if len(headers) > 0 {
 		applyCustomHeaders(req, headers[0])
 	}
@@ -510,6 +575,11 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 		return false, 0, err
 	}
 
+	if gemini {
+		models := geminiModelsList(bodyBytes)
+		return true, len(models), nil
+	}
+
 	var parsed map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &parsed); err == nil {
 		if dataArr, ok := parsed["data"].([]interface{}); ok {
@@ -529,6 +599,45 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 		return true, len(parsedArr), nil
 	}
 
+	return true, 0, nil
+}
+
+// verifyVertexKey 验证 Vertex AI API Key：Vertex 不提供模型列表端点（GET /models
+// 返回 404），改用 generateContent 简单请求判定鉴权。401/403 → key 无效；其余
+// （200/400/404 等）说明鉴权已通过——模型/区域/参数问题不影响 key 有效性。
+func (s *Service) verifyVertexKey(ctx context.Context, u, key, endpointID string, pool []string, headers ...[]HeaderItem) (bool, int, error) {
+	reqURL := vertexGenerateURL(u, "gemini-2.5-flash", false)
+	body, _ := json.Marshal(map[string]interface{}{
+		"contents": []interface{}{
+			map[string]interface{}{"role": "user", "parts": []interface{}{map[string]interface{}{"text": "hi"}}},
+		},
+		"generationConfig": map[string]interface{}{"maxOutputTokens": 1},
+	})
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
+	if err != nil {
+		return false, 0, err
+	}
+	req.Header.Set("X-Goog-Api-Key", key)
+	req.Header.Set("Content-Type", "application/json")
+	if len(headers) > 0 {
+		applyCustomHeaders(req, headers[0])
+	}
+	client := s.client
+	if len(pool) > 0 {
+		if poolClient, _ := s.auxClientForPool(endpointID, pool); poolClient != nil {
+			client = poolClient
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
+		detail := upstreamErrorMessage(bodySnippet)
+		return false, 0, fmt.Errorf("verify failed: HTTP %d: %s", resp.StatusCode, detail)
+	}
 	return true, 0, nil
 }
 
@@ -575,20 +684,37 @@ func modelListURL(baseURL, modelsURL string) string {
 
 // listModelsRaw 拉取上游模型列表（GET /models）。endpointID 用于把 429 限流
 // 累计到对应端点的代理池状态（见 verifyAPIKeyRaw）。定价信息被丢弃，仅返回模型名。
-func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL string, headers ...[]HeaderItem) ([]string, error) {
-	models, _, err := s.listModelsWithPricing(ctx, u, key, endpointID, pool, modelsURL, headers...)
+func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL, upstreamType string, headers ...[]HeaderItem) ([]string, error) {
+	models, _, err := s.listModelsWithPricing(ctx, u, key, endpointID, pool, modelsURL, upstreamType, headers...)
 	return models, err
 }
 
-// listModelsWithPricing 拉取上游模型列表（GET /models）并解析每个模型的定价。
-// 返回模型 id 列表与按 id 索引的定价表；无法解析出定价的模型不出现在定价表中。
-func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID string, pool []string, modelsURL string, headers ...[]HeaderItem) ([]string, PricingMap, error) {
-	reqURL := modelListURL(u, modelsURL)
+// listModelsWithPricing 拉取上游模型列表（GET /models 或 Gemini 的 /v1beta/models）
+// 并解析每个模型的定价。返回模型 id 列表与按 id 索引的定价表；无法解析出定价的
+// 模型不出现在定价表中。Gemini 上游定价暂不解析（无 OpenAI 风格定价字段）。
+func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID string, pool []string, modelsURL, upstreamType string, headers ...[]HeaderItem) ([]string, PricingMap, error) {
+	vertex := normalizeUpstreamType(upstreamType) == upstreamTypeVertex
+	if vertex {
+		// Vertex AI 不提供模型列表端点（请求 404），模型需手动添加：
+		// 返回空列表，不发起请求。
+		return nil, PricingMap{}, nil
+	}
+	gemini := normalizeUpstreamType(upstreamType) == upstreamTypeGemini
+	var reqURL string
+	if gemini {
+		reqURL = geminiModelsURL(u)
+	} else {
+		reqURL = modelListURL(u, modelsURL)
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	if gemini {
+		req.Header.Set("X-Goog-Api-Key", key)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 	if len(headers) > 0 {
 		applyCustomHeaders(req, headers[0])
 	}
@@ -619,6 +745,11 @@ func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if gemini {
+		models := geminiModelsList(bodyBytes)
+		return models, PricingMap{}, nil
 	}
 
 	models := []string{}
@@ -692,7 +823,7 @@ func healthCheckFastFailStatus(statusCode int) bool {
 	return false
 }
 
-func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseURL, apiKey, model string, timeout time.Duration, pool []string, headers ...[]HeaderItem) HealthRecord {
+func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseURL, apiKey, model string, timeout time.Duration, pool []string, upstreamType string, headers ...[]HeaderItem) HealthRecord {
 	startTime := time.Now()
 	record := HealthRecord{
 		Model:     model,
@@ -700,7 +831,20 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 		CheckedAt: startTime.Format(time.RFC3339),
 	}
 
-	reqURL := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(baseURL, "/"))
+	// Gemini 上游：健康检测走 Interactions API（x-goog-api-key + 转换后的请求体）；
+	// Vertex 上游：走 streamGenerateContent（SSE 首事件快速返回，避免思考模型超时）；
+	// 其余走 OpenAI /chat/completions。
+	upType := normalizeUpstreamType(upstreamType)
+	gemini := upType == upstreamTypeGemini
+	var reqURL string
+	switch upType {
+	case upstreamTypeGemini:
+		reqURL = geminiInteractionsURL(baseURL)
+	case upstreamTypeVertex:
+		reqURL = vertexGenerateURL(baseURL, model, true)
+	default:
+		reqURL = fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(baseURL, "/"))
+	}
 
 	// 端点配置了代理池时，健康检测与真实转发走同一出口（池内代理），
 	// 避免检测请求从网关本机直连出口（出口 IP 不属于代理池）。
@@ -715,14 +859,29 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 	}
 
 	// 请求体模拟真实客户端常用字段，降低上游对缺字段请求的兼容性误判。
+	// messages 用 []interface{}（map[string]interface{}），openAIChatToGemini
+	// 依赖该类型断言做转换，[]map[string]string 会导致转换失败而透传 OpenAI 原始 body。
 	payload := map[string]interface{}{
 		"model":       model,
-		"messages":    []map[string]string{{"role": "user", "content": "Reply with any short non-empty text."}},
+		"messages":    []interface{}{map[string]interface{}{"role": "user", "content": "Reply with any short non-empty text."}},
 		"stream":      false,
 		"max_tokens":  1,
 		"temperature": 0,
 	}
 	bodyBytes, _ := json.Marshal(payload)
+	if gemini {
+		// Gemini 思考模型非流式需完成思考才返回，健康检测短超时下会误判超时；
+		// 改流式请求——interactions 首事件（interaction.created）立即返回，
+		// 响应头 2xx 即可判定可用。
+		payload["stream"] = true
+		if gb, gErr := openAIChatToGemini(payload); gErr == nil {
+			bodyBytes, _ = json.Marshal(gb)
+		}
+	} else if upType == upstreamTypeVertex {
+		if vb, vErr := openAIChatToVertex(payload); vErr == nil {
+			bodyBytes, _ = json.Marshal(vb)
+		}
+	}
 
 	lastLatency := int64(0)
 	var lastError string
@@ -744,7 +903,11 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 			record.Latency = time.Since(startTime).Milliseconds()
 			return record
 		}
-		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+		if gemini || upType == upstreamTypeVertex {
+			httpReq.Header.Set("X-Goog-Api-Key", apiKey)
+		} else {
+			httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Accept", "application/json, text/event-stream")
 		if len(headers) > 0 {
@@ -793,13 +956,25 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 			return record
 		}
 
-		resp.Body.Close()
-		cancel()
 		if healthCheckFastFailStatus(resp.StatusCode) {
-			record.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+			// 读取少量响应体，把上游具体错误（配额/参数/权限等）带进诊断。
+			bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
+			resp.Body.Close()
+			cancel()
+			msg := fmt.Sprintf("HTTP %d", resp.StatusCode)
+			if len(bodySnippet) > 0 {
+				if detail := upstreamErrorMessage(bodySnippet); detail != "" {
+					msg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
+				} else {
+					msg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
+				}
+			}
+			record.Error = msg
 			record.Latency = lastLatency
 			return record
 		}
+		resp.Body.Close()
+		cancel()
 		lastError = fmt.Sprintf("HTTP %d", resp.StatusCode)
 	}
 
@@ -850,7 +1025,7 @@ func healthCheckBodyError(body []byte) string {
 	return ""
 }
 
-func (s *Service) runBatchHealthCheck(ctx context.Context, endpointID, baseURL, apiKey string, models []string, timeout time.Duration, concurrency int, pool []string, headers ...[]HeaderItem) HealthSummary {
+func (s *Service) runBatchHealthCheck(ctx context.Context, endpointID, baseURL, apiKey string, models []string, timeout time.Duration, concurrency int, pool []string, upstreamType string, headers ...[]HeaderItem) HealthSummary {
 	var mu sync.Mutex
 	results := []HealthRecord{}
 
@@ -864,7 +1039,7 @@ func (s *Service) runBatchHealthCheck(ctx context.Context, endpointID, baseURL, 
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			res := s.healthCheckSingleModel(ctx, endpointID, baseURL, apiKey, m, timeout, pool, headers...)
+			res := s.healthCheckSingleModel(ctx, endpointID, baseURL, apiKey, m, timeout, pool, upstreamType, headers...)
 
 			mu.Lock()
 			results = append(results, res)
