@@ -333,14 +333,29 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	defer db.Close()
 
 	newPrefix := s.modelPrefix()
-	models := s.prefixModelNames(s.fetchModelNames(ctx))
+	// 只有上游拉取成功才用「新前缀 + 最新模型」覆盖模型名单；拉取失败（端点不稳定）
+	// 时保留库中已有模型并把旧前缀迁移到新前缀，避免一次瞬时故障把真实模型列表
+	// 覆盖成硬编码兜底（defaultModelNames）或空列表。
+	models := s.prefixModelNames(s.fetchModelNamesNoFallback(ctx))
 	modelsJSON, _ := json.Marshal(models)
 
 	// 读取当前模型映射与禁用列表，做前缀迁移（别名 value 不受前缀影响，保留不动）。
-	var mappingsRaw, disabledRaw sql.NullString
+	var modelsRaw, mappingsRaw, disabledRaw sql.NullString
 	_ = db.QueryRowContext(ctx, `
-		SELECT model_mappings, disabled_models FROM openai_endpoints WHERE id = ?`,
-		linkedEndpointID).Scan(&mappingsRaw, &disabledRaw)
+		SELECT models, model_mappings, disabled_models FROM openai_endpoints WHERE id = ?`,
+		linkedEndpointID).Scan(&modelsRaw, &mappingsRaw, &disabledRaw)
+
+	// 拉取失败且当前已有模型时：保留旧列表并迁移前缀，不清空也不写兜底。
+	if len(models) == 0 && modelsRaw.Valid && modelsRaw.String != "" && modelsRaw.String != "[]" {
+		var existing []string
+		if json.Unmarshal([]byte(modelsRaw.String), &existing) == nil && len(existing) > 0 {
+			migrated := make([]string, 0, len(existing))
+			for _, name := range existing {
+				migrated = append(migrated, remapPrefixedName(name, oldPrefix, newPrefix))
+			}
+			modelsJSON, _ = json.Marshal(migrated)
+		}
+	}
 
 	mappings := map[string]string{}
 	if mappingsRaw.Valid && mappingsRaw.String != "" {

@@ -838,11 +838,21 @@ func (s *Service) linkDelete(w http.ResponseWriter, r *http.Request) {
 
 // fetchModelNames 尝试从上游拉取模型名列表；失败时用内置默认模型名。
 func (s *Service) fetchModelNames(ctx context.Context) []string {
+	names := s.fetchModelNamesNoFallback(ctx)
+	if len(names) > 0 {
+		return names
+	}
+	return defaultModelNames()
+}
+
+// fetchModelNamesNoFallback 从上游拉取模型名列表；失败时返回空切片（不写兜底），
+// 让调用方（如前缀变更刷新）据此保留库中已有模型，而不是覆盖成硬编码默认列表。
+func (s *Service) fetchModelNamesNoFallback(ctx context.Context) []string {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	models, err := s.FetchModels(ctx, "")
 	if err != nil {
-		return defaultModelNames()
+		return []string{}
 	}
 	out := make([]string, 0, len(models))
 	for k := range models {

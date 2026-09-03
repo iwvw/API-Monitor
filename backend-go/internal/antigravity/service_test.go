@@ -1,6 +1,7 @@
 package antigravity
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -149,18 +150,87 @@ func TestServeHTTP_StatusAndSettings(t *testing.T) {
 func TestServeHTTP_HandleOpenAIModels(t *testing.T) {
 	s := newTestAntigravityService(t)
 
+	// 无可用账号（上游不可达）时，/v1/models 应返回非 2xx 而不是 200 + 空列表：
+	// 网关侧会把「验证成功但空列表」当成真实空并清空已获取的模型。
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	s.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 from /v1/models, got %d", rec.Code)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 from /v1/models with no account, got %d", rec.Code)
 	}
-	var res map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
-		t.Fatalf("failed to decode models: %v", err)
+}
+
+// TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure 前缀变更触发
+// refreshLinkedEndpointModels 时，若上游不可达（无可用账号），必须保留库中已有
+// 的真实模型列表（迁移到新前缀），而不是覆盖成硬编码兜底或清空。
+func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
+	s := newTestAntigravityService(t)
+
+	ctx := context.Background()
+	db, err := s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if res["object"] != "list" {
-		t.Fatalf("expected object=list, got %v", res["object"])
+	// 真实场景里 openai 模块创建完整表（含 model_mappings / disabled_models）；
+	// antigravity 的 ensureOpenAIEndpointsTable 只是最小化兜底，这里建全字段表。
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS openai_endpoints (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		base_url TEXT NOT NULL,
+		api_key TEXT NOT NULL,
+		headers TEXT, disabled_models TEXT, proxy_pool TEXT, proxy_batches TEXT,
+		auto_switch INTEGER DEFAULT 0, proxy_enabled INTEGER DEFAULT 0, force_proxy INTEGER DEFAULT 0,
+		rate_limit_retry_enabled INTEGER DEFAULT 1, rate_limit_retry_wait_seconds INTEGER DEFAULT 10,
+		status TEXT DEFAULT 'unknown', enabled INTEGER DEFAULT 1, models TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP, last_used DATETIME, last_checked DATETIME,
+		sort_order INTEGER DEFAULT 0, priority INTEGER DEFAULT 0, weight INTEGER DEFAULT 100,
+		models_url TEXT, pricing TEXT, proxy_pool_id TEXT, plugin_id TEXT, model_mappings TEXT
+	)`)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	// 旧前缀 agy-：库中已有 agy-model1/agy-model2。
+	_, err = db.ExecContext(ctx, `INSERT INTO openai_endpoints
+		(id, name, base_url, api_key, headers, disabled_models, proxy_pool, proxy_batches,
+		 auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled,
+		 rate_limit_retry_wait_seconds, status, enabled, models, created_at, last_checked, sort_order, plugin_id)
+		VALUES (?, 'Antigravity', 'http://127.0.0.1/v1', 'k', '[]', '[]', '[]', '[]',
+			0, 0, 0, 1, 10, 'unknown', 1, ?, datetime('now'), NULL, 100, 'antigravity')`,
+		linkedEndpointID, `["agy-model1","agy-model2"]`)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 无可用账号 → 上游拉取失败。改前缀 agy- → new-。
+	s.mu.Lock()
+	s.settings = Settings{
+		Enabled:     true,
+		ModelPrefix: "new-",
+		ModelAliases: map[string]string{},
+		DisabledModels: []string{},
+	}
+	s.mu.Unlock()
+
+	// 直接调用此前缀变化触发的刷新逻辑（与 SaveSettings 路径一致）。
+	s.refreshLinkedEndpointModels(ctx, "agy-")
+
+	db, err = s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw string
+	if err := db.QueryRowContext(ctx, "SELECT models FROM openai_endpoints WHERE id = ?", linkedEndpointID).Scan(&modelsRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(modelsRaw, "new-model1") || !strings.Contains(modelsRaw, "new-model2") {
+		t.Fatalf("prefix change with upstream down must keep and migrate existing models, got %q", modelsRaw)
+	}
+	if strings.Contains(modelsRaw, "agy-") || strings.Contains(modelsRaw, "claude-sonnet") {
+		t.Fatalf("models should be migrated off old prefix and not fall back to defaults, got %q", modelsRaw)
 	}
 }

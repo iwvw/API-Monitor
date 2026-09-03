@@ -38,9 +38,12 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	models, err := s.FetchModels(ctx, "")
 	if err != nil {
-		response.JSON(w, http.StatusOK, map[string]interface{}{
+		// 上游拉取失败时返回非 2xx，而不是 200 + 空列表：网关侧 listModelsWithPricing
+		// 会把「验证成功但空列表」当成真实空并覆盖已获取的模型，导致端点不稳定时
+		// 模型列表被清空（加前缀后仍需手动刷新）。返回错误让网关保留旧模型列表。
+		response.JSON(w, http.StatusBadGateway, map[string]interface{}{
 			"object": "list",
-			"data":   []interface{}{},
+			"error":  err.Error(),
 		})
 		return
 	}
