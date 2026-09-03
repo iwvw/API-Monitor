@@ -373,6 +373,7 @@ const openAddEndpointModal = () => {
     rateLimitRetryWaitSeconds: 10,
     keyRetryRounds: 2,
     protocol: 'auto',
+    upstreamType: 'openai',
     proxyPoolId: '',
   });
   setEndpointFormError('');
@@ -398,6 +399,7 @@ const openEditEndpointModal = endpoint => {
     rateLimitRetryWaitSeconds: endpoint.rateLimitRetryWaitSeconds || 10,
     keyRetryRounds: endpoint.keyRetryRounds || 2,
     protocol: endpoint.protocol || 'auto',
+    upstreamType: endpoint.upstreamType || 'openai',
     proxyPoolId: endpoint.proxyPoolId || '',
   });
   setEndpointFormError('');
@@ -956,6 +958,50 @@ const batchToggleEndpointModels = async (endpoint, modelIds, enabled, successMes
   }
 };
 
+// 手动维护端点模型列表（Vertex AI 等无法自动拉取模型列表的上游需要手动添加）。
+// 入参支持一次粘贴多个模型名（逗号/换行/分号分隔）。replace=false 追加合并；
+// replace=true 全量替换（文本框内容即最终列表，删行后提交即可移除）。
+// POST /endpoints/:id/models/add。
+const addEndpointModels = async (endpoint, rawInput, { replace = false } = {}) => {
+  const models = String(rawInput || '')
+    .split(/[\n,;，；]/)
+    .map(m => m.trim())
+    .filter(Boolean);
+  if (models.length === 0 && !replace) return false;
+  try {
+    const response = await fetch(`/api/openai/endpoints/${endpoint.id}/models/add`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ models, replace }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || '保存失败');
+    setEndpoints(prev =>
+      prev.map(e =>
+        e.id === endpoint.id
+          ? {
+              ...e,
+              models: Array.isArray(data.models) ? data.models : e.models,
+              disabledModels: Array.isArray(data.disabledModels)
+                ? data.disabledModels
+                : e.disabledModels,
+            }
+          : e
+      )
+    );
+    await loadAllModels(true);
+    toast.success(
+      replace
+        ? `模型列表已保存（共 ${Array.isArray(data.models) ? data.models.length : 0} 个）`
+        : `已添加 ${Array.isArray(data.models) ? data.models.length : 0} 个模型`
+    );
+    return true;
+  } catch (error) {
+    toast.error(replace ? '保存模型列表失败: ' + error.message : '添加模型失败: ' + error.message);
+    return false;
+  }
+};
+
 // 关闭端点上所有「非有效」模型（未检测/检测失败/较慢之外的），仅停用不隐藏。
 // 保存模型映射：PUT /api/openai/endpoints/:id/model-mappings。
 const saveEndpointMapping = async (endpoint, modelId, alias) => {
@@ -1101,5 +1147,6 @@ const batchEnableDisabledModels = async endpoint => {
     batchToggleEndpointModels,
     saveEndpointMapping,
     batchEnableDisabledModels,
+    addEndpointModels,
   };
 }

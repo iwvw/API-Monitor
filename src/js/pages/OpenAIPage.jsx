@@ -117,6 +117,9 @@ import {
 } from '../components/Icons.jsx';
 import {
   ENDPOINT_PROTOCOL_OPTIONS,
+  ENDPOINT_UPSTREAM_OPTIONS,
+  GEMINI_DEFAULT_BASE_URL,
+  VERTEX_DEFAULT_BASE_URL,
   PROXY_PREVIEW_LIMIT,
   LOG_DETAIL_COLLAPSE_LIMIT,
   GATEWAY_EXPIRY_HOURS,
@@ -304,6 +307,11 @@ function FailoverPathBadge({ path, endpointName }) {
                 {s.endpoint || 'unknown'}
               </span>
               <StatusBadge tone={statusCodeTone(s.status)}>{s.status || '-'}</StatusBadge>
+              {typeof s.keyIndex === 'number' && s.keyIndex >= 0 && (
+                <StatusBadge tone="info" title="该步使用的 API Key 序号（K1=主 key）">
+                  K{s.keyIndex + 1}
+                </StatusBadge>
+              )}
               {i < steps.length - 1 && <span className="text-kumo-subtle">→</span>}
             </div>
           ))}
@@ -742,6 +750,7 @@ function OpenAIPage() {
     modelBatchActionLoading, setModelBatchActionLoading,
     saveEndpointMapping,
     batchEnableDisabledModels,
+    addEndpointModels,
   } = useEndpoints();
 
   // 进入「API 端点」页时静默刷新端点与模型列表：插件中心接入/断开端点后
@@ -770,7 +779,26 @@ function OpenAIPage() {
   const [exposedModels, setExposedModels] = useState([]);
   const [exposedModelsLoading, setExposedModelsLoading] = useState(false);
   const [exposedModelsError, setExposedModelsError] = useState(null);
+  const [exposedPopoverOpen, setExposedPopoverOpen] = useState(false);
   const exposedModelsAbortRef = useRef(null);
+  // 手动添加模型（Vertex AI 等无法自动拉取模型列表的上游）。
+  // 打开时把端点现有模型填入文本框：所见即最终列表，追加/删改均可，保存全量同步。
+  const [addModelOpen, setAddModelOpen] = useState(false);
+  const [addModelText, setAddModelText] = useState('');
+  const [addModelTarget, setAddModelTarget] = useState(null);
+  const [addModelSaving, setAddModelSaving] = useState(false);
+  const handleAddModelSubmit = useCallback(async () => {
+    if (!addModelTarget || addModelSaving) return;
+    setAddModelSaving(true);
+    // Vertex：models 全部来自手动添加，文本框即最终列表，全量替换（删行即移除）；
+    // 可自动拉取的上游：追加合并（不把自动获取的模型纳入替换范围，避免误删）。
+    const replace = addModelTarget.upstreamType === 'vertex';
+    const ok = await addEndpointModels(addModelTarget, addModelText, { replace });
+    setAddModelSaving(false);
+    if (ok) {
+      setAddModelOpen(false);
+    }
+  }, [addModelTarget, addModelText, addModelSaving, addEndpointModels]);
   const loadExposedModels = useCallback(async () => {
     if (exposedModelsAbortRef.current) exposedModelsAbortRef.current.abort();
     const controller = new AbortController();
@@ -793,8 +821,16 @@ function OpenAIPage() {
     }
   }, []);
   const handleExposedModelsOpenChange = useCallback((open) => {
+    setExposedPopoverOpen(open);
     if (open) loadExposedModels();
   }, [loadExposedModels]);
+  // Popover 打开期间每 15s 自动刷新「对外暴露的模型」，实时反映端点模型变化，
+  // 无需手动点击刷新。
+  useEffect(() => {
+    if (!exposedPopoverOpen) return undefined;
+    const timer = setInterval(loadExposedModels, 15000);
+    return () => clearInterval(timer);
+  }, [exposedPopoverOpen, loadExposedModels]);
   const copyExposedModelName = useCallback(async (id) => {
     try {
       await navigator.clipboard.writeText(id);
@@ -1589,6 +1625,26 @@ function OpenAIPage() {
                           shape="square"
                           size="sm"
                           variant="secondary"
+                          aria-label="手动添加模型"
+                          title="手动添加模型（Vertex AI 等无法自动拉取模型列表的上游使用）"
+                          onClick={() => {
+                            setAddModelTarget(endpoint);
+                            // 仅无自动列表的上游（vertex）预填手动添加的模型（其
+                            // models 全部来自手动添加）；可自动拉取的上游（openai/
+                            // gemini）不把自动获取的模型填进去，弹窗保持追加语义。
+                            setAddModelText(
+                              endpoint.upstreamType === 'vertex' && Array.isArray(endpoint.models)
+                                ? endpoint.models.join('\n')
+                                : ''
+                            );
+                            setAddModelOpen(true);
+                          }}
+                          icon={<Plus className={actionIconClass} />}
+                        />
+                        <Button
+                          shape="square"
+                          size="sm"
+                          variant="secondary"
                           aria-label="编辑端点"
                           onClick={() => openEditEndpointModal(endpoint)}
                           title="编辑端点"
@@ -1668,7 +1724,7 @@ function OpenAIPage() {
                                 </div>
                               </Table.Head>
                               <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                              <Table.Head className="!px-2 !py-1.5 text-center">模型映射</Table.Head>
+                              <Table.Head className="!px-2 !py-1.5 text-center">映射</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">健康</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">延迟</Table.Head>
                               <Table.Head className="app-table-action !px-2 !py-1.5">操作</Table.Head>
@@ -1884,7 +1940,7 @@ function OpenAIPage() {
                     <Table.Head className="text-center">最近使用</Table.Head>
                     <Table.Head className="text-center">过期时间</Table.Head>
                     <Table.Head className="text-center">请求数</Table.Head>
-                    <Table.Head className="text-center">Token 用量</Table.Head>
+                    <Table.Head className="text-center">词元用量</Table.Head>
                     <Table.Head className="app-table-action">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
@@ -3333,7 +3389,7 @@ function OpenAIPage() {
           if (!open) setEndpointKeyChecks([]);
         }}
       >
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),42rem)] !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),46rem)] !w-[min(58rem,calc(100vw-2rem))] !max-w-[min(58rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
           <div className="shrink-0 px-6 pt-5">
             <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
               {editingEndpoint ? '编辑端点' : '添加 API 端点'}
@@ -3357,15 +3413,39 @@ function OpenAIPage() {
                   className="w-full text-kumo-strong text-sm font-sans"
                 />
 
-                <Input
-                  size="sm"
-                  label="Base URL"
-                  type="text"
-                  value={endpointForm.baseUrl}
-                  onChange={e => setEndpointForm({ ...endpointForm, baseUrl: e.target.value })}
-                  placeholder="https://api.openai.com/v1"
-                  className="w-full text-kumo-strong text-[0.9em] font-mono"
-                />
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-2">
+                  <Select
+                    size="sm"
+                    label="上游协议"
+                    value={endpointForm.upstreamType || 'openai'}
+                    onValueChange={value =>
+                      setEndpointForm(current => {
+                        const defaultUrls = {
+                          gemini: GEMINI_DEFAULT_BASE_URL,
+                          vertex: VERTEX_DEFAULT_BASE_URL,
+                        };
+                        return {
+                          ...current,
+                          upstreamType: value,
+                          ...(defaultUrls[value] && !current.baseUrl
+                            ? { baseUrl: defaultUrls[value] }
+                            : {}),
+                        };
+                      })
+                    }
+                    items={ENDPOINT_UPSTREAM_OPTIONS}
+                    className="w-40"
+                  />
+                  <Input
+                    size="sm"
+                    label="Base URL"
+                    type="text"
+                    value={endpointForm.baseUrl}
+                    onChange={e => setEndpointForm({ ...endpointForm, baseUrl: e.target.value })}
+                    placeholder="https://api.openai.com/v1"
+                    className="w-full text-kumo-strong text-[0.9em] font-mono"
+                  />
+                </div>
 
                 <Input
                   size="sm"
@@ -3738,6 +3818,35 @@ function OpenAIPage() {
       </Dialog.Root>
 
       {/* 1b. 出口代理池管理弹窗 */}
+      <Dialog.Root open={addModelOpen} onOpenChange={setAddModelOpen}>
+        <Dialog className="!w-[min(30rem,calc(100vw-2rem))]">
+          <div className="grid gap-1 px-6 pt-5 pb-4">
+            <Dialog.Title className="text-sm font-semibold text-kumo-strong">手动添加模型</Dialog.Title>
+          </div>
+          <div className="px-6 pb-4">
+            <Textarea
+              autoFocus
+              value={addModelText}
+              onChange={e => setAddModelText(e.target.value)}
+              placeholder="用逗号/换行分隔"
+              className="w-full min-h-24 font-mono text-xs"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close
+              render={props => (
+                <Button size="sm" variant="secondary" {...props}>
+                  取消
+                </Button>
+              )}
+            />
+            <Button size="sm" variant="primary" onClick={handleAddModelSubmit} loading={addModelSaving}>
+              保存
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
       <Dialog.Root open={proxyManagerOpen} onOpenChange={setProxyManagerOpen}>
         <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(38rem,calc(100vw-1rem))] !max-w-[min(38rem,calc(100vw-1rem))] flex-col overflow-hidden !p-0">
           <div className="shrink-0 border-b border-kumo-line px-4 py-3 cq-sm:px-5 cq-sm:py-4">
