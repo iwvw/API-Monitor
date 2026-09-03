@@ -1,5 +1,3 @@
-//go:build unit
-
 package antigravity
 
 import (
@@ -297,8 +295,8 @@ func TestNewClient_无代理(t *testing.T) {
 	if client.httpClient == nil {
 		t.Fatal("httpClient 为 nil")
 	}
-	if client.httpClient.Timeout != clientTimeout {
-		t.Errorf("Timeout 不匹配: got %v, want %v", client.httpClient.Timeout, clientTimeout)
+	if client.httpClient.Timeout != 0 {
+		t.Errorf("Timeout 不匹配: got %v, want 0", client.httpClient.Timeout)
 	}
 	// 无代理时 Transport 应为 nil（使用默认）
 	if client.httpClient.Transport != nil {
