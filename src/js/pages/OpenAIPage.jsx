@@ -792,11 +792,14 @@ function OpenAIPage() {
     setAddModelSaving(true);
     // Vertex：models 全部来自手动添加，文本框即最终列表，全量替换（删行即移除）；
     // 可自动拉取的上游：追加合并（不把自动获取的模型纳入替换范围，避免误删）。
-    const replace = addModelTarget.upstreamType === 'vertex';
-    const ok = await addEndpointModels(addModelTarget, addModelText, { replace });
-    setAddModelSaving(false);
-    if (ok) {
-      setAddModelOpen(false);
+    try {
+      const replace = addModelTarget.upstreamType === 'vertex';
+      const ok = await addEndpointModels(addModelTarget, addModelText, { replace });
+      if (ok) {
+        setAddModelOpen(false);
+      }
+    } finally {
+      setAddModelSaving(false);
     }
   }, [addModelTarget, addModelText, addModelSaving, addEndpointModels]);
   const loadExposedModels = useCallback(async () => {

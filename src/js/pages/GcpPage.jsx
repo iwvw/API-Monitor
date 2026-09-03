@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts/core';
-import { LineChart } from 'echarts/charts';
+import { BarChart, LineChart } from 'echarts/charts';
 import {
   AriaComponent,
   AxisPointerComponent,
@@ -15,7 +15,8 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
-import { ChartPalette, Tabs, Toolbar } from '@cloudflare/kumo';
+import { Chart, Tabs } from '@cloudflare/kumo';
+import { createSiteFontEcharts } from '../chartFont.js';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
@@ -34,8 +35,8 @@ import {
   StatusBadge,
   stickyTabsBaseClass,
 } from '../components/ui/AppPrimitives.jsx';
-import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
+import { kumoHex, formatCompact } from './openai/utils.js';
 import useStore from '../store.js';
 import {
   Cloud,
@@ -61,6 +62,7 @@ import {
 } from '../components/Icons.jsx';
 
 echarts.use([
+  BarChart,
   LineChart,
   AxisPointerComponent,
   BrushComponent,
@@ -70,6 +72,7 @@ echarts.use([
   CanvasRenderer,
   AriaComponent,
 ]);
+const siteFontEcharts = createSiteFontEcharts(echarts);
 
 const emptyAccountForm = {
   name: '',
@@ -287,17 +290,10 @@ function GcpPage() {
     billing: new Map(),
     modelUsage: new Map(),
   });
-  const inflightRef = useRef({
-    accounts: null,
-    projects: new Map(),
-    instances: new Map(),
-    disks: new Map(),
-    firewalls: new Map(),
-    addresses: new Map(),
-    buckets: new Map(),
-    objects: new Map(),
-    billing: new Map(),
-  });
+  const scopeRef = useRef(`${selectedAccountId}/${selectedProjectId}`);
+  useEffect(() => {
+    scopeRef.current = `${selectedAccountId}/${selectedProjectId}`;
+  }, [selectedAccountId, selectedProjectId]);
 
   const selectedAccount = accounts.find((account) => String(account.id) === String(selectedAccountId));
   const scopeReady = Boolean(selectedAccountId && selectedProjectId);
@@ -313,15 +309,51 @@ function GcpPage() {
   }, [instances, query, stateFilter]);
 
   const modelUsageChartData = useMemo(
-    () => [{
-      name: '模型调用量',
-      color: ChartPalette.semantic('Success', isDarkMode),
-      data: (modelUsage?.daily ?? [])
-        .map((point) => [new Date(`${point.date}T00:00:00Z`).getTime(), Number(point.count) || 0])
-        .filter(([timestamp]) => Number.isFinite(timestamp)),
-    }],
-    [modelUsage, isDarkMode]
+    () => (modelUsage?.daily ?? []).map((point) => ({
+      label: formatModelUsageAxis(new Date(`${point.date}T00:00:00Z`).getTime()),
+      value: Number(point.count) || 0,
+    })),
+    [modelUsage]
   );
+
+  const modelUsageChartOptions = useMemo(() => {
+    if (modelUsageChartData.length === 0) return null;
+    const axisColor = kumoHex('--color-kumo-contrast');
+    const gridColor = kumoHex('--color-kumo-line');
+    const barColor = kumoHex('--color-brand');
+    return {
+      grid: { left: 8, right: 12, top: 10, bottom: 0, containLabel: true },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        appendTo: 'body',
+        backgroundColor: kumoHex('--color-kumo-base'),
+        textStyle: { color: axisColor, fontSize: 11 },
+        valueFormatter: (value) => formatCompact(Number(value), 0),
+      },
+      xAxis: {
+        type: 'category',
+        data: modelUsageChartData.map((point) => point.label),
+        boundaryGap: true,
+        axisLine: { lineStyle: { color: gridColor } },
+        axisTick: { show: false },
+        axisLabel: { color: axisColor, fontSize: 10, hideOverlap: true },
+      },
+      yAxis: {
+        type: 'value',
+        splitLine: { lineStyle: { color: gridColor } },
+        axisLabel: { color: axisColor, fontSize: 10, formatter: (value) => formatCompact(Number(value), 0) },
+      },
+      series: [
+        {
+          type: 'bar',
+          data: modelUsageChartData.map((point) => point.value),
+          barMaxWidth: 26,
+          itemStyle: { color: barColor, borderRadius: [2, 2, 0, 0] },
+        },
+      ],
+    };
+  }, [modelUsageChartData, isDarkMode]);
 
   const getCachedValue = useCallback((entry, ttl) => {
     if (!entry) return null;
@@ -331,7 +363,7 @@ function GcpPage() {
 
   const apiFetch = useCallback(async (path, options = {}) => {
     const response = await fetch(path, { ...options, headers: getAuthHeaders() });
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
     if (!response.ok || result.success === false) throw new Error(result.error || '请求失败');
     return result;
   }, []);
@@ -359,7 +391,6 @@ function GcpPage() {
         if (!silent) setLoadingAccounts(false);
       }
     })();
-    inflightRef.current.accounts = request;
     return request;
   }, [apiFetch, getCachedValue, selectedAccountId]);
 
@@ -367,9 +398,11 @@ function GcpPage() {
 
   const loadProjects = useCallback(async ({ force = false, silent = false } = {}) => {
     if (!selectedAccountId) return [];
-    const cacheKey = String(selectedAccountId);
+    const startedAccount = String(selectedAccountId);
+    const cacheKey = startedAccount;
     const cached = force ? null : getCachedValue(cacheRef.current.projects.get(cacheKey), CACHE_TTL_MS.projects);
     if (cached) {
+      if (scopeRef.current.split('/')[0] !== startedAccount) return cached;
       setProjects(cached);
       setSelectedProjectId((current) => {
         if (current && cached.some((p) => p.projectId === current)) return current;
@@ -378,8 +411,9 @@ function GcpPage() {
       return cached;
     }
     try {
-      const result = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects`);
+      const result = await apiFetch(`/api/gcp/accounts/${startedAccount}/projects`);
       const items = unwrap(result).projects || [];
+      if (scopeRef.current.split('/')[0] !== startedAccount) return items;
       cacheRef.current.projects.set(cacheKey, { value: items, at: Date.now() });
       setProjects(items);
       setSelectedProjectId((current) => {
@@ -395,13 +429,15 @@ function GcpPage() {
 
   const loadInstances = useCallback(async ({ force = false, silent = false } = {}) => {
     if (!scopeReady) return [];
-    const cacheKey = scopeCacheKey();
+    const startedScope = scopeCacheKey();
+    const cacheKey = startedScope;
     const cached = force ? null : getCachedValue(cacheRef.current.instances.get(cacheKey), CACHE_TTL_MS.instances);
-    if (cached) { setInstances(cached); return cached; }
+    if (cached) { if (scopeRef.current !== startedScope) return cached; setInstances(cached); return cached; }
     if (!silent) setLoadingProjectScope(true);
     try {
       const result = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/instances`);
       const items = unwrap(result).instances || [];
+      if (scopeRef.current !== startedScope) return items;
       cacheRef.current.instances.set(cacheKey, { value: items, at: Date.now() });
       setInstances(items);
       return items;
@@ -415,13 +451,15 @@ function GcpPage() {
 
   const loadDisks = useCallback(async ({ force = false, silent = false } = {}) => {
     if (!scopeReady) return [];
-    const cacheKey = scopeCacheKey();
+    const startedScope = scopeCacheKey();
+    const cacheKey = startedScope;
     const cached = force ? null : getCachedValue(cacheRef.current.disks.get(cacheKey), CACHE_TTL_MS.disks);
-    if (cached) { setDisks(cached); return cached; }
+    if (cached) { if (scopeRef.current !== startedScope) return cached; setDisks(cached); return cached; }
     if (!silent) setLoadingProjectScope(true);
     try {
       const result = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/disks`);
       const items = unwrap(result).disks || [];
+      if (scopeRef.current !== startedScope) return items;
       cacheRef.current.disks.set(cacheKey, { value: items, at: Date.now() });
       setDisks(items);
       return items;
@@ -435,11 +473,12 @@ function GcpPage() {
 
   const loadNetwork = useCallback(async ({ force = false } = {}) => {
     if (!scopeReady) return;
-    const cacheKey = scopeCacheKey();
+    const startedScope = scopeCacheKey();
+    const cacheKey = startedScope;
     if (!force) {
       const fwCached = getCachedValue(cacheRef.current.firewalls.get(cacheKey), CACHE_TTL_MS.firewalls);
       const addrCached = getCachedValue(cacheRef.current.addresses.get(cacheKey), CACHE_TTL_MS.addresses);
-      if (fwCached && addrCached) { setFirewalls(fwCached); setAddresses(addrCached); return; }
+      if (fwCached && addrCached) { if (scopeRef.current !== startedScope) return; setFirewalls(fwCached); setAddresses(addrCached); return; }
     }
     setLoadingProjectScope(true);
     try {
@@ -449,6 +488,7 @@ function GcpPage() {
       ]);
       const fw = unwrap(fwResult).firewalls || [];
       const addr = unwrap(addrResult).addresses || [];
+      if (scopeRef.current !== startedScope) return;
       cacheRef.current.firewalls.set(cacheKey, { value: fw, at: Date.now() });
       cacheRef.current.addresses.set(cacheKey, { value: addr, at: Date.now() });
       setFirewalls(fw);
@@ -462,13 +502,15 @@ function GcpPage() {
 
   const loadBuckets = useCallback(async ({ force = false, silent = false } = {}) => {
     if (!selectedAccountId || !selectedProjectId) return [];
-    const cacheKey = scopeCacheKey();
+    const startedScope = scopeCacheKey();
+    const cacheKey = startedScope;
     const cached = force ? null : getCachedValue(cacheRef.current.buckets.get(cacheKey), CACHE_TTL_MS.buckets);
-    if (cached) { setBuckets(cached); return cached; }
+    if (cached) { if (scopeRef.current !== startedScope) return cached; setBuckets(cached); return cached; }
     if (!silent) setLoadingBuckets(true);
     try {
       const result = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/buckets`);
       const items = unwrap(result).buckets || [];
+      if (scopeRef.current !== startedScope) return items;
       cacheRef.current.buckets.set(cacheKey, { value: items, at: Date.now() });
       setBuckets(items);
       return items;
@@ -482,13 +524,15 @@ function GcpPage() {
 
   const loadObjects = useCallback(async ({ force = false, silent = false } = {}) => {
     if (!selectedAccountId || !selectedBucket) return [];
-    const cacheKey = `${selectedAccountId}/${selectedBucket}`;
+    const startedScope = `${selectedAccountId}/${selectedBucket}`;
+    const cacheKey = startedScope;
     const cached = force ? null : getCachedValue(cacheRef.current.objects.get(cacheKey), CACHE_TTL_MS.objects);
-    if (cached) { setObjects(cached); return cached; }
+    if (cached) { if (scopeRef.current.split('/')[0] !== String(selectedAccountId)) return cached; setObjects(cached); return cached; }
     if (!silent) setLoadingObjects(true);
     try {
       const result = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/buckets/${selectedBucket}/objects`);
       const items = unwrap(result).objects || [];
+      if (scopeRef.current.split('/')[0] !== String(selectedAccountId)) return items;
       cacheRef.current.objects.set(cacheKey, { value: items, at: Date.now() });
       setObjects(items);
       return items;
@@ -502,9 +546,11 @@ function GcpPage() {
 
   const loadBilling = useCallback(async ({ force = false } = {}) => {
     if (!selectedAccountId) return;
-    const cacheKey = `${selectedAccountId}/${selectedProjectId || 'none'}`;
+    const startedScope = `${selectedAccountId}/${selectedProjectId || 'none'}`;
+    const cacheKey = startedScope;
     const cached = force ? null : getCachedValue(cacheRef.current.billing.get(cacheKey), CACHE_TTL_MS.billing);
     if (cached) {
+      if (scopeRef.current !== startedScope) return;
       setBillingAccounts(cached.accounts || []);
       setBudgets(cached.budgets || []);
       setBillingInfo(cached.billingInfo || null);
@@ -537,6 +583,7 @@ function GcpPage() {
         value: { accounts: accountsList, budgets: budgetsList, billingInfo: billingInfoItem },
         at: Date.now(),
       });
+      if (scopeRef.current !== startedScope) return;
       setBillingAccounts(accountsList);
       setBudgets(budgetsList);
       setBillingInfo(billingInfoItem);
@@ -549,10 +596,12 @@ function GcpPage() {
 
   const loadModelUsage = useCallback(async ({ force = false, silent = false } = {}) => {
     if (!selectedAccountId || !selectedProjectId) return null;
+    const startedScope = scopeCacheKey();
     const cacheKey = `${selectedAccountId}/${selectedProjectId}/${modelUsageDays}`;
     const CACHE_MODEL_USAGE_MS = 5 * 60_000;
     const cached = force ? null : getCachedValue(cacheRef.current.modelUsage.get(cacheKey), CACHE_MODEL_USAGE_MS);
     if (cached) {
+      if (scopeRef.current !== startedScope) return cached;
       setModelUsage(cached);
       return cached;
     }
@@ -560,6 +609,7 @@ function GcpPage() {
     try {
       const result = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${encodeURIComponent(selectedProjectId)}/model-usage?days=${modelUsageDays}`);
       const item = unwrap(result).modelUsage || null;
+      if (scopeRef.current !== startedScope) return item;
       cacheRef.current.modelUsage.set(cacheKey, { value: item, at: Date.now() });
       setModelUsage(item);
       return item;
@@ -953,7 +1003,7 @@ function GcpPage() {
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       toast.error(error.message || '下载对象失败');
     }
@@ -1503,24 +1553,15 @@ function GcpPage() {
                     <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{modelUsage.byModel?.length ?? 0}</span>
                   </div>
                 </div>
-                <ChartCard className="relative h-36 !border-kumo-interact/90 !bg-kumo-base">
-                  <SiteFontTimeseriesChart
-                    echarts={echarts}
-                    data={modelUsageChartData}
-                    height={120}
-                    loading={loadingModelUsage}
-                    xAxisTickCount={3}
-                    yAxisTickCount={3}
-                    isDarkMode={isDarkMode}
-                    xAxisTickFormat={formatModelUsageAxis}
-                    tooltipValueFormat={(value) => formatCount(Number(value))}
-                    tooltipMode="single"
-                    gradient
-                    ariaDescription="GCP Vertex AI 模型调用量趋势"
-                  />
-                </ChartCard>
+                <div className="min-h-0 w-full rounded-md border border-kumo-interact/90 bg-kumo-base" style={{ height: 168 }}>
+                  {modelUsageChartData.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-sm text-kumo-subtle">暂无数据</div>
+                  ) : (
+                    <Chart echarts={siteFontEcharts} isDarkMode={isDarkMode} options={modelUsageChartOptions ?? {}} height={168} />
+                  )}
+                </div>
                 {(modelUsage.byModel ?? []).length > 0 && (
-                  <DataTableFrame variant="embedded" density="dense" className="overflow-auto">
+                  <DataTableFrame variant="card" density="dense" className="overflow-auto">
                     <AppTable tableId="gcp-model-usage" columns={[{ id: 'model', role: 'primary' }, { id: 'count', role: 'number', width: 140 }]}>
                       <Table.Header variant="compact">
                         <Table.Row>
