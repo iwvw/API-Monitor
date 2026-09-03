@@ -74,6 +74,7 @@ config/
 tmp/
 test/tmp/
 test/
+.opencode/
 
 # ====================
 # 构建输出
