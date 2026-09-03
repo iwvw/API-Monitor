@@ -60,6 +60,7 @@ type normalInstance struct {
 	CreationTimestamp string            `json:"creationTimestamp,omitempty"`
 	Image             string            `json:"image,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
+	LabelFingerprint  string            `json:"labelFingerprint,omitempty"`
 	CpuPlatform       string            `json:"cpuPlatform,omitempty"`
 	DeletionProtection bool             `json:"deletionProtection"`
 	NetworkInterfaces []normalNetworkInterface `json:"networkInterfaces,omitempty"`

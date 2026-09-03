@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -310,7 +311,13 @@ func (s *Service) objectDownload(w http.ResponseWriter, r *http.Request, idText,
 	if index := strings.LastIndex(object, "/"); index >= 0 {
 		fileName = object[index+1:]
 	}
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+strings.ReplaceAll(fileName, "\"", "")+"\"")
+	fileName = strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' || r == '"' {
+			return -1
+		}
+		return r
+	}, fileName)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

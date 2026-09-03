@@ -81,8 +81,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.instanceAction(w, r, parts[1], parts[3], parts[5])
 	case len(parts) == 7 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "instances" && parts[6] == "labels" && r.Method == http.MethodPost:
 		s.instanceLabels(w, r, parts[1], parts[3], parts[5])
-	case len(parts) == 8 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "instances" && parts[6] == "operations" && r.Method == http.MethodGet:
-		s.operationStatus(w, r, parts[1], parts[3], parts[7])
+	case len(parts) == 6 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "operations" && r.Method == http.MethodGet:
+		s.operationStatus(w, r, parts[1], parts[3], parts[5])
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "disks":
 		s.disks(w, r, parts[1], parts[3])
 	case len(parts) == 6 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "disks":

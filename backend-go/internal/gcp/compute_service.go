@@ -32,6 +32,7 @@ func instanceFromRaw(raw json.RawMessage) normalInstance {
 		Status            string            `json:"status"`
 		CreationTimestamp string            `json:"creationTimestamp"`
 		Labels            map[string]string `json:"labels"`
+		LabelFingerprint  string            `json:"labelFingerprint"`
 		NetworkInterfaces []struct {
 			Name          string `json:"name"`
 			Network       string `json:"network"`
@@ -68,6 +69,7 @@ func instanceFromRaw(raw json.RawMessage) normalInstance {
 		State:             source.Status,
 		CreationTimestamp: source.CreationTimestamp,
 		Labels:            source.Labels,
+		LabelFingerprint:  source.LabelFingerprint,
 	}
 	for _, iface := range source.NetworkInterfaces {
 		normalizedIface := normalNetworkInterface{
@@ -188,9 +190,17 @@ func buildInstanceBody(payload instanceCreatePayload) map[string]interface{} {
 }
 
 func (s *Service) setInstanceLabels(ctx context.Context, c *client, projectID, zone, name string, labels map[string]string) (operationStatus, error) {
+	instance, err := s.getInstance(ctx, c, projectID, zone, name)
+	if err != nil {
+		return operationStatus{}, err
+	}
+	body := map[string]interface{}{"labels": labels}
+	if instance.LabelFingerprint != "" {
+		body["labelFingerprint"] = instance.LabelFingerprint
+	}
 	path := "projects/" + projectID + "/zones/" + zone + "/instances/" + name + "/setLabels"
 	var raw map[string]json.RawMessage
-	if err := c.do(ctx, http.MethodPost, "compute", path, nil, map[string]interface{}{"labels": labels}, &raw); err != nil {
+	if err := c.do(ctx, http.MethodPost, "compute", path, nil, body, &raw); err != nil {
 		return operationStatus{}, err
 	}
 	return operationFromRaw(raw), nil
@@ -201,7 +211,7 @@ func (s *Service) setInstanceLabels(ctx context.Context, c *client, projectID, z
 func (s *Service) listDisks(ctx context.Context, c *client, projectID string) ([]normalDisk, error) {
 	query := url.Values{}
 	var items []normalDisk
-	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/disks", query, "items", []string{"disks"}, func(raw json.RawMessage) error {
+	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/disks", query, "", []string{"disks"}, func(raw json.RawMessage) error {
 		items = append(items, diskFromRaw(raw))
 		return nil
 	})
@@ -316,7 +326,7 @@ func (s *Service) listMachineTypes(ctx context.Context, c *client, projectID, zo
 		subKeys = nil
 	}
 	var items []normalMachineType
-	err := c.listJSON(ctx, http.MethodGet, "compute", path, query, "items", subKeys, func(raw json.RawMessage) error {
+	err := c.listJSON(ctx, http.MethodGet, "compute", path, query, "", subKeys, func(raw json.RawMessage) error {
 		var mt struct {
 			Name      string `json:"name"`
 			Zone      string `json:"zone"`
@@ -363,7 +373,7 @@ func (s *Service) listImages(ctx context.Context, c *client, filter string) ([]n
 func (s *Service) listSubnetworks(ctx context.Context, c *client, projectID string) ([]normalSubnetwork, error) {
 	query := url.Values{}
 	items := []normalSubnetwork{}
-	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/subnetworks", query, "items", []string{"subnetworks"}, func(raw json.RawMessage) error {
+	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/subnetworks", query, "", []string{"subnetworks"}, func(raw json.RawMessage) error {
 		var sub struct {
 			Name        string `json:"name"`
 			Region      string `json:"region"`
@@ -433,7 +443,7 @@ func (s *Service) listFirewalls(ctx context.Context, c *client, projectID string
 func (s *Service) listAddresses(ctx context.Context, c *client, projectID string) ([]normalAddress, error) {
 	query := url.Values{}
 	var items []normalAddress
-	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/addresses", query, "items", []string{"addresses"}, func(raw json.RawMessage) error {
+	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/addresses", query, "", []string{"addresses"}, func(raw json.RawMessage) error {
 		var addr struct {
 			ID      string   `json:"id"`
 			Name    string   `json:"name"`
