@@ -271,6 +271,7 @@ export const MODULE_ICON_MAP = {
   aliyun: AlibabaCloudBrand,
   tencent: TencentCloudBrand,
   oracle: Cloud,
+  gcp: Cloud,
   m365: Cloud,
   github: GitHubBrand,
   server: Server,

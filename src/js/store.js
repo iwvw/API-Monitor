@@ -84,6 +84,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-cloud',
     description: 'OCI 实例',
   },
+  gcp: {
+    name: 'Google Cloud',
+    shortName: 'GCP',
+    icon: 'fa-cloud',
+    description: 'GCP 资源',
+  },
   server: {
     name: '主机实例',
     shortName: '主机',
@@ -163,7 +169,7 @@ export const MODULE_GROUPS = [
       {
         id: 'cloud-vendors',
         name: '云厂商',
-        modules: ['dns', 'aliyun', 'tencent', 'oracle', 'm365'],
+        modules: ['dns', 'aliyun', 'tencent', 'oracle', 'm365', 'gcp'],
       },
       {
         id: 'devops',

@@ -202,6 +202,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/aliyun", Module: "aliyun", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Aliyun DNS and compute"},
 		{Prefix: "/api/tencent", Module: "tencent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Tencent DNS and compute"},
 		{Prefix: "/api/oracle", Module: "oracle", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Oracle OCI compute management"},
+		{Prefix: "/api/gcp", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Google Cloud Platform accounts and resources"},
 		{Prefix: "/api/m365/public/register", Module: "m365-public-register", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Microsoft 365 public registration descriptor/create", MatchMode: MatchExact},
 		{Prefix: "/api/m365/public/invites/{code}", Module: "m365-public-register", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Microsoft 365 public invite details", MatchMode: MatchPattern},
 		{Prefix: "/api/m365", Module: "m365", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Microsoft 365 tenant, users, groups, licenses, and usage reports"},

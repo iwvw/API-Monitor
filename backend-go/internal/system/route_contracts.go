@@ -1349,6 +1349,49 @@ func init() {
 	routeRequestContracts["/api/oracle/accounts/{id}/instances/{iid}/actions"] = obj([]string{"action"}, map[string]prop{
 		"action": {t: "string", req: true, d: "start/stop/reboot 等"},
 	})
+	routeRequestContracts["/api/gcp/accounts"] = obj([]string{"name", "serviceAccountJson"}, map[string]prop{
+		"name":               {t: "string", req: true, d: "账号名称"},
+		"serviceAccountJson": {t: "string", req: true, d: "完整 Service Account JSON"},
+		"defaultProjectId":   {t: "string", d: "默认项目 ID（留空取 JSON 内 project_id）"},
+		"description":        {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}"] = obj(nil, map[string]prop{
+		"name":             {t: "string", d: "账号名称"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+		"description":      {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/gcp/accounts/{id}/default-project"] = obj([]string{"defaultProjectId"}, map[string]prop{
+		"defaultProjectId": {t: "string", req: true, d: "默认项目 ID"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}/actions"] = obj([]string{"action"}, map[string]prop{
+		"action": {t: "string", req: true, e: []string{"start", "stop", "reset", "delete"}, d: "实例动作"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances"] = obj([]string{"name", "zone", "machineType"}, map[string]prop{
+		"name":          {t: "string", req: true, d: "实例名称"},
+		"zone":          {t: "string", req: true, d: "可用区（如 us-central1-a）"},
+		"machineType":   {t: "string", req: true, d: "机型（如 e2-micro）"},
+		"image":         {t: "string", d: "启动镜像"},
+		"bootDiskSizeGb": {t: "integer", d: "启动盘大小（GB）"},
+		"network":       {t: "string", d: "网络"},
+		"subnetwork":    {t: "string", d: "子网"},
+		"labels":        {t: "object", d: "标签键值对"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}/labels"] = obj(nil, map[string]prop{
+		"labels": {t: "object", d: "标签键值对"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}/resize"] = obj([]string{"sizeGb"}, map[string]prop{
+		"sizeGb": {t: "integer", req: true, d: "目标大小（GB）"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}/snapshot"] = obj(nil, map[string]prop{
+		"snapshotName": {t: "string", d: "快照名（默认 <disk>-snap）"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/buckets"] = obj([]string{"name"}, map[string]prop{
+		"name":         {t: "string", req: true, d: "存储桶名称"},
+		"location":     {t: "string", d: "位置（如 us-central1）"},
+		"storageClass": {t: "string", d: "存储类别"},
+		"versioning":   {t: "boolean", d: "统一版本控制开关"},
+	})
 	routeRequestContracts["/api/m365/accounts"] = obj([]string{"name"}, map[string]prop{
 		"name":        {t: "string", req: true, d: "账号名称"},
 		"tenantId":    {t: "string", d: "租户 ID"},
