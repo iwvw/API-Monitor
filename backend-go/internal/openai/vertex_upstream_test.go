@@ -418,3 +418,137 @@ func TestVertexPartialArgsReassembly(t *testing.T) {
 		t.Errorf("units = %v; want 'metricc' (metric+c)", argsParsed["units"])
 	}
 }
+
+func TestVertexMergeMultipleToolResponses(t *testing.T) {
+	req := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "run two tools"},
+			map[string]interface{}{
+				"role": "assistant",
+				"tool_calls": []interface{}{
+					map[string]interface{}{
+						"id":   "call_1",
+						"type": "function",
+						"function": map[string]interface{}{
+							"name":      "tool_a",
+							"arguments": "{}",
+						},
+					},
+					map[string]interface{}{
+						"id":   "call_2",
+						"type": "function",
+						"function": map[string]interface{}{
+							"name":      "tool_b",
+							"arguments": "{}",
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"role":         "tool",
+				"tool_call_id": "call_1",
+				"content":      "res_a",
+			},
+			map[string]interface{}{
+				"role":         "tool",
+				"tool_call_id": "call_2",
+				"content":      "res_b",
+			},
+		},
+	}
+	out, err := openAIChatToVertex(req)
+	if err != nil {
+		t.Fatalf("openAIChatToVertex error: %v", err)
+	}
+	contents, ok := out["contents"].([]interface{})
+	if !ok {
+		t.Fatalf("contents not []interface{}")
+	}
+	// 应生成 3 个 turn：
+	// 1: user "run two tools"
+	// 2: model with 2 functionCalls
+	// 3: user with 2 functionResponses merged into a single turn
+	if len(contents) != 3 {
+		t.Fatalf("len(contents) = %d; want 3 (tool responses must merge into one user turn)", len(contents))
+	}
+	modelTurn, _ := contents[1].(map[string]interface{})
+	if modelTurn["role"] != "model" {
+		t.Errorf("turn 1 role = %v; want model", modelTurn["role"])
+	}
+	modelParts, _ := modelTurn["parts"].([]interface{})
+	if len(modelParts) != 2 {
+		t.Errorf("model turn parts = %d; want 2", len(modelParts))
+	}
+
+	userToolTurn, _ := contents[2].(map[string]interface{})
+	if userToolTurn["role"] != "user" {
+		t.Errorf("turn 2 role = %v; want user", userToolTurn["role"])
+	}
+	toolParts, _ := userToolTurn["parts"].([]interface{})
+	if len(toolParts) != 2 {
+		t.Fatalf("merged tool turn parts = %d; want 2 (equal to function calls)", len(toolParts))
+	}
+	p1, _ := toolParts[0].(map[string]interface{})
+	fr1, _ := p1["functionResponse"].(map[string]interface{})
+	if fr1["name"] != "tool_a" {
+		t.Errorf("fr1 name = %v; want tool_a", fr1["name"])
+	}
+	p2, _ := toolParts[1].(map[string]interface{})
+	fr2, _ := p2["functionResponse"].(map[string]interface{})
+	if fr2["name"] != "tool_b" {
+		t.Errorf("fr2 name = %v; want tool_b", fr2["name"])
+	}
+}
+
+func TestVertexSanitizeArrayItemsInAnyOf(t *testing.T) {
+	req := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "list"},
+		},
+		"tools": []interface{}{
+			map[string]interface{}{
+				"type": "function",
+				"function": map[string]interface{}{
+					"name": "read_files",
+					"parameters": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"files": map[string]interface{}{
+								"anyOf": []interface{}{
+									map[string]interface{}{"type": "array"},
+									map[string]interface{}{"type": "null"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	out, err := openAIChatToVertex(req)
+	if err != nil {
+		t.Fatalf("openAIChatToVertex error: %v", err)
+	}
+	tools, ok := out["tools"].([]interface{})
+	if !ok || len(tools) == 0 {
+		t.Fatalf("tools missing")
+	}
+	fDecls, _ := tools[0].(map[string]interface{})["functionDeclarations"].([]interface{})
+	if len(fDecls) == 0 {
+		t.Fatalf("functionDeclarations missing")
+	}
+	params, _ := fDecls[0].(map[string]interface{})["parameters"].(map[string]interface{})
+	props, _ := params["properties"].(map[string]interface{})
+	files, _ := props["files"].(map[string]interface{})
+	anyOf, _ := files["anyOf"].([]interface{})
+	if len(anyOf) != 2 {
+		t.Fatalf("anyOf len = %d; want 2", len(anyOf))
+	}
+	arrBranch, _ := anyOf[0].(map[string]interface{})
+	if arrBranch["type"] != "array" {
+		t.Errorf("arrBranch type = %v; want array", arrBranch["type"])
+	}
+	if arrBranch["items"] == nil {
+		t.Errorf("arrBranch.items is nil; want defaulted empty object map")
+	}
+}

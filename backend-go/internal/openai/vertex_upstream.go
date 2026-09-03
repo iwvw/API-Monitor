@@ -126,7 +126,14 @@ func openAIChatToVertex(body map[string]interface{}) (map[string]interface{}, er
 								fc["args"] = argsObj
 							}
 						}
-						parts = append(parts, map[string]interface{}{"functionCall": fc})
+						// Gemini 2.5/3.x 与 Vertex 要求历史中的 functionCall 带 thought_signature，
+						// 缺少会导致 400 INVALID_ARGUMENT（"Function call is missing a thought_signature"）。
+						// 客户端通过 OpenAI 格式重放历史时不带此字段，在此自动填补旁路签名（与 new-api 一致）。
+						fcPart := map[string]interface{}{
+							"functionCall":     fc,
+							"thoughtSignature": "context_engineering_is_the_way_to_go",
+						}
+						parts = append(parts, fcPart)
 					}
 				}
 				parts = append(parts, openAIContentToVertexParts(msg["content"])...)
@@ -134,7 +141,29 @@ func openAIChatToVertex(body map[string]interface{}) (map[string]interface{}, er
 					contents = append(contents, map[string]interface{}{"role": "model", "parts": parts})
 				}
 			case "tool":
+				// Vertex/Gemini 强约束：一个 model turn 中的多个 functionCall 必须在紧随其后的
+				// 单个 user turn 中以等量的 functionResponse parts 一同返回
+				// （"number of function response parts is equal to the number of function call parts"）。
+				// OpenAI 协议中多个并发工具调用的返回是以多个独立的 role:"tool" 消息分别传入的，
+				// 若直接每次建一个 user content 会导致多轮 user 且每轮只有一个 response，触发 400。
+				// 做法：若前一个 content 已经是包含 functionResponse 的 user turn，则追加到该 turn 的 parts 中。
 				if part := openAIToolResultToVertexPart(msg, callName); part != nil {
+					if len(contents) > 0 {
+						if lastContent, ok := contents[len(contents)-1].(map[string]interface{}); ok && lastContent["role"] == "user" {
+							lastParts, _ := lastContent["parts"].([]interface{})
+							hasFuncResp := false
+							for _, p := range lastParts {
+								if pm, ok := p.(map[string]interface{}); ok && pm["functionResponse"] != nil {
+									hasFuncResp = true
+									break
+								}
+							}
+							if hasFuncResp {
+								lastContent["parts"] = append(lastParts, part)
+								continue
+							}
+						}
+					}
 					contents = append(contents, map[string]interface{}{"role": "user", "parts": []interface{}{part}})
 				}
 			default:
@@ -330,7 +359,7 @@ func openAIToolsToVertex(tools interface{}) []interface{} {
 			decl["description"] = desc
 		}
 		if params, ok := fn["parameters"]; ok && params != nil {
-			decl["parameters"] = params
+			decl["parameters"] = sanitizeVertexFunctionParameters(params, 0)
 		}
 		decls = append(decls, decl)
 	}
@@ -338,6 +367,106 @@ func openAIToolsToVertex(tools interface{}) []interface{} {
 		return nil
 	}
 	return []interface{}{map[string]interface{}{"functionDeclarations": decls}}
+}
+
+// vertexOpenAPISchemaAllowedFields 是 Vertex/Gemini functionDeclaration parameters 允许的 OpenAPI 字段。
+// Vertex 严格遵循子集，遇到 $schema、exclusiveMinimum、additionalProperties、title 等未声明字段
+// 会直接返回 400 INVALID_ARGUMENT（"Cannot find field"）。
+var vertexOpenAPISchemaAllowedFields = map[string]struct{}{
+	"anyOf":            {},
+	"default":          {},
+	"description":      {},
+	"enum":             {},
+	"example":          {},
+	"format":           {},
+	"items":            {},
+	"maxItems":         {},
+	"maxLength":        {},
+	"maxProperties":    {},
+	"maximum":          {},
+	"minItems":         {},
+	"minLength":        {},
+	"minProperties":    {},
+	"minimum":          {},
+	"nullable":         {},
+	"pattern":          {},
+	"properties":       {},
+	"propertyOrdering": {},
+	"required":         {},
+	"title":            {},
+	"type":             {},
+}
+
+const vertexFunctionSchemaMaxDepth = 32
+
+// sanitizeVertexFunctionParameters 递归清洗 OpenAPI schema，只保留 Vertex 接受的字段，
+// 过滤掉 JSON Schema 标准中常见但在 Vertex 中被拒绝的字段（如 $schema, exclusiveMinimum 等）。
+// 特别地：Vertex 规定当指定 anyOf 时，不能与 type/properties/items/format/enum/default 等结构定义字段共存
+// （"When using any_of, it must be the only field set"），因此出现 anyOf 时必须删除同层的 type/properties/items/format/enum/default。
+func sanitizeVertexFunctionParameters(params interface{}, depth int) interface{} {
+	if params == nil || depth >= vertexFunctionSchemaMaxDepth {
+		return params
+	}
+	switch v := params.(type) {
+	case map[string]interface{}:
+		cleaned := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			if _, ok := vertexOpenAPISchemaAllowedFields[k]; ok {
+				cleaned[k] = val
+			}
+		}
+
+		// Vertex 约束：anyOf 存在时，不能并存除 title / description 外的任何验证或类型约束字段
+		// （如 type, minimum, maximum, minItems, maxItems, minLength, maxLength, format, enum, default, properties, items 等），
+		// 否则触发 400 INVALID_ARGUMENT（"schema specified other fields alongside any_of. When using any_of, it must be the only field set"）。
+		if anyOf, ok := cleaned["anyOf"].([]interface{}); ok && len(anyOf) > 0 {
+			res := map[string]interface{}{}
+			if desc, ok := cleaned["description"]; ok {
+				res["description"] = desc
+			}
+			if title, ok := cleaned["title"]; ok {
+				res["title"] = title
+			}
+			cleanedAnyOf := make([]interface{}, len(anyOf))
+			for i, item := range anyOf {
+				cleanedAnyOf[i] = sanitizeVertexFunctionParameters(item, depth+1)
+			}
+			res["anyOf"] = cleanedAnyOf
+			return res
+		}
+
+		if props, ok := cleaned["properties"].(map[string]interface{}); ok && props != nil {
+			cleanedProps := make(map[string]interface{}, len(props))
+			for propName, propValue := range props {
+				cleanedProps[propName] = sanitizeVertexFunctionParameters(propValue, depth+1)
+			}
+			cleaned["properties"] = cleanedProps
+		}
+		if items, ok := cleaned["items"].(map[string]interface{}); ok && items != nil {
+			cleaned["items"] = sanitizeVertexFunctionParameters(items, depth+1)
+		} else if itemsArr, ok := cleaned["items"].([]interface{}); ok && len(itemsArr) > 0 {
+			cleaned["items"] = sanitizeVertexFunctionParameters(itemsArr[0], depth+1)
+		}
+
+		// Vertex 约束：type 为 array / ARRAY 时，items 字段是必须提供的
+		// （否则报错 "parameters.properties[x].items: missing field" 或 "any_of[i].items: missing field"）。
+		// 若上游/客户端定义了 array 类型但未提供 items（如松散类型/未指定元素类型的数组），默认补空对象 items。
+		if tVal, ok := cleaned["type"].(string); ok && strings.EqualFold(tVal, "array") {
+			if _, hasItems := cleaned["items"]; !hasItems {
+				cleaned["items"] = map[string]interface{}{}
+			}
+		}
+
+		return cleaned
+	case []interface{}:
+		cleanedArr := make([]interface{}, len(v))
+		for i, item := range v {
+			cleanedArr[i] = sanitizeVertexFunctionParameters(item, depth+1)
+		}
+		return cleanedArr
+	default:
+		return params
+	}
 }
 
 // openAIToolChoiceToVertex 将 OpenAI tool_choice 映射为 Vertex toolConfig.functionCallingConfig。
@@ -413,6 +542,33 @@ func vertexGenerationConfig(body map[string]interface{}) map[string]interface{} 
 	if rf := vertexResponseMimeType(body["response_format"]); rf != "" {
 		cfg["responseMimeType"] = rf
 	}
+
+	// 思维链配置（thinkingConfig）：
+	// 1. Google 官方默认 includeThoughts=false，即只计 token 却不输出 thought part 文本。
+	//    为让客户端（如 opencode、Cherry Studio、NextChat 等）能看到 reasoning_content，
+	//    默认开启 includeThoughts: true。
+	// 2. 支持通过 reasoning_effort (low/medium/high/none) 或 extra_body / thinking_budget 控制思考强度与预算。
+	thinkingCfg := map[string]interface{}{
+		"includeThoughts": true,
+	}
+	if effort, ok := body["reasoning_effort"].(string); ok {
+		switch strings.ToLower(effort) {
+		case "none":
+			budget := 0
+			thinkingCfg["thinkingBudget"] = budget
+		case "low":
+			thinkingCfg["thinkingBudget"] = 1024
+		case "medium":
+			thinkingCfg["thinkingBudget"] = 8192
+		case "high":
+			thinkingCfg["thinkingBudget"] = 24576
+		}
+	}
+	if tb, ok := body["thinking_budget"].(float64); ok {
+		thinkingCfg["thinkingBudget"] = int(tb)
+	}
+	cfg["thinkingConfig"] = thinkingCfg
+
 	if len(cfg) == 0 {
 		return nil
 	}

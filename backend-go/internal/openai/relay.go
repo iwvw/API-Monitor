@@ -1491,6 +1491,23 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	defer res.resp.Body.Close()
 
 	if stream {
+		// 上游若返回非 2xx（如 400 INVALID_ARGUMENT、403），不能作为 SSE 流直接写回
+		// （否则客户端收到 400 + 空 SSE chunk）。应按普通错误响应读取错误 body，
+		// 转换后以 application/json 写回。
+		if res.resp.StatusCode >= 400 {
+			errBytes, _ := readUpstreamBodyLimited(res.resp.Body)
+			if len(res.firstChunk) > 0 {
+				errBytes = append(res.firstChunk, errBytes...)
+			}
+			if isGeminiUpstream(selected) || isVertexUpstream(selected) {
+				errBytes = geminiErrorToOpenAI(errBytes)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(res.resp.StatusCode)
+			_, _ = w.Write(errBytes)
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
