@@ -192,7 +192,7 @@ const verifyEndpoint = async endpoint => {
   }
 };
 
-const refreshEndpointModels = async endpoint => {
+const refreshEndpointModels = async (endpoint, silent = false) => {
   if (endpoint.refreshing) return;
   // Set local refreshing
   setEndpoints(prev => prev.map(e => (e.id === endpoint.id ? { ...e, refreshing: true } : e)));
@@ -203,13 +203,13 @@ const refreshEndpointModels = async endpoint => {
     });
     const data = await response.json();
     if (data.valid) {
-      toast.success(`${endpoint.name || '端点'} 模型列表已更新`);
+      if (!silent) toast.success(`${endpoint.name || '端点'} 模型列表已更新`);
       await loadEndpoints(true);
     } else {
-      toast.error('刷新失败: ' + (data.error || 'API Key 无效'));
+      if (!silent) toast.error('刷新失败: ' + (data.error || 'API Key 无效'));
     }
   } catch (error) {
-    toast.error('刷新失败: ' + error.message);
+    if (!silent) toast.error('刷新失败: ' + error.message);
   } finally {
     setEndpoints(prev => prev.map(e => (e.id === endpoint.id ? { ...e, refreshing: false } : e)));
   }

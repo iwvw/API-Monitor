@@ -4859,6 +4859,130 @@ func TestUpdateEndpointKeepsModelsOnVerifyFailure(t *testing.T) {
 	}
 }
 
+// TestVerifyEndpointKeepsModelsOnUpstreamFailure 端点验证接口（POST /endpoints/:id/verify）
+// 在上游临时不可达时，必须保留库中旧模型列表：瞬时故障不应把端点模型清空成
+// 「暂无模型数据，可刷新端点获取」。
+func TestVerifyEndpointKeepsModelsOnUpstreamFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"Keep Models","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		upstream.Close()
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		upstream.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ?, pricing = ? WHERE id = ?`, `["gpt-4","gpt-4o"]`, `{"gpt-4":{"input":0.03}}`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		upstream.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 上游下线后手动刷新端点模型：验证必然失败，旧模型与定价必须保留。
+	upstream.Close()
+	wVerify := httptest.NewRecorder()
+	rVerify, _ := http.NewRequest("POST", "/api/openai/endpoints/"+createRes.Endpoint.ID+"/verify", nil)
+	service.ServeHTTP(wVerify, rVerify)
+	if wVerify.Code != http.StatusOK {
+		t.Fatalf("verify status = %d body=%s", wVerify.Code, wVerify.Body.String())
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw, pricingRaw string
+	if err := db.QueryRowContext(context.Background(), "SELECT models, pricing FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&modelsRaw, &pricingRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
+		t.Fatalf("verify failure must keep existing models, got %q", modelsRaw)
+	}
+	if !strings.Contains(pricingRaw, "0.03") {
+		t.Fatalf("verify failure must keep existing pricing, got %q", pricingRaw)
+	}
+}
+
+// TestRefreshAllModelsKeepsModelsOnUpstreamFailure 后台自动刷新（refreshAllModels）
+// 在上游临时不可达时，必须保留库中旧模型列表：每小时刷新的一次失败不应清空模型。
+func TestRefreshAllModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"Keep Models","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		upstream.Close()
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		upstream.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4","gpt-4o"]`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		upstream.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 上游下线后触发全量刷新：失败端点必须保留旧模型。
+	upstream.Close()
+	results, rerr := service.refreshAllModels(context.Background())
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(results) != 1 {
+		t.Fatalf("refresh results = %+v, want 1 entry", results)
+	}
+	if ok, _ := results[0]["success"].(bool); ok {
+		t.Fatalf("refresh should fail with upstream down, got %+v", results[0])
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&modelsRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
+		t.Fatalf("refresh failure must keep existing models, got %q", modelsRaw)
+	}
+}
+
 // seedRawAndStats 同时写入原始日志表与看板聚合表（模拟写路径双写）。
 func seedRawAndStats(t *testing.T, db *sql.DB) {
 	t.Helper()

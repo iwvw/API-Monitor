@@ -546,6 +546,7 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	pricing := PricingMap{}
 	var errMsg string
 
+	listOK := false
 	vOk, _, vErr := s.verifyAPIKeyRaw(verifyCtx, baseURL, apiKey, id, pool, modelsURL, upstreamType, headers)
 	responseTime := time.Since(startTime).Milliseconds()
 
@@ -555,6 +556,7 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		if mErr == nil {
 			modelsList = mList
 			pricing = mPrice
+			listOK = true
 		}
 	} else if vErr != nil {
 		errMsg = vErr.Error()
@@ -562,19 +564,35 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 	checkedAt := time.Now().Format(time.RFC3339)
 
-	// 验证失败时保留旧的模型列表：一次超时/临时网络故障不应清空已获取的模型。
+	// 只有「验证成功且列表拉取成功」才用新结果覆盖 models/pricing；验证失败或
+	// 拉取失败（端点不稳定/超时）时保留库中旧模型与旧定价，避免一次瞬时故障把
+	// 端点模型清空成「暂无模型数据，可刷新端点获取」。
 	modelsJSON := "[]"
-	if status == "valid" && len(modelsList) > 0 {
-		modelsJSONBytes, _ := json.Marshal(modelsList)
-		modelsJSON = string(modelsJSONBytes)
-	} else if status == "valid" {
-		// 验证成功但返回空列表：视为真实空（首次接入或上游确实无模型）。
-		modelsJSON = "[]"
+	pricingJSON := "{}"
+	if status == "valid" && listOK {
+		if len(modelsList) > 0 {
+			modelsJSONBytes, _ := json.Marshal(modelsList)
+			modelsJSON = string(modelsJSONBytes)
+		}
+		if len(pricing) > 0 {
+			pricingBytes, _ := json.Marshal(pricing)
+			pricingJSON = string(pricingBytes)
+		}
+	} else {
+		// 验证/拉取失败：保留库中旧模型与旧定价（瞬态故障不清空已获取列表）。
+		var existingRaw, existingPricingRaw sql.NullString
+		if err := db.QueryRowContext(ctx, "SELECT models, pricing FROM openai_endpoints WHERE id = ?", id).Scan(&existingRaw, &existingPricingRaw); err == nil {
+			if existingRaw.Valid && existingRaw.String != "" {
+				modelsJSON = existingRaw.String
+			}
+			if existingPricingRaw.Valid && existingPricingRaw.String != "" {
+				pricingJSON = existingPricingRaw.String
+			}
+		}
 	}
 
 	// Vertex AI 不提供模型列表端点，models 全部来自手动添加：刷新/验证时
 	// 保留现有列表（不覆盖为拉取结果），仅更新状态与 last_checked。
-	pricingJSON := "{}"
 	if upstreamType == upstreamTypeVertex {
 		var existingRaw, pricingRaw sql.NullString
 		if err := db.QueryRowContext(ctx, "SELECT models, pricing FROM openai_endpoints WHERE id = ?", id).Scan(&existingRaw, &pricingRaw); err == nil && existingRaw.Valid && existingRaw.String != "" {
@@ -585,11 +603,6 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		if pricingRaw.Valid && pricingRaw.String != "" {
 			pricingJSON = pricingRaw.String
 		}
-	}
-
-	if len(pricing) > 0 {
-		pricingBytes, _ := json.Marshal(pricing)
-		pricingJSON = string(pricingBytes)
 	}
 
 	_, err = db.ExecContext(ctx, `
@@ -1394,6 +1407,7 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 			pricing := PricingMap{}
 			var errStr string
 
+			listOK := false
 			vOk, _, err := s.verifyAPIKeyRaw(ctx, it.url, it.key, it.id, it.pool, it.modelsURL, it.upstreamType, it.headers)
 			if err == nil && vOk {
 				status = "valid"
@@ -1401,17 +1415,41 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 				if mErr == nil {
 					modelsList = mList
 					pricing = mPrice
+					listOK = true
 				}
 			} else if err != nil {
 				errStr = err.Error()
 			}
 
 			checkedAt := time.Now().Format(time.RFC3339)
-			// 验证失败时保留旧模型列表：一次超时/临时故障不应清空已获取的模型。
+			// 只有「验证成功且列表拉取成功」才用新结果覆盖 models/pricing；验证失败或
+			// 拉取失败（端点不稳定/超时）时保留库中旧模型与旧定价，避免一次瞬时故障
+			// 把端点模型清空成「暂无模型数据，可刷新端点获取」。
 			modelsJSON := "[]"
-			if status == "valid" && len(modelsList) > 0 {
-				modelsJSONBytes, _ := json.Marshal(modelsList)
-				modelsJSON = string(modelsJSONBytes)
+			pricingJSON := "{}"
+			if status == "valid" && listOK {
+				if len(modelsList) > 0 {
+					modelsJSONBytes, _ := json.Marshal(modelsList)
+					modelsJSON = string(modelsJSONBytes)
+				}
+				if len(pricing) > 0 {
+					pricingBytes, _ := json.Marshal(pricing)
+					pricingJSON = string(pricingBytes)
+				}
+			} else {
+				// 验证/拉取失败：保留库中旧模型与旧定价（瞬态故障不清空已获取列表）。
+				if dbConn, dbErr := s.open(ctx); dbErr == nil {
+					var existingRaw, existingPricingRaw sql.NullString
+					if err := dbConn.QueryRowContext(ctx, "SELECT models, pricing FROM openai_endpoints WHERE id = ?", it.id).Scan(&existingRaw, &existingPricingRaw); err == nil {
+						if existingRaw.Valid && existingRaw.String != "" {
+							modelsJSON = existingRaw.String
+						}
+						if existingPricingRaw.Valid && existingPricingRaw.String != "" {
+							pricingJSON = existingPricingRaw.String
+						}
+					}
+					dbConn.Close()
+				}
 			}
 			// Vertex AI 不提供模型列表端点，models 全部来自手动添加：刷新时
 			// 保留现有列表（不覆盖为拉取结果），仅更新状态与 last_checked。
@@ -1431,12 +1469,6 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 				} else {
 					preserveVertexModels = true
 				}
-			}
-
-			pricingJSON := "{}"
-			if len(pricing) > 0 {
-				pricingBytes, _ := json.Marshal(pricing)
-				pricingJSON = string(pricingBytes)
 			}
 
 			// Update in DB

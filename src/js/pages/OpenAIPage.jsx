@@ -762,6 +762,26 @@ function OpenAIPage() {
     }
   }, [activeTab, loadEndpoints, loadAllModels]);
 
+  // 端点模型自愈：端点列表里出现模型为空的启用端点时（端点不稳定/首次接入
+  // 拉取失败留下空列表），自动静默重取一次模型，避免必须手动点「刷新模型列表」。
+  // 已触发过的端点不会重复打扰（每个会话每端点至多自愈一次）。
+  const autoHealedEndpointRef = useRef(new Set());
+  useEffect(() => {
+    if (activeTab !== 'endpoints' || endpointsLoading) return;
+    const targets = endpoints.filter(
+      ep =>
+        ep.enabled &&
+        Array.isArray(ep.models) &&
+        ep.models.length === 0 &&
+        !ep.refreshing &&
+        !autoHealedEndpointRef.current.has(ep.id)
+    );
+    targets.forEach(ep => {
+      autoHealedEndpointRef.current.add(ep.id);
+      refreshEndpointModels(ep, true);
+    });
+  }, [activeTab, endpoints, endpointsLoading, refreshEndpointModels]);
+
   // 端点模型健康检测（单测/批量/进度，由 useHealthChecks 统一管理）
   const {
     openaiModelHealth, setOpenaiModelHealth,
