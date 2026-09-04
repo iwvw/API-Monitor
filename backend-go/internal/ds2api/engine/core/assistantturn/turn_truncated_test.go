@@ -118,3 +118,33 @@ func TestBuildTurnFromCollectedRepairFiresOnTruncatedBlock(t *testing.T) {
 		t.Fatalf("expected residual fragment cleared after failed repair, got %q", turn.Text)
 	}
 }
+
+// A pure native DeepSeek tool-call frame that begins but never closes must not
+// deliver the raw DSML fragment as visible text; it becomes an empty-output
+// turn so the caller's retry regenerates a complete response.
+func TestBuildTurnFromCollectedPureNativeTruncatedFrameBecomesEmptyOutput(t *testing.T) {
+	frag := `<｜｜tool▁call▁begin｜＞str_replace_editor<｜｜tool▁sep｜＞{"command":"view","path":"/workspace/example.md"}`
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: frag}, BuildOptions{})
+	if len(turn.ToolCalls) != 0 {
+		t.Fatalf("expected no tool calls, got %d", len(turn.ToolCalls))
+	}
+	if turn.Text != "" {
+		t.Fatalf("expected visible text cleared, got %q", turn.Text)
+	}
+	if turn.Error == nil || turn.Error.Code != "upstream_empty_output" {
+		t.Fatalf("expected empty-output error to trigger retry, got %#v", turn.Error)
+	}
+}
+
+// Prose that precedes a native truncated frame must survive; only the raw
+// frame markers are stripped so no DSML token leaks to the client.
+func TestBuildTurnFromCollectedStripsNativeFragmentKeepsProse(t *testing.T) {
+	input := `我先看一下目录结构。<｜｜tool▁call▁begin｜＞str_replace_editor<｜｜tool▁sep｜＞{"command":"view"}`
+	turn := BuildTurnFromCollected(sse.CollectResult{Text: input}, BuildOptions{})
+	if len(turn.ToolCalls) != 0 {
+		t.Fatalf("expected no tool calls, got %d", len(turn.ToolCalls))
+	}
+	if turn.Text != "我先看一下目录结构。" {
+		t.Fatalf("expected prose kept and native markers stripped, got %q", turn.Text)
+	}
+}

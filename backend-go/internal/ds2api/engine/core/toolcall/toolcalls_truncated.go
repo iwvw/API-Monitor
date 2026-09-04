@@ -37,6 +37,13 @@ func IsPureTruncatedToolCallText(text string) bool {
 	if t == "" {
 		return false
 	}
+	// A pure native DeepSeek tool-call frame that begins but never closes is the
+	// same truncated-fragment signature in the native DSML dialect (which the
+	// EPSE/XML scanner below does not recognize). Clear it so the empty-output
+	// retry regenerates a complete response instead of leaking the raw frame.
+	if IsPureNativeTruncatedToolFrame(t) {
+		return true
+	}
 	if !strings.HasPrefix(t, "<|EPSE|tool_calls") &&
 		!strings.HasPrefix(t, "<|EPSE|invoke") &&
 		!strings.HasPrefix(t, "<tool_calls") &&

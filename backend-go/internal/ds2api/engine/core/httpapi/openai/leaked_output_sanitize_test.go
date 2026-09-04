@@ -116,3 +116,27 @@ func TestSanitizeLeakedOutputPreservesUnrelatedResultTagsWhenWrapperLeaks(t *tes
 		t.Fatalf("unexpected sanitize result for mixed leaked wrapper + xml example: %q", got)
 	}
 }
+
+func TestSanitizeLeakedOutputRemovesNativeToolCallFrame(t *testing.T) {
+	raw := `前置文本<｜｜tool▁calls▁begin｜｜><｜｜tool▁call▁begin｜＞bash<｜｜tool▁sep｜＞{"command":"ls"}<｜｜tool▁call▁end｜｜><｜｜tool▁calls▁end｜｜>后置文本`
+	got := sanitizeLeakedOutput(raw)
+	if got != "前置文本后置文本" {
+		t.Fatalf("unexpected sanitize result for native tool-call frame: %q", got)
+	}
+}
+
+func TestSanitizeLeakedOutputRemovesNativeSepMarker(t *testing.T) {
+	raw := `我在看文件。<｜｜tool▁sep｜＞{"command":"ls"}`
+	got := sanitizeLeakedOutput(raw)
+	if got != `我在看文件。{"command":"ls"}` {
+		t.Fatalf("unexpected sanitize result for native sep marker: %q", got)
+	}
+}
+
+func TestSanitizeLeakedOutputPreservesProseAroundNativeFrame(t *testing.T) {
+	raw := `好的，我先确认一下目录结构。<｜｜tool▁call▁begin｜＞bash<｜｜tool▁sep｜＞{"command":"ls"} 然后再决定下一步。`
+	got := sanitizeLeakedOutput(raw)
+	if got != `好的，我先确认一下目录结构。 然后再决定下一步。` {
+		t.Fatalf("unexpected sanitize result for prose around native frame: %q", got)
+	}
+}

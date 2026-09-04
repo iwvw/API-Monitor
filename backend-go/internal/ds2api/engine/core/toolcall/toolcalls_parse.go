@@ -68,6 +68,13 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 	if original == "" {
 		return result
 	}
+	// Recover a balanced native DeepSeek tool-call frame (tool▁calls▁begin …)
+	// by translating it into the canonical XML markup the parser consumes. This
+	// runs before EPSE normalization so a recovered native frame is parsed into
+	// a legitimate tool call instead of being stripped or regenerated. Partial /
+	// unclosed frames are left unchanged and keep flowing to the strip/retry
+	// path.
+	original = RewriteNativeToolCallFrames(original)
 
 	normalized, ok := normalizeEPSEToolCallMarkup(original)
 	if !ok {

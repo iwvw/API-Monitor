@@ -60,6 +60,7 @@ func sanitizeLeakedOutput(text string) string {
 	out = leakedMetaMarkerPattern.ReplaceAllString(out, "")
 	out = stripLeakedToolCallWrapperBlocks(out)
 	out = sanitizeLeakedAgentXMLBlocks(out)
+	out = toolcall.StripNativeToolCallFrames(out)
 	return out
 }
 
