@@ -4,7 +4,19 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { ClipboardText, Tabs } from '@cloudflare/kumo';
-import { CodeFile, Download, Eye, FileText, FolderOpen, Home, LogIn } from '../components/Icons.jsx';
+import {
+  Clock,
+  CodeFile,
+  Download,
+  Eye,
+  FileText,
+  FolderOpen,
+  HardDrive,
+  Home,
+  LogIn,
+  Send,
+  TrendingUp,
+} from '../components/Icons.jsx';
 import useStore from '../store.js';
 import { SectionCard } from '../components/ui/AppPrimitives.jsx';
 import { fileboxDirectURL, fileboxDownloadEndpoint } from '../modules/fileboxLinks.js';
@@ -35,6 +47,9 @@ const CONTENT_VIEW_TABS = [
     ),
   },
 ];
+
+const innerCardClass =
+  'rounded-lg border border-kumo-line bg-kumo-elevated shadow-none ring-0';
 
 function shareCodeFromPath() {
   const match = window.location.pathname.match(/^\/share\/([^/]+)$/);
@@ -146,6 +161,29 @@ function PublicSharePage() {
         ? new Blob([textPreview]).size
         : 0;
 
+  const infoItems = [
+    {
+      icon: <FileText className="h-4 w-4" />,
+      label: '类型',
+      value: isFile ? '文件' : isMarkdown ? 'Markdown' : '文本',
+    },
+    {
+      icon: <HardDrive className="h-4 w-4" />,
+      label: '大小',
+      value: formatFileSize(displayedSize),
+    },
+    {
+      icon: <Clock className="h-4 w-4" />,
+      label: '到期',
+      value: formatExpiry(entry?.expiry),
+    },
+    {
+      icon: <TrendingUp className="h-4 w-4" />,
+      label: '下载次数',
+      value: `${entry?.downloads || 0}${entry?.maxDownloads ? ` / ${entry.maxDownloads}` : ' / 不限'}`,
+    },
+  ];
+
   return (
     <div className="h-screen h-dvh overflow-hidden bg-kumo-canvas p-4 text-kumo-default sm:p-6">
       <div className="mx-auto flex h-full w-full max-w-5xl min-h-0 flex-col gap-4">
@@ -186,39 +224,31 @@ function PublicSharePage() {
               {error}
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-4">
-              <div className="grid shrink-0 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3 text-xs sm:grid-cols-2">
-                <div>
-                  <span className="text-kumo-subtle">类型</span>
-                  <div className="mt-1 font-semibold text-kumo-strong">
-                    {isFile ? '文件' : isMarkdown ? 'Markdown' : '文本'}
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {infoItems.map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex min-w-0 items-center gap-3 rounded-lg border border-kumo-line bg-kumo-elevated p-3 shadow-none ring-0"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                      {item.icon}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs text-kumo-subtle">{item.label}</div>
+                      <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">
+                        {item.value}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <span className="text-kumo-subtle">大小</span>
-                  <div className="mt-1 font-semibold text-kumo-strong">
-                    {formatFileSize(displayedSize)}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-kumo-subtle">到期</span>
-                  <div className="mt-1 font-semibold text-kumo-strong">
-                    {formatExpiry(entry?.expiry)}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-kumo-subtle">下载次数</span>
-                  <div className="mt-1 font-semibold text-kumo-strong">
-                    {entry?.downloads || 0}
-                    {entry?.maxDownloads ? ` / ${entry.maxDownloads}` : ' / 不限'}
-                  </div>
-                </div>
+                ))}
               </div>
 
               {!isFile && displayedText ? (
-                <div className="flex min-h-0 flex-1 flex-col rounded-md border border-kumo-line bg-kumo-base p-3">
-                  <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs font-semibold text-kumo-strong">
+                <div className={`${innerCardClass} flex min-h-0 flex-1 flex-col overflow-hidden`}>
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                      <Eye className="h-4 w-4 text-brand" />
                       {textPreview ? 'Markdown 内容' : '内容预览'}
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -243,88 +273,100 @@ function PublicSharePage() {
                       ) : null}
                     </div>
                   </div>
-                  {contentView === 'source' ? (
-                    <Suspense
-                      fallback={
-                        <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-kumo-line text-xs text-kumo-subtle">
-                          正在加载源码
-                        </div>
-                      }
-                    >
-                      <CodeEditor
-                        value={displayedText}
-                        fileName="shared.md"
-                        language="markdown"
-                        label="Markdown 源码"
-                        readOnly
-                        className="public-share-source"
-                        minHeight="0"
-                        showHeader={false}
-                        showLanguage={false}
-                        lineWrapping
+                  <div className="flex min-h-0 flex-1 flex-col p-4">
+                    {contentView === 'source' ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex min-h-0 flex-1 items-center justify-center rounded-md border border-kumo-line text-xs text-kumo-subtle">
+                            正在加载源码
+                          </div>
+                        }
+                      >
+                        <CodeEditor
+                          value={displayedText}
+                          fileName="shared.md"
+                          language="markdown"
+                          label="Markdown 源码"
+                          readOnly
+                          className="public-share-source"
+                          minHeight="0"
+                          showHeader={false}
+                          showLanguage={false}
+                          lineWrapping
+                        />
+                      </Suspense>
+                    ) : (
+                      <div
+                        className="app-markdown-rendered min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(displayedText) }}
                       />
-                    </Suspense>
-                  ) : (
-                    <div
-                      className="app-markdown-rendered min-h-0 flex-1 overflow-y-auto overscroll-contain"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(displayedText) }}
-                    />
-                  )}
+                    )}
+                  </div>
                 </div>
               ) : null}
 
-              {entry?.requiresPassword && (
-                <Input
-                  size="sm"
-                  label="访问密码"
-                  type="text"
-                  value={password}
-                  onChange={event => setPassword(event.target.value)}
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  spellCheck={false}
-                />
-              )}
-
-              {error && (
-                <div className="rounded-md border border-kumo-error/30 bg-kumo-error/10 p-3 text-xs font-semibold text-kumo-error">
-                  {error}
-                </div>
-              )}
-
-              <div className="mt-auto flex shrink-0 flex-wrap items-center justify-between gap-3">
-                <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,0.72fr)]">
-                  <div className="min-w-0">
-                    <div className="mb-1 text-[11px] text-kumo-subtle">分享链接</div>
-                    <ClipboardText
-                      text={window.location.href}
-                      tooltip={{ text: '复制分享链接', copiedText: '分享链接已复制' }}
-                      labels={{ copyAction: '复制分享链接' }}
-                    />
+              <div className={`${innerCardClass} mt-auto shrink-0 p-4`}>
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                    <Send className="h-4 w-4 text-brand" />
+                    分享与下载
                   </div>
-                  <div className="min-w-0">
-                    <div className="mb-1 text-[11px] text-kumo-subtle">直链（源码）</div>
-                    <ClipboardText
-                      text={fileboxDirectURL(entry.code)}
-                      tooltip={{ text: '复制直链', copiedText: '直链已复制' }}
-                      labels={{ copyAction: '复制直链' }}
+
+                  {entry?.requiresPassword && (
+                    <Input
+                      size="sm"
+                      label="访问密码"
+                      type="text"
+                      value={password}
+                      onChange={event => setPassword(event.target.value)}
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-bwignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
                     />
+                  )}
+
+                  {error && (
+                    <div className="rounded-md border border-kumo-error/30 bg-kumo-error/10 p-3 text-xs font-semibold text-kumo-error">
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,0.72fr)]">
+                      <div className="min-w-0">
+                        <div className="mb-1 text-[11px] text-kumo-subtle">分享链接</div>
+                        <ClipboardText
+                          text={window.location.href}
+                          tooltip={{ text: '复制分享链接', copiedText: '分享链接已复制' }}
+                          labels={{ copyAction: '复制分享链接' }}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="mb-1 text-[11px] text-kumo-subtle">直链（源码）</div>
+                        <ClipboardText
+                          text={fileboxDirectURL(entry.code)}
+                          tooltip={{ text: '复制直链', copiedText: '直链已复制' }}
+                          labels={{ copyAction: '复制直链' }}
+                        />
+                      </div>
+                    </div>
+                    {isFile || !textPreview ? (
+                      <Button
+                        size="lg"
+                        variant="primary"
+                        loading={downloading}
+                        onClick={fetchContent}
+                        icon={<Download className="h-4 w-4" />}
+                        className="self-end"
+                      >
+                        {isFile ? '下载文件' : isMarkdown ? '查看 Markdown' : '查看文本'}
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
-                {isFile || !textPreview ? (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    loading={downloading}
-                    onClick={fetchContent}
-                    icon={<Download className="h-4 w-4" />}
-                  >
-                    {isFile ? '下载文件' : isMarkdown ? '查看 Markdown' : '查看文本'}
-                  </Button>
-                ) : null}
               </div>
             </div>
           )}

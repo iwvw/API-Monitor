@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import QRCode from 'qrcode';
+import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -15,7 +16,7 @@ import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { fileboxDirectURL, fileboxShareURL } from '../modules/fileboxLinks.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { formatDateTime, formatFileSize } from '../modules/utils.js';
-import { Clock, ExternalLink, FileText, FolderOpen, History, Lock, RefreshCw, Send, Settings, Trash, Upload, Users, X } from '../components/Icons.jsx';
+import { Clock, ExternalLink, FileText, FolderOpen, History, Lock, RefreshCw, Send, Server, Settings, Trash, Upload, Users, X } from '../components/Icons.jsx';
 import { SectionCard, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 
 const MarkdownEditor = lazy(() => import('../components/ui/MarkdownEditor.jsx'));
@@ -160,6 +161,9 @@ function FileboxPage() {
   const [voidRooms, setVoidRooms] = useState([]);
   const [voidRoomsLoading, setVoidRoomsLoading] = useState(false);
   const [voidLaunching, setVoidLaunching] = useState(false);
+  const [storageNodes, setStorageNodes] = useState([]);
+  const [selectedNodeId, setSelectedNodeId] = useState('local');
+  const [transferModal, setTransferModal] = useState({ open: false, entry: null, targetNodeId: 'local', transferring: false });
   const fileInputRef = useRef(null);
   const abortControllerRef = useRef(null);
   const maxFileSize = fileboxSettings.max_file_size || DEFAULT_FILEBOX_MAX_FILE_SIZE;
@@ -169,6 +173,17 @@ function FileboxPage() {
       setLocalHistory(JSON.parse(localStorage.getItem('filebox_history') || '[]'));
     } catch {
       setLocalHistory([]);
+    }
+  };
+
+  const loadStorageNodes = async () => {
+    try {
+      const res = await axios.get('/api/filebox/storage-nodes', { headers: authHeaders() });
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        setStorageNodes(res.data.data);
+      }
+    } catch {
+      // 忽略节点获取失败，优雅退化为仅主站本地
     }
   };
 
@@ -202,6 +217,7 @@ function FileboxPage() {
   useEffect(() => {
     loadLocalHistory();
     loadSettings();
+    loadStorageNodes();
   }, []);
 
   useEffect(() => {
@@ -266,51 +282,104 @@ function FileboxPage() {
     let lastLoaded = 0;
 
     try {
-      const formData = new FormData();
-      formData.append('type', isText ? 'text' : 'file');
-      formData.append('expiry', expiry);
-      formData.append('burn_after_reading', burnAfterReading);
-      formData.append('max_downloads', maxDownloads || '0');
-      formData.append('access_password', accessPassword);
-      if (isText) formData.append('text', shareText);
-      else formData.append('file', selectedFile);
+      let res;
+      let serverEntry = {};
+      let createdCode = '';
 
-      const res = await axios.post('/api/filebox/share', formData, {
-        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
-        signal: abortControllerRef.current.signal,
-        onUploadProgress: (event) => {
-          if (!event?.total || isText) return;
-          const now = Date.now();
-          const speed = ((event.loaded - lastLoaded) * 1000) / Math.max(1, now - lastTime);
-          setUploadProgress(Math.round((event.loaded / event.total) * 100));
-          setUploadSpeed(formatSpeed(speed));
-          lastLoaded = event.loaded;
-          lastTime = now;
-        },
-      });
+      if (!isText && selectedNodeId !== 'local') {
+        // 1. 请求主站签名签发上传端点与凭证
+        const initRes = await axios.post(
+          '/api/filebox/shares/init-upload',
+          { serverId: selectedNodeId, filename: selectedFile.name, size: selectedFile.size },
+          { headers: authHeaders(), signal: abortControllerRef.current.signal }
+        );
+        if (!initRes.data?.success) throw new Error(initRes.data?.error || '初始化远程上传失败');
+        const { uploadUrl, code } = initRes.data.data;
+        createdCode = code;
 
-      if (!res.data?.success) throw new Error(res.data?.error || '分享失败');
-	  const serverEntry = res.data?.data || {};
+        // 2. 浏览器直传 PUT 字节流至边缘节点
+        await axios.put(uploadUrl, selectedFile, {
+          headers: { 'Content-Type': 'application/octet-stream' },
+          signal: abortControllerRef.current.signal,
+          onUploadProgress: (event) => {
+            if (!event?.total) return;
+            const now = Date.now();
+            const speed = ((event.loaded - lastLoaded) * 1000) / Math.max(1, now - lastTime);
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+            setUploadSpeed(formatSpeed(speed));
+            lastLoaded = event.loaded;
+            lastTime = now;
+          },
+        });
+
+        // 3. 通知主站完成上传并落库元数据
+        const completeRes = await axios.post(
+          '/api/filebox/shares/complete-upload',
+          {
+            code: createdCode,
+            filename: selectedFile.name,
+            size: selectedFile.size,
+            serverId: selectedNodeId,
+            mimeType: selectedFile.type || 'application/octet-stream',
+            expiry,
+            burn_after_reading: burnAfterReading,
+            max_downloads: maxDownloads || '0',
+            access_password: accessPassword,
+          },
+          { headers: authHeaders(), signal: abortControllerRef.current.signal }
+        );
+        if (!completeRes.data?.success) throw new Error(completeRes.data?.error || '登记远程上传元数据失败');
+        res = completeRes;
+        serverEntry = completeRes.data?.data || {};
+      } else {
+        const formData = new FormData();
+        formData.append('type', isText ? 'text' : 'file');
+        formData.append('expiry', expiry);
+        formData.append('burn_after_reading', burnAfterReading);
+        formData.append('max_downloads', maxDownloads || '0');
+        formData.append('access_password', accessPassword);
+        if (isText) formData.append('text', shareText);
+        else formData.append('file', selectedFile);
+
+        res = await axios.post('/api/filebox/share', formData, {
+          headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+          signal: abortControllerRef.current.signal,
+          onUploadProgress: (event) => {
+            if (!event?.total || isText) return;
+            const now = Date.now();
+            const speed = ((event.loaded - lastLoaded) * 1000) / Math.max(1, now - lastTime);
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+            setUploadSpeed(formatSpeed(speed));
+            lastLoaded = event.loaded;
+            lastTime = now;
+          },
+        });
+
+        if (!res.data?.success) throw new Error(res.data?.error || '分享失败');
+        serverEntry = res.data?.data || {};
+        createdCode = res.data.code;
+      }
+
       const entry = {
-		...serverEntry,
-        code: res.data.code,
+        ...serverEntry,
+        code: createdCode,
         type: isText ? 'text' : 'file',
-		textFormat: serverEntry.textFormat || (isText ? 'markdown' : ''),
-		originalName: serverEntry.originalName || selectedFile?.name || '',
+        textFormat: serverEntry.textFormat || (isText ? 'markdown' : ''),
+        originalName: serverEntry.originalName || selectedFile?.name || '',
         content: shareText,
-		size:
-		  Number(serverEntry.size) > 0
-			? Number(serverEntry.size)
-			: isText
-			  ? new Blob([shareText]).size
-			  : selectedFile?.size || 0,
-		createdAt: serverEntry.createdAt || Date.now(),
-		requiresPassword: serverEntry.requiresPassword ?? !!accessPassword,
+        size:
+          Number(serverEntry.size) > 0
+            ? Number(serverEntry.size)
+            : isText
+              ? new Blob([shareText]).size
+              : selectedFile?.size || 0,
+        createdAt: serverEntry.createdAt || Date.now(),
+        requiresPassword: serverEntry.requiresPassword ?? !!accessPassword,
       };
       setResult(entry);
       saveLocalHistory(entry);
       setUploadProgress(100);
-      await generateQrCode(res.data.code);
+      await generateQrCode(createdCode);
       toast.success('分享已创建');
     } catch (error) {
       if (!axios.isCancel(error)) toast.error(error.response?.data?.error || error.message || '分享失败');
@@ -371,6 +440,43 @@ function FileboxPage() {
   const copyLink = async (code) => {
     await navigator.clipboard.writeText(fileboxShareURL(code));
     toast.success('分享链接已复制');
+  };
+
+  const openTransferModal = (entry) => {
+    const currentId = entry.storageType === 'remote' && entry.serverId ? entry.serverId : 'local';
+    const firstOther = currentId === 'local'
+      ? (storageNodes[0]?.id || 'local')
+      : 'local';
+    setTransferModal({
+      open: true,
+      entry,
+      targetNodeId: firstOther,
+      transferring: false,
+    });
+  };
+
+  const handleTransferSubmit = async () => {
+    if (!transferModal.entry) return;
+    const { entry, targetNodeId } = transferModal;
+    const isLocal = targetNodeId === 'local';
+    setTransferModal((prev) => ({ ...prev, transferring: true }));
+    try {
+      const res = await axios.post(
+        `/api/filebox/shares/${encodeURIComponent(entry.code)}/transfer`,
+        {
+          targetStorageType: isLocal ? 'local' : 'remote',
+          targetServerId: isLocal ? '' : targetNodeId,
+        },
+        { headers: authHeaders() }
+      );
+      if (!res.data?.success) throw new Error(res.data?.error || '转移存储失败');
+      toast.success('存储位置转移成功');
+      setTransferModal({ open: false, entry: null, targetNodeId: 'local', transferring: false });
+      await loadServerHistory();
+    } catch (error) {
+      toast.error(error.response?.data?.error || error.message || '转移存储失败');
+      setTransferModal((prev) => ({ ...prev, transferring: false }));
+    }
   };
 
   const loadVoidRooms = async () => {
@@ -518,6 +624,26 @@ function FileboxPage() {
             {loading && shareType === 'file' && <Meter label="上传进度" value={uploadProgress} customValue={`${uploadProgress}% · ${uploadSpeed}`} />}
 
             <div className="grid gap-3 cq-md:grid-cols-2">
+              {shareType === 'file' && (
+                <div className="cq-md:col-span-2">
+                  <Select
+                    size="sm"
+                    label="存储位置"
+                    value={selectedNodeId}
+                    onValueChange={setSelectedNodeId}
+                    items={[
+                      { value: 'local', label: '主站本地存储' },
+                      ...storageNodes.map((n) => ({
+                        value: n.id,
+                        label: `${n.name || n.id} (${n.host}:${n.storagePort || 61208})`,
+                      })),
+                    ]}
+                  />
+                  <div className="mt-1 text-[11px] text-kumo-subtle">
+                    选择边缘节点时，文件字节流将由浏览器直传至该节点，主站不中转流量。
+                  </div>
+                </div>
+              )}
               <Select size="sm" label="有效期" value={expiry} onValueChange={setExpiry} items={EXPIRY_OPTIONS} />
               <Input size="sm" label="最大下载次数" type="number" min="0" value={maxDownloads} onChange={(event) => setMaxDownloads(event.target.value)} placeholder="0 或留空为不限" />
               <Input size="sm" label="访问密码" type="text" value={accessPassword} onChange={(event) => setAccessPassword(event.target.value)} placeholder="可选" autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" spellCheck={false} />
@@ -615,18 +741,20 @@ function FileboxPage() {
             bodyPadding="none"
             bodyClassName="overflow-x-auto"
           >
-            <Table layout="fixed" className="min-w-[820px]">
+            <Table layout="fixed" className="min-w-[880px]">
               <colgroup>
                 <col />
                 <col className="w-24" />
+                <col className="w-36" />
+                <col className="w-28" />
                 <col className="w-32" />
                 <col className="w-36" />
-                <col className="w-32" />
               </colgroup>
               <Table.Header>
                 <Table.Row>
                   <Table.Head>内容</Table.Head>
                   <Table.Head>分享码</Table.Head>
+                  <Table.Head>存储位置</Table.Head>
                   <Table.Head>下载次数</Table.Head>
                   <Table.Head>到期</Table.Head>
                   <Table.Head className="app-table-action">操作</Table.Head>
@@ -636,41 +764,60 @@ function FileboxPage() {
                 {historyLoading ? (
                   Array.from({ length: 3 }).map((_, index) => (
                     <Table.Row key={index}>
-                      <Table.Cell colSpan={5}>
+                      <Table.Cell colSpan={6}>
                         <SkeletonLine className="h-8 w-full" />
                       </Table.Cell>
                     </Table.Row>
                   ))
                 ) : serverHistory.length === 0 ? (
                   <Table.Row>
-                    <Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">
+                    <Table.Cell colSpan={6} className="p-8 text-center text-kumo-subtle">
                       暂无有效分享
                     </Table.Cell>
                   </Table.Row>
                 ) : (
-                  serverHistory.map((entry) => (
-                    <Table.Row key={entry.code}>
-                      <Table.Cell>
-                        <EntryName entry={entry} />
-                      </Table.Cell>
-                      <Table.Cell className="font-mono text-xs font-semibold text-brand">{entry.code}</Table.Cell>
-                      <Table.Cell className="text-xs text-kumo-subtle">
-                        {entry.downloads || 0}
-                        {entry.maxDownloads ? ` / ${entry.maxDownloads}` : ' / 不限'}
-                      </Table.Cell>
-                      <Table.Cell className="text-xs text-kumo-subtle">{formatExpiry(entry.expiry)}</Table.Cell>
-                      <Table.Cell>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="secondary" onClick={() => copyLink(entry.code)}>
-                            复制
-                          </Button>
-                          <Button size="sm" variant={isArmed(`share:${entry.code}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteEntry(entry.code)}>
-                            <Trash className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))
+                  serverHistory.map((entry) => {
+                    const isRemote = entry.storageType === 'remote';
+                    const nodeInfo = isRemote ? storageNodes.find((n) => n.id === entry.serverId) : null;
+                    const nodeLabel = isRemote
+                      ? (nodeInfo ? `${nodeInfo.name || nodeInfo.id} (${nodeInfo.host})` : (entry.serverId || '远程节点'))
+                      : '主站本地';
+
+                    return (
+                      <Table.Row key={entry.code}>
+                        <Table.Cell>
+                          <EntryName entry={entry} />
+                        </Table.Cell>
+                        <Table.Cell className="font-mono text-xs font-semibold text-brand">{entry.code}</Table.Cell>
+                        <Table.Cell>
+                          <Badge variant={isRemote ? 'brand' : 'secondary'} size="sm" className="inline-flex items-center gap-1 font-mono text-[11px]">
+                            <Server className="h-3 w-3 shrink-0" />
+                            <span className="truncate max-w-[120px]">{nodeLabel}</span>
+                          </Badge>
+                        </Table.Cell>
+                        <Table.Cell className="text-xs text-kumo-subtle">
+                          {entry.downloads || 0}
+                          {entry.maxDownloads ? ` / ${entry.maxDownloads}` : ' / 不限'}
+                        </Table.Cell>
+                        <Table.Cell className="text-xs text-kumo-subtle">{formatExpiry(entry.expiry)}</Table.Cell>
+                        <Table.Cell>
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="secondary" onClick={() => copyLink(entry.code)}>
+                              复制
+                            </Button>
+                            {entry.type === 'file' && (
+                              <Button size="sm" variant="secondary" onClick={() => openTransferModal(entry)} title="转移存储位置">
+                                转移
+                              </Button>
+                            )}
+                            <Button size="sm" variant={isArmed(`share:${entry.code}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteEntry(entry.code)}>
+                              <Trash className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    );
+                  })
                 )}
               </Table.Body>
             </Table>
@@ -876,6 +1023,85 @@ function FileboxPage() {
           </SectionCard>
         </div>
       )}
+
+      <Dialog.Root
+        open={transferModal.open}
+        onOpenChange={(open) => !transferModal.transferring && setTransferModal((prev) => ({ ...prev, open }))}
+      >
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+            <Dialog.Title className="text-sm font-semibold text-kumo-strong">
+              转移文件存储位置
+            </Dialog.Title>
+            <Dialog.Close disabled={transferModal.transferring} />
+          </div>
+
+          <div className="space-y-4 p-4 text-xs">
+            {transferModal.entry && (
+              <div className="space-y-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
+                <div className="flex justify-between gap-2">
+                  <span className="text-kumo-subtle">文件名</span>
+                  <span className="font-semibold text-kumo-strong truncate max-w-[200px]">
+                    {transferModal.entry.originalName || transferModal.entry.filename}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-kumo-subtle">大小</span>
+                  <span className="font-mono text-kumo-strong">
+                    {formatFileSize(transferModal.entry.size || 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-kumo-subtle">当前位置</span>
+                  <Badge variant={transferModal.entry.storageType === 'remote' ? 'brand' : 'secondary'} size="sm">
+                    {transferModal.entry.storageType === 'remote'
+                      ? (storageNodes.find((n) => n.id === transferModal.entry.serverId)?.name || transferModal.entry.serverId || '远程节点')
+                      : '主站本地'}
+                  </Badge>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Select
+                size="sm"
+                label="目标存储位置"
+                value={transferModal.targetNodeId}
+                onValueChange={(val) => setTransferModal((prev) => ({ ...prev, targetNodeId: val }))}
+                items={[
+                  { value: 'local', label: '主站本地存储' },
+                  ...storageNodes.map((n) => ({
+                    value: n.id,
+                    label: `${n.name || n.id} (${n.host}:${n.storagePort || 61208})`,
+                  })),
+                ]}
+              />
+              <p className="text-[11px] text-kumo-subtle">
+                主站将自动拉取数据并安全迁移到目标节点，完成完整性校验后清理旧存储。
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={transferModal.transferring}
+              onClick={() => setTransferModal({ open: false, entry: null, targetNodeId: 'local', transferring: false })}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              loading={transferModal.transferring}
+              onClick={handleTransferSubmit}
+            >
+              开始转移
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
     </div>
   );
 }
