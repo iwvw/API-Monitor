@@ -269,3 +269,47 @@ func TestRateLimitRetryDefaultOn(t *testing.T) {
 		t.Fatalf("expected 2 upstream calls with default-on retry, got %d", gotCalls)
 	}
 }
+
+// TestRateLimitRetryPreferGoogleRetryInfo 上游 429 带 Google RetryInfo body
+// （retryDelay=1s）时，等待采用 body 中的恢复窗口而非端点配置秒数（60s）。
+// 对齐 Google 标准错误结构（vertex/gemini 429 配额窗口常只写在 body）。
+func TestRateLimitRetryPreferGoogleRetryInfo(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		first := calls
+		mu.Unlock()
+		if first == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":{"code":429,"message":"Quota exceeded","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1s"}]}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer upstream.Close()
+
+	// 端点配置等待 60s，但 body RetryInfo.retryDelay=1s 应被优先采用，请求秒级恢复。
+	oldBudget := rateLimitRetryBudget
+	defer func() { rateLimitRetryBudget = oldBudget }()
+	rateLimitRetryBudget = 30 * time.Second
+
+	service, _ := createRelayEndpoint(t, upstream.URL, map[string]interface{}{
+		"rateLimitRetryEnabled":     true,
+		"rateLimitRetryWaitSeconds": 60,
+	})
+
+	start := time.Now()
+	wChat := requestChat(t, service)
+	elapsed := time.Since(start)
+	if wChat.Code != http.StatusOK {
+		t.Fatalf("expected 200 via Google RetryInfo wait, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("Google RetryInfo retryDelay=1s should override 60s endpoint config, took %s", elapsed)
+	}
+}

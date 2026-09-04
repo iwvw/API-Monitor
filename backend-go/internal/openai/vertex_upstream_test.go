@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVertexNormalizeUpstreamType(t *testing.T) {
@@ -550,5 +551,190 @@ func TestVertexSanitizeArrayItemsInAnyOf(t *testing.T) {
 	}
 	if arrBranch["items"] == nil {
 		t.Errorf("arrBranch.items is nil; want defaulted empty object map")
+	}
+}
+
+func TestGoogleRetryAfterFromBody(t *testing.T) {
+	// RetryInfo.retryDelay（标准 protobuf Duration 文本）。
+	body := `{"error":{"code":429,"message":"Quota","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1.5s"}]}}`
+	if d := googleRetryAfterFromBody([]byte(body)); d == nil || *d != 1500*time.Millisecond {
+		t.Fatalf("RetryInfo retryDelay parsed = %v; want 1.5s", d)
+	}
+
+	// ErrorInfo.metadata.quotaResetDelay。
+	body = `{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","metadata":{"quotaResetDelay":"30s"}}]}}`
+	if d := googleRetryAfterFromBody([]byte(body)); d == nil || *d != 30*time.Second {
+		t.Fatalf("ErrorInfo quotaResetDelay parsed = %v; want 30s", d)
+	}
+
+	// 空/无延迟/无法解析 → nil。
+	if d := googleRetryAfterFromBody(nil); d != nil {
+		t.Fatalf("nil body parsed = %v; want nil", d)
+	}
+	if d := googleRetryAfterFromBody([]byte(`{"error":{"details":[]}}`)); d != nil {
+		t.Fatalf("empty details parsed = %v; want nil", d)
+	}
+	if d := googleRetryAfterFromBody([]byte(`{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"oops"}]}}`)); d != nil {
+		t.Fatalf("bad duration parsed = %v; want nil", d)
+	}
+	if d := googleRetryAfterFromBody([]byte(`not json`)); d != nil {
+		t.Fatalf("non-json parsed = %v; want nil", d)
+	}
+	// 零延迟（retryDelay:"0s"）不算可等待窗口。
+	if d := googleRetryAfterFromBody([]byte(`{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"0s"}]}}`)); d != nil {
+		t.Fatalf("zero retryDelay parsed = %v; want nil", d)
+	}
+}
+
+func TestSafeTokenSumGuards(t *testing.T) {
+	if got := safeTokenSum(10, 3); got != 13 {
+		t.Fatalf("10+3 = %d; want 13", got)
+	}
+	if got := safeTokenSum(-5, 3); got != 3 {
+		t.Fatalf("-5+3 clamped = %d; want 3", got)
+	}
+	if got := safeTokenSum(5, -7); got != 5 {
+		t.Fatalf("5+-7 clamped = %d; want 5", got)
+	}
+	if got := safeTokenSum(-1, -1); got != 0 {
+		t.Fatalf("-1+-1 clamped = %d; want 0", got)
+	}
+}
+
+func TestVertexUsageNegativeClamped(t *testing.T) {
+	u := &vertexUsage{PromptTokenCount: -100, CandidatesTokenCount: -1, TotalTokenCount: 0}
+	usage := vertexOpenAIUsage(u)
+	if usage["prompt_tokens"] != 0 {
+		t.Errorf("negative prompt_tokens = %v; want 0", usage["prompt_tokens"])
+	}
+	if usage["completion_tokens"] != 0 {
+		t.Errorf("negative completion_tokens = %v; want 0", usage["completion_tokens"])
+	}
+	if usage["total_tokens"] != 0 {
+		t.Errorf("total_tokens with negative parts = %v; want 0", usage["total_tokens"])
+	}
+}
+
+func TestVertexGenerationConfigCandidateCount(t *testing.T) {
+	body := map[string]interface{}{"model": "gemini-3.7-flash", "n": float64(3)}
+	cfg := vertexGenerationConfig(body)
+	if cfg["candidateCount"] != 3 {
+		t.Errorf("candidateCount = %v; want 3", cfg["candidateCount"])
+	}
+	// n=1 或缺失时不下发 candidateCount（保持默认单候选）。
+	body2 := map[string]interface{}{"model": "gemini-3.7-flash", "n": float64(1)}
+	if _, ok := vertexGenerationConfig(body2)["candidateCount"]; ok {
+		t.Error("n=1 should not set candidateCount")
+	}
+}
+
+func TestVertexGenerationConfigThinkingLevelFor3X(t *testing.T) {
+	body := map[string]interface{}{"model": "gemini-3-pro", "reasoning_effort": "high"}
+	cfg := vertexGenerationConfig(body)
+	tc, _ := cfg["thinkingConfig"].(map[string]interface{})
+	if tc["thinkingLevel"] != "high" {
+		t.Errorf("gemini-3 thinkingLevel = %v; want high", tc["thinkingLevel"])
+	}
+	if _, ok := tc["thinkingBudget"]; ok {
+		t.Error("gemini-3 should not set thinkingBudget")
+	}
+	// 2.5 系仍用 thinkingBudget。
+	body2 := map[string]interface{}{"model": "gemini-2.5-flash", "reasoning_effort": "low"}
+	cfg2 := vertexGenerationConfig(body2)
+	tc2, _ := cfg2["thinkingConfig"].(map[string]interface{})
+	if tc2["thinkingBudget"] != 1024 {
+		t.Errorf("gemini-2.5 thinkingBudget = %v; want 1024", tc2["thinkingBudget"])
+	}
+	// thinking_budget 显式覆盖：3.x 也走 budget（用户明确指定）。
+	body3 := map[string]interface{}{"model": "gemini-3-pro", "thinking_budget": float64(4096)}
+	cfg3 := vertexGenerationConfig(body3)
+	tc3, _ := cfg3["thinkingConfig"].(map[string]interface{})
+	if tc3["thinkingBudget"] != 4096 {
+		t.Errorf("explicit thinking_budget = %v; want 4096", tc3["thinkingBudget"])
+	}
+}
+
+func TestGemini3XModel(t *testing.T) {
+	for _, m := range []string{"gemini-3-pro", "gemini-3-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"} {
+		if !gemini3XModel(m) {
+			t.Errorf("gemini3XModel(%q) = false; want true", m)
+		}
+	}
+	for _, m := range []string{"gemini-2.5-flash", "gemini-2.0-flash", "claude-3", "gpt-4o"} {
+		if gemini3XModel(m) {
+			t.Errorf("gemini3XModel(%q) = true; want false", m)
+		}
+	}
+}
+
+func TestVertexResponseFormatJsonSchema(t *testing.T) {
+	rf := map[string]interface{}{
+		"type": "json_schema",
+		"json_schema": map[string]interface{}{
+			"name":   "table",
+			"strict": true,
+			"schema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string"}}},
+		},
+	}
+	got := vertexResponseFormat(rf)
+	if got["responseMimeType"] != "application/json" {
+		t.Errorf("responseMimeType = %v", got["responseMimeType"])
+	}
+	rs, ok := got["responseJsonSchema"].(map[string]interface{})
+	if !ok || rs["type"] != "object" {
+		t.Errorf("responseJsonSchema = %#v; want schema passthrough", got["responseJsonSchema"])
+	}
+	// json_object 只设 mimeType，不传 schema。
+	got2 := vertexResponseFormat(map[string]interface{}{"type": "json_object"})
+	if got2["responseMimeType"] != "application/json" {
+		t.Errorf("json_object mime = %v", got2["responseMimeType"])
+	}
+	if _, ok := got2["responseJsonSchema"]; ok {
+		t.Error("json_object should not set responseJsonSchema")
+	}
+	// 未知类型不下发。
+	if got3 := vertexResponseFormat(map[string]interface{}{"type": "text"}); len(got3) != 0 {
+		t.Errorf("text response_format should map to nothing, got %#v", got3)
+	}
+}
+
+func TestVertexLeadingModelTurnInsertedEmptyUser(t *testing.T) {
+	// 多轮重放以 assistant 开头：Vertex 拒绝以 model 开头的 contents，
+	// 转换时应前插空 user turn。
+	body := map[string]interface{}{
+		"model": "gemini-3.7-flash",
+		"messages": []interface{}{
+			map[string]interface{}{"role": "assistant", "content": "previous answer"},
+			map[string]interface{}{"role": "user", "content": "next"},
+		},
+	}
+	g, err := openAIChatToVertex(body)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	contents := g["contents"].([]interface{})
+	if len(contents) != 3 {
+		t.Fatalf("contents len = %d; want 3 (empty user + model + user)", len(contents))
+	}
+	if contents[0].(map[string]interface{})["role"] != "user" {
+		t.Errorf("contents[0].role = %v; want user", contents[0].(map[string]interface{})["role"])
+	}
+	if contents[1].(map[string]interface{})["role"] != "model" {
+		t.Errorf("contents[1].role = %v; want model", contents[1].(map[string]interface{})["role"])
+	}
+	// 正常以 user 开头不受影响。
+	body2 := map[string]interface{}{
+		"model": "gemini-3.7-flash",
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "hello"},
+		},
+	}
+	g2, err := openAIChatToVertex(body2)
+	if err != nil {
+		t.Fatalf("error2: %v", err)
+	}
+	c2 := g2["contents"].([]interface{})
+	if len(c2) != 1 || c2[0].(map[string]interface{})["role"] != "user" {
+		t.Fatalf("normal contents should be unchanged, got %#v", c2)
 	}
 }

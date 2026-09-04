@@ -462,14 +462,20 @@ func rateLimitRetryEnabledAny(candidates []Endpoint) bool {
 }
 
 // rateLimitRetryWaitFor 计算一次 429 等待重试应等待的时长：
-//   - 优先采用最近响应中的 Retry-After 头（配额恢复窗口）；
+//   - 优先采用 Google 标准错误 body 的 RetryInfo/ErrorInfo 延迟（Vertex/Gemini 429
+//     配额窗口通常只写在 body 里，Retry-After 头常缺失）；
+//   - 其次采用最近响应中的 Retry-After 头（配额恢复窗口）；
 //   - 无头时采用端点配置缺省秒数（取候选中最短非零配置，避免最慢端点拖住预算）；
 //   - 一律钳制到剩余预算内；预算耗尽返回 0（直接收尾不再等待）。
 func rateLimitRetryWaitFor(res *relayLoopResult, candidates []Endpoint, budget time.Duration) time.Duration {
 	wait := time.Duration(0)
-	if res != nil && res.resp != nil {
-		if ra := retryAfterFromHeader(res.resp); ra != nil && *ra > 0 {
-			wait = *ra
+	if res != nil {
+		if gw := googleRetryAfterFromBody(res.retryBody); gw != nil {
+			wait = *gw
+		} else if res.resp != nil {
+			if ra := retryAfterFromHeader(res.resp); ra != nil && *ra > 0 {
+				wait = *ra
+			}
 		}
 	}
 	if wait <= 0 {
@@ -763,6 +769,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			if readErr != nil || isRetryableUpstreamResponse(resp, bodyBytesRead) {
 				is429 := isRateLimitResponse(resp, bodyBytesRead)
 				if is429 {
+					res.retryBody = bodyBytesRead
 					s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
 					// 随机换出口：已试出口与组冻结出口都会跳过，绝不重复打同一 IP。
 					if bump429(currentProxy) {
@@ -1000,6 +1007,14 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	}
 	// 最后一次尝试（无重试机会）返回限流：同样累计计数，供 429 熔断使用。
 	if resp != nil && isRateLimitResponse(resp, nil) {
+		// 读取 429 正文以解析 Google RetryInfo/ErrorInfo 延迟（仅非流式；流式
+		// 错误体不读，避免消耗流）。读取后重建 body，保证调用方仍可消费。
+		if !stream {
+			if bodyBytesRead, readErr := readUpstreamBodyLimited(resp.Body); readErr == nil {
+				res.retryBody = bodyBytesRead
+				resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
+			}
+		}
 		s.markProxy429(selected.ID, lastProxy, retryAfterFromHeader(resp))
 		if s.externalPoolInUse(selected.ProxyPoolID) {
 			s.reportExternalPoolResult(selected.ProxyPoolID, lastProxy, false, true, retryAfterFromHeader(resp))

@@ -179,6 +179,13 @@ func openAIChatToVertex(body map[string]interface{}) (map[string]interface{}, er
 	if len(systemParts) > 0 {
 		out["systemInstruction"] = map[string]interface{}{"parts": systemParts}
 	}
+	// Vertex/Gemini 拒绝以 role=model 开头的 contents（"first turn must be user"）。
+	// OpenAI 客户端多轮重放偶发以 assistant 开头，此时前插一条空 user turn 保持可用。
+	if len(contents) > 0 {
+		if first, ok := contents[0].(map[string]interface{}); ok && first["role"] == "model" {
+			contents = append([]interface{}{map[string]interface{}{"role": "user", "parts": []interface{}{map[string]interface{}{"text": "ok"}}}}, contents...)
+		}
+	}
 	if len(contents) == 0 {
 		return nil, fmt.Errorf("vertex upstream: no user messages")
 	}
@@ -539,29 +546,39 @@ func vertexGenerationConfig(body map[string]interface{}) map[string]interface{} 
 	} else if v, ok := body["stop"].(string); ok && v != "" {
 		cfg["stopSequences"] = []string{v}
 	}
-	if rf := vertexResponseMimeType(body["response_format"]); rf != "" {
-		cfg["responseMimeType"] = rf
+	// 候选数：OpenAI n（>1）→ candidateCount。多个候选时 Vertex 返回多候选数组，
+	// 客户端期望 choices[0..n-1]；n<=1 时不设（默认单候选）。
+	if v, ok := body["n"].(float64); ok && v > 1 {
+		cfg["candidateCount"] = int(v)
+	}
+	if rf := vertexResponseFormat(body["response_format"]); len(rf) > 0 {
+		for k, val := range rf {
+			cfg[k] = val
+		}
 	}
 
 	// 思维链配置（thinkingConfig）：
 	// 1. Google 官方默认 includeThoughts=false，即只计 token 却不输出 thought part 文本。
 	//    为让客户端（如 opencode、Cherry Studio、NextChat 等）能看到 reasoning_content，
 	//    默认开启 includeThoughts: true。
-	// 2. 支持通过 reasoning_effort (low/medium/high/none) 或 extra_body / thinking_budget 控制思考强度与预算。
+	// 2. 支持通过 reasoning_effort (low/medium/high/none) 或 extra_body / thinking_budget 控制
+	//    思考强度与预算。
+	// 3. Gemini 3.x（gemini-3-pro/flash 等）在 Vertex 上改用 thinkingLevel 表达思考等级，
+	//    thinkingBudget 仅 Gemini 2.5 系支持；按模型名自动选择，避免 3.x 忽略预算设置。
 	thinkingCfg := map[string]interface{}{
 		"includeThoughts": true,
 	}
+	modelName, _ := body["model"].(string)
 	if effort, ok := body["reasoning_effort"].(string); ok {
 		switch strings.ToLower(effort) {
 		case "none":
-			budget := 0
-			thinkingCfg["thinkingBudget"] = budget
+			thinkingCfg["thinkingBudget"] = 0
 		case "low":
-			thinkingCfg["thinkingBudget"] = 1024
+			vertexSetThinkingLevel(thinkingCfg, modelName, 1024)
 		case "medium":
-			thinkingCfg["thinkingBudget"] = 8192
+			vertexSetThinkingLevel(thinkingCfg, modelName, 8192)
 		case "high":
-			thinkingCfg["thinkingBudget"] = 24576
+			vertexSetThinkingLevel(thinkingCfg, modelName, 24576)
 		}
 	}
 	if tb, ok := body["thinking_budget"].(float64); ok {
@@ -575,18 +592,55 @@ func vertexGenerationConfig(body map[string]interface{}) map[string]interface{} 
 	return cfg
 }
 
-// vertexResponseMimeType 将 OpenAI response_format 映射为 Vertex responseMimeType。
-func vertexResponseMimeType(rf interface{}) string {
+// vertexSetThinkingLevel 按模型版本写入 thinkingConfig 的思考等级字段：
+//   - Gemini 3.x 模型 → thinkingLevel（"low"/"medium"/"high"），thinkingBudget 会被 3.x 忽略；
+//   - 其余模型 → thinkingBudget（Gemini 2.5 体系）。
+func vertexSetThinkingLevel(thinkingCfg map[string]interface{}, modelName string, budget int) {
+	if gemini3XModel(modelName) {
+		switch budget {
+		case 1024:
+			thinkingCfg["thinkingLevel"] = "low"
+		case 8192:
+			thinkingCfg["thinkingLevel"] = "medium"
+		default:
+			thinkingCfg["thinkingLevel"] = "high"
+		}
+		return
+	}
+	thinkingCfg["thinkingBudget"] = budget
+}
+
+// gemini3XModel 判断模型名是否为 Gemini 3.x 系（3-pro/3-flash/3.x 等）。
+// 用于选择 Vertex thinkingConfig 的表达方式（thinkingLevel vs thinkingBudget）。
+func gemini3XModel(model string) bool {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(lower, "gemini-3") || strings.HasPrefix(lower, "gemini 3")
+}
+
+// vertexResponseFormat 将 OpenAI response_format 映射为 Vertex generationConfig 字段：
+//   - json_object → responseMimeType=application/json；
+//   - json_schema → responseMimeType=application/json + responseJsonSchema（结构化输出 schema）。
+func vertexResponseFormat(rf interface{}) map[string]interface{} {
 	rfm, ok := rf.(map[string]interface{})
 	if !ok {
-		return ""
+		return nil
 	}
 	rfType, _ := rfm["type"].(string)
 	switch rfType {
-	case "json_object", "json_schema":
-		return "application/json"
+	case "json_object":
+		return map[string]interface{}{"responseMimeType": "application/json"}
+	case "json_schema":
+		out := map[string]interface{}{"responseMimeType": "application/json"}
+		schemaObj, ok := rfm["json_schema"].(map[string]interface{})
+		if !ok {
+			return out
+		}
+		if s, ok := schemaObj["schema"].(map[string]interface{}); ok {
+			out["responseJsonSchema"] = s
+		}
+		return out
 	}
-	return ""
+	return nil
 }
 
 // vertexIsBlockedResponse 判断转换后的响应体是否为安全拦截错误（prompt_blocked）。
@@ -604,6 +658,50 @@ func vertexIsBlockedResponse(body []byte) bool {
 	return parsed.Error.Type == "prompt_blocked" || parsed.Error.Code == "prompt_blocked"
 }
 
+// googleRetryAfterFromBody 解析 Google API 标准错误 body 中的限流恢复延迟，供
+// rateLimitRetryWaitFor 等待 Vertex/Gemini 上游配额窗口使用。支持两种结构（对齐
+// CLIProxyAPI json_retry_helpers.ParseRetryDelay）：
+//   - error.details[].@type = "type.googleapis.com/google.rpc.RetryInfo"，字段
+//     retryDelay（google.protobuf.Duration 文本，如 "1.5s" / "30s"）；
+//   - error.details[].@type = "type.googleapis.com/google.rpc.ErrorInfo"，字段
+//     metadata.quotaResetDelay（字符串时长，如 "30s"）。
+//
+// 解析失败或无延迟返回 nil（调用方回退 Retry-After 头/端点配置）。
+func googleRetryAfterFromBody(body []byte) *time.Duration {
+	if len(body) == 0 {
+		return nil
+	}
+	var parsed struct {
+		Error struct {
+			Details []struct {
+				Type     string                 `json:"@type"`
+				Retry    string                 `json:"retryDelay"`
+				Metadata map[string]interface{} `json:"metadata"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil
+	}
+	for _, d := range parsed.Error.Details {
+		if strings.HasSuffix(d.Type, "google.rpc.RetryInfo") && d.Retry != "" {
+			if dur, err := time.ParseDuration(d.Retry); err == nil && dur > 0 {
+				return &dur
+			}
+		}
+		if strings.HasSuffix(d.Type, "google.rpc.ErrorInfo") {
+			if raw, ok := d.Metadata["quotaResetDelay"]; ok {
+				if s, ok := raw.(string); ok && s != "" {
+					if dur, err := time.ParseDuration(s); err == nil && dur > 0 {
+						return &dur
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // vertexUsage 表示 Vertex generateContent 的 usageMetadata 计费字段。
 type vertexUsage struct {
 	PromptTokenCount           int `json:"promptTokenCount"`
@@ -618,6 +716,9 @@ type vertexUsage struct {
 //   - prompt = promptTokenCount + toolUsePromptTokenCount（工具调用计 prompt）
 //   - completion = candidatesTokenCount + thoughtsTokenCount（思考 token 计入产出）
 //   - reasoning_tokens 细分到 completion_tokens_details；cached_tokens 细分到 prompt_tokens_details
+//
+// 上游偶发返回负数/溢出计数（预发布模型或服务端统计异常），任何负值都钳制为 0，
+// 避免污染调用日志与费用核算。
 func vertexOpenAIUsage(u *vertexUsage) map[string]interface{} {
 	base := map[string]interface{}{
 		"prompt_tokens":     0,
@@ -627,8 +728,8 @@ func vertexOpenAIUsage(u *vertexUsage) map[string]interface{} {
 	if u == nil {
 		return base
 	}
-	prompt := u.PromptTokenCount + u.ToolUsePromptTokenCount
-	completion := u.CandidatesTokenCount + u.ThoughtsTokenCount
+	prompt := safeTokenSum(u.PromptTokenCount, u.ToolUsePromptTokenCount)
+	completion := safeTokenSum(u.CandidatesTokenCount, u.ThoughtsTokenCount)
 	base["prompt_tokens"] = prompt
 	base["completion_tokens"] = completion
 	if u.TotalTokenCount > 0 {
@@ -643,6 +744,22 @@ func vertexOpenAIUsage(u *vertexUsage) map[string]interface{} {
 		base["completion_tokens_details"] = map[string]interface{}{"reasoning_tokens": u.ThoughtsTokenCount}
 	}
 	return base
+}
+
+// safeTokenSum 返回两个 token 计数的和。负值按 0 计、溢出按 MaxInt 钳制
+// （对齐 CLIProxyAPI safeUsageTokenSum：上游返回负数/溢出应标记 quality
+// inconsistent 而非污染计费；此处仅做钳制，不改变 totalTokenCount 透传语义）。
+func safeTokenSum(a, b int) int {
+	if a < 0 {
+		a = 0
+	}
+	if b < 0 {
+		b = 0
+	}
+	if a > 0 && b > 0 && a > int(^uint(0)>>1)-b {
+		return int(^uint(0) >> 1)
+	}
+	return a + b
 }
 
 // vertexFinishReason 将 Vertex finishReason 映射为 OpenAI finish_reason。

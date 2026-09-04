@@ -1848,6 +1848,7 @@ type relayLoopResult struct {
 	egressIP          string // 请求实际从哪个出口/代理发出（随循环内选中的代理更新）
 	startTime         time.Time
 	cancel            context.CancelFunc
+	retryBody         []byte // 最近一次 429 的响应体，供 rateLimitRetryWaitFor 解析 Google RetryInfo 延迟
 }
 
 // relayLoop 执行带代理择优与重试的上游转发循环（三个转发入口共用）。语义与
