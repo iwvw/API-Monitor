@@ -21,6 +21,9 @@ pub struct CliArgs {
     #[arg(short = 'k', long = "key", help = "Agent key")]
     pub agent_key: Option<String>,
 
+    #[arg(long = "storage-port", help = "HTTP direct storage port")]
+    pub storage_port: Option<u16>,
+
     #[arg(
         short = 'i',
         long = "interval",
@@ -45,6 +48,7 @@ pub struct JsonConfig {
     pub server_url: Option<String>,
     pub server_id: Option<String>,
     pub agent_key: Option<String>,
+    pub storage_port: Option<u16>,
     pub report_interval: Option<u64>,
     pub debug: Option<bool>,
 }
@@ -54,6 +58,7 @@ pub struct Config {
     pub server_url: String,
     pub server_id: String,
     pub agent_key: String,
+    pub storage_port: u16,
     pub report_interval: u64,    // ms
     pub host_info_interval: u64, // ms
     pub reconnect_delay: u64,    // ms
@@ -102,10 +107,21 @@ impl Config {
                 .to_string()
         })?;
 
+        let storage_port = cli
+            .storage_port
+            .or_else(|| {
+                std::env::var("API_MONITOR_STORAGE_PORT")
+                    .ok()
+                    .and_then(|p| p.parse::<u16>().ok())
+            })
+            .or(json_config.storage_port)
+            .unwrap_or(61208);
+
         Ok(Config {
             server_url,
             server_id,
             agent_key,
+            storage_port,
             report_interval,
             host_info_interval: 600_000, // 10 minutes
             reconnect_delay: 1000,       // 1 second; repeated short failures back off in main loop

@@ -12,6 +12,7 @@ mod proxy_traffic;
 mod pty;
 mod tcp_forwarder;
 mod remote_desktop;
+mod storage_server;
 
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -48,6 +49,7 @@ fn agent_capabilities() -> Vec<String> {
         "self_update_v1".to_string(),
         "cloudflared_runtime_v1".to_string(),
         "tcp_forwarder_v1".to_string(),
+        "storage_node_v1".to_string(),
     ];
     #[cfg(target_os = "linux")]
     capabilities.push("proxy_runtime_v1".to_string());
@@ -199,6 +201,11 @@ async fn main() {
 
     #[cfg(unix)]
     tokio::spawn(proxy_traffic::run(config.clone()));
+
+    tokio::spawn(storage_server::run(
+        config.storage_port,
+        config.agent_key.clone(),
+    ));
 
     // Keep dialing loop. A healthy long-lived connection resets the delay; only
     // repeated short failures back off to avoid hammering the control plane.

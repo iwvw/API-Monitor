@@ -24,6 +24,14 @@ chrono = { version = "0.4", features = ["serde"] }
 hostname = { version = "0.4" }
 prost = "0.13"
 tonic = { version = "0.12", default-features = false, features = ["codegen", "prost", "transport"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.6", features = ["cors"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+bytes = "1.10"
+tokio-util = { version = "0.7", features = ["io"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 bytes = "1.10"
