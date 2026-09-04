@@ -178,6 +178,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		adminai:  adminaiService,
 	}
 	server.onepanel.SetAgentRunner(serverAgentService)
+	server.filebox.SetNodeProvider(serverAgentService)
 	systemService.SetAICaller(server.callAPIFromAI)
 	adminaiService.SetAICaller(server.callAPIFromAI)
 	// 管理 AI：启动审批超时清理 goroutine + 频道注册（PRD-03/04）
@@ -269,6 +270,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.system.RecordAPICall(r.Method, r.URL.Path)
 		s.server.ServeHTTP(w, r)
 		return
+	}
+
+	if strings.HasPrefix(r.URL.Path, "/share/") {
+		code := strings.TrimPrefix(r.URL.Path, "/share/")
+		code = strings.Trim(code, "/")
+		if code != "" && !strings.Contains(code, "/") {
+			if s.filebox.HandleShareRedirect(w, r, code) {
+				return
+			}
+		}
 	}
 
 	if route, ok := manifest.Match(r.URL.EscapedPath()); ok {

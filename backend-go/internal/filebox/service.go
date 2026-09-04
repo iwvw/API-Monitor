@@ -3,6 +3,7 @@ package filebox
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -52,6 +53,7 @@ type Service struct {
 	dataDir      string
 	uploadsDir   string
 	metadataFile string
+	nodeProvider NodeStorageProvider
 	voidRooms    map[string]*voidRoom
 	voidMu       sync.Mutex
 }
@@ -145,6 +147,9 @@ type Entry struct {
 	AccessPasswordHash *string                `json:"accessPasswordHash,omitempty"`
 	RequiresPassword   bool                   `json:"requiresPassword"`
 	Metadata           map[string]interface{} `json:"metadata,omitempty"`
+	StorageType        string                 `json:"storageType"`
+	ServerID           *string                `json:"serverId,omitempty"`
+	RemotePath         *string                `json:"remotePath,omitempty"`
 }
 
 type PublicEntry struct {
@@ -162,6 +167,8 @@ type PublicEntry struct {
 	RequiresPassword bool    `json:"requiresPassword"`
 	TextFormat       string  `json:"textFormat,omitempty"`
 	Preview          string  `json:"preview,omitempty"`
+	StorageType      string  `json:"storageType,omitempty"`
+	ServerID         *string `json:"serverId,omitempty"`
 }
 
 type AccessLog struct {
@@ -202,6 +209,17 @@ func New(cfg config.Config, authenticator Authenticator) *Service {
 	_ = service.ensureDirs()
 	_ = service.migrateJSONMetadata(context.Background())
 	return service
+}
+
+func (s *Service) SetNodeProvider(provider NodeStorageProvider) {
+	s.nodeProvider = provider
+}
+
+func (s *Service) getBackend(storageType string) StorageBackend {
+	if storageType == "remote" && s.nodeProvider != nil {
+		return NewRemoteBackend(s.nodeProvider)
+	}
+	return NewLocalBackend(s.uploadsDir)
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +305,26 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.sendEntryMetadata(w, r, parts[1])
+	case len(parts) == 1 && parts[0] == "storage-nodes" && r.Method == http.MethodGet:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.listStorageNodes(w, r)
+	case len(parts) == 2 && parts[0] == "shares" && parts[1] == "init-upload" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.initRemoteUpload(w, r)
+	case len(parts) == 2 && parts[0] == "shares" && parts[1] == "complete-upload" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.completeRemoteUpload(w, r)
+	case len(parts) == 3 && parts[0] == "shares" && parts[2] == "transfer" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.transferStorage(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "shares" && r.Method == http.MethodDelete:
 		if !s.requireAuth(w, r) {
 			return
@@ -1121,6 +1159,31 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 		return
 	}
 
+	if entry.StorageType == "remote" {
+		if s.nodeProvider == nil || entry.ServerID == nil || *entry.ServerID == "" {
+			http.Error(w, "Storage node unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		serverID := *entry.ServerID
+		node, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), serverID)
+		if err != nil || node == nil {
+			http.Error(w, fmt.Sprintf("Storage node offline: %v", err), http.StatusServiceUnavailable)
+			return
+		}
+		key, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), serverID)
+		if err != nil {
+			http.Error(w, "Failed to resolve node credential", http.StatusInternalServerError)
+			return
+		}
+		signedURL, err := BuildSignedURL("GET", node.Host, node.StoragePort, entry.Code, entry.Filename, 0, 5*time.Minute, key)
+		if err != nil {
+			http.Error(w, "Failed to build signed download URL", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, signedURL, http.StatusFound)
+		return
+	}
+
 	if entry.Path == nil || *entry.Path == "" {
 		http.Error(w, "File not found or expired", http.StatusNotFound)
 		return
@@ -1342,8 +1405,8 @@ func (s *Service) AddText(ctx context.Context, content string, expiryHours float
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO filebox_entries (
 			code, type, content, filename, mimetype, size, created_at, expiry,
-			burn_after_reading, max_downloads, access_password_hash, metadata_json
-		) VALUES (?, 'text', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			burn_after_reading, max_downloads, access_password_hash, metadata_json, storage_type
+		) VALUES (?, 'text', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
 	`, code, content, filename, mimeType, len([]byte(content)), now, expiry, boolInt(burnAfterReading), maxDownloads, passwordHash, string(metadataJSON))
 	if err != nil {
 		return nil, fmt.Errorf("create filebox text share: %w", err)
@@ -1391,12 +1454,40 @@ func (s *Service) AddFile(ctx context.Context, fileHeader *multipart.FileHeader,
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO filebox_entries (
 			code, type, original_name, filename, path, mimetype, size, created_at, expiry,
-			burn_after_reading, max_downloads, access_password_hash
-		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			burn_after_reading, max_downloads, access_password_hash, storage_type
+		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
 	`, code, fileHeader.Filename, saveFilename, savePath, nullString(mimeType), fileHeader.Size, now, expiry, boolInt(burnAfterReading), maxDownloads, passwordHash)
 	if err != nil {
 		_ = os.Remove(savePath)
 		return nil, fmt.Errorf("create filebox file share: %w", err)
+	}
+	return s.GetEntry(ctx, code, true)
+}
+
+func (s *Service) AddRemoteFile(ctx context.Context, code string, filename string, size int64, mimeType string, serverID string, expiryHours float64, burnAfterReading bool, maxDownloads int64, accessPassword string) (*Entry, error) {
+	now := time.Now().UnixMilli()
+	code = normalizeCode(code)
+	expiry := expiryTime(now, expiryHours)
+	passwordHash, err := hashAccessPassword(accessPassword)
+	if err != nil {
+		return nil, err
+	}
+	remotePath := fmt.Sprintf("shares/%s/%s", code, filename)
+
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO filebox_entries (
+			code, type, original_name, filename, remote_path, mimetype, size, created_at, expiry,
+			burn_after_reading, max_downloads, access_password_hash, storage_type, server_id
+		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'remote', ?)
+	`, code, filename, filename, remotePath, nullString(mimeType), size, now, expiry, boolInt(burnAfterReading), maxDownloads, passwordHash, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("create remote filebox share: %w", err)
 	}
 	return s.GetEntry(ctx, code, true)
 }
@@ -1512,9 +1603,7 @@ func (s *Service) DeleteEntry(ctx context.Context, code string) (bool, error) {
 	if err != nil || entry == nil {
 		return false, err
 	}
-	if entry.Type == "file" && entry.Path != nil && isPathInside(s.uploadsDir, *entry.Path) {
-		_ = os.Remove(*entry.Path)
-	}
+	_ = s.getBackend(entry.StorageType).Delete(ctx, entry)
 	db, err := s.open(ctx)
 	if err != nil {
 		return false, err
@@ -1539,7 +1628,8 @@ func (s *Service) GetAll(ctx context.Context) ([]PublicEntry, error) {
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, `
 		SELECT code, type, content, original_name, filename, path, mimetype, size, created_at, expiry,
-			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json
+			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json,
+			storage_type, server_id, remote_path
 		FROM filebox_entries
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -1707,7 +1797,10 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			max_downloads INTEGER DEFAULT 0,
 			access_password_hash TEXT,
 			metadata_json TEXT,
-			deleted_at INTEGER
+			deleted_at INTEGER,
+			storage_type TEXT DEFAULT 'local',
+			server_id TEXT,
+			remote_path TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS filebox_access_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1746,6 +1839,35 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("ensure filebox schema: %w", err)
 		}
 	}
+
+	// 迁移已有表：补充 storage_type, server_id, remote_path 列
+	existingColumns := make(map[string]bool)
+	if rows, err := db.QueryContext(ctx, `PRAGMA table_info(filebox_entries)`); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt sql.NullString
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
+				existingColumns[strings.ToLower(name)] = true
+			}
+		}
+		_ = rows.Close()
+	}
+
+	if !existingColumns["storage_type"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_entries ADD COLUMN storage_type TEXT DEFAULT 'local'`)
+	}
+	if !existingColumns["server_id"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_entries ADD COLUMN server_id TEXT`)
+	}
+	if !existingColumns["remote_path"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_entries ADD COLUMN remote_path TEXT`)
+	}
+
+	// 将历史遗留空值统一标记为 storage_type = 'local'
+	_, _ = db.ExecContext(ctx, `UPDATE filebox_entries SET storage_type = 'local' WHERE storage_type IS NULL OR storage_type = ''`)
+
 	return nil
 }
 
@@ -1777,7 +1899,8 @@ func loadSettings(ctx context.Context, db *sql.DB) (Settings, error) {
 func findEntry(ctx context.Context, db *sql.DB, code string) (*Entry, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT code, type, content, original_name, filename, path, mimetype, size, created_at, expiry,
-			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json
+			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json,
+			storage_type, server_id, remote_path
 		FROM filebox_entries
 		WHERE code = ? AND deleted_at IS NULL
 	`, normalizeCode(code))
@@ -1798,6 +1921,7 @@ type entryScanner interface {
 func scanEntry(scanner entryScanner) (*Entry, error) {
 	var entry Entry
 	var content, originalName, pathValue, mimeType, passwordHash, metadataJSON sql.NullString
+	var storageType, serverID, remotePath sql.NullString
 	var size, createdAt, expiry, burnAfterReading, downloads, maxDownloads sql.NullInt64
 	if err := scanner.Scan(
 		&entry.Code,
@@ -1815,6 +1939,9 @@ func scanEntry(scanner entryScanner) (*Entry, error) {
 		&maxDownloads,
 		&passwordHash,
 		&metadataJSON,
+		&storageType,
+		&serverID,
+		&remotePath,
 	); err != nil {
 		return nil, err
 	}
@@ -1831,6 +1958,12 @@ func scanEntry(scanner entryScanner) (*Entry, error) {
 	entry.AccessPasswordHash = nullableStringPtr(passwordHash)
 	entry.RequiresPassword = passwordHash.Valid && passwordHash.String != ""
 	entry.Metadata = parseObject(metadataJSON.String)
+	entry.StorageType = "local"
+	if storageType.Valid && storageType.String != "" {
+		entry.StorageType = storageType.String
+	}
+	entry.ServerID = nullableStringPtr(serverID)
+	entry.RemotePath = nullableStringPtr(remotePath)
 	return &entry, nil
 }
 
@@ -1849,6 +1982,8 @@ func publicEntry(entry *Entry) PublicEntry {
 		MaxDownloads:     entry.MaxDownloads,
 		RequiresPassword: entry.RequiresPassword,
 		TextFormat:       entryTextFormat(entry),
+		StorageType:      entry.StorageType,
+		ServerID:         entry.ServerID,
 	}
 	if entry.Type == "text" && entry.Content != nil && !entry.RequiresPassword {
 		runes := []rune(*entry.Content)
@@ -2331,4 +2466,409 @@ func emptyDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (s *Service) listStorageNodes(w http.ResponseWriter, r *http.Request) {
+	if s.nodeProvider == nil {
+		response.OK(w, []StorageNodeInfo{})
+		return
+	}
+	nodes, err := s.nodeProvider.ListEligibleStorageNodes(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, nodes)
+}
+
+func (s *Service) initRemoteUpload(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ServerID string `json:"serverId"`
+		Filename string `json:"filename"`
+		Size     int64  `json:"size"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	payload.ServerID = strings.TrimSpace(payload.ServerID)
+	payload.Filename = sanitizeFilename(strings.TrimSpace(payload.Filename))
+	if payload.ServerID == "" || payload.Filename == "" || payload.Size <= 0 {
+		response.Error(w, http.StatusBadRequest, "serverId, filename, and positive size required")
+		return
+	}
+	if s.nodeProvider == nil {
+		response.Error(w, http.StatusServiceUnavailable, "node storage provider not configured")
+		return
+	}
+	node, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), payload.ServerID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("invalid storage node: %v", err))
+		return
+	}
+	key, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), payload.ServerID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to get agent credentials")
+		return
+	}
+
+	code, err := s.GenerateCode(r.Context(), defaultCodeLength)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	uploadURL, err := BuildSignedURL("PUT", node.Host, node.StoragePort, code, payload.Filename, payload.Size, 15*time.Minute, key)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to build upload URL: %v", err))
+		return
+	}
+
+	response.OK(w, map[string]interface{}{
+		"code":      code,
+		"filename":  payload.Filename,
+		"uploadUrl": uploadURL,
+		"expires":   time.Now().Add(15 * time.Minute).Unix(),
+	})
+}
+
+func (s *Service) completeRemoteUpload(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Code             string  `json:"code"`
+		Filename         string  `json:"filename"`
+		Size             int64   `json:"size"`
+		ServerID         string  `json:"serverId"`
+		MIMEType         string  `json:"mimeType"`
+		Expiry           string  `json:"expiry"`
+		BurnAfterReading any     `json:"burn_after_reading"`
+		MaxDownloads     string  `json:"max_downloads"`
+		AccessPassword   string  `json:"access_password"`
+		Password         string  `json:"password"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	code := normalizeCode(payload.Code)
+	filename := sanitizeFilename(payload.Filename)
+	serverID := strings.TrimSpace(payload.ServerID)
+	if code == "" || filename == "" || serverID == "" {
+		response.Error(w, http.StatusBadRequest, "code, filename, and serverId required")
+		return
+	}
+	if s.nodeProvider == nil {
+		response.Error(w, http.StatusServiceUnavailable, "node storage provider not configured")
+		return
+	}
+	_, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), serverID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("storage node unavailable: %v", err))
+		return
+	}
+
+	settings, err := s.LoadSettings(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	expiryHours := parseExpiryHours(payload.Expiry, settings.DefaultExpiryHours)
+	burn := parseBool(payload.BurnAfterReading)
+	maxDownloads := parseNonNegativeInt64(payload.MaxDownloads)
+	accessPassword := payload.AccessPassword
+	if accessPassword == "" {
+		accessPassword = payload.Password
+	}
+
+	entry, err := s.AddRemoteFile(r.Context(), code, filename, payload.Size, payload.MIMEType, serverID, expiryHours, burn, maxDownloads, accessPassword)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, publicEntry(entry))
+}
+
+func (s *Service) transferStorage(w http.ResponseWriter, r *http.Request, code string) {
+	var payload struct {
+		TargetStorageType string `json:"targetStorageType"` // "local" or "remote"
+		TargetServerID    string `json:"targetServerId"`    // required if remote
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	targetType := strings.ToLower(strings.TrimSpace(payload.TargetStorageType))
+	if targetType != "local" && targetType != "remote" {
+		response.Error(w, http.StatusBadRequest, "targetStorageType must be 'local' or 'remote'")
+		return
+	}
+
+	entry, err := s.GetEntry(r.Context(), code, true)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entry == nil {
+		response.Error(w, http.StatusNotFound, "share not found")
+		return
+	}
+	if entry.Type != "file" {
+		response.Error(w, http.StatusBadRequest, "only file shares can be transferred")
+		return
+	}
+
+	// 相同存储目标直接返回
+	if entry.StorageType == targetType {
+		if targetType == "local" {
+			response.OK(w, publicEntry(entry))
+			return
+		}
+		if entry.ServerID != nil && *entry.ServerID == payload.TargetServerID {
+			response.OK(w, publicEntry(entry))
+			return
+		}
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+
+	// 1. 获取源文件的读取流或临时文件
+	var srcReader io.ReadCloser
+	var srcSize int64 = entry.Size
+
+	if entry.StorageType == "local" {
+		if entry.Path == nil || *entry.Path == "" {
+			response.Error(w, http.StatusInternalServerError, "source local file path missing")
+			return
+		}
+		file, err := os.Open(*entry.Path)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to open local source: %v", err))
+			return
+		}
+		defer file.Close()
+		srcReader = file
+	} else {
+		// remote source
+		if s.nodeProvider == nil || entry.ServerID == nil || *entry.ServerID == "" {
+			response.Error(w, http.StatusServiceUnavailable, "source storage node provider unavailable")
+			return
+		}
+		srcNode, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), *entry.ServerID)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, fmt.Sprintf("source storage node unavailable: %v", err))
+			return
+		}
+		srcKey, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), *entry.ServerID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to get source agent key")
+			return
+		}
+		getURL, err := BuildSignedURL("GET", srcNode.Host, srcNode.StoragePort, entry.Code, entry.Filename, 0, 10*time.Minute, srcKey)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to build source download URL")
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, getURL, nil)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		resp, err := client.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			response.Error(w, http.StatusBadGateway, "failed to download from source remote node")
+			return
+		}
+		defer resp.Body.Close()
+		srcReader = resp.Body
+	}
+
+	// 为确保一致性（size 与 sha256 校验），先写入本地临时文件
+	tmpFile, err := os.CreateTemp(s.uploadsDir, "transfer-*.tmp")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to create temp file: %v", err))
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+	}()
+
+	hasher := sha256.New()
+	multiWriter := io.MultiWriter(tmpFile, hasher)
+	copiedBytes, err := io.Copy(multiWriter, srcReader)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to buffer source file: %v", err))
+		return
+	}
+	_ = tmpFile.Close()
+
+	if srcSize > 0 && copiedBytes != srcSize {
+		response.Error(w, http.StatusBadGateway, fmt.Sprintf("size mismatch during transfer: expected %d, got %d", srcSize, copiedBytes))
+		return
+	}
+
+	// 2. 写入新目标
+	var newPath *string
+	var newServerID *string
+	var newRemotePath *string
+
+	if targetType == "local" {
+		safeName := sanitizeFilename(entry.Filename)
+		saveFilename := fmt.Sprintf("%d-%s-%s", time.Now().UnixMilli(), entry.Code, safeName)
+		finalLocalPath := filepath.Join(s.uploadsDir, saveFilename)
+		if err := os.Rename(tmpPath, finalLocalPath); err != nil {
+			// fallback copy
+			if copyErr := copyFileContents(tmpPath, finalLocalPath); copyErr != nil {
+				response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to write target local file: %v", copyErr))
+				return
+			}
+		}
+		newPath = &finalLocalPath
+	} else {
+		// remote target
+		targetServerID := strings.TrimSpace(payload.TargetServerID)
+		if s.nodeProvider == nil {
+			response.Error(w, http.StatusServiceUnavailable, "storage node provider unavailable")
+			return
+		}
+		targetNode, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), targetServerID)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, fmt.Sprintf("target storage node invalid or ineligible: %v", err))
+			return
+		}
+		targetKey, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), targetServerID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to get target agent key")
+			return
+		}
+
+		putURL, err := BuildSignedURL("PUT", targetNode.Host, targetNode.StoragePort, entry.Code, entry.Filename, copiedBytes, 10*time.Minute, targetKey)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to build target upload URL")
+			return
+		}
+
+		uploadStream, err := os.Open(tmpPath)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to open buffered file for upload")
+			return
+		}
+		defer uploadStream.Close()
+
+		putReq, err := http.NewRequestWithContext(r.Context(), http.MethodPut, putURL, uploadStream)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		putReq.ContentLength = copiedBytes
+		putReq.Header.Set("Content-Type", "application/octet-stream")
+
+		putResp, err := client.Do(putReq)
+		if err != nil || putResp.StatusCode != http.StatusOK {
+			statusMsg := ""
+			if putResp != nil {
+				_ = putResp.Body.Close()
+				statusMsg = fmt.Sprintf(" (HTTP %d)", putResp.StatusCode)
+			}
+			response.Error(w, http.StatusBadGateway, fmt.Sprintf("failed to upload to target node%s", statusMsg))
+			return
+		}
+		_ = putResp.Body.Close()
+
+		newServerID = &targetServerID
+		rp := fmt.Sprintf("shares/%s/%s", entry.Code, entry.Filename)
+		newRemotePath = &rp
+	}
+
+	// 3. 更新数据库记录
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(r.Context(), `
+		UPDATE filebox_entries
+		SET storage_type = ?,
+			server_id = ?,
+			path = ?,
+			remote_path = ?,
+			size = ?
+		WHERE code = ?
+	`, targetType, newServerID, newPath, newRemotePath, copiedBytes, entry.Code)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to update entry metadata: %v", err))
+		return
+	}
+
+	// 4. 清理旧目标存储中的文件
+	_ = s.getBackend(entry.StorageType).Delete(r.Context(), entry)
+
+	updatedEntry, err := s.GetEntry(r.Context(), entry.Code, true)
+	if err != nil || updatedEntry == nil {
+		response.OK(w, map[string]interface{}{"success": true})
+		return
+	}
+	response.OK(w, publicEntry(updatedEntry))
+}
+
+func copyFileContents(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+// HandleShareRedirect 拦截外部直接访问 /share/{code} 的直链下载：
+// 若为远程存储且无需密码，原子扣减次数后 302 重定向至节点直链；
+// 其他情况（如需要密码、本地文件、文本）返回 false 交由前端 SPA 渲染。
+func (s *Service) HandleShareRedirect(w http.ResponseWriter, r *http.Request, code string) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	entry, err := s.GetEntry(r.Context(), code, false)
+	if err != nil || entry == nil {
+		return false
+	}
+	// 仅限远端存储且无需密码的文件分享触发直链分发
+	if entry.StorageType != "remote" || entry.Type != "file" || entry.RequiresPassword {
+		return false
+	}
+	if s.nodeProvider == nil || entry.ServerID == nil || *entry.ServerID == "" {
+		return false
+	}
+	node, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), *entry.ServerID)
+	if err != nil {
+		return false
+	}
+	key, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), *entry.ServerID)
+	if err != nil {
+		return false
+	}
+
+	// 扣除下载配额或触发阅后即焚
+	if err := s.AccessEntry(r.Context(), entry.Code, metaFromRequest(r)); err != nil {
+		http.Error(w, "Download quota exceeded or entry expired", http.StatusForbidden)
+		return true
+	}
+
+	signedURL, err := BuildSignedURL("GET", node.Host, node.StoragePort, entry.Code, entry.Filename, 0, 5*time.Minute, key)
+	if err != nil {
+		http.Error(w, "Failed to build signed URL", http.StatusInternalServerError)
+		return true
+	}
+
+	http.Redirect(w, r, signedURL, http.StatusFound)
+	return true
 }
