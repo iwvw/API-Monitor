@@ -41,6 +41,10 @@ const (
 
 const textFormatMarkdown = "markdown"
 
+// downloadDedupWindow 是「真实逻辑下载」去重窗口：同一 IP 在同一 code 上
+// 于该窗口内的并发/重复 HTTP 请求（多线程分块、刷新重试等）只计一次下载。
+const downloadDedupWindow = 60 * time.Second
+
 type Authenticator interface {
 	IsAuthenticated(context.Context, *http.Request) (bool, error)
 }
@@ -56,6 +60,9 @@ type Service struct {
 	nodeProvider NodeStorageProvider
 	voidRooms    map[string]*voidRoom
 	voidMu       sync.Mutex
+	// downloadDedup 记录每个「ip|code」最近一次计数的时刻，用于同一逻辑下载的并发/重复请求去重。
+	downloadDedup map[string]int64
+	dedupMu       sync.Mutex
 }
 
 type voidRoom struct {
@@ -205,6 +212,7 @@ func New(cfg config.Config, authenticator Authenticator) *Service {
 		uploadsDir:   filepath.Join(dataDir, "uploads"),
 		metadataFile: filepath.Join(dataDir, "metadata.json"),
 		voidRooms:    map[string]*voidRoom{},
+		downloadDedup: map[string]int64{},
 	}
 	_ = service.ensureDirs()
 	_ = service.migrateJSONMetadata(context.Background())
@@ -1557,6 +1565,12 @@ func (s *Service) GetEntry(ctx context.Context, code string, includeExpired bool
 }
 
 func (s *Service) AccessEntry(ctx context.Context, code string, meta requestMeta) error {
+	// 同一 IP 在同一去重窗口内对同一 code 的并发/重复请求视为同一次逻辑下载，
+	// 在 GetEntry 之前放行，避免并发分块后续请求先触发 GetEntry 的 max_downloads 删除，
+	// 也保证不重复计数、不重复扣配额、不重复触发阅后即焚、不重复写访问日志。
+	if !s.claimDownloadSlot(meta.ip, code) {
+		return nil
+	}
 	entry, err := s.GetEntry(ctx, code, false)
 	if err != nil || entry == nil {
 		return err
@@ -1596,6 +1610,32 @@ func (s *Service) AccessEntry(ctx context.Context, code string, meta requestMeta
 		}
 	}
 	return s.LogAccess(ctx, entry.Code, "download", meta)
+}
+
+// claimDownloadSlot 为给定 IP 与 code 领取一个「逻辑下载」名额：
+// 窗口内已领取则返回 false（视为并发/重复请求，不应重复计数）。
+func (s *Service) claimDownloadSlot(ip, code string) bool {
+	if strings.TrimSpace(ip) == "" {
+		return true
+	}
+	key := ip + "|" + code
+	now := time.Now().UnixMilli()
+	s.dedupMu.Lock()
+	defer s.dedupMu.Unlock()
+	last, ok := s.downloadDedup[key]
+	if ok && now-last < downloadDedupWindow.Milliseconds() {
+		return false
+	}
+	s.downloadDedup[key] = now
+	// 顺带清理过期键，避免 map 无限增长
+	if len(s.downloadDedup) > 1024 {
+		for k, t := range s.downloadDedup {
+			if now-t >= downloadDedupWindow.Milliseconds() {
+				delete(s.downloadDedup, k)
+			}
+		}
+	}
+	return true
 }
 
 func (s *Service) DeleteEntry(ctx context.Context, code string) (bool, error) {

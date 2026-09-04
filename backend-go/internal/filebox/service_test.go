@@ -875,6 +875,8 @@ func TestRemoteUploadFlowAndRedirect(t *testing.T) {
 
 	// 4. Test HandleShareRedirect
 	shareReq := httptest.NewRequest(http.MethodGet, "/share/"+initResp.Data.Code, nil)
+	// 用不同 IP 模拟第二个独立逻辑下载，避免被同一 IP 的去重窗口合并
+	shareReq.RemoteAddr = "10.0.0.99:5000"
 	shareRec := httptest.NewRecorder()
 	handled := service.HandleShareRedirect(shareRec, shareReq, initResp.Data.Code)
 	if !handled {
@@ -1019,6 +1021,89 @@ func TestTransferStorageLocalToRemoteAndBack(t *testing.T) {
 	content, err := os.ReadFile(*entry.Path)
 	if err != nil || string(content) != fileData {
 		t.Fatalf("local file content mismatch after transfer back: %s vs %s", string(content), fileData)
+	}
+}
+
+func downloadWithIP(service *Service, code, ip string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/api/filebox/download/"+code, nil)
+	req.RemoteAddr = ip
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	return res
+}
+
+func TestDownloadDedupSameIPWithinWindow(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	entry, err := service.AddText(context.Background(), "dedup test", 24, false, 0, "")
+	if err != nil {
+		t.Fatalf("create text share: %v", err)
+	}
+
+	// 同一 IP 的并发/重复请求只计一次（模拟多线程 Range 分块）
+	for i := 0; i < 4; i++ {
+		res := downloadWithIP(service, entry.Code, "192.0.2.10:5555")
+		if res.Code != http.StatusOK {
+			t.Fatalf("download attempt %d expected 200, got %d", i, res.Code)
+		}
+	}
+	after, err := service.GetEntry(context.Background(), entry.Code, true)
+	if err != nil || after == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if after.Downloads != 1 {
+		t.Fatalf("expected downloads=1 after 4 same-IP requests, got %d", after.Downloads)
+	}
+}
+
+func TestDownloadDedupDifferentIPCountsEach(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	entry, err := service.AddText(context.Background(), "dedup ip", 24, false, 0, "")
+	if err != nil {
+		t.Fatalf("create text share: %v", err)
+	}
+
+	for _, ip := range []string{"192.0.2.10:1", "192.0.2.20:2", "192.0.2.30:3"} {
+		res := downloadWithIP(service, entry.Code, ip)
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected 200 for ip %s, got %d", ip, res.Code)
+		}
+	}
+	after, err := service.GetEntry(context.Background(), entry.Code, true)
+	if err != nil || after == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if after.Downloads != 3 {
+		t.Fatalf("expected downloads=3 for 3 distinct IPs, got %d", after.Downloads)
+	}
+}
+
+func TestDownloadDedupExpiredByWindow(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	entry, err := service.AddText(context.Background(), "dedup window", 24, false, 0, "")
+	if err != nil {
+		t.Fatalf("create text share: %v", err)
+	}
+
+	// 首个请求计数
+	if res := downloadWithIP(service, entry.Code, "192.0.2.10:1"); res.Code != http.StatusOK {
+		t.Fatalf("first download expected 200, got %d", res.Code)
+	}
+	// 手动把去重时间戳拨回窗口之前，模拟窗口过期后的另一次独立下载
+	// 注：claimDownloadSlot 的 key 用的是剥离端口后的纯 IP
+	service.dedupMu.Lock()
+	key := "192.0.2.10|" + entry.Code
+	service.downloadDedup[key] = time.Now().Add(-(downloadDedupWindow + time.Second)).UnixMilli()
+	service.dedupMu.Unlock()
+
+	if res := downloadWithIP(service, entry.Code, "192.0.2.10:1"); res.Code != http.StatusOK {
+		t.Fatalf("download after window expected 200, got %d", res.Code)
+	}
+	after, err := service.GetEntry(context.Background(), entry.Code, true)
+	if err != nil || after == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if after.Downloads != 2 {
+		t.Fatalf("expected downloads=2 across window boundary, got %d", after.Downloads)
 	}
 }
 
