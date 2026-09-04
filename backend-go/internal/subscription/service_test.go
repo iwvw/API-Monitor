@@ -14,6 +14,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/iwvw/api-monitor/backend-go/internal/subscriptionledger"
 	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
@@ -2254,8 +2255,11 @@ func TestGetSubscriptionUsage(t *testing.T) {
 		VALUES('sub-u','sub_default_nodes','plan-u','UsageSub','tok-u','uuid-u','pwd-u',1,'2026-08-01 00:00:00','panel')`); err != nil {
 		t.Fatal(err)
 	}
+	// 用与生产代码一致的 CycleWindow 计算「当前周期」，避免硬编码日期
+	// 在跨月后使种子数据不再属于当前周期（cycle used 变为 0）。
+	cycleStart, cycleEnd := subscriptionledger.CycleWindow(time.Now().UTC(), "monthly", 1, "2026-08-01 00:00:00")
 	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)
-		VALUES('sub-u','2026-08-01T00:00:00Z','2026-09-01T00:00:00Z',10,20,datetime('now'))`); err != nil {
+		VALUES('sub-u',?,?,10,20,datetime('now'))`, cycleStart, cycleEnd); err != nil {
 		t.Fatal(err)
 	}
 	hour := time.Now().UTC().Truncate(time.Hour).Format(time.RFC3339)
