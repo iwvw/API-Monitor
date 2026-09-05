@@ -61,6 +61,8 @@
 - 实现折叠/展开的 grid 容器，轨道必须写 `minmax(0, …)`（`fr` 下限默认 auto=内容 min-content）：列不归零会被长 JSON/长路径撑出横向滚动，行不归零收起后残留空白条。动画裁剪放子元素层（容器 `overflow: clip` 会裁掉子元素外扩的 ring 边框）；需要内部滚动的子元素用高特异性规则恢复 `overflow-y: auto`，不要挪 clip。
 - `overflow-hidden` 容器可被程序性横向滚动产生 `scrollLeft` 漂移（内容被 translate 撑宽时尤其容易），整体偏移排查优先查滚动容器，改用 `overflow-clip` 彻底禁止。
 - 站点品牌色是橙色（`--color-brand: #dc7d40`，见 [AI面板布局与交互规范](./AI面板布局与交互规范.md)）；`kumo-brand` 是 Kumo 库默认蓝紫，不是站点品牌色，品牌视觉（入口按钮、hover 边框）用 `brand` 不要用 `kumo-brand`。
+- Kumo `Empty` 组件自带边框背景容器（`rounded-xl border border-kumo-fill bg-kumo-control`）。把它直接放进带边框的 `SectionCard`/`LayerCard`（`rounded-lg border border-kumo-line`）内做空态时，会出现「卡片套卡片」的两层边框。容器内部空态若需保留外层卡片标题，给 `Empty` 加 `className="rounded-none border-0 bg-transparent"` 去掉内层边框；该技巧依赖 Empty 自身的 `px-* py-*` 内边距保持内容居中，无需额外套滚动壳。
+- 表格型 `SectionCard` 用 `bodyPadding="none"` 让表格贴满卡片（否则四边出现空白）；同一卡片内的空态不要再把 `bodyPadding` 改成 `md` 来迁就 Empty——空态居中由 Empty 自身 padding 承担，`rounded-none border-0` 已解决双层边框，`bodyPadding` 应始终按「内容是否为贴满表格」来定。
 
 ## 归档（历史 / 一次性文档）
 

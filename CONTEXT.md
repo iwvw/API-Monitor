@@ -6,7 +6,7 @@ This is the first file an AI maintainer should read before changing API Monitor.
 
 ## Current Architecture
 
-- Frontend: React 19, Vite 8, Tailwind CSS 4, Zustand, and `@cloudflare/kumo` 2.10.0.
+- Frontend: React 19, Vite 8, Tailwind CSS 4, Zustand, and `@cloudflare/kumo` 2.13.1.
 - UI system: Kumo-only for base controls and charts. Local components should be business compositions or narrow transition wrappers.
 - Backend: Go single-process backend in `backend-go/`, with routes governed by `backend-go/internal/manifest/manifest.go`.
 - Persistence: SQLite remains the only durable store. Do not replace it unless there is an explicit product decision.

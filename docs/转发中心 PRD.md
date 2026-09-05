@@ -529,45 +529,103 @@ fn ensure_firewall_port(port: u16, open: bool) -> Result<(), String> {
 - 不支持 UDP（Phase 2 仅 TCP）
 - 每转发规则一条隧道连接，N 条规则 = N 条长连接
 
-### 3.3 P2P 直连（Phase 3，占位设计）
+### 3.3 P2P 直连（Phase 3）
 
-#### 3.3.1 原理
+#### 3.3.1 设计目标与定位
 
-面板仅作为信令交换中心，NAT 打洞成功后数据直接在客户端和源主机之间传输，不经过任何中间节点。
+P2P 是 `tcp_relay` 的**「提速层」而非替代品**。借鉴 Tailscale 的「保底即通 + 渐进升级直连」模型，P2P 采用以下原则：
+
+1. **保底即通**：P2P 部署时**先建立 `tcp_relay` 隧道**（复用 Phase 2 全部逻辑），用户在部署完成那一刻就能用。
+2. **后台打洞**：隧道建立的同时，两端 Agent 后台并行做 UDP NAT 打洞。
+3. **无缝升级**：打洞成功后将数据面从「中继隧道」迁移到「两端直接 UDP 直连」，用户与上层规则无感知。
+4. **失败透明**：打洞超时失败则**继续留在 `tcp_relay` 隧道**，不中断服务、不出现「打洞失败回退断连」的体验断裂。
+
+数据面方向：访问方（客户端）Agent 与源主机 Agent 之间的 UDP 直连，不经过中继入口，也不经过面板。
 
 #### 3.3.2 架构
 
 ```
-                    ┌──────────┐
-                    │  面板     │  ← 信令交换
-                    │ (信令服务) │
-                    └─────┬────┘
-                          │
-          ┌───────────────┼───────────────┐
-          │ 交换 SDP/ICE  │               │
-          │               │               │
-    ┌─────▼──────┐  ┌─────▼──────┐
-    │  客户端     │  │  源主机    │
-    │  (任意)     │  │  Agent     │
-    │             │  │            │
-    │  ┌──────┐   │  │ ┌──────┐  │
-    │  │ 打洞  │   │  │ │ 打洞  │  │
-    │  │ 客户端│   │  │ │ 服务端│  │
-    │  └──────┘   │  │ └──────┘  │
-    └─────────────┘  └───────────┘
-           │              │
-           └── 直连 ──────┘
-           (UDP/TCP, 不经过面板)
+                        面板(信令协调, 交换候选端点)
+                              │
+              ┌───────────────┴───────────────┐
+              │ 1.上报候选端点      2.互发对端候选端点│
+        ┌─────▼──────┐                ┌─────▼──────┐
+        │  访问方 Agent│                │  源主机 Agent│
+        │  (客户端)    │                │  数据源      │
+        │             │                │             │
+        │  ┌───────┐  │    STUN        │  ┌───────┐  │
+        │  │nat.rs │  │◄──RFC8489─────►│  │nat.rs │  │
+        │  └───────┘  │   服务器        │  └───────┘  │
+        └─────┬──────┘                └─────┬──────┘
+              │  3.互相向对方所有候选端点发包    │
+              └──────────►  UDP 直连  ◄───────┘
+                 (打洞成功 → 数据面迁移, 不经过面板/中继)
+
+  兜底: 打洞失败/超时 → 数据面继续走 tcp_relay 隧道(已存在)
 ```
 
-#### 3.3.3 实现策略
+#### 3.3.3 候选端点收集（Agent `nat.rs`）
 
-- 使用 STUN 协议（RFC 3489）进行 NAT 类型探测
-- 支持 UDP 打洞 + TCP 打洞（UDP 为主）
-- 打洞失败时自动回退到 TCP 中继（Phase 2）
-- 使用 `tokio::net::UdpSocket` 实现 Agent 端打洞
+每端 Agent 在部署/对账时收集**候选端点集合**并上报面板，供对端探测：
 
-**Phase 3 不在此 PRD 中详述，仅预留表结构和字段。**
+| 候选来源 | 说明 |
+|---|---|
+| 本机接口 IPv4 | 枚举本机网卡 IPv4 地址，过滤虚拟/容器/隧道网卡（复用 `collector.rs` 的 `should_count_network_interface` 语义） |
+| STUN 反射地址 | 向 STUN 服务器发 **RFC 8489** Binding Request，得到 NAT 后的公网 `IP:端口` |
+| egress 公网 IP | 可选的已知出口 IP（来自 `collector.rs` 的 HTTP egress 探测），作为备用候选 |
+
+- **STUN 标准**：RFC 8489（替代已废弃的 RFC 3489）。不做「NAT 类型」判断（该判断在真实互联网上不可靠），只取反射地址。
+- **自建 STUN 优先**：`deployP2PCore` 先尝试在中继入口主机（有公网 IP + 已装 Agent）上托管 `api-monitor-stun` 二进制（`cmd/api-monitor-stun`，Agent `bootstrap_stun` 幂等下载/运行，监听 UDP 3478），并把 `中继主机:3478` 作为 STUN 地址下发；自建不可用（无资产/对端不支持/启动失败）时自动回退公共 STUN（`stun.cloudflare.com:3478`、`stun.l.google.com:19302`）。
+- 反射地址用于探测，**不承诺直连可靠**：对称型 NAT / CGNAT / 端口受限 NAT 下打洞可能失败，此时透明留在中继。
+
+#### 3.3.4 信令交换
+
+- 面板作为**协调中心**，复用现有 Engine.IO 通道的 task 同步模型（task_type 54），不新建数据通道。
+- 后端 `deployP2PCore` 按如下顺序协调两端：
+  1. 先对源主机下发 `collect_endpoints`（Agent 收集本机 IPv4 + STUN 反射地址，随 task 返回）。
+  2. 再对访问方主机下发 `collect_endpoints`。
+  3. 后端以两端候选端点为对方候选，生成共享 `session_id`，分别下发 `hole_punch`。
+- 两端拿到对端候选后自行打洞握手，**握手与数据均两端直接互发 UDP，面板不中转**。
+
+#### 3.3.5 打洞握手协议（Agent `p2p.rs`）
+
+```
+打洞包(P2P_HOLE)：[1B magic=0x50][4B session_id BE][8B peer_id BE][1B type][payload]
+  type 0x01=ping 0x02=pong(回应 ping 并附己方标识) 0x03=session_confirm
+```
+
+- 两端各自 bind 一个**本机打洞 UDP socket**（`tokio::net::UdpSocket`，绑定 0.0.0.0:0 或候选本机地址）。
+- 向**对端所有候选端点**周期性发送 `ping`（间隔 ~500ms，共 ~10 轮），同时监听。
+- 收到带匹配 `session_id`/`peer_id` 的 `ping` → 回 `pong`；收到 `pong` → 判定打洞成功，发 `session_confirm` 并建立直连会话。
+- **防放大攻击**：仅对携带正确随机 `session_id` 与 `peer_id` 的包做回应，绝不盲目回包，避免公网 UDP 口被利用为 DDoS 反射源。
+
+#### 3.3.6 数据面（UDP 直连）
+
+- 打洞成功后，两端建立 **UDP 双向直连**，数据面**复用 `tcp_forwarder.rs` 的帧协议**（`frame` 模块：`UDP_DATA=0x04`、`UDP_CLOSE=0x05`、keepalive=0x03），由 `p2p.rs` 扮演「直连版隧道」，替代中继隧道。
+- 访问方 Agent 收到对端 UDP 数据 → 代理到本地目标 `local_host:local_port`；源主机 Agent 反向同理（与现有 `tcp_forwarder` 的本地代理/UDP 会话逻辑一致）。
+- 直连会话带 keepalive（~30s，与现有隧道一致）维持 NAT 映射。
+
+#### 3.3.7 保底回退与生命周期
+
+- **状态机**：`p2p` 转发在部署时处于「中继隧道已通，直连协商中」，面板侧 `apply_status` 沿用 `running`，增加内部子状态 `p2p_state ∈ {relay, negotiating, direct, relay_fallback}`。
+- 打洞超时（默认 ~8s）→ `relay_fallback`，透明留在中继；打洞期间或之后中继断流 → 重试打洞。
+- 停止/删除：复用 `tcp_forwarder` 的 `end_session`/`remove` 清理语义，关闭直连 socket 与代理会话。
+
+#### 3.3.8 安全
+
+- 打洞握手含随机 `session_id`/`peer_id` 校验，防伪造与放大。
+- `p2p` 传输方式的访问控制：`public` 直接可用；`token`/`panel` 沿用现有 token 校验机制（P2P 数据面在握手成功前先经中继完成鉴权，直连迁移后由会话层会话标识持续关联）。
+- 数据面默认不额外加密（信任面板下发规则的对端）；跨公网敏感场景建议上层 TLS。
+
+#### 3.3.9 依赖与复用
+
+| 复用的现有能力 | 位置 |
+|---|---|
+| 中继隧道（保底） | `deployTCPRelayCore`（backend-go） / `tcp_forwarder.rs`（agent） |
+| 帧协议 | `tcp_forwarder.rs` `mod frame`（`UDP_DATA=0x04` 等） |
+| 网卡过滤 | `collector.rs` `should_count_network_interface` |
+| task 下发/返回 | `server_ops.go` `runAgentTaskAndWait` / `main.rs` `match task_type`（新增 `RunP2PTaskAndWait`=task 54） |
+| Agent 重启对账 | `service.go` onConnect → `reconcileRunningForwards`（新增 `p2p` transport 分支） |
 
 ---
 
@@ -2225,20 +2283,21 @@ func syncTunnelIngress(ctx context.Context, db *sql.DB, serverID string) error
 
 **交付物**：用户可选择入口主机，将任意 TCP 服务通过中继暴露。
 
-### Phase 3：P2P + 访问控制（预计 7-10 天）
+### Phase 3：P2P 打洞 + 访问控制
 
 | 步骤 | 内容 | 验证 |
 |---|---|---|
-| 3.1 | STUN NAT 探测 | 单元测试 |
-| 3.2 | 信令交换 | 集成测试 |
-| 3.3 | 打洞失败回退到 TCP 中继 | 故障注入 |
-| 3.4 | Token 生成/验证/存储 | 安全测试 |
-| 3.5 | Token 认证中间件（入口主机侧） | 集成测试 |
-| 3.6 | 面板认证代理 | 集成测试 |
-| 3.7 | 前端 Token 显示/重置 | 手动测试 |
-| 3.8 | 访问控制选择器 | 手动测试 |
+| 3.1 | `nat.rs`：RFC8489 STUN 客户端 + 候选端点收集（本机 IPv4 + 反射地址）+ `cmd/api-monitor-stun` 自建 STUN 服务器 + `bootstrap_stun` 托管 | 单元测试（mock/loopback STUN 服务器） |
+| 3.2 | `p2p.rs`：打洞握手协议（ping/pong/session_confirm + 防放大校验） | 单元测试（本机双 socket 打洞） |
+| 3.3 | P2P 部署 = 先建 tcp_relay 保底 + 后台打洞 + 数据面无缝迁移/失败透明回退 | 集成测试 + 故障注入 |
+| 3.4 | 信令交换：`agent:p2p_candidate` 上行 + 后端候选端点协调下行 | 集成测试 |
+| 3.5 | 后端 p2p deploy 分支 + `reconcileRunningForwards` 增加 p2p | 单元测试 |
+| 3.6 | Token 生成/验证/存储 | 安全测试 |
+| 3.7 | Token 认证中间件（入口主机侧） | 集成测试 |
+| 3.8 | 面板认证代理 | 集成测试 |
+| 3.9 | 前端 Token 显示/重置 + 访问控制选择器 + P2P 状态展示 | 手动测试 |
 
-**交付物**：支持 P2P 直连 + 认证访问的完整转发中心。
+**交付物**：支持 P2P 直连（UDP 打洞 + 保底回退）+ 认证访问的完整转发中心。
 
 ---
 
