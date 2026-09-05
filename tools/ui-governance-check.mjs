@@ -8,7 +8,7 @@ const failures = [];
 const warnings = [];
 const allowedExceptions = [];
 
-const skippedDirs = new Set(['.git', 'node_modules', 'dist', 'data', 'public']);
+const skippedDirs = new Set(['.git', 'node_modules', 'dist', 'data']);
 
 const rawControlRe = /<(button|select|input|textarea)\b/g;
 const deprecatedMotionRe =
@@ -79,6 +79,12 @@ function isAllowedRawControl(tag, line, lines, index) {
   if (tag === 'button' && /\brounded border px-2 py-0\.5/.test(block)) {
     return 'compact list row selectable button';
   }
+  if (tag === 'button' && /\brounded-xl border px-3 py-3/.test(block)) {
+    return 'public page icon selectable card';
+  }
+  if (tag === 'button' && /\btriggerClassName\b/.test(block)) {
+    return 'public page icon picker trigger';
+  }
   if (tag === 'button' && /\bflex flex-col items-center gap-1\.5 rounded-lg border/.test(block)) {
     return 'icon+label selectable card';
   }
@@ -91,6 +97,9 @@ function isAllowedRawControl(tag, line, lines, index) {
   if (tag !== 'input') return null;
   if (/type=["']file["']/.test(block) && /\b(hidden|sr-only)\b/.test(block)) {
     return 'hidden native file picker';
+  }
+  if (/type=["']color["']/.test(block) && /\b(hidden|sr-only)\b/.test(block)) {
+    return 'hidden native color input';
   }
   return null;
 }
@@ -205,6 +214,12 @@ function allowedColorReason(rel, line, value, lines, index) {
   }
   if (rel === 'src/css/app.css' && (value === '#FFF' || value === '#FFEDDD' || value === '#FF9335' || value === '#FFB371')) {
     return 'Ask AI 云朵动画 Cloudflare 品牌色';
+  }
+  if (rel === 'src/js/pages/BookmarksPage.jsx' && value === 'text-white') {
+    return '网址文字图标对比色（用户自定义背景上保证可读）';
+  }
+  if (rel === 'src/js/pages/BookmarksPage.jsx' && value === '#808080') {
+    return '原生颜色选择器中性占位值（空背景时）';
   }
   return null;
 }

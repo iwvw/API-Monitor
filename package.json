@@ -38,7 +38,7 @@
     "clean:workspace": "node tools/workspace-cleanup.mjs --apply"
   },
   "dependencies": {
-    "@cloudflare/kumo": "^2.13.0",
+    "@cloudflare/kumo": "^2.13.1",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
@@ -58,6 +58,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-grid-layout": "^2.2.4",
     "shiki": "^4.4.3",
     "simple-icons-font": "^16.28.0",
     "socket.io-client": "^4.8.3",
