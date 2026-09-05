@@ -2950,7 +2950,7 @@ function M365Page() {
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col gap-4">
                   <div className="flex items-center gap-2">
-                    <Select
+                    <Select alignItemWithTrigger
                       aria-label="组许可证 SKU"
                       size="sm"
                       value={groupLicenseSkuId}
@@ -3359,7 +3359,7 @@ function M365Page() {
                       }
                       placeholder={editingUser ? '登录账号前缀' : '邮箱前缀'}
                     />
-                    <Select
+                    <Select alignItemWithTrigger
                       aria-label="邮箱后缀"
                       size="sm"
                       value={userForm.emailDomain}
@@ -3799,7 +3799,7 @@ function M365Page() {
           <div className="space-y-4">
             <Dialog.Title>生成邀请码</Dialog.Title>
             <div className="grid gap-3">
-              <Select
+              <Select alignItemWithTrigger
                 aria-label="公开页"
                 size="sm"
                 value={inviteCodeGeneratorForm.publicPageId}

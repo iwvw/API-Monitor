@@ -360,7 +360,7 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
             type="button"
             size="xs"
             onClick={() => toggleHostFilter(host.serverId)}
-            className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${
+            className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
               inactiveHosts.has(host.serverId)
                 ? 'border-kumo-line text-kumo-subtle opacity-60'
                 : 'border-kumo-brand/40 bg-kumo-brand/10 font-medium text-kumo-strong'

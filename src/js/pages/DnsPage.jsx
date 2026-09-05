@@ -333,7 +333,7 @@ function parseJsonInput(input, fallbackKey) {
 
 function DnsPage() {
   const { isArmed, confirmPress } = useConfirmPress();
-  const { theme } = useStore();
+  const theme = useStore(s => s.theme);
   const isDarkMode = theme === 'dark';
   const [activeTab, setActiveTab] = useState('dns');
   const [accounts, setAccounts] = useState([]);
@@ -2099,7 +2099,7 @@ function DnsPage() {
                 ) : zones.map((zone) => (
                   <LayerCard
                     key={zone.id}
-                    className={`min-w-0 cursor-pointer p-2 transition-colors ${zone.id === selectedZoneId ? 'border-brand/60 bg-brand/5 ring-1 ring-brand/35' : ''}`}
+                    className={`min-w-0 cursor-pointer p-2 ${zone.id === selectedZoneId ? 'border-brand/60 bg-brand/5 ring-1 ring-brand/35' : ''}`}
                     onClick={() => selectZone(zone)}
                   >
                     <div className="min-w-0">
@@ -2255,7 +2255,7 @@ function DnsPage() {
                 </div>
                 {selectedZone && (
                   <div className="flex shrink-0 items-center gap-2">
-                    <Select size="sm"
+                    <Select alignItemWithTrigger size="sm"
                       value={analyticsRange}
                       onValueChange={(value) => loadAnalytics(String(value))}
                       className="w-20 shrink-0"
@@ -2287,7 +2287,7 @@ function DnsPage() {
                   <div className="dns-summary-grid order-3 grid shrink-0 gap-2 cq-md:order-none">
                     <DnsPanelCard className="flex min-h-9 items-center justify-between gap-2 p-2">
                       <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">SSL 模式</div>
-                      <Select size="sm"
+                      <Select alignItemWithTrigger size="sm"
                         value={sslInfo?.mode || null}
                         onValueChange={(value) => updateSslMode(String(value))}
                         placeholder="选择模式"
@@ -2361,7 +2361,7 @@ function DnsPage() {
                         placeholder="筛选名称"
                         className="w-full cq-sm:w-48"
                       />
-                      <Select size="sm"
+                      <Select alignItemWithTrigger size="sm"
                         aria-label="按类型筛选 DNS 记录"
                         value={recordFilter.type || null}
                         onValueChange={(value) => setRecordFilter((prev) => ({ ...prev, type: value ? String(value) : '' }))}
@@ -3203,7 +3203,7 @@ function DnsPage() {
                 {modal.data ? '编辑 DNS 记录' : '添加 DNS 记录'}
               </Dialog.Title>
               <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-3">
-                <Select size="sm"
+                <Select alignItemWithTrigger size="sm"
                   label="类型"
                   value={recordForm.type}
                   onValueChange={(value) => setRecordForm((prev) => ({ ...prev, type: String(value) }))}
@@ -3242,7 +3242,7 @@ function DnsPage() {
                 <Input size="sm" label="描述" value={templateForm.description} onChange={(event) => setTemplateForm((prev) => ({ ...prev, description: event.target.value }))} placeholder="可选" />
               </div>
               <div className="grid grid-cols-1 gap-4 cq-md:grid-cols-4">
-                <Select size="sm"
+                <Select alignItemWithTrigger size="sm"
                   label="类型"
                   value={templateForm.type}
                   onValueChange={(value) => setTemplateForm((prev) => ({ ...prev, type: String(value) }))}

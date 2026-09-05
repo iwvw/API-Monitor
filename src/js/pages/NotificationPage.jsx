@@ -1017,7 +1017,7 @@ function NotificationPage() {
         <div className="space-y-4">
           {/* 筛选控制栏 */}
           <div className="flex items-center justify-between pb-2 select-none">
-            <Select
+            <Select alignItemWithTrigger
               aria-label="告警规则模块筛选" size="sm"
               value={notificationRuleFilter}
               onValueChange={setNotificationRuleFilter}
@@ -1230,7 +1230,7 @@ function NotificationPage() {
           {/* 筛选控制条 */}
           <div className="flex items-center justify-between pb-2 gap-3 select-none">
             <div className="flex items-center gap-2">
-              <Select
+              <Select alignItemWithTrigger
                 aria-label="通知历史状态筛选" size="sm"
                 value={notificationHistoryFilter}
                 onValueChange={setNotificationHistoryFilter}
@@ -1466,7 +1466,7 @@ function NotificationPage() {
                 type="number"
                 min="0"
                 value={notificationGlobalConfig.global_rate_limit_per_hour ?? 100}
-                onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, global_rate_limit_per_hour: parseInt(e.target.value) || 0 }))}
+                onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, global_rate_limit_per_hour: parseInt(e.target.value, 10) || 0 }))}
               />
               <Input
                 size="sm"
@@ -1475,7 +1475,7 @@ function NotificationPage() {
                 type="number"
                 min="0"
                 value={notificationGlobalConfig.batch_interval_seconds ?? 30}
-                onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, batch_interval_seconds: parseInt(e.target.value) || 0 }))}
+                onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, batch_interval_seconds: parseInt(e.target.value, 10) || 0 }))}
               />
             </div>
 
@@ -1514,7 +1514,7 @@ function NotificationPage() {
             {/* Channel Type */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">渠道类型</label>
-              <Select size="sm"
+              <Select alignItemWithTrigger size="sm"
                 aria-label="渠道类型"
                 value={channelForm.type}
                 disabled={channelForm.id !== null}
@@ -1566,14 +1566,14 @@ function NotificationPage() {
                       type="number"
                       placeholder="465"
                       value={channelForm.config.port}
-                      onChange={(e) => syncEmailSecure(parseInt(e.target.value) || 0)}
+                      onChange={(e) => syncEmailSecure(parseInt(e.target.value, 10) || 0)}
                       className="w-full font-mono"
                     />
                   </div>
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-kumo-subtle">加密方式</label>
-                    <Select size="sm"
+                    <Select alignItemWithTrigger size="sm"
                       aria-label="加密安全协议"
                       value={channelForm.config.secure ? 'ssl' : 'tls'}
                       onValueChange={(value) => setChannelForm(prev => ({
@@ -1767,7 +1767,7 @@ function NotificationPage() {
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">来源模块</label>
-                <Select size="sm"
+                <Select alignItemWithTrigger size="sm"
                   aria-label="来源监控模块"
                   value={ruleForm.source_module}
                   onValueChange={(value) => handleSourceModuleChange(String(value))}
@@ -1778,7 +1778,7 @@ function NotificationPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">事件类型</label>
-                <Select size="sm"
+                <Select alignItemWithTrigger size="sm"
                   aria-label="触发事件类型"
                   value={ruleForm.event_type}
                   onValueChange={(value) => setRuleForm(prev => ({ ...prev, event_type: String(value) }))}
@@ -1789,7 +1789,7 @@ function NotificationPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">告警级别</label>
-                <Select size="sm"
+                <Select alignItemWithTrigger size="sm"
                   aria-label="告警紧急级别"
                   value={ruleForm.severity}
                   onValueChange={(value) => setRuleForm(prev => ({ ...prev, severity: String(value) }))}
@@ -1837,7 +1837,7 @@ function NotificationPage() {
                   value={ruleForm.suppression.repeat_count}
                   onChange={(e) => setRuleForm(prev => ({
                     ...prev,
-                    suppression: { ...prev.suppression, repeat_count: parseInt(e.target.value) || 1 }
+                    suppression: { ...prev.suppression, repeat_count: parseInt(e.target.value, 10) || 1 }
                   }))}
                   className="w-full font-mono"
                 />
@@ -1852,7 +1852,7 @@ function NotificationPage() {
                   value={ruleForm.suppression.silence_minutes}
                   onChange={(e) => setRuleForm(prev => ({
                     ...prev,
-                    suppression: { ...prev.suppression, silence_minutes: parseInt(e.target.value) || 0 }
+                    suppression: { ...prev.suppression, silence_minutes: parseInt(e.target.value, 10) || 0 }
                   }))}
                   className="w-full font-mono"
                 />

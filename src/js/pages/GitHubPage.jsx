@@ -1284,7 +1284,7 @@ function RepositoryMetric({ icon, label, value, detail }) {
         <Text variant="secondary" size="sm" truncate>{label}</Text>
       </div>
       <div className="mt-1 flex min-w-0 items-baseline justify-between gap-2">
-        <Text variant="heading3" as="span" truncate>{value}</Text>
+        <Text variant="heading" as="span" truncate>{value}</Text>
         {detail && <Text variant="secondary" size="xs" truncate>{detail}</Text>}
       </div>
     </LayerCard>
@@ -1756,7 +1756,7 @@ function PermissionChecks({ token }) {
 }
 
 function GitHubPage() {
-  const { theme } = useStore();
+  const theme = useStore(s => s.theme);
   const { isArmed, confirmPress } = useConfirmPress();
   const isDarkMode = theme === 'dark';
   const getAuthHeaders = useCallback(() => ({
@@ -2595,7 +2595,7 @@ function GitHubPage() {
                 <Text variant="body" size="sm" bold truncate>{selectedRepo.full_name}</Text>
               </div>
               <div className="flex flex-wrap items-end gap-2">
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   aria-label="仓库访问凭据"
                   value={selectedRepo.token_id ? String(selectedRepo.token_id) : ''}
@@ -2603,7 +2603,7 @@ function GitHubPage() {
                   items={tokenOptions}
                   disabled={saving}
                 />
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   aria-label="选择 GitHub 仓库"
                   value={String(selectedRepo.id)}
@@ -2633,8 +2633,8 @@ function GitHubPage() {
                 </div>
                 {canAttemptActionOperations ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <Select size="sm" className="w-64" aria-label="选择 Workflow" value={dispatchForm.workflowId} onValueChange={(value) => setDispatchForm((p) => ({ ...p, workflowId: value }))} items={workflowOptions} disabled={workflowOptions.length <= 1} />
-                    <Select size="sm" className="w-40" aria-label="选择触发分支" value={dispatchForm.ref} onValueChange={(value) => setDispatchForm((p) => ({ ...p, ref: value }))} items={branchOptions} disabled={branchOptions.length === 0} />
+                    <Select alignItemWithTrigger size="sm" className="w-64" aria-label="选择 Workflow" value={dispatchForm.workflowId} onValueChange={(value) => setDispatchForm((p) => ({ ...p, workflowId: value }))} items={workflowOptions} disabled={workflowOptions.length <= 1} />
+                    <Select alignItemWithTrigger size="sm" className="w-40" aria-label="选择触发分支" value={dispatchForm.ref} onValueChange={(value) => setDispatchForm((p) => ({ ...p, ref: value }))} items={branchOptions} disabled={branchOptions.length === 0} />
                     <Button size="sm" variant="primary" icon={<Play className="h-3.5 w-3.5" />} onClick={dispatchWorkflow}>触发</Button>
                   </div>
                 ) : (
@@ -2721,7 +2721,7 @@ function GitHubPage() {
                     <TrendingUp className="h-4 w-4 text-brand" />
                     <Text variant="body" size="sm" bold>仓库趋势</Text>
                   </div>
-                  <Select size="sm" aria-label="趋势时间范围" value={rangeDays} onValueChange={setRangeDays} items={rangeOptions} />
+                  <Select alignItemWithTrigger size="sm" aria-label="趋势时间范围" value={rangeDays} onValueChange={setRangeDays} items={rangeOptions} />
                 </LayerCard.Secondary>
                 <LayerCard.Primary className="p-4">
                 {trendsLoading && trends.length < 2 ? (
@@ -2853,7 +2853,7 @@ function GitHubPage() {
               <Input size="sm" label="Token 名称" value={tokenForm.name} onChange={(e) => setTokenForm((p) => ({ ...p, name: e.target.value }))} placeholder="生产账号" />
               <Input size="sm" label="Token" value={tokenForm.token} onChange={(e) => setTokenForm((p) => ({ ...p, token: e.target.value }))} placeholder="github_pat_..." autoComplete="off" spellCheck={false} className="font-mono" />
               <Grid variant="2up" gap="sm">
-                <Select size="sm" label="Token 类型" value={tokenForm.type} onValueChange={(value) => setTokenForm((p) => ({ ...p, type: value }))} items={tokenTypeOptions} />
+                <Select alignItemWithTrigger size="sm" label="Token 类型" value={tokenForm.type} onValueChange={(value) => setTokenForm((p) => ({ ...p, type: value }))} items={tokenTypeOptions} />
                 <div className="flex h-full items-end">
                   <Switch size="sm" label="设为默认" controlFirst={false} checked={tokenForm.default_token} onCheckedChange={(checked) => setTokenForm((p) => ({ ...p, default_token: Boolean(checked) }))} />
                 </div>
@@ -2924,7 +2924,7 @@ function GitHubPage() {
                 <Badge variant={historyScope === 'current' ? 'info' : 'secondary'}>{historyScope === 'current' ? '当前仓库' : '全部仓库'}</Badge>
               </LayerCard.Secondary>
               <LayerCard.Primary className="grid gap-3 p-4">
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   label="清理范围"
                   value={historyScope}
@@ -2999,7 +2999,7 @@ function GitHubPage() {
                 autoFocus
               />
               <div className="grid gap-3 cq-sm:grid-cols-2">
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   label="访问凭据"
                   value={repoForm.token_id}

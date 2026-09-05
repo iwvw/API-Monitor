@@ -800,7 +800,7 @@ function TrafficSizeInput({ label, value, onChange }) {
           onChange={(event) => onChange(Math.round((Number(event.target.value) || 0) * trafficUnitBytes(unit)))}
           className="w-full min-w-0"
         />
-        <Select
+        <Select alignItemWithTrigger
           size="sm"
           aria-label={`${label}单位`}
           value={unit}
@@ -1051,22 +1051,26 @@ function SubscriptionPage() {
 
 	useEffect(() => {
 		if (!tunnelModalOpen) return undefined;
+		let cancelled = false;
 		fetch('/api/cloudflare/accounts', { headers: getAuthHeaders(), cache: 'no-store' }).then((response) => response.json()).then((payload) => {
+			if (cancelled) return;
 			const accounts = Array.isArray(payload) ? payload : (payload.data || payload.accounts || []);
 			setCloudflareAccounts(accounts);
 			setTunnelForm((current) => ({ ...current, account_id: current.account_id || accounts[0]?.id || '' }));
-		}).catch(() => setCloudflareAccounts([]));
-		return undefined;
+		}).catch(() => { if (!cancelled) setCloudflareAccounts([]); });
+		return () => { cancelled = true; };
 	}, [tunnelModalOpen]);
 
 	useEffect(() => {
 		if (!tunnelForm.account_id) { setCloudflareZones([]); return undefined; }
+		let cancelled = false;
 		fetch(`/api/cloudflare/accounts/${encodeURIComponent(tunnelForm.account_id)}/zones`, { headers: getAuthHeaders(), cache: 'no-store' }).then((response) => response.json()).then((payload) => {
+			if (cancelled) return;
 			const zones = Array.isArray(payload) ? payload : (payload.data || payload.zones || []);
 			setCloudflareZones(zones);
 			setTunnelForm((current) => ({ ...current, zone_id: current.zone_id || zones[0]?.id || '' }));
-		}).catch(() => setCloudflareZones([]));
-		return undefined;
+		}).catch(() => { if (!cancelled) setCloudflareZones([]); });
+		return () => { cancelled = true; };
 	}, [tunnelForm.account_id]);
 
 	useEffect(() => {
@@ -2149,7 +2153,7 @@ function SubscriptionPage() {
             listClassName="max-w-full overflow-x-auto whitespace-nowrap scrollbar-thin"
           />
           {tagItems.length > 1 && (
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               aria-label="标签筛选"
               value={tagFilter}
@@ -2438,8 +2442,8 @@ function SubscriptionPage() {
         )}
       >
         <div className="grid grid-cols-1 gap-4 cq-sm:grid-cols-2">
-          <Select size="sm" label="对外订阅" value={templateSubscriptionId} onValueChange={(value) => setTemplateSubscriptionId(String(value))} items={subscriptionItems} className="w-full" />
-          <Select size="sm" label="输出模板" value={templateBindingId} onValueChange={(value) => setTemplateBindingId(String(value))} items={templateItems} disabled={!selectedTemplateSubscription} className="w-full" />
+          <Select alignItemWithTrigger size="sm" label="对外订阅" value={templateSubscriptionId} onValueChange={(value) => setTemplateSubscriptionId(String(value))} items={subscriptionItems} className="w-full" />
+          <Select alignItemWithTrigger size="sm" label="输出模板" value={templateBindingId} onValueChange={(value) => setTemplateBindingId(String(value))} items={templateItems} disabled={!selectedTemplateSubscription} className="w-full" />
         </div>
         {selectedTemplateSubscription && (
           <div className="mt-4 grid gap-2 border-t border-kumo-line pt-4 cq-sm:grid-cols-2">
@@ -2533,7 +2537,7 @@ function SubscriptionPage() {
   const renderSettings = () => settings && (
     <SectionCard title="默认策略" className="max-w-3xl">
         <div className="grid gap-4 cq-sm:grid-cols-2">
-          <Select size="sm" label="默认模板" value={settings.default_template_id} onValueChange={(value) => setSettings((prev) => ({ ...prev, default_template_id: String(value) }))} items={templateItems} />
+          <Select alignItemWithTrigger size="sm" label="默认模板" value={settings.default_template_id} onValueChange={(value) => setSettings((prev) => ({ ...prev, default_template_id: String(value) }))} items={templateItems} />
           <Input size="sm" label="默认上游刷新间隔（小时）" type="number" value={settings.default_refresh_hours || 24} onChange={(e) => setSettings((prev) => ({ ...prev, default_refresh_hours: Number(e.target.value) || 24 }))} />
           <Input size="sm" label="默认限流阈值（次/分钟）" type="number" value={settings.default_rate_limit_per_minute || 30} onChange={(e) => setSettings((prev) => ({ ...prev, default_rate_limit_per_minute: Number(e.target.value) || 30 }))} />
           <Switch
@@ -2584,16 +2588,16 @@ function SubscriptionPage() {
           <div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>{editingPlanId ? '编辑套餐' : '新建套餐'}</Dialog.Title></div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 scrollbar-thin cq-sm:p-5">
             <div className="grid gap-3 cq-sm:grid-cols-2"><Input size="sm" label="套餐名称" value={planForm.name} onChange={(e) => setPlanForm((prev) => ({ ...prev, name: e.target.value }))} /><Input size="sm" label="备注" value={planForm.remark} onChange={(e) => setPlanForm((prev) => ({ ...prev, remark: e.target.value }))} /></div>
-            <div className="grid items-end gap-3 cq-md:grid-cols-[minmax(16rem,1.2fr)_minmax(12rem,.8fr)_minmax(10rem,.7fr)]"><TrafficSizeInput label="订阅额度（仅托管节点，0 不限）" value={planForm.total_bytes} onChange={(value) => setPlanForm((prev) => ({ ...prev, total_bytes: value }))} /><Select size="sm" label="重置周期" value={planForm.cycle_type} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, cycle_type: String(value) }))} items={[{ value: 'monthly', label: '每月重置' }, { value: 'none', label: '不重置' }]} /><Input size="sm" label="每月重置日" type="number" min="1" max="31" value={planForm.cycle_day} disabled={planForm.cycle_type !== 'monthly'} onChange={(e) => setPlanForm((prev) => ({ ...prev, cycle_day: Number(e.target.value) || 1 }))} /></div>
+            <div className="grid items-end gap-3 cq-md:grid-cols-[minmax(16rem,1.2fr)_minmax(12rem,.8fr)_minmax(10rem,.7fr)]"><TrafficSizeInput label="订阅额度（仅托管节点，0 不限）" value={planForm.total_bytes} onChange={(value) => setPlanForm((prev) => ({ ...prev, total_bytes: value }))} /><Select alignItemWithTrigger size="sm" label="重置周期" value={planForm.cycle_type} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, cycle_type: String(value) }))} items={[{ value: 'monthly', label: '每月重置' }, { value: 'none', label: '不重置' }]} /><Input size="sm" label="每月重置日" type="number" min="1" max="31" value={planForm.cycle_day} disabled={planForm.cycle_type !== 'monthly'} onChange={(e) => setPlanForm((prev) => ({ ...prev, cycle_day: Number(e.target.value) || 1 }))} /></div>
 			{planForm.total_bytes > 0 && ((planForm.selection_mode === 'all' && planForm.include_external_nodes) || (planForm.selection_mode === 'explicit' && planForm.node_ids.some((id) => nodes.some((node) => node.id === id)))) && <div className="rounded-md border border-kumo-warning/30 bg-kumo-warning/10 px-3 py-2 text-xs text-kumo-warning">外部节点不受 Agent 管理，额度仅约束内部节点。</div>}
             <div className="grid items-end gap-3 cq-md:grid-cols-[minmax(18rem,1fr)_auto]"><Input size="sm" label="订阅请求限制（次/分钟）" type="number" min="1" value={planForm.rate_limit_per_minute} onChange={(e) => setPlanForm((prev) => ({ ...prev, rate_limit_per_minute: Number(e.target.value) || 30 }))} /><div className="flex min-h-8 items-center"><Switch size="sm" label="启用请求限制" checked={planForm.rate_limit_enabled} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, rate_limit_enabled: checked }))} /></div></div>
             <div className="border-t border-kumo-line pt-4">
               <div className="mb-3 grid items-end gap-3 cq-sm:grid-cols-[14rem_1fr]">
-                <Select size="sm" label="节点范围" value={planForm.selection_mode} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, selection_mode: String(value), node_ids: String(value) === 'all' ? [] : prev.node_ids }))} items={[{ value: 'explicit', label: '指定节点' }, { value: 'all', label: '全部当前及未来节点' }]} />
+                <Select alignItemWithTrigger size="sm" label="节点范围" value={planForm.selection_mode} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, selection_mode: String(value), node_ids: String(value) === 'all' ? [] : prev.node_ids }))} items={[{ value: 'explicit', label: '指定节点' }, { value: 'all', label: '全部当前及未来节点' }]} />
                 {planForm.selection_mode === 'all' && <div className="flex min-h-8 flex-wrap items-center gap-x-6 gap-y-2"><Switch size="sm" label="包含内部节点" checked={planForm.include_internal_nodes} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, include_internal_nodes: checked }))} /><Switch size="sm" label="包含外部节点" checked={planForm.include_external_nodes} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, include_external_nodes: checked }))} /></div>}
               </div>
               {planForm.selection_mode === 'explicit' && <>
-				<div className="mb-2 flex flex-wrap items-end justify-between gap-2"><div className="flex flex-wrap items-end gap-2"><Label className="text-xs font-semibold text-kumo-subtle">套餐节点</Label><Select size="sm" aria-label="节点类型筛选" value={planNodeTypeFilter} onValueChange={(value) => setPlanNodeTypeFilter(String(value))} items={planNodeTypeItems} className="w-36" /><Select size="sm" aria-label="节点来源筛选" value={planNodeSourceFilter} onValueChange={(value) => setPlanNodeSourceFilter(String(value))} items={[{ value: 'all', label: '全部来源' }, { value: 'internal', label: 'Agent 节点' }, { value: 'external', label: '外部节点' }]} className="w-36" /></div><div className="flex items-center gap-2"><Badge variant="neutral">已选 {planForm.node_ids.length}</Badge><Button size="sm" variant="secondary" disabled={visiblePlanNodeIDs.length === 0} onClick={() => setPlanForm((prev) => ({ ...prev, node_ids: allVisiblePlanNodesSelected ? prev.node_ids.filter((id) => !visiblePlanNodeIDs.includes(id)) : [...new Set([...prev.node_ids, ...visiblePlanNodeIDs])] }))}>{allVisiblePlanNodesSelected ? '取消当前全部' : '全选当前结果'}</Button></div></div>
+				<div className="mb-2 flex flex-wrap items-end justify-between gap-2"><div className="flex flex-wrap items-end gap-2"><Label className="text-xs font-semibold text-kumo-subtle">套餐节点</Label><Select alignItemWithTrigger size="sm" aria-label="节点类型筛选" value={planNodeTypeFilter} onValueChange={(value) => setPlanNodeTypeFilter(String(value))} items={planNodeTypeItems} className="w-36" /><Select alignItemWithTrigger size="sm" aria-label="节点来源筛选" value={planNodeSourceFilter} onValueChange={(value) => setPlanNodeSourceFilter(String(value))} items={[{ value: 'all', label: '全部来源' }, { value: 'internal', label: 'Agent 节点' }, { value: 'external', label: '外部节点' }]} className="w-36" /></div><div className="flex items-center gap-2"><Badge variant="neutral">已选 {planForm.node_ids.length}</Badge><Button size="sm" variant="secondary" disabled={visiblePlanNodeIDs.length === 0} onClick={() => setPlanForm((prev) => ({ ...prev, node_ids: allVisiblePlanNodesSelected ? prev.node_ids.filter((id) => !visiblePlanNodeIDs.includes(id)) : [...new Set([...prev.node_ids, ...visiblePlanNodeIDs])] }))}>{allVisiblePlanNodesSelected ? '取消当前全部' : '全选当前结果'}</Button></div></div>
 				<div className="max-h-72 overflow-auto rounded-md border border-kumo-line p-2 scrollbar-thin"><div className="grid gap-1 cq-sm:grid-cols-2 cq-lg:grid-cols-3">{visiblePlanNodes.map((node) => <label key={`${node.source_group}-${node.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 hover:bg-kumo-recessed"><Checkbox aria-label={`选择套餐节点 ${node.name}`} checked={planForm.node_ids.includes(node.id)} onCheckedChange={(checked) => setPlanForm((prev) => ({ ...prev, node_ids: checked ? [...new Set([...prev.node_ids, node.id])] : prev.node_ids.filter((id) => id !== node.id) }))} /><span className="min-w-0 flex-1 truncate text-xs font-semibold">{node.name}</span><Badge variant="neutral">{node.source_group === 'internal' ? 'Agent' : '外部'}</Badge><Badge variant={nodeTypeBadgeVariant(node.display_type)}>{node.display_type || '-'}</Badge></label>)}{visiblePlanNodes.length === 0 && <div className="p-5 text-center text-xs text-kumo-subtle cq-sm:col-span-2 cq-lg:col-span-3">没有符合类型与来源条件的节点</div>}</div></div>
               </>}
             </div>
@@ -2618,13 +2622,13 @@ function SubscriptionPage() {
                 </div>
               </div>
             </div>}
-            {!editingInternalNodeId && <Select size="sm" label="节点协议" value={internalNodeForm.protocol} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, protocol: String(value), access_mode: String(value) === 'socks' || String(value) === 'http' ? 'direct' : prev.access_mode }))} items={[{ value: 'vless-reality', label: 'VLESS REALITY' }, { value: 'hysteria2', label: 'Hysteria2' }, { value: 'socks', label: 'SOCKS5' }, { value: 'http', label: 'HTTP' }]} />}
+            {!editingInternalNodeId && <Select alignItemWithTrigger size="sm" label="节点协议" value={internalNodeForm.protocol} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, protocol: String(value), access_mode: String(value) === 'socks' || String(value) === 'http' ? 'direct' : prev.access_mode }))} items={[{ value: 'vless-reality', label: 'VLESS REALITY' }, { value: 'hysteria2', label: 'Hysteria2' }, { value: 'socks', label: 'SOCKS5' }, { value: 'http', label: 'HTTP' }]} />}
             <Input size="sm" label={editingInternalNodeId ? '节点名称' : selectedInternalHosts.size > 1 ? '节点名称前缀（可选）' : '节点名称（可选）'} placeholder="留空按实例名生成" value={internalNodeForm.name} onChange={(event) => setInternalNodeForm((prev) => ({ ...prev, name: event.target.value }))} />
             {!editingInternalNodeId && internalNodeForm.protocol === 'vless-reality' && <Input size="sm" label="REALITY 握手站点" placeholder="默认 www.cloudflare.com" value={internalNodeForm.server_name} onChange={(event) => setInternalNodeForm((prev) => ({ ...prev, server_name: event.target.value }))} />}
             {!editingInternalNodeId && internalNodeForm.protocol === 'hysteria2' && <div className="flex min-h-8 items-center rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 text-xs text-kumo-subtle">TLS 信息自动生成。</div>}
             {!editingInternalNodeId && (internalNodeForm.protocol === 'socks' || internalNodeForm.protocol === 'http') && <div className="flex min-h-8 items-center rounded-md border border-kumo-info/25 bg-kumo-info/10 px-3 text-xs text-kumo-subtle">SOCKS/HTTP 仅直连，无 TLS 加密。</div>}
-            {!editingInternalNodeId && <Select size="sm" label="接入方式" value={internalNodeForm.access_mode || 'direct'} disabled={internalNodeForm.protocol === 'socks' || internalNodeForm.protocol === 'http'} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, access_mode: String(value) }))} items={[{ value: 'direct', label: '直连节点' }, { value: 'cloudflare_tunnel', label: 'Cloudflare Tunnel（VLESS WS）' }]} />}
-            {internalNodeForm.access_mode === 'cloudflare_tunnel' && <Select size="sm" label="优选地址" value={internalNodeForm.preferred_address_id || ''} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, preferred_address_id: String(value) }))} items={[{ value: '', label: '继承默认地址' }, ...preferredAddresses.map((item) => ({ value: item.id, label: `${item.name} · ${item.address}` }))]} />}
+            {!editingInternalNodeId && <Select alignItemWithTrigger size="sm" label="接入方式" value={internalNodeForm.access_mode || 'direct'} disabled={internalNodeForm.protocol === 'socks' || internalNodeForm.protocol === 'http'} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, access_mode: String(value) }))} items={[{ value: 'direct', label: '直连节点' }, { value: 'cloudflare_tunnel', label: 'Cloudflare Tunnel（VLESS WS）' }]} />}
+            {internalNodeForm.access_mode === 'cloudflare_tunnel' && <Select alignItemWithTrigger size="sm" label="优选地址" value={internalNodeForm.preferred_address_id || ''} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, preferred_address_id: String(value) }))} items={[{ value: '', label: '继承默认地址' }, ...preferredAddresses.map((item) => ({ value: item.id, label: `${item.name} · ${item.address}` }))]} />}
             <div className="flex min-h-8 items-center rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2"><Switch size="sm" label="稳定节点" controlFirst={false} checked={!!internalNodeForm.stable} onCheckedChange={(checked) => setInternalNodeForm((prev) => ({ ...prev, stable: checked }))} /></div>
           </div>
           <div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Button size="sm" variant="secondary" onClick={() => setInternalNodeModalOpen(false)}>取消</Button><Button size="sm" variant="primary" loading={saving} onClick={editingInternalNodeId ? saveInternalNode : createInternalNode}>{editingInternalNodeId ? '保存' : '生成节点'}</Button></div>
@@ -2634,7 +2638,7 @@ function SubscriptionPage() {
 		<Dialog.Root open={tunnelModalOpen} onOpenChange={setTunnelModalOpen}>
 			<Dialog size="lg" className="@container w-[calc(100vw-1rem)] max-w-2xl p-0">
 				<div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>部署 Cloudflare Named Tunnel</Dialog.Title></div>
-				<div className="grid gap-3 p-3 cq-sm:grid-cols-2 cq-sm:p-5"><Select size="sm" label="Cloudflare 账号" value={tunnelForm.account_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, account_id: String(value), zone_id: '', hostname: '' }))} items={cloudflareAccounts.map((item) => ({ value: item.id, label: item.name || item.email || item.id }))} /><Select size="sm" label="DNS Zone" value={tunnelForm.zone_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, zone_id: String(value) }))} items={cloudflareZones.map((item) => ({ value: item.id, label: item.name || item.id }))} /><Input size="sm" className="cq-sm:col-span-2" label="自动生成的 Tunnel 域名" value={tunnelForm.hostname || '选择 DNS Zone 后自动生成'} readOnly /></div>
+				<div className="grid gap-3 p-3 cq-sm:grid-cols-2 cq-sm:p-5"><Select alignItemWithTrigger size="sm" label="Cloudflare 账号" value={tunnelForm.account_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, account_id: String(value), zone_id: '', hostname: '' }))} items={cloudflareAccounts.map((item) => ({ value: item.id, label: item.name || item.email || item.id }))} /><Select alignItemWithTrigger size="sm" label="DNS Zone" value={tunnelForm.zone_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, zone_id: String(value) }))} items={cloudflareZones.map((item) => ({ value: item.id, label: item.name || item.id }))} /><Input size="sm" className="cq-sm:col-span-2" label="自动生成的 Tunnel 域名" value={tunnelForm.hostname || '选择 DNS Zone 后自动生成'} readOnly /></div>
 				<div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Button size="sm" variant="secondary" onClick={() => setTunnelModalOpen(false)}>取消</Button><Button size="sm" variant="primary" onClick={() => deployTunnel()} disabled={!tunnelTargetServer || !tunnelForm.hostname}>开始部署</Button></div>
 			</Dialog>
 		</Dialog.Root>
@@ -2735,7 +2739,7 @@ function SubscriptionPage() {
                     <div className="min-w-0">
                       <Input size="sm" label="名称" value={subscriptionForm.name} onChange={(e) => setSubscriptionForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full min-w-0" />
                     </div>
-                    <div className="min-w-0"><Select size="sm" label="套餐" value={subscriptionForm.plan_id || ''} onValueChange={(value) => setSubscriptionForm((prev) => ({ ...prev, plan_id: String(value) }))} items={planItems} className="w-full min-w-0" /></div>
+                    <div className="min-w-0"><Select alignItemWithTrigger size="sm" label="套餐" value={subscriptionForm.plan_id || ''} onValueChange={(value) => setSubscriptionForm((prev) => ({ ...prev, plan_id: String(value) }))} items={planItems} className="w-full min-w-0" /></div>
                   </div>
                 </section>
 
@@ -2923,7 +2927,7 @@ function SubscriptionPage() {
               <div className="grid gap-4">
                 <div className="grid gap-3 cq-sm:grid-cols-2">
                   <Input size="sm" label="名称" value={templateForm.name} onChange={(e) => setTemplateForm((prev) => ({ ...prev, name: e.target.value }))} />
-                  <Select size="sm" label="格式" value={templateForm.format} onValueChange={(value) => setTemplateForm((prev) => ({ ...prev, format: String(value) }))} items={[{ value: 'clash', label: 'Mihomo/Clash YAML' }, { value: 'raw', label: 'Raw URI List' }, { value: 'base64', label: 'Base64 URI List' }]} />
+                  <Select alignItemWithTrigger size="sm" label="格式" value={templateForm.format} onValueChange={(value) => setTemplateForm((prev) => ({ ...prev, format: String(value) }))} items={[{ value: 'clash', label: 'Mihomo/Clash YAML' }, { value: 'raw', label: 'Raw URI List' }, { value: 'base64', label: 'Base64 URI List' }]} />
                 </div>
                 <TemplateCodeEditor label="模板内容" value={templateForm.content} format={templateForm.format} onChange={(content) => setTemplateForm((prev) => ({ ...prev, content }))} />
                 <Input size="sm" label="描述" value={templateForm.description} onChange={(e) => setTemplateForm((prev) => ({ ...prev, description: e.target.value }))} />

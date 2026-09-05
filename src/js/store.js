@@ -72,6 +72,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-github',
     description: '仓库与 Actions',
   },
+  dockerhub: {
+    name: 'Docker Hub',
+    shortName: 'Docker Hub',
+    icon: 'fa-docker',
+    description: '账号与镜像仓库',
+  },
   tencent: {
     name: '腾讯云',
     shortName: '腾讯',
@@ -144,6 +150,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-message',
     description: '管理与发布',
   },
+  bookmarks: {
+    name: '网址导航',
+    shortName: '导航',
+    icon: 'fa-bookmark',
+    description: '收藏与快速访问',
+  },
   adminai: {
     name: '管理 AI',
     shortName: 'AI',
@@ -174,7 +186,7 @@ export const MODULE_GROUPS = [
       {
         id: 'devops',
         name: 'DevOps',
-        modules: ['github'],
+        modules: ['github', 'dockerhub'],
       },
     ],
     trailingModules: ['server', 'paas'],
@@ -193,7 +205,7 @@ export const MODULE_GROUPS = [
       {
         id: 'utility-tools',
         name: '实用工具',
-        modules: ['filebox', 'drawio', 'prompts'],
+        modules: ['filebox', 'drawio', 'prompts', 'bookmarks'],
       },
     ],
     trailingModules: ['totp'],

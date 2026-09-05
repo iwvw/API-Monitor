@@ -314,7 +314,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
               loadDirectory(pathInput);
             }}
           >
-            <Button shape="square" size="sm" variant="secondary" icon={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => loadDirectory(breadcrumbs.at(-2)?.path || breadcrumbs[0]?.path || currentPath)} />
+            <Button shape="square" size="sm" variant="secondary" icon={<ArrowLeft className="h-3.5 w-3.5" />} aria-label="返回上级目录" onClick={() => loadDirectory(breadcrumbs.at(-2)?.path || breadcrumbs[0]?.path || currentPath)} />
             <Input size="sm" aria-label="SFTP 路径" value={pathInput} onChange={event => setPathInput(event.target.value)} className="min-w-0 flex-1 font-mono" />
             <Button size="sm" variant="primary" type="submit">跳转</Button>
           </form>

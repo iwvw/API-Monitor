@@ -85,7 +85,7 @@ const normalizeFlyImageForInput = (image) => {
 };
 
 function PaasPage() {
-  const { theme } = useStore();
+  const theme = useStore(s => s.theme);
   const { isArmed, confirmPress } = useConfirmPress();
   const [activeTab, setActiveTab] = useState('fly'); // 'fly' | 'koyeb' | 'config'
   const didInitialLoadRef = useRef(false);
@@ -3128,7 +3128,7 @@ function PaasPage() {
             </div>
             <div className="space-y-1">
               <label className="text-[11px] font-semibold text-kumo-subtle">实例规格</label>
-              <Select
+              <Select alignItemWithTrigger
                 aria-label="实例规格" size="sm"
                 value={koyebConfigForm.instanceType}
                 onValueChange={(value) => setKoyebConfigForm((f) => ({ ...f, instanceType: String(value) }))}
@@ -3360,7 +3360,7 @@ function PaasPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-kumo-subtle">类型</label>
-                <Select
+                <Select alignItemWithTrigger
                   aria-label="服务类型" size="sm"
                   value={koyebCreateForm.type}
                   onValueChange={(value) => setKoyebCreateForm((f) => ({ ...f, type: String(value) }))}
@@ -3386,7 +3386,7 @@ function PaasPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-kumo-subtle">实例规格</label>
-                <Select
+                <Select alignItemWithTrigger
                   aria-label="实例规格" size="sm"
                   value={koyebCreateForm.instanceType}
                   onValueChange={(value) => setKoyebCreateForm((f) => ({ ...f, instanceType: String(value) }))}
@@ -3495,7 +3495,7 @@ function PaasPage() {
               />
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[10px]">
-              <Select
+              <Select alignItemWithTrigger
                 aria-label="日志级别筛选" size="sm"
                 value={logLevelFilter}
                 onValueChange={(value) => setLogLevelFilter(String(value))}

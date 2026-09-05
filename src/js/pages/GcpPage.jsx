@@ -11,6 +11,7 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { Button } from '@cloudflare/kumo/components/button';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -91,6 +92,20 @@ const emptyCreateForm = {
   subnetwork: '',
 };
 
+const emptyFirewallForm = {
+  name: '',
+  description: '',
+  direction: 'INGRESS',
+  priority: 1000,
+  action: 'allow',
+  sourceRanges: '',
+  destinationRanges: '',
+  protocol: 'tcp',
+  ports: '',
+  network: '',
+  disabled: false,
+};
+
 const tabs = [
   { value: 'instances', label: <span className="inline-flex items-center gap-1.5"><Server className="h-3.5 w-3.5" />实例</span> },
   { value: 'disks', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="h-3.5 w-3.5" />磁盘</span> },
@@ -111,19 +126,21 @@ const stateOptions = [
 ];
 
 const INSTANCE_TABLE_COLUMNS = [
-  { id: 'name', role: 'primary' },
+  { id: 'name', role: 'primary', width: 200, minWidth: 160 },
   { id: 'status', role: 'status' },
-  { id: 'publicIp', role: 'identifier' },
+  { id: 'publicIp', role: 'identifier', width: 180, minWidth: 150 },
+  { id: 'spec', role: 'meta', width: 180 },
   { id: 'zone', role: 'meta', grow: 1, minWidth: 140 },
-  { id: 'machineType', role: 'meta', width: 120 },
   { id: 'createdAt', role: 'datetime' },
+  { id: 'actions', role: 'actions-lg', width: 150 },
 ];
 const DISK_TABLE_COLUMNS = [
-  { id: 'name', role: 'primary' },
+  { id: 'name', role: 'primary', width: 200, minWidth: 160 },
   { id: 'zone', role: 'meta', grow: 1, minWidth: 140 },
   { id: 'type', role: 'meta', width: 120 },
   { id: 'sizeGb', role: 'number', width: 88 },
   { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-lg', width: 150 },
 ];
 const ACCOUNT_TABLE_COLUMNS = [
   { id: 'name', role: 'primary' },
@@ -133,11 +150,12 @@ const ACCOUNT_TABLE_COLUMNS = [
   { id: 'actions', role: 'actions-lg', width: 160, maxWidth: 200 },
 ];
 const FIREWALL_TABLE_COLUMNS = [
-  { id: 'name', role: 'primary' },
-  { id: 'direction', role: 'meta', width: 90 },
+  { id: 'name', role: 'primary', minWidth: 180 },
+  { id: 'direction', role: 'meta', width: 100 },
   { id: 'action', role: 'status' },
-  { id: 'priority', role: 'number', width: 80 },
-  { id: 'network', role: 'meta', grow: 1, minWidth: 140 },
+  { id: 'priority', role: 'number', width: 90 },
+  { id: 'network', role: 'meta', width: 140 },
+  { id: 'actions', role: 'actions-lg', width: 130 },
 ];
 const ADDRESS_TABLE_COLUMNS = [
   { id: 'name', role: 'primary' },
@@ -228,6 +246,50 @@ function formatSize(value) {
   return `${num} B`;
 }
 
+function parseSaSummary(json) {
+  if (!json || !json.trim()) return null;
+  try {
+    const data = JSON.parse(json);
+    if (!data || typeof data !== 'object') return null;
+    return {
+      projectId: data.project_id || '',
+      clientEmail: data.client_email || '',
+      clientId: data.client_id || '',
+      keyId: data.private_key_id || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function SaSummary({ json, onImport }) {
+  const summary = parseSaSummary(json);
+  if (!summary) return null;
+  const rows = [
+    summary.projectId && { label: '项目', value: summary.projectId },
+    summary.clientEmail && { label: 'SA 邮箱', value: summary.clientEmail },
+    summary.clientId && { label: 'Client ID', value: summary.clientId },
+    summary.keyId && { label: '密钥 ID', value: summary.keyId },
+  ].filter(Boolean);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-md border border-kumo-interact/85 bg-kumo-recessed/40 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-medium text-kumo-subtle">解析的凭证信息</span>
+        {onImport && <Button type="button" size="sm" variant="ghost" className="h-5 px-1 text-[11px]" onClick={onImport}>读取到文件</Button>}
+      </div>
+      <div className="grid grid-cols-1 gap-1.5 text-xs cq-sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.label} className="min-w-0">
+            <div className="text-kumo-subtle">{row.label}</div>
+            <div className="truncate font-mono text-kumo-strong" title={row.value}>{row.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GcpPage() {
   const theme = useStore((state) => state.theme);
   const isDarkMode = theme === 'dark';
@@ -264,9 +326,11 @@ function GcpPage() {
   const [createForm, setCreateForm] = useState(emptyCreateForm);
   const [zones, setZones] = useState([]);
   const [machineTypes, setMachineTypes] = useState([]);
+  const machineTypesSeq = useRef(0);
   const [subnetworks, setSubnetworks] = useState([]);
   const [images, setImages] = useState([]);
   const [loadingCreateOptions, setLoadingCreateOptions] = useState(false);
+  const [loadingMachineTypes, setLoadingMachineTypes] = useState(false);
   const [submittingCreate, setSubmittingCreate] = useState(false);
   const [resizeDialogOpen, setResizeDialogOpen] = useState(false);
   const [resizeTarget, setResizeTarget] = useState(null);
@@ -274,7 +338,13 @@ function GcpPage() {
   const [bucketDialogOpen, setBucketDialogOpen] = useState(false);
   const [bucketForm, setBucketForm] = useState({ name: '', location: '', storageClass: 'STANDARD' });
   const [submittingBucket, setSubmittingBucket] = useState(false);
+  const [firewallDialogOpen, setFirewallDialogOpen] = useState(false);
+  const [editingFirewall, setEditingFirewall] = useState(null);
+  const [firewallForm, setFirewallForm] = useState(emptyFirewallForm);
+  const [submittingFirewall, setSubmittingFirewall] = useState(false);
   const [uploadingObject, setUploadingObject] = useState(false);
+  const [selectedDetail, setSelectedDetail] = useState(null);
+  const [selectedObjects, setSelectedObjects] = useState(new Set());
   const objectFileInputRef = useRef(null);
   const accountFileInputRef = useRef(null);
 
@@ -781,23 +851,42 @@ function GcpPage() {
 
   const openCreateInstance = async () => {
     setCreateForm(emptyCreateForm);
+    setMachineTypes([]);
     setCreateDialogOpen(true);
     setLoadingCreateOptions(true);
     try {
-      const [zonesResult, machineResult, imageResult, subResult] = await Promise.all([
+      const [zonesResult, imageResult, subResult] = await Promise.all([
         apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/zones`),
-        apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/machine-types`),
         apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/images`),
         apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/subnetworks`),
       ]);
       setZones(unwrap(zonesResult).zones || []);
-      setMachineTypes(unwrap(machineResult).machineTypes || []);
       setImages(unwrap(imageResult).images || []);
       setSubnetworks(unwrap(subResult).subnetworks || []);
     } catch (error) {
       toast.error(error.message || '加载创建选项失败');
     } finally {
       setLoadingCreateOptions(false);
+    }
+  };
+
+  const loadMachineTypesForZone = async (zone) => {
+    if (!zone) {
+      setMachineTypes([]);
+      return;
+    }
+    const seq = ++machineTypesSeq.current;
+    setLoadingMachineTypes(true);
+    try {
+      const machineResult = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/machine-types?zone=${encodeURIComponent(zone)}`);
+      if (seq !== machineTypesSeq.current) return;
+      setMachineTypes(unwrap(machineResult).machineTypes || []);
+    } catch (error) {
+      if (seq !== machineTypesSeq.current) return;
+      setMachineTypes([]);
+      toast.error(error.message || '加载机型失败');
+    } finally {
+      if (seq === machineTypesSeq.current) setLoadingMachineTypes(false);
     }
   };
 
@@ -935,6 +1024,78 @@ function GcpPage() {
     }
   };
 
+  const openFirewallDialog = (fw = null) => {
+    setEditingFirewall(fw);
+    setFirewallForm(fw ? {
+      name: fw.name || '',
+      description: '',
+      direction: fw.direction || 'INGRESS',
+      priority: fw.priority || 1000,
+      action: fw.allowed?.length ? 'allow' : 'deny',
+      sourceRanges: (fw.sourceRanges || []).join(', '),
+      destinationRanges: (fw.destinationRanges || []).join(', '),
+      protocol: fw.allowed?.[0]?.ipProtocol || fw.denied?.[0]?.ipProtocol || 'tcp',
+      ports: fw.allowed?.[0]?.ports?.join(', ') || fw.denied?.[0]?.ports?.join(', ') || '',
+      network: fw.network || '',
+      disabled: false,
+    } : { ...emptyFirewallForm });
+    setFirewallDialogOpen(true);
+  };
+
+  const submitFirewall = async () => {
+    if (!firewallForm.name.trim()) { toast.error('请填写规则名称'); return; }
+    setSubmittingFirewall(true);
+    try {
+      const rules = [{
+        ipProtocol: firewallForm.protocol.trim() || 'tcp',
+        ...(firewallForm.ports.trim() ? { ports: firewallForm.ports.split(',').map((p) => p.trim()).filter(Boolean) } : {}),
+      }];
+      const payload = {
+        name: firewallForm.name.trim(),
+        ...(firewallForm.description.trim() ? { description: firewallForm.description.trim() } : {}),
+        ...(firewallForm.network.trim() ? { network: firewallForm.network.trim() } : {}),
+        direction: firewallForm.direction,
+        priority: Number(firewallForm.priority) || 1000,
+        ...(firewallForm.sourceRanges.trim() ? { sourceRanges: firewallForm.sourceRanges.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+        ...(firewallForm.destinationRanges.trim() ? { destinationRanges: firewallForm.destinationRanges.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+        ...(firewallForm.action === 'allow' ? { allowed: rules } : { denied: rules }),
+        disabled: Boolean(firewallForm.disabled),
+      };
+      const basePath = `/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}`;
+      if (editingFirewall) {
+        await apiFetch(`${basePath}/firewalls/${encodeURIComponent(editingFirewall.name)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        toast.success('防火墙规则已更新');
+      } else {
+        await apiFetch(`${basePath}/firewalls`, { method: 'POST', body: JSON.stringify(payload) });
+        toast.success('防火墙规则已创建');
+      }
+      setFirewallDialogOpen(false);
+      cacheRef.current.firewalls.delete(scopeCacheKey());
+      setTimeout(() => loadNetwork({ force: true }), 1500);
+    } catch (error) {
+      toast.error(error.message || '保存防火墙规则失败');
+    } finally {
+      setSubmittingFirewall(false);
+    }
+  };
+
+  const deleteFirewall = async (fw) => {
+    const ok = await dialog.deleteResource({
+      title: '删除防火墙规则',
+      message: `确定删除防火墙规则「${fw.name}」吗？`,
+      confirmLabel: '删除规则',
+    });
+    if (!ok) return;
+    try {
+      await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/firewalls/${encodeURIComponent(fw.name)}`, { method: 'DELETE' });
+      toast.success('防火墙规则已删除');
+      cacheRef.current.firewalls.delete(scopeCacheKey());
+      setTimeout(() => loadNetwork({ force: true }), 1500);
+    } catch (error) {
+      toast.error(error.message || '删除防火墙规则失败');
+    }
+  };
+
   const deleteObject = async (object) => {
     const ok = await dialog.deleteResource({
       title: '删除对象',
@@ -949,6 +1110,43 @@ function GcpPage() {
       loadObjects({ force: true, silent: true });
     } catch (error) {
       toast.error(error.message || '删除对象失败');
+    }
+  };
+
+  const toggleObjectSelection = (name) => {
+    setSelectedObjects((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const toggleAllObjects = () => {
+    setSelectedObjects((current) => {
+      if (objects.length > 0 && current.size === objects.length) return new Set();
+      return new Set(objects.map((object) => object.name));
+    });
+  };
+
+  const deleteSelectedObjects = async () => {
+    if (selectedObjects.size === 0) return;
+    const ok = await dialog.deleteResource({
+      title: '批量删除对象',
+      message: `确定删除选中的 ${selectedObjects.size} 个对象吗？`,
+      confirmLabel: '删除选中',
+    });
+    if (!ok) return;
+    try {
+      await Promise.all(Array.from(selectedObjects).map((name) =>
+        apiFetch(`/api/gcp/accounts/${selectedAccountId}/buckets/${encodeURIComponent(selectedBucket)}/objects/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      ));
+      toast.success(`已删除 ${selectedObjects.size} 个对象`);
+      setSelectedObjects(new Set());
+      cacheRef.current.objects.delete(`${selectedAccountId}/${selectedBucket}`);
+      loadObjects({ force: true, silent: true });
+    } catch (error) {
+      toast.error(error.message || '批量删除对象失败');
     }
   };
 
@@ -1013,25 +1211,25 @@ function GcpPage() {
     const running = instance.state === 'RUNNING';
     const terminated = instance.state === 'TERMINATED';
     return (
-      <div className="flex items-center justify-end gap-1">
+      <div className="flex items-center justify-center gap-1">
         {!running && !terminated && <span className="px-1 text-xs text-kumo-subtle">处理中</span>}
         {!running && (
-          <Button type="button" size="sm" variant="secondary" title="启动" onClick={() => runInstanceAction(instance, 'start')}>
+          <Button type="button" size="sm" shape="square" variant="secondary" title="启动" aria-label="启动" onClick={() => runInstanceAction(instance, 'start')}>
             <Play className="h-4 w-4" />
           </Button>
         )}
         {running && (
           <>
-            <Button type="button" size="sm" variant="secondary" title="停止" onClick={() => runInstanceAction(instance, 'stop')}>
+            <Button type="button" size="sm" shape="square" variant="secondary" title="停止" aria-label="停止" onClick={() => runInstanceAction(instance, 'stop')}>
               <Square className="h-4 w-4" />
             </Button>
-            <Button type="button" size="sm" variant="secondary" title="重启" onClick={() => runInstanceAction(instance, 'reset')}>
+            <Button type="button" size="sm" shape="square" variant="secondary" title="重启" aria-label="重启" onClick={() => runInstanceAction(instance, 'reset')}>
               <RotateCw className="h-4 w-4" />
             </Button>
           </>
         )}
         {!terminated && (
-          <Button type="button" size="sm" variant="danger" title="删除" onClick={() => runInstanceAction(instance, 'delete')}>
+          <Button type="button" size="sm" shape="square" variant="danger" title="删除" aria-label="删除" onClick={() => runInstanceAction(instance, 'delete')}>
             <Trash className="h-4 w-4" />
           </Button>
         )}
@@ -1040,28 +1238,155 @@ function GcpPage() {
   };
 
   const renderDiskActions = (disk) => (
-    <div className="flex items-center justify-end gap-1">
-      <Button type="button" size="sm" variant="secondary" title="扩容" onClick={() => openResizeDisk(disk)}>
+    <div className="flex items-center justify-center gap-1">
+      <Button type="button" size="sm" shape="square" variant="secondary" title="扩容" aria-label="扩容" onClick={() => openResizeDisk(disk)}>
         <Settings className="h-4 w-4" />
       </Button>
-      <Button type="button" size="sm" variant="secondary" title="快照" onClick={() => snapshotDisk(disk)}>
+      <Button type="button" size="sm" shape="square" variant="secondary" title="快照" aria-label="快照" onClick={() => snapshotDisk(disk)}>
         <Download className="h-4 w-4" />
       </Button>
-      <Button type="button" size="sm" variant="danger" title="删除" onClick={() => deleteDisk(disk)}>
+      <Button type="button" size="sm" shape="square" variant="danger" title="删除" aria-label="删除" onClick={() => deleteDisk(disk)}>
         <Trash className="h-4 w-4" />
       </Button>
     </div>
   );
 
-  const renderAccountActions = (account) => (
-    <div className="flex items-center justify-end gap-1">
-      <Button type="button" size="sm" variant="secondary" title="验证" onClick={() => verifyAccount(account)}>
-        <Shield className="h-4 w-4" />
-      </Button>
-      <Button type="button" size="sm" variant="secondary" title="编辑" onClick={() => openEditAccount(account)}>
+  const renderFirewallActions = (fw) => (
+    <div className="flex items-center justify-center gap-1">
+      <Button type="button" size="sm" shape="square" variant="secondary" title="编辑" aria-label="编辑" onClick={() => openFirewallDialog(fw)}>
         <Settings className="h-4 w-4" />
       </Button>
-      <Button type="button" size="sm" variant="danger" title="删除" onClick={() => deleteAccount(account)}>
+      <Button type="button" size="sm" shape="square" variant="danger" title="删除" aria-label="删除" onClick={() => deleteFirewall(fw)}>
+        <Trash className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+
+  const closeDetail = () => setSelectedDetail(null);
+
+  const renderDetailRows = (rows) => (
+    <KeyValueGrid
+      columns={1}
+      items={rows.filter((row) => row && (row.show ?? true)).map((row) => ({
+        key: row.label,
+        label: row.label,
+        value: row.value ?? '-',
+      }))}
+    />
+  );
+
+  const openDetail = (kind, data) => setSelectedDetail({ kind, data });
+
+  const detailTitle = selectedDetail ? (
+    { instance: '实例详情', disk: '磁盘详情', firewall: '防火墙规则详情', address: '静态 IP 详情', budget: '预算详情', billingAccount: '计费账号详情', object: '对象详情', account: '账号详情' }[selectedDetail.kind] || '资源详情'
+  ) : '';
+
+  const renderDetailContent = () => {
+    if (!selectedDetail) return null;
+    const { kind, data } = selectedDetail;
+    if (kind === 'instance') {
+      return renderDetailRows([
+        { label: '名称', value: <span className="font-medium text-kumo-strong">{data.name}</span> },
+        { label: '实例 ID', value: <span className="font-mono text-xs">{data.id}</span> },
+        { label: '状态', value: <StatusBadge tone={getGcpStatusTone(data.state)}>{data.state || '-'}</StatusBadge> },
+        { label: '机型', value: data.machineType },
+        { label: '规格', value: data.guestCpus > 0 ? `${data.guestCpus} vCPU / ${formatMemoryGb(data.memoryMb)}` : '-' },
+        { label: '可用区', value: data.zone },
+        { label: '公网 IP', value: data.publicIp ? <span className="inline-flex items-center gap-1"><span className="font-mono text-xs">{data.publicIp}</span><Button type="button" size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => copyText(data.publicIp)}><Copy className="h-3 w-3" /></Button></span> : '-' },
+        { label: '内网 IP', value: data.privateIp ? <span className="font-mono text-xs">{data.privateIp}</span> : '-' },
+        { label: '镜像', value: data.image },
+        { label: '创建时间', value: formatDate(data.creationTimestamp) },
+        { label: '删除保护', value: data.deletionProtection ? '开启' : '关闭' },
+        { label: '标签', value: data.labels && Object.keys(data.labels).length > 0 ? <pre className="whitespace-pre-wrap text-xs text-kumo-strong">{JSON.stringify(data.labels, null, 2)}</pre> : '无' },
+        { label: '磁盘', value: (data.disks || []).length > 0 ? data.disks.map((disk) => `${disk.deviceName || disk.source || ''}（${disk.type || ''}${disk.boot ? ' · 引导盘' : ''}${disk.diskSizeGb ? ` · ${disk.diskSizeGb}GB` : ''}）`).filter(Boolean).join('、') : '无' },
+      ]);
+    }
+    if (kind === 'disk') {
+      return renderDetailRows([
+        { label: '名称', value: <span className="font-medium text-kumo-strong">{data.name}</span> },
+        { label: '磁盘 ID', value: <span className="font-mono text-xs">{data.id}</span> },
+        { label: '可用区', value: data.zone },
+        { label: '类型', value: data.type },
+        { label: '大小', value: formatGb(data.sizeGb) },
+        { label: '状态', value: <StatusBadge tone={getGcpStatusTone(data.status)}>{data.status || '-'}</StatusBadge> },
+        { label: '创建时间', value: formatDate(data.creationTimestamp) },
+        { label: '源快照', value: data.sourceSnapshot || '-' },
+        { label: '挂载实例', value: (data.users || []).length > 0 ? data.users.map((user) => user.split('/').pop()).join('、') : '未挂载' },
+        { label: '标签', value: data.labels && Object.keys(data.labels).length > 0 ? <pre className="whitespace-pre-wrap text-xs text-kumo-strong">{JSON.stringify(data.labels, null, 2)}</pre> : '无' },
+      ]);
+    }
+    if (kind === 'firewall') {
+      return renderDetailRows([
+        { label: '名称', value: <span className="font-medium text-kumo-strong">{data.name}</span> },
+        { label: '方向', value: data.direction },
+        { label: '动作', value: <StatusBadge tone={data.action === 'ALLOW' ? 'success' : 'danger'}>{data.action || '-'}</StatusBadge> },
+        { label: '优先级', value: data.priority },
+        { label: '网络', value: data.network },
+        { label: '来源网段', value: (data.sourceRanges || []).join('、') || '-' },
+        { label: '目标网段', value: (data.destinationRanges || []).join('、') || '-' },
+        { label: '允许规则', value: (data.allowed || []).map((rule) => `${rule.ipProtocol}${rule.ports ? `:${rule.ports.join(',')}` : ''}`).join('；') || '-' },
+        { label: '拒绝规则', value: (data.denied || []).map((rule) => `${rule.ipProtocol}${rule.ports ? `:${rule.ports.join(',')}` : ''}`).join('；') || '-' },
+      ]);
+    }
+    if (kind === 'address') {
+      return renderDetailRows([
+        { label: '名称', value: <span className="font-medium text-kumo-strong">{data.name}</span> },
+        { label: '地址', value: <span className="font-mono text-xs">{data.address}</span> },
+        { label: '区域', value: data.region },
+        { label: '类型', value: data.type || '-' },
+        { label: '状态', value: <StatusBadge tone={getGcpStatusTone(data.status)}>{data.status || '-'}</StatusBadge> },
+        { label: '占用者', value: (data.users || []).length > 0 ? data.users.map((user) => user.split('/').pop()).join('、') : '未占用' },
+      ]);
+    }
+    if (kind === 'budget') {
+      return renderDetailRows([
+        { label: '名称', value: <span className="font-medium text-kumo-strong">{data.displayName || data.name}</span> },
+        { label: '预算 ID', value: <span className="font-mono text-xs">{data.name}</span> },
+        { label: '金额', value: data.amount ? `${data.amount} ${data.currencyCode || ''}`.trim() : '-' },
+        { label: '状态', value: <StatusBadge tone={getGcpStatusTone(data.state)}>{data.state || '-'}</StatusBadge> },
+        { label: '阈值', value: (data.thresholdRules || []).map((rule) => `${rule.thresholdPercent}%${rule.spendBasis ? `（${rule.spendBasis}）` : ''}`).join('、') || '-' },
+      ]);
+    }
+    if (kind === 'billingAccount') {
+      return renderDetailRows([
+        { label: 'ID', value: <span className="font-mono text-xs">{data.name}</span> },
+        { label: '名称', value: <span className="font-medium text-kumo-strong">{data.displayName}</span> },
+        { label: '状态', value: <StatusBadge tone={data.open ? 'success' : 'neutral'}>{data.open ? '启用' : '停用'}</StatusBadge> },
+      ]);
+    }
+    if (kind === 'object') {
+      return renderDetailRows([
+        { label: '名称', value: <span className="break-all font-medium text-kumo-strong">{data.name}</span> },
+        { label: '大小', value: formatSize(data.size) },
+        { label: '类型', value: data.contentType || '-' },
+        { label: '创建时间', value: formatDate(data.timeCreated) },
+        { label: '更新时间', value: formatDate(data.updated) },
+      ]);
+    }
+    if (kind === 'account') {
+      return renderDetailRows([
+        { label: '名称', value: <span className="font-medium text-kumo-strong">{data.name}</span> },
+        { label: 'Service Account', value: <span className="break-all font-mono text-xs">{data.clientEmail}</span> },
+        { label: '默认项目', value: data.defaultProjectId ? <span className="font-mono text-xs">{data.defaultProjectId}</span> : '-' },
+        { label: '验证状态', value: <StatusBadge tone={getGcpStatusTone(data.lastVerifyStatus)}>{getVerifyStatusLabel(data.lastVerifyStatus)}</StatusBadge> },
+        { label: '备注', value: data.description || '-' },
+        { label: '创建时间', value: formatDate(data.createdAt) },
+        { label: '更新时间', value: formatDate(data.updatedAt) },
+        { label: 'SA 凭证', value: data.hasServiceAccountJson ? '已保存（加密存储）' : '未保存' },
+      ]);
+    }
+    return null;
+  };
+
+  const renderAccountActions = (account) => (
+    <div className="flex items-center justify-end gap-1">
+      <Button type="button" size="sm" shape="square" variant="secondary" title="验证" aria-label="验证" onClick={() => verifyAccount(account)}>
+        <Shield className="h-4 w-4" />
+      </Button>
+      <Button type="button" size="sm" shape="square" variant="secondary" title="编辑" aria-label="编辑" onClick={() => openEditAccount(account)}>
+        <Settings className="h-4 w-4" />
+      </Button>
+      <Button type="button" size="sm" shape="square" variant="danger" title="删除" aria-label="删除" onClick={() => deleteAccount(account)}>
         <Trash className="h-4 w-4" />
       </Button>
     </div>
@@ -1073,10 +1398,10 @@ function GcpPage() {
         <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={tabs} />
         {activeTab !== 'accounts' && (
           <div className="flex items-center gap-2">
-            <Select size="sm" aria-label="GCP 账号" value={selectedAccountId} onValueChange={(value) => { setSelectedAccountId(value); setSelectedProjectId(''); setSelectedBucket(''); setObjects([]); }} items={[
+            <Select alignItemWithTrigger size="sm" aria-label="GCP 账号" value={selectedAccountId} onValueChange={(value) => { setSelectedAccountId(value); setSelectedProjectId(''); setSelectedBucket(''); setObjects([]); setSelectedObjects(new Set()); }} items={[
               ...accounts.map((account) => ({ value: String(account.id), label: account.name })),
             ]} placeholder="选择账号" />
-            <Select size="sm" aria-label="GCP 项目" value={selectedProjectId} onValueChange={(value) => setSelectedProjectId(value)} items={[
+            <Select alignItemWithTrigger size="sm" aria-label="GCP 项目" value={selectedProjectId} onValueChange={(value) => setSelectedProjectId(value)} items={[
               ...projects.map((project) => ({ value: project.projectId, label: project.name || project.projectId })),
             ]} placeholder="选择项目" />
             <Button type="button" size="sm" variant="secondary" onClick={() => { if (activeTab === 'instances') loadInstances({ force: true }); else if (activeTab === 'disks') loadDisks({ force: true }); else if (activeTab === 'network') loadNetwork({ force: true }); else if (activeTab === 'storage') loadBuckets({ force: true }); else if (activeTab === 'billing') loadBilling({ force: true }); }} title="刷新" aria-label="刷新">
@@ -1094,7 +1419,7 @@ function GcpPage() {
             actions={scopeReady && (
               <>
                 <ResponsiveSearchInput value={query} onChange={setQuery} placeholder="搜索名称 / IP / 机型" className="w-56" />
-                <Select size="sm" aria-label="状态筛选" value={stateFilter} onValueChange={setStateFilter} className="w-32" items={stateOptions} />
+                <Select alignItemWithTrigger size="sm" aria-label="状态筛选" value={stateFilter} onValueChange={setStateFilter} className="w-32" items={stateOptions} />
                 <Button type="button" size="sm" variant="primary" onClick={openCreateInstance}>
                   <Plus className="h-4 w-4" />创建实例
                 </Button>
@@ -1127,31 +1452,40 @@ function GcpPage() {
                       <Table.Head>名称</Table.Head>
                       <Table.Head>状态</Table.Head>
                       <Table.Head>公网 IP</Table.Head>
+                      <Table.Head>规格</Table.Head>
                       <Table.Head>可用区</Table.Head>
-                      <Table.Head>机型</Table.Head>
                       <Table.Head>创建时间</Table.Head>
+                      <Table.Head>操作</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
                     {filteredInstances.map((instance) => (
                       <Table.Row key={instance.id || instance.name}>
                         <Table.Cell>
-                          <div className="truncate text-sm font-semibold text-kumo-strong" title={instance.name || '-'}>{instance.name || '-'}</div>
+                          <Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => openDetail('instance', instance)} title={`${instance.name || '-'} · 点击查看详情`}>{instance.name || '-'}</Button>
                         </Table.Cell>
                         <Table.Cell><StatusBadge tone={getGcpStatusTone(instance.state)}>{instance.state || '-'}</StatusBadge></Table.Cell>
                         <Table.Cell>
-                          <span className="inline-flex items-center gap-1">
-                            <span className="font-mono text-xs">{instance.publicIp || instance.privateIp || '-'}</span>
+                          <span className="inline-flex min-w-0 items-center gap-1">
+                            <span className="truncate font-mono text-xs" title={instance.publicIp || instance.privateIp}>{instance.publicIp || instance.privateIp || '-'}</span>
                             {instance.publicIp && (
-                              <Button type="button" size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => copyText(instance.publicIp)} aria-label="复制 IP">
+                              <Button type="button" size="sm" variant="ghost" className="h-5 w-5 shrink-0 p-0" onClick={() => copyText(instance.publicIp)} aria-label="复制 IP">
                                 <Copy className="h-3 w-3" />
                               </Button>
                             )}
                           </span>
                         </Table.Cell>
-                        <Table.Cell className="text-sm text-kumo-strong">{instance.zone || '-'}</Table.Cell>
-                        <Table.Cell className="text-sm text-kumo-strong">{instance.machineType || '-'}</Table.Cell>
-                        <Table.Cell className="text-xs text-kumo-subtle">{formatDate(instance.creationTimestamp)}</Table.Cell>
+                        <Table.Cell>
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate text-sm text-kumo-strong" title={instance.machineType}>{instance.machineType || '-'}</span>
+                            {instance.guestCpus > 0 && (
+                              <span className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">{instance.guestCpus} vCPU · {formatMemoryGb(instance.memoryMb)}</span>
+                            )}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="truncate text-sm text-kumo-strong" title={instance.zone}>{instance.zone || '-'}</Table.Cell>
+                        <Table.Cell className="whitespace-nowrap text-xs text-kumo-subtle">{formatDate(instance.creationTimestamp)}</Table.Cell>
+                        <Table.Cell>{renderInstanceActions(instance)}</Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>
@@ -1159,31 +1493,6 @@ function GcpPage() {
               </DataTableFrame>
             )}
           </SectionCard>
-
-          {scopeReady && instances.length > 0 && (
-            <SectionCard title="实例动作" icon={<Cpu className="h-4 w-4" />} bodyPadding="none">
-              <DataTableFrame variant="embedded" density="dense" className="overflow-auto">
-                <AppTable tableId="gcp-instances-actions" columns={[{ id: 'name', role: 'primary' }, { id: 'state', role: 'status' }, { id: 'actions', role: 'actions-lg', width: 220 }]}>
-                  <Table.Header variant="compact">
-                    <Table.Row>
-                      <Table.Head>名称</Table.Head>
-                      <Table.Head>状态</Table.Head>
-                      <Table.Head>操作</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {instances.map((instance) => (
-                      <Table.Row key={instance.id || instance.name}>
-                        <Table.Cell><div className="truncate text-sm font-semibold text-kumo-strong">{instance.name}</div></Table.Cell>
-                        <Table.Cell><StatusBadge tone={getGcpStatusTone(instance.state)}>{instance.state || '-'}</StatusBadge></Table.Cell>
-                        <Table.Cell>{renderInstanceActions(instance)}</Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </AppTable>
-              </DataTableFrame>
-            </SectionCard>
-          )}
         </div>
       )}
 
@@ -1220,21 +1529,20 @@ function GcpPage() {
                     <Table.Head>类型</Table.Head>
                     <Table.Head>大小</Table.Head>
                     <Table.Head>状态</Table.Head>
+                    <Table.Head>操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
                   {disks.map((disk) => (
                     <Table.Row key={disk.id || disk.name}>
                       <Table.Cell>
-                        <div className="flex items-center gap-2">
-                          <div className="truncate text-sm font-semibold text-kumo-strong">{disk.name}</div>
-                          <div className="flex items-center gap-1">{renderDiskActions(disk)}</div>
-                        </div>
+                        <Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => openDetail('disk', disk)} title={`${disk.name} · 点击查看详情`}>{disk.name}</Button>
                       </Table.Cell>
-                      <Table.Cell className="text-sm text-kumo-strong">{disk.zone || '-'}</Table.Cell>
-                      <Table.Cell className="text-sm text-kumo-strong">{disk.type || '-'}</Table.Cell>
-                      <Table.Cell>{formatGb(disk.sizeGb)}</Table.Cell>
+                      <Table.Cell className="truncate text-sm text-kumo-strong" title={disk.zone}>{disk.zone || '-'}</Table.Cell>
+                      <Table.Cell className="truncate text-sm text-kumo-strong" title={disk.type}>{disk.type || '-'}</Table.Cell>
+                      <Table.Cell className="whitespace-nowrap">{formatGb(disk.sizeGb)}</Table.Cell>
                       <Table.Cell><StatusBadge tone={getGcpStatusTone(disk.status)}>{disk.status || '-'}</StatusBadge></Table.Cell>
+                      <Table.Cell>{renderDiskActions(disk)}</Table.Cell>
                     </Table.Row>
                   ))}
                 </Table.Body>
@@ -1245,10 +1553,21 @@ function GcpPage() {
       )}
 
       {activeTab === 'network' && (
-        <div className="flex flex-col gap-3">
-          <SectionCard title="防火墙规则" icon={<Shield className="h-4 w-4" />} bodyPadding="none">
+        <div className="columns-1 gap-3 lg:columns-2 [&>*]:mb-3 [&>*]:break-inside-avoid">
+          <SectionCard
+            title="防火墙规则"
+            icon={<Shield className="h-4 w-4" />}
+            actions={scopeReady && (
+              <Button type="button" size="sm" variant="primary" onClick={() => openFirewallDialog()}>
+                <Plus className="h-4 w-4" />新建规则
+              </Button>
+            )}
+            bodyPadding="none"
+          >
             {!scopeReady ? (
               <EmptyState card={false} icon={Cloud} title="请选择账号与项目" className="min-h-48" />
+            ) : loadingProjectScope ? (
+              <div className="p-4"><SkeletonLine className="h-5 w-full" /></div>
             ) : firewalls.length === 0 ? (
               <EmptyState card={false} icon={Shield} title="暂无防火墙规则" className="min-h-48" />
             ) : (
@@ -1261,16 +1580,18 @@ function GcpPage() {
                       <Table.Head>动作</Table.Head>
                       <Table.Head>优先级</Table.Head>
                       <Table.Head>网络</Table.Head>
+                      <Table.Head>操作</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
                     {firewalls.map((rule) => (
                       <Table.Row key={rule.name}>
-                        <Table.Cell><div className="truncate text-sm font-semibold text-kumo-strong">{rule.name}</div></Table.Cell>
+                        <Table.Cell><Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => openDetail('firewall', rule)} title={`${rule.name} · 点击查看详情`}>{rule.name}</Button></Table.Cell>
                         <Table.Cell className="text-sm text-kumo-strong">{rule.direction || '-'}</Table.Cell>
                         <Table.Cell><StatusBadge tone={rule.action === 'ALLOW' ? 'success' : 'danger'}>{rule.action || '-'}</StatusBadge></Table.Cell>
                         <Table.Cell>{rule.priority}</Table.Cell>
                         <Table.Cell className="truncate text-sm text-kumo-strong" title={rule.network}>{rule.network || '-'}</Table.Cell>
+                        <Table.Cell>{renderFirewallActions(rule)}</Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>
@@ -1297,7 +1618,7 @@ function GcpPage() {
                   <Table.Body>
                     {addresses.map((address) => (
                       <Table.Row key={address.id || address.name}>
-                        <Table.Cell><div className="truncate text-sm font-semibold text-kumo-strong">{address.name}</div></Table.Cell>
+                        <Table.Cell><Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => openDetail('address', address)} title={`${address.name} · 点击查看详情`}>{address.name}</Button></Table.Cell>
                         <Table.Cell className="font-mono text-xs">{address.address || '-'}</Table.Cell>
                         <Table.Cell className="text-sm text-kumo-strong">{address.region || '-'}</Table.Cell>
                         <Table.Cell><StatusBadge tone={getGcpStatusTone(address.status)}>{address.status || '-'}</StatusBadge></Table.Cell>
@@ -1346,7 +1667,7 @@ function GcpPage() {
                         key={bucket.name}
                         variant={selectedBucket === bucket.name ? 'selected' : 'default'}
                         className="cursor-pointer"
-                        onClick={() => { setSelectedBucket(bucket.name); setObjects([]); loadObjects({ force: true, silent: true }); }}
+                        onClick={() => { setSelectedBucket(bucket.name); setObjects([]); setSelectedObjects(new Set()); loadObjects({ force: true, silent: true }); }}
                       >
                         <Table.Cell>
                           <div className="flex items-center justify-between gap-2">
@@ -1383,6 +1704,11 @@ function GcpPage() {
                       if (file) uploadObject(file);
                     }}
                   />
+                  {selectedObjects.size > 0 && (
+                    <Button type="button" size="sm" variant="danger" onClick={deleteSelectedObjects}>
+                      <Trash className="h-4 w-4" />删除选中（{selectedObjects.size}）
+                    </Button>
+                  )}
                   <Button type="button" size="sm" variant="primary" loading={uploadingObject} onClick={() => objectFileInputRef.current?.click()}>
                     <Upload className="h-4 w-4" />上传对象
                   </Button>
@@ -1395,9 +1721,12 @@ function GcpPage() {
                 <EmptyState card={false} icon={FolderOpen} title="桶内暂无对象" className="min-h-40" />
               ) : (
                 <DataTableFrame variant="embedded" density="dense" className="overflow-auto">
-                  <AppTable tableId="gcp-objects" columns={[{ id: 'name', role: 'primary' }, { id: 'size', role: 'number', width: 120 }, { id: 'type', role: 'meta', grow: 1, minWidth: 160 }, { id: 'updated', role: 'datetime' }, { id: 'actions', role: 'actions-sm', width: 90 }]}>
+                  <AppTable tableId="gcp-objects" columns={[{ id: 'select', role: 'meta', width: 40 }, { id: 'name', role: 'primary' }, { id: 'size', role: 'number', width: 100 }, { id: 'type', role: 'meta', grow: 1, minWidth: 140 }, { id: 'updated', role: 'datetime' }, { id: 'actions', role: 'actions-sm', width: 120 }]}>
                     <Table.Header variant="compact">
                       <Table.Row>
+                        <Table.Head className="w-10">
+                          <Checkbox checked={objects.length > 0 && selectedObjects.size === objects.length} onCheckedChange={toggleAllObjects} aria-label="全选" />
+                        </Table.Head>
                         <Table.Head>名称</Table.Head>
                         <Table.Head>大小</Table.Head>
                         <Table.Head>类型</Table.Head>
@@ -1407,8 +1736,11 @@ function GcpPage() {
                     </Table.Header>
                     <Table.Body>
                       {objects.map((object) => (
-                        <Table.Row key={object.name}>
-                          <Table.Cell><div className="truncate text-sm font-semibold text-kumo-strong">{object.name}</div></Table.Cell>
+                        <Table.Row key={object.name} className={selectedObjects.has(object.name) ? 'bg-kumo-interact/10' : undefined}>
+                          <Table.Cell>
+                            <Checkbox checked={selectedObjects.has(object.name)} onCheckedChange={() => toggleObjectSelection(object.name)} aria-label={`选择 ${object.name}`} />
+                          </Table.Cell>
+                          <Table.Cell><Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => openDetail('object', object)} title={`${object.name} · 点击查看详情`}>{object.name}</Button></Table.Cell>
                           <Table.Cell>{formatSize(object.size)}</Table.Cell>
                           <Table.Cell className="truncate text-sm text-kumo-strong">{object.contentType || '-'}</Table.Cell>
                           <Table.Cell className="text-xs text-kumo-subtle">{formatDate(object.updated || object.timeCreated)}</Table.Cell>
@@ -1437,7 +1769,7 @@ function GcpPage() {
       )}
 
       {activeTab === 'billing' && (
-        <div className="flex flex-col gap-3">
+        <div className="columns-1 gap-3 lg:columns-2 [&>*]:mb-3 [&>*]:break-inside-avoid">
           <SectionCard title="计费账号" icon={<PieChart className="h-4 w-4" />} bodyPadding="none">
             {!selectedAccountId ? (
               <EmptyState card={false} icon={Cloud} title="请选择账号" className="min-h-48" />
@@ -1447,7 +1779,7 @@ function GcpPage() {
               <EmptyState card={false} icon={PieChart} title="没有可访问的计费账号" description="SA 可能需要 billing 相关权限" className="min-h-48" />
             ) : (
               <DataTableFrame variant="embedded" density="dense" className="overflow-auto">
-                <AppTable tableId="gcp-billing-accounts" columns={[{ id: 'name', role: 'primary' }, { id: 'displayName', role: 'meta', grow: 1, minWidth: 200 }, { id: 'open', role: 'status' }]}>
+                <AppTable tableId="gcp-billing-accounts" columns={[{ id: 'name', role: 'meta', width: 260 }, { id: 'displayName', role: 'primary', grow: 1, minWidth: 160 }, { id: 'open', role: 'status' }]}>
                   <Table.Header variant="compact">
                     <Table.Row>
                       <Table.Head>计费账号 ID</Table.Head>
@@ -1458,8 +1790,8 @@ function GcpPage() {
                   <Table.Body>
                     {billingAccounts.map((account) => (
                       <Table.Row key={account.name}>
-                        <Table.Cell className="font-mono text-xs">{account.name}</Table.Cell>
-                        <Table.Cell className="text-sm text-kumo-strong">{account.displayName || '-'}</Table.Cell>
+                        <Table.Cell><Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-mono text-xs text-kumo-strong" onClick={() => openDetail('billingAccount', account)} title={`${account.name} · 点击查看详情`}>{account.name}</Button></Table.Cell>
+                        <Table.Cell className="truncate text-sm text-kumo-strong" title={account.displayName}>{account.displayName || '-'}</Table.Cell>
                         <Table.Cell><StatusBadge tone={account.open ? 'success' : 'neutral'}>{account.open ? '启用' : '停用'}</StatusBadge></Table.Cell>
                       </Table.Row>
                     ))}
@@ -1481,7 +1813,14 @@ function GcpPage() {
                 items={[
                   {
                     label: '结算账号',
-                    value: <span className="font-mono text-xs">{billingInfo.billingAccountName || '-'}</span>,
+                    value: billingInfo.billingAccountName ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="font-mono text-xs break-all">{billingInfo.billingAccountName}</span>
+                        <Button type="button" size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => copyText(billingInfo.billingAccountName)} aria-label="复制结算账号">
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </span>
+                    ) : '-',
                   },
                   {
                     label: '计费状态',
@@ -1496,7 +1835,7 @@ function GcpPage() {
               <EmptyState card={false} icon={PieChart} title="暂无预算" className="min-h-40" />
             ) : (
               <DataTableFrame variant="embedded" density="dense" className="overflow-auto">
-                <AppTable tableId="gcp-budgets" columns={[{ id: 'displayName', role: 'primary' }, { id: 'amount', role: 'meta', width: 120 }, { id: 'thresholds', role: 'meta', grow: 1, minWidth: 200 }]}>
+                <AppTable tableId="gcp-budgets" columns={[{ id: 'displayName', role: 'primary', minWidth: 160 }, { id: 'amount', role: 'meta', width: 130 }, { id: 'thresholds', role: 'meta', width: 200 }]}>
                   <Table.Header variant="compact">
                     <Table.Row>
                       <Table.Head>预算名称</Table.Head>
@@ -1507,9 +1846,9 @@ function GcpPage() {
                   <Table.Body>
                     {budgets.map((budget) => (
                       <Table.Row key={budget.name}>
-                        <Table.Cell><div className="truncate text-sm font-semibold text-kumo-strong">{budget.displayName || budget.name}</div></Table.Cell>
-                        <Table.Cell className="text-sm text-kumo-strong">{budget.amount ? `${budget.amount} ${budget.currencyCode || ''}`.trim() : '-'}</Table.Cell>
-                        <Table.Cell className="text-xs text-kumo-subtle">
+                        <Table.Cell><Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => openDetail('budget', budget)} title={`${budget.displayName || budget.name} · 点击查看详情`}>{budget.displayName || budget.name}</Button></Table.Cell>
+                        <Table.Cell className="whitespace-nowrap text-sm text-kumo-strong">{budget.amount ? `${budget.amount} ${budget.currencyCode || ''}`.trim() : '-'}</Table.Cell>
+                        <Table.Cell className="truncate text-xs text-kumo-subtle" title={(budget.thresholdRules || []).map((rule) => `${rule.thresholdPercent}%`).join(' / ')}>
                           {(budget.thresholdRules || []).map((rule) => `${rule.thresholdPercent}%`).join(' / ') || '-'}
                         </Table.Cell>
                       </Table.Row>
@@ -1523,7 +1862,7 @@ function GcpPage() {
             title="模型用量"
             icon={<Cpu className="h-4 w-4" />}
             actions={scopeReady && (
-              <Select size="sm" aria-label="用量时间范围" value={String(modelUsageDays)} onValueChange={(value) => setModelUsageDays(Number(value) || 30)} className="w-32" items={[
+              <Select alignItemWithTrigger size="sm" aria-label="用量时间范围" value={String(modelUsageDays)} onValueChange={(value) => setModelUsageDays(Number(value) || 30)} className="w-32" items={[
                 { value: '7', label: '近 7 天' },
                 { value: '30', label: '近 30 天' },
                 { value: '90', label: '近 90 天' },
@@ -1626,7 +1965,7 @@ function GcpPage() {
                 <Table.Body>
                   {accounts.map((account) => (
                     <Table.Row key={account.id}>
-                      <Table.Cell><div className="truncate text-sm font-semibold text-kumo-strong">{account.name}</div></Table.Cell>
+                      <Table.Cell><Button type="button" variant="ghost" size="xs" className="block h-auto max-w-full truncate px-1.5 py-0.5 font-semibold text-kumo-strong" onClick={() => openDetail('account', account)} title={`${account.name} · 点击查看详情`}>{account.name}</Button></Table.Cell>
                       <Table.Cell className="truncate font-mono text-xs" title={account.clientEmail}>{account.clientEmail || '-'}</Table.Cell>
                       <Table.Cell className="text-sm text-kumo-strong">{account.defaultProjectId || '-'}</Table.Cell>
                       <Table.Cell>
@@ -1649,7 +1988,7 @@ function GcpPage() {
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">账号名称 *</span>
-            <Input size="md" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} placeholder="例如：生产环境" />
+            <Input size="sm" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} placeholder="例如：生产环境" />
           </label>
           {!editingAccount && (
             <label className="flex flex-col gap-1">
@@ -1676,6 +2015,7 @@ function GcpPage() {
                 onChange={(serviceAccountJson) => setAccountForm({ ...accountForm, serviceAccountJson })}
                 placeholder="粘贴完整的 Service Account JSON 密钥文件内容，或点击上方按钮导入文件"
               />
+              <SaSummary json={accountForm.serviceAccountJson} onImport={() => accountFileInputRef.current?.click()} />
             </label>
           )}
           {editingAccount && (
@@ -1691,15 +2031,16 @@ function GcpPage() {
                 onChange={(serviceAccountJson) => setAccountForm({ ...accountForm, serviceAccountJson })}
                 placeholder="不修改则留空"
               />
+              <SaSummary json={accountForm.serviceAccountJson} />
             </label>
           )}
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">默认项目</span>
-            <Input size="md" value={accountForm.defaultProjectId} onChange={(event) => setAccountForm({ ...accountForm, defaultProjectId: event.target.value })} placeholder="留空则取 JSON 内 project_id" />
+            <Input size="sm" value={accountForm.defaultProjectId} onChange={(event) => setAccountForm({ ...accountForm, defaultProjectId: event.target.value })} placeholder="留空则取 JSON 内 project_id" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">备注</span>
-            <Input size="md" value={accountForm.description} onChange={(event) => setAccountForm({ ...accountForm, description: event.target.value })} />
+            <Input size="sm" value={accountForm.description} onChange={(event) => setAccountForm({ ...accountForm, description: event.target.value })} />
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" size="sm" variant="secondary" onClick={() => setAccountDialogOpen(false)}>取消</Button>
@@ -1718,25 +2059,25 @@ function GcpPage() {
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">名称 *</span>
-            <Input size="md" value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} placeholder="实例名称" />
+            <Input size="sm" value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} placeholder="实例名称" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">可用区 *</span>
-            <Select size="base" value={createForm.zone} onValueChange={(value) => setCreateForm({ ...createForm, zone: value })} items={[
+            <Select alignItemWithTrigger size="sm" value={createForm.zone} onValueChange={(value) => { setCreateForm((prev) => ({ ...prev, zone: value, machineType: '' })); loadMachineTypesForZone(value); }} items={[
                 { value: '', label: '选择可用区' },
                 ...zones.map((zone) => ({ value: zone.name, label: zone.name })),
               ]} />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">机型 *</span>
-            <Select size="base" value={createForm.machineType} onValueChange={(value) => setCreateForm({ ...createForm, machineType: value })} items={[
-              { value: '', label: '选择机型' },
+            <Select alignItemWithTrigger size="sm" disabled={!createForm.zone || loadingMachineTypes} value={createForm.machineType} onValueChange={(value) => setCreateForm({ ...createForm, machineType: value })} items={[
+              { value: '', label: loadingMachineTypes ? '加载中…' : (createForm.zone ? '选择机型' : '请先选择可用区') },
               ...machineTypes.map((mt) => ({ value: mt.name, label: `${mt.name}（${mt.guestCpus} vCPU / ${formatMemoryGb(mt.memoryMb)}）` })),
             ]} />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">镜像</span>
-            <Select size="base" value={createForm.image} onValueChange={(value) => setCreateForm({ ...createForm, image: value })} items={[
+            <Select alignItemWithTrigger size="sm" value={createForm.image} onValueChange={(value) => setCreateForm({ ...createForm, image: value })} items={[
               { value: '', label: '使用默认镜像' },
               ...images.map((image) => ({ value: image.name, label: image.name })),
             ]} />
@@ -1744,12 +2085,12 @@ function GcpPage() {
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
               <span className="text-sm text-kumo-subtle">启动盘大小（GB）</span>
-              <Input size="md" type="number" value={createForm.bootDiskSizeGb} onChange={(event) => setCreateForm({ ...createForm, bootDiskSizeGb: event.target.value })} />
+              <Input size="sm" type="number" value={createForm.bootDiskSizeGb} onChange={(event) => setCreateForm({ ...createForm, bootDiskSizeGb: event.target.value })} />
             </label>
           </div>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">子网</span>
-            <Select size="base" value={createForm.subnetwork} onValueChange={(value) => setCreateForm({ ...createForm, subnetwork: value })} items={[
+            <Select alignItemWithTrigger size="sm" value={createForm.subnetwork} onValueChange={(value) => setCreateForm({ ...createForm, subnetwork: value })} items={[
               { value: '', label: '使用默认网络' },
               ...subnetworks.map((sub) => ({ value: sub.name, label: `${sub.name}（${sub.ipCidrRange}）` })),
             ]} />
@@ -1771,7 +2112,7 @@ function GcpPage() {
           <p className="text-sm text-kumo-subtle">磁盘「{resizeTarget?.name}」当前大小为 {formatGb(resizeTarget?.sizeGb)}。</p>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">目标大小（GB）</span>
-            <Input size="md" type="number" value={resizeSize} onChange={(event) => setResizeSize(event.target.value)} />
+            <Input size="sm" type="number" value={resizeSize} onChange={(event) => setResizeSize(event.target.value)} />
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" size="sm" variant="secondary" onClick={() => setResizeDialogOpen(false)}>取消</Button>
@@ -1788,15 +2129,15 @@ function GcpPage() {
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">名称 *</span>
-            <Input size="md" value={bucketForm.name} onChange={(event) => setBucketForm({ ...bucketForm, name: event.target.value })} placeholder="全局唯一存储桶名称" />
+            <Input size="sm" value={bucketForm.name} onChange={(event) => setBucketForm({ ...bucketForm, name: event.target.value })} placeholder="全局唯一存储桶名称" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">位置</span>
-            <Input size="md" value={bucketForm.location} onChange={(event) => setBucketForm({ ...bucketForm, location: event.target.value })} placeholder="例如 us-central1" />
+            <Input size="sm" value={bucketForm.location} onChange={(event) => setBucketForm({ ...bucketForm, location: event.target.value })} placeholder="例如 us-central1" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-sm text-kumo-subtle">存储类别</span>
-            <Select size="base" value={bucketForm.storageClass} onValueChange={(value) => setBucketForm({ ...bucketForm, storageClass: value })} items={[
+            <Select alignItemWithTrigger size="sm" value={bucketForm.storageClass} onValueChange={(value) => setBucketForm({ ...bucketForm, storageClass: value })} items={[
               { value: 'STANDARD', label: '标准（STANDARD）' },
               { value: 'NEARLINE', label: '近线（NEARLINE）' },
               { value: 'COLDLINE', label: '冷线（COLDLINE）' },
@@ -1808,6 +2149,93 @@ function GcpPage() {
             <Button type="button" size="sm" variant="primary" loading={submittingBucket} onClick={submitBucket}>创建</Button>
           </div>
         </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={firewallDialogOpen} onOpenChange={setFirewallDialogOpen}>
+        <Dialog className="@container !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
+          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">{editingFirewall ? '编辑防火墙规则' : '新建防火墙规则'}</Dialog.Title>
+          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">规则对满足条件的流量执行放行或拒绝，优先级数字越小越先匹配。</Dialog.Description>
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-sm text-kumo-subtle">规则名称 *</span>
+            <Input size="sm" value={firewallForm.name} onChange={(event) => setFirewallForm({ ...firewallForm, name: event.target.value })} placeholder="例如 allow-http" disabled={Boolean(editingFirewall)} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm text-kumo-subtle">描述</span>
+            <Input size="sm" value={firewallForm.description} onChange={(event) => setFirewallForm({ ...firewallForm, description: event.target.value })} placeholder="可选" />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">方向</span>
+              <Select alignItemWithTrigger size="sm" value={firewallForm.direction} onValueChange={(value) => setFirewallForm({ ...firewallForm, direction: value })} items={[
+                { value: 'INGRESS', label: '入站（INGRESS）' },
+                { value: 'EGRESS', label: '出站（EGRESS）' },
+              ]} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">动作</span>
+              <Select alignItemWithTrigger size="sm" value={firewallForm.action} onValueChange={(value) => setFirewallForm({ ...firewallForm, action: value })} items={[
+                { value: 'allow', label: '允许（ALLOW）' },
+                { value: 'deny', label: '拒绝（DENY）' },
+              ]} />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">优先级（0-65535）</span>
+              <Input size="sm" type="number" value={firewallForm.priority} onChange={(event) => setFirewallForm({ ...firewallForm, priority: event.target.value })} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">网络</span>
+              <Input size="sm" value={firewallForm.network} onChange={(event) => setFirewallForm({ ...firewallForm, network: event.target.value })} placeholder="留空默认网络" />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">来源网段（CIDR，逗号分隔）</span>
+              <Input size="sm" value={firewallForm.sourceRanges} onChange={(event) => setFirewallForm({ ...firewallForm, sourceRanges: event.target.value })} placeholder="例如 0.0.0.0/0" />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">目标网段（CIDR，逗号分隔）</span>
+              <Input size="sm" value={firewallForm.destinationRanges} onChange={(event) => setFirewallForm({ ...firewallForm, destinationRanges: event.target.value })} placeholder="可选" />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">协议</span>
+              <Select alignItemWithTrigger size="sm" value={firewallForm.protocol} onValueChange={(value) => setFirewallForm({ ...firewallForm, protocol: value })} items={[
+                { value: 'tcp', label: 'TCP' },
+                { value: 'udp', label: 'UDP' },
+                { value: 'icmp', label: 'ICMP' },
+                { value: 'all', label: 'all' },
+              ]} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-kumo-subtle">端口（逗号分隔，可选）</span>
+              <Input size="sm" value={firewallForm.ports} onChange={(event) => setFirewallForm({ ...firewallForm, ports: event.target.value })} placeholder="例如 80,443" />
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" size="sm" variant="secondary" onClick={() => setFirewallDialogOpen(false)}>取消</Button>
+            <Button type="button" size="sm" variant="primary" loading={submittingFirewall} onClick={submitFirewall}>
+              {editingFirewall ? '保存' : '创建'}
+            </Button>
+          </div>
+        </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={Boolean(selectedDetail)} onOpenChange={(open) => { if (!open) setSelectedDetail(null); }}>
+        <Dialog className="@container !w-[min(38rem,calc(100vw-2rem))] !max-w-[min(38rem,calc(100vw-2rem))] p-6">
+          <Dialog.Title className="mb-4 text-base font-semibold text-kumo-strong">{detailTitle}</Dialog.Title>
+          <Dialog.Description className="sr-only">资源详情</Dialog.Description>
+          <div className="max-h-[60vh] overflow-auto scrollbar-thin">
+            {renderDetailContent()}
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button type="button" size="sm" variant="secondary" onClick={() => setSelectedDetail(null)}>关闭</Button>
+          </div>
         </Dialog>
       </Dialog.Root>
     </PageStack>

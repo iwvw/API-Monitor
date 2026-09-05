@@ -252,7 +252,7 @@ export function BackupPanel({ embedded = false } = {}) {
           bodyClassName="space-y-3"
         >
           <div className="space-y-3">
-            <Select size="sm" label="存储渠道" className="w-full" value={config.provider} onValueChange={(value) => setConfig((prev) => ({ ...prev, provider: value }))} items={PROVIDERS} />
+            <Select alignItemWithTrigger size="sm" label="存储渠道" className="w-full" value={config.provider} onValueChange={(value) => setConfig((prev) => ({ ...prev, provider: value }))} items={PROVIDERS} />
             {cloudMode && (
               <Collapsible.Root>
                 <Collapsible.DefaultTrigger>渠道配置</Collapsible.DefaultTrigger>
@@ -268,13 +268,13 @@ export function BackupPanel({ embedded = false } = {}) {
             <Input size="sm" type="number" min="0" label="最大保留数量（0=不限制）" value={config.max_records ?? 0} onChange={(event) => { const parsed = Number.parseInt(event.target.value, 10); setConfig((prev) => ({ ...prev, max_records: Number.isFinite(parsed) && parsed > 0 ? parsed : 0 })); }} />
             <div className="grid gap-2 rounded-md border border-kumo-line p-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong"><Clock className="h-3.5 w-3.5" />自动备份计划</div>
-              <Select size="sm" className="w-full" aria-label="自动备份频率" value={schedule.type} onValueChange={(value) => setSchedule((prev) => ({ ...prev, type: value }))} items={SCHEDULE_TYPES} />
+              <Select alignItemWithTrigger size="sm" className="w-full" aria-label="自动备份频率" value={schedule.type} onValueChange={(value) => setSchedule((prev) => ({ ...prev, type: value }))} items={SCHEDULE_TYPES} />
               {['daily', 'weekly', 'monthly'].includes(schedule.type) && (
                 <div className="grid gap-2 cq-sm:grid-cols-2">
                   <Input size="sm" type="number" label="小时" min="0" max="23" value={schedule.hour} onChange={(event) => setSchedule((prev) => ({ ...prev, hour: event.target.value }))} />
                   <Input size="sm" type="number" label="分钟" min="0" max="59" value={schedule.minute} onChange={(event) => setSchedule((prev) => ({ ...prev, minute: event.target.value }))} />
-                  {schedule.type === 'weekly' && <Select size="sm" label="星期" value={String(schedule.weekday)} onValueChange={(value) => setSchedule((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_OPTIONS} />}
-                  {schedule.type === 'monthly' && <Select size="sm" label="每月日期" value={String(schedule.day)} onValueChange={(value) => setSchedule((prev) => ({ ...prev, day: value }))} items={MONTH_DAY_OPTIONS} />}
+                  {schedule.type === 'weekly' && <Select alignItemWithTrigger size="sm" label="星期" value={String(schedule.weekday)} onValueChange={(value) => setSchedule((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_OPTIONS} />}
+                  {schedule.type === 'monthly' && <Select alignItemWithTrigger size="sm" label="每月日期" value={String(schedule.day)} onValueChange={(value) => setSchedule((prev) => ({ ...prev, day: value }))} items={MONTH_DAY_OPTIONS} />}
                 </div>
               )}
 {schedule.type === 'custom' && <Input size="sm" label="Cron 表达式" value={schedule.custom} onChange={(event) => setSchedule((prev) => ({ ...prev, custom: event.target.value }))} />}

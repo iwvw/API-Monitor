@@ -9,6 +9,7 @@ import {
   clearPendingAuthProvider,
   setPendingAuthProvider,
 } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { cx } from '../components/ui/AppPrimitives.jsx';
 import { useCloudflareSpotlight } from '../hooks/useCloudflareSpotlight.js';
 import { browserSupportsWebAuthn, getPasskeyAssertion } from '../modules/webauthn.js';
@@ -360,7 +361,21 @@ function AuthPage() {
     setLoginTotpToken,
     cancelLogin2FA,
     showSetPasswordModal,
-  } = useStore();
+  } = useStore(
+    useShallow(s => ({
+      isDemoMode: s.isDemoMode,
+      loginRequire2FA: s.loginRequire2FA,
+      loginError: s.loginError,
+      loginLoading: s.loginLoading,
+      verifyPassword: s.verifyPassword,
+      loginPassword: s.loginPassword,
+      setLoginPassword: s.setLoginPassword,
+      loginTotpToken: s.loginTotpToken,
+      setLoginTotpToken: s.setLoginTotpToken,
+      cancelLogin2FA: s.cancelLogin2FA,
+      showSetPasswordModal: s.showSetPasswordModal,
+    }))
+  );
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

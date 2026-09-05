@@ -1013,7 +1013,7 @@ function OraclePage() {
                   ariaLabel="搜索 Oracle 实例"
                   className="w-40 cq-sm:w-52"
                 />
-                <Select
+                <Select alignItemWithTrigger
                   aria-label="实例状态筛选"
                   size="sm"
                   className="w-32 cq-sm:w-36"
@@ -1100,9 +1100,9 @@ function OraclePage() {
             bodyClassName="flex flex-col"
             actions={selectedInstance && (
               <>
-                <Button type="button" size="sm" variant="secondary" onClick={() => runAction('START')}><Play className="h-4 w-4" /></Button>
-                <Button type="button" size="sm" variant="secondary" onClick={() => runAction('STOP')}><Square className="h-4 w-4" /></Button>
-                <Button type="button" size="sm" variant="secondary" onClick={openResizeDialog}><Cpu className="h-4 w-4" /></Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => runAction('START')} aria-label="启动实例"><Play className="h-4 w-4" /></Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => runAction('STOP')} aria-label="停止实例"><Square className="h-4 w-4" /></Button>
+                <Button type="button" size="sm" variant="secondary" onClick={openResizeDialog} aria-label="调整规格"><Cpu className="h-4 w-4" /></Button>
                 <DropdownMenu>
                   <DropdownMenu.Trigger
                     render={<Button type="button" size="sm" variant="secondary" icon={<MoreVertical className="h-4 w-4" />} aria-label="更多实例动作" title="更多动作" />}
@@ -1449,7 +1449,7 @@ function OraclePage() {
                 />
               </InsetPanel>
 
-              <Select
+              <Select alignItemWithTrigger
                 aria-label="目标规格"
                 size="sm"
                 className="w-full"
@@ -1498,7 +1498,7 @@ function OraclePage() {
                         placeholder={selectedResizeShape.memoryGb ? String(selectedResizeShape.memoryGb) : '例如 12'}
                       />
                       {selectedResizeShape.baselineOcpuUtilizations?.length ? (
-                        <Select
+                        <Select alignItemWithTrigger
                           aria-label="baseline OCPU"
                           size="sm"
                           className="cq-md:col-span-2"

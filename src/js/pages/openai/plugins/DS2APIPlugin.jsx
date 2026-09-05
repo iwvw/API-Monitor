@@ -419,7 +419,7 @@ export function DS2APIPlugin() {
               </div>
             </FieldRow>
             <FieldRow title={<span title="每次会话结束后自动删除远端会话：none 不删除；single 仅删当前会话；all 删除该密钥全部会话。写回引擎配置 configJson 的 auto_delete.mode">自动删除会话</span>}>
-              <Select
+              <Select alignItemWithTrigger
                 size="sm"
                 className="w-44"
                 value={getAutoDeleteMode()}

@@ -479,7 +479,7 @@ export default function DrawioPage() {
           <Button
             type="button"
             variant="ghost"
-            className="flex h-[30.5px] shrink-0 items-center justify-between gap-2 rounded-none border-b border-kumo-line px-3 text-left hover:bg-kumo-recessed/20"
+            className="flex h-[30.5px] !w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-none border-b border-kumo-line px-3 text-left hover:bg-kumo-recessed/20"
             onClick={() => setXmlOpen(value => !value)}
             aria-label={xmlOpen ? '收起 XML 编辑区' : '展开 XML 编辑区'}
           >

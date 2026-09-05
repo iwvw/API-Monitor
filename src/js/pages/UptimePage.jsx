@@ -2009,7 +2009,7 @@ function UptimePage() {
                       type="number" size="sm"
                       placeholder="3306"
                       value={uptimeForm.port}
-                      onChange={(e) => setUptimeForm(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) => setUptimeForm(prev => ({ ...prev, port: parseInt(e.target.value, 10) || 0 }))}
                       className="w-full font-mono"
                     />
                   </div>
@@ -2017,7 +2017,7 @@ function UptimePage() {
                 {uptimeForm.type === 'dns' && (
                   <>
                     <div className="cq-md:col-span-2">
-                      <Select
+                      <Select alignItemWithTrigger
                         size="sm"
                         label="解析类型"
                         value={uptimeForm.dns_resolve_type}
@@ -2055,7 +2055,7 @@ function UptimePage() {
                 type="number" size="sm"
                 min="20"
                 value={uptimeForm.interval}
-                onChange={(e) => setUptimeForm(prev => ({ ...prev, interval: parseInt(e.target.value) || 60 }))}
+                onChange={(e) => setUptimeForm(prev => ({ ...prev, interval: parseInt(e.target.value, 10) || 60 }))}
                 className="w-full font-mono"
               />
             </div>
@@ -2065,7 +2065,7 @@ function UptimePage() {
                 type="number" size="sm"
                 min="0"
                 value={uptimeForm.retries}
-                onChange={(e) => setUptimeForm(prev => ({ ...prev, retries: parseInt(e.target.value) || 0 }))}
+                onChange={(e) => setUptimeForm(prev => ({ ...prev, retries: parseInt(e.target.value, 10) || 0 }))}
                 className="w-full font-mono"
               />
             </div>
@@ -2086,7 +2086,7 @@ function UptimePage() {
                   type="number" size="sm"
                   placeholder="7"
                   value={uptimeForm.expiryNotification}
-                  onChange={(e) => setUptimeForm(prev => ({ ...prev, expiryNotification: parseInt(e.target.value) || 7 }))}
+                  onChange={(e) => setUptimeForm(prev => ({ ...prev, expiryNotification: parseInt(e.target.value, 10) || 7 }))}
                   className="w-full font-mono"
                 />
               </div>
@@ -2172,7 +2172,7 @@ function UptimePage() {
                   type="number" size="sm"
                   min="30"
                   value={uptimeForm.pushGraceSeconds}
-                  onChange={(e) => setUptimeForm(prev => ({ ...prev, pushGraceSeconds: parseInt(e.target.value) || 120 }))}
+                  onChange={(e) => setUptimeForm(prev => ({ ...prev, pushGraceSeconds: parseInt(e.target.value, 10) || 120 }))}
                   className="w-full font-mono"
                 />
               </div>

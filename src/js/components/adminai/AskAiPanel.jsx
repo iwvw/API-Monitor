@@ -16,6 +16,7 @@ import AdminConsole, { TAB_OPTIONS } from './AdminConsole.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { parseAdminAiEvent } from '../../modules/adminAiEvents.js';
+import { getDisplayTimeZone } from '../../modules/utils.js';
 import {
   MSG,
   STREAM_EVENTS,
@@ -68,7 +69,14 @@ const SUGGESTED_PROMPTS = [
 function EmptyState({ onPrompt }) {
   const cloudRef = useRef(null);
   useAskAiCloudMotion(cloudRef);
-  const hour = new Date().getHours();
+  const displayTimeZone = getDisplayTimeZone();
+  const hour = Number(
+    new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      hourCycle: 'h23',
+      timeZone: displayTimeZone === 'system' ? undefined : displayTimeZone,
+    }).format(new Date())
+  );
   const greeting = hour < 6 ? '夜深了。' : hour < 12 ? '早上好。' : hour < 18 ? '下午好。' : '晚上好。';
   return (
     <div className="flex h-full flex-1 flex-col items-center overflow-y-auto overscroll-contain">

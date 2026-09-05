@@ -580,7 +580,7 @@ const ModelTrendChart = memo(function ModelTrendChart({ labels, series, isDarkMo
 
 function OpenAIPage() {
   const { isArmed, confirmPress } = useConfirmPress();
-  const { theme } = useStore();
+  const theme = useStore(s => s.theme);
   const isDarkMode = theme === 'dark';
   const gatewayOrigin = useMemo(() => {
     if (typeof window === 'undefined') return 'http://localhost:3000';
@@ -2854,7 +2854,7 @@ function OpenAIPage() {
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           {/* 日志筛选区：状态 / 模型 / 端点，均即时生效 */}
           <div className="flex flex-wrap items-center gap-2">
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               className="w-28"
               value={logStatusFilter || undefined}
@@ -3437,7 +3437,7 @@ function OpenAIPage() {
                 />
 
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-2">
-                  <Select
+                  <Select alignItemWithTrigger
                     size="sm"
                     label="上游协议"
                     value={endpointForm.upstreamType || 'openai'}
@@ -3660,7 +3660,7 @@ function OpenAIPage() {
                   </div>
                 </div>
 
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   label="连接协议"
                   value={endpointForm.protocol || 'auto'}
@@ -3679,7 +3679,7 @@ function OpenAIPage() {
                       <span className="font-normal text-kumo-subtle">（可选）</span>
                     </Label>
                   </div>
-                  <Select
+                  <Select alignItemWithTrigger
                     size="sm"
                     className="w-full"
                     value={endpointForm.proxyPoolId || ''}
@@ -4302,7 +4302,7 @@ function OpenAIPage() {
                     )}
                   </Popover.Content>
                 </Popover>
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   aria-label="过期小时"
                   disabled={!gatewayKeyForm.expiresAt}
@@ -4312,7 +4312,7 @@ function OpenAIPage() {
                   className="w-[3.25rem] shrink-0"
                 />
                 <span className="shrink-0 text-sm text-kumo-subtle">:</span>
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   aria-label="过期分钟"
                   disabled={!gatewayKeyForm.expiresAt}

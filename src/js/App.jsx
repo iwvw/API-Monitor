@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Loader } from '@cloudflare/kumo';
 import useStore, { applyThemeMode, applyUIFont, applyUIFontSize, getPendingAuthProvider } from './store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { installAuthGuard } from './modules/authGuard.js';
 import AuthPage from './pages/AuthPage.jsx';
 import { GitHubBrand, Shield } from './components/IconsCore.jsx';
@@ -14,10 +15,12 @@ const PublicM365RegisterPage = lazy(() => import('./pages/PublicM365RegisterPage
 const PublicStatusPage = lazy(() => import('./pages/PublicStatusPage.jsx'));
 const PublicServerStatusPage = lazy(() => import('./pages/PublicServerStatusPage.jsx'));
 const PublicGitHubPage = lazy(() => import('./pages/PublicGitHubPage.jsx'));
+const PublicBookmarksPage = lazy(() => import('./pages/PublicBookmarksPage.jsx'));
 const PublicSubscriptionInfoPage = lazy(() => import('./pages/PublicSubscriptionInfoPage.jsx'));
 const VoidRoomPage = lazy(() => import('./pages/VoidRoomPage.jsx'));
 const RemoteDesktopPage = lazy(() => import('./pages/RemoteDesktopPage.jsx'));
 const PublicPromptPage = lazy(() => import('./pages/PublicPromptPage.jsx'));
+const TilesDemoPage = lazy(() => import('./pages/TilesDemoPage.jsx'));
 
 const isLocalHost = (host) => /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host || '');
 
@@ -35,6 +38,7 @@ const getPublicStatusRouteMode = () => {
   if (/^\/(?:status|u)\/[^/]+$/.test(path)) return 'slug';
   if (/^\/(?:servers|s)\/[^/]+$/.test(path)) return 'server-slug';
   if (/^\/(?:github|gh)\/[^/]+$/.test(path)) return 'github-slug';
+  if (/^\/(?:b|bookmarks|bm)\/[^/]+$/.test(path)) return 'bookmarks-slug';
   if (path === '/' && !isLocalHost(window.location.host)) return 'domain';
   return false;
 };
@@ -93,7 +97,9 @@ function AuthTransitionScreen() {
 }
 
 function App() {
-  const { isAuthenticated, checkAuth, isCheckingAuth, themeMode } = useStore();
+  const { isAuthenticated, checkAuth, isCheckingAuth, themeMode } = useStore(
+    useShallow(s => ({ isAuthenticated: s.isAuthenticated, checkAuth: s.checkAuth, isCheckingAuth: s.isCheckingAuth, themeMode: s.themeMode }))
+  );
   const [domainStatusRoute, setDomainStatusRoute] = useState(null);
   const publicStatusRouteMode = getPublicStatusRouteMode();
   const publicFileboxRouteMode = getPublicFileboxRouteMode();
@@ -101,6 +107,7 @@ function App() {
   const dockerMockPreview = isDockerMockPreviewRoute();
   const remoteDesktopRoute = /^\/remote-desktop\/[^/]+$/.test(window.location.pathname);
 	const publicPromptRoute = /^\/p\/[^/]+$/.test(window.location.pathname);
+	const tilesDemoRoute = /^\/tiles-demo\/?$/.test(window.location.pathname);
 
   // 挂载时自动运行初始身份校验
   useEffect(() => {
@@ -207,6 +214,10 @@ function App() {
     return <div className="@container"><Suspense fallback={null}><PublicGitHubPage /></Suspense></div>;
   }
 
+  if (publicStatusRouteMode === 'bookmarks-slug') {
+    return <div className="@container"><Suspense fallback={null}><PublicBookmarksPage /></Suspense></div>;
+  }
+
   if (publicStatusRouteMode === 'subscription-info') {
     return <div className="@container"><Suspense fallback={null}><PublicSubscriptionInfoPage /></Suspense></div>;
   }
@@ -233,6 +244,9 @@ function App() {
     if (remoteDesktopRoute) {
       return <div className="@container"><Suspense fallback={null}><RemoteDesktopPage /></Suspense></div>;
     }
+    if (tilesDemoRoute) {
+      return <div className="@container"><Suspense fallback={null}><TilesDemoPage /></Suspense></div>;
+    }
     return <Suspense fallback={null}><MainLayout /></Suspense>;
   }
 
@@ -258,6 +272,7 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
       const uptimeUrl = `/api/uptime/public/status-page-by-domain?domain=${encodeURIComponent(domain)}`;
       const serverUrl = `/api/server/public/status-page-by-domain?domain=${encodeURIComponent(domain)}`;
       const githubUrl = `/api/github/public/page-by-domain?domain=${encodeURIComponent(domain)}`;
+      const bookmarksUrl = `/api/bookmarks/public/page-by-domain?domain=${encodeURIComponent(domain)}`;
 
       try {
         const uptimeResponse = await fetch(uptimeUrl, { cache: 'no-store' });
@@ -286,6 +301,17 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
         const githubBody = githubResponse.ok ? await githubResponse.json().catch(() => null) : null;
         if (!cancelled && githubBody?.data?.found) {
           onRouteChange('github');
+          return;
+        }
+      } catch {
+        // Fall through to bookmarks public page probing.
+      }
+
+      try {
+        const bookmarksResponse = await fetch(bookmarksUrl, { cache: 'no-store' });
+        const bookmarksBody = bookmarksResponse.ok ? await bookmarksResponse.json().catch(() => null) : null;
+        if (!cancelled && bookmarksBody?.data?.found) {
+          onRouteChange('bookmarks');
           return;
         }
       } catch {
@@ -326,6 +352,16 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
       <div className="@container">
         <Suspense fallback={null}>
           <PublicGitHubPage domainOnly />
+        </Suspense>
+      </div>
+    );
+  }
+
+  if (route === 'bookmarks') {
+    return (
+      <div className="@container">
+        <Suspense fallback={null}>
+          <PublicBookmarksPage domainOnly />
         </Suspense>
       </div>
     );

@@ -199,7 +199,7 @@ export function PromptSettingsPanel({ settings, onChange, onSave, saving = false
         bodyClassName="grid gap-4"
       >
         <div className="grid gap-4 cq-sm:grid-cols-2">
-          <Select
+          <Select alignItemWithTrigger
             size="sm"
             label="默认可见性"
             value={settings.default_visibility}
@@ -210,7 +210,7 @@ export function PromptSettingsPanel({ settings, onChange, onSave, saving = false
             <Select.Option value="unlisted">不公开索引</Select.Option>
             <Select.Option value="public">公开</Select.Option>
           </Select>
-          <Select
+          <Select alignItemWithTrigger
             size="sm"
             label="原始直链格式"
             value={settings.default_direct_format}

@@ -9,6 +9,7 @@ import {
   ArrowsClockwise,
   ArrowsOutSimple,
   Bell as PhBell,
+  BookmarkSimple as PhBookmarkSimple,
   Brain as PhBrain,
   CaretDown,
   CaretLeft,
@@ -175,6 +176,7 @@ export const ShieldCheck = createIcon(PhShieldCheck);
 export const Activity = createIcon(Pulse);
 export const FolderOpen = createIcon(PhFolderOpen);
 export const Bell = createIcon(PhBell);
+export const Bookmark = createIcon(PhBookmarkSimple);
 export const Mail = createIcon(EnvelopeSimple);
 export const MessageSquare = createIcon(ChatCircle);
 export const Settings = createIcon(GearSix);
@@ -274,6 +276,7 @@ export const MODULE_ICON_MAP = {
   gcp: Cloud,
   m365: Cloud,
   github: GitHubBrand,
+  dockerhub: Box,
   server: Server,
   scheduler: Clock,
   totp: ShieldCheck,
@@ -284,6 +287,7 @@ export const MODULE_ICON_MAP = {
   systemlogs: LogList,
   drawio: Compass,
   prompts: MessageSquare,
+  bookmarks: Bookmark,
   forward: Shuffle,
 };
 

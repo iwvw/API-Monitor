@@ -406,7 +406,7 @@ export function AntigravityPlugin() {
           {field(
             '代理池',
             '引用「代理池」插件管理的池，按请求轮询出口并共享冷却/429 禁用状态',
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               className="w-full max-w-md"
               value={settings?.proxyPoolId || ''}

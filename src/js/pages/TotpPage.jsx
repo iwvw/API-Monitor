@@ -247,6 +247,7 @@ function TotpPage() {
   const [qrParsing, setQrParsing] = useState(false);
   const [qrError, setQrError] = useState('');
   const scannerRef = useRef(null);
+  const scannerStartTimerRef = useRef(null);
   const fileInputRef = useRef(null);
   const brandUploadInputRef = useRef(null);
   const editingAccountIdRef = useRef(null);
@@ -1090,7 +1091,8 @@ function TotpPage() {
 
     setIsScanning(true);
 
-    setTimeout(async () => {
+    scannerStartTimerRef.current = setTimeout(async () => {
+      scannerStartTimerRef.current = null;
       try {
         const html5QrCode = new window.Html5Qrcode('qr-reader');
         scannerRef.current = html5QrCode;
@@ -1142,6 +1144,10 @@ function TotpPage() {
   };
 
   const stopQrScan = async () => {
+    if (scannerStartTimerRef.current) {
+      clearTimeout(scannerStartTimerRef.current);
+      scannerStartTimerRef.current = null;
+    }
     if (scannerRef.current) {
       try {
         await scannerRef.current.stop();
@@ -1152,6 +1158,23 @@ function TotpPage() {
     }
     setIsScanning(false);
   };
+
+  useEffect(() => {
+    return () => {
+      if (scannerStartTimerRef.current) {
+        clearTimeout(scannerStartTimerRef.current);
+        scannerStartTimerRef.current = null;
+      }
+      if (scannerRef.current) {
+        try {
+          void scannerRef.current.stop();
+        } catch (err) {
+          console.error(err);
+        }
+        scannerRef.current = null;
+      }
+    };
+  }, []);
 
   const parseQrImage = async blob => {
     try {
@@ -1973,7 +1996,7 @@ function TotpPage() {
             {totpSettings.lockInputMode && (
               <div className="flex flex-wrap items-center justify-between gap-3 py-3 pl-3 first:pt-0 last:pb-0">
                 <label className="text-xs font-medium text-kumo-subtle">默认录入模式</label>
-                <Select
+                <Select alignItemWithTrigger
                   aria-label="默认录入模式"
                   size="sm"
                   value={totpSettings.defaultInputMode}
@@ -2380,7 +2403,7 @@ function TotpPage() {
                     />
                   </div>
 
-                  <Select
+                  <Select alignItemWithTrigger
                     size="sm"
                     label="关联分组"
                     value={accountForm.group_id}
@@ -2417,7 +2440,7 @@ function TotpPage() {
                     <AnimatedCollapse open={showAdvancedAccountSettings}>
                       <LayerCard className="mt-2 p-3">
                         <div className="grid items-start gap-3 cq-sm:grid-cols-3">
-                          <Select
+                          <Select alignItemWithTrigger
                             label="加密算法"
                             size="sm"
                             value={accountForm.algorithm}
@@ -2432,7 +2455,7 @@ function TotpPage() {
                             ]}
                           />
 
-                          <Select
+                          <Select alignItemWithTrigger
                             label="码位长度"
                             size="sm"
                             value={accountForm.digits}
@@ -2447,7 +2470,7 @@ function TotpPage() {
                           />
 
                           {accountForm.otp_type === 'totp' ? (
-                            <Select
+                            <Select alignItemWithTrigger
                               label="周期数 (s)"
                               size="sm"
                               value={accountForm.period}

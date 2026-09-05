@@ -20,6 +20,7 @@ import useStore, {
   getGroupModuleIds,
   normalizeUserSettings,
 } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import { APP_BUILD_TIME, APP_VERSION, FRAMEWORK_VERSIONS } from '../modules/appVersion.js';
 import { applySiteBrandFaviconHref, getDefaultSiteBrandPreviewUrl } from '../modules/siteBrand.js';
@@ -150,7 +151,23 @@ function SettingsPage() {
     loadUserSettings,
     logout,
     isDemoMode,
-  } = useStore();
+  } = useStore(
+    useShallow(s => ({
+      themeMode: s.themeMode,
+      theme: s.theme,
+      setThemeMode: s.setThemeMode,
+      setDashboardFooterVisible: s.setDashboardFooterVisible,
+      setDashboardFooterRecordNumber: s.setDashboardFooterRecordNumber,
+      setVibrationEnabled: s.setVibrationEnabled,
+      setUIFont: s.setUIFont,
+      uiFontSize: s.uiFontSize,
+      setUIFontSize: s.setUIFontSize,
+      applyUserSettings: s.applyUserSettings,
+      loadUserSettings: s.loadUserSettings,
+      logout: s.logout,
+      isDemoMode: s.isDemoMode,
+    }))
+  );
 
   const fileInputRef = useRef(null);
   const siteBrandInputRef = useRef(null);
@@ -1226,7 +1243,7 @@ function SettingsPage() {
               />
             </FieldRow>
             <FieldRow title="系统时区" description="本地化时间；跟随服务器用默认时区。">
-              <Select
+              <Select alignItemWithTrigger
                 size="sm"
                 value={settings.timezone}
                 onValueChange={(value) => patchSettings({ timezone: value })}
@@ -1278,7 +1295,7 @@ function SettingsPage() {
                       const isVisible = settings.moduleVisibility[row.id] !== false;
 
                       return (
-                        <div key={row.id} className={cx('flex min-h-15 items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors cq-sm:min-h-16 cq-sm:gap-3 cq-sm:px-3', isVisible ? 'border-kumo-line bg-kumo-base' : 'border-kumo-line/70 bg-kumo-recessed/35 opacity-75')}>
+                        <div key={row.id} className={cx('flex min-h-15 items-center gap-2.5 rounded-md border px-2.5 py-2 cq-sm:min-h-16 cq-sm:gap-3 cq-sm:px-3', isVisible ? 'border-kumo-line bg-kumo-base' : 'border-kumo-line/70 bg-kumo-recessed/35 opacity-75')}>
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-brand">
                             <ModuleIcon className="h-4 w-4" />
                           </div>
@@ -2076,13 +2093,13 @@ function SettingsPage() {
             bodyPadding="none"
           >
             <FieldRow title="主题模式">
-              <Select size="sm" value={themeMode} onValueChange={handleThemeModeChange} items={THEME_OPTIONS} />
+              <Select alignItemWithTrigger size="sm" value={themeMode} onValueChange={handleThemeModeChange} items={THEME_OPTIONS} />
             </FieldRow>
             <FieldRow title="界面字体">
-              <Select size="sm" value={settings.uiFont || 'default'} onValueChange={handleUIFontChange} items={FONT_OPTIONS} />
+              <Select alignItemWithTrigger size="sm" value={settings.uiFont || 'default'} onValueChange={handleUIFontChange} items={FONT_OPTIONS} />
             </FieldRow>
             <FieldRow title="字号与布局">
-              <Select size="sm" value={uiFontSize} onValueChange={handleUIFontSizeChange} items={FONT_SIZE_OPTIONS} />
+              <Select alignItemWithTrigger size="sm" value={uiFontSize} onValueChange={handleUIFontSizeChange} items={FONT_SIZE_OPTIONS} />
             </FieldRow>
             <FieldRow title="显示首页页脚">
               <Switch aria-label="显示首页页脚" checked={settings.dashboardFooterVisible} onCheckedChange={handleDashboardFooterVisibleChange} />

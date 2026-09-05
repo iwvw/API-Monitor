@@ -338,7 +338,7 @@ export default function PromptLibraryPage() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b border-kumo-line p-2 cq-md:hidden">
           <div className="min-w-0 flex-1">
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               className="w-full"
               value={String(selectedEntryId || '')}

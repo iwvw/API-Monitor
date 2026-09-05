@@ -6,6 +6,7 @@ import useStore, {
   getModuleName,
   store,
 } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar';
 import { Tooltip } from '@cloudflare/kumo/components/tooltip';
 import { Button } from '@cloudflare/kumo/components/button';
@@ -14,6 +15,7 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { APP_VERSION } from '../modules/appVersion.js';
 import AppPageHeader, { AppBreadcrumbs } from './AppPageHeader.jsx';
+import { HeaderToolsContext } from '../modules/headerToolsContext.js';
 import { AppCard } from './ui/AppPrimitives.jsx';
 import { AlertTriangle } from './IconsCore.jsx';
 import {
@@ -40,6 +42,7 @@ const NotificationPage = lazy(() => import('../pages/NotificationPage.jsx'));
 const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
 const SubscriptionPage = lazy(() => import('../pages/SubscriptionPage.jsx'));
 const GitHubPage = lazy(() => import('../pages/GitHubPage.jsx'));
+const DockerHubPage = lazy(() => import('../pages/DockerHubPage.jsx'));
 
 const PaasPage = lazy(() => import('../pages/PaasPage.jsx'));
 const DnsPage = lazy(() => import('../pages/DnsPage.jsx'));
@@ -54,6 +57,7 @@ const ApiDocsPage = lazy(() => import('../pages/ApiDocsPage.jsx'));
 const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
+const BookmarksPage = lazy(() => import('../pages/BookmarksPage.jsx'));
 const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
 
 import { pageStackClass } from './ui/AppPrimitives.jsx';
@@ -445,8 +449,31 @@ function MainLayout() {
     logout,
     showAskAI,
     setShowAskAI,
-  } = useStore();
+  } = useStore(
+    useShallow(s => ({
+      mainActiveTab: s.mainActiveTab,
+      setMainActiveTab: s.setMainActiveTab,
+      sidebarCollapsed: s.sidebarCollapsed,
+      setSidebarCollapsed: s.setSidebarCollapsed,
+      themeMode: s.themeMode,
+      setThemeMode: s.setThemeMode,
+      dashboardFooterVisible: s.dashboardFooterVisible,
+      dashboardFooterRecordNumber: s.dashboardFooterRecordNumber,
+      appProcessUptimeSeconds: s.appProcessUptimeSeconds,
+      appProcessUptimeMeasuredAt: s.appProcessUptimeMeasuredAt,
+      moduleVisibility: s.moduleVisibility,
+      moduleOrder: s.moduleOrder,
+      userSettingsLoaded: s.userSettingsLoaded,
+      loadUserSettings: s.loadUserSettings,
+      triggerHaptic: s.triggerHaptic,
+      logout: s.logout,
+      showAskAI: s.showAskAI,
+      setShowAskAI: s.setShowAskAI,
+    }))
+  );
   const [runtimeClock, setRuntimeClock] = useState(() => Date.now());
+  // 面包屑栏工具区容器：页面内容组件（TilesBoard 控制栏）经 portal 渲染到这里
+  const [headerToolsEl, setHeaderToolsEl] = useState(null);
   const displayedAppProcessUptime =
     appProcessUptimeSeconds > 0
       ? appProcessUptimeSeconds + Math.max(0, runtimeClock - appProcessUptimeMeasuredAt) / 1000
@@ -608,6 +635,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
   const stickyHeaderScrollModule = [
     'server',
     'github',
+    'dockerhub',
     'settings',
     'paas',
     'scheduler',
@@ -625,6 +653,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'tencent',
     'm365',
     'adminai',
+    'bookmarks',
   ].includes(mainActiveTab);
   const mainCanvasClassName =
     (stickyHeaderScrollModule
@@ -648,7 +677,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
   const renderActivePage = () => {
     switch (mainActiveTab) {
       case 'dashboard':
-        return <DashboardPage onNavigate={navigateToModule} />;
+        return <DashboardPage />;
       case 'openai':
         return <OpenAIPage />;
       case 'subscription':
@@ -680,6 +709,8 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <NotificationPage />;
       case 'github':
         return <GitHubPage />;
+      case 'dockerhub':
+        return <DockerHubPage />;
       case 'settings':
         return <SettingsPage />;
       case 'scheduler':
@@ -692,6 +723,8 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <DrawioPage />;
       case 'prompts':
         return <PromptLibraryPage />;
+      case 'bookmarks':
+        return <BookmarksPage />;
       case 'adminai':
         return <AdminAIPage />;
       default:
@@ -855,6 +888,7 @@ return (
                   </AppBreadcrumbs>
                 }
               >
+                <div ref={setHeaderToolsEl} className="flex items-center gap-2" />
               </AppPageHeader>
               <Button
                 onClick={() => store.toggleAskAI()}
@@ -872,6 +906,7 @@ return (
             </header>
 
           {/* 主内容画布（@container：页面布局按内容实际可用宽度自适应，侧栏让位后自动降级） */}
+          <HeaderToolsContext.Provider value={headerToolsEl}>
           <main className={mainCanvasClassName}>
             <div className={mainCanvasInnerClassName}>
               <ModuleErrorBoundary moduleId={mainActiveTab}>
@@ -879,6 +914,7 @@ return (
               </ModuleErrorBoundary>
             </div>
           </main>
+          </HeaderToolsContext.Provider>
           {mainActiveTab === 'dashboard' && dashboardFooterVisible && (
             <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle @[450px]:px-4 cq-md:px-6 transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)]">
               <div className="flex min-w-0 items-center gap-2">

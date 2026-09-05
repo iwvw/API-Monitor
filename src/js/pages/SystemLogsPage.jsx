@@ -186,7 +186,7 @@ export default function SystemLogsPage() {
         actions={<Button size="sm" variant="secondary" onClick={download} icon={<Download className="h-3.5 w-3.5" />}>下载</Button>}
       >
         <div className="flex flex-wrap items-end gap-2.5">
-          <Select size="sm" label="级别" className="w-28" value={level} onValueChange={setLevel} items={LEVELS} />
+          <Select alignItemWithTrigger size="sm" label="级别" className="w-28" value={level} onValueChange={setLevel} items={LEVELS} />
           <Input size="sm" label="关键字 / 正则" className="min-w-60 flex-1" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && load()} placeholder="输入关键字或正则后回车" />
           <Button size="sm" variant="secondary" onClick={load} loading={loading} icon={<Search className="h-3.5 w-3.5" />}>检索</Button>
           <div className="ml-auto flex shrink-0 items-center gap-3 pb-0.5">

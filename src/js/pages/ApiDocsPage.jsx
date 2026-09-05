@@ -751,7 +751,7 @@ function StatCard({ icon: Icon, label, value, tone = 'brand' }) {
 
 function FilterSelect({ label, value, onValueChange, items }) {
   return (
-    <Select
+    <Select alignItemWithTrigger
       size="sm"
       aria-label={label}
       value={value}
@@ -1543,7 +1543,7 @@ function AIAuditConsole({
     <>
     <LayerCard className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
       <div className="flex items-center gap-2 border-b border-kumo-line px-3 py-2">
-        <Select
+        <Select alignItemWithTrigger
           value={actionFilter}
           onValueChange={onActionFilterChange}
           className="w-[140px]"
@@ -1908,7 +1908,7 @@ function APIKeyConsole({
             aria-label="密钥名称"
             className="text-xs"
           />
-          <Select
+          <Select alignItemWithTrigger
             size="sm"
             aria-label="密钥类型"
             value={form.kind}
@@ -2004,7 +2004,7 @@ function APIKeyConsole({
                 </Popover.Content>
               </Popover>
               <div className="flex items-center gap-1.5">
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   aria-label="过期小时"
                   disabled={!form.expiresAt}
@@ -2013,7 +2013,7 @@ function APIKeyConsole({
                   items={API_KEY_EXPIRY_HOURS}
                 />
                 <span className="text-center text-sm text-kumo-subtle">:</span>
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   aria-label="过期分钟"
                   disabled={!form.expiresAt}
@@ -2026,7 +2026,7 @@ function APIKeyConsole({
             <p className="text-[11px] text-kumo-subtle">留空表示长期有效，建议使用 90 天并定期轮换。</p>
           </div>
           {editingId && (
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               aria-label="启用状态"
               value={form.enabled ? 'true' : 'false'}
@@ -2065,7 +2065,7 @@ function APIKeyConsole({
         title="密钥与使用监控"
         icon={<Activity className="h-4 w-4 text-brand" />}
         action={
-          <Button size="sm" variant="secondary" onClick={onRefresh} loading={loading}>
+          <Button size="sm" variant="secondary" onClick={onRefresh} loading={loading} aria-label="刷新密钥监控">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         }

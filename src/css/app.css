@@ -2739,3 +2739,21 @@ input[type='number'] {
     animation: none;
   }
 }
+
+/* 卡片图块内容元素增删/布局切换的连贯式过渡：
+   拖拽缩放跨越档位（density/tier 变化）导致元素挂载/卸载时，
+   新元素以淡入上移入场，与 RGL 拖拽的连续 resize 衔接；
+   拖动过程 DOM 复用不触发动画，避免闪烁。 */
+@keyframes tile-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-tile-fade-up {
+  animation: tile-fade-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 覆盖 react-grid-layout 默认在缩放柄 ::after 绘制的黑色直角箭头，
+   只保留自定义 Notches 图标（特异性高于库选择器，保证生效） */
+.react-grid-item > .react-resizable-handle::after {
+  display: none !important;
+}

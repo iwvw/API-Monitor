@@ -43,7 +43,7 @@ export function renderMarkdown(text) {
           if (part.type === 'image_url') {
             const url = part.image_url?.url || '';
             // 极致去空白处理：HTML 保持在一行，杜绝段落包裹
-            return `<div class="msg-image-container"><a href="javascript:void(0)" class="img-preview-trigger"><img src="${url}" class="msg-inline-image" alt="图片" /></a></div>`;
+            return `<div class="msg-image-container"><a class="img-preview-trigger"><img src="${url}" class="msg-inline-image" alt="图片" /></a></div>`;
           }
           return `\`${JSON.stringify(part)}\``;
         }

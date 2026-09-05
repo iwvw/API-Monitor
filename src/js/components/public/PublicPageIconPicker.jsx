@@ -257,7 +257,10 @@ export default function PublicPageIconPicker({
     const iconId = String(item?.id || '').trim();
     if (!iconId || deletingId) return;
     const fullName = getIconDisplayName(item);
-    const confirmed = await dialog.confirm(`确定删除图标“${fullName || iconId}”吗？`);
+    const confirmed = await dialog.deleteResource({
+      resourceType: '公开页图标',
+      resourceName: fullName || iconId,
+    });
     if (!confirmed) return;
 
     if (selectedIconId === iconId) {

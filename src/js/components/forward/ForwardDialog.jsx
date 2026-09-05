@@ -483,12 +483,12 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-xs text-kumo-text-secondary">常用服务预设</label>
-                    <Select size="sm" value={preset} onValueChange={applyPreset} items={SERVICE_PRESETS} placeholder="选择后自动填充端口与协议" aria-label="常用服务预设" />
+                    <Select alignItemWithTrigger size="sm" value={preset} onValueChange={applyPreset} items={SERVICE_PRESETS} placeholder="选择后自动填充端口与协议" aria-label="常用服务预设" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">源主机</label>
-                      <Select size="sm" value={serverId} onValueChange={setServerId} items={serverItems} placeholder="选择主机" aria-label="源主机" disabled={!!editing} />
+                      <Select alignItemWithTrigger size="sm" value={serverId} onValueChange={setServerId} items={serverItems} placeholder="选择主机" aria-label="源主机" disabled={!!editing} />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">本地地址</label>
@@ -502,7 +502,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">协议</label>
-                      <Select
+                      <Select alignItemWithTrigger
                         size="sm"
                         value={protocol}
                         onValueChange={setProtocol}
@@ -556,7 +556,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                         <div className="flex flex-col gap-2">
                           <div className="flex flex-col gap-1">
                             <label className="text-xs text-kumo-text-secondary">Cloudflare 账号</label>
-                            <Select
+                            <Select alignItemWithTrigger
                               size="sm"
                               value={fwdAccountId}
                               onValueChange={(v) => { setFwdAccountId(v); setFwdZoneId(''); loadFwdZones(v, ''); }}
@@ -567,7 +567,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-xs text-kumo-text-secondary">已有域名（Zone）</label>
-                            <Select
+                            <Select alignItemWithTrigger
                               size="sm"
                               value={fwdZoneId}
                               onValueChange={setFwdZoneId}
@@ -606,7 +606,7 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                   {transport === 'tcp_relay' && (
                     <div className="flex flex-col gap-1">
                       <label className="text-xs text-kumo-text-secondary">中继入口主机</label>
-                      <Select size="sm" value={relayServerId} onValueChange={setRelayServerId} items={relayItems} placeholder="选择中继入口" aria-label="中继入口主机" />
+                      <Select alignItemWithTrigger size="sm" value={relayServerId} onValueChange={setRelayServerId} items={relayItems} placeholder="选择中继入口" aria-label="中继入口主机" />
                       <p className="text-[11px] text-kumo-text-secondary">
                         入口主机需有公网 IP，端口自动从 55655-60655 分配。
                         {relayPorts?.available?.length > 0 && ` 当前可用端口 ${relayPorts.available.length} 个（${relayPorts.available[0]}–${relayPorts.available[relayPorts.available.length - 1]}）`}
@@ -650,8 +650,8 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                         </Button>
                       ) : (
                         <div className="mt-1.5 flex flex-col gap-2">
-                          <Select size="sm" value={tunnelAccountId} onValueChange={onTunnelAccountChange} items={tunnelAccountItems} placeholder="Cloudflare 账号" aria-label="Cloudflare 账号" disabled={tunnelZonesLoading} />
-                          <Select size="sm" value={tunnelZoneId} onValueChange={onTunnelZoneChange} items={tunnelZoneItems} placeholder="Zone（域名）" aria-label="Cloudflare Zone" disabled={tunnelZonesLoading} />
+                          <Select alignItemWithTrigger size="sm" value={tunnelAccountId} onValueChange={onTunnelAccountChange} items={tunnelAccountItems} placeholder="Cloudflare 账号" aria-label="Cloudflare 账号" disabled={tunnelZonesLoading} />
+                          <Select alignItemWithTrigger size="sm" value={tunnelZoneId} onValueChange={onTunnelZoneChange} items={tunnelZoneItems} placeholder="Zone（域名）" aria-label="Cloudflare Zone" disabled={tunnelZonesLoading} />
                           <Input size="sm" value={tunnelHostname} onChange={(e) => setTunnelHostname(e.target.value)} placeholder="tunnel.example.com" aria-label="Tunnel 域名" />
                           {tunnelDeployError && <p className="text-xs text-kumo-danger">{tunnelDeployError}</p>}
                           <Button size="sm" variant="primary" onClick={deploySourceTunnel} disabled={tunnelDeploying || !tunnelAccountId || !tunnelZoneId || !tunnelHostname.trim()}>
@@ -686,9 +686,9 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
                       </div>
                     )}
                     <div className="flex items-center gap-2">
-                      <Select size="sm" value={targetServerId} onValueChange={setTargetServerId} items={standbyItems} placeholder="选择主机" aria-label="备用主机" className="min-w-0 flex-1" />
+                      <Select alignItemWithTrigger size="sm" value={targetServerId} onValueChange={setTargetServerId} items={standbyItems} placeholder="选择主机" aria-label="备用主机" className="min-w-0 flex-1" />
                       <Input size="sm" type="number" value={targetPriority} onChange={(e) => setTargetPriority(e.target.value)} min="1" max="99" className="w-16" placeholder="优先级" aria-label="优先级" />
-                      <Button size="sm" onClick={handleAddTarget} disabled={!targetServerId}><Plus className="h-3.5 w-3.5" weight="bold" /></Button>
+                      <Button size="sm" onClick={handleAddTarget} disabled={!targetServerId} aria-label="添加备用主机"><Plus className="h-3.5 w-3.5" weight="bold" /></Button>
                     </div>
                   </div>
                 </FormCard>

@@ -177,7 +177,7 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
   return (
     <>
       <div className="flex items-center gap-2">
-        <Select
+        <Select alignItemWithTrigger
           size="sm"
           value={filterTransport}
           onValueChange={setFilterTransport}
@@ -185,7 +185,7 @@ export default function ForwardTable({ forwards, deploying, acting, onEdit, onDe
           aria-label="传输方式"
           className="w-32"
         />
-        <Select
+        <Select alignItemWithTrigger
           size="sm"
           value={filterStatus}
           onValueChange={setFilterStatus}

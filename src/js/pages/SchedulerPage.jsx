@@ -442,9 +442,9 @@ function CronEditor({ form, setForm, preview, previewError }) {
         />
       ) : (
         <div className="space-y-3">
-          <Select size="sm" label="周期" className="w-full" value={form.periodType} onValueChange={(value) => setForm((prev) => ({ ...prev, periodType: value }))} items={PERIOD_ITEMS} />
+          <Select alignItemWithTrigger size="sm" label="周期" className="w-full" value={form.periodType} onValueChange={(value) => setForm((prev) => ({ ...prev, periodType: value }))} items={PERIOD_ITEMS} />
           {form.periodType === 'week' && (
-            <Select size="sm" label="星期" className="w-full" value={form.weekday} onValueChange={(value) => setForm((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_ITEMS} />
+            <Select alignItemWithTrigger size="sm" label="星期" className="w-full" value={form.weekday} onValueChange={(value) => setForm((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_ITEMS} />
           )}
           {form.periodType === 'month' && (
             <Input size="sm" type="number" label="日期" min="1" max="31" value={form.dayOfMonth} onChange={(event) => setForm((prev) => ({ ...prev, dayOfMonth: Number(event.target.value) }))} />
@@ -1831,11 +1831,11 @@ function SchedulerPage({ onNavigate = () => {} }) {
                 <div className="space-y-3 py-4">
                   <div className="grid gap-3 cq-sm:grid-cols-2">
                     <Input size="sm" label="名称" value={taskForm.name} onChange={(event) => setTaskForm((prev) => ({ ...prev, name: event.target.value }))} />
-                    <Select size="sm" label="执行节点" className="w-full" value={taskForm.node_id} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, node_id: value }))} items={nodeItems} />
+                    <Select alignItemWithTrigger size="sm" label="执行节点" className="w-full" value={taskForm.node_id} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, node_id: value }))} items={nodeItems} />
                   </div>
                   <Input size="sm" label="描述" value={taskForm.description} onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))} />
                   <div className="grid gap-3 cq-sm:grid-cols-2">
-                    <Select size="sm" label="任务类型" className="w-full" value={taskForm.type} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, type: value }))} items={TYPE_ITEMS} />
+                    <Select alignItemWithTrigger size="sm" label="任务类型" className="w-full" value={taskForm.type} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, type: value }))} items={TYPE_ITEMS} />
                     <Input size="sm" label="节点标签选择器" value={taskForm.node_selector} onChange={(event) => setTaskForm((prev) => ({ ...prev, node_selector: event.target.value }))} />
                   </div>
                   {taskForm.type === 'shell' || taskForm.type === 'agent' ? (
@@ -1878,9 +1878,9 @@ function SchedulerPage({ onNavigate = () => {} }) {
               {taskForm.type === 'ai' && (
                 <FormCard icon={<Sparkle className="h-4 w-4" />} title="AI 执行配置" description="可调用全部内部接口">
                   <div className="grid gap-3 py-4 cq-sm:grid-cols-2">
-                    <Select size="sm" label="推理模型" className="w-full" value={taskForm.aiModel} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiModel: String(value) }))} items={aiModelOptions} />
-                    <Select size="sm" label="写操作策略" className="w-full" value={taskForm.aiPolicy} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiPolicy: String(value) }))} items={AI_POLICY_ITEMS} />
-                    <Select size="sm" label="结果推送" className="w-full cq-sm:col-span-2" value={taskForm.aiChannelId} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiChannelId: String(value) }))} items={[{ value: '', label: '不推送（仅记录到运行结果）' }, ...aiChannelOptions]} />
+                    <Select alignItemWithTrigger size="sm" label="推理模型" className="w-full" value={taskForm.aiModel} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiModel: String(value) }))} items={aiModelOptions} />
+                    <Select alignItemWithTrigger size="sm" label="写操作策略" className="w-full" value={taskForm.aiPolicy} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiPolicy: String(value) }))} items={AI_POLICY_ITEMS} />
+                    <Select alignItemWithTrigger size="sm" label="结果推送" className="w-full cq-sm:col-span-2" value={taskForm.aiChannelId} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, aiChannelId: String(value) }))} items={[{ value: '', label: '不推送（仅记录到运行结果）' }, ...aiChannelOptions]} />
                   </div>
                   <div className="border-t border-kumo-line py-3 text-xs text-kumo-subtle">
                     策略「完全允许」时写操作免审批执行。
@@ -1972,7 +1972,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                             <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-2 text-xs text-kumo-subtle">开始节点只负责触发流程，不需要绑定任务。</div>
                           ) : (
                             <div className="space-y-3">
-                              <Select
+                              <Select alignItemWithTrigger
                                 size="sm"
                                 label="引用任务"
                                 className="w-full"
@@ -1983,7 +1983,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
                               {!selectedWorkflowNode.task_id && (
                                 <div className="space-y-3">
                                   <div className="grid gap-3 cq-sm:grid-cols-2">
-                                    <Select
+                                    <Select alignItemWithTrigger
                                       size="sm"
                                       label="节点类型"
                                       className="w-full"
@@ -2042,12 +2042,12 @@ function SchedulerPage({ onNavigate = () => {} }) {
                         {workflowForm.edges.map((edge, index) => (
                           <div key={edge.id} className="grid gap-2 rounded-md border border-kumo-line p-2.5">
                             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
-                              <Select size="sm" label="来源" className="w-full" value={edge.from} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, from: value } : item) }))} items={workflowNodeItems} />
+                              <Select alignItemWithTrigger size="sm" label="来源" className="w-full" value={edge.from} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, from: value } : item) }))} items={workflowNodeItems} />
                               <ArrowRight className="mb-2 h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
-                              <Select size="sm" label="目标" className="w-full" value={edge.to} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, to: value } : item) }))} items={workflowNodeItems} />
+                              <Select alignItemWithTrigger size="sm" label="目标" className="w-full" value={edge.to} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, to: value } : item) }))} items={workflowNodeItems} />
                             </div>
                             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                              <Select size="sm" label="触发条件" className="w-full" value={edge.condition} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, condition: value } : item) }))} items={CONDITION_ITEMS} />
+                              <Select alignItemWithTrigger size="sm" label="触发条件" className="w-full" value={edge.condition} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, condition: value } : item) }))} items={CONDITION_ITEMS} />
                               <IconButton label="删除依赖" variant="secondary-destructive" onClick={() => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.filter((_, i) => i !== index) }))} icon={<Trash className="h-3.5 w-3.5" />} />
                             </div>
                           </div>

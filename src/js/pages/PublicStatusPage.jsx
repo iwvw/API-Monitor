@@ -295,8 +295,8 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
             lastError: monitorState.lastError ?? monitorState.last_error ?? monitor.lastError,
             lastPing: monitorState.lastPing ?? monitorState.last_ping ?? (normalizedBeat.status === 'up' ? normalizedBeat.ping : 0),
             updatedAt: monitorState.updatedAt || monitorState.updated_at || normalizedBeat.time || monitor.updatedAt,
-            uptime24h: beat.uptime24h || monitor.uptime24h,
-            uptime30d: beat.uptime30d || monitor.uptime30d,
+            uptime24h: beat.uptime24h ?? monitor.uptime24h,
+            uptime30d: beat.uptime30d ?? monitor.uptime30d,
             heartbeats: mergeHeartbeat(monitor.heartbeats, normalizedBeat),
           };
         });
@@ -523,7 +523,7 @@ function PublicStatusPage({ domainOnly = false, onDomainNotFound }) {
                                 </div>
                                 <div className="rounded-md border border-kumo-interact/75 bg-kumo-base p-2">
                                   <div className="text-[10px] text-kumo-subtle">30天可用率</div>
-                                  <div className="mt-1 tabular-nums text-sm font-semibold text-kumo-strong">{monitor.uptime30d ? `${formatUptimePercent(monitor.uptime30d)}%` : '--'}</div>
+                                  <div className="mt-1 tabular-nums text-sm font-semibold text-kumo-strong">{monitor.uptime30d == null || monitor.uptime30d === '' ? '--' : `${formatUptimePercent(monitor.uptime30d)}%`}</div>
                                 </div>
                               </div>
                             </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import useStore from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
@@ -2470,7 +2471,15 @@ function ServerPage() {
     publicApiUrl,
     serverIpDisplayMode: storedServerIpDisplayMode,
     agentDownloadUrl: storedAgentDownloadUrl,
-  } = useStore();
+  } = useStore(
+    useShallow(s => ({
+      setMainActiveTab: s.setMainActiveTab,
+      theme: s.theme,
+      publicApiUrl: s.publicApiUrl,
+      serverIpDisplayMode: s.serverIpDisplayMode,
+      agentDownloadUrl: s.agentDownloadUrl,
+    }))
+  );
   const { isArmed, confirmPress } = useConfirmPress();
   const isCompactViewport = useMediaQuery('(max-width: 640px)');
   const isDenseViewport = useMediaQuery('(max-width: 1120px)');
@@ -2963,10 +2972,6 @@ function ServerPage() {
     };
   }, []);
 
-
-  useEffect(() => {
-    useStore.setState({ serverList });
-  }, [serverList]);
 
   useEffect(() => {
     serverStatusByIdRef.current = new Map(serverList.map(server => [String(server.id), server.status]));
@@ -8994,7 +8999,7 @@ function ServerPage() {
                     placeholder="搜索容器 / 镜像 / 端口"
                     className="h-6.5 w-full min-w-[12rem] cq-sm:w-52"
                   />
-                  <Select
+                  <Select alignItemWithTrigger
                     aria-label="筛选容器状态"
                     size="sm"
                     value={dockerContainerStateFilter}
@@ -10173,7 +10178,7 @@ function ServerPage() {
                     <div className="text-xs font-semibold leading-5 text-kumo-strong">主机地址显示</div>
                   </div>
                   <div className="flex justify-start cq-lg:justify-end">
-                    <Select
+                    <Select alignItemWithTrigger
                       size="sm"
                       aria-label="主机地址显示"
                       value={serverIpDisplayMode}
@@ -10897,7 +10902,7 @@ function ServerPage() {
                               placeholder="留空则不限额"
                               className="px-3 py-2 text-kumo-strong"
                             />
-                            <Select size="sm"
+                            <Select alignItemWithTrigger size="sm"
                               aria-label="流量配额单位"
                               value={serverForm.trafficLimitUnit}
                               onValueChange={(value) => setServerForm(prev => ({ ...prev, trafficLimitUnit: String(value) }))}
@@ -10912,7 +10917,7 @@ function ServerPage() {
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5">
                           <label className="font-semibold text-kumo-subtle">统计范围</label>
-                          <Select size="sm"
+                          <Select alignItemWithTrigger size="sm"
                             aria-label="配额方向"
                             value={serverForm.trafficLimitMode}
                             onValueChange={(value) => setServerForm(prev => ({ ...prev, trafficLimitMode: String(value) }))}
@@ -10963,7 +10968,7 @@ function ServerPage() {
                     <div className="mt-3 grid grid-cols-1 gap-3 border-t border-kumo-line pt-3 cq-sm:grid-cols-3">
                       <div className="flex flex-col gap-1.5">
                         <label className="font-semibold text-kumo-subtle">流量周期</label>
-                        <Select size="sm"
+                        <Select alignItemWithTrigger size="sm"
                           aria-label="流量周期"
                           value={serverForm.trafficCycleType}
                           onValueChange={(value) => setServerForm(prev => ({ ...prev, trafficCycleType: String(value) }))}
@@ -11052,7 +11057,7 @@ function ServerPage() {
 
                   <div className="mt-3 flex flex-col gap-1.5">
                     <label className="font-semibold text-kumo-subtle">凭据预设</label>
-                    <Select size="sm"
+                    <Select alignItemWithTrigger size="sm"
                       aria-label="选择凭据预设"
                       value={selectedCredentialId}
                       onValueChange={applyCredential}
@@ -11180,7 +11185,7 @@ function ServerPage() {
                   </div>
                   {quickDeployResult && (
                     <div className="flex flex-col gap-3">
-                      <Select
+                      <Select alignItemWithTrigger
                         label="安装目标" size="sm"
                         value={agentInstallOS}
                         onValueChange={setAgentInstallOS}
@@ -11307,7 +11312,7 @@ function ServerPage() {
 
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle font-medium">登录凭据模式</label>
-                <Select size="sm"
+                <Select alignItemWithTrigger size="sm"
                   aria-label="登录凭据模式"
                   value={credForm.auth_type}
                   onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
@@ -12086,7 +12091,7 @@ function ServerPage() {
 
           <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
             <div className="flex items-center gap-3">
-              <Select
+              <Select alignItemWithTrigger
                 size="sm"
                 label="日志行数"
                 value={String(dockerLogsTail)}
@@ -12179,7 +12184,7 @@ function ServerPage() {
                   value={networkTargetForm.port}
                   onChange={e => setNetworkTargetForm(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))}
                 />
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   label="协议"
                   value={networkTargetForm.type}

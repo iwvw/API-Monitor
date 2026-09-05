@@ -25,7 +25,7 @@ export default function DrawioSettingsView({
       >
         <div className="grid gap-4 cq-sm:grid-cols-2">
           <Field label="默认导出格式" description="工具栏中的导出按钮优先使用此格式">
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               value={settings.default_export_format}
               onValueChange={value => patch({ default_export_format: value })}
@@ -37,7 +37,7 @@ export default function DrawioSettingsView({
             </Select>
           </Field>
           <Field label="编辑器主题" description="进入图表编辑器时采用的主题">
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               value={settings.default_theme_mode}
               onValueChange={value => patch({ default_theme_mode: value })}
@@ -122,7 +122,7 @@ export default function DrawioSettingsView({
 
         <div className="grid gap-4 border-t border-kumo-line pt-4 cq-sm:grid-cols-3">
           <Field label="预览格式">
-            <Select
+            <Select alignItemWithTrigger
               size="sm"
               value={settings.thumbnail_format}
               onValueChange={value => patch({ thumbnail_format: value })}

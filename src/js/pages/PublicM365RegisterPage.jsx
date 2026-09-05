@@ -373,7 +373,7 @@ function PublicM365RegisterPage() {
               {requiresTargetSelection ? (
                 <div className="grid gap-2">
                   <div className="text-xs text-kumo-subtle">注册域名</div>
-                  <Select
+                  <Select alignItemWithTrigger
                     aria-label="注册域名"
                     value={selectedTargetValue}
                     placeholder="点击选择"

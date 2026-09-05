@@ -1,12 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { createPortal } from 'react-dom';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Select } from '@cloudflare/kumo/components/select';
-import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Empty, Loader, Tabs } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, cx } from '../ui/AppPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
@@ -19,111 +17,6 @@ function ErrorBanner({ message }) {
   if (!message) return null;
   return (
     <div className="rounded-lg bg-kumo-danger/10 px-3 py-2 text-xs text-kumo-danger">{message}</div>
-  );
-}
-
-/* 多选模型：portal 悬浮面板勾选（脱离 transform/overflow 父级，fixed 视口定位可靠）；
- * 收起态只显示已选数量（不显示具体模型名） */
-function MultiModelSelect({ options, value, onChange }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState(null);
-  const boxRef = useRef(null);
-  const panelRef = useRef(null);
-  // 只统计仍存在于可用候选列表中的模型：端点上已删/停用的模型不在 options 中，
-  // 即便值里残留旧 id 也不计入已选数量，保持一致显示。
-  const optionValues = useMemo(() => new Set(options.map((o) => o.value)), [options]);
-  const selected = useMemo(
-    () =>
-      new Set(
-        (value || '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter((s) => s && optionValues.has(s))
-      ),
-    [value, optionValues]
-  );
-  const close = () => setOpen(false);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => {
-      const inBox = boxRef.current && boxRef.current.contains(e.target);
-      const inPanel = panelRef.current && panelRef.current.contains(e.target);
-      if (!inBox && !inPanel) close();
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('resize', close);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('resize', close);
-    };
-  }, [open]);
-  const toggleOpen = () => {
-    if (open) {
-      close();
-      return;
-    }
-    const r = boxRef.current?.getBoundingClientRect();
-    if (r) {
-      const w = 340;
-      setPos({
-        left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)),
-        top: r.bottom + 6,
-      });
-    }
-    setOpen(true);
-  };
-  const toggle = (v) => {
-    const next = new Set(selected);
-    if (next.has(v)) next.delete(v);
-    else next.add(v);
-    onChange([...next].join(','));
-  };
-  return (
-    <div ref={boxRef} className="relative w-full">
-      <Button
-        type="button"
-        size="sm"
-        variant="secondary"
-        onClick={toggleOpen}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 !px-3 !py-1.5 !text-[11px]"
-      >
-        <span className="flex min-w-0 items-center gap-1.5 text-kumo-default">
-          <Plus className="h-3 w-3 shrink-0 text-kumo-subtle" />
-          摘要模型
-        </span>
-        <Badge variant={selected.size > 0 ? 'primary' : 'outline'} className="shrink-0 !py-0 !text-[10px]">
-          {selected.size > 0 ? `已选 ${selected.size} 个` : '未选择'}
-        </Badge>
-      </Button>
-      {open && pos && createPortal(
-        <div
-          ref={panelRef}
-          className="w-[340px] max-h-56 overflow-y-auto rounded-xl bg-kumo-base p-1.5 shadow-xl ring-1 ring-kumo-line"
-          style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 9999 }}
-        >
-          {options.length === 0 ? (
-            <p className="px-2.5 py-2 text-xs text-kumo-subtle">模型网关无可用模型</p>
-          ) : (
-            options.map((opt) => (
-              <label
-                key={opt.value}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-kumo-tint"
-              >
-                <Checkbox
-                  checked={selected.has(opt.value)}
-                  onCheckedChange={() => toggle(opt.value)}
-                  aria-label={opt.label}
-                />
-                <span className="min-w-0 truncate text-xs text-kumo-default">{opt.label}</span>
-              </label>
-            ))
-          )}
-        </div>,
-        document.body
-      )}
-    </div>
   );
 }
 
@@ -324,11 +217,28 @@ className={cx(
     }
     let control;
     if (field.kind === 'multi_select') {
-      // 多选模型：下拉框内复选框多选，值存逗号串（后端按候选顺序逐个失败回退）
-      control = <MultiModelSelect options={modelOptions} value={value} onChange={(v) => setField(field.key, v)} />;
-    } else if (field.kind === 'select') {
+      // 多选摘要模型：值存逗号串（后端按候选顺序逐个失败回退）；
+      // 只把仍存在于可用候选中的 id 传给 Select，已删/停用的模型 id 不参与显示。
+      const available = new Set(modelOptions.map((o) => o.value));
+      const current = String(value || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s && available.has(s));
       control = (
         <Select
+          multiple
+          placeholder={modelOptions.length ? '选择摘要模型' : '模型网关无可用模型'}
+          items={modelOptions}
+          value={current}
+          onValueChange={(vals) => setField(field.key, (vals || []).join(','))}
+          renderValue={(vals) => (vals && vals.length ? `已选 ${vals.length} 个` : null)}
+          size="sm"
+          className="w-full"
+        />
+      );
+    } else if (field.kind === 'select') {
+      control = (
+        <Select alignItemWithTrigger
           placeholder={modelOptions.length ? '选择模型' : '模型网关无可用模型'}
           value={value || undefined}
           onValueChange={(v) => setField(field.key, String(v))}
@@ -802,7 +712,7 @@ function ChannelsCard() {
           <div className="grid gap-3 cq-sm:grid-cols-2">
             <div>
               <div className="mb-1 text-xs font-medium text-kumo-subtle">频道类型</div>
-              <Select
+              <Select alignItemWithTrigger
                 size="sm"
                 className="w-full"
                 value={form.type || 'telegram'}
@@ -820,7 +730,7 @@ function ChannelsCard() {
             <>
               <div className="mt-3">
                 <div className="mb-1 text-xs font-medium text-kumo-subtle">来源通知渠道</div>
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   className="w-full"
                   placeholder={form.notificationChannelId ? undefined : (form.id ? '未选择（沿用旧 Token 配置）' : '选择通知中心的 Telegram 渠道')}
@@ -1054,7 +964,7 @@ function TemplatesCard() {
         bodyPadding="none"
       >
         <FieldRow title="模板类型" description={option.description}>
-          <Select
+          <Select alignItemWithTrigger
             size="sm"
             className="w-full"
             value={cfg.type}
@@ -1271,7 +1181,7 @@ function MemoriesCard() {
                 className="w-full"
               />
               <div className="flex flex-wrap items-center gap-2">
-                <Select
+                <Select alignItemWithTrigger
                   size="sm"
                   className="w-24"
                   value={newImportance}
@@ -1329,7 +1239,7 @@ function MemoriesCard() {
                       className="w-full"
                     />
                     <div className="flex flex-wrap items-center gap-2">
-                      <Select
+                      <Select alignItemWithTrigger
                         size="sm"
                         className="w-24"
                         value={editImportance}

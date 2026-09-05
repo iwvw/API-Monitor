@@ -626,7 +626,7 @@ function FileboxPage() {
             <div className="grid gap-3 cq-md:grid-cols-2">
               {shareType === 'file' && (
                 <div className="cq-md:col-span-2">
-                  <Select
+                  <Select alignItemWithTrigger
                     size="sm"
                     label="存储位置"
                     value={selectedNodeId}
@@ -644,7 +644,7 @@ function FileboxPage() {
                   </div>
                 </div>
               )}
-              <Select size="sm" label="有效期" value={expiry} onValueChange={setExpiry} items={EXPIRY_OPTIONS} />
+              <Select alignItemWithTrigger size="sm" label="有效期" value={expiry} onValueChange={setExpiry} items={EXPIRY_OPTIONS} />
               <Input size="sm" label="最大下载次数" type="number" min="0" value={maxDownloads} onChange={(event) => setMaxDownloads(event.target.value)} placeholder="0 或留空为不限" />
               <Input size="sm" label="访问密码" type="text" value={accessPassword} onChange={(event) => setAccessPassword(event.target.value)} placeholder="可选" autoComplete="off" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other" spellCheck={false} />
               <div className="flex items-center justify-between rounded-md border border-kumo-line bg-kumo-recessed/30 px-3 py-2">
@@ -1063,7 +1063,7 @@ function FileboxPage() {
             )}
 
             <div className="space-y-1.5">
-              <Select
+              <Select alignItemWithTrigger
                 size="sm"
                 label="目标存储位置"
                 value={transferModal.targetNodeId}

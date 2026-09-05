@@ -67,7 +67,7 @@ export function TabBarOverflowActions({
       {items.map(item => {
         if (item.type === 'select') {
           return (
-            <Select
+            <Select alignItemWithTrigger
               key={item.key}
               size="sm"
               aria-label={item.label}
@@ -106,7 +106,7 @@ export function TabBarOverflowActions({
             {item.icon}
             {item.label}
           </span>
-          <Select
+          <Select alignItemWithTrigger
             size="sm"
             aria-label={item.label}
             value={item.value}
