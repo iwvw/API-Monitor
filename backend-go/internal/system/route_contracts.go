@@ -616,6 +616,38 @@ func init() {
 	})
 	routeRequestContracts["/api/prompts/public/{publicId}"] = obj([]string{"content"}, map[string]prop{"content": {t: "string", req: true}})
 
+	// ===== 网址导航 bookmarks =====
+	routeRequestContracts["/api/bookmarks/groups"] = obj([]string{"title"}, map[string]prop{
+		"title":       {t: "string", req: true},
+		"description": {t: "string"},
+		"icon":        {t: "string"},
+	})
+	routeRequestContracts["/api/bookmarks/groups/sort"] = obj(nil, map[string]prop{
+		"items": {t: "array", d: "排序数组，元素为 {id, sort}"},
+	})
+	routeRequestContracts["/api/bookmarks/groups/{id}"] = routeRequestContracts["/api/bookmarks/groups"]
+	routeRequestContracts["/api/bookmarks/items"] = obj([]string{"group_id", "title", "url"}, map[string]prop{
+		"group_id":      {t: "integer", req: true},
+		"title":         {t: "string", req: true},
+		"url":           {t: "string", req: true},
+		"description":   {t: "string"},
+		"icon_type":     {t: "integer", d: "1=文字 2=图片/网站图标 3=Emoji 字符"},
+		"icon_src":      {t: "string"},
+		"icon_text":     {t: "string"},
+		"icon_bg_color": {t: "string"},
+		"open_method":   {t: "integer", d: "1=当前页 2=新窗口"},
+	})
+	routeRequestContracts["/api/bookmarks/items/sort"] = obj([]string{"group_id"}, map[string]prop{
+		"group_id": {t: "integer", req: true},
+		"items":    {t: "array", d: "排序数组，元素为 {id, sort}"},
+	})
+	routeRequestContracts["/api/bookmarks/items/{id}"] = routeRequestContracts["/api/bookmarks/items"]
+	routeRequestContracts["/api/bookmarks/favicon/fetch"] = obj([]string{"url"}, map[string]prop{
+		"url": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/bookmarks/public/groups/{slug}"] = noBody
+	routeRequestContracts["/api/bookmarks/public/page-by-domain"] = noBody
+
 	// ===== 图编辑器 drawio =====
 	routeRequestContracts["/api/drawio/documents"] = obj([]string{"title"}, map[string]prop{
 		"title":    {t: "string", req: true},
@@ -988,6 +1020,25 @@ func init() {
 	routeRequestContracts["/api/flyio/apps/{appName}/config"] = obj(nil, map[string]prop{
 		"config": {t: "object", d: "应用配置 JSON"},
 	})
+
+	// ===== Docker Hub =====
+	routeRequestContracts["/api/dockerhub/accounts"] = obj([]string{"username", "token"}, map[string]prop{
+		"username": {t: "string", req: true, d: "Docker Hub 用户名"},
+		"token":    {t: "string", req: true, d: "Docker Hub 访问令牌（Personal Access Token）"},
+	})
+	routeRequestContracts["/api/dockerhub/accounts/{accountId}/verify"] = noBody
+	routeRequestContracts["/api/dockerhub/accounts/{accountId}/repositories"] = obj(nil, map[string]prop{
+		"page_size": {t: "string", d: "每页条数（查询参数）"},
+	})
+	routeRequestContracts["/api/dockerhub/accounts/{accountId}"] = noBody
+	routeRequestContracts["/api/dockerhub/search"] = obj(nil, map[string]prop{
+		"query":     {t: "string", d: "搜索关键词（查询参数）"},
+		"namespace": {t: "string", d: "命名空间过滤（查询参数）"},
+		"page_size": {t: "string", d: "每页条数（查询参数）"},
+		"accountId": {t: "string", d: "凭据账号 ID，用于访问私有仓库（查询参数）"},
+	})
+	routeRequestContracts["/api/dockerhub/repositories/{namespace}/{name}/tags"] = noBody
+	routeRequestContracts["/api/dockerhub/repositories/{namespace}/{name}"] = noBody
 
 	// ===== 1Panel 快捷控制 =====
 	routeRequestContracts["/api/onepanel/spec"] = noBody
@@ -1385,6 +1436,29 @@ func init() {
 	})
 	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}/snapshot"] = obj(nil, map[string]prop{
 		"snapshotName": {t: "string", d: "快照名（默认 <disk>-snap）"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/firewalls"] = obj(nil, map[string]prop{
+		"name":              {t: "string", req: true, d: "规则名称"},
+		"description":       {t: "string", d: "描述"},
+		"network":           {t: "string", d: "关联网络"},
+		"direction":         {t: "string", e: []string{"INGRESS", "EGRESS"}, d: "方向"},
+		"priority":          {t: "integer", d: "优先级（0-65535，默认 1000）"},
+		"sourceRanges":      {t: "array", d: "来源网段（CIDR）"},
+		"destinationRanges": {t: "array", d: "目标网段（CIDR）"},
+		"allowed":           {t: "array", d: "允许规则 [{ipProtocol,ports}]"},
+		"denied":            {t: "array", d: "拒绝规则 [{ipProtocol,ports}]"},
+		"disabled":          {t: "boolean", d: "禁用规则"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/firewalls/{ruleName}"] = obj(nil, map[string]prop{
+		"description":       {t: "string", d: "描述"},
+		"network":           {t: "string", d: "关联网络"},
+		"direction":         {t: "string", e: []string{"INGRESS", "EGRESS"}, d: "方向"},
+		"priority":          {t: "integer", d: "优先级（0-65535）"},
+		"sourceRanges":      {t: "array", d: "来源网段（CIDR）"},
+		"destinationRanges": {t: "array", d: "目标网段（CIDR）"},
+		"allowed":           {t: "array", d: "允许规则 [{ipProtocol,ports}]"},
+		"denied":            {t: "array", d: "拒绝规则 [{ipProtocol,ports}]"},
+		"disabled":          {t: "boolean", d: "禁用规则"},
 	})
 	routeRequestContracts["/api/gcp/accounts/{id}/buckets"] = obj([]string{"name"}, map[string]prop{
 		"name":         {t: "string", req: true, d: "存储桶名称"},

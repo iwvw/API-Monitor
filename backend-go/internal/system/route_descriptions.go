@@ -245,7 +245,8 @@ var routeDescriptions = map[string]string{
 	"/api/gcp/accounts/{id}/projects/{projectId}/machine-types": "列出机型",
 	"/api/gcp/accounts/{id}/projects/{projectId}/images": "列出镜像",
 	"/api/gcp/accounts/{id}/projects/{projectId}/subnetworks": "列出子网",
-	"/api/gcp/accounts/{id}/projects/{projectId}/firewalls": "列出防火墙规则",
+	"/api/gcp/accounts/{id}/projects/{projectId}/firewalls": "列出/创建防火墙规则",
+	"/api/gcp/accounts/{id}/projects/{projectId}/firewalls/{ruleName}": "更新/删除防火墙规则",
 	"/api/gcp/accounts/{id}/projects/{projectId}/addresses": "列出静态 IP",
 	"/api/gcp/accounts/{id}/projects/{projectId}/buckets": "列出存储桶",
 	"/api/gcp/accounts/{id}/buckets": "创建存储桶",
@@ -371,6 +372,16 @@ var routeDescriptions = map[string]string{
 	"/api/github/repositories/{id}/webhook/configure": "配置仓库的 Webhook",
 	"/api/github/history/compact":    "压缩并清理 GitHub 历史事件",
 
+	// ===== Docker Hub =====
+	"/api/dockerhub":                    "Docker Hub 镜像仓库浏览与账号凭据管理",
+	"/api/dockerhub/accounts":           "列出或新增 Docker Hub 账号",
+	"/api/dockerhub/accounts/{accountId}": "删除 Docker Hub 账号",
+	"/api/dockerhub/accounts/{accountId}/verify": "验证 Docker Hub 账号令牌",
+	"/api/dockerhub/accounts/{accountId}/repositories": "列出 Docker Hub 账号下全部仓库",
+	"/api/dockerhub/search":             "搜索 Docker Hub 镜像仓库",
+	"/api/dockerhub/repositories/{namespace}/{name}": "Docker Hub 仓库详情",
+	"/api/dockerhub/repositories/{namespace}/{name}/tags": "Docker Hub 仓库标签列表",
+
 	// ===== 图编辑器 =====
 	"/api/drawio":                    "Draw.io 图编辑器文档管理总入口",
 	"/api/drawio/documents":          "列出或新建图文档",
@@ -404,6 +415,19 @@ var routeDescriptions = map[string]string{
 	"/api/prompts/public/{publicId}":  "读取公开页面的提示词数据",
 	"/api/prompts/d/{publicId}":       "提示词直达链接",
 	"/api/prompts/d/{publicId}/versions/{versionNo}": "提示词指定版本直达链接",
+
+	// ===== 网址导航 =====
+	"/api/bookmarks":                  "网址导航管理总入口",
+	"/api/bookmarks/groups":           "列出或新增网址分组",
+	"/api/bookmarks/groups/sort":      "保存网址分组排序",
+	"/api/bookmarks/groups/{id}":      "更新或删除网址分组",
+	"/api/bookmarks/items":            "列出或新增网址",
+	"/api/bookmarks/items/sort":       "保存分组内网址排序",
+	"/api/bookmarks/items/{id}":       "更新或删除网址",
+	"/api/bookmarks/favicon/fetch":    "抓取网站 favicon 并下载到本地",
+	"/api/bookmarks/favicons/{filename}": "读取本地 favicon 文件",
+	"/api/bookmarks/public/groups/{slug}": "公开网址分组页面数据（无需登录）",
+	"/api/bookmarks/public/page-by-domain": "按自定义域名探测公开网址分组",
 
 	// ===== OpenAI 网关 =====
 	"/api/openai":                    "OpenAI 兼容模型网关管理总入口",

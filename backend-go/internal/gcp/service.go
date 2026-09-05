@@ -97,8 +97,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.images(w, r, parts[1], parts[3])
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "subnetworks" && r.Method == http.MethodGet:
 		s.subnetworks(w, r, parts[1], parts[3])
-	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "firewalls" && r.Method == http.MethodGet:
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "firewalls":
 		s.firewalls(w, r, parts[1], parts[3])
+	case len(parts) == 6 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "firewalls":
+		s.firewallMutation(w, r, parts[1], parts[3], parts[5])
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "addresses" && r.Method == http.MethodGet:
 		s.addresses(w, r, parts[1], parts[3])
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "projects" && parts[4] == "buckets" && r.Method == http.MethodGet:

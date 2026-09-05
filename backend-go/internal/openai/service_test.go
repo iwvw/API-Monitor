@@ -5159,3 +5159,221 @@ func TestEnsureSchemaBackfillsStatsOnce(t *testing.T) {
 		t.Fatalf("cleared dashboard history resurrected after restart: count=%d", statsCount)
 	}
 }
+
+// TestProxyResponsesConversionPath 验证 /v1/responses 在仅支持 /chat/completions
+// 的上游（真实生产场景：日日新 / x666 / merge 等第三方端点）上能正常服务：
+// 网关把 Responses 请求转换为 chat.completions 转发，再把上游 chat 响应转回
+// Responses 格式（含 usage 映射）。
+func TestProxyResponsesConversionPath(t *testing.T) {
+	var sawChatCompletions bool
+	var sawResponsesPath bool
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"object":"list","data":[{"id":"test-model","object":"model"}]}`))
+			return
+		case "/v1/chat/completions":
+			sawChatCompletions = true
+			var body struct {
+				Model    string        `json:"model"`
+				Messages []interface{} `json:"messages"`
+				Tools    []interface{} `json:"tools"`
+				Stream   bool          `json:"stream"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			// 转换后的 chat 请求应带 instructions→system 消息与 input 消息。
+			// （流式测试请求无 instructions，只有 1 条 user 消息。）
+			if !body.Stream && len(body.Messages) != 2 {
+				raw, _ := json.Marshal(body.Messages)
+				t.Errorf("converted messages len = %d, want 2 (system+user), messages=%s", len(body.Messages), raw)
+			}
+			if body.Stream {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"model\":\"test-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n"))
+				w.Write([]byte("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"model\":\"test-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n"))
+				w.Write([]byte("data: [DONE]\n\n"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"id":"chatcmpl-1","object":"chat.completion","created":1700000000,"model":"test-model",
+				"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"Hello from upstream"}}],
+				"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}
+			}`))
+			return
+		case "/v1/responses":
+			sawResponsesPath = true
+			// 生产上游不支持 /responses：返回 404，模拟真实第三方端点。
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":{"message":"NOT_FOUND","type":"invalid_request_error"}}`))
+			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	service := newOpenAIService(t)
+
+	// 通过管理 API 创建端点（触发校验：会访问 /v1/models）。
+	createPayload := fmt.Sprintf(`{
+		"name": "chat-only-upstream",
+		"baseUrl": "%s",
+		"apiKey": "test-key"
+	}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+	if !createRes.Success || createRes.Endpoint.ID == "" {
+		t.Fatalf("create failed, res: %#v", createRes)
+	}
+
+	// 非流式：POST /v1/responses。
+	wResp := httptest.NewRecorder()
+	rResp, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{
+		"model": "test-model",
+		"instructions": "Be concise",
+		"input": "what is 2+2?"
+	}`))
+	service.ServeHTTP(wResp, rResp)
+	if wResp.Code != http.StatusOK {
+		t.Fatalf("responses proxy status = %d body=%s", wResp.Code, wResp.Body.String())
+	}
+	if !sawChatCompletions {
+		t.Fatal("conversion path did not hit /chat/completions")
+	}
+	if sawResponsesPath {
+		t.Fatal("conversion path should NOT hit upstream /responses")
+	}
+	var respObj struct {
+		Object     string `json:"object"`
+		Status     string `json:"status"`
+		OutputText string `json:"output_text"`
+		Output     []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+			TotalTokens  int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	mustDecode(t, wResp.Body.String(), &respObj)
+	if respObj.Object != "response" || respObj.Status != "completed" {
+		t.Errorf("response object/status = %q/%q", respObj.Object, respObj.Status)
+	}
+	if respObj.OutputText != "Hello from upstream" {
+		t.Errorf("output_text = %q", respObj.OutputText)
+	}
+	if len(respObj.Output) != 1 || respObj.Output[0].Type != "message" || respObj.Output[0].Content[0].Text != "Hello from upstream" {
+		t.Errorf("output = %+v", respObj.Output)
+	}
+	if respObj.Usage.InputTokens != 3 || respObj.Usage.OutputTokens != 2 || respObj.Usage.TotalTokens != 5 {
+		t.Errorf("usage mapping wrong: %+v", respObj.Usage)
+	}
+
+	// 流式：POST /v1/responses stream=true。
+	sawChatCompletions = false
+	wStream := httptest.NewRecorder()
+	rStream, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{
+		"model": "test-model",
+		"input": "hi",
+		"stream": true
+	}`))
+	service.ServeHTTP(wStream, rStream)
+	if wStream.Code != http.StatusOK {
+		t.Fatalf("responses stream status = %d body=%s", wStream.Code, wStream.Body.String())
+	}
+	streamBody := wStream.Body.String()
+	for _, want := range []string{
+		"event: response.created",
+		"event: response.output_item.added",
+		"event: response.content_part.added",
+		"event: response.output_text.delta",
+		`"delta":"Hello"`,
+		"event: response.output_text.done",
+		"event: response.content_part.done",
+		"event: response.output_item.done",
+		"event: response.completed",
+		`"input_tokens":3`,
+		"data: [DONE]",
+	} {
+		if !strings.Contains(streamBody, want) {
+			t.Errorf("stream missing %q\nbody=%s", want, streamBody)
+		}
+	}
+}
+
+// TestProxyResponsesConversionUpstreamError 验证转换模式下上游返回 4xx 时，
+// 错误响应以 JSON 原样透传给客户端（而非把错误 JSON 当 SSE 流透传）。
+func TestProxyResponsesConversionUpstreamError(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"object":"list","data":[{"id":"test-model","object":"model"}]}`))
+			return
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"model does not exist","type":"invalid_request_error"}}`))
+			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"err-upstream","baseUrl":"%s","apiKey":"k"}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+
+	// 非流式错误。
+	wResp := httptest.NewRecorder()
+	rResp, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"test-model","input":"hi"}`))
+	service.ServeHTTP(wResp, rResp)
+	if wResp.Code != http.StatusBadRequest {
+		t.Fatalf("non-stream error status = %d body=%s", wResp.Code, wResp.Body.String())
+	}
+	if !strings.Contains(wResp.Body.String(), "model does not exist") {
+		t.Errorf("error body not passed through: %s", wResp.Body.String())
+	}
+
+	// 流式错误：不应以 SSE 透传错误 JSON。
+	wStream := httptest.NewRecorder()
+	rStream, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"test-model","input":"hi","stream":true}`))
+	service.ServeHTTP(wStream, rStream)
+	if wStream.Code != http.StatusBadRequest {
+		t.Fatalf("stream error status = %d body=%s", wStream.Code, wStream.Body.String())
+	}
+	if ct := wStream.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("stream error Content-Type = %q, want application/json", ct)
+	}
+	if !strings.Contains(wStream.Body.String(), "model does not exist") {
+		t.Errorf("stream error body not passed through: %s", wStream.Body.String())
+	}
+}

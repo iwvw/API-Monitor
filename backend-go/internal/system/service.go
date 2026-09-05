@@ -46,6 +46,8 @@ type Service struct {
 
 	mu         sync.Mutex
 	statsCache map[string]*APICounters
+	// 小时粒度缓存（key = "YYYY-MM-DD HH:00"），近 24 小时保留，供 api-stats 小时视图
+	statsCacheHour map[string]*APICounters
 	stopChan   chan struct{}
 	wg         sync.WaitGroup
 	notifier   Notifier
@@ -62,6 +64,17 @@ type Service struct {
 	siteTzMu       sync.Mutex
 	siteTzName     string
 	siteTzRefreshAt time.Time
+
+	// 主机指标 1 分钟滚动采样（约 5s 一点，保留 12 点），供前端图表显示"1 分钟前到现在"并实时滚动
+	hostMetricsMu      sync.Mutex
+	hostMetricsSamples []hostMetricSample
+}
+
+type hostMetricSample struct {
+	Ts     time.Time
+	CPU    float64
+	Memory float64
+	Disk   float64
 }
 
 type APICounters struct {
@@ -91,6 +104,7 @@ func New(cfg config.Config) *Service {
 		store:      database.New(cfg),
 		apiKeys:    apikeys.New(cfg),
 		statsCache: make(map[string]*APICounters),
+		statsCacheHour: make(map[string]*APICounters),
 		stopChan:   make(chan struct{}),
 		statusHub:  newStatusHub(),
 	}
@@ -296,6 +310,7 @@ func (s *Service) RecordAPICall(method string, path string) {
 	}
 
 	date := time.Now().In(s.siteLocation()).Format("2006-01-02")
+	hourKey := time.Now().In(s.siteLocation()).Format("2006-01-02 15:00")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -310,6 +325,25 @@ func (s *Service) RecordAPICall(method string, path string) {
 		counters.Audit++
 	} else {
 		counters.Ops++
+	}
+
+	// 小时粒度累计（近 24 小时保留，供 api-stats 小时视图）
+	hourCounters, hourExists := s.statsCacheHour[hourKey]
+	if !hourExists {
+		hourCounters = &APICounters{}
+		s.statsCacheHour[hourKey] = hourCounters
+	}
+	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
+		hourCounters.Audit++
+	} else {
+		hourCounters.Ops++
+	}
+	// 清理超过 24 小时的小时桶
+	cutoff := time.Now().Add(-24 * time.Hour).In(s.siteLocation()).Format("2006-01-02 15:00")
+	for k := range s.statsCacheHour {
+		if k < cutoff {
+			delete(s.statsCacheHour, k)
+		}
 	}
 }
 
@@ -1013,6 +1047,9 @@ func routeGroup(route manifest.Route) string {
 	// 提示词库
 	case strings.HasPrefix(prefix, "/api/prompts"):
 		return "提示词库"
+	// 网址导航
+	case strings.HasPrefix(prefix, "/api/bookmarks"):
+		return "网址导航"
 	// 双因子认证
 	case strings.HasPrefix(prefix, "/api/totp"):
 		return "双因子认证"
@@ -1312,6 +1349,42 @@ func methodsFromAnnotations(desc string) []string {
 }
 
 func (s *Service) apiStats(days int) (map[string]interface{}, error) {
+	// 小时粒度（days ≤ 1）：返回近 24 小时内存趋势（statsCacheHour），实时不落库不缓存
+	if days <= 1 {
+		loc := s.siteLocation()
+		now := time.Now().In(loc)
+		trend := make([]map[string]interface{}, 0, 24)
+		var totalAudit, totalOps int64
+		s.mu.Lock()
+		for i := 23; i >= 0; i-- {
+			h := now.Add(-time.Duration(i) * time.Hour)
+			key := h.Format("2006-01-02 15:00")
+			var audit, ops int64
+			if c, ok := s.statsCacheHour[key]; ok {
+				audit = int64(c.Audit)
+				ops = int64(c.Ops)
+			}
+			totalAudit += audit
+			totalOps += ops
+			trend = append(trend, map[string]interface{}{
+				"bucket":  h.Format("01-02 15:00"),
+				"audit":   audit,
+				"ops":     ops,
+				"total":   audit + ops,
+				"tokens":  0,
+				"traffic": 0,
+			})
+		}
+		s.mu.Unlock()
+		return map[string]interface{}{
+			"total":       map[string]interface{}{"audit": totalAudit, "ops": totalOps, "all": totalAudit + totalOps},
+			"trend":       trend,
+			"tokens":      0,
+			"traffic":     0,
+			"granularity": "hour",
+		}, nil
+	}
+
 	s.apiStatsMu.Lock()
 	if s.apiStatsCacheDays == days && time.Since(s.apiStatsCacheAt) < apiStatsCacheTTL {
 		cached := s.apiStatsCacheVal
@@ -1483,6 +1556,39 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 	currentProcess := readProcessInfo(s.startedAt)
 
 	authTime := s.authoritativeTime()
+
+	// 追加 1 分钟滚动采样（≥3s 间隔，保留 12 点 ≈ 60s），供图表实时滚动
+	memUsage := 0.0
+	if v, ok := virtualMemory["usage"].(float64); ok {
+		memUsage = v
+	}
+	diskUsageVal := 0.0
+	if v, ok := diskUsage["usage"].(float64); ok {
+		diskUsageVal = v
+	}
+	s.hostMetricsMu.Lock()
+	now := time.Now()
+	if len(s.hostMetricsSamples) == 0 || now.Sub(s.hostMetricsSamples[len(s.hostMetricsSamples)-1].Ts) >= 3*time.Second {
+		s.hostMetricsSamples = append(s.hostMetricsSamples, hostMetricSample{
+			Ts:     now,
+			CPU:    cpuPercent,
+			Memory: memUsage,
+			Disk:   diskUsageVal,
+		})
+		if len(s.hostMetricsSamples) > 12 {
+			s.hostMetricsSamples = s.hostMetricsSamples[len(s.hostMetricsSamples)-12:]
+		}
+	}
+	cpuSeq := make([]float64, 0, len(s.hostMetricsSamples))
+	memSeq := make([]float64, 0, len(s.hostMetricsSamples))
+	diskSeq := make([]float64, 0, len(s.hostMetricsSamples))
+	for _, sp := range s.hostMetricsSamples {
+		cpuSeq = append(cpuSeq, sp.CPU)
+		memSeq = append(memSeq, sp.Memory)
+		diskSeq = append(diskSeq, sp.Disk)
+	}
+	s.hostMetricsMu.Unlock()
+
 	return map[string]interface{}{
 		"hostname":      hostname(),
 		"platform":      nodePlatformName(runtime.GOOS),
@@ -1500,6 +1606,11 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 		"memory":      virtualMemory,
 		"disk":        diskUsage,
 		"process":     currentProcess,
+		"history": map[string]interface{}{
+			"cpu":    cpuSeq,
+			"memory": memSeq,
+			"disk":   diskSeq,
+		},
 		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
 		"serverTime":  authTime,
 		"displayTime": fmt.Sprintf("%s (%s)", authTime["local"], authTime["timezone"]),

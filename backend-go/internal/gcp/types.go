@@ -1,6 +1,25 @@
 package gcp
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
+
+// flexInt64 兼容 JSON 数字或字符串的 int64 字段（GCP 部分接口用字符串表示整数字段）。
+type flexInt64 int64
+
+func (f *flexInt64) UnmarshalJSON(data []byte) error {
+	trimmed := string(data)
+	if len(trimmed) >= 2 && trimmed[0] == '"' {
+		trimmed = trimmed[1 : len(trimmed)-1]
+	}
+	v, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		return err
+	}
+	*f = flexInt64(v)
+	return nil
+}
 
 type Account struct {
 	ID                         int64      `json:"id"`
@@ -54,6 +73,8 @@ type normalInstance struct {
 	Name              string            `json:"name"`
 	Zone              string            `json:"zone"`
 	MachineType       string            `json:"machineType"`
+	GuestCpus         int64             `json:"guestCpus"`
+	MemoryMb          int64             `json:"memoryMb"`
 	State             string            `json:"state"`
 	PublicIP          string            `json:"publicIp,omitempty"`
 	PrivateIP         string            `json:"privateIp,omitempty"`
@@ -119,6 +140,25 @@ type normalFirewall struct {
 
 type normalFirewallRule struct {
 	IPProtocol string `json:"ipProtocol,omitempty"`
+	Ports      []string `json:"ports,omitempty"`
+}
+
+// firewallWritePayload 创建/更新防火墙规则的请求体（对应 Compute Engine Firewall 资源）。
+type firewallWritePayload struct {
+	Name              string               `json:"name,omitempty"`
+	Description       string               `json:"description,omitempty"`
+	Network           string               `json:"network,omitempty"`
+	Direction         string               `json:"direction,omitempty"`
+	Priority          int64                `json:"priority,omitempty"`
+	SourceRanges      []string             `json:"sourceRanges,omitempty"`
+	DestinationRanges []string             `json:"destinationRanges,omitempty"`
+	Allowed           []firewallRuleEntry  `json:"allowed,omitempty"`
+	Denied            []firewallRuleEntry  `json:"denied,omitempty"`
+	Disabled          bool                 `json:"disabled,omitempty"`
+}
+
+type firewallRuleEntry struct {
+	IPProtocol string   `json:"IPProtocol"`
 	Ports      []string `json:"ports,omitempty"`
 }
 

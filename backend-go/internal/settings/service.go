@@ -81,6 +81,7 @@ type userSettingsRow struct {
 	PublicAPIURL          sql.NullString
 	TimeZone              sql.NullString
 	UIFont                sql.NullString
+	TileLayout            sql.NullString
 }
 
 type tableAnalysis struct {
@@ -1296,7 +1297,8 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 			agent_download_url,
 			public_api_url,
 			time_zone,
-			ui_font
+			ui_font,
+			tile_layout
 		FROM user_settings
 		WHERE id = 1
 	`).Scan(
@@ -1320,6 +1322,7 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 		&row.PublicAPIURL,
 		&row.TimeZone,
 		&row.UIFont,
+		&row.TileLayout,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, insertErr := db.ExecContext(ctx, `
@@ -1372,6 +1375,14 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	order = uniqueStrings(order)
 	order = ensureBefore(order, "scheduler", "server")
 
+	// tileLayout 兼容两种格式：旧版直接是布局数组（桌面）；新版为 { desktop: [...], mobile: [...] } 双桶对象
+	var tileLayout interface{} = []interface{}{}
+	if rawTileLayout := nullString(row.TileLayout, ""); rawTileLayout != "" {
+		if err := json.Unmarshal([]byte(rawTileLayout), &tileLayout); err != nil {
+			tileLayout = []interface{}{}
+		}
+	}
+
 	settings := map[string]interface{}{
 		"customCss":               nullString(row.CustomCSS, ""),
 		"sidebarCollapsed":        nullInt(row.SidebarCollapsed, 0) != 0,
@@ -1391,6 +1402,7 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 		"publicApiUrl":            nullString(row.PublicAPIURL, ""),
 		"timezone":                nullString(row.TimeZone, "system"),
 		"uiFont":                  nullString(row.UIFont, "default"),
+		"tileLayout":              tileLayout,
 	}
 	if value := nullString(row.ThemeMode, ""); value != "" {
 		settings["themeMode"] = value
@@ -1423,6 +1435,7 @@ func saveUserSettings(ctx context.Context, db *sql.DB, settings map[string]inter
 	assignString(updates, "public_api_url", settings, "publicApiUrl", "public_api_url")
 	assignString(updates, "time_zone", settings, "timezone", "timeZone", "time_zone")
 	assignString(updates, "ui_font", settings, "uiFont", "ui_font")
+	assignJSON(updates, "tile_layout", settings, "tileLayout", "tile_layout")
 
 	if len(updates) == 0 {
 		return nil
@@ -1449,6 +1462,7 @@ func saveUserSettings(ctx context.Context, db *sql.DB, settings map[string]inter
 		"public_api_url",
 		"time_zone",
 		"ui_font",
+		"tile_layout",
 	}
 
 	setParts := make([]string, 0, len(updates)+1)
@@ -1857,7 +1871,7 @@ func estimateTableSize(ctx context.Context, db *sql.DB, table string) (int64, er
 
 func migrationRequiredTables() map[string][]string {
 	return map[string][]string{
-		"user_settings":         {"id", "theme_mode", "page_width_mode", "sidebar_collapsed", "site_brand_icon_id", "module_visibility", "module_order", "time_zone"},
+		"user_settings":         {"id", "theme_mode", "page_width_mode", "sidebar_collapsed", "site_brand_icon_id", "module_visibility", "module_order", "time_zone", "ui_font", "tile_layout"},
 		"operation_logs":        {"id", "operation_type", "table_name", "trace_id"},
 		"totp_accounts":         {"id", "secret", "secret_encrypted_at", "last_revealed_at"},
 		"filebox_entries":       {"code", "type", "expiry", "downloads"},

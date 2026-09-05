@@ -2029,6 +2029,11 @@ func (s *Service) RunTCPForwarderTaskAndWait(serverID, payload string) (string, 
 	return s.runAgentTaskAndWait(serverID, 53, payload, 3*time.Minute)
 }
 
+// RunP2PTaskAndWait sends a p2p reconcile task (task 54: nat/p2p 打洞) and waits.
+func (s *Service) RunP2PTaskAndWait(serverID, payload string) (string, error) {
+	return s.runAgentTaskAndWait(serverID, 54, payload, 60*time.Second)
+}
+
 // RunTCPForwarderBootstrap 让目标主机的 Agent 安装并常驻 api-monitor-relay（幂等）。
 func (s *Service) RunTCPForwarderBootstrap(serverID, assetURL, assetSHA string) error {
 	payload, _ := json.Marshal(map[string]interface{}{

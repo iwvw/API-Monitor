@@ -77,6 +77,12 @@ var routeAliases = map[string][]string{
 	"/api/github/webhook":         {"webhook", "钩子"},
 	"/api/github/history/compact": {"github 事件历史", "压缩事件"},
 
+	"/api/dockerhub":                       {"docker hub", "镜像仓库", "docker 镜像"},
+	"/api/dockerhub/accounts":              {"docker hub 账号", "镜像仓库凭据", "docker 登录令牌"},
+	"/api/dockerhub/accounts/{accountId}/repositories": {"我的仓库", "账号仓库", "列出镜像", "我的镜像"},
+	"/api/dockerhub/search":                {"搜索镜像", "查镜像", "docker 搜索", "镜像搜索"},
+	"/api/dockerhub/repositories/{namespace}/{name}/tags": {"镜像标签", "image tag", "仓库标签"},
+
 	"/api/scheduler":              {"定时任务", "cron", "计划任务", "调度", "定时任务列表", "cron 任务"},
 	"/api/scheduler/workflows":    {"工作流", "自动化流程", "工作流列表"},
 	"/api/scheduler/cron/preview": {"cron 预览", "下次执行时间"},
@@ -92,6 +98,11 @@ var routeAliases = map[string][]string{
 
 	"/api/prompts":         {"提示词库", "prompt", "提示词"},
 	"/api/prompts/entries": {"提示词条目", "提示词列表"},
+
+	"/api/bookmarks":           {"网址导航", "网页收藏", "书签", "bookmark", "收藏夹"},
+	"/api/bookmarks/groups":    {"网址分组", "收藏分组"},
+	"/api/bookmarks/items":     {"网址收藏", "收藏链接"},
+	"/api/bookmarks/favicon/fetch": {"抓取网站图标", "favicon", "获取站点图标"},
 
 	"/api/openai":                             {"模型网关", "openai", "网关"},
 	"/api/openai/endpoints":                   {"模型端点", "模型接口"},

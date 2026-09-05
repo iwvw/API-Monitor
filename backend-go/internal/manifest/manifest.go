@@ -221,6 +221,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/github/public/pages/{slug}", Module: "github-public-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "GitHub public page by slug", MatchMode: MatchPattern},
 		{Prefix: "/api/github/public/pages/{slug}/repositories/{id}", Module: "github-public-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "GitHub public page repository details", MatchMode: MatchPattern},
 		{Prefix: "/api/github", Module: "github", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GitHub repository observability and Actions operations"},
+		{Prefix: "/api/dockerhub", Module: "dockerhub", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Docker Hub accounts and image repository browsing"},
 
 		// Draw.io diagram editor
 		{Prefix: "/api/drawio/documents/{id}/versions/{versionId}/restore", Module: "drawio-versions", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Restore drawio version to draft", MatchMode: MatchPattern},
@@ -255,6 +256,10 @@ func buildRoutes() []Route {
 		{Prefix: "/api/prompts/collections", Module: "prompts-collections", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "List/create prompt collections", MatchMode: MatchExact},
 		{Prefix: "/api/prompts/settings", Module: "prompts-settings", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Get/update prompt settings", MatchMode: MatchExact},
 		{Prefix: "/api/prompts", Module: "prompts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Prompt library API"},
+		{Prefix: "/api/bookmarks", Module: "bookmarks", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Bookmarks navigation groups and items"},
+		{Prefix: "/api/bookmarks/favicons/{filename}", Module: "bookmarks-favicon", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Downloaded bookmark site icons (public, md5-named, non-enumerable)", MatchMode: MatchPattern},
+		{Prefix: "/api/bookmarks/public/groups/{slug}", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group page data", MatchMode: MatchPattern},
+		{Prefix: "/api/bookmarks/public/page-by-domain", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group by custom domain", MatchMode: MatchExact},
 
 		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
 		{Prefix: "/api/proxypool", Module: "proxypool", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "独立出口代理池管理（端点与插件可复用）"},

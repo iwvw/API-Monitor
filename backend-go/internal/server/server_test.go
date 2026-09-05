@@ -2015,3 +2015,111 @@ func TestPublicPageFaviconResolver(t *testing.T) {
 		t.Fatalf("unknown kind should fall through to SPA, got %d body=%s", res.Code, res.Body.String())
 	}
 }
+
+func TestPublicBookmarksFaviconAndPublicPage(t *testing.T) {
+	distDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DistDir: distDir,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	// 通过公开路由触发 bookmarks schema 初始化。
+	prime := httptest.NewRequest(http.MethodGet, "/api/bookmarks/public/groups/init-schema", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), prime)
+
+	dbCfg := config.Config{Version: "test", Host: "127.0.0.1", Port: 0, DataDir: handler.cfg.DataDir, DBName: handler.cfg.DBName}
+	ctx := context.Background()
+	store := database.New(dbCfg)
+	db, err := store.Open(ctx)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO bookmark_groups (slug, domain, title, public, cache_seconds, config_json)
+		VALUES ('fav-slug', 'fav.example.com', 'Fav Group', 1, 300, '{"publicIconId":"site-custom"}'),
+		       ('plain-slug', '', 'Plain Group', 1, 300, '{}')`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert bookmark groups: %v", err)
+	}
+	var groupID int64
+	if err := db.QueryRow(`SELECT id FROM bookmark_groups WHERE slug = 'fav-slug'`).Scan(&groupID); err != nil {
+		db.Close()
+		t.Fatalf("select group id: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO bookmarks (group_id, title, url, sort_order) VALUES (?, 'GitHub', 'https://github.com', 0)`, groupID)
+	db.Close()
+	if err != nil {
+		t.Fatalf("insert bookmark item: %v", err)
+	}
+
+	// favicon：自定义图标 302 到品牌图标资产
+	req := httptest.NewRequest(http.MethodGet, "/public-page-favicon/bookmarks/fav-slug", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusTemporaryRedirect || res.Header().Get("Location") != "/site-brand-icons/site-custom" {
+		t.Fatalf("bookmarks favicon custom: status=%d loc=%q", res.Code, res.Header().Get("Location"))
+	}
+
+	// favicon：未自定义返回默认 glyph
+	req = httptest.NewRequest(http.MethodGet, "/public-page-favicon/bookmarks/plain-slug", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || res.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("bookmarks favicon glyph: status=%d type=%q", res.Code, res.Header().Get("Content-Type"))
+	}
+	if body := res.Body.String(); !strings.HasPrefix(body, "<svg") || !strings.Contains(body, "#f48120") {
+		t.Fatalf("unexpected bookmarks glyph body: %q", body)
+	}
+
+	// 公开分组数据：无需登录即可读取
+	req = httptest.NewRequest(http.MethodGet, "/api/bookmarks/public/groups/fav-slug", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("public group status=%d body=%s", res.Code, res.Body.String())
+	}
+	var publicPayload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Group struct {
+				Title string `json:"title"`
+				Items []struct {
+					Title string `json:"title"`
+					URL   string `json:"url"`
+				} `json:"items"`
+			} `json:"group"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &publicPayload); err != nil {
+		t.Fatalf("unmarshal public group: %v", err)
+	}
+	if !publicPayload.Success || publicPayload.Data.Group.Title != "Fav Group" {
+		t.Fatalf("public group payload mismatch: %s", res.Body.String())
+	}
+	if len(publicPayload.Data.Group.Items) != 1 || publicPayload.Data.Group.Items[0].URL != "https://github.com" {
+		t.Fatalf("public group items mismatch: %s", res.Body.String())
+	}
+
+	// 域名探测
+	req = httptest.NewRequest(http.MethodGet, "/api/bookmarks/public/page-by-domain?domain=fav.example.com", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"found":true`) {
+		t.Fatalf("bookmarks by-domain status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	// 内部管理路由仍受登录保护（AuthSession 拦截未登录请求）
+	req = httptest.NewRequest(http.MethodGet, "/api/bookmarks/groups", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("internal groups without session should 401, got %d", res.Code)
+	}
+}

@@ -51,7 +51,7 @@ func instanceFromRaw(raw json.RawMessage) normalInstance {
 			DeviceName string `json:"deviceName"`
 			Boot       bool   `json:"boot"`
 			AutoDelete bool   `json:"autoDelete"`
-			DiskSizeGB int64  `json:"diskSizeGb"`
+			DiskSizeGB flexInt64 `json:"diskSizeGb"`
 		} `json:"disks"`
 		Metadata struct {
 			Items []struct {
@@ -97,7 +97,7 @@ func instanceFromRaw(raw json.RawMessage) normalInstance {
 			DeviceName: disk.DeviceName,
 			Boot:       disk.Boot,
 			AutoDelete: disk.AutoDelete,
-			DiskSizeGB: disk.DiskSizeGB,
+			DiskSizeGB: int64(disk.DiskSizeGB),
 		})
 		if item.Image == "" && disk.Boot {
 			item.Image = shortName(disk.Source)
@@ -227,7 +227,7 @@ func diskFromRaw(raw json.RawMessage) normalDisk {
 		Name              string            `json:"name"`
 		Zone              string            `json:"zone"`
 		Type              string            `json:"type"`
-		SizeGB            int64             `json:"sizeGb"`
+		SizeGB            flexInt64         `json:"sizeGb"`
 		Status            string            `json:"status"`
 		CreationTimestamp string            `json:"creationTimestamp"`
 		Labels            map[string]string `json:"labels"`
@@ -240,7 +240,7 @@ func diskFromRaw(raw json.RawMessage) normalDisk {
 		Name:              disk.Name,
 		Zone:              shortZone(disk.Zone),
 		Type:              shortName(disk.Type),
-		SizeGB:            disk.SizeGB,
+		SizeGB:            int64(disk.SizeGB),
 		State:             disk.Status,
 		Status:            disk.Status,
 		CreationTimestamp: disk.CreationTimestamp,
@@ -358,10 +358,10 @@ func (s *Service) listImages(ctx context.Context, c *client, filter string) ([]n
 			Family       string `json:"family"`
 			Status       string `json:"status"`
 			Architecture string `json:"architecture"`
-			DiskSizeGB   int64  `json:"diskSizeGb"`
+			DiskSizeGB   flexInt64 `json:"diskSizeGb"`
 		}
 		_ = json.Unmarshal(raw, &image)
-		items = append(items, normalImage{Name: image.Name, Family: image.Family, Status: image.Status, Architecture: image.Architecture, DiskSizeGB: image.DiskSizeGB})
+		items = append(items, normalImage{Name: image.Name, Family: image.Family, Status: image.Status, Architecture: image.Architecture, DiskSizeGB: int64(image.DiskSizeGB)})
 		return nil
 	})
 	if err != nil {
@@ -438,6 +438,81 @@ func (s *Service) listFirewalls(ctx context.Context, c *client, projectID string
 		return nil, err
 	}
 	return items, nil
+}
+
+// createFirewall 创建防火墙规则（Compute Engine firewalls.insert）。
+func (s *Service) createFirewall(ctx context.Context, c *client, projectID string, payload firewallWritePayload) (operationStatus, error) {
+	if payload.Name == "" {
+		return operationStatus{}, errFieldRequired
+	}
+	path := "projects/" + projectID + "/global/firewalls"
+	var raw map[string]json.RawMessage
+	if err := c.do(ctx, http.MethodPost, "compute", path, nil, firewallWriteBody(payload), &raw); err != nil {
+		return operationStatus{}, err
+	}
+	return operationFromRaw(raw), nil
+}
+
+// updateFirewall 更新防火墙规则（Compute Engine firewalls.patch）。
+func (s *Service) updateFirewall(ctx context.Context, c *client, projectID, name string, payload firewallWritePayload) (operationStatus, error) {
+	if name == "" {
+		return operationStatus{}, errFieldRequired
+	}
+	path := "projects/" + projectID + "/global/firewalls/" + name
+	var raw map[string]json.RawMessage
+	if err := c.do(ctx, http.MethodPatch, "compute", path, nil, firewallWriteBody(payload), &raw); err != nil {
+		return operationStatus{}, err
+	}
+	return operationFromRaw(raw), nil
+}
+
+// deleteFirewall 删除防火墙规则（Compute Engine firewalls.delete）。
+func (s *Service) deleteFirewall(ctx context.Context, c *client, projectID, name string) (operationStatus, error) {
+	if name == "" {
+		return operationStatus{}, errFieldRequired
+	}
+	path := "projects/" + projectID + "/global/firewalls/" + name
+	var raw map[string]json.RawMessage
+	if err := c.do(ctx, http.MethodDelete, "compute", path, nil, nil, &raw); err != nil {
+		return operationStatus{}, err
+	}
+	return operationFromRaw(raw), nil
+}
+
+// firewallWriteBody 将写请求 payload 归一为 Compute Engine Firewall 资源 JSON。
+func firewallWriteBody(payload firewallWritePayload) map[string]interface{} {
+	body := map[string]interface{}{}
+	if payload.Name != "" {
+		body["name"] = payload.Name
+	}
+	if payload.Description != "" {
+		body["description"] = payload.Description
+	}
+	if payload.Network != "" {
+		body["network"] = payload.Network
+	}
+	if payload.Direction != "" {
+		body["direction"] = payload.Direction
+	}
+	if payload.Priority != 0 {
+		body["priority"] = payload.Priority
+	}
+	if len(payload.SourceRanges) > 0 {
+		body["sourceRanges"] = payload.SourceRanges
+	}
+	if len(payload.DestinationRanges) > 0 {
+		body["destinationRanges"] = payload.DestinationRanges
+	}
+	if len(payload.Allowed) > 0 {
+		body["allowed"] = payload.Allowed
+	}
+	if len(payload.Denied) > 0 {
+		body["denied"] = payload.Denied
+	}
+	if payload.Disabled {
+		body["disabled"] = true
+	}
+	return body
 }
 
 func (s *Service) listAddresses(ctx context.Context, c *client, projectID string) ([]normalAddress, error) {
@@ -558,14 +633,44 @@ func (s *Service) listInstances(ctx context.Context, c *client, projectID string
 		query.Set("filter", filter)
 	}
 	var items []normalInstance
-	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/instances", query, "items", []string{"instances"}, func(raw json.RawMessage) error {
+	err := c.listJSON(ctx, http.MethodGet, "compute", "projects/"+projectID+"/aggregated/instances", query, "", []string{"instances"}, func(raw json.RawMessage) error {
 		items = append(items, instanceFromRaw(raw))
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	s.enrichInstanceMachineSpecs(ctx, c, projectID, items)
 	return items, nil
+}
+
+// enrichInstanceMachineSpecs 为实例补充机型的 CPU/内存规格（GCP instance 对象不含该信息）。
+func (s *Service) enrichInstanceMachineSpecs(ctx context.Context, c *client, projectID string, items []normalInstance) {
+	zones := map[string]bool{}
+	for _, item := range items {
+		if item.Zone != "" {
+			zones[item.Zone] = true
+		}
+	}
+	if len(zones) == 0 {
+		return
+	}
+	specByType := map[string]normalMachineType{}
+	for zone := range zones {
+		mts, err := s.listMachineTypes(ctx, c, projectID, zone)
+		if err != nil {
+			continue
+		}
+		for _, mt := range mts {
+			specByType[mt.Name] = mt
+		}
+	}
+	for i := range items {
+		if mt, ok := specByType[items[i].MachineType]; ok {
+			items[i].GuestCpus = mt.GuestCpus
+			items[i].MemoryMb = mt.MemoryMb
+		}
+	}
 }
 
 func (s *Service) instanceDetail(w http.ResponseWriter, r *http.Request, idText, projectID, instanceName string) {
@@ -813,8 +918,48 @@ func (s *Service) firewalls(w http.ResponseWriter, r *http.Request, idText, proj
 	if !ok {
 		return
 	}
-	items, err := s.listFirewalls(r.Context(), client, projectID)
-	writeResult(w, map[string]interface{}{"firewalls": items}, err)
+	switch r.Method {
+	case http.MethodGet:
+		items, err := s.listFirewalls(r.Context(), client, projectID)
+		writeResult(w, map[string]interface{}{"firewalls": items}, err)
+	case http.MethodPost:
+		var payload firewallWritePayload
+		if err := decodeJSON(r, &payload); err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		item, err := s.createFirewall(r.Context(), client, projectID, payload)
+		writeResult(w, map[string]interface{}{"operation": item}, err)
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Service) firewallMutation(w http.ResponseWriter, r *http.Request, idText, projectID, name string) {
+	account, db, ok := s.accountForRequest(w, r, idText)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	client, ok := s.clientForAccount(r.Context(), w, account, scopeFull)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodPatch:
+		var payload firewallWritePayload
+		if err := decodeJSON(r, &payload); err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		item, err := s.updateFirewall(r.Context(), client, projectID, name, payload)
+		writeResult(w, map[string]interface{}{"operation": item}, err)
+	case http.MethodDelete:
+		item, err := s.deleteFirewall(r.Context(), client, projectID, name)
+		writeResult(w, map[string]interface{}{"operation": item}, err)
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 func (s *Service) addresses(w http.ResponseWriter, r *http.Request, idText, projectID string) {

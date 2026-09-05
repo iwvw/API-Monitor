@@ -2498,10 +2498,6 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-// Responses API 的路径为 /responses。
-		fullURL := ensureVersionPath(selected.BaseURL)
-		fullURL += "/responses"
-
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
 	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
 	normalizeResponsesTools(parsedBody)
@@ -2531,6 +2527,9 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	// lastTried 记录最后一次真实转发的端点：整链失败时调用日志以此展示真实端点，
 	// 而不是「unknown」（切换过程本身不落日志，只落最终结果）。
 	var lastTried *Endpoint
+	// selectedMode 记录最终成功端点的 Responses 处理模式，响应处理据此决定
+	// 透传还是转换回 Responses 格式。
+	selectedMode := responsesModeConvert
 	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
 		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
 		if lastRes != nil && lastRes.resp != nil {
@@ -2560,10 +2559,32 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			if candModel != model && candModel != "" {
 				candBody["model"] = candModel
 			}
-			upstreamBodyBytes, _ := json.Marshal(candBody)
-
-			fullURL := ensureVersionPath(cand.BaseURL)
-			fullURL += "/responses"
+			// 按端点能力分流：
+			//   - 转换模式（responsesModeConvert）：不支持原生 /responses 的 OpenAI
+			//     兼容端点，把 Responses 请求体转换为 /chat/completions 请求转发；
+			//   - 透传模式（responsesModePassthrough）：原生支持 responses 的端点
+			//     （DS2API），保持原样转发到 /responses。
+			upstreamMode := s.responsesModeForEndpoint(cand)
+			var fullURL string
+			var upstreamBodyBytes []byte
+			if upstreamMode == responsesModeConvert {
+				chatBody, cErr := responsesRequestToChat(candBody)
+				if cErr != nil {
+					s.recordRelayError(RelayErrorRecord{
+						Route: "responses", Kind: "bad_request",
+						Model: model, Stream: stream, ClientIP: clientIP,
+						ElapsedMs: time.Since(requestStarted).Milliseconds(),
+						Error:     "responses→chat conversion failed: " + cErr.Error(),
+					})
+					response.JSON(w, http.StatusBadRequest, map[string]string{"error": cErr.Error()})
+					return
+				}
+				upstreamBodyBytes, _ = json.Marshal(chatBody)
+				fullURL = ensureVersionPath(cand.BaseURL) + "/chat/completions"
+			} else {
+				upstreamBodyBytes, _ = json.Marshal(candBody)
+				fullURL = ensureVersionPath(cand.BaseURL) + "/responses"
+			}
 			res = s.relayLoop(relayLoopParams{
 				route:          "responses",
 				ctx:            ctx,
@@ -2593,6 +2614,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			}
 			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
 				selected = cand
+				selectedMode = s.responsesModeForEndpoint(cand)
 				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
 				// 4xx 客户端错误不记录，避免把会话钉死在无法服务该请求的端点上。
 				if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
@@ -2732,6 +2754,19 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	defer res.resp.Body.Close()
 
 	if stream {
+		// 转换模式：上游返回 chat.completion 流的 4xx/5xx 错误时不能作为 SSE 透传
+		// （客户端会把错误 JSON 当 SSE 解析失败）。按普通错误响应读取并写回 JSON。
+		if selectedMode == responsesModeConvert && res.resp.StatusCode >= 400 {
+			errBytes, _ := readUpstreamBodyLimited(res.resp.Body)
+			if len(res.firstChunk) > 0 {
+				errBytes = append(res.firstChunk, errBytes...)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(res.resp.StatusCode)
+			_, _ = w.Write(errBytes)
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -2750,12 +2785,16 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		// Codex 等 SDK 依赖它们初始化响应与挂载文本/工具参数，缺失会导致空白回。
 		// 用状态机逐事件补全后转发。
 		normalizer := newResponsesStreamNormalizer(model)
+		// 转换模式：上游返回 chat.completion.chunk 流，逐块转换为 Responses 事件序列。
+		var streamer *chatToResponsesStreamer
+		if selectedMode == responsesModeConvert {
+			streamer = newChatToResponsesStreamer(model)
+		}
 		streamReader := bufio.NewReader(res.resp.Body)
 		if res.firstWritten && len(res.firstChunk) > 0 {
 			streamReader = bufio.NewReader(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
 		}
-		// usage 信息总在最后的 response.completed 事件里，只保留流尾部即可，
-		// 避免长对话把整个流式响应累积在内存中。
+		// usage 信息总在流尾部，只保留流尾部即可，避免长对话把整个流式响应累积在内存中。
 		tail := make([]byte, 0, usageTailLimit)
 		for {
 			block, readErr := readSSEBlock(streamReader)
@@ -2764,36 +2803,71 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				if len(tail) > usageTailLimit {
 					tail = tail[len(tail)-usageTailLimit:]
 				}
-				for _, out := range normalizer.transform(block) {
-					extendStreamDeadline()
-					sw.write(out)
+				if streamer != nil {
+					if dataJSON, ok := sseDataJSON(block); ok {
+						for _, out := range streamer.consume([]byte(dataJSON)) {
+							extendStreamDeadline()
+							sw.write(out)
+						}
+					}
+				} else {
+					for _, out := range normalizer.transform(block) {
+						extendStreamDeadline()
+						sw.write(out)
+					}
 				}
 			}
 			if readErr != nil {
 				break
 			}
 		}
+		if streamer != nil {
+			for _, out := range streamer.finish() {
+				extendStreamDeadline()
+				sw.write(out)
+			}
+		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
 
-		// 从尾部 response.completed 事件解析 usage（Responses 用 input/output_tokens）。
+		// 解析 usage：转换模式下 streamer 已把 chat usage 映射为 responses 字段
+		// （input/output_tokens），优先取它；透传模式从尾部 response.completed 事件解析。
 		promptTokens := 0
 		completionTokens := 0
 		totalTokens := 0
 		cachedTokens := 0
-		accumulatedStr := string(tail)
-		if matches := inputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			promptTokens, _ = strconv.Atoi(matches[1])
-		}
-		if matches := outputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			completionTokens, _ = strconv.Atoi(matches[1])
-		}
-		if matches := totalTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			totalTokens, _ = strconv.Atoi(matches[1])
-		} else if promptTokens > 0 || completionTokens > 0 {
-			totalTokens = promptTokens + completionTokens
-		}
-		if matches := cachedTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
-			cachedTokens, _ = strconv.Atoi(matches[1])
+		if streamer != nil && streamer.hasUsage {
+			if v, ok := streamer.usage["input_tokens"].(int); ok {
+				promptTokens = v
+			}
+			if v, ok := streamer.usage["output_tokens"].(int); ok {
+				completionTokens = v
+			}
+			if v, ok := streamer.usage["total_tokens"].(int); ok {
+				totalTokens = v
+			} else if promptTokens > 0 || completionTokens > 0 {
+				totalTokens = promptTokens + completionTokens
+			}
+			if d, ok := streamer.usage["input_tokens_details"].(map[string]interface{}); ok {
+				if v, ok := d["cached_tokens"].(int); ok {
+					cachedTokens = v
+				}
+			}
+		} else {
+			accumulatedStr := string(tail)
+			if matches := inputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+				promptTokens, _ = strconv.Atoi(matches[1])
+			}
+			if matches := outputTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+				completionTokens, _ = strconv.Atoi(matches[1])
+			}
+			if matches := totalTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+				totalTokens, _ = strconv.Atoi(matches[1])
+			} else if promptTokens > 0 || completionTokens > 0 {
+				totalTokens = promptTokens + completionTokens
+			}
+			if matches := cachedTokensRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+				cachedTokens, _ = strconv.Atoi(matches[1])
+			}
 		}
 
 		s.recordProxyTTFB(selected.ID, res.lastProxy, res.ttfbMs)
@@ -2826,6 +2900,14 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		latencyMs := time.Since(res.startTime).Milliseconds()
+
+		// 转换模式：上游返回 chat.completion JSON（prompt/completion_tokens），
+		// 需转换为 Responses 响应（input/output_tokens）后再解析 usage 并返回。
+		if selectedMode == responsesModeConvert && res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
+			if conv, cErr := chatResponseToResponses(respBodyBytes, model, ""); cErr == nil {
+				respBodyBytes = conv
+			}
+		}
 
 		var usageInfo struct {
 			Usage struct {

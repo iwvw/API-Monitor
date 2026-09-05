@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -47,6 +48,7 @@ type managedForward struct {
 	RemotePort               int    `json:"remote_port,omitempty"`
 	AuthProxyPort            int    `json:"auth_proxy_port,omitempty"`
 	UDP                      bool   `json:"udp"`
+	P2PPeerServerID          string `json:"p2p_peer_server_id,omitempty"`
 	AccessMode               string `json:"access_mode"`
 	AccessURL               string `json:"access_url"`
 	HasToken                bool   `json:"has_token"`
@@ -202,6 +204,31 @@ func authProxyAssetFor(platform, arch string) (url, sha string, ok bool) {
 	return authProxyLinuxAMD64URL, authProxyLinuxAMD64SHA256, true
 }
 
+// api-monitor-stun 自建 STUN 服务器二进制资产。
+// 发布：将 cmd/api-monitor-stun 交叉编译产物上传到 GitHub Release，填入下方 URL 与 SHA-256。
+const (
+	stunLinuxAMD64URL    = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-stun-linux-amd64"
+	stunLinuxAMD64SHA256 = "2fd84c0ae0d67bba21c8a46153e493a7cad1452e881e8099c3d132665861514c"
+	stunLinuxARM64URL    = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-stun-linux-arm64"
+	stunLinuxARM64SHA256 = "17b5c4b59434714d765aa7e2a63d013a3b61df51b5ac07b27e4cf322d7b072d7"
+	stunWindowsAMD64URL  = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-stun-windows-amd64.exe"
+	stunWindowsAMD64SHA  = "d53e33fde9c4b6243f2d878f9deff974a04e5fc73e9b971432956467ca0047ed"
+)
+
+// stunAssetFor 按主机平台/架构返回 api-monitor-stun 二进制下载地址与 SHA-256。
+// 尚未构建/上传的架构返回 ok=false，面板据此跳过自建 STUN、回退公共 STUN。
+func stunAssetFor(platform, arch string) (url, sha string, ok bool) {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	arch = strings.ToLower(strings.TrimSpace(arch))
+	if strings.Contains(platform, "windows") || strings.Contains(platform, "win") {
+		return stunWindowsAMD64URL, stunWindowsAMD64SHA, true
+	}
+	if strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64") {
+		return stunLinuxARM64URL, stunLinuxARM64SHA256, true
+	}
+	return stunLinuxAMD64URL, stunLinuxAMD64SHA256, true
+}
+
 func generateTargetID() string {
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {
@@ -327,6 +354,7 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 		GroupID       string `json:"group_id"`
 		WholeHost     bool   `json:"whole_host"`
 		UDP           bool   `json:"udp"`
+		P2PPeerServerID string `json:"p2p_peer_server_id"`
 		TunnelHostname string `json:"tunnel_hostname"`
 		TunnelAccountID string `json:"tunnel_account_id"`
 		TunnelZoneID    string `json:"tunnel_zone_id"`
@@ -357,8 +385,8 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 		return
 	}
 	if input.UDP {
-		if input.Transport != "tcp_relay" {
-			response.Error(w, 400, "UDP 转发当前仅支持 tcp_relay 传输方式")
+		if input.Transport != "tcp_relay" && input.Transport != "p2p" {
+			response.Error(w, 400, "UDP 转发当前仅支持 tcp_relay / p2p 传输方式")
 			return
 		}
 		input.Protocol = "tcp"
@@ -381,8 +409,8 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 		response.Error(w, 400, "access_mode must be public, token, or panel")
 		return
 	}
-	if input.Transport == "tcp_relay" && input.RelayServerID == "" {
-		response.Error(w, 400, "relay_server_id is required for tcp_relay transport")
+	if (input.Transport == "tcp_relay" || input.Transport == "p2p") && input.RelayServerID == "" {
+		response.Error(w, 400, "relay_server_id is required for tcp_relay / p2p transport（p2p 用中继做打洞失败保底）")
 		return
 	}
 	input.TunnelHostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(input.TunnelHostname), "."))
@@ -425,7 +453,7 @@ func (s *Service) createManagedForward(w http.ResponseWriter, r *http.Request, d
 	if input.AccessMode != "token" {
 		plainToken = ""
 	}
-	_, err := db.ExecContext(r.Context(), `INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,tunnel_hostname,tunnel_account_id,tunnel_zone_id,relay_server_id,access_mode,access_token,group_id,whole_host,udp,desired_status,apply_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'running','pending')`, id, input.Name, input.ServerID, input.LocalHost, input.LocalPort, input.Protocol, input.Transport, input.TunnelHostname, input.TunnelAccountID, input.TunnelZoneID, input.RelayServerID, input.AccessMode, encryptedToken, input.GroupID, boolToInt(input.WholeHost), boolToInt(input.UDP))
+	_, err := db.ExecContext(r.Context(), `INSERT INTO managed_forwards(id,name,server_id,local_host,local_port,protocol,transport,tunnel_hostname,tunnel_account_id,tunnel_zone_id,relay_server_id,access_mode,access_token,group_id,whole_host,udp,p2p_peer_server_id,desired_status,apply_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'running','pending')`, id, input.Name, input.ServerID, input.LocalHost, input.LocalPort, input.Protocol, input.Transport, input.TunnelHostname, input.TunnelAccountID, input.TunnelZoneID, input.RelayServerID, input.AccessMode, encryptedToken, input.GroupID, boolToInt(input.WholeHost), boolToInt(input.UDP), input.P2PPeerServerID)
 	if err != nil {
 		response.Error(w, 500, err.Error())
 		return
@@ -455,7 +483,7 @@ func (s *Service) loadForward(ctx context.Context, db *sql.DB, id string) *manag
 	var item managedForward
 	var healthEnabled, failoverEnabled, wholeHost, udpFlag int
 	var accessToken string
-	err := db.QueryRowContext(ctx, `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.tunnel_id,f.tunnel_account_id,f.tunnel_zone_id,f.tunnel_zone_name,f.dns_record_id,f.tunnel_apply_status,f.tunnel_last_stage,f.tunnel_last_error,f.whole_host,f.udp,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE f.id=?`, id).Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &item.TunnelID, &item.TunnelAccountID, &item.TunnelZoneID, &item.TunnelZoneName, &item.DNSRecordID, &item.TunnelApplyStatus, &item.TunnelLastStage, &item.TunnelLastError, &wholeHost, &udpFlag, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt)
+	err := db.QueryRowContext(ctx, `SELECT f.id,f.name,f.server_id,COALESCE(a.name,''),f.local_host,f.local_port,f.protocol,f.transport,f.tunnel_hostname,f.tunnel_path,f.tunnel_id,f.tunnel_account_id,f.tunnel_zone_id,f.tunnel_zone_name,f.dns_record_id,f.tunnel_apply_status,f.tunnel_last_stage,f.tunnel_last_error,f.whole_host,f.udp,f.relay_server_id,COALESCE(ra.name,''),COALESCE(ra.host,''),f.remote_port,f.auth_proxy_port,f.access_mode,f.access_token,f.group_id,f.health_check_enabled,f.health_check_interval,f.health_check_timeout,f.health_check_unhealthy_threshold,f.health_check_healthy_threshold,f.failover_enabled,f.failover_current_server_id,f.failover_switched_at,f.failover_reason,f.p2p_peer_server_id,f.desired_status,f.apply_status,f.last_stage,f.last_error,f.connector_count,f.created_at,f.updated_at FROM managed_forwards f LEFT JOIN server_accounts a ON a.id=f.server_id LEFT JOIN server_accounts ra ON ra.id=f.relay_server_id WHERE f.id=?`, id).Scan(&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.LocalHost, &item.LocalPort, &item.Protocol, &item.Transport, &item.TunnelHostname, &item.TunnelPath, &item.TunnelID, &item.TunnelAccountID, &item.TunnelZoneID, &item.TunnelZoneName, &item.DNSRecordID, &item.TunnelApplyStatus, &item.TunnelLastStage, &item.TunnelLastError, &wholeHost, &udpFlag, &item.RelayServerID, &item.RelayServerName, &item.RelayServerHost, &item.RemotePort, &item.AuthProxyPort, &item.AccessMode, &accessToken, &item.GroupID, &healthEnabled, &item.HealthCheckInterval, &item.HealthCheckTimeout, &item.HealthCheckUnhealthyThr, &item.HealthCheckHealthyThr, &failoverEnabled, &item.FailoverCurrentServerID, &item.FailoverSwitchedAt, &item.FailoverReason, &item.P2PPeerServerID, &item.DesiredStatus, &item.ApplyStatus, &item.LastStage, &item.LastError, &item.ConnectorCount, &item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
 		return nil
 	}
@@ -498,6 +526,7 @@ func (s *Service) updateManagedForward(w http.ResponseWriter, r *http.Request, d
 		TunnelZoneID       *string `json:"tunnel_zone_id"`
 		HealthCheckEnabled *bool   `json:"health_check_enabled"`
 		FailoverEnabled    *bool   `json:"failover_enabled"`
+		P2PPeerServerID    *string `json:"p2p_peer_server_id"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&input); err != nil {
 		response.Error(w, 400, "invalid request body")
@@ -583,6 +612,10 @@ func (s *Service) updateManagedForward(w http.ResponseWriter, r *http.Request, d
 	if input.TunnelAccountID != nil {
 		tunnelAccountID = strings.TrimSpace(*input.TunnelAccountID)
 	}
+	p2pPeerServerID := existing.P2PPeerServerID
+	if input.P2PPeerServerID != nil {
+		p2pPeerServerID = strings.TrimSpace(*input.P2PPeerServerID)
+	}
 	tunnelZoneID := existing.TunnelZoneID
 	if input.TunnelZoneID != nil {
 		tunnelZoneID = strings.TrimSpace(*input.TunnelZoneID)
@@ -594,7 +627,7 @@ func (s *Service) updateManagedForward(w http.ResponseWriter, r *http.Request, d
 	if failoverEnabled {
 		failoverFlag = 1
 	}
-	_, err := db.ExecContext(r.Context(), `UPDATE managed_forwards SET name=?,local_host=?,local_port=?,protocol=?,tunnel_hostname=?,tunnel_account_id=?,tunnel_zone_id=?,relay_server_id=?,access_mode=?,group_id=?,whole_host=?,udp=?,health_check_enabled=?,failover_enabled=?,updated_at=datetime('now') WHERE id=?`, name, localHost, localPort, protocol, tunnelHostname, tunnelAccountID, tunnelZoneID, relayServerID, accessMode, groupID, boolToInt(wholeHost), boolToInt(udp), healthFlag, failoverFlag, id)
+	_, err := db.ExecContext(r.Context(), `UPDATE managed_forwards SET name=?,local_host=?,local_port=?,protocol=?,tunnel_hostname=?,tunnel_account_id=?,tunnel_zone_id=?,relay_server_id=?,access_mode=?,group_id=?,whole_host=?,udp=?,health_check_enabled=?,failover_enabled=?,p2p_peer_server_id=?,updated_at=datetime('now') WHERE id=?`, name, localHost, localPort, protocol, tunnelHostname, tunnelAccountID, tunnelZoneID, relayServerID, accessMode, groupID, boolToInt(wholeHost), boolToInt(udp), healthFlag, failoverFlag, p2pPeerServerID, id)
 	if err != nil {
 		response.Error(w, 500, err.Error())
 		return
@@ -660,6 +693,8 @@ func (s *Service) deployManagedForward(w http.ResponseWriter, r *http.Request, d
 		// 公开访问，无需校验
 	case item.Transport == "tcp_relay" && needsTokenAuth(item):
 		// 已落地：relay 入口强制 token 握手校验
+	case item.Transport == "p2p" && needsTokenAuth(item):
+		// P2P 的保底数据面是中继隧道，token 校验沿 tcp_relay 路径执行
 	case item.Transport == "cloudflare_tunnel" && needsTokenAuth(item):
 		if item.Protocol != "http" && item.Protocol != "https" {
 			response.Error(w, 422, "CF 隧道 + token/panel 仅支持 http/https 协议（tcp 请改用 tcp_relay + token）")
@@ -680,7 +715,7 @@ func (s *Service) deployManagedForward(w http.ResponseWriter, r *http.Request, d
 	case "tcp_relay":
 		s.deployTCPRelayForward(w, r, db, item)
 	case "p2p":
-		response.Error(w, 422, "P2P 直连部署在 Phase 3 实现")
+		s.deployP2PForward(w, r, db, item)
 	default:
 		response.Error(w, 400, "unsupported transport")
 	}
@@ -835,6 +870,150 @@ func (s *Service) deployTCPRelayCore(ctx context.Context, db *sql.DB, item *mana
 	return 0, nil
 }
 
+// deployP2PForward 部署 P2P 直连转发。原则：先建 tcp_relay 隧道保底即通，再后台做 UDP 打洞升级为直连。
+func (s *Service) deployP2PForward(w http.ResponseWriter, r *http.Request, db *sql.DB, item *managedForward) {
+	code, err := s.deployP2PCore(r.Context(), db, item)
+	if err != nil {
+		response.Error(w, code, err.Error())
+		return
+	}
+	response.OK(w, s.loadForward(r.Context(), db, item.ID))
+}
+
+// deployP2PCore 实际部署 P2P 链路：中继保底 + 两端候选端点收集 + 打洞协调。
+func (s *Service) deployP2PCore(ctx context.Context, db *sql.DB, item *managedForward) (int, error) {
+	// 1) 保底：建立 tcp_relay 隧道，保证部署完成即可用；打洞失败透明留在中继。
+	if item.RelayServerID == "" {
+		return 422, errors.New("P2P 转发需要配置中继入口主机（作为打洞失败时的保底数据面）")
+	}
+	if code, err := s.deployTCPRelayCore(ctx, db, item); err != nil {
+		return code, err
+	}
+	if item.P2PPeerServerID == "" {
+		return 0, nil
+	}
+	// 2) 校验对端：在线且支持 p2p_v1
+	peerConn, ok := s.registry.Get(item.P2PPeerServerID)
+	if !ok {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='p2p_peer_offline',last_error='P2P 对端离线，已用中继保底',updated_at=datetime('now') WHERE id=?`, item.ID)
+		return 0, nil
+	}
+	if !peerConn.GetCapabilities()["p2p_v1"] {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='p2p_peer_old',last_error='P2P 对端 Agent 版本过低，已用中继保底',updated_at=datetime('now') WHERE id=?`, item.ID)
+		return 0, nil
+	}
+	// 3) 收集两端候选端点。优先用自建 STUN（部署在中继入口主机），失败则公共 STUN 兜底。
+	stunServers := s.selfHostedStunServers(ctx, db, item.RelayServerID)
+	if len(stunServers) == 0 {
+		stunServers = []string{"stun.cloudflare.com:3478", "stun.l.google.com:19302"}
+	}
+	collectPayload, _ := json.Marshal(map[string]interface{}{
+		"operation": "collect_endpoints", "forward_id": item.ID, "stun_servers": stunServers,
+	})
+	sourceOut, err := s.RunP2PTaskAndWait(item.ServerID, string(collectPayload))
+	if err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='p2p_collect_failed',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+		return 0, nil
+	}
+	peerOut, err := s.RunP2PTaskAndWait(item.P2PPeerServerID, string(collectPayload))
+	if err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='p2p_collect_failed',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+		return 0, nil
+	}
+	sourceEndpoints := extractEndpoints(sourceOut)
+	peerEndpoints := extractEndpoints(peerOut)
+	if len(sourceEndpoints) == 0 || len(peerEndpoints) == 0 {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='p2p_no_endpoints',last_error='P2P 未收集到候选端点，已用中继保底',updated_at=datetime('now') WHERE id=?`, item.ID)
+		return 0, nil
+	}
+	// 4) 生成共享 session_id 并两侧下发 hole_punch（互带对端候选端点）
+	sessionID := randomForwardSessionID()
+	sourcePunch, _ := json.Marshal(map[string]interface{}{
+		"operation": "hole_punch", "forward_id": item.ID,
+		"local_host": item.LocalHost, "local_port": item.LocalPort,
+		"session_id": sessionID, "peer_candidates": peerEndpoints,
+	})
+	peerPunch, _ := json.Marshal(map[string]interface{}{
+		"operation": "hole_punch", "forward_id": item.ID,
+		"local_host": item.LocalHost, "local_port": item.LocalPort,
+		"session_id": sessionID, "peer_candidates": sourceEndpoints,
+	})
+	if _, err := s.RunP2PTaskAndWait(item.ServerID, string(sourcePunch)); err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='p2p_hole_punch_failed',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+		return 0, nil
+	}
+	if _, err := s.RunP2PTaskAndWait(item.P2PPeerServerID, string(peerPunch)); err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='p2p_hole_punch_failed',last_error=?,updated_at=datetime('now') WHERE id=?`, err.Error(), item.ID)
+		return 0, nil
+	}
+	_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET last_stage='completed',last_error='',updated_at=datetime('now') WHERE id=?`, item.ID)
+	return 0, nil
+}
+
+// extractEndpoints 解析 collect_endpoints 返回的候选端点字符串数组。
+func extractEndpoints(out string) []string {
+	var parsed struct {
+		Endpoints []struct {
+			Addr string `json:"addr"`
+		} `json:"endpoints"`
+	}
+	if json.Unmarshal([]byte(out), &parsed) != nil {
+		return nil
+	}
+	eps := make([]string, 0, len(parsed.Endpoints))
+	for _, e := range parsed.Endpoints {
+		if e.Addr != "" {
+			eps = append(eps, e.Addr)
+		}
+	}
+	return eps
+}
+
+// randomForwardSessionID 生成 32 位打洞会话随机密钥（仅分发给两端 A/B）。
+func randomForwardSessionID() uint32 {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return uint32(time.Now().UnixNano())
+	}
+	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+}
+
+// selfHostedStunServers 尝试在中继入口主机上托管自建 STUN 服务，返回其公网地址。
+// 中继主机有公网 IP 且已装 Agent，适合充当 STUN 协调节点。任一环节失败返回空，由调用方回退公共 STUN。
+func (s *Service) selfHostedStunServers(ctx context.Context, db *sql.DB, relayServerID string) []string {
+	if relayServerID == "" {
+		return nil
+	}
+	var relayHost string
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(host,'') FROM server_accounts WHERE id=?`, relayServerID).Scan(&relayHost); err != nil || relayHost == "" {
+		return nil
+	}
+	relayConn, ok := s.registry.Get(relayServerID)
+	if !ok || !relayConn.GetCapabilities()["p2p_v1"] {
+		return nil
+	}
+	meta := relayConn.GetMetadata()
+	assetURL, assetSHA, assetOK := stunAssetFor(fmt.Sprint(meta["platform"]), fmt.Sprint(meta["arch"]))
+	if !assetOK {
+		return nil
+	}
+	const stunPort = 3478
+	bootstrapPayload, _ := json.Marshal(map[string]interface{}{
+		"operation": "bootstrap_stun", "stun_asset_url": assetURL,
+		"stun_asset_sha256": assetSHA, "stun_port": stunPort,
+	})
+	if _, err := s.RunP2PTaskAndWait(relayServerID, string(bootstrapPayload)); err != nil {
+		return nil
+	}
+	addr := relayHost
+	host := addr
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	addr = net.JoinHostPort(host, fmt.Sprint(stunPort))
+	return []string{addr}
+}
+
 // reconcileRunningForwards 在 Agent 重连/上线后重放其负责的 running 转发：
 // 源角色重建反向桥接隧道、中继角色重下发监听规则，解决 agent/relay 重启后
 // 转发链路不自动恢复（relay 监听仍在但数据不通）的问题。
@@ -878,6 +1057,8 @@ func (s *Service) reconcileRunningForwards(ctx context.Context, db *sql.DB, serv
 		switch item.Transport {
 		case "tcp_relay":
 			code, reapplyErr = s.deployTCPRelayCore(ctx, db, item)
+		case "p2p":
+			code, reapplyErr = s.deployP2PCore(ctx, db, item)
 		case "cloudflare_tunnel":
 			if item.ServerID != serverID {
 				continue

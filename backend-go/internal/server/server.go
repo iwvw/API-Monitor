@@ -20,6 +20,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
 	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
+	dockerhubmodule "github.com/iwvw/api-monitor/backend-go/internal/dockerhub"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
 	githubmodule "github.com/iwvw/api-monitor/backend-go/internal/github"
@@ -35,6 +36,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	"github.com/iwvw/api-monitor/backend-go/internal/gcp"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
+	bookmarksmodule "github.com/iwvw/api-monitor/backend-go/internal/bookmarks"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -64,6 +66,7 @@ type Server struct {
 	flyio    *flyio.Service
 	onepanel *onepanel.Service
 	github   *githubmodule.Service
+	dockerhub *dockerhubmodule.Service
 	aliyun   *aliyun.Service
 	tencent  *tencent.Service
 	oracle   *oracle.Service
@@ -80,6 +83,7 @@ type Server struct {
 	sub      *subscription.Service
 	drawio   *drawiomodule.Service
 	prompts  *promptsmodule.Service
+	bookmarks *bookmarksmodule.Service
 	adminai  *adminai.Service
 
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
@@ -136,6 +140,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	githubService.SetNotifier(notifyService)
 	drawioService := drawiomodule.New(cfg)
 	promptsService := promptsmodule.New(cfg)
+	bookmarksService := bookmarksmodule.New(cfg)
 	systemService := systemmetrics.New(cfg)
 	systemService.SetNotifier(notifyService)
 	backupService := backup.New(cfg)
@@ -159,6 +164,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		flyio:    flyio.New(cfg),
 		onepanel: onepanel.New(cfg),
 		github:   githubService,
+		dockerhub: dockerhubmodule.New(cfg),
 		aliyun:   aliyun.New(cfg),
 		tencent:  tencent.New(cfg),
 		oracle:   oracle.New(cfg),
@@ -175,6 +181,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		sub:      subscriptionService,
 		drawio:   drawioService,
 		prompts:  promptsService,
+		bookmarks: bookmarksService,
 		adminai:  adminaiService,
 	}
 	server.onepanel.SetAgentRunner(serverAgentService)
@@ -586,12 +593,16 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.onepanel.ServeHTTP(w, r)
 	case "/api/github", "/api/github/webhook/{repositoryId}", "/api/github/webhook", "/api/github/events/stream":
 		s.github.ServeHTTP(w, r)
+	case "/api/dockerhub":
+		s.dockerhub.ServeHTTP(w, r)
 	case "/api/drawio", "/api/drawio/documents", "/api/drawio/documents/{id}", "/api/drawio/documents/{id}/clone", "/api/drawio/documents/{id}/draft", "/api/drawio/documents/{id}/export", "/api/drawio/documents/{id}/versions", "/api/drawio/documents/{id}/versions/{versionId}", "/api/drawio/documents/{id}/versions/{versionId}/restore", "/api/drawio/documents/{id}/thumbnails/rebuild", "/api/drawio/import", "/api/drawio/thumbnails/rebuild", "/api/drawio/render-jobs", "/api/drawio/settings":
 		s.drawio.ServeHTTP(w, r)
 	case "/api/prompts", "/api/prompts/collections", "/api/prompts/collections/{id}", "/api/prompts/entries", "/api/prompts/entries/{id}", "/api/prompts/entries/{id}/duplicate", "/api/prompts/entries/{id}/draft", "/api/prompts/entries/{id}/publish", "/api/prompts/entries/{id}/versions", "/api/prompts/entries/{id}/versions/{versionId}", "/api/prompts/entries/{id}/versions/{versionId}/restore", "/api/prompts/entries/{id}/public/regenerate", "/api/prompts/settings":
 		s.prompts.ServeHTTP(w, r)
 	case "/api/prompts/public/{publicId}", "/api/prompts/d/{publicId}", "/api/prompts/d/{publicId}/versions/{versionNo}":
 		s.prompts.ServePublic(w, r)
+	case "/api/bookmarks":
+		s.bookmarks.ServeHTTP(w, r)
 	case "/api/aliyun":
 		s.aliyun.ServeHTTP(w, r)
 	case "/api/tencent":
@@ -647,12 +658,20 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 			s.github.ServeHTTP(w, r)
 			return
 		}
+		if strings.HasPrefix(route.Prefix, "/api/dockerhub") {
+			s.dockerhub.ServeHTTP(w, r)
+			return
+		}
 		if strings.HasPrefix(route.Prefix, "/api/drawio") {
 			s.drawio.ServeHTTP(w, r)
 			return
 		}
 		if strings.HasPrefix(route.Prefix, "/api/prompts") {
 			s.prompts.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(route.Prefix, "/api/bookmarks") {
+			s.bookmarks.ServeHTTP(w, r)
 			return
 		}
 		response.Error(w, http.StatusNotFound, "go route not implemented: "+route.Prefix)
@@ -742,6 +761,8 @@ func (s *Server) servePublicPageFavicon(w http.ResponseWriter, r *http.Request) 
 		iconID, found, err = s.server.PublicPageIconID(ctx, lookup, false)
 	case publicpageicon.KindGitHub:
 		iconID, found, err = s.github.PublicPageIconID(ctx, lookup, false)
+	case publicpageicon.KindBookmarks:
+		iconID, found, err = s.bookmarks.PublicPageIconID(ctx, lookup, false)
 	case "domain":
 		resolvedKind, iconID, found, err = s.publicPageFaviconByDomain(ctx, lookup)
 	default:
@@ -769,7 +790,7 @@ func (s *Server) servePublicPageFavicon(w http.ResponseWriter, r *http.Request) 
 }
 
 // publicPageFaviconByDomain 与前端 DomainPublicStatusResolver 的探测顺序一致：
-// uptime → server → github。
+// uptime → server → github → bookmarks。
 func (s *Server) publicPageFaviconByDomain(ctx context.Context, host string) (kind, iconID string, found bool, err error) {
 	lookups := []struct {
 		kind string
@@ -778,6 +799,7 @@ func (s *Server) publicPageFaviconByDomain(ctx context.Context, host string) (ki
 		{publicpageicon.KindUptime, s.uptime.PublicPageIconID},
 		{publicpageicon.KindServer, s.server.PublicPageIconID},
 		{publicpageicon.KindGitHub, s.github.PublicPageIconID},
+		{publicpageicon.KindBookmarks, s.bookmarks.PublicPageIconID},
 	}
 	for _, lookup := range lookups {
 		iconID, ok, lookupErr := lookup.svc(ctx, host, true)

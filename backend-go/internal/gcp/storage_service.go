@@ -190,6 +190,9 @@ func (s *Service) createBucket(w http.ResponseWriter, r *http.Request, idText st
 		return
 	}
 	projectID := r.URL.Query().Get("projectId")
+	if projectID == "" {
+		projectID = account.DefaultProjectID
+	}
 	item, err := s.createBucketOp(r.Context(), client, projectID, r)
 	writeResult(w, map[string]interface{}{"bucket": item}, err)
 }

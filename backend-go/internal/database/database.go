@@ -135,6 +135,7 @@ func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
 			public_api_url TEXT,
 			time_zone TEXT DEFAULT 'system',
 			ui_font TEXT DEFAULT 'default',
+			tile_layout TEXT,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS system_api_stats (
@@ -225,6 +226,7 @@ func ensureUserSettingsColumns(ctx context.Context, db *sql.DB) error {
 		{"public_api_url", "ALTER TABLE user_settings ADD COLUMN public_api_url TEXT"},
 		{"time_zone", "ALTER TABLE user_settings ADD COLUMN time_zone TEXT DEFAULT 'system'"},
 		{"ui_font", "ALTER TABLE user_settings ADD COLUMN ui_font TEXT DEFAULT 'default'"},
+		{"tile_layout", "ALTER TABLE user_settings ADD COLUMN tile_layout TEXT"},
 	}
 	for _, column := range columns {
 		exists, err := hasColumn(ctx, db, "user_settings", column.name)
