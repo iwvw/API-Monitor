@@ -6,6 +6,8 @@ mod cloudflared;
 mod collector;
 mod docker;
 mod file_manager;
+mod nat;
+mod p2p;
 mod protocol;
 mod proxy_runtime;
 mod proxy_traffic;
@@ -49,6 +51,7 @@ fn agent_capabilities() -> Vec<String> {
         "self_update_v1".to_string(),
         "cloudflared_runtime_v1".to_string(),
         "tcp_forwarder_v1".to_string(),
+        "p2p_v1".to_string(),
         "storage_node_v1".to_string(),
     ];
     #[cfg(target_os = "linux")]
@@ -1132,6 +1135,15 @@ async fn run_client(
                                         }
                                     },
                                     53 => match tcp_forwarder::reconcile(&task.data).await {
+                                        Ok(out) => {
+                                            successful = true;
+                                            res_data = out;
+                                        }
+                                        Err(err) => {
+                                            res_data = err;
+                                        }
+                                    },
+                                    54 => match p2p::reconcile(&task.data).await {
                                         Ok(out) => {
                                             successful = true;
                                             res_data = out;
