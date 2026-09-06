@@ -12,6 +12,13 @@ export function useAnalytics(activeTab) {
     const stored = localStorage.getItem('openai_analytics_granularity');
     return ['hour', 'day', 'week'].includes(stored) ? stored : 'day';
   });
+  // 数据看板范围按钮文案：默认按持久化的分析范围推断，应用后同步记录。
+  const [analyticsRangeLabel, setAnalyticsRangeLabel] = useState(() => {
+    const stored = localStorage.getItem('openai_analytics_range_label');
+    if (stored) return stored;
+    const days = Number(localStorage.getItem('openai_analytics_days'));
+    return days === 1 ? '过去 24 小时' : days === 30 ? '过去 30 天' : '过去 7 天';
+  });
   const [analyticsSummary, setAnalyticsSummary] = useState({
     totalRequests: 0,
     avgLatency: 0,
@@ -175,6 +182,20 @@ export function useAnalytics(activeTab) {
     localStorage.setItem('openai_analytics_days', String(analyticsDays));
   }, [analyticsDays]);
 
+  // 记住数据看板范围按钮文案，刷新后保持一致。
+  useEffect(() => {
+    localStorage.setItem('openai_analytics_range_label', analyticsRangeLabel);
+  }, [analyticsRangeLabel]);
+
+  // 仪表盘同款时段选择器回调：只更新分析范围（天数），时间粒度由工具栏下拉手动控制，
+  // 设值后由上方参数变化效果驱动刷新。
+  const applyAnalyticsRange = useCallback((days, cfRange, label) => {
+    const d = Math.max(1, Number(days) || 1);
+    setAnalyticsDays(d);
+    if (label) setAnalyticsRangeLabel(label);
+    setAnalyticsPage(1);
+  }, []);
+
   // 清空全部网关日志记录（只清明细日志，数据看板聚合历史不受影响）。
   const clearGatewayLogs = useCallback(async () => {
     if (!(await dialog.confirm('确认清除全部网关日志记录？数据看板历史保留。此操作不可恢复。'))) return;
@@ -212,6 +233,7 @@ export function useAnalytics(activeTab) {
   return {
     analyticsDays, setAnalyticsDays,
     analyticsGranularity, setAnalyticsGranularity,
+    analyticsRangeLabel, setAnalyticsRangeLabel, applyAnalyticsRange,
     analyticsSummary,
     requestTrendMode, setRequestTrendMode,
     tokenTrendMode, setTokenTrendMode,

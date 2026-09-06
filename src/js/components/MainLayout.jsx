@@ -51,6 +51,7 @@ const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const OraclePage = lazy(() => import('../pages/OraclePage.jsx'));
 const M365Page = lazy(() => import('../pages/M365Page.jsx'));
 const GcpPage = lazy(() => import('../pages/GcpPage.jsx'));
+const HuaweiPage = lazy(() => import('../pages/HuaweiPage.jsx'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
 const SchedulerPage = lazy(() => import('../pages/SchedulerPage.jsx'));
 const ApiDocsPage = lazy(() => import('../pages/ApiDocsPage.jsx'));
@@ -649,6 +650,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'dns',
     'oracle',
     'gcp',
+    'huawei',
     'aliyun',
     'tencent',
     'm365',
@@ -695,6 +697,8 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <OraclePage />;
       case 'gcp':
         return <GcpPage />;
+      case 'huawei':
+        return <HuaweiPage />;
       case 'm365':
         return <M365Page />;
       case 'server':

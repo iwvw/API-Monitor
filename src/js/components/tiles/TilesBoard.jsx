@@ -3,9 +3,10 @@
 // 布局按移动端/桌面端分桶保存到后端用户设置（data.db，云端）；顶栏提供时间范围/增删指标/刷新/重置。
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, ChartPalette, DatePicker, DropdownMenu, Input, Popover, Switch } from '@cloudflare/kumo';
+import { Button, ChartPalette, DropdownMenu, SkeletonLine, Switch } from '@cloudflare/kumo';
 import { Select } from '@cloudflare/kumo/components/select';
-import { CalendarBlank, SquaresFour } from '@phosphor-icons/react';
+import { SquaresFour } from '@phosphor-icons/react';
+import { TimeRangePicker } from '../ui/TimeRangePicker.jsx';
 import {
   TileGrid,
   TileFrame,
@@ -15,6 +16,7 @@ import {
 import useStore from '../../store.js';
 import { HeaderToolsContext } from '../../modules/headerToolsContext.js';
 import { PublicPageBrandIcon } from '../public/PublicPageIconPicker.jsx';
+import { formatTokensAxis, formatTokensZh } from '../../pages/openai/utils.js';
 import {
   Cloud,
   Globe,
@@ -29,6 +31,67 @@ import {
 
 const FETCH_TIMEOUT_MS = 8000;
 const HOST_POLL_MS = 5000;
+// 仪表盘时间粒度持久化：切换后刷新/重访仍保持上次选择的时段
+const RANGE_STORAGE_KEY = 'tileboard_time_range';
+
+const loadRangeFromStorage = () => {
+  try {
+    const raw = localStorage.getItem(RANGE_STORAGE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (p && Number.isFinite(p.days) && p.days > 0 && typeof p.label === 'string' && typeof p.cfRange === 'string') {
+      return p;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+};
+
+// —— 首页数据缓存 ——
+// 两层：内存层（模块级，切页重挂载直接命中）+ localStorage 层（跨刷新/重开有效）。
+// 仅缓存相对静态的聚合数据；实时轮询（主机指标）不缓存。命中缓存后仍后台刷新保持新鲜。
+const memoryCache = new Map();
+
+function cacheGet(key) {
+  const mem = memoryCache.get(key);
+  if (mem && mem.expiresAt > Date.now()) return mem.value;
+  if (mem) memoryCache.delete(key);
+  try {
+    const raw = localStorage.getItem(`tileboard_cache_${key}`);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p && p.expiresAt > Date.now()) {
+        memoryCache.set(key, { value: p.value, expiresAt: p.expiresAt });
+        return p.value;
+      }
+      if (p) localStorage.removeItem(`tileboard_cache_${key}`);
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function cacheSet(key, value, ttlMs) {
+  const expiresAt = Date.now() + ttlMs;
+  memoryCache.set(key, { value, expiresAt });
+  try {
+    localStorage.setItem(`tileboard_cache_${key}`, JSON.stringify({ value, expiresAt }));
+  } catch {
+    /* ignore */
+  }
+}
+
+const CACHE_TTL = {
+  dash: 10 * 60 * 1000, // 仪表盘聚合（10 个接口，含 Koyeb/Fly 慢上游）：跨刷新 10 分钟
+  apiStats: 2 * 60 * 1000,
+  openai: 2 * 60 * 1000,
+  uptime: 60 * 1000,
+  cfAccounts: 5 * 60 * 1000,
+  cfZones: 5 * 60 * 1000,
+  cfAnalytics: 60 * 1000,
+};
 
   // 布局按列数分桶：2~8 列各一套独立布局预设，各自自动保存到云端；列数可随意切换（自适应或窗口宽度），
   // 切到哪列数就用哪套布局，布局保持稳定不重排。
@@ -52,145 +115,101 @@ const TILE_DEFS = [
 ];
 const TILE_DEFS_BY_ID = Object.fromEntries(TILE_DEFS.map((d) => [d.id, d]));
 
-// —— CF 风格时段选择器（完整复刻：自定义范围输入 + 快捷时段 + 日历 + 时区 + Apply）——
-const TIME_RANGE_QUICK = [
-  { label: '过去 30 分钟', minutes: 30 },
-  { label: '过去 1 小时', minutes: 60 },
-  { label: '过去 6 小时', minutes: 360 },
-  { label: '过去 12 小时', minutes: 720 },
-  { label: '过去 24 小时', minutes: 1440 },
-  { label: '过去 7 天', minutes: 10080 },
-  { label: '过去 30 天', minutes: 43200 },
-];
+// 模块间跳转：与侧边栏行为一致（切换激活 tab + 同步地址栏），保证刷新后仍停留在目标模块。
+const navigateModule = (module, query) => {
+  useStore.getState().setMainActiveTab(module);
+  const nextPath = query ? `/${module}?${new URLSearchParams(query).toString()}` : `/${module}`;
+  if (window.location.pathname + window.location.search !== nextPath) {
+    window.history.pushState({ module }, '', nextPath);
+  }
+};
 
-function TimeRangePicker({ value, onApply }) {
-  const [open, setOpen] = useState(false);
-  const [customText, setCustomText] = useState('');
-  const [range, setRange] = useState(undefined);
+// 状态页公开路由：uptime → /status/slug、server → /s/slug、github → /gh/slug
+const statusPageHref = (p) => {
+  if (!p?.slug) return null;
+  const prefix = p.kind === 'server' ? '/s' : p.kind === 'github' ? '/gh' : '/status';
+  return `${prefix}/${encodeURIComponent(p.slug)}`;
+};
 
-  const applyMinutes = useCallback((minutes, label) => {
-    const days = Math.max(1, Math.ceil(minutes / 1440));
-    const cfRange = minutes <= 1440 ? '24h' : minutes <= 10080 ? '7d' : '30d';
-    onApply(days, cfRange, label);
-    setOpen(false);
-  }, [onApply]);
-
-  const applyCustom = useCallback(() => {
-    const m = String(customText || '').trim().match(/^(\d+)\s*(m|min|mins?|minutes?|h|hour|hours|d|day|days)$/i);
-    if (!m) return;
-    const n = Number(m[1]);
-    const u = m[2].toLowerCase()[0];
-    const minutes = u === 'm' ? n : u === 'h' ? n * 60 : n * 1440;
-    applyMinutes(minutes, customText.trim());
-  }, [customText, applyMinutes]);
-
-  const applyDateRange = useCallback(() => {
-    if (!range?.from || !range?.to) return;
-    const days = Math.max(1, Math.round((range.to - range.from) / 86400000) + 1);
-    const label = `${range.from.toLocaleDateString()} - ${range.to.toLocaleDateString()}`;
-    const cfRange = days <= 1 ? '24h' : days <= 7 ? '7d' : '30d';
-    onApply(days, cfRange, label);
-    setOpen(false);
-  }, [range, onApply]);
-
-  // CF 风格实时建议：输入纯数字 → 过去 N 分钟/小时/天/周/月；带单位 → 匹配对应建议
-  const suggestions = useMemo(() => {
-    const t = String(customText || '').trim();
-    if (!t) return [];
-    if (/^\d+$/.test(t)) {
-      return [`过去 ${t} 分钟`, `过去 ${t} 小时`, `过去 ${t} 天`, `过去 ${t} 周`, `过去 ${t} 月`];
-    }
-    const m = t.match(/^(\d+)\s*(m|min|mins|minutes?|h|hour|hours|d|day|days|w|week|weeks|mo|month|months)$/i);
-    if (m) {
-      const n = m[1];
-      const u = m[2].toLowerCase();
-      const unitMap = {
-        m: '分钟', min: '分钟', mins: '分钟', minute: '分钟', minutes: '分钟',
-        h: '小时', hour: '小时', hours: '小时',
-        d: '天', day: '天', days: '天',
-        w: '周', week: '周', weeks: '周',
-        mo: '月', month: '月', months: '月',
-      };
-      const unit = unitMap[u];
-      return unit ? [`过去 ${n} ${unit}`] : [];
-    }
-    return [];
-  }, [customText]);
-
-  const applySuggestion = useCallback((label) => {
-    const m = label.match(/^过去 (\d+) (分钟|小时|天|周|月)$/);
-    if (!m) return;
-    const n = Number(m[1]);
-    const unit = m[2];
-    const minutes = unit === '分钟' ? n : unit === '小时' ? n * 60 : unit === '天' ? n * 1440 : unit === '周' ? n * 10080 : n * 43200;
-    applyMinutes(minutes, `过去 ${n} ${unit}`);
-  }, [applyMinutes]);
-
+// TileEntry —— 所有卡片内条目行的统一样式：等宽圆角边框 + 悬停高亮。
+// leading=行首图标/状态点，name=主文本（截断），desc=第二行说明（模块入口），badge=名称旁小标记，
+// trailing=行尾徽标/箭头；onClick 渲染为按钮，href 渲染为外链（新标签页），两者都无则为静态行。
+function TileEntry({ leading, name, desc, badge, trailing, onClick, href, title, pad = 'py-1', className = '' }) {
+  const base = `animate-tile-fade-up flex min-w-0 items-center gap-1.5 rounded-md border border-kumo-line/60 px-1.5 ${pad} text-left transition-colors hover:border-brand/60 hover:bg-kumo-tint ${className}`;
+  const body = (
+    <>
+      {leading}
+      {desc ? (
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-[10px] text-kumo-default">{name}</span>
+            {badge}
+          </span>
+          <span className="truncate text-[9px] text-kumo-subtle">{desc}</span>
+        </span>
+      ) : (
+        <>
+          <span className="min-w-0 flex-1 truncate text-[10px] text-kumo-default">{name}</span>
+          {badge}
+        </>
+      )}
+      {trailing}
+    </>
+  );
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" title={title || name} className={base}>
+        {body}
+      </a>
+    );
+  }
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title || name}
+        className={`animate-tile-fade-up flex min-w-0 items-center gap-1.5 rounded-md border border-kumo-line/60 px-1.5 ${pad} text-left transition-colors hover:border-brand/60 hover:bg-kumo-tint ${className}`}
+      >
+        {body}
+      </button>
+    );
+  }
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <Button size="sm" icon={<CalendarBlank className="h-4 w-4" />}>{value}</Button>
-      </Popover.Trigger>
-      <Popover.Content sideOffset={6} className="z-50 w-fit max-w-[calc(100vw-2rem)] overflow-hidden p-0">
-        <div className="flex flex-col">
-          {/* 顶部：自定义范围输入 */}
-          <div className="border-b border-kumo-line p-1.5">
-            <Input
-              type="text"
-              value={customText}
-              onChange={(e) => setCustomText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') applyCustom();
-              }}
-              placeholder="自定义范围：3h、3 hours、3 m..."
-              className="w-full rounded-md border border-kumo-line bg-kumo-base px-3 py-1.5 text-xs text-kumo-default outline-none placeholder:text-kumo-inactive focus:border-brand/60"
-            />
-            {suggestions.length > 0 && (
-              <div className="mt-1 flex flex-wrap gap-1">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => applySuggestion(s)}
-                    className="rounded-md border border-kumo-line bg-kumo-base px-2 py-1 text-[11px] text-kumo-default transition-colors hover:border-brand/60 hover:bg-kumo-tint"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex">
-            {/* 左侧：快捷时段 */}
-            <div className="flex w-32 shrink-0 flex-col gap-0.5 border-r border-kumo-line p-2">
-              {TIME_RANGE_QUICK.map((q) => (
-                <Button
-                  key={q.label}
-                  type="button"
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => applyMinutes(q.minutes, q.label)}
-                  className="justify-start rounded-md px-2.5 py-1.5 text-left text-xs text-kumo-default transition-colors hover:bg-kumo-tint"
-                >
-                  {q.label}
-                </Button>
-              ))}
-            </div>
-            {/* 右侧：日历范围选择 */}
-            <div className="min-w-0 flex-1 overflow-x-auto p-2">
-              <DatePicker mode="range" selected={range} onChange={setRange} />
-            </div>
-          </div>
-          {/* 底部：操作按钮 */}
-          <div className="flex items-center justify-end gap-2 border-t border-kumo-line px-3 py-2">
-            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>取消</Button>
-            <Button size="sm" onClick={applyCustom} disabled={!/^(\d+\s*(m|min|mins?|minutes?|h|hour|hours|d|day|days))$/i.test(String(customText || '').trim())}>
-              应用
-            </Button>
-          </div>
+    <div title={title || name} className={base}>
+      {body}
+    </div>
+  );
+}
+
+// TileSkeleton —— 卡片加载骨架：按卡片最终形态组合 SkeletonLine（数值行 + 图表块 / 进度条 / 条目行），
+// 加载中替代「加载中…」文字占位，保持各卡内容区域的轮廓稳定。
+function TileSkeleton({ variant = 'chart', rows = 0, className = '' }) {
+  return (
+    <div className={`flex h-full min-h-0 flex-col gap-2 overflow-hidden px-4 pb-2 pt-1 ${className}`} aria-hidden="true">
+      <div className="flex shrink-0 items-baseline gap-2">
+        <SkeletonLine className="h-5 w-14" />
+        <SkeletonLine className="h-3.5 w-24" />
+      </div>
+      {variant === 'bars' && (
+        <div className="flex shrink-0 flex-col gap-1.5">
+          <SkeletonLine className="h-3.5 w-full" />
+          <SkeletonLine className="h-3.5 w-full" />
+          <SkeletonLine className="h-3.5 w-full" />
         </div>
-      </Popover.Content>
-    </Popover>
+      )}
+      {variant === 'list' ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+          {Array.from({ length: rows }).map((_, i) => (
+            <SkeletonLine key={i} className="h-7 w-full shrink-0" />
+          ))}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 items-stretch pb-1">
+          <SkeletonLine className="h-full w-full" />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -484,7 +503,7 @@ function ApiTrendMultiTile({ data, loading, isDarkMode, density = 'full', w = 1 
     ];
   }, [tier, density, series, trend.length]);
 
-  if (loading) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (loading) return <TileSkeleton variant="chart" />;
   if (!categories.length) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">无数据</div>;
 
   const chart = (chartDensity) => (
@@ -493,6 +512,9 @@ function ApiTrendMultiTile({ data, loading, isDarkMode, density = 'full', w = 1 
       categories={categories}
       isDarkMode={isDarkMode}
       density={chartDensity}
+      yMin={0}
+      yMax={100}
+      yInterval={25}
       tooltipValueFormat={(v) => {
         const raw = v && typeof v === 'object' ? v.raw : v;
         return fmtCompact(Number(raw) || 0);
@@ -504,7 +526,7 @@ function ApiTrendMultiTile({ data, loading, isDarkMode, density = 'full', w = 1 
     <div className="flex min-w-0 items-baseline gap-2.5">
       <span className="text-xl font-semibold leading-tight text-kumo-default tabular-nums">{fmtCompact(totalRequests)}</span>
       {tier !== 'narrow' && (
-        <span className="text-sm font-medium text-kumo-default/80 tabular-nums">{fmtCompact(tokensTotal)}</span>
+        <span className="text-sm font-medium text-kumo-default/80 tabular-nums">{formatTokensZh(tokensTotal)}</span>
       )}
     </div>
   );
@@ -516,7 +538,7 @@ function ApiTrendMultiTile({ data, loading, isDarkMode, density = 'full', w = 1 
         <HalfTile
           tier={tier}
           stat={halfStat}
-          footnote={tier === 'narrow' ? `词元 ${fmtCompact(tokensTotal)} · 流量 ${fmtBytes(trafficTotal)}` : `流量 ${fmtBytes(trafficTotal)}`}
+          footnote={tier === 'narrow' ? `词元 ${formatTokensZh(tokensTotal)} · 流量 ${fmtBytes(trafficTotal)}` : `流量 ${fmtBytes(trafficTotal)}`}
           spark={halfSpark}
           isDarkMode={isDarkMode}
         />
@@ -526,7 +548,7 @@ function ApiTrendMultiTile({ data, loading, isDarkMode, density = 'full', w = 1 
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="text-2xl font-semibold leading-tight text-kumo-default tabular-nums">{fmtCompact(totalRequests)}</span>
               {tier !== 'narrow' && (
-                <span className="text-base font-medium text-kumo-default/80 tabular-nums">{fmtCompact(tokensTotal)}</span>
+                <span className="text-base font-medium text-kumo-default/80 tabular-nums">{formatTokensZh(tokensTotal)}</span>
               )}
               {showLegend && series.map((s) => (
                 <Button
@@ -543,7 +565,7 @@ function ApiTrendMultiTile({ data, loading, isDarkMode, density = 'full', w = 1 
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
                   <span className="shrink-0">{s.name}</span>
                   <span className="shrink-0 tabular-nums text-kumo-default/80">
-                    {s.key === 'traffic' ? fmtBytes(s.total) : fmtCompact(s.total)}
+                    {s.key === 'traffic' ? fmtBytes(s.total) : s.key === 'tokens' ? formatTokensZh(s.total) : fmtCompact(s.total)}
                   </span>
                 </Button>
               ))}
@@ -576,26 +598,26 @@ function ApiTokensTile({ data, loading, isDarkMode, density = 'full', w = 1 }) {
   const items = useMemo(() => {
     if (tier === 'narrow') return [];
     const list = [];
-    if (summary) list.push({ label: '日均', value: fmtCompact(summary.avg) });
-    if (summary) list.push({ label: '峰值', value: fmtCompact(summary.max) });
+    if (summary) list.push({ label: '日均', value: formatTokensZh(summary.avg) });
+    if (summary) list.push({ label: '峰值', value: formatTokensZh(summary.max) });
     if (tier === 'wide') {
       const lastVal = values[values.length - 1];
-      if (lastVal != null) list.push({ label: '今日', value: fmtCompact(lastVal) });
+      if (lastVal != null) list.push({ label: '今日', value: formatTokensZh(lastVal) });
     }
     return list;
   }, [tier, summary, values]);
-  const footnote = useMemo(() => (summary ? `日均 ${fmtCompact(summary.avg)} · 峰值 ${fmtCompact(summary.max)}` : null), [summary]);
+  const footnote = useMemo(() => (summary ? `日均 ${formatTokensZh(summary.avg)} · 峰值 ${formatTokensZh(summary.max)}` : null), [summary]);
   const spark = isHalf ? (
     <TileChart
-      series={[{ name: '令牌', color, data: values }]}
+      series={[{ name: '词元用量', color, data: values }]}
       categories={categories}
       isDarkMode={isDarkMode}
       density="compact"
-      tooltipValueFormat={(v) => fmtCompact(v)}
+      tooltipValueFormat={(v) => formatTokensZh(v)}
     />
   ) : null;
 
-  if (loading) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (loading) return <TileSkeleton variant="chart" />;
   if (!categories.length) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">无数据</div>;
 
   return (
@@ -603,7 +625,7 @@ function ApiTokensTile({ data, loading, isDarkMode, density = 'full', w = 1 }) {
       {isHalf ? (
         <HalfTile
           tier={tier}
-          stat={<StatValue value={fmtCompact(data?.tokens ?? 0)} delta={delta} />}
+          stat={<StatValue value={formatTokensZh(data?.tokens ?? 0)} delta={delta} />}
           footnote={footnote}
           spark={spark}
           isDarkMode={isDarkMode}
@@ -611,15 +633,16 @@ function ApiTokensTile({ data, loading, isDarkMode, density = 'full', w = 1 }) {
       ) : (
         <>
           <div className="shrink-0">
-            <ValueStatBar value={fmtCompact(data?.tokens ?? 0)} delta={delta} items={items} tier={tier} />
+            <ValueStatBar value={formatTokensZh(data?.tokens ?? 0)} delta={delta} items={items} tier={tier} />
           </div>
           <div className="animate-tile-fade-up -mx-4 mt-1.5 min-h-0 flex-1 overflow-hidden">
             <TileChart
-              series={[{ name: '令牌', color, data: values }]}
+              series={[{ name: '词元用量', color, data: values }]}
               categories={categories}
               isDarkMode={isDarkMode}
               density={density}
-              tooltipValueFormat={(v) => fmtCompact(v)}
+              yAxisTickFormat={formatTokensAxis}
+              tooltipValueFormat={(v) => formatTokensZh(v)}
             />
           </div>
         </>
@@ -661,7 +684,7 @@ function OpenaiRequestsTile({ data, loading, isDarkMode, density = 'full', w = 1
     />
   ) : null;
 
-  if (loading) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (loading) return <TileSkeleton variant="chart" />;
   if (!categories.length) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">无数据</div>;
 
   return (
@@ -715,7 +738,7 @@ function OpenaiLatencyTile({ data, loading, isDarkMode, density = 'full', w = 1 
     ];
   }, [summary, tier, density]);
 
-  if (loading) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (loading) return <TileSkeleton variant="chart" />;
   if (!categories.length) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">无数据</div>;
 
   const halfStat = (
@@ -735,7 +758,7 @@ function OpenaiLatencyTile({ data, loading, isDarkMode, density = 'full', w = 1 
       categories={categories}
       isDarkMode={isDarkMode}
       density="compact"
-      yAxisTickFormat={(v) => `${Math.round(v)}ms`}
+      yAxisTickFormat={(v) => `${(Number(v) / 1000).toFixed(1)}s`}
       tooltipValueFormat={(v) => fmtMs(v)}
     />
   ) : null;
@@ -782,7 +805,7 @@ function OpenaiLatencyTile({ data, loading, isDarkMode, density = 'full', w = 1 
               categories={categories}
               isDarkMode={isDarkMode}
               density={density}
-              yAxisTickFormat={(v) => `${Math.round(v)}ms`}
+              yAxisTickFormat={(v) => `${(Number(v) / 1000).toFixed(1)}s`}
               tooltipValueFormat={(v) => fmtMs(v)}
             />
           </div>
@@ -826,7 +849,7 @@ function OpenaiErrorsTile({ data, loading, isDarkMode, density = 'full', w = 1 }
     />
   ) : null;
 
-  if (loading) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (loading) return <TileSkeleton variant="chart" />;
   if (!categories.length) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">无数据</div>;
 
   return (
@@ -882,7 +905,7 @@ function HostCpuTile({ data, isDarkMode, density = 'full', w = 1 }) {
     ...(gpuSamples.length ? [{ name: 'GPU', color: ChartPalette.categorical(3, isDarkMode), data: gpuSamples }] : []),
   ].filter((s) => s.data.length > 0), [samples, memSamples, diskSamples, gpuSamples, isDarkMode]);
 
-  if (current == null) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">等待数据…</div>;
+  if (current == null) return <TileSkeleton variant={isHalf || tier === 'narrow' ? 'chart' : 'bars'} />;
 
   const bars = [
     {
@@ -1006,6 +1029,9 @@ function HostCpuTile({ data, isDarkMode, density = 'full', w = 1 }) {
           categories={samples.map(() => '')}
           isDarkMode={isDarkMode}
           density={density}
+          yMin={0}
+          yMax={100}
+          yInterval={25}
           yAxisTickFormat={(v) => `${v}%`}
           tooltipValueFormat={(v) => `${Number(v).toFixed(1)}%`}
         />
@@ -1048,7 +1074,7 @@ function ServerStatusTile({ servers, density = 'full', w = 1 }) {
   const list = Array.isArray(servers?.list) ? servers.list : [];
   const upPct = total ? (online / total) * 100 : 0;
 
-  if (!servers) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (!servers) return <TileSkeleton variant="list" rows={4} />;
   if (!total) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">暂无服务器</div>;
 
   const head = (
@@ -1063,20 +1089,21 @@ function ServerStatusTile({ servers, density = 'full', w = 1 }) {
     </>
   );
 
-  const entries = (
+  const entries = (cols) => (
     <div className="min-h-0 flex-1 overflow-y-auto tile-scroll">
-      <div className="flex flex-col gap-1.5">
+      <div className="grid content-start gap-1.5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         {list.map((m, i) => (
-          <div
+          <TileEntry
             key={`${m.name || ''}-${i}`}
+            name={m.name || '未命名'}
             title={m.name || m.host || ''}
-            className="animate-tile-fade-up flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-kumo-line/60 px-1.5 py-1"
-          >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              m.status === 'online' ? 'bg-kumo-success' : m.status === 'error' ? 'bg-kumo-danger' : 'bg-kumo-fill'
-            }`} />
-            <span className="min-w-0 flex-1 truncate text-[10px] text-kumo-default">{m.name || '未命名'}</span>
-          </div>
+            onClick={() => navigateModule('server')}
+            leading={
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                m.status === 'online' ? 'bg-kumo-success' : m.status === 'error' ? 'bg-kumo-danger' : 'bg-kumo-fill'
+              }`} />
+            }
+          />
         ))}
       </div>
     </div>
@@ -1091,17 +1118,20 @@ function ServerStatusTile({ servers, density = 'full', w = 1 }) {
     );
   }
   if (isHalf) {
-    // 2×1 / 4×1：左侧数据 + 右侧条目
+    // 2×1 / 4×1：左侧数据 + 右侧条目（wide 右侧两列）
     return (
       <div className="flex h-full min-h-0 items-stretch gap-3 px-4 pb-1.5 pt-1">
         <div className="flex min-w-0 flex-1 flex-col justify-center">
           <div className="animate-tile-fade-up shrink-0">{head}</div>
         </div>
-        <div className={`${tier === 'wide' ? 'w-1/2' : 'w-1/3'} flex shrink-0 flex-col overflow-hidden`}>{entries}</div>
+        <div className={`${tier === 'wide' ? 'w-1/2' : 'w-1/3'} flex shrink-0 flex-col overflow-hidden`}>
+          {entries(tier === 'wide' ? 2 : 1)}
+        </div>
       </div>
     );
   }
-  // 全高：数值 + 可用率条 + 下方条目列表
+  // 全高：数值 + 可用率条 + 下方条目列表（多列）
+  const fullCols = tier === 'wide' ? (density === 'rich' ? 3 : 4) : tier === 'medium' ? 2 : 1;
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 px-4 pb-1.5 pt-1">
       <div className="animate-tile-fade-up shrink-0">{head}</div>
@@ -1110,16 +1140,15 @@ function ServerStatusTile({ servers, density = 'full', w = 1 }) {
           {error > 0 ? `${error} 台异常 · ${offline} 台离线` : '全部服务器在线'}
         </div>
       )}
-      {entries}
+      {entries(fullCols)}
     </div>
   );
 }
 
 // 小尺寸只显示名称+计数，full/wide/rich 追加一行描述与模块健康状态点。
 function ModuleToolsTile({ dash, uptime, density = 'full', w = 1 }) {
-  const setMainActiveTab = useStore((s) => s.setMainActiveTab);
   const items = [
-    { key: 'paas', name: 'PaaS 实例', desc: 'Koyeb / Fly 应用', count: dash ? dash.paas.koyeb.total + dash.paas.fly.total : null, ok: dash ? (dash.paas.koyeb.running + dash.paas.fly.running) > 0 : null, icon: Cloud },
+    { key: 'paas', name: 'PaaS 实例', desc: 'Koyeb / Fly 应用', count: dash?.paas ? dash.paas.koyeb.total + dash.paas.fly.total : null, ok: dash?.paas ? (dash.paas.koyeb.running + dash.paas.fly.running) > 0 : null, icon: Cloud },
     { key: 'dns', name: '域名解析', desc: 'Cloudflare 区域', count: dash ? dash.dns.zones : null, ok: dash ? dash.dns.zones > 0 : null, icon: Globe },
     { key: 'uptime', name: '服务监控', desc: '监控与状态页', count: uptime ? uptime.total : null, ok: uptime ? uptime.up > 0 : null, icon: Activity },
     { key: 'scheduler', name: '定时任务', desc: '任务与工作流', count: dash ? dash.scheduler.total : null, ok: dash ? dash.scheduler.enabled > 0 : null, icon: Clock },
@@ -1135,31 +1164,30 @@ function ModuleToolsTile({ dash, uptime, density = 'full', w = 1 }) {
   const showDesc = !isHalf && density !== 'compact'; // 1×2 窄卡只显示名称+计数
   const isTiny = isHalf && tier === 'narrow'; // 0.5×1：条目高度稍增、更易点击
 
+  // 数据未就绪（dash/uptime 任一未加载）时显示骨架，避免计数占位「—」闪烁
+  if (!dash?.paas || !uptime) return <TileSkeleton variant="list" rows={3} />;
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 pb-1.5 pt-1">
       <div className="grid min-h-0 flex-1 auto-rows-min content-start gap-1.5 overflow-y-auto tile-scroll" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         {items.map((it) => (
-          <button
+          <TileEntry
             key={it.key}
-            type="button"
-            onClick={() => setMainActiveTab(it.key)}
-            className={`animate-tile-fade-up flex min-w-0 items-center gap-1.5 rounded-md border border-kumo-line/60 px-1.5 text-left transition-colors hover:border-brand/60 hover:bg-kumo-tint ${
-              isTiny ? 'py-1.5' : 'py-1'
-            }`}
+            name={it.name}
+            desc={showDesc ? it.desc : undefined}
             title={`${it.name} · ${it.desc}`}
-          >
-            <it.icon className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="flex min-w-0 items-center gap-1">
-                <span className="truncate text-[10px] text-kumo-default">{it.name}</span>
-                {it.ok != null && (
-                  <span className={`h-1 w-1 shrink-0 rounded-full ${it.ok ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
-                )}
-              </span>
-              {showDesc && <span className="truncate text-[9px] text-kumo-subtle">{it.desc}</span>}
-            </span>
-            <span className="shrink-0 text-[10px] tabular-nums text-kumo-subtle">{it.count != null ? it.count : '—'}</span>
-          </button>
+            onClick={() => navigateModule(it.key)}
+            pad={isTiny ? 'py-1.5' : 'py-1'}
+            leading={<it.icon className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
+            badge={
+              it.ok != null ? (
+                <span className={`h-1 w-1 shrink-0 rounded-full ${it.ok ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
+              ) : undefined
+            }
+            trailing={
+              <span className="shrink-0 text-[10px] tabular-nums text-kumo-subtle">{it.count != null ? it.count : '—'}</span>
+            }
+          />
         ))}
       </div>
     </div>
@@ -1174,7 +1202,8 @@ function StatusPagesTile({ dash, density = 'full', w = 1 }) {
   const isHalf = density === 'half';
   const tier = widthTier(w);
 
-  if (!dash || (!list.length && !total)) {
+  if (!dash) return <TileSkeleton variant="list" rows={3} />;
+  if (!list.length && !total) {
     return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">暂无状态页</div>;
   }
   if (!list.length) {
@@ -1189,27 +1218,27 @@ function StatusPagesTile({ dash, density = 'full', w = 1 }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 pb-1.5 pt-1">
       <div className={`grid content-start gap-1.5 ${single ? '' : 'auto-rows-fr'}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-        {list.map((p, i) => (
-          <a
-            key={`${p.kind}-${p.id || i}`}
-            href={p.url || '#'}
-            target={p.url ? '_blank' : undefined}
-            rel="noreferrer"
-            title={p.name || p.url || ''}
-            className={`animate-tile-fade-up flex min-w-0 items-center gap-2 rounded-md border border-kumo-line/60 px-2 text-left transition-colors hover:border-brand/60 hover:bg-kumo-tint ${
-              single ? 'py-2' : 'py-1.5'
-            }`}
-          >
-            <PublicPageBrandIcon
-              pageKind={p.kind}
-              config={p.config}
-              iconClassName={`shrink-0 ${single ? 'h-4 w-4' : 'h-3.5 w-3.5'}`}
-              customIconClassName={`shrink-0 ${single ? 'h-4 w-4' : 'h-3.5 w-3.5'}`}
+        {list.map((p, i) => {
+          const href = p.url || statusPageHref(p);
+          return (
+            <TileEntry
+              key={`${p.kind}-${p.id || i}`}
+              name={p.name || '未命名状态页'}
+              href={href || undefined}
+              title={p.name || href || ''}
+              pad={single ? 'py-2' : 'py-1.5'}
+              leading={
+                <PublicPageBrandIcon
+                  pageKind={p.kind}
+                  config={p.config}
+                  iconClassName={`shrink-0 ${single ? 'h-4 w-4' : 'h-3.5 w-3.5'}`}
+                  customIconClassName={`shrink-0 ${single ? 'h-4 w-4' : 'h-3.5 w-3.5'}`}
+                />
+              }
+              trailing={href ? <ArrowRight className={`shrink-0 text-kumo-inactive ${single ? 'h-3.5 w-3.5' : 'h-3 w-3'}`} /> : undefined}
             />
-            <span className="min-w-0 flex-1 truncate text-[10px] text-kumo-default">{p.name || '未命名状态页'}</span>
-            <ArrowRight className={`shrink-0 text-kumo-inactive ${single ? 'h-3.5 w-3.5' : 'h-3 w-3'}`} />
-          </a>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1221,7 +1250,7 @@ function SchedulerTile({ dash, density = 'full', w = 1 }) {
   const total = dash?.scheduler?.total ?? 0;
   const enabled = dash?.scheduler?.enabled ?? 0;
 
-  if (!dash) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (!dash) return <TileSkeleton variant="list" rows={4} />;
   if (!list.length) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 px-4 pb-1.5 pt-1">
@@ -1235,16 +1264,17 @@ function SchedulerTile({ dash, density = 'full', w = 1 }) {
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 pb-1.5 pt-1">
       <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto tile-scroll">
         {list.map((t, i) => (
-          <div
+          <TileEntry
             key={`${t.name}-${i}`}
+            name={t.name || '未命名任务'}
             title={t.name}
-            className="animate-tile-fade-up flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-kumo-line/60 px-1.5 py-1"
-          >
-            <span className="min-w-0 flex-1 truncate text-[10px] text-kumo-default">{t.name || '未命名任务'}</span>
-            <span className={`shrink-0 text-[10px] ${t.enabled ? 'text-kumo-success' : 'text-kumo-subtle'}`}>
-              {t.enabled ? '启用' : '停用'}
-            </span>
-          </div>
+            onClick={() => navigateModule('scheduler')}
+            trailing={
+              <span className={`shrink-0 text-[10px] ${t.enabled ? 'text-kumo-success' : 'text-kumo-subtle'}`}>
+                {t.enabled ? '启用' : '停用'}
+              </span>
+            }
+          />
         ))}
       </div>
     </div>
@@ -1259,7 +1289,7 @@ function PaasTile({ dash, density = 'full', w = 1 }) {
   const isHalf = density === 'half';
   const tier = widthTier(w);
 
-  if (!dash) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (!dash || !dash.paas) return <TileSkeleton variant="list" rows={4} />;
   if (!list.length) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1 px-4 pb-1.5 pt-1">
@@ -1279,15 +1309,16 @@ function PaasTile({ dash, density = 'full', w = 1 }) {
         {list.map((p, i) => {
           const PlatformIcon = p.kind === 'koyeb' ? KoyebBrand : FlyIoBrand;
           return (
-            <div
+            <TileEntry
               key={`${p.kind}-${p.name}-${i}`}
+              name={p.name || '未命名实例'}
               title={p.name}
-              className="animate-tile-fade-up flex min-w-0 items-center gap-1.5 rounded-md border border-kumo-line/60 px-1.5 py-1"
-            >
-              <PlatformIcon className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
-              <span className="min-w-0 flex-1 truncate text-[10px] text-kumo-default">{p.name || '未命名实例'}</span>
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${p.status === 'running' ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
-            </div>
+              onClick={() => navigateModule('paas')}
+              leading={<PlatformIcon className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
+              trailing={
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${p.status === 'running' ? 'bg-kumo-success' : 'bg-kumo-fill'}`} />
+              }
+            />
           );
         })}
       </div>
@@ -1304,7 +1335,7 @@ function UptimeTile({ data, density = 'full', w = 1 }) {
   const tier = widthTier(w);
   const items = useMemo(() => (Array.isArray(data?.items) ? data.items : []), [data]);
 
-  if (!data) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (!data) return <TileSkeleton variant="list" rows={4} />;
 
   const head = (
     <>
@@ -1324,14 +1355,15 @@ function UptimeTile({ data, density = 'full', w = 1 }) {
         {items.map((m, i) => {
           const ok = m.lastHeartbeat ? (m.lastHeartbeat.status === 1 || m.lastHeartbeat.status === 'up') : true;
           return (
-            <div
+            <TileEntry
               key={m.id ?? `${m.name ?? ''}-${i}`}
+              name={m.name || m.id || ''}
               title={m.name || m.id || ''}
-              className="animate-tile-fade-up flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-kumo-line/60 px-1.5 py-1"
-            >
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ok ? 'bg-kumo-success' : 'bg-kumo-danger'}`} />
-              <span className="min-w-0 flex-1 truncate text-[10px] text-kumo-default">{m.name || m.id || ''}</span>
-            </div>
+              onClick={() => navigateModule('uptime')}
+              leading={
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ok ? 'bg-kumo-success' : 'bg-kumo-danger'}`} />
+              }
+            />
           );
         })}
       </div>
@@ -1419,7 +1451,7 @@ function CfZoneTile({ data, loading, isDarkMode, empty, range = '24h', density =
   ) : null;
 
   if (empty) return <div className="flex h-full items-center justify-center px-4 text-center text-xs text-kumo-inactive">未配置 Cloudflare 账号</div>;
-  if (loading) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">加载中…</div>;
+  if (loading) return <TileSkeleton variant="chart" />;
   if (!categories.length) return <div className="flex h-full items-center justify-center text-xs text-kumo-inactive">无数据</div>;
 
   return (
@@ -1470,8 +1502,8 @@ export default function TilesBoard() {
   const isDarkMode = theme === 'dark';
   const setAppProcessUptimeSeconds = useStore((s) => s.setAppProcessUptimeSeconds);
   const headerToolsEl = useContext(HeaderToolsContext); // 正式面板：控制栏 portal 到面包屑栏；demo 页无 Provider 则内联
-  const [rangeDays, setRangeDays] = useState(14);
-  const [rangeLabel, setRangeLabel] = useState('过去 14 天');
+  const [rangeDays, setRangeDays] = useState(() => loadRangeFromStorage()?.days ?? 14);
+  const [rangeLabel, setRangeLabel] = useState(() => loadRangeFromStorage()?.label ?? '过去 14 天');
   // 按列数分桶：2~8 列各一套独立布局。当前列数取 TileGrid 容器实际宽度（useContainerWidth 上报），
   // 侧栏 AI 面板让位后主内容变窄 → 列数随之变化，而不是按视口固定。
   const [cols, setCols] = useState(5);
@@ -1499,16 +1531,22 @@ export default function TilesBoard() {
   const [cfZones, setCfZones] = useState([]);
   const [cfAccountId, setCfAccountId] = useState('');
   const [cfZoneId, setCfZoneId] = useState('all'); // 'all' = 全部 Zone 聚合
-  const [cfRange, setCfRange] = useState('24h');
+  const [cfRange, setCfRange] = useState(() => loadRangeFromStorage()?.cfRange ?? '24h');
   const [cfData, setCfData] = useState(null);
   const [cfLoading, setCfLoading] = useState(false);
 
   const loadApiStats = useCallback(async () => {
-    setApiStatsLoading(true);
+    const cacheKey = `apiStats:${rangeDays}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) setApiStats(cached);
+    if (!cached) setApiStatsLoading(true);
     try {
       const res = await fetchWithTimeout(`/api/system/api-stats?days=${rangeDays}`);
       const json = await res.json().catch(() => null);
-      if (json?.success && json.data) setApiStats(json.data);
+      if (json?.success && json.data) {
+        setApiStats(json.data);
+        cacheSet(cacheKey, json.data, CACHE_TTL.apiStats);
+      }
     } catch (err) {
       console.error('[TilesDemo] api-stats', err);
     } finally {
@@ -1517,13 +1555,19 @@ export default function TilesBoard() {
   }, [rangeDays]);
 
   const loadOpenai = useCallback(async () => {
-    setOpenaiLoading(true);
+    const cacheKey = `openai:${rangeDays}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) setOpenaiData(cached);
+    if (!cached) setOpenaiLoading(true);
     try {
       // 近 24h（分钟/小时档）用小时粒度，其余按天
       const gran = rangeDays <= 1 ? 'hour' : 'day';
       const res = await fetchWithTimeout(`/api/openai/analytics/charts?days=${Math.max(1, rangeDays)}&granularity=${gran}`);
       const json = await res.json().catch(() => null);
-      if (json && Array.isArray(json.daily)) setOpenaiData(json);
+      if (json && Array.isArray(json.daily)) {
+        setOpenaiData(json);
+        cacheSet(cacheKey, json, CACHE_TTL.openai);
+      }
     } catch (err) {
       console.error('[TilesDemo] openai charts', err);
     } finally {
@@ -1532,6 +1576,8 @@ export default function TilesBoard() {
   }, [rangeDays]);
 
   const loadUptime = useCallback(async () => {
+    const cached = cacheGet('uptime');
+    if (cached) setUptime(cached);
     try {
       const res = await fetchWithTimeout('/api/uptime/monitors');
       const json = await res.json().catch(() => null);
@@ -1546,18 +1592,19 @@ export default function TilesBoard() {
           up += 1;
         }
       });
-      setUptime({ total: monitors.length, up, items: monitors });
+      const uptimeData = { total: monitors.length, up, items: monitors };
+      setUptime(uptimeData);
+      cacheSet('uptime', uptimeData, CACHE_TTL.uptime);
     } catch (err) {
       console.error('[TilesDemo] uptime', err);
     }
   }, []);
 
   // 仪表盘信息汇总（服务器 / PaaS / DNS / 文件柜 / TOTP / 调度 / 状态页）。
-  // 逐接口独立容错：慢上游（Koyeb/Fly 直连可达 8s+）超时或失败只影响单卡，不拖垮整个统计组。
-  const DASH_SOURCES = [
+  // 分快慢两批结算：快批（本地 SQLite/CF 列表）先行渲染，服务器/定时任务/状态页等卡不等慢批；
+  // 慢批（Koyeb/Fly 直连外部，可达 8s+，超时 16s）独立补齐 PaaS 卡，失败/超时只影响单卡，不拖垮整个统计组。
+  const DASH_FAST_SOURCES = [
     { key: 'servers', url: '/api/server/accounts' },
-    { key: 'koyeb', url: '/api/koyeb/data', timeout: 16000 },
-    { key: 'fly', url: '/api/flyio/proxy/apps', timeout: 16000 },
     { key: 'dns', url: '/api/cloudflare/zones' },
     { key: 'filebox', url: '/api/filebox/history' },
     { key: 'totp', url: '/api/totp/accounts' },
@@ -1566,19 +1613,67 @@ export default function TilesBoard() {
     { key: 'spS', url: '/api/server/status-pages' },
     { key: 'spG', url: '/api/github/public-pages' },
   ];
-  const loadDashboardStats = useCallback(async () => {
+  const DASH_SLOW_SOURCES = [
+    { key: 'koyeb', url: '/api/koyeb/data', timeout: 16000 },
+    { key: 'fly', url: '/api/flyio/proxy/apps', timeout: 16000 },
+  ];
+  // 逐接口独立容错：单个接口超时/失败只取其空结果，不影响同批其他接口
+  const fetchDashBatch = async (sources) => {
     const settled = await Promise.allSettled(
-      DASH_SOURCES.map((src) =>
+      sources.map((src) =>
         fetchWithTimeout(src.url, {}, src.timeout || FETCH_TIMEOUT_MS).then((r) => r.json().catch(() => ({}))),
       ),
     );
     const results = {};
-    DASH_SOURCES.forEach((src, i) => {
+    sources.forEach((src, i) => {
       results[src.key] = settled[i].status === 'fulfilled' && settled[i].value ? settled[i].value : {};
     });
-    const { servers: serversJson, koyeb: koyebJson, fly: flyJson, dns: dnsJson, filebox: fileboxJson, totp: totpJson, scheduler: schedJson, spU: spUJson, spS: spSJson, spG: spGJson } = results;
+    return results;
+  };
+  const buildPaasStats = (koyebJson, flyJson) => {
+    const koyeb = { total: 0, running: 0, list: [] };
+    (koyebJson?.accounts || []).forEach((acc) => {
+      acc?.projects?.forEach((project) => {
+        project?.services?.forEach((service) => {
+          koyeb.total += 1;
+          if (service?.status === 'HEALTHY' || service?.status === 'RUNNING') koyeb.running += 1;
+          koyeb.list.push({
+            name: service?.name || service?.id || '',
+            status: service?.status === 'HEALTHY' || service?.status === 'RUNNING' ? 'running' : 'stopped',
+          });
+        });
+      });
+    });
+    const fly = { total: 0, running: 0, list: [] };
+    toArray(flyJson).forEach((acc) => {
+      acc?.apps?.forEach((app) => {
+        fly.total += 1;
+        if (app?.status === 'deployed' || app?.status === 'running') fly.running += 1;
+        fly.list.push({
+          name: app?.name || app?.id || '',
+          status: app?.status === 'deployed' || app?.status === 'running' ? 'running' : 'stopped',
+        });
+      });
+    });
+    return {
+      koyeb,
+      fly,
+      list: [
+        ...koyeb.list.map((s) => ({ ...s, kind: 'koyeb' })),
+        ...fly.list.map((a) => ({ ...a, kind: 'fly' })),
+      ],
+    };
+  };
+  const loadDashboardStats = useCallback(async () => {
+    const cached = cacheGet('dash');
+    if (cached) setDash(cached);
 
+    // 快批：本地/短路径接口先行结算，服务器、定时任务、状态页、模块入口等卡立即渲染；
+    // 有缓存时 paas 沿用旧值避免 PaaS 卡闪骨架，慢批返回后再覆盖。
+    let fastDash = null;
     try {
+      const { servers: serversJson, dns: dnsJson, filebox: fileboxJson, totp: totpJson, scheduler: schedJson, spU: spUJson, spS: spSJson, spG: spGJson } = await fetchDashBatch(DASH_FAST_SOURCES);
+
       const serverItems = toArray(serversJson).map((s) => ({
         name: s?.name || s?.host || s?.id || '',
         host: s?.host || '',
@@ -1595,35 +1690,6 @@ export default function TilesBoard() {
       };
       servers.offline = servers.total - servers.online - servers.error;
 
-      const koyeb = { total: 0, running: 0, list: [] };
-      (koyebJson?.accounts || []).forEach((acc) => {
-        acc?.projects?.forEach((project) => {
-          project?.services?.forEach((service) => {
-            koyeb.total += 1;
-            if (service?.status === 'HEALTHY' || service?.status === 'RUNNING') koyeb.running += 1;
-            koyeb.list.push({
-              name: service?.name || service?.id || '',
-              status: service?.status === 'HEALTHY' || service?.status === 'RUNNING' ? 'running' : 'stopped',
-            });
-          });
-        });
-      });
-      const fly = { total: 0, running: 0, list: [] };
-      toArray(flyJson).forEach((acc) => {
-        acc?.apps?.forEach((app) => {
-          fly.total += 1;
-          if (app?.status === 'deployed' || app?.status === 'running') fly.running += 1;
-          fly.list.push({
-            name: app?.name || app?.id || '',
-            status: app?.status === 'deployed' || app?.status === 'running' ? 'running' : 'stopped',
-          });
-        });
-      });
-      const paasList = [
-        ...koyeb.list.map((s) => ({ ...s, kind: 'koyeb' })),
-        ...fly.list.map((a) => ({ ...a, kind: 'fly' })),
-      ];
-
       const schedTasks = toArray(schedJson);
       const scheduler = {
         total: schedTasks.length,
@@ -1635,23 +1701,31 @@ export default function TilesBoard() {
       };
 
       const statusPages = [
-        ...toArray(spUJson).map((p) => ({ kind: 'uptime', id: p.id, name: p.name || p.title || '', url: p.url || '' })),
-        ...toArray(spSJson).map((p) => ({ kind: 'server', id: p.id, name: p.name || p.title || '', url: p.url || '' })),
-        ...toArray(spGJson).map((p) => ({ kind: 'github', id: p.id, name: p.name || p.title || '', url: p.url || '' })),
+        ...toArray(spUJson).map((p) => ({ kind: 'uptime', id: p.id, slug: p.slug || '', name: p.name || p.title || '', url: p.url || '' })),
+        ...toArray(spSJson).map((p) => ({ kind: 'server', id: p.id, slug: p.slug || '', name: p.name || p.title || '', url: p.url || '' })),
+        ...toArray(spGJson).map((p) => ({ kind: 'github', id: p.id, slug: p.slug || '', name: p.name || p.title || '', url: p.url || '' })),
       ];
 
-      setDash({
+      fastDash = {
         servers,
-        paas: { koyeb, fly, list: paasList },
+        paas: cached?.paas ?? null, // 慢批返回前：有缓存沿用旧值，无缓存保持骨架
         dns: { zones: toArray(dnsJson).length },
         filebox: { total: toArray(fileboxJson).length },
         totp: { total: toArray(totpJson).length },
         scheduler,
         statusPages: { total: statusPages.length, list: statusPages },
-      });
+      };
+      setDash(fastDash);
     } catch (err) {
-      console.error('[TilesDemo] dashboard stats', err);
+      console.error('[TilesDemo] dashboard stats (fast)', err);
     }
+
+    // 慢批：Koyeb/Fly 直连外部，独立结算；失败置空结构，PaaS 卡从骨架转空态而非永久等待
+    const slowResults = await fetchDashBatch(DASH_SLOW_SOURCES);
+    const paas = buildPaasStats(slowResults.koyeb || {}, slowResults.fly || {});
+    const fullDash = { ...(fastDash || {}), paas };
+    setDash(fullDash);
+    cacheSet('dash', fullDash, CACHE_TTL.dash);
   }, []);
 
   // 云端布局：读 /api/settings 的 tileLayout 字段（存于 data.db，跨设备）。
@@ -1776,10 +1850,19 @@ export default function TilesBoard() {
     let stopped = false;
     (async () => {
       try {
+        const cached = cacheGet('cfAccounts');
+        if (cached) {
+          if (!stopped) {
+            setCfAccounts(cached);
+            setCfAccountId(cached[0].id);
+          }
+          return;
+        }
         const res = await fetchWithTimeout('/api/cloudflare/accounts');
         const json = await res.json().catch(() => ({}));
         const accounts = toArray(json);
         if (stopped || !accounts.length) return;
+        cacheSet('cfAccounts', accounts, CACHE_TTL.cfAccounts);
         setCfAccounts(accounts);
         setCfAccountId(accounts[0].id);
       } catch (err) {
@@ -1796,11 +1879,18 @@ export default function TilesBoard() {
     let stopped = false;
     (async () => {
       try {
+        const cacheKey = `cfZones:${cfAccountId}`;
+        const cached = cacheGet(cacheKey);
+        if (cached) {
+          if (!stopped) setCfZones(cached);
+          return;
+        }
         const res = await fetchWithTimeout(`/api/cloudflare/accounts/${encodeURIComponent(cfAccountId)}/zones`);
         const json = await res.json().catch(() => ({}));
         if (stopped) return;
         // 该接口响应为 { zones: [...] }（无 data 键），toArray 只认数组/{data}，需直接取 zones
         const zones = Array.isArray(json?.zones) ? json.zones : toArray(json);
+        cacheSet(cacheKey, zones, CACHE_TTL.cfZones);
         setCfZones(zones);
         // 默认保持 'all'（全部 Zone 聚合），不自动选中第一个 zone
       } catch (err) {
@@ -1818,7 +1908,10 @@ export default function TilesBoard() {
     const zoneIds = cfZoneId === 'all' ? cfZones.map((z) => z.id) : [cfZoneId];
     if (!zoneIds.length) return undefined;
     let stopped = false;
-    setCfLoading(true);
+    const cacheKey = `cfAnalytics:${cfAccountId}:${cfZoneId}:${cfRange}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) setCfData(cached);
+    if (!cached) setCfLoading(true);
     (async () => {
       try {
         const results = await Promise.all(
@@ -1851,12 +1944,14 @@ export default function TilesBoard() {
           .sort((a, b) => a.ts - b.ts)
           .map((e) => ({ datetime: new Date(e.ts).toISOString(), requests: e.requests, cachedRequests: e.cached }));
         if (!stopped) {
-          setCfData({
+          const cfDataOut = {
             requests: totalRequests,
             cachedRequests: totalCached,
             cacheHitRate: totalRequests ? totalCached / totalRequests : 0,
             timeseries,
-          });
+          };
+          setCfData(cfDataOut);
+          cacheSet(cacheKey, cfDataOut, CACHE_TTL.cfAnalytics);
         }
       } catch (err) {
         console.error('[TilesDemo] cf analytics', err);
@@ -2023,6 +2118,11 @@ export default function TilesBoard() {
           setRangeDays(days);
           setCfRange(cfRange);
           setRangeLabel(label);
+          try {
+            localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify({ days, cfRange, label }));
+          } catch {
+            /* ignore */
+          }
         }}
       />
       <DropdownMenu>

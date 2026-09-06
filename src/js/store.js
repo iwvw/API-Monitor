@@ -96,6 +96,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-cloud',
     description: 'GCP 资源',
   },
+  huawei: {
+    name: '华为云',
+    shortName: 'Huawei',
+    icon: 'fa-cloud',
+    description: '华为云资源',
+  },
   server: {
     name: '主机实例',
     shortName: '主机',
@@ -181,7 +187,7 @@ export const MODULE_GROUPS = [
       {
         id: 'cloud-vendors',
         name: '云厂商',
-        modules: ['dns', 'aliyun', 'tencent', 'oracle', 'm365', 'gcp'],
+        modules: ['dns', 'aliyun', 'tencent', 'oracle', 'm365', 'gcp', 'huawei'],
       },
       {
         id: 'devops',

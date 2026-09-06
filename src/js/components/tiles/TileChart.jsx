@@ -43,6 +43,9 @@ export default function TileChart({
   yAxisTickFormat,
   tooltipValueFormat,
   showSymbol,
+  yMin,
+  yMax,
+  yInterval,
 }) {
   const boxRef = useRef(null);
   const chartRef = useRef(null);
@@ -108,8 +111,12 @@ export default function TileChart({
           : {
             color: 'rgba(128, 128, 128, 0.75)',
             fontSize: 10,
+            hideOverlap: true,
             formatter: yAxisTickFormat,
           },
+        ...(yMin != null ? { min: yMin } : {}),
+        ...(yMax != null ? { max: yMax } : {}),
+        ...(yInterval != null ? { interval: yInterval } : {}),
       },
       series: series.map((s) => ({
         name: s.name,
@@ -124,7 +131,7 @@ export default function TileChart({
         emphasis: { focus: 'series' },
       })),
     }, true);
-  }, [series, categories, type, isDarkMode, density, compact, yAxisTickFormat, tooltipValueFormat]);
+  }, [series, categories, type, isDarkMode, density, compact, yAxisTickFormat, tooltipValueFormat, yMin, yMax, yInterval]);
 
   return <div ref={boxRef} className="h-full w-full min-h-0" />;
 }

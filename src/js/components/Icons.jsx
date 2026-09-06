@@ -274,6 +274,7 @@ export const MODULE_ICON_MAP = {
   tencent: TencentCloudBrand,
   oracle: Cloud,
   gcp: Cloud,
+  huawei: Cloud,
   m365: Cloud,
   github: GitHubBrand,
   dockerhub: Box,

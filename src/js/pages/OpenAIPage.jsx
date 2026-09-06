@@ -148,6 +148,7 @@ import {
   costDetailsFor,
 } from './openai/utils.js';
 import { useAnalytics } from './openai/useAnalytics.js';
+import { TimeRangePicker } from '../components/ui/TimeRangePicker.jsx';
 import { useGatewayKeys } from './openai/useGatewayKeys.js';
 import { useHealthChecks } from './openai/useHealthChecks.js';
 import { useEndpoints } from './openai/useEndpoints.js';
@@ -612,6 +613,7 @@ function OpenAIPage() {
   const {
     analyticsDays, setAnalyticsDays,
     analyticsGranularity, setAnalyticsGranularity,
+    analyticsRangeLabel, setAnalyticsRangeLabel, applyAnalyticsRange,
     analyticsSummary,
     requestTrendMode, setRequestTrendMode,
     tokenTrendMode, setTokenTrendMode,
@@ -1144,56 +1146,42 @@ function OpenAIPage() {
         />
         <div className="flex min-w-0 items-center justify-end gap-2">
             {activeTab === 'analytics' && (
-              <TabBarOverflowActions
-                items={[
-                  {
-                    key: 'granularity',
-                    type: 'select',
-                    label: '时间粒度',
-                    icon: <CalendarDotsIcon className="h-3.5 w-3.5" />,
-                    value: analyticsGranularity,
-                    onValueChange: val => setAnalyticsGranularity(val || 'day'),
-                    options: [
-                      { value: 'hour', label: '按小时' },
-                      { value: 'day', label: '按天' },
-                      { value: 'week', label: '按周' },
-                    ],
-                    selectClassName: 'w-28',
-                  },
-                  {
-                    key: 'range',
-                    type: 'select',
-                    label: '分析范围',
-                    icon: <CalendarDotsIcon className="h-3.5 w-3.5" />,
-                    value: String(analyticsDays),
-                    onValueChange: val => {
-                      setAnalyticsDays(Number(val));
-                      setAnalyticsPage(1);
+              <>
+                <TimeRangePicker value={analyticsRangeLabel} onApply={applyAnalyticsRange} />
+                <TabBarOverflowActions
+                  items={[
+                    {
+                      key: 'granularity',
+                      type: 'select',
+                      label: '时间粒度',
+                      icon: <CalendarDotsIcon className="h-3.5 w-3.5" />,
+                      value: analyticsGranularity,
+                      onValueChange: val => setAnalyticsGranularity(val || 'day'),
+                      options: [
+                        { value: 'hour', label: '按小时' },
+                        { value: 'day', label: '按天' },
+                        { value: 'week', label: '按周' },
+                      ],
+                      selectClassName: 'w-28',
                     },
-                    options: [
-                      { value: '1', label: '最近 24 小时' },
-                      { value: '7', label: '最近 7 天' },
-                      { value: '30', label: '最近 30 天' },
-                    ],
-                    selectClassName: 'w-36',
-                  },
-                  {
-                    key: 'clear-history',
-                    label: '清除历史',
-                    icon: <Trash className="w-3.5 h-3.5" />,
-                    onClick: clearDashboardHistory,
-                    danger: true,
-                  },
-                  {
-                    key: 'refresh',
-                    label: '刷新',
-                    icon: <RefreshCw className="w-3.5 h-3.5" />,
-                    onClick: fetchAnalytics,
-                    disabled: analyticsLoading,
-                    loading: analyticsLoading,
-                  },
-                ]}
-              />
+                    {
+                      key: 'clear-history',
+                      label: '清除历史',
+                      icon: <Trash className="w-3.5 h-3.5" />,
+                      onClick: clearDashboardHistory,
+                      danger: true,
+                    },
+                    {
+                      key: 'refresh',
+                      label: '刷新',
+                      icon: <RefreshCw className="w-3.5 h-3.5" />,
+                      onClick: fetchAnalytics,
+                      disabled: analyticsLoading,
+                      loading: analyticsLoading,
+                    },
+                  ]}
+                />
+              </>
             )}
             {activeTab === 'keys' && (
               <TabBarOverflowActions
@@ -1228,6 +1216,8 @@ function OpenAIPage() {
                       value: String(analyticsDays),
                       onValueChange: val => {
                         setAnalyticsDays(Number(val));
+                        const d = Number(val);
+                        setAnalyticsRangeLabel(d === 1 ? '过去 24 小时' : d === 30 ? '过去 30 天' : '过去 7 天');
                         setAnalyticsPage(1);
                       },
                       options: [
