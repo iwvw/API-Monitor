@@ -132,6 +132,9 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/pages/ServerPage.jsx' && line.includes('--app-terminal-')) {
     return 'terminal fallback color';
   }
+  if (rel === 'src/js/pages/huawei/SSHTerminalDialog.jsx' && value.startsWith('#')) {
+    return 'SSH 终端 xterm 兜底颜色（docs/重构验证与例外清单.md 登记）';
+  }
   if (rel === 'src/js/pages/UptimePage.jsx' && value.startsWith('#')) {
     return 'legacy ECharts color; migrate when touching uptime charts';
   }
