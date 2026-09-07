@@ -5,10 +5,6 @@ import { Button, DatePicker, Input, Popover } from '@cloudflare/kumo';
 import { CalendarBlank } from '@phosphor-icons/react';
 
 export const TIME_RANGE_QUICK = [
-  { label: '过去 30 分钟', minutes: 30 },
-  { label: '过去 1 小时', minutes: 60 },
-  { label: '过去 6 小时', minutes: 360 },
-  { label: '过去 12 小时', minutes: 720 },
   { label: '过去 24 小时', minutes: 1440 },
   { label: '过去 7 天', minutes: 10080 },
   { label: '过去 30 天', minutes: 43200 },
@@ -22,7 +18,7 @@ export function TimeRangePicker({ value, onApply, buttonClassName = '' }) {
   const applyMinutes = useCallback((minutes, label) => {
     const days = Math.max(1, Math.ceil(minutes / 1440));
     const cfRange = minutes <= 1440 ? '24h' : minutes <= 10080 ? '7d' : '30d';
-    onApply(days, cfRange, label);
+    onApply(days, cfRange, minutes < 1440 ? '过去 24 小时' : label);
     setOpen(false);
   }, [onApply]);
 

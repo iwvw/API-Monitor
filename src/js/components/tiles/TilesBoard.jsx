@@ -1560,7 +1560,7 @@ export default function TilesBoard() {
     if (cached) setOpenaiData(cached);
     if (!cached) setOpenaiLoading(true);
     try {
-      // 近 24h（分钟/小时档）用小时粒度，其余按天
+      // 近 24 小时用小时粒度，其余按天
       const gran = rangeDays <= 1 ? 'hour' : 'day';
       const res = await fetchWithTimeout(`/api/openai/analytics/charts?days=${Math.max(1, rangeDays)}&granularity=${gran}`);
       const json = await res.json().catch(() => null);
