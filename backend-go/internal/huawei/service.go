@@ -63,6 +63,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1 && parts[0] == "accounts":
 		s.accounts(w, r)
+	case len(parts) == 2 && parts[0] == "export" && parts[1] == "accounts" && r.Method == http.MethodGet:
+		s.exportAccounts(w, r)
+	case len(parts) == 2 && parts[0] == "import" && parts[1] == "accounts" && r.Method == http.MethodPost:
+		s.importAccounts(w, r)
 	case len(parts) == 2 && parts[0] == "accounts" && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
 		s.accountMutation(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "accounts" && parts[2] == "verify" && r.Method == http.MethodPost:
@@ -172,6 +176,86 @@ func (s *Service) accounts(w http.ResponseWriter, r *http.Request) {
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// exportAccounts 导出账号（含 SK/SSH 私钥明文，供迁移备份）。
+func (s *Service) exportAccounts(w http.ResponseWriter, r *http.Request) {
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	accounts, err := listAccounts(r.Context(), db)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	exported := make([]map[string]interface{}, 0, len(accounts))
+	for _, account := range accounts {
+		exported = append(exported, map[string]interface{}{
+			"name":              account.Name,
+			"site":              siteOrDefault(account.Site),
+			"accessKeyId":       account.AccessKeyID,
+			"secretAccessKey":   account.SecretAccessKey,
+			"domainId":          account.DomainID,
+			"defaultRegion":     account.DefaultRegion,
+			"defaultProjectId":  account.DefaultProjectID,
+			"description":       account.Description,
+			"sshUser":           account.SSHUser,
+			"sshPort":           sshPortOrDefault(account.SSHPort),
+			"sshPrivateKey":     account.SSHPrivateKey,
+			"sshPassword":       account.SSHPassword,
+		})
+	}
+	response.OK(w, map[string]interface{}{"accounts": exported})
+}
+
+// importAccounts 导入账号：可选 overwrite 覆盖全表，事务内按 AK+site 查重 upsert。
+func (s *Service) importAccounts(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Accounts  []accountPayload `json:"accounts"`
+		Overwrite bool             `json:"overwrite"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(payload.Accounts) == 0 {
+		response.Error(w, http.StatusBadRequest, "需要提供 accounts 数组")
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if payload.Overwrite {
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM huawei_accounts`); err != nil {
+			_ = tx.Rollback()
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	for _, item := range payload.Accounts {
+		if err := upsertImportedAccount(r.Context(), tx, item); err != nil {
+			_ = tx.Rollback()
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{"imported": len(payload.Accounts)})
 }
 
 func (s *Service) accountMutation(w http.ResponseWriter, r *http.Request, idText string) {

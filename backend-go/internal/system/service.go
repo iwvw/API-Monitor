@@ -1024,6 +1024,12 @@ func routeGroup(route manifest.Route) string {
 	// 甲骨文云
 	case strings.HasPrefix(prefix, "/api/oracle"):
 		return "甲骨文云"
+	// Google Cloud
+	case strings.HasPrefix(prefix, "/api/gcp"):
+		return "Google Cloud"
+	// 华为云
+	case strings.HasPrefix(prefix, "/api/huawei"):
+		return "华为云"
 	// Microsoft 365
 	case strings.HasPrefix(prefix, "/api/m365"):
 		return "Microsoft 365"

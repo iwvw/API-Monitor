@@ -174,15 +174,16 @@ func init() {
 	routeRequestContracts["/api/system/api-stats"] = obj(nil, map[string]prop{
 		"days": {t: "integer", d: "统计天数（1-90，默认 14）"},
 	})
-	routeRequestContracts["/api/backup/configs"] = obj([]string{"provider"}, map[string]prop{
-		"provider":          {t: "string", req: true, e: []string{"local", "oss", "cos", "s3"}},
-		"local_dir":         {t: "string", d: "本地备份目录"},
-		"cron":              {t: "string", d: "定时表达式"},
-		"endpoint":          {t: "string", d: "云存储端点"},
-		"bucket":            {t: "string", d: "存储桶"},
-		"access_key_id":     {t: "string"},
-		"access_key_secret": {t: "string"},
-		"max_records":       {t: "integer", d: "最大保留备份数量（0=不限制）"},
+	routeRequestContracts["/api/backup/configs"] = obj(nil, map[string]prop{
+		"local_dir":   {t: "string", d: "本地备份目录"},
+		"cron":        {t: "string", d: "定时表达式"},
+		"max_records": {t: "integer", d: "最大保留备份数量（0=不限制）"},
+		"channels":    {t: "array", d: "备份上传渠道列表（可同时配置多个，一次备份会同时上传到所有渠道）"},
+		"provider":          {t: "string", e: []string{"local", "oss", "cos", "s3", "webdav"}, d: "旧版单渠道类型（仅兼容旧格式，新格式用 channels）"},
+		"endpoint":          {t: "string", d: "旧版单渠道云存储端点"},
+		"bucket":            {t: "string", d: "旧版单渠道存储桶"},
+		"access_key_id":     {t: "string", d: "旧版单渠道访问密钥 ID"},
+		"access_key_secret": {t: "string", d: "旧版单渠道访问密钥 Secret"},
 	})
 	routeRequestContracts["/api/backup/restore"] = obj([]string{"id", "confirm"}, map[string]prop{
 		"id":      {t: "string", req: true},
@@ -1465,6 +1466,75 @@ func init() {
 		"location":     {t: "string", d: "位置（如 us-central1）"},
 		"storageClass": {t: "string", d: "存储类别"},
 		"versioning":   {t: "boolean", d: "统一版本控制开关"},
+	})
+	routeRequestContracts["/api/huawei/accounts"] = obj([]string{"name", "site", "accessKeyId", "secretAccessKey"}, map[string]prop{
+		"name":             {t: "string", req: true, d: "账号备注名"},
+		"site":             {t: "string", e: []string{"cn", "intl"}, d: "站点：国内站 cn / 国际站 intl，默认 cn"},
+		"accessKeyId":      {t: "string", req: true, d: "AK，明文保存，列表脱敏"},
+		"secretAccessKey":  {t: "string", req: true, d: "SK，加密存储"},
+		"defaultRegion":    {t: "string", d: "默认区域"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+		"description":      {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}"] = obj(nil, map[string]prop{
+		"name":             {t: "string", d: "账号备注名"},
+		"site":             {t: "string", e: []string{"cn", "intl"}, d: "站点：国内站 cn / 国际站 intl"},
+		"accessKeyId":      {t: "string", d: "AK，留空不更换"},
+		"secretAccessKey":  {t: "string", d: "SK，留空不更换"},
+		"defaultRegion":    {t: "string", d: "默认区域"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+		"description":      {t: "string", d: "备注"},
+		"sshUser":          {t: "string", d: "SSH 用户，留空不更换"},
+		"sshPort":          {t: "integer", d: "SSH 端口"},
+		"sshPrivateKey":    {t: "string", d: "SSH 私钥，留空不更换"},
+		"sshPassword":      {t: "string", d: "SSH 密码，留空不更换"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/huawei/accounts/{id}/defaults"] = obj(nil, map[string]prop{
+		"defaultRegion":    {t: "string", d: "默认区域"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/flexus-instances/{instanceId}"] = obj([]string{"name"}, map[string]prop{
+		"name": {t: "string", req: true, d: "云主机新名称"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}"] = obj(nil, map[string]prop{
+		"name": {t: "string", d: "实例新名称"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}/reset-password"] = obj([]string{"newPassword"}, map[string]prop{
+		"newPassword": {t: "string", req: true, d: "新密码"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/flexus-instances/{instanceId}/reset-password"] = routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}/reset-password"]
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/actions"] = obj([]string{"action", "serverIds"}, map[string]prop{
+		"action":    {t: "string", e: []string{"start", "stop", "reboot"}, d: "动作"},
+		"serverIds": {t: "array", d: "实例 ID 列表"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/flexus-instances/{instanceId}/actions"] = obj(nil, map[string]prop{
+		"action": {t: "string", e: []string{"start", "stop", "reboot"}, d: "动作"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones"] = obj(nil, map[string]prop{
+		"name":  {t: "string", req: true, d: "域名（如 example.com）"},
+		"type":  {t: "string", d: "zone 类型：public/private"},
+		"email": {t: "string", d: "管理员邮箱"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets"] = obj([]string{"name", "type", "records"}, map[string]prop{
+		"name":    {t: "string", req: true, d: "记录名（如 www.example.com）"},
+		"type":    {t: "string", e: []string{"A", "AAAA", "CNAME", "MX", "TXT", "SRV"}, d: "记录类型"},
+		"ttl":     {t: "integer", d: "TTL（秒）"},
+		"records": {t: "array", d: "记录值列表"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets/{recordsetId}"] = routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets"]
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/eips/{eipId}/associate"] = obj(nil, map[string]prop{
+		"instanceType": {t: "string", d: "绑定实例类型，默认 server"},
+		"instanceId":   {t: "string", d: "绑定实例 ID"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/eips/{eipId}/disassociate"] = noBody
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/buckets"] = obj([]string{"name"}, map[string]prop{
+		"name": {t: "string", req: true, d: "OBS 桶名称（全网唯一）"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/buckets/{bucket}/objects"] = noBody
+	routeRequestContracts["/api/huawei/import/accounts"] = obj([]string{"accounts"}, map[string]prop{
+		"accounts":  {t: "array", d: "账号数组（与 /api/huawei/accounts 请求体同格式）"},
+		"overwrite": {t: "boolean", d: "覆盖当前已有账号"},
 	})
 	routeRequestContracts["/api/m365/accounts"] = obj([]string{"name"}, map[string]prop{
 		"name":        {t: "string", req: true, d: "账号名称"},

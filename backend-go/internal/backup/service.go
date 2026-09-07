@@ -45,24 +45,50 @@ type Service struct {
 	notifier  Notifier
 }
 
-type Config struct {
+// Channel 描述一个备份上传渠道。Provider 支持 oss/cos/s3/webdav。
+// 本地目录是备份的固定落点，不作为渠道出现。
+type Channel struct {
+	ID              string `json:"id,omitempty"`
+	Name            string `json:"name,omitempty"`
 	Provider        string `json:"provider"`
-	LocalDir        string `json:"local_dir"`
-	Cron            string `json:"cron"`
-	Endpoint        string `json:"endpoint"`
-	Bucket          string `json:"bucket"`
-	AccessKeyID     string `json:"access_key_id"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	Bucket          string `json:"bucket,omitempty"`
+	AccessKeyID     string `json:"access_key_id,omitempty"`
 	AccessKeySecret string `json:"access_key_secret,omitempty"`
-	MaxRecords      int    `json:"max_records"`
+	Username        string `json:"username,omitempty"`
+	Password        string `json:"password,omitempty"`
+	RemotePath      string `json:"remote_path,omitempty"`
+}
+
+// Config 保存自动备份配置。Channels 可同时配置多个上传渠道，一次备份会并行上传到所有渠道。
+// Provider/Endpoint/Bucket/AccessKeyID/AccessKeySecret 为旧版单渠道字段，仅用于读取旧配置并迁移。
+type Config struct {
+	Provider        string    `json:"provider,omitempty"`
+	LocalDir        string    `json:"local_dir"`
+	Cron            string    `json:"cron"`
+	Endpoint        string    `json:"endpoint,omitempty"`
+	Bucket          string    `json:"bucket,omitempty"`
+	AccessKeyID     string    `json:"access_key_id,omitempty"`
+	AccessKeySecret string    `json:"access_key_secret,omitempty"`
+	MaxRecords      int       `json:"max_records"`
+	Channels        []Channel `json:"channels"`
+}
+
+// RemoteUpload 描述某条备份记录在一个渠道上的远端位置。
+type RemoteUpload struct {
+	Provider string `json:"provider"`
+	Name     string `json:"name,omitempty"`
+	URL      string `json:"url"`
 }
 
 type Record struct {
-	ID        string `json:"id"`
-	FileName  string `json:"file_name"`
-	Size      int64  `json:"size"`
-	CreatedAt int64  `json:"created_at"`
-	Location  string `json:"location"`
-	RemoteURL string `json:"remote_url,omitempty"`
+	ID         string         `json:"id"`
+	FileName   string         `json:"file_name"`
+	Size       int64          `json:"size"`
+	CreatedAt  int64          `json:"created_at"`
+	Location   string         `json:"location"`
+	RemoteURL  string         `json:"remote_url,omitempty"`
+	RemoteURLs []RemoteUpload `json:"remote_urls,omitempty"`
 }
 
 func New(cfg config.Config) *Service {
@@ -137,29 +163,87 @@ func (s *Service) saveConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if cfg.Provider != "local" && cfg.Provider != "oss" && cfg.Provider != "cos" && cfg.Provider != "s3" {
-		response.Error(w, http.StatusBadRequest, "unsupported backup provider")
-		return
-	}
 	if cfg.MaxRecords < 0 {
 		cfg.MaxRecords = 0
 	}
-	if strings.TrimSpace(cfg.AccessKeySecret) == "" {
-		if existing, err := s.loadConfig(r.Context()); err == nil {
-			cfg.AccessKeySecret = existing.AccessKeySecret
+	existing, err := s.loadConfig(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 兼容旧版单渠道配置：无 channels 时把旧 provider 字段迁移为一个渠道。
+	if len(cfg.Channels) == 0 && cfg.Provider != "local" && cfg.Provider != "" {
+		cfg.Channels = []Channel{{
+			Provider:        cfg.Provider,
+			Endpoint:        cfg.Endpoint,
+			Bucket:          cfg.Bucket,
+			AccessKeyID:     cfg.AccessKeyID,
+			AccessKeySecret: cfg.AccessKeySecret,
+		}}
+	}
+	if len(cfg.Channels) == 0 && (cfg.Provider == "" || cfg.Provider == "local") {
+		// 无渠道 = 仅本地备份。
+		cfg.Provider = ""
+	}
+	for i := range cfg.Channels {
+		ch := &cfg.Channels[i]
+		ch.Provider = strings.TrimSpace(ch.Provider)
+		switch ch.Provider {
+		case "oss", "cos", "s3":
+			if strings.TrimSpace(ch.Endpoint) == "" || strings.TrimSpace(ch.Bucket) == "" || strings.TrimSpace(ch.AccessKeyID) == "" {
+				response.Error(w, http.StatusBadRequest, ch.Provider+" channel requires endpoint, bucket and access key id")
+				return
+			}
+		case "webdav":
+			if strings.TrimSpace(ch.Endpoint) == "" || strings.TrimSpace(ch.Username) == "" {
+				response.Error(w, http.StatusBadRequest, "webdav channel requires endpoint and username")
+				return
+			}
+		case "":
+			response.Error(w, http.StatusBadRequest, "channel provider is required")
+			return
+		default:
+			response.Error(w, http.StatusBadRequest, "unsupported backup provider: "+ch.Provider)
+			return
+		}
+		if strings.TrimSpace(ch.ID) == "" {
+			if strings.TrimSpace(ch.AccessKeySecret) == "" && existing.Provider != "local" && ch.Provider == existing.Provider {
+				ch.AccessKeySecret = existing.AccessKeySecret
+			}
+			ch.ID = channelID(*ch)
+		} else if prev, ok := channelByID(existing.Channels, ch.ID); ok {
+			if strings.TrimSpace(ch.AccessKeySecret) == "" {
+				ch.AccessKeySecret = prev.AccessKeySecret
+			}
+			if strings.TrimSpace(ch.Password) == "" {
+				ch.Password = prev.Password
+			}
+		}
+		if ch.Provider == "webdav" && strings.TrimSpace(ch.Password) == "" {
+			response.Error(w, http.StatusBadRequest, "webdav channel password is required")
+			return
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(s.configPath()), 0o755); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 落盘只写新格式，旧字段不再保留。
+	cfg.Provider = ""
+	cfg.Endpoint = ""
+	cfg.Bucket = ""
+	cfg.AccessKeyID = ""
+	cfg.AccessKeySecret = ""
 	data, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.WriteFile(s.configPath(), data, 0o600); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	_ = s.reloadSchedule(context.Background())
-	cfg.AccessKeySecret = ""
+	for i := range cfg.Channels {
+		cfg.Channels[i].AccessKeySecret = ""
+		cfg.Channels[i].Password = ""
+	}
 	response.OK(w, cfg)
 }
 
@@ -281,13 +365,31 @@ func (s *Service) createBackup(ctx context.Context) (Record, error) {
 		return Record{}, err
 	}
 	record := recordFromInfo(info, cfg.LocalDir)
-	if cfg.Provider != "local" {
-		remoteURL, err := s.uploadBackup(ctx, cfg, target, name)
-		if err != nil {
-			return Record{}, err
+	if len(cfg.Channels) > 0 {
+		uploads := map[string]uploadMeta{}
+		failed := []string{}
+		for _, ch := range cfg.Channels {
+			remoteURL, err := s.uploadToChannel(ctx, ch, target, name)
+			if err != nil {
+				failed = append(failed, channelLabel(ch)+" 上传失败: "+err.Error())
+				continue
+			}
+			if strings.TrimSpace(ch.ID) == "" {
+				ch.ID = channelID(ch)
+			}
+			uploads[ch.ID] = uploadMeta{Provider: ch.Provider, Name: ch.Name, URL: remoteURL}
+			record.RemoteURLs = append(record.RemoteURLs, RemoteUpload{Provider: ch.Provider, Name: ch.Name, URL: remoteURL})
+			if record.RemoteURL == "" {
+				record.RemoteURL = remoteURL
+			}
 		}
-		record.RemoteURL = remoteURL
-		s.recordUploaded(name, remoteURL)
+		if len(failed) > 0 {
+			if len(failed) == len(cfg.Channels) {
+				return Record{}, fmt.Errorf("全部备份渠道上传失败: %s", strings.Join(failed, "; "))
+			}
+			return Record{}, fmt.Errorf("部分备份渠道上传失败: %s", strings.Join(failed, "; "))
+		}
+		s.recordUploaded(name, uploads)
 	}
 	if cfg.MaxRecords > 0 {
 		s.pruneRecords(ctx, cfg, cfg.MaxRecords)
@@ -358,8 +460,21 @@ func (s *Service) records(ctx context.Context) ([]Record, error) {
 		info, err := entry.Info()
 		if err == nil {
 			record := recordFromInfo(info, cfg.LocalDir)
-			if remote, ok := index[entry.Name()]; ok {
-				record.RemoteURL = remote.RemoteURL
+			if meta, ok := index[entry.Name()]; ok {
+				for _, upload := range meta.Uploads {
+					record.RemoteURLs = append(record.RemoteURLs, RemoteUpload{Provider: upload.Provider, Name: upload.Name, URL: upload.URL})
+				}
+				sort.Slice(record.RemoteURLs, func(i, j int) bool {
+					if record.RemoteURLs[i].Provider != record.RemoteURLs[j].Provider {
+						return record.RemoteURLs[i].Provider < record.RemoteURLs[j].Provider
+					}
+					return record.RemoteURLs[i].URL < record.RemoteURLs[j].URL
+				})
+				if len(record.RemoteURLs) > 0 {
+					record.RemoteURL = record.RemoteURLs[0].URL
+				} else {
+					record.RemoteURL = meta.RemoteURL
+				}
 			}
 			records = append(records, record)
 		}
@@ -369,7 +484,7 @@ func (s *Service) records(ctx context.Context) ([]Record, error) {
 }
 
 func (s *Service) loadConfig(ctx context.Context) (Config, error) {
-	cfg := Config{Provider: "local", LocalDir: s.recordsDir()}
+	cfg := Config{LocalDir: s.recordsDir()}
 	data, err := os.ReadFile(s.configPath())
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -382,6 +497,21 @@ func (s *Service) loadConfig(ctx context.Context) (Config, error) {
 	}
 	cfg.Provider = first(cfg.Provider, "local")
 	cfg.LocalDir = first(cfg.LocalDir, s.recordsDir())
+	// 迁移旧版单渠道配置到 channels，保证备份执行与远端清理按统一的多渠道路径工作。
+	if len(cfg.Channels) == 0 && cfg.Provider != "local" && cfg.Provider != "" {
+		cfg.Channels = []Channel{{
+			Provider:        cfg.Provider,
+			Endpoint:        cfg.Endpoint,
+			Bucket:          cfg.Bucket,
+			AccessKeyID:     cfg.AccessKeyID,
+			AccessKeySecret: cfg.AccessKeySecret,
+		}}
+	}
+	for i := range cfg.Channels {
+		if strings.TrimSpace(cfg.Channels[i].ID) == "" {
+			cfg.Channels[i].ID = channelID(cfg.Channels[i])
+		}
+	}
 	return cfg, nil
 }
 
@@ -490,6 +620,9 @@ func (s *Service) triggerBackupNotify(ctx context.Context, record Record, err er
 		eventData["size"] = record.Size
 		eventData["location"] = record.Location
 		eventData["remoteUrl"] = record.RemoteURL
+		if len(record.RemoteURLs) > 0 {
+			eventData["remoteUrls"] = record.RemoteURLs
+		}
 	}
 	_ = s.notifier.Trigger(ctx, "system", "database.backup", eventData)
 }
@@ -508,17 +641,19 @@ func (s *Service) triggerRestoreNotify(ctx context.Context, backupID string, err
 	_ = s.notifier.Trigger(ctx, "system", "database.import", eventData)
 }
 
-func (s *Service) uploadBackup(ctx context.Context, cfg Config, path, objectName string) (string, error) {
-	switch cfg.Provider {
+func (s *Service) uploadToChannel(ctx context.Context, ch Channel, path, objectName string) (string, error) {
+	switch ch.Provider {
 	case "s3", "oss", "cos":
-		return s.uploadObject(ctx, cfg, path, objectName)
+		return s.uploadObject(ctx, ch, path, objectName)
+	case "webdav":
+		return s.uploadWebDAV(ctx, ch, path, objectName)
 	default:
-		return "", fmt.Errorf("unsupported backup provider: %s", cfg.Provider)
+		return "", fmt.Errorf("unsupported backup provider: %s", ch.Provider)
 	}
 }
 
-func (s *Service) uploadObject(ctx context.Context, cfg Config, path, objectName string) (string, error) {
-	if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Bucket) == "" || strings.TrimSpace(cfg.AccessKeyID) == "" || strings.TrimSpace(cfg.AccessKeySecret) == "" {
+func (s *Service) uploadObject(ctx context.Context, ch Channel, path, objectName string) (string, error) {
+	if strings.TrimSpace(ch.Endpoint) == "" || strings.TrimSpace(ch.Bucket) == "" || strings.TrimSpace(ch.AccessKeyID) == "" || strings.TrimSpace(ch.AccessKeySecret) == "" {
 		return "", fmt.Errorf("cloud endpoint, bucket, access key and secret are required")
 	}
 	// 流式上传：请求体直接来自文件句柄，避免把整个备份 zip 读进内存
@@ -537,13 +672,13 @@ func (s *Service) uploadObject(ctx context.Context, cfg Config, path, objectName
 		return "", fmt.Errorf("upload target is a directory: %s", path)
 	}
 
-	endpoint := strings.TrimRight(cfg.Endpoint, "/")
+	endpoint := strings.TrimRight(ch.Endpoint, "/")
 	objectKey := "api-monitor/" + objectName
-	target := endpoint + "/" + strings.Trim(cfg.Bucket, "/") + "/" + objectKey
+	target := endpoint + "/" + strings.Trim(ch.Bucket, "/") + "/" + objectKey
 	// S3 SigV4 签名覆盖 payload 哈希：先流式扫一遍文件计算 SHA-256 再发，
 	// 代价是文件读两遍，可接受；OSS/COS 签名不含 body，无需预扫。
 	payloadSha256 := ""
-	if cfg.Provider != "oss" && cfg.Provider != "cos" {
+	if ch.Provider != "oss" && ch.Provider != "cos" {
 		payloadSha256, err = fileSha256Hex(file)
 		if err != nil {
 			return "", err
@@ -558,15 +693,15 @@ func (s *Service) uploadObject(ctx context.Context, cfg Config, path, objectName
 	req.GetBody = func() (io.ReadCloser, error) { return os.Open(path) }
 	req.Header.Set("Content-Type", "application/zip")
 	now := time.Now().UTC()
-	switch cfg.Provider {
+	switch ch.Provider {
 	case "oss":
-		signOSSRequest(req, cfg, now)
+		signOSSRequest(req, ch, now)
 	case "cos":
-		signCOSRequest(req, cfg, now)
+		signCOSRequest(req, ch, now)
 	default:
 		req.Header.Set("X-Amz-Content-Sha256", payloadSha256)
 		req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
-		signS3Request(req, cfg, now, "auto")
+		signS3Request(req, ch, now, "auto")
 	}
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -575,7 +710,62 @@ func (s *Service) uploadObject(ctx context.Context, cfg Config, path, objectName
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
-		return "", fmt.Errorf("%s upload failed: status %d %s", strings.ToUpper(cfg.Provider), res.StatusCode, strings.TrimSpace(string(raw)))
+		return "", fmt.Errorf("%s upload failed: status %d %s", strings.ToUpper(ch.Provider), res.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	return target, nil
+}
+
+// uploadWebDAV 通过 WebDAV PUT 上传备份；RemotePath 为端点半下要
+// 写入的子目录，目标目录不存在时先尝试 MKCOL 建目录（大部分服务端允许）。
+func (s *Service) uploadWebDAV(ctx context.Context, ch Channel, path, objectName string) (string, error) {
+	if strings.TrimSpace(ch.Endpoint) == "" || strings.TrimSpace(ch.Username) == "" || strings.TrimSpace(ch.Password) == "" {
+		return "", fmt.Errorf("webdav endpoint, username and password are required")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("upload target is a directory: %s", path)
+	}
+	base := strings.TrimRight(ch.Endpoint, "/")
+	dir := strings.Trim(ch.RemotePath, "/")
+	target := base
+	if dir != "" {
+		target += "/" + dir
+	}
+	target += "/" + objectName
+
+	if dir != "" {
+		// 尽力建目录；已存在或服务端不支持静默忽略，真正的错误由 PUT 暴露。
+		if mkreq, err := http.NewRequestWithContext(ctx, "MKCOL", base+"/"+dir, nil); err == nil {
+			mkreq.SetBasicAuth(ch.Username, ch.Password)
+			if mkres, err := s.client.Do(mkreq); err == nil {
+				mkres.Body.Close()
+			}
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target, file)
+	if err != nil {
+		return "", err
+	}
+	req.ContentLength = info.Size()
+	req.GetBody = func() (io.ReadCloser, error) { return os.Open(path) }
+	req.Header.Set("Content-Type", "application/zip")
+	req.SetBasicAuth(ch.Username, ch.Password)
+	res, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
+		return "", fmt.Errorf("WEBDAV upload failed: status %d %s", res.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	return target, nil
 }
@@ -763,9 +953,16 @@ func (s *Service) recordsDir() string { return filepath.Join(s.cfg.DataDir, "bac
 
 const indexFileName = "records-index.json"
 
+type uploadMeta struct {
+	Provider string `json:"provider"`
+	Name     string `json:"name,omitempty"`
+	URL      string `json:"url"`
+}
+
 type recordMeta struct {
-	RemoteURL  string `json:"remote_url,omitempty"`
-	UploadedAt int64  `json:"uploaded_at,omitempty"`
+	RemoteURL  string                `json:"remote_url,omitempty"`
+	UploadedAt int64                 `json:"uploaded_at,omitempty"`
+	Uploads    map[string]uploadMeta `json:"uploads,omitempty"`
 }
 
 func (s *Service) indexPath() string { return filepath.Join(s.recordsDir(), indexFileName) }
@@ -797,11 +994,16 @@ func (s *Service) saveIndex(index map[string]recordMeta) error {
 	return os.Rename(tmp, s.indexPath())
 }
 
-func (s *Service) recordUploaded(name, remoteURL string) {
+func (s *Service) recordUploaded(name string, uploads map[string]uploadMeta) {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
 	index := s.loadIndex()
-	index[name] = recordMeta{RemoteURL: remoteURL, UploadedAt: time.Now().Unix()}
+	meta := recordMeta{Uploads: uploads, UploadedAt: time.Now().Unix()}
+	for _, upload := range uploads {
+		meta.RemoteURL = upload.URL
+		break
+	}
+	index[name] = meta
 	_ = s.saveIndex(index)
 }
 
@@ -861,9 +1063,8 @@ func (s *Service) pruneRecords(ctx context.Context, cfg Config, max int) {
 	s.indexMu.Lock()
 	index := s.loadIndex()
 	type target struct {
-		name     string
-		meta     recordMeta
-		hasCloud bool
+		name string
+		meta recordMeta
 	}
 	targets := []target{}
 	changed := false
@@ -872,39 +1073,55 @@ func (s *Service) pruneRecords(ctx context.Context, cfg Config, max int) {
 		if err := os.Remove(filepath.Join(cfg.LocalDir, name)); err != nil {
 			continue
 		}
-		meta, ok := index[name]
-		if ok {
+		if meta, ok := index[name]; ok {
 			delete(index, name)
 			changed = true
-			targets = append(targets, target{name: name, meta: meta, hasCloud: meta.RemoteURL != ""})
+			targets = append(targets, target{name: name, meta: meta})
 		}
 	}
 	if changed {
 		_ = s.saveIndex(index)
 	}
 	s.indexMu.Unlock()
+
+	channelByID := map[string]Channel{}
+	for _, ch := range cfg.Channels {
+		if strings.TrimSpace(ch.ID) != "" {
+			channelByID[ch.ID] = ch
+		}
+	}
 	for _, t := range targets {
-		if cfg.Provider != "local" && t.hasCloud {
-			_ = s.deleteRemoteObject(ctx, cfg, t.meta.RemoteURL)
+		for id, upload := range t.meta.Uploads {
+			if ch, ok := channelByID[id]; ok {
+				_ = s.deleteRemoteObject(ctx, ch, upload.URL)
+			}
+		}
+		// 兼容旧索引：单渠道时代只记录一个 remote_url。
+		if t.meta.RemoteURL != "" && len(t.meta.Uploads) == 0 {
+			if ch, ok := primaryChannel(cfg); ok {
+				_ = s.deleteRemoteObject(ctx, ch, t.meta.RemoteURL)
+			}
 		}
 	}
 }
 
-func (s *Service) deleteRemoteObject(ctx context.Context, cfg Config, remoteURL string) error {
+func (s *Service) deleteRemoteObject(ctx context.Context, ch Channel, remoteURL string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, remoteURL, nil)
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
-	switch cfg.Provider {
+	switch ch.Provider {
 	case "oss":
-		signOSSRequest(req, cfg, now)
+		signOSSRequest(req, ch, now)
 	case "cos":
-		signCOSRequest(req, cfg, now)
+		signCOSRequest(req, ch, now)
+	case "webdav":
+		req.SetBasicAuth(ch.Username, ch.Password)
 	default:
 		req.Header.Set("X-Amz-Content-Sha256", sha256HexBytes(nil))
 		req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
-		signS3Request(req, cfg, now, "auto")
+		signS3Request(req, ch, now, "auto")
 	}
 	res, err := s.client.Do(req)
 	if err != nil {
@@ -915,7 +1132,7 @@ func (s *Service) deleteRemoteObject(ctx context.Context, cfg Config, remoteURL 
 		return nil
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("%s delete failed: status %d", strings.ToUpper(cfg.Provider), res.StatusCode)
+		return fmt.Errorf("%s delete failed: status %d", strings.ToUpper(ch.Provider), res.StatusCode)
 	}
 	return nil
 }
@@ -979,7 +1196,7 @@ func first(values ...string) string {
 	return ""
 }
 
-func signS3Request(req *http.Request, cfg Config, now time.Time, region string) {
+func signS3Request(req *http.Request, ch Channel, now time.Time, region string) {
 	host := req.URL.Host
 	date := now.Format("20060102")
 	scope := date + "/" + region + "/s3/aws4_request"
@@ -989,27 +1206,27 @@ func signS3Request(req *http.Request, cfg Config, now time.Time, region string) 
 	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
 	canonicalRequest := strings.Join([]string{req.Method, canonicalURI, "", canonicalHeaders, signedHeaders, payloadHash}, "\n")
 	stringToSign := strings.Join([]string{"AWS4-HMAC-SHA256", req.Header.Get("X-Amz-Date"), scope, sha256Hex(canonicalRequest)}, "\n")
-	signingKey := s3SigningKey(cfg.AccessKeySecret, date, region)
+	signingKey := s3SigningKey(ch.AccessKeySecret, date, region)
 	signature := hex.EncodeToString(hmacSHA256(signingKey, stringToSign))
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+cfg.AccessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+ch.AccessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
 	req.Host = host
 }
 
-func signOSSRequest(req *http.Request, cfg Config, now time.Time) {
+func signOSSRequest(req *http.Request, ch Channel, now time.Time) {
 	date := now.Format(http.TimeFormat)
 	req.Header.Set("Date", date)
 	objectPath := req.URL.EscapedPath()
 	if idx := strings.Index(objectPath, "/api-monitor/"); idx >= 0 {
 		objectPath = objectPath[idx:]
 	}
-	resource := "/" + strings.Trim(cfg.Bucket, "/") + objectPath
+	resource := "/" + strings.Trim(ch.Bucket, "/") + objectPath
 	stringToSign := strings.Join([]string{req.Method, "", req.Header.Get("Content-Type"), date, resource}, "\n")
-	mac := hmac.New(sha1.New, []byte(cfg.AccessKeySecret))
+	mac := hmac.New(sha1.New, []byte(ch.AccessKeySecret))
 	mac.Write([]byte(stringToSign))
-	req.Header.Set("Authorization", "OSS "+cfg.AccessKeyID+":"+base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+	req.Header.Set("Authorization", "OSS "+ch.AccessKeyID+":"+base64.StdEncoding.EncodeToString(mac.Sum(nil)))
 }
 
-func signCOSRequest(req *http.Request, cfg Config, now time.Time) {
+func signCOSRequest(req *http.Request, ch Channel, now time.Time) {
 	start := now.Unix()
 	end := now.Add(15 * time.Minute).Unix()
 	keyTime := fmt.Sprintf("%d;%d", start, end)
@@ -1018,10 +1235,51 @@ func signCOSRequest(req *http.Request, cfg Config, now time.Time) {
 	canonicalURI := req.URL.EscapedPath()
 	canonicalHeaders := "content-type=" + url.QueryEscape(strings.ToLower(req.Header.Get("Content-Type"))) + "&host=" + url.QueryEscape(strings.ToLower(req.URL.Host))
 	httpString := strings.Join([]string{strings.ToLower(req.Method), canonicalURI, "", canonicalHeaders, ""}, "\n")
-	signKey := hmacSHA1([]byte(cfg.AccessKeySecret), keyTime)
+	signKey := hmacSHA1([]byte(ch.AccessKeySecret), keyTime)
 	stringToSign := strings.Join([]string{"sha1", keyTime, sha1Hex(httpString), ""}, "\n")
 	signature := hex.EncodeToString(hmacSHA1(signKey, stringToSign))
-	req.Header.Set("Authorization", "q-sign-algorithm=sha1&q-ak="+cfg.AccessKeyID+"&q-sign-time="+keyTime+"&q-key-time="+keyTime+"&q-header-list="+headerList+"&q-url-param-list="+urlParamList+"&q-signature="+signature)
+	req.Header.Set("Authorization", "q-sign-algorithm=sha1&q-ak="+ch.AccessKeyID+"&q-sign-time="+keyTime+"&q-key-time="+keyTime+"&q-header-list="+headerList+"&q-url-param-list="+urlParamList+"&q-signature="+signature)
+}
+
+// channelID 根据渠道的端点与凭据生成稳定的渠道 ID，用于索引中关联远端对象。
+func channelID(ch Channel) string {
+	seed := strings.Join([]string{ch.Provider, ch.Endpoint, ch.Bucket, ch.Username}, "|")
+	sum := sha256.Sum256([]byte(seed))
+	return ch.Provider + "-" + hex.EncodeToString(sum[:4])
+}
+
+func channelByID(channels []Channel, id string) (Channel, bool) {
+	for _, ch := range channels {
+		if ch.ID == id {
+			return ch, true
+		}
+	}
+	return Channel{}, false
+}
+
+func channelLabel(ch Channel) string {
+	if strings.TrimSpace(ch.Name) != "" {
+		return ch.Name
+	}
+	return ch.Provider
+}
+
+// primaryChannel 返回用于清理旧版索引远端对象的渠道：优先取 channels 首个，
+// 其次回退到旧版单渠道字段。
+func primaryChannel(cfg Config) (Channel, bool) {
+	if len(cfg.Channels) > 0 {
+		return cfg.Channels[0], true
+	}
+	if cfg.Provider != "local" && cfg.Provider != "" {
+		return Channel{
+			Provider:        cfg.Provider,
+			Endpoint:        cfg.Endpoint,
+			Bucket:          cfg.Bucket,
+			AccessKeyID:     cfg.AccessKeyID,
+			AccessKeySecret: cfg.AccessKeySecret,
+		}, true
+	}
+	return Channel{}, false
 }
 
 func s3SigningKey(secret, date, region string) []byte {

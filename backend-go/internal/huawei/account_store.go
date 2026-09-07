@@ -40,6 +40,12 @@ type rowScanner interface {
 	Scan(dest ...interface{}) error
 }
 
+// accountExecQuerier 事务与单连接共用的查询接口（UPSERT 用）。
+type accountExecQuerier interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+}
+
 func scanAccount(scanner rowScanner) (Account, error) {
 	var account Account
 	var domainID, defaultRegion, defaultProjectID, description, sshUser string
@@ -337,4 +343,65 @@ func nullEmpty(value string) interface{} {
 		return nil
 	}
 	return value
+}
+
+// upsertImportedAccount 按 access_key_id + site 查重：已存在则更新，否则插入。
+func upsertImportedAccount(ctx context.Context, exec accountExecQuerier, payload accountPayload) error {
+	payload = cleanAccountPayload(payload)
+	if err := validateAccountPayload(payload); err != nil {
+		return err
+	}
+	encrypted, err := secure.SecureEncrypt(payload.SecretAccessKey)
+	if err != nil {
+		return fmt.Errorf("encrypt secret access key: %w", err)
+	}
+	sshPrivateKeyEncrypted, err := encryptOptional(payload.SSHPrivateKey)
+	if err != nil {
+		return fmt.Errorf("encrypt ssh private key: %w", err)
+	}
+	sshPasswordEncrypted, err := encryptOptional(payload.SSHPassword)
+	if err != nil {
+		return fmt.Errorf("encrypt ssh password: %w", err)
+	}
+
+	var existingID int64
+	site := siteOrDefault(payload.Site)
+	findErr := exec.QueryRowContext(
+		ctx,
+		`SELECT id FROM huawei_accounts WHERE access_key_id = ? AND site = ? LIMIT 1`,
+		payload.AccessKeyID,
+		site,
+	).Scan(&existingID)
+
+	switch {
+	case findErr == nil:
+		_, err = exec.ExecContext(ctx, `
+			UPDATE huawei_accounts SET
+				name = ?, site = ?, secret_access_key_encrypted = ?,
+				default_region = ?, default_project_id = ?, description = ?,
+				ssh_user = ?, ssh_port = ?, ssh_private_key_encrypted = ?, ssh_password_encrypted = ?,
+				last_verified_at = NULL, last_verify_status = NULL, last_verify_error = NULL,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?`,
+			payload.Name, site, encrypted,
+			nullEmpty(payload.DefaultRegion), nullEmpty(payload.DefaultProjectID), nullEmpty(payload.Description),
+			nullEmpty(payload.SSHUser), sshPortOrDefault(payload.SSHPort), sshPrivateKeyEncrypted, sshPasswordEncrypted,
+			existingID,
+		)
+		return err
+	case errors.Is(findErr, sql.ErrNoRows):
+		_, err = exec.ExecContext(ctx, `
+			INSERT INTO huawei_accounts (
+				name, site, access_key_id, secret_access_key_encrypted,
+				default_region, default_project_id, description,
+				ssh_user, ssh_port, ssh_private_key_encrypted, ssh_password_encrypted
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			payload.Name, site, payload.AccessKeyID, encrypted,
+			nullEmpty(payload.DefaultRegion), nullEmpty(payload.DefaultProjectID), nullEmpty(payload.Description),
+			nullEmpty(payload.SSHUser), sshPortOrDefault(payload.SSHPort), sshPrivateKeyEncrypted, sshPasswordEncrypted,
+		)
+		return err
+	default:
+		return findErr
+	}
 }

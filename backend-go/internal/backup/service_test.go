@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -329,6 +330,213 @@ func performBackupRequest(service *Service, method, path, body string) *httptest
 	return res
 }
 
+// 多渠道同时备份：一次备份应同时上传到所有配置渠道，并在记录上带出各渠道远端地址。
+func TestBackupMultiChannelUpload(t *testing.T) {
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "data.db")
+	writeMarkerDB(t, dbPath, "before")
+
+	s3Done := false
+	webdavDone := false
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "MKCOL":
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/bucket/api-monitor/"):
+			if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 Credential=key/") {
+				t.Fatalf("unexpected s3 auth: %q", r.Header.Get("Authorization"))
+			}
+			s3Done = true
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/backup/backups/api-monitor-backup-") && strings.HasSuffix(r.URL.Path, ".zip"):
+			if r.Header.Get("Authorization") != "Basic "+base64.StdEncoding.EncodeToString([]byte("dav-user:dav-pass")) {
+				t.Fatalf("unexpected webdav auth: %q", r.Header.Get("Authorization"))
+			}
+			webdavDone = true
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer remote.Close()
+
+	service := New(config.Config{DataDir: dataDir, DBName: "data.db"})
+	defer service.scheduler.Stop()
+
+	payload := `{"local_dir":"` + jsonPath(filepath.Join(dataDir, "records")) + `","channels":[
+		{"provider":"s3","endpoint":"` + remote.URL + `","bucket":"bucket","access_key_id":"key","access_key_secret":"secret"},
+		{"provider":"webdav","name":"私有WebDAV","endpoint":"` + remote.URL + `/backup","username":"dav-user","password":"dav-pass","remote_path":"backups"}
+	]}`
+	res := performBackupRequest(service, http.MethodPost, "/api/backup/configs", payload)
+	if res.Code != http.StatusOK {
+		t.Fatalf("save multi-channel config status = %d body=%s", res.Code, res.Body.String())
+	}
+
+	res = performBackupRequest(service, http.MethodPost, "/api/backup/run", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("run multi-channel backup status = %d body=%s", res.Code, res.Body.String())
+	}
+	record := decodeBackupData[Record](t, res)
+	if !s3Done || !webdavDone {
+		t.Fatalf("expected uploads to all channels, s3=%v webdav=%v", s3Done, webdavDone)
+	}
+	if len(record.RemoteURLs) != 2 {
+		t.Fatalf("expected 2 remote uploads, got %#v", record.RemoteURLs)
+	}
+	if record.RemoteURL == "" {
+		t.Fatal("expected record.RemoteURL to be populated")
+	}
+
+	// 渠道校验：secret 不出现在保存响应中。
+	var payload2 struct {
+		Success bool   `json:"success"`
+		Data    Config `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &payload2); err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range payload2.Data.Channels {
+		if ch.AccessKeySecret != "" || ch.Password != "" {
+			t.Fatalf("save response must not leak secrets: %#v", ch)
+		}
+	}
+}
+
+// WebDAV 渠道上传：验证 Basic Auth、MKCOL 建目录、PUT 落点。
+func TestBackupWebDAVUpload(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "data.db"), []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	requests := []string{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		if r.Method == "MKCOL" {
+			if r.Header.Get("Authorization") != "Basic "+base64.StdEncoding.EncodeToString([]byte("u:p")) {
+				t.Fatalf("unexpected MKCOL auth: %q", r.Header.Get("Authorization"))
+			}
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		if r.Method == http.MethodPut {
+			if !strings.HasSuffix(r.URL.Path, "/dav/backups/api-monitor-backup-test.zip") {
+				t.Fatalf("unexpected put path: %s", r.URL.Path)
+			}
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+	defer remote.Close()
+
+	service := New(config.Config{DataDir: dataDir, DBName: "data.db"})
+	defer service.scheduler.Stop()
+	dummy := filepath.Join(dataDir, "dummy.zip")
+	if err := os.WriteFile(dummy, []byte("zip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ch := Channel{Provider: "webdav", Endpoint: remote.URL + "/dav", Username: "u", Password: "p", RemotePath: "backups"}
+	target, err := service.uploadWebDAV(context.Background(), ch, dummy, "api-monitor-backup-test.zip")
+	if err != nil {
+		t.Fatalf("uploadWebDAV: %v", err)
+	}
+	if !strings.Contains(target, "/dav/backups/api-monitor-backup-test.zip") {
+		t.Fatalf("target = %q", target)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	foundMKCOL := false
+	foundPUT := false
+	for _, req := range requests {
+		if req == "MKCOL /dav/backups" {
+			foundMKCOL = true
+		}
+		if req == "PUT /dav/backups/api-monitor-backup-test.zip" {
+			foundPUT = true
+		}
+	}
+	if !foundMKCOL || !foundPUT {
+		t.Fatalf("expected MKCOL + PUT, got %v", requests)
+	}
+}
+
+// 旧版单渠道配置迁移：provider/endpoint/bucket 应被读成一条渠道。
+func TestBackupLegacyConfigMigration(t *testing.T) {
+	dataDir := t.TempDir()
+	cfgDir := filepath.Join(dataDir, "backup")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"provider":"cos","local_dir":"` + jsonPath(filepath.Join(dataDir, "records")) + `","cron":"","endpoint":"https://cos.example.com","bucket":"mybucket","access_key_id":"ak","access_key_secret":"sk","max_records":5}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := New(config.Config{DataDir: dataDir, DBName: "data.db"})
+	defer service.scheduler.Stop()
+	cfg, err := service.loadConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Channels) != 1 || cfg.Channels[0].Provider != "cos" || cfg.Channels[0].AccessKeySecret != "sk" {
+		t.Fatalf("expected migrated cos channel, got %#v", cfg.Channels)
+	}
+}
+
+// 多渠道裁剪：本地与多个远端对象应随 max_records 一起清理。
+func TestBackupMultiChannelPruneRemovesRemotes(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "data.db"), []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	deleted := []string{}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "MKCOL" {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		if r.Method == http.MethodPut {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			mu.Lock()
+			deleted = append(deleted, r.URL.Path)
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+	defer remote.Close()
+
+	service := New(config.Config{DataDir: dataDir, DBName: "data.db"})
+	defer service.scheduler.Stop()
+	payload := `{"local_dir":"` + jsonPath(filepath.Join(dataDir, "records")) + `","max_records":2,"channels":[
+		{"provider":"s3","endpoint":"` + remote.URL + `","bucket":"bucket","access_key_id":"key","access_key_secret":"secret"},
+		{"provider":"webdav","endpoint":"` + remote.URL + `/dav","username":"u","password":"p","remote_path":"backups"}
+	]}`
+	res := performBackupRequest(service, http.MethodPost, "/api/backup/configs", payload)
+	if res.Code != http.StatusOK {
+		t.Fatalf("save config status = %d body=%s", res.Code, res.Body.String())
+	}
+	for i := 0; i < 4; i++ {
+		res = performBackupRequest(service, http.MethodPost, "/api/backup/run", "")
+		if res.Code != http.StatusOK {
+			t.Fatalf("run %d status = %d body=%s", i, res.Code, res.Body.String())
+		}
+	}
+	mu.Lock()
+	deletedCount := len(deleted)
+	mu.Unlock()
+	if deletedCount != 4 {
+		t.Fatalf("expected 4 remote deletes (2 per record x 2 channels), got %d: %v", deletedCount, deleted)
+	}
+}
+
 func decodeBackupData[T any](t *testing.T, res *httptest.ResponseRecorder) T {
 	t.Helper()
 	var payload struct {
@@ -461,8 +669,8 @@ func TestUploadObjectStreamsLargeFile(t *testing.T) {
 
 	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
 	defer service.scheduler.Stop()
-	cfg := Config{Provider: "s3", Endpoint: remote.URL, Bucket: "bucket", AccessKeyID: "key", AccessKeySecret: "secret"}
-	target, err := service.uploadObject(context.Background(), cfg, uploadPath, "test.zip")
+	ch := Channel{Provider: "s3", Endpoint: remote.URL, Bucket: "bucket", AccessKeyID: "key", AccessKeySecret: "secret"}
+	target, err := service.uploadObject(context.Background(), ch, uploadPath, "test.zip")
 	if err != nil {
 		t.Fatalf("uploadObject: %v", err)
 	}
@@ -480,8 +688,8 @@ func TestUploadObjectStreamsLargeFile(t *testing.T) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer failing.Close()
-	cfg.Endpoint = failing.URL
-	if _, err := service.uploadObject(context.Background(), cfg, uploadPath, "test.zip"); err == nil {
+	ch.Endpoint = failing.URL
+	if _, err := service.uploadObject(context.Background(), ch, uploadPath, "test.zip"); err == nil {
 		t.Fatal("upload against 5xx endpoint must fail loudly")
 	}
 }

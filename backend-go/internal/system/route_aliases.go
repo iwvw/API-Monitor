@@ -52,6 +52,18 @@ var routeAliases = map[string][]string{
 	"/api/tencent/accounts/{id}/lighthouse":               {"轻量应用服务器"},
 	"/api/tencent/accounts/{id}/domains/{domain}/records": {"解析记录", "dns 记录", "添加解析", "腾讯云 dns 记录"},
 
+	"/api/gcp":                                                              {"gcp", "google cloud", "谷歌云"},
+	"/api/gcp/accounts/{id}/projects/{projectId}/instances":                  {"gcp 实例", "谷歌云虚拟机", "google 虚拟机"},
+	"/api/gcp/accounts/{id}/projects/{projectId}/model-usage":                {"模型用量", "vertex", "gemini 用量", "gemini 调用量"},
+	"/api/gcp/accounts/{id}/projects/{projectId}/buckets":                    {"gcp 存储桶", "google 存储", "gs 桶"},
+
+	"/api/huawei":                                                             {"华为云", "huawei", "华为 云"},
+	"/api/huawei/accounts/{id}/flexus-instances":                               {"flexus", "轻量服务器", "华为云机器", "华为云轻量"},
+	"/api/huawei/accounts/{id}/projects/{projectId}/instances":                 {"ecs 实例", "云服务器", "华为云实例"},
+	"/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets": {"解析记录", "dns 记录", "华为云 dns 记录", "添加解析"},
+	"/api/huawei/accounts/{id}/projects/{projectId}/buckets":                   {"obs 桶", "对象存储", "华为云存储桶"},
+	"/api/huawei/accounts/{id}/billing/overview":                               {"费用", "账单", "余额", "华为云费用"},
+
 	"/api/flyio":                             {"fly.io", "flyio", "飞萤"},
 	"/api/flyio/apps/{appName}/update-image": {"更新镜像", "升级镜像", "换镜像"},
 	"/api/flyio/apps/{appName}/redeploy":     {"重新部署", "重启应用", "redeploy"},
