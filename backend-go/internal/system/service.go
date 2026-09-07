@@ -1349,15 +1349,18 @@ func methodsFromAnnotations(desc string) []string {
 }
 
 func (s *Service) apiStats(days int) (map[string]interface{}, error) {
-	// 小时粒度（days ≤ 1）：返回近 24 小时内存趋势（statsCacheHour），实时不落库不缓存
+	// 小时粒度（days ≤ 1）：返回近 24 小时内存趋势（statsCacheHour），实时不落库不缓存。
+	// 词元/流量从持久化小时表实时读取（仅内存统计会恒为 0）。
 	if days <= 1 {
 		loc := s.siteLocation()
 		now := time.Now().In(loc)
 		trend := make([]map[string]interface{}, 0, 24)
+		localHours := make([]time.Time, 0, 24)
 		var totalAudit, totalOps int64
 		s.mu.Lock()
 		for i := 23; i >= 0; i-- {
 			h := now.Add(-time.Duration(i) * time.Hour)
+			localHours = append(localHours, h)
 			key := h.Format("2006-01-02 15:00")
 			var audit, ops int64
 			if c, ok := s.statsCacheHour[key]; ok {
@@ -1376,11 +1379,66 @@ func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 			})
 		}
 		s.mu.Unlock()
+
+		// 近 24 小时词元（openai_gateway_stats_hourly，UTC "2006-01-02 15:04:05"）
+		// 与流量（subscription_usage_hourly，RFC3339 UTC），按站点时区小时对齐。
+		var totalTokens, totalTraffic int64
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if db, err := s.store.Open(ctx); err == nil {
+			utcStart := time.Now().UTC().Add(-24 * time.Hour)
+			tokensByHour := map[string]int64{}
+			if rows, qErr := db.QueryContext(ctx, `
+				SELECT hour, COALESCE(SUM(total_tokens), 0)
+				FROM openai_gateway_stats_hourly
+				WHERE hour >= ? AND route != 'models'
+				GROUP BY hour`, utcStart.Format("2006-01-02 15:04:05")); qErr == nil {
+				for rows.Next() {
+					var hourKey string
+					var tok int64
+					if rows.Scan(&hourKey, &tok) == nil {
+						tokensByHour[hourKey] = tok
+					}
+				}
+				if err := rows.Err(); err != nil {
+					tokensByHour = nil
+				}
+				rows.Close()
+			}
+			trafficByHour := map[string]int64{}
+			if rows, qErr := db.QueryContext(ctx, `
+				SELECT hour, COALESCE(SUM(upload_bytes + download_bytes), 0)
+				FROM subscription_usage_hourly
+				WHERE hour >= ?
+				GROUP BY hour`, utcStart.Format(time.RFC3339)); qErr == nil {
+				for rows.Next() {
+					var hourKey string
+					var tr int64
+					if rows.Scan(&hourKey, &tr) == nil {
+						trafficByHour[hourKey] = tr
+					}
+				}
+				if err := rows.Err(); err != nil {
+					trafficByHour = nil
+				}
+				rows.Close()
+			}
+			db.Close()
+			for i, item := range trend {
+				utcHour := localHours[i].In(loc).UTC().Truncate(time.Hour)
+				tokens := tokensByHour[utcHour.Format("2006-01-02 15:04:05")]
+				traffic := trafficByHour[utcHour.Format(time.RFC3339)]
+				item["tokens"] = tokens
+				item["traffic"] = traffic
+				totalTokens += tokens
+				totalTraffic += traffic
+			}
+		}
 		return map[string]interface{}{
 			"total":       map[string]interface{}{"audit": totalAudit, "ops": totalOps, "all": totalAudit + totalOps},
 			"trend":       trend,
-			"tokens":      0,
-			"traffic":     0,
+			"tokens":      totalTokens,
+			"traffic":     totalTraffic,
 			"granularity": "hour",
 		}, nil
 	}
