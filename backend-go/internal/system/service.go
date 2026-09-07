@@ -394,7 +394,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d >= minApiStatsDays && d <= maxApiStatsDays {
 			days = d
 		}
-		payload, err := s.apiStats(days)
+		minutes := 0
+		if m, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && m > 0 && m < 1440 {
+			minutes = m
+		}
+		payload, err := s.apiStatsWindow(days, minutes)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1349,18 +1353,31 @@ func methodsFromAnnotations(desc string) []string {
 }
 
 func (s *Service) apiStats(days int) (map[string]interface{}, error) {
-	// 小时粒度（days ≤ 1）：返回近 24 小时内存趋势（statsCacheHour），实时不落库不缓存。
-	// 词元/流量从持久化小时表实时读取（仅内存统计会恒为 0）。
+	return s.apiStatsWindow(days, 0)
+}
+
+// apiStatsWindow 统计 API 调用与词元/流量用量趋势。
+// days ≤ 1：小时桶趋势；minutes > 0 时窗口为「近 minutes 分钟」（整点桶对齐），否则近 24 小时。
+// days > 1：按天粒度，词元/流量从持久化小时表实时读取（仅内存统计会恒为 0）。
+func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, error) {
 	if days <= 1 {
 		loc := s.siteLocation()
 		now := time.Now().In(loc)
-		trend := make([]map[string]interface{}, 0, 24)
-		localHours := make([]time.Time, 0, 24)
+		var localHours []time.Time
+		if minutes > 0 {
+			for h := now.Add(-time.Duration(minutes) * time.Minute).Truncate(time.Hour); !h.After(now); h = h.Add(time.Hour) {
+				localHours = append(localHours, h)
+			}
+		} else {
+			localHours = make([]time.Time, 0, 24)
+			for i := 23; i >= 0; i-- {
+				localHours = append(localHours, now.Add(-time.Duration(i)*time.Hour))
+			}
+		}
+		trend := make([]map[string]interface{}, 0, len(localHours))
 		var totalAudit, totalOps int64
 		s.mu.Lock()
-		for i := 23; i >= 0; i-- {
-			h := now.Add(-time.Duration(i) * time.Hour)
-			localHours = append(localHours, h)
+		for _, h := range localHours {
 			key := h.Format("2006-01-02 15:00")
 			var audit, ops int64
 			if c, ok := s.statsCacheHour[key]; ok {
@@ -1380,13 +1397,13 @@ func (s *Service) apiStats(days int) (map[string]interface{}, error) {
 		}
 		s.mu.Unlock()
 
-		// 近 24 小时词元（openai_gateway_stats_hourly，UTC "2006-01-02 15:04:05"）
+		// 近 24 小时 / 近 N 分钟词元（openai_gateway_stats_hourly，UTC "2006-01-02 15:04:05"）
 		// 与流量（subscription_usage_hourly，RFC3339 UTC），按站点时区小时对齐。
 		var totalTokens, totalTraffic int64
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if db, err := s.store.Open(ctx); err == nil {
-			utcStart := time.Now().UTC().Add(-24 * time.Hour)
+			utcStart := localHours[0].UTC().Truncate(time.Hour)
 			tokensByHour := map[string]int64{}
 			if rows, qErr := db.QueryContext(ctx, `
 				SELECT hour, COALESCE(SUM(total_tokens), 0)

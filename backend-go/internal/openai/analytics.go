@@ -23,11 +23,22 @@ func settingsLocationFromDB(ctx context.Context, db *sql.DB) *time.Location {
 	return timeutil.LocationFromSettings(ctx, db)
 }
 
-// analyticsTimeWindow 按展示时区计算「近 N 天」过滤起点（转回 UTC 字符串用于与存储的 UTC 时间比较）。
-func analyticsTimeWindow(ctx context.Context, db *sql.DB, days int) (string, *time.Location) {
+// analyticsWindowStart 按展示时区计算「近 N 天 / 近 N 分钟」过滤起点（转回 UTC 字符串用于与存储的 UTC 时间比较）。
+// minutes > 0 时按分钟窗口（近 minutes 分钟）；floor 为 true 时把起点对齐到整点——
+// openai_gateway_stats_hourly 的 hour 为整点存储，分钟级起点会漏掉跨界整点桶导致聚合表查空。
+func analyticsWindowStart(ctx context.Context, db *sql.DB, days, minutes int, floor bool) (string, *time.Location) {
 	loc := settingsLocationFromDB(ctx, db)
-	start := time.Now().In(loc).AddDate(0, 0, -days).UTC().Format("2006-01-02 15:04:05")
-	return start, loc
+	now := time.Now().In(loc)
+	var start time.Time
+	if minutes > 0 {
+		start = now.Add(-time.Duration(minutes) * time.Minute)
+	} else {
+		start = now.AddDate(0, 0, -days)
+	}
+	if floor {
+		start = start.UTC().Truncate(time.Hour)
+	}
+	return start.UTC().Format("2006-01-02 15:04:05"), loc
 }
 
 // sqliteStrftimeOffset 生成 SQLite strftime 偏移 modifier（如 "+08:00"）与时区秒偏移，
@@ -591,8 +602,12 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 			days = d
 		}
 	}
+	minutes := 0
+	if m, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && m > 0 && m < 1440 {
+		minutes = m
+	}
 
-	timeFilter, _ := analyticsTimeWindow(ctx, db, days)
+	timeFilter, _ := analyticsWindowStart(ctx, db, days, minutes, true)
 
 	var totalRequests int
 	var avgLatency float64
@@ -801,15 +816,22 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 			days = d
 		}
 	}
+	minutes := 0
+	if m, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && m > 0 && m < 1440 {
+		minutes = m
+	}
 
-	timeFilter, loc := analyticsTimeWindow(ctx, db, days)
+	timeFilter, loc := analyticsWindowStart(ctx, db, days, minutes, true)
 
-	// 时间粒度：hour / day / week（桶边界与标签按系统时区，非 UTC）
-	granularity := r.URL.Query().Get("granularity")
+	// 时间粒度：hour / day / week（桶边界与标签按系统时区，非 UTC）。分钟窗口强制按小时。
+	timeGroupExpr := r.URL.Query().Get("granularity")
+	if minutes > 0 {
+		timeGroupExpr = "hour"
+	}
 	offsetModifier, offsetSec := sqliteStrftimeOffset(loc)
 	var timeGroup string
 	var tsExpr string
-	switch granularity {
+	switch timeGroupExpr {
 	case "hour":
 		timeGroup = "strftime('%m-%d %H:00', hour, '" + offsetModifier + "')"
 		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 3600 * 3600 - %d", offsetSec, offsetSec)
@@ -817,7 +839,7 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		timeGroup = "strftime('%Y-W%W', hour, '" + offsetModifier + "')"
 		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 604800 * 604800 - %d", offsetSec, offsetSec)
 	default:
-		granularity = "day"
+		timeGroupExpr = "day"
 		timeGroup = "strftime('%m-%d', hour, '" + offsetModifier + "')"
 		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 86400 * 86400 - %d", offsetSec, offsetSec)
 	}
@@ -863,7 +885,7 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		var bucket string
 		if err := rows.Scan(&bucket, &p.TsSec, &p.Count, &p.AvgLatency, &p.AvgTtfbMs, &p.Tokens, &p.Cached, &p.Errors); err == nil {
 			p.Day = bucket
-			p.Granularity = granularity
+			p.Granularity = timeGroupExpr
 			dailyPoints = append(dailyPoints, p)
 		}
 	}
@@ -1096,9 +1118,13 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 	if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
 		days = d
 	}
+	minutes := 0
+	if m, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && m > 0 && m < 1440 {
+		minutes = m
+	}
 
 	offset := (page - 1) * pageSize
-	timeFilter, _ := analyticsTimeWindow(ctx, db, days)
+	timeFilter, _ := analyticsWindowStart(ctx, db, days, minutes, false)
 
 	// 动态筛选条件：按状态码(success/error/429/5xx)、模型、端点过滤，或只看失败。
 	whereClauses := []string{"g.timestamp >= ?", "g.route != 'models'"}
