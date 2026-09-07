@@ -1504,6 +1504,11 @@ export default function TilesBoard() {
   const headerToolsEl = useContext(HeaderToolsContext); // 正式面板：控制栏 portal 到面包屑栏；demo 页无 Provider 则内联
   const [rangeDays, setRangeDays] = useState(() => loadRangeFromStorage()?.days ?? 14);
   const [rangeLabel, setRangeLabel] = useState(() => loadRangeFromStorage()?.label ?? '过去 14 天');
+  const storedRange = loadRangeFromStorage();
+  const [rangeMinutes, setRangeMinutes] = useState(() => {
+    const m = storedRange?.minutes;
+    return Number.isFinite(m) && m > 0 && m < 1440 ? m : null;
+  });
   // 按列数分桶：2~8 列各一套独立布局。当前列数取 TileGrid 容器实际宽度（useContainerWidth 上报），
   // 侧栏 AI 面板让位后主内容变窄 → 列数随之变化，而不是按视口固定。
   const [cols, setCols] = useState(5);
@@ -1536,12 +1541,14 @@ export default function TilesBoard() {
   const [cfLoading, setCfLoading] = useState(false);
 
   const loadApiStats = useCallback(async () => {
-    const cacheKey = `apiStats:${rangeDays}`;
+    const cacheKey = `apiStats:${rangeDays}${rangeMinutes ? `:${rangeMinutes}` : ''}`;
     const cached = cacheGet(cacheKey);
     if (cached) setApiStats(cached);
     if (!cached) setApiStatsLoading(true);
     try {
-      const res = await fetchWithTimeout(`/api/system/api-stats?days=${rangeDays}`);
+      const q = new URLSearchParams({ days: String(rangeDays) });
+      if (rangeMinutes) q.set('minutes', String(rangeMinutes));
+      const res = await fetchWithTimeout(`/api/system/api-stats?${q.toString()}`);
       const json = await res.json().catch(() => null);
       if (json?.success && json.data) {
         setApiStats(json.data);
@@ -1552,17 +1559,18 @@ export default function TilesBoard() {
     } finally {
       setApiStatsLoading(false);
     }
-  }, [rangeDays]);
+  }, [rangeDays, rangeMinutes]);
 
   const loadOpenai = useCallback(async () => {
-    const cacheKey = `openai:${rangeDays}`;
+    const cacheKey = `openai:${rangeDays}${rangeMinutes ? `:${rangeMinutes}` : ''}`;
     const cached = cacheGet(cacheKey);
     if (cached) setOpenaiData(cached);
     if (!cached) setOpenaiLoading(true);
     try {
-      // 近 24 小时用小时粒度，其余按天
-      const gran = rangeDays <= 1 ? 'hour' : 'day';
-      const res = await fetchWithTimeout(`/api/openai/analytics/charts?days=${Math.max(1, rangeDays)}&granularity=${gran}`);
+      const gran = rangeMinutes ? 'hour' : rangeDays <= 1 ? 'hour' : 'day';
+      const q = new URLSearchParams({ days: String(Math.max(1, rangeDays)), granularity: gran });
+      if (rangeMinutes) q.set('minutes', String(rangeMinutes));
+      const res = await fetchWithTimeout(`/api/openai/analytics/charts?${q.toString()}`);
       const json = await res.json().catch(() => null);
       if (json && Array.isArray(json.daily)) {
         setOpenaiData(json);
@@ -1573,7 +1581,7 @@ export default function TilesBoard() {
     } finally {
       setOpenaiLoading(false);
     }
-  }, [rangeDays]);
+  }, [rangeDays, rangeMinutes]);
 
   const loadUptime = useCallback(async () => {
     const cached = cacheGet('uptime');
@@ -2114,12 +2122,14 @@ export default function TilesBoard() {
     <div className={`flex flex-wrap items-center justify-end gap-2 ${headerToolsEl ? '' : 'mb-4'}`}>
       <TimeRangePicker
         value={rangeLabel}
-        onApply={(days, cfRange, label) => {
+        onApply={(days, cfRange, label, minutes) => {
+          const m = minutes && minutes > 0 && minutes < 1440 ? minutes : null;
           setRangeDays(days);
+          setRangeMinutes(m);
           setCfRange(cfRange);
           setRangeLabel(label);
           try {
-            localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify({ days, cfRange, label }));
+            localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify({ days, cfRange, label, minutes: m }));
           } catch {
             /* ignore */
           }

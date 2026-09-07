@@ -612,6 +612,7 @@ function OpenAIPage() {
   // Gateway Analytics（状态/拉取/SSE/日志清理由 useAnalytics 统一管理）
   const {
     analyticsDays, setAnalyticsDays,
+    analyticsMinutes,
     analyticsGranularity, setAnalyticsGranularity,
     analyticsRangeLabel, setAnalyticsRangeLabel, applyAnalyticsRange,
     analyticsSummary,
@@ -1155,8 +1156,10 @@ function OpenAIPage() {
                       type: 'select',
                       label: '时间粒度',
                       icon: <CalendarDotsIcon className="h-3.5 w-3.5" />,
-                      value: analyticsGranularity,
-                      onValueChange: val => setAnalyticsGranularity(val || 'day'),
+                      value: analyticsMinutes ? 'hour' : analyticsGranularity,
+                      onValueChange: val => {
+                        if (!analyticsMinutes) setAnalyticsGranularity(val || 'day');
+                      },
                       options: [
                         { value: 'hour', label: '按小时' },
                         { value: 'day', label: '按天' },
@@ -2183,7 +2186,7 @@ function OpenAIPage() {
                   </div>
                 )}
                 </div>
-                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsDays} 天</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsMinutes ? `${analyticsMinutes} 分钟` : `${analyticsDays} 天`}</span>
               </AppCard>
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
@@ -2239,7 +2242,7 @@ function OpenAIPage() {
                     </Popover>
                   )}
                 </div>
-                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsDays} 天</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsMinutes ? `${analyticsMinutes} 分钟` : `${analyticsDays} 天`}</span>
               </AppCard>
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
@@ -2387,7 +2390,7 @@ function OpenAIPage() {
                   ) : (
                     <>
                       <span className="truncate font-mono text-2xl font-semibold leading-none text-brand">
-                        {((analyticsSummary.totalTokens || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
+                        {((analyticsSummary.totalTokens || 0) / Math.max(1, analyticsMinutes || analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
                     </>
@@ -2408,7 +2411,7 @@ function OpenAIPage() {
                   ) : (
                     <>
                       <span className="truncate font-mono text-2xl font-semibold leading-none text-brand">
-                        {((analyticsSummary.totalRequests || 0) / Math.max(1, analyticsDays * 24 * 60)).toFixed(1)}
+                        {((analyticsSummary.totalRequests || 0) / Math.max(1, analyticsMinutes || analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
                     </>
