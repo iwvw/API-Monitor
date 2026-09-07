@@ -37,6 +37,10 @@ export function TimeRangePicker({ value, onApply, buttonClassName = '' }) {
 
   const applyDateRange = useCallback(() => {
     if (!range?.from || !range?.to) return;
+    if (range.to.getTime() < range.from.getTime()) return;
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+    if (range.to.getTime() > endOfToday.getTime()) return;
     const days = Math.max(1, Math.round((range.to - range.from) / 86400000) + 1);
     const label = `${range.from.toLocaleDateString()} - ${range.to.toLocaleDateString()}`;
     const cfRange = days <= 1 ? '24h' : days <= 7 ? '7d' : '30d';
@@ -77,6 +81,27 @@ export function TimeRangePicker({ value, onApply, buttonClassName = '' }) {
     applyMinutes(minutes, `过去 ${n} ${unit}`);
   }, [applyMinutes]);
 
+  const CUSTOM_PATTERN = /^(\d+\s*(m|min|mins?|minutes?|h|hour|hours|d|day|days))$/i;
+  const customValid = CUSTOM_PATTERN.test(String(customText || '').trim());
+
+  // 日期区间有效：起止齐全、from ≤ to、to 不晚于今天（不选未来）。
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  const dateRangeValid = !!(
+    range?.from &&
+    range?.to &&
+    range.from.getTime() <= range.to.getTime() &&
+    range.to.getTime() <= endOfToday.getTime()
+  );
+
+  const handleApply = useCallback(() => {
+    if (dateRangeValid) {
+      applyDateRange();
+    } else if (customValid) {
+      applyCustom();
+    }
+  }, [dateRangeValid, customValid, applyDateRange, applyCustom]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
@@ -92,7 +117,7 @@ export function TimeRangePicker({ value, onApply, buttonClassName = '' }) {
               value={customText}
               onChange={(e) => setCustomText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') applyCustom();
+                if (e.key === 'Enter') handleApply();
               }}
               placeholder="自定义范围：3h、3 hours、3 m..."
               aria-label="自定义时间范围"
@@ -137,7 +162,7 @@ export function TimeRangePicker({ value, onApply, buttonClassName = '' }) {
           {/* 底部：操作按钮 */}
           <div className="flex items-center justify-end gap-2 border-t border-kumo-line px-3 py-2">
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>取消</Button>
-            <Button size="sm" onClick={applyCustom} disabled={!/^(\d+\s*(m|min|mins?|minutes?|h|hour|hours|d|day|days))$/i.test(String(customText || '').trim())}>
+            <Button size="sm" onClick={handleApply} disabled={!customValid && !dateRangeValid}>
               应用
             </Button>
           </div>
