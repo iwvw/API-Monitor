@@ -3,6 +3,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
+import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
@@ -37,6 +38,7 @@ import {
   RefreshCw,
   RotateCw,
   Server,
+  Shield,
   Square,
   Terminal,
   Trash,
@@ -115,12 +117,12 @@ const EIP_TABLE_COLUMNS = [
 ];
 
 const ACCOUNT_TABLE_COLUMNS = [
-  { id: 'name', role: 'primary' },
-  { id: 'site', role: 'meta', width: 100 },
-  { id: 'accessKeyId', role: 'identifier', width: 180, minWidth: 150 },
+  { id: 'name', role: 'primary', width: 180, minWidth: 150 },
+  { id: 'site', role: 'meta', width: 88 },
+  { id: 'accessKeyId', role: 'identifier', width: 170, minWidth: 150 },
   { id: 'defaultRegion', role: 'meta', grow: 1, minWidth: 140 },
   { id: 'status', role: 'status' },
-  { id: 'actions', role: 'actions-lg', width: 180, maxWidth: 220 },
+  { id: 'actions', role: 'actions-lg', width: 160, maxWidth: 200 },
 ];
 
 const BUCKET_TABLE_COLUMNS = [
@@ -195,6 +197,14 @@ export default function HuaweiPage() {
   const [flexusDetail, setFlexusDetail] = useState(null);
   const [flexusOps, setFlexusOps] = useState({ open: false, type: 'rename', instance: null, value: '' });
   const [sshTarget, setSshTarget] = useState(null);
+  const [sshCredDialogOpen, setSshCredDialogOpen] = useState(false);
+  const [sshCredAccount, setSshCredAccount] = useState(null);
+  const [sshCredForm, setSshCredForm] = useState({ sshUser: '', sshPort: 22, sshPrivateKey: '', sshPassword: '' });
+  const [savingSshCred, setSavingSshCred] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importingAccounts, setImportingAccounts] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importOverwrite, setImportOverwrite] = useState(false);
   const [buckets, setBuckets] = useState([]);
   const [objects, setObjects] = useState([]);
   const [selectedBucket, setSelectedBucket] = useState(null);
@@ -627,6 +637,40 @@ export default function HuaweiPage() {
     }
   };
 
+  const openSshDialog = (account) => {
+    setSshCredAccount(account);
+    setSshCredForm({
+      sshUser: account.sshUser || '',
+      sshPort: account.sshPort || 22,
+      sshPrivateKey: '',
+      sshPassword: '',
+    });
+    setSshCredDialogOpen(true);
+  };
+
+  const saveSshCred = async () => {
+    if (!sshCredAccount) return;
+    setSavingSshCred(true);
+    try {
+      await apiFetch(`/api/huawei/accounts/${sshCredAccount.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          sshUser: sshCredForm.sshUser.trim(),
+          sshPort: Number(sshCredForm.sshPort) || 22,
+          sshPrivateKey: sshCredForm.sshPrivateKey,
+          sshPassword: sshCredForm.sshPassword,
+        }),
+      });
+      toast.success('SSH 凭据已保存');
+      setSshCredDialogOpen(false);
+      loadAccounts({ force: true });
+    } catch (error) {
+      toast.error(error.message || '保存 SSH 凭据失败');
+    } finally {
+      setSavingSshCred(false);
+    }
+  };
+
   const verifyAccount = async (account) => {
     try {
       const result = await apiFetch(`/api/huawei/accounts/${account.id}/verify`, { method: 'POST' });
@@ -634,6 +678,53 @@ export default function HuaweiPage() {
       loadAccounts({ force: true });
     } catch (error) {
       toast.error(error.message || '验证账号失败');
+    }
+  };
+
+  const exportAccountsAction = async () => {
+    try {
+      const result = await apiFetch('/api/huawei/export/accounts');
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `huawei-accounts-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('已导出账号清单（含敏感凭据，请妥善保管）');
+    } catch (error) {
+      toast.error(error.message || '导出失败');
+    }
+  };
+
+  const submitImport = async () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(importText);
+    } catch {
+      toast.error('JSON 解析失败');
+      return;
+    }
+    const accounts = Array.isArray(parsed) ? parsed : parsed?.accounts;
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      toast.error('未找到 accounts 数组');
+      return;
+    }
+    setImportingAccounts(true);
+    try {
+      await apiFetch('/api/huawei/import/accounts', {
+        method: 'POST',
+        body: JSON.stringify({ accounts, overwrite: importOverwrite }),
+      });
+      toast.success(`已导入 ${accounts.length} 个账号`);
+      setImportDialogOpen(false);
+      setImportText('');
+      setImportOverwrite(false);
+      loadAccounts({ force: true });
+    } catch (error) {
+      toast.error(error.message || '导入失败');
+    } finally {
+      setImportingAccounts(false);
     }
   };
 
@@ -1077,9 +1168,13 @@ export default function HuaweiPage() {
             title="华为云账号"
             icon={<Key className="h-4 w-4" />}
             actions={(
-              <Button type="button" size="sm" variant="primary" onClick={openCreateAccount}>
-                <Plus className="h-4 w-4" />新增账号
-              </Button>
+              <>
+                <Button type="button" size="sm" variant="secondary" onClick={exportAccountsAction} title="导出账号清单（含敏感凭据）"><Download className="h-4 w-4" />导出</Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => setImportDialogOpen(true)}><Upload className="h-4 w-4" />导入</Button>
+                <Button type="button" size="sm" variant="primary" onClick={openCreateAccount}>
+                  <Plus className="h-4 w-4" />新增账号
+                </Button>
+              </>
             )}
             bodyPadding="none"
           >
@@ -1125,10 +1220,11 @@ export default function HuaweiPage() {
                           </StatusBadge>
                         </Table.Cell>
                         <Table.Cell>
-                          <div className="inline-flex items-center gap-2">
-                            <Button type="button" size="sm" variant="secondary" onClick={() => verifyAccount(account)}>验证</Button>
-                            <Button type="button" size="sm" variant="secondary" onClick={() => openEditAccount(account)}>编辑</Button>
-                            <Button type="button" size="sm" variant="destructive" onClick={() => deleteAccount(account)}><Trash className="h-4 w-4" /></Button>
+                          <div className="inline-flex items-center gap-1">
+                            <Button type="button" size="sm" shape="square" variant="secondary" title="SSH 凭据" aria-label="SSH 凭据" onClick={() => openSshDialog(account)}><Terminal className="h-4 w-4" /></Button>
+                            <Button type="button" size="sm" shape="square" variant="secondary" title="验证" aria-label="验证" onClick={() => verifyAccount(account)}><Shield className="h-4 w-4" /></Button>
+                            <Button type="button" size="sm" shape="square" variant="secondary" title="编辑" aria-label="编辑" onClick={() => openEditAccount(account)}><Edit className="h-4 w-4" /></Button>
+                            <Button type="button" size="sm" shape="square" variant="destructive" title="删除" aria-label="删除" onClick={() => deleteAccount(account)}><Trash className="h-4 w-4" /></Button>
                           </div>
                         </Table.Cell>
                       </Table.Row>
@@ -1222,6 +1318,42 @@ export default function HuaweiPage() {
         </Dialog>
       </Dialog.Root>
 
+      <Dialog.Root open={sshCredDialogOpen} onOpenChange={setSshCredDialogOpen}>
+        <Dialog className="@container !w-[min(38rem,calc(100vw-2rem))] !max-w-[min(38rem,calc(100vw-2rem))] p-6">
+          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">SSH 凭据 · {sshCredAccount?.name || ''}</Dialog.Title>
+          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">用于面板内终端直连实例。私钥优先、密码兜底；编辑时留空表示不更换。</Dialog.Description>
+          <div className="flex flex-col gap-3">
+            <div className="grid gap-3 cq-md:grid-cols-2">
+              <Input label="SSH 用户" value={sshCredForm.sshUser} onChange={(e) => setSshCredForm({ ...sshCredForm, sshUser: e.target.value })} placeholder="默认 root" />
+              <Input label="SSH 端口" type="number" value={sshCredForm.sshPort} onChange={(e) => setSshCredForm({ ...sshCredForm, sshPort: Number(e.target.value) })} placeholder="默认 22" />
+            </div>
+            <div className="grid gap-3 cq-md:grid-cols-2">
+              <Textarea label="SSH 私钥（可选）" value={sshCredForm.sshPrivateKey} onChange={(e) => setSshCredForm({ ...sshCredForm, sshPrivateKey: e.target.value })} placeholder="粘贴 PEM 私钥，编辑时留空不更换" className="min-h-[7rem]" />
+              <Input label="SSH 密码（可选）" type="password" value={sshCredForm.sshPassword} onChange={(e) => setSshCredForm({ ...sshCredForm, sshPassword: e.target.value })} placeholder="与私钥二选一" />
+            </div>
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setSshCredDialogOpen(false)}>取消</Button>
+              <Button size="sm" onClick={saveSshCred} disabled={savingSshCred}>{savingSshCred ? '保存中…' : '保存'}</Button>
+            </div>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <Dialog className="@container !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] p-6">
+          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">导入华为云账号</Dialog.Title>
+          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">粘贴从「导出」得到的 JSON（含 AK/SK/SSH 凭据），或按 {`{"accounts":[...]}`} 格式。</Dialog.Description>
+          <div className="flex flex-col gap-3">
+            <Textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={'{"accounts":[{"name":"...","accessKeyId":"...","secretAccessKey":"...","sshUser":"root","sshPort":22}]}'} className="min-h-[11rem] font-mono text-xs" />
+            <Switch size="sm" label="覆盖当前已有账号" controlFirst={false} checked={importOverwrite} onCheckedChange={(checked) => setImportOverwrite(Boolean(checked))} />
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setImportDialogOpen(false)}>取消</Button>
+              <Button size="sm" onClick={submitImport} disabled={importingAccounts || !importText.trim()}>{importingAccounts ? '导入中…' : '导入'}</Button>
+            </div>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
       <Dialog.Root open={bucketDialogOpen} onOpenChange={setBucketDialogOpen}>
         <Dialog className="@container !w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] p-6">
           <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">新建 OBS 桶</Dialog.Title>
@@ -1263,17 +1395,6 @@ export default function HuaweiPage() {
               <Input label="默认项目 ID" value={accountForm.defaultProjectId} onChange={(e) => setAccountForm({ ...accountForm, defaultProjectId: e.target.value })} placeholder="验证后自动发现，可留空" />
             </div>
             <Input label="备注" value={accountForm.description} onChange={(e) => setAccountForm({ ...accountForm, description: e.target.value })} placeholder="可选" />
-            <div className="border-t border-kumo-line pt-3">
-              <div className="mb-2 text-xs font-medium text-kumo-subtle">SSH 凭据（用于面板内终端直连实例）</div>
-              <div className="grid gap-3 cq-md:grid-cols-2">
-                <Input label="SSH 用户" value={accountForm.sshUser} onChange={(e) => setAccountForm({ ...accountForm, sshUser: e.target.value })} placeholder="默认 root" />
-                <Input label="SSH 端口" type="number" value={accountForm.sshPort} onChange={(e) => setAccountForm({ ...accountForm, sshPort: Number(e.target.value) })} placeholder="默认 22" />
-              </div>
-              <div className="mt-3 grid gap-3 cq-md:grid-cols-2">
-                <Textarea label="SSH 私钥（可选）" value={accountForm.sshPrivateKey} onChange={(e) => setAccountForm({ ...accountForm, sshPrivateKey: e.target.value })} placeholder="粘贴 PEM 私钥，编辑时留空不更换" className="min-h-[7rem]" />
-                <Input label="SSH 密码（可选）" type="password" value={accountForm.sshPassword} onChange={(e) => setAccountForm({ ...accountForm, sshPassword: e.target.value })} placeholder="与私钥二选一，编辑时留空不更换" />
-              </div>
-            </div>
             <div className="mt-2 flex items-center justify-end gap-2">
               <Button size="sm" variant="secondary" onClick={() => setAccountDialogOpen(false)}>取消</Button>
               <Button size="sm" onClick={saveAccount} disabled={savingAccount}>{savingAccount ? '保存中…' : '保存'}</Button>

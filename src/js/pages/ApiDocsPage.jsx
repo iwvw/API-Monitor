@@ -124,6 +124,8 @@ const MODULE_LABELS = {
   aliyun: '阿里云',
   tencent: '腾讯云',
   oracle: 'Oracle OCI',
+  gcp: 'Google Cloud',
+  huawei: '华为云',
   'm365-public-register': 'M365 公开注册',
   m365: 'Microsoft 365',
   koyeb: 'Koyeb',
@@ -344,6 +346,8 @@ const routeGroup = route => {
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'aliyun'))) return '阿里云';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'tencent'))) return '腾讯云';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'oracle'))) return '甲骨文云';
+  if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'gcp'))) return 'Google Cloud';
+  if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'huawei'))) return '华为云';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'm365'))) return 'Microsoft 365';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'github'))) return 'GitHub';
   if (
@@ -417,6 +421,8 @@ const GROUP_ORDER = [
   '阿里云',
   '腾讯云',
   '甲骨文云',
+  'Google Cloud',
+  '华为云',
   'Microsoft 365',
   'GitHub',
   '主机实例',
@@ -467,6 +473,8 @@ const GROUP_NAME_TO_MODULE_ID = {
   阿里云: 'aliyun',
   腾讯云: 'tencent',
   甲骨文云: 'oracle',
+  'Google Cloud': 'gcp',
+  华为云: 'huawei',
   'Microsoft 365': 'm365',
   GitHub: 'github',
   主机实例: 'server',

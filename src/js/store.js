@@ -187,7 +187,7 @@ export const MODULE_GROUPS = [
       {
         id: 'cloud-vendors',
         name: '云厂商',
-        modules: ['dns', 'aliyun', 'tencent', 'oracle', 'm365', 'gcp', 'huawei'],
+        modules: ['dns', 'aliyun', 'tencent', 'huawei', 'oracle', 'm365', 'gcp'],
       },
       {
         id: 'devops',
