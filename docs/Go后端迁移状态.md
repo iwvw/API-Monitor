@@ -1,12 +1,14 @@
 # Go 后端迁移状态
 
-最后更新：2026-07-07
+> **状态**：历史记录（迁移已完成）。路由治理真源见 `backend-go/internal/manifest/manifest.go`，完整路由清单用 `node tools/backend-route-inventory.mjs` 再生；启动与开发指引见 [GO后端启动指南](./GO后端启动指南.md)。
+
+最后更新：2026-09-08
 
 ## 当前状态
 
 当前活跃的后端架构是 `backend-go/` 中的 Go 后端，由 `backend-go/internal/manifest/manifest.go` 治理。
 
-当前路由清单共登记 179 条 manifest 路由，全部由 Go 后端接管。Node sidecar 时代的 Express 模块属于历史上下文，不应再作为新工作的默认实现模型。
+当前路由清单共登记 369 条 manifest 路由，全部由 Go 后端接管。Node sidecar 时代的 Express 模块属于历史上下文，不应再作为新工作的默认实现模型。
 
 ## 这意味着什么
 

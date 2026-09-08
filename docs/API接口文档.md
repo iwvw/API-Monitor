@@ -1,8 +1,14 @@
 # API Monitor API 接口文档
 
-> **版本**: v2.0.0  
-> **最后更新**: 2026-06-16  
+> **版本**: v2.1.0  
+> **最后更新**: 2026-09-08  
 > **Base URL**: `http://your-domain:3000`
+
+> **说明**: 本文档是核心接口的精编参考，覆盖常用高频接口。当前 route inventory 为 369 条 Go-owned 路由（`backend-go/internal/manifest/manifest.go`），**完整权威路由清单**请以以下来源为准：
+>
+> - `node tools/backend-route-inventory.mjs`：从 manifest 提取全量路由（owner/prefix/module/auth/methods）
+> - 运行时 `GET /api/system/openapi.json`：OpenAPI 3.1 出口（基于 manifest + 契约自动生成）
+> - 面板内「接口文档」页（`/api/system/api-docs`）
 
 ---
 
@@ -180,16 +186,41 @@ GET /api/auth/2fa/status
 }
 ```
 
-### 6. 启用/禁用 2FA
+### 6. 2FA 设置与管理
 
-**请求**:
+2FA 在启用后拆分为独立接口；`POST /api/auth/2fa` 本身不直接处理启用/禁用请求。
+
+**请求（初始化 / 重新生成密钥）**:
 ```http
-POST /api/auth/2fa
+POST /api/auth/2fa/setup
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "secret": "<TOTP_SECRET>",
+  "qrcode": "data:image/png;base64,..."
+}
+```
+
+**请求（启用，需校验当前令牌）**:
+```http
+POST /api/auth/2fa/enable
 Content-Type: application/json
 
 {
-  "action": "enable",  // enable/disable
-  "totpToken": "123456"  // 禁用时需要验证
+  "totpToken": "123456"
+}
+```
+
+**请求（禁用，需校验当前令牌）**:
+```http
+POST /api/auth/2fa/disable
+Content-Type: application/json
+
+{
+  "totpToken": "123456"
 }
 ```
 
@@ -197,8 +228,7 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "secret": "<TOTP_SECRET>",  // 启用时返回
-  "qrcode": "data:image/png;base64,..."  // 启用时返回
+  "message": "操作成功"
 }
 ```
 
@@ -921,7 +951,7 @@ Content-Type: application/json
 
 **请求**:
 ```http
-GET /api/totp
+GET /api/totp/accounts
 ```
 
 **响应**:
@@ -944,7 +974,7 @@ GET /api/totp
 
 **请求**:
 ```http
-POST /api/totp
+POST /api/totp/accounts
 Content-Type: application/json
 
 {
@@ -973,7 +1003,7 @@ Content-Type: application/json
 
 **请求**:
 ```http
-GET /api/uptime
+GET /api/uptime/monitors
 ```
 
 **响应**:
@@ -998,7 +1028,7 @@ GET /api/uptime
 
 **请求**:
 ```http
-POST /api/uptime
+POST /api/uptime/monitors
 Content-Type: application/json
 
 {
@@ -1023,12 +1053,21 @@ Content-Type: application/json
 
 #### 3. 公开状态页
 
+公开状态页改为按 slug 访问，不再通过 `?id=` 查询。
+
 **请求**:
 ```http
-GET /api/uptime/status/public?id=1
+GET /api/uptime/public/status-pages/{slug}
 ```
 
-**响应**:
+公开状态页也支持按自定义域名查找与徽标：
+
+```http
+GET /api/uptime/public/status-page-by-domain?domain=status.example.com
+GET /api/uptime/public/badge/{id}
+```
+
+**响应（status-pages）**:
 ```json
 {
   "success": true,
@@ -1050,16 +1089,24 @@ GET /api/uptime/status/public?id=1
 
 ### Filebox 文件分享
 
-#### 1. 上传文件
+文件分享已重构为「分享（share）」模型，大文件走分片上传（init-upload → complete-upload）。
+
+#### 1. 创建分享（普通小文件）
 
 **请求**:
 ```http
-POST /api/filebox
-Content-Type: multipart/form-data
+POST /api/filebox/shares
+Content-Type: application/json
 
-file: [binary file data]
-password: "<OPTIONAL_PASSWORD>"
-expiresIn: 3600  // 秒
+{
+  "name": "document.pdf",
+  "mime": "application/pdf",
+  "size": 1048576,
+  "data": "<BASE64_OR_TEXT_DATA>",
+  "password": "<OPTIONAL_PASSWORD>",
+  "expiresIn": 3600,
+  "maxDownloads": 10
+}
 ```
 
 **响应**:
@@ -1067,22 +1114,62 @@ expiresIn: 3600  // 秒
 {
   "success": true,
   "data": {
-    "id": "abc123def456",
-    "url": "http://your-domain:3000/api/filebox/abc123def456",
+    "code": "abc123def456",
+    "url": "http://your-domain:3000/share/abc123def456",
     "expiresAt": "2024-01-01T13:00:00Z"
   }
 }
 ```
 
-#### 2. 下载文件
+#### 2. 分片上传（大文件）
 
-**请求**:
+先初始化：
+
 ```http
-GET /api/filebox/{id}
-x-filebox-password: <OPTIONAL_PASSWORD>
+POST /api/filebox/shares/init-upload
+Content-Type: application/json
+
+{
+  "name": "big-file.iso",
+  "mime": "application/octet-stream",
+  "size": 536870912,
+  "password": "",
+  "expiresIn": 86400
+}
 ```
 
-**响应**: 返回文件二进制数据
+再完成上传（携带分片数据）：
+
+```http
+POST /api/filebox/shares/complete-upload
+Content-Type: application/json
+
+{
+  "uploadId": "<UPLOAD_ID>",
+  "chunks": [ ... ]
+}
+```
+
+#### 3. 下载文件
+
+**请求**（公开分享码，重定向到实际文件）:
+```http
+GET /share/{code}
+```
+
+分享列表与删除：
+
+```http
+GET /api/filebox/shares
+DELETE /api/filebox/shares/{code}
+```
+
+#### 4. 文件列表 / 节点
+
+```http
+GET /api/filebox/shares
+GET /api/filebox/storage-nodes
+```
 
 ---
 
@@ -1144,7 +1231,7 @@ x-filebox-password: <OPTIONAL_PASSWORD>
 ### JavaScript/Fetch
 
 ```javascript
-// 登录
+// 登录（成功后持有 HttpOnly 会话 Cookie）
 const login = async (password) => {
   const response = await fetch('/api/auth/login', {
     method: 'POST',
@@ -1154,12 +1241,10 @@ const login = async (password) => {
   return await response.json();
 };
 
-// 获取服务器列表
+// 获取服务器列表（浏览器自动携带会话 Cookie）
 const getServers = async () => {
   const response = await fetch('/api/server/accounts', {
-    headers: {
-      'x-admin-password': localStorage.getItem('admin_password'),
-    },
+    credentials: 'same-origin',
   });
   return await response.json();
 };
@@ -1168,19 +1253,17 @@ const getServers = async () => {
 ### cURL
 
 ```bash
-# 登录
-curl -X POST http://localhost:3000/api/auth/login \
+# 登录并保存会话 Cookie
+curl -c cookies.txt -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"password":"<ADMIN_PASSWORD>"}'
 
 # 获取 Cloudflare 账号列表
-curl http://localhost:3000/api/cloudflare/accounts \
-  -H "x-admin-password: <ADMIN_PASSWORD>"
+curl -b cookies.txt http://localhost:3000/api/cloudflare/accounts
 
 # 创建 DNS 记录
-curl -X POST http://localhost:3000/api/cloudflare/accounts/1/zones/zone_id/records \
+curl -b cookies.txt -X POST http://localhost:3000/api/cloudflare/accounts/1/zones/zone_id/records \
   -H "Content-Type: application/json" \
-  -H "x-admin-password: <ADMIN_PASSWORD>" \
   -d '{
     "type": "A",
     "name": "api",
@@ -1197,18 +1280,15 @@ import requests
 base_url = "http://localhost:3000"
 password = "<ADMIN_PASSWORD>"
 
-# 登录
-login_response = requests.post(
+# 登录（保留会话）
+session = requests.Session()
+login_response = session.post(
     f"{base_url}/api/auth/login",
     json={"password": password}
 )
-session = login_response.cookies
 
 # 获取服务器列表
-servers = requests.get(
-    f"{base_url}/api/server/accounts",
-    cookies=session
-).json()
+servers = session.get(f"{base_url}/api/server/accounts").json()
 
 print(servers)
 ```

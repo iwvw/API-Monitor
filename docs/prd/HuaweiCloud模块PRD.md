@@ -1,6 +1,8 @@
 # Huawei Cloud（华为云）云资源管理模块 PRD
 
-最后更新：2026-09-06
+最后更新：2026-09-08
+
+实现状态（2026-09-08）：Phase 1/3/4 及 Phase 2 的网络部分（EIP/VPC 只读）均已上线；**Phase 2 剩余未实现：ECS 创建实例（规格/镜像选择器）**，对应 ADR `docs/adr/0003-华为云模块架构决策.md`。另已完成超出 PRD 范围的 SSH WebSocket 终端（`backend-go/internal/huawei/ssh.go`）。
 
 ## Problem Statement
 

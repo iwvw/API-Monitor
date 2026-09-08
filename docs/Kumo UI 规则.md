@@ -7,7 +7,7 @@
 ## 总规则
 
 1. 页面可以写业务布局、hook 和数据适配，但基础 UI 必须优先使用 Kumo。
-2. 不新增自写 Button、Input、Select、Tabs、Table、Dialog、Toast、Checkbox、Switch、Sidebar、Loader、Badge、Tooltip、Popover、Dropdown 等组件。
+2. 不新增自写 Button、Input、Select、Tabs、Table、Dialog、Toast、Checkbox、Switch、Sidebar、Loader、Badge、Tooltip、Popover、DropdownMenu 等组件。
 3. 不新增通用 UI 包装组件；确需保留的本地组件必须是业务组合或过渡封装，并在待办中记录。
 4. 不用 `<button>` 模拟 Tabs，不用 `<select>` 模拟 Select，不用 div + CSS 模拟 Dialog。
 5. 不硬编码主题色，使用 Kumo token。

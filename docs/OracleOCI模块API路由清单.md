@@ -1,6 +1,6 @@
 # Oracle OCI 模块 API 路由清单
 
-最后更新：2026-07-12
+最后更新：2026-09-08
 
 ## 1. 文档目的
 
@@ -78,6 +78,11 @@
 - `DELETE /api/oracle/accounts/{id}`
 - `POST /api/oracle/accounts/{id}/verify`
 
+### 账号导出 / 导入（后续补充实现）
+
+- `GET /api/oracle/export/accounts`
+- `POST /api/oracle/import/accounts`
+
 ### 基础资源
 
 - `GET /api/oracle/accounts/{id}/compartments`
@@ -93,6 +98,10 @@
 - `POST /api/oracle/accounts/{id}/instances/{instanceId}/actions`
 - `DELETE /api/oracle/accounts/{id}/instances/{instanceId}`
 - `POST /api/oracle/accounts/{id}/instances`
+
+### 成本概览（后续补充实现）
+
+- `GET /api/oracle/accounts/{id}/cost`
 
 ### 附属资源
 

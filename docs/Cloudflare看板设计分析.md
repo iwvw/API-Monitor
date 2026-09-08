@@ -1,5 +1,7 @@
 # Cloudflare 官方看板（Analytics Tiles）设计分析
 
+> **状态**：一次性分析报告（归档）。分析结论已落地：`react-grid-layout@^2.2.4` 已入依赖，`src/js/components/tiles/`（TileGrid/TilesBoard 等含布局持久化）已实现，见 [卡片库尺寸适配规范](./卡片库尺寸适配规范.md)。
+
 - 分析日期：2026-09-05
 - 分析对象：Cloudflare 帐户主页（dash.cloudflare.com/home）Analytics 区块，卡片可拖拽、可缩放、容器自适应
 - 分析方法：页面 DOM 反推 + react-grid-layout 公开 API 对照 + 与本站（API-Monitor）技术栈对照

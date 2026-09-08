@@ -1,7 +1,8 @@
 # 转发中心（Forwarding Center）PRD
 
-- 状态：草稿
+- 状态：部分实现（Phase 1-2 已落地，Phase 3 未做）
 - 日期：2026-08-24
+- 实现状态（2026-09-08）：`managed_forwards` 表 + `serveragent/managed_forward_tunnels.go`（CF Tunnel）已上线，manifest 注册 `/api/server/forward`，前端集成于 ServerPage（`src/js/components/forward/`）。未实现：P2P 直连（Phase 3）、Token/面板访问控制、TCP 中继二进制独立部署形态。
 - 作者：AI 辅助设计
 
 ---

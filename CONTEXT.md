@@ -33,7 +33,7 @@ Touch these files only for focused reasons. Avoid broad formatting or opportunis
 
 ## Non-Negotiable Rules
 
-- Kumo-only: use Kumo `Button`, `Input`, `Select`, `Tabs`, `Table`, `Dialog`, `DeleteResource`, `Toasty`, `Checkbox`, `Switch`, `Sidebar`, `Loader`, `Tooltip`, `Popover`, `Dropdown`, `TimeseriesChart`, `Meter`, and `ChartPalette` where applicable.
+- Kumo-only: use Kumo `Button`, `Input`, `Select`, `Tabs`, `Table`, `Dialog`, `DeleteResource`, `Toasty`, `Checkbox`, `Switch`, `Sidebar`, `Loader`, `Tooltip`, `Popover`, `DropdownMenu`, `TimeseriesChart`, `Meter`, and `ChartPalette` where applicable.
 - Destructive delete confirmations should gradually move to `dialog.deleteResource` / Kumo `DeleteResource`. Non-delete confirmations can use normal confirm flows.
 - Every backend route change must be represented in the Go route manifest and pass route governance.
 - Do not delete or rewrite `.env`, `data/`, `backup/`, `backend-go/data/`, `backend-go/internal/server/data/`, `node_modules/`, or `public/` by default.

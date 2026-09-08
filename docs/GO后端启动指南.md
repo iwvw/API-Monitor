@@ -1,8 +1,8 @@
 # Go 后端启动指南
 
-最后更新：2026-07-07
+最后更新：2026-09-08
 
-当前默认运行架构是 Go 后端。路由清单由 `backend-go/internal/manifest/manifest.go` 管理，当前 route inventory 为 179 条 Go-owned 路由。旧 Node sidecar 资料仅作为迁移历史，不作为日常启动路径。
+当前默认运行架构是 Go 后端。路由清单由 `backend-go/internal/manifest/manifest.go` 管理，当前 route inventory 为 369 条 Go-owned 路由。旧 Node sidecar 资料仅作为迁移历史，不作为日常启动路径。
 
 ## 快速启动
 
@@ -41,10 +41,12 @@ http://localhost:3000
 PORT=3000
 DATA_DIR=./data
 DB_NAME=data.db
-LOG_LEVEL=INFO
 JWT_SECRET=<JWT_SECRET>
 ADMIN_PASSWORD=<ADMIN_PASSWORD>
+ENCRYPTION_KEY=<ENCRYPTION_KEY>
 ```
+
+其中 `ENCRYPTION_KEY` 在生产环境必填且至少 32 位（敏感凭据 AES 加密主密钥，变更会导致已加密数据无法解密），详见根目录 `README.md` 的配置表。日志级别不再通过 `LOG_LEVEL` 单独控制，由 `internal/applog` 统一管理。
 
 数据目录必须作为真实运行数据保护，不要被清理脚本或重构任务删除。
 
@@ -98,11 +100,13 @@ API_MONITOR_BASE_URL=http://127.0.0.1:3000 npm run backend-go:smoke
 
 - 认证与 2FA。
 - 用户设置与页面宽度/主题偏好。
-- TOTP、Cron、Filebox、Notification、Uptime。
+- TOTP、Cron、Scheduler、Filebox、Notification、Uptime。
 - Cloudflare DNS、Workers、Pages、R2、Tunnels。
-- 阿里云、腾讯云、Koyeb、Fly.io。
-- OpenAI-compatible、Qwen、Gemini CLI。
-- Server 账号、凭据、代码片段、Agent 安装、实时指标、Docker、终端、SFTP。
+- 阿里云、腾讯云、Koyeb、Fly.io、M365、GitHub、Docker Hub。
+- OpenAI-compatible 网关与插件（代理池、Antigravity、DS2API）。
+- Oracle OCI、GCP、华为云云厂商模块（账号/实例/网络/存储/费用）。
+- Server 账号、凭据、代码片段、Agent 安装、实时指标、Docker、终端、SFTP、转发中心。
+- 管理 AI、提示词库、Draw.io、备份、订阅分发。
 
 真实云厂商、Agent、SSH/SFTP、Docker 和外部 AI API 仍需要真实环境 smoke。
 

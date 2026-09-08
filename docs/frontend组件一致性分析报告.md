@@ -1,5 +1,7 @@
 # API Monitor 前端组件一致性 + Bug 分析报告
 
+> **状态**：一次性审计报告（归档），仅作回溯参考，不视为现行标准。所提修复项由后续工作自行跟进，报告中 file:line 在代码变更后不再保证有效。
+
 - 生成日期：2026-09-05
 - 分析范围：`src/js/` 全部 186 个源文件（pages / components / hooks / modules，排除 `*.test.js`、`src/css`）
 - 设计系统基线：`@cloudflare/kumo@2.13.1`（本机实际安装版本）
