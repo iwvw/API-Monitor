@@ -42,7 +42,7 @@ type Route struct {
 	MatchMode    MatchMode    `json:"matchMode,omitempty"`
 }
 
-// routeTable 在包初始化时构建一次；Match 每请求调用，不应重建 236 条路由。
+// routeTable 在包初始化时构建一次；Match 每请求调用，不应重建 369 条路由。
 var routeTable = buildRoutes()
 
 // compiledRoute 预计算 Match 需要的 score 与 pattern 分段，避免热路径重复计算。

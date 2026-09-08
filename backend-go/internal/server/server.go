@@ -679,6 +679,14 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 			s.bookmarks.ServeHTTP(w, r)
 			return
 		}
+		if strings.HasPrefix(route.Prefix, "/api/gcp") {
+			s.gcp.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(route.Prefix, "/api/huawei") {
+			s.huawei.ServeHTTP(w, r)
+			return
+		}
 		response.Error(w, http.StatusNotFound, "go route not implemented: "+route.Prefix)
 	}
 }
