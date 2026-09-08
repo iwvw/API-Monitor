@@ -2,7 +2,7 @@
 
 最后更新：2026-09-05
 
-本文档是 API Monitor 前端 UI 的硬约束。当前项目以 `@cloudflare/kumo` 2.13.1 为唯一设计系统基线。
+本文档是 API Monitor 前端 UI 的硬约束。当前项目以 `@cloudflare/kumo` 2.13.2 为唯一设计系统基线。
 
 ## 总规则
 
@@ -52,7 +52,7 @@
 未来 major 版本移除）。**本项目刻意保留 `size="sm"`，不迁移**：
 
 - 原因：`Toolbar.Button` / `Toolbar.Input` / `Toolbar.Link` / `Toolbar.InputGroup` 的尺寸由 Toolbar
-  上下文强制注入（其 Props 已 Omit `size`，无法单独设置），官方在 2.13.1 没有任何「非废弃」的紧凑
+  上下文强制注入（其 Props 已 Omit `size`，无法单独设置），官方在 2.13.2 没有任何「非废弃」的紧凑
   路径。项目 17 处导出/导入工具栏全部使用这些子部件，移除 `size="sm"` 会把行内控件从 sm 撑到 base，
   违反本页「Toolbar 使用 size=sm」的密度规则。
 - 处置：维持 `size="sm"`；lint 若拦截该废弃项，走白名单放行并引用本条。

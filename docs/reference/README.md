@@ -12,14 +12,14 @@
 
 ## 当前重要结论
 
-- 当前 Kumo 包版本：`@cloudflare/kumo` 2.13.1。
+- 当前 Kumo 包版本：`@cloudflare/kumo` 2.13.2。
 - `DeleteResource` 可从 `@cloudflare/kumo` 导出。
 - `PageHeader` 和 `ResourceListPage` 当前是 block source；使用前需要通过 Kumo CLI 安装或复制 block source，不要直接从 barrel 导入。
 - Chart 相关能力包括 `TimeseriesChart`、`Meter`、`ChartPalette`，图表应使用 Kumo palette、`loading` 和必要的 `tooltipBoundary`。
 
 ## 快照与当前版本的已知差异
 
-`kumo-component-registry` 快照生成于 2.10.0（8/12），当前实际 2.13.1。组件清单仍 100% 对齐（48/48），但有以下 props 漂移，升级刷新时应补齐：
+`kumo-component-registry` 快照生成于 2.10.0（8/12），当前实际 2.13.2。组件清单仍 100% 对齐（48/48），但有以下 props 漂移，升级刷新时应补齐：
 
 - `Badge.icon`（2.11 新增）
 - `Pagination.hasNextPage`
