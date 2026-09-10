@@ -133,7 +133,7 @@ function allowedColorReason(rel, line, value, lines, index) {
     return 'terminal fallback color';
   }
   if (rel === 'src/js/pages/huawei/SSHTerminalDialog.jsx' && value.startsWith('#')) {
-    return 'SSH 终端 xterm 兜底颜色（docs/重构验证与例外清单.md 登记）';
+    return 'SSH 终端 xterm 兜底颜色（docs/standards/重构验证与例外清单.md 登记）';
   }
   if (rel === 'src/js/pages/UptimePage.jsx' && value.startsWith('#')) {
     return 'legacy ECharts color; migrate when touching uptime charts';
@@ -213,7 +213,7 @@ function allowedColorReason(rel, line, value, lines, index) {
     rel === 'src/js/components/MainLayout.jsx' &&
     (value === '#dc7d40' || (value === 'text-white' && line.includes('askai-entry-sparkle')))
   ) {
-    return 'Ask AI 入口按钮品牌橙（docs/重构验证与例外清单.md 登记）';
+    return 'Ask AI 入口按钮品牌橙（docs/standards/重构验证与例外清单.md 登记）';
   }
   if (rel === 'src/css/app.css' && (value === '#FFF' || value === '#FFEDDD' || value === '#FF9335' || value === '#FFB371')) {
     return 'Ask AI 云朵动画 Cloudflare 品牌色';

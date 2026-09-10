@@ -112,6 +112,7 @@ test-*-*.js
 gha-creds-*.json
 stress-test-gcli.js
 api-monitor.code-workspace
+.codeartsdoer/
 
 # ====================
 # 文档归档（仅保留核心文档）
@@ -129,6 +130,9 @@ docs/archive/
 # ====================
 .dsh-session-inspect/
 rulesjs.json
+# workbuddy /_diag 的本地响应转储（排障用，一次性产物）
+diag.json
+diag2.json
 
 # ====================
 # api-monitor-relay 中继二进制构建产物（源码在 backend-go/cmd/api-monitor-relay）

@@ -36,7 +36,7 @@
       },
       "goDeps": [],
       "systemContracts": [],
-      "docs": ["docs/模型网关插件开发指南.md"],
+      "docs": ["docs/standards/模型网关插件开发指南.md"],
       "uninstallSteps": [
         "rm backend-go/internal/proxypool/",
         "manifest.go：删除 /api/proxypool 前缀行",
@@ -81,7 +81,7 @@
       },
       "goDeps": [],
       "systemContracts": [],
-      "docs": ["docs/模型网关插件开发指南.md"],
+      "docs": ["docs/standards/模型网关插件开发指南.md"],
       "uninstallSteps": [
         "rm backend-go/internal/antigravity/",
         "manifest.go：删除 /api/antigravity 与 /api/antigravity/v1 前缀行",
@@ -133,7 +133,7 @@
         "github.com/router-for-me/CLIProxyAPI/v6"
       ],
       "systemContracts": [],
-      "docs": ["docs/模型网关插件开发指南.md"],
+      "docs": ["docs/standards/模型网关插件开发指南.md"],
       "uninstallSteps": [
         "rm backend-go/internal/ds2api/",
         "manifest.go：删除 /api/ds2api 与 /api/ds2api/v1 前缀行",
@@ -142,6 +142,58 @@
         "DB：DROP TABLE ds2api_settings;（并删除 data/ds2api/config.json 落盘文件）",
         "删除 src/js/pages/openai/plugins/DS2APIPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 ds2api 注册条目"
+      ]
+    },
+    "workbuddy": {
+      "name": "WorkBuddy",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "腾讯 CodeBuddy（copilot.tencent.com）扫码登录转 OpenAI 兼容 API：扫码登录 + token 自动刷新、上游动态模型目录（/v3/config）、对话转发（强制流式）、网关端点一键接入。参照 CLIProxyAPI 插件 workbuddy-cliproxy 原生实现。",
+      "backendDirs": ["backend-go/internal/workbuddy/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/workbuddy\", Module: \"workbuddy\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"WorkBuddy 插件（腾讯 CodeBuddy 转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/workbuddy/v1\", Module: \"workbuddy-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"WorkBuddy 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/workbuddy\""],
+        "structField": "workbuddy *workbuddy.Service",
+        "constructor": "workbuddy: workbuddy.New(cfg),",
+        "injections": [
+          "server.workbuddy.SetProxyPoolSelector(server.proxypool)",
+          "server.workbuddy.StartCallStatsFlush(warmupCtx)",
+          "server.workbuddy.StartAutoRefresh(warmupCtx)"
+        ],
+        "serveCases": ["case \"/api/workbuddy\", \"/api/workbuddy/v1\":"],
+        "authModules": ["workbuddy-compatible"]
+      },
+      "dbTables": ["workbuddy_settings", "workbuddy_call_stats", "workbuddy_usage_daily", "workbuddy_diagnostics"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/WorkBuddyPlugin.jsx"],
+        "registrations": [
+          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "workbuddy" }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [],
+      "systemContracts": [
+        "上游协议事实见 docs/standards/模型网关插件-workbuddy方案.md 第 3 节；协议层集中在 backend-go/internal/workbuddy/upstream.go"
+      ],
+      "docs": ["docs/standards/模型网关插件-workbuddy方案.md", "docs/standards/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/workbuddy/",
+        "manifest.go：删除 /api/workbuddy 与 /api/workbuddy/v1 前缀行",
+        "server.go：删除 import、workbuddy 字段、workbuddy.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、/api/workbuddy case、workbuddy-compatible 鉴权分支",
+        "DB：DROP TABLE workbuddy_diagnostics; DROP TABLE workbuddy_usage_daily; DROP TABLE workbuddy_call_stats; DROP TABLE workbuddy_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'workbuddy-internal';",
+        "删除 src/js/pages/openai/plugins/WorkBuddyPlugin.jsx",
+        "OpenAIPluginsPanel.jsx：移除 workbuddy 注册条目（含 CodeBuddyBrand 图标 import 与组件 import）",
+        "删除 docs/standards/模型网关插件-workbuddy方案.md"
       ]
     }
   }
