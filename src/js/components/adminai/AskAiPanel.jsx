@@ -37,6 +37,11 @@ const PANEL_MIN_WIDTH = 320;
 const PANEL_MAX_WIDTH = 800;
 const PANEL_DEFAULT_WIDTH = 450;
 
+// 会话历史分页：后端 /messages 默认只返回最近 50 行并携带 nextCursor，
+// 前端必须沿游标取完全部行，否则长会话（多轮 agent 带工具调用）的较早内容会静默消失。
+const MESSAGE_PAGE_LIMIT = 200; // 每页行数（后端上限 200）
+const MESSAGE_MAX_ROWS = 2000; // 单会话拉取行数上限，防病态超长会话拉爆面板
+
 const ACTIVE_SESSION_STORAGE_KEY = 'adminai-active-session';
 
 function readStoredActiveSession() {
@@ -592,19 +597,38 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const loadMessages = useCallback(async (sessionId) => {
     if (!sessionId) return;
     try {
-      const res = await fetch(`/api/admin-ai/sessions/${sessionId}/messages`);
-      const data = await res.json();
-      // 会话守卫：await 期间用户可能已快速切换会话（A→B），晚到的
-      // A 响应不得覆盖 B 的消息列表。此守卫也作用于轮询重拉路径。
-      if (activeSessionIdRef.current !== sessionId) return;
-      const body = data.data || data;
-      const items = body.items || body.messages || [];
-      // DB 行 → timeline parts（推理/工具调用/工具结果/正文按时间序，一轮一条消息）
-      const live = body.activeRun && body.activeRun.runId
-        ? { runId: body.activeRun.runId, phase: body.activeRun.phase || 'starting' }
-        : null;
+      // 沿 nextCursor 分页取全量历史：每页行内按时间升序，页间后一页严格更早，
+      // 按序拼接即为全局时间升序，一次 buildTimelineFromRows 可正确合并轮次边界。
+      const rows = [];
+      let cursor = '';
+      let live = null;
+      for (let page = 0; page * MESSAGE_PAGE_LIMIT < MESSAGE_MAX_ROWS; page++) {
+        // 会话守卫：await 期间用户可能已快速切换会话（A→B），晚到的
+        // A 响应不得覆盖 B 的消息列表。此守卫也作用于轮询重拉路径。
+        if (activeSessionIdRef.current !== sessionId) return;
+        const q = `?limit=${MESSAGE_PAGE_LIMIT}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+        const res = await fetch(`/api/admin-ai/sessions/${sessionId}/messages${q}`);
+        const data = await res.json();
+        if (activeSessionIdRef.current !== sessionId) return;
+        const body = data.data || data;
+        const items = body.items || body.messages || [];
+        rows.push(...items);
+        live = live || (body.activeRun && body.activeRun.runId
+          ? { runId: body.activeRun.runId, phase: body.activeRun.phase || 'starting' }
+          : null);
+        cursor = body.nextCursor || '';
+        if (!cursor || items.length === 0) break;
+      }
+      // 页间可能因拉取期间有新消息写入而出现重叠行，按 id 去重（保留先到的较新行）
+      const seen = new Set();
+      const unique = [];
+      for (const r of rows) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
+        unique.push(r);
+      }
       setLiveRun(live);
-      setMessages(markLiveMessage(buildTimelineFromRows(items), live));
+      setMessages(markLiveMessage(buildTimelineFromRows(unique), live));
     } catch {
     }
   }, []);
