@@ -248,7 +248,7 @@ Flexus L 是组合服务（云主机 + EIP + 云硬盘 + 云备份 + 主机安�
 
 ## 前端设计细节
 
-本节吸收 GcpPage/OraclePage 已落地的实现经验（`src/js/pages/GcpPage.jsx`、`src/js/pages/OraclePage.jsx`、`src/js/modules/tableLayout.js`、`docs/语义化表格布局与移动端适配.md`），华为云页面直接复用以下模式，不另起炉灶。
+本节吸收 GcpPage/OraclePage 已落地的实现经验（`src/js/pages/GcpPage.jsx`、`src/js/pages/OraclePage.jsx`、`src/js/modules/tableLayout.js`、`docs/prd/语义化表格布局与移动端适配.md`），华为云页面直接复用以下模式，不另起炉灶。
 
 ### 1. 页面外层结构与 Tab 栏
 
@@ -494,7 +494,7 @@ backend-go/internal/huawei/
 ### 8. 参考实现与文档
 
 - 后端蓝图：`backend-go/internal/gcp/`（REST + token 模式，最近实践）、`backend-go/internal/oracle/`（多字段加密 + 脱敏模式）、`backend-go/internal/aliyun/`（自研 RPC 签名）。
-- 前端经验来源：`docs/Kumo UI 规则.md`、`docs/前端开发最佳实践.md`、`docs/新模块接入指南.md`、`docs/语义化表格布局与移动端适配.md`、`docs/重构验证与例外清单.md`。
+- 前端经验来源：`docs/standards/Kumo UI 规则.md`、`docs/standards/前端布局约定.md`、`docs/guides/新模块接入指南.md`、`docs/prd/语义化表格布局与移动端适配.md`、`docs/standards/重构验证与例外清单.md`。
 
 ## API Contract Draft
 

@@ -14,7 +14,7 @@
 6. 字段归一化与错误处理
 7. 日志、安全与测试要求
 
-对应产品文档见 [Oracle OCI 主机管理模块 PRD](./prd/OracleOCI主机管理模块.md)。
+对应产品文档见 [Oracle OCI 主机管理模块 PRD](../prd/OracleOCI主机管理模块.md)。
 
 ## 2. 设计目标
 
@@ -652,5 +652,5 @@ OCI SDK 对象字段多、嵌套深、命名偏 SDK 风格。前端直接消费�
 - `backend-go/internal/oracle/*`
 - `backend-go/internal/manifest/manifest.go`
 - `backend-go/internal/server/server.go`
-- `docs/API接口文档.md`（后续补充）
+- `docs/architecture/API接口文档.md`（后续补充）
 - `docs/README.md`

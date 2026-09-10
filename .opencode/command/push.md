@@ -53,7 +53,7 @@ agent: build
 
 ## 阶段 7：关闭本次改动对应的 GitHub Issues
 
-若本次改动对应了已跟踪的 task issue（`backlog`/`in-progress`/`done` 标签），部署通过后逐个闭环。**遵循 `docs/待办任务闭环流程.md` 第 3 步的标准三步：先加 `done` 标签、再移除 `in-progress`/`backlog`、最后关闭附完成说明。**
+若本次改动对应了已跟踪的 task issue（`backlog`/`in-progress`/`done` 标签），部署通过后逐个闭环。**遵循 `docs/guides/待办任务闭环流程.md` 第 3 步的标准三步：先加 `done` 标签、再移除 `in-progress`/`backlog`、最后关闭附完成说明。**
 
 **常见坑（必须避免）：只 `gh issue close` 而不换标签，会导致已关闭的 issue 仍挂着 `backlog`/`in-progress`。**
 

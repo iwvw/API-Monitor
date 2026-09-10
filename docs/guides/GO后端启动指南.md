@@ -146,8 +146,9 @@ npm run build
 ```bash
 npm run governance:check
 npm run ui:governance
+npm run docs:check
 npm run audit:fast
 npm run clean:check
 ```
 
-完整状态见 [Go 后端迁移状态](./Go后端迁移状态.md)。
+完整状态见 [Go 后端迁移状态](../archive/Go后端迁移状态.md)（历史记录，迁移已完成）。

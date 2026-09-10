@@ -2,7 +2,7 @@
 
 最后更新：2026-09-08
 
-本目录存放上游或生成型资料，不代表项目当前状态本身。项目状态请优先阅读 `docs/README.md` 和 `docs/Kumo UI 规则.md`。
+本目录存放上游或生成型资料，不代表项目当前状态本身。项目状态请优先阅读 `docs/README.md` 和 `docs/standards/Kumo UI 规则.md`。
 
 ## 文件
 
@@ -29,5 +29,5 @@
 
 升级 `@cloudflare/kumo` 后刷新本目录，并同步更新：
 
-- `docs/Kumo UI 规则.md`
-- `docs/前端开发最佳实践.md`
+- `docs/standards/Kumo UI 规则.md`
+- `docs/standards/前端布局约定.md`

@@ -126,7 +126,7 @@ Always preserve:
 
 ## UI Exception List
 
-Allowed UI exceptions are documented in `docs/重构验证与例外清单.md`. Future audits should use that file before flagging hardcoded colors or file-input patterns as regressions.
+Allowed UI exceptions are documented in `docs/standards/重构验证与例外清单.md`. Future audits should use that file before flagging hardcoded colors or file-input patterns as regressions.
 
 Current known exception groups:
 
@@ -157,8 +157,8 @@ Applies when multiple Agent windows run different tasks against this repo at the
 
 - All active dev work is tracked as GitHub Issues on `iwvw/API-Monitor` with `backlog`/`in-progress`/`done` labels. Each task = one issue; keep sensitive details in repo files and reference them from the issue body.
 - Before starting work: find or create the issue for the task, set it `in-progress`, and note the file domain + branch in the issue body. Never touch a file another active issue/task holds.
-- When done, close the issue (or set `done`) and note the verification commands used. See `docs/待办任务闭环流程.md` for the concrete closed-loop workflow (progress check, completion verdict, label/close commands, pitfalls).
-- `docs/多Agent协作登记.md` is deprecated as the coordination surface; keep it only as historical record.
+- When done, close the issue (or set `done`) and note the verification commands used. See `docs/guides/待办任务闭环流程.md` for the concrete closed-loop workflow (progress check, completion verdict, label/close commands, pitfalls).
+- `docs/archive/多Agent协作登记.md` is deprecated as the coordination surface; keep it only as historical record.
 
 ### File Ownership (first line of defense)
 

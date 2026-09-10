@@ -6,7 +6,7 @@ AI 侧栏/全屏对话面板（`src/js/components/adminai/`）的布局与交互
 
 ## 折叠动画（.askai-collapse）
 
-消息卡片、推理展开块、工具步骤组共用一套 grid 折叠动画，三个坑必须避开：
+消息卡片、推理展开块、工具步骤组共用一套 grid 折叠动画，三个坑必须避开（通用原理见[前端布局约定·卡片与网格](./前端布局约定.md)）：
 
 1. **列轨道/行轨道必须显式 `minmax(0, …)`**：`fr` 只设上限、下限默认 `auto`（=内容 min-content）。
    - 列用 `grid-template-columns: minmax(0, 1fr)`，否则长 JSON/长路径（truncate/line-clamp 元素的 intrinsic 宽度）会把整条消息列撑出横向滚动；

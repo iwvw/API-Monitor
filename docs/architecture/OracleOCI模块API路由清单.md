@@ -11,7 +11,7 @@
 - 前端 `OraclePage.jsx` 的请求契约
 - 后端测试与接口文档补全
 
-对应产品文档见 [Oracle OCI 主机管理模块 PRD](./prd/OracleOCI主机管理模块.md)，对应实现设计见 [Oracle OCI 模块技术设计文档](./OracleOCI模块技术设计文档.md)。
+对应产品文档见 [Oracle OCI 主机管理模块 PRD](../prd/OracleOCI主机管理模块.md)，对应实现设计见 [Oracle OCI 模块技术设计文档](./OracleOCI模块技术设计文档.md)。
 
 ## 2. 通用约定
 
@@ -615,6 +615,6 @@
 
 实现完成后需要同步更新：
 
-- [E:\Code\API-Monitor\docs\API接口文档.md](</E:/Code/API-Monitor/docs/API接口文档.md>)
-- [E:\Code\API-Monitor\docs\README.md](</E:/Code/API-Monitor/docs/README.md>)
+- [API 接口文档](./API接口文档.md)
+- [文档索引](../README.md)
 - 必要时更新 `docs/prd/OracleOCI主机管理模块.md`

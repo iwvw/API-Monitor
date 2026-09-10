@@ -166,10 +166,10 @@ npm run backend-go:build
 ## 文档
 
 - [文档索引](./docs/README.md)
-- [开发指南](./docs/开发指南.md)
-- [API 接口文档](./docs/API接口文档.md)
-- [安全加固与扫描计划](./docs/安全加固与扫描计划.md)
-- [Kumo UI 规则](./docs/Kumo%20UI%20规则.md)
+- [开发指南](./docs/guides/开发指南.md)
+- [API 接口文档](./docs/architecture/API接口文档.md)
+- [安全加固与扫描计划](./docs/standards/安全加固与扫描计划.md)
+- [Kumo UI 规则](./docs/standards/Kumo%20UI%20规则.md)
 
 ## 许可证
 

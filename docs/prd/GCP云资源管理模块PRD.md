@@ -400,7 +400,7 @@ backend-go/internal/gcp/
 ### 8. 参考实现与文档
 
 - 后端蓝图：`backend-go/internal/oracle/`（提交 5a0f26bd 起稳定形态），本模块接线逐文件对齐它。
-- 前端经验来源：`docs/Kumo UI 规则.md`（Kumo-only 组件白名单与 Table 用法）、`docs/前端开发最佳实践.md`、`docs/新模块接入指南.md`、`docs/重构验证与例外清单.md`（品牌色/文件输入等例外登记）。
+- 前端经验来源：`docs/standards/Kumo UI 规则.md`（Kumo-only 组件白名单与 Table 用法）、`docs/standards/前端布局约定.md`、`docs/guides/新模块接入指南.md`、`docs/standards/重构验证与例外清单.md`（品牌色/文件输入等例外登记）。
 - 前端接线故障排除：Kumo 组件白名单（Button/Input/Select/Tabs/Table/Dialog/Toasty/Checkbox/Switch/Sidebar/Loader/Tooltip/Popover/Dropdown/DeleteResource）；业务表走 `AppTable columns` 语义列角色（primary/status/datetime/actions-*）、可拖动列用 `Table.ResizeHandle`；删除确认走 `dialog.deleteResource`；长串复制用 `ClipboardText`。
 
 ## API Contract Draft
