@@ -104,6 +104,11 @@ type Service struct {
 	locCache   *time.Location
 	locCacheAt time.Time
 
+	// 账号失败冷却：accountID → 冷却截止时刻。上游返回可重试错误（429/5xx/网络/流中断）
+	// 后被写入，选号时跳过。纯内存态：重启即清空，避免把瞬时故障持久化。
+	cooldownMu    sync.Mutex
+	cooldownUntil map[string]time.Time
+
 	externalPool ProxyPoolSelector
 }
 
@@ -126,6 +131,7 @@ func New(cfg config.Config) *Service {
 		callBase:      map[string]int64{},
 		callPending:   map[string]int64{},
 		creditDayUsed: map[string]float64{},
+		cooldownUntil: map[string]time.Time{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

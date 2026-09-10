@@ -3,6 +3,7 @@ package workbuddy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -73,41 +74,81 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	acc, ok := s.pickAccount(r.Context())
-	if !ok {
-		writeOpenAIError(w, http.StatusServiceUnavailable,
-			"没有可用账号：请先扫码登录，或检查账号是否已停用/token 是否已失效", "service_unavailable")
-		return
-	}
-
 	model := s.stripModelPrefix(requested)
 	// 上游拒绝非流式（业务码 11101）：发给上游的 body 一律强制 stream:true，
 	// 非流式由本层把 SSE 聚合回整包。模型名先剥本插件前缀，
 	// 否则思考档位判定（hy3/hy4 前缀）会被前缀干扰。
 	payload := forceStreamBody(rewriteForUpstream(body, model))
 
-	// chatCompletions 保证只在写出任何响应之前返回错误，所以这里可以安全地回错误体。
-	if err := s.chatCompletions(r.Context(), w, &chatRequest{
-		Account: acc,
-		Body:    payload,
-		Model:   model,
-		Stream:  s.clientWantsStream(body),
-	}); err != nil {
-		writeOpenAIError(w, http.StatusBadGateway, err.Error(), "upstream_error")
+	// 失败换号重试：单次转发最多尝试 maxAccountAttempts 个账号。
+	// 某账号上游返回「可重试」错误（429/5xx/网络/流中断）时，把它标记冷却并换下一个号重试；
+	// 冷却中的账号不会被选号。chatCompletions 保证错误发生在写出任何响应之前，
+	// 因此重试不会破坏已下发的字节。账号耗尽或错误不可重试时，把最后一次错误抛给调用方。
+	var lastErr error
+	for attempt := 0; attempt < maxAccountAttempts; attempt++ {
+		acc, ok := s.pickAccount(r.Context())
+		if !ok {
+			break
+		}
+		if err := s.chatCompletions(r.Context(), w, &chatRequest{
+			Account: acc,
+			Body:    payload,
+			Model:   model,
+			Stream:  s.clientWantsStream(body),
+		}); err == nil {
+			return
+		} else {
+			lastErr = err
+			var ue *upstreamError
+			if errors.As(err, &ue) && ue.retryable {
+				s.markCooldown(acc.ID)
+				continue
+			}
+			break
+		}
 	}
+	if lastErr != nil {
+		writeOpenAIError(w, http.StatusBadGateway, lastErr.Error(), "upstream_error")
+		return
+	}
+	writeOpenAIError(w, http.StatusServiceUnavailable,
+		"没有可用账号：请先扫码登录，或检查账号是否已停用/token 是否已失效", "service_unavailable")
+}
+
+// accountCooldown 是账号遇到可重试上游失败（429/5xx/网络/流中断）后的冷却时长。
+// 冷却期内该账号不被选号，让配额/限流缓过去，避免同一账号被反复命中。
+const accountCooldown = 5 * time.Minute
+
+// maxAccountAttempts 是单次转发最多尝试的账号数（首号 + 最多两次换号）。
+// 账号再多也不无限重试，避免拖垮单请求延迟。
+const maxAccountAttempts = 3
+
+// inCooldown 返回账号是否处于失败冷却期（冷却中不会被选号）。
+func (s *Service) inCooldown(id string) bool {
+	s.cooldownMu.Lock()
+	defer s.cooldownMu.Unlock()
+	return s.cooldownUntil != nil && time.Now().Before(s.cooldownUntil[id])
+}
+
+// markCooldown 记录账号一次可重试的上游失败，进入冷却期。
+// 纯内存、只写不删：过期的键被 inCooldown 的时间比较自然放过，顶多占用一个 map 槽位。
+func (s *Service) markCooldown(id string) {
+	s.cooldownMu.Lock()
+	if s.cooldownUntil == nil {
+		s.cooldownUntil = map[string]time.Time{}
+	}
+	s.cooldownUntil[id] = time.Now().Add(accountCooldown)
+	s.cooldownMu.Unlock()
 }
 
 // pickAccount 选取本次转发的账号。
 //
-// 选号策略：**站点时区「今天已消耗 credit 最少」的可用账号**（消耗相同取列表序靠前者）。
-// 这样按实际计费额度自然拉平各账号消耗，也避免某个账号先撞上限额；
+// 选号策略：**站点时区「今天已消耗 credit 最少」的可用账号**（消耗相同取列表序靠前者），
+// 且跳过失败冷却期的账号。这样按实际计费额度自然拉平各账号消耗，也避免某个账号先撞上限额；
 // 权重来自内存快照，选号本身不查库。
 //
 // 一个可用账号都没有时，再试着刷新「已过期但可刷新」的账号（对应设置页的
 // 「扫码登录 + 自动刷新」语义）。
-//
-// TODO(workbuddy-调度): 仍缺 429/配额超限的冷却与失败换号 —— 现在上游报错会直接
-// 502 抛给调用方，不会自动换另一个账号重试。
 func (s *Service) pickAccount(ctx context.Context) (Account, bool) {
 	if acc, ok := s.pickLeastConsumed(s.Settings().Accounts); ok {
 		return acc, true
@@ -118,12 +159,12 @@ func (s *Service) pickAccount(ctx context.Context) (Account, bool) {
 	return Account{}, false
 }
 
-// refreshFirstStaleAccount 找出第一个「未停用、有 refresh token、token 已失效」的账号，
-// 尝试刷新并把结果落库；刷新成功才算可用。
+// refreshFirstStaleAccount 找出第一个「未停用、有 refresh token、token 已失效且不在冷却期」
+// 的账号，尝试刷新并把结果落库；刷新成功才算可用。
 // 仅在「所有账号都不可用」时才走到这里，是兜底路径而非常规选号。
 func (s *Service) refreshFirstStaleAccount(ctx context.Context) (Account, bool) {
 	for _, a := range s.Settings().Accounts {
-		if a.Disabled || a.RefreshToken == "" || tokenState(a) == "valid" {
+		if a.Disabled || a.RefreshToken == "" || tokenState(a) == "valid" || s.inCooldown(a.ID) {
 			continue
 		}
 		acc := a

@@ -560,6 +560,31 @@ type chatRequest struct {
 	Stream bool
 }
 
+// upstreamError 表示一次上游失败的分类结果。
+// retryable 为 true 时，relay 层会把该账号标记冷却并换号重试。
+// 约定：chatCompletions 返回的 error（无论可重试与否）都保证发生在
+// **写出任何下游字节之前**，因此换号重试是安全的。
+type upstreamError struct {
+	msg       string
+	retryable bool
+}
+
+func (e *upstreamError) Error() string { return e.msg }
+
+// isRetryableHTTP 判断上游 HTTP 状态码是否值得换号重试。
+// 429（配额/限流）与 5xx（网关/上游过载）换号常常能成功；4xx 是请求侧问题，重试无意义。
+func isRetryableHTTP(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 // chatCompletions 向上游发起一次对话并把结果写给下游。
 //
 // 上游对非流式请求直接回业务码 11101，所以无论客户端要什么，发给上游的 body
@@ -568,6 +593,8 @@ type chatRequest struct {
 //   - 客户端要非流式 → 把 SSE 聚合回一个完整 chat.completion 再回。
 //
 // 返回的 error 一定发生在**写出任何响应之前**，调用方可以安全地改写成 OpenAI 错误体。
+// 失败会被分类成 *upstreamError：HTTP 429/5xx、网络错误、流中途断流都标记为
+// 可重试（换号常能成功），4xx 标记为不可重试。
 func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, req *chatRequest) error {
 	if strings.TrimSpace(req.Account.AccessToken) == "" {
 		return fmt.Errorf("账号 %s 缺少 access token", req.Account.ID)
@@ -579,12 +606,15 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 	backendHeaders(httpReq, &req.Account)
 	resp, err := s.httpClientFor(req.Account.ID).Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("上游请求失败: %w", err)
+		return &upstreamError{msg: fmt.Sprintf("上游请求失败: %v", err), retryable: true}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("上游 HTTP %d: %s", resp.StatusCode, truncate(strings.TrimSpace(string(payload)), 200))
+		return &upstreamError{
+			msg:       fmt.Sprintf("上游 HTTP %d: %s", resp.StatusCode, truncate(strings.TrimSpace(string(payload)), 200)),
+			retryable: isRetryableHTTP(resp.StatusCode),
+		}
 	}
 
 	s.recordCall(req.Account.ID)
@@ -650,7 +680,8 @@ func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, bod
 func (s *Service) writeAggregated(ctx context.Context, w http.ResponseWriter, body io.Reader, model, accountID string) error {
 	completion, err := aggregateCompletion(body, model, s.observeUsage)
 	if err != nil {
-		return err
+		// 上游流中途断掉：换号重发常能成功，标为可重试。
+		return &upstreamError{msg: err.Error(), retryable: true}
 	}
 	// 聚合结果的 usage 已归一化，直接取出来记账。
 	var probe struct {

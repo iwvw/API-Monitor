@@ -262,6 +262,9 @@ func (s *Service) pickLeastConsumed(accounts []Account) (Account, bool) {
 		if !accountAvailable(a) {
 			continue
 		}
+		if s.inCooldown(a.ID) {
+			continue
+		}
 		u := s.creditDayUsed[a.ID]
 		if bestIdx < 0 || u < bestUsed {
 			bestIdx, bestUsed = i, u
