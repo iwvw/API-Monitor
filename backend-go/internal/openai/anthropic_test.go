@@ -8,12 +8,12 @@ import (
 
 func TestAnthropicModelToOpenAI(t *testing.T) {
 	cases := map[string]string{
-		"claude-opus-4-1":        "deepseek-v4-pro",
-		"claude-opus":            "deepseek-v4-pro",
-		"claude-sonnet-4-5":      "deepseek-v4-flash",
-		"claude-haiku-3-5":       "deepseek-v4-flash",
-		"deepseek-v4-flash":      "deepseek-v4-flash",
-		"gpt-5":                  "gpt-5",
+		"claude-opus-4-1":   "deepseek-v4-pro",
+		"claude-opus":       "deepseek-v4-pro",
+		"claude-sonnet-4-5": "deepseek-v4-flash",
+		"claude-haiku-3-5":  "deepseek-v4-flash",
+		"deepseek-v4-flash": "deepseek-v4-flash",
+		"gpt-5":             "gpt-5",
 	}
 	for in, want := range cases {
 		if got := anthropicModelToOpenAI(in); got != want {
@@ -24,11 +24,11 @@ func TestAnthropicModelToOpenAI(t *testing.T) {
 
 func TestAnthropicToOpenAI(t *testing.T) {
 	body := map[string]interface{}{
-		"model":       "claude-sonnet-4-5",
-		"max_tokens":  1024,
-		"temperature": 0.7,
-		"stream":      true,
-		"system":      "You are helpful.",
+		"model":          "claude-sonnet-4-5",
+		"max_tokens":     1024,
+		"temperature":    0.7,
+		"stream":         true,
+		"system":         "You are helpful.",
 		"stop_sequences": []interface{}{"END"},
 		"messages": []interface{}{
 			map[string]interface{}{"role": "user", "content": "hi"},

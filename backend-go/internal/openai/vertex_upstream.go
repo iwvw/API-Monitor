@@ -704,12 +704,12 @@ func googleRetryAfterFromBody(body []byte) *time.Duration {
 
 // vertexUsage 表示 Vertex generateContent 的 usageMetadata 计费字段。
 type vertexUsage struct {
-	PromptTokenCount           int `json:"promptTokenCount"`
-	ToolUsePromptTokenCount    int `json:"toolUsePromptTokenCount"`
-	CandidatesTokenCount       int `json:"candidatesTokenCount"`
-	TotalTokenCount            int `json:"totalTokenCount"`
-	CachedContentTokenCount    int `json:"cachedContentTokenCount"`
-	ThoughtsTokenCount         int `json:"thoughtsTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	ToolUsePromptTokenCount int `json:"toolUsePromptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount"`
+	ThoughtsTokenCount      int `json:"thoughtsTokenCount"`
 }
 
 // vertexOpenAIUsage 将 Vertex usageMetadata 换算为 OpenAI usage 结构。对齐 Google 计费口径：
@@ -910,7 +910,7 @@ type vertexSSETransformer struct {
 	// 从未发出任何 tool_calls delta，finish 不得以 tool_calls 收尾（避免
 	// 「工具调用已结束但无工具可执行」的幻影收尾）。仅 delta 实际写出时置 true。
 	toolCallsEmitted bool
-	usage           *vertexUsage
+	usage            *vertexUsage
 	// partialToolByName 重组流式工具调用的部分参数：Vertex 通过 partialArgs
 	// JSONPath 分片下发参数，name 跨 chunk 必须一致，参数按路径增量累加，
 	// willContinue=false 时输出完整 tool_calls delta。按工具名区分，
@@ -983,11 +983,11 @@ func (t *vertexSSETransformer) consume(data []byte) [][]byte {
 					Text         string `json:"text"`
 					Thought      bool   `json:"thought"`
 					FunctionCall *struct {
-						Name        string                 `json:"name"`
-						Args        map[string]interface{} `json:"args"`
-						PartialArgs []vertexPartialArg     `json:"partialArgs"`
-						WillContinue *bool                 `json:"willContinue"`
-						ID           string                `json:"id"`
+						Name         string                 `json:"name"`
+						Args         map[string]interface{} `json:"args"`
+						PartialArgs  []vertexPartialArg     `json:"partialArgs"`
+						WillContinue *bool                  `json:"willContinue"`
+						ID           string                 `json:"id"`
 					} `json:"functionCall"`
 				} `json:"parts"`
 			} `json:"content"`
@@ -1038,23 +1038,23 @@ func (t *vertexSSETransformer) consume(data []byte) [][]byte {
 
 // vertexPartialArg 是 Vertex 流式 functionCall 的部分参数块。
 type vertexPartialArg struct {
-	JSONPath     string  `json:"jsonPath"`
-	Value        any     `json:"value"`
-	StringValue  *string `json:"stringValue"`
-	NumberValue  *float64 `json:"numberValue"`
-	BoolValue    *bool   `json:"boolValue"`
-	NullValue    *bool   `json:"nullValue"`
+	JSONPath    string   `json:"jsonPath"`
+	Value       any      `json:"value"`
+	StringValue *string  `json:"stringValue"`
+	NumberValue *float64 `json:"numberValue"`
+	BoolValue   *bool    `json:"boolValue"`
+	NullValue   *bool    `json:"nullValue"`
 }
 
 // consumeToolCall 处理一个流式 functionCall part：完整 args 直接输出；partialArgs
 // 走 JSONPath 重组，willContinue=false/缺失时输出完整 tool_calls delta。OpenAI
 // 流式工具调用的 id 需跨 chunk 稳定、index 单调递增。
 func (t *vertexSSETransformer) consumeToolCall(fc *struct {
-	Name        string                 `json:"name"`
-	Args        map[string]interface{} `json:"args"`
-	PartialArgs []vertexPartialArg     `json:"partialArgs"`
-	WillContinue *bool                 `json:"willContinue"`
-	ID           string                `json:"id"`
+	Name         string                 `json:"name"`
+	Args         map[string]interface{} `json:"args"`
+	PartialArgs  []vertexPartialArg     `json:"partialArgs"`
+	WillContinue *bool                  `json:"willContinue"`
+	ID           string                 `json:"id"`
 }) [][]byte {
 	// 完整参数：整块输出一个 tool_calls delta（name + 完整 args）。
 	if len(fc.PartialArgs) == 0 && len(fc.Args) > 0 {

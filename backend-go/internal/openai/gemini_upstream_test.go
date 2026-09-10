@@ -11,15 +11,15 @@ import (
 
 func TestNormalizeUpstreamType(t *testing.T) {
 	cases := map[string]string{
-		"":          "openai",
-		"openai":    "openai",
-		"OpenAI":    "openai",
-		"gemini":    "gemini",
-		"Gemini":    "gemini",
-		"aistudio":  "gemini",
+		"":                   "openai",
+		"openai":             "openai",
+		"OpenAI":             "openai",
+		"gemini":             "gemini",
+		"Gemini":             "gemini",
+		"aistudio":           "gemini",
 		"generativelanguage": "gemini",
-		"  gemini  ": "gemini",
-		"random":    "openai",
+		"  gemini  ":         "gemini",
+		"random":             "openai",
 	}
 	for in, want := range cases {
 		if got := normalizeUpstreamType(in); got != want {
@@ -133,12 +133,12 @@ func TestOpenAIChatToGeminiToolHistory(t *testing.T) {
 		"messages": []interface{}{
 			map[string]interface{}{"role": "user", "content": "weather?"},
 			map[string]interface{}{
-				"role": "assistant",
+				"role":    "assistant",
 				"content": "",
 				"tool_calls": []interface{}{
 					map[string]interface{}{
-						"id":   "call_1",
-						"type": "function",
+						"id":       "call_1",
+						"type":     "function",
 						"function": map[string]interface{}{"name": "get_weather", "arguments": `{"location":"London"}`},
 					},
 				},

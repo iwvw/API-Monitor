@@ -452,7 +452,7 @@ func (s *Service) reloadOpenResty(w http.ResponseWriter, r *http.Request, server
 		return
 	}
 	// 容错：1Panel 默认的 OpenResty 容器名为 `openresty`。若节点重命名了容器，
-	// 会报错，需改用通用 proxy 或直接调整脚本。见 docs/onepanel接口文档.md。
+	// 会报错，需改用通用 proxy 或直接调整脚本。见 docs/architecture/onepanel接口文档.md。
 	out, err := s.runner.RunCommandTaskAndWait(serverID, "docker exec openresty nginx -t && docker exec openresty nginx -s reload", 15*time.Second)
 	if err != nil {
 		response.Error(w, http.StatusBadGateway, err.Error())

@@ -101,8 +101,8 @@ func TestRateLimitRetryRecoversAfterWait(t *testing.T) {
 	rateLimitRetryBudget = 10 * time.Second
 
 	service, _ := createRelayEndpoint(t, upstream.URL, map[string]interface{}{
-		"rateLimitRetryEnabled":        true,
-		"rateLimitRetryWaitSeconds":    1,
+		"rateLimitRetryEnabled":     true,
+		"rateLimitRetryWaitSeconds": 1,
 	})
 
 	wChat := requestChat(t, service)
@@ -138,8 +138,8 @@ func TestRateLimitRetryStill429WhenBudgetExhausted(t *testing.T) {
 	rateLimitRetryBudget = time.Second
 
 	service, _ := createRelayEndpoint(t, upstream.URL, map[string]interface{}{
-		"rateLimitRetryEnabled":        true,
-		"rateLimitRetryWaitSeconds":    1,
+		"rateLimitRetryEnabled":     true,
+		"rateLimitRetryWaitSeconds": 1,
 	})
 
 	wChat := requestChat(t, service)

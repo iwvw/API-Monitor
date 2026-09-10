@@ -85,27 +85,27 @@ type HeaderItem struct {
 }
 
 type Endpoint struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	BaseURL        string            `json:"baseUrl"`
-	APIKey         string            `json:"apiKey"`
-	APIKeys        []string          `json:"apiKeys,omitempty"`
-	Notes          string            `json:"notes"`
-	Status         string            `json:"status"`
-	Enabled        bool              `json:"enabled"`
-	Models         []string          `json:"models"`
-	Headers        []HeaderItem      `json:"headers,omitempty"`
-	DisabledModels []string          `json:"disabledModels,omitempty"`
-	ProxyPool      []string          `json:"proxyPool,omitempty"`
-	ProxyBatches   []ProxyBatch      `json:"proxyBatches,omitempty"`
-	ProxyEnabled   bool              `json:"proxyEnabled"`
-	AutoSwitch     bool              `json:"autoSwitch"`
-	ForceProxy     bool              `json:"forceProxy"`
-	Protocol       string            `json:"protocol,omitempty"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	BaseURL        string       `json:"baseUrl"`
+	APIKey         string       `json:"apiKey"`
+	APIKeys        []string     `json:"apiKeys,omitempty"`
+	Notes          string       `json:"notes"`
+	Status         string       `json:"status"`
+	Enabled        bool         `json:"enabled"`
+	Models         []string     `json:"models"`
+	Headers        []HeaderItem `json:"headers,omitempty"`
+	DisabledModels []string     `json:"disabledModels,omitempty"`
+	ProxyPool      []string     `json:"proxyPool,omitempty"`
+	ProxyBatches   []ProxyBatch `json:"proxyBatches,omitempty"`
+	ProxyEnabled   bool         `json:"proxyEnabled"`
+	AutoSwitch     bool         `json:"autoSwitch"`
+	ForceProxy     bool         `json:"forceProxy"`
+	Protocol       string       `json:"protocol,omitempty"`
 	// UpstreamType 是端点上游协议类型：空/""/"openai" 表示 OpenAI 兼容上游（默认），
 	// "gemini" 表示 Google AI Studio（Generative Language API Interactions API）上游。
-	UpstreamType   string            `json:"upstreamType,omitempty"`
-	ModelMappings  map[string]string `json:"modelMappings,omitempty"`
+	UpstreamType  string            `json:"upstreamType,omitempty"`
+	ModelMappings map[string]string `json:"modelMappings,omitempty"`
 	// ModelsURL 覆盖模型列表拉取地址（默认 {baseURL}/models）。用于模型列表不在
 	// 标准 /models 路径的上游（如 Cline 的 /recommended-models 独立端点）。
 	ModelsURL string `json:"modelsUrl,omitempty"`
@@ -1265,22 +1265,22 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // 命中映射但全部被禁用时不可路由；无映射命中时按请求名本身判定禁用。
 func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id string) {
 	var req struct {
-		Name         string        `json:"name"`
-		BaseURL      string        `json:"baseUrl"`
-		ModelsURL    *string       `json:"modelsUrl"`
-		APIKey       *string       `json:"apiKey"`
-		APIKeys      []string      `json:"apiKeys"`
-		Notes        string        `json:"notes"`
-		Headers      *[]HeaderItem `json:"headers"`
-		ProxyPool    *[]string     `json:"proxyPool"`
-		ProxyBatches *[]ProxyBatch `json:"proxyBatches"`
-		AutoSwitch   *bool         `json:"autoSwitch"`
-		ProxyEnabled *bool         `json:"proxyEnabled"`
-		ForceProxy   *bool         `json:"forceProxy"`
-		RateLimitRetryEnabled *bool `json:"rateLimitRetryEnabled"`
-		RateLimitRetryWaitSeconds *int `json:"rateLimitRetryWaitSeconds"`
-		KeyRetryRounds      *int   `json:"keyRetryRounds"`
-		Protocol     *string       `json:"protocol"`
+		Name                      string        `json:"name"`
+		BaseURL                   string        `json:"baseUrl"`
+		ModelsURL                 *string       `json:"modelsUrl"`
+		APIKey                    *string       `json:"apiKey"`
+		APIKeys                   []string      `json:"apiKeys"`
+		Notes                     string        `json:"notes"`
+		Headers                   *[]HeaderItem `json:"headers"`
+		ProxyPool                 *[]string     `json:"proxyPool"`
+		ProxyBatches              *[]ProxyBatch `json:"proxyBatches"`
+		AutoSwitch                *bool         `json:"autoSwitch"`
+		ProxyEnabled              *bool         `json:"proxyEnabled"`
+		ForceProxy                *bool         `json:"forceProxy"`
+		RateLimitRetryEnabled     *bool         `json:"rateLimitRetryEnabled"`
+		RateLimitRetryWaitSeconds *int          `json:"rateLimitRetryWaitSeconds"`
+		KeyRetryRounds            *int          `json:"keyRetryRounds"`
+		Protocol                  *string       `json:"protocol"`
 		// UpstreamType 端点上游协议类型（openai/gemini）；nil 表示未变更。
 		UpstreamType *string `json:"upstreamType"`
 		// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；空串表示不引用。
@@ -1299,7 +1299,7 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	}
 	defer db.Close()
 
-		var currentBaseURL, currentAPIKey string
+	var currentBaseURL, currentAPIKey string
 	var currentModelsURLRaw, currentProxyPoolIDRaw, currentUpstreamTypeRaw sql.NullString
 	var currentKeyRetryRounds int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。

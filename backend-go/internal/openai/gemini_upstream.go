@@ -611,12 +611,12 @@ func geminiResponseFormat(rf interface{}) map[string]interface{} {
 // function_call 步骤归并为 tool_calls。
 func geminiToOpenAIChat(body []byte, fallbackModel string) ([]byte, error) {
 	var resp struct {
-		ID      string          `json:"id"`
-		Model   string          `json:"model"`
-		Status  string          `json:"status"`
-		Created string          `json:"created"`
-		Usage   geminiUsage     `json:"usage"`
-		Steps   []geminiStep    `json:"steps"`
+		ID      string       `json:"id"`
+		Model   string       `json:"model"`
+		Status  string       `json:"status"`
+		Created string       `json:"created"`
+		Usage   geminiUsage  `json:"usage"`
+		Steps   []geminiStep `json:"steps"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, err
@@ -819,10 +819,10 @@ func (t *geminiInteractionSSETransformer) consume(data []byte) [][]byte {
 			Text string `json:"text"`
 		} `json:"delta"`
 		Interaction struct {
-			ID      string      `json:"id"`
-			Status  string      `json:"status"`
-			Usage   *geminiUsage `json:"usage"`
-			Model   string      `json:"model"`
+			ID     string       `json:"id"`
+			Status string       `json:"status"`
+			Usage  *geminiUsage `json:"usage"`
+			Model  string       `json:"model"`
 		} `json:"interaction"`
 	}
 	if err := json.Unmarshal(data, &ev); err != nil {

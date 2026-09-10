@@ -14,31 +14,31 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/aliyun"
+	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
 	"github.com/iwvw/api-monitor/backend-go/internal/backup"
+	bookmarksmodule "github.com/iwvw/api-monitor/backend-go/internal/bookmarks"
 	"github.com/iwvw/api-monitor/backend-go/internal/cloudflare"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
-	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
 	dockerhubmodule "github.com/iwvw/api-monitor/backend-go/internal/dockerhub"
+	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
+	"github.com/iwvw/api-monitor/backend-go/internal/ds2api"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
+	"github.com/iwvw/api-monitor/backend-go/internal/gcp"
 	githubmodule "github.com/iwvw/api-monitor/backend-go/internal/github"
+	"github.com/iwvw/api-monitor/backend-go/internal/huawei"
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
 	"github.com/iwvw/api-monitor/backend-go/internal/m365"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
-	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api"
-	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
-	"github.com/iwvw/api-monitor/backend-go/internal/gcp"
-	"github.com/iwvw/api-monitor/backend-go/internal/huawei"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
-	bookmarksmodule "github.com/iwvw/api-monitor/backend-go/internal/bookmarks"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
+	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
@@ -49,44 +49,46 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/tencent"
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
+	"github.com/iwvw/api-monitor/backend-go/internal/workbuddy"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/adminai"
 )
 
 type Server struct {
-	cfg      config.Config
-	auth     *auth.Service
-	settings *settings.Service
-	system   *systemmetrics.Service
-	totp     *totp.Service
-	cron     *cronjobs.Service
-	filebox  *filebox.Service
-	notify   *notification.Service
-	uptime   *uptime.Service
-	koyeb    *koyeb.Service
-	flyio    *flyio.Service
-	onepanel *onepanel.Service
-	github   *githubmodule.Service
-	dockerhub *dockerhubmodule.Service
-	aliyun   *aliyun.Service
-	tencent  *tencent.Service
-	oracle   *oracle.Service
-	gcp      *gcp.Service
-	huawei   *huawei.Service
-	cf       *cloudflare.Service
-	m365     *m365.Service
-	openai   *openai.Service
+	cfg         config.Config
+	auth        *auth.Service
+	settings    *settings.Service
+	system      *systemmetrics.Service
+	totp        *totp.Service
+	cron        *cronjobs.Service
+	filebox     *filebox.Service
+	notify      *notification.Service
+	uptime      *uptime.Service
+	koyeb       *koyeb.Service
+	flyio       *flyio.Service
+	onepanel    *onepanel.Service
+	github      *githubmodule.Service
+	dockerhub   *dockerhubmodule.Service
+	aliyun      *aliyun.Service
+	tencent     *tencent.Service
+	oracle      *oracle.Service
+	gcp         *gcp.Service
+	huawei      *huawei.Service
+	cf          *cloudflare.Service
+	m365        *m365.Service
+	openai      *openai.Service
 	antigravity *antigravity.Service
-	ds2api   *ds2api.Service
-	proxypool *proxypool.Service
-	server   *serveragent.Service
-	backup   *backup.Service
-	logs     *systemlogs.Service
-	sub      *subscription.Service
-	drawio   *drawiomodule.Service
-	prompts  *promptsmodule.Service
-	bookmarks *bookmarksmodule.Service
-	adminai  *adminai.Service
+	ds2api      *ds2api.Service
+	workbuddy   *workbuddy.Service
+	proxypool   *proxypool.Service
+	server      *serveragent.Service
+	backup      *backup.Service
+	logs        *systemlogs.Service
+	sub         *subscription.Service
+	drawio      *drawiomodule.Service
+	prompts     *promptsmodule.Service
+	bookmarks   *bookmarksmodule.Service
+	adminai     *adminai.Service
 
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
@@ -153,39 +155,40 @@ func newServer(cfg config.Config) (*Server, error) {
 	adminaiService := adminai.New(cfg)
 	adminaiService.SetNotificationSource(notifyService)
 	server := &Server{
-		cfg:      cfg,
-		auth:     authService,
-		settings: settingsService,
-		system:   systemService,
-		totp:     totp.New(cfg),
-		cron:     cronService,
-		filebox:  filebox.New(cfg, authService),
-		notify:   notifyService,
-		uptime:   uptimeService,
-		koyeb:    koyeb.New(cfg),
-		flyio:    flyio.New(cfg),
-		onepanel: onepanel.New(cfg),
-		github:   githubService,
-		dockerhub: dockerhubmodule.New(cfg),
-		aliyun:   aliyun.New(cfg),
-		tencent:  tencent.New(cfg),
-		oracle:   oracle.New(cfg),
-		gcp:      gcp.New(cfg),
-		huawei:   huawei.New(cfg),
-		cf:       cloudflareService,
-		m365:     m365.New(cfg),
-		openai:   openai.New(cfg),
+		cfg:         cfg,
+		auth:        authService,
+		settings:    settingsService,
+		system:      systemService,
+		totp:        totp.New(cfg),
+		cron:        cronService,
+		filebox:     filebox.New(cfg, authService),
+		notify:      notifyService,
+		uptime:      uptimeService,
+		koyeb:       koyeb.New(cfg),
+		flyio:       flyio.New(cfg),
+		onepanel:    onepanel.New(cfg),
+		github:      githubService,
+		dockerhub:   dockerhubmodule.New(cfg),
+		aliyun:      aliyun.New(cfg),
+		tencent:     tencent.New(cfg),
+		oracle:      oracle.New(cfg),
+		gcp:         gcp.New(cfg),
+		huawei:      huawei.New(cfg),
+		cf:          cloudflareService,
+		m365:        m365.New(cfg),
+		openai:      openai.New(cfg),
 		antigravity: antigravity.New(cfg),
-		ds2api:   ds2api.New(cfg),
-		proxypool: proxypool.New(cfg),
-		server:   serverAgentService,
-		backup:   backupService,
-		logs:     systemlogs.New(cfg),
-		sub:      subscriptionService,
-		drawio:   drawioService,
-		prompts:  promptsService,
-		bookmarks: bookmarksService,
-		adminai:  adminaiService,
+		ds2api:      ds2api.New(cfg),
+		workbuddy:   workbuddy.New(cfg),
+		proxypool:   proxypool.New(cfg),
+		server:      serverAgentService,
+		backup:      backupService,
+		logs:        systemlogs.New(cfg),
+		sub:         subscriptionService,
+		drawio:      drawioService,
+		prompts:     promptsService,
+		bookmarks:   bookmarksService,
+		adminai:     adminaiService,
 	}
 	server.onepanel.SetAgentRunner(serverAgentService)
 	server.filebox.SetNodeProvider(serverAgentService)
@@ -206,6 +209,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.antigravity.SetNotifier(notifyService)
 	// DS2API 插件可引用独立代理池作为出网出口。
 	server.ds2api.SetProxyPoolSelector(server.proxypool)
+	// WorkBuddy 插件可引用独立代理池作为出网出口。
+	server.workbuddy.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
@@ -216,6 +221,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 启动两个插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
 	server.ds2api.StartCallStatsFlush(warmupCtx)
 	server.antigravity.StartCallStatsFlush(warmupCtx)
+	server.workbuddy.StartCallStatsFlush(warmupCtx)
+	// WorkBuddy 插件 access token 自动刷新：定期把即将过期/已过期的账号提前换新，
+	// 避免直到转发时才暴露 token 失效。
+	server.workbuddy.StartAutoRefresh(warmupCtx)
 	return server, nil
 }
 
@@ -386,7 +395,7 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 		response.JSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "该接口仅限本机内部调用"})
 		return false
 	}
-	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "ds2api-compatible") {
+	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "ds2api-compatible" || route.Module == "workbuddy-compatible") {
 		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
 		if err != nil {
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -628,6 +637,8 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.antigravity.ServeHTTP(w, r)
 	case "/api/ds2api", "/api/ds2api/v1":
 		s.ds2api.ServeHTTP(w, r)
+	case "/api/workbuddy", "/api/workbuddy/v1":
+		s.workbuddy.ServeHTTP(w, r)
 	case "/api/subscription":
 		s.sub.ServeHTTP(w, r)
 	case "/sub/{token}":

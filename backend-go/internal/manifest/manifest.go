@@ -328,6 +328,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/antigravity/v1", Module: "antigravity-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Antigravity 插件 Anthropic 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/ds2api", Module: "ds2api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "DS2API 插件（DeepSeek 网页版免费池）管理"},
 		{Prefix: "/api/ds2api/v1", Module: "ds2api-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "DS2API 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/workbuddy", Module: "workbuddy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "WorkBuddy 插件（腾讯 CodeBuddy 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/workbuddy/v1", Module: "workbuddy-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "WorkBuddy 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
 		{Prefix: "/sub/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Public subscription endpoint (UA-adaptive formats, info page, Clash/raw/base64)", MatchMode: MatchPattern},

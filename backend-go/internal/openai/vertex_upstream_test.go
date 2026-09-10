@@ -10,14 +10,14 @@ import (
 
 func TestVertexNormalizeUpstreamType(t *testing.T) {
 	cases := map[string]string{
-		"vertex":   "vertex",
-		"VertexAI": "vertex",
-		"vertex-ai": "vertex",
-		"aiplatform": "vertex",
+		"vertex":       "vertex",
+		"VertexAI":     "vertex",
+		"vertex-ai":    "vertex",
+		"aiplatform":   "vertex",
 		"google-cloud": "vertex",
-		"":         "openai",
-		"openai":   "openai",
-		"gemini":   "gemini",
+		"":             "openai",
+		"openai":       "openai",
+		"gemini":       "gemini",
 	}
 	for in, want := range cases {
 		if got := normalizeUpstreamType(in); got != want {
@@ -85,7 +85,7 @@ func TestOpenAIChatToVertexTools(t *testing.T) {
 				"function": map[string]interface{}{
 					"name":        "get_weather",
 					"description": "Gets weather",
-					"parameters": map[string]interface{}{"type": "object"},
+					"parameters":  map[string]interface{}{"type": "object"},
 				},
 			},
 		},
@@ -113,12 +113,12 @@ func TestOpenAIChatToVertexToolHistory(t *testing.T) {
 		"messages": []interface{}{
 			map[string]interface{}{"role": "user", "content": "weather?"},
 			map[string]interface{}{
-				"role": "assistant",
+				"role":    "assistant",
 				"content": "",
 				"tool_calls": []interface{}{
 					map[string]interface{}{
-						"id":   "call_1",
-						"type": "function",
+						"id":       "call_1",
+						"type":     "function",
 						"function": map[string]interface{}{"name": "get_weather", "arguments": `{"location":"London"}`},
 					},
 				},

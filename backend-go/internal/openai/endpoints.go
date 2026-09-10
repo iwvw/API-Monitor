@@ -195,24 +195,24 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name         string       `json:"name"`
-		BaseURL      string       `json:"baseUrl"`
-		ModelsURL    string       `json:"modelsUrl"`
-		APIKey       string       `json:"apiKey"`
-		APIKeys      []string     `json:"apiKeys"`
-		Notes        string       `json:"notes"`
-		Headers      []HeaderItem `json:"headers"`
-		ProxyPool    []string     `json:"proxyPool"`
-		ProxyBatches []ProxyBatch `json:"proxyBatches"`
-		AutoSwitch   bool         `json:"autoSwitch"`
-		ProxyEnabled bool         `json:"proxyEnabled"`
-		ForceProxy   bool         `json:"forceProxy"`
-		RateLimitRetryEnabled *bool `json:"rateLimitRetryEnabled"`
-		RateLimitRetryWaitSeconds *int `json:"rateLimitRetryWaitSeconds"`
-		KeyRetryRounds    *int   `json:"keyRetryRounds"`
-		Protocol     string       `json:"protocol"`
-		UpstreamType string       `json:"upstreamType"`
-		SkipVerify   bool         `json:"skipVerify"`
+		Name                      string       `json:"name"`
+		BaseURL                   string       `json:"baseUrl"`
+		ModelsURL                 string       `json:"modelsUrl"`
+		APIKey                    string       `json:"apiKey"`
+		APIKeys                   []string     `json:"apiKeys"`
+		Notes                     string       `json:"notes"`
+		Headers                   []HeaderItem `json:"headers"`
+		ProxyPool                 []string     `json:"proxyPool"`
+		ProxyBatches              []ProxyBatch `json:"proxyBatches"`
+		AutoSwitch                bool         `json:"autoSwitch"`
+		ProxyEnabled              bool         `json:"proxyEnabled"`
+		ForceProxy                bool         `json:"forceProxy"`
+		RateLimitRetryEnabled     *bool        `json:"rateLimitRetryEnabled"`
+		RateLimitRetryWaitSeconds *int         `json:"rateLimitRetryWaitSeconds"`
+		KeyRetryRounds            *int         `json:"keyRetryRounds"`
+		Protocol                  string       `json:"protocol"`
+		UpstreamType              string       `json:"upstreamType"`
+		SkipVerify                bool         `json:"skipVerify"`
 		// ProxyPoolID 引用独立代理池插件（/api/proxypool）中的池；空串表示不引用。
 		ProxyPoolID string `json:"proxyPoolId"`
 	}
