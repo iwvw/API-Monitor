@@ -335,10 +335,28 @@ export function resolveApprovalPart(messages, approvalId, action) {
   });
 }
 
+/* ---------- 历史行排序 ----------
+ * 后端 /messages 的游标分页是「页内时间升序、页间逆序」（游标指向本页最旧一行，
+ * 返回前才把当页反转为升序），前端按页序拼接后并非全局时间升序，必须重排回
+ * 全局升序，buildTimelineFromRows 才能正确合并跨页的轮次边界。
+ * 排序键 (createdAt, id) 与后端 ORDER BY created_at, id 的字符串比较语义一致。 */
+export function sortRowsAscending(rows) {
+  return (rows || []).slice().sort((a, b) => {
+    const at = a.createdAt || '';
+    const bt = b.createdAt || '';
+    if (at !== bt) return at < bt ? -1 : 1;
+    const ai = a.id || '';
+    const bi = b.id || '';
+    if (ai === bi) return 0;
+    return ai < bi ? -1 : 1;
+  });
+}
+
 /* ---------- 历史恢复（DB 行 → timeline parts） ----------
  * 服务端按 (created_at, id) 落库：assistant 行可能携带 tool_call_meta（JSON 数组，
  * 含 desc）、reasoning_content；紧随其后的 tool 行是工具结果（tool_call_id 配对）；
- * 最后的 assistant 纯文本行是最终正文。映射为一条消息的按时间序 parts。 */
+ * 最后的 assistant 纯文本行是最终正文。映射为一条消息的按时间序 parts。
+ * 入参必须已是全局时间升序（loadMessages 侧用 sortRowsAscending 兜底）。 */
 export function buildTimelineFromRows(rows) {
   const messages = [];
   let current = null; // 当前 assistant 消息（连续 assistant/tool 块合并）

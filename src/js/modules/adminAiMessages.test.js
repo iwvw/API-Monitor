@@ -3,7 +3,7 @@ import {
   MSG, STEP, APPROVAL, STREAM_EVENTS,
   createUserMessage, createAssistantMessage,
   normalizeAiEvent, applyAiEvent, failMessage, cancelMessage,
-  resolveApprovalPart, buildTimelineFromRows, collectAssistantText, isStreaming,
+  resolveApprovalPart, buildTimelineFromRows, sortRowsAscending, collectAssistantText, isStreaming,
   markLiveMessage,
 } from './adminAiMessages.js';
 
@@ -314,6 +314,43 @@ describe('buildTimelineFromRows — 历史恢复为时间序 parts', () => {
     ];
     const msgs = buildTimelineFromRows(rows);
     expect(msgs).toHaveLength(0);
+  });
+});
+
+describe('sortRowsAscending — 游标分页拼接后重排回全局时间升序', () => {
+  it('按 (createdAt, id) 升序，且不修改入参', () => {
+    const rows = [
+      { id: 'b', createdAt: '2026-09-10T00:00:01' },
+      { id: 'a', createdAt: '2026-09-10T00:00:01' },
+      { id: 'c', createdAt: '2026-09-10T00:00:00' },
+    ];
+    expect(sortRowsAscending(rows).map((r) => r.id)).toEqual(['c', 'a', 'b']);
+    expect(rows.map((r) => r.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('多页（页内升序、页间逆序）拼接后重排，轮次顺序恢复正确', () => {
+    const ts = (n) => `2026-09-10T00:00:${String(n).padStart(2, '0')}`;
+    const all = [];
+    for (let i = 1; i <= 5; i++) {
+      all.push({ id: `u${i}`, role: 'user', content: `第${i}问`, createdAt: ts(i * 2 - 1) });
+      all.push({ id: `a${i}`, role: 'assistant', content: `第${i}答`, createdAt: ts(i * 2) });
+    }
+    // 后端语义：ORDER BY created_at DESC, id DESC 取当页，返回前反转为页内升序，
+    // 游标指向本页最旧一行 → 前端按页序拼接得到「页内 ASC、页间 DESC」。
+    const desc = all.slice().reverse();
+    const pageSize = 4;
+    const concatenated = [];
+    for (let start = 0; start < desc.length; start += pageSize) {
+      concatenated.push(...desc.slice(start, start + pageSize).reverse());
+    }
+    expect(concatenated.map((r) => r.id)).not.toEqual(all.map((r) => r.id));
+
+    const msgs = buildTimelineFromRows(sortRowsAscending(concatenated));
+    // user 行是 content；assistant 行正文在 parts[0].text
+    expect(msgs.map((m) => (m.role === 'user' ? m.content : m.parts[0].text))).toEqual([
+      '第1问', '第1答', '第2问', '第2答', '第3问',
+      '第3答', '第4问', '第4答', '第5问', '第5答',
+    ]);
   });
 });
 

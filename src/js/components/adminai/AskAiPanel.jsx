@@ -28,6 +28,7 @@ import {
   cancelMessage,
   resolveApprovalPart,
   buildTimelineFromRows,
+  sortRowsAscending,
   markLiveMessage,
 } from '../../modules/adminAiMessages.js';
 import { useCloudflareSpotlight } from '../../hooks/useCloudflareSpotlight.js';
@@ -597,8 +598,9 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const loadMessages = useCallback(async (sessionId) => {
     if (!sessionId) return;
     try {
-      // 沿 nextCursor 分页取全量历史：每页行内按时间升序，页间后一页严格更早，
-      // 按序拼接即为全局时间升序，一次 buildTimelineFromRows 可正确合并轮次边界。
+      // 沿 nextCursor 分页取全量历史：后端为「页内时间升序、页间逆序」，按页拼接
+      // 后必须重排回全局时间升序（见下方 sortRowsAscending），否则多页会话会按
+      // 每页一段整体倒序，buildTimelineFromRows 的轮次边界也会错位。
       const rows = [];
       let cursor = '';
       let live = null;
@@ -627,8 +629,11 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
         seen.add(r.id);
         unique.push(r);
       }
+      // 去重后重排为全局时间升序：多页场景下页序是逆序的，直接交给
+      // buildTimelineFromRows（内部不排序）会得到按页块整体倒错的会话历史。
+      const ordered = sortRowsAscending(unique);
       setLiveRun(live);
-      setMessages(markLiveMessage(buildTimelineFromRows(unique), live));
+      setMessages(markLiveMessage(buildTimelineFromRows(ordered), live));
     } catch {
     }
   }, []);
