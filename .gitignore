@@ -108,6 +108,7 @@ test-*-*.js
 .codex-*.png
 .claude/
 .gemini/
+.workbuddy/
 gha-creds-*.json
 stress-test-gcli.js
 api-monitor.code-workspace
