@@ -1,33 +1,43 @@
 import { useState } from 'react';
 import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, Lock, Rocket } from '../../components/Icons.jsx';
+import { Globe, AntigravityBrand, DeepSeekBrand, CodeBuddyBrand } from '../../components/Icons.jsx';
 import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
 import { DS2APIPlugin } from './plugins/DS2APIPlugin.jsx';
+import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
+// 有明确品牌的上游（Antigravity / DeepSeek / CodeBuddy）用 @lobehub/icons 的单色品牌图标；
+// 「代理池」是通用基础设施，无对应品牌，沿用通用图标。
 const PLUGINS = [
   {
     id: 'proxypool',
     name: '代理池',
-    description: '出口代理池管理，可被其他插件或网关端点复用。',
+    description: '可被插件或网关端点复用的出口代理池。',
     icon: Globe,
     detail: ProxyPoolPlugin,
   },
   {
     id: 'antigravity',
     name: 'Antigravity',
-    description: 'Antigravity 订阅账号转 API（Google OAuth）。',
-    icon: Rocket,
+    description: 'Antigravity 账号转 API。',
+    icon: AntigravityBrand,
     detail: AntigravityPlugin,
   },
   {
     id: 'ds2api',
     name: 'DS2API',
-    description: 'DeepSeek 网页版账号池转 OpenAI 兼容 API。',
-    icon: Lock,
+    description: 'DeepSeek 网页版转 API。',
+    icon: DeepSeekBrand,
     detail: DS2APIPlugin,
+  },
+  {
+    id: 'workbuddy',
+    name: 'WorkBuddy',
+    description: '腾讯 CodeBuddy 转 API。',
+    icon: CodeBuddyBrand,
+    detail: WorkBuddyPlugin,
   },
 ];
 

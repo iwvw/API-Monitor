@@ -144,6 +144,14 @@ export {
 } from './IconsCore.jsx';
 
 import tencentCloudIcon from '../../assets/brand-icons/tencentcloud.svg';
+// AI 品牌图标取自 @lobehub/icons 的静态资源（icons-static-svg v1.95.0，
+// https://lobehub.com/icons），与 tencentcloud.svg 同为 24×24 + fill="currentColor"，
+// 因此同样走 createAssetIcon 的 currentColor 遮罩路径，随主题黑白自适应。
+// 这里是按需落地单色变体（无 -color 后缀），不放依赖：本项目 npm install 会撞上既有的
+// peer 冲突，为此加依赖会连带重写 lockfile。
+import codeBuddyIcon from '../../assets/brand-icons/codebuddy.svg';
+import antigravityIcon from '../../assets/brand-icons/antigravity.svg';
+import deepSeekIcon from '../../assets/brand-icons/deepseek.svg';
 
 const createAssetIcon = (asset, label) => {
   const AssetIcon = ({ className = '', style, ...props }) => (
@@ -260,6 +268,10 @@ export const Wrench = createIcon(PhWrench);
 export const CloudflareBrand = createFontIcon('si si-cloudflare', 'Cloudflare');
 export const AlibabaCloudBrand = createFontIcon('si si-alibabacloud', 'AlibabaCloud');
 export const TencentCloudBrand = createAssetIcon(tencentCloudIcon, 'TencentCloud');
+// 模型网关插件中心用到的 AI 品牌图标。
+export const CodeBuddyBrand = createAssetIcon(codeBuddyIcon, 'CodeBuddy');
+export const AntigravityBrand = createAssetIcon(antigravityIcon, 'Antigravity');
+export const DeepSeekBrand = createAssetIcon(deepSeekIcon, 'DeepSeek');
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 

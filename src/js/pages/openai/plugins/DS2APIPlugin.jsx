@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Textarea, Toolbar, Select } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
-import { Rocket, Settings as SettingsIcon, Plus, Upload, Download, RefreshCw, Trash, Edit } from '../../../components/Icons.jsx';
+import { Rocket, DeepSeekBrand, Settings as SettingsIcon, Plus, Upload, Download, RefreshCw, Trash, Edit } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders } from '../utils.js';
@@ -384,7 +384,7 @@ export function DS2APIPlugin() {
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <SectionCard title="DS2API" icon={<Rocket className="h-4 w-4 text-brand" />} bodyPadding="none">
+        <SectionCard title="DS2API" icon={<DeepSeekBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
             <FieldRow title={<span title="关闭后 /v1/* 与网关端点接入都会拒绝服务">启用中继</span>}>
               <Switch checked={!!settings?.enabled} onCheckedChange={v => update({ enabled: v })} />
             </FieldRow>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Select, Loader, Input, Dialog, Table, Badge, Toolbar } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
-import { Rocket, Plus, Upload, Download, Trash, RefreshCw, Edit } from '../../../components/Icons.jsx';
+import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders } from '../utils.js';
@@ -386,7 +386,7 @@ export function AntigravityPlugin() {
       </div>
 
       <div className="flex min-w-0 flex-col gap-3">
-        <SectionCard title="Antigravity" icon={<Rocket className="h-4 w-4 text-brand" />} bodyPadding="none">
+        <SectionCard title="Antigravity" icon={<AntigravityBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
           {field(
             '启用中继',
             '关闭后 /v1/messages 与网关端点接入都会拒绝服务',
