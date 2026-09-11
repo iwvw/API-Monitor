@@ -201,13 +201,14 @@ func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionI
 	}()
 
 	// 本会话待提炼消息（用户 + 助手正文，排除 tool 行）。
-	// 游标为 (created_at, id) 字典序：同一秒内的多条消息也不会漏或重复。
+	// 游标按 seq 单调递增：同一秒内的多条消息也不会漏或重复。oldMsgID 为空表示
+	// 尚未提炼过，从最早开始；否则以其 seq 为界取更新的行。
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, role, created_at, content FROM admin_ai_messages
 		WHERE session_id = ? AND role IN ('user', 'assistant') AND content <> ''
-		  AND (created_at > ? OR (created_at = ? AND id > ?))
-		ORDER BY created_at ASC, id ASC LIMIT ?`,
-		sessionID, oldExtracted, oldExtracted, oldMsgID, memoryCaptureMaxMessages)
+		  AND seq > COALESCE((SELECT seq FROM admin_ai_messages WHERE id = ? AND session_id = ?), 0)
+		ORDER BY seq ASC LIMIT ?`,
+		sessionID, oldMsgID, sessionID, memoryCaptureMaxMessages)
 	if err != nil {
 		return err
 	}

@@ -1191,7 +1191,7 @@ type historyMsg struct {
 // 无主的孤儿 tool 行）直接丢弃并从库中删除，保证每次发给上游的消息严格配对。
 func (s *Service) restoreSessionHistory(ctx context.Context, db *sql.DB, sessionID string) ([]historyMsg, error) {
 	historyRows, err := db.QueryContext(ctx,
-		`SELECT id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_call_id,'') FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at ASC, id ASC`,
+		`SELECT id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_call_id,'') FROM admin_ai_messages WHERE session_id = ? ORDER BY seq ASC`,
 		sessionID)
 	if err != nil {
 		return nil, err
@@ -1308,7 +1308,7 @@ func (s *Service) restoreSessionHistory(ctx context.Context, db *sql.DB, session
 func (s *Service) syncPendingPrompt(ctx context.Context, db *sql.DB, sessionID, curUserMsgID string, messages *[]historyMsg) (string, []Mention, error) {
 	var latest string
 	if err := db.QueryRowContext(ctx,
-		`SELECT id FROM admin_ai_messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC, id DESC LIMIT 1`,
+		`SELECT id FROM admin_ai_messages WHERE session_id = ? AND role = 'user' ORDER BY seq DESC LIMIT 1`,
 		sessionID).Scan(&latest); err != nil && err != sql.ErrNoRows {
 		return curUserMsgID, nil, err
 	}
