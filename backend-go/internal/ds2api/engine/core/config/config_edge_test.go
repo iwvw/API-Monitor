@@ -9,15 +9,15 @@ import (
 
 // ─── GetModelConfig edge cases ───────────────────────────────────────
 // 上游 V4.1-Flash 已将快速/专家/识图合并为单一 default 档，模型集收敛为
-// deepseek-flash 与 deepseek-flash-search（± -nothinking）。
+// deepseek-flash（默认自带搜索与思考，± -nosearch / -nothinking）。
 
 func TestGetModelConfigDeepSeekChat(t *testing.T) {
 	thinking, search, ok := GetModelConfig("deepseek-flash")
 	if !ok {
 		t.Fatal("expected ok for deepseek-flash")
 	}
-	if !thinking || search {
-		t.Fatalf("expected thinking=true search=false for deepseek-flash, got thinking=%v search=%v", thinking, search)
+	if !thinking || !search {
+		t.Fatalf("expected thinking=true search=true (search is default) for deepseek-flash, got thinking=%v search=%v", thinking, search)
 	}
 }
 
@@ -26,32 +26,43 @@ func TestGetModelConfigDeepSeekChatNoThinking(t *testing.T) {
 	if !ok {
 		t.Fatal("expected ok for deepseek-flash-nothinking")
 	}
-	if thinking || search {
-		t.Fatalf("expected thinking=false search=false for deepseek-flash-nothinking, got thinking=%v search=%v", thinking, search)
+	if thinking || !search {
+		t.Fatalf("expected thinking=false search=true for deepseek-flash-nothinking, got thinking=%v search=%v", thinking, search)
 	}
 }
 
-func TestGetModelConfigDeepSeekSearch(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-flash-search")
+func TestGetModelConfigDeepSeekNoSearch(t *testing.T) {
+	thinking, search, ok := GetModelConfig("deepseek-flash-nosearch")
 	if !ok {
-		t.Fatal("expected ok for deepseek-flash-search")
+		t.Fatal("expected ok for deepseek-flash-nosearch")
 	}
-	if !thinking || !search {
-		t.Fatalf("expected thinking=true search=true, got thinking=%v search=%v", thinking, search)
+	if !thinking || search {
+		t.Fatalf("expected thinking=true search=false for deepseek-flash-nosearch, got thinking=%v search=%v", thinking, search)
 	}
 }
 
-// 已退役档位（pro / vision）不再是独立模型，GetModelConfig 不识别。
+func TestGetModelConfigDeepSeekNoSearchNoThinking(t *testing.T) {
+	thinking, search, ok := GetModelConfig("deepseek-flash-nosearch-nothinking")
+	if !ok {
+		t.Fatal("expected ok for deepseek-flash-nosearch-nothinking")
+	}
+	if thinking || search {
+		t.Fatalf("expected thinking=false search=false for deepseek-flash-nosearch-nothinking, got thinking=%v search=%v", thinking, search)
+	}
+}
+
+// 已退役档位（pro / vision）与旧正向 -search 后缀名不再是 canonical 模型，
+// GetModelConfig 不识别（它们由别名收敛到 deepseek-flash）。
 func TestGetModelConfigRejectsRetiredTiers(t *testing.T) {
-	for _, m := range []string{"deepseek-v4-pro", "deepseek-v4-vision", "deepseek-v4-vision-search"} {
+	for _, m := range []string{"deepseek-v4-pro", "deepseek-v4-vision", "deepseek-v4-vision-search", "deepseek-flash-search", "deepseek-flash-search-nothinking"} {
 		if _, _, ok := GetModelConfig(m); ok {
-			t.Fatalf("expected %q to be unsupported after tier merge", m)
+			t.Fatalf("expected %q to be unsupported (alias, not canonical)", m)
 		}
 	}
 }
 
 func TestGetModelTypeAllMergedIntoDefault(t *testing.T) {
-	for _, m := range []string{"deepseek-flash", "deepseek-flash-nothinking", "deepseek-flash-search", "deepseek-flash-search-nothinking"} {
+	for _, m := range []string{"deepseek-flash", "deepseek-flash-nosearch", "deepseek-flash-nothinking", "deepseek-flash-nosearch-nothinking"} {
 		mt, ok := GetModelType(m)
 		if !ok || mt != "default" {
 			t.Fatalf("expected default model_type for %q, got ok=%v model_type=%q", m, ok, mt)
@@ -64,8 +75,8 @@ func TestGetModelConfigCaseInsensitive(t *testing.T) {
 	if !ok {
 		t.Fatal("expected ok for case-insensitive deepseek-flash")
 	}
-	if !thinking || search {
-		t.Fatalf("expected thinking=true search=false for case-insensitive deepseek-flash")
+	if !thinking || !search {
+		t.Fatalf("expected thinking=true search=true for case-insensitive deepseek-flash")
 	}
 }
 
@@ -627,10 +638,10 @@ func TestOpenAIModelsResponse(t *testing.T) {
 		t.Fatal("expected non-empty models list")
 	}
 	expected := map[string]bool{
-		"deepseek-flash":                   false,
-		"deepseek-flash-nothinking":        false,
-		"deepseek-flash-search":            false,
-		"deepseek-flash-search-nothinking": false,
+		"deepseek-flash":                       false,
+		"deepseek-flash-nosearch":              false,
+		"deepseek-flash-nothinking":            false,
+		"deepseek-flash-nosearch-nothinking":   false,
 	}
 	for _, model := range data {
 		if _, ok := expected[model.ID]; ok {

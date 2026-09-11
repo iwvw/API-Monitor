@@ -29,25 +29,29 @@ type ModelAliasReader interface {
 
 const noThinkingModelSuffix = "-nothinking"
 
+// noSearchModelSuffix 是 DeepSeek 模型家族的「关联网搜索」负向变体后缀。
+// 默认模型 deepseek-flash 自带联网搜索（search_enabled=true），需要关闭时
+// 使用 -nosearch / -nothinking / -nosearch-nothinking 变体。
+const noSearchModelSuffix = "-nosearch"
+
 // deepSeekBaseModels 是当前唯一真实存在的模型档位：上游（chat.deepseek.com 网页端）
 // 自 V4.1-Flash 起已将「快速 / 专家 / 识图」三档合并为单一模型（model_type=default，
-// 原生多模态），expert/vision 的请求会被上游静默降级为 default。因此这里只保留
-// default 档 + 联网搜索开关两个基础位，再由 appendNoThinkingVariants 展开
-// -nothinking 变体；旧名 deepseek-v4-* / pro / vision 全部降级为别名（见
-// DefaultModelAliases），保证存量客户端请求仍可解析。
+// 原生多模态 + 默认联网搜索），expert/vision 的请求会被上游静默降级为 default。
+// 因此这里只保留默认档位，再由 appendDeepSeekVariantModels 展开四象限变体
+// （±nosearch × ±nothinking）；旧名 deepseek-v4-* / pro / vision 与旧正向
+// -search 后缀全部降级为别名（见 DefaultModelAliases），保证存量请求仍可解析。
 var deepSeekBaseModels = []ModelInfo{
 	{ID: "deepseek-flash", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-flash-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 }
 
 var OllamaCapabilitiesModels = []OllamaCapabilitiesModelInfo{
-	{ID: "deepseek-flash", Capabilities: []string{"tools", "thinking", "vision"}},
-	{ID: "deepseek-flash-search", Capabilities: []string{"tools", "thinking", "vision"}},
-	{ID: "deepseek-flash-nothinking", Capabilities: []string{"tools", "vision"}},
-	{ID: "deepseek-flash-search-nothinking", Capabilities: []string{"tools", "vision"}},
+	{ID: "deepseek-flash", Capabilities: []string{"tools", "thinking", "search", "vision"}},
+	{ID: "deepseek-flash-nosearch", Capabilities: []string{"tools", "thinking", "vision"}},
+	{ID: "deepseek-flash-nothinking", Capabilities: []string{"tools", "search", "vision"}},
+	{ID: "deepseek-flash-nosearch-nothinking", Capabilities: []string{"tools", "vision"}},
 }
 
-var DeepSeekModels = appendNoThinkingVariants(deepSeekBaseModels)
+var DeepSeekModels = appendDeepSeekVariantModels(deepSeekBaseModels)
 var OllamaModels = mapToOllamaModels(DeepSeekModels)
 var claudeBaseModels = []ModelInfo{
 	// Current aliases
@@ -82,22 +86,22 @@ var claudeBaseModels = []ModelInfo{
 var ClaudeModels = appendNoThinkingVariants(claudeBaseModels)
 
 func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
-	baseModel, noThinking := splitNoThinkingModel(model)
+	baseModel, noSearch, noThinking := splitVariantModel(model)
 	if baseModel == "" {
 		return false, false, false
 	}
 	switch baseModel {
-	case "deepseek-flash", "deepseek-flash-search":
-		return !noThinking, baseModel == "deepseek-flash-search", true
+	case "deepseek-flash":
+		return !noThinking, !noSearch, true
 	default:
 		return false, false, false
 	}
 }
 
 func GetModelType(model string) (modelType string, ok bool) {
-	baseModel, _ := splitNoThinkingModel(model)
+	baseModel, _, _ := splitVariantModel(model)
 	switch baseModel {
-	case "deepseek-flash", "deepseek-flash-search":
+	case "deepseek-flash":
 		return "default", true
 	default:
 		return "", false
@@ -116,25 +120,28 @@ func IsNoThinkingModel(model string) bool {
 
 func DefaultModelAliases() map[string]string {
 	return map[string]string{
-		// 官网现行名：V4.1-Flash（deepseek-flash），三档已合并，视觉+搜索都并入
-		"deepseek-flash":               "deepseek-flash",
-		"deepseek-flash-search":        "deepseek-flash-search",
-		"deepseek-v4-flash-vision-exp": "deepseek-flash",
+		// 官网现行名：V4.1-Flash（deepseek-flash），默认自带联网搜索与思考，
+		// 需要关闭时使用 -nosearch / -nothinking 变体。
+		"deepseek-flash": "deepseek-flash",
+		// 旧正向 -search 后缀名（V4.1 过渡期曾用）收编为默认：搜索现在默认开启。
+		"deepseek-flash-search":            "deepseek-flash",
+		"deepseek-flash-search-nothinking": "deepseek-flash-nothinking",
+		"deepseek-v4-flash-vision-exp":     "deepseek-flash",
 
 		// 旧名（deepseek-v4-*）与已退役档位（pro / vision）统一收编为 flash：
 		// 上游请求会被静默降级到 default，保留别名仅为兼容存量调用。
 		"deepseek-v4-flash":                    "deepseek-flash",
-		"deepseek-v4-flash-search":             "deepseek-flash-search",
+		"deepseek-v4-flash-search":             "deepseek-flash",
 		"deepseek-v4-pro":                      "deepseek-flash",
-		"deepseek-v4-pro-search":               "deepseek-flash-search",
+		"deepseek-v4-pro-search":               "deepseek-flash",
 		"deepseek-v4-vision":                   "deepseek-flash",
-		"deepseek-v4-vision-search":            "deepseek-flash-search",
+		"deepseek-v4-vision-search":            "deepseek-flash",
 		"deepseek-v4-flash-nothinking":         "deepseek-flash-nothinking",
-		"deepseek-v4-flash-search-nothinking":  "deepseek-flash-search-nothinking",
+		"deepseek-v4-flash-search-nothinking":  "deepseek-flash-nothinking",
 		"deepseek-v4-pro-nothinking":           "deepseek-flash-nothinking",
-		"deepseek-v4-pro-search-nothinking":    "deepseek-flash-search-nothinking",
+		"deepseek-v4-pro-search-nothinking":    "deepseek-flash-nothinking",
 		"deepseek-v4-vision-nothinking":        "deepseek-flash-nothinking",
-		"deepseek-v4-vision-search-nothinking": "deepseek-flash-search-nothinking",
+		"deepseek-v4-vision-search-nothinking": "deepseek-flash-nothinking",
 
 		// DeepSeek 旧接口名（deepseek-chat / deepseek-reasoner 已退役，故意不接收）
 		"chatgpt-4o":          "deepseek-flash",
@@ -180,9 +187,9 @@ func DefaultModelAliases() map[string]string {
 		"o3":                    "deepseek-flash",
 		"o3-mini":               "deepseek-flash",
 		"o3-pro":                "deepseek-flash",
-		"o3-deep-research":      "deepseek-flash-search",
+		"o3-deep-research":      "deepseek-flash",
 		"o4-mini":               "deepseek-flash",
-		"o4-mini-deep-research": "deepseek-flash-search",
+		"o4-mini-deep-research": "deepseek-flash",
 
 		// Claude current and historical aliases
 		"claude-opus-4-6":            "deepseek-flash",
@@ -252,9 +259,9 @@ func ResolveModel(store ModelAliasReader, requested string) (string, bool) {
 	if mapped, ok := followAliasChain(aliases, model); ok && IsSupportedDeepSeekModel(mapped) {
 		return mapped, true
 	}
-	baseModel, noThinking := splitNoThinkingModel(model)
+	baseModel, noSearch, noThinking := splitVariantModel(model)
 	if mapped, ok := followAliasChain(aliases, baseModel); ok && IsSupportedDeepSeekModel(mapped) {
-		return withNoThinkingVariant(mapped, noThinking), true
+		return withVariantModel(mapped, noSearch, noThinking), true
 	}
 	return "", false
 }
@@ -378,6 +385,64 @@ func withNoThinkingVariant(model string, enabled bool) string {
 		return ""
 	}
 	return baseModel + noThinkingModelSuffix
+}
+
+// appendDeepSeekVariantModels expands the default model into the four-quadrant
+// variant matrix used by the DeepSeek family. The default model already carries
+// search + thinking; variants disable them via explicit negative suffixes:
+//
+//	deepseek-flash                        (search on,  thinking on)
+//	deepseek-flash-nosearch               (search off, thinking on)
+//	deepseek-flash-nothinking             (search on,  thinking off)
+//	deepseek-flash-nosearch-nothinking    (search off, thinking off)
+func appendDeepSeekVariantModels(models []ModelInfo) []ModelInfo {
+	out := make([]ModelInfo, 0, len(models)*4)
+	for _, model := range models {
+		out = append(out, model)
+		noSearch := model
+		noSearch.ID = model.ID + noSearchModelSuffix
+		out = append(out, noSearch)
+		noThinking := model
+		noThinking.ID = model.ID + noThinkingModelSuffix
+		out = append(out, noThinking)
+		both := model
+		both.ID = model.ID + noSearchModelSuffix + noThinkingModelSuffix
+		out = append(out, both)
+	}
+	return out
+}
+
+// splitVariantModel parses the DeepSeek negative-variant suffixes off a model
+// name. The suffix order is fixed: -nosearch before -nothinking
+// (deepseek-flash-nosearch-nothinking). It returns the base model name plus the
+// two disable flags.
+func splitVariantModel(model string) (base string, noSearch, noThinking bool) {
+	m := lower(strings.TrimSpace(model))
+	noThinking = strings.HasSuffix(m, noThinkingModelSuffix)
+	if noThinking {
+		m = strings.TrimSuffix(m, noThinkingModelSuffix)
+	}
+	noSearch = strings.HasSuffix(m, noSearchModelSuffix)
+	if noSearch {
+		m = strings.TrimSuffix(m, noSearchModelSuffix)
+	}
+	return m, noSearch, noThinking
+}
+
+// withVariantModel applies the two negative-variant flags to a model name,
+// normalizing any flags already present on the base name first.
+func withVariantModel(model string, noSearch, noThinking bool) string {
+	base, _, _ := splitVariantModel(model)
+	if base == "" {
+		return ""
+	}
+	if noSearch {
+		base += noSearchModelSuffix
+	}
+	if noThinking {
+		base += noThinkingModelSuffix
+	}
+	return base
 }
 
 func loadModelAliases(store ModelAliasReader) map[string]string {

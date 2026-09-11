@@ -22,7 +22,7 @@ func TestNormalizeGeminiRequestNoThinkingModelForcesThinkingOff(t *testing.T) {
 	if out.Thinking {
 		t.Fatalf("expected nothinking model to force thinking off")
 	}
-	if out.Search {
-		t.Fatalf("expected search=false, got=%v", out.Search)
+	if !out.Search {
+		t.Fatalf("expected search=true (default) for deepseek-flash-nothinking, got=%v", out.Search)
 	}
 }

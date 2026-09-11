@@ -56,7 +56,7 @@ func TestResolveExpandedHistoricalAliases(t *testing.T) {
 	}{
 		{name: "openai old chatgpt", model: "chatgpt-4o", want: "deepseek-flash"},
 		{name: "openai codex max", model: "gpt-5.1-codex-max", want: "deepseek-flash"},
-		{name: "openai deep research", model: "o3-deep-research", want: "deepseek-flash-search"},
+		{name: "openai deep research", model: "o3-deep-research", want: "deepseek-flash"},
 		{name: "openai historical reasoning", model: "o1-preview", want: "deepseek-flash"},
 		{name: "claude latest historical", model: "claude-3-5-sonnet-latest", want: "deepseek-flash"},
 		{name: "claude historical opus", model: "claude-3-opus-20240229", want: "deepseek-flash"},
@@ -124,10 +124,10 @@ func TestResolveModelRetiredTierCollapsesToFlash(t *testing.T) {
 	cases := map[string]string{
 		"deepseek-v4-pro":               "deepseek-flash",
 		"deepseek-v4-pro-nothinking":    "deepseek-flash-nothinking",
-		"deepseek-v4-pro-search":        "deepseek-flash-search",
+		"deepseek-v4-pro-search":        "deepseek-flash",
 		"deepseek-v4-vision":            "deepseek-flash",
 		"deepseek-v4-vision-nothinking": "deepseek-flash-nothinking",
-		"deepseek-v4-vision-search":     "deepseek-flash-search",
+		"deepseek-v4-vision-search":     "deepseek-flash",
 	}
 	for model, want := range cases {
 		got, ok := ResolveModel(nil, model)
@@ -141,8 +141,9 @@ func TestResolveModelCustomAliasToFlash(t *testing.T) {
 	got, ok := ResolveModel(mockModelAliasReader{
 		"my-flash-model": "deepseek-flash-search",
 	}, "my-flash-model")
-	if !ok || got != "deepseek-flash-search" {
-		t.Fatalf("expected alias -> deepseek-flash-search, got ok=%v model=%q", ok, got)
+	// 旧正向 -search 名收编为默认模型：search 现在默认开启。
+	if !ok || got != "deepseek-flash" {
+		t.Fatalf("expected alias -> deepseek-flash (legacy -search collapses to default), got ok=%v model=%q", ok, got)
 	}
 }
 
