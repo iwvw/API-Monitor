@@ -2873,7 +2873,7 @@ function OpenAIPage() {
                 setLogModelFilter(e.target.value);
                 setAnalyticsPage(1);
               }}
-              placeholder="按模型筛选，如 deepseek-v4-flash"
+              placeholder="按模型筛选，如 deepseek-flash"
               spellCheck={false}
             />
             <Input
