@@ -29,6 +29,7 @@ import {
   resolveApprovalPart,
   buildTimelineFromRows,
   sortRowsAscending,
+  mergeRowsById,
   markLiveMessage,
 } from '../../modules/adminAiMessages.js';
 import { useCloudflareSpotlight } from '../../hooks/useCloudflareSpotlight.js';
@@ -38,10 +39,10 @@ const PANEL_MIN_WIDTH = 320;
 const PANEL_MAX_WIDTH = 800;
 const PANEL_DEFAULT_WIDTH = 450;
 
-// 会话历史分页：后端 /messages 默认只返回最近 50 行并携带 nextCursor，
-// 前端必须沿游标取完全部行，否则长会话（多轮 agent 带工具调用）的较早内容会静默消失。
+// 会话历史分页：首屏只取最近 MESSAGE_PAGE_LIMIT 行，用户向上滚动到顶部时再沿
+// nextCursor 逐页加载更早历史（懒加载）。不再设行数硬上限，避免长会话的早期消息
+// 被静默丢弃（旧实现最多 2000 行，超出的最早内容永远看不到、也滑不上去）。
 const MESSAGE_PAGE_LIMIT = 200; // 每页行数（后端上限 200）
-const MESSAGE_MAX_ROWS = 2000; // 单会话拉取行数上限，防病态超长会话拉爆面板
 
 const ACTIVE_SESSION_STORAGE_KEY = 'adminai-active-session';
 
@@ -490,6 +491,8 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [runId, setRunId] = useState(null);
@@ -576,6 +579,9 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
   const streamingRef = useRef(streaming);
   const lastActivityRef = useRef(new Map());
   const lastCountRef = useRef(new Map());
+  // 懒加载更早历史的会话级状态：sessionId → { rows: Map(id→row), olderCursor, hasMoreOlder }。
+  // rows 用 Map 去重累计（首屏最近页 + 向上滚动加载的更早页），重建 timeline 前统一排序。
+  const historyRef = useRef(new Map());
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -595,48 +601,72 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     }
   }, []);
 
+  // 从累计行重建当前会话的 timeline（并按会话守卫避免覆盖已切换的会话）。
+  const applyHistory = useCallback((sessionId, entry, live) => {
+    if (activeSessionIdRef.current !== sessionId) return;
+    const ordered = sortRowsAscending([...entry.rows.values()]);
+    setHasMoreOlder(entry.hasMoreOlder);
+    setLiveRun(live || null);
+    setMessages(markLiveMessage(buildTimelineFromRows(ordered), live || null));
+  }, []);
+
+  // 首屏/重拉：只取最近一页（MESSAGE_PAGE_LIMIT 行）。已加载的更早页保留在 historyRef，
+  // 合并后重建，避免轮询重拉把用户已经向上滚动加载出的早期历史又清掉。
   const loadMessages = useCallback(async (sessionId) => {
     if (!sessionId) return;
     try {
-      // 沿 nextCursor 分页取全量历史：后端为「页内时间升序、页间逆序」，按页拼接
-      // 后必须重排回全局时间升序（见下方 sortRowsAscending），否则多页会话会按
-      // 每页一段整体倒序，buildTimelineFromRows 的轮次边界也会错位。
-      const rows = [];
-      let cursor = '';
-      let live = null;
-      for (let page = 0; page * MESSAGE_PAGE_LIMIT < MESSAGE_MAX_ROWS; page++) {
-        // 会话守卫：await 期间用户可能已快速切换会话（A→B），晚到的
-        // A 响应不得覆盖 B 的消息列表。此守卫也作用于轮询重拉路径。
-        if (activeSessionIdRef.current !== sessionId) return;
-        const q = `?limit=${MESSAGE_PAGE_LIMIT}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
-        const res = await fetch(`/api/admin-ai/sessions/${sessionId}/messages${q}`);
-        const data = await res.json();
-        if (activeSessionIdRef.current !== sessionId) return;
-        const body = data.data || data;
-        const items = body.items || body.messages || [];
-        rows.push(...items);
-        live = live || (body.activeRun && body.activeRun.runId
-          ? { runId: body.activeRun.runId, phase: body.activeRun.phase || 'starting' }
-          : null);
-        cursor = body.nextCursor || '';
-        if (!cursor || items.length === 0) break;
-      }
-      // 页间可能因拉取期间有新消息写入而出现重叠行，按 id 去重（保留先到的较新行）
-      const seen = new Set();
-      const unique = [];
-      for (const r of rows) {
-        if (seen.has(r.id)) continue;
-        seen.add(r.id);
-        unique.push(r);
-      }
-      // 去重后重排为全局时间升序：多页场景下页序是逆序的，直接交给
-      // buildTimelineFromRows（内部不排序）会得到按页块整体倒错的会话历史。
-      const ordered = sortRowsAscending(unique);
-      setLiveRun(live);
-      setMessages(markLiveMessage(buildTimelineFromRows(ordered), live));
+      const q = `?limit=${MESSAGE_PAGE_LIMIT}`;
+      const res = await fetch(`/api/admin-ai/sessions/${sessionId}/messages${q}`);
+      const data = await res.json();
+      if (activeSessionIdRef.current !== sessionId) return;
+      const body = data.data || data;
+      const items = body.items || body.messages || [];
+      const live = (body.activeRun && body.activeRun.runId)
+        ? { runId: body.activeRun.runId, phase: body.activeRun.phase || 'starting' }
+        : null;
+      const prev = historyRef.current.get(sessionId);
+      const merged = mergeRowsById(prev ? [...prev.rows.values()] : [], items);
+      // 更早历史是否还有：一旦用户已把早期页拉尽（olderCursor 为空、hasMoreOlder
+      // 为 false），重拉最新页不得因为「总数仍 > 一页」而把它重新置回 true，
+      // 否则会在顶部反复触发无产出的加载。
+      const exhausted = prev && !prev.hasMoreOlder;
+      const entry = {
+        rows: new Map(merged.map((r) => [r.id, r])),
+        olderCursor: prev && prev.olderCursor ? prev.olderCursor : (body.nextCursor || ''),
+        hasMoreOlder: exhausted ? false : !!body.nextCursor,
+      };
+      historyRef.current.set(sessionId, entry);
+      applyHistory(sessionId, entry, live);
     } catch {
     }
-  }, []);
+  }, [applyHistory]);
+
+  // 向上滚动触发的懒加载：沿 olderCursor 取更早一页，合并后重建并保留滚动位置。
+  const loadOlderMessages = useCallback(async (sessionId) => {
+    if (!sessionId) return;
+    const entry = historyRef.current.get(sessionId);
+    if (!entry || !entry.olderCursor || !entry.hasMoreOlder) return;
+    setLoadingOlder(true);
+    try {
+      const q = `?limit=${MESSAGE_PAGE_LIMIT}&cursor=${encodeURIComponent(entry.olderCursor)}`;
+      const res = await fetch(`/api/admin-ai/sessions/${sessionId}/messages${q}`);
+      const data = await res.json();
+      if (activeSessionIdRef.current !== sessionId) return;
+      const body = data.data || data;
+      const items = body.items || body.messages || [];
+      const merged = mergeRowsById([...entry.rows.values()], items);
+      const next = {
+        rows: new Map(merged.map((r) => [r.id, r])),
+        olderCursor: body.nextCursor || '',
+        hasMoreOlder: !!body.nextCursor && items.length > 0,
+      };
+      historyRef.current.set(sessionId, next);
+      applyHistory(sessionId, next, null);
+    } catch {
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [applyHistory]);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
@@ -1158,6 +1188,9 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
     const rewindId = target?.dbId || (target?.id.startsWith('aam_') ? target.id : undefined);
     const mentions = target?.mentions || [];
     const assistantMsgId = `assistant_${Date.now()}`;
+    // 服务端会删除 rewindId 及其后所有行：清掉该会话累计的懒加载行缓存，
+    // 否则被删除的旧行会残留在 Map 中，后续重拉合并时又冒出来。
+    if (rewindId) historyRef.current.delete(activeSessionId);
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === messageId);
       if (idx === -1) return [...prev, createAssistantMessage(assistantMsgId)];
@@ -1590,7 +1623,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col px-6 cq-md:px-8 cq-xl:px-10">
               <DotGrid />
               <div className="relative mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
-                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   {messages.length === 0 ? (
                     botActive ? (
                       <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-kumo-subtle">
@@ -1602,7 +1635,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                       <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
                     )
                   ) : (
-                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
                   )}
                 </div>
                 {/* 全屏输入区（实底不透明，与消息区无缝衔接）；机器人会话只读不渲染输入框 */}
@@ -1871,7 +1904,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
                   <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
                 )
               ) : (
-                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
               )}
             </div>
           </div>

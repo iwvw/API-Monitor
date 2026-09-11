@@ -590,7 +590,7 @@ function livePhaseLabel(phase) {
 }
 
 /* ---------- 消息列表 ---------- */
-export default function MessageList({ messages, mode, live, onResolveApproval, onRetry, onEditResend }) {
+export default function MessageList({ messages, mode, live, hasMoreOlder, loadingOlder, onLoadOlder, onResolveApproval, onRetry, onEditResend }) {
   const listRef = useRef(null);
   const userScrolledUp = useRef(false);
   const [collapsedIds, setCollapsedIds] = useState({});
@@ -598,6 +598,11 @@ export default function MessageList({ messages, mode, live, onResolveApproval, o
   const [editWidth, setEditWidth] = useState(null);
   const [copiedEdit, setCopiedEdit] = useState(false);
   const editRef = useRef(null);
+  // 向上懒加载时保留视口：记录本次渲染前的首条 id 与滚动高度，检测到「更早内容
+  // 前插」后用高度差补偿 scrollTop，让用户正看着的消息不被顶走。
+  const prevFirstIdRef = useRef(null);
+  const prevScrollHeightRef = useRef(0);
+  const loadingOlderRef = useRef(false);
 
   useEffect(() => {
     if (editing) editRef.current?.focus();
@@ -632,15 +637,32 @@ export default function MessageList({ messages, mode, live, onResolveApproval, o
 
   useEffect(() => {
     const el = listRef.current;
-    if (!el || userScrolledUp.current) return;
-    el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const firstId = messages?.[0]?.id ?? null;
+    const prevFirst = prevFirstIdRef.current;
+    const prepended = prevFirst !== null && firstId !== prevFirst && messages?.some((m) => m.id === prevFirst);
+    if (prepended) {
+      // 更早消息前插：按新增高度补偿滚动位置，保持当前阅读锚点不跳。
+      const delta = el.scrollHeight - prevScrollHeightRef.current;
+      if (delta > 0) el.scrollTop += delta;
+    } else if (!userScrolledUp.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+    prevFirstIdRef.current = firstId;
+    prevScrollHeightRef.current = el.scrollHeight;
   }, [messages]);
+
+  useEffect(() => { loadingOlderRef.current = !!loadingOlder; }, [loadingOlder]);
 
   const handleScroll = () => {
     const el = listRef.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     userScrolledUp.current = !atBottom;
+    // 接近顶部且还有更早历史：触发懒加载（loadingOlder 防止并发重复请求）。
+    if (el.scrollTop < 120 && hasMoreOlder && !loadingOlderRef.current) {
+      onLoadOlder?.();
+    }
   };
 
   if (!messages || messages.length === 0) return null;
@@ -648,6 +670,18 @@ export default function MessageList({ messages, mode, live, onResolveApproval, o
   return (
     <div ref={listRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain scrollbar-thin px-1.5 pt-4 pb-4">
       <div className="flex w-full flex-col gap-4">
+        {(loadingOlder || hasMoreOlder) && (
+          <div className="flex items-center justify-center py-1 text-[11px] text-kumo-subtle">
+            {loadingOlder ? (
+              <span className="flex items-center gap-1.5">
+                <Loader size={10} className="animate-spin text-brand" />
+                正在加载更早的消息…
+              </span>
+            ) : (
+              <span className="text-kumo-subtle/60">向上滚动加载更早的消息</span>
+            )}
+          </div>
+        )}
         {messages.map((msg, idx) => {
           const streaming = isStreaming(msg.status);
           const msgKey = msg.id || idx;

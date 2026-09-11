@@ -336,12 +336,18 @@ export function resolveApprovalPart(messages, approvalId, action) {
 }
 
 /* ---------- 历史行排序 ----------
- * 后端 /messages 的游标分页是「页内时间升序、页间逆序」（游标指向本页最旧一行，
- * 返回前才把当页反转为升序），前端按页序拼接后并非全局时间升序，必须重排回
- * 全局升序，buildTimelineFromRows 才能正确合并跨页的轮次边界。
- * 排序键 (createdAt, id) 与后端 ORDER BY created_at, id 的字符串比较语义一致。 */
+ * 后端 /messages 按单调递增的 seq 排序分页（seq 唯一、同秒内也严格有序），
+ * 行响应携带 seq；缺失 seq 的旧缓存/测试数据回退到 (createdAt, id) 字典序。
+ * buildTimelineFromRows 要求入参是全局时间升序，才能正确合并跨页的轮次边界。 */
 export function sortRowsAscending(rows) {
   return (rows || []).slice().sort((a, b) => {
+    const aSeq = a.seq;
+    const bSeq = b.seq;
+    if (aSeq != null || bSeq != null) {
+      const av = Number(aSeq ?? 0);
+      const bv = Number(bSeq ?? 0);
+      if (av !== bv) return av < bv ? -1 : 1;
+    }
     const at = a.createdAt || '';
     const bt = b.createdAt || '';
     if (at !== bt) return at < bt ? -1 : 1;
@@ -350,6 +356,21 @@ export function sortRowsAscending(rows) {
     if (ai === bi) return 0;
     return ai < bi ? -1 : 1;
   });
+}
+
+/* ---------- 增量合并（懒加载更早消息用） ----------
+ * 会话历史按「最近一页优先」加载，向上滚动再取更早页，各页行放入同一个 Map
+ * （id → row）去重，新到的行覆盖旧行（同 id 内容以最新拉取为准）。Map 保留插入
+ * 顺序不可靠，输出前必须经 sortRowsAscending 重排。 */
+export function mergeRowsById(existing, incoming) {
+  const map = new Map();
+  for (const r of existing || []) {
+    if (r && r.id) map.set(r.id, r);
+  }
+  for (const r of incoming || []) {
+    if (r && r.id) map.set(r.id, r);
+  }
+  return sortRowsAscending([...map.values()]);
 }
 
 /* ---------- 历史恢复（DB 行 → timeline parts） ----------

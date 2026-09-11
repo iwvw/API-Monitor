@@ -3,7 +3,7 @@ import {
   MSG, STEP, APPROVAL, STREAM_EVENTS,
   createUserMessage, createAssistantMessage,
   normalizeAiEvent, applyAiEvent, failMessage, cancelMessage,
-  resolveApprovalPart, buildTimelineFromRows, sortRowsAscending, collectAssistantText, isStreaming,
+  resolveApprovalPart, buildTimelineFromRows, sortRowsAscending, mergeRowsById, collectAssistantText, isStreaming,
   markLiveMessage,
 } from './adminAiMessages.js';
 
@@ -351,6 +351,37 @@ describe('sortRowsAscending — 游标分页拼接后重排回全局时间升序
       '第1问', '第1答', '第2问', '第2答', '第3问',
       '第3答', '第4问', '第4答', '第5问', '第5答',
     ]);
+  });
+});
+
+describe('mergeRowsById — 懒加载更早历史时按 id 去重并保持时间升序', () => {
+  it('把更早页合并到最新页前面，按 (createdAt,id) 升序且去重', () => {
+    const latest = [
+      { id: 'n2', role: 'user', content: '新2', createdAt: '2026-09-10T00:02:00' },
+      { id: 'n1', role: 'user', content: '新1', createdAt: '2026-09-10T00:01:00' },
+    ];
+    const older = [
+      { id: 'o1', role: 'user', content: '旧1', createdAt: '2026-09-10T00:00:00' },
+      { id: 'n1', role: 'user', content: '新1', createdAt: '2026-09-10T00:01:00' },
+    ];
+    const merged = mergeRowsById(latest, older);
+    expect(merged.map((r) => r.id)).toEqual(['o1', 'n1', 'n2']);
+  });
+
+  it('同 id 以最新拉取的行覆盖旧行', () => {
+    const a = [{ id: 'x', role: 'assistant', content: '旧内容', createdAt: '2026-09-10T00:00:00' }];
+    const b = [{ id: 'x', role: 'assistant', content: '新内容', createdAt: '2026-09-10T00:00:00' }];
+    const merged = mergeRowsById(a, b);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].content).toBe('新内容');
+  });
+
+  it('不修改入参', () => {
+    const a = [{ id: 'a', createdAt: '2026-09-10T00:00:00' }];
+    const b = [{ id: 'b', createdAt: '2026-09-10T00:01:00' }];
+    mergeRowsById(a, b);
+    expect(a.map((r) => r.id)).toEqual(['a']);
+    expect(b.map((r) => r.id)).toEqual(['b']);
   });
 });
 
