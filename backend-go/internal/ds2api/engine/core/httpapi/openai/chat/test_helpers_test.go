@@ -9,7 +9,6 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/auth"
 	dsclient "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/deepseek/client"
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/httpapi/openai/files"
 )
 
 type mockOpenAIConfig struct {
@@ -23,10 +22,6 @@ type mockOpenAIConfig struct {
 	currentInputMin          int
 	thinkingInjection        *bool
 	thinkingPrompt           string
-	autoRouteVision          bool
-	expertTextInlineEnabled  *bool
-	expertTextInlineMaxBytes int
-	expertTextInlineExts     []string
 }
 
 func (m mockOpenAIConfig) ModelAliases() map[string]string     { return m.aliases }
@@ -52,24 +47,6 @@ func (m mockOpenAIConfig) ThinkingInjectionEnabled() bool {
 	return *m.thinkingInjection
 }
 func (m mockOpenAIConfig) ThinkingInjectionPrompt() string { return m.thinkingPrompt }
-func (mockOpenAIConfig) ExpertPromptSegmentEnabled() bool  { return false }
-func (mockOpenAIConfig) ExpertPromptSegmentMaxChars() int  { return 120000 }
-func (m mockOpenAIConfig) ExpertTextFileInlineEnabled() bool {
-	if m.expertTextInlineEnabled == nil {
-		return false
-	}
-	return *m.expertTextInlineEnabled
-}
-func (m mockOpenAIConfig) ExpertTextFileInlineMaxFileBytes() int {
-	if m.expertTextInlineMaxBytes > 0 {
-		return m.expertTextInlineMaxBytes
-	}
-	return 3 * 1024 * 1024
-}
-func (m mockOpenAIConfig) ExpertTextFileInlineAllowedExtensions() map[string]struct{} {
-	return files.ExtensionSet(m.expertTextInlineExts)
-}
-func (m mockOpenAIConfig) AutoRouteVisionEnabled() bool { return m.autoRouteVision }
 
 type streamStatusAuthStub struct{}
 

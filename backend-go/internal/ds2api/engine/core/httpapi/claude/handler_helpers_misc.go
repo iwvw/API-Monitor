@@ -1,8 +1,8 @@
 package claude
 
 import (
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"fmt"
+	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"strings"
 )
 

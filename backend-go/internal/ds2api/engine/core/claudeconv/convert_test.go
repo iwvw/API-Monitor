@@ -16,16 +16,16 @@ func (m mockAliasReader) ModelAliases() map[string]string {
 func TestConvertClaudeToDeepSeek(t *testing.T) {
 	reader := mockAliasReader{
 		aliases: map[string]string{
-			"claude-3-5-sonnet": "deepseek-v4-flash",
+			"claude-3-5-sonnet": "deepseek-flash",
 		},
 	}
 
 	req := map[string]any{
-		"model":       "claude-3-5-sonnet",
-		"system":      "You are a helpful assistant.",
-		"temperature": 0.5,
-		"top_p":       0.9,
-		"stream":      true,
+		"model":          "claude-3-5-sonnet",
+		"system":         "You are a helpful assistant.",
+		"temperature":    0.5,
+		"top_p":          0.9,
+		"stream":         true,
 		"stop_sequences": []string{"STOP"},
 		"messages": []any{
 			map[string]any{"role": "user", "content": "hello"},
@@ -33,8 +33,8 @@ func TestConvertClaudeToDeepSeek(t *testing.T) {
 	}
 
 	out := ConvertClaudeToDeepSeek(req, reader, "default-model")
-	if out["model"] != "deepseek-v4-flash" {
-		t.Fatalf("expected model deepseek-v4-flash, got %v", out["model"])
+	if out["model"] != "deepseek-flash" {
+		t.Fatalf("expected model deepseek-flash, got %v", out["model"])
 	}
 	if out["temperature"] != 0.5 {
 		t.Fatalf("expected temperature 0.5, got %v", out["temperature"])
@@ -66,7 +66,7 @@ func TestConvertClaudeToDeepSeek_DefaultModel(t *testing.T) {
 		},
 	}
 	out := ConvertClaudeToDeepSeek(req, nil, "")
-	if out["model"] != "deepseek-v4-flash" {
-		t.Fatalf("expected fallback deepseek-v4-flash, got %v", out["model"])
+	if out["model"] != "deepseek-flash" {
+		t.Fatalf("expected fallback deepseek-flash, got %v", out["model"])
 	}
 }

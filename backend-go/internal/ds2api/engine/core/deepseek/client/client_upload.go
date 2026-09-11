@@ -3,10 +3,10 @@ package client
 import (
 	"bytes"
 	"context"
-	dsprotocol "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/deepseek/protocol"
 	"encoding/json"
 	"errors"
 	"fmt"
+	dsprotocol "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/deepseek/protocol"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"

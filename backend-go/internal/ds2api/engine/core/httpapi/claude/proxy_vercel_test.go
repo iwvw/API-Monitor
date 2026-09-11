@@ -16,9 +16,6 @@ func (s claudeProxyStoreStub) ModelAliases() map[string]string { return s.aliase
 
 func (claudeProxyStoreStub) CurrentInputFileEnabled() bool    { return true }
 func (claudeProxyStoreStub) CurrentInputFileMinChars() int    { return 0 }
-func (claudeProxyStoreStub) ExpertPromptSegmentEnabled() bool { return false }
-func (claudeProxyStoreStub) ExpertPromptSegmentMaxChars() int { return 120000 }
-func (claudeProxyStoreStub) AutoRouteVisionEnabled() bool     { return false }
 
 type openAIProxyStub struct {
 	status int
@@ -29,7 +26,7 @@ func TestClaudeProxyViaOpenAIPrefersGlobalAliasMapping(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{
 		Store: claudeProxyStoreStub{
-			aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"},
+			aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"},
 		},
 		OpenAI: openAI,
 	}
@@ -41,8 +38,8 @@ func TestClaudeProxyViaOpenAIPrefersGlobalAliasMapping(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
 	}
-	if got := strings.TrimSpace(openAI.seenModel); got != "deepseek-v4-flash" {
-		t.Fatalf("expected global alias mapped proxy model deepseek-v4-flash, got %q", got)
+	if got := strings.TrimSpace(openAI.seenModel); got != "deepseek-flash" {
+		t.Fatalf("expected global alias mapped proxy model deepseek-flash, got %q", got)
 	}
 }
 
@@ -94,7 +91,7 @@ func TestClaudeProxyViaOpenAIVercelPreparePassthrough(t *testing.T) {
 func TestClaudeProxyViaOpenAIUsesGlobalAliasMapping(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{
-		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-3-opus": "deepseek-v4-pro"}},
+		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-3-opus": "deepseek-flash"}},
 		OpenAI: openAI,
 	}
 	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(`{"model":"claude-3-opus","messages":[{"role":"user","content":"hi"}],"stream":false}`))
@@ -105,15 +102,15 @@ func TestClaudeProxyViaOpenAIUsesGlobalAliasMapping(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
 	}
-	if got := strings.TrimSpace(openAI.seenModel); got != "deepseek-v4-pro" {
-		t.Fatalf("expected mapped proxy model deepseek-v4-pro, got %q", got)
+	if got := strings.TrimSpace(openAI.seenModel); got != "deepseek-flash" {
+		t.Fatalf("expected mapped proxy model deepseek-flash, got %q", got)
 	}
 }
 
 func TestClaudeProxyViaOpenAIPreservesThinkingOverride(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{
-		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"}},
 		OpenAI: openAI,
 	}
 	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"disabled"},"stream":false}`))
@@ -133,7 +130,7 @@ func TestClaudeProxyViaOpenAIPreservesThinkingOverride(t *testing.T) {
 func TestClaudeProxyViaOpenAIEnablesThinkingInternallyByDefaultForNonStream(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{
-		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"}},
 		OpenAI: openAI,
 	}
 	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}],"stream":false}`))
@@ -153,7 +150,7 @@ func TestClaudeProxyViaOpenAIEnablesThinkingInternallyByDefaultForNonStream(t *t
 func TestClaudeProxyViaOpenAIEnablesThinkingWhenRequested(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{
-		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"}},
 		OpenAI: openAI,
 	}
 	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"enabled","budget_tokens":1024},"stream":false}`))
@@ -173,7 +170,7 @@ func TestClaudeProxyViaOpenAIEnablesThinkingWhenRequested(t *testing.T) {
 func TestClaudeProxyViaOpenAIEnablesStreamThinkingByDefault(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{
-		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:  claudeProxyStoreStub{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"}},
 		OpenAI: openAI,
 	}
 	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}],"stream":true}`))

@@ -18,7 +18,6 @@ type mockOpenAIConfig struct {
 	currentInputMin     int
 	thinkingInjection   *bool
 	thinkingPrompt      string
-	autoRouteVision     bool
 }
 
 func (m mockOpenAIConfig) ModelAliases() map[string]string     { return m.aliases }
@@ -44,17 +43,11 @@ func (m mockOpenAIConfig) ThinkingInjectionEnabled() bool {
 	return *m.thinkingInjection
 }
 func (m mockOpenAIConfig) ThinkingInjectionPrompt() string                          { return m.thinkingPrompt }
-func (mockOpenAIConfig) ExpertPromptSegmentEnabled() bool                           { return false }
-func (mockOpenAIConfig) ExpertPromptSegmentMaxChars() int                           { return 120000 }
-func (mockOpenAIConfig) ExpertTextFileInlineEnabled() bool                          { return false }
-func (mockOpenAIConfig) ExpertTextFileInlineMaxFileBytes() int                      { return 3 * 1024 * 1024 }
-func (mockOpenAIConfig) ExpertTextFileInlineAllowedExtensions() map[string]struct{} { return nil }
-func (m mockOpenAIConfig) AutoRouteVisionEnabled() bool                             { return m.autoRouteVision }
 
 func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 	cfg := mockOpenAIConfig{
 		aliases: map[string]string{
-			"my-model": "deepseek-v4-flash-search",
+			"my-model": "deepseek-flash-search",
 		},
 	}
 	req := map[string]any{
@@ -65,7 +58,7 @@ func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("promptcompat.NormalizeOpenAIChatRequest error: %v", err)
 	}
-	if out.ResolvedModel != "deepseek-v4-flash-search" {
+	if out.ResolvedModel != "deepseek-flash-search" {
 		t.Fatalf("resolved model mismatch: got=%q", out.ResolvedModel)
 	}
 	if !out.Search || !out.Thinking {
@@ -76,7 +69,7 @@ func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 func TestNormalizeOpenAIChatRequestDisablesThinkingForNoThinkingModel(t *testing.T) {
 	cfg := mockOpenAIConfig{}
 	req := map[string]any{
-		"model":            "deepseek-v4-pro-nothinking",
+		"model":            "deepseek-flash-nothinking",
 		"messages":         []any{map[string]any{"role": "user", "content": "hello"}},
 		"reasoning_effort": "high",
 	}
@@ -84,20 +77,20 @@ func TestNormalizeOpenAIChatRequestDisablesThinkingForNoThinkingModel(t *testing
 	if err != nil {
 		t.Fatalf("promptcompat.NormalizeOpenAIChatRequest error: %v", err)
 	}
-	if out.ResolvedModel != "deepseek-v4-pro-nothinking" {
+	if out.ResolvedModel != "deepseek-flash-nothinking" {
 		t.Fatalf("resolved model mismatch: got=%q", out.ResolvedModel)
 	}
 	if out.Thinking {
 		t.Fatalf("expected nothinking model to force thinking off")
 	}
 	if out.Search {
-		t.Fatalf("expected search=false for deepseek-v4-pro-nothinking, got=%v", out.Search)
+		t.Fatalf("expected search=false for deepseek-flash-nothinking, got=%v", out.Search)
 	}
 }
 
 func TestNormalizeOpenAIResponsesRequestAlwaysAcceptsWideInput(t *testing.T) {
 	req := map[string]any{
-		"model": "deepseek-v4-flash",
+		"model": "deepseek-flash",
 		"input": "hi",
 	}
 

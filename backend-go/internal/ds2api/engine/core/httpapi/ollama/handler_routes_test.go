@@ -57,7 +57,7 @@ func TestGetOllamaModelRoute(t *testing.T) {
 	registerOllamaTestRoutes(r, h)
 
 	t.Run("direct", func(t *testing.T) {
-		body := `{"model":"deepseek-v4-flash"}`
+		body := `{"model":"deepseek-flash"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
@@ -78,7 +78,7 @@ func TestGetOllamaModelRoute(t *testing.T) {
 	})
 
 	t.Run("direct_nothinking", func(t *testing.T) {
-		body := `{"model":"deepseek-v4-flash-nothinking"}`
+		body := `{"model":"deepseek-flash-nothinking"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestGetOllamaModelRoute(t *testing.T) {
 	})
 
 	t.Run("direct_expert", func(t *testing.T) {
-		body := `{"model":"deepseek-v4-pro"}`
+		body := `{"model":"deepseek-flash"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
@@ -100,7 +100,7 @@ func TestGetOllamaModelRoute(t *testing.T) {
 	})
 
 	t.Run("direct_vision", func(t *testing.T) {
-		body := `{"model":"deepseek-v4-vision"}`
+		body := `{"model":"deepseek-flash"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestGetOllamaModelRouteRejectsOversizedBody(t *testing.T) {
 	h := &ollamaTestSurface{}
 	r := chi.NewRouter()
 	registerOllamaTestRoutes(r, h)
-	body := `{"model":"deepseek-v4-flash","padding":"` + strings.Repeat("x", 100<<20) + `"}`
+	body := `{"model":"deepseek-flash","padding":"` + strings.Repeat("x", 100<<20) + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)

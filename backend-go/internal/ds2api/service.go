@@ -101,9 +101,9 @@ func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
 // New 构造服务并加载持久化设置。
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:        cfg,
-		store:      database.New(cfg),
-		callBase:   map[string]int64{},
+		cfg:         cfg,
+		store:       database.New(cfg),
+		callBase:    map[string]int64{},
 		callPending: map[string]int64{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -626,10 +626,10 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	engineUp := s.app != nil
 	s.mu.RUnlock()
 	responseJSON(w, map[string]interface{}{
-		"enabled":      st.Enabled,
-		"engineUp":     engineUp,
-		"proxyPoolId":  st.ProxyPoolID,
-		"configBytes":  len(st.ConfigJSON),
+		"enabled":     st.Enabled,
+		"engineUp":    engineUp,
+		"proxyPoolId": st.ProxyPoolID,
+		"configBytes": len(st.ConfigJSON),
 	})
 }
 

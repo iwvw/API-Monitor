@@ -33,7 +33,6 @@ type Options struct {
 	RetryEnabled          bool
 	RetryMaxAttempts      int
 	CurrentInputFile      history.CurrentInputConfigReader
-	ExpertPromptSegment   ExpertPromptSegmentConfigReader
 	// ToolCallRepairEnabled turns on the phase-3 finalize-only LLM tool-call
 	// repair pass. When enabled, the runtime builds a repair invoker bound to
 	// the request's account (expert mode, thinking off, new session, 10s) and
@@ -63,20 +62,16 @@ type StartResult struct {
 }
 
 func StartCompletion(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options) (StartResult, *assistantturn.OutputError) {
-	if segments := shouldSegmentExpertPrompt(stdReq, opts); segments != nil {
-		return StartCompletionWithSegments(ctx, ds, a, stdReq, opts, segments)
-	}
 	return startCompletionOnce(ctx, ds, a, stdReq, opts)
 }
 
 // PrepareCompletionPayload builds the session-aware completion payload for a
-// request without calling the completion endpoint itself. Oversized expert
-// prompts are split into segments first (all but the last are sent via
-// FireCompletionAndStop), so the caller can stream the returned final payload
-// directly. This is the payload-side equivalent of StartCompletion for
-// surfaces that stream upstream responses themselves (e.g. the Vercel Node
-// stream layer). On success the caller must stream the returned payload with
-// the returned PoW on the same account and session.
+// request without calling the completion endpoint itself, so the caller can
+// stream the returned final payload directly. This is the payload-side
+// equivalent of StartCompletion for surfaces that stream upstream responses
+// themselves (e.g. the Vercel Node stream layer). On success the caller must
+// stream the returned payload with the returned PoW on the same account and
+// session.
 func PrepareCompletionPayload(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int) (sessionID, pow string, payload map[string]any, outErr *assistantturn.OutputError) {
 	if maxAttempts <= 0 {
 		maxAttempts = 3
@@ -90,13 +85,6 @@ func PrepareCompletionPayload(ctx context.Context, ds DeepSeekCaller, a *auth.Re
 	sessionID, err = ds.CreateSession(ctx, a, maxAttempts)
 	if err != nil {
 		return "", "", nil, authOutputError(a)
-	}
-	if segments := shouldSegmentExpertPrompt(stdReq, opts); len(segments) > 1 {
-		finalPow, finalPayload, segErr := fireSegmentPayloads(ctx, ds, a, stdReq, sessionID, segments, maxAttempts)
-		if segErr != nil {
-			return sessionID, "", nil, segErr
-		}
-		return sessionID, finalPow, finalPayload, nil
 	}
 	pow, err = ds.GetPow(ctx, a, maxAttempts)
 	if err != nil {
@@ -323,9 +311,6 @@ func isAccountMuted(outErr *assistantturn.OutputError) bool {
 }
 
 func startStandardCompletionOnAlternateAccount(ctx context.Context, ds DeepSeekCaller, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, opts Options, maxAttempts int) (StartResult, *assistantturn.OutputError) {
-	if segments := shouldSegmentExpertPrompt(stdReq, opts); segments != nil {
-		return StartCompletionWithSegments(ctx, ds, a, stdReq, opts, segments)
-	}
 	var prepErr *assistantturn.OutputError
 	stdReq, prepErr = reuploadCurrentInputFileForAccount(ctx, ds, a, stdReq, opts)
 	if prepErr != nil {

@@ -23,11 +23,11 @@ type accountView struct {
 	PoolType   string `json:"poolType,omitempty"`
 	Identifier string `json:"identifier"`
 	// 冷却状态（Unix 秒，<=0 表示无冷却）。
-	MutedUntil      float64 `json:"mutedUntil,omitempty"`
-	CooldownUntil   float64 `json:"cooldownUntil,omitempty"`
+	MutedUntil        float64 `json:"mutedUntil,omitempty"`
+	CooldownUntil     float64 `json:"cooldownUntil,omitempty"`
 	NodeCooldownUntil float64 `json:"nodeCooldownUntil,omitempty"`
-	Available       bool    `json:"available"`
-	CallCount       int64   `json:"callCount"`
+	Available         bool    `json:"available"`
+	CallCount         int64   `json:"callCount"`
 }
 
 // handleAccounts 管理 DeepSeek 网页版账号池。
@@ -78,18 +78,18 @@ func (s *Service) listAccounts(w http.ResponseWriter, r *http.Request) {
 	for _, a := range accs {
 		id := a.Identifier()
 		out = append(out, accountView{
-			Name:            a.Name,
-			Email:           a.Email,
-			Mobile:          a.Mobile,
-			Disabled:        a.Disabled,
-			Banned:          a.Banned,
-			PoolType:        a.PoolType,
-			Identifier:      id,
-			MutedUntil:      a.MutedUntil,
-			CooldownUntil:   a.CooldownUntil,
+			Name:              a.Name,
+			Email:             a.Email,
+			Mobile:            a.Mobile,
+			Disabled:          a.Disabled,
+			Banned:            a.Banned,
+			PoolType:          a.PoolType,
+			Identifier:        id,
+			MutedUntil:        a.MutedUntil,
+			CooldownUntil:     a.CooldownUntil,
 			NodeCooldownUntil: a.NodeCooldownUntil,
-			Available:       a.IsEnabled() && !a.IsMuted() && !a.IsBanned() && !a.IsCoolingDown(),
-			CallCount:       s.callDisplay(id),
+			Available:         a.IsEnabled() && !a.IsMuted() && !a.IsBanned() && !a.IsCoolingDown(),
+			CallCount:         s.callDisplay(id),
 		})
 	}
 	responseJSON(w, map[string]interface{}{"success": true, "accounts": out})

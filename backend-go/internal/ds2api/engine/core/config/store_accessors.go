@@ -175,51 +175,6 @@ func (s *Store) ThinkingInjectionPrompt() string {
 	return strings.TrimSpace(s.cfg.ThinkingInjection.Prompt)
 }
 
-func (s *Store) ExpertPromptSegmentEnabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.ExpertPromptSegment.Enabled == nil {
-		// 默认关闭：专家长提示分段（fire-and-stop）在受限内存主机上会产生
-		// 多次并发 SSE 流 + 超大 payload 的内存尖峰（实测单请求 +50~70MB），
-		// 256MB 容器会被 OOM 杀死。需要时在 config.json 显式开启。
-		return false
-	}
-	return *s.cfg.ExpertPromptSegment.Enabled
-}
-
-func (s *Store) ExpertPromptSegmentMaxChars() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.ExpertPromptSegment.MaxChars > 0 {
-		return s.cfg.ExpertPromptSegment.MaxChars
-	}
-	return 160000
-}
-
-func (s *Store) ExpertTextFileInlineEnabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.ExpertTextFileInline.Enabled == nil {
-		return true
-	}
-	return *s.cfg.ExpertTextFileInline.Enabled
-}
-
-func (s *Store) ExpertTextFileInlineMaxFileBytes() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.ExpertTextFileInline.MaxFileBytes > 0 {
-		return s.cfg.ExpertTextFileInline.MaxFileBytes
-	}
-	return 3 * 1024 * 1024 // 3 MiB
-}
-
-func (s *Store) ExpertTextFileInlineAllowedExtensions() map[string]struct{} {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return extensionSet(s.cfg.ExpertTextFileInline.AllowedExtensions)
-}
-
 func extensionSet(exts []string) map[string]struct{} {
 	if len(exts) == 0 {
 		return nil
@@ -236,13 +191,4 @@ func extensionSet(exts []string) map[string]struct{} {
 		out[e] = struct{}{}
 	}
 	return out
-}
-
-func (s *Store) AutoRouteVisionEnabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.AutoRouteVision.Enabled == nil {
-		return false
-	}
-	return *s.cfg.AutoRouteVision.Enabled
 }

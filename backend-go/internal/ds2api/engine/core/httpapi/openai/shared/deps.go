@@ -52,12 +52,6 @@ type ConfigReader interface {
 	CurrentInputFileMinChars() int
 	ThinkingInjectionEnabled() bool
 	ThinkingInjectionPrompt() string
-	ExpertPromptSegmentEnabled() bool
-	ExpertPromptSegmentMaxChars() int
-	ExpertTextFileInlineEnabled() bool
-	ExpertTextFileInlineMaxFileBytes() int
-	ExpertTextFileInlineAllowedExtensions() map[string]struct{}
-	AutoRouteVisionEnabled() bool
 }
 
 type Deps struct {

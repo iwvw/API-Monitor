@@ -16,7 +16,7 @@ func TestNormalizeGeminiRequestNoThinkingModelForcesThinkingOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalizeGeminiRequest error: %v", err)
 	}
-	if out.ResolvedModel != "deepseek-v4-pro-nothinking" {
+	if out.ResolvedModel != "deepseek-flash-nothinking" {
 		t.Fatalf("resolved model mismatch: got=%q", out.ResolvedModel)
 	}
 	if out.Thinking {

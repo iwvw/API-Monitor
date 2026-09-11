@@ -72,7 +72,7 @@ func TestTestAccount_BatchModeOnlyCreatesSession(t *testing.T) {
 		t.Fatal("expected test account")
 	}
 
-	result := h.testAccount(context.Background(), acc, "deepseek-v4-flash", "")
+	result := h.testAccount(context.Background(), acc, "deepseek-flash", "")
 
 	if ok, _ := result["success"].(bool); !ok {
 		t.Fatalf("expected success=true, got %#v", result)
@@ -167,7 +167,7 @@ func (m *completionPayloadDSMock) GetSessionCountForToken(_ context.Context, _ s
 	return &dsclient.SessionStats{Success: true}, nil
 }
 
-func TestTestAccount_MessageModeUsesExpertModelTypeForExpertModel(t *testing.T) {
+func TestTestAccount_MessageModeUsesDefaultModelType(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"batch@example.com","password":"pwd","token":"seed-token"}]}`)
 	store := config.LoadStore()
 	ds := &completionPayloadDSMock{}
@@ -177,35 +177,19 @@ func TestTestAccount_MessageModeUsesExpertModelTypeForExpertModel(t *testing.T) 
 		t.Fatal("expected test account")
 	}
 
-	result := h.testAccount(context.Background(), acc, "deepseek-v4-pro", "hello")
+	// 上游三档合并后任何模型都落到 model_type=default。
+	for _, model := range []string{"deepseek-flash", "deepseek-v4-pro", "deepseek-v4-vision"} {
+		ds.payload = nil
+		result := h.testAccount(context.Background(), acc, model, "hello")
 
-	if ok, _ := result["success"].(bool); !ok {
-		t.Fatalf("expected success=true, got %#v", result)
-	}
-	if got := ds.payload["model_type"]; got != "expert" {
-		t.Fatalf("expected model_type expert, got %#v", got)
-	}
-	if got := ds.payload["chat_session_id"]; got != "session-id" {
-		t.Fatalf("unexpected chat_session_id: %#v", got)
-	}
-}
-
-func TestTestAccount_MessageModeUsesVisionModelTypeForVisionModel(t *testing.T) {
-	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"batch@example.com","password":"pwd","token":"seed-token"}]}`)
-	store := config.LoadStore()
-	ds := &completionPayloadDSMock{}
-	h := &Handler{Store: store, DS: ds}
-	acc, ok := store.FindAccount("batch@example.com")
-	if !ok {
-		t.Fatal("expected test account")
-	}
-
-	result := h.testAccount(context.Background(), acc, "deepseek-v4-vision", "hello")
-
-	if ok, _ := result["success"].(bool); !ok {
-		t.Fatalf("expected success=true, got %#v", result)
-	}
-	if got := ds.payload["model_type"]; got != "vision" {
-		t.Fatalf("expected model_type vision, got %#v", got)
+		if ok, _ := result["success"].(bool); !ok {
+			t.Fatalf("expected success=true for %s, got %#v", model, result)
+		}
+		if got := ds.payload["model_type"]; got != "default" {
+			t.Fatalf("expected model_type default for %s, got %#v", model, got)
+		}
+		if got := ds.payload["chat_session_id"]; got != "session-id" {
+			t.Fatalf("unexpected chat_session_id: %#v", got)
+		}
 	}
 }

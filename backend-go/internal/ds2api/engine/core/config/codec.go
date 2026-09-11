@@ -48,15 +48,6 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	if c.ThinkingInjection.Enabled != nil || strings.TrimSpace(c.ThinkingInjection.Prompt) != "" {
 		m["thinking_injection"] = c.ThinkingInjection
 	}
-	if c.ExpertPromptSegment.Enabled != nil || c.ExpertPromptSegment.MaxChars != 0 {
-		m["expert_prompt_segment"] = c.ExpertPromptSegment
-	}
-	if c.ExpertTextFileInline.Enabled != nil || c.ExpertTextFileInline.MaxFileBytes != 0 || len(c.ExpertTextFileInline.AllowedExtensions) > 0 {
-		m["expert_text_file_inline"] = c.ExpertTextFileInline
-	}
-	if c.AutoRouteVision.Enabled != nil {
-		m["auto_route_vision"] = c.AutoRouteVision
-	}
 	if c.ElasticPool.Enabled || c.ElasticPool.PerPool || c.ElasticPool.GlobalCount != 0 || c.ElasticPool.DefaultCount != 0 || c.ElasticPool.NoToolsCount != 0 || c.ElasticPool.ToolsOnlyCount != 0 {
 		m["elastic_pool"] = c.ElasticPool
 	}
@@ -143,18 +134,6 @@ func (c *Config) UnmarshalJSON(b []byte) error {
 			if err := json.Unmarshal(v, &c.ThinkingInjection); err != nil {
 				return fmt.Errorf("invalid field %q: %w", k, err)
 			}
-		case "expert_prompt_segment":
-			if err := json.Unmarshal(v, &c.ExpertPromptSegment); err != nil {
-				return fmt.Errorf("invalid field %q: %w", k, err)
-			}
-		case "expert_text_file_inline":
-			if err := json.Unmarshal(v, &c.ExpertTextFileInline); err != nil {
-				return fmt.Errorf("invalid field %q: %w", k, err)
-			}
-		case "auto_route_vision":
-			if err := json.Unmarshal(v, &c.AutoRouteVision); err != nil {
-				return fmt.Errorf("invalid field %q: %w", k, err)
-			}
 		case "elastic_pool":
 			if err := json.Unmarshal(v, &c.ElasticPool); err != nil {
 				return fmt.Errorf("invalid field %q: %w", k, err)
@@ -205,18 +184,6 @@ func (c Config) Clone() Config {
 		ThinkingInjection: ThinkingInjectionConfig{
 			Enabled: cloneBoolPtr(c.ThinkingInjection.Enabled),
 			Prompt:  c.ThinkingInjection.Prompt,
-		},
-		ExpertPromptSegment: ExpertPromptSegmentConfig{
-			Enabled:  cloneBoolPtr(c.ExpertPromptSegment.Enabled),
-			MaxChars: c.ExpertPromptSegment.MaxChars,
-		},
-		ExpertTextFileInline: ExpertTextFileInlineConfig{
-			Enabled:           cloneBoolPtr(c.ExpertTextFileInline.Enabled),
-			MaxFileBytes:      c.ExpertTextFileInline.MaxFileBytes,
-			AllowedExtensions: slices.Clone(c.ExpertTextFileInline.AllowedExtensions),
-		},
-		AutoRouteVision: AutoRouteVisionConfig{
-			Enabled: cloneBoolPtr(c.AutoRouteVision.Enabled),
 		},
 		ElasticPool:      c.ElasticPool,
 		Mihomo:           cloneMihomoConfig(c.Mihomo),

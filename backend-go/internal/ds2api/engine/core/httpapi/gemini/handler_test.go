@@ -23,9 +23,6 @@ type testGeminiConfig struct{}
 func (testGeminiConfig) ModelAliases() map[string]string  { return nil }
 func (testGeminiConfig) CurrentInputFileEnabled() bool    { return true }
 func (testGeminiConfig) CurrentInputFileMinChars() int    { return 0 }
-func (testGeminiConfig) ExpertPromptSegmentEnabled() bool { return false }
-func (testGeminiConfig) ExpertPromptSegmentMaxChars() int { return 120000 }
-func (testGeminiConfig) AutoRouteVisionEnabled() bool     { return false }
 
 type testGeminiAuth struct {
 	a   *auth.RequestAuth

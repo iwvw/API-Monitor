@@ -106,7 +106,6 @@ func (h *Handler) handleGeminiDirect(w http.ResponseWriter, r *http.Request, str
 	result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		RetryEnabled:          true,
 		CurrentInputFile:      h.Store,
-		ExpertPromptSegment:   h.Store,
 		ToolCallRepairEnabled: true,
 	})
 	if outErr != nil {
@@ -141,7 +140,6 @@ func mapCurrentInputFileError(err error) (int, string) {
 func (h *Handler) handleGeminiDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
 	})
 	if outErr != nil {
 		if historySession != nil {

@@ -1,13 +1,13 @@
 package claude
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/assistantturn"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/responsehistory"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/sse"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolstream"
-	"encoding/json"
-	"fmt"
 	"time"
 
 	streamengine "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/stream"

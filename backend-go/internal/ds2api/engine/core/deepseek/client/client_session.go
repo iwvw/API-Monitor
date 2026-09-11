@@ -2,9 +2,9 @@ package client
 
 import (
 	"context"
-	dsprotocol "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/deepseek/protocol"
 	"errors"
 	"fmt"
+	dsprotocol "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/deepseek/protocol"
 	"net/http"
 	"net/url"
 	"strings"

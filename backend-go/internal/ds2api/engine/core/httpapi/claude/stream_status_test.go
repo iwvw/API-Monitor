@@ -25,9 +25,6 @@ func (streamStatusClaudeStoreStub) ModelAliases() map[string]string { return nil
 
 func (streamStatusClaudeStoreStub) CurrentInputFileEnabled() bool    { return true }
 func (streamStatusClaudeStoreStub) CurrentInputFileMinChars() int    { return 0 }
-func (streamStatusClaudeStoreStub) ExpertPromptSegmentEnabled() bool { return false }
-func (streamStatusClaudeStoreStub) ExpertPromptSegmentMaxChars() int { return 120000 }
-func (streamStatusClaudeStoreStub) AutoRouteVisionEnabled() bool     { return false }
 
 func captureClaudeStatusMiddleware(statuses *[]int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

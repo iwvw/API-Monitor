@@ -39,13 +39,6 @@ func (h *Handler) getSettings(w http.ResponseWriter, _ *http.Request) {
 			"prompt":         h.Store.ThinkingInjectionPrompt(),
 			"default_prompt": promptcompat.DefaultThinkingInjectionPrompt,
 		},
-		"expert_prompt_segment": map[string]any{
-			"enabled":   h.Store.ExpertPromptSegmentEnabled(),
-			"max_chars": h.Store.ExpertPromptSegmentMaxChars(),
-		},
-		"auto_route_vision": map[string]any{
-			"enabled": h.Store.AutoRouteVisionEnabled(),
-		},
 		"model_aliases":     snap.ModelAliases,
 		"env_backed":        h.Store.IsEnvBacked(),
 		"needs_vercel_sync": needsSync,

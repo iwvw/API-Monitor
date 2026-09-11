@@ -75,6 +75,7 @@ func parseToolCallsDetailedXMLOnly(text string) ToolCallParseResult {
 	// unclosed frames are left unchanged and keep flowing to the strip/retry
 	// path.
 	original = RewriteNativeToolCallFrames(original)
+	original = RewriteDSMLWrapperFrames(original)
 
 	normalized, ok := normalizeEPSEToolCallMarkup(original)
 	if !ok {

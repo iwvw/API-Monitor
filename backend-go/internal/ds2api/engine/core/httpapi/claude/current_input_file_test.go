@@ -23,9 +23,6 @@ type claudeHistoryConfig struct {
 func (m claudeHistoryConfig) ModelAliases() map[string]string { return m.aliases }
 func (claudeHistoryConfig) CurrentInputFileEnabled() bool     { return false }
 func (claudeHistoryConfig) CurrentInputFileMinChars() int     { return 0 }
-func (claudeHistoryConfig) ExpertPromptSegmentEnabled() bool  { return false }
-func (claudeHistoryConfig) ExpertPromptSegmentMaxChars() int  { return 120000 }
-func (claudeHistoryConfig) AutoRouteVisionEnabled() bool      { return false }
 
 func (claudeCurrentInputAuth) Determine(*http.Request) (*auth.RequestAuth, error) {
 	return &auth.RequestAuth{
@@ -39,7 +36,7 @@ func TestClaudeDirectRecordsResponseHistory(t *testing.T) {
 	ds := &claudeCurrentInputDS{}
 	historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
 	h := &Handler{
-		Store:       claudeHistoryConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:       claudeHistoryConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"}},
 		Auth:        claudeCurrentInputAuth{},
 		DS:          ds,
 		ChatHistory: historyStore,
@@ -128,7 +125,7 @@ func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 	ds := &claudeCurrentInputDS{}
 	historyStore := chathistory.New(filepath.Join(t.TempDir(), "history.json"))
 	h := &Handler{
-		Store:       mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store:       mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"}},
 		Auth:        claudeCurrentInputAuth{},
 		DS:          ds,
 		ChatHistory: historyStore,
@@ -179,7 +176,7 @@ func TestClaudeDirectAppliesCurrentInputFile(t *testing.T) {
 func TestClaudeCurrentInputFileUploadsToolsSeparately(t *testing.T) {
 	ds := &claudeCurrentInputDS{}
 	h := &Handler{
-		Store: mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-v4-flash"}},
+		Store: mockClaudeConfig{aliases: map[string]string{"claude-sonnet-4-6": "deepseek-flash"}},
 		Auth:  claudeCurrentInputAuth{},
 		DS:    ds,
 	}

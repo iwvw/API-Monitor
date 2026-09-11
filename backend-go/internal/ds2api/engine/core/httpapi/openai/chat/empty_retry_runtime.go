@@ -53,7 +53,6 @@ func (h *Handler) handleNonStreamWithRetry(w http.ResponseWriter, ctx context.Co
 	}, completionruntime.Options{
 		RetryEnabled:          retryEnabled,
 		RetryMaxAttempts:      emptyOutputRetryMaxAttempts(),
-		ExpertPromptSegment:   h.Store,
 		ToolCallRepairEnabled: true,
 	})
 	if outErr != nil {
@@ -91,7 +90,6 @@ func (h *Handler) handleStreamWithRetry(w http.ResponseWriter, r *http.Request, 
 		UsagePrompt:         finalPrompt,
 		Request:             stdReq,
 		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			return h.consumeChatStreamAttempt(r, currentResp, streamRuntime, initialType, thinkingEnabled, historySession, allowDeferEmpty)

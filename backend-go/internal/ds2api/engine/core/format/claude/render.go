@@ -1,9 +1,9 @@
 package claude
 
 import (
+	"fmt"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/assistantturn"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
-	"fmt"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/prompt"

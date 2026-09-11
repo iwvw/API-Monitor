@@ -156,7 +156,7 @@ func (s *Service) linkDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Service) engineModelNames(ctx context.Context) []string {
 	store, err := s.loadEngineStore()
 	if err != nil {
-		return []string{"deepseek-v4-flash", "deepseek-v4-pro"}
+		return []string{"deepseek-flash"}
 	}
 	return engineSupportedModels(store)
 }

@@ -69,26 +69,14 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	r = r.WithContext(auth.WithAuth(r.Context(), a))
 
-	originalModel, rerouted := promptcompat.MaybeAutoRouteVision(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
 		writeOpenAIInlineFileError(w, err)
 		return
-	}
-	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
-		return
-	}
-	if rerouted {
-		promptcompat.StripImageBlocksFromRequest(req)
 	}
 	stdReq, err := promptcompat.NormalizeOpenAIChatRequest(h.Store, req, requestTraceID(r))
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if rerouted && originalModel != "" {
-		stdReq.RequestedModel = originalModel
-		stdReq.ResponseModel = originalModel
 	}
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
@@ -102,7 +90,6 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 			RetryEnabled:          true,
 			CurrentInputFile:      h.Store,
-			ExpertPromptSegment:   h.Store,
 			ToolCallRepairEnabled: true,
 		})
 		sessionID = result.SessionID
@@ -129,7 +116,6 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
 	})
 	sessionID = start.SessionID
 	if outErr != nil {

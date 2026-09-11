@@ -1,9 +1,9 @@
 package responses
 
 import (
+	"encoding/json"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolstream"
-	"encoding/json"
 	"strings"
 
 	openaifmt "github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/format/openai"

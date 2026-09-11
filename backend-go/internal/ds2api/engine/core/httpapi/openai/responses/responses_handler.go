@@ -1,8 +1,8 @@
 package responses
 
 import (
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"encoding/json"
+	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"io"
 	"net/http"
 	"strings"
@@ -81,27 +81,15 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	originalModel, rerouted := promptcompat.MaybeAutoRouteVision(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
 		writeOpenAIInlineFileError(w, err)
 		return
-	}
-	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
-		return
-	}
-	if rerouted {
-		promptcompat.StripImageBlocksFromRequest(req)
 	}
 	traceID := requestTraceID(r)
 	stdReq, err := promptcompat.NormalizeOpenAIResponsesRequest(h.Store, req, traceID)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if rerouted && originalModel != "" {
-		stdReq.RequestedModel = originalModel
-		stdReq.ResponseModel = originalModel
 	}
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
 	if err != nil {
@@ -122,7 +110,6 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 		result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 			RetryEnabled:          true,
 			CurrentInputFile:      h.Store,
-			ExpertPromptSegment:   h.Store,
 			ToolCallRepairEnabled: true,
 		})
 		if outErr != nil {
@@ -148,7 +135,6 @@ func (h *Handler) Responses(w http.ResponseWriter, r *http.Request) {
 
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
 	})
 	if outErr != nil {
 		if historySession != nil {

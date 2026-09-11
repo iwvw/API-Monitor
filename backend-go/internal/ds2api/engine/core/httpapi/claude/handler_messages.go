@@ -109,7 +109,6 @@ func (h *Handler) handleClaudeDirect(w http.ResponseWriter, r *http.Request) boo
 	result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		RetryEnabled:          true,
 		CurrentInputFile:      h.Store,
-		ExpertPromptSegment:   h.Store,
 		ToolCallRepairEnabled: true,
 	})
 	if outErr != nil {
@@ -149,7 +148,6 @@ func mapCurrentInputFileError(err error) (int, string) {
 func (h *Handler) handleClaudeDirectStream(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest, historySession *responsehistory.Session) {
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
 	})
 	if outErr != nil {
 		if historySession != nil {
@@ -436,7 +434,6 @@ func (h *Handler) handleClaudeStreamRealtimeWithRetry(w http.ResponseWriter, r *
 		UsagePrompt:         promptTokenText,
 		Request:             stdReq,
 		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
 	}, completionruntime.StreamRetryHooks{
 		ConsumeAttempt: func(currentResp *http.Response, allowDeferEmpty bool) completionruntime.ConsumeAttemptResult {
 			terminalWritten, retryable := h.consumeClaudeStreamAttempt(r, currentResp, streamRuntime, thinkingEnabled, allowDeferEmpty)

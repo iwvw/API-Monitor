@@ -1,8 +1,8 @@
 package responses
 
 import (
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"encoding/json"
+	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/toolcall"
 	"sort"
 	"strings"
 

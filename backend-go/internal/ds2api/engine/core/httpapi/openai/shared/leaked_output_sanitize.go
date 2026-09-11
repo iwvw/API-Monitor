@@ -46,6 +46,13 @@ var leakedAgentWrapperPlusResultOpenPattern = regexp.MustCompile(`(?is)<(?:attem
 var leakedAgentResultPlusWrapperClosePattern = regexp.MustCompile(`(?is)</result>\s*</(?:attempt_completion|ask_followup_question|new_task)\b[^>]*>`)
 var leakedAgentResultTagPattern = regexp.MustCompile(`(?is)</?result>`)
 
+// leakedDSMLFrameTagPattern matches the raw DeepSeek web-agent DSML tool-frame
+// tags (complete or truncated) so any frame that parsing failed to convert
+// into tool calls is still removed from visible output instead of leaking as
+// text. The doubled fullwidth pipes around the literal DSML segment are what
+// the EPSE whitelist does not cover.
+var leakedDSMLFrameTagPattern = regexp.MustCompile(`(?i)<(/?)\s*[\|\x{FF5C}]+\s*DSML\s*[\|\x{FF5C}]+\s*(?:calls|invoke|parameter)\b[^>]*>`)
+
 func sanitizeLeakedOutput(text string) string {
 	if text == "" {
 		return text
@@ -61,7 +68,24 @@ func sanitizeLeakedOutput(text string) string {
 	out = stripLeakedToolCallWrapperBlocks(out)
 	out = sanitizeLeakedAgentXMLBlocks(out)
 	out = toolcall.StripNativeToolCallFrames(out)
+	out = stripDSMLWrapperFrames(out)
 	return out
+}
+
+// stripDSMLWrapperFrames removes leaked DeepSeek web-agent DSML tool frames from
+// visible output. Complete balanced frames are first rewritten to canonical
+// <tool_calls> blocks and stripped whole by the wrapper-block stripper; any
+// leftover raw DSML tags (truncated frames, orphan invoke/parameter tags) are
+// then removed tag-by-tag so the frame bytes never reach the client.
+func stripDSMLWrapperFrames(text string) string {
+	if text == "" || !strings.Contains(text, "DSML") {
+		return text
+	}
+	rewritten := toolcall.RewriteDSMLWrapperFrames(text)
+	if rewritten != text {
+		rewritten = stripLeakedToolCallWrapperBlocks(rewritten)
+	}
+	return leakedDSMLFrameTagPattern.ReplaceAllString(rewritten, "")
 }
 
 func stripLeakedToolCallWrapperBlocks(text string) string {

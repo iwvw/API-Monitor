@@ -8,8 +8,18 @@ func EmptyOutputRetryEnabled() bool {
 	return true
 }
 
+// EmptyOutputRetryMaxAttempts bounds how many times a stream that died without
+// a resumable outcome is retried. It also caps the continue-resume rounds for
+// a stream interrupted after partial output (see completionruntime
+// ExecuteStreamWithRetry): the budget counts every interrupted round, so a
+// value of 1 means one interrupted stream gets one continue attempt and a
+// second interruption surfaces a hard 502. Upstream chat.deepseek.com streams
+// occasionally die mid-body under heavy contexts (large tool outputs), so the
+// budget is 3 to let the same message be resumed a couple of times before
+// giving up. Each continue round is a fresh upstream request, so this only
+// costs latency on already-failing streams, never on the happy path.
 func EmptyOutputRetryMaxAttempts() int {
-	return 1
+	return 3
 }
 
 func ClonePayloadWithEmptyOutputRetryPrompt(payload map[string]any) map[string]any {

@@ -60,17 +60,9 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	}()
 	r = r.WithContext(auth.WithAuth(r.Context(), a))
 
-	originalModel, rerouted := promptcompat.MaybeAutoRouteVision(req, h.Store)
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
 		writeOpenAIInlineFileError(w, err)
 		return
-	}
-	if err := h.preprocessInlineTextFilesForExpert(r.Context(), a, req); err != nil {
-		writeOpenAIInlineFileError(w, err)
-		return
-	}
-	if rerouted {
-		promptcompat.StripImageBlocksFromRequest(req)
 	}
 	if !util.ToBool(req["stream"]) {
 		writeOpenAIError(w, http.StatusBadRequest, "stream must be true")
@@ -80,10 +72,6 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if rerouted && originalModel != "" {
-		stdReq.RequestedModel = originalModel
-		stdReq.ResponseModel = originalModel
 	}
 	if !stdReq.Stream {
 		writeOpenAIError(w, http.StatusBadRequest, "stream must be true")
@@ -97,8 +85,7 @@ func (h *Handler) handleVercelStreamPrepare(w http.ResponseWriter, r *http.Reque
 	}
 
 	sessionID, powHeader, payload, outErr := completionruntime.PrepareCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
+		CurrentInputFile: h.Store,
 	}, 3)
 	if outErr != nil {
 		writeOpenAIError(w, outErr.Status, outErr.Message)
@@ -305,8 +292,7 @@ func (h *Handler) handleVercelStreamSwitch(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	sessionID, powHeader, payload, outErr := completionruntime.PrepareCompletionPayload(r.Context(), h.DS, a, stdReq, completionruntime.Options{
-		CurrentInputFile:    h.Store,
-		ExpertPromptSegment: h.Store,
+		CurrentInputFile: h.Store,
 	}, 3)
 	if outErr != nil {
 		writeOpenAIError(w, outErr.Status, outErr.Message)

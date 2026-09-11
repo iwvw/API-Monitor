@@ -1,12 +1,12 @@
 package ollama
 
 import (
+	"encoding/json"
+	"github.com/go-chi/chi/v5"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/httpapi/openai/shared"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/httpapi/requestbody"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/util"
-	"encoding/json"
-	"github.com/go-chi/chi/v5"
 	"log/slog"
 	"net/http"
 )

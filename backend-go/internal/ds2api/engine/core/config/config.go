@@ -20,9 +20,6 @@ type Config struct {
 	AutoDelete           AutoDeleteConfig           `json:"auto_delete"`
 	CurrentInputFile     CurrentInputFileConfig     `json:"current_input_file,omitempty"`
 	ThinkingInjection    ThinkingInjectionConfig    `json:"thinking_injection,omitempty"`
-	ExpertTextFileInline ExpertTextFileInlineConfig `json:"expert_text_file_inline,omitempty"`
-	ExpertPromptSegment  ExpertPromptSegmentConfig  `json:"expert_prompt_segment,omitempty"`
-	AutoRouteVision      AutoRouteVisionConfig      `json:"auto_route_vision,omitempty"`
 	ElasticPool          ElasticPoolConfig          `json:"elastic_pool,omitempty"`
 	Mihomo               MihomoConfig               `json:"mihomo,omitempty"`
 	Vercel               VercelConfig               `json:"vercel,omitempty"`
@@ -203,21 +200,6 @@ type CurrentInputFileConfig struct {
 type ThinkingInjectionConfig struct {
 	Enabled *bool  `json:"enabled,omitempty"`
 	Prompt  string `json:"prompt,omitempty"`
-}
-
-type ExpertPromptSegmentConfig struct {
-	Enabled  *bool `json:"enabled,omitempty"`
-	MaxChars int   `json:"max_chars,omitempty"`
-}
-
-type ExpertTextFileInlineConfig struct {
-	Enabled           *bool    `json:"enabled,omitempty"`
-	MaxFileBytes      int      `json:"max_file_bytes,omitempty"`
-	AllowedExtensions []string `json:"allowed_extensions,omitempty"`
-}
-
-type AutoRouteVisionConfig struct {
-	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // ElasticPoolConfig 控制弹性号池行为。

@@ -18,10 +18,10 @@ import (
 // 泄漏大量是残缺帧（begin + sep + 参数、没有 end 标记），配对规则结构性失效，
 // 这也是外部 epse-guard 项目 v2 之后采用的策略。
 const (
-	nativeSepUnderscore  = "\u2581" // ▁ U+2581 lower one eighth block
-	nativeFullwidthPipe  = "\uFF5C" // ｜ U+FF5C fullwidth vertical line
-	nativeFullwidthGT    = "\uFF1E" // ＞ U+FF1E fullwidth greater-than sign
-	nativeFullwidthLT    = "\uFF1C" // ＜ U+FF1C fullwidth less-than sign
+	nativeSepUnderscore = "\u2581" // ▁ U+2581 lower one eighth block
+	nativeFullwidthPipe = "\uFF5C" // ｜ U+FF5C fullwidth vertical line
+	nativeFullwidthGT   = "\uFF1E" // ＞ U+FF1E fullwidth greater-than sign
+	nativeFullwidthLT   = "\uFF1C" // ＜ U+FF1C fullwidth less-than sign
 )
 
 // nativeNormalizeFold 把原生帧用到的特殊分隔字符折叠成 ASCII，便于关键字匹配。

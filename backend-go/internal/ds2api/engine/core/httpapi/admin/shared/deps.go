@@ -39,9 +39,6 @@ type ConfigStore interface {
 	ThinkingInjectionEnabled() bool
 	ThinkingInjectionPrompt() string
 	AutoDeleteSessions() bool
-	ExpertPromptSegmentEnabled() bool
-	ExpertPromptSegmentMaxChars() int
-	AutoRouteVisionEnabled() bool
 }
 
 type PoolController interface {

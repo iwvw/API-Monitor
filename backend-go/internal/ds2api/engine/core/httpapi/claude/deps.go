@@ -27,9 +27,6 @@ type ConfigReader interface {
 	ModelAliases() map[string]string
 	CurrentInputFileEnabled() bool
 	CurrentInputFileMinChars() int
-	ExpertPromptSegmentEnabled() bool
-	ExpertPromptSegmentMaxChars() int
-	AutoRouteVisionEnabled() bool
 }
 
 type OpenAIChatRunner interface {

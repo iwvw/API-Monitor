@@ -15,7 +15,7 @@ func ConvertClaudeToDeepSeek(claudeReq map[string]any, aliasProvider config.Mode
 
 	dsModel, ok := config.ResolveModel(aliasProvider, model)
 	if !ok || strings.TrimSpace(dsModel) == "" {
-		dsModel = "deepseek-v4-flash"
+		dsModel = "deepseek-flash"
 	}
 
 	convertedMessages := make([]any, 0, len(messages)+1)

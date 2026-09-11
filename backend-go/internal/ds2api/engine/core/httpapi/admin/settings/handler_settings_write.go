@@ -17,7 +17,7 @@ func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	adminCfg, runtimeCfg, responsesCfg, embeddingsCfg, autoDeleteCfg, currentInputCfg, thinkingInjCfg, expertPromptSegCfg, autoRouteVisionCfg, aliasMap, err := parseSettingsUpdateRequest(req)
+	adminCfg, runtimeCfg, responsesCfg, embeddingsCfg, autoDeleteCfg, currentInputCfg, thinkingInjCfg, aliasMap, err := parseSettingsUpdateRequest(req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
 		return
@@ -32,9 +32,6 @@ func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 	currentInputMinCharsSet := hasNestedSettingsKey(req, "current_input_file", "min_chars")
 	thinkingInjectionEnabledSet := hasNestedSettingsKey(req, "thinking_injection", "enabled")
 	thinkingInjectionPromptSet := hasNestedSettingsKey(req, "thinking_injection", "prompt")
-	expertPromptSegEnabledSet := hasNestedSettingsKey(req, "expert_prompt_segment", "enabled")
-	expertPromptSegMaxCharsSet := hasNestedSettingsKey(req, "expert_prompt_segment", "max_chars")
-	autoRouteVisionEnabledSet := hasNestedSettingsKey(req, "auto_route_vision", "enabled")
 
 	if err := h.Store.Update(func(c *config.Config) error {
 		if adminCfg != nil {
@@ -81,17 +78,6 @@ func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 			if thinkingInjectionPromptSet {
 				c.ThinkingInjection.Prompt = thinkingInjCfg.Prompt
 			}
-		}
-		if expertPromptSegCfg != nil {
-			if expertPromptSegEnabledSet {
-				c.ExpertPromptSegment.Enabled = expertPromptSegCfg.Enabled
-			}
-			if expertPromptSegMaxCharsSet {
-				c.ExpertPromptSegment.MaxChars = expertPromptSegCfg.MaxChars
-			}
-		}
-		if autoRouteVisionCfg != nil && autoRouteVisionEnabledSet {
-			c.AutoRouteVision.Enabled = autoRouteVisionCfg.Enabled
 		}
 		if aliasMap != nil {
 			c.ModelAliases = aliasMap

@@ -14,7 +14,7 @@ func TestGetModelRouteDirectAndAlias(t *testing.T) {
 	registerOpenAITestRoutes(r, h)
 
 	t.Run("direct", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-v4-flash", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-flash", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -23,7 +23,7 @@ func TestGetModelRouteDirectAndAlias(t *testing.T) {
 	})
 
 	t.Run("direct_nothinking", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-v4-flash-nothinking", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-flash-nothinking", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -32,7 +32,7 @@ func TestGetModelRouteDirectAndAlias(t *testing.T) {
 	})
 
 	t.Run("direct_expert", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-v4-pro", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-flash", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -41,7 +41,7 @@ func TestGetModelRouteDirectAndAlias(t *testing.T) {
 	})
 
 	t.Run("direct_vision", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-v4-vision", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-flash", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {

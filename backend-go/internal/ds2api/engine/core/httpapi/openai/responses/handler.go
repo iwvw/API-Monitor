@@ -54,13 +54,6 @@ func (h *Handler) preprocessInlineFileInputs(ctx context.Context, a *auth.Reques
 	return (&files.Handler{Store: h.Store, Auth: h.Auth, DS: h.DS, ChatHistory: h.ChatHistory, ContentStore: h.ContentStore}).PreprocessInlineFileInputs(ctx, a, req)
 }
 
-func (h *Handler) preprocessInlineTextFilesForExpert(ctx context.Context, a *auth.RequestAuth, req map[string]any) error {
-	if h == nil {
-		return nil
-	}
-	return (&files.Handler{Store: h.Store, Auth: h.Auth, DS: h.DS, ChatHistory: h.ChatHistory, ContentStore: h.ContentStore}).PreprocessInlineTextFilesForExpert(ctx, a, req)
-}
-
 func (h *Handler) toolcallFeatureMatchEnabled() bool {
 	if h == nil {
 		return shared.ToolcallFeatureMatchEnabled(nil)

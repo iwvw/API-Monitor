@@ -64,10 +64,6 @@ func TestGetSettingsIncludesCurrentInputFileDefaults(t *testing.T) {
 	if got := intFrom(currentInputFile["min_chars"]); got != 0 {
 		t.Fatalf("expected current_input_file.min_chars=0, got %d body=%v", got, body)
 	}
-	autoRouteVision, _ := body["auto_route_vision"].(map[string]any)
-	if got := boolFrom(autoRouteVision["enabled"]); got {
-		t.Fatalf("expected auto_route_vision.enabled=false, body=%v", body)
-	}
 	thinkingInjection, _ := body["thinking_injection"].(map[string]any)
 	if got := boolFrom(thinkingInjection["enabled"]); got {
 		t.Fatalf("expected thinking_injection.enabled=false, body=%v", body)
@@ -380,49 +376,6 @@ func TestUpdateSettingsAutoDeleteMode(t *testing.T) {
 	}
 	if got := h.Store.AutoDeleteMode(); got != "single" {
 		t.Fatalf("AutoDeleteMode()=%q want=single", got)
-	}
-}
-
-func TestUpdateSettingsAutoRouteVision(t *testing.T) {
-	h := newAdminTestHandler(t, `{"keys":["k1"]}`)
-	payload := map[string]any{
-		"auto_route_vision": map[string]any{
-			"enabled": true,
-		},
-	}
-	b, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
-	rec := httptest.NewRecorder()
-	h.updateSettings(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	snap := h.Store.Snapshot()
-	if snap.AutoRouteVision.Enabled == nil || !*snap.AutoRouteVision.Enabled {
-		t.Fatalf("expected auto_route_vision.enabled=true, got %#v", snap.AutoRouteVision)
-	}
-	if !h.Store.AutoRouteVisionEnabled() {
-		t.Fatal("expected auto route vision accessor to reflect enabled config")
-	}
-}
-
-func TestUpdateSettingsAutoRouteVisionPreservesWhenNotProvided(t *testing.T) {
-	h := newAdminTestHandler(t, `{"keys":["k1"],"auto_route_vision":{"enabled":true}}`)
-	payload := map[string]any{
-		"responses": map[string]any{
-			"store_ttl_seconds": 600,
-		},
-	}
-	b, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPut, "/admin/settings", bytes.NewReader(b))
-	rec := httptest.NewRecorder()
-	h.updateSettings(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	snap := h.Store.Snapshot()
-	if snap.AutoRouteVision.Enabled == nil || !*snap.AutoRouteVision.Enabled {
-		t.Fatalf("expected auto_route_vision.enabled to remain true, got %#v", snap.AutoRouteVision)
 	}
 }
 

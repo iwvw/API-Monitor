@@ -27,15 +27,6 @@ func ValidateConfig(c Config) error {
 	if err := ValidateCurrentInputFileConfig(c.CurrentInputFile); err != nil {
 		return err
 	}
-	if err := ValidateExpertPromptSegmentConfig(c.ExpertPromptSegment); err != nil {
-		return err
-	}
-	if err := ValidateExpertTextFileInlineConfig(c.ExpertTextFileInline); err != nil {
-		return err
-	}
-	if err := ValidateAutoRouteVisionConfig(c.AutoRouteVision); err != nil {
-		return err
-	}
 	if err := ValidateMihomoConfig(c.Mihomo); err != nil {
 		return err
 	}
@@ -130,34 +121,6 @@ func ValidateCurrentInputFileConfig(currentInputFile CurrentInputFileConfig) err
 	if currentInputFile.MinChars != 0 {
 		return ValidateIntRange("current_input_file.min_chars", currentInputFile.MinChars, 1, 100000000, true)
 	}
-	return nil
-}
-
-func ValidateExpertPromptSegmentConfig(cfg ExpertPromptSegmentConfig) error {
-	if cfg.MaxChars != 0 {
-		if err := ValidateIntRange("expert_prompt_segment.max_chars", cfg.MaxChars, 1000, 100000000, true); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func ValidateExpertTextFileInlineConfig(cfg ExpertTextFileInlineConfig) error {
-	if cfg.MaxFileBytes != 0 {
-		if err := ValidateIntRange("expert_text_file_inline.max_file_bytes", cfg.MaxFileBytes, 1, 100<<20, true); err != nil {
-			return err
-		}
-	}
-	for i, ext := range cfg.AllowedExtensions {
-		trimmed := strings.TrimSpace(ext)
-		if trimmed == "" {
-			return fmt.Errorf("expert_text_file_inline.allowed_extensions[%d] cannot be empty", i)
-		}
-	}
-	return nil
-}
-
-func ValidateAutoRouteVisionConfig(_ AutoRouteVisionConfig) error {
 	return nil
 }
 

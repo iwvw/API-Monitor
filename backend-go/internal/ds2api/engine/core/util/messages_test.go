@@ -109,7 +109,7 @@ func TestConvertClaudeToDeepSeekUsesGlobalAliasResolution(t *testing.T) {
 		"messages": []any{map[string]any{"role": "user", "content": "Hi"}},
 	}
 	out := ConvertClaudeToDeepSeek(req, store)
-	if out["model"] != "deepseek-v4-flash" {
+	if out["model"] != "deepseek-flash" {
 		t.Fatalf("expected global alias resolution, got model=%q", out["model"])
 	}
 }
@@ -121,7 +121,7 @@ func TestConvertClaudeToDeepSeekUsesNoThinkingAliasResolution(t *testing.T) {
 		"messages": []any{map[string]any{"role": "user", "content": "Hi"}},
 	}
 	out := ConvertClaudeToDeepSeek(req, store)
-	if out["model"] != "deepseek-v4-flash-nothinking" {
+	if out["model"] != "deepseek-flash-nothinking" {
 		t.Fatalf("expected noThinking alias resolution, got model=%q", out["model"])
 	}
 }

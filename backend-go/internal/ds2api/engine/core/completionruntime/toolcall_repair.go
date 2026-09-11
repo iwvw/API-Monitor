@@ -15,9 +15,10 @@ import (
 )
 
 // toolCallRepairModel is the resolved model used for the LLM tool-call repair
-// pass. deepseek-v4-pro resolves to model_type "expert" (config.GetModelType),
-// satisfying the phase3 §3 "专家模式" hard constraint.
-const toolCallRepairModel = "deepseek-v4-pro"
+// pass. 上游 V4.1-Flash 已将「快速 / 专家 / 识图」合并为单一 default 档
+// （config.GetModelType 统一返回 "default"），修复 pass 直接用 deepseek-flash
+// 即可，thinking 由 RepairPass 显式关闭。
+const toolCallRepairModel = "deepseek-flash"
 
 // toolCallRepairTimeout bounds a single repair completion to 10 seconds
 // (phase3 §3). On timeout the invoker returns an error and the caller falls
@@ -43,7 +44,7 @@ type repairSessionDeleter interface {
 // upstream DeepSeek caller. Each invocation honors the phase3 §3 hard
 // constraints:
 //   - same account (the request's *auth.RequestAuth),
-//   - expert mode (deepseek-v4-pro → model_type "expert"),
+//   - 合并后的 default 档（deepseek-flash → model_type "default"），
 //   - thinking disabled (thinking_enabled=false),
 //   - a brand-new session (CreateSession, no reused context),
 //   - a 10-second timeout.
