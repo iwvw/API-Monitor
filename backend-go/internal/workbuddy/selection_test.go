@@ -27,7 +27,7 @@ func TestPickLeastConsumed(t *testing.T) {
 	a2 := validAccount("u2", "t2")
 
 	// 都还没消耗 → 取列表序第一个。
-	acc, ok := s.pickLeastConsumed([]Account{a1, a2})
+	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3")
 	if !ok || acc.ID != "u1" {
 		t.Fatalf("零消耗应取列表序首个，得到 %v/%v", acc.ID, ok)
 	}
@@ -35,14 +35,14 @@ func TestPickLeastConsumed(t *testing.T) {
 	// u1 消耗更多 → 选 u2。
 	s.creditDayUsed["u1"] = 0.5
 	s.creditDayUsed["u2"] = 0.1
-	acc, ok = s.pickLeastConsumed([]Account{a1, a2})
+	acc, ok = s.pickLeastConsumed([]Account{a1, a2}, "hy3")
 	if !ok || acc.ID != "u2" {
 		t.Fatalf("应选消耗更少的 u2，得到 %v", acc.ID)
 	}
 
 	// 相同消耗 → 回到列表序。
 	s.creditDayUsed["u2"] = 0.5
-	acc, _ = s.pickLeastConsumed([]Account{a1, a2})
+	acc, _ = s.pickLeastConsumed([]Account{a1, a2}, "hy3")
 	if acc.ID != "u1" {
 		t.Fatalf("同消耗应取列表序首个 u1，得到 %v", acc.ID)
 	}
@@ -53,13 +53,13 @@ func TestPickLeastConsumed(t *testing.T) {
 	expired := validAccount("u4", "t4")
 	expired.ExpiresAt = time.Now().Add(-time.Minute).Unix()
 	noToken := Account{ID: "u5", UID: "u5"}
-	acc, ok = s.pickLeastConsumed([]Account{disabled, expired, noToken, a2})
+	acc, ok = s.pickLeastConsumed([]Account{disabled, expired, noToken, a2}, "hy3")
 	if !ok || acc.ID != "u2" {
 		t.Fatalf("应跳过不可用账号选 u2，得到 %v/%v", acc.ID, ok)
 	}
 
 	// 全不可用 → false。
-	if _, ok := s.pickLeastConsumed([]Account{disabled, expired, noToken}); ok {
+	if _, ok := s.pickLeastConsumed([]Account{disabled, expired, noToken}, "hy3"); ok {
 		t.Fatal("没有可用账号时应返回 false")
 	}
 }

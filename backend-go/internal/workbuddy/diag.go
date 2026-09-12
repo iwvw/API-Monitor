@@ -44,9 +44,16 @@ func (s *Service) captureEmittedUsage(cleanedChunk string) {
 
 // diagnosticsSnapshot 汇总当前诊断数据。
 func (s *Service) diagnosticsSnapshot() map[string]interface{} {
+	// 限流面用**另一把锁**：先取完再进 usageMu，避免锁序问题。
+	rateSample, rateSampleAt, limits := s.rateLimitDiag()
 	s.usageMu.Lock()
 	defer s.usageMu.Unlock()
 	return map[string]interface{}{
+		// 模型级限流（账号 × 模型）：原文留痕 + 当前生效记录
+		// （「某模型没反应/一直失败」时先看这里，能直接看到恢复时刻）。
+		"rateLimitSample":   rateSample,
+		"rateLimitSampleAt": rateSampleAt,
+		"modelLimits":       limits,
 		// 上游原始 usage：字段名 + 类型 + 原始样例
 		"upstreamKeys":   s.usageKeys,
 		"upstreamTypes":  s.usageTypes,
@@ -100,7 +107,8 @@ func (s *Service) handleDiag(w http.ResponseWriter, r *http.Request) {
 	doc := diagDoc{
 		Live: s.diagnosticsSnapshot(),
 		Note: "upstream* 是上游原始 usage；emittedUsage 是归一化后实际写给下游的 usage" +
-			"（网关的正则只认不含引号的 \"cached_tokens\":<整数>）。",
+			"（网关的正则只认不含引号的 \"cached_tokens\":<整数>）；" +
+			"modelLimits 是当前生效的「账号 × 模型」限流（含恢复时刻），rateLimitSample 是最近一次的上游原文。",
 	}
 	if db, err := s.open(r.Context()); err == nil {
 		var raw string

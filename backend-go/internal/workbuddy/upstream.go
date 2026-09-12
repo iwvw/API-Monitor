@@ -134,6 +134,9 @@ type AccountView struct {
 	Available        bool   `json:"available"`
 	CallCount        int64  `json:"callCount"`
 	LastError        string `json:"lastError,omitempty"`
+	// LimitedModels 是该账号当前被上游**模型级限流**的模型（含恢复时刻）。
+	// 与 Available 独立：限流的只是这些模型，账号本身仍可用（其它模型照常转发）。
+	LimitedModels []ModelLimitView `json:"limitedModels,omitempty"`
 }
 
 // loginState 是一次进行中的扫码登录会话。
@@ -567,6 +570,11 @@ type chatRequest struct {
 type upstreamError struct {
 	msg       string
 	retryable bool
+	// rateLimit 为 true 表示这是**模型级频率限制**（而非普通瞬时故障）：
+	// relay 层据此只封「该账号 × 该模型」，而不是把整个账号打进冷却。见 ratelimit.go。
+	rateLimit bool
+	// rateLimitUntil 是上游给出的恢复时刻（rateLimit 为 true 时有意义）。
+	rateLimitUntil time.Time
 }
 
 func (e *upstreamError) Error() string { return e.msg }
@@ -584,6 +592,47 @@ func isRetryableHTTP(code int) bool {
 	}
 	return false
 }
+
+// classifyUpstreamPayload 判断上游一段正文是不是「错误」，返回分类后的 *upstreamError。
+//
+// 为什么不能只看 HTTP 状态码：上游在部分失败场景用 **HTTP 200 + {code,msg} 信封**下发，
+// 若不解出来，中继会把「空回答」当成功透给下游（下游收到一个没有内容的 completion，
+// 既不是错误也无从分辨）。三条判据依次收紧，宁可漏判也不要误伤正常分片：
+//   - 错误信封（envelopeError）：msg 带限流措辞即判**模型级限流**——那里是错误说明
+//     而非模型正文，故措辞本身足够；没有重置时刻时回落到 modelLimitDefault。
+//   - 自由文本：必须「限流措辞 + 可解析时刻」同时命中，且**不含 choices**
+//     （正常 chunk 一定带 choices），避免把「用户问 rate limit 是什么」的正常回答误判。
+func (s *Service) classifyUpstreamPayload(text string, loc *time.Location) *upstreamError {
+	now := time.Now()
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	if code, msg, ok := envelopeError(text); ok {
+		if until, hit := rateLimitFromError(msg, loc, now); hit {
+			s.noteRateLimit(msg)
+			return &upstreamError{
+				msg:            fmt.Sprintf("上游业务错误 code=%d: %s", code, msg),
+				retryable:      true,
+				rateLimit:      true,
+				rateLimitUntil: until,
+			}
+		}
+		return &upstreamError{msg: fmt.Sprintf("上游业务错误 code=%d: %s", code, msg)}
+	}
+	if strings.Contains(text, `"choices"`) {
+		return nil
+	}
+	if until, hit := rateLimitFromText(text, loc, now); hit {
+		s.noteRateLimit(text)
+		return &upstreamError{msg: truncate(text, 200), retryable: true, rateLimit: true, rateLimitUntil: until}
+	}
+	return nil
+}
+
+// streamPeekLines 是流式路径在写出响应头**之前**最多窥探的行数。
+// 只为跨过 SSE 的空行/心跳，尽快看到第一个真正的负载行。
+const streamPeekLines = 8
 
 // chatCompletions 向上游发起一次对话并把结果写给下游。
 //
@@ -611,8 +660,20 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		text := strings.TrimSpace(string(payload))
+		// 限流文案优先于状态码判定：上游可能用 4xx 回「频率限制」，
+		// 而 4xx 默认是不可重试的 —— 但换个账号/等重置就很值得重试。
+		if until, ok := rateLimitFromText(text, s.siteLocation(ctx), time.Now()); ok {
+			s.noteRateLimit(text)
+			return &upstreamError{
+				msg:            fmt.Sprintf("上游 HTTP %d: %s", resp.StatusCode, truncate(text, 200)),
+				retryable:      true,
+				rateLimit:      true,
+				rateLimitUntil: until,
+			}
+		}
 		return &upstreamError{
-			msg:       fmt.Sprintf("上游 HTTP %d: %s", resp.StatusCode, truncate(strings.TrimSpace(string(payload)), 200)),
+			msg:       fmt.Sprintf("上游 HTTP %d: %s", resp.StatusCode, truncate(text, 200)),
 			retryable: isRetryableHTTP(resp.StatusCode),
 		}
 	}
@@ -634,6 +695,28 @@ func relayEmitsSSEFrame() bool { return true }
 // streamToClient 把上游 SSE 逐块清洗后实时写给下游。
 // 写出过程中出错（客户端断开）直接收尾返回，不再向上报错——此时响应头已发出。
 func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, body io.Reader, accountID, model string) error {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+
+	// 先窥探开头再写响应头：上游失败时可能用 200 + 错误信封下发，而**响应头一旦写出**
+	// 就再也无法换号重试（会退化成「200 + 空回答」）。开头是唯一的拦截窗口，
+	// 代价只是第一个分片晚到一个读周期。窥探到的行稍后原样补写，不丢内容。
+	loc := s.siteLocation(ctx)
+	var peeked []string
+	for len(peeked) < streamPeekLines && scanner.Scan() {
+		line := scanner.Text()
+		peeked = append(peeked, line)
+		content := stripDataPrefix(line)
+		if content == "" || content == "[DONE]" {
+			continue // 空行/心跳：接着往后看
+		}
+		if ue := s.classifyUpstreamPayload(content, loc); ue != nil {
+			// 尚未写出任何字节 → 调用方可安全换号或改写成 OpenAI 错误体。
+			return ue
+		}
+		break // 第一个真负载不是错误 → 正常流，收手
+	}
+
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
@@ -645,28 +728,40 @@ func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, bod
 		flusher.Flush()
 	}
 
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		content := stripDataPrefix(scanner.Text())
+	// consume 处理一行原始 SSE 行；返回 error 表示**客户端写失败**（断开），
+	// 此时响应头已发出，收尾返回即可，不再向上报错。
+	consume := func(line string) error {
+		content := stripDataPrefix(line)
 		if content == "" || content == "[DONE]" {
-			continue
+			return nil
 		}
 		// 观察原始 chunk（清洗前），才能看出上游真实上报了哪些 usage 字段。
 		s.observeUsage(content)
 		cleaned := cleanChunkJSON(content)
 		if cleaned == "" {
-			continue
+			return nil
 		}
 		// 记账用**清洗归一后**的 chunk，才能拿到标准的 prompt_tokens_details.cached_tokens。
 		s.recordUsageFromChunk(ctx, accountID, model, cleaned)
 		// 留痕归一化后真正写往下游的 usage —— 排障时用来确认网关的正则能否命中。
 		s.captureEmittedUsage(cleaned)
 		if _, err := io.WriteString(w, "data: "+cleaned+"\n\n"); err != nil {
-			return nil
+			return err
 		}
 		if flusher != nil {
 			flusher.Flush()
+		}
+		return nil
+	}
+
+	for _, line := range peeked {
+		if err := consume(line); err != nil {
+			return nil
+		}
+	}
+	for scanner.Scan() {
+		if err := consume(scanner.Text()); err != nil {
+			return nil
 		}
 	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
@@ -678,10 +773,22 @@ func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, bod
 
 // writeAggregated 把上游 SSE 折叠成一个非流式 chat.completion 后写出。
 func (s *Service) writeAggregated(ctx context.Context, w http.ResponseWriter, body io.Reader, model, accountID string) error {
-	completion, err := aggregateCompletion(body, model, s.observeUsage)
+	loc := s.siteLocation(ctx)
+	// 边聚合边看有没有错误信封：上游用 200 + 信封下发时，聚合结果会是一个
+	// 「空回答」，必须先于写出把它拦下来（此刻尚未写任何字节，换号重试是安全的）。
+	var payloadErr *upstreamError
+	completion, err := aggregateCompletion(body, model, func(chunk string) {
+		s.observeUsage(chunk)
+		if payloadErr == nil {
+			payloadErr = s.classifyUpstreamPayload(chunk, loc)
+		}
+	})
 	if err != nil {
 		// 上游流中途断掉：换号重发常能成功，标为可重试。
 		return &upstreamError{msg: err.Error(), retryable: true}
+	}
+	if payloadErr != nil {
+		return payloadErr
 	}
 	// 聚合结果的 usage 已归一化，直接取出来记账。
 	var probe struct {

@@ -61,7 +61,7 @@ func TestPickLeastConsumedSkipsCooldown(t *testing.T) {
 	a2 := validAccount("u2", "t2")
 	s.cooldownUntil["u1"] = time.Now().Add(time.Minute)
 
-	acc, ok := s.pickLeastConsumed([]Account{a1, a2})
+	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3")
 	if !ok || acc.ID != "u2" {
 		t.Fatalf("应跳过冷却中的 u1 选 u2，得到 %v/%v", acc.ID, ok)
 	}
@@ -75,7 +75,7 @@ func TestPickLeastConsumedRecoversAfterCooldown(t *testing.T) {
 	a2 := validAccount("u2", "t2")
 	s.cooldownUntil["u1"] = time.Now().Add(-time.Minute)
 
-	acc, ok := s.pickLeastConsumed([]Account{a1, a2})
+	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3")
 	if !ok || acc.ID != "u1" {
 		t.Fatalf("冷却过期后应恢复 u1 参与选号，得到 %v/%v", acc.ID, ok)
 	}

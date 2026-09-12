@@ -253,7 +253,11 @@ func (s *Service) refreshCreditDaySnapshot(ctx context.Context) {
 // 权重取自内存快照（后台每分钟刷新一次，加上 recordUsage 即时累加），因此**不查库**，
 // 可以承受每个请求调用一次。消耗相同时取列表顺序靠前者 —— 保持确定性，便于排障与测试。
 // 快照尚未就绪时所有账号都是 0，行为退化为「首个可用」，不会因为统计缺失而不可用。
-func (s *Service) pickLeastConsumed(accounts []Account) (Account, bool) {
+//
+// model 非空时，跳过「该账号 × 该模型」正在限流中的账号（ratelimit.go）。
+// 注意判据是**账号 × 模型**：同一账号在别的模型上仍然可选——这正是模型级限流
+// 不能被账号冷却替代的原因。
+func (s *Service) pickLeastConsumed(accounts []Account, model string) (Account, bool) {
 	s.creditDayMu.RLock()
 	defer s.creditDayMu.RUnlock()
 	bestIdx := -1
@@ -263,6 +267,9 @@ func (s *Service) pickLeastConsumed(accounts []Account) (Account, bool) {
 			continue
 		}
 		if s.inCooldown(a.ID) {
+			continue
+		}
+		if model != "" && s.inModelLimit(a.ID, model) {
 			continue
 		}
 		u := s.creditDayUsed[a.ID]

@@ -25,6 +25,8 @@ func (s *Service) toAccountView(a Account) AccountView {
 		Available:    accountAvailable(a),
 		CallCount:    s.callDisplay(a.ID),
 		LastError:    a.LastError,
+		// 模型级限流（ratelimit.go）：只是这些模型暂时不可用，账号本身仍可用。
+		LimitedModels: s.accountModelLimits(a.ID),
 	}
 	if a.ExpiresAt > 0 {
 		if left := a.ExpiresAt - time.Now().Unix(); left > 0 {

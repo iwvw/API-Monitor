@@ -93,10 +93,14 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 	models := s.catalog(r.Context())
 	disabled := s.disabledSet()
+	// 模型维度的限流汇总：账号表回答「谁被限流」，这里回答「这个模型还能不能用」。
+	// 键用**未加前缀**的上游模型名 —— 那正是限流簿与转发层的命名空间
+	// （转发前会剥掉插件前缀再发给上游）。
+	limitStats := s.modelLimitStats(s.Settings().Accounts)
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {
 		id := s.prefixModel(m.ID)
-		out = append(out, map[string]interface{}{
+		entry := map[string]interface{}{
 			"id":                id,
 			"displayName":       m.DisplayName,
 			"contextLength":     m.ContextLength,
@@ -112,7 +116,11 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			"creditsParsed":     m.CreditsParsed,
 			"creditsMultiplier": m.CreditsMultiplier,
 			"enabled":           !disabled[id],
-		})
+		}
+		if st, ok := limitStats[m.ID]; ok {
+			entry["limit"] = st
+		}
+		out = append(out, entry)
 	}
 	responseJSON(w, map[string]interface{}{
 		"success": true,

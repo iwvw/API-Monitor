@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -81,15 +82,23 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	payload := forceStreamBody(rewriteForUpstream(body, model))
 
 	// 失败换号重试：单次转发最多尝试 maxAccountAttempts 个账号。
-	// 某账号上游返回「可重试」错误（429/5xx/网络/流中断）时，把它标记冷却并换下一个号重试；
-	// 冷却中的账号不会被选号。chatCompletions 保证错误发生在写出任何响应之前，
-	// 因此重试不会破坏已下发的字节。账号耗尽或错误不可重试时，把最后一次错误抛给调用方。
+	// 失败分两类，处置**不同**（见 ratelimit.go 开头）：
+	//   - 瞬时故障（429/5xx/网络/流中断）→ 账号冷却，封整个账号 5 分钟；
+	//   - 模型级限流（上游点名「<模型> 超出频率限制，<时刻> 重置」）→ 只封
+	//     「该账号 × 该模型」，同一账号的其它模型照常可用，且冷却到上游给的真实时刻。
+	// chatCompletions 保证错误发生在写出任何响应之前，因此重试不会破坏已下发的字节。
 	var lastErr error
+	// 本请求期间见过的「最晚恢复时刻」：用于最后把「还要等多久」告诉调用方。
+	var lastLimitUntil time.Time
+	// attempted 记录本轮是否真的打过上游：没打过（全被限流拦下）与「打完全部失败」
+	// 是两种截然不同的情形，报错也该不同。
+	attempted := false
 	for attempt := 0; attempt < maxAccountAttempts; attempt++ {
-		acc, ok := s.pickAccount(r.Context())
+		acc, ok := s.pickAccount(r.Context(), model)
 		if !ok {
 			break
 		}
+		attempted = true
 		if err := s.chatCompletions(r.Context(), w, &chatRequest{
 			Account: acc,
 			Body:    payload,
@@ -101,13 +110,39 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 			lastErr = err
 			var ue *upstreamError
 			if errors.As(err, &ue) && ue.retryable {
+				if ue.rateLimit {
+					s.markModelLimit(acc.ID, model, ue.rateLimitUntil, ue.msg)
+					if ue.rateLimitUntil.After(lastLimitUntil) {
+						lastLimitUntil = ue.rateLimitUntil
+					}
+					continue
+				}
 				s.markCooldown(acc.ID)
 				continue
 			}
 			break
 		}
 	}
+
+	loc := s.siteLocation(r.Context())
+	// 一个号都没打成：只可能是「所有账号都在这一个模型上被限流」。
+	// 此时**不发上游请求**，直接把最早恢复时刻告诉调用方——这比 502 有用得多。
+	if !attempted {
+		if until, ok := s.earliestModelLimit(s.Settings().Accounts, model); ok {
+			writeOpenAIError(w, http.StatusTooManyRequests, fmt.Sprintf(
+				"模型 %s 在当前所有账号上均处于频率限制中，最早将于 %s 恢复可用",
+				model, until.In(loc).Format("2006-01-02 15:04:05")), "rate_limit_error")
+			return
+		}
+	}
 	if lastErr != nil {
+		// 因限流而失败：回 429 并带上恢复时刻，而不是含糊的 502 —— 调用方据此决定
+		// 「换模型」还是「等到几点」。这是用户真正需要的信息。
+		if lastLimitUntil.After(time.Now()) {
+			writeOpenAIError(w, http.StatusTooManyRequests, fmt.Sprintf("%s（该模型将于 %s 恢复可用）",
+				lastErr.Error(), lastLimitUntil.In(loc).Format("2006-01-02 15:04:05")), "rate_limit_error")
+			return
+		}
 		writeOpenAIError(w, http.StatusBadGateway, lastErr.Error(), "upstream_error")
 		return
 	}
@@ -144,16 +179,16 @@ func (s *Service) markCooldown(id string) {
 // pickAccount 选取本次转发的账号。
 //
 // 选号策略：**站点时区「今天已消耗 credit 最少」的可用账号**（消耗相同取列表序靠前者），
-// 且跳过失败冷却期的账号。这样按实际计费额度自然拉平各账号消耗，也避免某个账号先撞上限额；
-// 权重来自内存快照，选号本身不查库。
+// 且跳过失败冷却期的账号、以及在该 model 上被限流的账号。这样按实际计费额度自然拉平
+// 各账号消耗，也避免某个账号先撞上限额；权重来自内存快照，选号本身不查库。
 //
 // 一个可用账号都没有时，再试着刷新「已过期但可刷新」的账号（对应设置页的
 // 「扫码登录 + 自动刷新」语义）。
-func (s *Service) pickAccount(ctx context.Context) (Account, bool) {
-	if acc, ok := s.pickLeastConsumed(s.Settings().Accounts); ok {
+func (s *Service) pickAccount(ctx context.Context, model string) (Account, bool) {
+	if acc, ok := s.pickLeastConsumed(s.Settings().Accounts, model); ok {
 		return acc, true
 	}
-	if acc, ok := s.refreshFirstStaleAccount(ctx); ok {
+	if acc, ok := s.refreshFirstStaleAccount(ctx, model); ok {
 		return acc, true
 	}
 	return Account{}, false
@@ -162,9 +197,13 @@ func (s *Service) pickAccount(ctx context.Context) (Account, bool) {
 // refreshFirstStaleAccount 找出第一个「未停用、有 refresh token、token 已失效且不在冷却期」
 // 的账号，尝试刷新并把结果落库；刷新成功才算可用。
 // 仅在「所有账号都不可用」时才走到这里，是兜底路径而非常规选号。
-func (s *Service) refreshFirstStaleAccount(ctx context.Context) (Account, bool) {
+func (s *Service) refreshFirstStaleAccount(ctx context.Context, model string) (Account, bool) {
 	for _, a := range s.Settings().Accounts {
 		if a.Disabled || a.RefreshToken == "" || tokenState(a) == "valid" || s.inCooldown(a.ID) {
+			continue
+		}
+		// 刷新 token 不影响模型级限流：该模型仍被限流的账号，刷了也用不了。
+		if model != "" && s.inModelLimit(a.ID, model) {
 			continue
 		}
 		acc := a

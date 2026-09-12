@@ -106,8 +106,18 @@ type Service struct {
 
 	// 账号失败冷却：accountID → 冷却截止时刻。上游返回可重试错误（429/5xx/网络/流中断）
 	// 后被写入，选号时跳过。纯内存态：重启即清空，避免把瞬时故障持久化。
+	//
+	// 注意与 modelLimit* 的分工：这里是**瞬时故障**的通用退避（封整个账号），
+	// 而下面是上游点名的**模型级频率限制**（只封「账号 × 模型」）。详见 ratelimit.go。
 	cooldownMu    sync.Mutex
 	cooldownUntil map[string]time.Time
+
+	// 模型级限流簿：modelLimitKey(accountID, model) → 恢复时刻与原文。
+	// 纯内存态（与账号冷却同理由）；rateLimitSample 只留最近一次原文供诊断。
+	modelLimitMu      sync.Mutex
+	modelLimits       map[string]modelLimit
+	rateLimitSample   string
+	rateLimitSampleAt string
 
 	externalPool ProxyPoolSelector
 }
