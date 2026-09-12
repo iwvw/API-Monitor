@@ -701,20 +701,31 @@ func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, bod
 	// 先窥探开头再写响应头：上游失败时可能用 200 + 错误信封下发，而**响应头一旦写出**
 	// 就再也无法换号重试（会退化成「200 + 空回答」）。开头是唯一的拦截窗口，
 	// 代价只是第一个分片晚到一个读周期。窥探到的行稍后原样补写，不丢内容。
+	//
+	// 循环的真意是「跨过空行/心跳，一直找到第一个真负载」：只有确认它是正常内容
+	// 才收手，而不是看到第一个非空行就收手 —— 否则 streamPeekLines 的容忍度形同虚设
+	// （错误信封跟在一串心跳后面时会被漏掉）。上限仍是 streamPeekLines 行，
+	// 窥探不会为了等一个"永远不来"的真负载而无限拖住响应头。
 	loc := s.siteLocation(ctx)
 	var peeked []string
 	for len(peeked) < streamPeekLines && scanner.Scan() {
 		line := scanner.Text()
 		peeked = append(peeked, line)
-		content := stripDataPrefix(line)
-		if content == "" || content == "[DONE]" {
-			continue // 空行/心跳：接着往后看
+		// 空行、注释行（`: keep-alive` 这类 SSE 心跳）、[DONE] 都不是真负载：
+		// 必须继续往后看。注释行尤其关键 —— 它非空、也不像错误，若被当成
+		// 「第一个真负载」就会让循环提前收手，跟在心跳后的错误信封便被漏掉。
+		if isSSENoise(line) {
+			continue
 		}
+		content := stripDataPrefix(line)
 		if ue := s.classifyUpstreamPayload(content, loc); ue != nil {
 			// 尚未写出任何字节 → 调用方可安全换号或改写成 OpenAI 错误体。
 			return ue
 		}
-		break // 第一个真负载不是错误 → 正常流，收手
+		// 这是第一个真负载且并非错误 → 确认是正常流，收手。
+		// 注意：一旦确认正常就**立刻**停止窥探，后续行交给流式写出，
+		// 不再为了"万一后面有错误"而继续缓冲 —— 那会破坏真流式的实时性。
+		break
 	}
 
 	h := w.Header()
@@ -1326,6 +1337,20 @@ func forceStreamBody(body []byte) []byte {
 	return out
 }
 
+// isSSENoise 判断一行 SSE 是不是「非负载」的行，即空行、注释/心跳行、[DONE]。
+//
+// 窥探循环据此跳过噪声、继续寻找第一个真负载。注释行（以 `:` 开头，常见于
+// `: keep-alive` 心跳）必须算噪声：它非空、也不像错误，一旦被误当成真负载，
+// 窥探就会提前收手，跟在其后的错误信封将被漏过并当作「200 + 空回答」透给下游。
+func isSSENoise(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, ":") {
+		return true
+	}
+	content := stripDataPrefix(trimmed)
+	return content == "" || content == "[DONE]" || strings.HasPrefix(content, ":")
+}
+
 // stripDataPrefix 剥掉 SSE 行可能带的多层 "data:" 前缀。
 func stripDataPrefix(s string) string {
 	s = strings.TrimSpace(s)
@@ -1335,9 +1360,18 @@ func stripDataPrefix(s string) string {
 	return s
 }
 
+// truncate 截断字符串到最多 n 字节，且**不切开 UTF-8 字符**。
+//
+// 按字节硬切会在中文/emoji 中间断开，产出半个字符：JSON 序列化时变成 U+FFFD，
+// 前端与日志里就是一堆乱码。而本插件里最常被截断的恰恰是中文（上游错误文案、
+// 限流原文），故这里退到最后一个完整字符边界。
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	// 从 n 往前找第一个能作为 UTF-8 起始字节的位置。
+	for n > 0 && s[n]&0xC0 == 0x80 {
+		n--
 	}
 	return s[:n]
 }

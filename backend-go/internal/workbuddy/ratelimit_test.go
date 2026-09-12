@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // rateLimitMsg 是上游模型级限流的**真实文案**（照抄用户实际收到的那条）。
@@ -404,5 +405,122 @@ func TestRelayBusinessErrorEnvelopeBecomesErrorNotEmptyAnswer(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "11001") {
 		t.Fatalf("错误体应带上游业务码: %s", rec.Body.String())
+	}
+}
+
+// 【回归】「一个号都没打成」**不等于**「所有账号都被该模型限流」。
+//
+// 反例：一个早已停用的账号身上留着一条历史限流记录（恢复时刻在很远的将来），
+// 而真正可用的账号只是因为瞬时故障在冷却中 —— 此时选号同样返回 false。
+// 若不加区分地把限流簿里最早的时刻报出去，用户会看到「该模型 N 天后恢复」，
+// 而那个 N 天来自一个根本不参与转发的账号，纯属误导（实际几分钟后就能用）。
+func TestNoAttemptDoesNotBlamModelLimitFromUnusableAccount(t *testing.T) {
+	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
+		return http.StatusOK, okSSE
+	})
+
+	s := newTestService(t)
+	dead := validAccount("dead", "t9")
+	dead.Disabled = true // 不参与选号，但限流簿里仍留着它的记录
+	if err := s.SaveSettings(context.Background(), Settings{
+		Enabled:  true,
+		Accounts: []Account{dead, validAccount("u1", "t1")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 停用账号在 hy3 上的历史限流：3 天后才恢复（足够显眼，一旦被报出就能测到）。
+	s.markModelLimit("dead", "hy3", time.Now().Add(72*time.Hour), rateLimitMsg)
+	// 唯一可用账号处于瞬时冷却中 → pickAccount 一个号都选不出来。
+	s.markCooldown("u1")
+
+	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("不应把停用账号的历史限流当成「全部账号被限流」报 429: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "频率限制") {
+		t.Fatalf("错误体不应声称模型被限流: %s", rec.Body.String())
+	}
+	if got := getAuths(); len(got) != 0 {
+		t.Fatalf("没有可用账号时不应请求上游，实际收到 %v", got)
+	}
+}
+
+// 【回归】确有可用账号、但只有一个没被限流时，不构成「全部限流」。
+// 选号失败另有原因（这里是瞬时冷却），应报常规错误而非限流 429。
+func TestAllUsableAccountsModelLimitedRequiresEveryUsableAccount(t *testing.T) {
+	s := newLimitService()
+	limited := validAccount("u1", "t1")
+	free := validAccount("u2", "t2")
+	dead := validAccount("dead", "t9")
+	dead.Disabled = true
+
+	s.markModelLimit("u1", "hy3", time.Now().Add(time.Hour), rateLimitMsg)
+	s.markModelLimit("dead", "hy3", time.Now().Add(72*time.Hour), rateLimitMsg)
+
+	// u2 没被限流 → 不成立（哪怕 u1 与已停用的 dead 都在限流）。
+	if _, _, ok := s.allUsableAccountsModelLimited([]Account{limited, free, dead}, "hy3"); ok {
+		t.Fatal("存在未被限流的可用账号时不应判定为「全部限流」")
+	}
+	// 去掉 u2 后：可用账号只剩 u1，且它被限流 → 成立，且不得把停用账号的 72 小时算进来。
+	usable, until, ok := s.allUsableAccountsModelLimited([]Account{limited, dead}, "hy3")
+	if !ok || usable != 1 {
+		t.Fatalf("应判定为「全部限流」且可用账号数为 1，得到 usable=%d ok=%v", usable, ok)
+	}
+	if d := time.Until(until); d > 2*time.Hour {
+		t.Fatalf("最早恢复时刻不应来自停用账号（应约 1 小时），得到 %v", d)
+	}
+	// 一个可用账号都没有 → 不是「模型被限流」，而是「没账号可用」。
+	if _, _, ok := s.allUsableAccountsModelLimited([]Account{dead}, "hy3"); ok {
+		t.Fatal("没有可用账号时不应判定为「全部限流」")
+	}
+}
+
+// 【回归】SSE 窥探必须能跨过开头的一串心跳/空行看到错误信封。
+// 上游确有这种形态；窥探上限是 streamPeekLines 行，错误信封落在其内就必须被拦下。
+func TestStreamPeekSkipsHeartbeatsBeforeErrorEnvelope(t *testing.T) {
+	// 3 个空行 + 1 个注释心跳，然后才是错误信封 —— 真负载出现前全是噪声。
+	body := "\n\ndata: \n: keep-alive\ndata: {\"code\":11218,\"msg\":\"" + rateLimitMsg + "\"}\n\n"
+	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
+		return http.StatusOK, body
+	})
+
+	s := newTestService(t)
+	if err := s.SaveSettings(context.Background(), Settings{
+		Enabled:  true,
+		Accounts: []Account{validAccount("u1", "t1")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("心跳之后的错误信封必须被拦下，不能当成功下发: %s", rec.Body.String())
+	}
+	if !s.inModelLimit("u1", "hy3") {
+		t.Fatal("应被识别为 hy3 上的模型级限流")
+	}
+	_ = getAuths
+}
+
+// 【回归】truncate 不得把中文切成半个字符（那会在 JSON/日志里变成乱码 U+FFFD）。
+func TestTruncateKeepsUTF8Boundary(t *testing.T) {
+	s := strings.Repeat("限", 300) // 每个汉字 3 字节
+	got := truncate(s, 100)
+	if !utf8.ValidString(got) {
+		t.Fatalf("截断结果不是合法 UTF-8: %q", got)
+	}
+	if len(got) > 100 {
+		t.Fatalf("截断后长度应 <= 100，得到 %d", len(got))
+	}
+	if !strings.HasPrefix(s, got) {
+		t.Fatal("截断结果应是原串前缀")
+	}
+	// 落在字符中间的边界：99 字节正好切开第 33 个字。
+	if got := truncate(s, 99); !utf8.ValidString(got) || len(got) != 99 {
+		t.Fatalf("非对齐边界应退到完整字符，得到 len=%d valid=%v", len(got), utf8.ValidString(got))
+	}
+	// 短于上限时原样返回。
+	if got := truncate("abc", 10); got != "abc" {
+		t.Fatalf("未超限应原样返回，得到 %q", got)
 	}
 }

@@ -125,13 +125,18 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	loc := s.siteLocation(r.Context())
-	// 一个号都没打成：只可能是「所有账号都在这一个模型上被限流」。
+	// 一个号都没打成：**不能**就此断定「所有账号都被该模型限流」——选号返回 false
+	// 还有别的常见原因（可用账号都在瞬时冷却中、全部停用/无凭据）。若不加区分地
+	// 报「该模型最早 N 天后恢复」，而那个 N 天其实来自一个已停用账号的历史记录，
+	// 就把用户往错误方向带了。故这里要求**确有可用账号、且它们全部被该模型限流**
+	// 才报 429，否则回落到下面的常规提示。
+	//
 	// 此时**不发上游请求**，直接把最早恢复时刻告诉调用方——这比 502 有用得多。
 	if !attempted {
-		if until, ok := s.earliestModelLimit(s.Settings().Accounts, model); ok {
+		if usable, until, ok := s.allUsableAccountsModelLimited(s.Settings().Accounts, model); ok {
 			writeOpenAIError(w, http.StatusTooManyRequests, fmt.Sprintf(
-				"模型 %s 在当前所有账号上均处于频率限制中，最早将于 %s 恢复可用",
-				model, until.In(loc).Format("2006-01-02 15:04:05")), "rate_limit_error")
+				"模型 %s 在当前所有可用账号（%d 个）上均处于频率限制中，最早将于 %s 恢复可用",
+				model, usable, until.In(loc).Format("2006-01-02 15:04:05")), "rate_limit_error")
 			return
 		}
 	}

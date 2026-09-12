@@ -253,26 +253,38 @@ func (s *Service) inModelLimit(accountID, model string) bool {
 	return ok
 }
 
-// earliestModelLimit 在给定账号里找「该模型最早恢复」的时刻。
-// 用于「全部账号都限流」时告诉调用方**什么时候能再用**，而不是笼统报错。
-func (s *Service) earliestModelLimit(accounts []Account, model string) (time.Time, bool) {
+// allUsableAccountsModelLimited 判断「确有可用账号，且它们**全部**在该模型上限流」。
+//
+// 返回可用账号数与最早恢复时刻。三条缺一不可：
+//   - 没有可用账号时返回 false —— 那是「没账号可用」而非「模型被限流」，
+//     调用方（relay 的 !attempted 分支）该报后者才是准确的；
+//   - 只要有一个可用账号没被限流，就返回 false —— 那说明选号失败另有原因
+//     （例如该账号正在瞬时冷却中），不该拿限流来解释。
+//
+// 注意：ok == false 时，usable 只是「扫到中途」的计数、无意义，调用方不得使用；
+// 仅 ok == true 时 usable 才是完整的可用账号数。
+func (s *Service) allUsableAccountsModelLimited(accounts []Account, model string) (usable int, until time.Time, ok bool) {
 	if model == "" {
-		return time.Time{}, false
+		return 0, time.Time{}, false
 	}
-	var earliest time.Time
 	for _, a := range accounts {
-		until, ok := s.modelLimitUntil(a.ID, model)
-		if !ok {
+		if !accountAvailable(a) {
 			continue
 		}
-		if earliest.IsZero() || until.Before(earliest) {
-			earliest = until
+		usable++
+		t, limited := s.modelLimitUntil(a.ID, model)
+		if !limited {
+			// 存在一个没被限流的可用账号 → 不成立。
+			return usable, time.Time{}, false
+		}
+		if until.IsZero() || t.Before(until) {
+			until = t
 		}
 	}
-	if earliest.IsZero() {
-		return time.Time{}, false
+	if usable == 0 || until.IsZero() {
+		return usable, time.Time{}, false
 	}
-	return earliest, true
+	return usable, until, true
 }
 
 // modelLimitsView 返回当前生效的全部限流记录，按恢复时刻升序（最先恢复的排前面）。
