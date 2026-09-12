@@ -21,6 +21,15 @@ const fmtLeft = seconds => {
   return h > 0 ? `${h}h${m}m` : `${Math.max(1, m)}m`;
 };
 
+// fmtUntil 把「限流恢复时刻」（Unix 秒）格式化成本地时间，用于悬停提示。
+const fmtUntil = unix => {
+  const sec = Number(unix) || 0;
+  if (sec <= 0) return '—';
+  const d = new Date(sec * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 // tokenStateMeta 把后端 token 状态映射为徽标外观与文案。
 const tokenStateMeta = state => {
   switch (state) {
@@ -566,10 +575,25 @@ export function WorkBuddyPlugin() {
                           <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <Badge variant={meta.variant} className="!text-[0.8em]" title={a.lastError || undefined}>
-                            {meta.label}
-                            {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
-                          </Badge>
+                          <div className="flex flex-col items-center gap-1">
+                            <Badge variant={meta.variant} className="!text-[0.8em]" title={a.lastError || undefined}>
+                              {meta.label}
+                              {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
+                            </Badge>
+                            {/* 模型级限流：只影响列出的模型，账号本身仍可用（其它模型照常转发），
+                                悬浮可看到每个模型的恢复时刻。 */}
+                            {(a.limitedModels?.length ?? 0) > 0 && (
+                              <Badge
+                                variant="warning"
+                                className="!text-[0.75em]"
+                                title={a.limitedModels
+                                  .map(m => `${m.model} 限流至 ${fmtUntil(m.until)}`)
+                                  .join('\n')}
+                              >
+                                限流 {a.limitedModels.length} 模型
+                              </Badge>
+                            )}
+                          </div>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <div className="flex items-center justify-center gap-1">
@@ -701,6 +725,26 @@ export function WorkBuddyPlugin() {
                             .filter(Boolean)
                             .join(' · ') || ' '}
                         </div>
+                        {/* 模型级限流：账号表回答「谁被限流」，这里回答「这个模型还能不能用」。
+                            allLimited = 当前**所有可用账号**都在该模型上限流（此刻真的打不通，
+                            中继会直接回 429 且不打上游）；否则只是部分账号被限流，仍可正常转发。 */}
+                        {m.limit && (
+                          <div className="mt-0.5">
+                            <Badge
+                              variant={m.limit.allLimited ? 'danger' : 'warning'}
+                              className="!text-[0.7em]"
+                              title={
+                                (m.limit.allLimited
+                                  ? `当前所有可用账号（${m.limit.limited} 个）都在该模型上被上游限流，此刻完全打不通`
+                                  : `${m.limit.limited} 个账号在该模型上被限流，另有 ${m.limit.usable} 个账号可用（转发会自动选到可用账号）`) +
+                                (m.limit.nextRecoveryAt ? `；最早 ${fmtUntil(m.limit.nextRecoveryAt)} 恢复` : '')
+                              }
+                            >
+                              {m.limit.allLimited ? '限流中' : `限流 ${m.limit.limited}/${m.limit.limited + m.limit.usable}`}
+                              {m.limit.nextRecoveryAt ? ` · ${fmtUntil(m.limit.nextRecoveryAt)}` : ''}
+                            </Badge>
+                          </div>
+                        )}
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         <span
