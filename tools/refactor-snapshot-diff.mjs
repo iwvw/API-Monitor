@@ -83,23 +83,24 @@ for (const [p, b] of staticBefore) {
   }
 }
 
-// 4) 构建产物：路径集合必须一致（大小/hash 允许不同，拆分必然改变打包）。
+// 4) 构建产物：入口与关键资源必须仍存在；文件数允许变化（拆分改变打包）。
 const distBefore = readJson(beforeDir, 'dist.json');
 const distAfter = readJson(afterDir, 'dist.json');
 if (distBefore && distAfter) {
-  const namesBefore = new Set((distBefore.files || []).map((f) => f.path));
-  const namesAfter = new Set((distAfter.files || []).map((f) => f.path));
-  const onlyBefore = [...namesBefore].filter((n) => !namesAfter.has(n));
-  const onlyAfter = [...namesAfter].filter((n) => !namesBefore.has(n));
-  if (onlyBefore.length || onlyAfter.length) {
-    allowed.push(
-      `构建产物路径集合变化（拆分后允许）：移除 ${onlyBefore.length} 个，新增 ${onlyAfter.length} 个。` +
-        `注意：入口 index.html 与 manifest.webmanifest 必须仍存在。`,
-    );
-    for (const need of ['index.html', 'manifest.webmanifest']) {
-      if (!namesAfter.has(need)) differences.push(`构建产物缺少必要文件：${need}`);
+  if (distBefore.present !== distAfter.present) {
+    differences.push(`dist 存在性变化：${distBefore.present} -> ${distAfter.present}`);
+  }
+  const entryBefore = distBefore.entrypoints || {};
+  const entryAfter = distAfter.entrypoints || {};
+  for (const name of Object.keys(entryBefore)) {
+    if (entryBefore[name] && !entryAfter[name]) {
+      differences.push(`构建产物缺少必要入口：${name}`);
     }
   }
+  allowed.push(
+    `构建产物文件数变化（拆分后允许）：${distBefore.fileCount ?? '?'} -> ${distAfter.fileCount ?? '?'}；` +
+      `清单 hash ${distBefore.manifestHash ?? '?'} -> ${distAfter.manifestHash ?? '?'}。入口与关键资源已单独校验。`,
+  );
 }
 
 console.log('=== 重构一致性对比 ===');

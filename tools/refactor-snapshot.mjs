@@ -2,14 +2,14 @@
 // 重构行为一致性验证的快照采集工具。
 //
 // 用法：
-//   node tools/refactor-snapshot.mjs --out docs/archive/baseline
-//   API_MONITOR_BASE_URL=http://127.0.0.1:3100 node tools/refactor-snapshot.mjs --out /tmp/after
+//   node tools/refactor-snapshot.mjs --out docs/refactor-baseline
+//   API_MONITOR_BASE_URL=http://127.0.0.1:3100 node tools/refactor-snapshot.mjs --out docs/refactor-after
 //
 // 采集内容：
 //   1. routes.txt      —— manifest 路由清单（后端对外契约）
 //   2. api.json        —— 一组只读接口的「状态码 + 归一化响应体」
 //   3. static.json     —— 关键静态资源的状态码与 Content-Type
-//   4. dist.json       —— dist/ 构建产物的文件清单与内容 hash
+//   4. dist.json       —— dist/ 入口与关键资源指纹 + 清单 hash
 //
 // 归一化：剔除 requestId / Date / X-Request-Id 等易变字段，保证基线可比。
 
@@ -22,7 +22,7 @@ import process from 'node:process';
 const baseUrl = (process.env.API_MONITOR_BASE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 
 const outArgIndex = process.argv.indexOf('--out');
-const outDir = path.resolve(outArgIndex >= 0 ? process.argv[outArgIndex + 1] : 'docs/archive/baseline');
+const outDir = path.resolve(outArgIndex >= 0 ? process.argv[outArgIndex + 1] : 'docs/refactor-baseline');
 
 // 只读接口探测集：覆盖未鉴权边界、公开接口、元信息接口。
 // 方法固定 GET，不产生任何写副作用。
@@ -117,24 +117,39 @@ function fileHash(file) {
 
 function collectDist() {
   const distDir = path.resolve('dist');
-  if (!fs.existsSync(distDir)) return { present: false, files: [] };
-  const files = [];
+  if (!fs.existsSync(distDir)) return { present: false, fileCount: 0, manifestHash: '', entrypoints: {} };
+  const names = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
       } else {
-        files.push({
-          path: path.relative(distDir, full).split(path.sep).join('/'),
-          size: fs.statSync(full).size,
-          hash: fileHash(full),
-        });
+        names.push(path.relative(distDir, full).split(path.sep).join('/'));
       }
     }
   };
   walk(distDir);
-  return { present: true, files };
+  names.sort();
+
+  // 只记录「入口与关键资源」的存在性与指纹，避免把 4800+ 文件清单写进仓库。
+  const keyFiles = ['index.html', 'manifest.webmanifest', 'robots.txt', 'logo.svg', 'llms.txt'];
+  const entrypoints = {};
+  for (const name of keyFiles) {
+    const full = path.join(distDir, name);
+    if (fs.existsSync(full)) {
+      entrypoints[name] = { size: fs.statSync(full).size, hash: fileHash(full) };
+    } else {
+      entrypoints[name] = null;
+    }
+  }
+
+  return {
+    present: true,
+    fileCount: names.length,
+    manifestHash: crypto.createHash('sha256').update(names.join('\n')).digest('hex').slice(0, 16),
+    entrypoints,
+  };
 }
 
 function collectRoutes() {
@@ -191,7 +206,7 @@ async function main() {
   console.log(`  routes: ${routes.length}`);
   console.log(`  api probes: ${api.length}`);
   console.log(`  static probes: ${staticAssets.length}`);
-  console.log(`  dist files: ${dist.files.length}`);
+  console.log(`  dist files: ${dist.fileCount}`);
 }
 
 main().catch((err) => {

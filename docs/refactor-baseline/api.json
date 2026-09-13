@@ -1,0 +1,189 @@
+[
+  {
+    "path": "/health",
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "goVersion": "go1.26.6",
+        "service": "api-monitor-go",
+        "status": "ok",
+        "timestamp": "2026-09-13T19:27:16Z",
+        "version": "2.0.0-go-shell"
+      }
+    }
+  },
+  {
+    "path": "/api/auth/session",
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "authenticated": false
+      }
+    }
+  },
+  {
+    "path": "/api/auth/login-options",
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "github": {
+          "enabled": false
+        },
+        "success": true,
+        "webauthn": {
+          "enabled": false
+        }
+      }
+    }
+  },
+  {
+    "path": "/api/auth/check-password",
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "hasPassword": true,
+        "isDemoMode": false
+      }
+    }
+  },
+  {
+    "path": "/api/ai/manifest",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "AI 接入密钥无效",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/openapi.json",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/settings",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/uptime/public/probe",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/server/public/probe",
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "Not found",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/github/public/probe",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/backup",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/notification",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/openai",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/uptime",
+    "status": 401,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "请先登录",
+        "success": false
+      }
+    }
+  },
+  {
+    "path": "/api/nonexistent-refactor-probe",
+    "status": 404,
+    "contentType": "application/json",
+    "body": {
+      "kind": "json",
+      "value": {
+        "error": "API 路由不存在",
+        "success": false
+      }
+    }
+  }
+]
