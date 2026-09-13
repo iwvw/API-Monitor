@@ -195,6 +195,57 @@
         "OpenAIPluginsPanel.jsx：移除 workbuddy 注册条目（含 CodeBuddyBrand 图标 import 与组件 import）",
         "删除 docs/standards/模型网关插件-workbuddy方案.md"
       ]
+    },
+    "geminicli": {
+      "name": "Gemini CLI",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "Google Gemini CLI（Cloud Code Assist，cloudcode-pa.googleapis.com 的 v1internal 协议）OAuth 登录转 OpenAI 兼容 API：gemini-cli OAuth client + PKCE 授权、access token 自动刷新、静态模型目录（7 个）、对话转发（流式 + 非流式）、账号失败冷却与选号、网关端点一键接入。与 antigravity 插件的额度桶相互独立。",
+      "backendDirs": ["backend-go/internal/geminicli/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/geminicli\", Module: \"geminicli\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"Gemini CLI 插件（Google Gemini CLI 反代）管理\"},",
+          "\t\t{Prefix: \"/api/geminicli/v1\", Module: \"geminicli-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"Gemini CLI 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/geminicli\""],
+        "structField": "geminicli   *geminicli.Service",
+        "constructor": "geminicli:   geminicli.New(cfg),",
+        "injections": [
+          "server.geminicli.SetProxyPoolSelector(server.proxypool)",
+          "server.geminicli.StartCallStatsFlush(warmupCtx)"
+        ],
+        "serveCases": ["case \"/api/geminicli\", \"/api/geminicli/v1\":"],
+        "authModules": ["geminicli-compatible"]
+      },
+      "dbTables": ["geminicli_settings", "geminicli_call_stats", "geminicli_usage_daily"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/GeminiCliPlugin.jsx"],
+        "registrations": [
+          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "geminicli" }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [],
+      "systemContracts": [
+        "上游协议事实见 docs/standards/模型网关插件-geminicli方案.md 第 3 节；协议层集中在 backend-go/internal/geminicli/upstream.go"
+      ],
+      "docs": ["docs/standards/模型网关插件-geminicli方案.md", "docs/standards/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/geminicli/",
+        "manifest.go：删除 /api/geminicli 与 /api/geminicli/v1 前缀行",
+        "server.go：删除 import、geminicli 字段、geminicli.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、/api/geminicli case、geminicli-compatible 鉴权分支",
+        "DB：DROP TABLE geminicli_usage_daily; DROP TABLE geminicli_call_stats; DROP TABLE geminicli_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'geminicli-internal';",
+        "删除 src/js/pages/openai/plugins/GeminiCliPlugin.jsx",
+        "OpenAIPluginsPanel.jsx：移除 geminicli 注册条目（含 GeminiCliBrand 图标 import 与组件 import）",
+        "删除 docs/standards/模型网关插件-geminicli方案.md"
+      ]
     }
   }
 }

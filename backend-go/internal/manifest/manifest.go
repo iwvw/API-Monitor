@@ -11,11 +11,11 @@ type ResponseMode string
 type MatchMode string
 
 const (
-	AuthPublic    AuthMode = "public"
-	AuthSession   AuthMode = "session"
-	AuthAPIKey    AuthMode = "api_key"
-	AuthAgent     AuthMode = "agent_key"
-	AuthInternal  AuthMode = "internal"
+	AuthPublic   AuthMode = "public"
+	AuthSession  AuthMode = "session"
+	AuthAPIKey   AuthMode = "api_key"
+	AuthAgent    AuthMode = "agent_key"
+	AuthInternal AuthMode = "internal"
 
 	OwnerGo      Owner = "go"
 	OwnerNode    Owner = "node"
@@ -330,6 +330,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/ds2api/v1", Module: "ds2api-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "DS2API 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/workbuddy", Module: "workbuddy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "WorkBuddy 插件（腾讯 CodeBuddy 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/workbuddy/v1", Module: "workbuddy-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "WorkBuddy 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/geminicli", Module: "geminicli", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Gemini CLI 插件（Google Gemini CLI 反代）管理"},
+		{Prefix: "/api/geminicli/v1", Module: "geminicli-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Gemini CLI 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
 		{Prefix: "/sub/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Public subscription endpoint (UA-adaptive formats, info page, Clash/raw/base64)", MatchMode: MatchPattern},

@@ -5,6 +5,7 @@ import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
 import { DS2APIPlugin } from './plugins/DS2APIPlugin.jsx';
 import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
+import { GeminiCliPlugin, GeminiCliBrand } from './plugins/GeminiCliPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
@@ -31,6 +32,13 @@ const PLUGINS = [
     description: 'DeepSeek 网页版转 API。',
     icon: DeepSeekBrand,
     detail: DS2APIPlugin,
+  },
+  {
+    id: 'geminicli',
+    name: 'Gemini CLI',
+    description: 'Google Gemini CLI 账号转 API。',
+    icon: GeminiCliBrand,
+    detail: GeminiCliPlugin,
   },
   {
     id: 'workbuddy',

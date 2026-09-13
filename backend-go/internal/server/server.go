@@ -27,6 +27,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
 	"github.com/iwvw/api-monitor/backend-go/internal/gcp"
+	"github.com/iwvw/api-monitor/backend-go/internal/geminicli"
 	githubmodule "github.com/iwvw/api-monitor/backend-go/internal/github"
 	"github.com/iwvw/api-monitor/backend-go/internal/huawei"
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
@@ -80,6 +81,7 @@ type Server struct {
 	antigravity *antigravity.Service
 	ds2api      *ds2api.Service
 	workbuddy   *workbuddy.Service
+	geminicli   *geminicli.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -180,6 +182,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		antigravity: antigravity.New(cfg),
 		ds2api:      ds2api.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
+		geminicli:   geminicli.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -211,6 +214,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.ds2api.SetProxyPoolSelector(server.proxypool)
 	// WorkBuddy 插件可引用独立代理池作为出网出口。
 	server.workbuddy.SetProxyPoolSelector(server.proxypool)
+	// Gemini CLI 插件可引用独立代理池作为出网出口。
+	server.geminicli.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
@@ -222,6 +227,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.ds2api.StartCallStatsFlush(warmupCtx)
 	server.antigravity.StartCallStatsFlush(warmupCtx)
 	server.workbuddy.StartCallStatsFlush(warmupCtx)
+	// Gemini CLI 插件调用次数与用量定期落盘。
+	server.geminicli.StartCallStatsFlush(warmupCtx)
 	// WorkBuddy 插件 access token 自动刷新：定期把即将过期/已过期的账号提前换新，
 	// 避免直到转发时才暴露 token 失效。
 	server.workbuddy.StartAutoRefresh(warmupCtx)
@@ -639,6 +646,8 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.ds2api.ServeHTTP(w, r)
 	case "/api/workbuddy", "/api/workbuddy/v1":
 		s.workbuddy.ServeHTTP(w, r)
+	case "/api/geminicli", "/api/geminicli/v1":
+		s.geminicli.ServeHTTP(w, r)
 	case "/api/subscription":
 		s.sub.ServeHTTP(w, r)
 	case "/sub/{token}":
