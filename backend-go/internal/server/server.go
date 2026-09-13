@@ -894,6 +894,11 @@ func (s *Server) tryServeFile(w http.ResponseWriter, r *http.Request, dir string
 
 func setStaticCacheHeaders(w http.ResponseWriter, cleanPath string) {
 	cleanPath = filepath.ToSlash(cleanPath)
+	if filepath.Ext(cleanPath) == ".webmanifest" {
+		// http.ServeFile 依扩展名推断 MIME，标准库对 .webmanifest 会回退为
+		// text/plain；浏览器要求 application/manifest+json 才会解析 PWA manifest。
+		w.Header().Set("Content-Type", "application/manifest+json")
+	}
 	if filepath.Base(cleanPath) == "index.html" {
 		w.Header().Set("Cache-Control", "no-cache")
 		return

@@ -269,6 +269,37 @@ func TestRequestClientIPFallbacks(t *testing.T) {
 	}
 }
 
+func TestGitHubStateVerifierCookieBinding(t *testing.T) {
+	flow := githubOAuthStateFlow{BaseURL: "https://panel.example.com", StateVerifier: hashStateVerifier("verifier-abc")}
+
+	// 缺少 Cookie 时必须拒绝（跨站发起的 OAuth）。
+	noCookie := httptest.NewRequest(http.MethodGet, "/api/auth/github/callback", nil)
+	if stateVerifierMatches(noCookie, flow.StateVerifier) {
+		t.Fatal("missing cookie must not match")
+	}
+
+	// Cookie 与签发时不匹配必须拒绝。
+	wrong := httptest.NewRequest(http.MethodGet, "/api/auth/github/callback", nil)
+	wrong.AddCookie(&http.Cookie{Name: githubOAuthStateCookie, Value: "verifier-xyz"})
+	if stateVerifierMatches(wrong, flow.StateVerifier) {
+		t.Fatal("mismatched cookie must not match")
+	}
+
+	// 匹配的 Cookie 才放行。
+	right := httptest.NewRequest(http.MethodGet, "/api/auth/github/callback", nil)
+	right.AddCookie(&http.Cookie{Name: githubOAuthStateCookie, Value: "verifier-abc"})
+	if !stateVerifierMatches(right, flow.StateVerifier) {
+		t.Fatal("matching cookie should pass")
+	}
+
+	// 旧 flow（无 verifier 摘要）即使带 Cookie 也必须拒绝，避免向后兼容漏洞。
+	legacy := httptest.NewRequest(http.MethodGet, "/api/auth/github/callback", nil)
+	legacy.AddCookie(&http.Cookie{Name: githubOAuthStateCookie, Value: "anything"})
+	if stateVerifierMatches(legacy, "") {
+		t.Fatal("flow without verifier digest must not match")
+	}
+}
+
 func TestLoginAttemptLockout(t *testing.T) {
 	t.Setenv("ADMIN_PASSWORD", "")
 	t.Setenv("DEMO_MODE", "")
@@ -300,8 +331,9 @@ func TestLoginAttemptLockout(t *testing.T) {
 	if blocked.Code != http.StatusTooManyRequests {
 		t.Fatalf("5th wrong login status = %d body=%s, want 429", blocked.Code, blocked.Body.String())
 	}
-	if !strings.Contains(blocked.Body.String(), "lockUntil") {
-		t.Fatalf("blocked login body missing lockUntil: %s", blocked.Body.String())
+	// 锁定响应不得回传 lockUntil 或剩余尝试次数，避免辅助爆破节奏控制。
+	if strings.Contains(blocked.Body.String(), "lockUntil") || strings.Contains(blocked.Body.String(), "还剩") {
+		t.Fatalf("blocked login body leaks lock details: %s", blocked.Body.String())
 	}
 
 	// Even the correct password is now blocked while locked.
@@ -343,8 +375,9 @@ func TestLoginAttemptsResetOnSuccess(t *testing.T) {
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("login after reset status = %d body=%s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "还剩 4 次") {
-		t.Fatalf("expected remaining=4 after reset, body=%s", res.Body.String())
+	// 单次失败不得回传剩余次数，避免泄露计数状态。
+	if strings.Contains(res.Body.String(), "还剩") {
+		t.Fatalf("wrong login body leaks remaining attempts: %s", res.Body.String())
 	}
 }
 

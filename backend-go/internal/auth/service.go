@@ -245,14 +245,9 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 			"ip":     clientIP,
 			"reason": "ip_locked",
 		}, clientIP, r.UserAgent())
-		remainingMinutes := (lockStatus.RemainingSeconds + 59) / 60
-		if remainingMinutes < 1 {
-			remainingMinutes = 1
-		}
 		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"success":   false,
-			"error":     fmt.Sprintf("登录尝试过多，请 %d 分钟后再试", remainingMinutes),
-			"lockUntil": lockStatus.LockUntil,
+			"success": false,
+			"error":   "登录尝试过多，请稍后再试",
 		})
 		return
 	}
@@ -285,15 +280,14 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 			}, clientIP, r.UserAgent())
 			if attempt.Locked {
 				response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
-					"success":   false,
-					"error":     "登录尝试过多，账户已锁定 15 分钟",
-					"lockUntil": attempt.LockUntil,
+					"success": false,
+					"error":   "登录尝试过多，请稍后再试",
 				})
 				return
 			}
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"success": false,
-				"error":   fmt.Sprintf("密码错误，还剩 %d 次尝试机会", attempt.RemainingAttempts),
+				"error":   "用户名或密码错误",
 			})
 			return
 		}
@@ -1286,22 +1280,46 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool
 }
 
 func (s *Service) requestClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
-		if s.isTrustedProxy(net.ParseIP(host)) {
-			if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-				candidate := strings.TrimSpace(strings.Split(forwarded, ",")[0])
-				if ip := net.ParseIP(candidate); ip != nil {
-					return ip.String()
-				}
+	direct := ""
+	if host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil {
+		direct = host
+	} else if r.RemoteAddr != "" {
+		direct = strings.Trim(strings.TrimSpace(r.RemoteAddr), "[]")
+	}
+	if direct == "" {
+		return "unknown"
+	}
+
+	ip := net.ParseIP(direct)
+	trusted := false
+	if ip != nil {
+		if s.isTrustedProxy(ip) {
+			trusted = true
+		} else if !s.cfg.IsProduction() && ip.IsLoopback() {
+			trusted = true
+		}
+	}
+	if trusted {
+		// Cloudflare 会用 CF-Connecting-IP 覆盖真实来源，优先采信；
+		// 其后是通用的 X-Forwarded-For（取最左的原始客户端），最后是 X-Real-IP。
+		if candidate := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); candidate != "" {
+			if parsed := net.ParseIP(candidate); parsed != nil {
+				return parsed.String()
 			}
 		}
-		return host
+		if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+			candidate := strings.TrimSpace(strings.Split(forwarded, ",")[0])
+			if parsed := net.ParseIP(candidate); parsed != nil {
+				return parsed.String()
+			}
+		}
+		if candidate := strings.TrimSpace(r.Header.Get("X-Real-IP")); candidate != "" {
+			if parsed := net.ParseIP(candidate); parsed != nil {
+				return parsed.String()
+			}
+		}
 	}
-	if r.RemoteAddr != "" {
-		return r.RemoteAddr
-	}
-	return "unknown"
+	return direct
 }
 
 func (s *Service) isTrustedProxy(ip net.IP) bool {

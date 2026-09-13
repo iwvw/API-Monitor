@@ -115,6 +115,35 @@ func TestProductionSecurityDefaults(t *testing.T) {
 	}
 }
 
+func TestTrustedProxyCIDRsDefaults(t *testing.T) {
+	t.Setenv("TRUSTED_PROXY_CIDRS", "")
+	cfg := Load("test")
+	if len(cfg.TrustedProxyCIDRs) == 0 {
+		t.Fatal("unset TRUSTED_PROXY_CIDRS should fall back to safe private-network defaults")
+	}
+	trusted := false
+	for _, entry := range cfg.TrustedProxyCIDRs {
+		if entry == "172.16.0.0/12" {
+			trusted = true
+		}
+	}
+	if !trusted {
+		t.Fatalf("defaults must include container bridge range, got %v", cfg.TrustedProxyCIDRs)
+	}
+
+	t.Setenv("TRUSTED_PROXY_CIDRS", "none")
+	cfg = Load("test")
+	if len(cfg.TrustedProxyCIDRs) != 0 {
+		t.Fatalf("none should disable trusted proxies, got %v", cfg.TrustedProxyCIDRs)
+	}
+
+	t.Setenv("TRUSTED_PROXY_CIDRS", "203.0.113.0/24")
+	cfg = Load("test")
+	if len(cfg.TrustedProxyCIDRs) != 1 || cfg.TrustedProxyCIDRs[0] != "203.0.113.0/24" {
+		t.Fatalf("explicit value should override defaults, got %v", cfg.TrustedProxyCIDRs)
+	}
+}
+
 func TestProductionSecurityValidation(t *testing.T) {
 	cfg := Config{Environment: "production"}
 	t.Setenv("ENCRYPTION_KEY", "")

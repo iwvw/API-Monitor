@@ -46,7 +46,7 @@ func Load(version string) Config {
 		SecureCookies:        envBool("SECURE_COOKIES", environment == "production"),
 		AllowLocalShellTasks: envBool("ALLOW_LOCAL_SHELL_TASKS", environment != "production"),
 		CORSAllowedOrigins:   envList("CORS_ALLOWED_ORIGINS"),
-		TrustedProxyCIDRs:    envList("TRUSTED_PROXY_CIDRS"),
+		TrustedProxyCIDRs:    trustedProxyCIDRs(),
 		AdminAIDefaultModel:  envString("ADMIN_AI_DEFAULT_MODEL", ""),
 		GatewayBodyMaxBytes:  int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
 	}
@@ -163,6 +163,32 @@ func envList(name string) []string {
 		}
 	}
 	return result
+}
+
+// defaultTrustedProxyCIDRs 是 TRUSTED_PROXY_CIDRS 未显式配置时的回退集合。
+// 目标部署形态是「反向代理/容器网关 → Go 后端」，代理与后端总是经回环或
+// 私有网段直连；若这里为空，requestClientIP 会退回到代理自身的地址，导致
+// 所有真实客户端被视为同一来源（登录限流退化为全局单桶，任何人都能锁死
+// 登录）。显式配置该变量会完全覆盖这些默认值；配置为 none 表示不信任任何
+// 代理（仅适用于后端直接暴露、无前置代理的场景）。
+var defaultTrustedProxyCIDRs = []string{
+	"127.0.0.0/8",
+	"::1/128",
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"fc00::/7",
+}
+
+func trustedProxyCIDRs() []string {
+	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS"))
+	if raw == "" {
+		return append([]string(nil), defaultTrustedProxyCIDRs...)
+	}
+	if strings.EqualFold(raw, "none") {
+		return nil
+	}
+	return envList("TRUSTED_PROXY_CIDRS")
 }
 
 func exists(path string) bool {

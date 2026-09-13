@@ -3,6 +3,9 @@ package auth
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -16,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"crypto/rand"
 	"github.com/go-webauthn/webauthn/protocol"
 	wa "github.com/go-webauthn/webauthn/webauthn"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -38,6 +40,11 @@ const (
 	adminWebAuthnUserName       = "admin"
 	adminWebAuthnDisplayName    = "管理员"
 	adminWebAuthnUserHandleText = "api-monitor-admin"
+
+	// githubOAuthStateCookie 把 OAuth state 绑定到发起登录的浏览器：回调时必须
+	// 携带同一 Cookie，防止攻击者用自己签发的 state 诱导受害者完成 OAuth 登录
+	// （登录 CSRF）。Cookie 只存放随机 verifier，其 SHA-256 摘要写入 state flow。
+	githubOAuthStateCookie = "gh_oauth_state"
 )
 
 type githubConfigResponse struct {
@@ -65,7 +72,8 @@ type githubOAuthConfig struct {
 }
 
 type githubOAuthStateFlow struct {
-	BaseURL string `json:"baseUrl"`
+	BaseURL       string `json:"baseUrl"`
+	StateVerifier string `json:"stateVerifier,omitempty"`
 }
 
 type github2FAFlow struct {
@@ -171,8 +179,7 @@ func (s *Service) loginOptions(w http.ResponseWriter, r *http.Request) {
 			"enabled": githubConfig.complete(),
 		},
 		"webauthn": map[string]interface{}{
-			"enabled":         credentialCount > 0,
-			"credentialCount": credentialCount,
+			"enabled": credentialCount > 0,
 		},
 	})
 }
@@ -278,7 +285,16 @@ func (s *Service) startGitHubLogin(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	stateID, err := s.createAuthFlow(r.Context(), db, flowTypeGitHubOAuthState, githubOAuthStateFlow{BaseURL: baseURL}, githubStateFlowTTL)
+	stateVerifierRaw := make([]byte, 24)
+	if _, err := rand.Read(stateVerifierRaw); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stateVerifier := hex.EncodeToString(stateVerifierRaw)
+	stateID, err := s.createAuthFlow(r.Context(), db, flowTypeGitHubOAuthState, githubOAuthStateFlow{
+		BaseURL:       baseURL,
+		StateVerifier: hashStateVerifier(stateVerifier),
+	}, githubStateFlowTTL)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -289,6 +305,15 @@ func (s *Service) startGitHubLogin(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     githubOAuthStateCookie,
+		Value:    stateVerifier,
+		Path:     "/api/auth/github",
+		HttpOnly: true,
+		Secure:   s.cfg.SecureCookies || r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(githubStateFlowTTL.Seconds()),
+	})
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
@@ -315,6 +340,15 @@ func (s *Service) finishGitHubLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok || state.BaseURL == "" {
+		response.Error(w, http.StatusBadRequest, "GitHub 登录状态已失效，请重新发起登录")
+		return
+	}
+
+	// state flow 里的 verifier 摘要必须与发起登录时下发的 HttpOnly Cookie 匹配，
+	// 否则视为跨站发起的 OAuth（登录 CSRF），拒绝继续。
+	s.clearGitHubStateCookie(w, r)
+	if !stateVerifierMatches(r, state.StateVerifier) {
+		_ = s.logOperation(r.Context(), db, "GITHUB_OAUTH_DENIED", "auth", map[string]interface{}{"reason": "state_verifier_mismatch"}, s.requestClientIP(r), r.UserAgent())
 		response.Error(w, http.StatusBadRequest, "GitHub 登录状态已失效，请重新发起登录")
 		return
 	}
@@ -824,6 +858,39 @@ func (s *Service) issueAuthenticatedSession(w http.ResponseWriter, r *http.Reque
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
 	return nil
+}
+
+// hashStateVerifier 返回 state verifier 的 SHA-256 十六进制摘要，用于在 state
+// flow 中保存「Cookie 是否匹配」的判据，而不落库明文。
+func hashStateVerifier(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return hex.EncodeToString(sum[:])
+}
+
+// stateVerifierMatches 以恒定时间比较回调请求携带的 Cookie 与 state flow 中记录的摘要。
+func stateVerifierMatches(r *http.Request, expectedDigest string) bool {
+	if strings.TrimSpace(expectedDigest) == "" {
+		return false
+	}
+	cookie, err := r.Cookie(githubOAuthStateCookie)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	actual := hashStateVerifier(cookie.Value)
+	return subtle.ConstantTimeCompare([]byte(actual), []byte(expectedDigest)) == 1
+}
+
+// clearGitHubStateCookie 在回调处理时立即失效一次性 state Cookie。
+func (s *Service) clearGitHubStateCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     githubOAuthStateCookie,
+		Value:    "",
+		Path:     "/api/auth/github",
+		HttpOnly: true,
+		Secure:   s.cfg.SecureCookies || r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 }
 
 func (s *Service) githubAuthorizationURL(config githubOAuthConfig, baseURL, state string) (string, error) {
