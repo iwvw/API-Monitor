@@ -1,11 +1,5 @@
 package notification
 
-import (
-	"fmt"
-	"strings"
-
-)
-
 func eventCatalog() []map[string]interface{} {
 	return []map[string]interface{}{
 		{"module": "uptime", "events": []string{"down", "up", "pending", "resource.created", "resource.deleted", "ssl_expiry"}, "dynamic_events": []string{"down", "up"}},
@@ -17,14 +11,5 @@ func eventCatalog() []map[string]interface{} {
 		{"module": "openai", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
 		{"module": "antigravity", "events": []string{"quota_window_refreshed"}},
 		{"module": "cron", "events": []string{"task.completed", "task.failed", "workflow.completed", "workflow.failed"}, "dynamic_events": []string{}},
-	}
-}
-
-func validateSourceModule(module string) error {
-	switch strings.ToLower(strings.TrimSpace(module)) {
-	case "music", "openlist":
-		return fmt.Errorf("%w: source module retired", errInvalidInput)
-	default:
-		return nil
 	}
 }

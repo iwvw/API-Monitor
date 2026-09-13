@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -232,6 +233,15 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 var errInvalidInput = errors.New("invalid input")
+
+func validateSourceModule(module string) error {
+	switch strings.ToLower(strings.TrimSpace(module)) {
+	case "music", "openlist":
+		return fmt.Errorf("%w: source module retired", errInvalidInput)
+	default:
+		return nil
+	}
+}
 
 // smtpSendTimeout 是 SMTP 发送全链路的阻塞上限：网络连接、TLS 握手、
 // 认证与数据传输任何一步停滞都不会无限等待。
