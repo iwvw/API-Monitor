@@ -138,13 +138,13 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/pages/UptimePage.jsx' && value.startsWith('#')) {
     return 'legacy ECharts color; migrate when touching uptime charts';
   }
-  if (rel === 'src/js/pages/FileboxPage.jsx' && line.includes('color: { dark:')) {
+  if (rel === 'src/js/pages/filebox/FileboxPage.jsx' && line.includes('color: { dark:')) {
     return 'QR code contrast color';
   }
   if (rel === 'src/js/pages/GitHubPage.jsx' && value === 'text-white' && line.includes('bg-kumo-danger')) {
     return 'danger confirm button contrast text';
   }
-  if (rel === 'src/js/pages/FileboxPage.jsx' && value === 'bg-white' && line.includes('二维码')) {
+  if (rel === 'src/js/pages/filebox/SharePanel.jsx' && value === 'bg-white' && line.includes('二维码')) {
     return 'QR code image background';
   }
   if (rel === 'src/js/pages/VoidRoomPage.jsx' && value === 'bg-white' && line.includes('二维码')) {
