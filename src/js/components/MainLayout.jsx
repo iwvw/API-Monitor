@@ -37,7 +37,7 @@ const DashboardPage = lazy(() => import('../pages/DashboardPage.jsx'));
 const ServerPage = lazy(() => import('../pages/ServerPage.jsx'));
 const TotpPage = lazy(() => import('../pages/TotpPage.jsx'));
 const FileboxPage = lazy(() => import('../pages/filebox/FileboxPage.jsx'));
-const UptimePage = lazy(() => import('../pages/UptimePage.jsx'));
+const UptimePage = lazy(() => import('../pages/uptime/UptimePage.jsx'));
 const NotificationPage = lazy(() => import('../pages/notification/NotificationPage.jsx'));
 const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
 const SubscriptionPage = lazy(() => import('../pages/SubscriptionPage.jsx'));

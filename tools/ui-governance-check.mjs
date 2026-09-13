@@ -178,10 +178,10 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/pages/GitHubPage.jsx' && value === '#6ea8ff') {
     return 'workflow graph active edge color';
   }
-  if (rel === 'src/js/pages/PublicGitHubPage.jsx' && value === '#b8c2cf') {
+  if ((rel === 'src/js/pages/PublicGitHubPage.jsx' || rel === 'src/js/pages/public-github/ActionWorkflowCanvas.jsx') && value === '#b8c2cf') {
     return 'workflow graph idle edge color';
   }
-  if (rel === 'src/js/pages/PublicGitHubPage.jsx' && value === '#6ea8ff') {
+  if ((rel === 'src/js/pages/PublicGitHubPage.jsx' || rel === 'src/js/pages/public-github/ActionWorkflowCanvas.jsx') && value === '#6ea8ff') {
     return 'workflow graph active edge color';
   }
   if (
@@ -190,7 +190,7 @@ function allowedColorReason(rel, line, value, lines, index) {
   ) {
     return 'status/coverage heart-map palette color';
   }
-  if ((rel === 'src/js/pages/ApiDocsPage.jsx' || rel === 'src/js/pages/SettingsPage.jsx') && value === 'text-white') {
+  if ((rel === 'src/js/pages/ApiDocsPage.jsx' || rel === 'src/js/pages/SettingsPage.jsx' || rel === 'src/js/pages/settings/SettingsPage.jsx') && value === 'text-white') {
     return 'contrast text on colored status block';
   }
   if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'bg-black') {
