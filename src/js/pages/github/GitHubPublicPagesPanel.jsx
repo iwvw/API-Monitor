@@ -9,8 +9,8 @@ import { toast } from '../../modules/toast.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { invalidateDashboardStats } from '../../modules/dashboardInvalidation.js';
 import useStore from '../../store.js';
-import { SectionCard } from '../ui/AppPrimitives.jsx';
-import { PublicPageBrandIcon } from '../public/PublicPageIconPicker.jsx';
+import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { PublicPageBrandIcon } from '../../components/public/PublicPageIconPicker.jsx';
 import {
   Copy,
   Edit,
@@ -20,7 +20,7 @@ import {
   Save,
   Trash,
   X,
-} from '../Icons.jsx';
+} from '../../components/Icons.jsx';
 
 const createEmptyGitHubPublicPageForm = () => ({
   id: null,
