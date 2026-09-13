@@ -857,6 +857,12 @@ function OpenAIPage() {
     const timer = setInterval(loadExposedModels, 15000);
     return () => clearInterval(timer);
   }, [exposedPopoverOpen, loadExposedModels]);
+  // 「模型」按钮上的对外模型数量：进入端点页即拉取一次，并在端点/模型状态变化后
+  // 跟随刷新。否则该计数停留在 0，直到手动点开 popover 才触发 loadExposedModels。
+  useEffect(() => {
+    if (activeTab !== 'endpoints' || endpointsLoading) return;
+    loadExposedModels();
+  }, [activeTab, endpoints, endpointsLoading, loadExposedModels]);
   const copyExposedModelName = useCallback(async (id) => {
     try {
       await navigator.clipboard.writeText(id);
