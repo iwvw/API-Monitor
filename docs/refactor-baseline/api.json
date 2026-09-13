@@ -9,7 +9,6 @@
         "goVersion": "go1.26.6",
         "service": "api-monitor-go",
         "status": "ok",
-        "timestamp": "2026-09-13T19:27:16Z",
         "version": "2.0.0-go-shell"
       }
     }
