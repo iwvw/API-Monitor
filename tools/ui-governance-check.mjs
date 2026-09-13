@@ -163,7 +163,7 @@ function allowedColorReason(rel, line, value, lines, index) {
   ) {
     return 'TOTP brand/icon color value example or fallback';
   }
-  if (rel === 'src/js/pages/DnsPage.jsx' && (value === 'bg-black' || value === 'bg-white')) {
+  if ((rel === 'src/js/pages/DnsPage.jsx' || rel === 'src/js/pages/dns/R2PreviewDialog.jsx') && (value === 'bg-black' || value === 'bg-white')) {
     return 'media preview surface';
   }
   if (rel === 'src/js/components/server/ServerLocationMap.jsx') {

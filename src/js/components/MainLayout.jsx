@@ -44,8 +44,8 @@ const SubscriptionPage = lazy(() => import('../pages/SubscriptionPage.jsx'));
 const GitHubPage = lazy(() => import('../pages/GitHubPage.jsx'));
 const DockerHubPage = lazy(() => import('../pages/DockerHubPage.jsx'));
 
-const PaasPage = lazy(() => import('../pages/PaasPage.jsx'));
-const DnsPage = lazy(() => import('../pages/DnsPage.jsx'));
+const PaasPage = lazy(() => import('../pages/paas/PaasPage.jsx'));
+const DnsPage = lazy(() => import('../pages/dns/DnsPage.jsx'));
 const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
 const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const OraclePage = lazy(() => import('../pages/OraclePage.jsx'));
