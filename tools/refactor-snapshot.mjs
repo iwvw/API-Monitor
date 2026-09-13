@@ -55,7 +55,7 @@ const STATIC_PROBES = [
 ];
 
 // 响应体中需要归一化（视为易变）的字段名。
-const VOLATILE_FIELDS = ['requestId', 'lockUntil', 'date', 'expiresAt', 'lastAttempt', 'createdAt', 'updatedAt', 'uptime'];
+const VOLATILE_FIELDS = ['requestId', 'lockUntil', 'date', 'expiresAt', 'lastAttempt', 'createdAt', 'updatedAt', 'uptime', 'timestamp', 'serverTime', 'displayTime'];
 
 function classifyContentType(value) {
   if (!value) return '';
