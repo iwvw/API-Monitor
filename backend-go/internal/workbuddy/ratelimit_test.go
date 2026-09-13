@@ -145,12 +145,12 @@ func TestPickLeastConsumedSkipsModelLimitedOnlyForThatModel(t *testing.T) {
 	s.markModelLimit("u1", "模型A", time.Now().Add(2*time.Hour), rateLimitMsg)
 
 	// 同一模型：跳过 u1，选 u2。
-	acc, ok := s.pickLeastConsumed(accounts, "模型A")
+	acc, ok := s.pickLeastConsumed(accounts, "模型A", nil)
 	if !ok || acc.ID != "u2" {
 		t.Fatalf("限流模型上应选 u2，得到 %v/%v", acc.ID, ok)
 	}
 	// 别的模型：u1 仍应被选（列表序靠前，且消耗相同）。
-	acc, ok = s.pickLeastConsumed(accounts, "模型B")
+	acc, ok = s.pickLeastConsumed(accounts, "模型B", nil)
 	if !ok || acc.ID != "u1" {
 		t.Fatalf("其它模型上 u1 必须照常可用，得到 %v/%v", acc.ID, ok)
 	}
@@ -162,7 +162,7 @@ func TestPickLeastConsumedSkipsModelLimitedOnlyForThatModel(t *testing.T) {
 		AccountID: "u1", Model: "模型A", Until: time.Now().Add(-time.Minute),
 	}
 	s.modelLimitMu.Unlock()
-	if acc, _ := s.pickLeastConsumed(accounts, "模型A"); acc.ID != "u1" {
+	if acc, _ := s.pickLeastConsumed(accounts, "模型A", nil); acc.ID != "u1" {
 		t.Fatalf("限流过期后 u1 应恢复可选，得到 %v", acc.ID)
 	}
 	if s.inModelLimit("u1", "模型A") {
@@ -422,16 +422,18 @@ func TestNoAttemptDoesNotBlamModelLimitFromUnusableAccount(t *testing.T) {
 	s := newTestService(t)
 	dead := validAccount("dead", "t9")
 	dead.Disabled = true // 不参与选号，但限流簿里仍留着它的记录
+	// 另一个账号凭据已过期且没有 refresh token → 真的一号都选不出来
+	// （冷却号会被兜底重试，已不算「选不出账号」，故这里用真不可用的号来构造 no-attempt）。
+	expired := validAccount("expired", "t1")
+	expired.ExpiresAt = time.Now().Add(-time.Hour).Unix()
 	if err := s.SaveSettings(context.Background(), Settings{
 		Enabled:  true,
-		Accounts: []Account{dead, validAccount("u1", "t1")},
+		Accounts: []Account{dead, expired},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// 停用账号在 hy3 上的历史限流：3 天后才恢复（足够显眼，一旦被报出就能测到）。
 	s.markModelLimit("dead", "hy3", time.Now().Add(72*time.Hour), rateLimitMsg)
-	// 唯一可用账号处于瞬时冷却中 → pickAccount 一个号都选不出来。
-	s.markCooldown("u1")
 
 	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
 	if rec.Code == http.StatusTooManyRequests {

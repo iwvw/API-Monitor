@@ -61,7 +61,7 @@ func TestPickLeastConsumedSkipsCooldown(t *testing.T) {
 	a2 := validAccount("u2", "t2")
 	s.cooldownUntil["u1"] = time.Now().Add(time.Minute)
 
-	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3")
+	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3", nil)
 	if !ok || acc.ID != "u2" {
 		t.Fatalf("应跳过冷却中的 u1 选 u2，得到 %v/%v", acc.ID, ok)
 	}
@@ -75,7 +75,7 @@ func TestPickLeastConsumedRecoversAfterCooldown(t *testing.T) {
 	a2 := validAccount("u2", "t2")
 	s.cooldownUntil["u1"] = time.Now().Add(-time.Minute)
 
-	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3")
+	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3", nil)
 	if !ok || acc.ID != "u1" {
 		t.Fatalf("冷却过期后应恢复 u1 参与选号，得到 %v/%v", acc.ID, ok)
 	}
@@ -205,5 +205,64 @@ func TestRelaySkipsCooldownAccountOnNextRequest(t *testing.T) {
 	}
 	if got := getAuths(); len(got) != 1 || got[0] != "Bearer t2" {
 		t.Fatalf("冷却中的 u1 不应被选中，实际上游收到 %v", got)
+	}
+}
+
+// 【回归】所有账号都在冷却时仍应兜底强行尝试，绝不因为「都在冷却」直接回 503。
+// 这是曾经的事故形态：一次瞬时抖动冷却整池账号 5 分钟，期间所有请求全部 503。
+func TestRelayAttemptsWhenAllAccountsCooled(t *testing.T) {
+	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
+		return http.StatusOK, okSSE
+	})
+
+	s := newTestService(t)
+	if err := s.SaveSettings(context.Background(), Settings{
+		Enabled: true,
+		Accounts: []Account{
+			validAccount("u1", "t1"),
+			validAccount("u2", "t2"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.cooldownUntil["u1"] = time.Now().Add(5 * time.Minute)
+	s.cooldownUntil["u2"] = time.Now().Add(5 * time.Minute)
+
+	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("全部冷却时应兜底尝试并返回 200，得到 %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := getAuths(); len(got) != 1 {
+		t.Fatalf("应只尝试一个账号，实际 %v", got)
+	}
+}
+
+// 【回归】全部账号都在冷却、且上游持续失败 → 回 502（真实上游错误）而非 503，
+// 且每个账号在一次请求里最多尝试一次（靠请求内 tried 去重，不靠冷却）。
+func TestRelayAllCooledFailsOverToBadGateway(t *testing.T) {
+	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
+		return http.StatusServiceUnavailable, "upstream down"
+	})
+
+	s := newTestService(t)
+	if err := s.SaveSettings(context.Background(), Settings{
+		Enabled: true,
+		Accounts: []Account{
+			validAccount("u1", "t1"),
+			validAccount("u2", "t2"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.cooldownUntil["u1"] = time.Now().Add(5 * time.Minute)
+	s.cooldownUntil["u2"] = time.Now().Add(5 * time.Minute)
+
+	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("上游失败应返回 502 而非 503，得到 %d: %s", rec.Code, rec.Body.String())
+	}
+	got := getAuths()
+	if len(got) != 2 || got[0] != "Bearer t1" || got[1] != "Bearer t2" {
+		t.Fatalf("应对两个账号各尝试一次，实际 %v", got)
 	}
 }

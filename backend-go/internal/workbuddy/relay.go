@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 // maxChatBodyBytes 是对话请求体的大小上限（16MB），超出视为异常请求。
@@ -83,7 +85,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 失败换号重试：单次转发最多尝试 maxAccountAttempts 个账号。
 	// 失败分两类，处置**不同**（见 ratelimit.go 开头）：
-	//   - 瞬时故障（429/5xx/网络/流中断）→ 账号冷却，封整个账号 5 分钟；
+	//   - 瞬时故障（429/5xx/网络/流中断）→ 账号冷却（软偏好，优先避开该账号）；
 	//   - 模型级限流（上游点名「<模型> 超出频率限制，<时刻> 重置」）→ 只封
 	//     「该账号 × 该模型」，同一账号的其它模型照常可用，且冷却到上游给的真实时刻。
 	// chatCompletions 保证错误发生在写出任何响应之前，因此重试不会破坏已下发的字节。
@@ -93,11 +95,15 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// attempted 记录本轮是否真的打过上游：没打过（全被限流拦下）与「打完全部失败」
 	// 是两种截然不同的情形，报错也该不同。
 	attempted := false
+	// tried 记录本次请求已尝试过的账号：保证换号不会反复命中同一个账号
+	// （冷却只是软偏好，不能依赖它来做请求内的去重）。
+	tried := make(map[string]bool, maxAccountAttempts)
 	for attempt := 0; attempt < maxAccountAttempts; attempt++ {
-		acc, ok := s.pickAccount(r.Context(), model)
+		acc, ok := s.pickAccount(r.Context(), model, tried)
 		if !ok {
 			break
 		}
+		tried[acc.ID] = true
 		attempted = true
 		if err := s.chatCompletions(r.Context(), w, &chatRequest{
 			Account: acc,
@@ -117,7 +123,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 					}
 					continue
 				}
-				s.markCooldown(acc.ID)
+				s.markCooldown(acc.ID, ue.msg)
 				continue
 			}
 			break
@@ -133,6 +139,9 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// 此时**不发上游请求**，直接把最早恢复时刻告诉调用方——这比 502 有用得多。
 	if !attempted {
+		applog.Warn(r.Context(), "workbuddy", "no usable account for relay",
+			"model", model,
+			"accounts", s.accountPoolDiagnosis(s.Settings().Accounts, model))
 		if usable, until, ok := s.allUsableAccountsModelLimited(s.Settings().Accounts, model); ok {
 			writeOpenAIError(w, http.StatusTooManyRequests, fmt.Sprintf(
 				"模型 %s 在当前所有可用账号（%d 个）上均处于频率限制中，最早将于 %s 恢复可用",
@@ -156,55 +165,115 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 // accountCooldown 是账号遇到可重试上游失败（429/5xx/网络/流中断）后的冷却时长。
-// 冷却期内该账号不被选号，让配额/限流缓过去，避免同一账号被反复命中。
+// 冷却只是**软偏好**：冷却期内选号会优先避开该账号；但若可用账号全在冷却，会兜底
+// 选最早恢复的那个继续尝试（绝不因为「都在冷却」就直接 503，否则一次瞬时抖动会让
+// 整池账号冷却数分钟、期间所有请求全部失败）。
 const accountCooldown = 5 * time.Minute
 
 // maxAccountAttempts 是单次转发最多尝试的账号数（首号 + 最多两次换号）。
 // 账号再多也不无限重试，避免拖垮单请求延迟。
 const maxAccountAttempts = 3
 
-// inCooldown 返回账号是否处于失败冷却期（冷却中不会被选号）。
+// inCooldown 返回账号是否处于失败冷却期（冷却中的账号在选号时劣后）。
 func (s *Service) inCooldown(id string) bool {
+	_, ok := s.cooldownUntilOf(id)
+	return ok
+}
+
+// cooldownUntilOf 读取账号当前冷却的截止时刻；未冷却或已过冷却期返回 ok=false。
+func (s *Service) cooldownUntilOf(id string) (time.Time, bool) {
 	s.cooldownMu.Lock()
 	defer s.cooldownMu.Unlock()
-	return s.cooldownUntil != nil && time.Now().Before(s.cooldownUntil[id])
+	until, ok := s.cooldownUntil[id]
+	if !ok || !time.Now().Before(until) {
+		return time.Time{}, false
+	}
+	return until, true
 }
 
 // markCooldown 记录账号一次可重试的上游失败，进入冷却期。
 // 纯内存、只写不删：过期的键被 inCooldown 的时间比较自然放过，顶多占用一个 map 槽位。
-func (s *Service) markCooldown(id string) {
+func (s *Service) markCooldown(id, reason string) {
+	until := time.Now().Add(accountCooldown)
 	s.cooldownMu.Lock()
 	if s.cooldownUntil == nil {
 		s.cooldownUntil = map[string]time.Time{}
 	}
-	s.cooldownUntil[id] = time.Now().Add(accountCooldown)
+	s.cooldownUntil[id] = until
 	s.cooldownMu.Unlock()
+	applog.Warn(context.Background(), "workbuddy", "account cooled down after upstream failure",
+		"account", s.accountLogLabel(id),
+		"until", until.UTC().Format(time.RFC3339),
+		"reason", truncate(reason, 300))
 }
 
 // pickAccount 选取本次转发的账号。
 //
 // 选号策略：**站点时区「今天已消耗 credit 最少」的可用账号**（消耗相同取列表序靠前者），
-// 且跳过失败冷却期的账号、以及在该 model 上被限流的账号。这样按实际计费额度自然拉平
-// 各账号消耗，也避免某个账号先撞上限额；权重来自内存快照，选号本身不查库。
+// 且跳过本次请求已尝试过的账号、失败冷却期的账号、以及在该 model 上被限流的账号。
+// 这样按实际计费额度自然拉平各账号消耗，也避免某个账号先撞上限额；权重来自内存快照，
+// 选号本身不查库。
 //
 // 一个可用账号都没有时，再试着刷新「已过期但可刷新」的账号（对应设置页的
-// 「扫码登录 + 自动刷新」语义）。
-func (s *Service) pickAccount(ctx context.Context, model string) (Account, bool) {
-	if acc, ok := s.pickLeastConsumed(s.Settings().Accounts, model); ok {
+// 「扫码登录 + 自动刷新」语义）；若仍选不出，最后兜底到「都在冷却中」的账号继续尝试。
+func (s *Service) pickAccount(ctx context.Context, model string, tried map[string]bool) (Account, bool) {
+	if acc, ok := s.pickLeastConsumed(s.Settings().Accounts, model, tried); ok {
 		return acc, true
 	}
-	if acc, ok := s.refreshFirstStaleAccount(ctx, model); ok {
+	if acc, ok := s.refreshFirstStaleAccount(ctx, model, tried); ok {
+		return acc, true
+	}
+	if acc, ok := s.pickCooledFallback(s.Settings().Accounts, model, tried); ok {
 		return acc, true
 	}
 	return Account{}, false
 }
 
-// refreshFirstStaleAccount 找出第一个「未停用、有 refresh token、token 已失效且不在冷却期」
-// 的账号，尝试刷新并把结果落库；刷新成功才算可用。
+// pickCooledFallback 兜底选取「可用、未被尝试、未被该模型限流，但正处于失败冷却」的账号，
+// 取冷却最早结束（最接近恢复）的那个。
+//
+// 为什么需要它：冷却若作为硬闸，一次瞬时上游抖动会把整池账号一起冷却数分钟，期间每个
+// 请求都选不出账号、直接 503。此时拒绝服务并不比直接尝试更安全，反而把一次短暂抖动
+// 放大成数分钟的不可用。故冷却只作软偏好：有更好的号就优先用，没有就退回冷却号继续试，
+// 真实的上游错误仍会正常返回给调用方。
+//
+// 被模型级限流的账号不参与兜底：那是上游明确的配额限制，强行重试没有意义。
+func (s *Service) pickCooledFallback(accounts []Account, model string, tried map[string]bool) (Account, bool) {
+	bestIdx := -1
+	var bestUntil time.Time
+	for i, a := range accounts {
+		if !accountAvailable(a) {
+			continue
+		}
+		if tried != nil && tried[a.ID] {
+			continue
+		}
+		if model != "" && s.inModelLimit(a.ID, model) {
+			continue
+		}
+		until, cooled := s.cooldownUntilOf(a.ID)
+		if !cooled {
+			continue
+		}
+		if bestIdx < 0 || until.Before(bestUntil) {
+			bestIdx, bestUntil = i, until
+		}
+	}
+	if bestIdx < 0 {
+		return Account{}, false
+	}
+	return accounts[bestIdx], true
+}
+
+// refreshFirstStaleAccount 找出第一个「未停用、有 refresh token、token 已失效、不在冷却期
+// 且本次请求尚未尝试过」的账号，尝试刷新并把结果落库；刷新成功才算可用。
 // 仅在「所有账号都不可用」时才走到这里，是兜底路径而非常规选号。
-func (s *Service) refreshFirstStaleAccount(ctx context.Context, model string) (Account, bool) {
+func (s *Service) refreshFirstStaleAccount(ctx context.Context, model string, tried map[string]bool) (Account, bool) {
 	for _, a := range s.Settings().Accounts {
 		if a.Disabled || a.RefreshToken == "" || tokenState(a) == "valid" || s.inCooldown(a.ID) {
+			continue
+		}
+		if tried != nil && tried[a.ID] {
 			continue
 		}
 		// 刷新 token 不影响模型级限流：该模型仍被限流的账号，刷了也用不了。

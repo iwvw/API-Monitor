@@ -26,12 +26,15 @@ package workbuddy
 // 再撞一次限流，代价远小于长期锁死一个其实已经恢复的账号）。
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 // 兜底与边界。
@@ -203,8 +206,11 @@ func (s *Service) markModelLimit(accountID, model string, until time.Time, reaso
 	}
 	now := time.Now()
 	until = clampModelLimitUntil(until, now)
+	// 账号标签要在取锁前解析：accountLogLabel 会经 Settings() 取 mu 读锁，
+	// 若在持有 modelLimitMu 时调用会形成嵌套取锁，且日志 I/O 会拖长临界区。
+	label := s.accountLogLabel(accountID)
+	truncated := truncate(reason, 300)
 	s.modelLimitMu.Lock()
-	defer s.modelLimitMu.Unlock()
 	if s.modelLimits == nil {
 		s.modelLimits = map[string]modelLimit{}
 	}
@@ -217,11 +223,17 @@ func (s *Service) markModelLimit(accountID, model string, until time.Time, reaso
 		AccountID: accountID,
 		Model:     model,
 		Until:     until,
-		Reason:    truncate(reason, 300),
+		Reason:    truncated,
 		SetAt:     now,
 	}
-	s.rateLimitSample = truncate(reason, 300)
+	s.rateLimitSample = truncated
 	s.rateLimitSampleAt = now.UTC().Format(time.RFC3339)
+	s.modelLimitMu.Unlock()
+	applog.Warn(context.Background(), "workbuddy", "model rate limited for account",
+		"account", label,
+		"model", model,
+		"until", until.UTC().Format(time.RFC3339),
+		"reason", truncated)
 }
 
 // noteRateLimit 只留痕最近的限流原文（不进冷却簿）。
@@ -285,6 +297,74 @@ func (s *Service) allUsableAccountsModelLimited(accounts []Account, model string
 		return usable, time.Time{}, false
 	}
 	return usable, until, true
+}
+
+// accountLogLabel 返回日志里可读的账号标识：昵称(ID)；查不到昵称时退回 ID。
+func (s *Service) accountLogLabel(id string) string {
+	if id == "" {
+		return "<empty>"
+	}
+	for _, a := range s.Settings().Accounts {
+		if a.ID == id {
+			return accountLabel(a)
+		}
+	}
+	return id
+}
+
+// accountLabel 构造「昵称(ID)」形式的账号标签，昵称缺失时只留 ID。
+func accountLabel(a Account) string {
+	if a.Nickname != "" && a.Nickname != a.ID {
+		return fmt.Sprintf("%s(%s)", a.Nickname, a.ID)
+	}
+	if a.ID == "" {
+		return "<empty>"
+	}
+	return a.ID
+}
+
+// accountUnavailableReason 用一句话说明账号此刻为何不参与选号；可用时返回空串。
+// 判定顺序与 pickLeastConsumed 的跳过条件保持一致，确保「诊断到的不选」和「实际没选」同源。
+func (s *Service) accountUnavailableReason(a Account, model string) string {
+	switch {
+	case a.Disabled:
+		return "已停用"
+	case a.ID == "":
+		return "缺少账号标识"
+	case a.AccessToken == "":
+		return "无凭据"
+	case tokenState(a) == "expired":
+		return "token 已过期"
+	}
+	s.cooldownMu.Lock()
+	until, cooled := s.cooldownUntil[a.ID]
+	s.cooldownMu.Unlock()
+	if cooled && time.Now().Before(until) {
+		return "失败冷却至 " + until.UTC().Format(time.RFC3339)
+	}
+	if model != "" {
+		if t, limited := s.modelLimitUntil(a.ID, model); limited {
+			return "该模型限流至 " + t.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
+}
+
+// accountPoolDiagnosis 汇总账号池里每个账号此刻的状态，供「没有可用账号」时的日志排查。
+// 形如：昵称(ID)=失败冷却至 ...; 昵称2(ID2)=可用; ...
+func (s *Service) accountPoolDiagnosis(accounts []Account, model string) string {
+	if len(accounts) == 0 {
+		return "<账号池为空>"
+	}
+	parts := make([]string, 0, len(accounts))
+	for _, a := range accounts {
+		reason := s.accountUnavailableReason(a, model)
+		if reason == "" {
+			reason = "可用"
+		}
+		parts = append(parts, accountLabel(a)+"="+reason)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // modelLimitsView 返回当前生效的全部限流记录，按恢复时刻升序（最先恢复的排前面）。

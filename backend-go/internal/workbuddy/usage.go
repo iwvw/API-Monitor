@@ -257,13 +257,19 @@ func (s *Service) refreshCreditDaySnapshot(ctx context.Context) {
 // model 非空时，跳过「该账号 × 该模型」正在限流中的账号（ratelimit.go）。
 // 注意判据是**账号 × 模型**：同一账号在别的模型上仍然可选——这正是模型级限流
 // 不能被账号冷却替代的原因。
-func (s *Service) pickLeastConsumed(accounts []Account, model string) (Account, bool) {
+//
+// tried 记录本次请求已经尝试过的账号，跳过它们是为了在同一请求内换号（否则重试会
+// 反复命中同一个账号）。传 nil 表示不限制。
+func (s *Service) pickLeastConsumed(accounts []Account, model string, tried map[string]bool) (Account, bool) {
 	s.creditDayMu.RLock()
 	defer s.creditDayMu.RUnlock()
 	bestIdx := -1
 	bestUsed := 0.0
 	for i, a := range accounts {
 		if !accountAvailable(a) {
+			continue
+		}
+		if tried != nil && tried[a.ID] {
 			continue
 		}
 		if s.inCooldown(a.ID) {
