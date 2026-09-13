@@ -17,6 +17,16 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
 
+// healthCheckPrompt 是端点连通性与模型可用性检测共用的探测提示词。
+// 刻意避开 "Hello"、"test"、"ping"、"Reply with ..." 这类典型测活措辞，
+// 免得被上游按探针请求识别并拒绝；用一句自然的日常请求，必然产生非空正文。
+const healthCheckPrompt = "Tell me a short fun fact."
+
+// healthCheckMaxTokens 是模型可用性检测的 max_tokens。
+// 必须给 reasoning 模型留够思考开销：预算过小（如 1）时模型把额度耗在
+// reasoning 上、正文为空，会被上游判成「空响应」而误报检测失败。
+const healthCheckMaxTokens = 32
+
 func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id string) {
 	var req struct {
 		Model string `json:"model"`
@@ -56,7 +66,7 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 	chatPayload := map[string]interface{}{
 		"model": modelName,
 		"messages": []interface{}{
-			map[string]interface{}{"role": "user", "content": "Say \"Hello, API test successful!\" in exactly those words."},
+			map[string]interface{}{"role": "user", "content": healthCheckPrompt},
 		},
 		"max_tokens": 50,
 	}
@@ -863,9 +873,9 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 	// 依赖该类型断言做转换，[]map[string]string 会导致转换失败而透传 OpenAI 原始 body。
 	payload := map[string]interface{}{
 		"model":       model,
-		"messages":    []interface{}{map[string]interface{}{"role": "user", "content": "Reply with any short non-empty text."}},
+		"messages":    []interface{}{map[string]interface{}{"role": "user", "content": healthCheckPrompt}},
 		"stream":      false,
-		"max_tokens":  1,
+		"max_tokens":  healthCheckMaxTokens,
 		"temperature": 0,
 	}
 	bodyBytes, _ := json.Marshal(payload)
