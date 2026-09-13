@@ -33,6 +33,8 @@
     "governance:check": "node tools/three-side-governance-check.mjs && node tools/tz-governance-check.mjs",
     "gen-api-catalog": "node tools/gen-api-catalog.mjs",
     "backend-go:smoke": "node tools/backend-go-smoke.mjs",
+    "refactor:snapshot": "node tools/refactor-snapshot.mjs",
+    "refactor:snapshot-diff": "node tools/refactor-snapshot-diff.mjs",
     "backend:perf-baseline": "node tools/backend-performance-baseline.mjs",
     "audit:fast": "npm run icons:generate && npm run governance:check && npm run ui:governance && npm run docs:check && npm run lint && npm test",
     "audit:full": "npm run audit:fast && npm run backend-go:test && node tools/backend-route-inventory.mjs && npm run backend-go:smoke",
