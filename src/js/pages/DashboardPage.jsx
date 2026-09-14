@@ -2,7 +2,7 @@
 // 数据获取、布局保存、拖拽缩放均由 TilesBoard 自包含处理；控制按钮在顶部面包屑栏。
 import React from 'react';
 import { PageStack } from '../components/ui/AppPrimitives.jsx';
-import TilesBoard from '../components/tiles/TilesBoard.jsx';
+import TilesBoard from './tiles/TilesBoard.jsx';
 
 function DashboardPage() {
   return (

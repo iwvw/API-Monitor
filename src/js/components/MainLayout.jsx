@@ -62,7 +62,7 @@ const BookmarksPage = lazy(() => import('../pages/BookmarksPage.jsx'));
 const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
 
 import { pageStackClass } from './ui/AppPrimitives.jsx';
-import AskAiPanel from './adminai/AskAiPanel.jsx';
+import AskAiPanel from './adminai/AskAiPanel/index.jsx';
 
 const PageLoadingFallback = () => (
   <div className={`${pageStackClass} pt-3 cq-sm:pt-4`}>

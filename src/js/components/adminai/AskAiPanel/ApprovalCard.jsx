@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Loader } from '@cloudflare/kumo';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
-import { ChevronDown, ChevronRight, Check } from '../Icons.jsx';
+import { ChevronDown, ChevronRight, Check } from '../../Icons.jsx';
 
 /* 审批卡片 — Cloudflare Agent 风格：
  * 计划摘要 + 参数 code 高亮 + 「N 处更改」展开 diff + 4 操作按钮 + 请求更改输入 */

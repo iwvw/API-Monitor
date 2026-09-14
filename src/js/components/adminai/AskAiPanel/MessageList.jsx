@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Loader, Textarea } from '@cloudflare/kumo';
-import { ChevronDown, Sparkle, Terminal, MessageSquare, Globe, Server, Cloud, Clock, Sliders, Bell, FlyIoBrand, KoyebBrand, Copy, Check, X, Edit } from '../Icons.jsx';
+import { ChevronDown, Sparkle, Terminal, MessageSquare, Globe, Server, Cloud, Clock, Sliders, Bell, FlyIoBrand, KoyebBrand, Copy, Check, X, Edit } from '../../Icons.jsx';
 import ToolCallCard, { toolLabel, toolPathLabel, ToolSteps } from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
-import { isStreaming } from '../../modules/adminAiMessages.js';
-import { typewriterFrame } from '../../modules/typewriter.js';
+import { isStreaming } from '../../../modules/adminAiMessages.js';
+import { typewriterFrame } from '../../../modules/typewriter.js';
 
 /* ---------- 行内渲染（粗体/斜体/删除线/行内代码/链接）——TextBlock 与 TableBlock 共用 ---------- */
 function renderInline(text) {

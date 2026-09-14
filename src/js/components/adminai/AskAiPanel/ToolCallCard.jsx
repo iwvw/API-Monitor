@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Loader } from '@cloudflare/kumo';
-import { Copy, Check, ChevronDown, X, Wrench } from '../Icons.jsx';
-import { STEP } from '../../modules/adminAiMessages.js';
+import { Copy, Check, ChevronDown, X, Wrench } from '../../Icons.jsx';
+import { STEP } from '../../../modules/adminAiMessages.js';
 
 /* 工具名中文标识：折叠组标题与无描述回退共用 */
 export function toolLabel(toolName) {

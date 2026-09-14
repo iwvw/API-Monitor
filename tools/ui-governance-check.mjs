@@ -200,20 +200,20 @@ function allowedColorReason(rel, line, value, lines, index) {
   if ((rel === 'src/js/pages/apidocs/ApiDocsPage.jsx' || rel === 'src/js/pages/SettingsPage.jsx' || rel === 'src/js/pages/settings/SettingsPage.jsx') && value === 'text-white') {
     return 'contrast text on colored status block';
   }
-  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'bg-black') {
+  if (rel === 'src/js/components/adminai/AskAiPanel/index.jsx' && value === 'bg-black') {
     return 'Ask AI 侧栏半透明遮罩（PRD 指定 bg-black/30）';
   }
-  if (rel === 'src/js/components/adminai/MessageList.jsx' && (value === 'text-white' || value === 'bg-white')) {
+  if (rel === 'src/js/components/adminai/AskAiPanel/MessageList.jsx' && (value === 'text-white' || value === 'bg-white')) {
     const blockStart = Math.max(0, index - 40);
     const block = lines.slice(blockStart, index + 1).join('\n');
     if (block.includes('from-brand') || block.includes('from-kumo-brand') || block.includes('editing && editing.id === msg.id')) {
       return 'Ask AI 用户消息气泡（含编辑态）对比文字';
     }
   }
-  if (rel === 'src/js/components/adminai/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
+  if (rel === 'src/js/components/adminai/AskAiPanel/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
     return 'Ask AI 批准按钮白色对比文字';
   }
-  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'text-white' && line.includes('from-kumo-brand')) {
+  if (rel === 'src/js/components/adminai/AskAiPanel/index.jsx' && value === 'text-white' && line.includes('from-kumo-brand')) {
     return 'Ask AI 发送按钮白色对比文字';
   }
   if (
