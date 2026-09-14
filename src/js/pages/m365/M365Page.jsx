@@ -80,6 +80,12 @@ function M365Page() {
   const [userDialogSkuIds, setUserDialogSkuIds] = useState([]);
   const [initialUserSkuIds, setInitialUserSkuIds] = useState([]);
   const [assigningLicense, setAssigningLicense] = useState(false);
+  const [oneDriveUsageLoading, setOneDriveUsageLoading] = useState(false);
+  const [oneDriveUsageById, setOneDriveUsageById] = useState({});
+  const [oneDriveUsageError, setOneDriveUsageError] = useState('');
+  const [userDriveQuota, setUserDriveQuota] = useState(null);
+  const [userDriveQuotaLoading, setUserDriveQuotaLoading] = useState(false);
+  const [userDriveQuotaError, setUserDriveQuotaError] = useState('');
 
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groups, setGroups] = useState([]);
@@ -304,6 +310,40 @@ function M365Page() {
     }
   }, [requestJSON]);
 
+  const loadOneDriveUsage = useCallback(
+    async userList => {
+      const targets = Array.isArray(userList) ? userList : [];
+      if (!selectedAccountId || targets.length === 0) {
+        setOneDriveUsageById({});
+        setOneDriveUsageError('');
+        return;
+      }
+      setOneDriveUsageLoading(true);
+      try {
+        const query = new URLSearchParams();
+        query.set('userIds', targets.map(user => String(user.id)).join(','));
+        const data = await requestJSON(
+          `/api/m365/accounts/${selectedAccountId}/usage/onedrive?${query.toString()}`
+        );
+        const items = Array.isArray(data.items) ? data.items : [];
+        const lookup = {};
+        items.forEach(item => {
+          const key = String(item?.userId || '').trim();
+          if (!key) return;
+          lookup[key] = item;
+        });
+        setOneDriveUsageById(lookup);
+        setOneDriveUsageError('');
+      } catch (error) {
+        setOneDriveUsageById({});
+        setOneDriveUsageError(error.message || '加载 OneDrive 用量失败');
+      } finally {
+        setOneDriveUsageLoading(false);
+      }
+    },
+    [requestJSON, selectedAccountId]
+  );
+
   const loadUsers = useCallback(async () => {
     if (!selectedAccountId) {
       setUsers([]);
@@ -324,12 +364,13 @@ function M365Page() {
         }
         return '';
       });
+      void loadOneDriveUsage(items);
     } catch (error) {
       toast.error(error.message || '加载用户失败');
     } finally {
       setUsersLoading(false);
     }
-  }, [activeTab, requestJSON, selectedAccountId, userSearch]);
+  }, [activeTab, loadOneDriveUsage, requestJSON, selectedAccountId, userSearch]);
 
   const loadSkusForAccount = useCallback(
     async accountId => {
@@ -885,6 +926,26 @@ function M365Page() {
     setShowInviteCodeDialog(true);
   };
 
+  const loadUserDriveQuota = useCallback(
+    async userId => {
+      if (!selectedAccountId || !userId) return;
+      setUserDriveQuotaLoading(true);
+      try {
+        const data = await requestJSON(
+          `/api/m365/accounts/${selectedAccountId}/users/${userId}/drive-quota`
+        );
+        setUserDriveQuota(data || null);
+        setUserDriveQuotaError('');
+      } catch (error) {
+        setUserDriveQuota(null);
+        setUserDriveQuotaError(error.message || '加载 OneDrive 容量失败');
+      } finally {
+        setUserDriveQuotaLoading(false);
+      }
+    },
+    [requestJSON, selectedAccountId]
+  );
+
   const openEditUser = async user => {
     if (!selectedAccountId || !user?.id) return;
     setSelectedUserId(String(user.id));
@@ -905,6 +966,8 @@ function M365Page() {
     });
     setUserDialogSkuIds([]);
     setInitialUserSkuIds([]);
+    setUserDriveQuota(null);
+    setUserDriveQuotaError('');
     setLoadingUserDialog(true);
     setShowUserDialog(true);
     try {
@@ -936,6 +999,7 @@ function M365Page() {
     } finally {
       setLoadingUserDialog(false);
     }
+    void loadUserDriveQuota(user.id);
   };
 
   const toggleUserEnabled = async (user, checked) => {
@@ -1399,6 +1463,10 @@ function M365Page() {
           openEditUser={openEditUser}
           deleteUser={deleteUser}
           isArmed={isArmed}
+          oneDriveUsageById={oneDriveUsageById}
+          oneDriveUsageLoading={oneDriveUsageLoading}
+          oneDriveUsageError={oneDriveUsageError}
+          reloadOneDriveUsage={() => loadOneDriveUsage(users)}
         />
       )}
       {activeTab === 'groups' && (
@@ -1500,6 +1568,10 @@ function M365Page() {
         submitUser={submitUser}
         submittingUser={submittingUser}
         assigningLicense={assigningLicense}
+        userDriveQuota={userDriveQuota}
+        userDriveQuotaLoading={userDriveQuotaLoading}
+        userDriveQuotaError={userDriveQuotaError}
+        reloadUserDriveQuota={() => editingUser && loadUserDriveQuota(editingUser.id)}
       />
 
       <GroupDialog

@@ -6,6 +6,7 @@ export const M365_REQUIRED_PERMISSIONS = [
   { name: 'LicenseAssignment.ReadWrite.All', note: '分配或回收许可证' },
   { name: 'Group.Create', note: '创建组' },
   { name: 'GroupMember.ReadWrite.All', note: '添加或移除组成员' },
+  { name: 'Files.Read.All', note: '读取用户 OneDrive 容量（已用/总容量）' },
 ];
 
 export const defaultAccountForm = {
@@ -60,7 +61,7 @@ export const panelBodyClass = 'flex min-h-0 flex-1 flex-col';
 export const scrollViewportClass = 'min-h-0 flex-1 overflow-auto scrollbar-thin';
 export const tableFrameClass = 'flex h-0 min-h-0 flex-1 flex-col overflow-hidden';
 export const DEFAULT_NEW_USER_PASSWORD = 'Mjj@1234';
-export const USER_TABLE_COLUMN_WIDTHS = [96, 180, 220, 220, 260, 220];
+export const USER_TABLE_COLUMN_WIDTHS = [96, 180, 220, 220, 260, 220, 200];
 export const REGISTRATION_TABLE_COLUMNS = [
   { id: 'check', role: 'check' },
   { id: 'account', role: 'primary', minWidth: 176 },

@@ -41,6 +41,38 @@ export function formatMetricNumber(value) {
   return numericValue.toLocaleString('en-US', { useGrouping: false });
 }
 
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+
+export function formatBytes(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return '0 B';
+  let index = 0;
+  let scaled = numericValue;
+  while (scaled >= 1024 && index < BYTE_UNITS.length - 1) {
+    scaled /= 1024;
+    index += 1;
+  }
+  const digits = index === 0 ? 0 : scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+  return `${scaled.toFixed(digits)} ${BYTE_UNITS[index]}`;
+}
+
+export function getOneDriveUsageTone(usagePercent) {
+  const pct = clampPercent(Number(usagePercent) || 0);
+  if (pct >= 90) return 'danger';
+  if (pct >= 70) return 'warning';
+  return 'success';
+}
+
+export function getOneDriveUsagePercent(record) {
+  if (!record) return 0;
+  const explicit = Number(record.usagePercent);
+  if (Number.isFinite(explicit) && explicit >= 0) return clampPercent(explicit);
+  const used = Number(record.usedBytes) || 0;
+  const total = Number(record.totalBytes) || 0;
+  if (total <= 0) return 0;
+  return clampPercent((used / total) * 100);
+}
+
 export function formatDateOnly(value) {
   if (!value) return '';
   const date = new Date(value);

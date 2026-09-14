@@ -5,9 +5,10 @@ import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Meter } from '@cloudflare/kumo';
 import { DEFAULT_NEW_USER_PASSWORD } from './constants.js';
 import { RefreshCw } from '../../components/Icons.jsx';
-import { getSkuDisplayLabel } from './utils.js';
+import { formatBytes, getOneDriveUsagePercent, getOneDriveUsageTone, getSkuDisplayLabel } from './utils.js';
 
 export default function UserDialog({
   open,
@@ -23,7 +24,19 @@ export default function UserDialog({
   submitUser,
   submittingUser,
   assigningLicense,
+  userDriveQuota,
+  userDriveQuotaLoading,
+  userDriveQuotaError,
+  reloadUserDriveQuota,
 }) {
+  const driveUsagePct = getOneDriveUsagePercent(userDriveQuota);
+  const driveTone = getOneDriveUsageTone(driveUsagePct);
+  const driveProgressTone =
+    driveTone === 'danger'
+      ? '!bg-kumo-danger'
+      : driveTone === 'warning'
+        ? '!bg-kumo-warning'
+        : '!bg-brand';
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
@@ -218,6 +231,74 @@ export default function UserDialog({
                   </div>
                 )}
               </div>
+
+              {editingUser ? (
+                <div className="space-y-2 rounded-lg border border-kumo-line/80 bg-kumo-recessed/10 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-kumo-strong">OneDrive 容量</div>
+                    <div className="flex items-center gap-2">
+                      {userDriveQuota?.quotaState ? (
+                        <span className="text-xs text-kumo-subtle">
+                          {userDriveQuota.quotaState}
+                        </span>
+                      ) : null}
+                      {reloadUserDriveQuota ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label="刷新 OneDrive 容量"
+                          icon={<RefreshCw className="h-3.5 w-3.5" />}
+                          onClick={reloadUserDriveQuota}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                  {userDriveQuotaLoading ? (
+                    <div className="text-xs text-kumo-subtle">加载中…</div>
+                  ) : userDriveQuotaError ? (
+                    <div className="text-xs text-kumo-danger">{userDriveQuotaError}</div>
+                  ) : userDriveQuota?.provisioned === false ? (
+                    <div className="text-xs text-kumo-subtle">
+                      {userDriveQuota.message || '该用户尚未开通 OneDrive'}
+                    </div>
+                  ) : userDriveQuota ? (
+                    <>
+                      <div className="flex items-baseline gap-2 text-xs">
+                        <span className="font-semibold text-kumo-strong">
+                          {formatBytes(userDriveQuota.usedBytes)}
+                        </span>
+                        <span className="text-kumo-subtle">
+                          / {formatBytes(userDriveQuota.totalBytes)}
+                        </span>
+                        <span className="ml-auto text-kumo-subtle">
+                          {driveUsagePct.toFixed(1)}%
+                        </span>
+                      </div>
+                      <Meter
+                        label=""
+                        value={Math.min(100, driveUsagePct)}
+                        max={100}
+                        showValue={false}
+                        trackClassName="!h-1.5 bg-kumo-recessed/80"
+                        indicatorClassName={driveProgressTone}
+                      />
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-kumo-subtle">
+                        <span>
+                          剩余 {formatBytes(userDriveQuota.remainingBytes)}
+                        </span>
+                        <span>
+                          回收站 {formatBytes(userDriveQuota.deletedBytes)}
+                        </span>
+                        {userDriveQuota.overQuota ? (
+                          <span className="text-kumo-danger">已超额</span>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs text-kumo-subtle">暂无 OneDrive 数据</div>
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
           <div className="flex justify-end gap-2">

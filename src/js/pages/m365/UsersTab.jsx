@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
-import { Badge, Meter } from '@cloudflare/kumo';
+import { Badge, Loader, Meter } from '@cloudflare/kumo';
 import {
   AppTable,
   cx,
@@ -18,9 +18,12 @@ import { panelBodyClass, scrollViewportClass, USER_TABLE_COLUMN_WIDTHS } from '.
 import { CardTableSkeleton, SkuGridSkeleton } from './Skeletons.jsx';
 import {
   clampPercent,
+  formatBytes,
   formatMetricNumber,
   getAssignedSkuLabels,
   getDisplayText,
+  getOneDriveUsagePercent,
+  getOneDriveUsageTone,
   getSkuDisplayLabel,
   getSkuLifecycleText,
 } from './utils.js';
@@ -44,6 +47,10 @@ export default function UsersTab({
   openEditUser,
   deleteUser,
   isArmed,
+  oneDriveUsageById = {},
+  oneDriveUsageLoading = false,
+  oneDriveUsageError = '',
+  reloadOneDriveUsage,
 }) {
   return (
     <PageStack viewport>
@@ -214,6 +221,24 @@ export default function UsersTab({
                   <Table.Head className="!px-3 !py-2">登录账号</Table.Head>
                   <Table.Head className="!px-3 !py-2">邮箱</Table.Head>
                   <Table.Head className="!px-3 !py-2">许可证</Table.Head>
+                  <Table.Head className="!px-3 !py-2">
+                    <div className="flex items-center gap-1.5">
+                      <span>OneDrive 用量</span>
+                      {oneDriveUsageLoading ? <Loader size={12} /> : null}
+                      {!oneDriveUsageLoading && reloadOneDriveUsage ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          shape="square"
+                          aria-label="刷新 OneDrive 用量"
+                          title={oneDriveUsageError || '刷新 OneDrive 用量'}
+                          icon={<RefreshCw className="h-3 w-3" />}
+                          className={cx('!h-5 !w-5 !p-0', oneDriveUsageError ? 'text-kumo-danger' : '')}
+                          onClick={reloadOneDriveUsage}
+                        />
+                      ) : null}
+                    </div>
+                  </Table.Head>
                   <Table.Head className="app-table-action !px-3 !py-2">操作</Table.Head>
                 </Table.Row>
               </Table.Header>
@@ -284,6 +309,69 @@ export default function UsersTab({
                           </Badge>
                           ) : null}
                         </div>
+                      </Table.Cell>
+                      <Table.Cell className="!px-3 !py-1.5">
+                        {(() => {
+                          const usage = oneDriveUsageById[String(user.id)];
+                          if (!usage) {
+                            return (
+                              <span className="text-kumo-subtle">
+                                {oneDriveUsageLoading ? '加载中…' : '-'}
+                              </span>
+                            );
+                          }
+                          if (usage.error) {
+                            return (
+                              <span className="text-kumo-danger" title={usage.error}>
+                                读取失败
+                              </span>
+                            );
+                          }
+                          if (usage.provisioned === false) {
+                            return <span className="text-kumo-subtle">未开通</span>;
+                          }
+                          const usagePct = getOneDriveUsagePercent(usage);
+                          const tone = getOneDriveUsageTone(usagePct);
+                          const progressTone =
+                            tone === 'danger'
+                              ? '!bg-kumo-danger'
+                              : tone === 'warning'
+                                ? '!bg-kumo-warning'
+                                : '!bg-brand';
+                          const totalBytes = Number(usage.totalBytes) || 0;
+                          const usedBytes = Number(usage.usedBytes) || 0;
+                          return (
+                            <div
+                              className="min-w-0"
+                              title={`已用 ${formatBytes(usedBytes)} / 总容量 ${formatBytes(totalBytes)}`}
+                            >
+                              <div className="flex items-baseline gap-1.5 text-[11px]">
+                                <span className="font-semibold text-kumo-strong">
+                                  {formatBytes(usedBytes)}
+                                </span>
+                                <span className="text-kumo-subtle">
+                                  / {formatBytes(totalBytes)}
+                                </span>
+                                {usage.overQuota ? (
+                                  <span className="text-kumo-danger">超额</span>
+                                ) : usagePct >= 90 ? (
+                                  <span className="text-kumo-danger">
+                                    {usagePct.toFixed(0)}%
+                                  </span>
+                                ) : null}
+                              </div>
+                              <Meter
+                                label=""
+                                value={Math.min(100, usagePct)}
+                                max={100}
+                                showValue={false}
+                                className="mt-1"
+                                trackClassName="!h-1 bg-kumo-recessed/80"
+                                indicatorClassName={progressTone}
+                              />
+                            </div>
+                          );
+                        })()}
                       </Table.Cell>
                       <Table.Cell className="!px-3 !py-1.5">
                         <div
