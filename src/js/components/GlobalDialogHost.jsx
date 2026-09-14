@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Banner, ClipboardText } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { cancelDialog, resolveDialog, subscribeDialog } from '../modules/dialog.js';
-import { X } from './IconsCore.jsx';
+import { LayerDialog } from './kumo/LayerDialog.jsx';
 
 const QUOTE_PAIRS = [
   ['"', '"'],
@@ -69,60 +68,35 @@ const getDeleteDescription = (options, resourceName, resourceType) => {
   return `此操作无法撤销，将永久移除 ${resourceType}“${resourceName}”。`;
 };
 
-const dialogWidthClass = '!w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))]';
-const deleteDialogWidthClass = '!w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))]';
-
 function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }) {
   const resourceName = getDeleteResourceName(options);
   const resourceType = getDeleteResourceType(options);
   const canDelete = normalizeText(promptValue) === normalizeText(resourceName);
 
   return (
-    <Dialog.Root
+    <LayerDialog.Alert
       open
-      role="alertdialog"
-      disablePointerDismissal={options.disablePointerDismissal}
+      dismissDisabled={options.disablePointerDismissal}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
     >
-      <Dialog size={options.size || 'sm'} className={`${deleteDialogWidthClass} p-0`}>
-        <form
-          className="flex flex-col"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (canDelete) resolveDialog(true);
-          }}
-        >
-          <div className="flex items-center justify-between gap-4 border-b border-kumo-line px-5 py-4">
-            <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">
-              删除 {resourceName}
-            </Dialog.Title>
-            <Dialog.Close
-              aria-label="关闭"
-              render={(props) => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square"
-                  size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  aria-label="关闭"
-                  onClick={onCancel}
-                />
-              )}
-            />
-          </div>
-
-          <div className="flex flex-col gap-4 px-5 py-4">
+      <LayerDialog.Content size={options.size || 'base'}>
+        <LayerDialog.Title>{`删除 ${resourceName}`}</LayerDialog.Title>
+        <LayerDialog.Description>
+          {getDeleteDescription(options, resourceName, resourceType)}
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (canDelete) resolveDialog(true);
+            }}
+          >
             {options.errorMessage ? (
               <Banner variant="error" title={options.errorMessage} />
             ) : null}
-
-            <Dialog.Description className="text-sm leading-6 text-kumo-subtle">
-              {getDeleteDescription(options, resourceName, resourceType)}
-            </Dialog.Description>
 
             <div className="space-y-2">
               <div className="text-sm text-kumo-default">
@@ -135,48 +109,35 @@ function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }
                 tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }}
                 labels={{ copyAction: `复制 ${resourceName}` }}
               />
+              <Input
+                size="sm"
+                autoFocus
+                aria-label={`请输入 ${resourceName} 进行确认`}
+                placeholder={resourceName}
+                value={promptValue}
+                onChange={(event) => setPromptValue(event.target.value)}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
             </div>
-
-            <Input
-              size="sm"
-              autoFocus
-              aria-label={`请输入 ${resourceName} 进行确认`}
-              placeholder={resourceName}
-              value={promptValue}
-              onChange={(event) => setPromptValue(event.target.value)}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-5 py-4">
-            <Dialog.Close
-              render={(props) => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={onCancel}
-                >
-                  取消
-                </Button>
-              )}
-            />
-            <Button
-              type="submit"
-              variant="destructive"
-              size="sm"
-              disabled={!canDelete}
-            >
-              {options.confirmText || '删除'}
-            </Button>
-          </div>
-        </form>
-      </Dialog>
-    </Dialog.Root>
+          </form>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary
+            type="submit"
+            variant="destructive"
+            disabled={!canDelete}
+            onClick={() => {
+              if (canDelete) resolveDialog(true);
+            }}
+          >
+            {options.confirmText || '删除'}
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Alert>
   );
 }
 
@@ -193,7 +154,6 @@ function GlobalDialogHost() {
   if (!request || !request.options) return null;
 
   const options = request.options;
-  const role = options.role || (request.type === 'alert' ? 'dialog' : 'alertdialog');
 
   const handleCancel = () => {
     cancelDialog();
@@ -218,90 +178,55 @@ function GlobalDialogHost() {
     );
   }
 
+  const isAlert = request.type === 'alert';
+
   return (
-    <Dialog.Root
+    <LayerDialog.Root
       open
-      role={role}
-      disablePointerDismissal={options.disablePointerDismissal}
+      dismissDisabled={options.disablePointerDismissal}
       onOpenChange={(open) => {
         if (!open) handleCancel();
       }}
     >
-      <Dialog size={options.size || 'sm'} className={`${dialogWidthClass} p-5`}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleConfirm();
-          }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <Dialog.Title className="text-base font-semibold text-kumo-strong">
-                {options.title}
-              </Dialog.Title>
-              {options.message ? (
-                <Dialog.Description className="mt-2 whitespace-pre-wrap text-sm leading-6 text-kumo-subtle">
-                  {options.message}
-                </Dialog.Description>
-              ) : null}
-            </div>
-            <Dialog.Close
-              aria-label="关闭"
-              render={(props) => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square"
-                  size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  aria-label="关闭"
-                  onClick={handleCancel}
-                />
-              )}
-            />
-          </div>
-
-          {request.type === 'prompt' ? (
-            <Input
-              size="sm"
-              autoFocus
-              aria-label={options.placeholder || options.title || '输入框'}
-              placeholder={options.placeholder}
-              value={promptValue}
-              onChange={(event) => setPromptValue(event.target.value)}
-            />
-          ) : null}
-
-          <div className="flex justify-end gap-2">
-            {request.type !== 'alert' && options.cancelText ? (
-              <Dialog.Close
-                render={(props) => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleCancel}
-                  >
-                    {options.cancelText}
-                  </Button>
-                )}
+      <LayerDialog.Content size={options.size || 'sm'}>
+        <LayerDialog.Title>{options.title}</LayerDialog.Title>
+        <LayerDialog.Body>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleConfirm();
+            }}
+          >
+            {options.message ? (
+              <div className="whitespace-pre-wrap text-sm leading-6 text-kumo-subtle">
+                {options.message}
+              </div>
+            ) : null}
+            {request.type === 'prompt' ? (
+              <Input
+                size="sm"
+                autoFocus
+                aria-label={options.placeholder || options.title || '输入框'}
+                placeholder={options.placeholder}
+                value={promptValue}
+                onChange={(event) => setPromptValue(event.target.value)}
               />
             ) : null}
-            <Button
-              type="submit"
-              variant={getConfirmVariant(request)}
-              size="sm"
-              autoFocus={request.type !== 'prompt'}
-            >
-              {options.confirmText}
-            </Button>
-          </div>
-        </form>
-      </Dialog>
-    </Dialog.Root>
+          </form>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel={options.cancelText || '取消'}>
+          <LayerDialog.Actions.Primary
+            type="button"
+            variant={getConfirmVariant(request)}
+            autoFocus={!isAlert && request.type !== 'prompt'}
+            onClick={handleConfirm}
+          >
+            {options.confirmText}
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }
 
