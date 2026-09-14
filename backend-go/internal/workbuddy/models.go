@@ -17,7 +17,7 @@ func (s *Service) modelsInternal() []ModelInfo {
 	return append([]ModelInfo(nil), s.modelCache...)
 }
 
-// catalog 返回可用的模型目录：缓存新鲜时直接用缓存；过期时回源刷新。
+// catalog 返回可用的**合并**模型目录：缓存新鲜时直接用缓存；过期时按区域回源刷新。
 // 回源失败时返回上一份快照而不是空列表，避免上游抖动让 /v1/models 变空；
 // 首次拉取成功前返回空列表（这是合法状态，不是错误）。
 func (s *Service) catalog(ctx context.Context) []ModelInfo {
@@ -29,18 +29,169 @@ func (s *Service) catalog(ctx context.Context) []ModelInfo {
 	}
 	s.modelMu.Unlock()
 
-	models, err := s.fetchCatalog(ctx)
-	if err != nil {
+	merged, sets := s.refreshCatalogs(ctx)
+	if merged == nil {
 		return s.modelsInternal()
 	}
 	s.modelMu.Lock()
-	s.modelCache = models
+	s.modelCache = merged
 	s.modelCacheAt = time.Now()
+	s.modelCacheByRegion = sets
+	s.regionModelSet = buildRegionModelSet(sets)
 	s.modelMu.Unlock()
 	// 目录刷新后同步到已接入网关端点的 models 列。目录是动态的，
 	// 只靠「接入那一刻」写一次的话，先接入后拉目录的场景会长期停在空列表。
-	go s.writeLinkedEndpointModels(context.Background(), s.prefixModelNames(modelIDsOf(models)))
-	return models
+	go s.writeLinkedEndpointModels(context.Background(), s.prefixModelNames(modelIDsOf(merged)))
+	return merged
+}
+
+// regionModelSetFor 返回某区域的模型集合（无则 nil）。仅测试与诊断用。
+func (s *Service) regionModelSetFor(region string) map[string]bool {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	return s.regionModelSet[normalizeRegion(region)]
+}
+
+// refreshCatalogs 拉取各区域目录并合并。
+// 返回 (合并视图, 区域→原始目录)。两个区域都拉不到时返回 (nil, nil)，调用方保留旧快照。
+func (s *Service) refreshCatalogs(ctx context.Context) ([]ModelInfo, map[string][]ModelInfo) {
+	byRegion := map[string][]ModelInfo{}
+	anyOK := false
+	for _, region := range []string{regionCN, regionIntl} {
+		models, err := s.fetchCatalog(ctx, region)
+		if err != nil {
+			// 单区域失败：沿用该区域上一份快照（若有），不阻塞另一区域。
+			if prev := s.regionCatalog(region); len(prev) > 0 {
+				byRegion[region] = prev
+				anyOK = true
+			}
+			continue
+		}
+		byRegion[region] = models
+		anyOK = true
+	}
+	if !anyOK {
+		return nil, nil
+	}
+	return mergeCatalogs(byRegion), byRegion
+}
+
+// regionCatalog 返回某区域上一份目录快照。
+func (s *Service) regionCatalog(region string) []ModelInfo {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	if s.modelCacheByRegion == nil {
+		return nil
+	}
+	return s.modelCacheByRegion[normalizeRegion(region)]
+}
+
+// normalizeModelName 归一化型号名用于跨区域对齐：小写、去空白。
+// 上游对同一型号在两区域可能给不同 id，但显示名一致（如 Kimi-K3）。
+func normalizeModelName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+// mergeCatalogs 把各区域目录合并成一份对外视图（按模型 id 去重）：
+//   - 国内版（cn）为基，保留其元数据（显示名/倍率）；
+//   - 仅国际版有的 id 追加进来（元数据取国际版）；
+//   - 每个模型标记**型号级**可用区域（Regions，按 displayName 判定：同一型号
+//     两版都有即为共用，即使两版 id 不同）、**该 id 级**区域（IDRegions）与
+//     型号级 InternationalOnly。
+//
+// 为什么要按型号名而不是 id 判定：上游对同一型号在不同区域用不同 id
+// （Kimi-K3 = kimi-k3-1 / kimi-k3；Hy3 = hy3 / hy3-x / hy3），只按 id 会把
+// 同一型号错拆成「国内独有 + 国际独有」两行。路由仍按 id（在 regionModelSet 里），
+// 展示标签按型号名，两者语义分离。
+func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
+	cn := byRegion[regionCN]
+	intl := byRegion[regionIntl]
+
+	// 型号名（归一化）→ 出现过的区域集合。
+	nameRegions := map[string]map[string]bool{}
+	mark := func(models []ModelInfo, region string) {
+		for _, m := range models {
+			key := normalizeModelName(firstNonEmpty(m.DisplayName, m.ID))
+			if key == "" {
+				continue
+			}
+			if nameRegions[key] == nil {
+				nameRegions[key] = map[string]bool{}
+			}
+			nameRegions[key][region] = true
+		}
+	}
+	mark(cn, regionCN)
+	mark(intl, regionIntl)
+
+	regionsFor := func(m ModelInfo) []string {
+		set := nameRegions[normalizeModelName(firstNonEmpty(m.DisplayName, m.ID))]
+		out := make([]string, 0, len(set))
+		// 固定顺序，便于前端稳定展示。
+		if set[regionCN] {
+			out = append(out, regionCN)
+		}
+		if set[regionIntl] {
+			out = append(out, regionIntl)
+		}
+		return out
+	}
+
+	merged := make([]ModelInfo, 0, len(cn)+len(intl))
+	index := map[string]int{}
+	add := func(m ModelInfo, idRegion string) {
+		m.IDRegions = []string{idRegion}
+		m.Regions = regionsFor(m)
+		m.InternationalOnly = len(m.Regions) == 1 && m.Regions[0] == regionIntl
+		merged = append(merged, m)
+		index[m.ID] = len(merged) - 1
+	}
+
+	// 国内版打底。
+	for _, m := range cn {
+		add(m, regionCN)
+	}
+	// 国际版：同 id 合并 id 区域标记；独有 id 追加。
+	for _, m := range intl {
+		if i, ok := index[m.ID]; ok {
+			merged[i].IDRegions = append(merged[i].IDRegions, regionIntl)
+			continue
+		}
+		add(m, regionIntl)
+	}
+	return merged
+}
+
+// buildRegionModelSet 由「区域→目录」构建「区域→模型 id 集合」，供选号过滤。
+func buildRegionModelSet(byRegion map[string][]ModelInfo) map[string]map[string]bool {
+	out := make(map[string]map[string]bool, len(byRegion))
+	for region, models := range byRegion {
+		set := make(map[string]bool, len(models))
+		for _, m := range models {
+			set[m.ID] = true
+		}
+		out[normalizeRegion(region)] = set
+	}
+	return out
+}
+
+// accountServesModel 报告账号所属区域是否提供该模型（选号过滤的唯一新增条件）。
+//   - model 为空（未指定）→ 放行；
+//   - 该区域目录尚未就绪 → 保守放行，避免目录未拉到就让整池不可用；
+//   - 其余按区域模型集合判定。
+func (s *Service) accountServesModel(acc Account, model string) bool {
+	if model == "" {
+		return true
+	}
+	s.modelMu.Lock()
+	set := s.regionModelSet[normalizeRegion(acc.Region)]
+	known := len(set) > 0
+	ok := set[model]
+	s.modelMu.Unlock()
+	if !known {
+		return true
+	}
+	return ok
 }
 
 // modelIDsOf 取出目录里的原始（未加前缀）模型 ID。
@@ -115,6 +266,9 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			"creditsLabel":      m.CreditsLabel,
 			"creditsParsed":     m.CreditsParsed,
 			"creditsMultiplier": m.CreditsMultiplier,
+			"regions":           m.Regions,
+			"idRegions":         m.IDRegions,
+			"internationalOnly": m.InternationalOnly,
 			"enabled":           !disabled[id],
 		}
 		if st, ok := limitStats[m.ID]; ok {

@@ -31,9 +31,9 @@ func failoverUpstream(t *testing.T, perToken func(token string) (int, string)) (
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
-	old := upstreamBase
-	upstreamBase = srv.URL
-	t.Cleanup(func() { upstreamBase = old })
+	old := upstreamBaseOverride
+	upstreamBaseOverride = srv.URL
+	t.Cleanup(func() { upstreamBaseOverride = old })
 	return func() []string {
 		mu.Lock()
 		defer mu.Unlock()

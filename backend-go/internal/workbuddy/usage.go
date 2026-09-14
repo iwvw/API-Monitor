@@ -278,6 +278,10 @@ func (s *Service) pickLeastConsumed(accounts []Account, model string, tried map[
 		if model != "" && s.inModelLimit(a.ID, model) {
 			continue
 		}
+		// 区域过滤：账号所属区域必须提供该模型（国际独有模型只在国际账号上选）。
+		if !s.accountServesModel(a, model) {
+			continue
+		}
 		u := s.creditDayUsed[a.ID]
 		if bestIdx < 0 || u < bestUsed {
 			bestIdx, bestUsed = i, u

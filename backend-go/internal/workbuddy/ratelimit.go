@@ -283,6 +283,11 @@ func (s *Service) allUsableAccountsModelLimited(accounts []Account, model string
 		if !accountAvailable(a) {
 			continue
 		}
+		// 只统计「所属区域提供该模型」的账号：否则国际独有模型会被国内账号
+		// （永远不可能被它限流）稀释，导致 429 判定失效。
+		if !s.accountServesModel(a, model) {
+			continue
+		}
 		usable++
 		t, limited := s.modelLimitUntil(a.ID, model)
 		if !limited {
@@ -345,6 +350,9 @@ func (s *Service) accountUnavailableReason(a Account, model string) string {
 	if model != "" {
 		if t, limited := s.modelLimitUntil(a.ID, model); limited {
 			return "该模型限流至 " + t.UTC().Format(time.RFC3339)
+		}
+		if !s.accountServesModel(a, model) {
+			return "所属区域(" + regionLabel(a.Region) + ")不提供该模型"
 		}
 	}
 	return ""

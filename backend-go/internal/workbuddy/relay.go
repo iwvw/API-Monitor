@@ -251,6 +251,10 @@ func (s *Service) pickCooledFallback(accounts []Account, model string, tried map
 		if model != "" && s.inModelLimit(a.ID, model) {
 			continue
 		}
+		// 区域过滤：只在该模型所属区域的账号里兜底（国际独有模型不落到国内账号）。
+		if !s.accountServesModel(a, model) {
+			continue
+		}
 		until, cooled := s.cooldownUntilOf(a.ID)
 		if !cooled {
 			continue
@@ -278,6 +282,10 @@ func (s *Service) refreshFirstStaleAccount(ctx context.Context, model string, tr
 		}
 		// 刷新 token 不影响模型级限流：该模型仍被限流的账号，刷了也用不了。
 		if model != "" && s.inModelLimit(a.ID, model) {
+			continue
+		}
+		// 区域过滤：刷新兜底也不能跨区（国际独有模型不去国内账号）。
+		if !s.accountServesModel(a, model) {
 			continue
 		}
 		acc := a

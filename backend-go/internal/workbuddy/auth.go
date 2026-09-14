@@ -19,6 +19,7 @@ func (s *Service) toAccountView(a Account) AccountView {
 		Nickname:     a.Nickname,
 		UID:          a.UID,
 		EnterpriseID: a.EnterpriseID,
+		Region:       normalizeRegion(a.Region),
 		Disabled:     a.Disabled,
 		TokenState:   tokenState(a),
 		ExpiresAt:    a.ExpiresAt,
@@ -69,15 +70,23 @@ func accountAvailable(a Account) bool {
 // -----------------------------------------------------------------------------
 
 // handleLoginStart 发起扫码登录，返回二维码内容（authUrl）与 state。
+// 请求体可选 {"region":"cn|intl"}，缺省国内版（向后兼容）。
 func (s *Service) handleLoginStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
 		return
 	}
+	var body struct {
+		Region string `json:"region"`
+	}
+	// 请求体可空：解析失败按缺省区域处理，不报错。
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	region := normalizeRegion(body.Region)
+
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	s.cleanupLoginStates()
-	state, authURL, err := s.startLogin(ctx)
+	state, authURL, err := s.startLogin(ctx, region)
 	if err != nil {
 		// 502（而非 501）：失败原因是上游不可用，不是本服务不支持该功能。
 		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
@@ -87,6 +96,7 @@ func (s *Service) handleLoginStart(w http.ResponseWriter, r *http.Request) {
 		"success":   true,
 		"state":     state,
 		"url":       authURL,
+		"region":    region,
 		"expiresAt": time.Now().Add(loginTTL).UTC().Format(time.RFC3339),
 	})
 }
@@ -364,8 +374,18 @@ func (s *Service) handleImportAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	added := 0
 	for _, a := range raw {
-		if a.ID == "" {
-			a.ID = strings.TrimSpace(firstNonEmpty(a.UID, a.Nickname))
+		// 区域：显式 region 优先；否则按 domain / token issuer 自证。
+		if strings.TrimSpace(a.Region) == "" {
+			if a.Domain != "" {
+				a.Region = regionOfDomain(a.Domain)
+			} else {
+				a.Region = regionCN
+			}
+		}
+		a.Region = normalizeRegion(a.Region)
+		// 账号 ID 区域化：国际版加前缀，避免同一 uid 跨区互相覆盖。
+		if a.UID != "" || a.Nickname != "" {
+			a.ID = accountIDForRegion(a.Region, firstNonEmpty(a.UID, a.Nickname))
 		}
 		if a.ID == "" || seen[a.ID] {
 			continue

@@ -347,7 +347,7 @@ func TestLiveFetchCatalog(t *testing.T) {
 		t.Skip("设置 WORKBUDDY_LIVE=1 才跑真实上游联调")
 	}
 	s := newTestService(t)
-	models, err := s.fetchCatalog(context.Background())
+	models, err := s.fetchCatalog(context.Background(), regionCN)
 	if err != nil {
 		t.Fatalf("拉取真实目录失败: %v", err)
 	}
@@ -389,9 +389,9 @@ func mockCodeBuddyUpstream(t *testing.T, gotReq *map[string]any, gotAuth *string
 		}, "\n"))
 	}))
 	t.Cleanup(srv.Close)
-	old := upstreamBase
-	upstreamBase = srv.URL
-	t.Cleanup(func() { upstreamBase = old })
+	old := upstreamBaseOverride
+	upstreamBaseOverride = srv.URL
+	t.Cleanup(func() { upstreamBaseOverride = old })
 	return srv
 }
 

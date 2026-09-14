@@ -62,10 +62,14 @@ type Service struct {
 	mu       sync.RWMutex
 	settings Settings
 
-	// 模型目录缓存（目录来自上游 /v3/config，缓存内不区分账号）。
-	modelMu      sync.Mutex
-	modelCache   []ModelInfo
-	modelCacheAt time.Time
+	// 模型目录缓存（每个区域各一份，来自各区域上游 /v3/config；目录与账号无关）。
+	// modelCache 是**合并视图**（供对外模型列表），modelCacheByRegion 保存各区域原始目录，
+	// regionModelSet 是「区域 → 该区域提供的模型 id 集合」，供选号时按区域过滤。
+	modelMu            sync.Mutex
+	modelCache         []ModelInfo
+	modelCacheAt       time.Time
+	modelCacheByRegion map[string][]ModelInfo
+	regionModelSet     map[string]map[string]bool
 
 	// 进行中的扫码登录会话，key 为上游 state。
 	loginMu     sync.Mutex
@@ -560,6 +564,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.handleToggleAccount(w, r, strings.TrimSuffix(rest, "/toggle"))
 		case strings.HasSuffix(rest, "/test"):
 			s.handleTestAccount(w, r, strings.TrimSuffix(rest, "/test"))
+		case strings.HasSuffix(rest, "/balance"):
+			s.handleAccountBalance(w, r, strings.TrimSuffix(rest, "/balance"))
 		case r.Method == http.MethodPut:
 			s.handleUpdateAccount(w, r, rest)
 		default:
@@ -627,9 +633,17 @@ func (s *Service) publicSettings() map[string]interface{} {
 func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.Settings()
 	available := 0
+	// 分区计数：前端展示「可用账号 N（国内 x / 国际 y）」。
+	regionCounts := map[string]map[string]int{
+		regionCN:   {"total": 0, "available": 0},
+		regionIntl: {"total": 0, "available": 0},
+	}
 	for _, a := range st.Accounts {
+		region := normalizeRegion(a.Region)
+		regionCounts[region]["total"]++
 		if accountAvailable(a) {
 			available++
+			regionCounts[region]["available"]++
 		}
 	}
 	// 用 catalog 而不是缓存快照：首次访问时顺带拉一次目录（有 10 分钟缓存，
@@ -639,6 +653,7 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"upstreamReady":  s.upstreamReady(),
 		"accountCount":   len(st.Accounts),
 		"availableCount": available,
+		"regionCounts":   regionCounts,
 		"modelCount":     len(s.catalog(r.Context())),
 		"linkBaseUrl":    s.linkBaseURL(),
 		// 最近一次上游 usage 的字段快照：用来判断上游有没有上报缓存命中
@@ -654,7 +669,7 @@ func (s *Service) handleTest(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	models, err := s.fetchCatalog(ctx)
+	models, err := s.fetchCatalog(ctx, regionCN)
 	if err != nil {
 		responseJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return

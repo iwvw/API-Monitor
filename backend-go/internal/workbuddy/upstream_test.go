@@ -388,6 +388,9 @@ func TestParseCredits(t *testing.T) {
 		{"x2.00 credits", 2, true},
 		{"X5.00 credits", 5, true},
 		{"x0.00 credits", 0, true},
+		// 国际版格式：无 "credits" 后缀，甚至无前导 x。
+		{"x0.00", 0, true},
+		{"x6.67", 6.67, true},
 		{"  0.51  ", 0.51, true},
 		{"", 0, false},
 		{"credits", 0, false},

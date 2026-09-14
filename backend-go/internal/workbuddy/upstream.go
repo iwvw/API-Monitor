@@ -33,11 +33,6 @@ const upstreamImplemented = true
 const (
 	providerName = "workbuddy"
 
-	// clientUA 是 CodeBuddy CLI 的客户端标识，上游按此识别终端类型。
-	clientUA = "CLI/2.63.2 CodeBuddy/2.63.2"
-	// originReferer 必须随请求下发：缺失时上游网关对 /v3/config 直接返回 400。
-	originReferer = "https://www.codebuddy.cn"
-
 	// loginTTL 是扫码登录会话的有效期。
 	loginTTL = 5 * time.Minute
 
@@ -53,21 +48,39 @@ const (
 	upstreamCodeLoginPending = 11217
 )
 
-// upstreamBase 是 CodeBuddy 上游基址。声明为变量而非常量，是为了让端到端测试能把它
-// 指向本地 mock 服务，从而验证「上游返回 usage → 本插件中继 → 下游字节」的完整链路。
-var upstreamBase = "https://copilot.tencent.com"
+// upstreamBaseFor 返回指定区域的上游基址。声明为函数而非常量，是为了让端到端测试
+// 能把它指向本地 mock 服务，从而验证「上游返回 usage → 本插件中继 → 下游字节」的链路。
+// 默认按区域派生（国内 copilot.tencent.com / 国际 www.workbuddy.ai）；测试可覆盖
+// upstreamBaseOverride 把两个区域都指向 mock。
+func upstreamBaseFor(region string) string {
+	if v := strings.TrimSpace(upstreamBaseOverride); v != "" {
+		return v
+	}
+	return regionHost(region)
+}
 
-// 端点 URL 一律经这些函数派生，避免在别处硬编码域名（测试改 upstreamBase 即刻生效）。
-func endpointAuthState() string { return upstreamBase + "/v2/plugin/auth/state?platform=CLI" }
-func endpointLoginAccount(state string) string {
-	return upstreamBase + "/v2/plugin/login/account?state=" + url.QueryEscape(state)
+// upstreamBaseOverride 仅供测试把上游整体指向 mock 服务；为空时按区域派生。
+var upstreamBaseOverride string
+
+// 端点 URL 一律经这些函数派生，避免在别处硬编码域名（测试改 upstreamBaseOverride 即刻生效）。
+func endpointAuthState(region string) string {
+	return upstreamBaseFor(region) + "/v2/plugin/auth/state?platform=CLI"
 }
-func endpointAuthToken(state string) string {
-	return upstreamBase + "/v2/plugin/auth/token?state=" + url.QueryEscape(state)
+func endpointLoginAccount(region, state string) string {
+	return upstreamBaseFor(region) + "/v2/plugin/login/account?state=" + url.QueryEscape(state)
 }
-func endpointTokenRefresh() string { return upstreamBase + "/v2/plugin/auth/token/refresh" }
-func endpointChat() string         { return upstreamBase + "/v2/chat/completions" }
-func endpointConfig() string       { return upstreamBase + "/v3/config" }
+func endpointAuthToken(region, state string) string {
+	return upstreamBaseFor(region) + "/v2/plugin/auth/token?state=" + url.QueryEscape(state)
+}
+func endpointTokenRefresh(region string) string {
+	return upstreamBaseFor(region) + "/v2/plugin/auth/token/refresh"
+}
+func endpointChat(region string) string {
+	return upstreamBaseFor(region) + "/v2/chat/completions"
+}
+func endpointConfig(region string) string {
+	return upstreamBaseFor(region) + "/v3/config"
+}
 
 // -----------------------------------------------------------------------------
 // 数据形状
@@ -95,17 +108,31 @@ type ModelInfo struct {
 	CreditsLabel string `json:"creditsLabel,omitempty"`
 	// CreditsParsed 表示倍率是否解析成功（false 时前端显示「—」而不是 0）。
 	CreditsParsed bool `json:"creditsParsed,omitempty"`
+
+	// Regions 是该模型**型号**可用的区域列表（cn / intl），按 displayName 判定：
+	// 同一型号在两个区域可能用不同 id（如 Kimi-K3 = kimi-k3-1 / kimi-k3），
+	// 只要型号名两版都出现就标共用。
+	Regions []string `json:"regions,omitempty"`
+	// IDRegions 是**该 id 本身**所属的区域（用于提示「此档位仅 X 提供」，
+	// 与型号级 Regions 不同时说明该档位不是两版都有）。
+	IDRegions []string `json:"idRegions,omitempty"`
+	// InternationalOnly 表示该型号仅国际版提供（前端据此打「国际」标注）。
+	InternationalOnly bool `json:"internationalOnly,omitempty"`
 }
 
-// Account 是一个 CodeBuddy 扫码登录凭据。
+// Account 是一个 CodeBuddy / WorkBuddy 扫码登录凭据。
 // 含 token，属敏感数据：只在服务端内部流转，下发前端一律走 AccountView。
 type Account struct {
 	// ID 是账号稳定标识，取上游 uid；uid 缺失时回退为 nickname。
+	// 国际版账号在 uid 前加 "intl-" 前缀，保证同一 uid 在两个区域是两条互不覆盖的记录
+	// （额度/冷却/限流/用量都按 ID 记账，因此天然按区域隔离）。
 	ID           string `json:"id"`
 	UID          string `json:"uid,omitempty"`
 	EnterpriseID string `json:"enterpriseId,omitempty"`
 	Nickname     string `json:"nickname,omitempty"`
 	Domain       string `json:"domain,omitempty"`
+	// Region 是账号所属区域：cn（国内版）/ intl（国际版）。空值按 cn 处理（存量兼容）。
+	Region string `json:"region,omitempty"`
 
 	AccessToken  string `json:"accessToken,omitempty"`
 	RefreshToken string `json:"refreshToken,omitempty"`
@@ -126,7 +153,9 @@ type AccountView struct {
 	Nickname     string `json:"nickname,omitempty"`
 	UID          string `json:"uid,omitempty"`
 	EnterpriseID string `json:"enterpriseId,omitempty"`
-	Disabled     bool   `json:"disabled"`
+	// Region 是账号所属区域：cn / intl（前端据此显示区域徽标）。
+	Region   string `json:"region,omitempty"`
+	Disabled bool   `json:"disabled"`
 	// TokenState：valid / expiring（<30 分钟）/ expired / unknown。
 	TokenState       string `json:"tokenState"`
 	ExpiresAt        int64  `json:"expiresAt,omitempty"`
@@ -142,9 +171,11 @@ type AccountView struct {
 // loginState 是一次进行中的扫码登录会话。
 // CodeBuddy 把浏览器登录与 auth/state 签发的 state 绑定，因此同一个 state 的
 // state 请求与后续轮询必须复用同一个 cookie jar —— 每个 state 一个独立 client。
+// region 记录本次登录的目标区域，轮询/换取 token 时据此选择上游域名。
 type loginState struct {
 	client  *http.Client
 	expires time.Time
+	region  string
 }
 
 // apiEnvelope 是 CodeBuddy 各接口统一的 {code,msg,data} 包装。
@@ -242,21 +273,22 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 	}
 }
 
-// commonHeaders 施加 CodeBuddy 的通用请求头。
+// commonHeaders 施加按区域派生的通用请求头。
 // Origin / Referer 是必需的：缺失会让上游网关对 /v3/config 返回 400。
-func commonHeaders(req *http.Request) {
+func commonHeaders(req *http.Request, region string) {
+	referer := regionReferer(region)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.Header.Set("Origin", originReferer)
-	req.Header.Set("Referer", originReferer+"/")
-	req.Header.Set("User-Agent", clientUA)
+	req.Header.Set("Origin", referer)
+	req.Header.Set("Referer", referer+"/")
+	req.Header.Set("User-Agent", regionUA(region))
 }
 
 // backendHeaders 施加凭据派生头。空字段按上游的 X-No-* 约定标注，
-// 不能简单省略（"显式为空"与"不发送"在上游语义不同）。
+// 不能简单省略（"显式为空"与"不发送"在上游语义不同）。区域取自账号自身。
 func backendHeaders(req *http.Request, acc *Account) {
-	commonHeaders(req)
+	commonHeaders(req, acc.Region)
 	if acc.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+acc.AccessToken)
 	} else {
@@ -294,7 +326,7 @@ func doEnvelope(ctx context.Context, client *http.Client, method, fullURL string
 	if headers != nil {
 		headers(req)
 	} else {
-		commonHeaders(req)
+		commonHeaders(req, regionCN)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -332,9 +364,12 @@ func doJSON(ctx context.Context, client *http.Client, method, fullURL string, he
 
 // startLogin 发起扫码登录：向 auth/state 要一个 state 与授权链接，
 // 并把本次的独立 cookie jar 与 state 绑定保存，供后续轮询复用。
-func (s *Service) startLogin(ctx context.Context) (string, string, error) {
+// region 决定登录的目标区域（国内版 / 国际版）。
+func (s *Service) startLogin(ctx context.Context, region string) (string, string, error) {
+	region = normalizeRegion(region)
 	client := newLoginClient()
-	data, _, err := doJSON(ctx, client, http.MethodPost, endpointAuthState(), nil, bytesReader([]byte("{}")))
+	headers := func(r *http.Request) { commonHeaders(r, region) }
+	data, _, err := doJSON(ctx, client, http.MethodPost, endpointAuthState(region), headers, bytesReader([]byte("{}")))
 	if err != nil {
 		return "", "", fmt.Errorf("发起登录失败: %w", err)
 	}
@@ -346,7 +381,7 @@ func (s *Service) startLogin(ctx context.Context) (string, string, error) {
 		return "", "", fmt.Errorf("登录接口未返回 state 或 authUrl")
 	}
 	s.loginMu.Lock()
-	s.loginStates[st.State] = &loginState{client: client, expires: time.Now().Add(loginTTL)}
+	s.loginStates[st.State] = &loginState{client: client, expires: time.Now().Add(loginTTL), region: region}
 	s.loginMu.Unlock()
 	return st.State, st.AuthURL, nil
 }
@@ -372,7 +407,7 @@ func (s *Service) pollLogin(ctx context.Context, state string) (Account, bool, e
 		return Account{}, false, fmt.Errorf("登录会话已过期，请重新获取二维码")
 	}
 
-	env, status, err := doEnvelope(ctx, lc.client, http.MethodGet, endpointAuthToken(state), nil, nil)
+	env, status, err := doEnvelope(ctx, lc.client, http.MethodGet, endpointAuthToken(lc.region, state), nil, nil)
 	if err != nil {
 		return Account{}, false, fmt.Errorf("查询登录状态失败: %w", err)
 	}
@@ -395,19 +430,28 @@ func (s *Service) pollLogin(ctx context.Context, state string) (Account, bool, e
 	// 已持 bearer，补账号信息（失败不阻断登录，只少了昵称/企业信息）。
 	var acct accountData
 	acctHeaders := func(r *http.Request) {
-		commonHeaders(r)
+		commonHeaders(r, lc.region)
 		r.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 	}
-	if raw, _, err := doJSON(ctx, lc.client, http.MethodGet, endpointLoginAccount(state), acctHeaders, nil); err == nil {
+	if raw, _, err := doJSON(ctx, lc.client, http.MethodGet, endpointLoginAccount(lc.region, state), acctHeaders, nil); err == nil {
 		_ = json.Unmarshal(raw, &acct)
 	}
 
+	// 凭据自证区域：优先按 access token 的 JWT iss 判定，其次用登录响应的 domain。
+	// **只在确凿判定且与所选区域不符时**才拒绝——登录响应里没有 issuer/domain 这类
+	// 字段时（不同上游返回不同）不能臆断，否则会误杀正常登录。
+	if detected, conclusive := detectTokenRegion(tok.AccessToken, tok.Domain); conclusive && detected != lc.region {
+		return Account{}, false, fmt.Errorf("该凭据属于%s（凭据自证），与所选%s不一致，请重新选择区域后登录",
+			regionLabel(detected), regionLabel(lc.region))
+	}
+
 	acc := Account{
-		ID:           firstNonEmpty(acct.UID, acct.Nickname),
+		ID:           accountIDForRegion(lc.region, firstNonEmpty(acct.UID, acct.Nickname)),
 		UID:          acct.UID,
 		EnterpriseID: acct.EnterpriseID,
 		Nickname:     acct.Nickname,
 		Domain:       tok.Domain,
+		Region:       lc.region,
 		AccessToken:  tok.AccessToken,
 		RefreshToken: tok.RefreshToken,
 		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -425,14 +469,14 @@ func (s *Service) refreshAccessToken(ctx context.Context, acc *Account) error {
 		return fmt.Errorf("账号缺少 refresh token，需重新扫码登录")
 	}
 	headers := func(r *http.Request) {
-		commonHeaders(r)
+		commonHeaders(r, acc.Region)
 		r.Header.Set("X-Refresh-Token", acc.RefreshToken)
 		if acc.EnterpriseID != "" {
 			r.Header.Set("X-Enterprise-Id", acc.EnterpriseID)
 		}
 		r.Header.Set("X-Auth-Refresh-Source", providerName)
 	}
-	env, status, err := doEnvelope(ctx, s.httpClientFor(acc.ID), http.MethodPost, endpointTokenRefresh(), headers, nil)
+	env, status, err := doEnvelope(ctx, s.httpClientFor(acc.ID), http.MethodPost, endpointTokenRefresh(acc.Region), headers, nil)
 	if err != nil {
 		return fmt.Errorf("刷新 token 失败: %w", err)
 	}
@@ -475,13 +519,14 @@ func (s *Service) refreshAccessToken(ctx context.Context, acc *Account) error {
 //
 // 上游条目字段比参考实现用到的多，这里额外解析了 credits（倍率）、vendor、
 // supportsToolCall、onlyReasoning、maxAllowedSize 与中文描述，仅供展示。
-func (s *Service) fetchCatalog(ctx context.Context) ([]ModelInfo, error) {
+func (s *Service) fetchCatalog(ctx context.Context, region string) ([]ModelInfo, error) {
+	region = normalizeRegion(region)
 	headers := func(r *http.Request) {
-		commonHeaders(r)
+		commonHeaders(r, region)
 		r.Header.Set("X-User-Id", configProbeUID)
 		r.Header.Set("X-Product", "SaaS")
 	}
-	data, _, err := doJSON(ctx, s.httpClientFor(""), http.MethodGet, endpointConfig(), headers, nil)
+	data, _, err := doJSON(ctx, s.httpClientFor(""), http.MethodGet, endpointConfig(region), headers, nil)
 	if err != nil {
 		return nil, fmt.Errorf("拉取模型目录失败: %w", err)
 	}
@@ -648,7 +693,7 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 	if strings.TrimSpace(req.Account.AccessToken) == "" {
 		return fmt.Errorf("账号 %s 缺少 access token", req.Account.ID)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointChat(), bytesReader(req.Body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointChat(req.Account.Region), bytesReader(req.Body))
 	if err != nil {
 		return err
 	}

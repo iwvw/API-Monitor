@@ -138,9 +138,9 @@ func TestRelayBalancesAcrossAccountsByCredit(t *testing.T) {
 		}, "\n"))
 	}))
 	defer srv.Close()
-	old := upstreamBase
-	upstreamBase = srv.URL
-	defer func() { upstreamBase = old }()
+	old := upstreamBaseOverride
+	upstreamBaseOverride = srv.URL
+	defer func() { upstreamBaseOverride = old }()
 
 	s := newTestService(t)
 	if err := s.SaveSettings(context.Background(), Settings{
