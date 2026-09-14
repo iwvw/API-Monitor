@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppCard } from '../components/ui/AppPrimitives.jsx';
 import { Bot } from '../components/Icons.jsx';
-import AdminConsole from '../components/adminai/AdminConsole.jsx';
+import AdminConsole from '../components/adminai/AdminConsole/index.jsx';
 
 // 管理 AI 已迁移至 Ask AI 侧栏（主目录入口已移除）；本页保留供 /adminai 直接访问。
 export default function AdminAIPage() {

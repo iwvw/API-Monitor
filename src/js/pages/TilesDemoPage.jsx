@@ -15,7 +15,7 @@ import {
   Cpu,
   ArrowRight,
 } from '../components/Icons.jsx';
-import TilesBoard from '../components/tiles/TilesBoard.jsx';
+import TilesBoard from './tiles/TilesBoard.jsx';
 
 const FETCH_TIMEOUT_MS = 8000;
 const HOST_POLL_MS = 5000;

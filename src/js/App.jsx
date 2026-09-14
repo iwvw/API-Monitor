@@ -18,7 +18,7 @@ const PublicGitHubPage = lazy(() => import('./pages/PublicGitHubPage.jsx'));
 const PublicBookmarksPage = lazy(() => import('./pages/PublicBookmarksPage.jsx'));
 const PublicSubscriptionInfoPage = lazy(() => import('./pages/PublicSubscriptionInfoPage.jsx'));
 const VoidRoomPage = lazy(() => import('./pages/VoidRoomPage.jsx'));
-const RemoteDesktopPage = lazy(() => import('./pages/RemoteDesktopPage.jsx'));
+const RemoteDesktopPage = lazy(() => import('./pages/remote-desktop/RemoteDesktopPage.jsx'));
 const PublicPromptPage = lazy(() => import('./pages/PublicPromptPage.jsx'));
 const TilesDemoPage = lazy(() => import('./pages/TilesDemoPage.jsx'));
 

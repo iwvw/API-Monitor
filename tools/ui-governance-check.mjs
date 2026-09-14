@@ -138,25 +138,32 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/pages/UptimePage.jsx' && value.startsWith('#')) {
     return 'legacy ECharts color; migrate when touching uptime charts';
   }
-  if (rel === 'src/js/pages/FileboxPage.jsx' && line.includes('color: { dark:')) {
+  if (rel === 'src/js/pages/filebox/FileboxPage.jsx' && line.includes('color: { dark:')) {
     return 'QR code contrast color';
   }
-  if (rel === 'src/js/pages/GitHubPage.jsx' && value === 'text-white' && line.includes('bg-kumo-danger')) {
+  if (rel === 'src/js/pages/github/GitHubPage.jsx' && value === 'text-white' && line.includes('bg-kumo-danger')) {
     return 'danger confirm button contrast text';
   }
-  if (rel === 'src/js/pages/FileboxPage.jsx' && value === 'bg-white' && line.includes('二维码')) {
+  if (rel === 'src/js/pages/filebox/SharePanel.jsx' && value === 'bg-white' && line.includes('二维码')) {
     return 'QR code image background';
   }
   if (rel === 'src/js/pages/VoidRoomPage.jsx' && value === 'bg-white' && line.includes('二维码')) {
     return 'QR code image background';
   }
-  if (rel === 'src/js/pages/TotpPage.jsx' && value === 'bg-black') {
+  if (rel === 'src/js/pages/totp/AccountDialog.jsx' && value === 'bg-black') {
     return 'camera/QR scanner surface';
   }
-  if (rel === 'src/js/pages/TotpPage.jsx' && value.startsWith('#')) {
+  if (
+    (rel === 'src/js/pages/totp/TotpBrandMark.jsx' ||
+      rel === 'src/js/pages/totp/utils.js' ||
+      rel === 'src/js/pages/totp/constants.js' ||
+      rel === 'src/js/pages/totp/AccountDialog.jsx' ||
+      rel === 'src/js/pages/totp/GroupDialog.jsx') &&
+    value.startsWith('#')
+  ) {
     return 'TOTP brand/icon color value example or fallback';
   }
-  if (rel === 'src/js/pages/DnsPage.jsx' && (value === 'bg-black' || value === 'bg-white')) {
+  if ((rel === 'src/js/pages/DnsPage.jsx' || rel === 'src/js/pages/dns/R2PreviewDialog.jsx') && (value === 'bg-black' || value === 'bg-white')) {
     return 'media preview surface';
   }
   if (rel === 'src/js/components/server/ServerLocationMap.jsx') {
@@ -172,16 +179,16 @@ function allowedColorReason(rel, line, value, lines, index) {
   ) {
     return 'action flow status dot semantic colors';
   }
-  if (rel === 'src/js/pages/GitHubPage.jsx' && value === '#b8c2cf') {
+  if ((rel === 'src/js/pages/GitHubPage.jsx' || rel === 'src/js/pages/github/ActionWorkflowCanvas.jsx') && value === '#b8c2cf') {
     return 'workflow graph idle edge color';
   }
-  if (rel === 'src/js/pages/GitHubPage.jsx' && value === '#6ea8ff') {
+  if ((rel === 'src/js/pages/GitHubPage.jsx' || rel === 'src/js/pages/github/ActionWorkflowCanvas.jsx') && value === '#6ea8ff') {
     return 'workflow graph active edge color';
   }
-  if (rel === 'src/js/pages/PublicGitHubPage.jsx' && value === '#b8c2cf') {
+  if ((rel === 'src/js/pages/PublicGitHubPage.jsx' || rel === 'src/js/pages/public-github/ActionWorkflowCanvas.jsx') && value === '#b8c2cf') {
     return 'workflow graph idle edge color';
   }
-  if (rel === 'src/js/pages/PublicGitHubPage.jsx' && value === '#6ea8ff') {
+  if ((rel === 'src/js/pages/PublicGitHubPage.jsx' || rel === 'src/js/pages/public-github/ActionWorkflowCanvas.jsx') && value === '#6ea8ff') {
     return 'workflow graph active edge color';
   }
   if (
@@ -190,23 +197,23 @@ function allowedColorReason(rel, line, value, lines, index) {
   ) {
     return 'status/coverage heart-map palette color';
   }
-  if ((rel === 'src/js/pages/ApiDocsPage.jsx' || rel === 'src/js/pages/SettingsPage.jsx') && value === 'text-white') {
+  if ((rel === 'src/js/pages/apidocs/ApiDocsPage.jsx' || rel === 'src/js/pages/SettingsPage.jsx' || rel === 'src/js/pages/settings/SettingsPage.jsx') && value === 'text-white') {
     return 'contrast text on colored status block';
   }
-  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'bg-black') {
+  if (rel === 'src/js/components/adminai/AskAiPanel/index.jsx' && value === 'bg-black') {
     return 'Ask AI 侧栏半透明遮罩（PRD 指定 bg-black/30）';
   }
-  if (rel === 'src/js/components/adminai/MessageList.jsx' && (value === 'text-white' || value === 'bg-white')) {
+  if (rel === 'src/js/components/adminai/AskAiPanel/MessageList.jsx' && (value === 'text-white' || value === 'bg-white')) {
     const blockStart = Math.max(0, index - 40);
     const block = lines.slice(blockStart, index + 1).join('\n');
     if (block.includes('from-brand') || block.includes('from-kumo-brand') || block.includes('editing && editing.id === msg.id')) {
       return 'Ask AI 用户消息气泡（含编辑态）对比文字';
     }
   }
-  if (rel === 'src/js/components/adminai/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
+  if (rel === 'src/js/components/adminai/AskAiPanel/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
     return 'Ask AI 批准按钮白色对比文字';
   }
-  if (rel === 'src/js/components/adminai/AskAiPanel.jsx' && value === 'text-white' && line.includes('from-kumo-brand')) {
+  if (rel === 'src/js/components/adminai/AskAiPanel/index.jsx' && value === 'text-white' && line.includes('from-kumo-brand')) {
     return 'Ask AI 发送按钮白色对比文字';
   }
   if (

@@ -36,16 +36,16 @@ import {
 const DashboardPage = lazy(() => import('../pages/DashboardPage.jsx'));
 const ServerPage = lazy(() => import('../pages/ServerPage.jsx'));
 const TotpPage = lazy(() => import('../pages/TotpPage.jsx'));
-const FileboxPage = lazy(() => import('../pages/FileboxPage.jsx'));
-const UptimePage = lazy(() => import('../pages/UptimePage.jsx'));
-const NotificationPage = lazy(() => import('../pages/NotificationPage.jsx'));
+const FileboxPage = lazy(() => import('../pages/filebox/FileboxPage.jsx'));
+const UptimePage = lazy(() => import('../pages/uptime/UptimePage.jsx'));
+const NotificationPage = lazy(() => import('../pages/notification/NotificationPage.jsx'));
 const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
 const SubscriptionPage = lazy(() => import('../pages/SubscriptionPage.jsx'));
 const GitHubPage = lazy(() => import('../pages/GitHubPage.jsx'));
 const DockerHubPage = lazy(() => import('../pages/DockerHubPage.jsx'));
 
-const PaasPage = lazy(() => import('../pages/PaasPage.jsx'));
-const DnsPage = lazy(() => import('../pages/DnsPage.jsx'));
+const PaasPage = lazy(() => import('../pages/paas/PaasPage.jsx'));
+const DnsPage = lazy(() => import('../pages/dns/DnsPage.jsx'));
 const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
 const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const OraclePage = lazy(() => import('../pages/OraclePage.jsx'));
@@ -62,7 +62,7 @@ const BookmarksPage = lazy(() => import('../pages/BookmarksPage.jsx'));
 const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
 
 import { pageStackClass } from './ui/AppPrimitives.jsx';
-import AskAiPanel from './adminai/AskAiPanel.jsx';
+import AskAiPanel from './adminai/AskAiPanel/index.jsx';
 
 const PageLoadingFallback = () => (
   <div className={`${pageStackClass} pt-3 cq-sm:pt-4`}>
