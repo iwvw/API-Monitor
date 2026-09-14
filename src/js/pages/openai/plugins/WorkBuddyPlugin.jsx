@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
@@ -66,6 +66,13 @@ const fmtRate = r => {
   return `${(n * 100).toFixed(1)}%`;
 };
 
+// fmtBalance 格式化余额数值（积分）：整数不带小数，带小数保留两位。
+const fmtBalance = v => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
+
 // fmtCredits 格式化上游积分倍率（来自 /v3/config 的 credits，形如 "x0.79 credits"）。
 // 解析失败时退回原始串，再退回「—」，绝不显示成 0（会被误读为免费）。
 const fmtCredits = m => {
@@ -73,8 +80,8 @@ const fmtCredits = m => {
   return m?.creditsLabel || '—';
 };
 
-// WorkBuddyPlugin：模型网关「插件中心」卡片——腾讯 CodeBuddy 转 OpenAI 兼容 API。
-// 扫码登录 CodeBuddy 后，插件把上游模型目录与对话转发包装成 OpenAI 兼容端点，
+// WorkBuddyPlugin：模型网关「插件中心」卡片——腾讯 CodeBuddy / WorkBuddy 转 OpenAI 兼容 API。
+// 添加国内版/国际版账号后，插件把上游模型目录与对话转发包装成 OpenAI 兼容端点，
 // 可一键接入网关端点列表，由网关统一路由/计费/日志。
 export function WorkBuddyPlugin() {
   const { isArmed, confirmPress } = useConfirmPress();
@@ -91,10 +98,14 @@ export function WorkBuddyPlugin() {
   const [refreshing, setRefreshing] = useState(false);
   const [prefixDraft, setPrefixDraft] = useState(null);
   const [busyAccount, setBusyAccount] = useState('');
+  // 余额：accountId → Balance（含 error 字段），点按钮按需拉取。
+  const [balances, setBalances] = useState({});
+  const [balanceLoading, setBalanceLoading] = useState({});
   const [linkBusy, setLinkBusy] = useState(false);
   const [editAccount, setEditAccount] = useState(null);
   const [editName, setEditName] = useState('');
   const [loginOpen, setLoginOpen] = useState(false);
+  const [loginRegion, setLoginRegion] = useState('cn');
   const [login, setLogin] = useState({ phase: 'idle', state: '', url: '', image: '', error: '' });
   const fileInputRef = useRef(null);
 
@@ -173,6 +184,17 @@ export function WorkBuddyPlugin() {
     loadLink();
   }, []);
 
+  // 进入页面自动查询各账号余额（只查尚未缓存/未在查询中的账号，避免重复打上游）。
+  // 依赖账号 id 列表：登录/删除账号后自动补齐，无需手动点「查询」。
+  const accountIdKey = accounts.map(a => a.id).join(',');
+  useEffect(() => {
+    if (!accounts.length) return;
+    accounts.forEach(a => {
+      if (balances[a.id] || balanceLoading[a.id]) return;
+      loadBalance(a);
+    });
+  }, [accountIdKey]);
+
   useEffect(() => {
     loadUsage();
   }, [usageDays]);
@@ -211,17 +233,22 @@ export function WorkBuddyPlugin() {
     return () => clearInterval(timer);
   }, [loginOpen, login.state, login.phase]);
 
-  const startLogin = async () => {
+  // 登录方式：国内版用 CodeBuddy 客户端扫码；国际版是网页登录（OneID/SSO），
+  // 需要用户在浏览器里打开授权链接完成登录，故不生成二维码。
+  const regionNeedsQR = region => (region || 'cn') !== 'intl';
+
+  const startLogin = async (region = loginRegion) => {
+    const target = region || 'cn';
     setLogin({ phase: 'loading', state: '', url: '', image: '', error: '' });
     try {
       const res = await fetch(`${API}/login/start`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: '{}',
+        body: JSON.stringify({ region: target }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '发起登录失败');
-      const image = await QRCode.toDataURL(data.url, { width: 220, margin: 1 });
+      const image = regionNeedsQR(target) ? await QRCode.toDataURL(data.url, { width: 220, margin: 1 }) : '';
       setLogin({ phase: 'waiting', state: data.state, url: data.url, image, error: '' });
     } catch (e) {
       setLogin({ phase: 'error', state: '', url: '', image: '', error: e.message });
@@ -231,6 +258,14 @@ export function WorkBuddyPlugin() {
   const openLogin = () => {
     setLoginOpen(true);
     startLogin();
+  };
+
+  // 切换登录区域：若当前处于等待授权，立即用新区域重新发起一次登录。
+  const changeLoginRegion = value => {
+    setLoginRegion(value);
+    if (loginOpen && login.phase === 'waiting') {
+      startLogin(value);
+    }
   };
 
   const save = async (next, msg = '设置已保存') => {
@@ -301,6 +336,23 @@ export function WorkBuddyPlugin() {
       toast.error(`刷新失败：${e.message}`);
     } finally {
       setBusyAccount('');
+    }
+  };
+
+  // 余额：按账号 id 缓存，点「余额」按钮时按需拉取（不自动全量拉，避免频繁打上游）。
+  const loadBalance = async account => {
+    setBalanceLoading(prev => ({ ...prev, [account.id]: true }));
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/balance`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setBalances(prev => ({ ...prev, [account.id]: data.balance }));
+    } catch (e) {
+      setBalances(prev => ({ ...prev, [account.id]: { error: e.message } }));
+    } finally {
+      setBalanceLoading(prev => ({ ...prev, [account.id]: false }));
     }
   };
 
@@ -430,6 +482,36 @@ export function WorkBuddyPlugin() {
 
   const allEnabled = models.length > 0 && models.every(m => m.enabled);
 
+  // 账号按区域分组（国内在上、国际在下），表格内上下分开显示。
+  const accountGroups = [
+    { region: 'cn', label: '国内版 · codebuddy.cn', items: accounts.filter(a => (a.region || 'cn') !== 'intl') },
+    { region: 'intl', label: '国际版 · workbuddy.ai', items: accounts.filter(a => a.region === 'intl') },
+  ].filter(g => g.items.length > 0);
+
+  // 模型区域标签：国际独有 / 国内独有 / 共用。国内=蓝、国际=紫，与账号表保持一致。
+  // 模型区域标签：按**型号名**判定（后端已按 displayName 对齐两区域）。
+  // 国际独有 / 国内独有 / 共用；国内=蓝、国际=紫，与账号表保持一致。
+  // 若该 id 自身不是两版都有（如 Kimi-K3 的国内档 kimi-k3-1），tooltip 里补充说明。
+  const modelRegionMeta = m => {
+    const idOnly = Array.isArray(m.idRegions) && m.idRegions.length === 1 ? m.idRegions[0] : '';
+    const idHint = idOnly
+      ? idOnly === 'intl'
+        ? '（此档位仅国际版提供）'
+        : '（此档位仅国内版提供）'
+      : '';
+    if (m.internationalOnly) {
+      return { label: '国际', variant: 'purple', title: '仅国际版提供（workbuddy.ai），转发只会在国际版账号上选号' };
+    }
+    if (Array.isArray(m.regions) && m.regions.length === 1 && m.regions[0] === 'cn') {
+      return { label: '国内', variant: 'blue', title: '仅国内版提供（codebuddy.cn），转发只会在国内版账号上选号' };
+    }
+    return {
+      label: '共用',
+      variant: 'outline',
+      title: `该型号国内版与国际版都提供，在所有账号间轮询选号${idHint}`,
+    };
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
       <div className="flex items-center justify-end gap-2">
@@ -476,7 +558,14 @@ export function WorkBuddyPlugin() {
               >
                 可用账号 {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
               </Badge>
-              <span className="text-xs text-kumo-subtle" title="上游 /v3/config 返回的模型条数">
+              <span
+                className="text-xs text-kumo-subtle"
+                title="按区域分列的账号数（国内版 codebuddy.cn / 国际版 workbuddy.ai）"
+              >
+                国内 {status?.regionCounts?.cn?.available ?? 0}/{status?.regionCounts?.cn?.total ?? 0} · 国际{' '}
+                {status?.regionCounts?.intl?.available ?? 0}/{status?.regionCounts?.intl?.total ?? 0}
+              </span>
+              <span className="text-xs text-kumo-subtle" title="上游 /v3/config 返回的模型条数（国内+国际合并去重）">
                 模型 {status?.modelCount ?? 0}
               </span>
               {status?.upstreamUsage ? (
@@ -528,7 +617,7 @@ export function WorkBuddyPlugin() {
                 }}
               />
               <Button size="sm" variant="primary" onClick={openLogin}>
-                <Plus className="h-3.5 w-3.5" /> 扫码登录
+                <Plus className="h-3.5 w-3.5" /> 添加账号
               </Button>
             </div>
           }
@@ -539,100 +628,163 @@ export function WorkBuddyPlugin() {
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">区域</Table.Head>
                     <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
                     <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">余额</Table.Head>
                     <Table.Head className="!w-32 !px-2 !py-1.5 text-center">token</Table.Head>
                     <Table.Head className="!w-36 !px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {accounts.map(a => {
-                    const meta = tokenStateMeta(a.tokenState);
-                    return (
-                      <Table.Row key={a.id} className="h-10">
-                        <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <div className="flex justify-center">
-                            <Switch
-                              size="sm"
-                              checked={!a.disabled}
-                              disabled={busyAccount === a.id}
-                              onCheckedChange={v => toggleAccount(a, v)}
-                              aria-label={`${a.disabled ? '启用' : '停用'} ${a.id}`}
-                            />
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2.5 !py-1.5">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-kumo-strong" title={a.id}>
-                              {a.nickname || a.uid || a.id}
-                            </div>
-                            <div className="truncate font-mono text-[0.8em] text-kumo-subtle">
-                              {[a.uid, a.enterpriseId].filter(Boolean).join(' · ') || a.id}
-                            </div>
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <Badge variant={meta.variant} className="!text-[0.8em]" title={a.lastError || undefined}>
-                              {meta.label}
-                              {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
-                            </Badge>
-                            {/* 模型级限流：只影响列出的模型，账号本身仍可用（其它模型照常转发），
-                                悬浮可看到每个模型的恢复时刻。 */}
-                            {(a.limitedModels?.length ?? 0) > 0 && (
-                              <Badge
-                                variant="warning"
-                                className="!text-[0.75em]"
-                                title={a.limitedModels
-                                  .map(m => `${m.model} 限流至 ${fmtUntil(m.until)}`)
-                                  .join('\n')}
-                              >
-                                限流 {a.limitedModels.length} 模型
-                              </Badge>
-                            )}
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={busyAccount === a.id}
-                              title="立即刷新 access token"
-                              onClick={() => refreshAccount(a)}
-                            >
-                              <RefreshCw className={`h-3 w-3 ${busyAccount === a.id ? 'animate-spin' : ''}`} />
-                            </Button>
-                            <Button
-                              size="sm"
-                              shape="square"
-                              variant="outline"
-                              aria-label={`编辑 ${a.id}`}
-                              onClick={() => {
-                                setEditName(a.nickname || '');
-                                setEditAccount(a);
-                              }}
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              shape="square"
-                              variant={isArmed(`workbuddy-account-delete:${a.id}`) ? 'destructive' : 'secondary-destructive'}
-                              aria-label={isArmed(`workbuddy-account-delete:${a.id}`) ? `再次确认删除 ${a.id}` : `删除 ${a.id}`}
-                              title={isArmed(`workbuddy-account-delete:${a.id}`) ? '再次点击确认删除' : `删除 ${a.id}`}
-                              onClick={() => deleteAccount(a)}
-                            >
-                              <Trash className="h-3 w-3" />
-                            </Button>
-                          </div>
+                  {accountGroups.map(group => (
+                    <Fragment key={group.region}>
+                      <Table.Row className="h-7 bg-kumo-recessed/40">
+                        <Table.Cell colSpan={7} className="!px-2.5 !py-1 text-[0.75em] font-medium text-kumo-subtle">
+                          {group.label}（{group.items.length}）
                         </Table.Cell>
                       </Table.Row>
-                    );
-                  })}
+                      {group.items.map(a => {
+                        const meta = tokenStateMeta(a.tokenState);
+                        return (
+                          <Table.Row key={a.id} className="h-10">
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex justify-center">
+                                <Switch
+                                  size="sm"
+                                  checked={!a.disabled}
+                                  disabled={busyAccount === a.id}
+                                  onCheckedChange={v => toggleAccount(a, v)}
+                                  aria-label={`${a.disabled ? '启用' : '停用'} ${a.id}`}
+                                />
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <Badge
+                                variant={a.region === 'intl' ? 'purple' : 'blue'}
+                                className="!text-[0.72em]"
+                                title={a.region === 'intl' ? '国际版账号（workbuddy.ai）' : '国内版账号（codebuddy.cn）'}
+                              >
+                                {a.region === 'intl' ? '国际' : '国内'}
+                              </Badge>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2.5 !py-1.5">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-kumo-strong" title={a.id}>
+                                  {a.nickname || a.uid || a.id}
+                                </div>
+                                <div className="truncate font-mono text-[0.8em] text-kumo-subtle">
+                                  {[a.uid, a.enterpriseId].filter(Boolean).join(' · ') || a.id}
+                                </div>
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              {(() => {
+                                const bal = balances[a.id];
+                                if (balanceLoading[a.id]) {
+                                  return <Loader size="sm" />;
+                                }
+                                if (bal?.error) {
+                                  return (
+                                    <span className="text-xs text-kumo-danger" title={bal.error}>
+                                      查询失败
+                                    </span>
+                                  );
+                                }
+                                if (bal) {
+                                  return (
+                                    <span
+                                      className="font-mono text-xs text-kumo-strong"
+                                      title={
+                                        `剩余 ${fmtBalance(bal.remain)} / 共 ${fmtBalance(bal.size)}` +
+                                        (bal.updatedAt ? `\n更新于 ${bal.updatedAt}` : '') +
+                                        ((bal.packages || [])
+                                          .map(p => `\n· ${p.name || '计费包'}: ${fmtBalance(p.remain)}/${fmtBalance(p.size)}`)
+                                          .join('') || '')
+                                      }
+                                    >
+                                      {fmtBalance(bal.remain)}
+                                      <span className="text-kumo-subtle">/{fmtBalance(bal.size)}</span>
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={busyAccount === a.id}
+                                    onClick={() => loadBalance(a)}
+                                    title="查询该账号余额（按需拉取，不打上游轮询）"
+                                  >
+                                    查询
+                                  </Button>
+                                );
+                              })()}
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <Badge variant={meta.variant} className="!text-[0.8em]" title={a.lastError || undefined}>
+                                  {meta.label}
+                                  {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
+                                </Badge>
+                                {/* 模型级限流：只影响列出的模型，账号本身仍可用（其它模型照常转发），
+                                    悬浮可看到每个模型的恢复时刻。 */}
+                                {(a.limitedModels?.length ?? 0) > 0 && (
+                                  <Badge
+                                    variant="warning"
+                                    className="!text-[0.75em]"
+                                    title={a.limitedModels
+                                      .map(m => `${m.model} 限流至 ${fmtUntil(m.until)}`)
+                                      .join('\n')}
+                                  >
+                                    限流 {a.limitedModels.length} 模型
+                                  </Badge>
+                                )}
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={busyAccount === a.id}
+                                  title="立即刷新 access token"
+                                  onClick={() => refreshAccount(a)}
+                                >
+                                  <RefreshCw className={`h-3 w-3 ${busyAccount === a.id ? 'animate-spin' : ''}`} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  shape="square"
+                                  variant="outline"
+                                  aria-label={`编辑 ${a.id}`}
+                                  onClick={() => {
+                                    setEditName(a.nickname || '');
+                                    setEditAccount(a);
+                                  }}
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  shape="square"
+                                  variant={isArmed(`workbuddy-account-delete:${a.id}`) ? 'destructive' : 'secondary-destructive'}
+                                  aria-label={isArmed(`workbuddy-account-delete:${a.id}`) ? `再次确认删除 ${a.id}` : `删除 ${a.id}`}
+                                  title={isArmed(`workbuddy-account-delete:${a.id}`) ? '再次点击确认删除' : `删除 ${a.id}`}
+                                  onClick={() => deleteAccount(a)}
+                                >
+                                  <Trash className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
                 </Table.Body>
               </Table>
             </div>
@@ -640,7 +792,7 @@ export function WorkBuddyPlugin() {
             <div className="p-4">
               <EmptyState
                 title="暂无账号"
-                description="点击「扫码登录」，用 CodeBuddy 客户端扫描二维码完成授权。"
+                description="点击「添加账号」，按账号区域完成授权后即可加入账号池。"
               />
             </div>
           )}
@@ -689,6 +841,7 @@ export function WorkBuddyPlugin() {
                         />
                       </div>
                     </Table.Head>
+                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">区域</Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
                     <Table.Head className="!w-20 !px-2 !py-1.5 text-center">
                       <span title="上游积分倍率（/v3/config 的 credits），CodeBuddy 计费体系内的相对倍数，不含货币单价">倍率</span>
@@ -716,23 +869,26 @@ export function WorkBuddyPlugin() {
                           />
                         </div>
                       </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <Badge
+                          variant={modelRegionMeta(m).variant}
+                          className="!text-[0.72em]"
+                          title={modelRegionMeta(m).title}
+                        >
+                          {modelRegionMeta(m).label}
+                        </Badge>
+                      </Table.Cell>
                       <Table.Cell className="!px-2.5 !py-1.5">
-                        <div className="truncate font-mono text-[0.8em] text-kumo-strong" title={m.id}>
-                          {m.id}
-                        </div>
-                        <div className="truncate text-[0.75em] text-kumo-subtle">
-                          {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
-                            .filter(Boolean)
-                            .join(' · ') || ' '}
-                        </div>
-                        {/* 模型级限流：账号表回答「谁被限流」，这里回答「这个模型还能不能用」。
-                            allLimited = 当前**所有可用账号**都在该模型上限流（此刻真的打不通，
-                            中继会直接回 429 且不打上游）；否则只是部分账号被限流，仍可正常转发。 */}
-                        {m.limit && (
-                          <div className="mt-0.5">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-mono text-[0.8em] text-kumo-strong" title={m.id}>
+                            {m.id}
+                          </span>
+                          {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
+                              可用账号都在该模型上限流（此刻真的打不通，中继直接回 429 且不打上游）。 */}
+                          {m.limit && (
                             <Badge
                               variant={m.limit.allLimited ? 'danger' : 'warning'}
-                              className="!text-[0.7em]"
+                              className="!text-[0.7em] shrink-0"
                               title={
                                 (m.limit.allLimited
                                   ? `当前所有可用账号（${m.limit.limited} 个）都在该模型上被上游限流，此刻完全打不通`
@@ -743,8 +899,13 @@ export function WorkBuddyPlugin() {
                               {m.limit.allLimited ? '限流中' : `限流 ${m.limit.limited}/${m.limit.limited + m.limit.usable}`}
                               {m.limit.nextRecoveryAt ? ` · ${fmtUntil(m.limit.nextRecoveryAt)}` : ''}
                             </Badge>
-                          </div>
-                        )}
+                          )}
+                        </div>
+                        <div className="truncate text-[0.75em] text-kumo-subtle">
+                          {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
+                            .filter(Boolean)
+                            .join(' · ') || ' '}
+                        </div>
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         <span
@@ -878,8 +1039,8 @@ export function WorkBuddyPlugin() {
               <div className="overflow-x-auto border-t border-kumo-line">
                 <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
-                    <Table.Row className="h-8">
-                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                  <Table.Row className="h-8">
+                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
                       <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
                       <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
                       <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
@@ -949,10 +1110,29 @@ export function WorkBuddyPlugin() {
       <Dialog.Root open={loginOpen} onOpenChange={setLoginOpen}>
         <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(30rem,calc(100vw-2rem))] !max-w-[min(30rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
           <div className="shrink-0 px-6 pt-5">
-            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">扫码登录 CodeBuddy</Dialog.Title>
-            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
-              用 CodeBuddy 客户端扫描二维码完成授权，凭据保存在本机。
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
+              {loginRegion === 'intl' ? '添加国际版账号' : '添加国内版账号'}
+            </Dialog.Title>
+            <Dialog.Description className="mb-3 text-sm text-kumo-subtle">
+              {loginRegion === 'intl'
+                ? '国际版为网页登录：点击授权链接在浏览器完成登录即可。'
+                : '用 CodeBuddy 客户端扫描二维码完成授权。'}
+              国内版与国际版是两套账号、额度不互通，可分别添加。
             </Dialog.Description>
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-xs text-kumo-subtle">账号区域</span>
+              <Select
+                size="sm"
+                value={loginRegion}
+                onValueChange={changeLoginRegion}
+                disabled={login.phase === 'success'}
+                aria-label="登录账号区域"
+                items={[
+                  { value: 'cn', label: '国内版 · codebuddy.cn' },
+                  { value: 'intl', label: '国际版 · workbuddy.ai' },
+                ]}
+              />
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
             <div className="flex flex-col items-center gap-3">
@@ -961,18 +1141,34 @@ export function WorkBuddyPlugin() {
                   <Loader size="lg" />
                 </div>
               ) : login.image ? (
-                <img src={login.image} alt="CodeBuddy 登录二维码" className="h-[220px] w-[220px]" />
+                <img src={login.image} alt="登录二维码" className="h-[220px] w-[220px]" />
+              ) : login.url && loginRegion === 'intl' ? (
+                // 国际版为网页登录：给出可点击的授权链接与说明，而非二维码。
+                <div className="flex w-full flex-col items-center gap-3 rounded border border-kumo-line px-4 py-6 text-center">
+                  <span className="text-xs text-kumo-subtle">
+                    国际版需在浏览器中完成登录，请点击下方链接授权后返回本页。
+                  </span>
+                  <a
+                    className="max-w-full truncate font-mono text-[0.78em] text-brand underline"
+                    href={login.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={login.url}
+                  >
+                    {login.url}
+                  </a>
+                </div>
               ) : (
                 <div className="flex h-[220px] w-[220px] items-center justify-center rounded border border-kumo-line px-4 text-center text-xs text-kumo-subtle">
                   {login.error || '暂无二维码'}
                 </div>
               )}
               <div className="text-center text-xs text-kumo-subtle">
-                {login.phase === 'waiting' ? '等待扫码授权…' : null}
+                {login.phase === 'waiting' ? (loginRegion === 'intl' ? '等待浏览器授权…' : '等待扫码授权…') : null}
                 {login.phase === 'success' ? '登录成功。' : null}
                 {login.phase === 'error' ? <span className="text-kumo-strong">{login.error}</span> : null}
               </div>
-              {login.url ? (
+              {login.url && loginRegion !== 'intl' ? (
                 <a
                   className="max-w-full truncate font-mono text-[0.75em] text-brand underline"
                   href={login.url}
@@ -987,8 +1183,8 @@ export function WorkBuddyPlugin() {
           </div>
           <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
             <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
-            <Button size="sm" variant="primary" onClick={startLogin}>
-              重新获取二维码
+            <Button size="sm" variant="primary" onClick={() => startLogin()}>
+              {loginRegion === 'intl' ? '重新获取链接' : '重新获取二维码'}
             </Button>
           </div>
         </Dialog>

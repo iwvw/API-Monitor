@@ -43,7 +43,7 @@ const PLUGINS = [
   {
     id: 'workbuddy',
     name: 'WorkBuddy',
-    description: '腾讯 CodeBuddy 转 API。',
+    description: '腾讯 CodeBuddy / WorkBuddy 转 API。',
     icon: CodeBuddyBrand,
     detail: WorkBuddyPlugin,
   },
