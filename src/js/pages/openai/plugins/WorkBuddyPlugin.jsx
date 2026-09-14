@@ -549,25 +549,43 @@ export function WorkBuddyPlugin() {
               disabled={saving}
             />
           </FieldRow>
-          <FieldRow title={<span title="可用账号/账号总数，以及上游模型目录条数">运行状态</span>}>
-            <div className="flex min-w-0 items-center gap-2">
-              <Badge
-                variant={status?.availableCount ? 'success' : 'warning'}
-                className="!text-[0.8em]"
-                title="可参与转发的账号数（未停用且 token 未失效）"
-              >
-                可用账号 {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
-              </Badge>
-              <span
-                className="text-xs text-kumo-subtle"
+          <div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-tight:flex-row cq-tight:items-center">
+            <div className="min-w-0 shrink-0">
+              <div className="truncate text-sm font-semibold text-kumo-strong" title="可用账号/账号总数，以及上游模型目录条数">
+                运行状态
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 cq-tight:justify-end">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="text-xs text-kumo-subtle">账号</span>
+                <Badge
+                  variant={status?.availableCount ? 'success' : 'warning'}
+                  className="!text-[0.8em]"
+                  title="可参与转发的账号数（未停用且 token 未失效）"
+                >
+                  {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
+                </Badge>
+              </div>
+              <div
+                className="flex min-w-0 items-center gap-2"
                 title="按区域分列的账号数（国内版 codebuddy.cn / 国际版 workbuddy.ai）"
               >
-                国内 {status?.regionCounts?.cn?.available ?? 0}/{status?.regionCounts?.cn?.total ?? 0} · 国际{' '}
-                {status?.regionCounts?.intl?.available ?? 0}/{status?.regionCounts?.intl?.total ?? 0}
-              </span>
-              <span className="text-xs text-kumo-subtle" title="上游 /v3/config 返回的模型条数（国内+国际合并去重）">
-                模型 {status?.modelCount ?? 0}
-              </span>
+                <span className="text-xs text-kumo-subtle">国内</span>
+                <span className="font-mono text-xs text-kumo-default">
+                  {status?.regionCounts?.cn?.available ?? 0}/{status?.regionCounts?.cn?.total ?? 0}
+                </span>
+                <span className="text-xs text-kumo-subtle">国际</span>
+                <span className="font-mono text-xs text-kumo-default">
+                  {status?.regionCounts?.intl?.available ?? 0}/{status?.regionCounts?.intl?.total ?? 0}
+                </span>
+              </div>
+              <div
+                className="flex min-w-0 items-center gap-2"
+                title="上游 /v3/config 返回的模型条数（国内+国际合并去重）"
+              >
+                <span className="text-xs text-kumo-subtle">模型</span>
+                <span className="font-mono text-xs text-kumo-default">{status?.modelCount ?? 0}</span>
+              </div>
               {status?.upstreamUsage ? (
                 <Badge
                   variant={status.upstreamUsage.cacheReported ? 'success' : 'neutral'}
@@ -589,7 +607,7 @@ export function WorkBuddyPlugin() {
                 <Badge variant="warning" className="!text-[0.8em]">上游协议层未就绪</Badge>
               ) : null}
             </div>
-          </FieldRow>
+          </div>
         </SectionCard>
 
         <SectionCard
@@ -725,7 +743,7 @@ export function WorkBuddyPlugin() {
                               })()}
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
-                              <div className="flex flex-col items-center gap-1">
+                              <div className="flex flex-wrap items-center justify-center gap-1">
                                 <Badge variant={meta.variant} className="!text-[0.8em]" title={a.lastError || undefined}>
                                   {meta.label}
                                   {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
