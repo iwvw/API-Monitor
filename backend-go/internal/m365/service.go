@@ -30,6 +30,7 @@ var (
 		{Name: "LicenseAssignment.ReadWrite.All", Note: "分配或回收许可证"},
 		{Name: "Group.Create", Note: "创建组"},
 		{Name: "GroupMember.ReadWrite.All", Note: "添加或移除组成员"},
+		{Name: "Files.Read.All", Note: "读取用户 OneDrive 容量（已用/总容量）"},
 	}
 )
 
@@ -177,6 +178,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.assignUserLicense(w, r, parts[1], parts[3])
 	case len(parts) == 4 && parts[0] == "accounts" && parts[2] == "licenses" && parts[3] == "skus" && r.Method == http.MethodGet:
 		s.listSKUs(w, r, parts[1])
+	case len(parts) == 4 && parts[0] == "accounts" && parts[2] == "usage" && parts[3] == "onedrive" && r.Method == http.MethodGet:
+		s.oneDriveUsage(w, r, parts[1])
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "users" && parts[4] == "drive-quota" && r.Method == http.MethodGet:
+		s.userDriveQuota(w, r, parts[1], parts[3])
 	case len(parts) == 3 && parts[0] == "accounts" && parts[2] == "groups":
 		s.groups(w, r, parts[1])
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "groups" && parts[4] == "members" && r.Method == http.MethodGet:

@@ -295,6 +295,8 @@ var routeDescriptions = map[string]string{
 	"/api/m365/registrations":    "查询公开注册记录（用户自助注册结果）",
 	"/api/m365/public/register":  "提交 Microsoft 365 公开注册申请",
 	"/api/m365/public/invites/{code}": "查询邀请码对应的注册详情",
+	"/api/m365/accounts/{id}/usage/onedrive":       "按用户查询 OneDrive 已用与总容量（需传 userIds）",
+	"/api/m365/accounts/{id}/users/{uid}/drive-quota": "查询用户 OneDrive 实时容量详情",
 
 	// ===== Fly.io / Koyeb =====
 	"/api/flyio":                    "Fly.io 应用部署管理总入口",

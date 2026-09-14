@@ -1547,6 +1547,8 @@ func init() {
 		"name": {t: "string", d: "账号名称"},
 	})
 	routeRequestContracts["/api/m365/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/m365/accounts/{id}/usage/onedrive"] = noBody
+	routeRequestContracts["/api/m365/accounts/{id}/users/{uid}/drive-quota"] = noBody
 	routeRequestContracts["/api/m365/accounts/{id}/users"] = obj([]string{"userPrincipalName"}, map[string]prop{
 		"userPrincipalName": {t: "string", req: true},
 	})

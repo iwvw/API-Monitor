@@ -20,7 +20,7 @@ import (
 
 func TestM365Lifecycle(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "test-encryption-key")
-	testToken := fakeJWT(`{"roles":["User.Read.All","User.ReadWrite.All","Organization.Read.All","LicenseAssignment.Read.All","LicenseAssignment.ReadWrite.All","Group.Create","GroupMember.ReadWrite.All"]}`)
+	testToken := fakeJWT(`{"roles":["User.Read.All","User.ReadWrite.All","Organization.Read.All","LicenseAssignment.Read.All","LicenseAssignment.ReadWrite.All","Group.Create","GroupMember.ReadWrite.All","Files.Read.All"]}`)
 
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -85,7 +85,7 @@ func TestM365Lifecycle(t *testing.T) {
 	}
 
 	permissionsRes := performM365(service, http.MethodGet, "/api/m365/accounts/1/permissions", "")
-	if permissionsRes.Code != http.StatusOK || !strings.Contains(permissionsRes.Body.String(), `"grantedCount":7`) || strings.Contains(permissionsRes.Body.String(), `"Reports.Read.All"`) {
+	if permissionsRes.Code != http.StatusOK || !strings.Contains(permissionsRes.Body.String(), `"grantedCount":8`) || !strings.Contains(permissionsRes.Body.String(), `"Files.Read.All"`) {
 		t.Fatalf("permissions status=%d body=%s", permissionsRes.Code, permissionsRes.Body.String())
 	}
 
@@ -597,6 +597,114 @@ func TestEnsureSchemaAddsVerifiedDomainsToLegacyAccountsTable(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected verified_domains column to be added to legacy m365_accounts table")
+	}
+}
+
+func TestOneDriveQuotaAggregation(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "test-encryption-key")
+	testToken := fakeJWT(`{"roles":["Files.Read.All"]}`)
+
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/oauth2/v2.0/token"):
+			_, _ = w.Write([]byte(`{"access_token":"` + testToken + `"}`))
+		case r.URL.Path == "/users/normal/drive":
+			_, _ = w.Write([]byte(`{"id":"drive-normal","driveType":"business","quota":{"deleted":1048576,"remaining":549755813888,"state":"normal","total":1099511627776,"used":549755814400}}`))
+		case r.URL.Path == "/users/over/drive":
+			_, _ = w.Write([]byte(`{"id":"drive-over","driveType":"business","quota":{"remaining":0,"state":"exceeded","total":10737418240,"used":15456973383}}`))
+		case r.URL.Path == "/users/missing/drive":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"code":"ResourceNotFound","message":"User's mysite not found."}}`))
+		case r.URL.Path == "/users/legacy/drive":
+			_, _ = w.Write([]byte(`{"id":"drive-legacy","driveType":"business","quota":{"deleted":0,"remaining":549755813888,"state":"normal","total":1099511627776}}`))
+		case r.URL.Path == "/users/broken/drive":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":{"code":"InternalServerError","message":"boom"}}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer mock.Close()
+
+	t.Setenv("M365_GRAPH_BASE_URL", mock.URL)
+	t.Setenv("M365_LOGIN_BASE_URL", mock.URL)
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	createRes := performM365(service, http.MethodPost, "/api/m365/accounts", `{"name":"Contoso","tenantId":"tenant-1","clientId":"client-1","clientSecret":"secret-1"}`)
+	if createRes.Code != http.StatusOK {
+		t.Fatalf("create account status=%d body=%s", createRes.Code, createRes.Body.String())
+	}
+
+	batchRes := performM365(service, http.MethodGet, "/api/m365/accounts/1/usage/onedrive?userIds=normal,over,missing,legacy,broken,normal", "")
+	if batchRes.Code != http.StatusOK {
+		t.Fatalf("batch usage status=%d body=%s", batchRes.Code, batchRes.Body.String())
+	}
+	data := decodeEnvelopeData(t, batchRes)
+	items, _ := data["items"].([]interface{})
+	if len(items) != 5 {
+		t.Fatalf("expected duplicate id to be deduped to 5 items, got %d body=%s", len(items), batchRes.Body.String())
+	}
+	if data["provisioned"] != float64(3) || data["notProvisioned"] != float64(1) || data["failed"] != float64(1) {
+		t.Fatalf("unexpected counters: %#v", data)
+	}
+	if data["overQuota"] != float64(1) {
+		t.Fatalf("expected 1 over-quota user, got %v", data["overQuota"])
+	}
+	if data["totalUsedBytes"] != float64(549755814400+15456973383+(1099511627776-549755813888)) {
+		t.Fatalf("unexpected totalUsedBytes: %v", data["totalUsedBytes"])
+	}
+
+	byID := map[string]map[string]interface{}{}
+	for _, raw := range items {
+		entry, _ := raw.(map[string]interface{})
+		byID[fmt.Sprint(entry["userId"])] = entry
+	}
+	if byID["missing"]["provisioned"] != false {
+		t.Fatalf("expected missing user marked unprovisioned, got %#v", byID["missing"])
+	}
+	if byID["broken"]["error"] == nil {
+		t.Fatalf("expected broken user to carry an error, got %#v", byID["broken"])
+	}
+	if byID["over"]["overQuota"] != true || byID["over"]["usedBytes"] != float64(15456973383) {
+		t.Fatalf("expected over-quota user to keep used > total, got %#v", byID["over"])
+	}
+	if byID["legacy"]["usedBytes"] != float64(1099511627776-549755813888) {
+		t.Fatalf("expected used derived from total-remaining when quota.used absent, got %#v", byID["legacy"])
+	}
+	if byID["normal"]["usedBytes"] != float64(549755814400) {
+		t.Fatalf("expected quota.used to take precedence, got %#v", byID["normal"])
+	}
+
+	noIDsRes := performM365(service, http.MethodGet, "/api/m365/accounts/1/usage/onedrive", "")
+	if noIDsRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing userIds to be rejected, got %d body=%s", noIDsRes.Code, noIDsRes.Body.String())
+	}
+
+	singleRes := performM365(service, http.MethodGet, "/api/m365/accounts/1/users/normal/drive-quota", "")
+	if singleRes.Code != http.StatusOK {
+		t.Fatalf("drive quota status=%d body=%s", singleRes.Code, singleRes.Body.String())
+	}
+	singleData := decodeEnvelopeData(t, singleRes)
+	if singleData["totalBytes"] != float64(1099511627776) || singleData["usedBytes"] != float64(549755814400) {
+		t.Fatalf("unexpected single quota payload: %#v", singleData)
+	}
+	if singleData["deletedBytes"] != float64(1048576) || singleData["quotaState"] != "normal" {
+		t.Fatalf("unexpected single quota detail: %#v", singleData)
+	}
+
+	missingSingleRes := performM365(service, http.MethodGet, "/api/m365/accounts/1/users/missing/drive-quota", "")
+	if missingSingleRes.Code != http.StatusOK {
+		t.Fatalf("expected unprovisioned single lookup to succeed, got %d body=%s", missingSingleRes.Code, missingSingleRes.Body.String())
+	}
+	missingData := decodeEnvelopeData(t, missingSingleRes)
+	if missingData["provisioned"] != false {
+		t.Fatalf("expected provisioned=false for unprovisioned user, got %#v", missingData)
+	}
+
+	failedSingleRes := performM365(service, http.MethodGet, "/api/m365/accounts/1/users/broken/drive-quota", "")
+	if failedSingleRes.Code != http.StatusBadGateway {
+		t.Fatalf("expected real graph failure to surface as 502, got %d body=%s", failedSingleRes.Code, failedSingleRes.Body.String())
 	}
 }
 
