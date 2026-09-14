@@ -504,6 +504,58 @@ func TestStreamPeekSkipsHeartbeatsBeforeErrorEnvelope(t *testing.T) {
 	_ = getAuths
 }
 
+// 【回归】正常流里夹杂的注释/心跳行（如 `: heartbeat`）绝不能写往下游。
+// 否则会被拼成 `data: : heartbeat`，严格客户端（AI SDK）按 JSON 解析直接报错。
+func TestStreamDropsHeartbeatLines(t *testing.T) {
+	body := strings.Join([]string{
+		`: heartbeat`,
+		`data: {"id":"c1","model":"hy3","choices":[{"delta":{"content":"ok"}}]}`,
+		`: heartbeat`,
+		`data: {"choices":[{"delta":{"content":"!"}}]}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
+		return http.StatusOK, body
+	})
+
+	s := newTestService(t)
+	if err := s.SaveSettings(context.Background(), Settings{
+		Enabled:  true,
+		Accounts: []Account{validAccount("u1", "t1")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("应返回 200，得到 %d: %s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if strings.Contains(out, ": heartbeat") || strings.Contains(out, "data: :") {
+		t.Fatalf("心跳行不得写往下游: %s", out)
+	}
+	// 每个 data 行都必须是合法 JSON（data: [DONE] 除外）。
+	for _, ln := range strings.Split(out, "\n") {
+		ln = strings.TrimSpace(ln)
+		if !strings.HasPrefix(ln, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(ln, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		var v any
+		if json.Unmarshal([]byte(payload), &v) != nil {
+			t.Fatalf("下游收到非法 JSON 帧: %q", payload)
+		}
+	}
+	if !strings.Contains(out, `"content":"ok"`) || !strings.Contains(out, `"content":"!"`) {
+		t.Fatalf("正常内容应保留: %s", out)
+	}
+	_ = getAuths
+}
+
 // 【回归】truncate 不得把中文切成半个字符（那会在 JSON/日志里变成乱码 U+FFFD）。
 func TestTruncateKeepsUTF8Boundary(t *testing.T) {
 	s := strings.Repeat("限", 300) // 每个汉字 3 字节

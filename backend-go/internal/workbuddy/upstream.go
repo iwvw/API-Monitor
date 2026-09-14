@@ -787,6 +787,12 @@ func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, bod
 	// consume 处理一行原始 SSE 行；返回 error 表示**客户端写失败**（断开），
 	// 此时响应头已发出，收尾返回即可，不再向上报错。
 	consume := func(line string) error {
+		// 注释/心跳行（如 `: heartbeat`）与空行不是负载，绝不能写下游：
+		// 它们会被拼成 `data: : heartbeat` 这种非法帧，严格客户端（如 AI SDK）
+		// 按 JSON 解析会直接报错。isSSENoise 同时覆盖裸注释行与 `data: :` 形态。
+		if isSSENoise(line) {
+			return nil
+		}
 		content := stripDataPrefix(line)
 		if content == "" || content == "[DONE]" {
 			return nil
@@ -872,7 +878,13 @@ func aggregateCompletion(r io.Reader, model string, onChunk func(string)) ([]byt
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
-		data := stripDataPrefix(scanner.Text())
+		line := scanner.Text()
+		// 注释/心跳行与空行直接跳过，避免把 `: heartbeat` 当负载（非流式下虽会被
+		// JSON 解析失败忽略，但不应进入 onChunk 观测与 usage 统计）。
+		if isSSENoise(line) {
+			continue
+		}
+		data := stripDataPrefix(line)
 		if data == "" || data == "[DONE]" {
 			continue
 		}
