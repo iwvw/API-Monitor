@@ -70,7 +70,7 @@
         "serveCases": ["case \"/api/antigravity\", \"/api/antigravity/v1\":"],
         "authModules": ["antigravity-compatible"]
       },
-      "dbTables": ["antigravity_settings"],
+      "dbTables": ["antigravity_settings", "antigravity_call_stats", "antigravity_usage_daily"],
       "dbColumnAdds": [],
       "frontend": {
         "files": ["src/js/pages/openai/plugins/AntigravityPlugin.jsx"],
@@ -87,7 +87,7 @@
         "manifest.go：删除 /api/antigravity 与 /api/antigravity/v1 前缀行",
         "server.go：删除 import、antigravity 字段、antigravity.New(cfg)、SetProxyPoolSelector 注入、/api/antigravity case、antigravity-compatible 鉴权分支",
         "go mod tidy",
-        "DB：DROP TABLE antigravity_settings;",
+        "DB：DROP TABLE antigravity_usage_daily; DROP TABLE antigravity_call_stats; DROP TABLE antigravity_settings;",
         "删除 src/js/pages/openai/plugins/AntigravityPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 antigravity 注册条目"
       ]
@@ -115,7 +115,7 @@
         "serveCases": ["case \"/api/ds2api\", \"/api/ds2api/v1\":"],
         "authModules": ["ds2api-compatible"]
       },
-      "dbTables": ["ds2api_settings"],
+      "dbTables": ["ds2api_settings", "ds2api_call_stats", "ds2api_usage_daily"],
       "dbColumnAdds": [],
       "frontend": {
         "files": ["src/js/pages/openai/plugins/DS2APIPlugin.jsx"],
@@ -139,7 +139,7 @@
         "manifest.go：删除 /api/ds2api 与 /api/ds2api/v1 前缀行",
         "server.go：删除 import、ds2api 字段、ds2api.New(cfg)、SetProxyPoolSelector 注入、/api/ds2api case、ds2api-compatible 鉴权分支",
         "go mod tidy（自动移除 goDeps）",
-        "DB：DROP TABLE ds2api_settings;（并删除 data/ds2api/config.json 落盘文件）",
+        "DB：DROP TABLE ds2api_usage_daily; DROP TABLE ds2api_call_stats; DROP TABLE ds2api_settings;（并删除 data/ds2api/config.json 落盘文件）",
         "删除 src/js/pages/openai/plugins/DS2APIPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 ds2api 注册条目"
       ]
@@ -149,7 +149,7 @@
       "version": "1",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "腾讯 CodeBuddy（copilot.tencent.com）扫码登录转 OpenAI 兼容 API：扫码登录 + token 自动刷新、上游动态模型目录（/v3/config）、对话转发（强制流式）、网关端点一键接入。参照 CLIProxyAPI 插件 workbuddy-cliproxy 原生实现。",
+      "summary": "腾讯 CodeBuddy（copilot.tencent.com）扫码登录转 OpenAI 兼容 API：扫码登录 + token 自动刷新、上游动态模型目录（/v3/config）、对话转发（强制流式）、网关端点一键接入，以及国内版账号的每日自动签到（含连登档位兑换与抽奖）与对话活跃上报。参照 CLIProxyAPI 插件 workbuddy-cliproxy 原生实现。",
       "backendDirs": ["backend-go/internal/workbuddy/"],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
@@ -166,7 +166,8 @@
         "injections": [
           "server.workbuddy.SetProxyPoolSelector(server.proxypool)",
           "server.workbuddy.StartCallStatsFlush(warmupCtx)",
-          "server.workbuddy.StartAutoRefresh(warmupCtx)"
+          "server.workbuddy.StartAutoRefresh(warmupCtx)",
+          "server.workbuddy.StartCheckinScheduler(warmupCtx)"
         ],
         "serveCases": ["case \"/api/workbuddy\", \"/api/workbuddy/v1\":"],
         "authModules": ["workbuddy-compatible"]
@@ -182,13 +183,15 @@
       },
       "goDeps": [],
       "systemContracts": [
-        "上游协议事实见 docs/standards/模型网关插件-workbuddy方案.md 第 3 节；协议层集中在 backend-go/internal/workbuddy/upstream.go"
+        "上游协议事实见 docs/standards/模型网关插件-workbuddy方案.md 第 3 节；协议层集中在 backend-go/internal/workbuddy/upstream.go",
+        "签到/活跃/连登协议见 docs/standards/模型网关插件-workbuddy方案.md 第 9 节；实现在 backend-go/internal/workbuddy/checkin.go，调度在 scheduler.go（站点时区 cron + TZ watcher，见 CONTEXT.md 时区硬规则）",
+        "签到与连登类上游调用只对国内版（cn）账号发起：国际版同接口返回 code 10001「签到活动未开启或已过期」且连登接口 500，见 checkinSupported"
       ],
       "docs": ["docs/standards/模型网关插件-workbuddy方案.md", "docs/standards/模型网关插件开发指南.md"],
       "uninstallSteps": [
         "rm backend-go/internal/workbuddy/",
         "manifest.go：删除 /api/workbuddy 与 /api/workbuddy/v1 前缀行",
-        "server.go：删除 import、workbuddy 字段、workbuddy.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、/api/workbuddy case、workbuddy-compatible 鉴权分支",
+        "server.go：删除 import、workbuddy 字段、workbuddy.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartAutoRefresh、StartCheckinScheduler、/api/workbuddy case、workbuddy-compatible 鉴权分支",
         "DB：DROP TABLE workbuddy_diagnostics; DROP TABLE workbuddy_usage_daily; DROP TABLE workbuddy_call_stats; DROP TABLE workbuddy_settings;",
         "DB：DELETE FROM openai_endpoints WHERE id = 'workbuddy-internal';",
         "删除 src/js/pages/openai/plugins/WorkBuddyPlugin.jsx",
@@ -245,6 +248,131 @@
         "删除 src/js/pages/openai/plugins/GeminiCliPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 geminicli 注册条目（含 GeminiCliBrand 图标 import 与组件 import）",
         "删除 docs/standards/模型网关插件-geminicli方案.md"
+      ]
+    },
+    "posthogcode": {
+      "name": "PostHog Code",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "PostHog LLM Gateway 转 OpenAI 兼容 API：OAuth 2.0 PKCE 授权（llm_gateway:read 是 privileged scope，个人 API Key 无法获得，只能走 Desktop 同款 OAuth 应用）、refresh token 自动轮换（按需 + 30 分钟后台扫描）、账号级区域（us/eu 共存，各自走对的网关与主站）、多账号选号策略（固定首个 / 轮询 / 按剩余额度，均自动跳过停用与冷却账号；轮询用原始列表下标锚定防回绕，按剩余额度带 2 小时快照失效与转发后节流刷新）、动态模型目录与倍率（/v1/models 的 pricing，基准 Claude Sonnet 5 = 输入 $2/输出 $10 每 1M token）、额度与速率窗口展示（网关 /v1/usage/{product} + 组织 /api/projects/{id}/quota_limits/，posthog_code_credits 1 credit = $0.01，按账号各自的项目 ID 并发查询）、免费层模型识别（GLM-5.2 / DeepSeek V4 Flash / Kimi K3）、首次拉取自动停用受限模型、账号失败冷却、调用次数统计、网关端点一键接入。",
+      "backendDirs": [
+        "backend-go/internal/posthogcode/"
+      ],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/posthogcode\", Module: \"posthogcode\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"PostHog Code 插件（PostHog LLM Gateway 转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/posthogcode/v1\", Module: \"posthogcode-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"PostHog Code 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/posthogcode\""
+        ],
+        "structField": "posthogcode *posthogcode.Service",
+        "constructor": "posthogcode: posthogcode.New(cfg),",
+        "injections": [
+          "server.posthogcode.SetProxyPoolSelector(server.proxypool)",
+          "server.posthogcode.StartCallStatsFlush(warmupCtx)",
+          "server.posthogcode.StartAutoRefresh(warmupCtx)"
+        ],
+        "serveCases": [
+          "case \"/api/posthogcode\", \"/api/posthogcode/v1\":"
+        ],
+        "authModules": []
+      },
+      "dbTables": [
+        "posthogcode_settings",
+        "posthogcode_call_stats"
+      ],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": [
+          "src/js/pages/openai/plugins/PostHogCodePlugin.jsx"
+        ],
+        "registrations": [
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "posthogcode"
+          }
+        ],
+        "hostIntegration": "src/js/components/Icons.jsx 新增 PostHogBrand（src/assets/brand-icons/posthog.svg，simple-icons 单色变体）"
+      },
+      "goDeps": [],
+      "systemContracts": [
+        "上游协议事实：网关路径为 {gateway}/{product}/v1/*（messages / chat/completions / models），用量端点为 {gateway}/v1/usage/{product}（产品名在末段，无前缀）；额度端点在 Django 主站 /api/projects/{id}/quota_limits/，要求 project:read scope，缺该 scope 时网关 fail open 使 used_usd 为 null",
+        "OAuth 复用 PostHog Desktop 应用 client_id（公开值）：US HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W，EU AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9；redirect_uri 必须为该应用注册值，PostHog 对 http://localhost 放行任意端口（RFC 8252 §7.3 扩展）",
+        "计费口径：posthog_code_credits = token 费用（按成本透传，无加价）+ 沙箱计算费；1 credit = $0.01；cloud 环境的任务才产生计算费"
+      ],
+      "docs": [
+        "docs/standards/模型网关插件开发指南.md"
+      ],
+      "uninstallSteps": [
+        "rm backend-go/internal/posthogcode/",
+        "manifest.go：删除 /api/posthogcode 与 /api/posthogcode/v1 前缀行",
+        "server.go：删除 import、posthogcode 字段、posthogcode.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartAutoRefresh、/api/posthogcode case",
+        "DB：DROP TABLE posthogcode_call_stats; DROP TABLE posthogcode_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'posthogcode-internal';",
+        "删除 src/js/pages/openai/plugins/PostHogCodePlugin.jsx",
+        "删除 src/assets/brand-icons/posthog.svg",
+        "Icons.jsx：移除 postHogIcon import 与 PostHogBrand 导出",
+        "OpenAIPluginsPanel.jsx：移除 posthogcode 注册条目（含 PostHogBrand 图标 import 与组件 import）"
+      ]
+    },
+    "lobsterai": {
+      "name": "LobsterAI",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "网易有道 LobsterAI（龙虾）转 OpenAI 兼容 API：OAuth 本地回环/粘贴回调登录、token 自动刷新、动态模型目录（/api/models/available）、强制流式对话转发（/api/proxy/v1/chat/completions）、额度批次与到期明细（/api/user/profile-summary）、每日自动签到（/api/client-activities，+100 积分/号/天）、账号失败冷却与选号、用量统计、网关端点一键接入。协议参考开源反代 lobsterai2api 原生实现。",
+      "backendDirs": ["backend-go/internal/lobsterai/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/lobsterai\", Module: \"lobsterai\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"LobsterAI 插件（网易有道龙虾转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/lobsterai/v1\", Module: \"lobsterai-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"LobsterAI 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/lobsterai\""],
+        "structField": "lobsterai   *lobsterai.Service",
+        "constructor": "lobsterai:   lobsterai.New(cfg),",
+        "injections": [
+          "server.lobsterai.SetProxyPoolSelector(server.proxypool)",
+          "server.lobsterai.StartCallStatsFlush(warmupCtx)",
+          "server.lobsterai.StartCheckinScheduler(warmupCtx)"
+        ],
+        "serveCases": ["case \"/api/lobsterai\", \"/api/lobsterai/v1\":"],
+        "authModules": []
+      },
+      "dbTables": ["lobsterai_settings", "lobsterai_call_stats", "lobsterai_usage_daily"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/LobsterAIPlugin.jsx"],
+        "registrations": [
+          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "lobsterai" }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": ["github.com/robfig/cron/v3"],
+      "systemContracts": [
+        "上游协议事实见 docs/standards/模型网关插件-lobsterai方案.md 第 3 节；协议层集中在 backend-go/internal/lobsterai/upstream.go"
+      ],
+      "docs": ["docs/standards/模型网关插件-lobsterai方案.md", "docs/standards/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/lobsterai/",
+        "manifest.go：删除 /api/lobsterai 与 /api/lobsterai/v1 前缀行",
+        "server.go：删除 import、lobsterai 字段、lobsterai.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartCheckinScheduler、/api/lobsterai case",
+        "go mod tidy（robfig/cron 若仍被其它模块使用则保留）",
+        "DB：DROP TABLE lobsterai_usage_daily; DROP TABLE lobsterai_call_stats; DROP TABLE lobsterai_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'lobsterai-internal';",
+        "删除 src/js/pages/openai/plugins/LobsterAIPlugin.jsx",
+        "OpenAIPluginsPanel.jsx：移除 lobsterai 注册条目（含 LobsterAIBrand 图标 import 与组件 import）",
+        "删除 docs/standards/模型网关插件-lobsterai方案.md"
       ]
     }
   }

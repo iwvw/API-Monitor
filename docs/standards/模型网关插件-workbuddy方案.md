@@ -83,12 +83,15 @@ backend-go/internal/workbuddy/
   "modelPrefix": "",             // 对外模型名前缀（如 "wb-"），转发时剥离
   "proxyPoolId": "",             // 复用「代理池」插件的出口
   "disabledModels": [],          // 不对外提供的模型
+  "autoCheckin": true,           // 每日自动签到（站点时区 9/21 点，含连登管家）；缺省 true
+  "autoActivity": true,          // 每日活跃上报（站点时区 10 点）；缺省 true
   "accounts": [                  // 扫码登录产生的凭据（含 token，仅服务端可见）
     {
       "id": "<uid>", "uid": "...", "enterpriseId": "...", "nickname": "...",
       "domain": "...", "accessToken": "...", "refreshToken": "...",
       "expiresAt": 1780000000, "disabled": false,
-      "createdAt": "...", "lastRefreshAt": "...", "lastError": ""
+      "createdAt": "...", "lastRefreshAt": "...", "lastCheckinAt": "...",
+      "credits": 0, "lastError": ""
     }
   ]
 }
@@ -125,6 +128,11 @@ backend-go/internal/workbuddy/
 | POST | `/api/workbuddy/accounts/{id}/toggle` | 启用/停用（停用即摘出转发与轮询） |
 | POST | `/api/workbuddy/accounts/{id}/refresh` | 立即刷新 token |
 | POST | `/api/workbuddy/accounts/{id}/test` | 单账号连通性测试 |
+| POST | `/api/workbuddy/accounts/{id}/checkin` | 立即签到（含连登兑换与抽奖，仅国内版） |
+| POST | `/api/workbuddy/accounts/{id}/activity` | 立即活跃上报（仅国内版） |
+| GET | `/api/workbuddy/accounts/{id}/streak` | 连登状态（只读，仅国内版） |
+| POST | `/api/workbuddy/checkin` | 全部账号立即签到 |
+| POST | `/api/workbuddy/activity` | 全部账号立即活跃上报 |
 | GET | `/api/workbuddy/accounts/export` | 导出账号（**含 token**，仅本机会话可下载） |
 | POST | `/api/workbuddy/accounts/import` | 导入账号（按 `id` 去重合并） |
 | GET | `/api/workbuddy/models` | `{success, upstreamReady, models:[{id, enabled, contextLength, maxOutputTokens, supportsImages, supportsReasoning}]}` |
@@ -602,3 +610,77 @@ CREATE TABLE IF NOT EXISTS workbuddy_usage_daily (
 - 端到端：两个账号（各自 token）连发三次，断言送入上游的 `Authorization` 依次是
   `Bearer t1 → t2 → t1`（零消耗取首个 → t1 消耗后让位 → 拉平后回到列表序），
   并断言两次消耗都记在各自账号名下。**这才是"账号真的轮换了"的证据**，而不是只看选号函数。
+
+
+---
+
+## 9. 每日签到 / 活跃上报 / 连登管家（2026-09-15 实测）
+
+登记包 `wb2api`（`linguo2625469/workbuddy2api-panel`）的定时任务能力后，本插件补齐了
+国内版账号的积分类运营：每日签到、对话活跃上报、连登档位兑换与抽奖。协议全部经真实账号实测。
+
+### 9.1 端点与语义
+
+| 用途 | 方法与路径 | 域 | 关键语义 |
+| --- | --- | --- | --- |
+| 每日签到 | `POST /v2/billing/meter/daily-checkin` | codebuddy.cn | 空 body；成功回 `data.credit` / `data.streak_days` |
+| 活跃上报 | `POST /v2/report` | codebuddy.cn | body 为 `chat_request_send` 事件数组，**必须带 userId** |
+| 连登状态 | `GET /activity/growth/streak` | workbuddy.cn | 天数、补签卡余额、各档位解锁/领取状态 |
+| 档位兑换 | `POST /activity/growth/redeem` | workbuddy.cn | body `{tier, client_token}`；未解锁 HTTP 403 |
+| 抽奖次数 | `GET /activity/growth/lottery/summary` | workbuddy.cn | `data.chances` |
+| 抽奖 | `POST /activity/growth/lottery/draw` | workbuddy.cn | body `{client_token}` |
+| 补签 | `POST /activity/growth/makeup-cards/use` | workbuddy.cn | body `{"target_date":"YYYY-MM-DD"}` |
+| 签到热力图 | `GET /activity/growth/heatmap` | workbuddy.cn | 补签前置判据（昨日是否有分） |
+
+连登/兑换/抽奖/补签属**官网成长中心**（workbuddy.cn），请求头需带 `x-client-platform: web`
+与 workbuddy.cn 的 Origin/Referer；签到与活跃上报属**计费域**（codebuddy.cn）。
+
+### 9.2 三条不可丢失的判定
+
+1. **重复签到是幂等成功**：上游对当天第二次签到返回 HTTP 400 + `code 10001`
+   「今天已签到，请明天再来」（另有 `14001` 变体）。必须按业务码识别为 already，
+   否则每天第二次调度都会记一条失败日志。
+2. **不能复用 `doJSON`**：它遇到 HTTP 4xx 直接返回「上游 HTTP N」，会丢掉信封里的业务码，
+   上述幂等判定随之失效。签到/连登这一类「用 4xx 表达预期状态」的端点统一走
+   `doMeterJSON`（保留 `status + code + msg`），错误类型 `upstreamCallError`。
+3. **国际版没有签到体系**：同接口返回 `code 10001`「签到活动未开启或已过期」，
+   且 `/activity/growth/streak` 直接 500。`checkinSupported` 只放行 `region == cn`，
+   国际版账号一律短路为 `skipped`，不发起任何上游请求。
+
+### 9.3 调度
+
+- `scheduler.go`：`cron.New(cron.WithLocation(站点时区))` + 每分钟 TZ watcher 重建
+  （对齐 CONTEXT.md 时区硬规则与 `internal/cronjobs`、lobsterai 的做法）。
+- 签到与连登管家 `5 9,21 * * *`（站点时区 9 点与 21 点各一次）；
+  活跃上报 `5 10 * * *`（每天一次即可，连登与 `first_buddy` 按天去重）。
+- `AutoCheckin` / `AutoActivity` 均为 `*bool`，缺省视为开启，显式 false 才关闭。
+- 账号间上报限速 800ms，避免同秒集中打上游。
+
+### 9.4 连登管家（签到排程末尾）
+
+每次签到成功后跑一次，幂等，未解锁/已领取静默跳过：
+
+1. 补签：昨日漏签且有补签卡余额时自动补上（连登一断就要重攒 7 天）；
+2. 兑换：遍历 7d/14d/28d，状态非 `locked`/`claimed` 的档位逐个兑换；
+3. 抽奖：按当前 chances 全部抽完，奖品写日志。
+
+### 9.5 管理面接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/workbuddy/checkin` | 全部账号立即签到 |
+| POST | `/api/workbuddy/activity` | 全部国内版账号立即活跃上报 |
+| POST | `/api/workbuddy/accounts/{id}/checkin` | 单账号签到（含连登管家） |
+| POST | `/api/workbuddy/accounts/{id}/activity` | 单账号活跃上报 |
+| GET | `/api/workbuddy/accounts/{id}/streak` | 连登状态（只读，前端 Popover 用） |
+
+账号表新增「签到」列：显示 `lastCheckinAt`，点击展开连登明细；国际版账号显示 `—`。
+账号行操作新增「签到」按钮（国际版禁用并说明原因）。
+
+### 9.6 验证
+
+- 单测 `checkin_test.go`：区域短路（国际版零上游请求）、10001/14001 幂等识别、
+  网络错误不误判幂等、签到成功解析、上报事件形状（userId/单元素数组）、
+  连登管家跳过 locked、兑换被拒不中断抽奖。
+- 上线前实测：`daily-checkin` 返回 `{"code":0,"data":{"credit":100,"streak_days":4}}`；
+  重复签到返回 400 + 10001；国际版 10001「活动未开启」。
