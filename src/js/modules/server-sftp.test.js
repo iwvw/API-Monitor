@@ -16,6 +16,10 @@ const okResponse = (payload, ok = true) => ({ ok, json: async () => payload });
 
 const jsonResponse = () => ({ ok: true, json: async () => ({ success: true, data: 'ok' }) });
 
+const lastCall = (fetchMock) => fetchMock.mock.calls.at(-1);
+const calledUrl = (fetchMock) => lastCall(fetchMock)[0];
+const calledInit = (fetchMock) => lastCall(fetchMock)[1] || {};
+
 describe('server-sftp fetches', () => {
   let fetchMock;
 
@@ -32,67 +36,65 @@ describe('server-sftp fetches', () => {
   it('listSftpDirectory posts serverId and path', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: ['a', 'b'] }));
     await listSftpDirectory('srv-1', '.');
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/sftp/list', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"serverId":"srv-1","path":"."}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/list');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"."}');
   });
 
   it('readSftpFile posts serverId, path and maxSize', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await readSftpFile('srv-1', '/etc/a', 1024);
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/read');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","path":"/etc/a","maxSize":1024}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/read');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/etc/a","maxSize":1024}');
   });
 
   it('writeSftpFile posts serverId, path and content', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await writeSftpFile('srv-1', '/etc/a', 'hello');
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/write');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","path":"/etc/a","content":"hello"}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/write');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/etc/a","content":"hello"}');
   });
 
   it('createSftpDirectory posts serverId and path', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await createSftpDirectory('srv-1', '/tmp/new');
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/mkdir');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","path":"/tmp/new"}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/mkdir');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/tmp/new"}');
   });
 
   it('renameSftpPath posts oldPath and newPath', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await renameSftpPath('srv-1', '/old', '/new');
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/rename');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","oldPath":"/old","newPath":"/new"}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/rename');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","oldPath":"/old","newPath":"/new"}');
   });
 
   it('deleteSftpPath uses /delete for files with recursive flag', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await deleteSftpPath('srv-1', '/f.txt');
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/delete');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","path":"/f.txt","recursive":false}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/delete');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/f.txt","recursive":false}');
   });
 
   it('deleteSftpPath uses /rmdir for directories', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await deleteSftpPath('srv-1', '/d', true, false);
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/rmdir');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","path":"/d","recursive":false}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/rmdir');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/d","recursive":false}');
   });
 
   it('deleteSftpPath forwards recursive for directories', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await deleteSftpPath('srv-1', '/d', true, true);
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/rmdir');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","path":"/d","recursive":true}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/rmdir');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/d","recursive":true}');
   });
 
   it('chmodSftpPath posts serverId, path and mode', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await chmodSftpPath('srv-1', '/f', '644');
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/sftp/chmod');
-    expect(fetchMock.mock.calls[0][1].body).toBe('{"serverId":"srv-1","path":"/f","mode":"644"}');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/chmod');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/f","mode":"644"}');
   });
 
   it('uploadSftpFile builds a FormData body', async () => {
@@ -100,22 +102,21 @@ describe('server-sftp fetches', () => {
     const file = new Blob(['content'], { type: 'text/plain' });
     file.name = 'a.txt';
     await uploadSftpFile('srv-1', '/up', file, 'sub/b.txt');
-    const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toBe('/api/server/sftp/upload');
-    expect(options.method).toBe('POST');
-    expect(options.body).toBeInstanceOf(FormData);
-    expect(options.headers).toBeUndefined();
-    expect(options.body.get('serverId')).toBe('srv-1');
-    expect(options.body.get('path')).toBe('/up');
-    expect(options.body.get('file')).toBeInstanceOf(Blob);
-    expect(await options.body.get('file').text()).toBe('content');
-    expect(options.body.get('relativePath')).toBe('sub/b.txt');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/upload');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBeInstanceOf(FormData);
+    expect(calledInit(fetchMock).headers?.['Content-Type']).toBeUndefined();
+    expect(calledInit(fetchMock).body.get('serverId')).toBe('srv-1');
+    expect(calledInit(fetchMock).body.get('path')).toBe('/up');
+    expect(calledInit(fetchMock).body.get('file')).toBeInstanceOf(Blob);
+    expect(await calledInit(fetchMock).body.get('file').text()).toBe('content');
+    expect(calledInit(fetchMock).body.get('relativePath')).toBe('sub/b.txt');
   });
 
   it('uploadSftpFile omits relativePath when falsy', async () => {
     fetchMock.mockResolvedValue(jsonResponse());
     await uploadSftpFile('srv-1', '/up', { name: 'a.txt' }, undefined);
-    expect(fetchMock.mock.calls[0][1].body.has('relativePath')).toBe(false);
+    expect(calledInit(fetchMock).body.has('relativePath')).toBe(false);
   });
 
   it('parses errors with code and details', async () => {

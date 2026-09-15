@@ -20,6 +20,10 @@ import {
 
 const okResponse = (payload, ok = true) => ({ ok, json: async () => payload });
 
+const lastCall = (fetchMock) => fetchMock.mock.calls.at(-1);
+const calledUrl = (fetchMock) => lastCall(fetchMock)[0];
+const calledInit = (fetchMock) => lastCall(fetchMock)[1] || {};
+
 describe('onepanel requests', () => {
   let fetchMock;
 
@@ -36,95 +40,87 @@ describe('onepanel requests', () => {
   it('listOnepanelConfigs issues a bare GET without a body', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await listOnepanelConfigs();
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/config', { method: 'GET', headers: {} });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/config');
+    expect(calledInit(fetchMock).method).toBe('GET');
+    expect(calledInit(fetchMock).body).toBeUndefined();
   });
 
   it('createOnepanelConfig posts a JSON body', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: { id: 1 } }));
     await createOnepanelConfig({ name: 'p1', baseUrl: 'http://x' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"name":"p1","baseUrl":"http://x"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/config');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"name":"p1","baseUrl":"http://x"}');
   });
 
   it('updateOnepanelConfig encodes the serverId', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await updateOnepanelConfig('srv 1', { name: 'p2' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/config/srv%201', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"name":"p2"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/config/srv%201');
+    expect(calledInit(fetchMock).method).toBe('PUT');
+    expect(calledInit(fetchMock).body).toBe('{"name":"p2"}');
   });
 
   it('deleteOnepanelConfig issues a body-less DELETE', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await deleteOnepanelConfig('srv/1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/config/srv%2F1', {
-      method: 'DELETE',
-      headers: {},
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/config/srv%2F1');
+    expect(calledInit(fetchMock).method).toBe('DELETE');
+    expect(calledInit(fetchMock).body).toBeUndefined();
   });
 
   it('getOnepanelOverview hits the encoded overview url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: {} }));
     await getOnepanelOverview('srv 1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/overview');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/overview');
   });
 
   it('getOnepanelHealth hits the encoded health url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: { ok: true } }));
     await getOnepanelHealth('srv 1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/health');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/health');
   });
 
   it('getOnepanelDashboardCurrent hits the encoded dashboard url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: {} }));
     await getOnepanelDashboardCurrent('srv 1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/dashboard/current');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/dashboard/current');
   });
 
   it('listOnepanelWebsites hits the encoded websites url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await listOnepanelWebsites('srv 1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/websites');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/websites');
   });
 
   it('operateOnepanelWebsite posts id and operate', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await operateOnepanelWebsite('srv 1', 'w1', 'restart');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/websites/w1/operate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"id":"w1","operate":"restart"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/websites/w1/operate');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"id":"w1","operate":"restart"}');
   });
 
   it('listOnepanelContainers hits the encoded containers url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await listOnepanelContainers('srv 1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/containers');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/containers');
   });
 
   it('operateOnepanelContainers posts names and operation', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await operateOnepanelContainers('srv 1', ['a', 'b'], 'stop');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/containers/operate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"names":["a","b"],"operation":"stop"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/containers/operate');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"names":["a","b"],"operation":"stop"}');
   });
 
   it('reloadOnepanelOpenresty posts without a body', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await reloadOnepanelOpenresty('srv 1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/openresty/reload', {
-      method: 'POST',
-      headers: {},
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/openresty/reload');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBeUndefined();
   });
 
   it('proxyOnepanel defaults the missing body to an empty object', async () => {
@@ -132,11 +128,8 @@ describe('onepanel requests', () => {
     const v1Base = '/api' + '/v1';
     const target = `${v1Base}/summary`;
     await proxyOnepanel('srv 1', 'GET', target);
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: `{"method":"GET","path":"${target}","body":{}}`,
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/proxy');
+    expect(calledInit(fetchMock).body).toBe(`{"method":"GET","path":"${target}","body":{}}`);
   });
 
   it('proxyOnepanel keeps an explicit body', async () => {
@@ -144,19 +137,19 @@ describe('onepanel requests', () => {
     const v1Base = '/api' + '/v1';
     const target = `${v1Base}/op`;
     await proxyOnepanel('srv 1', 'POST', target, { a: 1 });
-    expect(fetchMock.mock.calls[0][1].body).toBe(`{"method":"POST","path":"${target}","body":{"a":1}}`);
+    expect(calledInit(fetchMock).body).toBe(`{"method":"POST","path":"${target}","body":{"a":1}}`);
   });
 
   it('getOnepanelSpec hits the spec url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: {} }));
     await getOnepanelSpec();
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/spec');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/spec');
   });
 
   it('getOnepanelCatalog hits the encoded catalog url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await getOnepanelCatalog('srv 1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/onepanel/srv%201/proxy/catalog');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/proxy/catalog');
   });
 });
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from '../modules/toast.js';
+import { request } from '../modules/apiClient.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
@@ -23,9 +24,6 @@ import {
 const DEFAULT_PAGE_SIZE = '100';
 
 function DockerHubPage() {
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-  }), []);
   const { confirmPress } = useConfirmPress();
 
   const [activeTab, setActiveTab] = useState('repos');
@@ -51,19 +49,10 @@ function DockerHubPage() {
   const [searchCount, setSearchCount] = useState(0);
 
   const api = useCallback(async (path, options = {}) => {
-    const response = await fetch(path, {
-      ...options,
-      headers: {
-        ...getAuthHeaders(),
-        ...(options.headers || {}),
-      },
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || result.success === false) {
-      throw new Error(result.error || `请求失败: ${response.status}`);
-    }
+    const { method = 'GET', body, headers } = options;
+    const result = await request(method, path, body, { headers });
     return result.data !== undefined ? result.data : result;
-  }, [getAuthHeaders]);
+  }, []);
 
   const loadAccountRepositories = useCallback(async (accountId) => {
     setLoadingReposId(String(accountId));
@@ -122,10 +111,7 @@ function DockerHubPage() {
     }
     setSaving(true);
     try {
-      await api('/api/dockerhub/accounts', {
-        method: 'POST',
-        body: JSON.stringify({ username, token }),
-      });
+      await api('/api/dockerhub/accounts', { method: 'POST', body: { username, token } });
       toast.success('Docker Hub 账号已保存');
       setAccountDialogOpen(false);
       setAccountForm({ username: '', token: '' });
@@ -146,7 +132,7 @@ function DockerHubPage() {
   const verifyAccount = async (id) => {
     setVerifyId(String(id));
     try {
-      const result = await api(`/api/dockerhub/accounts/${id}/verify`, { method: 'POST', body: '{}' });
+      const result = await api(`/api/dockerhub/accounts/${id}/verify`, { method: 'POST', body: {} });
       if (result.valid) {
         toast.success('令牌有效');
       } else {
@@ -199,13 +185,7 @@ function DockerHubPage() {
     }
     setSearching(true);
     try {
-      const res = await fetch(`/api/dockerhub/search?query=${encodeURIComponent(keyword)}&page_size=25`, {
-        headers: getAuthHeaders(),
-      });
-      const result = await res.json().catch(() => ({}));
-      if (!res.ok || result.success === false) {
-        throw new Error(result.error || `搜索失败: ${res.status}`);
-      }
+      const result = await request('GET', `/api/dockerhub/search?query=${encodeURIComponent(keyword)}&page_size=25`);
       setSearchResults(Array.isArray(result.data) ? result.data : []);
       setSearchCount(result.count || 0);
     } catch (error) {

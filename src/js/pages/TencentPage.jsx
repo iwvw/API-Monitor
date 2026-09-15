@@ -8,6 +8,7 @@ import { Tabs, Toolbar } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
 import { dialog } from '../modules/dialog.js';
+import { get, post, put, del } from '../modules/apiClient.js';
 import { toast } from '../modules/toast.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -145,14 +146,9 @@ function TencentPage() {
   const [dnsColWidths, startDnsResize] = useTableResize([240, 100, 100, 180, 120]);
   const [accountsColWidths, startAccountsResize] = useTableResize([180, 240, 150, 280, 120]);
 
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-  }), []);
-
   const loadAccounts = useCallback(async () => {
     try {
-      const response = await fetch('/api/tencent/accounts', { headers: getAuthHeaders() });
-      const data = await response.json();
+      const data = await get('/api/tencent/accounts');
       if (Array.isArray(data)) {
         setAccounts(data);
         if (data.length > 0 && !selectedAccountId) setSelectedAccountId(String(data[0].id));
@@ -161,7 +157,7 @@ function TencentPage() {
       console.error('[Tencent] 加载账号失败:', error);
       toast.error('加载腾讯云账号失败');
     }
-  }, [getAuthHeaders, selectedAccountId]);
+  }, [selectedAccountId]);
 
   const accountImportInputRef = useRef(null);
   const [accountImporting, setAccountImporting] = useState(false);
@@ -169,9 +165,8 @@ function TencentPage() {
   const exportAccounts = async () => {
     if (accounts.length === 0) { toast.warning('暂无账号可导出'); return; }
     try {
-      const response = await fetch('/api/tencent/accounts/export', { headers: getAuthHeaders() });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success !== true) throw new Error(payload.error || '导出账号失败');
+      const payload = await get('/api/tencent/accounts/export', { fallbackMessage: '导出账号失败' });
+      if (payload.success !== true) throw new Error(payload.error || '导出账号失败');
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -197,13 +192,8 @@ function TencentPage() {
       const list = Array.isArray(data) ? data : (data.accounts || []);
       if (list.length === 0) throw new Error('文件中没有账号数据');
       if (!(await dialog.confirm(`确认导入 ${list.length} 个账号？已存在相同 SecretId 的账号会自动跳过。`))) return;
-      const response = await fetch('/api/tencent/accounts/import', {
-        method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts: list, overwrite: false }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success !== true) throw new Error(payload.error || '导入账号失败');
+      const payload = await post('/api/tencent/accounts/import', { accounts: list, overwrite: false }, { fallbackMessage: '导入账号失败' });
+      if (payload.success !== true) throw new Error(payload.error || '导入账号失败');
       await loadAccounts();
       toast.success(`导入完成：新增 ${payload.imported ?? 0} 个，跳过 ${payload.skipped ?? 0} 个`);
     } catch (error) {
@@ -216,41 +206,38 @@ function TencentPage() {
   const loadDnsData = useCallback(async (accountId) => {
     setLoadingData(true);
     try {
-      const response = await fetch(`/api/tencent/accounts/${accountId}/domains`, { headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await get(`/api/tencent/accounts/${accountId}/domains`);
       setDomains(extractTencentDomains(result));
     } catch {
       toast.error('加载域名列表失败');
     } finally {
       setLoadingData(false);
     }
-  }, [getAuthHeaders]);
+  }, []);
 
   const loadCvmData = useCallback(async (accountId) => {
     setLoadingData(true);
     try {
-      const response = await fetch(`/api/tencent/accounts/${accountId}/cvm`, { headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await get(`/api/tencent/accounts/${accountId}/cvm`);
       setCvmInstances(extractTencentInstances(result));
     } catch {
       toast.error('加载 CVM 实例失败');
     } finally {
       setLoadingData(false);
     }
-  }, [getAuthHeaders]);
+  }, []);
 
   const loadLighthouseData = useCallback(async (accountId) => {
     setLoadingData(true);
     try {
-      const response = await fetch(`/api/tencent/accounts/${accountId}/lighthouse`, { headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await get(`/api/tencent/accounts/${accountId}/lighthouse`);
       setLighthouseInstances(extractTencentInstances(result));
     } catch {
       toast.error('加载轻量服务器失败');
     } finally {
       setLoadingData(false);
     }
-  }, [getAuthHeaders]);
+  }, []);
 
   const refreshData = useCallback(() => {
     if (!selectedAccountId) return;
@@ -281,12 +268,9 @@ function TencentPage() {
     setSubmittingAccount(true);
     try {
       const isEdit = !!editingAccount;
-      const response = await fetch(isEdit ? `/api/tencent/accounts/${editingAccount.id}` : '/api/tencent/accounts', {
-        method: isEdit ? 'PUT' : 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(accountForm),
-      });
-      const result = await response.json();
+      const result = isEdit
+        ? await put(`/api/tencent/accounts/${editingAccount.id}`, accountForm, { fallbackMessage: '保存失败' })
+        : await post('/api/tencent/accounts', accountForm, { fallbackMessage: '保存失败' });
       if (!result.success && !result.id) throw new Error(result.error || '操作失败');
       toast.success(isEdit ? '账号已更新' : '账号已添加');
       setShowAddAccountModal(false);
@@ -303,8 +287,7 @@ function TencentPage() {
   const deleteAccount = async (account) => {
     if (!confirmPress(`account:${account.id}`, `删除腾讯云账号「${account.name}」`)) return;
     try {
-      const response = await fetch(`/api/tencent/accounts/${account.id}`, { method: 'DELETE', headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await del(`/api/tencent/accounts/${account.id}`, { fallbackMessage: '删除失败' });
       if (!result.success) throw new Error(result.error || '删除失败');
       toast.success('账号已删除');
       if (selectedAccountId === String(account.id)) setSelectedAccountId('');
@@ -337,12 +320,7 @@ function TencentPage() {
     if (!(await dialog.confirm(`确认${actionText}实例 ${instance.InstanceName || instance.InstanceId} 吗？`))) return;
     try {
       const endpoint = kind === 'lighthouse' ? 'lighthouse' : 'cvm';
-      const response = await fetch(`/api/tencent/accounts/${selectedAccountId}/${endpoint}/${instance.InstanceId}/control`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ action, region: instance._Region || instance.Region }),
-      });
-      const result = await response.json();
+      const result = await post(`/api/tencent/accounts/${selectedAccountId}/${endpoint}/${instance.InstanceId}/control`, { action, region: instance._Region || instance.Region }, { fallbackMessage: `${actionText}请求异常` });
       if (!result.success) throw new Error(result.error || `${actionText}失败`);
       toast.success(`${actionText}指令已下发`);
       setTimeout(refreshData, 2000);
