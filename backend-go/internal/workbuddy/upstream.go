@@ -140,9 +140,13 @@ type Account struct {
 	ExpiresAt int64 `json:"expiresAt,omitempty"`
 
 	Disabled bool `json:"disabled,omitempty"`
-	// CreatedAt / LastRefreshAt 为 RFC3339（UTC）。
+	// CreatedAt / LastRefreshAt / LastCheckinAt 为 RFC3339（UTC）。
 	CreatedAt     string `json:"createdAt,omitempty"`
 	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
+	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）。
+	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// Credits 是最近一次余额查询得到的剩余额度（签到/余额查询时回写，供账号表展示）。
+	Credits int64 `json:"credits,omitempty"`
 	// LastError 记录最近一次上游失败原因，便于排障。
 	LastError string `json:"lastError,omitempty"`
 }
@@ -163,6 +167,10 @@ type AccountView struct {
 	Available        bool   `json:"available"`
 	CallCount        int64  `json:"callCount"`
 	LastError        string `json:"lastError,omitempty"`
+	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）；国际版账号恒为空。
+	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// Credits 是最近一次查询得到的剩余额度；0 表示尚未查询过。
+	Credits int64 `json:"credits,omitempty"`
 	// LimitedModels 是该账号当前被上游**模型级限流**的模型（含恢复时刻）。
 	// 与 Available 独立：限流的只是这些模型，账号本身仍可用（其它模型照常转发）。
 	LimitedModels []ModelLimitView `json:"limitedModels,omitempty"`

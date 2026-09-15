@@ -41,7 +41,7 @@ type Balance struct {
 
 // endpointBilling 返回区域计费接口的 URL。
 func endpointBilling(region string) string {
-	return regionBillingHost(region) + "/v2/billing/meter/get-user-resource"
+	return billingBaseFor(region) + "/v2/billing/meter/get-user-resource"
 }
 
 // fetchBalance 查询单个账号的余额。国内走 codebuddy.cn、国际走 workbuddy.ai。
@@ -50,7 +50,7 @@ func (s *Service) fetchBalance(ctx context.Context, acc Account) (Balance, error
 		return Balance{}, fmt.Errorf("账号缺少 access token")
 	}
 	region := normalizeRegion(acc.Region)
-	referer := regionBillingHost(region)
+	referer := billingBaseFor(region)
 	headers := func(r *http.Request) {
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Accept", "application/json")

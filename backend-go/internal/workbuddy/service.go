@@ -41,17 +41,41 @@ type Settings struct {
 	ProxyPoolID string `json:"proxyPoolId,omitempty"`
 	// DisabledModels 被停用的模型（不在 /v1/models 对外提供）。
 	DisabledModels []string `json:"disabledModels"`
+	// AutoCheckin 每日自动签到开关（站点时区 9 点与 21 点各一次，含连登管家）。
+	// 指针语义：nil 视为开启（缺省开启），显式 false 才关闭——与 lobsterai 一致。
+	AutoCheckin *bool `json:"autoCheckin,omitempty"`
+	// AutoActivity 每日自动活跃上报开关（站点时区 10 点一次）。
+	AutoActivity *bool `json:"autoActivity,omitempty"`
 	// Accounts 扫码登录产生的账号凭据。含 token，仅服务端可见，
 	// 下发前端前必须经 toAccountView() 脱敏。
 	Accounts []Account `json:"accounts"`
 }
 
 func defaultSettings() Settings {
+	enabled := true
 	return Settings{
 		Enabled:        false,
 		DisabledModels: []string{},
+		AutoCheckin:    &enabled,
+		AutoActivity:   &enabled,
 		Accounts:       []Account{},
 	}
+}
+
+// autoCheckinEnabled 判定自动签到是否开启（缺省视为开启）。
+func (s *Settings) autoCheckinEnabled() bool {
+	if s.AutoCheckin == nil {
+		return true
+	}
+	return *s.AutoCheckin
+}
+
+// autoActivityEnabled 判定自动活跃上报是否开启（缺省视为开启）。
+func (s *Settings) autoActivityEnabled() bool {
+	if s.AutoActivity == nil {
+		return true
+	}
+	return *s.AutoActivity
 }
 
 // Service 是 WorkBuddy 插件后端。
@@ -61,6 +85,12 @@ type Service struct {
 
 	mu       sync.RWMutex
 	settings Settings
+
+	// accountsMu 串行化「读取整份设置 → 改账号列表 → 写回」的读改写序列：
+	// 登录回调、后台签到/刷新、手动签到与删除账号可能并发发生，
+	// 不加锁会互相覆盖丢账号或丢刚刷新的 token。
+	// 锁序固定为 accountsMu → mu，勿反向获取。
+	accountsMu sync.Mutex
 
 	// 模型目录缓存（每个区域各一份，来自各区域上游 /v3/config；目录与账号无关）。
 	// modelCache 是**合并视图**（供对外模型列表），modelCacheByRegion 保存各区域原始目录，
@@ -107,6 +137,11 @@ type Service struct {
 	locMu      sync.Mutex
 	locCache   *time.Location
 	locCacheAt time.Time
+
+	// 每日签到 / 活跃上报调度器（cron + 站点时区 watcher）。
+	schedStart sync.Once
+	schedMu    sync.Mutex
+	scheduler  *cronRuntime
 
 	// 账号失败冷却：accountID → 冷却截止时刻。上游返回可重试错误（429/5xx/网络/流中断）
 	// 后被写入，选号时跳过。纯内存态：重启即清空，避免把瞬时故障持久化。
@@ -300,6 +335,8 @@ func (s *Service) findAccount(id string) (Account, bool) {
 
 // upsertAccount 按账号 ID 新增或覆盖。
 func (s *Service) upsertAccount(ctx context.Context, acc Account) error {
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
 	st := s.Settings()
 	replaced := false
 	for i := range st.Accounts {
@@ -315,8 +352,10 @@ func (s *Service) upsertAccount(ctx context.Context, acc Account) error {
 	return s.SaveSettings(ctx, st)
 }
 
-// removeAccount 按账号 ID 删除。
+// removeAccount 按账号 ID 删除。整段读改写加 accountsMu，避免并发覆盖。
 func (s *Service) removeAccount(ctx context.Context, id string) error {
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
 	st := s.Settings()
 	out := st.Accounts[:0]
 	for _, a := range st.Accounts {
@@ -537,6 +576,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleTest(w, r)
 	case path == "/api/workbuddy/usage":
 		s.handleUsage(w, r)
+	case path == "/api/workbuddy/checkin":
+		s.handleCheckinAll(w, r)
+	case path == "/api/workbuddy/activity":
+		s.handleActivityAll(w, r)
 	case path == "/api/workbuddy/models":
 		s.handleModels(w, r)
 	case path == "/api/workbuddy/models/toggle":
@@ -566,6 +609,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.handleTestAccount(w, r, strings.TrimSuffix(rest, "/test"))
 		case strings.HasSuffix(rest, "/balance"):
 			s.handleAccountBalance(w, r, strings.TrimSuffix(rest, "/balance"))
+		case strings.HasSuffix(rest, "/checkin"):
+			s.handleCheckinAccount(w, r, strings.TrimSuffix(rest, "/checkin"))
+		case strings.HasSuffix(rest, "/activity"):
+			s.handleActivityAccount(w, r, strings.TrimSuffix(rest, "/activity"))
+		case strings.HasSuffix(rest, "/streak"):
+			s.handleAccountStreak(w, r, strings.TrimSuffix(rest, "/streak"))
 		case r.Method == http.MethodPut:
 			s.handleUpdateAccount(w, r, rest)
 		default:
@@ -626,6 +675,8 @@ func (s *Service) publicSettings() map[string]interface{} {
 		"modelPrefix":    st.ModelPrefix,
 		"proxyPoolId":    st.ProxyPoolID,
 		"disabledModels": st.DisabledModels,
+		"autoCheckin":    st.autoCheckinEnabled(),
+		"autoActivity":   st.autoActivityEnabled(),
 		"accounts":       views,
 	}
 }

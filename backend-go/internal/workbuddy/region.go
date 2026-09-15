@@ -41,6 +41,14 @@ var regionBillingHosts = map[string]string{
 	regionIntl: "https://www.workbuddy.ai",
 }
 
+// regionWebHosts 是各区域「官网成长中心」的基址。国内版成长中心在 workbuddy.cn
+// （与 billing 的 codebuddy.cn 不同域），国际版同域 workbuddy.ai。
+// 连登/兑换/抽奖/补签等 Web 端接口只在此域提供。
+var regionWebHosts = map[string]string{
+	regionCN:   "https://www.workbuddy.cn",
+	regionIntl: "https://www.workbuddy.ai",
+}
+
 // regionLabels 是下发前端的中文区域名。
 var regionLabels = map[string]string{
 	regionCN:   "国内版",
@@ -79,6 +87,11 @@ func regionUA(region string) string {
 // regionLabel 返回区域中文名。
 func regionLabel(region string) string {
 	return regionLabels[normalizeRegion(region)]
+}
+
+// regionWebHost 返回区域官网成长中心的基址。
+func regionWebHost(region string) string {
+	return regionWebHosts[normalizeRegion(region)]
 }
 
 // regionOfDomain 按账号 domain 判定区域：含 workbuddy.ai 视为国际版，否则国内版。

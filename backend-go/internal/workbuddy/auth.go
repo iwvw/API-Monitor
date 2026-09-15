@@ -26,6 +26,9 @@ func (s *Service) toAccountView(a Account) AccountView {
 		Available:    accountAvailable(a),
 		CallCount:    s.callDisplay(a.ID),
 		LastError:    a.LastError,
+		// 签到与余额状态：国际版账号无签到体系，LastCheckinAt 恒为空。
+		LastCheckinAt: a.LastCheckinAt,
+		Credits:       a.Credits,
 		// 模型级限流（ratelimit.go）：只是这些模型暂时不可用，账号本身仍可用。
 		LimitedModels: s.accountModelLimits(a.ID),
 	}
