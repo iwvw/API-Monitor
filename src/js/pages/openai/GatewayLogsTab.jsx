@@ -32,9 +32,9 @@ export function GatewayLogsTab({ analytics, endpoints }) {
   } = analytics;
 
   return (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex w-full min-w-0 flex-col gap-3">
           {/* 日志筛选区：状态 / 模型 / 端点，均即时生效 */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Select alignItemWithTrigger
               size="sm"
               className="w-28"
@@ -92,8 +92,11 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               </Button>
             )}
           </div>
-          {/* Logs table and pagination */}
-          <LayerCard className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
+          {/* 表格视口高度：日志 tab 单独做行内部滚动，外层限高让表头吸顶、行在
+              容器内滚动。偏移量 = 顶栏 58 + 吸顶 tab 栏 58 + PageStack 间距 16
+              + 筛选行 28（sm 控件 h-7）+ 卡片间距 12 + 底部 gutter 12 = 184。
+              该模块整体是整页滚动模式，父级没有确定高度，故此处按视口高度扣减。 */}
+          <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none">
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
               <Table layout="fixed" className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
 <colgroup>

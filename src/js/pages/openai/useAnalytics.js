@@ -63,7 +63,7 @@ export function useAnalytics(activeTab) {
   const [analyticsPage, setAnalyticsPage] = useState(1);
   const [analyticsPageSize, setAnalyticsPageSize] = useState(() => {
     const stored = Number(localStorage.getItem('openai_analytics_page_size'));
-    return [10, 20, 50, 100].includes(stored) ? stored : 20;
+    return [10, 20, 50, 100].includes(stored) ? stored : 50;
   });
   const [analyticsTotal, setAnalyticsTotal] = useState(0);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
