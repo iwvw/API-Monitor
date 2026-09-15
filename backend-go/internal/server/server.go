@@ -31,6 +31,7 @@ import (
 	githubmodule "github.com/iwvw/api-monitor/backend-go/internal/github"
 	"github.com/iwvw/api-monitor/backend-go/internal/huawei"
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
+	"github.com/iwvw/api-monitor/backend-go/internal/lobsterai"
 	"github.com/iwvw/api-monitor/backend-go/internal/m365"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
@@ -38,6 +39,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
+	"github.com/iwvw/api-monitor/backend-go/internal/posthogcode"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
 	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
@@ -82,6 +84,8 @@ type Server struct {
 	ds2api      *ds2api.Service
 	workbuddy   *workbuddy.Service
 	geminicli   *geminicli.Service
+	lobsterai   *lobsterai.Service
+	posthogcode *posthogcode.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -183,6 +187,8 @@ func newServer(cfg config.Config) (*Server, error) {
 		ds2api:      ds2api.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
 		geminicli:   geminicli.New(cfg),
+		lobsterai:   lobsterai.New(cfg),
+		posthogcode: posthogcode.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -216,6 +222,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.workbuddy.SetProxyPoolSelector(server.proxypool)
 	// Gemini CLI 插件可引用独立代理池作为出网出口。
 	server.geminicli.SetProxyPoolSelector(server.proxypool)
+	// LobsterAI 插件可引用独立代理池作为出网出口。
+	server.lobsterai.SetProxyPoolSelector(server.proxypool)
+	// PostHog Code 插件可引用独立代理池作为出网出口。
+	server.posthogcode.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
@@ -223,15 +233,28 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.openai.StartModelAutoRefresh(warmupCtx)
 	// 启动 Antigravity 配额刷新检测（开关由前端控制，关闭时后台静默跳过）。
 	server.antigravity.StartQuotaMonitor(warmupCtx)
+	// Antigravity 插件 access token 自动续期：Google refresh_token 换新 access_token，
+	// 避免过期后直到转发时才暴露 invalid_grant。
+	server.antigravity.StartAutoRefresh(warmupCtx)
 	// 启动两个插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
 	server.ds2api.StartCallStatsFlush(warmupCtx)
 	server.antigravity.StartCallStatsFlush(warmupCtx)
 	server.workbuddy.StartCallStatsFlush(warmupCtx)
 	// Gemini CLI 插件调用次数与用量定期落盘。
 	server.geminicli.StartCallStatsFlush(warmupCtx)
+	// LobsterAI 插件调用次数与用量定期落盘。
+	server.lobsterai.StartCallStatsFlush(warmupCtx)
+	// LobsterAI 插件每日自动签到调度（站点时区 9/21 点，关闭开关时后台静默跳过）。
+	server.lobsterai.StartCheckinScheduler(warmupCtx)
 	// WorkBuddy 插件 access token 自动刷新：定期把即将过期/已过期的账号提前换新，
 	// 避免直到转发时才暴露 token 失效。
 	server.workbuddy.StartAutoRefresh(warmupCtx)
+	// WorkBuddy 插件每日自动签到与活跃上报调度（站点时区 9/21 点签到、10 点活跃上报；
+	// 仅国内版账号参与，关闭开关时后台静默跳过）。
+	server.workbuddy.StartCheckinScheduler(warmupCtx)
+	// PostHog Code 插件调用次数定期落盘与 access token 自动刷新。
+	server.posthogcode.StartCallStatsFlush(warmupCtx)
+	server.posthogcode.StartAutoRefresh(warmupCtx)
 	return server, nil
 }
 
@@ -466,6 +489,17 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/totp",
 		"/api/cron",
 		"/api/scheduler",
+		// 插件账号导入导出会明文返回上游 OAuth 凭据（含 refresh token），
+		// 必须强制真实会话，不能由只读 API key 下载。
+		"/api/posthogcode/accounts/export",
+		"/api/posthogcode/accounts/import",
+		"/api/geminicli/accounts/export",
+		"/api/geminicli/accounts/import",
+		"/api/workbuddy/accounts/export",
+		"/api/workbuddy/accounts/import",
+		"/api/lobsterai/accounts/export",
+		"/api/lobsterai/accounts/import",
+		"/api/antigravity/accounts/export",
 	}
 	for _, prefix := range protectedPrefixes {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
@@ -648,6 +682,10 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.workbuddy.ServeHTTP(w, r)
 	case "/api/geminicli", "/api/geminicli/v1":
 		s.geminicli.ServeHTTP(w, r)
+	case "/api/lobsterai", "/api/lobsterai/v1":
+		s.lobsterai.ServeHTTP(w, r)
+	case "/api/posthogcode", "/api/posthogcode/v1":
+		s.posthogcode.ServeHTTP(w, r)
 	case "/api/subscription":
 		s.sub.ServeHTTP(w, r)
 	case "/sub/{token}":
