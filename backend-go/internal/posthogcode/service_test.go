@@ -414,3 +414,63 @@ func TestCallbackRedirectURIEnvOverride(t *testing.T) {
 		t.Fatalf("空环境变量应回落默认值，得到 %q", got)
 	}
 }
+
+// TestRefreshLinkedEndpointModelsSinglePrefix 端点 models 列必须带恰好一次前缀。
+// 回归「prefixModelNames(visibleModels())」把前缀叠成 phc-phc- 的问题。
+func TestRefreshLinkedEndpointModelsSinglePrefix(t *testing.T) {
+	ctx := context.Background()
+	s := newDBService(t)
+
+	// 注入模型目录缓存（catalog 回落到 modelCache，无需真实账号）。
+	s.modelMu.Lock()
+	s.modelCache = []ModelInfo{{ID: "@cf/zai-org/glm-5.2"}, {ID: "moonshotai/kimi-k3"}}
+	s.modelMu.Unlock()
+
+	// 设置前缀并写库。
+	st := s.Settings()
+	st.ModelPrefix = "phc-"
+	if err := s.SaveSettings(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+
+	// 播种 linked endpoint（最小化建表 + 插入）。
+	db, err := s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT OR REPLACE INTO openai_endpoints
+		(id, name, base_url, api_key, enabled, models, plugin_id)
+		VALUES (?, 'PostHog Code', 'http://127.0.0.1:3000/api/posthogcode/v1', 'k', 1, '[]', 'posthogcode')`, linkedEndpointID)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.refreshLinkedEndpointModels(ctx)
+
+	db, err = s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw string
+	if err := db.QueryRowContext(ctx, "SELECT models FROM openai_endpoints WHERE id = ?", linkedEndpointID).Scan(&modelsRaw); err != nil {
+		t.Fatal(err)
+	}
+	var models []string
+	if err := json.Unmarshal([]byte(modelsRaw), &models); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range models {
+		if strings.HasPrefix(m, "phc-phc-") {
+			t.Errorf("端点模型出现双前缀: %q", m)
+		}
+		if !strings.HasPrefix(m, "phc-") {
+			t.Errorf("端点模型应带一次前缀 phc-: %q", m)
+		}
+	}
+}

@@ -104,7 +104,9 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models := s.prefixModelNames(s.visibleModels(ctx))
+	// visibleModels 已带前缀，端点 models 列存对外（含前缀）命名空间，
+	// 不能再套 prefixModelNames，否则出现 phc-phc- 双前缀。
+	models := s.visibleModels(ctx)
 	modelsJSON, _ := json.Marshal(models)
 	disabledJSON, _ := json.Marshal(s.Settings().DisabledModels)
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -168,7 +170,8 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context) {
 	if info == nil {
 		return
 	}
-	models := s.prefixModelNames(s.visibleModels(ctx))
+	// visibleModels 已带前缀，直接写端点，不可再套 prefixModelNames（否则 phc-phc-）。
+	models := s.visibleModels(ctx)
 	modelsJSON, _ := json.Marshal(models)
 	_, _ = db.ExecContext(ctx, `UPDATE openai_endpoints SET models = ? WHERE id = ?`,
 		string(modelsJSON), linkedEndpointID)
