@@ -219,19 +219,19 @@ export function EndpointsTab({
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 min-w-0">
                                       <span
-                                        className="shrink-0 rounded px-1 text-center font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
+                                        className="inline-flex w-7 shrink-0 items-center justify-center rounded font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
                                         title="启用模型数"
                                       >
                                         {activeModelIdsForEndpoint(item).length}
                                       </span>
-                                      <div className="truncate font-semibold leading-5 text-kumo-strong" title={item.name}>
-                                        {item.name || '未命名端点'}
-                                      </div>
                                       {item.pluginId && (
                                         <Badge variant="info" className="shrink-0" title="由插件注册">
                                           插件
                                         </Badge>
                                       )}
+                                      <div className="truncate font-semibold leading-5 text-kumo-strong" title={item.name}>
+                                        {item.name || '未命名端点'}
+                                      </div>
                                     </div>
                                     <div className="truncate font-mono text-[10px] leading-4 text-kumo-subtle" title={item.baseUrl}>
                                       {item.baseUrl}

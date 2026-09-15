@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select } from '@cloudflare/kumo';
+import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
 import { CodeBuddyBrand, Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Upload, Download } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
@@ -26,6 +26,15 @@ const fmtUntil = unix => {
   const sec = Number(unix) || 0;
   if (sec <= 0) return '—';
   const d = new Date(sec * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// fmtStamp 把 RFC3339 时间戳格式化成本地「月-日 时:分」，用于签到列。
+const fmtStamp = value => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
   const p = n => String(n).padStart(2, '0');
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
@@ -101,6 +110,9 @@ export function WorkBuddyPlugin() {
   // 余额：accountId → Balance（含 error 字段），点按钮按需拉取。
   const [balances, setBalances] = useState({});
   const [balanceLoading, setBalanceLoading] = useState({});
+  // 连登状态：accountId → StreakFull（含 error 字段），点按钮按需拉取。
+  const [streaks, setStreaks] = useState({});
+  const [streakAccount, setStreakAccount] = useState(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [editAccount, setEditAccount] = useState(null);
   const [editName, setEditName] = useState('');
@@ -356,6 +368,72 @@ export function WorkBuddyPlugin() {
     }
   };
 
+  // 签到：单账号立即签到（含连登管家：兑换已解锁档位 + 抽奖）。
+  const checkinAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const r = data.result || {};
+      toast.success(`${account.nickname || account.id}：${r.message || '签到完成'}`);
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const checkinAll = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${API}/checkin`, { method: 'POST', headers: getAuthHeaders(), body: '{}' });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`已签到 ${ok}/${results.length} 个账号`);
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const activityAll = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${API}/activity`, { method: 'POST', headers: getAuthHeaders(), body: '{}' });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '上报失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`活跃已上报 ${ok}/${results.length} 个账号`);
+    } catch (e) {
+      toast.error(`活跃上报失败：${e.message}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // 连登状态：点按钮按需拉取，用 Popover 展示明细。
+  const loadStreak = async account => {
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/streak`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setStreaks(prev => ({ ...prev, [account.id]: data.streak }));
+    } catch (e) {
+      setStreaks(prev => ({ ...prev, [account.id]: { error: e.message } }));
+    }
+  };
+
   const deleteAccount = async account => {
     if (!confirmPress(`workbuddy-account-delete:${account.id}`, `删除账号 ${account.id}`)) return;
     try {
@@ -549,6 +627,12 @@ export function WorkBuddyPlugin() {
               disabled={saving}
             />
           </FieldRow>
+          <FieldRow title={<span title="站点时区 9 点与 21 点自动签到（含连登档位兑换与抽奖）。仅国内版账号参与，国际版无签到体系。">每日自动签到</span>}>
+            <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
+          </FieldRow>
+          <FieldRow title={<span title="站点时区 10 点自动上报一次对话活跃（点亮连登并解锁 first_buddy 任务）。仅国内版账号参与。">每日活跃上报</span>}>
+            <Switch checked={settings?.autoActivity !== false} onCheckedChange={v => update({ autoActivity: v })} />
+          </FieldRow>
           <div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-tight:flex-row cq-tight:items-center">
             <div className="min-w-0 shrink-0">
               <div className="truncate text-sm font-semibold text-kumo-strong" title="可用账号/账号总数，以及上游模型目录条数">
@@ -560,7 +644,7 @@ export function WorkBuddyPlugin() {
                 <span className="text-xs text-kumo-subtle">账号</span>
                 <Badge
                   variant={status?.availableCount ? 'success' : 'warning'}
-                  className="!text-[0.8em]"
+                  className="text-xs"
                   title="可参与转发的账号数（未停用且 token 未失效）"
                 >
                   {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
@@ -589,7 +673,7 @@ export function WorkBuddyPlugin() {
               {status?.upstreamUsage ? (
                 <Badge
                   variant={status.upstreamUsage.cacheReported ? 'success' : 'neutral'}
-                  className="!text-[0.8em]"
+                  className="text-xs"
                   title={
                     '上游最近一次 usage 的字段：\n' +
                     ((status.upstreamUsage.keys || []).join(', ') || '(空)') +
@@ -604,7 +688,7 @@ export function WorkBuddyPlugin() {
                 </Badge>
               ) : null}
               {status && !status.upstreamReady ? (
-                <Badge variant="warning" className="!text-[0.8em]">上游协议层未就绪</Badge>
+                <Badge variant="warning" className="text-xs">上游协议层未就绪</Badge>
               ) : null}
             </div>
           </div>
@@ -634,6 +718,12 @@ export function WorkBuddyPlugin() {
                   e.target.value = '';
                 }}
               />
+              <Button size="sm" variant="outline" disabled={refreshing} onClick={activityAll} title="对所有国内版账号立即上报一次对话活跃">
+                <TrendingUp className="h-3.5 w-3.5" /> 活跃上报
+              </Button>
+              <Button size="sm" variant="outline" disabled={refreshing} onClick={checkinAll} title="对所有国内版账号立即签到（含连登兑换与抽奖）">
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 全部签到
+              </Button>
               <Button size="sm" variant="primary" onClick={openLogin}>
                 <Plus className="h-3.5 w-3.5" /> 添加账号
               </Button>
@@ -642,13 +732,16 @@ export function WorkBuddyPlugin() {
         >
           {accounts.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[42rem] text-xs">
+              <Table layout="fixed" className="w-full min-w-[48rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
                     <Table.Head className="!w-16 !px-2 !py-1.5 text-center">区域</Table.Head>
                     <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">
+                      <span title="最近一次签到时刻（站点时区显示由浏览器决定）；点击查看连续登录天数与档位状态">签到</span>
+                    </Table.Head>
                     <Table.Head className="!w-28 !px-2 !py-1.5 text-center">余额</Table.Head>
                     <Table.Head className="!w-32 !px-2 !py-1.5 text-center">token</Table.Head>
                     <Table.Head className="!w-36 !px-2 !py-1.5 text-center">操作</Table.Head>
@@ -658,7 +751,7 @@ export function WorkBuddyPlugin() {
                   {accountGroups.map(group => (
                     <Fragment key={group.region}>
                       <Table.Row className="h-7 bg-kumo-recessed/40">
-                        <Table.Cell colSpan={7} className="!px-2.5 !py-1 text-[0.75em] font-medium text-kumo-subtle">
+                        <Table.Cell colSpan={8} className="!px-2.5 !py-1 font-medium text-kumo-subtle">
                           {group.label}（{group.items.length}）
                         </Table.Cell>
                       </Table.Row>
@@ -691,13 +784,116 @@ export function WorkBuddyPlugin() {
                                 <div className="truncate text-sm font-medium text-kumo-strong" title={a.id}>
                                   {a.nickname || a.uid || a.id}
                                 </div>
-                                <div className="truncate font-mono text-[0.8em] text-kumo-subtle">
+                                <div className="truncate font-mono text-kumo-subtle">
                                   {[a.uid, a.enterpriseId].filter(Boolean).join(' · ') || a.id}
                                 </div>
                               </div>
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
                               <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              {a.region === 'intl' ? (
+                                <span className="text-xs text-kumo-subtle" title="国际版无签到体系">—</span>
+                              ) : (
+                                <div className="flex justify-center">
+                                  <Popover
+                                    open={streakAccount?.id === a.id}
+                                    onOpenChange={open => {
+                                      if (open) {
+                                        setStreakAccount(a);
+                                        loadStreak(a);
+                                      } else if (streakAccount?.id === a.id) {
+                                        setStreakAccount(null);
+                                      }
+                                    }}
+                                  >
+                                    <Popover.Trigger
+                                      nativeButton={false}
+                                      render={
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="font-mono text-xs focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                                          title="点击查看连续登录天数与档位解锁状态"
+                                        >
+                                          {a.lastCheckinAt ? fmtStamp(a.lastCheckinAt) : '未签到'}
+                                        </Button>
+                                      }
+                                    />
+                                    <Popover.Content
+                                      side="bottom"
+                                      align="center"
+                                      className="w-72 shrink-0 px-3 pb-2 pt-2.5"
+                                    >
+                                      <div className="truncate text-xs font-semibold leading-normal text-kumo-strong">
+                                        {a.nickname || a.uid || a.id}
+                                      </div>
+                                      {(() => {
+                                        const st = streaks[a.id];
+                                        if (!st) {
+                                          return (
+                                            <div className="flex h-16 w-full items-center justify-center">
+                                              <Loader size="sm" />
+                                            </div>
+                                          );
+                                        }
+                                        if (st.error) {
+                                          return <div className="py-3 text-center text-xs text-kumo-danger">{st.error}</div>;
+                                        }
+                                        const tiers = st.redemption_status?.tiers || [];
+                                        // 28d 档同时也作为未知 tier 的兜底，与后端字段一一对应。
+                                        const TIER_STATUS_FIELD = {
+                                          '7d': 'tier_7d_status',
+                                          '14d': 'tier_14d_status',
+                                        };
+                                        const statusOf = tier =>
+                                          st.redemption_status?.[
+                                            TIER_STATUS_FIELD[tier] || 'tier_28d_status'
+                                          ];
+                                        const STATUS_LABEL = {
+                                          claimed: '已兑换',
+                                          locked: '未解锁',
+                                        };
+                                        const statusLabel = s => STATUS_LABEL[s] || '可兑换';
+                                        return (
+                                          <div className="mt-1.5">
+                                            <div className="flex items-center justify-between gap-3 py-1">
+                                              <span className="text-xs text-kumo-subtle">连续登录</span>
+                                              <span className="font-mono text-xs text-kumo-strong">
+                                                {st.streak?.days ?? 0} 天
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-3 py-1">
+                                              <span className="text-xs text-kumo-subtle">补签卡</span>
+                                              <span className="font-mono text-xs text-kumo-strong">
+                                                {st.makeup_cards?.balance ?? 0}/{st.makeup_cards?.max ?? 0}
+                                              </span>
+                                            </div>
+                                            <div className="mt-1.5 border-t border-kumo-line pt-1.5">
+                                              <div className="flex flex-col divide-y divide-kumo-line">
+                                                {tiers.map(t => (
+                                                  <div key={t.tier} className="flex items-center justify-between gap-3 py-1.5">
+                                                    <span className="text-xs text-kumo-strong">
+                                                      {t.days} 天档
+                                                    </span>
+                                                    <span className="font-mono text-xs text-kumo-subtle">
+                                                      {t.credit ? `+${t.credit}分 ` : ''}
+                                                      {t.energy ? `+${t.energy}能 ` : ''}
+                                                      {statusLabel(statusOf(t.tier))}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })()}
+                                    </Popover.Content>
+                                  </Popover>
+                                </div>
+                              )}
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
                               {(() => {
@@ -744,7 +940,7 @@ export function WorkBuddyPlugin() {
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
                               <div className="flex flex-wrap items-center justify-center gap-1">
-                                <Badge variant={meta.variant} className="!text-[0.8em]" title={a.lastError || undefined}>
+                                <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
                                   {meta.label}
                                   {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
                                 </Badge>
@@ -753,7 +949,7 @@ export function WorkBuddyPlugin() {
                                 {(a.limitedModels?.length ?? 0) > 0 && (
                                   <Badge
                                     variant="warning"
-                                    className="!text-[0.75em]"
+                                    className="text-xs"
                                     title={a.limitedModels
                                       .map(m => `${m.model} 限流至 ${fmtUntil(m.until)}`)
                                       .join('\n')}
@@ -765,6 +961,15 @@ export function WorkBuddyPlugin() {
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
                               <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={busyAccount === a.id || a.region === 'intl'}
+                                  title={a.region === 'intl' ? '国际版无签到体系' : '立即签到（含连登兑换与抽奖）'}
+                                  onClick={() => checkinAccount(a)}
+                                >
+                                  签到
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="secondary"
@@ -820,28 +1025,6 @@ export function WorkBuddyPlugin() {
           title="模型"
           icon={<Layers className="h-4 w-4 text-brand" />}
           bodyPadding="none"
-          actions={
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!models.length}
-                title="启用全部模型：同时写回网关端点的停用名单"
-                onClick={() => toggleAllModels(true)}
-              >
-                全部启用
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!models.length}
-                title="停用全部模型：网关会停止把请求路由到本插件，直连中继也会被拒"
-                onClick={() => toggleAllModels(false)}
-              >
-                全部停用
-              </Button>
-            </div>
-          }
         >
           {models.length ? (
             <div className="overflow-x-auto">
@@ -898,7 +1081,7 @@ export function WorkBuddyPlugin() {
                       </Table.Cell>
                       <Table.Cell className="!px-2.5 !py-1.5">
                         <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate font-mono text-[0.8em] text-kumo-strong" title={m.id}>
+                          <span className="truncate font-mono text-kumo-strong" title={m.id}>
                             {m.id}
                           </span>
                           {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
@@ -919,7 +1102,7 @@ export function WorkBuddyPlugin() {
                             </Badge>
                           )}
                         </div>
-                        <div className="truncate text-[0.75em] text-kumo-subtle">
+                        <div className="truncate text-kumo-subtle">
                           {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
                             .filter(Boolean)
                             .join(' · ') || ' '}
@@ -941,7 +1124,7 @@ export function WorkBuddyPlugin() {
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         {m.supportsImages ? (
-                          <Badge variant="success" className="!text-[0.8em]">支持</Badge>
+                          <Badge variant="success" className="text-xs">支持</Badge>
                         ) : (
                           <span className="text-xs text-kumo-subtle">—</span>
                         )}
@@ -1070,7 +1253,7 @@ export function WorkBuddyPlugin() {
                     {usage.byModel.map(row => (
                       <Table.Row key={row.model} className="h-9">
                         <Table.Cell className="!px-2.5 !py-1.5">
-                          <div className="truncate font-mono text-[0.8em] text-kumo-strong" title={row.model}>
+                          <div className="truncate font-mono text-kumo-strong" title={row.model}>
                             {row.model}
                           </div>
                         </Table.Cell>

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Textarea, Toolbar, Select } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
-import { Rocket, DeepSeekBrand, Settings as SettingsIcon, Plus, Upload, Download, RefreshCw, Trash, Edit } from '../../../components/Icons.jsx';
+import { Rocket, DeepSeekBrand, Settings as SettingsIcon, Plus, Upload, Download, RefreshCw, Trash, Edit, TrendingUp } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
-import { getAuthHeaders } from '../utils.js';
+import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/ds2api';
 
@@ -33,6 +33,8 @@ export function DS2APIPlugin() {
   const [status, setStatus] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [linkState, setLinkState] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [usageDays, setUsageDays] = useState(7);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -90,9 +92,23 @@ export function DS2APIPlugin() {
     }
   };
 
+  const loadUsage = async () => {
+    try {
+      const res = await fetch(`${API}/usage?days=${usageDays}`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setUsage(data);
+    } catch {
+      /* 保留上一次数据 */
+    }
+  };
+
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    loadUsage();
+  }, [usageDays]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +128,7 @@ export function DS2APIPlugin() {
     if (status?.engineUp) {
       loadAccounts();
       loadLink();
+      loadUsage();
     }
   }, [status?.engineUp]);
 
@@ -500,7 +517,7 @@ export function DS2APIPlugin() {
                           <div className="truncate text-sm font-medium text-kumo-strong" title={a.identifier}>
                             {a.name ? `${a.name}（${a.identifier}）` : a.identifier}
                           </div>
-                          <div className="truncate font-mono text-[0.8em] text-kumo-subtle">
+                          <div className="truncate font-mono text-kumo-subtle">
                             {[a.email, a.mobile].filter(Boolean).join(' · ') || a.identifier}
                           </div>
                         </div>
@@ -510,15 +527,15 @@ export function DS2APIPlugin() {
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         {a.banned ? (
-                          <Badge variant="danger" className="!text-[0.8em]">封禁</Badge>
+                          <Badge variant="danger" className="text-xs">封禁</Badge>
                         ) : a.disabled ? (
-                          <Badge variant="danger" className="!text-[0.8em]">禁用</Badge>
+                          <Badge variant="danger" className="text-xs">禁用</Badge>
                         ) : !a.available ? (
-                          <Badge variant="warning" className="!text-[0.8em]">
+                          <Badge variant="warning" className="text-xs">
                             冷却{cooldownLabel(a)}
                           </Badge>
                         ) : (
-                          <Badge variant="success" className="!text-[0.8em]">可用</Badge>
+                          <Badge variant="success" className="text-xs">可用</Badge>
                         )}
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
@@ -595,6 +612,152 @@ export function DS2APIPlugin() {
               </div>
             )}
           </SectionCard>
+
+          <SectionCard
+            title="用量"
+            icon={<TrendingUp className="h-4 w-4 text-brand" />}
+            bodyPadding="none"
+            actions={
+              <div className="flex items-center gap-2">
+                <Select
+                  size="sm"
+                  className="w-28"
+                  value={String(usageDays)}
+                  onValueChange={v => setUsageDays(Number(v))}
+                  items={[
+                    { value: '1', label: '今天' },
+                    { value: '7', label: '近 7 天' },
+                    { value: '30', label: '近 30 天' },
+                    { value: '90', label: '近 90 天' },
+                  ]}
+                />
+                <Button size="sm" variant="outline" onClick={loadUsage}>
+                  刷新
+                </Button>
+              </div>
+            }
+          >
+            {usage?.totals?.requests ? (
+              <>
+                <div className="grid grid-cols-2 gap-2 p-3 cq-sm:grid-cols-4">
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{usage.totals.requests}</div>
+                    <div className="text-[10px] text-kumo-subtle">调用次数</div>
+                  </div>
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{formatCompact(usage.totals.promptTokens)}</div>
+                    <div className="text-[10px] text-kumo-subtle">
+                      输入词元（缓存 {formatCompact(usage.totals.cachedTokens)}）
+                    </div>
+                  </div>
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{formatCompact(usage.totals.completionTokens)}</div>
+                    <div className="text-[10px] text-kumo-subtle">输出词元</div>
+                  </div>
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">
+                      {usage.totals.cacheHitRate > 0 ? `${(usage.totals.cacheHitRate * 100).toFixed(1)}%` : '—'}
+                    </div>
+                    <div className="text-[10px] text-kumo-subtle">缓存命中率</div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto border-t border-kumo-line">
+                  <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                    <Table.Header variant="compact">
+                      <Table.Row className="h-8">
+                        <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                        <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
+                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
+                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                      {usage.byAccount.map(row => (
+                        <Table.Row key={row.accountId} className="h-9">
+                          <Table.Cell className="!px-2.5 !py-1.5">
+                            <div className="truncate text-kumo-strong" title={row.accountId}>
+                              {row.accountName || row.accountId}
+                            </div>
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                            {row.requests}
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                            {formatCompact(row.promptTokens)}
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                            {formatCompact(row.completionTokens)}
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                            {formatCompact(row.cachedTokens)}
+                          </Table.Cell>
+                        </Table.Row>
+                      ))}
+                    </Table.Body>
+                  </Table>
+                </div>
+
+                <div className="overflow-x-auto border-t border-kumo-line">
+                  <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                    <Table.Header variant="compact">
+                      <Table.Row className="h-8">
+                        <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                        <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
+                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
+                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                      {usage.byModel.map(row => (
+                        <Table.Row key={row.model} className="h-9">
+                          <Table.Cell className="!px-2.5 !py-1.5">
+                            <div className="truncate font-mono text-kumo-strong" title={row.model}>
+                              {row.model}
+                            </div>
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                            {row.requests}
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                            {formatCompact(row.promptTokens)}
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                            {formatCompact(row.completionTokens)}
+                          </Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                            {formatCompact(row.cachedTokens)}
+                          </Table.Cell>
+                        </Table.Row>
+                      ))}
+                    </Table.Body>
+                  </Table>
+                </div>
+              </>
+            ) : (
+              <div className="p-4">
+                <EmptyState
+                  title="暂无用量"
+                  description={`近 ${usageDays} 天没有经本插件转发的调用记录。`}
+                />
+              </div>
+            )}
+          </SectionCard>
+
+          {linkState?.linked && linkState?.baseUrl ? (
+            <LayerCard className="min-w-0 p-3 shadow-none">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+                <Rocket className="h-3.5 w-3.5 text-brand" />
+                <span className="text-kumo-strong">已接入网关端点</span>
+                <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+                  {linkState.baseUrl}
+                </span>
+                <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+              </div>
+            </LayerCard>
+          ) : null}
       </div>
 
       <Dialog.Root open={addOpen} onOpenChange={setAddOpen}>

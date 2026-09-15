@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Switch, Select, Loader, Input, Dialog, Table, Badge, Toolbar } from '@cloudflare/kumo';
+import { Button, Switch, Select, Loader, Input, Dialog, Table, Badge, Toolbar, LayerCard } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
-import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit } from '../../../components/Icons.jsx';
+import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit, Rocket, TrendingUp } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
-import { getAuthHeaders } from '../utils.js';
+import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/antigravity';
 
@@ -48,6 +48,29 @@ const QUOTA_LABEL_ZH = {
 };
 const zhLabel = (value) => (value ? (QUOTA_LABEL_ZH[value] || value) : value);
 
+// tokenStateMeta 把后端下发的凭据状态映射为徽标样式与文案。
+const tokenStateMeta = state => {
+  switch (state) {
+    case 'valid':
+      return { variant: 'success', label: '正常' };
+    case 'expiring':
+      return { variant: 'warning', label: '即将过期' };
+    case 'expired':
+      return { variant: 'danger', label: '已过期' };
+    default:
+      return { variant: 'neutral', label: '未知' };
+  }
+};
+
+// fmtLeft 把剩余秒数压成紧凑的「Nh Nm」，用于徽标内的续期倒计时。
+const fmtLeft = seconds => {
+  const left = Number(seconds) || 0;
+  if (left <= 0) return '';
+  const h = Math.floor(left / 3600);
+  const m = Math.floor((left % 3600) / 60);
+  return h > 0 ? `${h}h${m}m` : `${Math.max(1, m)}m`;
+};
+
 // AntigravityPlugin：模型网关「插件中心」详情——Claude 订阅转 API。
 // Google 账号授权后，对外提供 Anthropic Messages 兼容端点。
 export function AntigravityPlugin() {
@@ -56,6 +79,8 @@ export function AntigravityPlugin() {
   const [status, setStatus] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [linkState, setLinkState] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [usageDays, setUsageDays] = useState(7);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [proxypoolPools, setProxypoolPools] = useState([]);
@@ -71,6 +96,7 @@ export function AntigravityPlugin() {
   const [editForm, setEditForm] = useState({ name: '', planType: '' });
   const [quota, setQuota] = useState(null);
   const [quotaLoading, setQuotaLoading] = useState(false);
+  const [accountsRefreshing, setAccountsRefreshing] = useState(false);
   const quotaPrevRef = useRef(null); // 上次 remainingFraction 快照，用于检测窗口是否在消耗
   const fileInputRef = useRef(null);
   const [prefixDraft, setPrefixDraft] = useState(null);
@@ -95,6 +121,17 @@ export function AntigravityPlugin() {
       if (res.ok && data?.success) setAccounts(data.accounts || []);
     } catch {
       /* 静默 */
+    }
+  };
+
+  // refreshAccounts 同时重拉账号列表与状态：后台自动续期会改动凭据状态，
+  // 只刷账号列表会留下过期的 authorized/enabledCount。
+  const refreshAccounts = async () => {
+    setAccountsRefreshing(true);
+    try {
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } finally {
+      setAccountsRefreshing(false);
     }
   };
 
@@ -130,6 +167,16 @@ export function AntigravityPlugin() {
     }
   };
 
+  const loadUsage = async () => {
+    try {
+      const res = await fetch(`${API}/usage?days=${usageDays}`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setUsage(data);
+    } catch {
+      /* 保留上一次数据 */
+    }
+  };
+
   const loadStatus = async () => {
     try {
       const res = await fetch(`${API}/status`, { headers: getAuthHeaders() });
@@ -161,7 +208,12 @@ export function AntigravityPlugin() {
   useEffect(() => {
     loadAccounts();
     loadLink();
+    loadUsage();
   }, []);
+
+  useEffect(() => {
+    loadUsage();
+  }, [usageDays]);
 
   useEffect(() => {
     if (status?.authorized) {
@@ -467,6 +519,16 @@ export function AntigravityPlugin() {
                   e.target.value = '';
                 }}
               />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={accountsRefreshing}
+                onClick={refreshAccounts}
+                title="重新拉取账号列表与凭据状态"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${accountsRefreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden cq-sm:inline">刷新</span>
+              </Button>
               <Button size="sm" variant="primary" onClick={startOAuth} disabled={oauthBusy}>
                 <Plus className="h-3.5 w-3.5" /> 添加账号
               </Button>
@@ -499,7 +561,7 @@ export function AntigravityPlugin() {
                         <div className="truncate text-sm font-medium text-kumo-strong">
                           {a.name ? `${a.name}（${a.email}）` : a.email}
                         </div>
-                        <div className="truncate font-mono text-[0.8em] text-kumo-subtle" title={a.projectId}>
+                        <div className="truncate font-mono text-kumo-subtle" title={a.projectId}>
                           {a.projectId}
                         </div>
                       </div>
@@ -511,9 +573,22 @@ export function AntigravityPlugin() {
                       <span className="truncate text-sm text-kumo-subtle" title={a.planType}>{a.planType || '-'}</span>
                     </Table.Cell>
                     <Table.Cell className="!px-2 !py-1.5 text-center">
-                      <Badge variant={a.disabled ? 'neutral' : 'success'} className="!text-[0.8em]">
-                        {a.disabled ? '停用' : '可用'}
-                      </Badge>
+                      {(() => {
+                        const meta = tokenStateMeta(a.tokenState);
+                        const label = a.disabled ? '停用' : meta.label;
+                        const variant = a.disabled ? 'neutral' : meta.variant;
+                        const tip = a.disabled
+                          ? '已手动停用'
+                          : a.lastError || (a.tokenState === 'expired' ? '凭据已过期，需要重新授权' : '');
+                        return (
+                          <Badge variant={variant} className="text-xs" title={tip || undefined}>
+                            {label}
+                            {!a.disabled && a.tokenState === 'expiring' && a.expiresInSeconds
+                              ? ` ${fmtLeft(a.expiresInSeconds)}`
+                              : ''}
+                          </Badge>
+                        );
+                      })()}
                     </Table.Cell>
                     <Table.Cell className="!px-2 !py-1.5 text-center">
                       <div className="flex items-center justify-center gap-1">
@@ -562,7 +637,7 @@ export function AntigravityPlugin() {
                 return (
                   <div key={ai} className="rounded-lg border border-kumo-line bg-kumo-base px-3 py-2.5">
                     <div className="mb-2 flex items-center justify-between gap-2">
-                      <Badge variant="neutral" className="!text-[0.8em]">{item.email || '默认账号'}</Badge>
+                      <Badge variant="neutral" className="text-xs">{item.email || '默认账号'}</Badge>
                       {item.error && <span className="shrink-0 text-xs text-kumo-subtle">{item.error}</span>}
                     </div>
                     {hasData ? (
@@ -627,6 +702,152 @@ export function AntigravityPlugin() {
             </div>
           )}
         </SectionCard>
+
+        <SectionCard
+          title="用量"
+          icon={<TrendingUp className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-2">
+              <Select
+                size="sm"
+                className="w-28"
+                value={String(usageDays)}
+                onValueChange={v => setUsageDays(Number(v))}
+                items={[
+                  { value: '1', label: '今天' },
+                  { value: '7', label: '近 7 天' },
+                  { value: '30', label: '近 30 天' },
+                  { value: '90', label: '近 90 天' },
+                ]}
+              />
+              <Button size="sm" variant="outline" onClick={loadUsage}>
+                刷新
+              </Button>
+            </div>
+          }
+        >
+          {usage?.totals?.requests ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 p-3 cq-sm:grid-cols-4">
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{usage.totals.requests}</div>
+                  <div className="text-[10px] text-kumo-subtle">调用次数</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{formatCompact(usage.totals.promptTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">
+                    输入词元（缓存 {formatCompact(usage.totals.cachedTokens)}）
+                  </div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{formatCompact(usage.totals.completionTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">输出词元</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">
+                    {usage.totals.cacheHitRate > 0 ? `${(usage.totals.cacheHitRate * 100).toFixed(1)}%` : '—'}
+                  </div>
+                  <div className="text-[10px] text-kumo-subtle">缓存命中率</div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byAccount.map(row => (
+                      <Table.Row key={row.accountId} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate text-kumo-strong" title={row.accountId}>
+                            {row.accountName || row.accountId}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byModel.map(row => (
+                      <Table.Row key={row.model} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate font-mono text-kumo-strong" title={row.model}>
+                            {row.model}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+            </>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无用量"
+                description={`近 ${usageDays} 天没有经本插件转发的调用记录。`}
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        {linkState?.linked && linkState?.baseUrl ? (
+          <LayerCard className="min-w-0 p-3 shadow-none">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+              <Rocket className="h-3.5 w-3.5 text-brand" />
+              <span className="text-kumo-strong">已接入网关端点</span>
+              <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+                {linkState.baseUrl}
+              </span>
+              <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+            </div>
+          </LayerCard>
+        ) : null}
       </div>
 
       <Dialog.Root open={oauthOpen} onOpenChange={setOauthOpen}>

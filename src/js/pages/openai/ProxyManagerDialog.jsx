@@ -1,8 +1,4 @@
-import { ArrowDown } from '@phosphor-icons/react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
-import { Input, Textarea } from '@cloudflare/kumo/components/input';
-import { Loader } from '@cloudflare/kumo';
+import { Button, Dialog, Input, Textarea, Loader } from '@cloudflare/kumo';
 import { formatDateTime } from '../../modules/utils.js';
 import {
   Plus,
@@ -15,6 +11,7 @@ import {
   Globe,
   LogList,
   ChevronDown,
+  Download,
 } from '../../components/Icons.jsx';
 import { parseProxyEntry } from './utils.js';
 import { PROXY_PREVIEW_LIMIT } from './constants.js';
@@ -54,20 +51,20 @@ export function ProxyManagerDialog({ endpointsApi }) {
   } = endpointsApi;
   return (
       <Dialog.Root open={proxyManagerOpen} onOpenChange={setProxyManagerOpen}>
-        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(38rem,calc(100vw-1rem))] !max-w-[min(38rem,calc(100vw-1rem))] flex-col overflow-hidden !p-0">
-          <div className="shrink-0 border-b border-kumo-line px-4 py-3 cq-sm:px-5 cq-sm:py-4">
-            <Dialog.Title className="text-sm font-semibold text-kumo-strong">
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(46rem,calc(100vw-2rem))] !max-w-[min(46rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
               出口代理池（{endpointForm.proxyPool?.length || 0}）
             </Dialog.Title>
-            <Dialog.Description className="mt-0.5 text-xs text-kumo-subtle">
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
               请求按池轮换出口 IP。适合 IP 敏感的源；留空则直连。
             </Dialog.Description>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 scrollbar-thin cq-sm:px-5 cq-sm:py-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-3 scrollbar-thin">
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 onClick={addEndpointProxy}
                 icon={<Plus className="h-3.5 w-3.5" />}
@@ -75,7 +72,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                 添加代理
               </Button>
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 onClick={() => setProxyBatchOpen(current => !current)}
                 icon={<LogList className="h-3.5 w-3.5" />}
@@ -83,11 +80,11 @@ export function ProxyManagerDialog({ endpointsApi }) {
                 批量添加
               </Button>
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 onClick={() => proxyFileInputRef.current?.click()}
                 disabled={proxyImportLoading}
-                icon={proxyImportLoading ? <Loader size="sm" /> : <ArrowDown className="h-3.5 w-3.5" />}
+                icon={proxyImportLoading ? <Loader size="sm" /> : <Download className="h-3.5 w-3.5" />}
               >
                 {proxyImportLoading ? '解析中...' : '导入文件'}
               </Button>
@@ -99,7 +96,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                 onChange={e => importProxyFile(e.target.files?.[0])}
               />
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 onClick={() => setSubscriptionUrlOpen(current => !current)}
                 icon={<Globe className="h-3.5 w-3.5" />}
@@ -107,7 +104,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                 订阅链接导入
               </Button>
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 onClick={probeAllProxies}
                 disabled={probingProxies}
@@ -118,7 +115,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
               </Button>
               {disabledProxyCount > 0 && (
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="secondary-destructive"
                   onClick={unbanAllProxies}
                   disabled={unbanningProxies}
@@ -143,7 +140,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                 />
                 <div className="flex items-center justify-end gap-2">
                   <Button
-                    size="xs"
+                    size="sm"
                     variant="ghost"
                     onClick={() => {
                       setProxyBatchText('');
@@ -153,7 +150,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                     取消
                   </Button>
                   <Button
-                    size="xs"
+                    size="sm"
                     variant="primary"
                     onClick={saveProxyBatch}
                     icon={<Check className="h-3.5 w-3.5" />}
@@ -173,17 +170,15 @@ export function ProxyManagerDialog({ endpointsApi }) {
                   aria-label="订阅 URL"
                   onChange={e => setSubscriptionUrl(e.target.value)}
                   placeholder="https://example.com/sub?token=xxx"
+                  title="后端将拉取订阅并解析其中的 socks/http 节点，导入为出口代理。仅本机/服务器能访问的节点可用。"
                   spellCheck={false}
                   autoComplete="off"
                   data-1p-ignore
                   className="w-full font-mono text-[0.85em]"
                 />
-                <p className="text-xs leading-snug text-kumo-subtle">
-                  后端将拉取订阅并解析其中的 socks/http 节点，导入为出口代理。仅本机/服务器能访问的节点可用。
-                </p>
                 <div className="flex items-center justify-end gap-2">
                   <Button
-                    size="xs"
+                    size="sm"
                     variant="ghost"
                     onClick={() => {
                       setSubscriptionUrl('');
@@ -193,7 +188,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                     取消
                   </Button>
                   <Button
-                    size="xs"
+                    size="sm"
                     variant="primary"
                     onClick={resolveSubscriptionProxies}
                     disabled={proxyImportLoading}
@@ -226,7 +221,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                           />
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-xs font-semibold text-kumo-strong">{batch.name}</div>
-                            <div className="truncate font-mono text-[11px] text-kumo-subtle">
+                            <div className="truncate font-mono text-xs text-kumo-subtle">
                               {batch.proxies?.length || 0} 条 · {formatDateTime(batch.createdAt)}
                             </div>
                           </div>
@@ -246,7 +241,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                             return (
                               <div key={proxy} className="flex min-w-0 items-center gap-2">
                                 <span
-                                  className={`min-w-0 flex-1 truncate rounded border px-2 py-1 font-mono text-[11px] ${
+                                  className={`min-w-0 flex-1 truncate rounded border px-2 py-1 font-mono text-xs ${
                                     disabled
                                       ? 'border-kumo-danger/50 bg-kumo-danger/10 text-kumo-danger'
                                       : 'border-kumo-line bg-kumo-recessed/25 text-kumo-subtle'
@@ -268,7 +263,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                             );
                           })}
                             {(batch.proxies || []).length > PROXY_PREVIEW_LIMIT && (
-                              <p className="px-1 text-[11px] text-kumo-subtle">
+                              <p className="px-1 text-xs text-kumo-subtle">
                                 仅预览前 {PROXY_PREVIEW_LIMIT} 条，共 {batch.proxies.length} 条
                               </p>
                             )}
@@ -289,7 +284,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                   </span>
                   <Button
                     shape="square"
-                    size="xs"
+                    size="sm"
                     variant="ghost"
                     aria-label={manualProxyExpanded ? '收起手动代理' : '展开手动代理'}
                     onClick={() => setManualProxyExpanded(current => !current)}
@@ -338,7 +333,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
                                 {entry.label}
                               </span>
                               {entry.host && entry.host !== entry.label && (
-                                <span className={`shrink-0 font-mono text-[11px] ${disabled ? 'text-kumo-danger/80' : 'text-kumo-subtle'}`}>
+                                <span className={`shrink-0 font-mono text-xs ${disabled ? 'text-kumo-danger/80' : 'text-kumo-subtle'}`}>
                                   {entry.host}
                                 </span>
                               )}
@@ -384,7 +379,7 @@ export function ProxyManagerDialog({ endpointsApi }) {
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:px-5">
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
             <Dialog.Close
               render={props => (
                 <Button size="sm" {...props} variant="secondary">
@@ -398,3 +393,5 @@ export function ProxyManagerDialog({ endpointsApi }) {
 
   );
 }
+
+

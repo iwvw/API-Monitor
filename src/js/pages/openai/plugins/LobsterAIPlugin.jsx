@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select } from '@cloudflare/kumo';
+import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
-import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, PieChart, Upload, Download } from '../../../components/Icons.jsx';
+import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Clock, Upload, Download } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 import { formatDateTime } from '../../../modules/utils.js';
 
-const API = '/api/geminicli';
+const API = '/api/lobsterai';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -19,12 +19,20 @@ const fmtLeft = seconds => {
   return h > 0 ? `${h}h${m}m` : `${Math.max(1, m)}m`;
 };
 
-// fmtResetTime 把上游的重置时刻（RFC3339）按站点时区格式化；解析失败原样返回。
-const fmtResetTime = value => {
+// fmtCredits 积分为小数（如 832.35），按量级保留 2~4 位，避免固定两位都显示成 0.00。
+const fmtCredits = value => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  if (n >= 100) return n.toFixed(1);
+  if (n >= 1) return n.toFixed(2);
+  return n.toFixed(4);
+};
+
+// fmtExpiry 格式化批次到期时刻。后端已把上游不带时区的时间归一化为
+// RFC3339（UTC），这里直接交给 formatDateTime 按站点时区展示。
+const fmtExpiry = value => {
   if (!value) return '';
-  const t = new Date(value);
-  if (Number.isNaN(t.getTime())) return value;
-  return formatDateTime(t);
+  return formatDateTime(value);
 };
 
 const tokenStateMeta = state => {
@@ -40,12 +48,6 @@ const tokenStateMeta = state => {
   }
 };
 
-const fmtContext = value => {
-  const n = Number(value) || 0;
-  if (n <= 0) return '—';
-  return n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
-};
-
 const fmtTokens = v => formatCompact(Number(v) || 0);
 const fmtRate = r => {
   const n = Number(r);
@@ -53,19 +55,20 @@ const fmtRate = r => {
   return `${(n * 100).toFixed(1)}%`;
 };
 
-// GeminiCliBrand 是 Gemini CLI 的简洁内联品牌图标（四角星形，无外部依赖）。
-export function GeminiCliBrand({ className }) {
+// LobsterAIBrand 是 LobsterAI（网易有道龙虾）的简洁内联品牌图标（爪形，无外部依赖）。
+export function LobsterAIBrand({ className }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
-      <path d="M12 2c.3 4.6 3.4 7.7 8 8-4.6.3-7.7 3.4-8 8-.3-4.6-3.4-7.7-8-8 4.6-.3 7.7-3.4 8-8Z" />
+      <path d="M7 4.2c1 0 1.8.9 1.8 2v3a3.2 3.2 0 0 1 6.4 0v-3c0-1.1.8-2 1.8-2s1.8.9 1.8 2v6.3a7.8 7.8 0 0 1-15.6 0V6.2c0-1.1.8-2 1.8-2Z" />
+      <path d="M12 20.6c-.5 0-.9-.3-1.1-.7l-1.5-2.4a.9.9 0 0 1 1.5-1l1.1 1.7 1.1-1.7a.9.9 0 0 1 1.5 1l-1.5 2.4c-.2.4-.6.7-1.1.7Z" opacity="0.7" />
     </svg>
   );
 }
 
-// GeminiCliPlugin：模型网关「插件中心」卡片——Google Gemini CLI 反代。
-// 通过 OAuth 登录 Google 账号后，插件把 Cloud Code Assist 上游包装成
-// OpenAI 兼容端点，可一键接入网关端点列表，由网关统一路由/计费/日志。
-export function GeminiCliPlugin() {
+// LobsterAIPlugin：模型网关「插件中心」卡片——网易有道 LobsterAI 反代。
+// 通过手机号/网页登录账号后，插件把 LobsterAI 上游包装成 OpenAI 兼容端点，
+// 可一键接入网关端点列表，由网关统一路由/计费/日志；并支持每日自动签到。
+export function LobsterAIPlugin() {
   const { isArmed, confirmPress } = useConfirmPress();
   const fileInputRef = useRef(null);
   const [settings, setSettings] = useState(null);
@@ -73,8 +76,6 @@ export function GeminiCliPlugin() {
   const [accounts, setAccounts] = useState([]);
   const [models, setModels] = useState([]);
   const [modelsReady, setModelsReady] = useState(true);
-  const [quota, setQuota] = useState(null);
-  const [quotaBusy, setQuotaBusy] = useState(false);
   const [linkState, setLinkState] = useState(null);
   const [usage, setUsage] = useState(null);
   const [usageDays, setUsageDays] = useState(7);
@@ -84,13 +85,18 @@ export function GeminiCliPlugin() {
   const [prefixDraft, setPrefixDraft] = useState(null);
   const [busyAccount, setBusyAccount] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
+  const [checkinBusy, setCheckinBusy] = useState(false);
   const [editAccount, setEditAccount] = useState(null);
   const [editName, setEditName] = useState('');
+  const [creditsAccount, setCreditsAccount] = useState(null);
+  // creditsSeqRef 用于丢弃快速切换账号时后到的过期响应。
+  const creditsSeqRef = useRef(0);
+  const [creditsData, setCreditsData] = useState(null);
+  const [creditsBusy, setCreditsBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [login, setLogin] = useState({ phase: 'idle', state: '', url: '', error: '' });
   const [callbackDraft, setCallbackDraft] = useState('');
   const [callbackBusy, setCallbackBusy] = useState(false);
-  const [projectDraft, setProjectDraft] = useState('');
 
   const load = async () => {
     try {
@@ -139,20 +145,8 @@ export function GeminiCliPlugin() {
     }
   };
 
-  const loadQuota = async (refresh = false) => {
-    setQuotaBusy(true);
+  const loadUsage = async () => {
     try {
-      const res = await fetch(`${API}/quota${refresh ? '?refresh=1' : ''}`, { headers: getAuthHeaders() });
-      const data = await res.json();
-      if (res.ok && data?.success) setQuota(data.accounts || []);
-    } catch {
-      /* 保留上一次快照 */
-    } finally {
-      setQuotaBusy(false);
-    }
-  };
-
-  const loadUsage = async () => {    try {
       const res = await fetch(`${API}/usage?days=${usageDays}`, { headers: getAuthHeaders() });
       const data = await res.json();
       if (res.ok && data?.success) setUsage(data);
@@ -176,7 +170,6 @@ export function GeminiCliPlugin() {
     loadStatus();
     loadModels();
     loadLink();
-    loadQuota();
   }, []);
 
   useEffect(() => {
@@ -205,7 +198,7 @@ export function GeminiCliPlugin() {
         if (!res.ok || !data?.success) throw new Error(data?.error || '轮询失败');
         if (data.status === 'success') {
           setLogin(prev => ({ ...prev, phase: 'success', error: '' }));
-          toast.success('Gemini CLI 登录成功');
+          toast.success('LobsterAI 登录成功');
           await Promise.all([loadAccounts(), loadStatus(), loadModels()]);
           setLoginOpen(false);
         }
@@ -222,7 +215,7 @@ export function GeminiCliPlugin() {
       const res = await fetch(`${API}/login/start`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ projectId: projectDraft.trim() }),
+        body: '{}',
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '发起登录失败');
@@ -255,7 +248,7 @@ export function GeminiCliPlugin() {
       if (!res.ok || !data?.success) throw new Error(data?.error || '完成登录失败');
       setLogin(prev => ({ ...prev, phase: 'success', error: '' }));
       setCallbackDraft('');
-      toast.success('Gemini CLI 登录成功');
+      toast.success('LobsterAI 登录成功');
       await Promise.all([loadAccounts(), loadStatus(), loadModels()]);
       setLoginOpen(false);
     } catch (e) {
@@ -316,7 +309,7 @@ export function GeminiCliPlugin() {
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
       toast.success(enabled ? '账号已启用' : '账号已停用');
-      await loadAccounts();
+      await Promise.all([loadAccounts(), loadStatus()]);
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -325,7 +318,7 @@ export function GeminiCliPlugin() {
   };
 
   const deleteAccount = async account => {
-    if (!confirmPress(`geminicli-account-delete:${account.id}`, `删除账号 ${account.id}`)) return;
+    if (!confirmPress(`lobsterai-account-delete:${account.id}`, `删除账号 ${account.id}`)) return;
     try {
       const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}`, {
         method: 'DELETE',
@@ -337,6 +330,92 @@ export function GeminiCliPlugin() {
       await Promise.all([loadAccounts(), loadStatus()]);
     } catch (e) {
       toast.error(`删除失败：${e.message}`);
+    }
+  };
+
+  const refreshAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '刷新失败');
+      toast.success('token 已刷新');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(`刷新失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const checkinAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const result = data.result || {};
+      if (result.status === 'success') {
+        toast.success(result.gained ? `签到成功，积分 +${result.gained}` : '签到成功');
+      } else {
+        toast.warning(result.message || '本次没有可领取的签到');
+      }
+      await Promise.all([loadAccounts(), loadModels()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const checkinAll = async () => {
+    setCheckinBusy(true);
+    try {
+      const res = await fetch(`${API}/checkin`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`已对 ${ok}/${results.length} 个账号执行签到`);
+      await Promise.all([loadAccounts(), loadModels()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setCheckinBusy(false);
+    }
+  };
+
+  const openCredits = async account => {
+    setCreditsAccount(account);
+    setCreditsData(null);
+    setCreditsBusy(true);
+    // 快速切换账号时，前一个请求的响应可能后到并覆盖当前展示，
+    // 故用请求序号丢弃过期响应。
+    const seq = ++creditsSeqRef.current;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/credits`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (seq !== creditsSeqRef.current) return;
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setCreditsData(data);
+    } catch (e) {
+      if (seq === creditsSeqRef.current) toast.error(`额度查询失败：${e.message}`);
+    } finally {
+      if (seq === creditsSeqRef.current) setCreditsBusy(false);
     }
   };
 
@@ -393,6 +472,26 @@ export function GeminiCliPlugin() {
     }
   };
 
+  const linkPlugin = async action => {
+    setLinkBusy(true);
+    try {
+      const res = await fetch(`${API}/link`, {
+        method: action === 'link' ? 'POST' : 'DELETE',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || (action === 'link' ? '接入失败' : '断开失败'));
+      setLinkState(data);
+      toast.success(action === 'link' ? '已接入模型网关端点列表' : '已从端点列表移除');
+      await loadModels();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
   const exportAccounts = () => window.open(`${API}/accounts/export`, '_blank');
 
   const importFile = file => {
@@ -418,22 +517,17 @@ export function GeminiCliPlugin() {
     reader.readAsText(file);
   };
 
-  const linkPlugin = async action => {
-    setLinkBusy(true);
+  const refreshCatalog = async () => {
     try {
-      const res = await fetch(`${API}/link`, {
-        method: action === 'link' ? 'POST' : 'DELETE',
-        headers: getAuthHeaders(),
-        body: '{}',
-      });
+      const res = await fetch(`${API}/models?refresh=1`, { headers: getAuthHeaders() });
       const data = await res.json();
-      if (!res.ok || !data?.success) throw new Error(data?.error || (action === 'link' ? '接入失败' : '断开失败'));
-      setLinkState(data);
-      toast.success(action === 'link' ? '已接入模型网关端点列表' : '已从端点列表移除');
-    } catch (e) {
-      toast.error(e.message);
-    } finally {
-      setLinkBusy(false);
+      if (res.ok && data?.success) {
+        setModels(data.models || []);
+        setModelsReady(!!data.upstreamReady);
+        toast.success('模型目录已刷新');
+      }
+    } catch {
+      toast.error('模型目录刷新失败');
     }
   };
 
@@ -459,24 +553,25 @@ export function GeminiCliPlugin() {
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <SectionCard title="Gemini CLI" icon={<GeminiCliBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
+        <SectionCard title="LobsterAI" icon={<LobsterAIBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
           <FieldRow title={<span title="关闭后 /v1/* 与网关端点接入都会拒绝服务">启用中继</span>}>
             <Switch checked={!!settings?.enabled} onCheckedChange={v => update({ enabled: v })} />
           </FieldRow>
           <FieldRow title={<span title="把本插件注册为模型网关端点，外部客户端经网关 /v1/chat/completions 路由到本中继">接入模型网关</span>}>
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={!!linkState?.linked}
-                disabled={linkBusy || !settings?.enabled}
-                onCheckedChange={checked => linkPlugin(checked ? 'link' : 'unlink')}
-              />
-            </div>
+            <Switch
+              checked={!!linkState?.linked}
+              disabled={linkBusy || !settings?.enabled}
+              onCheckedChange={checked => linkPlugin(checked ? 'link' : 'unlink')}
+            />
           </FieldRow>
-          <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 gcli-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
+          <FieldRow title={<span title="每日 9 点与 21 点自动为全部账号签到（+100 积分/号/天），关闭后仅可手动签到">每日自动签到</span>}>
+            <Switch checked={!!settings?.autoCheckin} onCheckedChange={v => update({ autoCheckin: v })} />
+          </FieldRow>
+          <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 lobster-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
             <Input
               size="sm"
               className="w-40"
-              placeholder="gcli-"
+              placeholder="lobster-"
               aria-label="模型前缀"
               value={prefixDraft ?? settings?.modelPrefix ?? ''}
               onChange={e => setPrefixDraft(e.target.value)}
@@ -484,8 +579,8 @@ export function GeminiCliPlugin() {
               disabled={saving}
             />
           </FieldRow>
-          <FieldRow title={<span title="可用账号/账号总数，以及上游模型目录条数">运行状态</span>}>
-            <div className="flex min-w-0 items-center gap-2">
+          <FieldRow title={<span title="可用账号/账号总数、处于失败冷却的账号数，以及上游模型目录条数">运行状态</span>}>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Badge
                 variant={status?.availableCount ? 'success' : 'warning'}
                 className="text-xs"
@@ -493,6 +588,11 @@ export function GeminiCliPlugin() {
               >
                 可用账号 {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
               </Badge>
+              {status?.coolingCount ? (
+                <Badge variant="warning" className="text-xs" title="因上游 429/5xx 被临时冷却的账号数">
+                  冷却 {status.coolingCount}
+                </Badge>
+              ) : null}
               <span className="text-xs text-kumo-subtle" title="上游模型目录条数">
                 模型 {status?.modelCount ?? 0}
               </span>
@@ -527,23 +627,26 @@ export function GeminiCliPlugin() {
                   e.target.value = '';
                 }}
               />
+              <Button size="sm" variant="outline" disabled={checkinBusy} onClick={checkinAll}>
+                <Clock className="h-3.5 w-3.5" /> 全部签到
+              </Button>
               <Button size="sm" variant="primary" onClick={openLogin}>
-                <Plus className="h-3.5 w-3.5" /> OAuth 登录
+                <Plus className="h-3.5 w-3.5" /> 账号登录
               </Button>
             </div>
           }
         >
           {accounts.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[46rem] text-xs">
+              <Table layout="fixed" className="w-full min-w-[54rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                    <Table.Head className="!w-64 !px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">积分</Table.Head>
                     <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
                     <Table.Head className="!w-32 !px-2 !py-1.5 text-center">token</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">可用</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -565,31 +668,133 @@ export function GeminiCliPlugin() {
                         <Table.Cell className="!px-2.5 !py-1.5">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium text-kumo-strong" title={a.id}>
-                              {a.nickname || a.email || a.id}
+                              {a.nickname || a.id}
                             </div>
-                            <div className="truncate font-mono text-kumo-subtle">
-                              {[a.email, a.projectId].filter(Boolean).join(' · ') || a.id}
-                            </div>
+                            <div className="truncate font-mono text-kumo-subtle">{a.id}</div>
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex justify-center">
+                            <Popover
+                              open={creditsAccount?.id === a.id}
+                              onOpenChange={open => {
+                                if (open) {
+                                  openCredits(a);
+                                } else if (creditsAccount?.id === a.id) {
+                                  setCreditsAccount(null);
+                                }
+                              }}
+                            >
+                              <Popover.Trigger
+                                nativeButton={false}
+                                render={
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    className="font-mono text-xs focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                                    title="点击查看各批次积分与到期时间"
+                                  >
+                                    {fmtCredits(a.credits)}
+                                  </Button>
+                                }
+                              />
+                              <Popover.Content
+                                side="bottom"
+                                align="center"
+                                className="w-80 shrink-0 px-3 pb-2 pt-2.5 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain scrollbar-thin"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="min-w-0 truncate text-xs font-semibold leading-normal text-kumo-strong">
+                                    {a.nickname || a.id}
+                                  </span>
+                                  {creditsAccount?.id === a.id && !creditsBusy ? (
+                                    <span className="shrink-0 font-mono text-xs text-kumo-subtle">
+                                      合计 {fmtCredits(creditsData?.credits)}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <div className="mt-1.5">
+                                  {creditsBusy ? (
+                                    <div className="flex h-16 w-full items-center justify-center">
+                                      <Loader size="sm" />
+                                    </div>
+                                  ) : creditsData?.items?.length ? (
+                                    <div className="flex flex-col divide-y divide-kumo-line">
+                                      {creditsData.items.map((it, idx) => (
+                                        <div
+                                          key={`${it.type}-${it.expiresAt}-${idx}`}
+                                          className="flex items-center justify-between gap-3 py-1.5"
+                                        >
+                                          <div className="min-w-0">
+                                            <div className="truncate text-xs text-kumo-strong" title={it.label || it.type}>
+                                              {it.label || it.type || '—'}
+                                            </div>
+                                            <div className="truncate font-mono text-[0.85em] text-kumo-subtle">
+                                              {fmtExpiry(it.expiresAt) || '无到期时间'}
+                                            </div>
+                                          </div>
+                                          <span className="shrink-0 font-mono text-xs text-kumo-strong">
+                                            {fmtCredits(it.creditsRemaining)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="py-3 text-center text-xs text-kumo-subtle">
+                                      暂无未过期的积分批次
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="mt-1.5 border-t border-kumo-line pt-1.5 pb-0.5">
+                                  <span className="text-[0.7em] leading-normal text-kumo-subtle">
+                                    {a.callCount ?? 0} 次调用 · 积分按批次到期，先到期的先扣
+                                  </span>
+                                </div>
+                              </Popover.Content>
+                            </Popover>
                           </div>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
-                            {meta.label}
-                            {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
-                          </Badge>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center">
-                          {a.available ? (
-                            <Badge variant="success" className="text-xs">可用</Badge>
-                          ) : (
-                            <span className="text-xs text-kumo-subtle">—</span>
-                          )}
+                          <div className="flex flex-col items-center gap-1">
+                            <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
+                              {meta.label}
+                              {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
+                            </Badge>
+                            {a.cooling ? (
+                              <Badge variant="warning" className="text-xs" title="上游返回 429/5xx，暂时跳过该账号">冷却中</Badge>
+                            ) : null}
+                          </div>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <div className="flex items-center justify-center gap-1">
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="outline"
+                              aria-label={`签到 ${a.id}`}
+                              title="立即签到"
+                              disabled={busyAccount === a.id}
+                              onClick={() => checkinAccount(a)}
+                            >
+                              <Clock className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="outline"
+                              aria-label={`刷新 ${a.id}`}
+                              title="刷新 token"
+                              disabled={busyAccount === a.id}
+                              onClick={() => refreshAccount(a)}
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                            </Button>
                             <Button
                               size="sm"
                               shape="square"
@@ -605,9 +810,9 @@ export function GeminiCliPlugin() {
                             <Button
                               size="sm"
                               shape="square"
-                              variant={isArmed(`geminicli-account-delete:${a.id}`) ? 'destructive' : 'secondary-destructive'}
-                              aria-label={isArmed(`geminicli-account-delete:${a.id}`) ? `再次确认删除 ${a.id}` : `删除 ${a.id}`}
-                              title={isArmed(`geminicli-account-delete:${a.id}`) ? '再次点击确认删除' : `删除 ${a.id}`}
+                              variant={isArmed(`lobsterai-account-delete:${a.id}`) ? 'destructive' : 'secondary-destructive'}
+                              aria-label={isArmed(`lobsterai-account-delete:${a.id}`) ? `再次确认删除 ${a.id}` : `删除 ${a.id}`}
+                              title={isArmed(`lobsterai-account-delete:${a.id}`) ? '再次点击确认删除' : `删除 ${a.id}`}
                               onClick={() => deleteAccount(a)}
                             >
                               <Trash className="h-3 w-3" />
@@ -624,7 +829,7 @@ export function GeminiCliPlugin() {
             <div className="p-4">
               <EmptyState
                 title="暂无账号"
-                description="点击「OAuth 登录」，在新标签页完成 Google 授权后自动加入账号列表。"
+                description="点击「账号登录」，在新标签页完成手机号/网页登录后自动加入账号列表。"
               />
             </div>
           )}
@@ -634,10 +839,15 @@ export function GeminiCliPlugin() {
           title="模型"
           icon={<Layers className="h-4 w-4 text-brand" />}
           bodyPadding="none"
+          actions={
+            <Button size="sm" variant="outline" onClick={refreshCatalog} title="从上游重新拉取模型目录">
+              <RefreshCw className="h-3.5 w-3.5" /> 刷新目录
+            </Button>
+          }
         >
           {models.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+              <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
@@ -652,8 +862,8 @@ export function GeminiCliPlugin() {
                       </div>
                     </Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">上下文</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出上限</Table.Head>
+                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">来源</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">倍率</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -678,15 +888,17 @@ export function GeminiCliPlugin() {
                         <div className="truncate font-mono text-kumo-strong" title={m.id}>
                           {m.id}
                         </div>
-                        {m.displayName && m.displayName !== m.id ? (
-                          <div className="truncate text-kumo-subtle">{m.displayName}</div>
+                        {m.name && m.name !== m.id ? (
+                          <div className="truncate text-kumo-subtle">{m.name}</div>
                         ) : null}
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.contextLength)}</span>
+                        <span className="text-xs text-kumo-subtle">{m.provider || '—'}</span>
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
+                        <span className="font-mono text-xs text-kumo-subtle" title="上游 costMultiplier，相对倍率，非货币单价">
+                          {m.costMultiplier ? `x${Number(m.costMultiplier).toFixed(2)}` : '—'}
+                        </span>
                       </Table.Cell>
                     </Table.Row>
                   ))}
@@ -703,64 +915,6 @@ export function GeminiCliPlugin() {
                     : '模型目录拉取失败，请点右上角刷新重试。'
                 }
               />
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          title="配额"
-          icon={<PieChart className="h-4 w-4 text-brand" />}
-          bodyPadding="none"
-          actions={
-            <Button size="sm" variant="secondary" disabled={quotaBusy} onClick={() => loadQuota(true)}>
-              {quotaBusy ? '刷新中…' : '刷新'}
-            </Button>
-          }
-        >
-          {quota && quota.length > 0 ? (
-            <div className="divide-y divide-kumo-line">
-              {quota.map(acc => (
-                <div key={acc.accountId} className="p-3">
-                  <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="text-kumo-strong">{acc.email || acc.accountId}</span>
-                    {acc.projectId ? <span className="font-mono text-kumo-subtle">· {acc.projectId}</span> : null}
-                  </div>
-                  {acc.error ? (
-                    <div className="text-xs text-kumo-subtle">{acc.error}</div>
-                  ) : acc.models?.length ? (
-                    <Table layout="fixed" className="w-full min-w-[34rem] text-xs">
-                      <Table.Header variant="compact">
-                        <Table.Row className="h-8">
-                          <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                          <Table.Head className="!w-28 !px-2 !py-1.5 text-center">剩余额度</Table.Head>
-                          <Table.Head className="!w-40 !px-2 !py-1.5 text-center">重置时间</Table.Head>
-                        </Table.Row>
-                      </Table.Header>
-                      <Table.Body>
-                        {acc.models.map(m => (
-                          <Table.Row key={m.id} className="h-9">
-                            <Table.Cell className="!px-2.5 !py-1.5">
-                              <span className="font-mono text-kumo-strong">{m.id}</span>
-                            </Table.Cell>
-                            <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                              {m.quota ? `${Math.round((m.quota.remainingFraction ?? 0) * 100)}%` : '—'}
-                            </Table.Cell>
-                            <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                              {m.quota?.resetTime ? fmtResetTime(m.quota.resetTime) : '—'}
-                            </Table.Cell>
-                          </Table.Row>
-                        ))}
-                      </Table.Body>
-                    </Table>
-                  ) : (
-                    <div className="text-xs text-kumo-subtle">暂无配额数据。</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-4">
-              <EmptyState title="暂无配额数据" description="添加可用账号后点「刷新」获取模型剩余额度与重置时间。" />
             </div>
           )}
         </SectionCard>
@@ -913,9 +1067,9 @@ export function GeminiCliPlugin() {
       <Dialog.Root open={loginOpen} onOpenChange={handleLoginOpenChange}>
         <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(30rem,calc(100vw-2rem))] !max-w-[min(30rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
           <div className="shrink-0 px-6 pt-5">
-            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">OAuth 登录 Gemini CLI</Dialog.Title>
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">登录 LobsterAI</Dialog.Title>
             <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
-              在新标签页完成 Google 授权。本机运行时凭据自动回填；部署在远程服务器时，授权后浏览器会跳到一个打不开的地址，把地址栏里的完整链接粘贴到下方即可。
+              在新标签页完成手机号/网页登录。本机运行时凭据自动回填；部署在远程服务器时，授权后浏览器会跳到一个打不开的地址，把地址栏里的完整链接粘贴到下方即可。
             </Dialog.Description>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
@@ -931,9 +1085,9 @@ export function GeminiCliPlugin() {
                   ) : login.phase === 'success' ? (
                     <span className="text-kumo-strong">登录成功。</span>
                   ) : login.phase === 'waiting' ? (
-                    <span className="text-kumo-subtle">已打开授权页面，正在等待授权完成…</span>
+                    <span className="text-kumo-subtle">已打开登录页面，正在等待登录完成…</span>
                   ) : (
-                    <span className="text-kumo-subtle">暂无授权链接</span>
+                    <span className="text-kumo-subtle">暂无登录链接</span>
                   )}
                 </div>
               )}
@@ -948,20 +1102,12 @@ export function GeminiCliPlugin() {
                   {login.url}
                 </a>
               ) : null}
-              <Input
-                size="sm"
-                className="w-full"
-                aria-label="Google Cloud 项目 ID"
-                placeholder="Google Cloud 项目 ID（可选，账号无自动分配项目时填写）"
-                value={projectDraft}
-                onChange={e => setProjectDraft(e.target.value)}
-              />
               {login.phase !== 'success' ? (
                 <Input
                   size="sm"
                   className="w-full"
                   aria-label="粘贴回调地址"
-                  placeholder="粘贴授权后地址栏里的完整回调链接（或授权码）"
+                  placeholder="粘贴登录后地址栏里的完整回调链接（或授权码）"
                   value={callbackDraft}
                   onChange={e => setCallbackDraft(e.target.value)}
                 />
@@ -971,7 +1117,7 @@ export function GeminiCliPlugin() {
           <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
             <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
             <Button size="sm" variant="secondary" disabled={login.phase === 'success'} onClick={startLogin}>
-              用当前项目 ID 重新发起授权
+              重新发起登录
             </Button>
             <Button
               size="sm"
@@ -1009,6 +1155,7 @@ export function GeminiCliPlugin() {
           </div>
         </Dialog>
       </Dialog.Root>
+
     </div>
   );
 }

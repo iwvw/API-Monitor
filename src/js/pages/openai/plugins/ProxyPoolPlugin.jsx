@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Switch, Select, Loader, Textarea, Input, Dialog, Table, LayerCard, Badge } from '@cloudflare/kumo';
+import { Button, Loader, Textarea, Input, Dialog, Table, LayerCard, Badge } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
 import { Globe, Plus, RefreshCw, Trash, Upload } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
@@ -238,42 +238,44 @@ export function ProxyPoolPlugin() {
 
       <div className="flex min-w-0 flex-col gap-4">
         {/* 池列表 */}
-        <LayerCard className="min-w-0 p-0 shadow-none">
+        <LayerCard className="min-w-0 overflow-hidden p-0 shadow-none">
           {pools?.length ? (
-            <Table layout="fixed" className="w-full text-xs">
-              <Table.Header variant="compact">
-                <Table.Row className="h-8">
-                  <Table.Head className="!px-2.5 !py-1.5">代理池</Table.Head>
-                  <Table.Head className="!w-16 !px-2 !py-1.5 text-center">出口</Table.Head>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {pools.map(p => {
-                  const st = states[p.id] || [];
-                  const blocked = st.filter(x => x.cooldownUntil || x.rateLimitedUntil || x.sunkUntil).length;
-                  return (
-                    <Table.Row
-                      key={p.id}
-                      variant={p.id === selectedId ? 'selected' : 'default'}
-                      className="h-10 cursor-pointer"
-                      onClick={() => setSelectedId(p.id)}
-                    >
-                      <Table.Cell className="!px-2.5 !py-1.5">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold leading-5 text-kumo-strong">{p.name || p.id}</div>
-                          <div className="truncate font-mono text-[10px] leading-4 text-kumo-subtle">{p.id}</div>
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <Badge variant={blocked > 0 ? 'warning' : 'neutral'} title={`${blocked} 个禁用/冷却`}>
-                          {p.proxies?.length || 0}
-                        </Badge>
-                      </Table.Cell>
-                    </Table.Row>
-                  );
-                })}
-              </Table.Body>
-            </Table>
+            <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
+              <Table layout="fixed" className="w-full min-w-[32rem] text-xs">
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!px-2.5 !py-1.5">代理池</Table.Head>
+                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">出口</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {pools.map(p => {
+                    const st = states[p.id] || [];
+                    const blocked = st.filter(x => x.cooldownUntil || x.rateLimitedUntil || x.sunkUntil).length;
+                    return (
+                      <Table.Row
+                        key={p.id}
+                        variant={p.id === selectedId ? 'selected' : 'default'}
+                        className="h-10 cursor-pointer"
+                        onClick={() => setSelectedId(p.id)}
+                      >
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium leading-5 text-kumo-strong">{p.name || p.id}</div>
+                            <div className="truncate font-mono text-xs leading-4 text-kumo-subtle">{p.id}</div>
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <Badge variant={blocked > 0 ? 'warning' : 'neutral'} className="text-xs" title={`${blocked} 个禁用/冷却`}>
+                            {p.proxies?.length || 0}
+                          </Badge>
+                        </Table.Cell>
+                      </Table.Row>
+                    );
+                  })}
+                </Table.Body>
+              </Table>
+            </div>
           ) : (
             <div className="p-4">
               <EmptyState title="暂无代理池" description="新建一个可复用的出口代理池。" />
@@ -311,7 +313,7 @@ export function ProxyPoolPlugin() {
                 </>
               }
             >
-              <FieldRow title="代理列表" description={`${selected.proxies?.length || 0} 个出口，每行一个，支持 http/https/socks5`}>
+              <FieldRow title={<span title={`${selected.proxies?.length || 0} 个出口，每行一个，支持 http/https/socks5`}>代理列表</span>}>
                 <div className="flex min-w-0 items-center gap-1.5">
                   <Button size="sm" variant="outline" onClick={() => setBatchOpen(o => !o)}>
                     批量添加
@@ -380,20 +382,20 @@ export function ProxyPoolPlugin() {
                   const disabled = st && (st.cooldownUntil || st.rateLimitedUntil || st.sunkUntil);
                   return (
                     <div key={i} className="flex items-center justify-between gap-2 border-b border-kumo-line/50 py-1.5 last:border-b-0">
-                      <span className="min-w-0 flex-1 truncate font-mono text-[0.8em] text-kumo-strong" title={p}>{p}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-kumo-strong" title={p}>{p}</span>
                       <span className="flex shrink-0 items-center gap-2">
-                        {disabled && <Badge variant="warning" className="!text-[0.8em]">禁用</Badge>}
+                        {disabled && <Badge variant="warning" className="text-xs">禁用</Badge>}
                         {reachable !== undefined && (
-                          <Badge variant={reachable ? 'success' : 'danger'} className="!text-[0.8em]">
+                          <Badge variant={reachable ? 'success' : 'danger'} className="text-xs">
                             {reachable ? '可达' : '失败'}
                           </Badge>
                         )}
                         {exitIP && (
-                          <span className="truncate font-mono text-[10px] text-kumo-subtle" title={`出口 IP ${exitIP}`}>
+                          <span className="truncate font-mono text-xs text-kumo-subtle" title={`出口 IP ${exitIP}`}>
                             {exitIP}
                           </span>
                         )}
-                        {ms > 0 && <span className="font-mono text-[10px] text-kumo-subtle">{ms}ms</span>}
+                        {ms > 0 && <span className="font-mono text-xs text-kumo-subtle">{ms}ms</span>}
                       </span>
                     </div>
                   );
@@ -401,9 +403,9 @@ export function ProxyPoolPlugin() {
               </div>
             </SectionCard>
           ) : (
-            <SectionCard title="代理池" description="选择左侧代理池查看详情。">
+            <SectionCard title="代理池">
               <div className="p-4">
-                <span className="text-xs text-kumo-subtle">被端点或插件引用后，出口按池轮换并共享冷却/429 禁用状态。</span>
+                <span className="text-xs text-kumo-subtle">选择左侧代理池查看详情。被端点或插件引用后，出口按池轮换并共享冷却/429 禁用状态。</span>
               </div>
             </SectionCard>
           )}
@@ -430,7 +432,7 @@ export function ProxyPoolPlugin() {
                 onChange={e => setForm(f => ({ ...f, id: e.target.value }))}
                 disabled={dialog?.mode === 'edit'}
                 placeholder="如：gemini-pool、worker-pool"
-                className="w-full text-kumo-strong font-mono text-[0.9em]"
+                className="w-full font-mono text-xs text-kumo-strong"
               />
               <Input
                 size="sm"
@@ -439,7 +441,7 @@ export function ProxyPoolPlugin() {
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="可读名称"
-                className="w-full text-kumo-strong text-[0.9em]"
+                className="w-full text-xs text-kumo-strong"
               />
               <div>
                 <div className="mb-1.5 text-sm font-semibold text-kumo-strong">代理列表</div>

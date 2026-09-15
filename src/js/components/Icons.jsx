@@ -152,6 +152,7 @@ import tencentCloudIcon from '../../assets/brand-icons/tencentcloud.svg';
 import codeBuddyIcon from '../../assets/brand-icons/codebuddy.svg';
 import antigravityIcon from '../../assets/brand-icons/antigravity.svg';
 import deepSeekIcon from '../../assets/brand-icons/deepseek.svg';
+import postHogIcon from '../../assets/brand-icons/posthog.svg';
 
 const createAssetIcon = (asset, label) => {
   const AssetIcon = ({ className = '', style, ...props }) => (
@@ -272,6 +273,7 @@ export const TencentCloudBrand = createAssetIcon(tencentCloudIcon, 'TencentCloud
 export const CodeBuddyBrand = createAssetIcon(codeBuddyIcon, 'CodeBuddy');
 export const AntigravityBrand = createAssetIcon(antigravityIcon, 'Antigravity');
 export const DeepSeekBrand = createAssetIcon(deepSeekIcon, 'DeepSeek');
+export const PostHogBrand = createAssetIcon(postHogIcon, 'PostHog');
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 
