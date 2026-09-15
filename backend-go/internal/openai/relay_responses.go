@@ -698,85 +698,23 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, chosenIndex, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
-	if !found {
-		s.recordRelayError(RelayErrorRecord{
-			Route: "responses", Kind: "no_endpoint",
-			Model: model, Stream: stream, ClientIP: clientIP,
-			ElapsedMs: time.Since(requestStarted).Milliseconds(),
-			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
-		})
-		// 候选池为空属网关自身状态，仍写入调用日志（含报错信息），便于日志与 AI 排障。
-		errBody, _ := json.Marshal(map[string]interface{}{
-			"error": map[string]string{
-				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
-				"type":    "service_unavailable",
-			},
-		})
-		s.recordAnalyticsKey(ctx, "responses", "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
-			Kind:     "no_endpoint",
-			Message:  fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
-			Response: errorResponseForLog(errBody, http.StatusServiceUnavailable),
-		})
-		response.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{
-			"error": map[string]string{
-				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
-				"type":    "service_unavailable",
-			},
-		})
+	admission := s.admitGatewayRequest(ctx, db, admissionRequest{
+		Route:            "responses",
+		Model:            model,
+		Stream:           stream,
+		TargetEndpointID: targetEndpointID,
+		SessionKey:       sessionKey,
+		ClientIP:         clientIP,
+		Started:          requestStarted,
+	})
+	if admission.Rejected {
+		writeAdmissionRejection(w, admission)
 		return
 	}
-
-	// 记录是否经由本端点配置的代理池出网。先于网关密钥限制等分支计算，
-	// 使这些早退路径的调用日志也能正确标注代理。
-	viaProxy := 0
-	if len(selected.ProxyPool) > 0 {
-		viaProxy = 1
-	}
-
-	// 端点白名单候选过滤：failover 循环逐候选尝试时不再校验白名单，必须在
-	// 候选组装阶段过滤，防止白名单内端点故障时把请求打到白名单外端点。
-	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
-		filtered, newChosen := filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates, chosenIndex)
-		if len(filtered) == 0 {
-			s.rejectDisallowedEndpoints(ctx, w, "responses", model, stream, clientIP, viaProxy, requestStarted)
-			return
-		}
-		endpointCandidates = filtered
-		chosenIndex = newChosen
-		selected = endpointCandidates[chosenIndex]
-	}
-
-	// 网关密钥限制：模型白名单 / 端点白名单 / token 配额。
-	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
-		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
-			s.recordRelayError(RelayErrorRecord{
-				Route: "responses", Kind: "blocked",
-				Endpoint: selected.Name, EndpointID: selected.ID,
-				Model: model, Stream: stream, ClientIP: clientIP,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     limitErr,
-			})
-			errBody, _ := json.Marshal(map[string]interface{}{
-				"error": map[string]string{
-					"message": limitErr,
-					"type":    "forbidden",
-				},
-			})
-			s.recordAnalyticsKey(ctx, "responses", selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
-				Kind:     "blocked",
-				Message:  limitErr,
-				Response: errorResponseForLog(errBody, http.StatusForbidden),
-			})
-			response.JSON(w, http.StatusForbidden, map[string]interface{}{
-				"error": map[string]string{
-					"message": limitErr,
-					"type":    "forbidden",
-				},
-			})
-			return
-		}
-	}
+	endpointCandidates := admission.Candidates
+	selected := admission.Selected
+	chosenIndex := admission.ChosenIndex
+	viaProxy := admission.ViaProxy
 
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
 	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。

@@ -400,69 +400,22 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	}
 	defer db.Close()
 
-	endpointCandidates, selected, chosenIndex, _, found := s.selectEndpointCandidates(ctx, db, model, targetEndpointID, sessionKey)
-	if !found {
-		s.recordRelayError(RelayErrorRecord{
-			Route: route, Kind: "no_endpoint",
-			Model: model, Stream: stream, ClientIP: clientIP,
-			ElapsedMs: time.Since(requestStarted).Milliseconds(),
-			Error:     fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
-		})
-		// 候选池为空属网关自身状态，仍写入调用日志（含报错信息），便于日志与 AI 排障。
-		errBody, _ := json.Marshal(map[string]interface{}{
-			"error": map[string]string{
-				"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
-				"type":    "service_unavailable",
-			},
-		})
-		s.recordAnalyticsKey(ctx, route, "", model, http.StatusServiceUnavailable, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
-			Kind:     "no_endpoint",
-			Message:  fmt.Sprintf("no enabled endpoint serves model %q (target_endpoint=%q)", model, targetEndpointID),
-			Response: errorResponseForLog(errBody, http.StatusServiceUnavailable),
-		})
-		return http.StatusServiceUnavailable, nil, fmt.Errorf("网关无可用渠道（模型 %s）", model)
+	admission := s.admitGatewayRequest(ctx, db, admissionRequest{
+		Route:            route,
+		Model:            model,
+		Stream:           stream,
+		TargetEndpointID: targetEndpointID,
+		SessionKey:       sessionKey,
+		ClientIP:         clientIP,
+		Started:          requestStarted,
+	})
+	if admission.Rejected {
+		return admission.StatusCode, nil, fmt.Errorf("%s", admission.Reason)
 	}
-
-	viaProxy := 0
-	if len(selected.ProxyPool) > 0 {
-		viaProxy = 1
-	}
-
-	// 端点白名单候选过滤：failover 循环逐候选尝试时不再校验白名单，必须在
-	// 候选组装阶段过滤，防止白名单内端点故障时把请求打到白名单外端点。
-	if keyIdentity := gatewayKeyFromContext(ctx); len(keyIdentity.AllowedEndpoints) > 0 {
-		filtered, newChosen := filterCandidatesByKeyIdentity(keyIdentity, endpointCandidates, chosenIndex)
-		if len(filtered) == 0 {
-			// 记录口径与其他入口一致；错误响应由 proxyAnthropicMessages 按
-			// Anthropic 格式写回（本函数不直接写 w）。
-			limitErr := s.recordDisallowedEndpoints(ctx, route, model, stream, clientIP, viaProxy, requestStarted)
-			return http.StatusForbidden, nil, fmt.Errorf("%s", limitErr)
-		}
-		endpointCandidates = filtered
-		chosenIndex = newChosen
-		selected = endpointCandidates[chosenIndex]
-	}
-
-	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
-		if limitErr := s.enforceGatewayKeyLimits(ctx, keyIdentity, model, selected.ID); limitErr != "" {
-			s.recordRelayError(RelayErrorRecord{
-				Route: route, Kind: "blocked",
-				Endpoint: selected.Name, EndpointID: selected.ID,
-				Model: model, Stream: stream, ClientIP: clientIP,
-				ElapsedMs: time.Since(requestStarted).Milliseconds(),
-				Error:     limitErr,
-			})
-			errBody, _ := json.Marshal(map[string]interface{}{
-				"error": map[string]string{"message": limitErr, "type": "forbidden"},
-			})
-			s.recordAnalyticsKey(ctx, route, selected.ID, model, http.StatusForbidden, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
-				Kind:     "blocked",
-				Message:  limitErr,
-				Response: errorResponseForLog(errBody, http.StatusForbidden),
-			})
-			return http.StatusForbidden, nil, fmt.Errorf("%s", limitErr)
-		}
-	}
+	endpointCandidates := admission.Candidates
+	selected := admission.Selected
+	chosenIndex := admission.ChosenIndex
+	viaProxy := admission.ViaProxy
 
 	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
 	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
@@ -790,6 +743,9 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 			anthropicError(w, http.StatusBadGateway, "api_error", convErr.Error())
 			return
 		}
+		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
+			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(anthropicUsageTotal(respBodyBytes)))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(converted)
@@ -839,6 +795,24 @@ func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		extendDeadline()
 		sw.write(ev)
 	}
+	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
+		s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(transformer.totalTokens()))
+	}
+}
+
+// anthropicUsageTotal 从 OpenAI 格式的 chat.completions 响应体提取 usage 总量
+// （prompt_tokens + completion_tokens）；缺失时返回 0。
+func anthropicUsageTotal(body []byte) int {
+	var parsed struct {
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return 0
+	}
+	return parsed.Usage.PromptTokens + parsed.Usage.CompletionTokens
 }
 
 // upstreamErrorMessage 从上游 JSON 错误响应中提取 message。
@@ -955,10 +929,13 @@ func (t *anthropicSSETransformer) consume(chunk []byte) [][]byte {
 		}))
 	}
 
+	// usage 可能出现在带 choices 的 chunk（多数上游在最后一个 chunk 与
+	// finish_reason 同帧下发），也可能出现在仅含 usage 的独立 chunk。
+	if payload.Usage != nil {
+		t.usage = payload.Usage
+	}
+
 	if len(payload.Choices) == 0 {
-		if payload.Usage != nil {
-			t.usage = payload.Usage
-		}
 		return events
 	}
 	choice := payload.Choices[0]
@@ -1089,4 +1066,13 @@ func (t *anthropicSSETransformer) finish() [][]byte {
 		"type": "message_stop",
 	}))
 	return events
+}
+
+// totalTokens 返回该流累计的 token 总量（prompt + completion）；上游未在流中
+// 提供 usage 时返回 0。
+func (t *anthropicSSETransformer) totalTokens() int {
+	if t.usage == nil {
+		return 0
+	}
+	return t.usage.PromptTokens + t.usage.CompletionTokens
 }

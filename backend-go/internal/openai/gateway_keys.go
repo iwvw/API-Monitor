@@ -649,15 +649,6 @@ func (s *Service) recordDisallowedEndpoints(ctx context.Context, route, model st
 	return limitErr
 }
 
-// rejectDisallowedEndpoints 是 OpenAI 风格入口（chat/responses）的完整拒绝路径：
-// 记录 + 写回 403 JSON（与 enforceGatewayKeyLimits 违例响应同构）。
-func (s *Service) rejectDisallowedEndpoints(ctx context.Context, w http.ResponseWriter, route, model string, stream bool, clientIP string, viaProxy int, requestStarted time.Time) {
-	limitErr := s.recordDisallowedEndpoints(ctx, route, model, stream, clientIP, viaProxy, requestStarted)
-	response.JSON(w, http.StatusForbidden, map[string]interface{}{
-		"error": map[string]string{"message": limitErr, "type": "forbidden"},
-	})
-}
-
 // FilterModelsListByKey 按当前请求网关密钥的白名单过滤模型列表（/v1/models 使用）。
 func (s *Service) FilterModelsListByKey(ctx context.Context, models []map[string]interface{}) []map[string]interface{} {
 	return filterModelsByKey(gatewayKeyFromContext(ctx), models)
