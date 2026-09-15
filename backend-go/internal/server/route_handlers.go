@@ -1,0 +1,159 @@
+package server
+
+import (
+	"net/http"
+	"runtime"
+	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
+	"github.com/iwvw/api-monitor/backend-go/internal/response"
+)
+
+// routeHandler 是 manifest 模块对应的 HTTP 处理入口。签名统一为
+// (*Server, ResponseWriter, *Request)，使注册表可以按 Module 直接查表分发。
+type routeHandler func(s *Server, w http.ResponseWriter, r *http.Request)
+
+// moduleHandlers 是 manifest Module → handler 的注册表，与 manifest 的路由归属
+// 一一对应。serveGoRoute 按 route.Module 查表，不再维护路径 switch：
+// 新增模块只需在 manifest 登记路由，并在此为它的 Module 登记一行 handler。
+var moduleHandlers = map[string]routeHandler{
+	"admin-ai":                   func(s *Server, w http.ResponseWriter, r *http.Request) { s.adminai.ServeHTTP(w, r) },
+	"ai-access":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
+	"aliyun":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.aliyun.ServeHTTP(w, r) },
+	"anthropic-compatible":       (*Server).serveV1Route,
+	"antigravity":                func(s *Server, w http.ResponseWriter, r *http.Request) { s.antigravity.ServeHTTP(w, r) },
+	"antigravity-compatible":     func(s *Server, w http.ResponseWriter, r *http.Request) { s.antigravity.ServeHTTP(w, r) },
+	"auth":                       func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-2fa-management":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-2fa-status":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-github-config":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-github-login":          func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-login-options":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-plugin-pairing":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-webauthn-login":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"auth-webauthn-management":   func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"backup":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.backup.ServeHTTP(w, r) },
+	"bookmarks":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.bookmarks.ServeHTTP(w, r) },
+	"bookmarks-favicon":          func(s *Server, w http.ResponseWriter, r *http.Request) { s.bookmarks.ServeHTTP(w, r) },
+	"bookmarks-public":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.bookmarks.ServeHTTP(w, r) },
+	"cloudflare-accounts":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cloudflare-dns":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cloudflare-pages":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cloudflare-r2":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cloudflare-templates":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cloudflare-tunnels":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cloudflare-workers":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cloudflare-zone-resources":  func(s *Server, w http.ResponseWriter, r *http.Request) { s.cf.ServeHTTP(w, r) },
+	"cron":                       func(s *Server, w http.ResponseWriter, r *http.Request) { s.cron.ServeHTTP(w, r) },
+	"dockerhub":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.dockerhub.ServeHTTP(w, r) },
+	"drawio":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-documents":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-drafts":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-export":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-import":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-render":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-settings":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-thumbnails":          func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"drawio-versions":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.drawio.ServeHTTP(w, r) },
+	"ds2api":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.ds2api.ServeHTTP(w, r) },
+	"ds2api-compatible":          func(s *Server, w http.ResponseWriter, r *http.Request) { s.ds2api.ServeHTTP(w, r) },
+	"filebox":                    func(s *Server, w http.ResponseWriter, r *http.Request) { s.filebox.ServeHTTP(w, r) },
+	"flyio":                      func(s *Server, w http.ResponseWriter, r *http.Request) { s.flyio.ServeHTTP(w, r) },
+	"gcp":                        func(s *Server, w http.ResponseWriter, r *http.Request) { s.gcp.ServeHTTP(w, r) },
+	"geminicli":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.geminicli.ServeHTTP(w, r) },
+	"geminicli-compatible":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.geminicli.ServeHTTP(w, r) },
+	"github":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.github.ServeHTTP(w, r) },
+	"github-events":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.github.ServeHTTP(w, r) },
+	"github-public-pages":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.github.ServeHTTP(w, r) },
+	"github-webhook":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.github.ServeHTTP(w, r) },
+	"health":                     (*Server).serveHealthRoute,
+	"huawei":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.huawei.ServeHTTP(w, r) },
+	"koyeb":                      func(s *Server, w http.ResponseWriter, r *http.Request) { s.koyeb.ServeHTTP(w, r) },
+	"lobsterai":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.lobsterai.ServeHTTP(w, r) },
+	"lobsterai-compatible":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.lobsterai.ServeHTTP(w, r) },
+	"m365":                       func(s *Server, w http.ResponseWriter, r *http.Request) { s.m365.ServeHTTP(w, r) },
+	"m365-public-register":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.m365.ServeHTTP(w, r) },
+	"migration":                  (*Server).serveMigrationStatusRoute,
+	"notification":               func(s *Server, w http.ResponseWriter, r *http.Request) { s.notify.ServeHTTP(w, r) },
+	"onepanel":                   func(s *Server, w http.ResponseWriter, r *http.Request) { s.onepanel.ServeHTTP(w, r) },
+	"onepanel-config":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.onepanel.ServeHTTP(w, r) },
+	"onepanel-spec":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.onepanel.ServeHTTP(w, r) },
+	"openai":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.openai.ServeHTTP(w, r) },
+	"openai-compatible":          (*Server).serveV1Route,
+	"oracle":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.oracle.ServeHTTP(w, r) },
+	"posthogcode":                func(s *Server, w http.ResponseWriter, r *http.Request) { s.posthogcode.ServeHTTP(w, r) },
+	"posthogcode-compatible":     func(s *Server, w http.ResponseWriter, r *http.Request) { s.posthogcode.ServeHTTP(w, r) },
+	"prompts":                    func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
+	"prompts-collections":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
+	"prompts-drafts":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
+	"prompts-entries":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
+	"prompts-public":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServePublic(w, r) },
+	"prompts-settings":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
+	"prompts-versions":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
+	"proxypool":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.proxypool.ServeHTTP(w, r) },
+	"scheduler":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.cron.ServeHTTP(w, r) },
+	"server-accounts":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-agent":               func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-agent-forward":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-agent-proxy":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-agent-proxy-legacy":  func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-agent-proxy-runtime": func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-agent-tunnels":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-api":                 func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-credentials":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-docker":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-docker-v2":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-metrics":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-monitor":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-operations":          func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-remote-desktop":      func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-sftp":                func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-snippets":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-status-pages":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-tasks":               func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-tasks-v2":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-terminal":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-terminal-agent":      func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"server-websocket":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"settings":                   func(s *Server, w http.ResponseWriter, r *http.Request) { s.settings.ServeHTTP(w, r) },
+	"settings-database":          func(s *Server, w http.ResponseWriter, r *http.Request) { s.settings.ServeHTTP(w, r) },
+	"settings-logs":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.settings.ServeHTTP(w, r) },
+	"settings-site-brand":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.settings.ServeHTTP(w, r) },
+	"subscription":               func(s *Server, w http.ResponseWriter, r *http.Request) { s.sub.ServeHTTP(w, r) },
+	"subscription-public":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.sub.ServeHTTP(w, r) },
+	"system-ai-access":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
+	"system-api-docs":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
+	"system-api-keys":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
+	"system-api-stats":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
+	"system-host-metrics":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
+	"system-logs":                func(s *Server, w http.ResponseWriter, r *http.Request) { s.logs.ServeHTTP(w, r) },
+	"system-status":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
+	"tencent":                    func(s *Server, w http.ResponseWriter, r *http.Request) { s.tencent.ServeHTTP(w, r) },
+	"totp":                       func(s *Server, w http.ResponseWriter, r *http.Request) { s.totp.ServeHTTP(w, r) },
+	"uptime":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.uptime.ServeHTTP(w, r) },
+	"workbuddy":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.workbuddy.ServeHTTP(w, r) },
+	"workbuddy-compatible":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.workbuddy.ServeHTTP(w, r) },
+}
+
+// serveHealthRoute 是 /health 的 Go shell 健康检查。
+func (s *Server) serveHealthRoute(w http.ResponseWriter, r *http.Request) {
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"status":    "ok",
+		"service":   "api-monitor-go",
+		"version":   s.cfg.Version,
+		"goVersion": runtime.Version(),
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// serveMigrationStatusRoute 暴露迁移状态与全量路由归属。
+func (s *Server) serveMigrationStatusRoute(w http.ResponseWriter, r *http.Request) {
+	response.OK(w, map[string]interface{}{
+		"version":       s.cfg.Version,
+		"databasePath":  s.cfg.DatabasePath(),
+		"legacyEnabled": false,
+		"routeSummary":  manifest.Summary(),
+		"routes":        manifest.Routes(),
+		"retired":       []string{},
+	})
+}

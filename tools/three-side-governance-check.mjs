@@ -214,13 +214,27 @@ function checkFrontendRoutes(routes) {
 }
 
 function checkRouteImplementation(routes) {
-  const serverGo = exists('backend-go/internal/server/server.go') ? read('backend-go/internal/server/server.go') : '';
+  // 分发已由 module → handler 注册表驱动（backend-go/internal/server/route_handlers.go）。
+  // 校验每条 Owner=Go 路由的 Module 都在注册表中登记，替代旧的「grep server.go case 字面量」。
+  const registryRel = 'backend-go/internal/server/route_handlers.go';
+  if (!exists(registryRel)) {
+    errors.push(`missing route handler registry: ${registryRel}`);
+    return;
+  }
+  const registry = read(registryRel);
+  const registered = new Set();
+  for (const match of registry.matchAll(/^\s*"([^"]+)":\s*(?:\*?\(?\*?Server|func\(s \*Server)/gm)) {
+    registered.add(match[1]);
+  }
+  if (registered.size === 0) {
+    errors.push('route handler registry has no parseable entries');
+    return;
+  }
   for (const route of routes) {
     if (route.owner !== 'go') continue;
-    if (route.prefix.startsWith('/api/server/')) continue;
-    if (route.matchMode === 'prefix' && serverGo.includes(`case "${route.prefix}"`)) continue;
-    if (serverGo.includes(`"${route.prefix}"`)) continue;
-    warnings.push(`Go manifest route may not be dispatched explicitly: ${route.prefix}`);
+    if (!registered.has(route.module)) {
+      errors.push(`Go manifest module has no registered handler: ${route.module} (${route.prefix})`);
+    }
   }
 }
 

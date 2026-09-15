@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -597,156 +596,12 @@ func hasAPIKeyCredential(r *http.Request) bool {
 }
 
 func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route manifest.Route) {
-	if strings.HasPrefix(route.Prefix, "/api/auth") {
-		s.auth.ServeHTTP(w, r)
+	handler, ok := moduleHandlers[route.Module]
+	if !ok {
+		response.Error(w, http.StatusNotFound, "go route not implemented: "+route.Prefix)
 		return
 	}
-
-	switch route.Prefix {
-	case "/health":
-		response.JSON(w, http.StatusOK, map[string]interface{}{
-			"status":    "ok",
-			"service":   "api-monitor-go",
-			"version":   s.cfg.Version,
-			"goVersion": runtime.Version(),
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
-		})
-	case "/api/migration/status":
-		response.OK(w, map[string]interface{}{
-			"version":       s.cfg.Version,
-			"databasePath":  s.cfg.DatabasePath(),
-			"legacyEnabled": false,
-			"routeSummary":  manifest.Summary(),
-			"routes":        manifest.Routes(),
-			"retired":       []string{},
-		})
-	case "/api/settings", "/api/settings/site-brand/icons", "/api/settings/site-brand/icons/{id}", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/deprecated-tables", "/api/settings/cleanup-deprecated-tables", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits":
-		s.settings.ServeHTTP(w, r)
-	case "/api/system/host-metrics", "/api/system/api-stats", "/api/system/api-docs", "/api/system/openapi.json", "/api/openapi.json", "/api/system/status/stream", "/api/api-keys", "/api/system/api-keys", "/api/system/ai-access/key/rotate", "/api/system/ai-access/write", "/api/system/ai-access/policy", "/api/system/ai-access/audit", "/api/system/ai-access/mcp-servers/{id}", "/api/system/ai-access/mcp-servers", "/api/system/ai-access/skills/{id}", "/api/system/ai-access/skills", "/api/system/ai-access/audit/clear", "/api/system/ai-access", "/api/ai-access/key/rotate", "/api/ai-access/write", "/api/ai-access/policy", "/api/ai-access/audit", "/api/ai-access/mcp-servers/{id}", "/api/ai-access/mcp-servers", "/api/ai-access/skills/{id}", "/api/ai-access/skills", "/api/ai-access/audit/clear", "/api/ai-access", "/api/ai/manifest", "/api/ai/mcp":
-		s.system.ServeHTTP(w, r)
-	case "/api/system/logs/stream", "/api/system/logs/download":
-		s.logs.ServeHTTP(w, r)
-	case "/api/backup":
-		s.backup.ServeHTTP(w, r)
-	case "/api/totp":
-		s.totp.ServeHTTP(w, r)
-	case "/api/cron", "/api/scheduler":
-		s.cron.ServeHTTP(w, r)
-	case "/api/filebox":
-		s.filebox.ServeHTTP(w, r)
-	case "/api/uptime":
-		s.uptime.ServeHTTP(w, r)
-	case "/api/notification":
-		s.notify.ServeHTTP(w, r)
-	case "/api/koyeb":
-		s.koyeb.ServeHTTP(w, r)
-	case "/api/flyio":
-		s.flyio.ServeHTTP(w, r)
-	case "/api/onepanel", "/api/onepanel/config", "/api/onepanel/spec":
-		s.onepanel.ServeHTTP(w, r)
-	case "/api/github", "/api/github/webhook/{repositoryId}", "/api/github/webhook", "/api/github/events/stream":
-		s.github.ServeHTTP(w, r)
-	case "/api/dockerhub":
-		s.dockerhub.ServeHTTP(w, r)
-	case "/api/drawio", "/api/drawio/documents", "/api/drawio/documents/{id}", "/api/drawio/documents/{id}/clone", "/api/drawio/documents/{id}/draft", "/api/drawio/documents/{id}/export", "/api/drawio/documents/{id}/versions", "/api/drawio/documents/{id}/versions/{versionId}", "/api/drawio/documents/{id}/versions/{versionId}/restore", "/api/drawio/documents/{id}/thumbnails/rebuild", "/api/drawio/import", "/api/drawio/thumbnails/rebuild", "/api/drawio/render-jobs", "/api/drawio/settings":
-		s.drawio.ServeHTTP(w, r)
-	case "/api/prompts", "/api/prompts/collections", "/api/prompts/collections/{id}", "/api/prompts/entries", "/api/prompts/entries/{id}", "/api/prompts/entries/{id}/duplicate", "/api/prompts/entries/{id}/draft", "/api/prompts/entries/{id}/publish", "/api/prompts/entries/{id}/versions", "/api/prompts/entries/{id}/versions/{versionId}", "/api/prompts/entries/{id}/versions/{versionId}/restore", "/api/prompts/entries/{id}/public/regenerate", "/api/prompts/settings":
-		s.prompts.ServeHTTP(w, r)
-	case "/api/prompts/public/{publicId}", "/api/prompts/d/{publicId}", "/api/prompts/d/{publicId}/versions/{versionNo}":
-		s.prompts.ServePublic(w, r)
-	case "/api/bookmarks":
-		s.bookmarks.ServeHTTP(w, r)
-	case "/api/aliyun":
-		s.aliyun.ServeHTTP(w, r)
-	case "/api/tencent":
-		s.tencent.ServeHTTP(w, r)
-	case "/api/oracle":
-		s.oracle.ServeHTTP(w, r)
-	case "/api/gcp":
-		s.gcp.ServeHTTP(w, r)
-	case "/api/huawei":
-		s.huawei.ServeHTTP(w, r)
-	case "/api/m365":
-		s.m365.ServeHTTP(w, r)
-	case "/api/cloudflare/accounts", "/api/cloudflare/accounts/export", "/api/cloudflare/export/accounts", "/api/cloudflare/import/accounts", "/api/cloudflare/templates", "/api/cloudflare/templates/{id}", "/api/cloudflare/templates/{templateId}/apply", "/api/cloudflare/import/templates", "/api/cloudflare/accounts/{id}", "/api/cloudflare/accounts/{id}/verify", "/api/cloudflare/accounts/{id}/token", "/api/cloudflare/accounts/{id}/cf-account-id", "/api/cloudflare/accounts/{id}/pages", "/api/cloudflare/accounts/{id}/pages/{projectName}", "/api/cloudflare/accounts/{id}/pages/{projectName}/deployments", "/api/cloudflare/accounts/{id}/pages/{projectName}/deployments/{deploymentId}", "/api/cloudflare/accounts/{id}/pages/{projectName}/domains", "/api/cloudflare/accounts/{id}/pages/{projectName}/domains/{domain}", "/api/cloudflare/accounts/{id}/workers", "/api/cloudflare/accounts/{id}/workers/{scriptName}", "/api/cloudflare/accounts/{id}/workers/{scriptName}/toggle", "/api/cloudflare/accounts/{id}/workers/{scriptName}/analytics", "/api/cloudflare/accounts/{id}/workers/{scriptName}/domains", "/api/cloudflare/accounts/{id}/workers/{scriptName}/domains/{domainId}", "/api/cloudflare/accounts/{accountId}/r2/buckets", "/api/cloudflare/accounts/{accountId}/r2/metrics", "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}", "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects", "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/{objectKey}", "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/{objectKey}/download-info", "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/{objectKey}/download", "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/folder-download", "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/{objectKey}/preview", "/api/cloudflare/accounts/{id}/tunnels", "/api/cloudflare/accounts/{accountId}/tunnels/{tunnelId}", "/api/cloudflare/accounts/{accountId}/tunnels/{tunnelId}/configuration", "/api/cloudflare/accounts/{accountId}/tunnels/{tunnelId}/token", "/api/cloudflare/accounts/{accountId}/tunnels/{tunnelId}/connections", "/api/cloudflare/record-types", "/api/cloudflare/zones", "/api/cloudflare/accounts/{id}/zones", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/workers/routes", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/workers/routes/{routeId}", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/records", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/records/{recordId}", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/purge", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/ssl", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/analytics", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/switch", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/batch":
-		s.cf.ServeHTTP(w, r)
-	case "/api/openai":
-		s.openai.ServeHTTP(w, r)
-	case "/api/proxypool":
-		s.proxypool.ServeHTTP(w, r)
-	case "/api/antigravity", "/api/antigravity/v1":
-		s.antigravity.ServeHTTP(w, r)
-	case "/api/ds2api", "/api/ds2api/v1":
-		s.ds2api.ServeHTTP(w, r)
-	case "/api/workbuddy", "/api/workbuddy/v1":
-		s.workbuddy.ServeHTTP(w, r)
-	case "/api/geminicli", "/api/geminicli/v1":
-		s.geminicli.ServeHTTP(w, r)
-	case "/api/lobsterai", "/api/lobsterai/v1":
-		s.lobsterai.ServeHTTP(w, r)
-	case "/api/posthogcode", "/api/posthogcode/v1":
-		s.posthogcode.ServeHTTP(w, r)
-	case "/api/subscription":
-		s.sub.ServeHTTP(w, r)
-	case "/sub/{token}":
-		s.sub.ServeHTTP(w, r)
-	case "/v1":
-		s.serveV1Route(w, r)
-	case "/v1/messages":
-		s.serveV1Route(w, r)
-	case "/ws/ssh", "/ws/agent-terminal":
-		s.server.ServeHTTP(w, r)
-	case "/socket.io/":
-		s.server.ServeHTTP(w, r)
-	case "/api/admin-ai", "/api/admin-ai/cron/daily-briefing", "/api/admin-ai/cron/task-run", "/api/admin-ai/sessions", "/api/admin-ai/sessions/{id}", "/api/admin-ai/sessions/{id}/messages", "/api/admin-ai/messages", "/api/admin-ai/messages/stream", "/api/admin-ai/cancel", "/api/admin-ai/channels", "/api/admin-ai/channels/{id}", "/api/admin-ai/channels/{id}/start", "/api/admin-ai/channels/{id}/stop", "/api/admin-ai/channels/{id}/status", "/api/admin-ai/channels/{id}/wechat/qrcode", "/api/admin-ai/channels/{id}/wechat/qrcode/status", "/api/admin-ai/channel-bindings", "/api/admin-ai/channel-bindings/{id}", "/api/admin-ai/approvals", "/api/admin-ai/approvals/{id}", "/api/admin-ai/approvals/{id}/resolve", "/api/admin-ai/audit", "/api/admin-ai/settings", "/api/admin-ai/memories", "/api/admin-ai/memories/{id}":
-		s.adminai.ServeHTTP(w, r)
-	default:
-		if strings.HasPrefix(route.Prefix, "/sub/") || strings.HasPrefix(r.URL.Path, "/sub/") {
-			s.sub.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/subscription") {
-			s.sub.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/m365") {
-			s.m365.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/server/") {
-			s.server.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/github") {
-			s.github.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/dockerhub") {
-			s.dockerhub.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/drawio") {
-			s.drawio.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/prompts") {
-			s.prompts.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/bookmarks") {
-			s.bookmarks.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/gcp") {
-			s.gcp.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(route.Prefix, "/api/huawei") {
-			s.huawei.ServeHTTP(w, r)
-			return
-		}
-		response.Error(w, http.StatusNotFound, "go route not implemented: "+route.Prefix)
-	}
+	handler(s, w, r)
 }
 
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
