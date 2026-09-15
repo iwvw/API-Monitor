@@ -66,6 +66,32 @@ func Record(model, callerID string, usage map[string]any) {
 	}
 	prompt, completion, reasoning, total := ParseUsage(usage)
 	globalStore.AddCosted(model, callerID, prompt, completion, reasoning, total)
+	notifyUsageObserver(model, callerID, prompt, completion, reasoning, total)
+}
+
+// usageObserver 是引擎外插件注入的用量回调（按站点时区落库用，可为 nil）。
+// 引擎自带的 Store 按固定 GMT+8 分桶，无法满足站点时区归属；插件通过该回调
+// 拿到每次请求的原始 token 用量，自行按站点时区落库。
+var (
+	usageObserverMu sync.RWMutex
+	usageObserver   func(model, callerID string, prompt, completion, reasoning, total int64)
+)
+
+// SetUsageObserver 注入每次成功请求的用量回调。
+func SetUsageObserver(fn func(model, callerID string, prompt, completion, reasoning, total int64)) {
+	usageObserverMu.Lock()
+	usageObserver = fn
+	usageObserverMu.Unlock()
+}
+
+// notifyUsageObserver 在锁外调用观察者，避免回调里再访问引擎存储造成死锁。
+func notifyUsageObserver(model, callerID string, prompt, completion, reasoning, total int64) {
+	usageObserverMu.RLock()
+	fn := usageObserver
+	usageObserverMu.RUnlock()
+	if fn != nil {
+		fn(model, callerID, prompt, completion, reasoning, total)
+	}
 }
 
 func New(path string) *Store {

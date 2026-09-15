@@ -331,6 +331,7 @@ func (s *Service) forwardOpenAINonStream(ctx context.Context, w http.ResponseWri
 		out.Usage.PromptTokens = usage.InputTokens
 		out.Usage.CompletionTokens = usage.OutputTokens
 		out.Usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+		s.recordUsage(acc.Email, claudeReq.Model, int64(usage.InputTokens), int64(usage.OutputTokens), int64(usage.CacheReadInputTokens))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(out)
@@ -429,6 +430,7 @@ func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter
 			"completion_tokens": outTok,
 			"total_tokens":      inTok + outTok,
 		}
+		s.recordUsage(acc.Email, claudeReq.Model, int64(inTok), int64(outTok), 0)
 	}
 	b, _ := json.Marshal(end)
 	_, _ = w.Write(append([]byte("data: "), append(b, '\n', '\n')...))

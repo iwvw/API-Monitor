@@ -496,6 +496,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleLoginCallback(w, r)
 	case path == "/api/geminicli/accounts":
 		s.handleAccounts(w, r)
+	case path == "/api/geminicli/accounts/export":
+		s.handleExportAccounts(w, r)
+	case path == "/api/geminicli/accounts/import":
+		s.handleImportAccounts(w, r)
 	case strings.HasPrefix(path, "/api/geminicli/accounts/"):
 		rest := strings.TrimPrefix(path, "/api/geminicli/accounts/")
 		switch {

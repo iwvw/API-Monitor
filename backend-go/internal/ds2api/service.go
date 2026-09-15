@@ -85,6 +85,15 @@ type Service struct {
 	callPending map[string]int64
 	callFlush   sync.Once
 
+	// 实际用量：内存增量按「站点时区日期 × 账号 × 模型」累加，定期落盘。
+	usageMu      sync.Mutex
+	usagePending map[usageKey]*usageDelta
+
+	// 站点时区缓存（避免每个请求都开库读设置）。
+	locMu      sync.Mutex
+	locCache   *time.Location
+	locCacheAt time.Time
+
 	externalPool ProxyPoolSelector
 }
 
@@ -101,10 +110,11 @@ func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
 // New 构造服务并加载持久化设置。
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:         cfg,
-		store:       database.New(cfg),
-		callBase:    map[string]int64{},
-		callPending: map[string]int64{},
+		cfg:          cfg,
+		store:        database.New(cfg),
+		callBase:     map[string]int64{},
+		callPending:  map[string]int64{},
+		usagePending: map[usageKey]*usageDelta{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -133,6 +143,20 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ds2api ensure call stats schema: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS ds2api_usage_daily (
+		day TEXT NOT NULL,
+		account_id TEXT NOT NULL,
+		model TEXT NOT NULL,
+		requests INTEGER NOT NULL DEFAULT 0,
+		prompt_tokens INTEGER NOT NULL DEFAULT 0,
+		completion_tokens INTEGER NOT NULL DEFAULT 0,
+		cached_tokens INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (day, account_id, model)
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ds2api ensure usage schema: %w", err)
 	}
 	return db, nil
 }
@@ -410,8 +434,10 @@ func (s *Service) StartCallStatsFlush(ctx context.Context) {
 				select {
 				case <-ticker.C:
 					s.flushCallStats(context.Background())
+					s.flushUsage(context.Background())
 				case <-ctx.Done():
 					s.flushCallStats(context.Background())
+					s.flushUsage(context.Background())
 					return
 				}
 			}
@@ -452,6 +478,9 @@ func (s *Service) startEngineLocked() error {
 	if app.Resolver != nil {
 		app.Resolver.SetCallObserver(s.recordCall)
 	}
+	// 把插件自身的用量落库逻辑注册进引擎：引擎按固定 GMT+8 分桶，不满足站点时区
+	// 归属规则，故由插件按站点时区落自己的表。
+	s.SetUsageObserver()
 	s.app = app
 	if app != nil {
 		go s.syncEndpointModels()
@@ -499,6 +528,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleTest(w, r)
 	case path == "/api/ds2api/models":
 		s.handleModels(w, r)
+	case path == "/api/ds2api/usage":
+		s.handleUsage(w, r)
 	case path == "/api/ds2api/models/toggle":
 		s.handleToggleModel(w, r, "")
 	case path == "/api/ds2api/models/toggle-batch":

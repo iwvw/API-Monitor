@@ -82,6 +82,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleTest(w, r)
 	case path == "/api/antigravity/quota":
 		s.handleQuota(w, r)
+	case path == "/api/antigravity/usage":
+		s.handleUsage(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "antigravity route not found")
 	}
@@ -91,7 +93,8 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.Settings()
 	enabled := 0
 	for _, a := range st.Accounts {
-		if !a.Disabled && a.AccessToken != "" && a.ProjectID != "" {
+		// 与选号判据保持一致：过期凭据不算可用，否则前端会显示「已授权」但实际不可转发。
+		if accountAvailable(a) && strings.TrimSpace(a.ProjectID) != "" {
 			enabled++
 		}
 	}
@@ -137,6 +140,14 @@ type accountView struct {
 	Disabled  bool   `json:"disabled"`
 	ExpiresAt int64  `json:"expiresAt"`
 	CallCount int64  `json:"callCount"`
+	// TokenState 是凭据状态：valid / expiring / expired / unknown。
+	TokenState string `json:"tokenState"`
+	// ExpiresInSeconds 是距过期的剩余秒数，仅在尚未过期时下发。
+	ExpiresInSeconds int64 `json:"expiresInSeconds,omitempty"`
+	// Available 是综合判据（未停用 + 有凭据 + 未过期），前端状态列用它而非 Disabled。
+	Available bool `json:"available"`
+	// LastError 是最近一次刷新/调用失败原因，供排障。
+	LastError string `json:"lastError,omitempty"`
 }
 
 // handleAccounts 列出账号或导入授权文件。
@@ -146,16 +157,25 @@ func (s *Service) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		st := s.Settings()
 		out := make([]accountView, 0, len(st.Accounts))
 		for _, a := range st.Accounts {
-			out = append(out, accountView{
-				Name:      a.Name,
-				Email:     a.Email,
-				ProjectID: a.ProjectID,
-				PlanType:  a.PlanType,
-				TokenSet:  strings.TrimSpace(a.AccessToken) != "",
-				Disabled:  a.Disabled,
-				ExpiresAt: a.ExpiresAt,
-				CallCount: s.callCount(a.Email),
-			})
+			view := accountView{
+				Name:       a.Name,
+				Email:      a.Email,
+				ProjectID:  a.ProjectID,
+				PlanType:   a.PlanType,
+				TokenSet:   strings.TrimSpace(a.AccessToken) != "",
+				Disabled:   a.Disabled,
+				ExpiresAt:  a.ExpiresAt,
+				CallCount:  s.callCount(a.Email),
+				TokenState: tokenState(a),
+				Available:  accountAvailable(a),
+				LastError:  a.LastError,
+			}
+			if a.ExpiresAt > 0 {
+				if left := a.ExpiresAt - time.Now().Unix(); left > 0 {
+					view.ExpiresInSeconds = left
+				}
+			}
+			out = append(out, view)
 		}
 		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "accounts": out})
 	case http.MethodPost:

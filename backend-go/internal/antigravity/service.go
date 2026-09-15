@@ -33,6 +33,8 @@ type Account struct {
 	PlanType     string `json:"planType"`
 	// Disabled 由用户手动停用。
 	Disabled bool `json:"disabled"`
+	// LastError 是最近一次刷新/调用失败原因，供前端排障；成功时清空。
+	LastError string `json:"lastError,omitempty"`
 }
 
 // Settings 是 Antigravity 插件持久化配置（单行 JSON）。
@@ -139,6 +141,8 @@ type Service struct {
 
 	// quotaMonitorOnce 保证配额监控后台循环只启动一次。
 	quotaMonitorOnce sync.Once
+	// autoRefreshOnce 保证 token 自动续期循环只启动一次。
+	autoRefreshOnce sync.Once
 	// quotaPrevMu 保护 quotaPrev；quotaPrev 记录 邮箱+窗口 → 上次剩余比例快照。
 	quotaPrevMu sync.Mutex
 	quotaPrev   map[string]float64
@@ -149,6 +153,15 @@ type Service struct {
 	callCounts     map[string]int64
 	callBase       map[string]int64
 	callFlushOnce  sync.Once
+
+	// 实际用量：内存增量按「站点时区日期 × 账号 × 模型」累加，定期落盘。
+	usageMu      sync.Mutex
+	usagePending map[usageKey]*usageDelta
+
+	// 站点时区缓存（避免每个请求都开库读设置）。
+	locMu      sync.Mutex
+	locCache   *time.Location
+	locCacheAt time.Time
 }
 
 // SetNotifier 注入外部通知系统。
@@ -169,10 +182,11 @@ func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
 // New 构造服务并加载持久化设置。
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:        cfg,
-		store:      database.New(cfg),
-		callCounts: map[string]int64{},
-		callBase:   map[string]int64{},
+		cfg:          cfg,
+		store:        database.New(cfg),
+		callCounts:   map[string]int64{},
+		callBase:     map[string]int64{},
+		usagePending: map[usageKey]*usageDelta{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -201,6 +215,20 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("antigravity ensure call stats schema: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS antigravity_usage_daily (
+		day TEXT NOT NULL,
+		email TEXT NOT NULL,
+		model TEXT NOT NULL,
+		requests INTEGER NOT NULL DEFAULT 0,
+		prompt_tokens INTEGER NOT NULL DEFAULT 0,
+		completion_tokens INTEGER NOT NULL DEFAULT 0,
+		cached_tokens INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (day, email, model)
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("antigravity ensure usage schema: %w", err)
 	}
 	return db, nil
 }
@@ -511,8 +539,10 @@ func (s *Service) StartCallStatsFlush(ctx context.Context) {
 				select {
 				case <-ticker.C:
 					s.flushCallStats(context.Background())
+					s.flushUsage(context.Background())
 				case <-ctx.Done():
 					s.flushCallStats(context.Background())
+					s.flushUsage(context.Background())
 					return
 				}
 			}
@@ -535,8 +565,9 @@ func forwardBaseURL(acc *Account) string {
 }
 
 // ensureFreshToken 返回有效 access_token；过期则用 refresh_token 刷新并落库。
+// 刷新失败时把原因写回账号的 LastError（供前端展示），成功时清空。
 func (s *Service) ensureFreshToken(ctx context.Context, acc *Account) (string, error) {
-	if strings.TrimSpace(acc.AccessToken) != "" && acc.ExpiresAt > time.Now().Unix()+60 {
+	if strings.TrimSpace(acc.AccessToken) != "" && acc.ExpiresAt > time.Now().Unix()+int64(tokenExpiringWindow.Seconds()) {
 		return acc.AccessToken, nil
 	}
 	if strings.TrimSpace(acc.RefreshToken) == "" {
@@ -548,6 +579,9 @@ func (s *Service) ensureFreshToken(ctx context.Context, acc *Account) (string, e
 	}
 	tok, err := agClient.RefreshToken(ctx, acc.RefreshToken)
 	if err != nil {
+		// 刷新失败：持久化原因，让前端状态列能显示「需重新授权」而非绿色「可用」。
+		// 只写 LastError，不动凭据字段，避免把并发刷新出的新 token 回退成旧值。
+		_ = s.persistAccount(ctx, acc.Email, &credentialUpdate{LastError: err.Error()})
 		return "", fmt.Errorf("刷新 token 失败: %w", err)
 	}
 	if tok == nil || strings.TrimSpace(tok.AccessToken) == "" {
@@ -557,19 +591,18 @@ func (s *Service) ensureFreshToken(ctx context.Context, acc *Account) (string, e
 	if tok.ExpiresIn <= 0 {
 		newExpires = time.Now().Add(50 * time.Minute).Unix()
 	}
-	s.mu.Lock()
-	for i := range s.settings.Accounts {
-		if strings.EqualFold(s.settings.Accounts[i].Email, acc.Email) {
-			s.settings.Accounts[i].AccessToken = tok.AccessToken
-			if tok.RefreshToken != "" {
-				s.settings.Accounts[i].RefreshToken = tok.RefreshToken
-			}
-			s.settings.Accounts[i].ExpiresAt = newExpires
-		}
+	acc.AccessToken = tok.AccessToken
+	if tok.RefreshToken != "" {
+		acc.RefreshToken = tok.RefreshToken
 	}
-	updated := s.settings
-	s.mu.Unlock()
-	if err := s.SaveSettings(ctx, updated); err != nil {
+	acc.ExpiresAt = newExpires
+	acc.LastError = ""
+	if err := s.persistAccount(ctx, acc.Email, &credentialUpdate{
+		AccessToken:  tok.AccessToken,
+		RefreshToken: tok.RefreshToken,
+		ExpiresAt:    newExpires,
+		LastError:    "",
+	}); err != nil {
 		// 落库失败不阻断本次请求。
 		return tok.AccessToken, nil
 	}
@@ -651,9 +684,12 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 		if err != nil {
 			return fmt.Errorf("读取上游响应失败: %w", err)
 		}
-		claudeOut, _, err := engineag.TransformGeminiToClaude(full, originalModel)
+		claudeOut, usage, err := engineag.TransformGeminiToClaude(full, originalModel)
 		if err != nil {
 			return fmt.Errorf("响应转换失败: %w", err)
+		}
+		if usage != nil {
+			s.recordUsage(acc.Email, mappedModel, int64(usage.InputTokens), int64(usage.OutputTokens), int64(usage.CacheReadInputTokens))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(claudeOut)
@@ -667,10 +703,21 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 	processor := engineag.NewStreamingProcessor(originalModel)
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	inTok, outTok := 0, 0
 	for scanner.Scan() {
 		line := scanner.Text()
 		event := processor.ProcessLine(line)
 		if len(event) > 0 {
+			// 从 Claude SSE 事件里累计 token 用量（message_start 的 input_tokens /
+			// message_delta 的 output_tokens），流结束后记账。
+			if it, ot, ok := extractClaudeStreamUsage(event); ok {
+				if it > 0 {
+					inTok = it
+				}
+				if ot > 0 {
+					outTok = ot
+				}
+			}
 			if _, err := w.Write(event); err != nil {
 				return nil
 			}
@@ -688,6 +735,9 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 		if flusher != nil {
 			flusher.Flush()
 		}
+	}
+	if inTok > 0 || outTok > 0 {
+		s.recordUsage(acc.Email, mappedModel, int64(inTok), int64(outTok), 0)
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("读取上游响应流失败: %w", err)
@@ -772,6 +822,118 @@ func (s *Service) findAccount(email string) *Account {	if email == "" {
 		}
 	}
 	return nil
+}
+
+// tokenExpiringWindow 是「即将过期」的判定窗口：剩余寿命低于它即视为需要提前续期。
+// 取值参考上游 access_token 约 1 小时的寿命，留足一次后台刷新周期（5 分钟）的余量。
+const tokenExpiringWindow = 30 * time.Minute
+
+// tokenState 依据过期时刻给出 token 状态。
+func tokenState(a Account) string {
+	if strings.TrimSpace(a.AccessToken) == "" {
+		return "unknown"
+	}
+	if a.ExpiresAt <= 0 {
+		return "unknown"
+	}
+	left := time.Until(time.Unix(a.ExpiresAt, 0))
+	if left <= 0 {
+		return "expired"
+	}
+	if left < tokenExpiringWindow {
+		return "expiring"
+	}
+	return "valid"
+}
+
+// accountAvailable 表示账号当前是否可用于转发。
+// 无凭据、被停用或 access token 已过期都视为不可用；
+// ExpiresAt 缺失（tokenState = unknown）仍视为可用，避免误伤缺少过期时刻的旧凭据。
+func accountAvailable(a Account) bool {
+	if a.Disabled || strings.TrimSpace(a.AccessToken) == "" {
+		return false
+	}
+	return tokenState(a) != "expired"
+}
+
+// persistAccount 按 email 合并写回账号的「凭据与错误」字段。
+//
+// 只覆盖刷新流程自己拥有的字段（AccessToken/RefreshToken/ExpiresAt/LastError），
+// 其余字段（Name/PlanType/ProjectID/Disabled）以库内当前值为准 —— 调用方传入的
+// acc 往往来自快照，整份回写会把用户刚做的停用/改名操作回退掉。
+// 并发安全：读-改-写在同一次持锁内完成，避免两个并发刷新互相覆盖。
+func (s *Service) persistAccount(ctx context.Context, email string, tok *credentialUpdate) error {
+	s.mu.Lock()
+	found := false
+	for i := range s.settings.Accounts {
+		if strings.EqualFold(s.settings.Accounts[i].Email, email) {
+			if tok.AccessToken != "" {
+				s.settings.Accounts[i].AccessToken = tok.AccessToken
+			}
+			if tok.RefreshToken != "" {
+				s.settings.Accounts[i].RefreshToken = tok.RefreshToken
+			}
+			if tok.ExpiresAt > 0 {
+				s.settings.Accounts[i].ExpiresAt = tok.ExpiresAt
+			}
+			s.settings.Accounts[i].LastError = tok.LastError
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.mu.Unlock()
+		return fmt.Errorf("账号 %s 不存在", email)
+	}
+	snapshot := s.settings
+	s.mu.Unlock()
+	return s.SaveSettings(ctx, snapshot)
+}
+
+// credentialUpdate 描述一次 token 刷新的落库结果。
+type credentialUpdate struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    int64
+	LastError    string
+}
+
+// autoRefreshInterval 是后台 token 刷新周期。
+const autoRefreshInterval = 5 * time.Minute
+
+// StartAutoRefresh 启动 access token 自动续期。
+// 只处理「未停用、有 refresh token、已过期或即将过期」的账号；
+// 单个账号失败不阻断其它账号，失败原因写回 LastError 供前端排障。
+func (s *Service) StartAutoRefresh(ctx context.Context) {
+	s.autoRefreshOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(autoRefreshInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					s.RefreshStaleAccounts(ctx)
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	})
+}
+
+// RefreshStaleAccounts 刷新所有需要续期的账号。
+// 失败原因由 ensureFreshToken 内部写回 LastError，这里不重复落库。
+func (s *Service) RefreshStaleAccounts(ctx context.Context) {
+	for _, a := range s.Settings().Accounts {
+		if a.Disabled || strings.TrimSpace(a.RefreshToken) == "" {
+			continue
+		}
+		if tokenState(a) == "valid" {
+			continue
+		}
+		acc := a
+		_, _ = s.ensureFreshToken(ctx, &acc)
+	}
 }
 
 // quotaMonitorInterval 是配额刷新检测的轮询周期。
@@ -927,3 +1089,4 @@ func (s *Service) syncEndpointModels() {
 		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
 		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
+

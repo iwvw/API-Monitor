@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 )
@@ -232,5 +233,243 @@ func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
 	}
 	if strings.Contains(modelsRaw, "agy-") || strings.Contains(modelsRaw, "claude-sonnet") {
 		t.Fatalf("models should be migrated off old prefix and not fall back to defaults, got %q", modelsRaw)
+	}
+}
+
+
+// TestTokenStateAndAvailability 校验凭据状态判据与「可用」综合判据的一致性。
+// 前端状态列与后端选号必须用同一判据，否则会出现「界面绿色可用但实际不被选中」。
+func TestTokenStateAndAvailability(t *testing.T) {
+	now := time.Now().Unix()
+	cases := []struct {
+		name      string
+		acc       Account
+		wantState string
+		wantAvail bool
+	}{
+		{"无 access token", Account{Email: "a@x"}, "unknown", false},
+		{"无过期时刻", Account{Email: "a@x", AccessToken: "t"}, "unknown", true},
+		{"有效", Account{Email: "a@x", AccessToken: "t", ExpiresAt: now + 2*3600}, "valid", true},
+		{"即将过期", Account{Email: "a@x", AccessToken: "t", ExpiresAt: now + 600}, "expiring", true},
+		{"已过期", Account{Email: "a@x", AccessToken: "t", ExpiresAt: now - 10}, "expired", false},
+		{"已停用", Account{Email: "a@x", AccessToken: "t", ExpiresAt: now + 2*3600, Disabled: true}, "valid", false},
+	}
+	for _, c := range cases {
+		if got := tokenState(c.acc); got != c.wantState {
+			t.Errorf("%s: tokenState = %q, want %q", c.name, got, c.wantState)
+		}
+		if got := accountAvailable(c.acc); got != c.wantAvail {
+			t.Errorf("%s: accountAvailable = %v, want %v", c.name, got, c.wantAvail)
+		}
+	}
+}
+
+// TestHandleStatusExcludesExpiredAccounts 过期凭据不计入 enabledCount，
+// 否则前端会显示「已授权」但实际无法转发。
+func TestHandleStatusExcludesExpiredAccounts(t *testing.T) {
+	s := newTestAntigravityService(t)
+	now := time.Now().Unix()
+	s.mu.Lock()
+	s.settings = Settings{
+		Enabled: true,
+		Accounts: []Account{
+			{Email: "ok@x", AccessToken: "t", ProjectID: "p1", ExpiresAt: now + 2*3600},
+			{Email: "stale@x", AccessToken: "t", ProjectID: "p2", ExpiresAt: now - 10},
+			{Email: "disabled@x", AccessToken: "t", ProjectID: "p3", ExpiresAt: now + 2*3600, Disabled: true},
+			{Email: "noproj@x", AccessToken: "t", ExpiresAt: now + 2*3600},
+		},
+		DisabledModels: []string{},
+		ModelAliases:   map[string]string{},
+	}
+	s.mu.Unlock()
+
+	rec := httptest.NewRecorder()
+	s.handleStatus(rec, httptest.NewRequest(http.MethodGet, "/api/antigravity/status", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got struct {
+		Authorized   bool `json:"authorized"`
+		AccountCount int  `json:"accountCount"`
+		EnabledCount int  `json:"enabledCount"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountCount != 4 {
+		t.Fatalf("accountCount = %d, want 4", got.AccountCount)
+	}
+	if got.EnabledCount != 1 {
+		t.Fatalf("enabledCount = %d, want 1（仅未过期且有 project 的账号）", got.EnabledCount)
+	}
+}
+
+// TestHandleAccountsExposesTokenState 账号列表必须下发 tokenState/available/lastError，
+// 前端据此显示「已过期」而非绿色「可用」。
+func TestHandleAccountsExposesTokenState(t *testing.T) {
+	s := newTestAntigravityService(t)
+	now := time.Now().Unix()
+	s.mu.Lock()
+	s.settings = Settings{
+		Accounts: []Account{{
+			Email:       "stale@x",
+			AccessToken: "t",
+			RefreshToken: "r",
+			ProjectID:   "p1",
+			ExpiresAt:   now - 10,
+			LastError:   "刷新 token 失败: invalid_grant",
+		}},
+		DisabledModels: []string{},
+		ModelAliases:   map[string]string{},
+	}
+	s.mu.Unlock()
+
+	rec := httptest.NewRecorder()
+	s.handleAccounts(rec, httptest.NewRequest(http.MethodGet, "/api/antigravity/accounts", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accounts = %d, want 200", rec.Code)
+	}
+	var got struct {
+		Accounts []accountView `json:"accounts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(got.Accounts))
+	}
+	a := got.Accounts[0]
+	if a.TokenState != "expired" {
+		t.Errorf("tokenState = %q, want expired", a.TokenState)
+	}
+	if a.Available {
+		t.Error("available should be false for expired token")
+	}
+	if a.ExpiresInSeconds != 0 {
+		t.Errorf("expiresInSeconds = %d, want 0（已过期不下发倒计时）", a.ExpiresInSeconds)
+	}
+	if !strings.Contains(a.LastError, "invalid_grant") {
+		t.Errorf("lastError should surface refresh failure, got %q", a.LastError)
+	}
+}
+
+// TestRefreshStaleAccountsSkipsValidAndDisabled 自动续期只处理
+// 「未停用 + 有 refresh token + 非 valid」的账号；valid 与停用账号不该被触碰。
+// 这里用不可达的 refresh token 触发失败路径，验证错误被写回 LastError。
+func TestRefreshStaleAccountsSkipsValidAndDisabled(t *testing.T) {
+	s := newTestAntigravityService(t)
+	ctx := context.Background()
+	now := time.Now().Unix()
+	s.mu.Lock()
+	s.settings = Settings{
+		Accounts: []Account{
+			{Email: "valid@x", AccessToken: "t", RefreshToken: "r", ExpiresAt: now + 2*3600},
+			{Email: "disabled@x", AccessToken: "t", RefreshToken: "r", ExpiresAt: now - 10, Disabled: true},
+			{Email: "norefresh@x", AccessToken: "t", ExpiresAt: now - 10},
+		},
+		DisabledModels: []string{},
+		ModelAliases:   map[string]string{},
+	}
+	s.mu.Unlock()
+
+	s.RefreshStaleAccounts(ctx)
+
+	after := s.Settings()
+	for _, a := range after.Accounts {
+		if a.LastError != "" {
+			t.Errorf("%s 不应被自动续期触碰，却写入了 LastError: %q", a.Email, a.LastError)
+		}
+		if a.ExpiresAt != now-10 && a.Email != "valid@x" {
+			t.Errorf("%s 的过期时刻不应被改动", a.Email)
+		}
+	}
+}
+
+
+
+// TestPersistAccountMergesCredentialFieldsOnly 刷新落库不得回退用户对账号
+// 其它字段的并发修改：persistAccount 只覆盖凭据与 LastError 字段。
+func TestPersistAccountMergesCredentialFieldsOnly(t *testing.T) {
+	s := newTestAntigravityService(t)
+	ctx := context.Background()
+	st := Settings{
+		Accounts: []Account{{
+			Email:        "a@x",
+			Name:         "旧名",
+			PlanType:     "Pro",
+			ProjectID:    "p1",
+			Disabled:     true,
+			AccessToken:  "old",
+			RefreshToken: "oldr",
+			ExpiresAt:    100,
+			LastError:    "旧错误",
+		}},
+		DisabledModels: []string{},
+		ModelAliases:   map[string]string{},
+	}
+	if err := s.SaveSettings(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+
+	// 模拟刷新成功：只更新凭据 + 清空错误。调用方传入的 acc 是快照（Name/Disabled 为旧值）。
+	if err := s.persistAccount(ctx, "a@x", &credentialUpdate{
+		AccessToken:  "new",
+		RefreshToken: "newr",
+		ExpiresAt:    999,
+		LastError:    "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := s.Settings().Accounts[0]
+	if after.AccessToken != "new" || after.RefreshToken != "newr" || after.ExpiresAt != 999 {
+		t.Fatalf("凭据字段应被更新，实际 %+v", after)
+	}
+	if after.LastError != "" {
+		t.Errorf("LastError 应被清空，实际 %q", after.LastError)
+	}
+	// 非凭据字段必须原样保留。
+	if after.Name != "旧名" || after.PlanType != "Pro" || after.ProjectID != "p1" || !after.Disabled {
+		t.Errorf("非凭据字段不应被改动，实际 %+v", after)
+	}
+}
+
+// TestPersistAccountFailureKeepsCredentials 刷新失败只写 LastError，
+// 不得把已有凭据覆盖成空值。
+func TestPersistAccountFailureKeepsCredentials(t *testing.T) {
+	s := newTestAntigravityService(t)
+	ctx := context.Background()
+	st := Settings{
+		Accounts: []Account{{
+			Email:        "a@x",
+			AccessToken:  "keep-me",
+			RefreshToken: "keep-r",
+			ExpiresAt:    4242,
+		}},
+		DisabledModels: []string{},
+		ModelAliases:   map[string]string{},
+	}
+	if err := s.SaveSettings(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.persistAccount(ctx, "a@x", &credentialUpdate{LastError: "invalid_grant"}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := s.Settings().Accounts[0]
+	if after.AccessToken != "keep-me" || after.RefreshToken != "keep-r" || after.ExpiresAt != 4242 {
+		t.Fatalf("失败路径不应改动凭据，实际 %+v", after)
+	}
+	if after.LastError != "invalid_grant" {
+		t.Errorf("LastError = %q, want invalid_grant", after.LastError)
+	}
+}
+
+// TestPersistAccountMissingEmail 账号不存在时返回错误而非静默成功。
+func TestPersistAccountMissingEmail(t *testing.T) {
+	s := newTestAntigravityService(t)
+	if err := s.persistAccount(context.Background(), "nope@x", &credentialUpdate{LastError: "x"}); err == nil {
+		t.Fatal("expected error for missing account")
 	}
 }

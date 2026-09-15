@@ -3,6 +3,7 @@ package geminicli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -225,6 +226,105 @@ func (s *Service) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, s.toAccountView(a))
 	}
 	responseJSON(w, map[string]interface{}{"success": true, "accounts": out})
+}
+
+// -----------------------------------------------------------------------------
+// 账号导入导出
+// -----------------------------------------------------------------------------
+
+// exportPayload 是账号导出文件的形状（含 token，属敏感数据）。
+type exportPayload struct {
+	Version    int       `json:"version"`
+	ExportedAt string    `json:"exportedAt"`
+	Accounts   []Account `json:"accounts"`
+}
+
+// handleExportAccounts 导出全部账号（含 token，仅本机会话可下载，用于迁移/备份）。
+func (s *Service) handleExportAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	st := s.Settings()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=geminicli-accounts-%s.json", time.Now().UTC().Format("20060102")))
+	_ = json.NewEncoder(w).Encode(exportPayload{
+		Version:    1,
+		ExportedAt: time.Now().UTC().Format(time.RFC3339),
+		Accounts:   st.Accounts,
+	})
+}
+
+// handleImportAccounts 导入账号，按 ID 去重合并（已存在则保留本机版本，不覆盖）。
+// 兼容两种形状：{"accounts":[...]} 或裸数组。
+func (s *Service) handleImportAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	raw, err := decodeImportBody(r)
+	if err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	if len(raw) == 0 {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "没有可导入的账号"})
+		return
+	}
+	// 导入是「读整份设置 → 追加账号 → 写回」，与并发登录/刷新互斥，否则会丢更新。
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
+	st := s.Settings()
+	seen := map[string]bool{}
+	for _, a := range st.Accounts {
+		seen[a.ID] = true
+	}
+	added := 0
+	for _, a := range raw {
+		a.ID = strings.TrimSpace(a.ID)
+		if a.ID == "" {
+			a.ID = strings.TrimSpace(firstNonEmpty(a.Email, a.Nickname, a.ProjectID))
+		}
+		if a.ID == "" || strings.TrimSpace(a.AccessToken) == "" || seen[a.ID] {
+			continue
+		}
+		if a.CreatedAt == "" {
+			a.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		seen[a.ID] = true
+		st.Accounts = append(st.Accounts, a)
+		added++
+	}
+	if err := s.SaveSettings(r.Context(), st); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true, "added": added})
+}
+
+// decodeImportBody 解析导入请求体，同时支持 {"accounts":[...]} 与裸数组。
+func decodeImportBody(r *http.Request) ([]Account, error) {
+	var probe json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&probe); err != nil {
+		return nil, fmt.Errorf("请求体解析失败")
+	}
+	trimmed := strings.TrimSpace(string(probe))
+	if trimmed == "" {
+		return nil, fmt.Errorf("请求体为空")
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		var arr []Account
+		if err := json.Unmarshal(probe, &arr); err != nil {
+			return nil, fmt.Errorf("账号解析失败: %w", err)
+		}
+		return arr, nil
+	}
+	var wrapper exportPayload
+	if err := json.Unmarshal(probe, &wrapper); err != nil {
+		return nil, fmt.Errorf("配置解析失败: %w", err)
+	}
+	return wrapper.Accounts, nil
 }
 
 // handleDeleteAccount 删除账号。
