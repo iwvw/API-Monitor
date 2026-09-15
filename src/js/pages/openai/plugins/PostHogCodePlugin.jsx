@@ -8,10 +8,10 @@ import { getAuthHeaders } from '../utils.js';
 
 const API = '/api/posthogcode';
 
-// 回调地址：PostHog 只接受 OAuth 应用注册过的 redirect_uri。
-// Desktop 应用注册了 http://localhost/callback（无端口），PostHog 对 localhost 放行任意端口，
-// 因此这里用面板所在源的 /callback 路径；授权页会跳回到该地址，用户把完整地址粘回即可。
-const callbackUri = () => `${window.location.origin}/callback`;
+// 回调地址由后端固定为 PostHog OAuth 应用注册过的值（默认 http://localhost/callback）。
+// 不能按面板所在源推导：注册值与部署域名无关，用 window.location.origin 会得到
+// "Mismatching redirect URI"。这里只用于提示占位，实际值取后端下发的 redirectUri。
+const DEFAULT_CALLBACK_URI = 'http://localhost/callback';
 
 const fmtLeft = seconds => {
   const s = Number(seconds) || 0;
@@ -47,6 +47,9 @@ export function PostHogCodePlugin() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
   const [authState, setAuthState] = useState('');
+  // authRedirectUri 是后端下发的权威回调地址（OAuth 应用注册值），
+  // 仅用于占位提示，交换 token 时由后端从会话取用，前端不参与。
+  const [authRedirectUri, setAuthRedirectUri] = useState(DEFAULT_CALLBACK_URI);
   const [authRegion, setAuthRegion] = useState('us');
   const [authStarting, setAuthStarting] = useState(false);
   const [callbackUrl, setCallbackUrl] = useState('');
@@ -212,12 +215,13 @@ export function PostHogCodePlugin() {
       const res = await fetch(`${API}/oauth/auth-url`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ region: authRegion, redirectUri: callbackUri() }),
+        body: JSON.stringify({ region: authRegion }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '生成授权链接失败');
       setAuthUrl(data.url);
       setAuthState(data.state);
+      setAuthRedirectUri(data.redirectUri || DEFAULT_CALLBACK_URI);
       setAuthOpen(true);
       window.open(data.url, '_blank', 'noopener');
     } catch (e) {
@@ -830,7 +834,7 @@ export function PostHogCodePlugin() {
                 size="sm"
                 label="回调地址"
                 className="w-full font-mono text-xs"
-                placeholder={`${callbackUri()}?code=...&state=...`}
+                placeholder={`${authRedirectUri || DEFAULT_CALLBACK_URI}?code=...&state=...`}
                 value={callbackUrl}
                 onChange={e => setCallbackUrl(e.target.value)}
               />
