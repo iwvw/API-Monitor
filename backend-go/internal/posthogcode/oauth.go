@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -34,14 +35,36 @@ const oauthScope = "openid profile email llm_gateway:read project:read"
 // oauthTTL 是待完成授权会话的有效期。
 const oauthTTL = 30 * time.Minute
 
+// defaultRedirectURI 是 PostHog OAuth 应用注册过的回调地址。
+// PostHog Desktop 应用注册的是 http://localhost/callback（不带端口）；按
+// RFC 8252 §7.3，localhost 允许任意端口，因此这里保留不带端口的写法。
+//
+// 关键：redirect_uri 是 OAuth 应用的注册属性，与面板部署在哪个域名无关，
+// 必须由服务端固定。若按前端所在源（window.location.origin）推导，任何非
+// localhost 的部署都会得到 "Mismatching redirect URI"。
+const defaultRedirectURI = "http://localhost/callback"
+
+// envRedirectURI 允许部署方自带 OAuth 应用时覆盖回调地址。
+const envRedirectURI = "POSTHOGCODE_REDIRECT_URI"
+
+// callbackRedirectURI 返回授权与换码统一使用的 redirect_uri。
+// 两处必须完全一致，否则 token 端点会以 invalid_grant 拒绝。
+func callbackRedirectURI() string {
+	if v := strings.TrimSpace(os.Getenv(envRedirectURI)); v != "" {
+		return v
+	}
+	return defaultRedirectURI
+}
+
 // tokenRequestTimeout 是 token 端点请求超时。
 const tokenRequestTimeout = 30 * time.Second
 
 // oauthState 是暂存待完成授权的 PKCE 会话。
 type oauthState struct {
-	verifier  string
-	region    string
-	createdAt time.Time
+	verifier    string
+	region      string
+	redirectURI string
+	createdAt   time.Time
 }
 
 // cloudBaseURL 返回指定区域的 PostHog 主站地址。
@@ -147,7 +170,7 @@ func (s *Service) buildAuthorizeURL(region, redirectURI string) (authURL, state 
 
 	s.cleanupOAuthStates()
 	s.oauthMu.Lock()
-	s.oauthStates[st] = &oauthState{verifier: verifier, region: region, createdAt: time.Now()}
+	s.oauthStates[st] = &oauthState{verifier: verifier, region: region, redirectURI: redirectURI, createdAt: time.Now()}
 	s.oauthMu.Unlock()
 
 	return u.String(), st, nil

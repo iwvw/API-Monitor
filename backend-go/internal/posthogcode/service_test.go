@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -350,5 +352,65 @@ func TestImportAccountsSkipsMissingRefreshToken(t *testing.T) {
 	_ = json.Unmarshal(rec2.Body.Bytes(), &res2)
 	if res2.Added != 0 {
 		t.Fatalf("重复导入 added = %d, want 0", res2.Added)
+	}
+}
+
+// TestHandleAuthURLUsesRegisteredRedirectURI 授权链接里的 redirect_uri 必须
+// 是 OAuth 应用注册值，不能采用请求体传入的地址。回归「前端按面板所在源
+// 推导回调地址」导致的 "Mismatching redirect URI"。
+func TestHandleAuthURLUsesRegisteredRedirectURI(t *testing.T) {
+	s := newDBService(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/posthogcode/oauth/auth-url",
+		strings.NewReader(`{"region":"us","redirectUri":"https://dsukhub.com/callback"}`))
+	s.handleAuthURL(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("auth-url = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		URL         string `json:"url"`
+		State       string `json:"state"`
+		RedirectURI string `json:"redirectUri"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.RedirectURI != defaultRedirectURI {
+		t.Fatalf("redirectUri = %q, want %q（必须用注册值）", res.RedirectURI, defaultRedirectURI)
+	}
+	if strings.Contains(res.URL, "dsukhub.com") {
+		t.Fatalf("授权链接不得包含前端传入的域名: %s", res.URL)
+	}
+	u, err := url.Parse(res.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Query().Get("redirect_uri"); got != defaultRedirectURI {
+		t.Fatalf("授权链接 redirect_uri = %q, want %q", got, defaultRedirectURI)
+	}
+	if got := u.Query().Get("state"); got != res.State {
+		t.Fatalf("授权链接 state = %q, 应与返回的 state 一致", got)
+	}
+
+	// 会话里必须记下同一个 redirect_uri，供换码时使用。
+	sess := s.takeOAuthState(res.State)
+	if sess == nil {
+		t.Fatal("授权会话应已建立")
+	}
+	if sess.redirectURI != defaultRedirectURI {
+		t.Fatalf("会话 redirectURI = %q, want %q", sess.redirectURI, defaultRedirectURI)
+	}
+}
+
+// TestCallbackRedirectURIEnvOverride 允许部署方用环境变量覆盖注册回调地址。
+func TestCallbackRedirectURIEnvOverride(t *testing.T) {
+	t.Setenv(envRedirectURI, "https://example.com/cb")
+	if got := callbackRedirectURI(); got != "https://example.com/cb" {
+		t.Fatalf("callbackRedirectURI = %q, want env value", got)
+	}
+	t.Setenv(envRedirectURI, "")
+	if got := callbackRedirectURI(); got != defaultRedirectURI {
+		t.Fatalf("空环境变量应回落默认值，得到 %q", got)
 	}
 }

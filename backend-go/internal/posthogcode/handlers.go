@@ -515,15 +515,15 @@ func (s *Service) handleTestAccount(w http.ResponseWriter, r *http.Request, id s
 // -----------------------------------------------------------------------------
 
 // handleAuthURL 生成授权链接。
-// 请求体 {"region":"us|eu","redirectUri":"<回调地址>"}。
+// 请求体 {"region":"us|eu"}。redirect_uri 由服务端固定为 OAuth 应用注册值，
+// 不接受前端传入（前端所在源与注册值无关，传了必然 Mismatching redirect URI）。
 func (s *Service) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
 		return
 	}
 	var body struct {
-		Region      string `json:"region"`
-		RedirectURI string `json:"redirectUri"`
+		Region string `json:"region"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -531,14 +531,7 @@ func (s *Service) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 	if region != "eu" {
 		region = "us"
 	}
-	redirectURI := strings.TrimSpace(body.RedirectURI)
-	if redirectURI == "" {
-		responseJSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "缺少 redirectUri：PostHog 只接受其注册过的回调地址（Desktop 应用为 http://localhost/callback，端口任意）",
-		})
-		return
-	}
+	redirectURI := callbackRedirectURI()
 
 	authURL, state, err := s.buildAuthorizeURL(region, redirectURI)
 	if err != nil {
@@ -574,7 +567,6 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 
 	code := strings.TrimSpace(body.Code)
 	state := strings.TrimSpace(body.State)
-	redirectURI := ""
 
 	if cb := strings.TrimSpace(body.CallbackURL); cb != "" {
 		u, err := url.Parse(cb)
@@ -596,10 +588,6 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 		if state == "" {
 			state = strings.TrimSpace(q.Get("state"))
 		}
-		// 回调地址去掉 query/fragment 即为注册的 redirect_uri。
-		u.RawQuery = ""
-		u.Fragment = ""
-		redirectURI = u.String()
 	}
 
 	if code == "" {
@@ -615,9 +603,12 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// redirect_uri 必须与授权时完全一致：取会话里存的值，而不是从粘贴的回调
+	// 地址反推。用户可能只粘 code+state，也可能回调地址被改写；用会话值可保证
+	// 换码请求与授权请求一致。
+	redirectURI := sess.redirectURI
 	if redirectURI == "" {
-		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "缺少回调地址"})
-		return
+		redirectURI = callbackRedirectURI()
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
