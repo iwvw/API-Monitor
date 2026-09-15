@@ -68,6 +68,13 @@ type Service struct {
 	// 主机指标 1 分钟滚动采样（约 5s 一点，保留 12 点），供前端图表显示"1 分钟前到现在"并实时滚动
 	hostMetricsMu      sync.Mutex
 	hostMetricsSamples []hostMetricSample
+
+	// AI 接入 describe 元数据轮询缓存：GET /api/ai/mcp 探测可高达每秒一次，
+	// 属只读静态响应，用内存缓存避免每次开库、重建 payload 与落审计。
+	aiDescribeOnce    sync.Once
+	aiDescribePayload map[string]interface{}
+	aiAgentKeyMu      sync.Mutex
+	aiAgentKeyCache   string
 }
 
 type hostMetricSample struct {
