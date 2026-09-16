@@ -168,6 +168,14 @@ func buildRoutes() []Route {
 		{Prefix: "/api/cloudflare/accounts/{id}/workers/{scriptName}/domains", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker custom domains list/create", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/workers/{scriptName}/domains/{domainId}", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker custom domain delete", MatchMode: MatchPattern},
 
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing global settings", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/zones", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing selectable domains", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/addresses", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing destination addresses list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/addresses/{addressId}", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing destination address delete", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/rules", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing rules list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/rules/{ruleId}", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing rule delete", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/inbox", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing email-code inbox Worker deploy/remove/status", MatchMode: MatchPattern},
+
 		{Prefix: "/api/cloudflare/accounts/{accountId}/r2/buckets", Module: "cloudflare-r2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare R2 bucket list/create", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{accountId}/r2/metrics", Module: "cloudflare-r2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare R2 account metrics (storage usage and object count)", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}", Module: "cloudflare-r2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare R2 bucket delete", MatchMode: MatchPattern},
@@ -336,6 +344,9 @@ func buildRoutes() []Route {
 		{Prefix: "/api/lobsterai/v1", Module: "lobsterai-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "LobsterAI 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/posthogcode", Module: "posthogcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "PostHog Code 插件（PostHog LLM Gateway 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/posthogcode/v1", Module: "posthogcode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "PostHog Code 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+
+		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、统计、清理）"},
+		{Prefix: "/api/emailcode/ingest", Module: "emailcode-worker-callback", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "邮件 Worker 投递回调（共享密钥校验，非会话鉴权）", MatchMode: MatchExact},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
 		{Prefix: "/sub/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Public subscription endpoint (UA-adaptive formats, info page, Clash/raw/base64)", MatchMode: MatchPattern},

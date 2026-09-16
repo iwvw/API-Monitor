@@ -175,10 +175,10 @@ func init() {
 		"days": {t: "integer", d: "统计天数（1-90，默认 14）"},
 	})
 	routeRequestContracts["/api/backup/configs"] = obj(nil, map[string]prop{
-		"local_dir":   {t: "string", d: "本地备份目录"},
-		"cron":        {t: "string", d: "定时表达式"},
-		"max_records": {t: "integer", d: "最大保留备份数量（0=不限制）"},
-		"channels":    {t: "array", d: "备份上传渠道列表（可同时配置多个，一次备份会同时上传到所有渠道）"},
+		"local_dir":         {t: "string", d: "本地备份目录"},
+		"cron":              {t: "string", d: "定时表达式"},
+		"max_records":       {t: "integer", d: "最大保留备份数量（0=不限制）"},
+		"channels":          {t: "array", d: "备份上传渠道列表（可同时配置多个，一次备份会同时上传到所有渠道）"},
 		"provider":          {t: "string", e: []string{"local", "oss", "cos", "s3", "webdav"}, d: "旧版单渠道类型（仅兼容旧格式，新格式用 channels）"},
 		"endpoint":          {t: "string", d: "旧版单渠道云存储端点"},
 		"bucket":            {t: "string", d: "旧版单渠道存储桶"},
@@ -250,19 +250,19 @@ func init() {
 
 	// ===== 定时任务 =====
 	routeRequestContracts["/api/scheduler/tasks"] = obj([]string{"name", "command"}, map[string]prop{
-		"name":                 {t: "string", req: true},
-		"description":          {t: "string"},
-		"schedule":             {t: "string", d: "cron 表达式"},
-		"command":              {t: "string", req: true},
-		"type":                 {t: "string", d: "shell | internal | agent | http | ai"},
-		"enabled":              {t: "boolean", d: "是否启用（兼容 0/1 整数）"},
-		"timeout_seconds":      {t: "integer"},
-		"retry_count":          {t: "integer"},
+		"name":                   {t: "string", req: true},
+		"description":            {t: "string"},
+		"schedule":               {t: "string", d: "cron 表达式"},
+		"command":                {t: "string", req: true},
+		"type":                   {t: "string", d: "shell | internal | agent | http | ai"},
+		"enabled":                {t: "boolean", d: "是否启用（兼容 0/1 整数）"},
+		"timeout_seconds":        {t: "integer"},
+		"retry_count":            {t: "integer"},
 		"retry_interval_seconds": {t: "integer"},
-		"max_concurrency":      {t: "integer"},
-		"node_id":              {t: "string"},
-		"node_selector":        {t: "string"},
-		"config":               {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}，policy 仅支持 allow/readonly，默认 allow）"},
+		"max_concurrency":        {t: "integer"},
+		"node_id":                {t: "string"},
+		"node_selector":          {t: "string"},
+		"config":                 {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}，policy 仅支持 allow/readonly，默认 allow）"},
 	})
 	routeRequestContracts["/api/scheduler/tasks/{id}"] = routeRequestContracts["/api/scheduler/tasks"]
 	routeRequestContracts["/api/cron/tasks"] = routeRequestContracts["/api/scheduler/tasks"]
@@ -349,6 +349,60 @@ func init() {
 		"zoneId": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/cloudflare/accounts/{id}/verify"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/cloudflare/accounts/{accountId}/email/routing/addresses"] = obj([]string{"email"}, map[string]prop{
+		"email": {t: "string", req: true, d: "目的地邮箱地址，CF 会向其发送验证邮件"},
+	})
+	routeRequestContracts["/api/cloudflare/accounts/{accountId}/email/routing/rules"] = obj([]string{"matchers", "actions"}, map[string]prop{
+		"name":       {t: "string", d: "规则名称"},
+		"enabled":    {t: "boolean", d: "是否启用"},
+		"matchers":   {t: "array", req: true, d: "匹配器数组，可为空"},
+		"actions":    {t: "array", req: true, d: "动作数组，每规则只能一个动作"},
+		"catchAll":   {t: "boolean", d: "是否为 catch-all 规则"},
+		"skipWizard": {t: "boolean", d: "跳过向导"},
+		"priority":   {t: "integer", d: "优先级"},
+		"tag":        {t: "string", d: "标签"},
+		"stop":       {t: "boolean", d: "命中后是否停止后续规则"},
+	})
+	routeRequestContracts["/api/cloudflare/accounts/{accountId}/email/routing/inbox"] = obj([]string{"zoneId"}, map[string]prop{
+		"zoneId":       {t: "string", req: true, d: "目标域名 zone id"},
+		"panelBaseUrl": {t: "string", d: "面板公网地址，缺省读系统设置"},
+		"forwardTo":    {t: "string", d: "续转目标邮箱"},
+		"workerName":   {t: "string", d: "自定义 Worker 脚本名"},
+		"strategy":     {t: "string", e: []string{"forward", "inbox_only", "inbox_and_forward"}, d: "转发策略：只转发 / 只收件 / 收件并续转（默认）"},
+	})
+	routeRequestContracts["/api/emailcode/ingest"] = obj([]string{"mailbox"}, map[string]prop{
+		"mailbox":    {t: "string", req: true, d: "收件人邮箱"},
+		"domain":     {t: "string", d: "收件域名"},
+		"sender":     {t: "string", d: "发件人"},
+		"subject":    {t: "string", d: "主题"},
+		"messageId":  {t: "string", d: "邮件 Message-ID，用于去重"},
+		"raw":        {t: "string", d: "邮件 MIME 原文，面板侧解析提取"},
+		"code":       {t: "string", d: "已提取的验证码（兼容旧版）"},
+		"link":       {t: "string", d: "已提取的验证链接（兼容旧版）"},
+		"snippet":    {t: "string", d: "正文摘要"},
+		"receivedAt": {t: "string", d: "收件时刻（RFC3339）"},
+	})
+	routeRequestContracts["/api/emailcode/wait"] = obj([]string{"mailbox"}, map[string]prop{
+		"mailbox":         {t: "string", req: true, d: "收件人邮箱"},
+		"domain":          {t: "string", d: "收件域名，精确收敛"},
+		"fromDomain":      {t: "string", d: "发件人域名，精确收敛"},
+		"subjectContains": {t: "string", d: "主题关键词过滤"},
+		"since":           {t: "string", d: "只接受该时刻之后的邮件（RFC3339）"},
+		"timeoutSec":      {t: "integer", d: "最长等待秒数"},
+		"consumer":        {t: "string", d: "认领方标识"},
+		"requireCode":     {t: "boolean", d: "是否要求已提取出验证码（默认 true）"},
+	})
+	routeRequestContracts["/api/emailcode/messages/{id}/consume"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/emailcode/clear"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/posthogcode/signup/start"] = obj(nil, map[string]prop{
+		"region":    {t: "string", d: "区域 us/eu，默认 us"},
+		"prefix":    {t: "string", d: "邮箱前缀，默认 probe"},
+		"domain":    {t: "string", d: "收件域名，需已部署收件箱，缺省用第一个可用域名"},
+		"password":  {t: "string", d: "账号密码，缺省自动生成"},
+		"accountId": {t: "string", d: "指定既有账号则复用其身份"},
+		"email":     {t: "string", d: "手动模式：用户自行在浏览器注册时使用的邮箱"},
+		"manual":    {t: "boolean", d: "人机分工模式：面板只备邮箱密码，由用户在浏览器过 Turnstile，面板接管验证与授权"},
+	})
 
 	// ===== GitHub =====
 	routeRequestContracts["/api/github/tokens"] = obj([]string{"name", "token"}, map[string]prop{
@@ -807,10 +861,10 @@ func init() {
 	routeRequestContracts["/api/koyeb/apps/{appId}/pause"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
 	routeRequestContracts["/api/koyeb/apps/{appId}/resume"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
 	routeRequestContracts["/api/koyeb/domains"] = obj([]string{"name"}, map[string]prop{
-		"name":    {t: "string", req: true, d: "域名（CUSTOM）或自动分配域名（AUTOASSIGNED）"},
-		"type":    {t: "string", e: []string{"AUTOASSIGNED", "CUSTOM"}},
+		"name":      {t: "string", req: true, d: "域名（CUSTOM）或自动分配域名（AUTOASSIGNED）"},
+		"type":      {t: "string", e: []string{"AUTOASSIGNED", "CUSTOM"}},
 		"accountId": {t: "string", req: true, d: "Koyeb 账号 ID"},
-		"appId":   {t: "string", d: "绑定到的应用 ID"},
+		"appId":     {t: "string", d: "绑定到的应用 ID"},
 	})
 	routeRequestContracts["/api/koyeb/domains/{domainId}"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
 	routeRequestContracts["/api/koyeb/domains/{domainId}/refresh"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
@@ -1268,13 +1322,13 @@ func init() {
 	})
 	routeRequestContracts["/api/scheduler/tasks/{id}/run"] = noBody
 	routeRequestContracts["/api/scheduler/workflows/{id}"] = obj([]string{"name", "nodes"}, map[string]prop{
-		"name":              {t: "string", req: true, d: "工作流名称"},
-		"nodes":             {t: "array", req: true, d: "工作流节点"},
-		"edges":             {t: "array", d: "节点连线"},
-		"schedule":          {t: "string", d: "cron 表达式"},
-		"enabled":           {t: "boolean", d: "是否启用"},
+		"name":               {t: "string", req: true, d: "工作流名称"},
+		"nodes":              {t: "array", req: true, d: "工作流节点"},
+		"edges":              {t: "array", d: "节点连线"},
+		"schedule":           {t: "string", d: "cron 表达式"},
+		"enabled":            {t: "boolean", d: "是否启用"},
 		"concurrency_policy": {t: "string", d: "并发策略"},
-		"failure_policy":    {t: "string", d: "失败策略"},
+		"failure_policy":     {t: "string", d: "失败策略"},
 	})
 	routeRequestContracts["/api/server/accounts/refresh-locations"] = noBody
 	routeRequestContracts["/api/cron/tasks/{id}/run"] = noBody
@@ -1339,9 +1393,9 @@ func init() {
 	routeRequestContracts["/api/server/v2/docker/{serverId}/networks/prune"] = noBody
 	routeRequestContracts["/api/server/v2/docker/{serverId}/volumes/prune"] = noBody
 	routeRequestContracts["/api/server/v2/docker/{serverId}/compose/{project}/{action}"] = obj(nil, map[string]prop{
-		"configFiles":  {t: "array", d: "compose 配置文件路径列表"},
-		"configFile":   {t: "string", d: "单配置文件路径"},
-		"wait":         {t: "boolean", d: "等待完成（默认 true）"},
+		"configFiles": {t: "array", d: "compose 配置文件路径列表"},
+		"configFile":  {t: "string", d: "单配置文件路径"},
+		"wait":        {t: "boolean", d: "等待完成（默认 true）"},
 	})
 	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/sync"] = noBody
 	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/{project}/{action}"] = obj(nil, map[string]prop{
@@ -1420,14 +1474,14 @@ func init() {
 		"action": {t: "string", req: true, e: []string{"start", "stop", "reset", "delete"}, d: "实例动作"},
 	})
 	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances"] = obj([]string{"name", "zone", "machineType"}, map[string]prop{
-		"name":          {t: "string", req: true, d: "实例名称"},
-		"zone":          {t: "string", req: true, d: "可用区（如 us-central1-a）"},
-		"machineType":   {t: "string", req: true, d: "机型（如 e2-micro）"},
-		"image":         {t: "string", d: "启动镜像"},
+		"name":           {t: "string", req: true, d: "实例名称"},
+		"zone":           {t: "string", req: true, d: "可用区（如 us-central1-a）"},
+		"machineType":    {t: "string", req: true, d: "机型（如 e2-micro）"},
+		"image":          {t: "string", d: "启动镜像"},
 		"bootDiskSizeGb": {t: "integer", d: "启动盘大小（GB）"},
-		"network":       {t: "string", d: "网络"},
-		"subnetwork":    {t: "string", d: "子网"},
-		"labels":        {t: "object", d: "标签键值对"},
+		"network":        {t: "string", d: "网络"},
+		"subnetwork":     {t: "string", d: "子网"},
+		"labels":         {t: "object", d: "标签键值对"},
 	})
 	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}/labels"] = obj(nil, map[string]prop{
 		"labels": {t: "object", d: "标签键值对"},
@@ -1537,9 +1591,9 @@ func init() {
 		"overwrite": {t: "boolean", d: "覆盖当前已有账号"},
 	})
 	routeRequestContracts["/api/m365/accounts"] = obj([]string{"name"}, map[string]prop{
-		"name":        {t: "string", req: true, d: "账号名称"},
-		"tenantId":    {t: "string", d: "租户 ID"},
-		"clientId":    {t: "string", d: "应用客户端 ID"},
+		"name":         {t: "string", req: true, d: "账号名称"},
+		"tenantId":     {t: "string", d: "租户 ID"},
+		"clientId":     {t: "string", d: "应用客户端 ID"},
 		"clientSecret": {t: "string", d: "应用密钥"},
 	})
 	routeRequestContracts["/api/m365/import/accounts"] = routeRequestContracts["/api/aliyun/accounts/import"]
@@ -1566,8 +1620,8 @@ func init() {
 	})
 	routeRequestContracts["/api/m365/accounts/{id}/groups/{gid}/assign-license"] = routeRequestContracts["/api/m365/accounts/{id}/users/{uid}/assign-license"]
 	routeRequestContracts["/api/m365/public-pages"] = obj(nil, map[string]prop{
-		"title":   {t: "string"},
-		"slug":    {t: "string"},
+		"title":     {t: "string"},
+		"slug":      {t: "string"},
 		"accountId": {t: "string"},
 	})
 	routeRequestContracts["/api/m365/public-pages/{id}"] = obj(nil, map[string]prop{
@@ -1575,8 +1629,8 @@ func init() {
 		"slug":  {t: "string"},
 	})
 	routeRequestContracts["/api/m365/invite-codes"] = obj(nil, map[string]prop{
-		"code":   {t: "string", d: "邀请码"},
-		"limit":  {t: "integer", d: "可用次数"},
+		"code":  {t: "string", d: "邀请码"},
+		"limit": {t: "integer", d: "可用次数"},
 	})
 	routeRequestContracts["/api/m365/invite-codes/{id}"] = routeRequestContracts["/api/m365/invite-codes"]
 	routeRequestContracts["/api/openai/endpoints/reorder"] = obj([]string{"ids"}, map[string]prop{
@@ -1659,10 +1713,10 @@ func init() {
 		"serverId": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/uptime/monitors"] = obj([]string{"name"}, map[string]prop{
-		"name":      {t: "string", req: true},
-		"url":       {t: "string", d: "监测 URL"},
-		"type":      {t: "string", d: "http/tcp/ping"},
-		"interval":  {t: "integer", d: "间隔秒"},
+		"name":     {t: "string", req: true},
+		"url":      {t: "string", d: "监测 URL"},
+		"type":     {t: "string", d: "http/tcp/ping"},
+		"interval": {t: "integer", d: "间隔秒"},
 	})
 	routeRequestContracts["/api/uptime/monitors/{id}"] = routeRequestContracts["/api/uptime/monitors"]
 	routeRequestContracts["/api/uptime/monitors/batch-delete"] = obj([]string{"ids"}, map[string]prop{
@@ -1689,8 +1743,8 @@ func init() {
 	routeRequestContracts["/api/subscription/profiles/{id}"] = routeRequestContracts["/api/subscription/profiles"]
 	routeRequestContracts["/api/subscription/profiles/{id}/refresh-upstream"] = noBody
 	routeRequestContracts["/api/subscription/subscriptions"] = obj([]string{"name"}, map[string]prop{
-		"name":     {t: "string", req: true},
-		"url":      {t: "string", d: "订阅源地址"},
+		"name":      {t: "string", req: true},
+		"url":       {t: "string", d: "订阅源地址"},
 		"profileId": {t: "string", d: "绑定模板"},
 	})
 	routeRequestContracts["/api/subscription/subscriptions/{id}"] = routeRequestContracts["/api/subscription/subscriptions"]
@@ -1702,8 +1756,8 @@ func init() {
 		"ids": {t: "array", req: true},
 	})
 	routeRequestContracts["/api/subscription/nodes/{id}"] = obj(nil, map[string]prop{
-		"name":     {t: "string"},
-		"enabled":  {t: "boolean"},
+		"name":      {t: "string"},
+		"enabled":   {t: "boolean"},
 		"sortOrder": {t: "integer"},
 	})
 	routeRequestContracts["/api/subscription/import/preview"] = obj([]string{"file"}, map[string]prop{
@@ -1723,7 +1777,7 @@ func init() {
 		"enabled": {t: "boolean"},
 	})
 	routeRequestContracts["/api/filebox/rooms"] = obj([]string{"name"}, map[string]prop{
-		"name":  {t: "string", req: true},
+		"name":   {t: "string", req: true},
 		"expiry": {t: "integer", d: "过期秒"},
 	})
 	routeRequestContracts["/api/filebox/void/rooms"] = routeRequestContracts["/api/filebox/rooms"]
@@ -1739,7 +1793,7 @@ func init() {
 		"by": {t: "integer", d: "增量步数（默认 1）"},
 	})
 	routeRequestContracts["/api/totp/verify"] = obj([]string{"code"}, map[string]prop{
-		"code":     {t: "string", req: true},
+		"code":      {t: "string", req: true},
 		"accountId": {t: "string"},
 	})
 	routeRequestContracts["/api/totp/export"] = noBody
@@ -1768,19 +1822,19 @@ func init() {
 
 	// ---- server/forward 转发中心（写路由契约补登）----
 	routeRequestContracts["/api/server/forward/{id}"] = obj(nil, map[string]prop{
-		"name":              {t: "string", d: "转发规则名称"},
-		"server_id":         {t: "string", d: "源主机 ID"},
-		"local_host":        {t: "string", d: "源主机本地监听地址"},
-		"local_port":        {t: "integer", d: "源主机本地端口"},
-		"protocol":          {t: "string", d: "协议"},
-		"transport":         {t: "string", d: "传输方式：cloudflare_tunnel/tcp_relay/p2p"},
-		"relay_server_id":   {t: "string", d: "中继入口主机 ID"},
-		"access_mode":       {t: "string", d: "访问模式"},
-		"group_id":          {t: "string", d: "分组 ID"},
-		"whole_host":        {t: "boolean", d: "是否整域转发"},
-		"udp":               {t: "boolean", d: "是否支持 UDP"},
-		"tunnel_hostname":   {t: "string", d: "隧道主机名"},
-		"tunnel_account_id": {t: "string", d: "隧道账号 ID"},
+		"name":                 {t: "string", d: "转发规则名称"},
+		"server_id":            {t: "string", d: "源主机 ID"},
+		"local_host":           {t: "string", d: "源主机本地监听地址"},
+		"local_port":           {t: "integer", d: "源主机本地端口"},
+		"protocol":             {t: "string", d: "协议"},
+		"transport":            {t: "string", d: "传输方式：cloudflare_tunnel/tcp_relay/p2p"},
+		"relay_server_id":      {t: "string", d: "中继入口主机 ID"},
+		"access_mode":          {t: "string", d: "访问模式"},
+		"group_id":             {t: "string", d: "分组 ID"},
+		"whole_host":           {t: "boolean", d: "是否整域转发"},
+		"udp":                  {t: "boolean", d: "是否支持 UDP"},
+		"tunnel_hostname":      {t: "string", d: "隧道主机名"},
+		"tunnel_account_id":    {t: "string", d: "隧道账号 ID"},
 		"tunnel_zone_id":       {t: "string", d: "隧道域名 ID"},
 		"health_check_enabled": {t: "boolean", d: "是否启用健康检查"},
 		"failover_enabled":     {t: "boolean", d: "是否启用容灾"},
@@ -1796,11 +1850,11 @@ func init() {
 		"role":      {t: "string", d: "角色，默认 standby"},
 	})
 	routeRequestContracts["/api/server/forward/preflight"] = obj([]string{"server_id"}, map[string]prop{
-		"forward_id":       {t: "string", d: "转发规则 ID"},
-		"server_id":        {t: "string", req: true, d: "源主机 ID"},
-		"local_host":       {t: "string", d: "本地监听地址"},
-		"transport":        {t: "string", d: "传输方式"},
-		"local_port":       {t: "integer", d: "本地端口"},
-		"relay_server_id":  {t: "string", d: "中继主机 ID"},
+		"forward_id":      {t: "string", d: "转发规则 ID"},
+		"server_id":       {t: "string", req: true, d: "源主机 ID"},
+		"local_host":      {t: "string", d: "本地监听地址"},
+		"transport":       {t: "string", d: "传输方式"},
+		"local_port":      {t: "integer", d: "本地端口"},
+		"relay_server_id": {t: "string", d: "中继主机 ID"},
 	})
 }

@@ -23,6 +23,7 @@ import (
 	dockerhubmodule "github.com/iwvw/api-monitor/backend-go/internal/dockerhub"
 	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api"
+	"github.com/iwvw/api-monitor/backend-go/internal/emailcode"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
 	"github.com/iwvw/api-monitor/backend-go/internal/gcp"
@@ -84,6 +85,7 @@ type Server struct {
 	workbuddy   *workbuddy.Service
 	geminicli   *geminicli.Service
 	lobsterai   *lobsterai.Service
+	emailcode   *emailcode.Service
 	posthogcode *posthogcode.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
@@ -187,6 +189,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		workbuddy:   workbuddy.New(cfg),
 		geminicli:   geminicli.New(cfg),
 		lobsterai:   lobsterai.New(cfg),
+		emailcode:   emailcode.New(cfg),
 		posthogcode: posthogcode.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
@@ -209,6 +212,11 @@ func newServer(cfg config.Config) (*Server, error) {
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
 	server.warmupCancel = warmupCancel
 	server.openai.SetNotifier(notifyService)
+	server.posthogcode.SetInbox(server.emailcode)
+	// 收件箱的可用域名来自 Cloudflare 的收件箱部署记录。
+	server.emailcode.SetDomainProvider(server.cf)
+	// 收件箱 TTL 清理：临时邮箱语义下邮件必须过期消失。
+	server.emailcode.StartCleanup(warmupCtx, 0)
 	// 注入独立代理池选择器：端点配置 proxy_pool_id 时复用插件管理的池与健康数据。
 	server.openai.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件可引用独立代理池作为出网出口。
