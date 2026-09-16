@@ -3,6 +3,7 @@ package secure
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -137,4 +138,13 @@ func encryptionKey() []byte {
 	}
 	key := sha256.Sum256([]byte(keySource))
 	return key[:]
+}
+
+// DeriveSecret 从加密根密钥派生一个稳定的子密钥，供跨模块共享的握手密钥使用，
+// 无需额外建表存储。同一 label 在任意模块得到的值一致；更换 ENCRYPTION_KEY 会使
+// 已下发给外部（如 Cloudflare Worker）的旧密钥失效，需重新部署。
+func DeriveSecret(label string) string {
+	mac := hmac.New(sha256.New, encryptionKey())
+	mac.Write([]byte("api-monitor-derive:" + label))
+	return hex.EncodeToString(mac.Sum(nil))
 }
