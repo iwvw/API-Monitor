@@ -43,6 +43,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthURL(w, r)
 	case path == "/api/posthogcode/oauth/exchange":
 		s.handleExchange(w, r)
+	case path == "/api/posthogcode/autologin/start":
+		s.handleAutoLoginStart(w, r)
+	case path == "/api/posthogcode/autologin/verify":
+		s.handleAutoLoginVerify(w, r)
+	case path == "/api/posthogcode/autologin/cancel":
+		s.handleAutoLoginCancel(w, r)
 	case path == "/api/posthogcode/accounts":
 		s.handleAccounts(w, r)
 	case path == "/api/posthogcode/accounts/export":

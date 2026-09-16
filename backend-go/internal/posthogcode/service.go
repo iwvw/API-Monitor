@@ -113,6 +113,9 @@ type Account struct {
 	ProjectID      string `json:"projectId"`
 	// Disabled 由用户手动停用。
 	Disabled bool `json:"disabled"`
+	// Password 是自动登录用的 PostHog 账号密码（随 settings 加密落库）。
+	// 供账号凭据被吊销后一键重新授权；明文不向下发前端。
+	Password string `json:"password,omitempty"`
 	// Scope 是授权时实际获得的 scope 列表，用于判断能否查询组织额度。
 	Scope string `json:"scope,omitempty"`
 	// LastError 记录最近一次刷新/调用失败原因，供前端排障。
@@ -138,6 +141,8 @@ type AccountView struct {
 	ScopeReady bool   `json:"scopeReady"`
 	LastError  string `json:"lastError,omitempty"`
 	CreatedAt  string `json:"createdAt,omitempty"`
+	// HasPassword 表示该账号是否已存自动登录密码（明文永不下发）。
+	HasPassword bool `json:"hasPassword"`
 }
 
 // Service 是 PostHog Code 插件后端。
@@ -196,6 +201,9 @@ type Service struct {
 	rrInit    bool
 
 	externalPool ProxyPoolSelector
+
+	// autoLogin 保存进行中的账号密码自动登录会话（内存态，重启清空）。
+	autoLogin *autoLoginSess
 }
 
 // ProxyPoolSelector 复用独立代理池选择器（由 server 注入）。
@@ -519,6 +527,7 @@ func (s *Service) toAccountView(a Account) AccountView {
 		ScopeReady:     hasProjectRead(a.Scope),
 		LastError:      a.LastError,
 		CreatedAt:      a.CreatedAt,
+		HasPassword:    a.Password != "",
 	}
 	if a.ExpiresAt > 0 {
 		if left := a.ExpiresAt - time.Now().Unix(); left > 0 {

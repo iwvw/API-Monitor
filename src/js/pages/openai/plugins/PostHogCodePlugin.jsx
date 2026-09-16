@@ -55,6 +55,17 @@ export function PostHogCodePlugin() {
   const [authStarting, setAuthStarting] = useState(false);
   const [callbackUrl, setCallbackUrl] = useState('');
   const [exchanging, setExchanging] = useState(false);
+  // 自动登录（账号密码）：对话框状态机
+  const [autoLoginOpen, setAutoLoginOpen] = useState(false);
+  const [autoLoginRegion, setAutoLoginRegion] = useState('us');
+  const [autoLoginEmail, setAutoLoginEmail] = useState('');
+  const [autoLoginPassword, setAutoLoginPassword] = useState('');
+  const [autoLoginAccountId, setAutoLoginAccountId] = useState('');
+  const [autoLoginSessionId, setAutoLoginSessionId] = useState('');
+  const [autoLoginPhase, setAutoLoginPhase] = useState('form'); // form | code | totp | done
+  const [autoLoginCode, setAutoLoginCode] = useState('');
+  const [autoLoginBusy, setAutoLoginBusy] = useState(false);
+  const [autoLoginDetail, setAutoLoginDetail] = useState('');
   const fileInputRef = useRef(null);
 
   const load = async () => {
@@ -302,6 +313,102 @@ export function PostHogCodePlugin() {
     }
   };
 
+  // 打开账号密码自动授权对话框。指定账号时预填邮箱/区域并锚定该账号。
+  const openAutoLogin = account => {
+    setAutoLoginAccountId(account?.id || '');
+    setAutoLoginEmail(account?.email || '');
+    setAutoLoginRegion(account?.region || settings?.region || 'us');
+    setAutoLoginPassword('');
+    setAutoLoginSessionId('');
+    setAutoLoginPhase('form');
+    setAutoLoginCode('');
+    setAutoLoginDetail('');
+    setAutoLoginOpen(true);
+  };
+
+  // 提交邮箱+密码 → 后端发起 PostHog 登录；需验证码时进入输入码阶段。
+  const startAutoLogin = async () => {
+    if (!autoLoginEmail.trim() || !autoLoginPassword) {
+      toast.error('请填写邮箱与密码');
+      return;
+    }
+    setAutoLoginBusy(true);
+    try {
+      const res = await fetch(`${API}/autologin/start`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          region: autoLoginRegion,
+          email: autoLoginEmail.trim(),
+          password: autoLoginPassword,
+          accountId: autoLoginAccountId || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '自动登录失败');
+      if (data.status === 'awaiting_code') {
+        setAutoLoginSessionId(data.sessionId);
+        setAutoLoginPhase('code');
+        setAutoLoginDetail(data.detail || '已向邮箱发送 6 位验证码');
+      } else if (data.status === 'awaiting_totp') {
+        setAutoLoginSessionId(data.sessionId);
+        setAutoLoginPhase('totp');
+        setAutoLoginDetail('请输入两步验证码');
+      } else {
+        toast.success('自动登录完成');
+        setAutoLoginOpen(false);
+        await Promise.all([load(), loadStatus(), loadModels(), loadUsage()]);
+      }
+    } catch (e) {
+      toast.error(`自动登录失败：${e.message}`);
+    } finally {
+      setAutoLoginBusy(false);
+    }
+  };
+
+  // 提交邮箱验证码/TOTP → 完成登录并授权落库。
+  const verifyAutoLogin = async () => {
+    if (!autoLoginCode.trim()) {
+      toast.error('请输入验证码');
+      return;
+    }
+    setAutoLoginBusy(true);
+    try {
+      const res = await fetch(`${API}/autologin/verify`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ sessionId: autoLoginSessionId, code: autoLoginCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '验证码提交失败');
+      toast.success('自动登录完成');
+      setAutoLoginOpen(false);
+      await Promise.all([load(), loadStatus(), loadModels(), loadUsage()]);
+    } catch (e) {
+      toast.error(`验证码提交失败：${e.message}`);
+    } finally {
+      setAutoLoginBusy(false);
+    }
+  };
+
+  // 取消自动登录，清理后端会话。
+  const cancelAutoLogin = async () => {
+    setAutoLoginOpen(false);
+    if (autoLoginSessionId) {
+      try {
+        await fetch(`${API}/autologin/cancel`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ sessionId: autoLoginSessionId }),
+        });
+      } catch {
+        // 会话清理尽力而为
+      }
+    }
+    setAutoLoginSessionId('');
+    setAutoLoginPhase('form');
+  };
+
   const toggleAccount = async (id, disabled) => {
     try {
       const res = await fetch(`${API}/accounts/${encodeURIComponent(id)}/toggle`, {
@@ -513,6 +620,10 @@ export function PostHogCodePlugin() {
                 <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                 <span className="hidden cq-sm:inline">刷新</span>
               </Button>
+              <Button size="sm" variant="outline" onClick={() => openAutoLogin(null)} title="用邮箱+密码自动登录 PostHog 并授权（密码加密保存）">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span className="hidden cq-sm:inline">密码授权</span>
+              </Button>
               <Button size="sm" variant="primary" disabled={authStarting} onClick={() => startOAuth()}>
                 <Plus className="h-3.5 w-3.5" /> 添加账号
               </Button>
@@ -595,6 +706,16 @@ export function PostHogCodePlugin() {
                             title="凭据失效时重新走 OAuth 授权（按该账号区域），会替换当前凭据"
                           >
                             <ExternalLink className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            shape="square"
+                            variant="secondary"
+                            onClick={() => openAutoLogin(a)}
+                            aria-label={`账号密码自动授权 ${a.email || a.id}`}
+                            title={a.hasPassword ? '用已保存的密码自动登录并授权（可重新填写）' : '用邮箱+密码自动登录 PostHog 并授权，密码将加密保存'}
+                          >
+                            <ShieldCheck className="h-3 w-3" />
                           </Button>
                           <Button
                             size="sm"
@@ -867,6 +988,84 @@ export function PostHogCodePlugin() {
             <Button size="sm" variant="primary" disabled={exchanging} onClick={finishOAuth}>
               {exchanging ? '验证中...' : '完成授权'}
             </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={autoLoginOpen} onOpenChange={open => { if (!open) cancelAutoLogin(); }}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
+              {autoLoginAccountId ? '账号密码自动授权' : '新增：账号密码自动授权'}
+            </Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              用 PostHog 账号密码自动登录并完成授权，无需手动打开授权页。密码加密保存在本地，凭据失效时可一键重新授权。
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            {autoLoginPhase === 'form' || autoLoginPhase === 'done' ? (
+              <div className="flex flex-col gap-3">
+                <Select
+                  size="sm"
+                  label="区域"
+                  className="w-44"
+                  value={autoLoginRegion}
+                  onValueChange={v => setAutoLoginRegion(v)}
+                  items={[
+                    { value: 'us', label: 'us · 美东' },
+                    { value: 'eu', label: 'eu · 欧区' },
+                  ]}
+                />
+                <Input
+                  size="sm"
+                  label="PostHog 邮箱"
+                  type="email"
+                  className="w-full"
+                  placeholder="you@example.com"
+                  value={autoLoginEmail}
+                  disabled={!!autoLoginAccountId}
+                  onChange={e => setAutoLoginEmail(e.target.value)}
+                />
+                <Input
+                  size="sm"
+                  label="密码"
+                  type="password"
+                  className="w-full"
+                  placeholder="PostHog 账号密码"
+                  value={autoLoginPassword}
+                  onChange={e => setAutoLoginPassword(e.target.value)}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="rounded border border-kumo-line p-3 text-xs leading-relaxed text-kumo-subtle">
+                  <div className="mb-1 text-kumo-strong">{autoLoginPhase === 'totp' ? '输入两步验证码' : '检查邮箱，输入 6 位验证码'}</div>
+                  <div>{autoLoginDetail}</div>
+                </div>
+                <Input
+                  size="sm"
+                  label={autoLoginPhase === 'totp' ? '两步验证码' : '邮箱验证码'}
+                  className="w-full text-center font-mono text-base tracking-widest"
+                  placeholder="6 位数字"
+                  value={autoLoginCode}
+                  onChange={e => setAutoLoginCode(e.target.value.replace(/[^\d]/g, '').slice(0, 6))}
+                />
+              </div>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Button size="sm" variant="secondary" disabled={autoLoginBusy} onClick={cancelAutoLogin}>
+              取消
+            </Button>
+            {autoLoginPhase === 'form' || autoLoginPhase === 'done' ? (
+              <Button size="sm" variant="primary" disabled={autoLoginBusy} onClick={startAutoLogin}>
+                {autoLoginBusy ? '登录中...' : '登录并授权'}
+              </Button>
+            ) : (
+              <Button size="sm" variant="primary" disabled={autoLoginBusy} onClick={verifyAutoLogin}>
+                {autoLoginBusy ? '验证中...' : '提交验证码'}
+              </Button>
+            )}
           </div>
         </Dialog>
       </Dialog.Root>
