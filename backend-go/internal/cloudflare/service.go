@@ -171,6 +171,22 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.batchCreateRecords(w, r, parts[1], parts[3])
 	case len(parts) == 6 && parts[0] == "accounts" && parts[2] == "zones" && parts[4] == "records" && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
 		s.recordMutation(w, r, parts[1], parts[3], parts[5])
+
+	// Email Routing
+	case len(parts) == 4 && parts[0] == "accounts" && parts[2] == "email" && parts[3] == "routing":
+		s.emailRoutingSettings(w, r, parts[1])
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "email" && parts[3] == "routing" && parts[4] == "zones":
+		s.emailRoutingZones(w, r, parts[1])
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "email" && parts[3] == "routing" && parts[4] == "addresses":
+		s.emailRoutingAddresses(w, r, parts[1])
+	case len(parts) == 6 && parts[0] == "accounts" && parts[2] == "email" && parts[3] == "routing" && parts[4] == "addresses":
+		s.emailRoutingDeleteAddress(w, r, parts[1], parts[5])
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "email" && parts[3] == "routing" && parts[4] == "rules":
+		s.emailRoutingRules(w, r, parts[1])
+	case len(parts) == 6 && parts[0] == "accounts" && parts[2] == "email" && parts[3] == "routing" && parts[4] == "rules":
+		s.emailRoutingDeleteRule(w, r, parts[1], parts[5])
+	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "email" && parts[3] == "routing" && parts[4] == "inbox":
+		s.emailRoutingInbox(w, r, parts[1])
 	default:
 		response.Error(w, http.StatusNotFound, "cloudflare route not implemented")
 	}

@@ -49,6 +49,17 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			FOREIGN KEY (zone_id) REFERENCES cf_zones(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_cf_zones_account ON cf_zones(account_id)`,
+		`CREATE TABLE IF NOT EXISTS cf_email_inboxes (
+			zone_id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			zone_name TEXT,
+			worker_name TEXT NOT NULL,
+			panel_base_url TEXT NOT NULL,
+			forward_to TEXT,
+			strategy TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_cf_dns_records_zone ON cf_dns_records(zone_id)`,
 	}
 	for _, statement := range statements {
@@ -60,6 +71,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := ensureColumn(ctx, db, "cf_accounts", "user_email", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "cf_email_inboxes", "strategy", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil
