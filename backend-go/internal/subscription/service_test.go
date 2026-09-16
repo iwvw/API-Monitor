@@ -1690,7 +1690,7 @@ func TestRefreshingManagedSourcePreservesPlanMembershipWhenEndpointChanges(t *te
 	}
 }
 
-func TestEnsureBuiltinsRefreshesStaleBuiltinTemplate(t *testing.T) {
+func TestEnsureBuiltinsPreservesEditedBuiltinButOverwriteRefreshes(t *testing.T) {
 	ctx := context.Background()
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
 	if err != nil {
@@ -1710,8 +1710,17 @@ func TestEnsureBuiltinsRefreshesStaleBuiltinTemplate(t *testing.T) {
 	if err := db.QueryRow(`SELECT content FROM subscription_templates WHERE id=?`, defaultTemplateID).Scan(&content); err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(content, "global-client-fingerprint") {
+		t.Fatalf("boot should not clobber an edited builtin template, got: %q", content)
+	}
+	if err := ensureBuiltins(ctx, db, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT content FROM subscription_templates WHERE id=?`, defaultTemplateID).Scan(&content); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(content, "global-client-fingerprint") || !strings.Contains(content, "{{ proxies_yaml }}") {
-		t.Fatalf("builtin template was not refreshed: %q", content)
+		t.Fatalf("explicit restore should refresh builtin template, got: %q", content)
 	}
 }
 

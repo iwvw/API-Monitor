@@ -193,17 +193,9 @@ func ensureBuiltins(ctx context.Context, db *sql.DB, overwrite bool) error {
 			}
 			continue
 		}
-		_, err := db.ExecContext(ctx, `INSERT INTO subscription_templates (id, name, format, content, builtin, is_default, description)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET
-				name=CASE WHEN subscription_templates.builtin=1 THEN excluded.name ELSE subscription_templates.name END,
-				format=CASE WHEN subscription_templates.builtin=1 THEN excluded.format ELSE subscription_templates.format END,
-				content=CASE WHEN subscription_templates.builtin=1 THEN excluded.content ELSE subscription_templates.content END,
-				builtin=CASE WHEN subscription_templates.builtin=1 THEN 1 ELSE subscription_templates.builtin END,
-				description=CASE WHEN subscription_templates.builtin=1 THEN excluded.description ELSE subscription_templates.description END,
-				updated_at=CASE WHEN subscription_templates.builtin=1 THEN datetime('now') ELSE subscription_templates.updated_at END`,
-			tpl.ID, tpl.Name, tpl.Format, tpl.Content, boolToInt(tpl.Builtin), boolToInt(tpl.IsDefault), tpl.Description)
-		if err != nil {
+		if _, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO subscription_templates (id, name, format, content, builtin, is_default, description)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			tpl.ID, tpl.Name, tpl.Format, tpl.Content, boolToInt(tpl.Builtin), boolToInt(tpl.IsDefault), tpl.Description); err != nil {
 			return err
 		}
 	}
