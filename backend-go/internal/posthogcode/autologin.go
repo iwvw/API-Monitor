@@ -18,6 +18,14 @@ import (
 // autoLoginTTL 是待完成自动登录会话的有效期。
 const autoLoginTTL = 15 * time.Minute
 
+// 自动登录会话状态。
+const (
+	autoLoginAwaitingCode = "awaiting_code"
+	autoLoginAwaitingTOTP = "awaiting_totp"
+	autoLoginLoggedIn     = "logged_in"
+	autoLoginFailed       = "failed"
+)
+
 // autoLoginState 是账号密码自动登录的中间状态。
 // 每个会话持有独立的 cookie jar，隔离不同账号的登录环境——
 // PostHog 按 cookie 会话区分登录者，互不共享，天然满足隔离。
@@ -32,20 +40,15 @@ type autoLoginState struct {
 	verifier   string
 	oauthToken *tokenResponse
 	createdAt  time.Time
+	// status 记录会话当前状态：等待验证码 / 等待 TOTP / 已完成 / 已失败。
+	status string
+	// result 与 lastError 保存完成后的账号视图或失败原因，供状态查询读取。
+	result    *AccountView
+	lastError string
 }
 
 // autologinMu 串行化自动登录会话的读写。
 var autologinMu sync.Mutex
-
-// newAutoLoginClient 构造一个带独立空 cookie jar 的 HTTP 客户端，
-// 用于隔离单个账号的 PostHog 登录/授权环境。
-func newAutoLoginClient() (*http.Client, *cookiejar.Jar, error) {
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	return &http.Client{Timeout: 30 * time.Second, Jar: jar}, jar, nil
-}
 
 // autoLoginID 生成新的自动登录会话 id。
 func autoLoginID() (string, error) {

@@ -49,6 +49,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleAutoLoginVerify(w, r)
 	case path == "/api/posthogcode/autologin/cancel":
 		s.handleAutoLoginCancel(w, r)
+	case path == "/api/posthogcode/autologin/status":
+		s.handleAutoLoginStatus(w, r)
+	case path == "/api/posthogcode/signup/start":
+		s.handleSignupStart(w, r)
+	case path == "/api/posthogcode/signup/status":
+		s.handleSignupStatus(w, r)
 	case path == "/api/posthogcode/accounts":
 		s.handleAccounts(w, r)
 	case path == "/api/posthogcode/accounts/export":
@@ -114,6 +120,7 @@ func (s *Service) publicSettings() map[string]interface{} {
 		"disabledModels":  st.DisabledModels,
 		"freeTierOnly":    st.FreeTierOnly,
 		"accountStrategy": normalizeStrategy(st.AccountStrategy),
+		"proxyPoolId":     st.ProxyPoolID,
 		"accounts":        views,
 		"freeTierModels":  freeTierModels,
 	}
