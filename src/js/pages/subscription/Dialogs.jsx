@@ -154,7 +154,7 @@ export function PreferredAddressDialog({ open, onOpenChange, preferredAddresses,
 export function SubscriptionDialog({ open, onOpenChange, editingSubscriptionId, subscriptionForm, setSubscriptionForm, planItems, saving, onSave }) {
   return (
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:w-[min(calc(100vw-3rem),64rem)]">
+        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] !w-[min(64rem,calc(100vw-1rem))] !max-w-[min(64rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
               <div className="min-w-0">
@@ -207,7 +207,7 @@ export function SubscriptionDialog({ open, onOpenChange, editingSubscriptionId, 
 export function NodeDialog({ open, onOpenChange, nodeForm, setNodeForm, saving, onSave }) {
   return (
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),44rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:w-[min(calc(100vw-3rem),72rem)]">
+        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(72rem,calc(100vw-1rem))] !max-w-[min(72rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
               <div className="min-w-0">
@@ -358,7 +358,7 @@ export function ImportDialog({ open, onOpenChange, importSourceURL, setImportSou
 export function TemplateDialog({ open, onOpenChange, editingTemplateId, templateForm, setTemplateForm, saving, onSave }) {
   return (
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:w-[min(calc(100vw-3rem),64rem)]">
+        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] !w-[min(64rem,calc(100vw-1rem))] !max-w-[min(64rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
               <div className="min-w-0">
