@@ -543,13 +543,27 @@ export function LobsterAIPlugin() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
-      <div className="flex items-center justify-end gap-2">
-        <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
-        </Button>
-        <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
-          {saving ? '保存中...' : '保存设置'}
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
+          </Button>
+          <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
+            {saving ? '保存中...' : '保存设置'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
@@ -836,90 +850,6 @@ export function LobsterAIPlugin() {
         </SectionCard>
 
         <SectionCard
-          title="模型"
-          icon={<Layers className="h-4 w-4 text-brand" />}
-          bodyPadding="none"
-          actions={
-            <Button size="sm" variant="outline" onClick={refreshCatalog} title="从上游重新拉取模型目录">
-              <RefreshCw className="h-3.5 w-3.5" /> 刷新目录
-            </Button>
-          }
-        >
-          {models.length ? (
-            <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
-                <Table.Header variant="compact">
-                  <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
-                      <div className="flex justify-center">
-                        <Switch
-                          size="sm"
-                          checked={allEnabled}
-                          onCheckedChange={toggleAllModels}
-                          title={allEnabled ? '全部停用' : '全部启用'}
-                          aria-label="全选模型"
-                        />
-                      </div>
-                    </Table.Head>
-                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">来源</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">倍率</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {models.map(m => (
-                    <Table.Row key={m.id} className="h-9">
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <div className="flex justify-center">
-                          <Switch
-                            size="sm"
-                            checked={!!m.enabled}
-                            onCheckedChange={v => toggleModel(m, v)}
-                            title={
-                              m.enabled
-                                ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
-                                : '启用：从网关端点停用名单移除，恢复路由'
-                            }
-                            aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
-                          />
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2.5 !py-1.5">
-                        <div className="truncate font-mono text-kumo-strong" title={m.id}>
-                          {m.id}
-                        </div>
-                        {m.name && m.name !== m.id ? (
-                          <div className="truncate text-kumo-subtle">{m.name}</div>
-                        ) : null}
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="text-xs text-kumo-subtle">{m.provider || '—'}</span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-subtle" title="上游 costMultiplier，相对倍率，非货币单价">
-                          {m.costMultiplier ? `x${Number(m.costMultiplier).toFixed(2)}` : '—'}
-                        </span>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
-            </div>
-          ) : (
-            <div className="p-4">
-              <EmptyState
-                title={modelsReady ? '暂无模型' : '模型目录不可用'}
-                description={
-                  modelsReady
-                    ? '插件未返回可服务的模型，请点右上角刷新重试。'
-                    : '模型目录拉取失败，请点右上角刷新重试。'
-                }
-              />
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
           title="用量"
           icon={<TrendingUp className="h-4 w-4 text-brand" />}
           bodyPadding="none"
@@ -1050,18 +980,89 @@ export function LobsterAIPlugin() {
           )}
         </SectionCard>
 
-        {linkState?.linked && linkState?.baseUrl ? (
-          <LayerCard className="min-w-0 p-3 shadow-none">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-              <Rocket className="h-3.5 w-3.5 text-brand" />
-              <span className="text-kumo-strong">已接入网关端点</span>
-              <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
-                {linkState.baseUrl}
-              </span>
-              <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+        <SectionCard
+          title="模型"
+          icon={<Layers className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <Button size="sm" variant="outline" onClick={refreshCatalog} title="从上游重新拉取模型目录">
+              <RefreshCw className="h-3.5 w-3.5" /> 刷新目录
+            </Button>
+          }
+        >
+          {models.length ? (
+            <div className="overflow-x-auto">
+              <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
+                      <div className="flex justify-center">
+                        <Switch
+                          size="sm"
+                          checked={allEnabled}
+                          onCheckedChange={toggleAllModels}
+                          title={allEnabled ? '全部停用' : '全部启用'}
+                          aria-label="全选模型"
+                        />
+                      </div>
+                    </Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">来源</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">倍率</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {models.map(m => (
+                    <Table.Row key={m.id} className="h-9">
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <div className="flex justify-center">
+                          <Switch
+                            size="sm"
+                            checked={!!m.enabled}
+                            onCheckedChange={v => toggleModel(m, v)}
+                            title={
+                              m.enabled
+                                ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
+                                : '启用：从网关端点停用名单移除，恢复路由'
+                            }
+                            aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
+                          />
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2.5 !py-1.5">
+                        <div className="truncate font-mono text-kumo-strong" title={m.id}>
+                          {m.id}
+                        </div>
+                        {m.name && m.name !== m.id ? (
+                          <div className="truncate text-kumo-subtle">{m.name}</div>
+                        ) : null}
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span className="text-xs text-kumo-subtle">{m.provider || '—'}</span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span className="font-mono text-xs text-kumo-subtle" title="上游 costMultiplier，相对倍率，非货币单价">
+                          {m.costMultiplier ? `x${Number(m.costMultiplier).toFixed(2)}` : '—'}
+                        </span>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
             </div>
-          </LayerCard>
-        ) : null}
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title={modelsReady ? '暂无模型' : '模型目录不可用'}
+                description={
+                  modelsReady
+                    ? '插件未返回可服务的模型，请点右上角刷新重试。'
+                    : '模型目录拉取失败，请点右上角刷新重试。'
+                }
+              />
+            </div>
+          )}
+        </SectionCard>
       </div>
 
       <Dialog.Root open={loginOpen} onOpenChange={handleLoginOpenChange}>

@@ -449,13 +449,27 @@ export function GeminiCliPlugin() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
-      <div className="flex items-center justify-end gap-2">
-        <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
-        </Button>
-        <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
-          {saving ? '保存中...' : '保存设置'}
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
+          </Button>
+          <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
+            {saving ? '保存中...' : '保存设置'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
@@ -631,6 +645,137 @@ export function GeminiCliPlugin() {
         </SectionCard>
 
         <SectionCard
+          title="用量"
+          icon={<TrendingUp className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-2">
+              <Select
+                size="sm"
+                className="w-28"
+                value={String(usageDays)}
+                onValueChange={v => setUsageDays(Number(v))}
+                items={[
+                  { value: '1', label: '今天' },
+                  { value: '7', label: '近 7 天' },
+                  { value: '30', label: '近 30 天' },
+                  { value: '90', label: '近 90 天' },
+                ]}
+              />
+              <Button size="sm" variant="outline" onClick={loadUsage}>
+                刷新
+              </Button>
+            </div>
+          }
+        >
+          {usage?.totals?.requests ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 p-3 cq-sm:grid-cols-4">
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{usage.totals.requests}</div>
+                  <div className="text-[10px] text-kumo-subtle">调用次数</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtTokens(usage.totals.promptTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">
+                    输入词元（缓存 {fmtTokens(usage.totals.cachedTokens)}）
+                  </div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtTokens(usage.totals.completionTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">输出词元</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtRate(usage.totals.cacheHitRate)}</div>
+                  <div className="text-[10px] text-kumo-subtle">缓存命中率</div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byAccount.map(row => (
+                      <Table.Row key={row.accountId} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate text-kumo-strong" title={row.accountId}>
+                            {row.accountName || row.accountId}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byModel.map(row => (
+                      <Table.Row key={row.model} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate font-mono text-kumo-strong" title={row.model}>
+                            {row.model}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+            </>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无用量"
+                description={`近 ${usageDays} 天没有经本插件转发的调用记录。`}
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
           title="模型"
           icon={<Layers className="h-4 w-4 text-brand" />}
           bodyPadding="none"
@@ -764,150 +909,6 @@ export function GeminiCliPlugin() {
             </div>
           )}
         </SectionCard>
-
-        <SectionCard
-          title="用量"
-          icon={<TrendingUp className="h-4 w-4 text-brand" />}
-          bodyPadding="none"
-          actions={
-            <div className="flex items-center gap-2">
-              <Select
-                size="sm"
-                className="w-28"
-                value={String(usageDays)}
-                onValueChange={v => setUsageDays(Number(v))}
-                items={[
-                  { value: '1', label: '今天' },
-                  { value: '7', label: '近 7 天' },
-                  { value: '30', label: '近 30 天' },
-                  { value: '90', label: '近 90 天' },
-                ]}
-              />
-              <Button size="sm" variant="outline" onClick={loadUsage}>
-                刷新
-              </Button>
-            </div>
-          }
-        >
-          {usage?.totals?.requests ? (
-            <>
-              <div className="grid grid-cols-2 gap-2 p-3 cq-sm:grid-cols-4">
-                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
-                  <div className="text-base font-semibold text-kumo-strong">{usage.totals.requests}</div>
-                  <div className="text-[10px] text-kumo-subtle">调用次数</div>
-                </div>
-                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
-                  <div className="text-base font-semibold text-kumo-strong">{fmtTokens(usage.totals.promptTokens)}</div>
-                  <div className="text-[10px] text-kumo-subtle">
-                    输入词元（缓存 {fmtTokens(usage.totals.cachedTokens)}）
-                  </div>
-                </div>
-                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
-                  <div className="text-base font-semibold text-kumo-strong">{fmtTokens(usage.totals.completionTokens)}</div>
-                  <div className="text-[10px] text-kumo-subtle">输出词元</div>
-                </div>
-                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
-                  <div className="text-base font-semibold text-kumo-strong">{fmtRate(usage.totals.cacheHitRate)}</div>
-                  <div className="text-[10px] text-kumo-subtle">缓存命中率</div>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
-                  <Table.Header variant="compact">
-                    <Table.Row className="h-8">
-                      <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {usage.byAccount.map(row => (
-                      <Table.Row key={row.accountId} className="h-9">
-                        <Table.Cell className="!px-2.5 !py-1.5">
-                          <div className="truncate text-kumo-strong" title={row.accountId}>
-                            {row.accountName || row.accountId}
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
-                          {row.requests}
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                          {fmtTokens(row.promptTokens)}
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                          {fmtTokens(row.completionTokens)}
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                          {fmtTokens(row.cachedTokens)}
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table>
-              </div>
-
-              <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
-                  <Table.Header variant="compact">
-                    <Table.Row className="h-8">
-                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {usage.byModel.map(row => (
-                      <Table.Row key={row.model} className="h-9">
-                        <Table.Cell className="!px-2.5 !py-1.5">
-                          <div className="truncate font-mono text-kumo-strong" title={row.model}>
-                            {row.model}
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
-                          {row.requests}
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                          {fmtTokens(row.promptTokens)}
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                          {fmtTokens(row.completionTokens)}
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
-                          {fmtTokens(row.cachedTokens)}
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table>
-              </div>
-            </>
-          ) : (
-            <div className="p-4">
-              <EmptyState
-                title="暂无用量"
-                description={`近 ${usageDays} 天没有经本插件转发的调用记录。`}
-              />
-            </div>
-          )}
-        </SectionCard>
-
-        {linkState?.linked && linkState?.baseUrl ? (
-          <LayerCard className="min-w-0 p-3 shadow-none">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-              <Rocket className="h-3.5 w-3.5 text-brand" />
-              <span className="text-kumo-strong">已接入网关端点</span>
-              <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
-                {linkState.baseUrl}
-              </span>
-              <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
-            </div>
-          </LayerCard>
-        ) : null}
       </div>
 
       <Dialog.Root open={loginOpen} onOpenChange={handleLoginOpenChange}>

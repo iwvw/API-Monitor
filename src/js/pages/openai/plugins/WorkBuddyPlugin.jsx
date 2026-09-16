@@ -592,13 +592,27 @@ export function WorkBuddyPlugin() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
-      <div className="flex items-center justify-end gap-2">
-        <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
-        </Button>
-        <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
-          {saving ? '保存中...' : '保存设置'}
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
+          </Button>
+          <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
+            {saving ? '保存中...' : '保存设置'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex min-w-0 flex-col gap-4">
@@ -1021,133 +1035,6 @@ export function WorkBuddyPlugin() {
           )}
         </SectionCard>
 
-        <SectionCard
-          title="模型"
-          icon={<Layers className="h-4 w-4 text-brand" />}
-          bodyPadding="none"
-        >
-          {models.length ? (
-            <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
-                <Table.Header variant="compact">
-                  <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
-                      <div className="flex justify-center">
-                        <Switch
-                          size="sm"
-                          checked={allEnabled}
-                          onCheckedChange={toggleAllModels}
-                          title={allEnabled ? '全部停用' : '全部启用'}
-                          aria-label="全选模型"
-                        />
-                      </div>
-                    </Table.Head>
-                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">区域</Table.Head>
-                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">
-                      <span title="上游积分倍率（/v3/config 的 credits），CodeBuddy 计费体系内的相对倍数，不含货币单价">倍率</span>
-                    </Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">上下文</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出上限</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">图像</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {models.map(m => (
-                    <Table.Row key={m.id} className="h-9">
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <div className="flex justify-center">
-                          <Switch
-                            size="sm"
-                            checked={!!m.enabled}
-                            onCheckedChange={v => toggleModel(m, v)}
-                            title={
-                              m.enabled
-                                ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
-                                : '启用：从网关端点停用名单移除，恢复路由'
-                            }
-                            aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
-                          />
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <Badge
-                          variant={modelRegionMeta(m).variant}
-                          className="!text-[0.72em]"
-                          title={modelRegionMeta(m).title}
-                        >
-                          {modelRegionMeta(m).label}
-                        </Badge>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2.5 !py-1.5">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate font-mono text-kumo-strong" title={m.id}>
-                            {m.id}
-                          </span>
-                          {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
-                              可用账号都在该模型上限流（此刻真的打不通，中继直接回 429 且不打上游）。 */}
-                          {m.limit && (
-                            <Badge
-                              variant={m.limit.allLimited ? 'danger' : 'warning'}
-                              className="!text-[0.7em] shrink-0"
-                              title={
-                                (m.limit.allLimited
-                                  ? `当前所有可用账号（${m.limit.limited} 个）都在该模型上被上游限流，此刻完全打不通`
-                                  : `${m.limit.limited} 个账号在该模型上被限流，另有 ${m.limit.usable} 个账号可用（转发会自动选到可用账号）`) +
-                                (m.limit.nextRecoveryAt ? `；最早 ${fmtUntil(m.limit.nextRecoveryAt)} 恢复` : '')
-                              }
-                            >
-                              {m.limit.allLimited ? '限流中' : `限流 ${m.limit.limited}/${m.limit.limited + m.limit.usable}`}
-                              {m.limit.nextRecoveryAt ? ` · ${fmtUntil(m.limit.nextRecoveryAt)}` : ''}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="truncate text-kumo-subtle">
-                          {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
-                            .filter(Boolean)
-                            .join(' · ') || ' '}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span
-                          className="font-mono text-xs text-kumo-strong"
-                          title={m.creditsLabel ? `上游原始值：${m.creditsLabel}` : '上游未提供倍率'}
-                        >
-                          {fmtCredits(m)}
-                        </span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.contextLength)}</span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        {m.supportsImages ? (
-                          <Badge variant="success" className="text-xs">支持</Badge>
-                        ) : (
-                          <span className="text-xs text-kumo-subtle">—</span>
-                        )}
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
-            </div>
-          ) : (
-            <div className="p-4">
-              <EmptyState
-                title={modelsReady ? '暂无模型' : '模型目录不可用'}
-                description={
-                  modelsReady
-                    ? '上游 /v3/config 未返回可服务对话的模型（图像类模型会被跳过）。'
-                    : '模型目录拉取失败，请检查网络/代理，或点右上角刷新重试。'
-                }
-              />
-            </div>
-          )}
-        </SectionCard>
-
         {/* 用量与扣费：选号权重就是站点时区「今天」各账号的扣费，切到「今天」即为当前权重 */}
         <SectionCard
           title="用量与扣费"
@@ -1294,18 +1181,132 @@ export function WorkBuddyPlugin() {
           )}
         </SectionCard>
 
-        {linkState?.linked && linkState?.baseUrl ? (
-          <LayerCard className="min-w-0 p-3 shadow-none">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-              <Rocket className="h-3.5 w-3.5 text-brand" />
-              <span className="text-kumo-strong">已接入网关端点</span>
-              <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
-                {linkState.baseUrl}
-              </span>
-              <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+        <SectionCard
+          title="模型"
+          icon={<Layers className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+        >
+          {models.length ? (
+            <div className="overflow-x-auto">
+              <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
+                      <div className="flex justify-center">
+                        <Switch
+                          size="sm"
+                          checked={allEnabled}
+                          onCheckedChange={toggleAllModels}
+                          title={allEnabled ? '全部停用' : '全部启用'}
+                          aria-label="全选模型"
+                        />
+                      </div>
+                    </Table.Head>
+                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">区域</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">
+                      <span title="上游积分倍率（/v3/config 的 credits），CodeBuddy 计费体系内的相对倍数，不含货币单价">倍率</span>
+                    </Table.Head>
+                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">上下文</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出上限</Table.Head>
+                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">图像</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {models.map(m => (
+                    <Table.Row key={m.id} className="h-9">
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <div className="flex justify-center">
+                          <Switch
+                            size="sm"
+                            checked={!!m.enabled}
+                            onCheckedChange={v => toggleModel(m, v)}
+                            title={
+                              m.enabled
+                                ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
+                                : '启用：从网关端点停用名单移除，恢复路由'
+                            }
+                            aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
+                          />
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <Badge
+                          variant={modelRegionMeta(m).variant}
+                          className="!text-[0.72em]"
+                          title={modelRegionMeta(m).title}
+                        >
+                          {modelRegionMeta(m).label}
+                        </Badge>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2.5 !py-1.5">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-mono text-kumo-strong" title={m.id}>
+                            {m.id}
+                          </span>
+                          {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
+                              可用账号都在该模型上限流（此刻真的打不通，中继直接回 429 且不打上游）。 */}
+                          {m.limit && (
+                            <Badge
+                              variant={m.limit.allLimited ? 'danger' : 'warning'}
+                              className="!text-[0.7em] shrink-0"
+                              title={
+                                (m.limit.allLimited
+                                  ? `当前所有可用账号（${m.limit.limited} 个）都在该模型上被上游限流，此刻完全打不通`
+                                  : `${m.limit.limited} 个账号在该模型上被限流，另有 ${m.limit.usable} 个账号可用（转发会自动选到可用账号）`) +
+                                (m.limit.nextRecoveryAt ? `；最早 ${fmtUntil(m.limit.nextRecoveryAt)} 恢复` : '')
+                              }
+                            >
+                              {m.limit.allLimited ? '限流中' : `限流 ${m.limit.limited}/${m.limit.limited + m.limit.usable}`}
+                              {m.limit.nextRecoveryAt ? ` · ${fmtUntil(m.limit.nextRecoveryAt)}` : ''}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="truncate text-kumo-subtle">
+                          {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
+                            .filter(Boolean)
+                            .join(' · ') || ' '}
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span
+                          className="font-mono text-xs text-kumo-strong"
+                          title={m.creditsLabel ? `上游原始值：${m.creditsLabel}` : '上游未提供倍率'}
+                        >
+                          {fmtCredits(m)}
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.contextLength)}</span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        {m.supportsImages ? (
+                          <Badge variant="success" className="text-xs">支持</Badge>
+                        ) : (
+                          <span className="text-xs text-kumo-subtle">—</span>
+                        )}
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
             </div>
-          </LayerCard>
-        ) : null}
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title={modelsReady ? '暂无模型' : '模型目录不可用'}
+                description={
+                  modelsReady
+                    ? '上游 /v3/config 未返回可服务对话的模型（图像类模型会被跳过）。'
+                    : '模型目录拉取失败，请检查网络/代理，或点右上角刷新重试。'
+                }
+              />
+            </div>
+          )}
+        </SectionCard>
       </div>
 
       <Dialog.Root open={loginOpen} onOpenChange={setLoginOpen}>

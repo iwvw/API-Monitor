@@ -375,7 +375,19 @@ export function PostHogCodePlugin() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
         <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
           {saving ? '保存中...' : '保存设置'}
         </Button>
@@ -394,19 +406,18 @@ export function PostHogCodePlugin() {
             />
           </FieldRow>
           <FieldRow title={<span title="PostHog Cloud 区域：us（gateway.us.posthog.com）或 eu（gateway.eu.posthog.com）。切换后需重新授权">区域</span>}>
-            <div className="flex items-center gap-2">
-              {['us', 'eu'].map(r => (
-                <Button
-                  key={r}
-                  size="sm"
-                  variant={settings?.region === r ? 'primary' : 'secondary'}
-                  disabled={saving}
-                  onClick={() => update({ region: r })}
-                >
-                  {r.toUpperCase()}
-                </Button>
-              ))}
-            </div>
+            <Select
+              alignItemWithTrigger
+              size="sm"
+              className="w-36"
+              value={settings?.region || 'us'}
+              onValueChange={v => update({ region: v })}
+              items={[
+                { value: 'us', label: 'us · 美东' },
+                { value: 'eu', label: 'eu · 欧区' },
+              ]}
+              disabled={saving}
+            />
           </FieldRow>
           <FieldRow title={<span title="PostHog 免费层模型（无需绑定付款方式）：GLM-5.2、DeepSeek V4 Flash、Kimi K3。开启后只暴露这些模型，高级模型（Claude Fable/Opus、GPT-6 等）需要 PostHog 付费计划">仅免费层模型</span>}>
             <Switch checked={!!settings?.freeTierOnly} onCheckedChange={v => update({ freeTierOnly: v })} />
@@ -594,90 +605,6 @@ export function PostHogCodePlugin() {
         </SectionCard>
 
         <SectionCard
-          title="模型"
-          icon={<SettingsIcon className="h-4 w-4 text-brand" />}
-          bodyPadding="none"
-          actions={
-            <span className="text-xs text-kumo-subtle">{enabledModelCount}/{models.length} 已启用</span>
-          }
-        >
-          {models.length ? (
-            <LayerCard className="min-w-0 overflow-hidden p-0 shadow-none">
-              <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-                <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
-                <Table.Header variant="compact">
-                  <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
-                      <div className="flex justify-center">
-                        <Switch size="sm" checked={allEnabled} onCheckedChange={toggleAllModels} aria-label="全选模型" />
-                      </div>
-                    </Table.Head>
-                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">来源</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">上下文</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">倍率</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">计划</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {models.map(m => (
-                    <Table.Row key={m.id} className="h-9">
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <div className="flex justify-center">
-                          <Switch size="sm" checked={!!m.enabled} onCheckedChange={v => toggleModel(m.id, v)} aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`} />
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2.5 !py-1.5">
-                        <div className="truncate font-mono text-kumo-strong" title={m.rawId || m.id}>
-                          {m.id}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="text-kumo-subtle">{m.ownedBy || '—'}</span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-kumo-subtle">
-                          {m.contextWindow ? `${Math.round(m.contextWindow / 1000)}K` : '—'}
-                        </span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span
-                          className="font-mono text-kumo-strong"
-                          title={
-                            m.price
-                              ? `输入 $${m.price.inputPerMtok}/M · 输出 $${m.price.outputPerMtok}/M（基准 Claude Sonnet 5）`
-                              : '上游未提供计价'
-                          }
-                        >
-                          {m.price ? `${m.price.approximate ? '≈' : ''}${m.price.multiplier.toFixed(2)}×` : '—'}
-                        </span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        {m.freeTier ? (
-                          <Badge variant="success" className="text-xs">免费</Badge>
-                        ) : m.allowed ? (
-                          <Badge variant="info" className="text-xs">可用</Badge>
-                        ) : (
-                          <Badge variant="warning" className="text-xs">受限</Badge>
-                        )}
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                 </Table.Body>
-              </Table>
-              </div>
-            </LayerCard>
-          ) : (
-            <div className="p-4">
-              <EmptyState
-                title="暂无模型"
-                description={status?.availableCount ? '点击「连通性测试」拉取上游模型列表。' : '先完成账号授权，再拉取上游模型列表。'}
-              />
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
           title="用量"
           icon={<TrendingUp className="h-4 w-4 text-brand" />}
           bodyPadding="none"
@@ -783,18 +710,89 @@ export function PostHogCodePlugin() {
           )}
         </SectionCard>
 
-        {linkState?.linked && linkState?.baseUrl ? (
-          <LayerCard className="min-w-0 p-3 shadow-none">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-              <Rocket className="h-3.5 w-3.5 text-brand" />
-              <span className="text-kumo-strong">已接入网关端点</span>
-              <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
-                {linkState.baseUrl}
-              </span>
-              <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+        <SectionCard
+          title="模型"
+          icon={<SettingsIcon className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <span className="text-xs text-kumo-subtle">{enabledModelCount}/{models.length} 已启用</span>
+          }
+        >
+          {models.length ? (
+            <LayerCard className="min-w-0 overflow-hidden p-0 shadow-none">
+              <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
+                <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
+                      <div className="flex justify-center">
+                        <Switch size="sm" checked={allEnabled} onCheckedChange={toggleAllModels} aria-label="全选模型" />
+                      </div>
+                    </Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">来源</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">上下文</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">倍率</Table.Head>
+                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">计划</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {models.map(m => (
+                    <Table.Row key={m.id} className="h-9">
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <div className="flex justify-center">
+                          <Switch size="sm" checked={!!m.enabled} onCheckedChange={v => toggleModel(m.id, v)} aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`} />
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2.5 !py-1.5">
+                        <div className="truncate font-mono text-kumo-strong" title={m.rawId || m.id}>
+                          {m.id}
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span className="text-kumo-subtle">{m.ownedBy || '—'}</span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span className="font-mono text-kumo-subtle">
+                          {m.contextWindow ? `${Math.round(m.contextWindow / 1000)}K` : '—'}
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        <span
+                          className="font-mono text-kumo-strong"
+                          title={
+                            m.price
+                              ? `输入 $${m.price.inputPerMtok}/M · 输出 $${m.price.outputPerMtok}/M（基准 Claude Sonnet 5）`
+                              : '上游未提供计价'
+                          }
+                        >
+                          {m.price ? `${m.price.approximate ? '≈' : ''}${m.price.multiplier.toFixed(2)}×` : '—'}
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        {m.freeTier ? (
+                          <Badge variant="success" className="text-xs">免费</Badge>
+                        ) : m.allowed ? (
+                          <Badge variant="info" className="text-xs">可用</Badge>
+                        ) : (
+                          <Badge variant="warning" className="text-xs">受限</Badge>
+                        )}
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                 </Table.Body>
+              </Table>
+              </div>
+            </LayerCard>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无模型"
+                description={status?.availableCount ? '点击「连通性测试」拉取上游模型列表。' : '先完成账号授权，再拉取上游模型列表。'}
+              />
             </div>
-          </LayerCard>
-        ) : null}
+          )}
+        </SectionCard>
       </div>
 
       <Dialog.Root open={authOpen} onOpenChange={setAuthOpen}>

@@ -394,7 +394,19 @@ export function DS2APIPlugin() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
         <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
           {saving ? '保存中...' : '保存设置'}
         </Button>
@@ -745,19 +757,6 @@ export function DS2APIPlugin() {
               </div>
             )}
           </SectionCard>
-
-          {linkState?.linked && linkState?.baseUrl ? (
-            <LayerCard className="min-w-0 p-3 shadow-none">
-              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-                <Rocket className="h-3.5 w-3.5 text-brand" />
-                <span className="text-kumo-strong">已接入网关端点</span>
-                <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
-                  {linkState.baseUrl}
-                </span>
-                <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
-              </div>
-            </LayerCard>
-          ) : null}
       </div>
 
       <Dialog.Root open={addOpen} onOpenChange={setAddOpen}>

@@ -431,7 +431,19 @@ export function AntigravityPlugin() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
         <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
           {saving ? '保存中...' : '保存设置'}
         </Button>
@@ -620,90 +632,6 @@ export function AntigravityPlugin() {
         </SectionCard>
 
         <SectionCard
-          title="配额"
-          icon={<RefreshCw className="h-4 w-4 text-brand" />}
-          bodyPadding="none"
-          actions={
-            <Button size="sm" variant="outline" disabled={quotaLoading || !authorized} onClick={loadQuota}>
-              <RefreshCw className={`h-3 w-3 ${quotaLoading ? 'animate-spin' : ''}`} /> 刷新
-            </Button>
-          }
-        >
-          {Array.isArray(quota) && quota.length ? (
-            <div className={`grid gap-3 p-3 ${quota.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              {quota.map((item, ai) => {
-                const q = item.quota;
-                const hasData = q && ((q.credits?.length) || (q.groups?.length));
-                return (
-                  <div key={ai} className="rounded-lg border border-kumo-line bg-kumo-base px-3 py-2.5">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <Badge variant="neutral" className="text-xs">{item.email || '默认账号'}</Badge>
-                      {item.error && <span className="shrink-0 text-xs text-kumo-subtle">{item.error}</span>}
-                    </div>
-                    {hasData ? (
-                      <div className="space-y-2">
-                        {q.credits?.filter(c => c.creditType && c.creditAmount).map((c, i) => (
-                          <div key={`credit-${i}`} className="flex items-center justify-between rounded border border-kumo-line px-3 py-2 text-sm">
-                            <span className="text-kumo-subtle">{zhLabel(c.creditType)}</span>
-                            <span className="font-medium text-kumo-strong">{Number(c.creditAmount).toLocaleString()}</span>
-                          </div>
-                        ))}
-                        {q.groups?.map((g, gi) => (
-                          <div key={`group-${gi}`}>
-                            <div className="mb-1.5 text-sm font-medium text-kumo-strong" title={g.description || undefined}>
-                              {zhLabel(g.displayName) || `分组 ${gi + 1}`}
-                            </div>
-                            <div className="space-y-2">
-                              {g.buckets?.map((b, bi) => {
-                                const pct = b.remainingFraction == null ? null : Math.max(0, Math.min(100, Math.round(b.remainingFraction * 100)));
-                                const barColor = pct == null ? 'bg-kumo-line' : pct >= 50 ? 'bg-kumo-success' : pct >= 20 ? 'bg-kumo-warning' : 'bg-kumo-danger';
-                                return (
-                                  <div key={`bucket-${gi}-${bi}`}>
-                                    <div className="flex items-center justify-between text-sm">
-                                      <span className="truncate text-kumo-subtle" title={b.description || undefined}>{zhLabel(b.displayName) || zhLabel(b.window) || '额度'}</span>
-                                      <span className="ml-2 shrink-0 font-medium text-kumo-strong">{pct == null ? '—' : `${pct}%`}</span>
-                                    </div>
-                                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-kumo-line">
-                                      <div
-                                        className={`h-full rounded-full ${barColor}`}
-                                        style={{ width: `${Math.max(0, Math.min(100, pct ?? 0))}%` }}
-                                      />
-                                    </div>
-                                    {b.resetTime && (
-                                      <div className="mt-0.5 text-xs text-kumo-subtle">
-                                        重置：{new Date(b.resetTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-sm text-kumo-subtle">{item.error || '暂无配额数据'}</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-4">
-              <EmptyState
-                title={authorized ? '暂无配额' : '未授权'}
-                description={authorized ? '点击刷新从上游拉取配额信息。' : '添加并授权账号后显示配额。'}
-                action={authorized ? (
-                  <Button size="sm" variant="secondary" disabled={quotaLoading} onClick={loadQuota}>
-                    <RefreshCw className={`h-3 w-3 ${quotaLoading ? 'animate-spin' : ''}`} /> 刷新配额
-                  </Button>
-                ) : undefined}
-              />
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
           title="用量"
           icon={<TrendingUp className="h-4 w-4 text-brand" />}
           bodyPadding="none"
@@ -836,18 +764,89 @@ export function AntigravityPlugin() {
           )}
         </SectionCard>
 
-        {linkState?.linked && linkState?.baseUrl ? (
-          <LayerCard className="min-w-0 p-3 shadow-none">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-              <Rocket className="h-3.5 w-3.5 text-brand" />
-              <span className="text-kumo-strong">已接入网关端点</span>
-              <span className="font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
-                {linkState.baseUrl}
-              </span>
-              <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+        <SectionCard
+          title="配额"
+          icon={<RefreshCw className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <Button size="sm" variant="outline" disabled={quotaLoading || !authorized} onClick={loadQuota}>
+              <RefreshCw className={`h-3 w-3 ${quotaLoading ? 'animate-spin' : ''}`} /> 刷新
+            </Button>
+          }
+        >
+          {Array.isArray(quota) && quota.length ? (
+            <div className={`grid gap-3 p-3 ${quota.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {quota.map((item, ai) => {
+                const q = item.quota;
+                const hasData = q && ((q.credits?.length) || (q.groups?.length));
+                return (
+                  <div key={ai} className="rounded-lg border border-kumo-line bg-kumo-base px-3 py-2.5">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <Badge variant="neutral" className="text-xs">{item.email || '默认账号'}</Badge>
+                      {item.error && <span className="shrink-0 text-xs text-kumo-subtle">{item.error}</span>}
+                    </div>
+                    {hasData ? (
+                      <div className="space-y-2">
+                        {q.credits?.filter(c => c.creditType && c.creditAmount).map((c, i) => (
+                          <div key={`credit-${i}`} className="flex items-center justify-between rounded border border-kumo-line px-3 py-2 text-sm">
+                            <span className="text-kumo-subtle">{zhLabel(c.creditType)}</span>
+                            <span className="font-medium text-kumo-strong">{Number(c.creditAmount).toLocaleString()}</span>
+                          </div>
+                        ))}
+                        {q.groups?.map((g, gi) => (
+                          <div key={`group-${gi}`}>
+                            <div className="mb-1.5 text-sm font-medium text-kumo-strong" title={g.description || undefined}>
+                              {zhLabel(g.displayName) || `分组 ${gi + 1}`}
+                            </div>
+                            <div className="space-y-2">
+                              {g.buckets?.map((b, bi) => {
+                                const pct = b.remainingFraction == null ? null : Math.max(0, Math.min(100, Math.round(b.remainingFraction * 100)));
+                                const barColor = pct == null ? 'bg-kumo-line' : pct >= 50 ? 'bg-kumo-success' : pct >= 20 ? 'bg-kumo-warning' : 'bg-kumo-danger';
+                                return (
+                                  <div key={`bucket-${gi}-${bi}`}>
+                                    <div className="flex items-center justify-between text-sm">
+                                      <span className="truncate text-kumo-subtle" title={b.description || undefined}>{zhLabel(b.displayName) || zhLabel(b.window) || '额度'}</span>
+                                      <span className="ml-2 shrink-0 font-medium text-kumo-strong">{pct == null ? '—' : `${pct}%`}</span>
+                                    </div>
+                                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-kumo-line">
+                                      <div
+                                        className={`h-full rounded-full ${barColor}`}
+                                        style={{ width: `${Math.max(0, Math.min(100, pct ?? 0))}%` }}
+                                      />
+                                    </div>
+                                    {b.resetTime && (
+                                      <div className="mt-0.5 text-xs text-kumo-subtle">
+                                        重置：{new Date(b.resetTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-kumo-subtle">{item.error || '暂无配额数据'}</div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          </LayerCard>
-        ) : null}
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title={authorized ? '暂无配额' : '未授权'}
+                description={authorized ? '点击刷新从上游拉取配额信息。' : '添加并授权账号后显示配额。'}
+                action={authorized ? (
+                  <Button size="sm" variant="secondary" disabled={quotaLoading} onClick={loadQuota}>
+                    <RefreshCw className={`h-3 w-3 ${quotaLoading ? 'animate-spin' : ''}`} /> 刷新配额
+                  </Button>
+                ) : undefined}
+              />
+            </div>
+          )}
+        </SectionCard>
       </div>
 
       <Dialog.Root open={oauthOpen} onOpenChange={setOauthOpen}>
