@@ -1466,6 +1466,7 @@ th > button[aria-label='Resize column'] > span {
 
 .dns-table-frame {
   position: relative;
+  overflow: clip;
   border-radius: 0.5rem;
   background-color: var(--color-kumo-base);
 }

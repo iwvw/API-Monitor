@@ -95,6 +95,7 @@ import {
   Sun as PhSun,
   TerminalWindow,
   Trash as PhTrash,
+  Tray,
   TrendUp,
   UploadSimple,
   User as PhUser,
@@ -187,6 +188,7 @@ export const FolderOpen = createIcon(PhFolderOpen);
 export const Bell = createIcon(PhBell);
 export const Bookmark = createIcon(PhBookmarkSimple);
 export const Mail = createIcon(EnvelopeSimple);
+export const Inbox = createIcon(Tray);
 export const MessageSquare = createIcon(ChatCircle);
 export const Settings = createIcon(GearSix);
 export const Sun = createIcon(PhSun);

@@ -53,6 +53,7 @@ import PagesPanel from './PagesPanel.jsx';
 import R2Panel from './R2Panel.jsx';
 import TunnelsPanel from './TunnelsPanel.jsx';
 import TemplatesPanel from './TemplatesPanel.jsx';
+import EmailRoutingPanel from './EmailRoutingPanel.jsx';
 import AccountsPanel from './AccountsPanel.jsx';
 import AccountDialog from './AccountDialog.jsx';
 import ZoneDialog from './ZoneDialog.jsx';
@@ -1981,6 +1982,10 @@ function DnsPage() {
               applyTemplate={applyTemplate}
               deleteTemplate={deleteTemplate}
             />
+          )}
+
+          {activeTab === 'email' && (
+            <EmailRoutingPanel selectedAccountId={selectedAccountId} cfApi={cfApi} />
           )}
 
           {activeTab === 'accounts' && (
