@@ -51,6 +51,7 @@ export function PostHogCodePlugin() {
   // 仅用于占位提示，交换 token 时由后端从会话取用，前端不参与。
   const [authRedirectUri, setAuthRedirectUri] = useState(DEFAULT_CALLBACK_URI);
   const [authRegion, setAuthRegion] = useState('us');
+  const [authAccountId, setAuthAccountId] = useState('');
   const [authStarting, setAuthStarting] = useState(false);
   const [callbackUrl, setCallbackUrl] = useState('');
   const [exchanging, setExchanging] = useState(false);
@@ -208,14 +209,18 @@ export function PostHogCodePlugin() {
   };
 
   // 发起授权：向后端要授权链接与 state，然后打开新窗口。
-  const startOAuth = async () => {
+  // 新增账号时 region 默认取全局选择；重新授权指定账号时传该账号区域与 id，
+  // 完成后后端会替换该账号凭据而非新建。
+  const startOAuth = async (region = authRegion, accountId = '') => {
     setAuthStarting(true);
     setCallbackUrl('');
+    setAuthRegion(region);
+    setAuthAccountId(accountId || '');
     try {
       const res = await fetch(`${API}/oauth/auth-url`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ region: authRegion }),
+        body: JSON.stringify({ region, accountId: accountId || undefined }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '生成授权链接失败');
@@ -248,6 +253,7 @@ export function PostHogCodePlugin() {
       if (!res.ok || !data?.success) throw new Error(data?.error || '授权失败');
       toast.success(`已授权：${data?.account?.email || data?.account?.id || ''}`);
       setAuthOpen(false);
+      setAuthAccountId('');
       setCallbackUrl('');
       await load();
       await loadStatus();
@@ -507,7 +513,7 @@ export function PostHogCodePlugin() {
                 <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                 <span className="hidden cq-sm:inline">刷新</span>
               </Button>
-              <Button size="sm" variant="primary" disabled={authStarting} onClick={startOAuth}>
+              <Button size="sm" variant="primary" disabled={authStarting} onClick={() => startOAuth()}>
                 <Plus className="h-3.5 w-3.5" /> 添加账号
               </Button>
             </div>
@@ -545,9 +551,9 @@ export function PostHogCodePlugin() {
                             <div className="truncate text-sm font-medium text-kumo-strong" title={a.id}>
                               {a.email || a.id}
                             </div>
-                            <span className="shrink-0 rounded bg-kumo-recessed px-1 font-mono text-[0.85em] text-kumo-subtle">
+                            <Badge variant={a.region === 'eu' ? 'secondary' : 'info'} className="shrink-0 text-xs" title="该账号所属 Cloud 区域">
                               {String(a.region || 'us').toUpperCase()}
-                            </span>
+                            </Badge>
                           </div>
                           <div className="truncate font-mono text-kumo-subtle" title={a.id}>
                             {a.id !== a.email ? a.id : ''}
@@ -559,7 +565,9 @@ export function PostHogCodePlugin() {
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         {a.disabled ? (
-                          <Badge variant="danger" className="text-xs">停用</Badge>
+                          <Badge variant="danger" className="text-xs" title={a.lastError || undefined} aria-label={a.lastError || undefined}>
+                            {a.lastError && /吊销|重新授权/.test(a.lastError) ? '需重新授权' : '停用'}
+                          </Badge>
                         ) : !a.scopeReady ? (
                           <Badge variant="warning" className="text-xs">需重新授权</Badge>
                         ) : !a.available ? (
@@ -576,6 +584,17 @@ export function PostHogCodePlugin() {
                         <div className="flex items-center justify-center gap-1">
                           <Button size="sm" variant="secondary" disabled={testingId === a.id} onClick={() => testAccount(a.id)} title="强制刷新 token 验证凭据">
                             <RefreshCw className={`h-3 w-3 ${testingId === a.id ? 'animate-spin' : ''}`} /> 刷新
+                          </Button>
+                          <Button
+                            size="sm"
+                            shape="square"
+                            variant="secondary"
+                            disabled={authStarting}
+                            onClick={() => startOAuth(a.region || 'us', a.id)}
+                            aria-label={`重新授权 ${a.email || a.id}`}
+                            title="凭据失效时重新走 OAuth 授权（按该账号区域），会替换当前凭据"
+                          >
+                            <ExternalLink className="h-3 w-3" />
                           </Button>
                           <Button
                             size="sm"
@@ -799,9 +818,13 @@ export function PostHogCodePlugin() {
       <Dialog.Root open={authOpen} onOpenChange={setAuthOpen}>
         <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(46rem,calc(100vw-2rem))] !max-w-[min(46rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
           <div className="shrink-0 px-6 pt-5">
-            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">PostHog 授权</Dialog.Title>
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
+              {authAccountId ? '重新授权账号' : 'PostHog 授权'}
+            </Dialog.Title>
             <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
-              在浏览器完成授权后，把跳转到的完整地址粘贴到下方。
+              {authAccountId
+                ? `为 ${authAccountId} 重新走 OAuth 授权，完成后替换该账号的凭据。`
+                : '在浏览器完成授权后，把跳转到的完整地址粘贴到下方。'}
             </Dialog.Description>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">

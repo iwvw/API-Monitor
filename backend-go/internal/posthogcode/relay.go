@@ -123,6 +123,12 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if !ue.retryable {
 			break
 		}
+		// 401 Invalid token 说明 access token 已被上游吊销（可能本地未到
+		// 过期时刻但 PostHog 侧已撤销）。这与刷新失败同源：确定性故障，
+		// 标记账号停用让选号跳过，而不只是 5 分钟冷却。
+		if ue.status == http.StatusUnauthorized {
+			s.markRevokedOnAuthFailure(r.Context(), &acc, fmt.Errorf("%s", ue.msg))
+		}
 		s.markCooldown(acc.ID, ue.msg)
 	}
 

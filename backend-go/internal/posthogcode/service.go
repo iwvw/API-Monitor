@@ -173,6 +173,13 @@ type Service struct {
 	cooldownMu    sync.Mutex
 	cooldownUntil map[string]time.Time
 
+	// tokenRefreshMu 串行化所有账号的 token 刷新。
+	// PostHog 的 refresh token 是单次轮换的：若同一账号并发现刷新，
+	// 多个请求会拿同一个 refresh token 去换，一个成功、其余因旧 token
+	// 已失效而报 Invalid access token，把账号刷成「永久失效」。
+	// 全局串行化成本可忽略（刷新仅发生在临近过期时），换来换码安全。
+	tokenRefreshMu sync.Mutex
+
 	// 额度快照：accountID → 剩余额度（credit）。由用量查询与转发后刷新，
 	// 供 least-used 策略选号。读路径不查库，可承受每请求一次。
 	quotaMu   sync.RWMutex

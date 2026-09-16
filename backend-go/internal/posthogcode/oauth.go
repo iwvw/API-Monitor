@@ -64,7 +64,10 @@ type oauthState struct {
 	verifier    string
 	region      string
 	redirectURI string
-	createdAt   time.Time
+	// accountID 非空表示「重新授权」：换码成功后凭据替换该既有账号，
+	// 而不是按 userinfo 生成的 id 新建/漂移。
+	accountID string
+	createdAt time.Time
 }
 
 // cloudBaseURL 返回指定区域的 PostHog 主站地址。
@@ -144,7 +147,7 @@ func (s *Service) cleanupOAuthStates() {
 
 // buildAuthorizeURL 构造授权链接，并把 PKCE verifier 存入待完成会话。
 // redirectURI 由调用方给定（前端所在源的回调地址）。
-func (s *Service) buildAuthorizeURL(region, redirectURI string) (authURL, state string, err error) {
+func (s *Service) buildAuthorizeURL(region, redirectURI, accountID string) (authURL, state string, err error) {
 	verifier, err := randomVerifier()
 	if err != nil {
 		return "", "", err
@@ -170,7 +173,7 @@ func (s *Service) buildAuthorizeURL(region, redirectURI string) (authURL, state 
 
 	s.cleanupOAuthStates()
 	s.oauthMu.Lock()
-	s.oauthStates[st] = &oauthState{verifier: verifier, region: region, redirectURI: redirectURI, createdAt: time.Now()}
+	s.oauthStates[st] = &oauthState{verifier: verifier, region: region, redirectURI: redirectURI, accountID: accountID, createdAt: time.Now()}
 	s.oauthMu.Unlock()
 
 	return u.String(), st, nil
@@ -331,7 +334,20 @@ func fetchDefaultProjectID(ctx context.Context, region, accessToken string) stri
 // ensureFreshToken 确保账号的 access token 可用：未过期直接返回；
 // 已过期/临近过期时用 refresh token 换新并回写（含轮换后的 refresh token）。
 // 落库失败不阻断本次请求，但轮换后的 token 必须成功写回，否则下次刷新会失效。
+//
+// 并发安全：整个刷新过程用 tokenRefreshMu 串行化，并在拿到锁后重新检查
+// 是否仍需要刷新（double-check）。否则多个请求同时看到「需要刷新」时，
+// 会拿同一个 refresh token 去换——PostHog 的 refresh token 单次轮换，
+// 一个成功、其余全被拒，账号被刷成无法恢复的失效。
 func (s *Service) ensureFreshToken(ctx context.Context, acc *Account) (string, error) {
+	if strings.TrimSpace(acc.AccessToken) != "" && acc.ExpiresAt > time.Now().Unix()+int64(tokenExpiringWindow.Seconds()) {
+		return acc.AccessToken, nil
+	}
+
+	s.tokenRefreshMu.Lock()
+	defer s.tokenRefreshMu.Unlock()
+
+	// 双检：等待锁期间可能已有别的请求刷新完成。
 	if strings.TrimSpace(acc.AccessToken) != "" && acc.ExpiresAt > time.Now().Unix()+int64(tokenExpiringWindow.Seconds()) {
 		return acc.AccessToken, nil
 	}
@@ -342,6 +358,7 @@ func (s *Service) ensureFreshToken(ctx context.Context, acc *Account) (string, e
 	region := s.accountRegion(*acc)
 	tok, err := refreshToken(ctx, region, acc.RefreshToken)
 	if err != nil {
+		s.markRevokedOnAuthFailure(ctx, acc, err)
 		return "", err
 	}
 	expiresIn := tok.ExpiresIn
@@ -359,6 +376,30 @@ func (s *Service) ensureFreshToken(ctx context.Context, acc *Account) (string, e
 		acc.LastError = "token 已刷新但落库失败: " + err.Error()
 	}
 	return acc.AccessToken, nil
+}
+
+// markRevokedOnAuthFailure 判定刷新失败是否源于「凭据被 PostHog 吊销」。
+// 这类错误（authentication_error / invalid_grant / Invalid access token）是
+// 确定性故障：重试也不会成功，只能重新授权。标记账号停用并持久化 LastError，
+// 使选号策略直接跳过它（自动故障转移用正常账号），而不是 5 分钟后死灰复燃。
+func (s *Service) markRevokedOnAuthFailure(ctx context.Context, acc *Account, err error) {
+	if err == nil || acc == nil {
+		return
+	}
+	msg := strings.ToLower(err.Error())
+	revoked := strings.Contains(msg, "authentication_error") ||
+		strings.Contains(msg, "authentication_failed") ||
+		strings.Contains(msg, "invalid_grant") ||
+		strings.Contains(msg, "invalid access token") ||
+		strings.Contains(msg, "unauthorized")
+	if !revoked {
+		return
+	}
+	acc.Disabled = true
+	acc.LastError = "凭据已被 PostHog 吊销，请重新授权: " + err.Error()
+	if err := s.upsertAccount(ctx, *acc); err != nil {
+		// 落库失败不影响本次返回（错误信息会随调用方返回），尽力而为。
+	}
 }
 
 // accountCandidate 是一个通过硬性过滤、可供选号策略挑选的账号。

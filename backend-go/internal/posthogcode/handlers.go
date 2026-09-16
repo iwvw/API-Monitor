@@ -528,6 +528,8 @@ func (s *Service) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Region string `json:"region"`
+		// AccountID 非空表示重新授权：完成后凭据替换该既有账号。
+		AccountID string `json:"accountId"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -537,7 +539,7 @@ func (s *Service) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 	}
 	redirectURI := callbackRedirectURI()
 
-	authURL, state, err := s.buildAuthorizeURL(region, redirectURI)
+	authURL, state, err := s.buildAuthorizeURL(region, redirectURI, strings.TrimSpace(body.AccountID))
 	if err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -626,11 +628,20 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 
 	info, infoErr := fetchUserInfo(ctx, sess.region, tok.AccessToken)
 	id := accountIDFor(info)
+	// 重新授权：替换既有账号。以会话里锚定的账号为准，而不是按 userinfo
+	// 生成的 id——PostHog uuid/邮箱如有漂移，重新授权也应落到原账号上。
+	if target := strings.TrimSpace(sess.accountID); target != "" {
+		id = target
+	}
 	if id == "" {
 		// userinfo 不可用时退回邮箱缺失的占位标识，保证凭据仍能保存。
 		id = "posthog-" + time.Now().UTC().Format("20060102T150405")
 	}
 	email := ""
+	if existing, ok := s.findAccount(id); ok {
+		// 替换凭据时沿用原账号已记录的 email/备注，避免 userinfo 缺失清空展示名。
+		email = existing.Email
+	}
 	if info != nil {
 		email = info.Email
 	}

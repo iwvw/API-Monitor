@@ -3,6 +3,7 @@ package posthogcode
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 
@@ -412,6 +413,127 @@ func TestCallbackRedirectURIEnvOverride(t *testing.T) {
 	t.Setenv(envRedirectURI, "")
 	if got := callbackRedirectURI(); got != defaultRedirectURI {
 		t.Fatalf("空环境变量应回落默认值，得到 %q", got)
+	}
+}
+
+// TestHandleAuthURLCarriesReauthAccountID 重新授权时前端带上 accountId，
+// 授权会话必须记住它，换码成功后据此替换该既有账号而不是新建。
+func TestHandleAuthURLCarriesReauthAccountID(t *testing.T) {
+	s := newDBService(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/posthogcode/oauth/auth-url",
+		strings.NewReader(`{"region":"eu","accountId":"acc-123"}`))
+	s.handleAuthURL(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("auth-url = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		State  string `json:"state"`
+		Region string `json:"region"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Region != "eu" {
+		t.Fatalf("region = %q, want eu（重新授权必须用该账号区域）", res.Region)
+	}
+	sess := s.takeOAuthState(res.State)
+	if sess == nil {
+		t.Fatal("授权会话应已建立")
+	}
+	if sess.accountID != "acc-123" {
+		t.Fatalf("会话 accountID = %q, want acc-123", sess.accountID)
+	}
+}
+
+// TestHandleAuthURLWithoutAccountIDCreatesNew 不带 accountId 时是新增账号，
+// 会话不得锚定任何既有账号。
+func TestHandleAuthURLWithoutAccountIDCreatesNew(t *testing.T) {
+	s := newDBService(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/posthogcode/oauth/auth-url",
+		strings.NewReader(`{"region":"us"}`))
+	s.handleAuthURL(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("auth-url = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	sess := s.takeOAuthState(res.State)
+	if sess == nil {
+		t.Fatal("授权会话应已建立")
+	}
+	if sess.accountID != "" {
+		t.Fatalf("新增账号会话 accountID 应为空，得到 %q", sess.accountID)
+	}
+}
+
+// TestMarkRevokedOnAuthFailureDisablesAccount 刷新失败若源于凭据被 PostHog
+// 吊销（authentication_error/invalid_grant 等），该账号应被自动停用并记录
+// LastError，使选号策略跳过它（故障转移用正常账号），而不是短暂冷却后重试。
+func TestMarkRevokedOnAuthFailureDisablesAccount(t *testing.T) {
+	ctx := context.Background()
+	s := newDBService(t)
+
+	acc := Account{
+		ID:           "a1",
+		Email:        "a1@x",
+		Region:       "us",
+		AccessToken:  "old",
+		RefreshToken: "dead",
+		ExpiresAt:    time.Now().Add(2 * time.Hour).Unix(),
+		Scope:        "llm_gateway:read project:read",
+	}
+	if err := s.upsertAccount(ctx, acc); err != nil {
+		t.Fatal(err)
+	}
+
+	err := fmt.Errorf(`token 端点返回 400: {"type":"authentication_error","code":"authentication_failed","detail":"Invalid access token."}`)
+	s.markRevokedOnAuthFailure(ctx, &acc, err)
+
+	if !acc.Disabled {
+		t.Fatal("凭据被吊销后账号应被停用")
+	}
+	if acc.LastError == "" || !strings.Contains(acc.LastError, "重新授权") {
+		t.Fatalf("LastError 应提示需重新授权，得到 %q", acc.LastError)
+	}
+	// 选号策略应跳过该账号（无候选可选中）。
+	st := s.Settings()
+	if len(st.Accounts) != 1 || !st.Accounts[0].Disabled {
+		t.Fatalf("账号应被持久化为停用，实际 %+v", st.Accounts)
+	}
+}
+
+// TestMarkRevokedOnAuthFailureKeepsTransient 瞬时/可重试失败（5xx、超时等）
+// 不得停用账号，应走冷却重试而不是判成永久吊销。
+func TestMarkRevokedOnAuthFailureKeepsTransient(t *testing.T) {
+	ctx := context.Background()
+	s := newDBService(t)
+
+	a := Account{ID: "a1", Email: "a1@x", Region: "us", Scope: "llm_gateway:read"}
+	if err := s.upsertAccount(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, msg := range []string{
+		"token 端点返回 500: internal error",
+		"请求 token 端点失败: connection reset",
+		"token 端点返回 429: too many requests",
+	} {
+		acc := a
+		s.markRevokedOnAuthFailure(ctx, &acc, fmt.Errorf("%s", msg))
+		if acc.Disabled {
+			t.Fatalf("瞬时失败 %q 不应停用账号", msg)
+		}
+	}
+	if st := s.Settings(); len(st.Accounts) != 1 || st.Accounts[0].Disabled {
+		t.Fatalf("瞬时失败不应持久化停用，实际 %+v", st.Accounts)
 	}
 }
 
