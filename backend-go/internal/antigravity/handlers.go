@@ -124,6 +124,10 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// 关闭插件时同步移除已接入的网关端点行，避免端点仍暴露在列表。
+		if !body.Enabled {
+			s.unlinkIfDisabled(r.Context())
+		}
 		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "settings": s.Settings()})
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -854,6 +858,17 @@ func (s *Service) linkDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "linked": false})
+}
+
+// unlinkIfDisabled 供保存设置联动：插件被关闭（enabled=false）时移除
+// 已接入的网关端点行，避免端点仍暴露在列表。失败静默，不影响保存结果。
+func (s *Service) unlinkIfDisabled(ctx context.Context) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_, _ = db.ExecContext(ctx, `DELETE FROM openai_endpoints WHERE id = ?`, linkedEndpointID)
 }
 
 // fetchModelNames 尝试从上游拉取模型名列表；失败时用内置默认模型名。

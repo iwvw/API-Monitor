@@ -148,6 +148,17 @@ func (s *Service) linkDelete(w http.ResponseWriter, r *http.Request) {
 	responseJSON(w, map[string]interface{}{"success": true, "linked": false})
 }
 
+// unlinkIfDisabled 供保存设置联动：插件被关闭（enabled=false）时移除
+// 已接入的网关端点行，避免端点仍暴露在列表。失败静默，不影响保存结果。
+func (s *Service) unlinkIfDisabled(ctx context.Context) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_, _ = db.ExecContext(ctx, `DELETE FROM openai_endpoints WHERE id = ?`, linkedEndpointID)
+}
+
 // syncLinkedEndpointDisabledModels 把插件内停用的模型同步到已接入网关端点的
 // disabled_models 列。网关是按端点这一列做请求拦截的，因此只写插件自己的设置
 // 不会让网关停止路由。未接入时静默跳过。

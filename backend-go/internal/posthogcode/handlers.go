@@ -83,6 +83,10 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.accountsMu.Unlock()
+		// 关闭插件时同步移除已接入的网关端点行，避免端点仍暴露在列表。
+		if !body.Enabled {
+			s.unlinkIfDisabled(r.Context())
+		}
 		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings()})
 	default:
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})

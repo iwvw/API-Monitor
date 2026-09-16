@@ -678,6 +678,10 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 			responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
+		// 关闭插件时同步移除已接入的网关端点行，避免端点仍暴露在列表。
+		if !body.Enabled {
+			s.unlinkIfDisabled(r.Context())
+		}
 		responseJSON(w, map[string]interface{}{"success": true, "settings": s.Settings()})
 	default:
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})

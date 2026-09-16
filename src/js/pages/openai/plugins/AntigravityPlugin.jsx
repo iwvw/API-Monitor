@@ -453,19 +453,16 @@ export function AntigravityPlugin() {
         <SectionCard title="Antigravity" icon={<AntigravityBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
           {field(
             '启用中继',
-            '关闭后 /v1/messages 与网关端点接入都会拒绝服务',
-            <Switch checked={!!settings?.enabled} onCheckedChange={v => update({ enabled: v })} />
-          )}
-          {field(
-            '接入模型网关',
-            '把本插件注册为模型网关端点，外部客户端经网关 /v1/messages 路由到本中继',
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={!!linkState?.linked}
-                disabled={linkBusy || !settings?.enabled}
-                onCheckedChange={checked => linkPlugin(checked ? 'link' : 'unlink')}
-              />
-            </div>
+            '总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点',
+            <Switch
+              checked={!!settings?.enabled}
+              disabled={linkBusy}
+              onCheckedChange={v => {
+                update({ enabled: v });
+                if (v) linkPlugin('link');
+                else linkPlugin('unlink');
+              }}
+            />
           )}
           {field(
             '代理池',

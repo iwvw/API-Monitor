@@ -474,3 +474,53 @@ func TestRefreshLinkedEndpointModelsSinglePrefix(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleSettingsDisableUnlinksEndpoint 关闭插件（enabled=false）保存后，
+// 已接入的 internal 网关端点行应被自动删除，避免端点仍暴露在列表。
+func TestHandleSettingsDisableUnlinksEndpoint(t *testing.T) {
+	ctx := context.Background()
+	s := newDBService(t)
+
+	// 播种一个已接入的 internal 端点行（模拟先 link 过）。
+	db, err := s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT OR REPLACE INTO openai_endpoints
+		(id, name, base_url, api_key, enabled, models, plugin_id)
+		VALUES (?, 'PostHog Code', 'http://127.0.0.1:3000/api/posthogcode/v1', 'k', 1, '[]', 'posthogcode')`, linkedEndpointID)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 前端 PUT enabled=false。
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/posthogcode/settings",
+		strings.NewReader(`{"enabled":false,"region":"us","product":"posthog_code"}`))
+	s.handleSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings PUT = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if s.Settings().Enabled {
+		t.Fatal("enabled 应被保存为 false")
+	}
+
+	// 端点行应被删除。
+	db, err = s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM openai_endpoints WHERE id = ?", linkedEndpointID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("关闭插件后 internal 端点应被删除，实际存在 %d 行", n)
+	}
+}

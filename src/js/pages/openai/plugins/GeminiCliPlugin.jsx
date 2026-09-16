@@ -474,17 +474,16 @@ export function GeminiCliPlugin() {
 
       <div className="flex min-w-0 flex-col gap-4">
         <SectionCard title="Gemini CLI" icon={<GeminiCliBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
-          <FieldRow title={<span title="关闭后 /v1/* 与网关端点接入都会拒绝服务">启用中继</span>}>
-            <Switch checked={!!settings?.enabled} onCheckedChange={v => update({ enabled: v })} />
-          </FieldRow>
-          <FieldRow title={<span title="把本插件注册为模型网关端点，外部客户端经网关 /v1/chat/completions 路由到本中继">接入模型网关</span>}>
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={!!linkState?.linked}
-                disabled={linkBusy || !settings?.enabled}
-                onCheckedChange={checked => linkPlugin(checked ? 'link' : 'unlink')}
-              />
-            </div>
+          <FieldRow title={<span title="总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点">启用中继</span>}>
+            <Switch
+              checked={!!settings?.enabled}
+              disabled={linkBusy}
+              onCheckedChange={v => {
+                update({ enabled: v });
+                if (v) linkPlugin('link');
+                else linkPlugin('unlink');
+              }}
+            />
           </FieldRow>
           <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 gcli-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
             <Input

@@ -568,14 +568,15 @@ export function LobsterAIPlugin() {
 
       <div className="flex min-w-0 flex-col gap-4">
         <SectionCard title="LobsterAI" icon={<LobsterAIBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
-          <FieldRow title={<span title="关闭后 /v1/* 与网关端点接入都会拒绝服务">启用中继</span>}>
-            <Switch checked={!!settings?.enabled} onCheckedChange={v => update({ enabled: v })} />
-          </FieldRow>
-          <FieldRow title={<span title="把本插件注册为模型网关端点，外部客户端经网关 /v1/chat/completions 路由到本中继">接入模型网关</span>}>
+          <FieldRow title={<span title="总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点">启用中继</span>}>
             <Switch
-              checked={!!linkState?.linked}
-              disabled={linkBusy || !settings?.enabled}
-              onCheckedChange={checked => linkPlugin(checked ? 'link' : 'unlink')}
+              checked={!!settings?.enabled}
+              disabled={linkBusy}
+              onCheckedChange={v => {
+                update({ enabled: v });
+                if (v) linkPlugin('link');
+                else linkPlugin('unlink');
+              }}
             />
           </FieldRow>
           <FieldRow title={<span title="每日 9 点与 21 点自动为全部账号签到（+100 积分/号/天），关闭后仅可手动签到">每日自动签到</span>}>
