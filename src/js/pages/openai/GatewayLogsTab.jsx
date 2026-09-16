@@ -93,10 +93,12 @@ export function GatewayLogsTab({ analytics, endpoints }) {
             )}
           </div>
           {/* 表格视口高度：日志 tab 单独做行内部滚动，外层限高让表头吸顶、行在
-              容器内滚动。偏移量 = 顶栏 58 + 吸顶 tab 栏 58 + PageStack 间距 16
-              + 筛选行 28（sm 控件 h-7）+ 卡片间距 12 + 底部 gutter 12 = 184。
-              该模块整体是整页滚动模式，父级没有确定高度，故此处按视口高度扣减。 */}
-          <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none">
+              容器内滚动（桌面端）。偏移量 = 顶栏 58 + 吸顶 tab 栏 58 + PageStack
+              间距 16 + 筛选行 28（sm 控件 h-7）+ 卡片间距 12 + 底部 gutter 12 =
+              184。该硬编码按桌面单行筛选估算；移动端筛选区 flex-wrap 会换行成
+              多行，184 偏移不再可靠，故移动端（max-sm）改用自然高度跟随整页
+              滚动、分页在内容下方，符合「移动端整页滚动」约定。 */}
+          <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none max-sm:h-auto max-sm:min-h-0">
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
               <Table layout="fixed" className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
 <colgroup>
