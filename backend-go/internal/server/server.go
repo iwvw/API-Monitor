@@ -914,6 +914,15 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Client-Version")
 		return
 	}
+	if isAIAgentRoute(r.URL.Path) {
+		if origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password")
+			w.Header().Add("Vary", "Origin")
+		}
+		return
+	}
 	origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
 	for _, allowed := range s.cfg.CORSAllowedOrigins {
 		if origin != "" && origin == allowed {
@@ -928,6 +937,14 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 
 func isGatewayRoute(path string) bool {
 	return strings.HasPrefix(path, "/v1/") || path == "/v1"
+}
+
+// isAIAgentRoute 判断是否为 AI Agent 模块路由。该模块所有路由都是 AuthPublic，
+// 鉴权依赖显式携带的 Bearer 令牌而非会话 Cookie，因此按 Origin 回显即可让
+// Web 端部署到任意域名时免配置 CORS；不回显 Access-Control-Allow-Credentials，
+// 跨来源请求不会带上面板会话 Cookie。
+func isAIAgentRoute(path string) bool {
+	return path == "/api/aiagent" || strings.HasPrefix(path, "/api/aiagent/")
 }
 
 func (s *Server) sameOriginRequest(r *http.Request) bool {

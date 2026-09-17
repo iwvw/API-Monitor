@@ -55,6 +55,13 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 			metadata_json TEXT NOT NULL DEFAULT '{}',
 			updated_at    TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS aiagent_user_preferences (
+			user_id    TEXT NOT NULL,
+			key        TEXT NOT NULL,
+			value_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (user_id, key)
+		)`,
 		`CREATE TABLE IF NOT EXISTS aiagent_access_logs (
 			id            INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id       TEXT,

@@ -1,6 +1,9 @@
 package aiagent
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // 错误码：网关与用户面接口在错误响应中使用，便于客户端区分处置方式。
 const (
@@ -127,6 +130,22 @@ type instancePayload struct {
 
 type metaPayload struct {
 	Meta string `json:"meta"`
+}
+
+// preferencesPayload 是客户端偏好同步的批量写入载荷。Values 为键到原始 JSON
+// 的映射，服务端不解析其内容，仅原样存储后回吐，因此新增客户端设置项无需改
+// 服务端；UpdatedAt 为客户端本地改动时间戳，用于多端冲突时判定新旧。
+type preferencesPayload struct {
+	Values    map[string]json.RawMessage `json:"values"`
+	Keys      []string                   `json:"keys,omitempty"`
+	UpdatedAt string                     `json:"updatedAt,omitempty"`
+}
+
+// Preference 是单条用户偏好的存储视图。
+type Preference struct {
+	Key       string          `json:"key"`
+	Value     json.RawMessage `json:"value"`
+	UpdatedAt string          `json:"updatedAt"`
 }
 
 // 认证上下文：由令牌或 session 解析得到。

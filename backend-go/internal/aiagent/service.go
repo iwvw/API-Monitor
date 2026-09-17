@@ -181,6 +181,13 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/logs" && r.Method == http.MethodGet:
 		s.handleLogs(w, r)
 
+	case path == "/preferences" && r.Method == http.MethodGet:
+		s.handleListPreferences(w, r)
+	case path == "/preferences" && r.Method == http.MethodPut:
+		s.handlePutPreferences(w, r)
+	case path == "/preferences" && r.Method == http.MethodDelete:
+		s.handleDeletePreferences(w, r)
+
 	case strings.HasPrefix(path, "/gw/"):
 		rest := strings.TrimPrefix(path, "/gw/")
 		parts := strings.SplitN(rest, "/", 2)
@@ -903,6 +910,103 @@ func (s *Service) handleInstanceMeta(w http.ResponseWriter, r *http.Request, id 
 }
 
 // ---------- 其它 ----------
+
+// ---------- 用户偏好（多端同步） ----------
+
+// handleListPreferences 返回当前用户的全部偏好。
+func (s *Service) handleListPreferences(w http.ResponseWriter, r *http.Request) {
+	auth, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+		return
+	}
+	defer db.Close()
+	items, err := s.listPreferences(r.Context(), db, auth.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
+		return
+	}
+	writeOK(w, items)
+}
+
+// handlePutPreferences 批量写入偏好。请求体可带 lastWriteWins 表示按时间戳
+// 条件覆盖（客户端增量同步用）；不带则直接覆盖（客户端全量推送用）。
+func (s *Service) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
+	auth, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	var payload preferencesPayload
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if len(payload.Values) == 0 {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "values required")
+		return
+	}
+	lastWriteWins := r.URL.Query().Get("lastWriteWins") == "1"
+	db, err := s.open(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+		return
+	}
+	defer db.Close()
+	written, err := s.putPreferences(r.Context(), db, auth.UserID, payload.Values, payload.UpdatedAt, lastWriteWins)
+	if err != nil {
+		switch {
+		case errors.Is(err, errPreferenceTooLarge):
+			writeError(w, http.StatusRequestEntityTooLarge, CodeInvalid, "preference value too large")
+		case errors.Is(err, errInvalidPreferenceKey):
+			writeError(w, http.StatusBadRequest, CodeInvalid, "invalid preference key")
+		default:
+			writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
+		}
+		return
+	}
+	s.writeAccessLog(r.Context(), AccessLog{
+		UserID: auth.UserID, TokenID: auth.TokenID, Action: "preferences.put", Result: "ok",
+		IP: s.clientIP(r), UserAgent: r.UserAgent(),
+	})
+	writeOK(w, map[string]interface{}{"written": written})
+}
+
+// handleDeletePreferences 批量删除偏好，用于客户端清空若干项设置时同步删除。
+// 键经请求体传入而非路径段：偏好键允许冒号等字符且可能含斜杠，放进路径会被
+// 分段或需转义，改用与 PUT 一致的批量载荷可保证任意键可靠往返。
+func (s *Service) handleDeletePreferences(w http.ResponseWriter, r *http.Request) {
+	auth, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	var payload preferencesPayload
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	if len(payload.Keys) == 0 {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "keys required")
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+		return
+	}
+	defer db.Close()
+	removed, err := s.deletePreferences(r.Context(), db, auth.UserID, payload.Keys)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
+		return
+	}
+	s.writeAccessLog(r.Context(), AccessLog{
+		UserID: auth.UserID, TokenID: auth.TokenID, Action: "preferences.delete", Result: "ok",
+		IP: s.clientIP(r), UserAgent: r.UserAgent(),
+	})
+	writeOK(w, map[string]interface{}{"removed": removed})
+}
 
 func (s *Service) handleProviders(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireAuth(w, r); !ok {

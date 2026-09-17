@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -337,6 +338,9 @@ func (s *Service) deleteUser(ctx context.Context, db *sql.DB, id string) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_instance_meta WHERE user_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_user_preferences WHERE user_id = ?`, id); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM aiagent_users WHERE id = ?`, id)
@@ -739,6 +743,106 @@ func (s *Service) putMeta(ctx context.Context, db *sql.DB, instanceID, userID, m
 		ON CONFLICT(instance_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = excluded.updated_at`,
 		instanceID, userID, meta, nowRFC3339())
 	return err
+}
+
+// ---------- 用户偏好（多端同步） ----------
+
+// maxPreferenceValueBytes 限制单条偏好值大小。偏好是 UI 设置类小数据，
+// 给足余量的同时防止客户端误传大对象把库撑起来。
+const maxPreferenceValueBytes = 256 * 1024
+
+var errPreferenceTooLarge = errors.New("preference value too large")
+var errInvalidPreferenceKey = errors.New("invalid preference key")
+
+func (s *Service) listPreferences(ctx context.Context, db *sql.DB, userID string) ([]Preference, error) {
+	rows, err := db.QueryContext(ctx, `SELECT key, value_json, updated_at FROM aiagent_user_preferences WHERE user_id = ? ORDER BY key`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]Preference, 0)
+	for rows.Next() {
+		var item Preference
+		var raw string
+		if err := rows.Scan(&item.Key, &raw, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		item.Value = json.RawMessage(raw)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// putPreferences 批量 upsert 偏好，返回实际写入的键。lastWriteWins 为真表示仅当
+// 传入时间戳不早于库中现值时才覆盖，用于避免多端并发下旧数据回退新数据。
+func (s *Service) putPreferences(ctx context.Context, db *sql.DB, userID string, values map[string]json.RawMessage, updatedAt string, lastWriteWins bool) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	if updatedAt == "" {
+		updatedAt = nowRFC3339()
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	written := make([]string, 0, len(values))
+	for key, value := range values {
+		if key == "" || len(key) > 128 {
+			return nil, errInvalidPreferenceKey
+		}
+		if len(value) > maxPreferenceValueBytes {
+			return nil, errPreferenceTooLarge
+		}
+		query := `INSERT INTO aiagent_user_preferences (user_id, key, value_json, updated_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(user_id, key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
+		if lastWriteWins {
+			query = `INSERT INTO aiagent_user_preferences (user_id, key, value_json, updated_at)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT(user_id, key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+				WHERE excluded.updated_at >= aiagent_user_preferences.updated_at`
+		}
+		result, err := tx.ExecContext(ctx, query, userID, key, string(value), updatedAt)
+		if err != nil {
+			return nil, err
+		}
+		// 被 WHERE 拦下的写入影响行数为 0，不计入实际写入集合。
+		if affected, _ := result.RowsAffected(); affected > 0 {
+			written = append(written, key)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return written, nil
+}
+
+func (s *Service) deletePreferences(ctx context.Context, db *sql.DB, userID string, keys []string) ([]string, error) {
+	removed := make([]string, 0, len(keys))
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, key := range keys {
+		if key == "" || len(key) > 128 {
+			return nil, errInvalidPreferenceKey
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM aiagent_user_preferences WHERE user_id = ? AND key = ?`, userID, key)
+		if err != nil {
+			return nil, err
+		}
+		if affected, _ := result.RowsAffected(); affected > 0 {
+			removed = append(removed, key)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return removed, nil
 }
 
 // ---------- 访问日志 ----------

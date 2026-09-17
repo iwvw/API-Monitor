@@ -3,9 +3,11 @@ package aiagent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -703,5 +705,242 @@ func TestCopyStreamPreservesChunkData(t *testing.T) {
 			}
 		}
 		t.Fatalf("stream data corrupted: len got=%d want=%d, first diff at byte %d", len(got), len(expected), firstDiff)
+	}
+}
+
+func TestPreferencesRoundTripAndIsolation(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	alice, err := service.createUser(ctx, db, "alice", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser alice: %v", err)
+	}
+	bob, err := service.createUser(ctx, db, "bob", "secret-pass-2", "")
+	if err != nil {
+		t.Fatalf("createUser bob: %v", err)
+	}
+
+	values := map[string]json.RawMessage{
+		"srv:server-1:opencode-hidden-directories": json.RawMessage(`["/work/secret"]`),
+		"theme-preset": json.RawMessage(`"eucalyptus"`),
+	}
+	if _, err := service.putPreferences(ctx, db, alice.ID, values, "2026-01-01T00:00:00Z", false); err != nil {
+		t.Fatalf("putPreferences: %v", err)
+	}
+
+	items, err := service.listPreferences(ctx, db, alice.ID)
+	if err != nil {
+		t.Fatalf("listPreferences: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 preferences, got %d", len(items))
+	}
+	byKey := make(map[string]string, len(items))
+	for _, item := range items {
+		byKey[item.Key] = string(item.Value)
+	}
+	if got := byKey["srv:server-1:opencode-hidden-directories"]; got != `["/work/secret"]` {
+		t.Fatalf("unexpected value for hidden directories: %s", got)
+	}
+	if got := byKey["theme-preset"]; got != `"eucalyptus"` {
+		t.Fatalf("unexpected theme preset: %s", got)
+	}
+
+	// 用户隔离：bob 读不到 alice 的偏好。
+	bobItems, err := service.listPreferences(ctx, db, bob.ID)
+	if err != nil {
+		t.Fatalf("listPreferences bob: %v", err)
+	}
+	if len(bobItems) != 0 {
+		t.Fatalf("bob must not see alice preferences, got %d", len(bobItems))
+	}
+
+	// 删除单键只影响该用户。
+	removed, err := service.deletePreferences(ctx, db, alice.ID, []string{"theme-preset"})
+	if err != nil {
+		t.Fatalf("deletePreferences: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "theme-preset" {
+		t.Fatalf("unexpected removed keys: %v", removed)
+	}
+	items, err = service.listPreferences(ctx, db, alice.ID)
+	if err != nil {
+		t.Fatalf("listPreferences after delete: %v", err)
+	}
+	if len(items) != 1 || items[0].Key != "srv:server-1:opencode-hidden-directories" {
+		t.Fatalf("unexpected items after delete: %+v", items)
+	}
+	// 删除不存在的键不改动他人数据，且不报错。
+	removed, err = service.deletePreferences(ctx, db, bob.ID, []string{"theme-preset"})
+	if err != nil {
+		t.Fatalf("deletePreferences on other user: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("delete must not touch other user, removed %v", removed)
+	}
+	// 含斜杠的键必须能写入并删除，验证不走路径分段的回归。
+	slashKey := map[string]json.RawMessage{"srv:a/b:c": json.RawMessage(`1`)}
+	if _, err := service.putPreferences(ctx, db, alice.ID, slashKey, "", false); err != nil {
+		t.Fatalf("putPreferences slash key: %v", err)
+	}
+	removed, err = service.deletePreferences(ctx, db, alice.ID, []string{"srv:a/b:c"})
+	if err != nil {
+		t.Fatalf("deletePreferences slash key: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "srv:a/b:c" {
+		t.Fatalf("slash key not removed: %v", removed)
+	}
+}
+
+func TestPreferencesLastWriteWins(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "carol", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+
+	newer := map[string]json.RawMessage{"project-order": json.RawMessage(`["b","a"]`)}
+	if _, err := service.putPreferences(ctx, db, user.ID, newer, "2026-05-01T00:00:00Z", true); err != nil {
+		t.Fatalf("putPreferences newer: %v", err)
+	}
+
+	// 旧时间戳不得覆盖新值。
+	stale := map[string]json.RawMessage{"project-order": json.RawMessage(`["a","b"]`)}
+	written, err := service.putPreferences(ctx, db, user.ID, stale, "2026-01-01T00:00:00Z", true)
+	if err != nil {
+		t.Fatalf("putPreferences stale: %v", err)
+	}
+	if len(written) != 0 {
+		t.Fatalf("stale write must be skipped, wrote %v", written)
+	}
+	items, err := service.listPreferences(ctx, db, user.ID)
+	if err != nil {
+		t.Fatalf("listPreferences: %v", err)
+	}
+	if len(items) != 1 || string(items[0].Value) != `["b","a"]` {
+		t.Fatalf("stale write overwrote newer value: %+v", items)
+	}
+
+	// 不启用条件覆盖时，同样的旧值会直接写入。
+	written, err = service.putPreferences(ctx, db, user.ID, stale, "2026-01-01T00:00:00Z", false)
+	if err != nil {
+		t.Fatalf("putPreferences unconditional: %v", err)
+	}
+	if len(written) != 1 {
+		t.Fatalf("unconditional write must apply, wrote %v", written)
+	}
+}
+
+func TestPreferencesRejectsOversizedValueAndBadKey(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "dave", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+
+	huge := map[string]json.RawMessage{"big": json.RawMessage(`"` + strings.Repeat("x", maxPreferenceValueBytes+1) + `"`)}
+	if _, err := service.putPreferences(ctx, db, user.ID, huge, "", false); err != errPreferenceTooLarge {
+		t.Fatalf("expected oversized error, got %v", err)
+	}
+	longKey := map[string]json.RawMessage{strings.Repeat("k", 129): json.RawMessage(`1`)}
+	if _, err := service.putPreferences(ctx, db, user.ID, longKey, "", false); err != errInvalidPreferenceKey {
+		t.Fatalf("expected invalid key error, got %v", err)
+	}
+}
+
+func TestDeleteUserCascadesPreferences(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "erin", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	if _, err := service.putPreferences(ctx, db, user.ID, map[string]json.RawMessage{"theme-preset": json.RawMessage(`"sakura"`)}, "", false); err != nil {
+		t.Fatalf("putPreferences: %v", err)
+	}
+	if err := service.deleteUser(ctx, db, user.ID); err != nil {
+		t.Fatalf("deleteUser: %v", err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM aiagent_user_preferences WHERE user_id = ?`, user.ID).Scan(&count); err != nil {
+		t.Fatalf("count preferences: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("preferences must be removed with user, got %d rows", count)
+	}
+}
+
+func TestPreferencesHTTPRequiresBearer(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "frank", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	plain, _, err := service.issueToken(ctx, db, user.ID, "laptop", "")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	body := strings.NewReader(`{"values":{"theme-preset":"\"ocean\""}}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/aiagent/preferences", body)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without bearer, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	body = strings.NewReader(`{"values":{"theme-preset":"\"ocean\""}}`)
+	req = httptest.NewRequest(http.MethodPut, "/api/aiagent/preferences", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+plain)
+	res = httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 with bearer, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/aiagent/preferences", nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	res = httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200 on list, got %d body=%s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "theme-preset") {
+		t.Fatalf("list response missing stored preference: %s", res.Body.String())
 	}
 }

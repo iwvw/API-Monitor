@@ -1297,6 +1297,70 @@ func TestNonGatewayRoutesDoNotEmitWildcardCORS(t *testing.T) {
 	}
 }
 
+func TestAIAgentRoutesEchoRequestOrigin(t *testing.T) {
+	handler := testServer(t)
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/aiagent/auth/login", nil)
+	req.Header.Set("Origin", "https://web.opencode.example")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "https://web.opencode.example" {
+		t.Fatalf("preflight ACAO = %q, want echoed origin", got)
+	}
+	allowHeaders := strings.ToLower(res.Header().Get("Access-Control-Allow-Headers"))
+	for _, want := range []string{"authorization", "content-type", "x-agent-key"} {
+		if !strings.Contains(allowHeaders, want) {
+			t.Fatalf("preflight allow-headers missing %q, got %q", want, res.Header().Get("Access-Control-Allow-Headers"))
+		}
+	}
+	// 回显 Origin 必须声明 Vary，避免共享缓存把某个来源的响应发给另一个来源。
+	if !strings.Contains(res.Header().Get("Vary"), "Origin") {
+		t.Fatalf("preflight Vary = %q, want Origin", res.Header().Get("Vary"))
+	}
+	// 该模块鉴权依赖 Bearer 令牌，绝不能放开凭证，否则跨来源请求会带上会话 Cookie。
+	if got := res.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("ACAC must stay unset, got %q", got)
+	}
+
+	for _, path := range []string{"/api/aiagent/instances", "/api/aiagent/gw/inst_1/global/health"} {
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Origin", "https://web.opencode.example")
+		res = httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if got := res.Header().Get("Access-Control-Allow-Origin"); got != "https://web.opencode.example" {
+			t.Fatalf("%s ACAO = %q, want echoed origin", path, got)
+		}
+	}
+}
+
+func TestAIAgentRoutesSkipOriginEchoWithoutHeader(t *testing.T) {
+	handler := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/aiagent/instances", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("ACAO must stay unset without Origin, got %q", got)
+	}
+}
+
+func TestAIAgentRouteScopeDoesNotLeakToLookalikes(t *testing.T) {
+	handler := testServer(t)
+	for _, path := range []string{"/api/aiagentx/instances", "/api/aiagent-evil/instances"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Origin", "https://attacker.example.com")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Fatalf("%s leaked ACAO %q", path, got)
+		}
+	}
+}
+
 func TestAuth2FAManagementRoutesAreServedByGo(t *testing.T) {
 	t.Setenv("ADMIN_PASSWORD", "")
 	t.Setenv("DEMO_MODE", "")
