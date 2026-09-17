@@ -75,7 +75,9 @@ if (!(Test-Path $INSTALL_DIR)) {
 
 $AGENT_URL = "$AGENT_DOWNLOAD_BASE_URL/agent-windows-amd64.exe"
 $AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe"
-$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.download.exe"
+# 每次安装用唯一临时名：固定名会被上一轮残留的安装器/旧进程占用，导致
+# “being used by another process” 反复失败且无法自愈。
+$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.$([Guid]::NewGuid().ToString('N')).download.exe"
 $CONFIG_PATH = "$INSTALL_DIR\config.json"
 
 Write-Host "Downloading Agent..."
@@ -100,9 +102,9 @@ if ($oldProcess) {
     }
 }
 
-if (Test-Path $TEMP_AGENT_PATH) {
-    Remove-Item -Path $TEMP_AGENT_PATH -Force -ErrorAction SilentlyContinue
-}
+# 清掉历史遗留的临时下载文件（可能是旧版本的固定名或本版本中断留下的）。
+Get-ChildItem -Path $INSTALL_DIR -Filter "api-monitor-agent*.download.exe" -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
 if (Test-Path $CONFIG_PATH) {
     Write-Host "Removing old Agent config..."
@@ -127,6 +129,7 @@ try {
     Write-Host "Error: failed to download Agent binary"
     Write-Host "URL: $AGENT_URL"
     Write-Host "Details: $_"
+    Remove-Item -Path $TEMP_AGENT_PATH -Force -ErrorAction SilentlyContinue
     exit 1
 }
 

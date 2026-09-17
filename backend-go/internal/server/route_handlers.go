@@ -18,6 +18,8 @@ type routeHandler func(s *Server, w http.ResponseWriter, r *http.Request)
 // 新增模块只需在 manifest 登记路由，并在此为它的 Module 登记一行 handler。
 var moduleHandlers = map[string]routeHandler{
 	"admin-ai":                   func(s *Server, w http.ResponseWriter, r *http.Request) { s.adminai.ServeHTTP(w, r) },
+	"aiagent":                    func(s *Server, w http.ResponseWriter, r *http.Request) { s.aiagent.ServeHTTP(w, r) },
+	"aiagent-gateway":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
 	"ai-access":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.system.ServeHTTP(w, r) },
 	"aliyun":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.aliyun.ServeHTTP(w, r) },
 	"anthropic-compatible":       (*Server).serveV1Route,

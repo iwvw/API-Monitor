@@ -1,6 +1,7 @@
 package serveragent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -12,6 +13,52 @@ func (s *Service) runAgentTaskAndWait(serverID string, taskType int, command str
 
 func (s *Service) runAgentTaskAndWaitTransient(serverID string, taskType int, command string, timeout time.Duration) (string, error) {
 	return s.runAgentTaskAndWaitMode(serverID, taskType, command, timeout, true)
+}
+
+// runAgentTaskAndWaitCtx 与 runAgentTaskAndWaitMode 等价，但额外受调用方上下文
+// 约束：ctx 取消/超时会提前结束等待，避免固定空等满 timeout。
+func (s *Service) runAgentTaskAndWaitCtx(ctx context.Context, serverID string, taskType int, command string, timeout time.Duration) (string, error) {
+	conn, ok := s.registry.Get(serverID)
+	if !ok {
+		return "", fmt.Errorf("agent offline")
+	}
+	task := s.taskRegistry.CreateTransient(serverID, fmt.Sprintf("aiagent.internal.%d", taskType), "structured aiagent payload")
+	eventCh := task.Subscribe()
+	if err := conn.SendEvent("dashboard:task", map[string]interface{}{
+		"id":      task.ID,
+		"type":    taskType,
+		"data":    command,
+		"timeout": int(timeout.Seconds()),
+	}); err != nil {
+		s.taskRegistry.Fail(task.ID, err.Error())
+		return "", err
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			s.taskRegistry.Fail(task.ID, "task canceled")
+			return "", ctx.Err()
+		case event, ok := <-eventCh:
+			if !ok {
+				return "", fmt.Errorf("task channel closed")
+			}
+			if event.Status == TaskCompleted {
+				if str, ok := event.Data.(string); ok {
+					return str, nil
+				}
+				return fmt.Sprintf("%v", event.Data), nil
+			}
+			if event.Status == TaskFailed {
+				return "", fmt.Errorf("%s", event.Error)
+			}
+		case <-timer.C:
+			s.taskRegistry.Fail(task.ID, "task timeout")
+			return "", fmt.Errorf("task timeout")
+		}
+	}
 }
 
 func (s *Service) runAgentTaskAndWaitMode(serverID string, taskType int, command string, timeout time.Duration, transient bool) (string, error) {

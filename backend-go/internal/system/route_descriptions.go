@@ -225,6 +225,26 @@ var routeDescriptions = map[string]string{
 	// ===== 甲骨文云 / Microsoft 365 =====
 	"/api/oracle":                "Oracle OCI 账号与实例管理总入口",
 
+	// ===== AI Agent 管理 =====
+	"/api/aiagent":                            "AI Agent 管理总入口（模块用户、实例与原生流网关）",
+	"/api/aiagent/auth/login":                 "模块用户登录（用户名 + 密码换取长期令牌）",
+	"/api/aiagent/auth/logout":                "模块用户登出（吊销当前令牌）",
+	"/api/aiagent/users":                      "列出或新增模块用户（管理员）",
+	"/api/aiagent/users/{id}":                 "更新或删除模块用户（管理员）",
+	"/api/aiagent/users/{id}/reset-password":  "重置模块用户密码（管理员，重置后吊销其全部令牌）",
+	"/api/aiagent/tokens":                     "列出模块令牌",
+	"/api/aiagent/tokens/{id}/revoke":         "吊销模块令牌",
+	"/api/aiagent/instances":                  "列出或新增 AI Agent 实例",
+	"/api/aiagent/instances/{id}":             "更新或删除 AI Agent 实例",
+	"/api/aiagent/instances/{id}/status":      "查询实例运行时状态（进程是否运行、端口是否监听）",
+	"/api/aiagent/instances/{id}/access-info": "获取实例接入信息（网关地址与 Provider 提示）",
+	"/api/aiagent/instances/{id}/meta":        "读取或写入实例级 UI 元数据",
+	"/api/aiagent/providers":                  "列出内置 AI Agent Provider 注册表",
+	"/api/aiagent/servers":                    "列出可登记为实例的主机",
+	"/api/aiagent/logs":                       "查询 AI Agent 访问日志（管理员）",
+	"/api/aiagent/gw/{instanceId}/stream-token": "换取网关一次性短令牌（用于 SSE/WebSocket）",
+	"/api/aiagent/gw":                         "AI Agent 原生流网关（HTTP 与 SSE 透传）",
+
 	// ===== Google Cloud Platform =====
 	"/api/gcp":                   "Google Cloud 账号与云资源管理总入口",
 	"/api/gcp/accounts":          "列出或新增 GCP 账号",

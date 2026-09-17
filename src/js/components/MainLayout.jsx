@@ -60,6 +60,7 @@ const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
 const BookmarksPage = lazy(() => import('../pages/BookmarksPage.jsx'));
 const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
+const AiAgentPage = lazy(() => import('../pages/AiAgentPage.jsx'));
 
 import { pageStackClass } from './ui/AppPrimitives.jsx';
 import AskAiPanel from './adminai/AskAiPanel/index.jsx';
@@ -632,7 +633,7 @@ function MainLayout() {
     };
   }, [triggerHaptic]);
 
-const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mainActiveTab);
+  const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mainActiveTab);
   const stickyHeaderScrollModule = [
     'server',
     'github',
@@ -646,6 +647,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'filebox',
     'subscription',
     'openai',
+    'aiagent',
     'apidocs',
     'dns',
     'oracle',
@@ -731,6 +733,8 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <BookmarksPage />;
       case 'adminai':
         return <AdminAIPage />;
+      case 'aiagent':
+        return <AiAgentPage />;
       default:
         const ActiveIcon = getModuleIconComponent(mainActiveTab, Server);
         return (

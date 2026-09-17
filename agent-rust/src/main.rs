@@ -2,6 +2,7 @@ mod config;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+mod aiagent;
 mod cloudflared;
 mod collector;
 mod docker;
@@ -53,6 +54,8 @@ fn agent_capabilities() -> Vec<String> {
         "tcp_forwarder_v1".to_string(),
         "p2p_v1".to_string(),
         "storage_node_v1".to_string(),
+        "aiagent_probe_v1".to_string(),
+        "aiagent_stream_v1".to_string(),
     ];
     #[cfg(target_os = "linux")]
     capabilities.push("proxy_runtime_v1".to_string());
@@ -1160,6 +1163,54 @@ async fn run_client(
                                             Ok(message) => {
                                                 successful = true;
                                                 res_data = message;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    55 => {
+                                        // AIAGENT_STREAM：反连数据通道，桥接本机 AI Agent 端口。
+                                        // 无论成功或失败都回传 TaskResult，避免云端任务记录悬挂。
+                                        let stream_token =
+                                            aiagent::extract_token(&task.data);
+                                        let (successful, data) =
+                                            match aiagent::bridge(&config_task, &task.data).await {
+                                                Ok(()) => (true, String::new()),
+                                                Err(err) => {
+                                                    // 错误信息可能内含带一次性令牌的 URL，日志前先脱敏。
+                                                    let safe_err = aiagent::redact_secrets(
+                                                        &err,
+                                                        &[stream_token.as_str()],
+                                                    );
+                                                    eprintln!(
+                                                        "[aiagent] stream bridge {} failed: {}",
+                                                        task.id, safe_err
+                                                    );
+                                                    (false, safe_err)
+                                                }
+                                            };
+                                        let payload = TaskResultPayload {
+                                            id: task.id.clone(),
+                                            task_type: 55,
+                                            successful,
+                                            data,
+                                            delay: start_time.elapsed().as_millis() as i64,
+                                        };
+                                        let _ = tx_task
+                                            .send_normal(format_event(
+                                                EVENT_AGENT_TASK_RESULT,
+                                                &payload,
+                                            ))
+                                            .await;
+                                        return;
+                                    }
+                                    56 => {
+                                        // AIAGENT_PROBE：探测 AI Agent 进程与端口状态。
+                                        match aiagent::probe(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
                                             }
                                             Err(err) => {
                                                 res_data = err;

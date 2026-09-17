@@ -1016,6 +1016,9 @@ func routeGroup(route manifest.Route) string {
 	// 模型网关
 	case strings.HasPrefix(prefix, "/api/openai"), strings.HasPrefix(prefix, "/api/chat"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/emailcode"), strings.HasPrefix(prefix, "/api/posthogcode"):
 		return "模型网关"
+	// AI Agent 管理
+	case strings.HasPrefix(prefix, "/api/aiagent"):
+		return "AI Agent"
 	// 订阅分发
 	case strings.HasPrefix(prefix, "/api/subscription"), strings.HasPrefix(prefix, "/sub"):
 		return "订阅分发"

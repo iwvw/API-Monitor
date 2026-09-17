@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/adminai"
+	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
 	"github.com/iwvw/api-monitor/backend-go/internal/aliyun"
 	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
@@ -53,8 +55,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
 	"github.com/iwvw/api-monitor/backend-go/internal/workbuddy"
-
-	"github.com/iwvw/api-monitor/backend-go/internal/adminai"
 )
 
 type Server struct {
@@ -96,6 +96,7 @@ type Server struct {
 	prompts     *promptsmodule.Service
 	bookmarks   *bookmarksmodule.Service
 	adminai     *adminai.Service
+	aiagent     *aiagent.Service
 
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
@@ -161,6 +162,13 @@ func newServer(cfg config.Config) (*Server, error) {
 	settingsService.StartWALMaintenance()
 	adminaiService := adminai.New(cfg)
 	adminaiService.SetNotificationSource(notifyService)
+	aiagentService := aiagent.New(cfg)
+	aiagentService.SetAuthService(authService)
+	aiagentService.SetAgentRuntime(newAIAgentRuntime(serverAgentService))
+	aiagentService.SetServerProvider(&aiagentServerOptions{server: serverAgentService})
+	if err := aiagentService.Initialize(context.Background()); err != nil {
+		return nil, fmt.Errorf("initialize aiagent schema: %w", err)
+	}
 	server := &Server{
 		cfg:         cfg,
 		auth:        authService,
@@ -200,6 +208,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		prompts:     promptsService,
 		bookmarks:   bookmarksService,
 		adminai:     adminaiService,
+		aiagent:     aiagentService,
 	}
 	server.onepanel.SetAgentRunner(serverAgentService)
 	server.filebox.SetNodeProvider(serverAgentService)

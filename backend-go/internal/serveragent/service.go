@@ -41,6 +41,7 @@ type Service struct {
 	ptyHub                        *ptyDataHub
 	presence                      *agentPresenceManager
 	terminalBroker                *agentTerminalBroker
+	agentPortBroker               *agentPortBroker
 	remoteDesktop                 *remoteDesktopManager
 	lastCollect                   time.Time
 	lastCollectMu                 sync.RWMutex
@@ -102,6 +103,7 @@ func New(cfg config.Config) *Service {
 		metricsHub:                    metricsHub,
 		ptyHub:                        ptyHub,
 		terminalBroker:                newAgentTerminalBroker(),
+		agentPortBroker:               newAgentPortBroker(),
 		remoteDesktop:                 newRemoteDesktopManager(),
 		lastPersist:                   make(map[string]time.Time),
 		lastNetworkQualityPersist:     make(map[string]time.Time),
@@ -173,29 +175,29 @@ func New(cfg config.Config) *Service {
 							s.refreshAccountLocationFromAgentIfMissing(serverID)
 						}()
 					}
-				if s.trackPending() {
-					go func(id string) {
-						defer s.pendingWG.Done()
-						time.Sleep(2 * time.Second)
-						s.reconcileManagedProxyFacts(id)
-					}(serverID)
-				}
-				// agent 重连后重放其负责的 running 转发（源桥接/中继监听），
-				// 解决 agent/relay 重启后转发链路不自动恢复的问题。
-				if s.trackPending() {
-					go func(id string) {
-						defer s.pendingWG.Done()
-						time.Sleep(3 * time.Second)
-						ctx, cancel := context.WithTimeout(s.backgroundCtx, 3*time.Minute)
-						defer cancel()
-						db, err := s.open(ctx)
-						if err != nil {
-							return
-						}
-						defer db.Close()
-						s.reconcileRunningForwards(ctx, db, id)
-					}(serverID)
-				}
+					if s.trackPending() {
+						go func(id string) {
+							defer s.pendingWG.Done()
+							time.Sleep(2 * time.Second)
+							s.reconcileManagedProxyFacts(id)
+						}(serverID)
+					}
+					// agent 重连后重放其负责的 running 转发（源桥接/中继监听），
+					// 解决 agent/relay 重启后转发链路不自动恢复的问题。
+					if s.trackPending() {
+						go func(id string) {
+							defer s.pendingWG.Done()
+							time.Sleep(3 * time.Second)
+							ctx, cancel := context.WithTimeout(s.backgroundCtx, 3*time.Minute)
+							defer cancel()
+							db, err := s.open(ctx)
+							if err != nil {
+								return
+							}
+							defer db.Close()
+							s.reconcileRunningForwards(ctx, db, id)
+						}(serverID)
+					}
 				}
 			}
 		},
@@ -382,6 +384,10 @@ func New(cfg config.Config) *Service {
 						s.taskRegistry.Complete(result.ID, result.Data)
 					} else {
 						s.taskRegistry.Fail(result.ID, result.Data)
+						// AI Agent 数据通道任务失败时唤醒等待方，返回具体错误而非空等超时。
+						if s.agentPortBroker != nil {
+							s.agentPortBroker.markAgentFailure(result.ID, result.Data)
+						}
 					}
 				}
 			case "agent:task_progress":
@@ -463,6 +469,9 @@ func New(cfg config.Config) *Service {
 				if ns != "/metrics" && sid != "" && registry.DisconnectIfSocket(sid, sess) {
 					if s.terminalBroker != nil {
 						s.terminalBroker.closeForServer(sid, "agent_control_disconnected")
+					}
+					if s.agentPortBroker != nil {
+						s.agentPortBroker.closeForServer(sid, "agent_control_disconnected")
 					}
 					if s.presence != nil && s.presence.legacyMode() {
 						s.markAgentOfflineLegacy(sid)
@@ -590,6 +599,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/ws/agent-terminal" {
 		s.handleAgentTerminalStream(w, r)
+		return
+	}
+	if r.URL.Path == "/ws/agent-port" {
+		s.handleAgentPortStream(w, r)
 		return
 	}
 

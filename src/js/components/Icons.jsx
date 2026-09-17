@@ -283,6 +283,7 @@ export const MODULE_ICON_MAP = {
   dashboard: LayoutDashboard,
   settings: Settings,
   openai: Sparkle,
+  aiagent: Terminal,
   subscription: Plug,
   paas: Rocket,
   dns: CloudflareBrand,

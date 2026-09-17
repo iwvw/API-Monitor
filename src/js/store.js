@@ -168,6 +168,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-robot',
     description: '智能助手',
   },
+  aiagent: {
+    name: 'AI Agent',
+    shortName: 'Agent',
+    icon: 'fa-terminal',
+    description: '管理各主机上的 AI 编码 Agent 并原生转发',
+  },
 };
 
 // ==================== 模块分组配置 ====================
@@ -220,7 +226,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 服务',
     icon: 'fa-bolt',
-    modules: ['openai', 'subscription'],
+    modules: ['openai', 'subscription', 'aiagent'],
   },
   {
     id: 'system',

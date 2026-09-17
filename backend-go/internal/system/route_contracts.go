@@ -134,6 +134,45 @@ func containsOption(opts []string, target string) bool {
 }
 
 func init() {
+	// ===== AI Agent 管理模块 =====
+	routeRequestContracts["/api/aiagent/auth/login"] = obj([]string{"username", "password"}, map[string]prop{
+		"username":    {t: "string", req: true, d: "模块用户名"},
+		"password":    {t: "string", req: true, d: "密码"},
+		"deviceLabel": {t: "string", d: "设备标签，便于在令牌列表识别"},
+	})
+	routeRequestContracts["/api/aiagent/users"] = obj([]string{"username", "password"}, map[string]prop{
+		"username":    {t: "string", req: true, d: "登录名（3-32 位字母数字与 - _ .）"},
+		"password":    {t: "string", req: true, d: "密码（至少 8 位）"},
+		"displayName": {t: "string", d: "显示名"},
+	})
+	routeRequestContracts["/api/aiagent/users/{id}"] = obj(nil, map[string]prop{
+		"displayName": {t: "string", d: "显示名"},
+		"disabled":    {t: "boolean", d: "是否禁用"},
+	})
+	routeRequestContracts["/api/aiagent/users/{id}/reset-password"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true, d: "新密码（至少 8 位）"},
+	})
+	routeRequestContracts["/api/aiagent/instances"] = obj([]string{"serverId", "label"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "主机 ID（复用主机实例模块）"},
+		"provider": {t: "string", e: []string{"opencode", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
+		"label":    {t: "string", req: true, d: "实例名称"},
+		"port":     {t: "integer", d: "本地服务端口，缺省取 Provider 默认端口"},
+		"enabled":  {t: "boolean", d: "是否启用"},
+	})
+	routeRequestContracts["/api/aiagent/instances/{id}"] = obj(nil, map[string]prop{
+		"serverId": {t: "string", d: "主机 ID"},
+		"provider": {t: "string", e: []string{"opencode", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
+		"label":    {t: "string", d: "实例名称"},
+		"port":     {t: "integer", d: "本地服务端口"},
+		"enabled":  {t: "boolean", d: "是否启用"},
+	})
+	routeRequestContracts["/api/aiagent/instances/{id}/status"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/aiagent/instances/{id}/access-info"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/aiagent/instances/{id}/meta"] = obj(nil, map[string]prop{
+		"meta": {t: "string", d: "客户端 UI 偏好 JSON 字符串，上限 64KB"},
+	})
+	routeRequestContracts["/api/aiagent/gw/{instanceId}/stream-token"] = obj(nil, map[string]prop{})
+
 	// ===== 系统内：AI 接入 / API 密钥 / 备份 =====
 	routeRequestContracts["/api/ai-access/mcp-servers"] = obj([]string{"name"}, map[string]prop{
 		"name":        {t: "string", req: true, d: "服务名称"},

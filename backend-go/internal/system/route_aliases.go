@@ -52,6 +52,14 @@ var routeAliases = map[string][]string{
 	"/api/tencent/accounts/{id}/lighthouse":               {"轻量应用服务器"},
 	"/api/tencent/accounts/{id}/domains/{domain}/records": {"解析记录", "dns 记录", "添加解析", "腾讯云 dns 记录"},
 
+	"/api/aiagent":                            {"ai agent", "aiagent", "智能体", "agent 实例", "opencode", "codex", "claude code"},
+	"/api/aiagent/auth/login":                 {"agent 登录", "智能体登录", "模块账号登录"},
+	"/api/aiagent/users":                      {"agent 用户", "智能体用户", "模块用户", "添加用户"},
+	"/api/aiagent/instances":                  {"agent 实例", "智能体实例", "添加机器", "我的电脑"},
+	"/api/aiagent/instances/{id}/status":      {"实例状态", "agent 是否运行", "进程探测"},
+	"/api/aiagent/providers":                  {"agent 类型", "provider", "支持哪些 agent"},
+	"/api/aiagent/gw":                         {"agent 网关", "智能体网关", "转发到本机 agent"},
+
 	"/api/gcp":                                                              {"gcp", "google cloud", "谷歌云"},
 	"/api/gcp/accounts/{id}/projects/{projectId}/instances":                  {"gcp 实例", "谷歌云虚拟机", "google 虚拟机"},
 	"/api/gcp/accounts/{id}/projects/{projectId}/model-usage":                {"模型用量", "vertex", "gemini 用量", "gemini 调用量"},

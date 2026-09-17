@@ -1,0 +1,394 @@
+// AI Agent 管理模块的 Agent 侧支持：
+//   - probe：探测本机某个 AI Agent 进程是否运行、端口是否监听（任务 56）
+//   - bridge：反连云端数据通道，把本机 127.0.0.1:<port> 的字节双向搬运（任务 55）
+//
+// 数据通道是「一条通道对应一次 HTTP 请求」的字节管道；云端在此之上用
+// http.Transport 说话，因此天然支持 SSE 流式响应，无需在本层解析 HTTP。
+
+use bytes::Bytes;
+use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{
+    connect_async_with_config, tungstenite::protocol::Message, tungstenite::protocol::WebSocketConfig,
+};
+
+use crate::config::Config;
+
+const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const BRIDGE_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+const BRIDGE_READ_BUF: usize = 32 * 1024;
+// 与云端网关请求体上限（8MB）对齐的消息/帧上限。
+const BRIDGE_MAX_MESSAGE: usize = 8 * 1024 * 1024;
+// 与云端 gatewayStreamWriteTimeout(2 分钟) 对齐的单次写入上限。
+const BRIDGE_WRITE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+// 空闲上限：两侧长时间无数据时主动断开，避免桥接任务永不回收。
+const BRIDGE_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ProbePayload {
+    #[serde(default)]
+    pub provider: String,
+    pub port: u16,
+    #[serde(default)]
+    pub process_match: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BridgePayload {
+    pub port: u16,
+    pub stream_id: String,
+    pub stream_token: String,
+}
+
+/// 探测 AI Agent 运行时状态。返回 JSON 字符串供云端解析；即使未命中进程也返回
+/// 同构的 JSON（processRunning=false + detail），避免云端按 successful 与否遇到两种载荷形态。
+pub async fn probe(raw: &str) -> Result<String, String> {
+    let payload: ProbePayload =
+        serde_json::from_str(raw).map_err(|err| format!("探测参数无效: {}", err))?;
+
+    let port_listening = tcp_listening(payload.port).await;
+    let match_terms: Vec<String> = payload
+        .process_match
+        .iter()
+        .map(|term| term.trim().to_lowercase())
+        .filter(|term| !term.is_empty())
+        .collect();
+
+    // 进程枚举是阻塞式全表扫描，放到 blocking 线程池，避免占用 Tokio worker。
+    let (process_running, pid, detail) =
+        tokio::task::spawn_blocking(move || match_process(&match_terms))
+            .await
+            .map_err(|err| format!("进程匹配任务失败: {}", err))?;
+
+    let response = serde_json::json!({
+        "provider": payload.provider,
+        "port": payload.port,
+        "processRunning": process_running,
+        "portListening": port_listening,
+        "pid": pid,
+        "detail": detail,
+    });
+    Ok(response.to_string())
+}
+
+async fn tcp_listening(port: u16) -> bool {
+    let target = format!("127.0.0.1:{}", port);
+    // 一次性 connect 判定端口是否监听：连接后立即丢弃，不做任何读写。
+    matches!(
+        tokio::time::timeout(PROBE_CONNECT_TIMEOUT, TcpStream::connect(&target)).await,
+        Ok(Ok(_))
+    )
+}
+
+/// 在系统进程列表中匹配进程名。返回（是否命中, pid, 说明）。
+/// 优先精确匹配可执行文件名，其次子串匹配；避免多个候选时报告任意第一个。
+fn match_process(terms: &[String]) -> (bool, u32, String) {
+    if terms.is_empty() {
+        return (false, 0, "未配置进程匹配规则".to_string());
+    }
+    let mut system = sysinfo::System::new();
+    // 只刷新进程列表，避免整机采集开销。
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+
+    let mut exact: Option<(u32, String)> = None;
+    let mut fuzzy: Option<(u32, String)> = None;
+    for (pid, process) in system.processes() {
+        let name = process.name().to_string_lossy().to_lowercase();
+        // .exe 后缀只在这里剥离一次，避免在内层循环里反复 format。
+        let trimmed = name.strip_suffix(".exe").unwrap_or(name.as_str());
+
+        // 名称精确匹配优先级最高；命中即可结束扫描（exact.or(fuzzy) 保证精确优先）。
+        if exact.is_none() && terms.iter().any(|term| trimmed == term.as_str()) {
+            exact = Some((pid.as_u32(), name.clone()));
+            break;
+        }
+        // 名称子串命中次之。
+        if fuzzy.is_none() && terms.iter().any(|term| name.contains(term.as_str())) {
+            fuzzy = Some((pid.as_u32(), name.clone()));
+            continue;
+        }
+        // 名称未命中时再看命令行：逐段匹配 argv（含脚本名等中间参数），避免
+        // 「python script.py」这类启动器进程漏判；逐段比较也不需拼接整串。
+        if fuzzy.is_none() {
+            let cmd_hit = process.cmd().iter().any(|part| {
+                let value = part.to_string_lossy().to_lowercase();
+                let value = value.strip_suffix(".exe").unwrap_or(&value);
+                terms.iter().any(|term| value.contains(term.as_str()))
+            });
+            if cmd_hit {
+                fuzzy = Some((pid.as_u32(), name.clone()));
+            }
+        }
+    }
+    if let Some((pid, name)) = exact.or(fuzzy) {
+        return (true, pid, format!("匹配进程 {}", name));
+    }
+    (false, 0, "未找到匹配进程".to_string())
+}
+
+/// 从任务载荷中提取一次性 stream_token，供日志脱敏使用（解析失败时返回空串）。
+pub fn extract_token(raw: &str) -> String {
+    serde_json::from_str::<BridgePayload>(raw)
+        .map(|payload| payload.stream_token)
+        .unwrap_or_default()
+}
+
+/// 日志/回传前脱敏：优先按「已知的确切令牌值」替换，其次按 token= 键前缀兜底。
+/// 直接替换确切值比按前缀推断更稳（不受 URL 编码、query 顺序、分隔符差异影响）。
+pub fn redact_secrets(message: &str, secrets: &[&str]) -> String {
+    let mut redacted = message.to_string();
+    for secret in secrets {
+        if !secret.is_empty() && redacted.contains(secret) {
+            redacted = redacted.replace(secret, "<REDACTED>");
+        }
+    }
+    // 兜底：仍带 token=/stream_token= 键前缀的值（例如来自其它错误格式）。
+    loop {
+        let mut replaced = false;
+        for key in ["stream_token=", "token="] {
+            let Some(index) = redacted.find(key) else {
+                continue;
+            };
+            let value_start = index + key.len();
+            // 扫描到下一个明确分隔符（&、#、空白或行尾）为止：令牌可能含 URL 编码
+            // 产生的 % / + / 等字符，若按「非字母数字」提前截断会只替换掉一部分。
+            let value_end = redacted[value_start..]
+                .find(|ch: char| ch == '&' || ch == '#' || ch.is_whitespace())
+                .map(|offset| value_start + offset)
+                .unwrap_or(redacted.len());
+            // 空值也要连同键一起替换，避免留下 token= 这种「存在凭据」的痕迹。
+            redacted.replace_range(index..value_end, "<REDACTED>");
+            replaced = true;
+        }
+        if !replaced {
+            break;
+        }
+    }
+    redacted
+}
+
+/// 反连云端数据通道并桥接本机端口。成功建立连接后进入双向字节搬运，直到任一端关闭。
+pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
+    let payload: BridgePayload =
+        serde_json::from_str(raw).map_err(|err| format!("数据通道参数无效: {}", err))?;
+
+    // 先连本机端口：连不上就直接失败，避免占用云端一次性凭证。
+    // 端口来自云端经鉴权控制通道下发、并以一次性 token 绑定的任务；云端已把实例
+    // 端口限制为 Provider 默认端口，这里不再重复维护端口白名单。
+    let target = format!("127.0.0.1:{}", payload.port);
+    let mut local = tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, TcpStream::connect(&target))
+        .await
+        .map_err(|_| format!("连接 {} 超时", target))?
+        .map_err(|err| format!("连接 {} 失败: {}", target, err))?;
+
+    let url = agent_port_stream_url(config, &payload.stream_id, &payload.stream_token)?;
+    // 帧/消息上限与云端网关的请求体上限（8MB）对齐，约束最坏情况下的内存分配。
+    let mut ws_config = WebSocketConfig::default();
+    ws_config.max_frame_size = Some(BRIDGE_MAX_MESSAGE);
+    ws_config.max_message_size = Some(BRIDGE_MAX_MESSAGE);
+    // 第三个参数是 disable_nagle（关闭 Nagle 以降低流式延迟），不是跳过证书校验：
+    // TLS 校验沿用 tokio-tungstenite 的 rustls + webpki-roots 默认行为，与主控制连接一致。
+    let disable_nagle = true;
+    let (mut ws_stream, _) = tokio::time::timeout(
+        Duration::from_secs(12),
+        connect_async_with_config(url, Some(ws_config), disable_nagle),
+    )
+    .await
+    .map_err(|_| "数据通道连接超时".to_string())?
+    .map_err(|err| format!("数据通道连接失败: {}", err))?;
+
+    let mut read_buf = vec![0u8; BRIDGE_READ_BUF];
+    // 单循环同时持有两侧，任一侧结束即可优雅收尾：向对端发送 Close 帧、
+    // 关闭本地写端，然后退出。用一个可刷新的空闲截止时间包住「取数据 + 发送」
+    // 整段逻辑，因此即使发送端被对端背压卡住，超时同样生效，任务不会永不回收。
+    let mut idle_deadline = tokio::time::Instant::now() + BRIDGE_IDLE_TIMEOUT;
+    // close 是否已在循环内发送过（救援路径），避免收尾时重复发 Close。
+    let mut close_sent = false;
+    let outcome: Result<(), String> = loop {
+        let step = async {
+            tokio::select! {
+                read = local.read(&mut read_buf) => {
+                    match read {
+                        Ok(0) => Ok(Step::Finished),
+                        Ok(read) => {
+                            // 每个分片复制一次到 Bytes 交给 tungstenite；分片上限 32KB，
+                            // 单次分配成本可接受，换取读缓冲可安全复用。
+                            ws_stream
+                                .send(Message::Binary(Bytes::copy_from_slice(&read_buf[..read])))
+                                .await
+                                .map_err(|_| "数据通道发送失败".to_string())
+                                .map(|_| Step::Data)
+                        }
+                        Err(err) => Err(format!("本地端口读取失败: {}", err)),
+                    }
+                }
+                inbound = ws_stream.next() => {
+                    match inbound {
+                        Some(Ok(Message::Binary(data))) => {
+                            // 单次写本地端口也要有独立上限：慢/卡死的本地消费者不应把
+                            // 整个 step 拖到空闲超时（15 分钟），与云端写截止对齐。
+                            match tokio::time::timeout(BRIDGE_WRITE_TIMEOUT, local.write_all(&data)).await {
+                                Ok(Ok(())) => {
+                                    let _ = local.flush().await;
+                                    Ok(Step::Data)
+                                }
+                                Ok(Err(err)) => Err(format!("本地端口写入失败: {}", err)),
+                                Err(_) => Err("本地端口写入超时".to_string()),
+                            }
+                        }
+                        // 文本帧同样承载隧道字节（RFC 6455），按字节转发而不是丢弃。
+                        Some(Ok(Message::Text(text))) => {
+                            match tokio::time::timeout(BRIDGE_WRITE_TIMEOUT, local.write_all(text.as_bytes())).await {
+                                Ok(Ok(())) => {
+                                    let _ = local.flush().await;
+                                    Ok(Step::Data)
+                                }
+                                Ok(Err(err)) => Err(format!("本地端口写入失败: {}", err)),
+                                Err(_) => Err("本地端口写入超时".to_string()),
+                            }
+                        }
+                        // tokio-tungstenite 不自动回 Ping：显式回 Pong，避免云端
+                        // 的保活探测因未响应而判定连接失效。
+                        Some(Ok(Message::Ping(payload))) => {
+                            let _ = ws_stream.send(Message::Pong(payload)).await;
+                            Ok(Step::Active)
+                        }
+                        Some(Ok(Message::Close(_))) | None => Ok(Step::Finished),
+                        Some(Err(err)) => Err(format!("数据通道接收失败: {}", err)),
+                        _ => Ok(Step::Active),
+                    }
+                }
+            }
+        };
+
+        match tokio::time::timeout_at(idle_deadline, step).await {
+            Err(_) => {
+                // 空闲（或发送被背压卡住）超过上限：先关本地写端（有限等待），
+                // 再限时发送非正常关闭码，使云端把这次中断识别为异常而不是干净结束。
+                let _ = tokio::time::timeout(Duration::from_secs(2), local.shutdown()).await;
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    ws_stream.send(Message::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                        code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Policy,
+                        reason: "idle timeout".into(),
+                    }))),
+                )
+                .await;
+                close_sent = true;
+                // 以 Err 返回，让上层日志把这次中断记为失败（而非正常结束）。
+                break Err("数据通道空闲超时，已中断桥接".to_string());
+            }
+            Ok(Ok(Step::Finished)) => break Ok(()),
+            Ok(Ok(Step::Data)) => {
+                // 数据字节流动：刷新空闲截止时间。单步内的读/写各自有 32KB 上限，
+                // 因此一次「已完成的数据步」本身就证明对端在持续推进。
+                idle_deadline = tokio::time::Instant::now() + BRIDGE_IDLE_TIMEOUT;
+            }
+            Ok(Ok(Step::Active)) => {}
+            Ok(Err(err)) => break Err(err),
+        }
+    };
+
+    // 收尾同样限时：对端卡死时不应让任务无法回收。救援路径已发过 Close 则不重复发。
+    // 出错结束时发非正常关闭码，使云端把中断识别为异常；正常结束才发干净 Close。
+    if !close_sent {
+        let close_frame = if outcome.is_ok() {
+            None
+        } else {
+            Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Policy,
+                reason: "bridge error".into(),
+            })
+        };
+        let _ = tokio::time::timeout(Duration::from_secs(5), ws_stream.close(close_frame)).await;
+    }
+    let _ = local.shutdown().await;
+    outcome
+}
+
+enum Step {
+    /// 仅控制帧（Ping/Pong 等）流动：不刷新空闲截止时间。
+    Active,
+    /// 实际数据字节流动：刷新空闲截止时间。
+    Data,
+    Finished,
+}
+
+fn agent_port_stream_url(
+    config: &Config,
+    stream_id: &str,
+    stream_token: &str,
+) -> Result<String, String> {
+    let mut url =
+        url::Url::parse(&config.server_url).map_err(|err| format!("服务端 URL 无效: {}", err))?;
+    let scheme = match url.scheme() {
+        "https" => "wss",
+        "http" => "ws",
+        other => return Err(format!("不支持的服务端 URL 协议: {}", other)),
+    };
+    url.set_scheme(scheme)
+        .map_err(|_| "设置数据通道 WebSocket 协议失败".to_string())?;
+    url.set_path("/ws/agent-port");
+    url.query_pairs_mut()
+        .clear()
+        .append_pair("server_id", &config.server_id)
+        .append_pair("stream_id", stream_id)
+        .append_pair("token", stream_token);
+    Ok(url.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_token, redact_secrets};
+
+    #[test]
+    fn redacts_token_query_values() {
+        let input = "数据通道连接失败: ws://127.0.0.1:3000/ws/agent-port?server_id=abc&stream_id=xyz&token=deadbeef12345678";
+        let output = redact_secrets(input, &[]);
+        assert!(!output.contains("deadbeef12345678"), "token must be removed: {output}");
+        assert!(output.contains("server_id=abc"));
+        assert!(output.contains("stream_id=xyz"));
+    }
+
+    #[test]
+    fn redacts_stream_token_without_leaving_marker() {
+        let input = "stream_token=abcdef&server_id=abc";
+        let output = redact_secrets(input, &[]);
+        assert!(!output.contains("abcdef"), "token must be removed: {output}");
+        assert!(!output.contains("stream_token="), "marker must be consumed: {output}");
+        assert!(output.contains("server_id=abc"));
+    }
+
+    #[test]
+    fn terminates_on_marker_only_input() {
+        // 曾经的死循环输入：替换后若仍保留键会无限循环；空值也不得留下键痕迹。
+        let output = redact_secrets("token=abc token=def token=", &[]);
+        assert!(!output.contains("abc"));
+        assert!(!output.contains("def"));
+        assert!(!output.contains("token="), "marker must be removed: {output}");
+    }
+
+    #[test]
+    fn leaves_clean_message_untouched() {
+        let input = "连接 127.0.0.1:4096 失败";
+        assert_eq!(redact_secrets(input, &[]), input);
+    }
+
+    #[test]
+    fn redacts_exact_known_token_even_when_encoded() {
+        let secret = "deadbeefcafe1234";
+        let input = format!("失败: url=%2Fws%2Fagent-port%3Ftoken%3D{secret}&x=1");
+        let output = redact_secrets(&input, &[secret]);
+        assert!(!output.contains(secret), "exact token must be removed: {output}");
+    }
+
+    #[test]
+    fn extracts_token_from_bridge_payload() {
+        let raw = r#"{"port":4096,"stream_id":"sid","stream_token":"tok123"}"#;
+        assert_eq!(extract_token(raw), "tok123");
+        assert_eq!(extract_token("not-json"), "");
+    }
+}

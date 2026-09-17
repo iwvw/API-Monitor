@@ -2758,8 +2758,8 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	if !strings.Contains(resWin.Body.String(), `$AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe"`) {
 		t.Fatalf("windows install script should use a valid agent path: %s", resWin.Body.String())
 	}
-	if !strings.Contains(resWin.Body.String(), `$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.download.exe"`) {
-		t.Fatalf("windows install script should use a temp download path: %s", resWin.Body.String())
+	if !strings.Contains(resWin.Body.String(), `$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.$([Guid]::NewGuid().ToString('N')).download.exe"`) {
+		t.Fatalf("windows install script should use a unique temp download path: %s", resWin.Body.String())
 	}
 	if !strings.Contains(resWin.Body.String(), `$CONFIG_PATH = "$INSTALL_DIR\config.json"`) ||
 		!strings.Contains(resWin.Body.String(), `Remove-Item -Path $CONFIG_PATH -Force`) ||
