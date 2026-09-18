@@ -267,7 +267,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.workbuddy.StartAutoRefresh(warmupCtx)
 	// 启动时对账一次已接入端点的 models 列：旧版本该列停在接入时的全量目录，
 	// 需按当前启用名单收敛，否则首次加载端点会显示已停用的模型。
-	go server.workbuddy.ReconcileLinkedEndpoint(warmupCtx)
+	// 只读目录缓存、不回源，无网络等待，直接同步执行即可。
+	server.workbuddy.ReconcileLinkedEndpoint(warmupCtx)
 	// WorkBuddy 插件每日自动签到与活跃上报调度（站点时区 9/21 点签到、10 点活跃上报；
 	// 仅国内版账号参与，关闭开关时后台静默跳过）。
 	server.workbuddy.StartCheckinScheduler(warmupCtx)

@@ -198,19 +198,14 @@ func (s *Service) syncLinkedEndpointModels(ctx context.Context) {
 // 全量目录；只有等 refreshAllModels 从上游拉一次才收敛。升级后历史行仍是旧值，
 // 因此启动时按当前启用名单对账一次，避免用户仍看到「停用模型全量显示」。
 //
-// 目录缓存为空时回源一次拿全量；回源失败则跳过（不误清空端点列）。
+// 只读缓存快照，不回源：启动阶段回源会发起真实网络请求，既拖慢服务就绪，
+// 也会让测试的 TempDir 清理撞上仍在运行的 goroutine。缓存为空时跳过——
+// 目录尚未加载意味着端点行还没被写过，此时没有需要对账的内容。
 // 未接入时静默跳过。
 func (s *Service) ReconcileLinkedEndpoint(ctx context.Context) {
-	models := s.catalog(ctx)
-	if len(models) == 0 {
+	if len(s.modelsInternal()) == 0 {
 		return
 	}
-	s.modelMu.Lock()
-	if len(s.modelCache) == 0 {
-		s.modelCache = models
-		s.modelCacheAt = time.Now()
-	}
-	s.modelMu.Unlock()
 	s.syncLinkedEndpointModels(ctx)
 }
 
