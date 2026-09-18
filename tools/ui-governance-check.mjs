@@ -301,10 +301,193 @@ function scanTableLayouts(files) {
   }
 }
 
+const LAYER_DIALOG_SLOTS = [
+  'LayerDialog.Title',
+  'LayerDialog.Description',
+  'LayerDialog.Body',
+  'LayerDialog.Actions',
+];
+
+function findTagEnd(src, start) {
+  let depth = 0;
+  let i = start;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    else if (ch === '>' && depth === 0) return i;
+    else if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch;
+      i++;
+      while (i < src.length && src[i] !== quote) {
+        if (src[i] === '\\') i++;
+        i++;
+      }
+    }
+    i++;
+  }
+  return -1;
+}
+
+function findMatchingClose(src, tagStart, tagName) {
+  const esc = tagName.replace(/\./g, '\\.');
+  const openRe = new RegExp(`<${esc}(?=[\\s>])`, 'g');
+  const closeRe = new RegExp(`</${esc}>`, 'g');
+  let depth = 0;
+  let i = tagStart;
+  while (i < src.length) {
+    openRe.lastIndex = i;
+    closeRe.lastIndex = i;
+    const open = openRe.exec(src);
+    const close = closeRe.exec(src);
+    if (!close) return -1;
+    if (open && open.index < close.index) {
+      depth++;
+      i = open.index + 1;
+    } else {
+      depth--;
+      if (depth === 0) return close.index + close[0].length;
+      i = close.index + 1;
+    }
+  }
+  return -1;
+}
+
+function stripBalancedBraces(src) {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    if (src[i] === '{') {
+      let depth = 1;
+      i++;
+      while (i < src.length && depth > 0) {
+        if (src[i] === '{') depth++;
+        else if (src[i] === '}') depth--;
+        i++;
+      }
+    } else {
+      out += src[i];
+      i++;
+    }
+  }
+  return out;
+}
+
+// topLevelBraces 提取源码中所有顶层（非嵌套）的 { ... } 块内容。
+// 用于检测 JSX 表达式是否包裹了 LayerDialog 的 slot 组件。
+function topLevelBraces(src) {
+  const blocks = [];
+  let i = 0;
+  while (i < src.length) {
+    if (src[i] === '{') {
+      let depth = 1;
+      let j = i + 1;
+      while (j < src.length && depth > 0) {
+        if (src[j] === '{') depth++;
+        else if (src[j] === '}') depth--;
+        j++;
+      }
+      if (depth === 0) blocks.push(src.slice(i + 1, j - 1));
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return blocks;
+}
+
+// LayerDialog 是结构化弹窗：Content 的直接子元素只允许 Title/Body（各一个）与可选的
+// Description/Actions；Actions 只能含一个 Primary。违反会在运行时抛错（kumo 源码硬校验），
+// 因此这里在构建前把守，避免迁移或新增时又写出会崩的结构。
+function scanLayerDialogs(files) {
+  for (const rel of files.filter((file) => /\.jsx$/.test(file))) {
+    const content = fs.readFileSync(path.join(root, rel), 'utf8');
+    if (!content.includes('LayerDialog')) continue;
+
+    const contentRe = /<LayerDialog\.Content(?=[\s>])/g;
+    let match;
+    while ((match = contentRe.exec(content))) {
+      const tagEnd = findTagEnd(content, match.index);
+      if (tagEnd < 0) continue;
+      const closeEnd = findMatchingClose(content, match.index, 'LayerDialog.Content');
+      if (closeEnd < 0) continue;
+      let rest = content.slice(tagEnd + 1, closeEnd - '</LayerDialog.Content>'.length);
+
+      // 先于 slot 剔除做检查：若某个顶层 {} 块内出现 Title/Body/Description 标签，
+      // 说明 slot 被条件表达式包裹。Children.toArray 不展开顶层 Fragment，
+      // kumo 的 collectSlot 会把它判为非法子元素并在运行时抛错。
+      // （Actions 不参与判断：Actions.Primary 可以合法地出现在 Body 内部的三元里。）
+      const slotMarkers = /<LayerDialog\.(Title|Body|Description)(?=[\s>])/;
+      let wrapped = false;
+      for (const block of topLevelBraces(rest)) {
+        if (slotMarkers.test(block)) {
+          wrapped = true;
+          break;
+        }
+      }
+      if (wrapped) {
+        const lineNumber = content.slice(0, match.index).split(/\r?\n/).length;
+        failures.push(
+          `${rel}:${lineNumber} LayerDialog slots must not be wrapped in a JSX expression; move the condition outside LayerDialog.Content`
+        );
+      }
+
+      for (const slot of LAYER_DIALOG_SLOTS) {
+        const slotRe = new RegExp(`<${slot.replace(/\./g, '\\.')}(?=[\\s>])`, 'g');
+        let slotMatch;
+        while ((slotMatch = slotRe.exec(rest))) {
+          const slotClose = findMatchingClose(rest, slotMatch.index, slot);
+          if (slotClose < 0) break;
+          rest = rest.slice(0, slotMatch.index) + ' '.repeat(slotClose - slotMatch.index) + rest.slice(slotClose);
+          slotRe.lastIndex = slotMatch.index + 1;
+        }
+      }
+
+      const leftover = rest.replace(/\{[\s\S]*?\}/g, ' ').replace(/\s+/g, ' ').trim();
+      if (leftover) {
+        const lineNumber = content.slice(0, match.index).split(/\r?\n/).length;
+        failures.push(
+          `${rel}:${lineNumber} LayerDialog.Content may only contain Title/Description/Body/Actions, found "${leftover.slice(0, 60)}"`
+        );
+      }
+      contentRe.lastIndex = closeEnd;
+    }
+
+    const actionsRe = /<LayerDialog\.Actions(?=[\s>])/g;
+    while ((match = actionsRe.exec(content))) {
+      const tagEnd = findTagEnd(content, match.index);
+      if (tagEnd < 0) continue;
+      const closeEnd = findMatchingClose(content, match.index, 'LayerDialog.Actions');
+      if (closeEnd < 0) continue;
+      let rest = content.slice(tagEnd + 1, closeEnd - '</LayerDialog.Actions>'.length);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        const primary = /<LayerDialog\.Actions\.Primary(?=[\s>])/.exec(rest);
+        if (primary) {
+          const primaryClose = findMatchingClose(rest, primary.index, 'LayerDialog.Actions.Primary');
+          if (primaryClose < 0) break;
+          rest = rest.slice(0, primary.index) + rest.slice(primaryClose);
+          changed = true;
+        }
+      }
+      const leftover = stripBalancedBraces(rest).replace(/\s+/g, ' ').trim();
+      if (leftover) {
+        const lineNumber = content.slice(0, match.index).split(/\r?\n/).length;
+        failures.push(
+          `${rel}:${lineNumber} LayerDialog.Actions may only contain one Actions.Primary, found "${leftover.slice(0, 60)}"`
+        );
+      }
+      actionsRe.lastIndex = closeEnd;
+    }
+  }
+}
+
 const files = scanRoots.flatMap((dir) => walk(dir));
 for (const file of files) scanFile(file);
 scanLegacyFrontend(files);
 scanTableLayouts(files);
+scanLayerDialogs(files);
 
 if (warnings.length) {
   console.log('UI governance warnings:');

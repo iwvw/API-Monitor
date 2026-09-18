@@ -34,6 +34,8 @@ Touch these files only for focused reasons. Avoid broad formatting or opportunis
 ## Non-Negotiable Rules
 
 - Kumo-only: use Kumo `Button`, `Input`, `Select`, `Tabs`, `Table`, `Dialog`, `DeleteResource`, `Toasty`, `Checkbox`, `Switch`, `Sidebar`, `Loader`, `Tooltip`, `Popover`, `DropdownMenu`, `TimeseriesChart`, `Meter`, and `ChartPalette` where applicable.
+- 弹窗统一用 kumo 原生 `LayerDialog`（`@cloudflare/kumo/components/layer-dialog`），不要再用自研包装。`LayerDialog.Content` 的直接子元素只允许一个 `Title`、一个 `Body`，加可选的 `Description` 和 `Actions`；`Actions` 只能含一个 `Actions.Primary`。违反会在运行时抛错，`npm run ui:governance` 已把守。
+- 底部有多个并列业务按钮、或内容是依赖确定高度的画布/终端/编辑器时，保留 kumo 基础 `Dialog`，不要强行套 `LayerDialog`。
 - Destructive delete confirmations should gradually move to `dialog.deleteResource` / Kumo `DeleteResource`. Non-delete confirmations can use normal confirm flows.
 - Every backend route change must be represented in the Go route manifest and pass route governance.
 - Do not delete or rewrite `.env`, `data/`, `backup/`, `backend-go/data/`, `backend-go/internal/server/data/`, `node_modules/`, or `public/` by default.
