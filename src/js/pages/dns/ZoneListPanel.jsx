@@ -3,6 +3,7 @@ import { LayerCard, Popover, Table } from '@cloudflare/kumo';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { InlineCopyText } from '@cloudflare/kumo/components/inline-copy-text';
 import { Check, Copy, Eye, Plus, Search, Shield, Trash } from '../../components/Icons.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
 import { statusVariant, zoneNameServers, zoneStatusLabel, zoneTypeLabel } from './utils.jsx';
@@ -149,18 +150,16 @@ function ZoneListPanel({
                         <div className="grid gap-2">
                           {zoneNameServers(zone).length > 0 ? zoneNameServers(zone).map((nameServer, index) => (
                             <div key={`${nameServer}-${index}`} className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2">
-                              <code className="min-w-0 flex-1 truncate font-mono text-xs text-kumo-strong" title={nameServer}>
+                              <InlineCopyText
+                                value={nameServer}
+                                variant="mono-secondary"
+                                size="lg"
+                                truncate
+                                className="min-w-0 flex-1"
+                                labels={{ copyAction: `复制 ${nameServer}`, copied: '名称服务器已复制' }}
+                              >
                                 {nameServer}
-                              </code>
-                              <Button
-                                size="sm"
-                                shape="square"
-                                variant="secondary"
-                                aria-label={`复制 ${nameServer}`}
-                                title="复制"
-                                onClick={() => onCopyText(nameServer, '名称服务器')}
-                                icon={<Copy className="h-3.5 w-3.5" />}
-                              />
+                              </InlineCopyText>
                             </div>
                           )) : (
                             <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-3 text-center text-xs text-kumo-subtle">

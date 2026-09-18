@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Popover } from '@cloudflare/kumo';
+import { InlineCopyText } from '@cloudflare/kumo/components/inline-copy-text';
 import { Copy } from '../../components/Icons.jsx';
 import { normalizeDomainValue } from './utils.js';
 
@@ -49,30 +50,16 @@ export function ItemListPopover({
                 key={`${item}-${index}`}
                 className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2"
               >
-                {codeStyle ? (
-                  <code
-                    className="min-w-0 flex-1 truncate text-xs font-medium text-kumo-strong"
-                    title={item}
-                  >
-                    {item}
-                  </code>
-                ) : (
-                  <div
-                    className="min-w-0 flex-1 truncate text-xs font-medium text-kumo-strong"
-                    title={item}
-                  >
-                    {item}
-                  </div>
-                )}
-                <Button
-                  size="sm"
-                  shape="square"
-                  variant="secondary"
-                  aria-label={`复制 ${item}`}
-                  title="复制"
-                  icon={<Copy className="h-3.5 w-3.5" />}
-                  onClick={() => copyText(item, `${item} 已复制`)}
-                />
+                <InlineCopyText
+                  value={item}
+                  variant={codeStyle ? 'mono-secondary' : 'secondary'}
+                  size={codeStyle ? 'lg' : undefined}
+                  truncate
+                  className="min-w-0 flex-1"
+                  labels={{ copyAction: `复制 ${item}`, copied: `${item} 已复制` }}
+                >
+                  {item}
+                </InlineCopyText>
               </div>
             ))
           ) : (

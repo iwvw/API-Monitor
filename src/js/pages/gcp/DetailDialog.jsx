@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
+import { InlineCopyText } from '@cloudflare/kumo/components/inline-copy-text';
 import { KeyValueGrid, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { Copy } from '../../components/Icons.jsx';
 import { formatDate, formatGb, formatMemoryGb, formatSize, getGcpStatusTone, getVerifyStatusLabel } from './utils.jsx';
@@ -40,7 +41,7 @@ function renderDetailContent(selectedDetail, onCopy) {
       { label: '机型', value: data.machineType },
       { label: '规格', value: data.guestCpus > 0 ? `${data.guestCpus} vCPU / ${formatMemoryGb(data.memoryMb)}` : '-' },
       { label: '可用区', value: data.zone },
-      { label: '公网 IP', value: data.publicIp ? <span className="inline-flex items-center gap-1"><span className="font-mono text-xs">{data.publicIp}</span><Button type="button" size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => onCopy(data.publicIp)}><Copy className="h-3 w-3" /></Button></span> : '-' },
+      { label: '公网 IP', value: data.publicIp ? <InlineCopyText value={data.publicIp} variant="mono-secondary" size="lg" labels={{ copyAction: '复制公网 IP', copied: '公网 IP 已复制' }}>{data.publicIp}</InlineCopyText> : '-' },
       { label: '内网 IP', value: data.privateIp ? <span className="font-mono text-xs">{data.privateIp}</span> : '-' },
       { label: '镜像', value: data.image },
       { label: '创建时间', value: formatDate(data.creationTimestamp) },
@@ -129,17 +130,15 @@ function renderDetailContent(selectedDetail, onCopy) {
 export default function DetailDialog({ selectedDetail, onClose, onCopy }) {
   const detailTitle = selectedDetail ? (DETAIL_TITLES[selectedDetail.kind] || '资源详情') : '';
   return (
-    <Dialog.Root open={Boolean(selectedDetail)} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <Dialog className="@container !w-[min(38rem,calc(100vw-2rem))] !max-w-[min(38rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="mb-4 text-base font-semibold text-kumo-strong">{detailTitle}</Dialog.Title>
-        <Dialog.Description className="sr-only">资源详情</Dialog.Description>
+    <LayerDialog.Root open={Boolean(selectedDetail)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <LayerDialog.Content size="base">
+        <LayerDialog.Title>{detailTitle}</LayerDialog.Title>
+        <LayerDialog.Body>
         <div className="max-h-[60vh] overflow-auto scrollbar-thin">
           {renderDetailContent(selectedDetail, onCopy)}
         </div>
-        <div className="flex justify-end gap-2 pt-4">
-          <Button type="button" size="sm" variant="secondary" onClick={onClose}>关闭</Button>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

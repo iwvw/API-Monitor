@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Loader, Textarea } from '@cloudflare/kumo';
+import { CodeHighlighted } from '@cloudflare/kumo/code';
 import { ChevronDown, Sparkle, Terminal, MessageSquare, Globe, Server, Cloud, Clock, Sliders, Bell, FlyIoBrand, KoyebBrand, Copy, Check, X, Edit } from '../../Icons.jsx';
 import ToolCallCard, { toolLabel, toolPathLabel, ToolSteps } from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
@@ -36,33 +37,14 @@ function renderInline(text) {
 
 /* ---------- 代码块 ---------- */
 function CodeBlock({ code, language }) {
-  const [copied, setCopied] = React.useState(false);
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-    }
-  };
   return (
-    <div className="group relative my-2 overflow-hidden rounded-lg border border-kumo-line bg-kumo-recessed">
-      <div className="flex items-center justify-between border-b border-kumo-line px-3 py-1.5">
-        <span className="text-[10px] text-kumo-subtle">{language || 'code'}</span>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={handleCopy}
-          className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px]"
-          aria-label="复制代码"
-        >
-          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          {copied ? '已复制' : '复制'}
-        </Button>
-      </div>
-      <pre className="overflow-x-auto p-3 text-[11px] leading-relaxed"><code>{code}</code></pre>
-    </div>
+    <CodeHighlighted
+      code={code}
+      lang={language || 'bash'}
+      variant="plain"
+      showCopyButton
+      className="my-2 rounded-lg border border-kumo-line"
+    />
   );
 }
 
@@ -164,6 +146,7 @@ function RenderLines({ text }) {
   const lines = text.split('\n');
   const elements = [];
   let codeLines = null;
+  let codeLang = '';
   let tableLines = null;
   let quoteLines = null;
 
@@ -175,8 +158,9 @@ function RenderLines({ text }) {
   };
   const flushCode = () => {
     if (codeLines) {
-      elements.push(<CodeBlock key={elements.length} code={codeLines.join('\n')} />);
+      elements.push(<CodeBlock key={elements.length} code={codeLines.join('\n')} language={codeLang} />);
       codeLines = null;
+      codeLang = '';
     }
   };
   const flushQuote = () => {
@@ -196,6 +180,7 @@ function RenderLines({ text }) {
         flushCode();
       } else {
         codeLines = [];
+        codeLang = line.trimStart().slice(3).trim().split(/\s+/)[0] || '';
       }
       continue;
     }

@@ -4,8 +4,9 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Chart } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { InlineCopyText } from '@cloudflare/kumo/components/inline-copy-text';
 import { AppTable, DataTableFrame, EmptyState, KeyValueGrid, SectionCard, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
-import { Cloud, Copy, Cpu, PieChart } from '../../components/Icons.jsx';
+import { Cloud, Cpu, PieChart } from '../../components/Icons.jsx';
 import { BILLING_ACCOUNT_TABLE_COLUMNS, BUDGET_TABLE_COLUMNS, MODEL_USAGE_TABLE_COLUMNS } from './constants.js';
 import { formatCount } from './utils.jsx';
 
@@ -74,12 +75,16 @@ export default function BillingPanel({
               {
                 label: '结算账号',
                 value: billingInfo.billingAccountName ? (
-                  <span className="inline-flex items-center gap-1">
-                    <span className="font-mono text-xs break-all">{billingInfo.billingAccountName}</span>
-                    <Button type="button" size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => onCopy(billingInfo.billingAccountName)} aria-label="复制结算账号">
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </span>
+                  <InlineCopyText
+                    value={billingInfo.billingAccountName}
+                    variant="mono-secondary"
+                    size="lg"
+                    truncate
+                    className="max-w-full"
+                    labels={{ copyAction: '复制结算账号', copied: '结算账号已复制' }}
+                  >
+                    {billingInfo.billingAccountName}
+                  </InlineCopyText>
                 ) : '-',
               },
               {

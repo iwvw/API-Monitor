@@ -1,8 +1,7 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
+import { InlineCopyText } from '@cloudflare/kumo/components/inline-copy-text';
 import { AppTable, DataTableFrame, SectionCard, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
-import { Copy } from '../../components/Icons.jsx';
 import { columnLabel, getOciStatusTone, resourceColumnSpecs } from './utils.js';
 import TableSkeletonRows from './TableSkeletonRows.jsx';
 
@@ -41,18 +40,24 @@ export default function ResourceList({ title, icon, items, columns, onCopy, embe
             <Table.Row key={item.id || item.attachmentId || item.volumeId || index}>
               {columns.map((column) => (
                 <Table.Cell key={column}>
-                  <div className="flex items-center gap-2">
-                    {column === 'state' ? (
-                      <StatusBadge tone={getOciStatusTone(item[column])}>{String(item[column] || '-')}</StatusBadge>
-                    ) : (
-                      <div className="min-w-0 truncate text-sm text-kumo-strong" title={String(item[column] || '-')}>
-                        {String(item[column] || '-')}
-                      </div>
-                    )}
-                    {item[column] && ['connectionString', 'volumeId', 'attachmentId', 'subnetId'].includes(column) && (
-                      <Button type="button" size="sm" shape="square" variant="ghost" onClick={() => onCopy(item[column])} aria-label={`复制${columnLabel(column)}`} title="复制" icon={<Copy className="h-3.5 w-3.5" />} />
-                    )}
-                  </div>
+                  {column === 'state' ? (
+                    <StatusBadge tone={getOciStatusTone(item[column])}>{String(item[column] || '-')}</StatusBadge>
+                  ) : item[column] && ['connectionString', 'volumeId', 'attachmentId', 'subnetId'].includes(column) ? (
+                    <InlineCopyText
+                      value={String(item[column])}
+                      variant="mono-secondary"
+                      size="lg"
+                      truncate
+                      className="max-w-full"
+                      labels={{ copyAction: `复制${columnLabel(column)}`, copied: `${columnLabel(column)}已复制` }}
+                    >
+                      {String(item[column])}
+                    </InlineCopyText>
+                  ) : (
+                    <div className="min-w-0 truncate text-sm text-kumo-strong" title={String(item[column] || '-')}>
+                      {String(item[column] || '-')}
+                    </div>
+                  )}
                 </Table.Cell>
               ))}
               {renderActions ? <Table.Cell className="text-right">{renderActions(item)}</Table.Cell> : null}

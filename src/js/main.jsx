@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toasty } from '@cloudflare/kumo/components/toast';
+import { ShikiProvider } from '@cloudflare/kumo/code';
 import App from './App.jsx';
 import GlobalDialogHost from './components/GlobalDialogHost.jsx';
 import { setupPwa } from './modules/pwa.js';
@@ -20,10 +21,16 @@ if (container) {
     const root = createRoot(container);
     root.render(
       <React.StrictMode>
-        <Toasty toastManager={kumoToastManager}>
-          <App />
-          <GlobalDialogHost />
-        </Toasty>
+        <ShikiProvider
+          engine="javascript"
+          languages={['javascript', 'typescript', 'jsx', 'tsx', 'json', 'jsonc', 'html', 'css', 'python', 'yaml', 'markdown', 'graphql', 'sql', 'bash', 'diff', 'hcl', 'toml']}
+          labels={{ copy: '复制代码', copied: '已复制' }}
+        >
+          <Toasty toastManager={kumoToastManager}>
+            <App />
+            <GlobalDialogHost />
+          </Toasty>
+        </ShikiProvider>
       </React.StrictMode>
     );
     window.__API_MONITOR_BOOTED = true;

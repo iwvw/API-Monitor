@@ -3,6 +3,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { InlineCopyText } from '@cloudflare/kumo/components/inline-copy-text';
 import {
   AppTable,
   DataTableFrame,
@@ -11,7 +12,7 @@ import {
   SectionCard,
   StatusBadge,
 } from '../../components/ui/AppPrimitives.jsx';
-import { Cloud, Copy, Plus, Server } from '../../components/Icons.jsx';
+import { Cloud, Plus, Server } from '../../components/Icons.jsx';
 import { INSTANCE_TABLE_COLUMNS, stateOptions } from './constants.js';
 import { formatDate, formatMemoryGb, getGcpStatusTone } from './utils.jsx';
 import { InstanceActions } from './ActionsPanels.jsx';
@@ -84,14 +85,16 @@ export default function InstancesPanel({
                     </Table.Cell>
                     <Table.Cell><StatusBadge tone={getGcpStatusTone(instance.state)}>{instance.state || '-'}</StatusBadge></Table.Cell>
                     <Table.Cell>
-                      <span className="inline-flex min-w-0 items-center gap-1">
-                        <span className="truncate font-mono text-xs" title={instance.publicIp || instance.privateIp}>{instance.publicIp || instance.privateIp || '-'}</span>
-                        {instance.publicIp && (
-                          <Button type="button" size="sm" variant="ghost" className="h-5 w-5 shrink-0 p-0" onClick={() => onCopy(instance.publicIp)} aria-label="复制 IP">
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        )}
-                      </span>
+                      <InlineCopyText
+                        value={instance.publicIp || instance.privateIp || ''}
+                        variant="mono-secondary"
+                        size="lg"
+                        truncate
+                        className="max-w-full"
+                        labels={{ copyAction: '复制 IP', copied: 'IP 已复制' }}
+                      >
+                        {instance.publicIp || instance.privateIp || '-'}
+                      </InlineCopyText>
                     </Table.Cell>
                     <Table.Cell>
                       <div className="flex min-w-0 items-center gap-1.5">

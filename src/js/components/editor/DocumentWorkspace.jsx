@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { createMilkdownAdapter } from './adapters/milkdownAdapter.js';
 import MarkdownVisualCanvas from './MarkdownVisualCanvas.jsx';
 import MarkdownSourcePane from './MarkdownSourcePane.jsx';
@@ -101,6 +101,41 @@ export default function DocumentWorkspace({
   const hasRightPanel = Boolean(rightPanel);
   const rightPanelOpen = state.showOutline || hasRightPanel;
 
+  // 大纲高亮：编辑器里的标题元素没有 id，无法直接用 kumo 的
+  // useTableOfContentsActiveId（它按 getElementById 解析）。这里按文档顺序
+  // 取 .app-markdown-visual-editor 下的 h1-h6，用 rAF 节流的 scroll 监听
+  // 找出当前视口内最靠上的标题，映射回 outline 的 heading-N 索引。
+  const [activeHeadingId, setActiveHeadingId] = useState(null);
+  useEffect(() => {
+    if (!state.showOutline || !state.outline.length) return undefined;
+    const root = document.querySelector('.app-markdown-visual-editor');
+    if (!root) return undefined;
+
+    let frame = 0;
+    const recompute = () => {
+      frame = 0;
+      const headings = root.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      if (!headings.length) return;
+      const rootTop = root.getBoundingClientRect().top;
+      let activeIndex = 0;
+      headings.forEach((heading, index) => {
+        if (heading.getBoundingClientRect().top - rootTop <= 24) activeIndex = index;
+      });
+      setActiveHeadingId(`heading-${activeIndex}`);
+    };
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(recompute);
+    };
+
+    recompute();
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      root.removeEventListener('scroll', onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [state.showOutline, state.outline, state.mode]);
+
   const renderEditor = () => {
     if (state.mode === 'source') {
       return (
@@ -191,8 +226,10 @@ export default function DocumentWorkspace({
             {state.showOutline && (!hasRightPanel || state.outline.length > 0) && (
               <DocumentOutline
                 outline={state.outline}
+                activeHeadingId={activeHeadingId}
                 className={hasRightPanel ? 'border-b border-kumo-line' : ''}
                 onHeadingClick={item => {
+                  setActiveHeadingId(item.id);
                   // Scroll to heading in editor
                   const index = Number(String(item.id).replace('heading-', ''));
                   const el = document.querySelectorAll(
