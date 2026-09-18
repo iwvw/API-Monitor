@@ -8,7 +8,7 @@ import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
-import { ClipboardText, Empty, Tabs } from '@cloudflare/kumo';
+import { ClipboardText as ClipboardTextField, Empty, LayerCard, Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import {
@@ -19,6 +19,7 @@ import {
 } from '../../components/ui/AppPrimitives.jsx';
 import {
   Activity,
+  ClipboardText,
   Edit,
   Lock,
   Plug,
@@ -114,6 +115,171 @@ function formatTime(value) {
   return date.toLocaleString();
 }
 
+const ACTION_LABELS = {
+  login: '登录',
+  logout: '退出登录',
+  'token.issue': '签发令牌',
+  'token.revoke': '吊销令牌',
+  'user.create': '创建用户',
+  'user.update': '修改用户',
+  'user.delete': '删除用户',
+  'instance.create': '创建实例',
+  'instance.update': '修改实例',
+  'instance.delete': '删除实例',
+  'preferences.put': '保存偏好',
+  'preferences.delete': '删除偏好',
+};
+
+// parseAccessAction 把后端动作拆成人类可读的结构。
+// 网关转发形如 `gw GET /permission?x=1 (726ms, 2 bytes)` 或
+// `gw POST denied (invalid or expired stream token)`；
+// 其余为固定动作名（login / token.issue 等）。
+function parseAccessAction(action) {
+  const raw = action || '';
+  const gateway = raw.match(/^gw\s+(\S+)(?:\s+(.*))?$/);
+  if (!gateway) {
+    return {
+      kind: 'named',
+      label: ACTION_LABELS[raw] || raw || '-',
+      detail: ACTION_LABELS[raw] ? raw : '',
+    };
+  }
+  const method = gateway[1].toUpperCase();
+  const rest = (gateway[2] || '').trim();
+  const denied = rest.match(/^denied(?:\s+\((.+)\))?$/);
+  if (denied) {
+    return {
+      kind: 'gateway',
+      label: '网关转发被拒',
+      method,
+      detail: denied[1] || '',
+    };
+  }
+  const meta = rest.match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+  const path = (meta ? meta[1] : rest).trim();
+  const stats = meta ? meta[2].trim() : '';
+  return { kind: 'gateway', label: '网关转发', method, path, stats, detail: raw };
+}
+
+function shortId(value) {
+  if (!value) return '-';
+  return value.length > 12 ? `${value.slice(0, 12)}…` : value;
+}
+
+function instanceDialogDescription(editingInstance, instanceOwner) {
+  if (editingInstance) {
+    return '实例指向一台已安装 Agent 的主机上的 AI Agent 本地服务端口。';
+  }
+  if (instanceOwner) {
+    return `为该用户（${instanceOwner.username}）登记一台已安装 Agent 的主机上的 AI Agent 服务。`;
+  }
+  return '实例指向一台已安装 Agent 的主机上的 AI Agent 本地服务端口。';
+}
+
+const RESULT_META = {
+  ok: { label: '成功', tone: 'success' },
+  denied: { label: '拒绝', tone: 'warning' },
+  error: { label: '失败', tone: 'danger' },
+};
+
+function resultMeta(result) {
+  return RESULT_META[result] || { label: result || '-', tone: 'neutral' };
+}
+
+// InstanceTable 是实例列表的共用表格：「我的实例」按登录身份呈现，
+// 管理员的「用户实例」弹层复用同一份渲染（此时 isAdmin 传 false，归属已知）。
+function InstanceTable({ instances, isAdmin, onAccess, onEdit, onDelete, isArmed }) {
+  return (
+    <div className="overflow-x-auto">
+      <Table layout="fixed" className={isAdmin ? 'min-w-[1010px]' : 'min-w-[880px]'}>
+        <colgroup>
+          <col className="w-[200px]" />
+          {isAdmin && <col className="w-[130px]" />}
+          <col className="w-[130px]" />
+          <col className="w-[170px]" />
+          <col className="w-[90px]" />
+          <col className="w-[140px]" />
+          <col className="w-[210px]" />
+        </colgroup>
+        <Table.Header variant="compact">
+          <Table.Row>
+            <Table.Head>名称</Table.Head>
+            {isAdmin && <Table.Head>归属用户</Table.Head>}
+            <Table.Head>Provider</Table.Head>
+            <Table.Head>主机</Table.Head>
+            <Table.Head className="text-right">端口</Table.Head>
+            <Table.Head>状态</Table.Head>
+            <Table.Head className="app-table-action">操作</Table.Head>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
+          {instances.map(instance => {
+            const status = instanceStatus(instance);
+            return (
+              <Table.Row key={instance.id}>
+                <Table.Cell>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-kumo-strong">{instance.label}</span>
+                    {!instance.enabled && <StatusBadge tone="neutral">已停用</StatusBadge>}
+                  </div>
+                </Table.Cell>
+                {isAdmin && (
+                  <Table.Cell className="text-xs text-kumo-subtle">
+                    {instance.username || shortId(instance.userId)}
+                  </Table.Cell>
+                )}
+                <Table.Cell>{instance.providerLabel || instance.provider}</Table.Cell>
+                <Table.Cell>{instance.hostName || instance.serverId}</Table.Cell>
+                <Table.Cell className="text-right font-mono text-xs">{instance.port}</Table.Cell>
+                <Table.Cell>
+                  <StatusBadge tone={status.tone} title={status.detail}>
+                    {status.label}
+                  </StatusBadge>
+                </Table.Cell>
+                <Table.Cell className="app-table-action">
+                  <div className="flex items-center justify-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label="接入信息"
+                      title="接入信息"
+                      onClick={() => onAccess(instance)}
+                    >
+                      <ClipboardText className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label="编辑实例"
+                      title="编辑实例"
+                      onClick={() => onEdit(instance)}
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={
+                        isArmed(`aiagent-instance:${instance.id}`)
+                          ? 'destructive'
+                          : 'secondary-destructive'
+                      }
+                      aria-label="删除实例"
+                      title="删除实例"
+                      onClick={() => onDelete(instance)}
+                    >
+                      <Trash className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </Table.Cell>
+              </Table.Row>
+            );
+          })}
+        </Table.Body>
+      </Table>
+    </div>
+  );
+}
+
 // 三态渲染助手：避免在 JSX 中写嵌套三元（项目代码风格禁止）。
 function renderLoadingOrEmpty(loading, isEmpty, emptyNode, contentNode) {
   if (loading) {
@@ -141,16 +307,22 @@ export default function AiAgentConsole() {
   const [servers, setServers] = useState([]);
   const [instanceDialogOpen, setInstanceDialogOpen] = useState(false);
   const [editingInstance, setEditingInstance] = useState(null);
+  // instanceOwner 是新增实例时的归属用户（管理员从「用户管理」指定）；
+  // 普通用户新增时为空，由后端归属到当前账号。
+  const [instanceOwner, setInstanceOwner] = useState(null);
   const [instanceForm, setInstanceForm] = useState({
     serverId: '',
     provider: 'opencode',
     label: '',
     port: '',
     enabled: true,
-    userId: '',
   });
   const [instanceSaving, setInstanceSaving] = useState(false);
   const [accessInfo, setAccessInfo] = useState(null);
+  // userInstancesTarget 是管理员正在查看实例的用户（用户管理里的二级弹层）。
+  const [userInstancesTarget, setUserInstancesTarget] = useState(null);
+  const [userInstances, setUserInstances] = useState([]);
+  const [userInstancesLoading, setUserInstancesLoading] = useState(false);
 
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -202,10 +374,9 @@ export default function AiAgentConsole() {
       })),
     [servers]
   );
-  const userOptions = useMemo(
-    () =>
-      users.filter(user => !user.disabled).map(user => ({ value: user.id, label: user.username })),
-    [users]
+  const instanceLabels = useMemo(
+    () => new Map(instances.map(instance => [instance.id, instance.label])),
+    [instances]
   );
 
   const loadInstances = useCallback(async () => {
@@ -219,6 +390,33 @@ export default function AiAgentConsole() {
       setInstancesLoading(false);
     }
   }, []);
+
+  // loadUserInstances 拉取指定用户的实例（管理员在用户管理里的二级弹层）。
+  // 重新选择用户时用请求序号丢弃过期响应，避免旧请求覆盖新用户的数据。
+  const userInstancesSeqRef = useRef(0);
+  const loadUserInstances = useCallback(async user => {
+    const seq = ++userInstancesSeqRef.current;
+    setUserInstancesLoading(true);
+    try {
+      const payload = await get(
+        `/api/aiagent/instances?probe=1&userId=${encodeURIComponent(user.id)}`
+      );
+      if (seq !== userInstancesSeqRef.current) return;
+      setUserInstances(payload.data || []);
+    } catch (error) {
+      if (seq !== userInstancesSeqRef.current) return;
+      toast.error(error.message || '加载该用户实例失败');
+      setUserInstances([]);
+    } finally {
+      if (seq === userInstancesSeqRef.current) setUserInstancesLoading(false);
+    }
+  }, []);
+
+  const openUserInstances = user => {
+    setUserInstancesTarget(user);
+    setUserInstances([]);
+    loadUserInstances(user);
+  };
 
   const loadProviders = useCallback(async () => {
     try {
@@ -293,6 +491,14 @@ export default function AiAgentConsole() {
     loadServers();
   }, [loadInstances, loadProviders, loadServers]);
 
+  // 挂载即解析身份：实例页的标签/归属列/新增按钮与用户管理入口都依赖是否管理员。
+  const identityResolvedRef = useRef(false);
+  useEffect(() => {
+    if (identityResolvedRef.current) return;
+    identityResolvedRef.current = true;
+    resolveIdentity();
+  }, [resolveIdentity]);
+
   // 用户列表首次进入 Tab 加载一次；已确认非管理员不再请求。刷新交给头部按钮。
   const usersTabLoadedRef = useRef(false);
   useEffect(() => {
@@ -312,49 +518,33 @@ export default function AiAgentConsole() {
     loadLogs();
   }, [activeTab, loadLogs]);
 
-  const openCreateInstance = async () => {
-    // 创建实例：需要先确认身份（管理员要选归属用户；普通用户由后端归属自己）。
-    // 已确认过身份则直接复用，不再重复请求。
-    let identityIsAdmin = isAdmin;
-    if (!adminResolvedRef.current) {
-      const resolved = await resolveIdentity();
-      if (resolved.isAdmin === null) {
-        toast.error(resolved.error?.message || '无法确认账号权限，请稍后重试');
-        return;
-      }
-      // 用本次返回值判定身份：setIsAdmin 不会在本异步调用内刷新闭包里的 isAdmin。
-      identityIsAdmin = resolved.isAdmin;
-    }
-    const currentUsers = usersRef.current;
-    const firstEnabled = currentUsers.find(user => !user.disabled)?.id || '';
+  // openCreateInstance 新增实例。管理员从「用户管理」逐用户进入时传入 owner，
+  // 归属由入口决定，不再在表单里选择；普通用户新增时 owner 为空，由后端归属自己。
+  const openCreateInstance = owner => {
     setEditingInstance(null);
+    setInstanceOwner(owner || null);
     setInstanceForm({
       serverId: '',
       provider: defaultProviderId(providers),
       label: '',
       port: '',
       enabled: true,
-      userId: firstEnabled,
     });
     setInstanceDialogOpen(true);
-    if (identityIsAdmin && !firstEnabled) {
-      toast.warning('当前没有可归属用户，请先在「用户管理」中创建用户');
-    }
-    // 普通用户没有可用主机时，明确提示需要管理员先分配（跨租户隔离下不允许自行纳管新主机）。
-    if (!identityIsAdmin && serverOptions.length === 0) {
-      toast.warning('当前账号下还没有可用主机，请联系管理员先分配一台机器');
+    if (serverOptions.length === 0) {
+      toast.warning('当前没有可用主机，请联系管理员先纳管一台机器');
     }
   };
 
   const openEditInstance = instance => {
     setEditingInstance(instance);
+    setInstanceOwner(null);
     setInstanceForm({
       serverId: instance.serverId,
       provider: instance.provider,
       label: instance.label,
       port: instance.port ? String(instance.port) : '',
       enabled: instance.enabled,
-      userId: instance.userId || '',
     });
     setInstanceDialogOpen(true);
   };
@@ -412,8 +602,8 @@ export default function AiAgentConsole() {
       toast.warning(`该 Provider 当前仅支持默认端口 ${selectedProviderPort}`);
       return;
     }
-    if (isAdmin && !editingInstance && !instanceForm.userId) {
-      toast.warning('请选择实例归属用户');
+    if (serverOptions.length === 0) {
+      toast.warning('当前没有可用主机，请先在「主机」中纳管一台机器');
       return;
     }
     setInstanceSaving(true);
@@ -425,17 +615,20 @@ export default function AiAgentConsole() {
         enabled: instanceForm.enabled,
       };
       if (port !== undefined) body.port = port;
-      // 仅管理员需要显式指定归属用户；普通用户由后端归属到自己。
-      if (isAdmin && !editingInstance) body.userId = instanceForm.userId;
       if (editingInstance) {
         await put(`/api/aiagent/instances/${editingInstance.id}`, body);
         toast.success('实例已更新');
       } else {
+        // 归属由入口决定：管理员从用户实例弹层进入时带 owner，普通用户由后端归属自己。
+        if (instanceOwner?.id) body.userId = instanceOwner.id;
         await post('/api/aiagent/instances', body);
         toast.success('实例已添加');
       }
       setInstanceDialogOpen(false);
-      await loadInstances();
+      await Promise.all([
+        loadInstances(),
+        userInstancesTarget ? loadUserInstances(userInstancesTarget) : Promise.resolve(),
+      ]);
     } catch (error) {
       toast.error(error.message || '保存实例失败');
     } finally {
@@ -452,7 +645,10 @@ export default function AiAgentConsole() {
     try {
       await del(`/api/aiagent/instances/${instance.id}`);
       toast.success('实例已删除');
-      await loadInstances();
+      await Promise.all([
+        loadInstances(),
+        userInstancesTarget ? loadUserInstances(userInstancesTarget) : Promise.resolve(),
+      ]);
     } catch (error) {
       toast.error(error.message || '删除实例失败');
     }
@@ -581,7 +777,7 @@ export default function AiAgentConsole() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Plug className="w-3.5 h-3.5" />
-                  我的实例
+                  {isAdmin ? '全部实例' : '我的实例'}
                 </span>
               ),
             },
@@ -609,8 +805,12 @@ export default function AiAgentConsole() {
 
       {activeTab === 'instances' && (
         <SectionCard
-          title="我的实例"
-          description="登记各主机上的 AI Agent 服务。"
+          title={isAdmin ? '全部实例' : '我的实例'}
+          description={
+            isAdmin
+              ? '各用户名下的 AI Agent 实例；新增与归属请在「用户管理」中按用户操作。'
+              : '登记已分配主机上的 AI Agent 服务。'
+          }
           bodyPadding="none"
           actions={
             <>
@@ -618,10 +818,12 @@ export default function AiAgentConsole() {
                 <RefreshCw className="h-4 w-4" />
                 刷新
               </Button>
-              <Button size="sm" variant="primary" onClick={openCreateInstance}>
-                <Plus className="h-4 w-4" />
-                添加实例
-              </Button>
+              {!isAdmin && (
+                <Button size="sm" variant="primary" onClick={() => openCreateInstance(null)}>
+                  <Plus className="h-4 w-4" />
+                  添加实例
+                </Button>
+              )}
             </>
           }
         >
@@ -632,90 +834,20 @@ export default function AiAgentConsole() {
               size="sm"
               className="rounded-none border-0 bg-transparent"
               title="还没有实例"
-              description="添加一台已安装 Agent 的主机上的 AI Agent 服务"
+              description={
+                isAdmin
+                  ? '在「用户管理」中选择用户后为其添加实例'
+                  : '添加一台已安装 Agent 的主机上的 AI Agent 服务'
+              }
             />,
-            <div className="overflow-x-auto">
-              <Table layout="fixed" className="min-w-[880px]">
-                <colgroup>
-                  <col className="w-[220px]" />
-                  <col className="w-[140px]" />
-                  <col className="w-[180px]" />
-                  <col className="w-[100px]" />
-                  <col className="w-[150px]" />
-                  <col className="w-[210px]" />
-                </colgroup>
-                <Table.Header variant="compact">
-                  <Table.Row>
-                    <Table.Head>名称</Table.Head>
-                    <Table.Head>Provider</Table.Head>
-                    <Table.Head>主机</Table.Head>
-                    <Table.Head className="text-right">端口</Table.Head>
-                    <Table.Head>状态</Table.Head>
-                    <Table.Head className="app-table-action">操作</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {instances.map(instance => {
-                    const status = instanceStatus(instance);
-                    return (
-                      <Table.Row key={instance.id}>
-                        <Table.Cell>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-kumo-strong">{instance.label}</span>
-                            {!instance.enabled && <StatusBadge tone="neutral">已停用</StatusBadge>}
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell>{instance.providerLabel || instance.provider}</Table.Cell>
-                        <Table.Cell>{instance.hostName || instance.serverId}</Table.Cell>
-                        <Table.Cell className="text-right font-mono text-xs">
-                          {instance.port}
-                        </Table.Cell>
-                        <Table.Cell>
-                          <StatusBadge tone={status.tone} title={status.detail}>
-                            {status.label}
-                          </StatusBadge>
-                        </Table.Cell>
-                        <Table.Cell className="app-table-action">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              aria-label="接入信息"
-                              title="接入信息"
-                              onClick={() => showAccessInfo(instance)}
-                            >
-                              <ClipboardText className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              aria-label="编辑实例"
-                              title="编辑实例"
-                              onClick={() => openEditInstance(instance)}
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={
-                                isArmed(`aiagent-instance:${instance.id}`)
-                                  ? 'destructive'
-                                  : 'secondary-destructive'
-                              }
-                              aria-label="删除实例"
-                              title="删除实例"
-                              onClick={() => removeInstance(instance)}
-                            >
-                              <Trash className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </Table.Cell>
-                      </Table.Row>
-                    );
-                  })}
-                </Table.Body>
-              </Table>
-            </div>
+            <InstanceTable
+              instances={instances}
+              isAdmin={isAdmin}
+              onAccess={showAccessInfo}
+              onEdit={openEditInstance}
+              onDelete={removeInstance}
+              isArmed={isArmed}
+            />
           )}
         </SectionCard>
       )}
@@ -723,7 +855,7 @@ export default function AiAgentConsole() {
       {activeTab === 'users' && (
         <SectionCard
           title="用户管理"
-          description="创建用户并设置密码。"
+          description="创建用户、设置密码，并按用户管理其 AI Agent 实例。"
           bodyPadding="none"
           actions={
             isAdmin ? (
@@ -750,13 +882,13 @@ export default function AiAgentConsole() {
               description="用户管理仅对面板管理员开放"
             />,
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="min-w-[820px]">
+              <Table layout="fixed" className="min-w-[860px]">
                 <colgroup>
-                  <col className="w-[180px]" />
-                  <col className="w-[180px]" />
-                  <col className="w-[120px]" />
-                  <col className="w-[180px]" />
+                  <col className="w-[170px]" />
                   <col className="w-[160px]" />
+                  <col className="w-[110px]" />
+                  <col className="w-[160px]" />
+                  <col className="w-[210px]" />
                 </colgroup>
                 <Table.Header variant="compact">
                   <Table.Row>
@@ -784,6 +916,15 @@ export default function AiAgentConsole() {
                       </Table.Cell>
                       <Table.Cell className="app-table-action">
                         <div className="flex items-center justify-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            aria-label="管理实例"
+                            title="管理实例"
+                            onClick={() => openUserInstances(user)}
+                          >
+                            <Plug className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             size="sm"
                             variant="secondary"
@@ -851,43 +992,76 @@ export default function AiAgentConsole() {
               description="有登录或转发行为后会在这里出现记录"
             />,
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="min-w-[760px]">
+              <Table layout="fixed" className="min-w-[860px]">
                 <colgroup>
-                  <col className="w-[180px]" />
-                  <col className="w-[200px]" />
-                  <col className="w-[100px]" />
                   <col className="w-[160px]" />
-                  <col className="w-[140px]" />
+                  <col className="w-[340px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[150px]" />
+                  <col className="w-[120px]" />
                 </colgroup>
                 <Table.Header variant="compact">
                   <Table.Row>
                     <Table.Head>时间</Table.Head>
                     <Table.Head>动作</Table.Head>
-                    <Table.Head>结果</Table.Head>
+                    <Table.Head className="text-center">结果</Table.Head>
                     <Table.Head>实例</Table.Head>
                     <Table.Head>IP</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {logs.map(entry => (
-                    <Table.Row key={entry.id}>
-                      <Table.Cell className="whitespace-nowrap text-xs text-kumo-subtle">
-                        {formatTime(entry.createdAt)}
-                      </Table.Cell>
-                      <Table.Cell className="font-mono text-xs">{entry.action}</Table.Cell>
-                      <Table.Cell>
-                        <StatusBadge tone={entry.result === 'ok' ? 'success' : 'danger'}>
-                          {entry.result}
-                        </StatusBadge>
-                      </Table.Cell>
-                      <Table.Cell className="font-mono text-[11px] text-kumo-subtle">
-                        {entry.instanceId || '-'}
-                      </Table.Cell>
-                      <Table.Cell className="font-mono text-[11px] text-kumo-subtle">
-                        {entry.ip || '-'}
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
+                  {logs.map(entry => {
+                    const action = parseAccessAction(entry.action);
+                    const result = resultMeta(entry.result);
+                    const instanceLabel = instanceLabels.get(entry.instanceId);
+                    return (
+                      <Table.Row key={entry.id}>
+                        <Table.Cell
+                          className="truncate whitespace-nowrap text-xs text-kumo-subtle"
+                          title={formatTime(entry.createdAt)}
+                        >
+                          {formatTime(entry.createdAt)}
+                        </Table.Cell>
+                        <Table.Cell className="min-w-0">
+                          <div className="flex min-w-0 flex-col gap-0.5" title={entry.action}>
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="shrink-0 text-xs font-medium text-kumo-strong">
+                                {action.label}
+                              </span>
+                              {action.kind === 'gateway' && action.method && (
+                                <code className="shrink-0 rounded bg-kumo-surface-2 px-1 font-mono text-[10px] text-kumo-subtle">
+                                  {action.method}
+                                </code>
+                              )}
+                            </span>
+                            {action.kind === 'gateway' && (action.path || action.detail) && (
+                              <span className="truncate font-mono text-[11px] text-kumo-subtle">
+                                {action.path || action.detail}
+                                {action.stats ? ` · ${action.stats}` : ''}
+                              </span>
+                            )}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="text-center">
+                          <StatusBadge tone={result.tone} title={entry.error || undefined}>
+                            {result.label}
+                          </StatusBadge>
+                        </Table.Cell>
+                        <Table.Cell
+                          className="truncate text-xs text-kumo-strong"
+                          title={entry.instanceId || ''}
+                        >
+                          {instanceLabel || shortId(entry.instanceId)}
+                        </Table.Cell>
+                        <Table.Cell
+                          className="truncate font-mono text-[11px] text-kumo-subtle"
+                          title={entry.ip || ''}
+                        >
+                          {entry.ip || '-'}
+                        </Table.Cell>
+                      </Table.Row>
+                    );
+                  })}
                 </Table.Body>
               </Table>
             </div>
@@ -901,21 +1075,9 @@ export default function AiAgentConsole() {
             {editingInstance ? '编辑实例' : '添加实例'}
           </Dialog.Title>
           <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
-            实例指向一台已安装 Agent 的主机上的 AI Agent 本地服务端口。
+            {instanceDialogDescription(editingInstance, instanceOwner)}
           </Dialog.Description>
           <div className="flex flex-col gap-3">
-            {isAdmin && !editingInstance && (
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-kumo-subtle">归属用户</span>
-                <Select
-                  alignItemWithTrigger
-                  size="sm"
-                  value={instanceForm.userId}
-                  onValueChange={value => setInstanceForm(prev => ({ ...prev, userId: value }))}
-                  items={userOptions.length ? userOptions : [{ value: '', label: '请先创建用户' }]}
-                />
-              </label>
-            )}
             <label className="flex flex-col gap-1">
               <span className="text-sm text-kumo-subtle">主机</span>
               <Select
@@ -979,6 +1141,61 @@ export default function AiAgentConsole() {
             </Button>
             <Button size="sm" variant="primary" onClick={saveInstance} disabled={instanceSaving}>
               {instanceSaving ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={Boolean(userInstancesTarget)}
+        onOpenChange={open => {
+          if (!open) setUserInstancesTarget(null);
+        }}
+      >
+        <Dialog className="@container !w-[min(52rem,calc(100vw-2rem))] !max-w-[min(52rem,calc(100vw-2rem))] p-6">
+          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
+            {userInstancesTarget?.username} 的实例
+          </Dialog.Title>
+          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+            登记在用户名下的 AI Agent 实例，可为其新增、编辑或删除。
+          </Dialog.Description>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <Button size="sm" variant="secondary" onClick={() => openUserInstances(userInstancesTarget)}>
+              <RefreshCw className="h-4 w-4" />
+              刷新
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => openCreateInstance(userInstancesTarget)}
+            >
+              <Plus className="h-4 w-4" />
+              添加实例
+            </Button>
+          </div>
+          {renderLoadingOrEmpty(
+            userInstancesLoading,
+            userInstances.length === 0,
+            <Empty
+              size="sm"
+              className="rounded-none border-0 bg-transparent"
+              title="该用户还没有实例"
+              description="点击「添加实例」为其登记一台已安装 Agent 的机器"
+            />,
+            <LayerCard className="overflow-x-auto p-0">
+              <InstanceTable
+                instances={userInstances}
+                isAdmin={false}
+                onAccess={showAccessInfo}
+                onEdit={openEditInstance}
+                onDelete={removeInstance}
+                isArmed={isArmed}
+              />
+            </LayerCard>
+          )}
+          <div className="mt-5 flex justify-end">
+            <Button size="sm" variant="secondary" onClick={() => setUserInstancesTarget(null)}>
+              关闭
             </Button>
           </div>
         </Dialog>
@@ -1064,7 +1281,7 @@ export default function AiAgentConsole() {
             <div className="flex flex-col gap-3 text-sm">
               <div className="flex flex-col gap-1">
                 <span className="text-kumo-subtle">网关路径</span>
-                <ClipboardText
+                <ClipboardTextField
                   size="sm"
                   text={accessInfo.gatewayPath}
                   tooltip={{ text: '复制', copiedText: '已复制' }}

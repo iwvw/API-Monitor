@@ -19,6 +19,7 @@ import {
   ChatCircle,
   Check as PhCheck,
   Checks,
+  ClipboardText as PhClipboardText,
   Clock as PhClock,
   ClockCounterClockwise,
   Cloud as PhCloud,
@@ -230,6 +231,7 @@ export const Users = createIcon(PhUsers);
 export const Eye = createIcon(PhEye);
 export const EyeOff = createIcon(EyeSlash);
 export const Copy = createIcon(PhCopy);
+export const ClipboardText = createIcon(PhClipboardText);
 export const Plug = createIcon(Plugs);
 export const Brain = createIcon(PhBrain);
 export const Image = createIcon(PhImage);
