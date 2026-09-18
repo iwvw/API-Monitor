@@ -604,6 +604,19 @@ func (s *Service) handleListInstances(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
 		return
 	}
+	// 管理员可按 userId 收窄列表（用户管理里的单用户实例视图）：只列出该用户
+	// 的实例，避免为一个用户弹层而探测全舰实例。
+	if auth.IsAdmin {
+		if scoped := strings.TrimSpace(r.URL.Query().Get("userId")); scoped != "" {
+			filtered := make([]Instance, 0, len(instances))
+			for _, instance := range instances {
+				if instance.UserID == scoped {
+					filtered = append(filtered, instance)
+				}
+			}
+			instances = filtered
+		}
+	}
 	views := make([]InstanceView, 0, len(instances))
 	hostNames := s.resolveHostNames(r.Context())
 	// 探测需逐个往返主机 Agent，默认关闭以免拖慢列表；控制台按需显式 probe=1。
