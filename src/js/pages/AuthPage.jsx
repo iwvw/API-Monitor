@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Banner } from '@cloudflare/kumo/components/banner';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Loader } from '@cloudflare/kumo/components/loader';
+import { GlobeMap } from '@cloudflare/kumo';
 import useStore from '../store.js';
 import {
   clearExplicitLogoutMarker,
@@ -24,189 +25,89 @@ import {
   Shield,
 } from '../components/IconsCore.jsx';
 
-const AUTH_WAVE_SAMPLE_RATE = 30;
-const AUTH_WAVE_TRAVEL_SECONDS = 15;
-const AUTH_WAVE_SAMPLES = AUTH_WAVE_SAMPLE_RATE * AUTH_WAVE_TRAVEL_SECONDS + 3;
-const AUTH_WAVE_SAMPLE_INTERVAL = 1 / AUTH_WAVE_SAMPLE_RATE;
-
-function gaussianPulse(phase, center, width, amplitude) {
-  const distance = (phase - center) / width;
-  return amplitude * Math.exp(-0.5 * distance * distance);
-}
-
-function getMonitorVoltage(phase, profile) {
+function prefersReducedMotion() {
   return (
-    gaussianPulse(phase, profile.pPosition, profile.pWidth, 0.13 * profile.pScale) -
-    gaussianPulse(
-      phase,
-      profile.qrsPosition - 0.035,
-      profile.qrsWidth * 0.82,
-      0.16 * profile.qrsScale
-    ) +
-    gaussianPulse(phase, profile.qrsPosition, profile.qrsWidth, profile.qrsScale) -
-    gaussianPulse(
-      phase,
-      profile.qrsPosition + 0.045,
-      profile.qrsWidth * 1.28,
-      0.28 * profile.qrsScale
-    ) +
-    gaussianPulse(phase, profile.tPosition, profile.tWidth, 0.3 * profile.tScale) +
-    (phase - 0.5) * profile.baselineSlope
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
   );
 }
 
-function getPlethVoltage(phase, profile) {
-  const upstroke =
-    phase < profile.plethUpstroke
-      ? phase / profile.plethUpstroke
-      : Math.exp(-(phase - profile.plethUpstroke) * profile.plethDecay);
-  const dicroticNotch = gaussianPulse(
-    phase,
-    profile.plethNotchPosition,
-    profile.plethNotchWidth,
-    profile.plethNotchDepth
-  );
-  return upstroke - dicroticNotch;
-}
+// 赤道发光通过 markers 交给 kumo 内部投影：光点钉在固定地理经度上，
+// 由 GlobeMap 用真实旋转逐帧重投影，天然贴合球面、与自转完全同步，
+// 背面自动隐藏、边缘淡出。CSS 用 fill 属性选择只给赤道点加光晕。
+const GLOBE_DEFAULT_ROTATION = [-10, -20, -30];
+const GLOBE_EQUATOR_SAMPLE_DEG = 4;
 
-function getSecondaryLeadVoltage(phase, profile) {
-  const qrsWidth = Math.max(profile.qrsWidth, 0.015);
-  return (
-    gaussianPulse(phase, profile.pPosition, profile.pWidth * 1.15, 0.055 * profile.pScale) +
-    gaussianPulse(phase, profile.qrsPosition - 0.018, qrsWidth * 0.72, 0.28 * profile.qrsScale) -
-    gaussianPulse(phase, profile.qrsPosition + 0.012, qrsWidth * 1.08, profile.secondaryLeadScale) +
-    gaussianPulse(phase, profile.qrsPosition + 0.05, qrsWidth * 1.35, 0.16 * profile.qrsScale) +
-    gaussianPulse(phase, profile.tPosition, profile.tWidth * 1.12, profile.secondaryTScale) +
-    (phase - 0.5) * profile.baselineSlope * 0.65
-  );
-}
+const EQUATOR_GLOW_MARKERS = Array.from(
+  { length: Math.ceil(360 / GLOBE_EQUATOR_SAMPLE_DEG) },
+  (_, index) => ({
+    longitude: -180 + index * GLOBE_EQUATOR_SAMPLE_DEG,
+    latitude: 0,
+    name: '',
+    color: 'var(--color-brand)',
+    radius: 2,
+  })
+);
 
-function createBeatProfile() {
-  return {
-    rateOffset: (Math.random() - 0.5) * 9,
-    pPosition: 0.17 + (Math.random() - 0.5) * 0.025,
-    pWidth: 0.03 + Math.random() * 0.012,
-    pScale: 0.78 + Math.random() * 0.38,
-    qrsPosition: 0.395 + (Math.random() - 0.5) * 0.018,
-    qrsWidth: 0.011 + Math.random() * 0.006,
-    qrsScale: 0.82 + Math.random() * 0.34,
-    tPosition: 0.69 + (Math.random() - 0.5) * 0.045,
-    tWidth: 0.065 + Math.random() * 0.025,
-    tScale: 0.74 + Math.random() * 0.42,
-    baselineSlope: (Math.random() - 0.5) * 0.035,
-    secondaryLeadScale: 0.78 + Math.random() * 0.38,
-    secondaryTScale: -0.06 + Math.random() * 0.22,
-    plethScale: 0.8 + Math.random() * 0.36,
-    plethUpstroke: 0.095 + Math.random() * 0.045,
-    plethDecay: 3 + Math.random() * 0.9,
-    plethNotchPosition: 0.44 + Math.random() * 0.08,
-    plethNotchWidth: 0.028 + Math.random() * 0.018,
-    plethNotchDepth: 0.08 + Math.random() * 0.08,
-  };
-}
-
-function AuthMonitorWave() {
-  const ecgPathRef = useRef(null);
-  const secondaryLeadPathRef = useRef(null);
-  const plethPathRef = useRef(null);
-  const traceGroupRef = useRef(null);
+// AuthGlobeMarkers 拉取公开节点坐标，渲染登录页左侧的地球。
+// 无坐标节点后端已过滤，这里只做字段映射；请求失败静默降级为无标记的地球。
+function AuthGlobeMarkers({ isDarkMode }) {
+  const [markers, setMarkers] = useState([]);
 
   useEffect(() => {
-    let phase = 0;
-    let elapsedSeconds = 0;
-    let smoothNoise = 0;
-    let beatProfile = createBeatProfile();
-    const nextSample = deltaSeconds => {
-      const heartRate = 62 + Math.sin(elapsedSeconds * 0.2) * 2 + beatProfile.rateOffset;
-      const nextPhase = phase + (heartRate / 60) * deltaSeconds;
-      if (nextPhase >= 1) beatProfile = createBeatProfile();
-      phase = nextPhase % 1;
-      elapsedSeconds += deltaSeconds;
-      smoothNoise = smoothNoise * 0.82 + (Math.random() - 0.5) * 0.035;
-      const fineNoise = (Math.random() - 0.5) * 0.009;
-      const baselineWander =
-        Math.sin(elapsedSeconds * 0.63) * 0.022 + Math.sin(elapsedSeconds * 0.17 + 1.8) * 0.012;
-      return {
-        ecg: getMonitorVoltage(phase, beatProfile) + baselineWander + smoothNoise * 0.3 + fineNoise,
-        secondaryLead:
-          getSecondaryLeadVoltage(phase, beatProfile) +
-          baselineWander * 0.7 +
-          smoothNoise * 0.36 +
-          fineNoise * 0.7,
-        pleth:
-          getPlethVoltage(phase, beatProfile) * beatProfile.plethScale +
-          baselineWander * 0.6 +
-          smoothNoise * 0.24,
-      };
-    };
-    const samples = Array.from({ length: AUTH_WAVE_SAMPLES }, () =>
-      nextSample(AUTH_WAVE_SAMPLE_INTERVAL)
-    );
-    let lastFrame = 0;
-    let frameId = 0;
-    let sampleAccumulator = 0;
-    const xStep = 720 / (AUTH_WAVE_SAMPLES - 3);
-
-    const draw = () => {
-      const traces = [
-        { ref: ecgPathRef, key: 'ecg', baseline: 45, amplitude: -34 },
-        { ref: plethPathRef, key: 'pleth', baseline: 125, amplitude: -31 },
-        { ref: secondaryLeadPathRef, key: 'secondaryLead', baseline: 190, amplitude: -28 },
-      ];
-
-      traces.forEach(trace => {
-        const path = trace.ref.current;
-        if (!path) return;
-        const points = samples.map((sample, index) => {
-          const x = (index - 1) * xStep;
-          const y = trace.baseline + sample[trace.key] * trace.amplitude;
-          return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
-        });
-        path.setAttribute('d', points.join(' '));
+    let cancelled = false;
+    fetch('/api/server/public/globe-nodes', { cache: 'no-store' })
+      .then(response => response.json())
+      .then(result => {
+        if (cancelled) return;
+        const nodes = result?.data?.nodes || [];
+        setMarkers(
+          nodes
+            .filter(node => Number.isFinite(node.latitude) && Number.isFinite(node.longitude))
+            .map(node => ({
+              longitude: node.longitude,
+              latitude: node.latitude,
+              name: node.name,
+              description: node.online ? '在线' : '离线',
+              color: node.online ? 'var(--color-kumo-success)' : 'var(--text-color-kumo-inactive)',
+            }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setMarkers([]);
       });
+    return () => {
+      cancelled = true;
     };
-
-    const tick = timestamp => {
-      const deltaSeconds = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 0.05) : 1 / 60;
-      sampleAccumulator += deltaSeconds;
-      while (sampleAccumulator >= AUTH_WAVE_SAMPLE_INTERVAL) {
-        samples.shift();
-        samples.push(nextSample(AUTH_WAVE_SAMPLE_INTERVAL));
-        sampleAccumulator -= AUTH_WAVE_SAMPLE_INTERVAL;
-        draw();
-      }
-      const progress = sampleAccumulator / AUTH_WAVE_SAMPLE_INTERVAL;
-      traceGroupRef.current?.setAttribute(
-        'transform',
-        `translate(${(-progress * xStep).toFixed(2)} 0)`
-      );
-      lastFrame = timestamp;
-      frameId = window.requestAnimationFrame(tick);
-    };
-
-    draw();
-    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      frameId = window.requestAnimationFrame(tick);
-    }
-
-    return () => window.cancelAnimationFrame(frameId);
   }, []);
 
   return (
-    <svg className="auth-monitor-wave" viewBox="0 0 720 250" preserveAspectRatio="none">
-      <g ref={traceGroupRef}>
-        <path ref={ecgPathRef} className="auth-monitor-wave-line auth-monitor-wave-line--ecg" />
-        <path
-          ref={secondaryLeadPathRef}
-          className="auth-monitor-wave-line auth-monitor-wave-line--secondary"
-        />
-        <path ref={plethPathRef} className="auth-monitor-wave-line auth-monitor-wave-line--pleth" />
-      </g>
-    </svg>
+    <div className="auth-globe-map">
+      <GlobeMap
+        markers={[...EQUATOR_GLOW_MARKERS, ...markers]}
+        defaultRotation={GLOBE_DEFAULT_ROTATION}
+        autoRotate={!prefersReducedMotion()}
+        autoRotateSpeed={5}
+        landColor={
+          isDarkMode ? 'var(--text-color-kumo-subtle)' : 'var(--text-color-kumo-inactive)'
+        }
+        landHatchSpacing={4}
+        markerColor="var(--color-kumo-brand)"
+        markerRadius={6}
+        showGraticule
+        showTooltip={false}
+        draggable={false}
+        isDarkMode={isDarkMode}
+        className="auth-globe-canvas"
+        aria-label="监控节点分布"
+      />
+    </div>
   );
 }
 
 function AuthBrandCanvas() {
+  const theme = useStore(s => s.theme);
+
   return (
     <div className="auth-brand-pane-inner">
       <div className="auth-brand-lockup">
@@ -221,8 +122,8 @@ function AuthBrandCanvas() {
         </div>
       </div>
 
-      <div className="auth-monitor-visual" aria-hidden="true">
-        <AuthMonitorWave />
+      <div className="auth-monitor-visual">
+        <AuthGlobeMarkers isDarkMode={theme === 'dark'} />
       </div>
     </div>
   );
