@@ -448,6 +448,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/status-pages", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server status page list/create", MatchMode: MatchExact},
 		{Prefix: "/api/server/public/status-page-by-domain", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public server status page lookup by domain", MatchMode: MatchExact},
 		{Prefix: "/api/server/public/status-pages/{slug}", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public server status page by slug", MatchMode: MatchPattern},
+		{Prefix: "/api/server/public/globe-nodes", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public server globe node markers", MatchMode: MatchExact},
 
 		// REST API for server list and details
 		{Prefix: "/api/server/s/{id}/history", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server metrics history", MatchMode: MatchPattern},

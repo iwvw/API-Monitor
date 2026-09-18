@@ -65,6 +65,9 @@ func (s *Service) handlePublicStatusPageRoutes(w http.ResponseWriter, r *http.Re
 	var ok bool
 	var err error
 	switch {
+	case len(parts) == 1 && parts[0] == "globe-nodes":
+		s.handlePublicGlobeNodes(w, r, db)
+		return
 	case len(parts) == 2 && parts[0] == "status-pages":
 		page, ok, err = s.getPublicServerStatusPage(r.Context(), db, normalizeServerStatusSlug(parts[1]), "")
 	case len(parts) == 1 && parts[0] == "status-page-by-domain":
@@ -87,6 +90,57 @@ func (s *Service) handlePublicStatusPageRoutes(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	response.OK(w, page)
+}
+
+// handlePublicGlobeNodes 供登录页地球标记使用：只暴露可公开的主机名称与坐标，
+// 不含主机地址、凭据等敏感字段。无端地址用 0,0 过滤，避免地图中心出现假点。
+func (s *Service) handlePublicGlobeNodes(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	rows, err := db.QueryContext(r.Context(), `SELECT id, name, COALESCE(cached_info, '{}') FROM server_accounts ORDER BY order_index ASC, name ASC`)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	nodes := []map[string]interface{}{}
+	for rows.Next() {
+		var id, name, cachedInfo string
+		if err := rows.Scan(&id, &name, &cachedInfo); err != nil {
+			continue
+		}
+		cached := map[string]interface{}{}
+		_ = json.Unmarshal([]byte(cachedInfo), &cached)
+		online := false
+		if conn, agentOnline := s.registry.Get(id); agentOnline {
+			online = true
+			for key, value := range conn.GetMetadata() {
+				cached[key] = value
+			}
+			normalizePublicServerLiveMetrics(cached, conn.GetMetadata())
+		}
+		lat, hasLat := firstOptionalFloatValue(cached, "lat", "latitude")
+		lon, hasLon := firstOptionalFloatValue(cached, "lon", "longitude")
+		if !hasLat || !hasLon || !hasUsableCoordinates(lat, lon) {
+			continue
+		}
+		status := "offline"
+		if online {
+			status = "online"
+		}
+		nodes = append(nodes, map[string]interface{}{
+			"id":        id,
+			"name":      name,
+			"latitude":  lat,
+			"longitude": lon,
+			"online":    online,
+			"status":    status,
+		})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	response.OK(w, map[string]interface{}{"nodes": nodes})
 }
 
 func (s *Service) listServerStatusPages(w http.ResponseWriter, r *http.Request, db *sql.DB) {

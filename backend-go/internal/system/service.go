@@ -1239,7 +1239,7 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"GET", "POST"}
 	case "/api/server/agent/proxy/runtimes/{id}/{action}":
 		return []string{"POST"}
-	case "/api/server/public/status-page-by-domain", "/api/server/public/status-pages/{slug}":
+	case "/api/server/public/status-page-by-domain", "/api/server/public/status-pages/{slug}", "/api/server/public/globe-nodes":
 		return []string{"GET"}
 	case "/api/aliyun/accounts/{id}/metrics":
 		return []string{"POST"}

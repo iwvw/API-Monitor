@@ -136,6 +136,7 @@ var routeAliases = map[string][]string{
 	"/api/m365/registrations": {"注册记录", "m365 注册记录", "注册列表", "m365 注册"},
 	"/api/oracle":              {"oracle", "甲骨文", "oci", "oracle 云"},
 	"/api/server/status-pages": {"状态页", "公开展示页"},
+	"/api/server/public/globe-nodes": {"地球标记", "节点坐标", "地球节点", "登录页地球"},
 
 	"/api/server/info":            {"主机信息", "服务器信息"},
 	"/api/server/action":          {"重启主机", "关机主机", "开机", "重启", "重启服务器", "关机", "reboot", "shutdown", "重启机器"},

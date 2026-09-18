@@ -537,6 +537,7 @@ var routeDescriptions = map[string]string{
 	"/api/server/status-pages/{id}":            "更新或删除主机状态页",
 	"/api/server/public/status-page-by-domain": "按域名读取公开状态页",
 	"/api/server/public/status-pages/{slug}":   "按 slug 读取公开状态页",
+	"/api/server/public/globe-nodes":           "公开主机地球标记（名称与坐标）",
 	"/api/server/s":                            "列出主机实例（简写路径）",
 	"/api/server/s/{id}":                       "读取或操作单个主机（简写路径）",
 	"/api/server/s/{id}/history":               "读取主机的命令历史",
