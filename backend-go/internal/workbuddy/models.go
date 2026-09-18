@@ -355,16 +355,21 @@ func (s *Service) setModelsEnabled(ctx context.Context, ids []string, enabled bo
 	if err := s.SaveSettings(ctx, st); err != nil {
 		return err
 	}
-	// 关键：同步到已接入网关端点的 disabled_models 列。网关是按这一列拦截请求的
-	// （openai/relay.go 的 resolveEndpointModel → isModelDisabled），只写插件自己的
-	// 设置不会让网关侧停止把该模型路由过来。
-	s.syncLinkedEndpointDisabledModels(ctx)
+	// 关键：同步到已接入网关端点的 models/disabled_models 列。网关是按 disabled_models
+	// 拦截请求的（openai/relay.go 的 resolveEndpointModel → isModelDisabled），只写插件
+	// 自己的设置不会让网关侧停止把该模型路由过来；models 列则收敛为启用项，
+	// 与中继面 /v1/models 口径一致，避免首次加载显示全量目录。
+	s.syncLinkedEndpointModels(ctx)
 	return nil
 }
 
-// refreshLinkedEndpointModels 把「前缀 + 目录模型」后的名单写回已接入的网关端点，
-// 并把 model_mappings 的 key 与 disabled_models 里的模型名从旧前缀迁移到新前缀，
-// 保持三列命名空间一致。未接入或不存在时静默跳过；失败不影响设置保存。
+// refreshLinkedEndpointModels 把 model_mappings 的 key 从旧前缀迁移到新前缀，
+// 保持与 models/disabled_models 的命名空间一致。未接入或不存在时静默跳过；
+// 失败不影响设置保存。
+//
+// models 与 disabled_models 不在这里写：SaveSettings 在前缀变更后会调用
+// syncLinkedEndpointModels 权威写入两列（启用项与停用项）。此处重复写会互相覆盖，
+// 且会短暂把全量目录写回 models 列。
 func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix string) {
 	db, err := s.open(ctx)
 	if err != nil {
@@ -373,8 +378,6 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	defer db.Close()
 
 	newPrefix := s.modelPrefix()
-	models := s.prefixModelNames(s.modelIDsFromCache())
-	modelsJSON, _ := json.Marshal(models)
 
 	var mappingsRaw sql.NullString
 	_ = db.QueryRowContext(ctx, `
@@ -391,12 +394,9 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	}
 	mappingsJSON, _ := json.Marshal(migratedMappings)
 
-	// disabled_models 不在这里迁移：SaveSettings 在前缀变更后会统一把插件设置里的
-	// 停用名单权威地写回端点（syncLinkedEndpointDisabledModels）。两处都写会互相覆盖。
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, model_mappings = ?, last_checked = ? WHERE id = ?`,
-		string(modelsJSON), string(mappingsJSON),
-		time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
+		UPDATE openai_endpoints SET model_mappings = ? WHERE id = ?`,
+		string(mappingsJSON), linkedEndpointID)
 }
 
 // modelIDsFromCache 返回缓存里的原始（未加前缀）模型 ID。

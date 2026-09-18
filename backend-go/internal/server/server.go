@@ -265,6 +265,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	// WorkBuddy 插件 access token 自动刷新：定期把即将过期/已过期的账号提前换新，
 	// 避免直到转发时才暴露 token 失效。
 	server.workbuddy.StartAutoRefresh(warmupCtx)
+	// 启动时对账一次已接入端点的 models 列：旧版本该列停在接入时的全量目录，
+	// 需按当前启用名单收敛，否则首次加载端点会显示已停用的模型。
+	go server.workbuddy.ReconcileLinkedEndpoint(warmupCtx)
 	// WorkBuddy 插件每日自动签到与活跃上报调度（站点时区 9/21 点签到、10 点活跃上报；
 	// 仅国内版账号参与，关闭开关时后台静默跳过）。
 	server.workbuddy.StartCheckinScheduler(warmupCtx)

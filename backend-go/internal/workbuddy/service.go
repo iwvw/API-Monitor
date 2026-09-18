@@ -318,7 +318,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	if prefixChanged {
 		s.refreshLinkedEndpointModels(ctx, oldPrefix)
 	}
-	s.syncLinkedEndpointDisabledModels(ctx)
+	s.syncLinkedEndpointModels(ctx)
 	return nil
 }
 

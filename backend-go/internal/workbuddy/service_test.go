@@ -61,30 +61,60 @@ func readLinkedDisabled(t *testing.T, s *Service) []string {
 	return out
 }
 
+func readLinkedModels(t *testing.T, s *Service) []string {
+	t.Helper()
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var raw string
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT COALESCE(models,'') FROM openai_endpoints WHERE id = ?`,
+		linkedEndpointID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &out)
+	}
+	return out
+}
+
 // 模型开关必须写穿到网关端点的 disabled_models —— 网关是按那一列拦请求的，
 // 只改插件自己的设置不会让网关停止把停用模型路由过来。
 func TestModelToggleWritesThroughToGatewayEndpoint(t *testing.T) {
 	s := newTestService(t)
 	seedLinkedEndpoint(t, s)
+	// 直接注入目录缓存，避免真实上游调用。
+	s.modelMu.Lock()
+	s.modelCache = []ModelInfo{{ID: "hy3"}, {ID: "glm-5.2"}}
+	s.modelCacheAt = time.Now()
+	s.modelMu.Unlock()
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/workbuddy/models/toggle/wb-hy3", strings.NewReader(`{"enabled":false}`))
+		"/api/workbuddy/models/toggle/hy3", strings.NewReader(`{"enabled":false}`))
 	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("停用模型应返回 200，得到 %d: %s", rec.Code, rec.Body.String())
 	}
-	if got := s.Settings().DisabledModels; len(got) != 1 || got[0] != "wb-hy3" {
+	if got := s.Settings().DisabledModels; len(got) != 1 || got[0] != "hy3" {
 		t.Fatalf("插件设置未记录停用模型: %v", got)
 	}
-	if got := readLinkedDisabled(t, s); len(got) != 1 || got[0] != "wb-hy3" {
+	if got := readLinkedDisabled(t, s); len(got) != 1 || got[0] != "hy3" {
 		t.Fatalf("停用模型未同步到网关端点 disabled_models: %v", got)
+	}
+	// models 列必须同时收敛为启用项：否则首次加载端点会显示全量目录，
+	// 要等一次上游刷新才被纠正（见 refreshAllModels 用上游 /v1/models 覆盖该列）。
+	if got := readLinkedModels(t, s); len(got) != 1 || got[0] != "glm-5.2" {
+		t.Fatalf("停用后网关端点 models 应只剩启用项: %v", got)
 	}
 
 	// 重新启用后，两端都应清空。
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost,
-		"/api/workbuddy/models/toggle/wb-hy3", strings.NewReader(`{"enabled":true}`))
+		"/api/workbuddy/models/toggle/hy3", strings.NewReader(`{"enabled":true}`))
 	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("启用模型应返回 200，得到 %d", rec.Code)
@@ -94,6 +124,9 @@ func TestModelToggleWritesThroughToGatewayEndpoint(t *testing.T) {
 	}
 	if got := readLinkedDisabled(t, s); len(got) != 0 {
 		t.Fatalf("启用后网关端点 disabled_models 应清空: %v", got)
+	}
+	if got := readLinkedModels(t, s); len(got) != 2 {
+		t.Fatalf("启用后网关端点 models 应恢复两项: %v", got)
 	}
 }
 
@@ -112,6 +145,44 @@ func TestBatchToggleWritesThrough(t *testing.T) {
 	got := readLinkedDisabled(t, s)
 	if len(got) != 2 {
 		t.Fatalf("批量停用未同步: %v", got)
+	}
+}
+
+// 启动对账：历史端点行的 models 列停在接入时的全量目录，ReconcileLinkedEndpoint
+// 必须按当前启用名单收敛它（否则首次加载仍会显示已停用模型）。
+func TestReconcileLinkedEndpointShrinksModelsColumn(t *testing.T) {
+	s := newTestService(t)
+	seedLinkedEndpoint(t, s)
+	// 模拟旧版本写入的全量 models 列。
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`UPDATE openai_endpoints SET models = '["hy3","glm-5.2"]' WHERE id = ?`,
+		linkedEndpointID); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 注入缓存（对账不回源时应直接使用），并把 hy3 标记为停用。
+	s.modelMu.Lock()
+	s.modelCache = []ModelInfo{{ID: "hy3"}, {ID: "glm-5.2"}}
+	s.modelCacheAt = time.Now()
+	s.modelMu.Unlock()
+	if err := s.SaveSettings(context.Background(), Settings{
+		Enabled:        true,
+		DisabledModels: []string{"hy3"},
+		Accounts:       []Account{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// SaveSettings 已写穿过一次，这里再显式对账验证幂等。
+	s.ReconcileLinkedEndpoint(context.Background())
+
+	if got := readLinkedModels(t, s); len(got) != 1 || got[0] != "glm-5.2" {
+		t.Fatalf("对账后 models 列应只剩启用项: %v", got)
 	}
 }
 
