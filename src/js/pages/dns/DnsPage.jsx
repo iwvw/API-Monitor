@@ -12,7 +12,6 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Table } from '@cloudflare/kumo/components/table';
 import useStore from '../../store.js';
 import useTableResize from '../../composables/useTableResize.js';
@@ -2008,186 +2007,167 @@ function DnsPage() {
         )}
       </div>
 
-      <Dialog.Root open={Boolean(modal.type)} onOpenChange={(open) => { if (!open) closeModal(); }}>
-        {modal.type && (
-        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),48rem)] !w-[min(760px,calc(100vw-2rem))] !max-w-[min(760px,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
+      <AccountDialog
+        open={modal.type === 'account'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        modal={modal}
+        accountForm={accountForm}
+        setAccountForm={setAccountForm}
+        loading={loading}
+        onSaveAccount={saveAccount}
+      />
 
-          {modal.type === 'account' && (
-            <AccountDialog
-              modal={modal}
-              accountForm={accountForm}
-              setAccountForm={setAccountForm}
-              loading={loading}
-              onCloseModal={closeModal}
-              onSaveAccount={saveAccount}
-            />
-          )}
+      <ZoneDialog
+        open={modal.type === 'zone'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        zoneForm={zoneForm}
+        setZoneForm={setZoneForm}
+        loading={loading}
+        onSaveZone={saveZone}
+      />
 
-          {modal.type === 'zone' && (
-            <ZoneDialog
-              zoneForm={zoneForm}
-              setZoneForm={setZoneForm}
-              loading={loading}
-              onCloseModal={closeModal}
-              onSaveZone={saveZone}
-            />
-          )}
+      <RecordDialog
+        open={modal.type === 'record'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        modal={modal}
+        recordForm={recordForm}
+        setRecordForm={setRecordForm}
+        recordTypes={recordTypes}
+        loading={loading}
+        onSaveRecord={saveRecord}
+      />
 
-          {modal.type === 'record' && (
-            <RecordDialog
-              modal={modal}
-              recordForm={recordForm}
-              setRecordForm={setRecordForm}
-              recordTypes={recordTypes}
-              loading={loading}
-              onCloseModal={closeModal}
-              onSaveRecord={saveRecord}
-            />
-          )}
+      <TemplateDialog
+        open={modal.type === 'template'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        modal={modal}
+        templateForm={templateForm}
+        setTemplateForm={setTemplateForm}
+        recordTypes={recordTypes}
+        loading={loading}
+        onSaveTemplate={saveTemplate}
+      />
 
-          {modal.type === 'template' && (
-            <TemplateDialog
-              modal={modal}
-              templateForm={templateForm}
-              setTemplateForm={setTemplateForm}
-              recordTypes={recordTypes}
-              loading={loading}
-              onCloseModal={closeModal}
-              onSaveTemplate={saveTemplate}
-            />
-          )}
+      <WorkerDialog
+        open={modal.type === 'worker'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        modal={modal}
+        workerForm={workerForm}
+        setWorkerForm={setWorkerForm}
+        loading={loading}
+        onSaveWorker={saveWorker}
+      />
 
-          {modal.type === 'worker' && (
-            <WorkerDialog
-              modal={modal}
-              workerForm={workerForm}
-              setWorkerForm={setWorkerForm}
-              loading={loading}
-              onCloseModal={closeModal}
-              onSaveWorker={saveWorker}
-            />
-          )}
+      <WorkerRoutesDialog
+        open={modal.type === 'workerRoutes'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        workerRouteState={workerRouteState}
+        setWorkerRouteState={setWorkerRouteState}
+        loading={loading}
+        isArmed={isArmed}
+        onSaveWorkerRoute={saveWorkerRoute}
+        onDeleteWorkerRoute={deleteWorkerRoute}
+      />
 
-          {modal.type === 'workerRoutes' && (
-            <WorkerRoutesDialog
-              workerRouteState={workerRouteState}
-              setWorkerRouteState={setWorkerRouteState}
-              loading={loading}
-              isArmed={isArmed}
-              onSaveWorkerRoute={saveWorkerRoute}
-              onDeleteWorkerRoute={deleteWorkerRoute}
-            />
-          )}
+      <WorkerDomainsDialog
+        open={modal.type === 'workerDomains'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        workerDomainState={workerDomainState}
+        setWorkerDomainState={setWorkerDomainState}
+        isArmed={isArmed}
+        onAddWorkerDomain={addWorkerDomain}
+        onDeleteWorkerDomain={deleteWorkerDomain}
+      />
 
-          {modal.type === 'workerDomains' && (
-            <WorkerDomainsDialog
-              workerDomainState={workerDomainState}
-              setWorkerDomainState={setWorkerDomainState}
-              isArmed={isArmed}
-              onAddWorkerDomain={addWorkerDomain}
-              onDeleteWorkerDomain={deleteWorkerDomain}
-            />
-          )}
+      <WorkerAnalyticsDialog
+        open={modal.type === 'workerAnalytics'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        workerAnalyticsState={workerAnalyticsState}
+        loading={loading}
+      />
 
-          {modal.type === 'workerAnalytics' && (
-            <WorkerAnalyticsDialog
-              workerAnalyticsState={workerAnalyticsState}
-              loading={loading}
-              onCloseModal={closeModal}
-            />
-          )}
+      <PagesDeploymentsDialog
+        open={modal.type === 'pagesDeployments'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        pagesDeployState={pagesDeployState}
+        isArmed={isArmed}
+        onDeletePagesDeployment={deletePagesDeployment}
+      />
 
-          {modal.type === 'pagesDeployments' && (
-            <PagesDeploymentsDialog
-              pagesDeployState={pagesDeployState}
-              isArmed={isArmed}
-              onDeletePagesDeployment={deletePagesDeployment}
-            />
-          )}
+      <PagesDomainsDialog
+        open={modal.type === 'pagesDomains'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        pagesDomainState={pagesDomainState}
+        setPagesDomainState={setPagesDomainState}
+        isArmed={isArmed}
+        onAddPagesDomain={addPagesDomain}
+        onDeletePagesDomain={deletePagesDomain}
+      />
 
-          {modal.type === 'pagesDomains' && (
-            <PagesDomainsDialog
-              pagesDomainState={pagesDomainState}
-              setPagesDomainState={setPagesDomainState}
-              isArmed={isArmed}
-              onAddPagesDomain={addPagesDomain}
-              onDeletePagesDomain={deletePagesDomain}
-            />
-          )}
+      <R2BucketDialog
+        open={modal.type === 'r2Bucket'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        r2BucketForm={r2BucketForm}
+        setR2BucketForm={setR2BucketForm}
+        loading={loading}
+        onCreateR2Bucket={createR2Bucket}
+      />
 
-          {modal.type === 'r2Bucket' && (
-            <R2BucketDialog
-              r2BucketForm={r2BucketForm}
-              setR2BucketForm={setR2BucketForm}
-              loading={loading}
-              onCloseModal={closeModal}
-              onCreateR2Bucket={createR2Bucket}
-            />
-          )}
+      <R2FolderDialog
+        open={modal.type === 'r2Folder'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        r2FolderForm={r2FolderForm}
+        setR2FolderForm={setR2FolderForm}
+        r2CurrentPrefix={r2CurrentPrefix}
+        loading={loading}
+        onCreateR2Folder={createR2Folder}
+      />
 
-          {modal.type === 'r2Folder' && (
-            <R2FolderDialog
-              r2FolderForm={r2FolderForm}
-              setR2FolderForm={setR2FolderForm}
-              r2CurrentPrefix={r2CurrentPrefix}
-              loading={loading}
-              onCloseModal={closeModal}
-              onCreateR2Folder={createR2Folder}
-            />
-          )}
+      <R2PreviewDialog
+        open={modal.type === 'r2Preview'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        modal={modal}
+      />
 
-          {modal.type === 'r2Preview' && (
-            <R2PreviewDialog modal={modal} onCloseModal={closeModal} />
-          )}
+      <ImportDialog
+        open={modal.type === 'import'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        importState={importState}
+        setImportState={setImportState}
+        onSubmitImport={submitImport}
+      />
 
-          {modal.type === 'import' && (
-            <ImportDialog
-              importState={importState}
-              setImportState={setImportState}
-              onCloseModal={closeModal}
-              onSubmitImport={submitImport}
-            />
-          )}
+      <TunnelCreateDialog
+        open={modal.type === 'tunnelCreate'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        tunnelForm={tunnelForm}
+        setTunnelForm={setTunnelForm}
+        loading={loading}
+        onCreateTunnel={createTunnel}
+      />
 
-          {modal.type === 'tunnelCreate' && (
-            <TunnelCreateDialog
-              tunnelForm={tunnelForm}
-              setTunnelForm={setTunnelForm}
-              loading={loading}
-              onCloseModal={closeModal}
-              onCreateTunnel={createTunnel}
-            />
-          )}
+      <TunnelTokenDialog
+        open={modal.type === 'tunnelToken'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        tunnelTokenState={tunnelTokenState}
+        loading={loading}
+      />
 
-          {modal.type === 'tunnelToken' && (
-            <TunnelTokenDialog
-              tunnelTokenState={tunnelTokenState}
-              loading={loading}
-              onCloseModal={closeModal}
-            />
-          )}
+      <TunnelConfigDialog
+        open={modal.type === 'tunnelConfig'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        tunnelConfigState={tunnelConfigState}
+        setTunnelConfigState={setTunnelConfigState}
+        loading={loading}
+        onSaveTunnelConfig={saveTunnelConfig}
+      />
 
-          {modal.type === 'tunnelConfig' && (
-            <TunnelConfigDialog
-              tunnelConfigState={tunnelConfigState}
-              setTunnelConfigState={setTunnelConfigState}
-              loading={loading}
-              onCloseModal={closeModal}
-              onSaveTunnelConfig={saveTunnelConfig}
-            />
-          )}
-
-          {modal.type === 'tunnelConnections' && (
-            <TunnelConnectionsDialog
-              tunnelConnectionState={tunnelConnectionState}
-              onCleanupTunnelConnections={cleanupTunnelConnections}
-            />
-          )}
-          </div>
-        </Dialog>
-        )}
-      </Dialog.Root>
+      <TunnelConnectionsDialog
+        open={modal.type === 'tunnelConnections'}
+        onOpenChange={(open) => { if (!open) closeModal(); }}
+        tunnelConnectionState={tunnelConnectionState}
+        onCleanupTunnelConnections={cleanupTunnelConnections}
+      />
     </PageStack>
   );
 }

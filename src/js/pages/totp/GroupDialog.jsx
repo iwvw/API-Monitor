@@ -1,6 +1,5 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { BRAND_COLOR_FALLBACK } from '../../components/ui/BrandIcon.jsx';
 import { HEX_COLOR_PATTERN } from './constants.js';
@@ -15,15 +14,16 @@ const GroupDialog = ({
   handleSaveGroup,
 }) => {
   return (
-    <Dialog.Root open={showGroupModal} onOpenChange={setShowGroupModal}>
-      <Dialog className="!w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="text-base font-semibold text-kumo-strong mb-1">
+    <LayerDialog.Root open={showGroupModal} onOpenChange={setShowGroupModal}>
+      <LayerDialog.Content size="sm">
+        <LayerDialog.Title>
           {groupModalMode === 'add' ? '创建新分组' : '编辑分组属性'}
-        </Dialog.Title>
-        <Dialog.Description className="text-xs text-kumo-subtle mb-4">
+        </LayerDialog.Title>
+        <LayerDialog.Description>
           设置分组的名称与卡片主题色值
-        </Dialog.Description>
+        </LayerDialog.Description>
 
+        <LayerDialog.Body>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-kumo-subtle">分组名称</label>
@@ -69,21 +69,15 @@ const GroupDialog = ({
             </div>
           </div>
         </div>
+        </LayerDialog.Body>
 
-        <div className="flex justify-end gap-3 mt-6">
-          <Dialog.Close
-            render={props => (
-              <Button size="sm" {...props} variant="secondary">
-                取消
-              </Button>
-            )}
-          />
-          <Button size="sm" variant="primary" onClick={handleSaveGroup}>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" onClick={handleSaveGroup}>
             保存分组
-          </Button>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 };
 

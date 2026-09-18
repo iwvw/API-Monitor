@@ -1,15 +1,15 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 
 export default function FirewallDialog({ open, onOpenChange, editingFirewall, firewallForm, setFirewallForm, submittingFirewall, onSubmit }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">{editingFirewall ? '编辑防火墙规则' : '新建防火墙规则'}</Dialog.Title>
-        <Dialog.Description className="mb-4 text-xs text-kumo-subtle">规则对满足条件的流量执行放行或拒绝，优先级数字越小越先匹配。</Dialog.Description>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="base">
+        <LayerDialog.Title>{editingFirewall ? '编辑防火墙规则' : '新建防火墙规则'}</LayerDialog.Title>
+        <LayerDialog.Description>规则对满足条件的流量执行放行或拒绝，优先级数字越小越先匹配。</LayerDialog.Description>
+        <LayerDialog.Body>
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-sm text-kumo-subtle">规则名称 *</span>
@@ -70,14 +70,14 @@ export default function FirewallDialog({ open, onOpenChange, editingFirewall, fi
             <Input size="sm" value={firewallForm.ports} onChange={(event) => setFirewallForm({ ...firewallForm, ports: event.target.value })} placeholder="例如 80,443" />
           </label>
         </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" size="sm" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button type="button" size="sm" variant="primary" loading={submittingFirewall} onClick={onSubmit}>
-            {editingFirewall ? '保存' : '创建'}
-          </Button>
-        </div>
       </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" loading={submittingFirewall} onClick={onSubmit}>
+            {editingFirewall ? '保存' : '创建'}
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

@@ -1,5 +1,4 @@
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { AlertTriangle } from '../../components/Icons.jsx';
@@ -16,15 +15,14 @@ export function HealthCheckDialog({ healthApi }) {
     startBatchHealthCheck,
   } = healthApi;
   return (
-      <Dialog.Root open={healthCheckModal} onOpenChange={setHealthCheckModal}>
-        <Dialog className="!w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="text-sm font-semibold text-kumo-strong mb-1">
-            模型健康检测
-          </Dialog.Title>
-          <Dialog.Description className="text-sm text-kumo-subtle mb-4">
+      <LayerDialog.Root open={healthCheckModal} onOpenChange={setHealthCheckModal}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>模型健康检测</LayerDialog.Title>
+          <LayerDialog.Description>
             按设定并发逐批发送轻量请求，测试每个模型的可用性与延迟。
-          </Dialog.Description>
+          </LayerDialog.Description>
 
+          <LayerDialog.Body>
           <div className="space-y-4">
             <div className="bg-kumo-warning/10 border border-kumo-warning/20 text-kumo-warning px-3 py-2 text-sm space-y-1">
               <p className="font-semibold flex items-center gap-1.5">
@@ -84,26 +82,18 @@ export function HealthCheckDialog({ healthApi }) {
               默认并发 {DEFAULT_MODEL_HEALTH_CONCURRENCY}、超时{' '}
               {DEFAULT_MODEL_HEALTH_TIMEOUT_SECONDS} 秒；批量检测全部启用端点上的模型，完成后统一回填结果。
             </p>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close
-                render={props => (
-                  <Button size="sm" {...props} variant="secondary">
-                    取消
-                  </Button>
-                )}
-              />
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={modelHealthBatchLoading}
-                onClick={startBatchHealthCheck}
-              >
-                {modelHealthBatchLoading ? '检测中...' : '开始检测'}
-              </Button>
-            </div>
           </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              loading={modelHealthBatchLoading}
+              onClick={startBatchHealthCheck}
+            >
+              开始检测
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }

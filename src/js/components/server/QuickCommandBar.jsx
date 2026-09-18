@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Tabs } from '@cloudflare/kumo';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
@@ -458,13 +459,10 @@ export default function QuickCommandBar({
         </Dialog>
       </Dialog.Root>
 
-      <Dialog.Root open={historyOpen} onOpenChange={setHistoryOpen}>
-        <Dialog size="lg" className="flex max-h-[calc(100dvh-1rem)] !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
-            <Dialog.Title className="text-sm font-semibold text-kumo-strong">命令执行历史</Dialog.Title>
-            <Dialog.Close />
-          </div>
-          <div className="space-y-2 overflow-y-auto p-4">
+      <LayerDialog.Root open={historyOpen} onOpenChange={setHistoryOpen}>
+        <LayerDialog.Content size="lg">
+          <LayerDialog.Title>命令执行历史</LayerDialog.Title>
+          <LayerDialog.Body>
             {historyLoading ? (
               <div className="py-8 text-center text-xs text-kumo-subtle">加载历史中...</div>
             ) : historyItems.length === 0 ? (
@@ -492,13 +490,12 @@ export default function QuickCommandBar({
                 ))}
               </div>
             )}
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={loadHistory} loading={historyLoading}>刷新</Button>
-            <Button size="sm" variant="primary" onClick={() => setHistoryOpen(false)}>关闭</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="关闭">
+            <LayerDialog.Actions.Primary type="button" onClick={loadHistory} loading={historyLoading}>刷新</LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </>
   );
 }

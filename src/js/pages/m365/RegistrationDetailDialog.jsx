@@ -1,6 +1,5 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { cx, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { formatDateTime } from '../../modules/utils.js';
 import {
@@ -11,16 +10,18 @@ import {
 
 export default function RegistrationDetailDialog({ registrationDetail, setRegistrationDetail }) {
   return (
-    <Dialog.Root
+    <LayerDialog.Root
       open={!!registrationDetail}
       onOpenChange={open => {
         if (!open) setRegistrationDetail(null);
       }}
     >
-      <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
+      <LayerDialog.Content size="lg">
+        <LayerDialog.Title>注册记录详情</LayerDialog.Title>
+        <LayerDialog.Body>
         {registrationDetail ? (
-          <div className="space-y-4">
-            <Dialog.Title>注册记录详情</Dialog.Title>
+          <>
+            <div className="space-y-4">
             <div className="grid gap-3 cq-sm:grid-cols-2">
               <div className="rounded-lg border border-kumo-line/70 bg-kumo-recessed/10 px-3 py-2.5">
                 <div className="text-[11px] text-kumo-subtle">账号</div>
@@ -79,14 +80,11 @@ export default function RegistrationDetailDialog({ registrationDetail, setRegist
                 {getRegistrationResultText(registrationDetail)}
               </div>
             </div>
-            <div className="flex justify-end">
-              <Button size="sm" variant="secondary" onClick={() => setRegistrationDetail(null)}>
-                关闭
-              </Button>
             </div>
-          </div>
+          </>
         ) : null}
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

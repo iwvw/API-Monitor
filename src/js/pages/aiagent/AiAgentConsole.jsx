@@ -3,7 +3,7 @@ import { toast } from '../../modules/toast.js';
 import { del, get, post, put } from '../../modules/apiClient.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
@@ -1069,15 +1069,13 @@ export default function AiAgentConsole() {
         </SectionCard>
       )}
 
-      <Dialog.Root open={instanceDialogOpen} onOpenChange={setInstanceDialogOpen}>
-        <Dialog className="@container !w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
-            {editingInstance ? '编辑实例' : '添加实例'}
-          </Dialog.Title>
-          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+      <LayerDialog.Root open={instanceDialogOpen} onOpenChange={setInstanceDialogOpen}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>{editingInstance ? '编辑实例' : '添加实例'}</LayerDialog.Title>
+          <LayerDialog.Description>
             {instanceDialogDescription(editingInstance, instanceOwner)}
-          </Dialog.Description>
-          <div className="flex flex-col gap-3">
+          </LayerDialog.Description>
+          <LayerDialog.Body className="flex flex-col gap-3">
             <label className="flex flex-col gap-1">
               <span className="text-sm text-kumo-subtle">主机</span>
               <Select
@@ -1134,82 +1132,82 @@ export default function AiAgentConsole() {
               />
               启用该实例
             </label>
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setInstanceDialogOpen(false)}>
-              取消
-            </Button>
-            <Button size="sm" variant="primary" onClick={saveInstance} disabled={instanceSaving}>
-              {instanceSaving ? '保存中…' : '保存'}
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              onClick={saveInstance}
+              loading={instanceSaving}
+            >
+              保存
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root
+      <LayerDialog.Root
         open={Boolean(userInstancesTarget)}
         onOpenChange={open => {
           if (!open) setUserInstancesTarget(null);
         }}
       >
-        <Dialog className="@container !w-[min(52rem,calc(100vw-2rem))] !max-w-[min(52rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
-            {userInstancesTarget?.username} 的实例
-          </Dialog.Title>
-          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+        <LayerDialog.Content size="lg">
+          <LayerDialog.Title>{userInstancesTarget?.username} 的实例</LayerDialog.Title>
+          <LayerDialog.Description>
             登记在用户名下的 AI Agent 实例，可为其新增、编辑或删除。
-          </Dialog.Description>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <Button size="sm" variant="secondary" onClick={() => openUserInstances(userInstancesTarget)}>
-              <RefreshCw className="h-4 w-4" />
-              刷新
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => openCreateInstance(userInstancesTarget)}
-            >
-              <Plus className="h-4 w-4" />
-              添加实例
-            </Button>
-          </div>
-          {renderLoadingOrEmpty(
-            userInstancesLoading,
-            userInstances.length === 0,
-            <Empty
-              size="sm"
-              className="rounded-none border-0 bg-transparent"
-              title="该用户还没有实例"
-              description="点击「添加实例」为其登记一台已安装 Agent 的机器"
-            />,
-            <LayerCard className="overflow-x-auto p-0">
-              <InstanceTable
-                instances={userInstances}
-                isAdmin={false}
-                onAccess={showAccessInfo}
-                onEdit={openEditInstance}
-                onDelete={removeInstance}
-                isArmed={isArmed}
-              />
-            </LayerCard>
-          )}
-          <div className="mt-5 flex justify-end">
-            <Button size="sm" variant="secondary" onClick={() => setUserInstancesTarget(null)}>
-              关闭
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => openUserInstances(userInstancesTarget)}
+              >
+                <RefreshCw className="h-4 w-4" />
+                刷新
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => openCreateInstance(userInstancesTarget)}
+              >
+                <Plus className="h-4 w-4" />
+                添加实例
+              </Button>
+            </div>
+            {renderLoadingOrEmpty(
+              userInstancesLoading,
+              userInstances.length === 0,
+              <Empty
+                size="sm"
+                className="rounded-none border-0 bg-transparent"
+                title="该用户还没有实例"
+                description="点击「添加实例」为其登记一台已安装 Agent 的机器"
+              />,
+              <LayerCard className="overflow-x-auto p-0">
+                <InstanceTable
+                  instances={userInstances}
+                  isAdmin={false}
+                  onAccess={showAccessInfo}
+                  onEdit={openEditInstance}
+                  onDelete={removeInstance}
+                  isArmed={isArmed}
+                />
+              </LayerCard>
+            )}
+          </LayerDialog.Body>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root open={userDialogOpen} onOpenChange={setUserDialogOpen}>
-        <Dialog className="@container !w-[min(30rem,calc(100vw-2rem))] !max-w-[min(30rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
+      <LayerDialog.Root open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>
             {editingUser ? `编辑用户 ${editingUser.username}` : '新建用户'}
-          </Dialog.Title>
-          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+          </LayerDialog.Title>
+          <LayerDialog.Description>
             用户用于客户端登录，与面板管理员账号相互独立。
-          </Dialog.Description>
-          <div className="flex flex-col gap-3">
+          </LayerDialog.Description>
+          <LayerDialog.Body className="flex flex-col gap-3">
             <label className="flex flex-col gap-1">
               <span className="text-sm text-kumo-subtle">用户名</span>
               <Input
@@ -1252,83 +1250,73 @@ export default function AiAgentConsole() {
                 禁用该用户（其全部令牌立即失效）
               </label>
             )}
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setUserDialogOpen(false)}>
-              取消
-            </Button>
-            <Button size="sm" variant="primary" onClick={saveUser} disabled={userSaving}>
-              {userSaving ? '保存中…' : '保存'}
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" onClick={saveUser} loading={userSaving}>
+              保存
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root
+      <LayerDialog.Root
         open={Boolean(accessInfo)}
         onOpenChange={open => {
           if (!open) setAccessInfo(null);
         }}
       >
-        <Dialog className="@container !w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
-            接入信息
-          </Dialog.Title>
-          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>接入信息</LayerDialog.Title>
+          <LayerDialog.Description>
             客户端（如 OpenCode UI）填写面板域名后，使用该实例的网关路径访问。
-          </Dialog.Description>
-          {accessInfo && (
-            <div className="flex flex-col gap-3 text-sm">
-              <div className="flex flex-col gap-1">
-                <span className="text-kumo-subtle">网关路径</span>
-                <ClipboardTextField
-                  size="sm"
-                  text={accessInfo.gatewayPath}
-                  tooltip={{ text: '复制', copiedText: '已复制' }}
-                />
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            {accessInfo && (
+              <div className="flex flex-col gap-3 text-sm">
+                <div className="flex flex-col gap-1">
+                  <span className="text-kumo-subtle">网关路径</span>
+                  <ClipboardTextField
+                    size="sm"
+                    text={accessInfo.gatewayPath}
+                    tooltip={{ text: '复制', copiedText: '已复制' }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-kumo-subtle">Provider</span>
+                    <span className="text-kumo-strong">{accessInfo.providerLabel}</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-kumo-subtle">目标端口</span>
+                    <span className="font-mono text-kumo-strong">{accessInfo.port}</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-kumo-subtle">主机</span>
+                    <span className="text-kumo-strong">{accessInfo.serverId}</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-kumo-subtle">流式协议</span>
+                    <span className="text-kumo-strong">{accessInfo.streaming || '-'}</span>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="text-kumo-subtle">Provider</span>
-                  <span className="text-kumo-strong">{accessInfo.providerLabel}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-kumo-subtle">目标端口</span>
-                  <span className="font-mono text-kumo-strong">{accessInfo.port}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-kumo-subtle">主机</span>
-                  <span className="text-kumo-strong">{accessInfo.serverId}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-kumo-subtle">流式协议</span>
-                  <span className="text-kumo-strong">{accessInfo.streaming || '-'}</span>
-                </div>
-              </div>
-            </div>
-          )}
-          <div className="mt-5 flex justify-end">
-            <Button size="sm" variant="secondary" onClick={() => setAccessInfo(null)}>
-              关闭
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+            )}
+          </LayerDialog.Body>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root
+      <LayerDialog.Root
         open={Boolean(resetTarget)}
         onOpenChange={open => {
           if (!open) setResetTarget(null);
         }}
       >
-        <Dialog className="@container !w-[min(30rem,calc(100vw-2rem))] !max-w-[min(30rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
-            重置密码 {resetTarget?.username}
-          </Dialog.Title>
-          <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>重置密码 {resetTarget?.username}</LayerDialog.Title>
+          <LayerDialog.Description>
             重置后该用户已签发的全部令牌会立即失效，客户端需要重新登录。
-          </Dialog.Description>
-          <div>
+          </LayerDialog.Description>
+          <LayerDialog.Body>
             <label className="flex flex-col gap-1">
               <span className="text-sm text-kumo-subtle">新密码（至少 8 位）</span>
               <Input
@@ -1338,17 +1326,18 @@ export default function AiAgentConsole() {
                 onChange={event => setResetPassword(event.target.value)}
               />
             </label>
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setResetTarget(null)}>
-              取消
-            </Button>
-            <Button size="sm" variant="primary" onClick={resetPasswordFor} disabled={resetting}>
-              {resetting ? '提交中…' : '重置'}
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              onClick={resetPasswordFor}
+              loading={resetting}
+            >
+              重置
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </PageStack>
   );
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import {
   KeyValueGrid,
   StatusBadge,
@@ -10,12 +10,13 @@ import { getStatusTone } from './utils.js';
 
 export default function FlexusDetailDialog({ flexusDetail, onOpenChange, formatExpire, selectedAccountId, setSshTarget }) {
   return (
-    <Dialog.Root open={Boolean(flexusDetail)} onOpenChange={onOpenChange}>
-      <Dialog className="@container !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">{flexusDetail?.name || 'Flexus L 详情'}</Dialog.Title>
-        <Dialog.Description className="mb-4 text-xs text-kumo-subtle">套餐组合与运行信息，全部来自华为云 API，无需登录官网。</Dialog.Description>
+    <LayerDialog.Root open={Boolean(flexusDetail)} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="base">
+        <LayerDialog.Title>{flexusDetail?.name || 'Flexus L 详情'}</LayerDialog.Title>
+        <LayerDialog.Description>套餐组合与运行信息，全部来自华为云 API，无需登录官网。</LayerDialog.Description>
+        <LayerDialog.Body>
         {flexusDetail && (
-          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3">
             <KeyValueGrid
               items={[
                 {
@@ -68,9 +69,10 @@ export default function FlexusDetailDialog({ flexusDetail, onOpenChange, formatE
                 </Button>
               </div>
             )}
-          </div>
+            </div>
         )}
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

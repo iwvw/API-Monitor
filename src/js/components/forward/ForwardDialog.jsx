@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, Button, ClipboardText, Tabs } from '@cloudflare/kumo';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
@@ -457,21 +457,16 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
     : '';
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog
-        className="flex flex-col overflow-hidden !p-0"
-        style={{ width: 'calc(100vw - 2rem)', maxWidth: '60rem', maxHeight: 'min(100dvh - 2rem, 48rem)' }}
-      >
-        <div className="shrink-0 px-6 pt-5">
-          <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
-            {editing ? '编辑转发规则' : '创建转发规则'}
-          </Dialog.Title>
-          <Dialog.Description className="mb-1 text-sm text-kumo-subtle">
-            将内网服务通过 {TRANSPORT_NAMES[transport] || 'TCP 中继'} 暴露到公网。
-          </Dialog.Description>
-        </div>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="xl">
+        <LayerDialog.Title>
+          {editing ? '编辑转发规则' : '创建转发规则'}
+        </LayerDialog.Title>
+        <LayerDialog.Description>
+          将内网服务通过 {TRANSPORT_NAMES[transport] || 'TCP 中继'} 暴露到公网。
+        </LayerDialog.Description>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+        <LayerDialog.Body>
           <div className="grid grid-cols-2 gap-x-5 gap-y-4">
             {/* ====== 左列：基本信息 + 访问控制 ====== */}
             <div className="space-y-4">
@@ -695,19 +690,18 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
               )}
             </div>
           </div>
-        </div>
+        </LayerDialog.Body>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line px-6 py-4">
-          <Dialog.Close render={(props) => <Button size="sm" variant="outline" {...props}>取消</Button>} />
+        <LayerDialog.Actions dismissLabel="取消">
           {createdToken ? (
-            <Button size="sm" onClick={() => onOpenChange(false)}>完成</Button>
+            <LayerDialog.Actions.Primary type="button" onClick={() => onOpenChange(false)}>完成</LayerDialog.Actions.Primary>
           ) : (
-            <Button size="sm" onClick={handleSubmit} disabled={submitting}>
-              {submitting ? '提交中...' : editing ? '保存' : '创建并部署'}
-            </Button>
+            <LayerDialog.Actions.Primary type="button" onClick={handleSubmit} loading={submitting}>
+              {editing ? '保存' : '创建并部署'}
+            </LayerDialog.Actions.Primary>
           )}
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

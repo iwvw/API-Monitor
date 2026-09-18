@@ -3,8 +3,9 @@ import { toast } from '../modules/toast.js';
 import { request } from '../modules/apiClient.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
+import { SensitiveInput } from '@cloudflare/kumo/components/sensitive-input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Badge, ClipboardText, Empty, Loader, Tabs, Text } from '@cloudflare/kumo';
@@ -445,17 +446,15 @@ function DockerHubPage() {
       </div>
 
       {/* 标签查看 Dialog */}
-      <Dialog.Root open={Boolean(tagsRepo)} onOpenChange={(open) => { if (!open) setTagsRepo(null); }}>
-        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),18rem)] w-[min(calc(100vw-2rem),80rem)] flex-col overflow-hidden p-0">
-          <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-3">
-            <Dialog.Title className="text-base font-semibold text-kumo-strong">
-              标签 {tagsRepo?.namespace}/{tagsRepo?.name}
-            </Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs text-kumo-subtle">
-              按更新时间排序，共 {tags.length} 个标签。
-            </Dialog.Description>
-          </div>
-          <div className="min-h-0 max-h-[calc(18rem-5.5rem)] flex-1 overflow-y-auto px-5 py-4">
+      <LayerDialog.Root open={Boolean(tagsRepo)} onOpenChange={(open) => { if (!open) setTagsRepo(null); }}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>
+            标签 {tagsRepo?.namespace}/{tagsRepo?.name}
+          </LayerDialog.Title>
+          <LayerDialog.Description>
+            按更新时间排序，共 {tags.length} 个标签。
+          </LayerDialog.Description>
+          <LayerDialog.Body>
             {tagsLoading ? (
               <div className="flex items-center justify-center py-6"><Loader size={24} className="text-kumo-info" /></div>
             ) : tags.length === 0 ? (
@@ -478,27 +477,23 @@ function DockerHubPage() {
                 ))}
               </div>
             )}
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-5 py-3">
-            <Button size="sm" variant="secondary" onClick={() => setTagsRepo(null)}>关闭</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       {/* 添加账号 Dialog */}
-      <Dialog.Root open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
-        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),38rem)] flex-col overflow-hidden p-0">
-          <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
-            <Dialog.Title className="text-base font-semibold text-kumo-strong">添加 Docker Hub 账号</Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs text-kumo-subtle">
-              访问令牌用于验证凭据并列出该账号下全部仓库（含私有）。
-            </Dialog.Description>
-          </div>
-          <form
-            className="min-h-0 flex-1 overflow-y-auto"
-            onSubmit={(e) => { e.preventDefault(); void createAccount(); }}
-          >
-            <div className="space-y-4 px-5 py-4">
+      <LayerDialog.Root open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+        <LayerDialog.Content size="base">
+          <LayerDialog.Title>添加 Docker Hub 账号</LayerDialog.Title>
+          <LayerDialog.Description>
+            访问令牌用于验证凭据并列出该账号下全部仓库（含私有）。
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <form
+              id="dockerhub-account-form"
+              className="space-y-4"
+              onSubmit={(e) => { e.preventDefault(); void createAccount(); }}
+            >
               <Input
                 size="sm"
                 label="Docker Hub 用户名"
@@ -507,12 +502,11 @@ function DockerHubPage() {
                 placeholder="如 myusername"
                 autoFocus
               />
-              <Input
+              <SensitiveInput
                 size="sm"
                 label="访问令牌（PAT / 临时令牌）"
-                type="password"
                 value={accountForm.token}
-                onChange={(e) => setAccountForm((p) => ({ ...p, token: e.target.value }))}
+                onValueChange={(token) => setAccountForm((p) => ({ ...p, token }))}
                 placeholder="dckr_pat_..."
                 autoComplete="off"
                 data-1p-ignore
@@ -522,14 +516,13 @@ function DockerHubPage() {
               <Text variant="secondary" size="xs">
                 提示：令牌不会明文展示，仅加密存储在服务端。
               </Text>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-5 py-3">
-              <Dialog.Close render={(props) => <Button type="button" size="sm" variant="secondary" {...props}>取消</Button>} />
-              <Button type="submit" size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} loading={saving}>保存</Button>
-            </div>
-          </form>
-        </Dialog>
-      </Dialog.Root>
+            </form>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="submit" form="dockerhub-account-form" icon={<Plus className="h-3.5 w-3.5" />} loading={saving}>保存</LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
@@ -495,13 +495,12 @@ function TencentPage() {
       {activeTab === 'lighthouse' && renderInstances('lighthouse')}
       {activeTab === 'accounts' && renderAccounts()}
 
-      <Dialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
-        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),34rem)] flex-col overflow-hidden p-0">
-          <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
-            <Dialog.Title className="text-base font-semibold text-kumo-strong">{editingAccount ? '编辑腾讯云账号' : '添加腾讯云账号'}</Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs text-kumo-subtle">建议使用最小权限子账号。</Dialog.Description>
-          </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <LayerDialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>{editingAccount ? '编辑腾讯云账号' : '添加腾讯云账号'}</LayerDialog.Title>
+          <LayerDialog.Description>建议使用最小权限子账号。</LayerDialog.Description>
+          <LayerDialog.Body>
+          <div className="@container space-y-4">
             <Input size="sm" label="备注名称" value={accountForm.name} onChange={(event) => setAccountForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="生产环境" />
             <div className="grid gap-3 cq-sm:grid-cols-2">
               <Input size="sm" label="Secret ID" value={accountForm.secretId} onChange={(event) => setAccountForm((prev) => ({ ...prev, secretId: event.target.value }))} className="font-mono" placeholder="AKID..." />
@@ -510,12 +509,12 @@ function TencentPage() {
             <Input size="sm" label="Secret Key" value={accountForm.secretKey} onChange={(event) => setAccountForm((prev) => ({ ...prev, secretKey: event.target.value }))} placeholder={editingAccount ? '不修改请留空' : undefined} autoComplete="off" spellCheck={false} className="font-mono" />
             <Textarea size="sm" label="账号描述" value={accountForm.description} onChange={(event) => setAccountForm((prev) => ({ ...prev, description: event.target.value }))} className="min-h-20" />
           </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-5 py-3">
-            <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
-            <Button size="sm" onClick={saveAccount} loading={submittingAccount}>保存账号</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" onClick={saveAccount} loading={submittingAccount}>保存账号</LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </PageStack>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Textarea, Toolbar, Select } from '@cloudflare/kumo';
+import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Textarea, Toolbar, Select, SensitiveInput } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, DeepSeekBrand, Settings as SettingsIcon, Plus, Upload, Download, RefreshCw, Trash, Edit, TrendingUp } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
@@ -769,7 +769,7 @@ export function DS2APIPlugin() {
               <Input size="sm" label="名称（可选）" type="text" value={addForm.name} onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} className="w-full" />
               <Input size="sm" label="邮箱" type="email" value={addForm.email} onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))} className="w-full" placeholder="user@example.com" />
               <Input size="sm" label="手机号" type="text" value={addForm.mobile} onChange={e => setAddForm(f => ({ ...f, mobile: e.target.value }))} className="w-full" placeholder="13800138000" />
-              <Input size="sm" label="密码" type="password" value={addForm.password} onChange={e => setAddForm(f => ({ ...f, password: e.target.value }))} className="w-full" />
+              <SensitiveInput size="sm" label="密码" value={addForm.password} onValueChange={password => setAddForm(f => ({ ...f, password }))} className="w-full" />
             </div>
           </div>
           <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
@@ -816,7 +816,7 @@ export function DS2APIPlugin() {
               <Input size="sm" label="名称（可选）" type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="w-full" />
               <Input size="sm" label="邮箱" type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} className="w-full" placeholder="user@example.com" />
               <Input size="sm" label="手机号" type="text" value={editForm.mobile} onChange={e => setEditForm(f => ({ ...f, mobile: e.target.value }))} className="w-full" placeholder="13800138000" />
-              <Input size="sm" label="密码（留空不改）" type="password" value={editForm.password} onChange={e => setEditForm(f => ({ ...f, password: e.target.value }))} className="w-full" />
+              <SensitiveInput size="sm" label="密码（留空不改）" value={editForm.password} onValueChange={password => setEditForm(f => ({ ...f, password }))} className="w-full" />
             </div>
           </div>
           <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">

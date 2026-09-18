@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 
 export default function SSHTerminalDialog({ accountId, instance, onClose }) {
   const containerRef = useRef(null);
@@ -73,9 +73,10 @@ export default function SSHTerminalDialog({ accountId, instance, onClose }) {
   }, [accountId, instance.publicIp]);
 
   return (
-    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <Dialog className="@container !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))] p-0">
-        <Dialog.Title className="flex items-center gap-2 px-4 pt-4 text-sm font-semibold text-kumo-strong">
+    <LayerDialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <LayerDialog.Content size="xl">
+        <LayerDialog.Title>
+          <span className="flex items-center gap-2">
           SSH 终端 · {instance.name}
           <span className="ml-auto flex items-center gap-2 text-xs font-normal text-kumo-subtle">
             {instance.publicIp}
@@ -87,12 +88,15 @@ export default function SSHTerminalDialog({ accountId, instance, onClose }) {
             />
             {status}
           </span>
-        </Dialog.Title>
-        <Dialog.Description className="sr-only">华为云实例 SSH 终端</Dialog.Description>
-        <div className="p-4">
+          </span>
+        </LayerDialog.Title>
+        <LayerDialog.Description>
+          <span className="sr-only">华为云实例 SSH 终端</span>
+        </LayerDialog.Description>
+        <LayerDialog.Body>
           <div ref={containerRef} className="h-[28rem] w-full overflow-hidden rounded-md border border-kumo-line bg-[#0b0b0d]" />
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

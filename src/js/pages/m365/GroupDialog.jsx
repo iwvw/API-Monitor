@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 
 export default function GroupDialog({
@@ -12,10 +12,10 @@ export default function GroupDialog({
   submittingGroup,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog size="sm" className="p-5">
-        <div className="space-y-4">
-          <Dialog.Title>新建组</Dialog.Title>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="sm">
+        <LayerDialog.Title>新建组</LayerDialog.Title>
+        <LayerDialog.Body>
           <div className="grid gap-3">
             <Input
               size="sm"
@@ -36,16 +36,17 @@ export default function GroupDialog({
               placeholder="mailNickname"
             />
           </div>
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button size="sm" variant="primary" onClick={submitGroup} disabled={submittingGroup}>
-              {submittingGroup ? '创建中...' : '创建'}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions>
+          <LayerDialog.Actions.Primary
+            type="button"
+            onClick={submitGroup}
+            loading={submittingGroup}
+          >
+            {submittingGroup ? '创建中...' : '创建'}
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

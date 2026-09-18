@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardText, Empty, LayerCard, Tabs } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
@@ -153,12 +153,13 @@ function ItemFormDialog({ open, form, onOpenChange, onFormChange, onSave }) {
   const canSave = form.title.trim() && form.url.trim();
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="w-[min(32rem,calc(100vw-2rem))] p-5">
-        <Dialog.Title className="text-base font-semibold text-kumo-strong">
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="sm">
+        <LayerDialog.Title>
           {form.id ? '编辑网址' : '新建网址'}
-        </Dialog.Title>
-        <div className="mt-4 space-y-3">
+        </LayerDialog.Title>
+        <LayerDialog.Body>
+        <div className="space-y-3">
           <Input
             size="sm"
             label="标题"
@@ -259,12 +260,12 @@ function ItemFormDialog({ open, form, onOpenChange, onFormChange, onSave }) {
             )}
           </div>
         </div>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button size="sm" variant="primary" disabled={!canSave} onClick={() => onSave()}>保存</Button>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" disabled={!canSave} onClick={() => onSave()}>保存</LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }
 
@@ -283,10 +284,11 @@ function GroupSettingsDialog({ open, form, onOpenChange, onFormChange, onSave })
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="w-[min(32rem,calc(100vw-2rem))] p-5">
-        <Dialog.Title className="text-base font-semibold text-kumo-strong">分组公开设置</Dialog.Title>
-        <div className="mt-4 space-y-3">
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="sm">
+        <LayerDialog.Title>分组公开设置</LayerDialog.Title>
+        <LayerDialog.Body>
+        <div className="space-y-3">
           <Input
             size="sm"
             label="分组名称"
@@ -345,12 +347,12 @@ function GroupSettingsDialog({ open, form, onOpenChange, onFormChange, onSave })
             </>
           )}
         </div>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button size="sm" variant="primary" disabled={!canSave} onClick={() => onSave()}>保存</Button>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" disabled={!canSave} onClick={() => onSave()}>保存</LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }
 

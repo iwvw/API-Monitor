@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { AppCard, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { Copy, Shield } from '../../components/Icons.jsx';
 
@@ -16,13 +16,12 @@ export default function PermissionDialog({
   copyText,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <Dialog.Title>Graph 权限说明</Dialog.Title>
-          </div>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="lg">
+        <LayerDialog.Title>Graph 权限说明</LayerDialog.Title>
 
+        <LayerDialog.Body>
+        <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs text-kumo-subtle">
               {selectedAccount ? `当前租户：${selectedAccount.name}` : '请先选择租户'}
@@ -79,14 +78,9 @@ export default function PermissionDialog({
               </AppCard>
             ))}
           </div>
-
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
-              关闭
-            </Button>
-          </div>
         </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

@@ -1,6 +1,5 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 
@@ -14,10 +13,10 @@ export default function InviteCodeDialog({
   generatingInviteCodes,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog size="sm" className="p-5">
-        <div className="space-y-4">
-          <Dialog.Title>生成邀请码</Dialog.Title>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="sm">
+        <LayerDialog.Title>生成邀请码</LayerDialog.Title>
+        <LayerDialog.Body>
           <div className="grid gap-3">
             <Select alignItemWithTrigger
               aria-label="公开页"
@@ -47,21 +46,17 @@ export default function InviteCodeDialog({
               使用带 `code` 的注册链接，默认限 1 次。
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={generateInviteCodes}
-              disabled={generatingInviteCodes}
-            >
-              {generatingInviteCodes ? '生成中...' : '生成'}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary
+            type="button"
+            onClick={generateInviteCodes}
+            loading={generatingInviteCodes}
+          >
+            生成
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

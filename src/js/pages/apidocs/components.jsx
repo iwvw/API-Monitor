@@ -1,8 +1,7 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
 import { Select } from '@cloudflare/kumo/components/select';
+import { CodeHighlighted } from '@cloudflare/kumo/code';
 import { AppCard, StatusBadge, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Copy } from '../../components/Icons.jsx';
 import { methodClassName } from './utils.js';
 
 export function StatCard({ icon: Icon, label, value, tone = 'brand' }) {
@@ -106,24 +105,20 @@ export function InfoRow({ label, value }) {
   );
 }
 
-export function SnippetBox({ label, value, onCopy }) {
+export function SnippetBox({ label, value }) {
+  const lang = /curl/i.test(label) ? 'bash' : 'json';
   return (
     <div className="min-w-0 rounded-md border border-kumo-line bg-kumo-recessed/35">
       <div className="flex items-center justify-between gap-2 border-b border-kumo-line px-3 py-2">
         <div className="truncate text-xs font-semibold text-kumo-strong">{label}</div>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onCopy(value, `${label} 已复制`)}
-          className="gap-1.5"
-        >
-          <Copy className="h-3.5 w-3.5" />
-          <span>复制</span>
-        </Button>
       </div>
-      <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all p-3 font-mono text-[11px] leading-relaxed text-kumo-subtle">
-        {value}
-      </pre>
+      <CodeHighlighted
+        code={value || ''}
+        lang={lang}
+        variant="plain"
+        showCopyButton
+        className="max-h-60 overflow-auto p-3"
+      />
     </div>
   );
 }

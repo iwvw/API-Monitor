@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import { Upload } from '../../components/Icons.jsx';
@@ -18,10 +18,11 @@ export default function AccountDialog({
   submittingAccount,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">{editingAccount ? '编辑 GCP 账号' : '新增 GCP 账号'}</Dialog.Title>
-        <Dialog.Description className="mb-4 text-xs text-kumo-subtle">使用 Service Account JSON 接入 GCP，支持粘贴或导入文件。</Dialog.Description>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="base">
+        <LayerDialog.Title>{editingAccount ? '编辑 GCP 账号' : '新增 GCP 账号'}</LayerDialog.Title>
+        <LayerDialog.Description>使用 Service Account JSON 接入 GCP，支持粘贴或导入文件。</LayerDialog.Description>
+        <LayerDialog.Body>
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-sm text-kumo-subtle">账号名称 *</span>
@@ -79,14 +80,14 @@ export default function AccountDialog({
           <span className="text-sm text-kumo-subtle">备注</span>
           <Input size="sm" value={accountForm.description} onChange={(event) => setAccountForm({ ...accountForm, description: event.target.value })} />
         </label>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" size="sm" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button type="button" size="sm" variant="primary" loading={submittingAccount} onClick={onSubmit}>
-            {editingAccount ? '保存' : '新增'}
-          </Button>
-        </div>
       </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" loading={submittingAccount} onClick={onSubmit}>
+            {editingAccount ? '保存' : '新增'}
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

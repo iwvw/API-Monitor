@@ -7,6 +7,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
+import { TagInput } from '@cloudflare/kumo/components/tag-input';
 import { Loader, Tabs, Toolbar } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { AppCard, EmptyState, ResponsiveSearchInput, SectionCard, StatusBadge, TabBarOverflowActions, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
@@ -112,7 +113,7 @@ function UptimePage() {
     body: '',
     ignoreTls: false,
     expiryNotification: 7,
-    tagsInput: '',
+    tags: [],
     notificationChannels: []
   });
 
@@ -784,7 +785,7 @@ function UptimePage() {
       body: '',
       ignoreTls: false,
       expiryNotification: 7,
-      tagsInput: '',
+      tags: [],
       notificationChannels: defaultChannels
     });
     setUptimeCurrentTab('add');
@@ -816,7 +817,7 @@ function UptimePage() {
       body: monitor.body || '',
       ignoreTls: !!monitor.ignoreTls,
       expiryNotification: monitor.expiryNotification || 7,
-      tagsInput: Array.isArray(monitor.tags) ? monitor.tags.join(',') : '',
+      tags: Array.isArray(monitor.tags) ? monitor.tags : [],
       notificationChannels: monitor.notificationChannels || []
     });
     setUptimeCurrentTab('add');
@@ -841,8 +842,8 @@ function UptimePage() {
     }
 
     // 处理标签数组
-    const tags = uptimeForm.tagsInput
-      ? uptimeForm.tagsInput.split(/[,，]/).map(t => t.trim()).filter(Boolean)
+    const tags = Array.isArray(uptimeForm.tags)
+      ? uptimeForm.tags.map(t => String(t).trim()).filter(Boolean)
       : [];
 
     setUptimeSaving(true);
@@ -1379,13 +1380,12 @@ function UptimePage() {
 
             {/* 标签管理 */}
             <div className="cq-md:col-span-12">
-              <Input
+              <TagInput
                 label="分组标签"
-                type="text" size="sm"
-                placeholder="prod, api, test（逗号或空格分隔）"
-                value={uptimeForm.tagsInput}
-                onChange={(e) => setUptimeForm(prev => ({ ...prev, tagsInput: e.target.value }))}
-                className="w-full"
+                size="sm"
+                placeholder="输入后回车添加，如：prod"
+                value={uptimeForm.tags}
+                onValueChange={(tags) => setUptimeForm(prev => ({ ...prev, tags }))}
               />
             </div>
           </div>

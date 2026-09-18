@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Loader } from '@cloudflare/kumo';
+import { CodeHighlighted } from '@cloudflare/kumo/code';
 import { RefreshCw, X } from '../../components/Icons.jsx';
 
 export default function KoyebUsageDialog({ koyebUsageTarget, setKoyebUsageTarget, openKoyebUsage, koyebUsageLoading, koyebUsageError, koyebUsageData }) {
@@ -28,7 +29,7 @@ export default function KoyebUsageDialog({ koyebUsageTarget, setKoyebUsageTarget
             ) : !koyebUsageData ? (
               <div className="py-12 text-center text-kumo-subtle text-sm">暂无用量数据</div>
             ) : (
-              <pre className="whitespace-pre-wrap break-all rounded-md bg-kumo-recessed/40 p-4 text-xs text-kumo-strong">{JSON.stringify(koyebUsageData, null, 2)}</pre>
+              <CodeHighlighted code={JSON.stringify(koyebUsageData, null, 2)} lang="json" showCopyButton />
             )}
           </div>
         </Dialog>

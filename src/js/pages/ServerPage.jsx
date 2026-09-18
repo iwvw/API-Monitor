@@ -8,12 +8,23 @@ import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
+import { TagInput } from '@cloudflare/kumo/components/tag-input';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Popover } from '@cloudflare/kumo/components/popover';
-import { ChartLegend, ChartPalette, ClipboardText, LayerCard, Loader, Meter, Tabs, Toolbar } from '@cloudflare/kumo';
+import {
+  ChartLegend,
+  ChartPalette,
+  ClipboardText,
+  LayerCard,
+  Loader,
+  Meter,
+  Tabs,
+  Toolbar,
+} from '@cloudflare/kumo';
 import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
@@ -24,6 +35,7 @@ import SftpPanel from '../components/server/SftpPanel.jsx';
 import ForwardPanel from '../components/forward/ForwardPanel.jsx';
 import ServerLocationMap from '../components/server/ServerLocationMap.jsx';
 import CodeEditor from '../components/ui/CodeEditor.jsx';
+import { DateField } from '../components/ui/DateField.jsx';
 import {
   ChartBoundaryBox,
   ChartWarmupSkeleton,
@@ -36,9 +48,21 @@ import {
   sectionCardHeaderClass,
 } from '../components/ui/AppPrimitives.jsx';
 import { PublicPageBrandIcon } from '../components/public/PublicPageIconPicker.jsx';
-import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed } from '../modules/utils.js';
+import {
+  formatUptime,
+  formatFileSize,
+  formatDateTime,
+  maskAddress,
+  parseSpeed,
+} from '../modules/utils.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
-import { canOpenTerminal, hasSshEndpoint, isAgentServer, resolveTerminalProtocol, resolveTerminalSocketTransport } from '../modules/serverTerminal.js';
+import {
+  canOpenTerminal,
+  hasSshEndpoint,
+  isAgentServer,
+  resolveTerminalProtocol,
+  resolveTerminalSocketTransport,
+} from '../modules/serverTerminal.js';
 import { canOpenRemoteDesktop, remoteDesktopPath } from '../modules/remoteDesktop.js';
 import { readSftpFile, writeSftpFile } from '../modules/server-sftp.js';
 import { formatDockerContainerPorts } from '../modules/docker-format.js';
@@ -130,7 +154,7 @@ import {
   ChevronUp,
   Menu,
   Star,
-  Shuffle
+  Shuffle,
 } from '../components/Icons.jsx';
 import {
   SERVER_LIST_VIEW_STORAGE_KEY,
@@ -233,7 +257,10 @@ const SERVER_NETWORK_QUALITY_TTL_MS = 2 * 60 * 1000;
 
 const getKumoToken = (tokenName, fallback) => {
   if (typeof window === 'undefined') return fallback;
-  const value = window.getComputedStyle(document.documentElement).getPropertyValue(tokenName).trim();
+  const value = window
+    .getComputedStyle(document.documentElement)
+    .getPropertyValue(tokenName)
+    .trim();
   return value || fallback;
 };
 
@@ -264,7 +291,7 @@ const parseGpuMemoryValue = (metrics = {}, index) => {
   return toNumber(parts[index], 0);
 };
 
-const getCachedServerMetricHistory = (serverId) => {
+const getCachedServerMetricHistory = serverId => {
   const cached = serverMetricsHistoryCache.get(String(serverId));
   return cached && cached.length > 0 ? cached : null;
 };
@@ -287,7 +314,10 @@ const mergeServerMetricHistory = (serverId, ...recordGroups) => {
     .flatMap(group => group)
     .map(record => {
       if (!record) return null;
-      const ts = toTimestamp(record._ts || record.recorded_at || record.timestamp || record.time, NaN);
+      const ts = toTimestamp(
+        record._ts || record.recorded_at || record.timestamp || record.time,
+        NaN
+      );
       if (!Number.isFinite(ts)) return null;
       return {
         ...record,
@@ -338,17 +368,28 @@ const buildMetricHistoryRecord = (metrics = {}, info = {}, timestamp = Date.now(
     cpu_temp: getCpuTemp({ ...metrics, cpu: { ...infoCpu, ...metricCpu } }),
     cpu_power: toNumber(metrics.cpu_power ?? metrics.cpu_power_w ?? info?.cpu?.Power, 0),
     mem_usage: parseMemoryUsagePercent(metrics, info),
-    gpu_usage: metrics.gpu_usage !== undefined
-      ? toNumber(metrics.gpu_usage, 0)
-      : (typeof metrics.gpu === 'number' ? metrics.gpu : (info?.gpu ? toNumber(info.gpu.Usage, 0) : null)),
+    gpu_usage:
+      metrics.gpu_usage !== undefined
+        ? toNumber(metrics.gpu_usage, 0)
+        : typeof metrics.gpu === 'number'
+          ? metrics.gpu
+          : info?.gpu
+            ? toNumber(info.gpu.Usage, 0)
+            : null,
     gpu_mem_percent: getGpuMemPercent({
-      gpu_mem_percent: metrics.gpu_mem_percent !== undefined ? metrics.gpu_mem_percent : info?.gpu?.Percent,
+      gpu_mem_percent:
+        metrics.gpu_mem_percent !== undefined ? metrics.gpu_mem_percent : info?.gpu?.Percent,
       gpu_mem_used: gpuMemUsed,
       gpu_mem_total: gpuMemTotal,
     }),
     gpu_mem_used: gpuMemUsed,
     gpu_mem_total: gpuMemTotal,
-    gpu_power: metrics.gpu_power !== undefined ? toNumber(metrics.gpu_power, 0) : (info?.gpu ? toNumber(info.gpu.Power, 0) : 0),
+    gpu_power:
+      metrics.gpu_power !== undefined
+        ? toNumber(metrics.gpu_power, 0)
+        : info?.gpu
+          ? toNumber(info.gpu.Power, 0)
+          : 0,
     gpu_temp: getGpuTemp({ ...metrics, gpu: { ...infoGpu, ...metricGpu } }),
     net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
     net_tx: parseSpeedToBytes(metrics.network?.tx_speed),
@@ -361,7 +402,10 @@ const normalizeByteText = (value, fallback = '0 B') => {
   const raw = String(value).trim();
   if (!raw || raw === '-' || raw.toLowerCase() === 'nan') return fallback;
 
-  const match = raw.replace(/,/g, '').replace(/\/s$/i, '').match(/^([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?B?)$/i);
+  const match = raw
+    .replace(/,/g, '')
+    .replace(/\/s$/i, '')
+    .match(/^([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?B?)$/i);
   if (!match) return fallback;
 
   const amount = Number(match[1]);
@@ -372,7 +416,7 @@ const normalizeByteText = (value, fallback = '0 B') => {
   return `${match[1]} ${normalizedUnit}`;
 };
 
-const getByteParts = (value) => {
+const getByteParts = value => {
   const text = normalizeByteText(value);
   return {
     ...parseSpeed(text),
@@ -393,22 +437,21 @@ const TRAFFIC_CYCLE_OPTIONS = [
   { value: 'custom', label: '自定义范围' },
 ];
 
-const normalizeTrafficCycleDayInput = (value) => {
+const normalizeTrafficCycleDayInput = value => {
   const day = Math.round(toNumber(value, 1));
   return Math.min(28, Math.max(1, day));
 };
 
-const bytesToTrafficQuotaForm = (bytes) => {
+const bytesToTrafficQuotaForm = bytes => {
   const value = toNumber(bytes, 0);
   if (value <= 0) return { value: '', unit: 'TB' };
-  const unit = value >= TRAFFIC_QUOTA_UNITS.PB
-    ? 'PB'
-    : value >= TRAFFIC_QUOTA_UNITS.TB
-      ? 'TB'
-      : 'GB';
+  const unit =
+    value >= TRAFFIC_QUOTA_UNITS.PB ? 'PB' : value >= TRAFFIC_QUOTA_UNITS.TB ? 'TB' : 'GB';
   const amount = value / TRAFFIC_QUOTA_UNITS[unit];
   return {
-    value: Number.isInteger(amount) ? String(amount) : amount.toFixed(3).replace(/0+$/, '').replace(/\.$/, ''),
+    value: Number.isInteger(amount)
+      ? String(amount)
+      : amount.toFixed(3).replace(/0+$/, '').replace(/\.$/, ''),
     unit,
   };
 };
@@ -419,7 +462,7 @@ const trafficQuotaInputToBytes = (value, unit = 'TB') => {
   return Math.round(amount * (TRAFFIC_QUOTA_UNITS[unit] || TRAFFIC_QUOTA_UNITS.TB));
 };
 
-const normalizeTrafficAlertPercentInput = (value) => {
+const normalizeTrafficAlertPercentInput = value => {
   const percent = toNumber(value, 100);
   return Math.min(100, Math.max(1, percent));
 };
@@ -434,7 +477,9 @@ const getTrafficQuota = (server = {}) => {
   const parsedTx = getByteParts(network.tx_total).bytes;
   const used = Number.isFinite(rawUsed)
     ? rawUsed
-    : (Number.isFinite(rxBytes) && Number.isFinite(txBytes) ? rxBytes + txBytes : parsedRx + parsedTx);
+    : Number.isFinite(rxBytes) && Number.isFinite(txBytes)
+      ? rxBytes + txBytes
+      : parsedRx + parsedTx;
   if (limit <= 0) {
     return {
       limit,
@@ -558,21 +603,39 @@ const getServerMetricDisplay = (serverId, metricsSource, isExpanded, isDarkMode)
     diskColor,
     txColor,
     rxColor,
-    cpuMemSeries: isExpanded ? getMetricSeries(chartRecords, [
-      { name: 'CPU (%)', color: cpuColor, value: r => toNumber(r.cpu_usage, 0) },
-      { name: '内存 (%)', color: memColor, value: r => toNumber(r.mem_usage, 0) },
-      { name: 'CPU 温度 (°C)', color: cpuTempColor, value: getCpuTemp },
-    ], { normalized: true }) : EMPTY_METRIC_RECORDS,
-    gpuSeries: isExpanded ? getMetricSeries(chartRecords, [
-      { name: 'GPU', color: gpuColor, value: r => toNumber(r.gpu_usage, 0) },
-      { name: 'VRAM', color: vramColor, value: getGpuMemPercent },
-      { name: '功耗 (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
-      { name: 'Temp (°C)', color: gpuTempColor, value: getGpuTemp },
-    ], { normalized: true }) : EMPTY_METRIC_RECORDS,
-    netSeries: isExpanded ? getMetricSeries(chartRecords, [
-      { name: '上传', color: txColor, value: r => toNumber(r.net_tx, 0) },
-      { name: '下载', color: rxColor, value: r => toNumber(r.net_rx, 0) },
-    ], { normalized: true }) : EMPTY_METRIC_RECORDS,
+    cpuMemSeries: isExpanded
+      ? getMetricSeries(
+          chartRecords,
+          [
+            { name: 'CPU (%)', color: cpuColor, value: r => toNumber(r.cpu_usage, 0) },
+            { name: '内存 (%)', color: memColor, value: r => toNumber(r.mem_usage, 0) },
+            { name: 'CPU 温度 (°C)', color: cpuTempColor, value: getCpuTemp },
+          ],
+          { normalized: true }
+        )
+      : EMPTY_METRIC_RECORDS,
+    gpuSeries: isExpanded
+      ? getMetricSeries(
+          chartRecords,
+          [
+            { name: 'GPU', color: gpuColor, value: r => toNumber(r.gpu_usage, 0) },
+            { name: 'VRAM', color: vramColor, value: getGpuMemPercent },
+            { name: '功耗 (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
+            { name: 'Temp (°C)', color: gpuTempColor, value: getGpuTemp },
+          ],
+          { normalized: true }
+        )
+      : EMPTY_METRIC_RECORDS,
+    netSeries: isExpanded
+      ? getMetricSeries(
+          chartRecords,
+          [
+            { name: '上传', color: txColor, value: r => toNumber(r.net_tx, 0) },
+            { name: '下载', color: rxColor, value: r => toNumber(r.net_rx, 0) },
+          ],
+          { normalized: true }
+        )
+      : EMPTY_METRIC_RECORDS,
   };
 
   serverMetricDisplayCache.set(id, {
@@ -590,7 +653,7 @@ const getServerMetricDisplay = (serverId, metricsSource, isExpanded, isDarkMode)
   return value;
 };
 
-const getTempColorClass = (temp) => {
+const getTempColorClass = temp => {
   const value = toNumber(temp, 0);
   if (value >= 80) return 'text-kumo-danger';
   if (value >= 65) return 'text-kumo-warning';
@@ -623,11 +686,10 @@ const getServerMonitorModeLabel = (server = {}) => {
   return '-';
 };
 
-const isServerOnline = (server = {}) => (
-  server.status === 'online' || server.agent_online === true || server.agent_connected === true
-);
+const isServerOnline = (server = {}) =>
+  server.status === 'online' || server.agent_online === true || server.agent_connected === true;
 
-const getGpuModelText = (gpu) => {
+const getGpuModelText = gpu => {
   if (!gpu) return '';
   if (typeof gpu === 'string') return gpu;
   if (Array.isArray(gpu)) {
@@ -635,7 +697,8 @@ const getGpuModelText = (gpu) => {
       .map(item => {
         if (!item) return '';
         if (typeof item === 'string') return item;
-        if (typeof item === 'object') return item.Model || item.model || item.name || item.Name || '';
+        if (typeof item === 'object')
+          return item.Model || item.model || item.name || item.Name || '';
         return '';
       })
       .filter(Boolean);
@@ -647,30 +710,33 @@ const getGpuModelText = (gpu) => {
   return '';
 };
 
-const formatResponseTime = (value) => {
+const formatResponseTime = value => {
   const ms = toNumber(value, NaN);
   return Number.isFinite(ms) && ms > 0 ? `${Math.round(ms)}ms` : '-';
 };
 
 const isNetworkQualityUnsupportedError = (message = '') => {
   const text = String(message || '');
-  return text.includes('不支持的任务类型')
-    || /unsupported\s+task\s+type/i.test(text)
-    || /task\s+type:\s*40/i.test(text);
+  return (
+    text.includes('不支持的任务类型') ||
+    /unsupported\s+task\s+type/i.test(text) ||
+    /task\s+type:\s*40/i.test(text)
+  );
 };
 
 const buildNetworkQualitySeries = (quality, isDarkMode) => {
   const series = Array.isArray(quality?.series) ? quality.series : [];
   return series.map((target, index) => ({
     name: target.name,
-    color: index === 0
-      ? ChartPalette.categorical(1, isDarkMode)
-      : index === 1
-        ? ChartPalette.semantic('Success', isDarkMode)
-        : index === 2
-          ? ChartPalette.semantic('Warning', isDarkMode)
-          : ChartPalette.categorical(index + 2, isDarkMode),
-    data: (Array.isArray(target.data) ? target.data : (target.points || []))
+    color:
+      index === 0
+        ? ChartPalette.categorical(1, isDarkMode)
+        : index === 1
+          ? ChartPalette.semantic('Success', isDarkMode)
+          : index === 2
+            ? ChartPalette.semantic('Warning', isDarkMode)
+            : ChartPalette.categorical(index + 2, isDarkMode),
+    data: (Array.isArray(target.data) ? target.data : target.points || [])
       .map(point => {
         if (Array.isArray(point)) {
           return [
@@ -688,19 +754,21 @@ const buildNetworkQualitySeries = (quality, isDarkMode) => {
 
         return [
           new Date(point?.checked_at).getTime(),
-          point?.latency_ms === null || point?.latency_ms === undefined ? null : toNumber(point.latency_ms, null),
+          point?.latency_ms === null || point?.latency_ms === undefined
+            ? null
+            : toNumber(point.latency_ms, null),
         ];
       })
       .filter(point => Number.isFinite(point[0])),
   }));
 };
 
-const getPrimaryLoadValue = (load) => {
+const getPrimaryLoadValue = load => {
   const match = String(load || '').match(/-?\d+(?:\.\d+)?/);
   return match ? match[0] : '-';
 };
 
-const formatUptimeDaysOnly = (uptime) => {
+const formatUptimeDaysOnly = uptime => {
   const formatted = formatUptime(uptime);
   if (!formatted || formatted === '-') return '-';
   const text = String(formatted);
@@ -710,26 +778,26 @@ const formatUptimeDaysOnly = (uptime) => {
   return text;
 };
 
-const formatDateInputValue = (value) => {
+const formatDateInputValue = value => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toISOString().slice(0, 10);
 };
 
-const normalizeExpiryInputValue = (value) => {
+const normalizeExpiryInputValue = value => {
   if (!value) return null;
   const date = new Date(`${value}T23:59:59`);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
-const normalizeStartInputValue = (value) => {
+const normalizeStartInputValue = value => {
   if (!value) return null;
   const date = new Date(`${value}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
-const formatServerRemainingTime = (expiresAt) => {
+const formatServerRemainingTime = expiresAt => {
   if (!expiresAt) return '永久';
   const expiry = new Date(expiresAt).getTime();
   if (!Number.isFinite(expiry)) return '永久';
@@ -739,7 +807,7 @@ const formatServerRemainingTime = (expiresAt) => {
   return `${Math.max(1, Math.ceil(diff / 86400000))}天`;
 };
 
-const getServerRemainingToneClass = (expiresAt) => {
+const getServerRemainingToneClass = expiresAt => {
   if (!expiresAt) return 'text-kumo-success';
   const expiry = new Date(expiresAt).getTime();
   if (!Number.isFinite(expiry)) return 'text-kumo-success';
@@ -751,7 +819,7 @@ const getServerRemainingToneClass = (expiresAt) => {
 
 const DAY_MS = 86400000;
 
-const toDateMs = (value) => {
+const toDateMs = value => {
   if (!value) return NaN;
   const time = new Date(value).getTime();
   return Number.isFinite(time) ? time : NaN;
@@ -783,10 +851,14 @@ const getServerLifecycle = (server = {}) => {
   const remainingDays = Math.ceil(remainingMs / DAY_MS);
   const elapsedPercent = Number.isFinite(totalMs)
     ? clampPercent(((now - startMs) / totalMs) * 100)
-    : (remainingMs > 0 ? 0 : 100);
+    : remainingMs > 0
+      ? 0
+      : 100;
   const remainingPercent = Number.isFinite(totalMs)
     ? clampPercent((remainingMs / totalMs) * 100)
-    : (remainingMs > 0 ? 100 : 0);
+    : remainingMs > 0
+      ? 100
+      : 0;
   const toneClass = getServerRemainingToneClass(expiresAt);
 
   return {
@@ -806,21 +878,28 @@ const getServerLifecycle = (server = {}) => {
   };
 };
 
-const asArray = (value) => (Array.isArray(value) ? value : []);
+const asArray = value => (Array.isArray(value) ? value : []);
 
 const normalizeDockerOverviewServer = (server = {}) => {
   const serverId = String(server.serverId || server.id || '');
   const resources = server.resources || {};
   const docker = server.docker || {};
-  const containers = asArray(resources.containers).length > 0
-    ? asArray(resources.containers)
-    : asArray(docker.containers);
+  const containers =
+    asArray(resources.containers).length > 0
+      ? asArray(resources.containers)
+      : asArray(docker.containers);
   const images = asArray(resources.images);
   const networks = asArray(resources.networks);
   const volumes = asArray(resources.volumes);
   const stats = asArray(resources.stats);
   const composeProjects = asArray(resources.composeProjects || resources.compose?.projects);
-  const hasDockerResources = containers.length > 0 || images.length > 0 || networks.length > 0 || volumes.length > 0 || stats.length > 0 || composeProjects.length > 0;
+  const hasDockerResources =
+    containers.length > 0 ||
+    images.length > 0 ||
+    networks.length > 0 ||
+    volumes.length > 0 ||
+    stats.length > 0 ||
+    composeProjects.length > 0;
 
   return {
     ...server,
@@ -843,11 +922,10 @@ const normalizeDockerOverviewServer = (server = {}) => {
   };
 };
 
-const getComposeProjectName = (project = {}) => (
-  project.Name || project.name || project.Project || project.project || '-'
-);
+const getComposeProjectName = (project = {}) =>
+  project.Name || project.name || project.Project || project.project || '-';
 
-const normalizeDockerStringList = (value) => {
+const normalizeDockerStringList = value => {
   if (Array.isArray(value)) {
     return value.map(item => String(item || '').trim()).filter(Boolean);
   }
@@ -857,79 +935,84 @@ const normalizeDockerStringList = (value) => {
     .filter(Boolean);
 };
 
-const getComposeConfigFileList = (project = {}) => normalizeDockerStringList(
-  project.ConfigFiles || project.configFiles || project.config_files || project.config_file || project.configFile || project.Files || project.files || ''
-);
+const getComposeConfigFileList = (project = {}) =>
+  normalizeDockerStringList(
+    project.ConfigFiles ||
+      project.configFiles ||
+      project.config_files ||
+      project.config_file ||
+      project.configFile ||
+      project.Files ||
+      project.files ||
+      ''
+  );
 
 const getComposeConfigFiles = (project = {}) => getComposeConfigFileList(project).join(', ');
 
 const getComposePrimaryConfigFile = (project = {}) => getComposeConfigFileList(project)[0] || '';
 
-const getComposeWorkingDir = (project = {}) => (
-  project.WorkingDir || project.workingDir || project.working_dir || project.ProjectDir || project.projectDir || '-'
-);
+const getComposeWorkingDir = (project = {}) =>
+  project.WorkingDir ||
+  project.workingDir ||
+  project.working_dir ||
+  project.ProjectDir ||
+  project.projectDir ||
+  '-';
 
-const getComposeStatus = (project = {}) => (
-  String(project.Status || project.status || '-')
-);
+const getComposeStatus = (project = {}) => String(project.Status || project.status || '-');
 
 const getDockerImageRepository = (image = {}) => {
-  const repoTags = Array.isArray(image.RepoTags || image.repoTags) ? (image.RepoTags || image.repoTags) : [];
+  const repoTags = Array.isArray(image.RepoTags || image.repoTags)
+    ? image.RepoTags || image.repoTags
+    : [];
   const firstRepoTag = repoTags.find(Boolean) || '';
-  const repoFromTag = firstRepoTag && firstRepoTag !== '<none>:<none>' ? firstRepoTag.split(':').slice(0, -1).join(':') : '';
-  return image.repository || image.Repository || image.repo || image.Repo || repoFromTag || '<none>';
+  const repoFromTag =
+    firstRepoTag && firstRepoTag !== '<none>:<none>'
+      ? firstRepoTag.split(':').slice(0, -1).join(':')
+      : '';
+  return (
+    image.repository || image.Repository || image.repo || image.Repo || repoFromTag || '<none>'
+  );
 };
 
 const getDockerImageTag = (image = {}) => {
-  const repoTags = Array.isArray(image.RepoTags || image.repoTags) ? (image.RepoTags || image.repoTags) : [];
+  const repoTags = Array.isArray(image.RepoTags || image.repoTags)
+    ? image.RepoTags || image.repoTags
+    : [];
   const firstRepoTag = repoTags.find(Boolean) || '';
   if (image.tag || image.Tag) return image.tag || image.Tag;
   if (firstRepoTag && firstRepoTag.includes(':')) return firstRepoTag.split(':').pop();
   return '-';
 };
 
-const getDockerImageId = (image = {}) => (
-  image.id || image.Id || image.ID || image.imageId || image.ImageID || ''
-);
+const getDockerImageId = (image = {}) =>
+  image.id || image.Id || image.ID || image.imageId || image.ImageID || '';
 
-const getDockerImageSize = (image = {}) => (
-  image.size || image.Size || image.virtualSize || image.VirtualSize || '-'
-);
+const getDockerImageSize = (image = {}) =>
+  image.size || image.Size || image.virtualSize || image.VirtualSize || '-';
 
-const getDockerNetworkName = (network = {}) => (
-  network.name || network.Name || '-'
-);
+const getDockerNetworkName = (network = {}) => network.name || network.Name || '-';
 
-const getDockerNetworkId = (network = {}) => (
-  network.id || network.Id || network.ID || network.networkId || ''
-);
+const getDockerNetworkId = (network = {}) =>
+  network.id || network.Id || network.ID || network.networkId || '';
 
-const getDockerNetworkDriver = (network = {}) => (
-  network.driver || network.Driver || '-'
-);
+const getDockerNetworkDriver = (network = {}) => network.driver || network.Driver || '-';
 
-const getDockerNetworkScope = (network = {}) => (
-  network.scope || network.Scope || '-'
-);
+const getDockerNetworkScope = (network = {}) => network.scope || network.Scope || '-';
 
-const getDockerVolumeName = (volume = {}) => (
-  volume.name || volume.Name || '-'
-);
+const getDockerVolumeName = (volume = {}) => volume.name || volume.Name || '-';
 
-const getDockerVolumeDriver = (volume = {}) => (
-  volume.driver || volume.Driver || '-'
-);
+const getDockerVolumeDriver = (volume = {}) => volume.driver || volume.Driver || '-';
 
-const getDockerVolumeScope = (volume = {}) => (
-  volume.scope || volume.Scope || '-'
-);
+const getDockerVolumeScope = (volume = {}) => volume.scope || volume.Scope || '-';
 
 const formatComposeStatusLabel = (status = '') => {
   const normalized = String(status || '').trim();
   const lower = normalized.toLowerCase();
   const count = normalized.match(/\((\d+)\)/)?.[1];
   if (lower.includes('running')) return count ? `运行中 ${count} 个服务` : '运行中';
-  if (lower.includes('exited') || lower.includes('stopped')) return count ? `已停止 ${count} 个服务` : '已停止';
+  if (lower.includes('exited') || lower.includes('stopped'))
+    return count ? `已停止 ${count} 个服务` : '已停止';
   if (lower.includes('paused')) return count ? `已暂停 ${count} 个服务` : '已暂停';
   return normalized || '-';
 };
@@ -970,7 +1053,7 @@ const getDockerTaskActionLabel = (action = '') => {
   return labels[action] || action || '-';
 };
 
-const getDockerOverviewScope = (tab) => {
+const getDockerOverviewScope = tab => {
   const scopes = {
     containers: 'containers',
     compose: 'compose',
@@ -992,15 +1075,14 @@ const getDockerOverviewResourceCount = (server = {}, tab = '') => {
   return asArray(resources.containers).length;
 };
 
-const isDockerOverviewHostVisible = (server = {}, tab = '') => (
-  isServerOnline(server) && (!!server.docker?.installed || getDockerOverviewResourceCount(server, tab) > 0)
-);
+const isDockerOverviewHostVisible = (server = {}, tab = '') =>
+  isServerOnline(server) &&
+  (!!server.docker?.installed || getDockerOverviewResourceCount(server, tab) > 0);
 
-const isDockerMockPreviewEnabled = () => (
-  typeof window !== 'undefined'
-  && import.meta.env?.DEV
-  && new URLSearchParams(window.location.search).has('mockDocker')
-);
+const isDockerMockPreviewEnabled = () =>
+  typeof window !== 'undefined' &&
+  import.meta.env?.DEV &&
+  new URLSearchParams(window.location.search).has('mockDocker');
 
 const DOCKER_LOG_TAIL_ITEMS = [
   { value: '100', label: '100 行' },
@@ -1009,110 +1091,328 @@ const DOCKER_LOG_TAIL_ITEMS = [
   { value: '1000', label: '1000 行' },
 ];
 
-const createMockDockerOverview = import.meta.env.DEV ? () => {
-  const servers = [
-    {
-      id: 'mock-hk',
-      name: '香港',
-      status: 'online',
-      docker: { installed: true },
-      resources: {
-        containers: [
-          { id: 'ca0c6b6aced2', name: 'siyuan1', image: 'demoshang/siyuan:latest', state: 'running', status: 'Up 3 days', ports: '-' },
-          { id: '76cb1d7413f9', name: 'siyuan', image: 'demoshang/siyuan:latest', state: 'running', status: 'Up 9 days', ports: '6806:6806/tcp' },
-          { id: 'd47c255e2d48', name: 'api-monitor', image: 'iwvw/api-monitor:dev', state: 'running', status: 'Up 2 hours', ports: '3000:3000/tcp' },
-          { id: '3b671d99cb57', name: 'vertex2api', image: 'iwvw/vertex2api:main', state: 'running', status: 'Up 12 hours', ports: '2156:2156/tcp' },
-          { id: '9561e5097b35', name: 'mongo', image: 'mongo:latest', state: 'running', status: 'Up 22 days', ports: '27017/tcp' },
-          { id: 'b201e1bcdd78', name: 'openresty', image: '1panel/openresty:1.29.2.5-0-noble', state: 'running', status: 'Up 22 days', ports: '80:80/tcp, 443:443/tcp' },
-          { id: '6679aee4b9d1', name: 'halowebui', image: 'ghcr.io/ztx888/halowebui:slim', state: 'running', status: 'Up 8 days', ports: '3770:8080/tcp' },
-          { id: 'a2d735c4b8f0', name: 'wordai', image: 'iwvw/wordai:latest', state: 'running', status: 'Up 5 days', ports: '8380:80/tcp' },
-          { id: 'a8c2ff1900df', name: 'uptime-kuma', image: 'louislam/uptime-kuma:2', state: 'running', status: 'Up 17 days', ports: '3001:3001/tcp' },
-          { id: 'c782442c1f12', name: 'redis', image: 'redis:alpine', state: 'running', status: 'Up 17 days', ports: '6379/tcp' },
-          { id: 'ea19ab776a20', name: 'mx-server', image: 'innei/mx-server:11.0.5', state: 'running', status: 'Up 4 days', ports: '2333:2333/tcp' },
-          { id: '93ab2010df58', name: 'shiro', image: 'innei/shiroi:latest', state: 'paused', status: 'Paused', ports: '2323:2323/tcp' },
-        ],
-        images: [
-          { id: 'sha256:api', repository: 'iwvw/api-monitor', tag: 'dev', size: '218MB', created: '2026-07-04' },
-          { id: 'sha256:redis', repository: 'redis', tag: 'alpine', size: '42MB', created: '2026-06-29' },
-        ],
-        networks: [
-          { id: 'net-front', name: 'frontend', driver: 'bridge', scope: 'local' },
-          { id: 'net-db', name: 'database', driver: 'bridge', scope: 'local' },
-        ],
-        volumes: [
-          { name: 'mongo_data', driver: 'local', mountpoint: '/var/lib/docker/volumes/mongo_data/_data' },
-          { name: 'kuma_data', driver: 'local', mountpoint: '/var/lib/docker/volumes/kuma_data/_data' },
-        ],
-        stats: [
-          { container_id: 'd47c255e2d48', name: 'api-monitor', cpu_percent: '1.8%', mem_usage: '122MiB / 1.9GiB', mem_percent: '6.2%', net_io: '12MB / 8MB', block_io: '55MB / 4MB' },
-          { container_id: '9561e5097b35', name: 'mongo', cpu_percent: '0.7%', mem_usage: '346MiB / 1.9GiB', mem_percent: '17.8%', net_io: '4MB / 5MB', block_io: '210MB / 40MB' },
-        ],
-        composeProjects: [
-          { Name: 'edge-stack', Status: 'running(4)', ConfigFiles: '/srv/edge/docker-compose.yml', WorkingDir: '/srv/edge' },
-        ],
-      },
-    },
-    {
-      id: 'mock-sg',
-      name: '新加坡',
-      status: 'online',
-      docker: { installed: true },
-      resources: {
-        containers: [
-          { id: 'f1c1f2a10111', name: 'gateway', image: 'nginx:1.27-alpine', state: 'running', status: 'Up 4 days', ports: '8080:80/tcp' },
-          { id: 'f1c1f2a10222', name: 'worker', image: 'iwvw/worker:main', state: 'running', status: 'Up 2 days', ports: '-' },
-          { id: 'f1c1f2a10333', name: 'archive-db', image: 'postgres:16-alpine', state: 'exited', status: 'Exited (0) 3 hours ago', ports: '5432/tcp' },
-        ],
-        images: [
-          { id: 'sha256:nginx-sg', repository: 'nginx', tag: '1.27-alpine', size: '74MB', created: '2026-07-02' },
-          { id: 'sha256:worker-sg', repository: 'iwvw/worker', tag: 'main', size: '156MB', created: '2026-07-03' },
-        ],
-        networks: [
-          { id: 'net-edge-sg', name: 'edge', driver: 'bridge', scope: 'local' },
-        ],
-        volumes: [
-          { name: 'archive_pgdata', driver: 'local', mountpoint: '/var/lib/docker/volumes/archive_pgdata/_data' },
-        ],
-        stats: [
-          { container_id: 'f1c1f2a10111', name: 'gateway', cpu_percent: '0.9%', mem_usage: '86MiB / 1.9GiB', mem_percent: '4.4%', net_io: '6MB / 9MB', block_io: '18MB / 7MB' },
-          { container_id: 'f1c1f2a10222', name: 'worker', cpu_percent: '1.4%', mem_usage: '214MiB / 1.9GiB', mem_percent: '11.1%', net_io: '8MB / 5MB', block_io: '72MB / 13MB' },
-        ],
-        composeProjects: [],
-      },
-    },
-  ];
+const createMockDockerOverview = import.meta.env.DEV
+  ? () => {
+      const servers = [
+        {
+          id: 'mock-hk',
+          name: '香港',
+          status: 'online',
+          docker: { installed: true },
+          resources: {
+            containers: [
+              {
+                id: 'ca0c6b6aced2',
+                name: 'siyuan1',
+                image: 'demoshang/siyuan:latest',
+                state: 'running',
+                status: 'Up 3 days',
+                ports: '-',
+              },
+              {
+                id: '76cb1d7413f9',
+                name: 'siyuan',
+                image: 'demoshang/siyuan:latest',
+                state: 'running',
+                status: 'Up 9 days',
+                ports: '6806:6806/tcp',
+              },
+              {
+                id: 'd47c255e2d48',
+                name: 'api-monitor',
+                image: 'iwvw/api-monitor:dev',
+                state: 'running',
+                status: 'Up 2 hours',
+                ports: '3000:3000/tcp',
+              },
+              {
+                id: '3b671d99cb57',
+                name: 'vertex2api',
+                image: 'iwvw/vertex2api:main',
+                state: 'running',
+                status: 'Up 12 hours',
+                ports: '2156:2156/tcp',
+              },
+              {
+                id: '9561e5097b35',
+                name: 'mongo',
+                image: 'mongo:latest',
+                state: 'running',
+                status: 'Up 22 days',
+                ports: '27017/tcp',
+              },
+              {
+                id: 'b201e1bcdd78',
+                name: 'openresty',
+                image: '1panel/openresty:1.29.2.5-0-noble',
+                state: 'running',
+                status: 'Up 22 days',
+                ports: '80:80/tcp, 443:443/tcp',
+              },
+              {
+                id: '6679aee4b9d1',
+                name: 'halowebui',
+                image: 'ghcr.io/ztx888/halowebui:slim',
+                state: 'running',
+                status: 'Up 8 days',
+                ports: '3770:8080/tcp',
+              },
+              {
+                id: 'a2d735c4b8f0',
+                name: 'wordai',
+                image: 'iwvw/wordai:latest',
+                state: 'running',
+                status: 'Up 5 days',
+                ports: '8380:80/tcp',
+              },
+              {
+                id: 'a8c2ff1900df',
+                name: 'uptime-kuma',
+                image: 'louislam/uptime-kuma:2',
+                state: 'running',
+                status: 'Up 17 days',
+                ports: '3001:3001/tcp',
+              },
+              {
+                id: 'c782442c1f12',
+                name: 'redis',
+                image: 'redis:alpine',
+                state: 'running',
+                status: 'Up 17 days',
+                ports: '6379/tcp',
+              },
+              {
+                id: 'ea19ab776a20',
+                name: 'mx-server',
+                image: 'innei/mx-server:11.0.5',
+                state: 'running',
+                status: 'Up 4 days',
+                ports: '2333:2333/tcp',
+              },
+              {
+                id: '93ab2010df58',
+                name: 'shiro',
+                image: 'innei/shiroi:latest',
+                state: 'paused',
+                status: 'Paused',
+                ports: '2323:2323/tcp',
+              },
+            ],
+            images: [
+              {
+                id: 'sha256:api',
+                repository: 'iwvw/api-monitor',
+                tag: 'dev',
+                size: '218MB',
+                created: '2026-07-04',
+              },
+              {
+                id: 'sha256:redis',
+                repository: 'redis',
+                tag: 'alpine',
+                size: '42MB',
+                created: '2026-06-29',
+              },
+            ],
+            networks: [
+              { id: 'net-front', name: 'frontend', driver: 'bridge', scope: 'local' },
+              { id: 'net-db', name: 'database', driver: 'bridge', scope: 'local' },
+            ],
+            volumes: [
+              {
+                name: 'mongo_data',
+                driver: 'local',
+                mountpoint: '/var/lib/docker/volumes/mongo_data/_data',
+              },
+              {
+                name: 'kuma_data',
+                driver: 'local',
+                mountpoint: '/var/lib/docker/volumes/kuma_data/_data',
+              },
+            ],
+            stats: [
+              {
+                container_id: 'd47c255e2d48',
+                name: 'api-monitor',
+                cpu_percent: '1.8%',
+                mem_usage: '122MiB / 1.9GiB',
+                mem_percent: '6.2%',
+                net_io: '12MB / 8MB',
+                block_io: '55MB / 4MB',
+              },
+              {
+                container_id: '9561e5097b35',
+                name: 'mongo',
+                cpu_percent: '0.7%',
+                mem_usage: '346MiB / 1.9GiB',
+                mem_percent: '17.8%',
+                net_io: '4MB / 5MB',
+                block_io: '210MB / 40MB',
+              },
+            ],
+            composeProjects: [
+              {
+                Name: 'edge-stack',
+                Status: 'running(4)',
+                ConfigFiles: '/srv/edge/docker-compose.yml',
+                WorkingDir: '/srv/edge',
+              },
+            ],
+          },
+        },
+        {
+          id: 'mock-sg',
+          name: '新加坡',
+          status: 'online',
+          docker: { installed: true },
+          resources: {
+            containers: [
+              {
+                id: 'f1c1f2a10111',
+                name: 'gateway',
+                image: 'nginx:1.27-alpine',
+                state: 'running',
+                status: 'Up 4 days',
+                ports: '8080:80/tcp',
+              },
+              {
+                id: 'f1c1f2a10222',
+                name: 'worker',
+                image: 'iwvw/worker:main',
+                state: 'running',
+                status: 'Up 2 days',
+                ports: '-',
+              },
+              {
+                id: 'f1c1f2a10333',
+                name: 'archive-db',
+                image: 'postgres:16-alpine',
+                state: 'exited',
+                status: 'Exited (0) 3 hours ago',
+                ports: '5432/tcp',
+              },
+            ],
+            images: [
+              {
+                id: 'sha256:nginx-sg',
+                repository: 'nginx',
+                tag: '1.27-alpine',
+                size: '74MB',
+                created: '2026-07-02',
+              },
+              {
+                id: 'sha256:worker-sg',
+                repository: 'iwvw/worker',
+                tag: 'main',
+                size: '156MB',
+                created: '2026-07-03',
+              },
+            ],
+            networks: [{ id: 'net-edge-sg', name: 'edge', driver: 'bridge', scope: 'local' }],
+            volumes: [
+              {
+                name: 'archive_pgdata',
+                driver: 'local',
+                mountpoint: '/var/lib/docker/volumes/archive_pgdata/_data',
+              },
+            ],
+            stats: [
+              {
+                container_id: 'f1c1f2a10111',
+                name: 'gateway',
+                cpu_percent: '0.9%',
+                mem_usage: '86MiB / 1.9GiB',
+                mem_percent: '4.4%',
+                net_io: '6MB / 9MB',
+                block_io: '18MB / 7MB',
+              },
+              {
+                container_id: 'f1c1f2a10222',
+                name: 'worker',
+                cpu_percent: '1.4%',
+                mem_usage: '214MiB / 1.9GiB',
+                mem_percent: '11.1%',
+                net_io: '8MB / 5MB',
+                block_io: '72MB / 13MB',
+              },
+            ],
+            composeProjects: [],
+          },
+        },
+      ];
 
-  const updateChecks = [
-    { serverId: 'mock-hk', containerId: 'd47c255e2d48', containerName: 'api-monitor', image: 'iwvw/api-monitor:dev', currentDigest: 'sha256:local-api', latestDigest: 'sha256:remote-api', hasUpdate: true },
-    { serverId: 'mock-hk', containerId: '9561e5097b35', containerName: 'mongo', image: 'mongo:latest', currentDigest: 'sha256:local-mongo', latestDigest: 'sha256:remote-mongo', hasUpdate: true },
-    { serverId: 'mock-hk', containerId: 'ca0c6b6aced2', containerName: 'siyuan1', image: 'demoshang/siyuan:latest', currentDigest: 'sha256:siyuan', latestDigest: 'sha256:siyuan', hasUpdate: false },
-    { serverId: 'mock-sg', containerId: 'f1c1f2a10222', containerName: 'worker', image: 'iwvw/worker:main', currentDigest: 'sha256:local-worker', latestDigest: 'sha256:remote-worker', hasUpdate: true },
-  ];
+      const updateChecks = [
+        {
+          serverId: 'mock-hk',
+          containerId: 'd47c255e2d48',
+          containerName: 'api-monitor',
+          image: 'iwvw/api-monitor:dev',
+          currentDigest: 'sha256:local-api',
+          latestDigest: 'sha256:remote-api',
+          hasUpdate: true,
+        },
+        {
+          serverId: 'mock-hk',
+          containerId: '9561e5097b35',
+          containerName: 'mongo',
+          image: 'mongo:latest',
+          currentDigest: 'sha256:local-mongo',
+          latestDigest: 'sha256:remote-mongo',
+          hasUpdate: true,
+        },
+        {
+          serverId: 'mock-hk',
+          containerId: 'ca0c6b6aced2',
+          containerName: 'siyuan1',
+          image: 'demoshang/siyuan:latest',
+          currentDigest: 'sha256:siyuan',
+          latestDigest: 'sha256:siyuan',
+          hasUpdate: false,
+        },
+        {
+          serverId: 'mock-sg',
+          containerId: 'f1c1f2a10222',
+          containerName: 'worker',
+          image: 'iwvw/worker:main',
+          currentDigest: 'sha256:local-worker',
+          latestDigest: 'sha256:remote-worker',
+          hasUpdate: true,
+        },
+      ];
 
-  return {
-    servers: servers.map(normalizeDockerOverviewServer),
-    updateChecks,
-  };
-} : () => ({ servers: [], updateChecks: [] });
+      return {
+        servers: servers.map(normalizeDockerOverviewServer),
+        updateChecks,
+      };
+    }
+  : () => ({ servers: [], updateChecks: [] });
 
 const hasServerDockerInstalled = (server = {}) => {
-	const docker = server.info?.docker || {};
-	const containers = asArray(docker.containers);
-	return isServerOnline(server) && (
-    !!docker.installed
-    || containers.length > 0
-    || toNumber(docker.runningCount ?? docker.running, 0) > 0
-    || toNumber(docker.stoppedCount ?? docker.stopped, 0) > 0
+  const docker = server.info?.docker || {};
+  const containers = asArray(docker.containers);
+  return (
+    isServerOnline(server) &&
+    (!!docker.installed ||
+      containers.length > 0 ||
+      toNumber(docker.runningCount ?? docker.running, 0) > 0 ||
+      toNumber(docker.stoppedCount ?? docker.stopped, 0) > 0)
   );
 };
 
-const getDockerStatName = (stat = {}) => (
-  stat.name || stat.Name || stat.container_name || stat.container || stat.container_id || stat.ID || '-'
-);
+const getDockerStatName = (stat = {}) =>
+  stat.name ||
+  stat.Name ||
+  stat.container_name ||
+  stat.container ||
+  stat.container_id ||
+  stat.ID ||
+  '-';
 
-const getDockerStatCpuPercent = (stat = {}) => clampPercent(toNumber(stat.cpu_percent ?? stat.CPUPerc, 0));
+const getDockerStatCpuPercent = (stat = {}) =>
+  clampPercent(toNumber(stat.cpu_percent ?? stat.CPUPerc, 0));
 
-const getDockerStatMemPercent = (stat = {}) => clampPercent(toNumber(stat.mem_percent ?? stat.MemPerc, 0));
+const getDockerStatMemPercent = (stat = {}) =>
+  clampPercent(toNumber(stat.mem_percent ?? stat.MemPerc, 0));
 
 const getDockerStatMemUsage = (stat = {}) => stat.mem_usage || stat.MemUsage || '-';
 
@@ -1120,7 +1420,7 @@ const getDockerStatNetIo = (stat = {}) => stat.net_io || stat.NetIO || '-';
 
 const getDockerStatBlockIo = (stat = {}) => stat.block_io || stat.BlockIO || '-';
 
-const parseDockerByteValue = (value) => {
+const parseDockerByteValue = value => {
   if (value === null || value === undefined || value === '') return 0;
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
 
@@ -1145,14 +1445,15 @@ const parseDockerByteValue = (value) => {
   return number * (multipliers[unit] || 1);
 };
 
-const parseDockerIoPair = (value) => {
+const parseDockerIoPair = value => {
   const [first = '', second = ''] = String(value || '').split('/');
   return [parseDockerByteValue(first), parseDockerByteValue(second)];
 };
 
-const getDockerStatKey = (stat = {}) => (
-  String(stat.serverId || '') + ':' + String(stat.container_id || stat.ID || stat.id || getDockerStatName(stat))
-);
+const getDockerStatKey = (stat = {}) =>
+  String(stat.serverId || '') +
+  ':' +
+  String(stat.container_id || stat.ID || stat.id || getDockerStatName(stat));
 
 const normalizeDockerStatSnapshot = (stat = {}, index = 0, timestamp = Date.now()) => {
   const [netIn, netOut] = parseDockerIoPair(getDockerStatNetIo(stat));
@@ -1188,8 +1489,10 @@ const createDockerStatsSeedHistory = (stats = [], timestamp = Date.now()) => {
         memory: clampPercent(base.memory * (0.96 + Math.sin(pointIndex / 5 + statIndex) * 0.025)),
         netIn: base.netIn * factor,
         netOut: base.netOut * Math.max(0.2, 0.9 + Math.cos((pointIndex + statIndex) * 0.6) * 0.16),
-        blockRead: base.blockRead * Math.max(0.2, 0.88 + Math.sin((pointIndex + statIndex) * 0.35) * 0.12),
-        blockWrite: base.blockWrite * Math.max(0.2, 0.86 + Math.cos((pointIndex + statIndex) * 0.4) * 0.14),
+        blockRead:
+          base.blockRead * Math.max(0.2, 0.88 + Math.sin((pointIndex + statIndex) * 0.35) * 0.12),
+        blockWrite:
+          base.blockWrite * Math.max(0.2, 0.86 + Math.cos((pointIndex + statIndex) * 0.4) * 0.14),
       };
     });
   });
@@ -1209,18 +1512,22 @@ const buildDockerStatSeries = (history = [], metric, isDarkMode) => {
       seriesMap.get(item.key).data.push([item.timestamp, item[metric] ?? 0]);
     });
   });
-  return Array.from(seriesMap.values()).filter(series => series.data.some(([, value]) => toNumber(value, 0) > 0));
+  return Array.from(seriesMap.values()).filter(series =>
+    series.data.some(([, value]) => toNumber(value, 0) > 0)
+  );
 };
 
-const buildDockerPairSeries = (history = [], metrics) => metrics.map(metric => ({
-  name: metric.name,
-  color: metric.color,
-  data: history.map(snapshot => {
-    const total = snapshot.reduce((sum, item) => sum + toNumber(item[metric.key], 0), 0);
-    return [snapshot[0]?.timestamp || Date.now(), total];
-  }),
-})).filter(series => series.data.some(([, value]) => value > 0));
-
+const buildDockerPairSeries = (history = [], metrics) =>
+  metrics
+    .map(metric => ({
+      name: metric.name,
+      color: metric.color,
+      data: history.map(snapshot => {
+        const total = snapshot.reduce((sum, item) => sum + toNumber(item[metric.key], 0), 0);
+        return [snapshot[0]?.timestamp || Date.now(), total];
+      }),
+    }))
+    .filter(series => series.data.some(([, value]) => value > 0));
 
 function ServerPage() {
   const {
@@ -1251,12 +1558,20 @@ function ServerPage() {
   const expandedChartYAxisTickCount = isCompactViewport ? 3 : 4;
   const compactExpandedYAxisTickCount = 3;
   const expandedChartXAxisTickFormat = isCompactViewport ? formatCompactChartTime : formatChartTime;
-  const expandedPercentAxisTickFormat = isCompactViewport ? formatCompactPercentAxis : formatPercentAxis;
-  const expandedNumberAxisTickFormat = isCompactViewport ? formatCompactNumberAxis : formatNumberAxis;
-  const expandedSpeedAxisTickFormat = isCompactViewport ? formatCompactBytesSpeed : formatBytesSpeed;
+  const expandedPercentAxisTickFormat = isCompactViewport
+    ? formatCompactPercentAxis
+    : formatPercentAxis;
+  const expandedNumberAxisTickFormat = isCompactViewport
+    ? formatCompactNumberAxis
+    : formatNumberAxis;
+  const expandedSpeedAxisTickFormat = isCompactViewport
+    ? formatCompactBytesSpeed
+    : formatBytesSpeed;
   const fastTimeseriesEcharts = useMemo(() => createFastTimeseriesEcharts(echarts), []);
-  const staticTimeseriesEcharts = useMemo(() => createFastTimeseriesEcharts(echarts, SERVER_STATIC_CHART_ANIMATION_OPTIONS), []);
-
+  const staticTimeseriesEcharts = useMemo(
+    () => createFastTimeseriesEcharts(echarts, SERVER_STATIC_CHART_ANIMATION_OPTIONS),
+    []
+  );
 
   const [serverCurrentTab, setServerCurrentTab] = useState('list'); // 'list', 'status-pages', 'docker', 'management', 'terminal', 'forward'
   const forwardPanelRef = useRef(null);
@@ -1266,12 +1581,16 @@ function ServerPage() {
   const [serverLoading, setServerLoading] = useState(false);
   const [serverStatusPages, setServerStatusPages] = useState([]);
   const [serverStatusPagesLoading, setServerStatusPagesLoading] = useState(false);
-  const [serverStatusPageForm, setServerStatusPageForm] = useState(() => createEmptyServerStatusPageForm());
+  const [serverStatusPageForm, setServerStatusPageForm] = useState(() =>
+    createEmptyServerStatusPageForm()
+  );
   const [serverSearchText, setServerSearchText] = useState('');
   const [serverStatusFilter, setServerStatusFilter] = useState('all');
   const [serverListViewMode, setServerListViewMode] = useState(getInitialServerListViewMode);
   const [serverMapOpen, setServerMapOpen] = useState(false);
-  const [compactVisibleColumns, setCompactVisibleColumns] = useState(getInitialCompactVisibleColumns);
+  const [compactVisibleColumns, setCompactVisibleColumns] = useState(
+    getInitialCompactVisibleColumns
+  );
   const [compactColumnMenu, setCompactColumnMenu] = useState({ open: false, x: 0, y: 0 });
   const [expandedServers, setExpandedServers] = useState([]);
   const [renderedCompactExpandedServers, setRenderedCompactExpandedServers] = useState([]);
@@ -1309,7 +1628,7 @@ function ServerPage() {
     password: '',
     privateKey: '',
     passphrase: '',
-    tagsInput: '',
+    tags: [],
     description: '',
     startsAt: '',
     expiresAt: '',
@@ -1322,12 +1641,11 @@ function ServerPage() {
     trafficCycleDay: 1,
     trafficCycleStart: '',
     trafficCycleEnd: '',
-    monitorMode: 'agent'
+    monitorMode: 'agent',
   });
   const [selectedCredentialId, setSelectedCredentialId] = useState('');
   const [serverModalSaving, setServerModalSaving] = useState(false);
   const [serverModalError, setServerModalError] = useState('');
-
 
   const [serverAddMode, setServerAddMode] = useState('ssh'); // 'ssh' | 'agent'
   const [quickDeployName, setQuickDeployName] = useState('');
@@ -1354,7 +1672,9 @@ function ServerPage() {
   const [serverBatchError, setServerBatchError] = useState('');
   const [serverBatchSuccess, setServerBatchSuccess] = useState('');
   const [serverAddingBatch, setServerAddingBatch] = useState(false);
-  const [serverIpDisplayMode, setServerIpDisplayMode] = useState(storedServerIpDisplayMode || 'normal'); // 'normal', 'masked', 'hidden'
+  const [serverIpDisplayMode, setServerIpDisplayMode] = useState(
+    storedServerIpDisplayMode || 'normal'
+  ); // 'normal', 'masked', 'hidden'
   const [serverSettingsSaving, setServerSettingsSaving] = useState(false);
   const [serverSettingsForm, setServerSettingsForm] = useState({
     agentDownloadUrl: storedAgentDownloadUrl || '',
@@ -1372,11 +1692,13 @@ function ServerPage() {
   const [dockerSelectedServer, setDockerSelectedServer] = useState('');
   const [expandedDockerOverviewServers, setExpandedDockerOverviewServers] = useState(null);
   // 未手动展开/收起过任何主机区块（null = 自动模式）时，默认展开每个列表的第一台主机。
-  const isDockerHostExpanded = useCallback((serverId, firstVisibleServerId) => (
-    expandedDockerOverviewServers === null
-      ? firstVisibleServerId === serverId
-      : expandedDockerOverviewServers.includes(serverId)
-  ), [expandedDockerOverviewServers]);
+  const isDockerHostExpanded = useCallback(
+    (serverId, firstVisibleServerId) =>
+      expandedDockerOverviewServers === null
+        ? firstVisibleServerId === serverId
+        : expandedDockerOverviewServers.includes(serverId),
+    [expandedDockerOverviewServers]
+  );
   const [showDockerTaskDetails, setShowDockerTaskDetails] = useState(false);
   const [showDockerLogPanel, setShowDockerLogPanel] = useState(false);
   const [dockerTasks, setDockerTasks] = useState([]);
@@ -1411,7 +1733,9 @@ function ServerPage() {
     }
 
     const timestamp = Date.now();
-    const nextSnapshot = dockerStats.map((stat, index) => normalizeDockerStatSnapshot(stat, index, timestamp));
+    const nextSnapshot = dockerStats.map((stat, index) =>
+      normalizeDockerStatSnapshot(stat, index, timestamp)
+    );
     setDockerStatsHistory(prev => {
       if (prev.length === 0 && isDockerMockPreviewEnabled()) {
         return createDockerStatsSeedHistory(dockerStats, timestamp);
@@ -1440,7 +1764,6 @@ function ServerPage() {
   const [dropHint, setDropHint] = useState('');
   const [dropTargetId, setDropTargetId] = useState(null);
 
-
   const [activeTerminalSidebar, setActiveTerminalSidebar] = useState(null);
   const [sshIdeFullscreen, setSshIdeFullscreen] = useState(false);
 
@@ -1456,7 +1779,7 @@ function ServerPage() {
     auth_type: 'password',
     password: '',
     private_key: '',
-    passphrase: ''
+    passphrase: '',
   });
 
   // 终端持久化实例仓库与 WebSocket 连接引用
@@ -1502,11 +1825,14 @@ function ServerPage() {
     }));
   }, [storedAgentDownloadUrl]);
 
-  const getSettingsAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-  }), []);
+  const getSettingsAuthHeaders = useCallback(
+    () => ({
+      'Content-Type': 'application/json',
+    }),
+    []
+  );
 
-  const handleServerIpDisplayModeChange = useCallback((value) => {
+  const handleServerIpDisplayModeChange = useCallback(value => {
     setServerIpDisplayMode(String(value));
   }, []);
 
@@ -1547,7 +1873,10 @@ function ServerPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(SERVER_COMPACT_COLUMNS_STORAGE_KEY, JSON.stringify(compactVisibleColumns));
+      window.localStorage.setItem(
+        SERVER_COMPACT_COLUMNS_STORAGE_KEY,
+        JSON.stringify(compactVisibleColumns)
+      );
     }
   }, [compactVisibleColumns]);
 
@@ -1583,12 +1912,11 @@ function ServerPage() {
     if (expandedServers.length === 0) return undefined;
 
     const timeout = setTimeout(() => {
-      setChartSeriesReadyServers(prev => (
-        Array.from(new Set([
-          ...prev.filter(id => expandedServers.includes(id)),
-          ...expandedServers,
-        ]))
-      ));
+      setChartSeriesReadyServers(prev =>
+        Array.from(
+          new Set([...prev.filter(id => expandedServers.includes(id)), ...expandedServers])
+        )
+      );
     }, SERVER_CHART_SERIES_DEFER_MS);
 
     return () => clearTimeout(timeout);
@@ -1597,7 +1925,7 @@ function ServerPage() {
   useEffect(() => {
     if (!compactColumnMenu.open) return undefined;
     const closeMenu = () => setCompactColumnMenu(prev => ({ ...prev, open: false }));
-    const handleKeyDown = (event) => {
+    const handleKeyDown = event => {
       if (event.key === 'Escape') closeMenu();
     };
     window.addEventListener('click', closeMenu);
@@ -1662,11 +1990,10 @@ function ServerPage() {
 
   useEffect(() => {
     const activeSession = sshSessions.find(session => session.id === activeSSHSessionId);
-    activeTerminalStatusServerIdRef.current = (
+    activeTerminalStatusServerIdRef.current =
       serverCurrentTab === 'terminal' && showServerStatusSidebar && activeSession?.server?.id
         ? String(activeSession.server.id)
-        : ''
-    );
+        : '';
   }, [activeSSHSessionId, serverCurrentTab, showServerStatusSidebar, sshSessions]);
 
   // 终端持久化实例仓库与 WebSocket 连接引用
@@ -1696,7 +2023,6 @@ function ServerPage() {
     }, 1500);
 
     return () => {
-
       clearTimeout(connectTimer);
       clearInterval(serverListSyncTimer);
       if (socketRef.current) {
@@ -1730,17 +2056,23 @@ function ServerPage() {
     };
   }, []);
 
-
   useEffect(() => {
-    serverStatusByIdRef.current = new Map(serverList.map(server => [String(server.id), server.status]));
+    serverStatusByIdRef.current = new Map(
+      serverList.map(server => [String(server.id), server.status])
+    );
   }, [serverList]);
 
-  const dockerHostOptions = useMemo(() => (
-    serverList
-      .filter(hasServerDockerInstalled)
-      .map(server => ({ value: String(server.id), label: server.name || server.id }))
-  ), [serverList]);
-  const dockerHostOptionKey = useMemo(() => dockerHostOptions.map(item => item.value).join('|'), [dockerHostOptions]);
+  const dockerHostOptions = useMemo(
+    () =>
+      serverList
+        .filter(hasServerDockerInstalled)
+        .map(server => ({ value: String(server.id), label: server.name || server.id })),
+    [serverList]
+  );
+  const dockerHostOptionKey = useMemo(
+    () => dockerHostOptions.map(item => item.value).join('|'),
+    [dockerHostOptions]
+  );
 
   useEffect(() => {
     if (!dockerSelectedServer) return;
@@ -1798,7 +2130,7 @@ function ServerPage() {
           return updated;
         });
         const onlineServerIds = accounts
-				.filter(server => isServerOnline(server) || server.is_online === true)
+          .filter(server => isServerOnline(server) || server.is_online === true)
           .map(server => server.id)
           .filter(Boolean);
         if (onlineServerIds.length > 0) {
@@ -1863,7 +2195,9 @@ function ServerPage() {
   };
 
   const getServerStatusPageBaseOrigin = () => {
-    const configured = String(publicApiUrl || '').trim().replace(/\/+$/g, '');
+    const configured = String(publicApiUrl || '')
+      .trim()
+      .replace(/\/+$/g, '');
     return configured || window.location.origin;
   };
 
@@ -1872,12 +2206,12 @@ function ServerPage() {
     return `${getServerStatusPageBaseOrigin()}/${mode}/${encodeURIComponent(slug)}`;
   };
 
-  const getServerStatusDomainUrl = (pageOrForm) => {
+  const getServerStatusDomainUrl = pageOrForm => {
     const domain = normalizeServerStatusDomain(pageOrForm?.domain);
     return domain ? `https://${domain}` : '';
   };
 
-  const copyServerStatusUrl = async (value) => {
+  const copyServerStatusUrl = async value => {
     if (!value) {
       toast.warning('没有可复制的地址');
       return;
@@ -1890,9 +2224,10 @@ function ServerPage() {
     }
   };
 
-  const resetServerStatusPageForm = () => setServerStatusPageForm(createEmptyServerStatusPageForm());
+  const resetServerStatusPageForm = () =>
+    setServerStatusPageForm(createEmptyServerStatusPageForm());
 
-  const editServerStatusPage = (page) => {
+  const editServerStatusPage = page => {
     const config = page.config || {};
     setServerStatusPageForm({
       id: page.id,
@@ -1945,17 +2280,23 @@ function ServerPage() {
           showTraffic: !!serverStatusPageForm.showTraffic,
           showCharts: !!serverStatusPageForm.showCharts,
           showOnDashboard: !!serverStatusPageForm.showOnDashboard,
-          ...(serverStatusPageForm.publicIconId ? { publicIconId: serverStatusPageForm.publicIconId } : {}),
+          ...(serverStatusPageForm.publicIconId
+            ? { publicIconId: serverStatusPageForm.publicIconId }
+            : {}),
         },
       };
       const isEdit = !!serverStatusPageForm.id;
-      const response = await fetch(isEdit ? `/api/server/status-pages/${serverStatusPageForm.id}` : '/api/server/status-pages', {
-        method: isEdit ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        isEdit ? `/api/server/status-pages/${serverStatusPageForm.id}` : '/api/server/status-pages',
+        {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      );
       const data = await response.json();
-      if (!response.ok || data.success === false) throw new Error(data.error || '保存主机状态页失败');
+      if (!response.ok || data.success === false)
+        throw new Error(data.error || '保存主机状态页失败');
       toast.success(isEdit ? '主机状态页已更新' : '主机状态页已创建');
       resetServerStatusPageForm();
       await loadServerStatusPages();
@@ -1966,13 +2307,20 @@ function ServerPage() {
     }
   };
 
-  const deleteServerStatusPage = async (page) => {
-    if (!confirmPress(`status-page.delete::${page.id}`, `删除主机状态页「${page.title || page.slug}」`)) return;
+  const deleteServerStatusPage = async page => {
+    if (
+      !confirmPress(
+        `status-page.delete::${page.id}`,
+        `删除主机状态页「${page.title || page.slug}」`
+      )
+    )
+      return;
     setServerStatusPagesLoading(true);
     try {
       const response = await fetch(`/api/server/status-pages/${page.id}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success === false) throw new Error(data.error || '删除主机状态页失败');
+      if (!response.ok || data.success === false)
+        throw new Error(data.error || '删除主机状态页失败');
       toast.success('主机状态页已删除');
       if (serverStatusPageForm.id === page.id) resetServerStatusPageForm();
       await loadServerStatusPages();
@@ -2009,12 +2357,13 @@ function ServerPage() {
     }
   };
 
-  const saveNetworkTarget = async (e) => {
+  const saveNetworkTarget = async e => {
     e?.preventDefault();
     try {
-      const url = networkTargetModalMode === 'add'
-        ? '/api/server/network-quality/targets'
-        : `/api/server/network-quality/targets/${networkTargetForm.id}`;
+      const url =
+        networkTargetModalMode === 'add'
+          ? '/api/server/network-quality/targets'
+          : `/api/server/network-quality/targets/${networkTargetForm.id}`;
       const method = networkTargetModalMode === 'add' ? 'POST' : 'PUT';
       const response = await fetch(url, {
         method,
@@ -2023,7 +2372,10 @@ function ServerPage() {
       });
       const data = await response.json();
       if (data.success) {
-        toast.show({ message: networkTargetModalMode === 'add' ? '新增成功' : '保存成功', variant: 'success' });
+        toast.show({
+          message: networkTargetModalMode === 'add' ? '新增成功' : '保存成功',
+          variant: 'success',
+        });
         setShowNetworkTargetModal(false);
         loadNetworkTargets();
       } else {
@@ -2035,12 +2387,14 @@ function ServerPage() {
     }
   };
 
-  const deleteNetworkTarget = async (id) => {
+  const deleteNetworkTarget = async id => {
     if (!confirmPress(`network-target.delete::${id}`, '删除网络拨测目标')) {
       return;
     }
     try {
-      const response = await fetch(`/api/server/network-quality/targets/${id}`, { method: 'DELETE' });
+      const response = await fetch(`/api/server/network-quality/targets/${id}`, {
+        method: 'DELETE',
+      });
       const data = await response.json();
       if (data.success) {
         toast.show({ message: '删除成功', variant: 'success' });
@@ -2054,7 +2408,7 @@ function ServerPage() {
     }
   };
 
-  const toggleNetworkTargetEnabled = async (target) => {
+  const toggleNetworkTargetEnabled = async target => {
     try {
       const updated = {
         name: target.name,
@@ -2108,9 +2462,8 @@ function ServerPage() {
 
         const rawStatus = item.status || (item.agent_online === true ? 'online' : 'offline');
         const status = rawStatus === 'suspect' ? 'interrupted' : rawStatus;
-        const agentOnline = typeof item.agent_online === 'boolean'
-          ? item.agent_online
-          : status === 'online';
+        const agentOnline =
+          typeof item.agent_online === 'boolean' ? item.agent_online : status === 'online';
         const hasResponseTime =
           Object.prototype.hasOwnProperty.call(item, 'responseTime') ||
           Object.prototype.hasOwnProperty.call(item, 'response_time');
@@ -2124,11 +2477,13 @@ function ServerPage() {
           status,
           metrics_health: item.metrics_health || server.metrics_health,
           metrics_stale: item.metrics_stale ?? server.metrics_stale ?? false,
-          metrics_last_seen: item.metrics_last_seen || item.metricsLastSeen || server.metrics_last_seen,
-          metrics_last_seen_at: item.metrics_last_seen_at || item.metricsLastSeenAt || server.metrics_last_seen_at || 0,
+          metrics_last_seen:
+            item.metrics_last_seen || item.metricsLastSeen || server.metrics_last_seen,
+          metrics_last_seen_at:
+            item.metrics_last_seen_at || item.metricsLastSeenAt || server.metrics_last_seen_at || 0,
           metrics_age_ms: item.metrics_age_ms ?? item.metricsAgeMs ?? server.metrics_age_ms ?? 0,
           response_time: hasResponseTime ? responseTime : server.response_time,
-          error: status === 'offline' ? (item.error || null) : null,
+          error: status === 'offline' ? item.error || null : null,
           last_seen: item.lastSeen || item.last_seen || server.last_seen,
         };
         if (areServerSnapshotsEqual(server, next)) {
@@ -2142,7 +2497,6 @@ function ServerPage() {
     });
   };
 
-
   const connectMetricsStream = () => {
     try {
       const socket = io(getMetricsSocketUrl(), {
@@ -2150,7 +2504,7 @@ function ServerPage() {
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         reconnectionAttempts: Infinity,
-        transports: ['websocket', 'polling']
+        transports: ['websocket', 'polling'],
       });
 
       socket.on('metrics:update', data => {
@@ -2207,11 +2561,9 @@ function ServerPage() {
         const serverId = data.serverId;
         const now = data.timestamp || Date.now();
         const historyRecord = buildMetricHistoryRecord(data.metrics, null, now);
-        mergeServerMetricHistory(
-          serverId,
-          getCachedServerMetricHistory(serverId) || [],
-          [historyRecord]
-        );
+        mergeServerMetricHistory(serverId, getCachedServerMetricHistory(serverId) || [], [
+          historyRecord,
+        ]);
       });
       return;
     }
@@ -2225,21 +2577,21 @@ function ServerPage() {
         const { serverId, metrics, timestamp } = data;
         const now = timestamp || Date.now();
         const historyRecord = buildMetricHistoryRecord(metrics, server.info || null, now);
-        mergeServerMetricHistory(
-          serverId,
-          getCachedServerMetricHistory(serverId) || [],
-          [historyRecord]
-        );
-
+        mergeServerMetricHistory(serverId, getCachedServerMetricHistory(serverId) || [], [
+          historyRecord,
+        ]);
 
         const lastUpdate = server.lastMetricUpdateTime || 0;
-        const isTerminalStatusVisible = activeTerminalStatusServerIdRef.current === String(server.id);
-        const isExpanded = expandedServersRef.current.includes(server.id) || isTerminalStatusVisible;
+        const isTerminalStatusVisible =
+          activeTerminalStatusServerIdRef.current === String(server.id);
+        const isExpanded =
+          expandedServersRef.current.includes(server.id) || isTerminalStatusVisible;
         const interactionGuardUntil = expandInteractionUntilRef.current.get(String(server.id)) || 0;
         const inExpandInteractionGuard = interactionGuardUntil > now;
-        if (lastUpdate > 0 && (now - lastUpdate) < SERVER_METRIC_MIN_RENDER_INTERVAL_MS) {
+        if (lastUpdate > 0 && now - lastUpdate < SERVER_METRIC_MIN_RENDER_INTERVAL_MS) {
           if (!isExpanded) return server;
-          if (!isTerminalStatusVisible && (now - lastUpdate) < SERVER_REALTIME_SAMPLE_INTERVAL_MS) return server;
+          if (!isTerminalStatusVisible && now - lastUpdate < SERVER_REALTIME_SAMPLE_INTERVAL_MS)
+            return server;
         }
 
         const existingCache = server.metricsCache || getCachedServerMetricHistory(serverId) || [];
@@ -2254,26 +2606,44 @@ function ServerPage() {
           cpu: { Load: '-', Usage: '0%', Cores: '-' },
           memory: { Used: '-', Total: '-', Usage: '0%' },
           disk: [{ device: '/', used: '-', total: '-', usage: '0%' }],
-          network: { connections: 0, rx_speed: '0 B/s', tx_speed: '0 B/s', rx_total: '0 B', tx_total: '0 B' },
-          docker: { installed: false, containers: [] }
+          network: {
+            connections: 0,
+            rx_speed: '0 B/s',
+            tx_speed: '0 B/s',
+            rx_total: '0 B',
+            tx_total: '0 B',
+          },
+          docker: { installed: false, containers: [] },
         };
         const info = { ...previousInfo };
 
         // CPU
-        const logicalCores = parseInt(metrics.logical_cores) || parseInt(metrics.cores) || parseInt(previousInfo.cpu?.LogicalCores) || parseInt(previousInfo.cpu?.Cores) || 0;
-        const physicalCores = parseInt(metrics.physical_cores) || parseInt(previousInfo.cpu?.PhysicalCores) || logicalCores || 0;
+        const logicalCores =
+          parseInt(metrics.logical_cores) ||
+          parseInt(metrics.cores) ||
+          parseInt(previousInfo.cpu?.LogicalCores) ||
+          parseInt(previousInfo.cpu?.Cores) ||
+          0;
+        const physicalCores =
+          parseInt(metrics.physical_cores) ||
+          parseInt(previousInfo.cpu?.PhysicalCores) ||
+          logicalCores ||
+          0;
         const metricCpu = metrics.cpu && typeof metrics.cpu === 'object' ? metrics.cpu : {};
-        const existingCpu = previousInfo.cpu && typeof previousInfo.cpu === 'object' ? previousInfo.cpu : {};
+        const existingCpu =
+          previousInfo.cpu && typeof previousInfo.cpu === 'object' ? previousInfo.cpu : {};
         const resolvedCpuTemp = getCpuTemp({ ...metrics, cpu: { ...existingCpu, ...metricCpu } });
         info.cpu = reuseRealtimeValueIfEqual(previousInfo.cpu, {
           Model: metrics.cpu_model || metricCpu.Model || existingCpu.Model || '',
           Load: metrics.load || '-',
           Usage: metrics.cpu_usage || '0%',
           Cores: logicalCores || previousInfo.cpu?.Cores || '-',
-          LogicalCores: logicalCores || previousInfo.cpu?.LogicalCores || previousInfo.cpu?.Cores || '-',
-          PhysicalCores: physicalCores || previousInfo.cpu?.PhysicalCores || previousInfo.cpu?.Cores || '-',
-          Temp: resolvedCpuTemp > 0 ? resolvedCpuTemp : (previousInfo.cpu?.Temp || 0),
-          Power: metrics.cpu_power || metrics.cpu_power_w || previousInfo.cpu?.Power || ''
+          LogicalCores:
+            logicalCores || previousInfo.cpu?.LogicalCores || previousInfo.cpu?.Cores || '-',
+          PhysicalCores:
+            physicalCores || previousInfo.cpu?.PhysicalCores || previousInfo.cpu?.Cores || '-',
+          Temp: resolvedCpuTemp > 0 ? resolvedCpuTemp : previousInfo.cpu?.Temp || 0,
+          Power: metrics.cpu_power || metrics.cpu_power_w || previousInfo.cpu?.Power || '',
         });
 
         // Memory
@@ -2285,15 +2655,13 @@ function ServerPage() {
             info.memory = reuseRealtimeValueIfEqual(previousInfo.memory, {
               Used: used + ' MB',
               Total: total + ' MB',
-              Usage: Math.round((used / total) * 100) + '%'
+              Usage: Math.round((used / total) * 100) + '%',
             });
           }
         }
 
         // Disk
-        if (
-          metrics.disk_usage !== undefined && metrics.disk_usage !== null
-        ) {
+        if (metrics.disk_usage !== undefined && metrics.disk_usage !== null) {
           info.disk = mergeRealtimeDiskInfo(previousInfo.disk, metrics);
         } else if (metrics.disk_used !== undefined || metrics.disk_total !== undefined) {
           info.disk = mergeRealtimeDiskInfo(previousInfo.disk, {
@@ -2306,7 +2674,10 @@ function ServerPage() {
 
         // Network
         if (metrics.network) {
-          info.network = reuseRealtimeValueIfEqual(previousInfo.network, { ...previousInfo.network, ...metrics.network });
+          info.network = reuseRealtimeValueIfEqual(previousInfo.network, {
+            ...previousInfo.network,
+            ...metrics.network,
+          });
         }
 
         // GPU
@@ -2320,19 +2691,23 @@ function ServerPage() {
           metrics.gpu_temp !== undefined
         ) {
           const existingGpu = info.gpu || {};
-          const pushedGpu = typeof metrics.gpu === 'object' && metrics.gpu !== null ? metrics.gpu : {};
-          const pushedGpuUsage = typeof metrics.gpu === 'number' ? `${metrics.gpu.toFixed(1)}%` : undefined;
-          const pushedGpuPercent = pushedGpu.Percent !== undefined
-            ? pushedGpu.Percent
-            : (
-              metrics.gpu_mem_percent !== undefined ||
-                metrics.gpu_mem_used !== undefined ||
-                metrics.gpu_mem_total !== undefined
+          const pushedGpu =
+            typeof metrics.gpu === 'object' && metrics.gpu !== null ? metrics.gpu : {};
+          const pushedGpuUsage =
+            typeof metrics.gpu === 'number' ? `${metrics.gpu.toFixed(1)}%` : undefined;
+          const pushedGpuPercent =
+            pushedGpu.Percent !== undefined
+              ? pushedGpu.Percent
+              : metrics.gpu_mem_percent !== undefined ||
+                  metrics.gpu_mem_used !== undefined ||
+                  metrics.gpu_mem_total !== undefined
                 ? getGpuMemPercent(metrics)
-                : existingGpu.Percent
-            );
-          const resolvedGpuUsage = pushedGpu.Usage ||
-            (typeof metrics.gpu_usage === 'number' ? `${metrics.gpu_usage.toFixed(1)}%` : metrics.gpu_usage) ||
+                : existingGpu.Percent;
+          const resolvedGpuUsage =
+            pushedGpu.Usage ||
+            (typeof metrics.gpu_usage === 'number'
+              ? `${metrics.gpu_usage.toFixed(1)}%`
+              : metrics.gpu_usage) ||
             pushedGpuUsage ||
             existingGpu.Usage ||
             '0%';
@@ -2341,7 +2716,12 @@ function ServerPage() {
             Usage: resolvedGpuUsage,
             Memory: pushedGpu.Memory || metrics.gpu_mem || existingGpu.Memory || '',
             Power: pushedGpu.Power || metrics.gpu_power || existingGpu.Power || '',
-            Temp: pushedGpu.Temp !== undefined ? pushedGpu.Temp : (metrics.gpu_temp !== undefined ? metrics.gpu_temp : (existingGpu.Temp || 0)),
+            Temp:
+              pushedGpu.Temp !== undefined
+                ? pushedGpu.Temp
+                : metrics.gpu_temp !== undefined
+                  ? metrics.gpu_temp
+                  : existingGpu.Temp || 0,
             Percent: pushedGpuPercent !== undefined ? pushedGpuPercent : 0,
           });
         }
@@ -2352,19 +2732,41 @@ function ServerPage() {
             installed: !!metrics.docker.installed,
             runningCount: metrics.docker.running || 0,
             stoppedCount: metrics.docker.stopped || 0,
-            containers: Array.isArray(metrics.docker.containers) ? metrics.docker.containers : []
+            containers: Array.isArray(metrics.docker.containers) ? metrics.docker.containers : [],
           });
         }
 
         info.platform = metrics.platform || previousInfo.platform;
         info.platformVersion = metrics.platformVersion || previousInfo.platformVersion;
         info.uptime = metrics.uptime || previousInfo.uptime;
-        info.country_code = cleanCountryDisplayCode(firstLocationText(metrics.country_code, metrics.country, previousInfo.country_code, previousInfo.countryCode));
+        info.country_code = cleanCountryDisplayCode(
+          firstLocationText(
+            metrics.country_code,
+            metrics.country,
+            previousInfo.country_code,
+            previousInfo.countryCode
+          )
+        );
         info.countryCode = info.country_code || cleanCountryDisplayCode(previousInfo.countryCode);
-        info.location = firstLocationText(metrics.location, metrics.resolved_country, metrics.region, previousInfo.location);
+        info.location = firstLocationText(
+          metrics.location,
+          metrics.resolved_country,
+          metrics.region,
+          previousInfo.location
+        );
         info.region = firstLocationText(metrics.region, previousInfo.region);
-        const infoLatitude = firstLocationNumber(metrics.latitude, metrics.lat, previousInfo.latitude, previousInfo.lat);
-        const infoLongitude = firstLocationNumber(metrics.longitude, metrics.lon, previousInfo.longitude, previousInfo.lon);
+        const infoLatitude = firstLocationNumber(
+          metrics.latitude,
+          metrics.lat,
+          previousInfo.latitude,
+          previousInfo.lat
+        );
+        const infoLongitude = firstLocationNumber(
+          metrics.longitude,
+          metrics.lon,
+          previousInfo.longitude,
+          previousInfo.lon
+        );
         if (infoLatitude !== undefined && !(infoLatitude === 0 && infoLongitude === 0)) {
           info.latitude = infoLatitude;
         }
@@ -2373,10 +2775,24 @@ function ServerPage() {
         }
 
         const nextInfo = reuseRealtimeValueIfEqual(server.info, info);
-        const nextMetricsCache = resolveRealtimeMetricsCache(server.metricsCache, cache, { isExpanded });
+        const nextMetricsCache = resolveRealtimeMetricsCache(server.metricsCache, cache, {
+          isExpanded,
+        });
         if (inExpandInteractionGuard) return server;
-        const nextCountryCode = cleanCountryDisplayCode(firstLocationText(metrics.country_code, metrics.country, server.countryCode, server.country_code));
-        const nextLocation = firstLocationText(metrics.location, metrics.resolved_country, metrics.region, server.location);
+        const nextCountryCode = cleanCountryDisplayCode(
+          firstLocationText(
+            metrics.country_code,
+            metrics.country,
+            server.countryCode,
+            server.country_code
+          )
+        );
+        const nextLocation = firstLocationText(
+          metrics.location,
+          metrics.resolved_country,
+          metrics.region,
+          server.location
+        );
         const nextLatitude = firstLocationNumber(metrics.latitude, metrics.lat, server.latitude);
         const nextLongitude = firstLocationNumber(metrics.longitude, metrics.lon, server.longitude);
         const nextServer = {
@@ -2386,8 +2802,14 @@ function ServerPage() {
           countryCode: nextCountryCode || server.countryCode,
           location: nextLocation || server.location,
           region: firstLocationText(metrics.region, server.region),
-          latitude: nextLatitude === 0 && nextLongitude === 0 ? server.latitude : (nextLatitude ?? server.latitude),
-          longitude: nextLatitude === 0 && nextLongitude === 0 ? server.longitude : (nextLongitude ?? server.longitude),
+          latitude:
+            nextLatitude === 0 && nextLongitude === 0
+              ? server.latitude
+              : (nextLatitude ?? server.latitude),
+          longitude:
+            nextLatitude === 0 && nextLongitude === 0
+              ? server.longitude
+              : (nextLongitude ?? server.longitude),
           status: 'online',
           error: null,
           metricsCache: nextMetricsCache,
@@ -2396,7 +2818,7 @@ function ServerPage() {
           metrics_last_seen: new Date(now).toISOString(),
           metrics_last_seen_at: now,
           metrics_age_ms: 0,
-          lastMetricUpdateTime: server.lastMetricUpdateTime || 0
+          lastMetricUpdateTime: server.lastMetricUpdateTime || 0,
         };
         if (areServerSnapshotsEqual(server, nextServer)) {
           return server;
@@ -2450,14 +2872,16 @@ function ServerPage() {
         pageSize: SERVER_CHART_HISTORY_LIMIT,
         startTime: formatSqliteUTCDateTime(historyStart),
         endTime: formatSqliteUTCDateTime(now),
-        highPrecision: 'true'
+        highPrecision: 'true',
       });
       const response = await fetch(`/api/server/metrics/history?${params}`);
       const data = await response.json();
       if (!data.success) {
         throw new Error(data.error || '指标历史加载失败');
       }
-      const sorted = [...(data.data || [])].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+      const sorted = [...(data.data || [])].sort(
+        (a, b) => new Date(a.recorded_at) - new Date(b.recorded_at)
+      );
       const merged = mergeServerMetricHistory(
         serverId,
         { records: sorted, minTimestamp: historyStart },
@@ -2536,13 +2960,13 @@ function ServerPage() {
           : `/api/server/network-quality/${serverId}?${params}`,
         collect
           ? {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hours: 24,
-              maxPointsPerTarget: SERVER_NETWORK_QUALITY_MAX_POINTS,
-            }),
-          }
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                hours: 24,
+                maxPointsPerTarget: SERVER_NETWORK_QUALITY_MAX_POINTS,
+              }),
+            }
           : undefined
       );
       const data = await response.json();
@@ -2597,7 +3021,9 @@ function ServerPage() {
   const loadServerInfo = async (serverId, options = {}) => {
     const { force = false, silent = false } = options;
     if (!silent) {
-      setServerList(prev => prev.map(s => s.id === serverId ? { ...s, loading: true, error: null } : s));
+      setServerList(prev =>
+        prev.map(s => (s.id === serverId ? { ...s, loading: true, error: null } : s))
+      );
     }
 
     try {
@@ -2611,19 +3037,23 @@ function ServerPage() {
         throw new Error(data.error || data.message || '主机详情加载失败');
       }
       const info = data.data || data;
-      setServerList(prev => prev.map(s => s.id === serverId ? { ...s, info, loading: false, error: null } : s));
+      setServerList(prev =>
+        prev.map(s => (s.id === serverId ? { ...s, info, loading: false, error: null } : s))
+      );
 
       if (data.is_cached && !force) {
         setTimeout(() => loadServerInfo(serverId, { force: true, silent: true }), 300);
       }
       return info;
     } catch (e) {
-      setServerList(prev => prev.map(s => s.id === serverId ? { ...s, loading: false, error: e.message } : s));
+      setServerList(prev =>
+        prev.map(s => (s.id === serverId ? { ...s, loading: false, error: e.message } : s))
+      );
       return null;
     }
   };
 
-  const refreshServerInfo = async (serverId) => {
+  const refreshServerInfo = async serverId => {
     const server = serverList.find(s => s.id === serverId);
     if (!server || server.loading) return;
 
@@ -2649,11 +3079,11 @@ function ServerPage() {
   };
 
   // 切换折叠卡片并加载详情与历史数据
-  const toggleServerExpand = (serverId) => {
+  const toggleServerExpand = serverId => {
     const server = serverList.find(s => s.id === serverId);
     if (!server) return;
 
-		if (!isServerOnline(server)) {
+    if (!isServerOnline(server)) {
       toast.warning('主机未在线，无法查看详情');
       return;
     }
@@ -2663,15 +3093,21 @@ function ServerPage() {
       expandInteractionUntilRef.current.delete(String(serverId));
     } else {
       setExpandedServers(prev => [...prev, serverId]);
-      expandInteractionUntilRef.current.set(String(serverId), Date.now() + SERVER_EXPAND_INTERACTION_GUARD_MS);
+      expandInteractionUntilRef.current.set(
+        String(serverId),
+        Date.now() + SERVER_EXPAND_INTERACTION_GUARD_MS
+      );
       const hydrateExpandedServer = async () => {
         await Promise.all([
           server.info ? Promise.resolve(server.info) : loadServerInfo(serverId, { force: false }),
           loadCardMetrics(serverId, { silent: !!server.info }),
         ]);
-        window.setTimeout(() => {
-          loadNetworkQuality(serverId, { silent: true }).catch(() => { });
-        }, Math.max(90, SERVER_CHART_RENDER_DEFER_MS));
+        window.setTimeout(
+          () => {
+            loadNetworkQuality(serverId, { silent: true }).catch(() => {});
+          },
+          Math.max(90, SERVER_CHART_RENDER_DEFER_MS)
+        );
       };
       const runHydration = () => {
         hydrateExpandedServer().catch(error => {
@@ -2686,8 +3122,6 @@ function ServerPage() {
       }
     }
   };
-
-
 
   const openAddServerModal = () => {
     setServerAddMode('ssh');
@@ -2704,7 +3138,7 @@ function ServerPage() {
       password: '',
       privateKey: '',
       passphrase: '',
-      tagsInput: '',
+      tags: [],
       description: '',
       startsAt: '',
       expiresAt: '',
@@ -2716,7 +3150,7 @@ function ServerPage() {
       trafficCycleDay: 1,
       trafficCycleStart: '',
       trafficCycleEnd: '',
-      monitorMode: 'agent'
+      monitorMode: 'agent',
     });
     setSelectedCredentialId('');
     setServerModalMode('add');
@@ -2724,7 +3158,7 @@ function ServerPage() {
     setShowServerModal(true);
   };
 
-  const openEditServerModal = (server) => {
+  const openEditServerModal = server => {
     const trafficQuotaForm = bytesToTrafficQuotaForm(server.traffic_limit_bytes);
     setServerForm({
       id: server.id,
@@ -2736,7 +3170,7 @@ function ServerPage() {
       password: '',
       privateKey: '',
       passphrase: '',
-      tagsInput: Array.isArray(server.tags) ? server.tags.join(',') : '',
+      tags: Array.isArray(server.tags) ? server.tags : [],
       description: server.description || '',
       startsAt: formatDateInputValue(server.starts_at || server.created_at),
       expiresAt: formatDateInputValue(server.expires_at),
@@ -2749,7 +3183,7 @@ function ServerPage() {
       trafficCycleDay: normalizeTrafficCycleDayInput(server.traffic_cycle_day),
       trafficCycleStart: formatDateInputValue(server.traffic_cycle_start),
       trafficCycleEnd: formatDateInputValue(server.traffic_cycle_end),
-      monitorMode: server.monitor_mode || 'agent'
+      monitorMode: server.monitor_mode || 'agent',
     });
     setServerAddMode('ssh');
     setSelectedCredentialId('');
@@ -2758,7 +3192,7 @@ function ServerPage() {
     setShowServerModal(true);
   };
 
-  const applyCredential = (credId) => {
+  const applyCredential = credId => {
     const normalizedCredId = String(credId ?? '');
     setSelectedCredentialId(normalizedCredId);
 
@@ -2773,7 +3207,7 @@ function ServerPage() {
       authType: cred.auth_type === 'key' ? 'privateKey' : 'password',
       password: cred.password || '',
       privateKey: cred.private_key || '',
-      passphrase: cred.passphrase || ''
+      passphrase: cred.passphrase || '',
     }));
   };
 
@@ -2797,8 +3231,8 @@ function ServerPage() {
           auth_type: serverForm.authType === 'privateKey' ? 'key' : 'password',
           password: serverForm.password,
           private_key: serverForm.privateKey,
-          passphrase: serverForm.passphrase
-        })
+          passphrase: serverForm.passphrase,
+        }),
       });
       const data = await response.json();
       if (data.success) {
@@ -2823,7 +3257,9 @@ function ServerPage() {
       const rulesData = await rulesRes.json().catch(() => ({}));
       const channelsData = await channelsRes.json().catch(() => ({}));
       const rules = Array.isArray(rulesData.data) ? rulesData.data : [];
-      if (rules.some(rule => rule.source_module === 'server' && rule.event_type === 'traffic_high')) {
+      if (
+        rules.some(rule => rule.source_module === 'server' && rule.event_type === 'traffic_high')
+      ) {
         return true;
       }
       const channels = (Array.isArray(channelsData.data) ? channelsData.data : [])
@@ -2846,11 +3282,13 @@ function ServerPage() {
           channels,
           suppression: { count: 1, minutes: 30 },
           title_template: '⚠️ {{serverName}} 流量超额',
-          message_template: '主机 {{serverName}} 流量已使用 {{traffic_percent}}%，阈值 {{threshold}}%。\n已用：{{traffic_used}}\n配额：{{traffic_limit}}',
+          message_template:
+            '主机 {{serverName}} 流量已使用 {{traffic_percent}}%，阈值 {{threshold}}%。\n已用：{{traffic_used}}\n配额：{{traffic_limit}}',
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.success === false) throw new Error(data.error || '自动创建流量告警规则失败');
+      if (!res.ok || data.success === false)
+        throw new Error(data.error || '自动创建流量告警规则失败');
       toast.success('已自动创建流量告警规则');
       return true;
     } catch (error) {
@@ -2864,7 +3302,10 @@ function ServerPage() {
       toast.warning('请先保存主机后再测试报警');
       return;
     }
-    const trafficLimitBytes = trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit);
+    const trafficLimitBytes = trafficQuotaInputToBytes(
+      serverForm.trafficLimitValue,
+      serverForm.trafficLimitUnit
+    );
     if (trafficLimitBytes <= 0) {
       toast.warning('请先设置总流量配额');
       return;
@@ -2881,7 +3322,8 @@ function ServerPage() {
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success === false) throw new Error(data.error || data.message || '报警测试失败');
+      if (!response.ok || data.success === false)
+        throw new Error(data.error || data.message || '报警测试失败');
       toast.success('流量报警测试已发送');
     } catch (error) {
       toast.error(error.message || '报警测试失败');
@@ -2901,7 +3343,11 @@ function ServerPage() {
       setServerModalError('请填写连接地址和用户名');
       return;
     }
-    if (serverForm.trafficCycleType === 'custom' && serverForm.trafficCycleStart && serverForm.trafficCycleEnd) {
+    if (
+      serverForm.trafficCycleType === 'custom' &&
+      serverForm.trafficCycleStart &&
+      serverForm.trafficCycleEnd
+    ) {
       const cycleStart = new Date(`${serverForm.trafficCycleStart}T00:00:00`).getTime();
       const cycleEnd = new Date(`${serverForm.trafficCycleEnd}T23:59:59`).getTime();
       if (Number.isFinite(cycleStart) && Number.isFinite(cycleEnd) && cycleEnd < cycleStart) {
@@ -2913,8 +3359,13 @@ function ServerPage() {
     setServerModalError('');
 
     try {
-      const tags = serverForm.tagsInput ? serverForm.tagsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
-      const trafficLimitBytes = trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit);
+      const tags = Array.isArray(serverForm.tags)
+        ? serverForm.tags.map(t => String(t).trim()).filter(Boolean)
+        : [];
+      const trafficLimitBytes = trafficQuotaInputToBytes(
+        serverForm.trafficLimitValue,
+        serverForm.trafficLimitUnit
+      );
       const trafficAlertEnabled = trafficLimitBytes > 0 && Boolean(serverForm.trafficAlertEnabled);
       const payload = {
         name: serverForm.name.trim(),
@@ -2932,9 +3383,15 @@ function ServerPage() {
         traffic_alert_percent: normalizeTrafficAlertPercentInput(serverForm.trafficAlertPercent),
         traffic_cycle_type: serverForm.trafficCycleType || 'none',
         traffic_cycle_day: normalizeTrafficCycleDayInput(serverForm.trafficCycleDay),
-        traffic_cycle_start: serverForm.trafficCycleType === 'custom' ? normalizeStartInputValue(serverForm.trafficCycleStart) : null,
-        traffic_cycle_end: serverForm.trafficCycleType === 'custom' ? normalizeExpiryInputValue(serverForm.trafficCycleEnd) : null,
-        monitor_mode: isAgentForm ? 'agent' : 'ssh'
+        traffic_cycle_start:
+          serverForm.trafficCycleType === 'custom'
+            ? normalizeStartInputValue(serverForm.trafficCycleStart)
+            : null,
+        traffic_cycle_end:
+          serverForm.trafficCycleType === 'custom'
+            ? normalizeExpiryInputValue(serverForm.trafficCycleEnd)
+            : null,
+        monitor_mode: isAgentForm ? 'agent' : 'ssh',
       };
 
       if (serverForm.authType === 'password' && serverForm.password) {
@@ -2945,13 +3402,16 @@ function ServerPage() {
         payload.passphrase = serverForm.passphrase;
       }
 
-      const url = serverModalMode === 'add' ? '/api/server/accounts' : `/api/server/accounts/${serverForm.id}`;
+      const url =
+        serverModalMode === 'add'
+          ? '/api/server/accounts'
+          : `/api/server/accounts/${serverForm.id}`;
       const method = serverModalMode === 'add' ? 'POST' : 'PUT';
 
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (data.success) {
@@ -2986,7 +3446,7 @@ function ServerPage() {
       const response = await fetch('/api/server/agent/quick-install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name }),
       });
       const data = await response.json();
 
@@ -3004,7 +3464,7 @@ function ServerPage() {
     }
   };
 
-  const showAgentInstallModal = async (serverId) => {
+  const showAgentInstallModal = async serverId => {
     const server = serverList.find(s => s.id === serverId);
     if (!server) {
       toast.error('主机不存在');
@@ -3041,8 +3501,10 @@ function ServerPage() {
     }
   };
 
-  const normalizeAgentOrigin = (value) => {
-    const raw = String(value || '').trim().replace(/\/+$/, '');
+  const normalizeAgentOrigin = value => {
+    const raw = String(value || '')
+      .trim()
+      .replace(/\/+$/, '');
     if (!raw) return '';
 
     try {
@@ -3060,8 +3522,10 @@ function ServerPage() {
   };
 
   const getAgentBaseApiUrl = () => {
-    const normalizeOrigin = (value) => {
-      const raw = String(value || '').trim().replace(/\/+$/, '');
+    const normalizeOrigin = value => {
+      const raw = String(value || '')
+        .trim()
+        .replace(/\/+$/, '');
       if (!raw) return '';
 
       try {
@@ -3155,7 +3619,7 @@ function ServerPage() {
     return false;
   };
 
-  const autoInstallAgent = async (serverId) => {
+  const autoInstallAgent = async serverId => {
     setAgentInstalling(true);
     setAgentInstallResult(null);
     setAgentInstallLog('正在连接服务器并安装 Agent...\n');
@@ -3170,14 +3634,20 @@ function ServerPage() {
     }
 
     try {
-      const response = await fetch(`/api/server/agent/auto-install/${serverId}?protocol=${encodeURIComponent(getAgentInstallProtocol())}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force_ssh: agentForceSsh, base_url: getAgentPublicBaseApiUrl() }),
-      });
+      const response = await fetch(
+        `/api/server/agent/auto-install/${serverId}?protocol=${encodeURIComponent(getAgentInstallProtocol())}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force_ssh: agentForceSsh, base_url: getAgentPublicBaseApiUrl() }),
+        }
+      );
       const data = await response.json();
       if (data.success) {
-        setAgentInstallLog(prev => `${prev}${data.output || ''}\n\n安装/升级指令执行成功，正在验证 Agent 是否重新连接...`);
+        setAgentInstallLog(
+          prev =>
+            `${prev}${data.output || ''}\n\n安装/升级指令执行成功，正在验证 Agent 是否重新连接...`
+        );
         const ok = await waitForAgentRestart(serverId, initialConnectedAt);
         if (ok) {
           setAgentInstallLog(prev => `${prev}\nAgent 新连接已建立，安装/升级成功。`);
@@ -3189,7 +3659,10 @@ function ServerPage() {
           setAgentInstallResult('warning');
         }
       } else {
-        setAgentInstallLog(prev => `${prev}${data.output || ''}\n\n安装失败: ${data.details || data.error || '未知错误'}`);
+        setAgentInstallLog(
+          prev =>
+            `${prev}${data.output || ''}\n\n安装失败: ${data.details || data.error || '未知错误'}`
+        );
         setAgentInstallResult('error');
         toast.error('Agent 安装失败');
       }
@@ -3201,13 +3674,16 @@ function ServerPage() {
     }
   };
 
-  const uninstallAgent = async (serverId) => {
-    if (!(await dialog.confirm({
-      title: '卸载 Agent',
-      message: '从目标主机上卸载 Agent？',
-      confirmText: '卸载',
-      cancelText: '取消',
-    }))) return;
+  const uninstallAgent = async serverId => {
+    if (
+      !(await dialog.confirm({
+        title: '卸载 Agent',
+        message: '从目标主机上卸载 Agent？',
+        confirmText: '卸载',
+        cancelText: '取消',
+      }))
+    )
+      return;
 
     setAgentInstallLoading(true);
     try {
@@ -3222,7 +3698,9 @@ function ServerPage() {
           variant: 'destructive',
         });
         if (!confirmed) return;
-        response = await fetch(`/api/server/agent/uninstall/${serverId}?force=1`, { method: 'POST' });
+        response = await fetch(`/api/server/agent/uninstall/${serverId}?force=1`, {
+          method: 'POST',
+        });
         data = await response.json();
       }
       if (response.ok && data.success) {
@@ -3239,9 +3717,15 @@ function ServerPage() {
     }
   };
 
-  const deleteServer = async (serverId) => {
+  const deleteServer = async serverId => {
     const server = serverList.find(item => item.id === serverId);
-    if (!confirmPress(`server.delete::${serverId}`, `删除主机「${server?.name || server?.host || `#${serverId}`}」`)) return;
+    if (
+      !confirmPress(
+        `server.delete::${serverId}`,
+        `删除主机「${server?.name || server?.host || `#${serverId}`}」`
+      )
+    )
+      return;
     try {
       let response = await fetch(`/api/server/accounts/${serverId}`, { method: 'DELETE' });
       let data = await response.json();
@@ -3252,7 +3736,9 @@ function ServerPage() {
           dependencies.runtimes ? `${dependencies.runtimes} 个代理程序` : '',
           dependencies.tunnels ? `${dependencies.tunnels} 个 Tunnel` : '',
           dependencies.status_pages ? `${dependencies.status_pages} 个状态页关联` : '',
-        ].filter(Boolean).join('、');
+        ]
+          .filter(Boolean)
+          .join('、');
         const confirmed = await dialog.confirm({
           title: '强制移除离线主机',
           message: `${data.error}${dependencyText ? `。关联资源：${dependencyText}` : ''}。继续后会停止发布节点并清理全部面板关联，但离线主机本地可能残留 Agent 或代理服务。`,
@@ -3306,9 +3792,10 @@ function ServerPage() {
     const actionText = action === 'reboot' ? '重启' : '关机';
     const confirmed = await dialog.confirm({
       title: `${actionText}主机`,
-      message: action === 'shutdown'
-        ? '此操作不可逆，请确认当前没有关键任务。'
-        : '重启过程中连接会短暂中断。',
+      message:
+        action === 'shutdown'
+          ? '此操作不可逆，请确认当前没有关键任务。'
+          : '重启过程中连接会短暂中断。',
       confirmText: actionText,
       cancelText: '取消',
       variant: action === 'shutdown' ? 'destructive' : 'default',
@@ -3332,7 +3819,7 @@ function ServerPage() {
     }
   };
 
-  const saveServerOrder = async (orderedList) => {
+  const saveServerOrder = async orderedList => {
     const orderData = orderedList.map((server, index) => ({
       id: server.id,
       order_index: index,
@@ -3356,7 +3843,11 @@ function ServerPage() {
   };
 
   const handleServerDragStart = (server, event) => {
-    if (serverSearchText.trim() || serverStatusFilter !== 'all' || expandedServers.includes(server.id)) {
+    if (
+      serverSearchText.trim() ||
+      serverStatusFilter !== 'all' ||
+      expandedServers.includes(server.id)
+    ) {
       event.preventDefault();
       return;
     }
@@ -3365,7 +3856,7 @@ function ServerPage() {
     event.dataTransfer.setData('text/plain', String(server.id));
   };
 
-  const handleServerDragOver = (event) => {
+  const handleServerDragOver = event => {
     if (!draggedServerId || serverSearchText.trim() || serverStatusFilter !== 'all') return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
@@ -3387,38 +3878,56 @@ function ServerPage() {
     await saveServerOrder(next);
   };
 
-  const toggleDockerPanel = (serverId) => {
-    setExpandedDockerPanels(prev => (
-      prev.includes(serverId)
-        ? prev.filter(id => id !== serverId)
-        : [...prev, serverId]
-    ));
+  const toggleDockerPanel = serverId => {
+    setExpandedDockerPanels(prev =>
+      prev.includes(serverId) ? prev.filter(id => id !== serverId) : [...prev, serverId]
+    );
   };
 
-  const getDockerContainerState = (container) => {
+  const getDockerContainerState = container => {
     const state = String(container?.state ?? container?.State ?? '').toLowerCase();
     const status = String(container?.status ?? container?.Status ?? '').toLowerCase();
     if (state === 'paused' || status.includes('paused')) return 'paused';
     if (state === 'restarting' || status.includes('restarting')) return 'restarting';
-    if (state === 'running' || (status.includes('up') && !status.includes('paused'))) return 'running';
+    if (state === 'running' || (status.includes('up') && !status.includes('paused')))
+      return 'running';
     if (state === 'dead' || status.includes('dead')) return 'dead';
-    if (state === 'exited' || state === 'created' || state === 'stopped' || status.includes('exited')) return 'stopped';
+    if (
+      state === 'exited' ||
+      state === 'created' ||
+      state === 'stopped' ||
+      status.includes('exited')
+    )
+      return 'stopped';
     return state || 'unknown';
   };
 
-  const getDockerContainerId = (container) => (
-    String(container?.id || container?.ID || container?.Id || container?.container_id || container?.ContainerID || '')
-  );
+  const getDockerContainerId = container =>
+    String(
+      container?.id ||
+        container?.ID ||
+        container?.Id ||
+        container?.container_id ||
+        container?.ContainerID ||
+        ''
+    );
 
-  const getDockerContainerName = (container) => {
+  const getDockerContainerName = container => {
     const names = container?.names || container?.Names;
     if (Array.isArray(names) && names.length > 0) return String(names[0]).replace(/^\/+/, '');
-    return String(container?.name || container?.Name || container?.container_name || getDockerContainerId(container).slice(0, 12) || '-').replace(/^\/+/, '');
+    return String(
+      container?.name ||
+        container?.Name ||
+        container?.container_name ||
+        getDockerContainerId(container).slice(0, 12) ||
+        '-'
+    ).replace(/^\/+/, '');
   };
 
-  const getDockerContainerImage = (container) => (
-    String(container?.image || container?.Image || container?.imageName || container?.ImageName || '-')
-  );
+  const getDockerContainerImage = container =>
+    String(
+      container?.image || container?.Image || container?.imageName || container?.ImageName || '-'
+    );
 
   const getDockerContainerPorts = formatDockerContainerPorts;
 
@@ -3429,8 +3938,10 @@ function ServerPage() {
 
   const getDockerUpdateAliases = (serverId, result = {}) => {
     const aliases = new Set();
-    const add = (value) => {
-      const text = String(value || '').trim().replace(/^\/+/, '');
+    const add = value => {
+      const text = String(value || '')
+        .trim()
+        .replace(/^\/+/, '');
       if (!text || text === '-') return;
       aliases.add(text);
       if (text.length > 12) aliases.add(text.slice(0, 12));
@@ -3451,7 +3962,9 @@ function ServerPage() {
   const normalizeDockerUpdateCheck = (serverId, result = {}, fallback = {}) => ({
     serverId,
     containerId: String(result.container_id || result.containerId || fallback.containerId || ''),
-    containerName: String(result.container_name || result.containerName || result.name || fallback.containerName || '').replace(/^\/+/, ''),
+    containerName: String(
+      result.container_name || result.containerName || result.name || fallback.containerName || ''
+    ).replace(/^\/+/, ''),
     image: String(result.image || fallback.image || ''),
     currentDigest: String(result.current_digest || result.currentDigest || ''),
     latestDigest: String(result.latest_digest || result.latestDigest || ''),
@@ -3461,7 +3974,7 @@ function ServerPage() {
   });
 
   const storeDockerUpdateChecks = (serverId, results, fallback = {}) => {
-    const list = Array.isArray(results) ? results : (results ? [results] : []);
+    const list = Array.isArray(results) ? results : results ? [results] : [];
     if (list.length === 0) return;
 
     setDockerUpdateChecks(prev => {
@@ -3499,14 +4012,25 @@ function ServerPage() {
       image: containerImage,
     });
 
-    return !!dockerBulkUpdateCheckServers[serverId] || keys.some(key => dockerUpdateCheckLoading[key]);
+    return (
+      !!dockerBulkUpdateCheckServers[serverId] || keys.some(key => dockerUpdateCheckLoading[key])
+    );
   };
 
-  const getDockerActionKey = (serverId, action, payload = {}) => [
-    String(serverId || ''),
-    String(action || ''),
-    String(payload.containerId || payload.containerName || payload.image || payload.name || payload.project || payload.projectName || '*'),
-  ].join('::');
+  const getDockerActionKey = (serverId, action, payload = {}) =>
+    [
+      String(serverId || ''),
+      String(action || ''),
+      String(
+        payload.containerId ||
+          payload.containerName ||
+          payload.image ||
+          payload.name ||
+          payload.project ||
+          payload.projectName ||
+          '*'
+      ),
+    ].join('::');
 
   const clearDockerActionPending = (serverId, action, payload = null) => {
     if (!serverId || !action) return;
@@ -3532,28 +4056,36 @@ function ServerPage() {
     });
   };
 
-  const isDockerActionPending = (serverId, action, payload = {}) => !!dockerActionPending[getDockerActionKey(serverId, action, payload)];
+  const isDockerActionPending = (serverId, action, payload = {}) =>
+    !!dockerActionPending[getDockerActionKey(serverId, action, payload)];
 
   const getDockerContainerSelectionKey = (serverId, container = {}) => {
-    const containerId = String(container?.containerId || container?.container_id || getDockerContainerId(container) || '');
-    const containerName = String(container?.containerName || container?.container_name || container?.name || container?.Name || '').replace(/^\/+/, '');
+    const containerId = String(
+      container?.containerId || container?.container_id || getDockerContainerId(container) || ''
+    );
+    const containerName = String(
+      container?.containerName ||
+        container?.container_name ||
+        container?.name ||
+        container?.Name ||
+        ''
+    ).replace(/^\/+/, '');
     const image = String(container?.image || container?.Image || '');
     return [String(serverId || ''), containerId || containerName || image || '*'].join('::');
   };
 
-  const getDockerTaskTargetLabel = (payload = {}) => (
+  const getDockerTaskTargetLabel = (payload = {}) =>
     String(
-      payload.containerName
-      || payload.container_name
-      || payload.name
-      || payload.project
-      || payload.projectName
-      || payload.image
-      || payload.containerId
-      || payload.container_id
-      || ''
-    ).replace(/^\/+/, '')
-  );
+      payload.containerName ||
+        payload.container_name ||
+        payload.name ||
+        payload.project ||
+        payload.projectName ||
+        payload.image ||
+        payload.containerId ||
+        payload.container_id ||
+        ''
+    ).replace(/^\/+/, '');
 
   const getDockerTaskDisplayTitle = (task = {}) => {
     const payload = task.payload || {};
@@ -3561,8 +4093,9 @@ function ServerPage() {
     const actionLabel = getDockerTaskActionLabel(task.action || task.command || task.type);
 
     const sId = task.serverId || payload.serverId || payload.server_id;
-    const serverMatch = (dockerOverviewServers || []).find(s => String(s.id) === String(sId))
-      || (serverList || []).find(s => String(s.id) === String(sId));
+    const serverMatch =
+      (dockerOverviewServers || []).find(s => String(s.id) === String(sId)) ||
+      (serverList || []).find(s => String(s.id) === String(sId));
     const hostName = task.serverName || payload.serverName || serverMatch?.name;
 
     const hostPrefix = hostName ? `[${hostName}] ` : '';
@@ -3573,20 +4106,26 @@ function ServerPage() {
   const getDockerTaskStateVariant = (state = '') => {
     const normalized = String(state || '').toLowerCase();
     if (normalized === 'success' || normalized === 'succeeded') return 'success';
-    if (normalized === 'failed' || normalized === 'error' || normalized === 'timeout') return 'error';
+    if (normalized === 'failed' || normalized === 'error' || normalized === 'timeout')
+      return 'error';
     if (normalized === 'cancelled' || normalized === 'canceled') return 'neutral';
     return 'warning';
   };
 
-  const isDockerTaskFinalState = (state = '') => ['success', 'succeeded', 'failed', 'error', 'timeout', 'cancelled', 'canceled'].includes(String(state || '').toLowerCase());
+  const isDockerTaskFinalState = (state = '') =>
+    ['success', 'succeeded', 'failed', 'error', 'timeout', 'cancelled', 'canceled'].includes(
+      String(state || '').toLowerCase()
+    );
 
   const decorateDockerTask = (task = {}) => {
     const meta = dockerTaskMetaRef.current[task.taskId] || {};
     const payload = task.payload || meta.payload || {};
     const sId = task.serverId || meta.serverId || payload.serverId || payload.server_id;
-    const serverMatch = (dockerOverviewServers || []).find(s => String(s.id) === String(sId))
-      || (serverList || []).find(s => String(s.id) === String(sId));
-    const serverName = task.serverName || meta.serverName || payload.serverName || serverMatch?.name;
+    const serverMatch =
+      (dockerOverviewServers || []).find(s => String(s.id) === String(sId)) ||
+      (serverList || []).find(s => String(s.id) === String(sId));
+    const serverName =
+      task.serverName || meta.serverName || payload.serverName || serverMatch?.name;
 
     return normalizeDockerTaskResult({
       ...meta,
@@ -3621,18 +4160,23 @@ function ServerPage() {
         return decorateDockerTask({ ...task, ...normalized, taskId });
       });
       if (found) return next;
-      return [{
-        taskId,
-        state: 'queued',
-        progress: 0,
-        domain: 'docker',
-        ...normalized,
-      }, ...prev].slice(0, 30);
+      return [
+        {
+          taskId,
+          state: 'queued',
+          progress: 0,
+          domain: 'docker',
+          ...normalized,
+        },
+        ...prev,
+      ].slice(0, 30);
     });
   };
 
   const appendDockerInlineTask = (task = {}) => {
-    const taskId = task.taskId || `inline-${task.action || 'docker'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const taskId =
+      task.taskId ||
+      `inline-${task.action || 'docker'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const payload = task.payload || {};
     const normalized = decorateDockerTask({
       ...task,
@@ -3642,7 +4186,9 @@ function ServerPage() {
       domain: task.domain || 'docker',
       targetName: task.targetName || getDockerTaskTargetLabel(payload),
     });
-    setDockerTasks(prev => [normalized, ...prev.filter(item => item.taskId !== taskId)].slice(0, 30));
+    setDockerTasks(prev =>
+      [normalized, ...prev.filter(item => item.taskId !== taskId)].slice(0, 30)
+    );
     return taskId;
   };
 
@@ -3650,7 +4196,10 @@ function ServerPage() {
     const normalized = {
       serverId,
       containerId: String(payload.containerId || payload.container_id || ''),
-      containerName: String(payload.containerName || payload.container_name || '').replace(/^\/+/, ''),
+      containerName: String(payload.containerName || payload.container_name || '').replace(
+        /^\/+/,
+        ''
+      ),
       image: String(payload.image || ''),
       hasUpdate: false,
       updatedAt: Date.now(),
@@ -3671,12 +4220,13 @@ function ServerPage() {
     const actionKey = getDockerActionKey(serverId, action, payload);
     const task = dockerTasks
       .map(decorateDockerTask)
-      .find(item => (
-        item.serverId === serverId
-        && item.action === action
-        && getDockerActionKey(item.serverId, item.action, item.payload || {}) === actionKey
-        && !isDockerTaskFinalState(item.state)
-      ));
+      .find(
+        item =>
+          item.serverId === serverId &&
+          item.action === action &&
+          getDockerActionKey(item.serverId, item.action, item.payload || {}) === actionKey &&
+          !isDockerTaskFinalState(item.state)
+      );
     return task ? clampPercent(toNumber(task.progress, 0)) : 0;
   };
 
@@ -3692,21 +4242,30 @@ function ServerPage() {
     submitDockerTask('container.update', payload, { skipConfirm: true });
   };
 
-  const getDockerUpdateBadge = (check) => {
+  const getDockerUpdateBadge = check => {
     if (!check) return { variant: 'neutral', label: '未检测', title: '尚未检测镜像更新' };
     if (check.error) return { variant: 'error', label: '失败', title: check.error };
-    if (check.hasUpdate) return { variant: 'warning', label: '可更新', title: '远端镜像摘要与本地不一致' };
-    if (check.updatedAt) return { variant: 'success', label: '已更新', title: '容器已提交更新，等待下次检测确认镜像摘要' };
-    if (check.currentDigest && check.latestDigest) return { variant: 'success', label: '已最新', title: '本地镜像已是远端最新摘要' };
+    if (check.hasUpdate)
+      return { variant: 'warning', label: '可更新', title: '远端镜像摘要与本地不一致' };
+    if (check.updatedAt)
+      return {
+        variant: 'success',
+        label: '已更新',
+        title: '容器已提交更新，等待下次检测确认镜像摘要',
+      };
+    if (check.currentDigest && check.latestDigest)
+      return { variant: 'success', label: '已最新', title: '本地镜像已是远端最新摘要' };
     return { variant: 'neutral', label: '已检测', title: '远端或本地摘要不完整，无法严格判断' };
   };
 
   const getDockerUpdateResultError = (result = {}) => String(result.error || '').trim();
 
-  const getDockerStateBadge = (state) => {
+  const getDockerStateBadge = state => {
     if (state === 'running') return { variant: 'success', label: '运行' };
-    if (state === 'paused' || state === 'restarting') return { variant: 'warning', label: state === 'paused' ? '暂停' : '重启中' };
-    if (state === 'stopped' || state === 'dead') return { variant: 'error', label: state === 'dead' ? '异常' : '停止' };
+    if (state === 'paused' || state === 'restarting')
+      return { variant: 'warning', label: state === 'paused' ? '暂停' : '重启中' };
+    if (state === 'stopped' || state === 'dead')
+      return { variant: 'error', label: state === 'dead' ? '异常' : '停止' };
     return { variant: 'neutral', label: '未知' };
   };
 
@@ -3727,40 +4286,40 @@ function ServerPage() {
     if (!host || host === '0.0.0.0') return false;
     const username = String(server.username || '').trim();
     if (!username) return false;
-    if (server.auth_type === 'key') return Boolean(server.private_key || server.capabilities?.has_private_key);
+    if (server.auth_type === 'key')
+      return Boolean(server.private_key || server.capabilities?.has_private_key);
     return Boolean(server.password || server.capabilities?.has_password);
   };
 
-  const toggleBatchServerSelection = (serverId) => {
-    setSelectedBatchServers(prev => (
-      prev.includes(serverId)
-        ? prev.filter(id => id !== serverId)
-        : [...prev, serverId]
-    ));
+  const toggleBatchServerSelection = serverId => {
+    setSelectedBatchServers(prev =>
+      prev.includes(serverId) ? prev.filter(id => id !== serverId) : [...prev, serverId]
+    );
   };
 
   const updateBatchResult = (serverId, patch) => {
-    setBatchInstallResults(prev => prev.map(item => (
-      item.serverId === serverId ? { ...item, ...patch } : item
-    )));
+    setBatchInstallResults(prev =>
+      prev.map(item => (item.serverId === serverId ? { ...item, ...patch } : item))
+    );
   };
 
-  const normalizeAgentBatchStatus = (status) => {
+  const normalizeAgentBatchStatus = status => {
     if (status === 'queued') return 'waiting';
     if (status === 'running') return 'processing';
     if (status === 'succeeded') return 'success';
     return status || 'waiting';
   };
 
-  const mapAgentBatchItems = (items = []) => items.map(item => ({
-    serverId: item.serverId,
-    serverName: item.serverName || item.serverId,
-    status: normalizeAgentBatchStatus(item.status),
-    error: item.error || '',
-    log: item.log || [],
-  }));
+  const mapAgentBatchItems = (items = []) =>
+    items.map(item => ({
+      serverId: item.serverId,
+      serverName: item.serverName || item.serverId,
+      status: normalizeAgentBatchStatus(item.status),
+      error: item.error || '',
+      log: item.log || [],
+    }));
 
-  const isAgentBatchDone = (batch) => ['succeeded', 'failed'].includes(batch?.status);
+  const isAgentBatchDone = batch => ['succeeded', 'failed'].includes(batch?.status);
 
   const pollAgentBatch = async (batchId, onSnapshot, intervalMs = 2000) => {
     while (batchId) {
@@ -3791,16 +4350,19 @@ function ServerPage() {
     setAgentInstallLoading(true);
 
     try {
-      const response = await fetch(`/api/server/agent/batch-install?protocol=${encodeURIComponent(getAgentInstallProtocol())}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serverIds: selectedBatchServers,
-          force_ssh: batchAgentForceSsh,
-          base_url: getAgentPublicBaseApiUrl(),
-          concurrency: 16,
-        }),
-      });
+      const response = await fetch(
+        `/api/server/agent/batch-install?protocol=${encodeURIComponent(getAgentInstallProtocol())}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverIds: selectedBatchServers,
+            force_ssh: batchAgentForceSsh,
+            base_url: getAgentPublicBaseApiUrl(),
+            concurrency: 16,
+          }),
+        }
+      );
       const payload = await response.json();
       if (!payload.success) throw new Error(payload.error || '创建批量部署任务失败');
       setBatchInstallResults(mapAgentBatchItems(payload.data.items));
@@ -3815,9 +4377,11 @@ function ServerPage() {
       loadServerList();
     } catch (e) {
       toast.error(`批量 Agent 部署失败: ${e.message}`);
-      setBatchInstallResults(prev => prev.map(item => (
-        item.status === 'success' ? item : { ...item, status: 'failed', error: e.message }
-      )));
+      setBatchInstallResults(prev =>
+        prev.map(item =>
+          item.status === 'success' ? item : { ...item, status: 'failed', error: e.message }
+        )
+      );
     } finally {
       setAgentInstallLoading(false);
     }
@@ -3833,11 +4397,12 @@ function ServerPage() {
     setShowUpgradeModal(true);
   };
 
-	const getAgentUpgradeTargets = () => serverList.filter(server => (
-		isServerOnline(server) || (upgradeFallbackSsh && canSshDeployAgent(server))
-	));
+  const getAgentUpgradeTargets = () =>
+    serverList.filter(
+      server => isServerOnline(server) || (upgradeFallbackSsh && canSshDeployAgent(server))
+    );
 
-  const getUpgradeBatchStatusLabel = (status) => {
+  const getUpgradeBatchStatusLabel = status => {
     switch (status) {
       case 'queued':
         return '排队中';
@@ -3854,7 +4419,7 @@ function ServerPage() {
     }
   };
 
-  const getUpgradeItemStatusLabel = (status) => {
+  const getUpgradeItemStatusLabel = status => {
     switch (status) {
       case 'queued':
         return '等待';
@@ -3874,7 +4439,9 @@ function ServerPage() {
   const resetUpgradeLog = (lines = []) => {
     upgradeLogLineKeysRef.current = new Set();
     const normalized = lines.map(line => String(line || '').trimEnd()).filter(Boolean);
-    normalized.forEach((line, index) => upgradeLogLineKeysRef.current.add(`initial:${index}:${line}`));
+    normalized.forEach((line, index) =>
+      upgradeLogLineKeysRef.current.add(`initial:${index}:${line}`)
+    );
     setUpgradeLog(normalized.length > 0 ? `${normalized.join('\n')}\n` : '');
   };
 
@@ -3892,7 +4459,7 @@ function ServerPage() {
     setUpgradeLog(prev => `${prev || ''}${nextLines.join('\n')}\n`);
   };
 
-  const appendUpgradeBatchSnapshot = (batch) => {
+  const appendUpgradeBatchSnapshot = batch => {
     if (!batch?.id) return;
     const summary = batch.summary || {};
     const total = batch.items?.length || 0;
@@ -3941,21 +4508,27 @@ function ServerPage() {
 
     appendUpgradeLogEvents([
       { key: 'targets', line: `目标 Agent: ${targetServers.length} 台。` },
-      { key: `options:${upgradeFallbackSsh}`, line: `服务端批任务并发限制: 16。${upgradeFallbackSsh ? 'SSH 保底已开启。' : 'SSH 保底未开启。'}` },
+      {
+        key: `options:${upgradeFallbackSsh}`,
+        line: `服务端批任务并发限制: 16。${upgradeFallbackSsh ? 'SSH 保底已开启。' : 'SSH 保底未开启。'}`,
+      },
     ]);
 
     try {
-      const response = await fetch(`/api/server/agent/batch-upgrade?protocol=${encodeURIComponent(getAgentInstallProtocol())}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serverIds: targetServers.map(server => server.id),
-          force_ssh: false,
-          fallback_ssh: upgradeFallbackSsh,
-          base_url: getAgentPublicBaseApiUrl(),
-          concurrency: 16,
-        }),
-      });
+      const response = await fetch(
+        `/api/server/agent/batch-upgrade?protocol=${encodeURIComponent(getAgentInstallProtocol())}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverIds: targetServers.map(server => server.id),
+            force_ssh: false,
+            fallback_ssh: upgradeFallbackSsh,
+            base_url: getAgentPublicBaseApiUrl(),
+            concurrency: 16,
+          }),
+        }
+      );
       const payload = await response.json();
       if (!payload.success) throw new Error(payload.error || '创建批量升级任务失败');
 
@@ -3970,7 +4543,9 @@ function ServerPage() {
       setUpgradeBatchSnapshot(finalBatch || null);
       setUpgradeProgress(100);
       if (finalBatch?.status === 'succeeded') {
-        appendUpgradeLogEvents([{ key: 'final:succeeded', line: '所有目标 Agent 均已完成升级并重新上线。' }]);
+        appendUpgradeLogEvents([
+          { key: 'final:succeeded', line: '所有目标 Agent 均已完成升级并重新上线。' },
+        ]);
         toast.success('Agent 批量升级完成');
       } else {
         appendUpgradeLogEvents([{ key: 'final:failed', line: '批量升级完成，部分 Agent 失败。' }]);
@@ -4001,7 +4576,7 @@ function ServerPage() {
   };
 
   // 双击就地重命名
-  const startRenameServer = async (server) => {
+  const startRenameServer = async server => {
     const newName = await dialog.prompt({
       message: '输入新的服务器名称',
       defaultValue: server.name,
@@ -4016,7 +4591,7 @@ function ServerPage() {
       const response = await fetch(`/api/server/accounts/${serverId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name }),
       });
       const data = await response.json();
       if (data.success) {
@@ -4050,7 +4625,7 @@ function ServerPage() {
           resolved_country: s.resolved_country,
           starts_at: s.starts_at,
           expires_at: s.expires_at,
-          monitor_mode: s.monitor_mode
+          monitor_mode: s.monitor_mode,
         }));
         const blob = new Blob([JSON.stringify(clean, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -4073,13 +4648,13 @@ function ServerPage() {
     setShowImportServerModal(true);
   };
 
-  const processImportFile = (file) => {
+  const processImportFile = file => {
     if (!file.name.endsWith('.json')) {
       setImportModalError('仅支持导入 .json 格式文件');
       return;
     }
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = e => {
       try {
         const parsed = JSON.parse(e.target.result);
         if (!Array.isArray(parsed)) {
@@ -4102,7 +4677,7 @@ function ServerPage() {
       const response = await fetch('/api/server/accounts/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ servers: importPreview })
+        body: JSON.stringify({ servers: importPreview }),
       });
       const data = await response.json();
       if (data.success) {
@@ -4140,7 +4715,7 @@ function ServerPage() {
             port: parseInt(parts[2]) || 22,
             username: parts[3]?.trim() || 'root',
             auth_type: 'password',
-            password: parts[4]?.trim() || ''
+            password: parts[4]?.trim() || '',
           });
         }
       }
@@ -4153,7 +4728,7 @@ function ServerPage() {
       const response = await fetch('/api/server/accounts/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ servers })
+        body: JSON.stringify({ servers }),
       });
       const data = await response.json();
       if (data.success) {
@@ -4170,8 +4745,6 @@ function ServerPage() {
     }
   };
 
-
-
   const addCredential = async () => {
     if (!credForm.name || !credForm.username) {
       toast.warning('凭据名称与用户名必填');
@@ -4181,7 +4754,7 @@ function ServerPage() {
       const response = await fetch('/api/server/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credForm)
+        body: JSON.stringify(credForm),
       });
       const data = await response.json();
       if (data.success) {
@@ -4194,9 +4767,15 @@ function ServerPage() {
     }
   };
 
-  const deleteCredential = async (id) => {
+  const deleteCredential = async id => {
     const credential = serverCredentials.find(item => item.id === id);
-    if (!confirmPress(`credential.delete::${id}`, `删除主机凭据「${credential?.name || credential?.username || `#${id}`}」`)) return;
+    if (
+      !confirmPress(
+        `credential.delete::${id}`,
+        `删除主机凭据「${credential?.name || credential?.username || `#${id}`}」`
+      )
+    )
+      return;
     try {
       const response = await fetch(`/api/server/credentials/${id}`, { method: 'DELETE' });
       const data = await response.json();
@@ -4209,7 +4788,7 @@ function ServerPage() {
     }
   };
 
-  const setDefaultCredential = async (id) => {
+  const setDefaultCredential = async id => {
     try {
       const response = await fetch(`/api/server/credentials/${id}/default`, { method: 'POST' });
       const data = await response.json();
@@ -4283,7 +4862,13 @@ function ServerPage() {
   };
 
   const getDockerTaskConfirmation = (action, payload = {}) => {
-    const targetName = payload.containerName || payload.image || payload.name || payload.project || payload.containerId || 'Docker 资源';
+    const targetName =
+      payload.containerName ||
+      payload.image ||
+      payload.name ||
+      payload.project ||
+      payload.containerId ||
+      'Docker 资源';
     const confirmations = {
       'container.stop': {
         title: '停止容器',
@@ -4333,7 +4918,12 @@ function ServerPage() {
     if (['image.remove', 'network.remove', 'volume.remove'].includes(action)) {
       return {
         deleteResource: true,
-        resourceType: action === 'image.remove' ? 'Docker 镜像' : action === 'network.remove' ? 'Docker 网络' : 'Docker 存储卷',
+        resourceType:
+          action === 'image.remove'
+            ? 'Docker 镜像'
+            : action === 'network.remove'
+              ? 'Docker 网络'
+              : 'Docker 存储卷',
         resourceName: targetName,
       };
     }
@@ -4341,13 +4931,14 @@ function ServerPage() {
     return confirmations[action] || null;
   };
 
-  const getDockerProxyContainerAction = (action) => ({
-    'container.start': 'start',
-    'container.stop': 'stop',
-    'container.restart': 'restart',
-    'container.pause': 'pause',
-    'container.unpause': 'unpause',
-  }[action] || '');
+  const getDockerProxyContainerAction = action =>
+    ({
+      'container.start': 'start',
+      'container.stop': 'stop',
+      'container.restart': 'restart',
+      'container.pause': 'pause',
+      'container.unpause': 'unpause',
+    })[action] || '';
 
   const getDockerProxyRequest = (serverId, action, payload = {}) => {
     const containerAction = getDockerProxyContainerAction(action);
@@ -4368,34 +4959,57 @@ function ServerPage() {
       };
     }
     if (action === 'image.prune') {
-      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/images/prune`, options: { method: 'POST' } };
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/images/prune`,
+        options: { method: 'POST' },
+      };
     }
     if (action === 'image.remove') {
       const image = payload.image || payload.imageId || payload.id;
       if (!image) throw new Error('Missing image ID');
       const params = new URLSearchParams({ image });
-      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/images?${params.toString()}`, options: { method: 'DELETE' } };
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/images?${params.toString()}`,
+        options: { method: 'DELETE' },
+      };
     }
     if (action === 'network.prune') {
-      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/networks/prune`, options: { method: 'POST' } };
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/networks/prune`,
+        options: { method: 'POST' },
+      };
     }
     if (action === 'network.remove') {
       if (!payload.name) throw new Error('Missing network name');
-      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/networks/${encodeURIComponent(payload.name)}`, options: { method: 'DELETE' } };
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/networks/${encodeURIComponent(payload.name)}`,
+        options: { method: 'DELETE' },
+      };
     }
     if (action === 'volume.prune') {
-      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/volumes/prune`, options: { method: 'POST' } };
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/volumes/prune`,
+        options: { method: 'POST' },
+      };
     }
     if (action === 'volume.remove') {
       if (!payload.name) throw new Error('Missing volume name');
-      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/volumes/${encodeURIComponent(payload.name)}`, options: { method: 'DELETE' } };
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/volumes/${encodeURIComponent(payload.name)}`,
+        options: { method: 'DELETE' },
+      };
     }
     if (action.startsWith('compose.')) {
       const composeAction = action.split('.')[1];
       if (['up', 'down', 'restart', 'pull', 'update'].includes(composeAction)) {
         const project = payload.project || payload.projectName || payload.name;
         if (!project) throw new Error('Missing compose project');
-        const configFile = payload.config_file || payload.configFile || payload.configFiles || payload.ConfigFiles || '';
+        const configFile =
+          payload.config_file ||
+          payload.configFile ||
+          payload.configFiles ||
+          payload.ConfigFiles ||
+          '';
         return {
           url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/stacks/${encodeURIComponent(project)}/${composeAction}`,
           options: {
@@ -4475,10 +5089,16 @@ function ServerPage() {
           serverId,
           payload,
           silent: options.silent,
-          message: pruneActions.includes(action) ? (data?.data?.message || data?.message || '') : (data?.message || `${getDockerTaskActionLabel(action)}执行成功`),
+          message: pruneActions.includes(action)
+            ? data?.data?.message || data?.message || ''
+            : data?.message || `${getDockerTaskActionLabel(action)}执行成功`,
         });
         if (!options.silent) {
-          toast.success(pruneActions.includes(action) ? formatDockerPruneResult(action, data) : `${getDockerTaskActionLabel(action)}执行成功`);
+          toast.success(
+            pruneActions.includes(action)
+              ? formatDockerPruneResult(action, data)
+              : `${getDockerTaskActionLabel(action)}执行成功`
+          );
         }
         clearDockerActionPending(serverId, action, payload);
         scheduleDockerResourceRefresh(400);
@@ -4491,9 +5111,12 @@ function ServerPage() {
         if (!containerId) {
           throw new Error('缺少容器 ID');
         }
-        const res = await fetch(`/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}/${proxyAction}`, {
-          method: 'POST',
-        });
+        const res = await fetch(
+          `/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}/${proxyAction}`,
+          {
+            method: 'POST',
+          }
+        );
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) {
           throw new Error(data.error || data.message || 'Docker 操作失败');
@@ -4519,8 +5142,8 @@ function ServerPage() {
           serverId,
           domain: 'docker',
           action,
-          payload
-        })
+          payload,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -4568,27 +5191,55 @@ function ServerPage() {
     if (isDockerMockPreviewEnabled()) {
       const mock = createMockDockerOverview();
       setDockerOverviewServers(mock.servers);
-      setDockerImages(mock.servers.flatMap(s => s.resources.images.map(img => ({ ...img, serverName: s.name, serverId: s.id }))));
-      setDockerNetworks(mock.servers.flatMap(s => s.resources.networks.map(n => ({ ...n, serverName: s.name, serverId: s.id }))));
-      setDockerVolumes(mock.servers.flatMap(s => s.resources.volumes.map(v => ({ ...v, serverName: s.name, serverId: s.id }))));
-      setDockerStats(mock.servers.flatMap(s => s.resources.stats.map(stat => ({ ...stat, serverName: s.name, serverId: s.id }))));
-      setDockerComposeProjects(mock.servers.flatMap(s => s.resources.composeProjects.map(p => ({ ...p, serverName: s.name, serverId: s.id }))));
+      setDockerImages(
+        mock.servers.flatMap(s =>
+          s.resources.images.map(img => ({ ...img, serverName: s.name, serverId: s.id }))
+        )
+      );
+      setDockerNetworks(
+        mock.servers.flatMap(s =>
+          s.resources.networks.map(n => ({ ...n, serverName: s.name, serverId: s.id }))
+        )
+      );
+      setDockerVolumes(
+        mock.servers.flatMap(s =>
+          s.resources.volumes.map(v => ({ ...v, serverName: s.name, serverId: s.id }))
+        )
+      );
+      setDockerStats(
+        mock.servers.flatMap(s =>
+          s.resources.stats.map(stat => ({ ...stat, serverName: s.name, serverId: s.id }))
+        )
+      );
+      setDockerComposeProjects(
+        mock.servers.flatMap(s =>
+          s.resources.composeProjects.map(p => ({ ...p, serverName: s.name, serverId: s.id }))
+        )
+      );
       mock.updateChecks.forEach(check => storeDockerUpdateChecks(check.serverId, [check], check));
-      setDockerTasks(prev => (prev.length > 0 ? prev : [{
-        taskId: 'mock-check-updates',
-        state: 'success',
-        progress: 100,
-        action: 'container.checkUpdates',
-        domain: 'docker',
-        message: JSON.stringify(mock.updateChecks.map(check => ({
-          container_id: check.containerId,
-          container_name: check.containerName,
-          image: check.image,
-          current_digest: check.currentDigest,
-          latest_digest: check.latestDigest,
-          has_update: check.hasUpdate,
-        }))),
-      }]));
+      setDockerTasks(prev =>
+        prev.length > 0
+          ? prev
+          : [
+              {
+                taskId: 'mock-check-updates',
+                state: 'success',
+                progress: 100,
+                action: 'container.checkUpdates',
+                domain: 'docker',
+                message: JSON.stringify(
+                  mock.updateChecks.map(check => ({
+                    container_id: check.containerId,
+                    container_name: check.containerName,
+                    image: check.image,
+                    current_digest: check.currentDigest,
+                    latest_digest: check.latestDigest,
+                    has_update: check.hasUpdate,
+                  }))
+                ),
+              },
+            ]
+      );
       setDockerTaskStreamConnected(true);
       setDockerResourceLoading(false);
       return;
@@ -4606,11 +5257,31 @@ function ServerPage() {
           .filter(s => s.docker?.installed);
         setDockerOverviewServers(servers);
 
-        setDockerImages(servers.flatMap(s => s.resources.images.map(img => ({ ...img, serverName: s.name, serverId: s.id }))));
-        setDockerNetworks(servers.flatMap(s => s.resources.networks.map(n => ({ ...n, serverName: s.name, serverId: s.id }))));
-        setDockerVolumes(servers.flatMap(s => s.resources.volumes.map(v => ({ ...v, serverName: s.name, serverId: s.id }))));
-        setDockerStats(servers.flatMap(s => s.resources.stats.map(stat => ({ ...stat, serverName: s.name, serverId: s.id }))));
-        setDockerComposeProjects(servers.flatMap(s => s.resources.composeProjects.map(p => ({ ...p, serverName: s.name, serverId: s.id }))));
+        setDockerImages(
+          servers.flatMap(s =>
+            s.resources.images.map(img => ({ ...img, serverName: s.name, serverId: s.id }))
+          )
+        );
+        setDockerNetworks(
+          servers.flatMap(s =>
+            s.resources.networks.map(n => ({ ...n, serverName: s.name, serverId: s.id }))
+          )
+        );
+        setDockerVolumes(
+          servers.flatMap(s =>
+            s.resources.volumes.map(v => ({ ...v, serverName: s.name, serverId: s.id }))
+          )
+        );
+        setDockerStats(
+          servers.flatMap(s =>
+            s.resources.stats.map(stat => ({ ...stat, serverName: s.name, serverId: s.id }))
+          )
+        );
+        setDockerComposeProjects(
+          servers.flatMap(s =>
+            s.resources.composeProjects.map(p => ({ ...p, serverName: s.name, serverId: s.id }))
+          )
+        );
       } else {
         setDockerOverviewServers([]);
         setDockerImages([]);
@@ -4634,21 +5305,23 @@ function ServerPage() {
     }
   };
 
-  const dockerContainerManagementServers = useMemo(() => (
-    dockerOverviewServers
-      .map(server => ({
-        ...server,
-        resources: {
-          ...server.resources,
-          containers: asArray(server.resources?.containers),
-        },
-      }))
-      .filter(server => asArray(server.resources?.containers).length > 0)
-  ), [dockerOverviewServers]);
+  const dockerContainerManagementServers = useMemo(
+    () =>
+      dockerOverviewServers
+        .map(server => ({
+          ...server,
+          resources: {
+            ...server.resources,
+            containers: asArray(server.resources?.containers),
+          },
+        }))
+        .filter(server => asArray(server.resources?.containers).length > 0),
+    [dockerOverviewServers]
+  );
 
   const visibleDockerContainerServers = useMemo(() => {
     const query = dockerSearchQuery.trim().toLowerCase();
-    const filterContainers = (server) => {
+    const filterContainers = server => {
       const containers = asArray(server.resources?.containers).filter(container => {
         const state = getDockerContainerState(container);
         const updateCheck = getDockerContainerUpdateCheck(server.id, container);
@@ -4664,7 +5337,11 @@ function ServerPage() {
           getDockerContainerId(container),
           getDockerContainerPorts(container),
           server.name,
-        ].some(value => String(value || '').toLowerCase().includes(query));
+        ].some(value =>
+          String(value || '')
+            .toLowerCase()
+            .includes(query)
+        );
       });
       return {
         ...server,
@@ -4701,23 +5378,35 @@ function ServerPage() {
 
   const dockerStatsSummary = useMemo(() => {
     const latest = dockerStatsHistory[dockerStatsHistory.length - 1] || [];
-    return latest.reduce((summary, item) => ({
-      cpu: summary.cpu + toNumber(item.cpu, 0),
-      memory: summary.memory + toNumber(item.memory, 0),
-      netIn: summary.netIn + toNumber(item.netIn, 0),
-      netOut: summary.netOut + toNumber(item.netOut, 0),
-      blockRead: summary.blockRead + toNumber(item.blockRead, 0),
-      blockWrite: summary.blockWrite + toNumber(item.blockWrite, 0),
-    }), { cpu: 0, memory: 0, netIn: 0, netOut: 0, blockRead: 0, blockWrite: 0 });
+    return latest.reduce(
+      (summary, item) => ({
+        cpu: summary.cpu + toNumber(item.cpu, 0),
+        memory: summary.memory + toNumber(item.memory, 0),
+        netIn: summary.netIn + toNumber(item.netIn, 0),
+        netOut: summary.netOut + toNumber(item.netOut, 0),
+        blockRead: summary.blockRead + toNumber(item.blockRead, 0),
+        blockWrite: summary.blockWrite + toNumber(item.blockWrite, 0),
+      }),
+      { cpu: 0, memory: 0, netIn: 0, netOut: 0, blockRead: 0, blockWrite: 0 }
+    );
   }, [dockerStatsHistory]);
 
-  const dockerResourceSummary = useMemo(() => ({
-    compose: dockerComposeProjects.length,
-    images: dockerImages.length,
-    networks: dockerNetworks.length,
-    volumes: dockerVolumes.length,
-    stats: dockerStats.length,
-  }), [dockerComposeProjects.length, dockerImages.length, dockerNetworks.length, dockerVolumes.length, dockerStats.length]);
+  const dockerResourceSummary = useMemo(
+    () => ({
+      compose: dockerComposeProjects.length,
+      images: dockerImages.length,
+      networks: dockerNetworks.length,
+      volumes: dockerVolumes.length,
+      stats: dockerStats.length,
+    }),
+    [
+      dockerComposeProjects.length,
+      dockerImages.length,
+      dockerNetworks.length,
+      dockerVolumes.length,
+      dockerStats.length,
+    ]
+  );
 
   const renderDockerSimpleLogCard = (className = '') => {
     const tasks = dockerTasks.map(decorateDockerTask);
@@ -4737,7 +5426,13 @@ function ServerPage() {
             <Button
               size="sm"
               variant="secondary"
-              icon={showDockerLogPanel ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              icon={
+                showDockerLogPanel ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )
+              }
               onClick={() => setShowDockerLogPanel(prev => !prev)}
               aria-label={showDockerLogPanel ? '收起日志' : '展开日志'}
               title={showDockerLogPanel ? '收起日志' : '展开日志'}
@@ -4757,15 +5452,25 @@ function ServerPage() {
                   const showProgress = !isDockerTaskFinalState(task.state) && progress > 0;
                   const summary = summarizeDockerTaskMessage(task);
                   return (
-                    <div key={task.taskId} className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2">
+                    <div
+                      key={task.taskId}
+                      className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2"
+                    >
                       <div className="flex min-w-0 items-center gap-2">
                         <Badge variant={getDockerTaskStateVariant(task.state)} appearance="dot">
                           {getDockerTaskStateLabel(task.state)}
                         </Badge>
-                        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-kumo-strong" title={getDockerTaskDisplayTitle(task)}>
+                        <span
+                          className="min-w-0 flex-1 truncate text-[11px] font-semibold text-kumo-strong"
+                          title={getDockerTaskDisplayTitle(task)}
+                        >
                           {getDockerTaskDisplayTitle(task)}
                         </span>
-                        {showProgress && <span className="shrink-0 text-[10px] font-semibold text-brand">{progress}%</span>}
+                        {showProgress && (
+                          <span className="shrink-0 text-[10px] font-semibold text-brand">
+                            {progress}%
+                          </span>
+                        )}
                       </div>
                       {showProgress && (
                         <Meter
@@ -4801,7 +5506,7 @@ function ServerPage() {
     countLabel = '数量',
     summaryItems = [],
     actions = null,
-    getHostCount = (server) => getDockerOverviewResourceCount(server, dockerSubTab),
+    getHostCount = server => getDockerOverviewResourceCount(server, dockerSubTab),
     getHostBadges = () => [],
     renderHostAction = null,
   }) => {
@@ -4824,7 +5529,11 @@ function ServerPage() {
                 shape="square"
                 size="sm"
                 variant="secondary"
-                icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerResourceLoading ? 'animate-spin' : ''}`} />}
+                icon={
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${dockerResourceLoading ? 'animate-spin' : ''}`}
+                  />
+                }
                 disabled={dockerResourceLoading}
                 onClick={loadDockerResources}
                 aria-label="刷新 Docker 数据"
@@ -4836,9 +5545,16 @@ function ServerPage() {
           <LayerCard.Primary className="space-y-3 p-3">
             <div className="grid grid-cols-4 gap-1.5">
               {statItems.map(item => (
-                <div key={item.label} className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
+                <div
+                  key={item.label}
+                  className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5"
+                >
                   <div className="text-[10px] text-kumo-subtle">{item.label}</div>
-                  <div className={`mt-0.5 truncate text-sm font-semibold ${item.className || 'text-kumo-strong'}`}>{item.value}</div>
+                  <div
+                    className={`mt-0.5 truncate text-sm font-semibold ${item.className || 'text-kumo-strong'}`}
+                  >
+                    {item.value}
+                  </div>
                 </div>
               ))}
             </div>
@@ -4848,50 +5564,63 @@ function ServerPage() {
                 const isOpen = isDockerHostExpanded(server.id, hosts[0]?.id);
                 const hostBadges = getHostBadges(server);
                 return (
-                  <div key={`${title}-${server.id}`} className={`overflow-hidden rounded-md border ${isOpen ? 'border-brand/55 bg-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}>
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => focusDockerResourceHost(server.id, hosts[0]?.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            focusDockerResourceHost(server.id, hosts[0]?.id);
-                          }
-                        }}
-                        className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-2.5 py-2"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          {React.cloneElement(icon, { className: 'h-3.5 w-3.5 shrink-0 text-brand' })}
-                          <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
+                  <div
+                    key={`${title}-${server.id}`}
+                    className={`overflow-hidden rounded-md border ${isOpen ? 'border-brand/55 bg-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}
+                  >
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => focusDockerResourceHost(server.id, hosts[0]?.id)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          focusDockerResourceHost(server.id, hosts[0]?.id);
+                        }
+                      }}
+                      className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-2.5 py-2"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        {React.cloneElement(icon, { className: 'h-3.5 w-3.5 shrink-0 text-brand' })}
+                        <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">
+                          {server.name}
                         </span>
-                        <span className="flex shrink-0 items-center gap-1.5">
-                          <Badge variant="neutral">{getHostCount(server)}</Badge>
-                          {hostBadges.slice(0, 1).map(badge => (
-                            <Badge key={badge.label} variant={badge.variant || 'neutral'} appearance={badge.appearance}>
-                              {badge.label}
-                            </Badge>
-                          ))}
-                        </span>
-                      </div>
-
-                      {(hostBadges.length > 0 || renderHostAction) && (
-                        <AnimatedCollapse open={isOpen} keepMounted>
-                          <div className="border-t border-kumo-line/70 px-2.5 py-2">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex flex-wrap gap-1.5">
-                                {hostBadges.map(badge => (
-                                  <Badge key={badge.label} variant={badge.variant || 'neutral'} appearance={badge.appearance}>
-                                    {badge.label}
-                                  </Badge>
-                                ))}
-                              </div>
-                              {renderHostAction?.(server)}
-                            </div>
-                          </div>
-                        </AnimatedCollapse>
-                      )}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <Badge variant="neutral">{getHostCount(server)}</Badge>
+                        {hostBadges.slice(0, 1).map(badge => (
+                          <Badge
+                            key={badge.label}
+                            variant={badge.variant || 'neutral'}
+                            appearance={badge.appearance}
+                          >
+                            {badge.label}
+                          </Badge>
+                        ))}
+                      </span>
                     </div>
+
+                    {(hostBadges.length > 0 || renderHostAction) && (
+                      <AnimatedCollapse open={isOpen} keepMounted>
+                        <div className="border-t border-kumo-line/70 px-2.5 py-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {hostBadges.map(badge => (
+                                <Badge
+                                  key={badge.label}
+                                  variant={badge.variant || 'neutral'}
+                                  appearance={badge.appearance}
+                                >
+                                  {badge.label}
+                                </Badge>
+                              ))}
+                            </div>
+                            {renderHostAction?.(server)}
+                          </div>
+                        </div>
+                      </AnimatedCollapse>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -4904,18 +5633,21 @@ function ServerPage() {
 
   const getDockerContainerSummary = (containers = [], serverId = '') => {
     const list = asArray(containers);
-    return list.reduce((summary, container) => {
-      const state = getDockerContainerState(container);
-      if (state === 'running') summary.running += 1;
-      else if (state === 'paused') summary.paused += 1;
-      else summary.stopped += 1;
-      const updateCheck = serverId ? getDockerContainerUpdateCheck(serverId, container) : null;
-      if (updateCheck?.hasUpdate) summary.updatable += 1;
-      return summary;
-    }, { total: list.length, running: 0, paused: 0, stopped: 0, updatable: 0 });
+    return list.reduce(
+      (summary, container) => {
+        const state = getDockerContainerState(container);
+        if (state === 'running') summary.running += 1;
+        else if (state === 'paused') summary.paused += 1;
+        else summary.stopped += 1;
+        const updateCheck = serverId ? getDockerContainerUpdateCheck(serverId, container) : null;
+        if (updateCheck?.hasUpdate) summary.updatable += 1;
+        return summary;
+      },
+      { total: list.length, running: 0, paused: 0, stopped: 0, updatable: 0 }
+    );
   };
 
-  const getUpdatableDockerContainers = (servers, serverId = '') => (
+  const getUpdatableDockerContainers = (servers, serverId = '') =>
     servers.flatMap(server => {
       if (serverId && String(server.id) !== String(serverId)) return [];
       return asArray(server.resources?.containers)
@@ -4930,12 +5662,10 @@ function ServerPage() {
             image: getDockerContainerImage(container),
           },
         }));
-    })
-  );
+    });
 
-  const getVisibleUpdatableDockerContainers = () => (
-    getUpdatableDockerContainers(visibleDockerContainerServers)
-  );
+  const getVisibleUpdatableDockerContainers = () =>
+    getUpdatableDockerContainers(visibleDockerContainerServers);
 
   const visibleUpdatableDockerContainers = useMemo(
     () => getVisibleUpdatableDockerContainers(),
@@ -4945,60 +5675,90 @@ function ServerPage() {
     () => getUpdatableDockerContainers(dockerContainerManagementServers),
     [dockerContainerManagementServers, dockerUpdateChecks]
   );
-  const dockerSelectedContainerKeySet = useMemo(() => new Set(dockerSelectedContainerKeys), [dockerSelectedContainerKeys]);
-  const selectedUpdatableDockerContainers = useMemo(() => (
-    visibleUpdatableDockerContainers.filter(item => (
-      dockerSelectedContainerKeySet.has(getDockerContainerSelectionKey(item.server.id, item.payload))
-    ))
-  ), [visibleUpdatableDockerContainers, dockerSelectedContainerKeySet]);
-  const visibleUpdatableDockerContainerKeySet = useMemo(() => new Set(
-    visibleUpdatableDockerContainers.map(item => getDockerContainerSelectionKey(item.server.id, item.payload))
-  ), [visibleUpdatableDockerContainers]);
+  const dockerSelectedContainerKeySet = useMemo(
+    () => new Set(dockerSelectedContainerKeys),
+    [dockerSelectedContainerKeys]
+  );
+  const selectedUpdatableDockerContainers = useMemo(
+    () =>
+      visibleUpdatableDockerContainers.filter(item =>
+        dockerSelectedContainerKeySet.has(
+          getDockerContainerSelectionKey(item.server.id, item.payload)
+        )
+      ),
+    [visibleUpdatableDockerContainers, dockerSelectedContainerKeySet]
+  );
+  const visibleUpdatableDockerContainerKeySet = useMemo(
+    () =>
+      new Set(
+        visibleUpdatableDockerContainers.map(item =>
+          getDockerContainerSelectionKey(item.server.id, item.payload)
+        )
+      ),
+    [visibleUpdatableDockerContainers]
+  );
 
   useEffect(() => {
-    setDockerSelectedContainerKeys(prev => prev.filter(key => visibleUpdatableDockerContainerKeySet.has(key)));
+    setDockerSelectedContainerKeys(prev =>
+      prev.filter(key => visibleUpdatableDockerContainerKeySet.has(key))
+    );
   }, [visibleUpdatableDockerContainerKeySet]);
-  const dockerActiveBatchUpdateTargets = selectedUpdatableDockerContainers.length > 0
-    ? selectedUpdatableDockerContainers
-    : visibleUpdatableDockerContainers;
-  const dockerActiveBatchUpdateScopeName = selectedUpdatableDockerContainers.length > 0 ? '选中容器' : '当前筛选';
-  const dockerActiveBatchUpdateConfirmKey = useMemo(() => (
-    `batch.update::${dockerActiveBatchUpdateScopeName}::${dockerActiveBatchUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`
-  ), [dockerActiveBatchUpdateScopeName, dockerActiveBatchUpdateTargets]);
-  const dockerManagementBatchUpdateConfirmKey = useMemo(() => (
-    `batch.update::全部主机::${dockerContainerManagementUpdatableContainers.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`
-  ), [dockerContainerManagementUpdatableContainers]);
+  const dockerActiveBatchUpdateTargets =
+    selectedUpdatableDockerContainers.length > 0
+      ? selectedUpdatableDockerContainers
+      : visibleUpdatableDockerContainers;
+  const dockerActiveBatchUpdateScopeName =
+    selectedUpdatableDockerContainers.length > 0 ? '选中容器' : '当前筛选';
+  const dockerActiveBatchUpdateConfirmKey = useMemo(
+    () =>
+      `batch.update::${dockerActiveBatchUpdateScopeName}::${dockerActiveBatchUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`,
+    [dockerActiveBatchUpdateScopeName, dockerActiveBatchUpdateTargets]
+  );
+  const dockerManagementBatchUpdateConfirmKey = useMemo(
+    () =>
+      `batch.update::全部主机::${dockerContainerManagementUpdatableContainers.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`,
+    [dockerContainerManagementUpdatableContainers]
+  );
 
-  const hasDockerResourceData = dockerOverviewServers.length > 0
-    || dockerImages.length > 0
-    || dockerNetworks.length > 0
-    || dockerVolumes.length > 0
-    || dockerStats.length > 0
-    || dockerComposeProjects.length > 0;
+  const hasDockerResourceData =
+    dockerOverviewServers.length > 0 ||
+    dockerImages.length > 0 ||
+    dockerNetworks.length > 0 ||
+    dockerVolumes.length > 0 ||
+    dockerStats.length > 0 ||
+    dockerComposeProjects.length > 0;
   const showDockerBlockingLoading = dockerResourceLoading && !hasDockerResourceData;
-  const dockerContainerTotals = visibleDockerContainerServers.reduce((totals, server) => {
-    const summary = getDockerContainerSummary(server.resources?.containers, server.id);
-    totals.total += summary.total;
-    totals.running += summary.running;
-    totals.paused += summary.paused;
-    totals.stopped += summary.stopped;
-    totals.updatable += summary.updatable;
-    return totals;
-  }, { total: 0, running: 0, paused: 0, stopped: 0, updatable: 0 });
-  const dockerContainerManagementTotals = dockerContainerManagementServers.reduce((totals, server) => {
-    const summary = getDockerContainerSummary(server.resources?.containers, server.id);
-    totals.total += summary.total;
-    totals.running += summary.running;
-    totals.paused += summary.paused;
-    totals.stopped += summary.stopped;
-    totals.updatable += summary.updatable;
-    return totals;
-  }, { total: 0, running: 0, paused: 0, stopped: 0, updatable: 0 });
+  const dockerContainerTotals = visibleDockerContainerServers.reduce(
+    (totals, server) => {
+      const summary = getDockerContainerSummary(server.resources?.containers, server.id);
+      totals.total += summary.total;
+      totals.running += summary.running;
+      totals.paused += summary.paused;
+      totals.stopped += summary.stopped;
+      totals.updatable += summary.updatable;
+      return totals;
+    },
+    { total: 0, running: 0, paused: 0, stopped: 0, updatable: 0 }
+  );
+  const dockerContainerManagementTotals = dockerContainerManagementServers.reduce(
+    (totals, server) => {
+      const summary = getDockerContainerSummary(server.resources?.containers, server.id);
+      totals.total += summary.total;
+      totals.running += summary.running;
+      totals.paused += summary.paused;
+      totals.stopped += summary.stopped;
+      totals.updatable += summary.updatable;
+      return totals;
+    },
+    { total: 0, running: 0, paused: 0, stopped: 0, updatable: 0 }
+  );
 
   useEffect(() => {
     if (dockerSubTab !== 'containers') return;
     const hostIds = visibleDockerContainerServers.map(server => server.id);
-    setExpandedDockerOverviewServers(prev => (prev === null ? prev : prev.filter(id => hostIds.includes(id))));
+    setExpandedDockerOverviewServers(prev =>
+      prev === null ? prev : prev.filter(id => hostIds.includes(id))
+    );
   }, [dockerSubTab, visibleDockerContainerServers]);
 
   useEffect(() => {
@@ -5006,7 +5766,9 @@ function ServerPage() {
     const hostIds = dockerOverviewServers
       .filter(server => isDockerOverviewHostVisible(server, dockerSubTab))
       .map(server => server.id);
-    setExpandedDockerOverviewServers(prev => (prev === null ? prev : prev.filter(id => hostIds.includes(id))));
+    setExpandedDockerOverviewServers(prev =>
+      prev === null ? prev : prev.filter(id => hostIds.includes(id))
+    );
   }, [dockerSubTab, dockerOverviewServers]);
 
   const toggleDockerOverviewServer = (serverId, autoExpandedServerId) => {
@@ -5016,9 +5778,7 @@ function ServerPage() {
         // 点击其它 = 只展开点击的那台（类似手风琴，第一台随之收起）。
         return autoExpandedServerId === serverId ? [] : [serverId];
       }
-      return prev.includes(serverId)
-        ? prev.filter(id => id !== serverId)
-        : [...prev, serverId];
+      return prev.includes(serverId) ? prev.filter(id => id !== serverId) : [...prev, serverId];
     });
   };
 
@@ -5036,8 +5796,9 @@ function ServerPage() {
   };
 
   const renderDockerFilterChip = (serverId, filter, label, variant = 'neutral', title = '') => {
-    const active = String(dockerSelectedServer || '') === String(serverId || '')
-      && dockerContainerStateFilter === filter;
+    const active =
+      String(dockerSelectedServer || '') === String(serverId || '') &&
+      dockerContainerStateFilter === filter;
     const toneClass = active
       ? ''
       : variant === 'success'
@@ -5052,7 +5813,7 @@ function ServerPage() {
         type="button"
         size="sm"
         variant={active ? 'primary' : 'secondary'}
-        onClick={(event) => {
+        onClick={event => {
           event.stopPropagation();
           selectDockerContainerScope(serverId, filter);
         }}
@@ -5064,22 +5825,36 @@ function ServerPage() {
     );
   };
 
-  const batchUpdateVisibleDockerContainers = async (serverId = '', useAllServers = false, explicitTargets = null, options = {}) => {
-    const sourceServers = serverId || useAllServers ? dockerContainerManagementServers : visibleDockerContainerServers;
-    const targets = Array.isArray(explicitTargets) ? explicitTargets : getUpdatableDockerContainers(sourceServers, serverId);
+  const batchUpdateVisibleDockerContainers = async (
+    serverId = '',
+    useAllServers = false,
+    explicitTargets = null,
+    options = {}
+  ) => {
+    const sourceServers =
+      serverId || useAllServers ? dockerContainerManagementServers : visibleDockerContainerServers;
+    const targets = Array.isArray(explicitTargets)
+      ? explicitTargets
+      : getUpdatableDockerContainers(sourceServers, serverId);
     const scopeName = serverId
-      ? (
-        dockerContainerManagementServers.find(server => String(server.id) === String(serverId))?.name
-        || visibleDockerContainerServers.find(server => String(server.id) === String(serverId))?.name
-        || '当前主机'
-      )
+      ? dockerContainerManagementServers.find(server => String(server.id) === String(serverId))
+          ?.name ||
+        visibleDockerContainerServers.find(server => String(server.id) === String(serverId))
+          ?.name ||
+        '当前主机'
       : options.scopeName || (useAllServers ? '全部主机' : '当前筛选');
     if (targets.length === 0) {
       toast.warning(`${scopeName}下没有已检测出的可更新容器`);
       return;
     }
-    const confirmKey = options.confirmKey || `batch.update::${scopeName}::${targets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
-    if (!options.skipDoubleConfirm && !confirmDockerUpdatePress(confirmKey, `更新${scopeName} ${targets.length} 个容器`)) return;
+    const confirmKey =
+      options.confirmKey ||
+      `batch.update::${scopeName}::${targets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
+    if (
+      !options.skipDoubleConfirm &&
+      !confirmDockerUpdatePress(confirmKey, `更新${scopeName} ${targets.length} 个容器`)
+    )
+      return;
 
     const queue = [...targets];
     let submitted = 0;
@@ -5088,7 +5863,10 @@ function ServerPage() {
       while (queue.length > 0) {
         const item = queue.shift();
         try {
-          const result = await submitDockerTask('container.update', item.payload, { skipConfirm: true, silent: true });
+          const result = await submitDockerTask('container.update', item.payload, {
+            skipConfirm: true,
+            silent: true,
+          });
           if (result?.ok) submitted += 1;
           else failed += 1;
         } catch (error) {
@@ -5129,11 +5907,13 @@ function ServerPage() {
       return { ok: false, error: 'missing serverId', results: [] };
     }
 
-    const fallback = container ? {
-      containerId: getDockerContainerId(container),
-      containerName: getDockerContainerName(container),
-      image: getDockerContainerImage(container),
-    } : {};
+    const fallback = container
+      ? {
+          containerId: getDockerContainerId(container),
+          containerName: getDockerContainerName(container),
+          image: getDockerContainerImage(container),
+        }
+      : {};
 
     setDockerUpdateLoadingForAliases(serverId, fallback, true);
 
@@ -5151,14 +5931,20 @@ function ServerPage() {
         throw new Error(data.error || '检查更新失败');
       }
 
-      const results = Array.isArray(data.data) ? data.data : (data.data ? [data.data] : []);
+      const results = Array.isArray(data.data) ? data.data : data.data ? [data.data] : [];
       if (results.length > 0) {
         storeDockerUpdateChecks(serverId, results, fallback);
       } else if (container) {
-        storeDockerUpdateChecks(serverId, [{
-          ...fallback,
-          error: '未返回检测结果',
-        }], fallback);
+        storeDockerUpdateChecks(
+          serverId,
+          [
+            {
+              ...fallback,
+              error: '未返回检测结果',
+            },
+          ],
+          fallback
+        );
       }
 
       const failedResults = results.filter(result => getDockerUpdateResultError(result));
@@ -5166,8 +5952,14 @@ function ServerPage() {
         const updateCount = results.filter(item => item?.has_update || item?.hasUpdate).length;
         const hostTag = server?.name ? `[${server.name}] ` : '';
         if (failedResults.length > 0) {
-          const target = failedResults[0]?.container_name || failedResults[0]?.containerName || fallback.containerName || '容器';
-          toast.error(`${hostTag}${target} 检测失败：${getDockerUpdateResultError(failedResults[0])}`);
+          const target =
+            failedResults[0]?.container_name ||
+            failedResults[0]?.containerName ||
+            fallback.containerName ||
+            '容器';
+          toast.error(
+            `${hostTag}${target} 检测失败：${getDockerUpdateResultError(failedResults[0])}`
+          );
         } else if (updateCount > 0) {
           toast.warning(`${hostTag}检测完成，发现 ${updateCount} 个可更新镜像`);
         } else {
@@ -5175,13 +5967,23 @@ function ServerPage() {
         }
       }
 
-      return { ok: failedResults.length === 0, error: getDockerUpdateResultError(failedResults[0]), results };
+      return {
+        ok: failedResults.length === 0,
+        error: getDockerUpdateResultError(failedResults[0]),
+        results,
+      };
     } catch (error) {
       if (container) {
-        storeDockerUpdateChecks(serverId, [{
-          ...fallback,
-          error: error.message || '检查更新失败',
-        }], fallback);
+        storeDockerUpdateChecks(
+          serverId,
+          [
+            {
+              ...fallback,
+              error: error.message || '检查更新失败',
+            },
+          ],
+          fallback
+        );
       }
       if (!options.silent) {
         toast.error(error.message || '检查更新失败');
@@ -5192,7 +5994,10 @@ function ServerPage() {
     }
   };
 
-  const checkDockerUpdatesForServers = async (servers, emptyMessage = '当前没有可检测的 Docker 容器') => {
+  const checkDockerUpdatesForServers = async (
+    servers,
+    emptyMessage = '当前没有可检测的 Docker 容器'
+  ) => {
     const targets = servers.filter(server => asArray(server.resources?.containers).length > 0);
     if (targets.length === 0) {
       toast.warning(emptyMessage);
@@ -5204,7 +6009,7 @@ function ServerPage() {
 
     try {
       const results = await Promise.all(
-        targets.map(async (server) => {
+        targets.map(async server => {
           try {
             return await checkDockerUpdatesForServer(server, null, { silent: true });
           } catch (error) {
@@ -5218,16 +6023,22 @@ function ServerPage() {
           }
         })
       );
-      const finished = results.length > 0 ? results : targets.map(() => ({ ok: false, error: '检查失败', results: [] }));
+      const finished =
+        results.length > 0
+          ? results
+          : targets.map(() => ({ ok: false, error: '检查失败', results: [] }));
       const updateCount = finished.reduce(
-        (sum, item) => sum + item.results.filter(result => result?.has_update || result?.hasUpdate).length,
+        (sum, item) =>
+          sum + item.results.filter(result => result?.has_update || result?.hasUpdate).length,
         0
       );
       const failedCount = finished.filter(item => !item.ok).length;
 
       const targetTag = targets.length === 1 && targets[0]?.name ? `[${targets[0].name}] ` : '';
       if (failedCount > 0) {
-        toast.warning(`${targetTag}检测完成，${updateCount} 个可更新，${failedCount} 台主机检测失败`);
+        toast.warning(
+          `${targetTag}检测完成，${updateCount} 个可更新，${failedCount} 台主机检测失败`
+        );
       } else if (updateCount > 0) {
         toast.warning(`${targetTag}检测完成，发现 ${updateCount} 个可更新镜像`);
       } else {
@@ -5239,15 +6050,16 @@ function ServerPage() {
     }
   };
 
-  const checkVisibleDockerUpdates = async () => (
-    checkDockerUpdatesForServers(visibleDockerContainerServers, '当前筛选下没有可检测的 Docker 容器')
-  );
+  const checkVisibleDockerUpdates = async () =>
+    checkDockerUpdatesForServers(
+      visibleDockerContainerServers,
+      '当前筛选下没有可检测的 Docker 容器'
+    );
 
-  const checkAllDockerUpdates = async () => (
-    checkDockerUpdatesForServers(dockerContainerManagementServers, '当前没有可检测的 Docker 容器')
-  );
+  const checkAllDockerUpdates = async () =>
+    checkDockerUpdatesForServers(dockerContainerManagementServers, '当前没有可检测的 Docker 容器');
 
-  const renderDockerEmptyState = (message) => (
+  const renderDockerEmptyState = message => (
     <AppCard padding="none" className="p-10 text-center text-xs text-kumo-subtle">
       {message}
     </AppCard>
@@ -5265,54 +6077,73 @@ function ServerPage() {
   }) => {
     const isOpen = isDockerHostExpanded(server.id, isFirstVisible ? server.id : null);
     return (
-      <div id={`docker-resource-section-${server.id}`} className="scroll-mt-24 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base">
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => toggleDockerOverviewServer(server.id, isFirstVisible ? server.id : null)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                toggleDockerOverviewServer(server.id, isFirstVisible ? server.id : null);
-              }
-            }}
-            className="flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 border-b border-kumo-line/70 px-3 py-3.5"
-          >
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              {icon}
-              <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
-              <Badge variant="neutral">{count} {countLabel}</Badge>
-              {badges.map((badge) => (
-                <Badge key={badge.label} variant={badge.variant || 'neutral'} appearance={badge.appearance}>
-                  {badge.label}
-                </Badge>
-              ))}
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {actions}
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  toggleDockerOverviewServer(server.id, isFirstVisible ? server.id : null);
-                }}
+      <div
+        id={`docker-resource-section-${server.id}`}
+        className="scroll-mt-24 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base"
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleDockerOverviewServer(server.id, isFirstVisible ? server.id : null)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              toggleDockerOverviewServer(server.id, isFirstVisible ? server.id : null);
+            }
+          }}
+          className="flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 border-b border-kumo-line/70 px-3 py-3.5"
+        >
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {icon}
+            <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">
+              {server.name}
+            </span>
+            <Badge variant="neutral">
+              {count} {countLabel}
+            </Badge>
+            {badges.map(badge => (
+              <Badge
+                key={badge.label}
+                variant={badge.variant || 'neutral'}
+                appearance={badge.appearance}
               >
-                {isOpen ? '收起' : '展开'}
-              </Button>
-            </div>
+                {badge.label}
+              </Badge>
+            ))}
           </div>
-          <AnimatedCollapse open={isOpen} keepMounted>
-            {children}
-          </AnimatedCollapse>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {actions}
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={
+                isOpen ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )
+              }
+              onClick={event => {
+                event.stopPropagation();
+                toggleDockerOverviewServer(server.id, isFirstVisible ? server.id : null);
+              }}
+            >
+              {isOpen ? '收起' : '展开'}
+            </Button>
+          </div>
+        </div>
+        <AnimatedCollapse open={isOpen} keepMounted>
+          {children}
+        </AnimatedCollapse>
       </div>
     );
   };
 
   const focusDockerResourceHost = (serverId, autoExpandedServerId) => {
     if (!serverId) return;
-    setExpandedDockerOverviewServers(prev => (prev === null && autoExpandedServerId === serverId ? [] : [serverId]));
+    setExpandedDockerOverviewServers(prev =>
+      prev === null && autoExpandedServerId === serverId ? [] : [serverId]
+    );
     window.setTimeout(() => {
       const target = document.getElementById(`docker-resource-section-${serverId}`);
       target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5330,7 +6161,8 @@ function ServerPage() {
       toast.warning('当前没有可清理镜像的主机');
       return;
     }
-    const confirmKey = options.confirmKey || `image.prune.all::${targets.map(server => server.id).join('|')}`;
+    const confirmKey =
+      options.confirmKey || `image.prune.all::${targets.map(server => server.id).join('|')}`;
     if (!confirmDockerUpdatePress(confirmKey, `清理 ${targets.length} 台主机未使用镜像`)) return;
 
     let ok = 0;
@@ -5339,7 +6171,11 @@ function ServerPage() {
     const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
       while (queue.length > 0) {
         const server = queue.shift();
-        const result = await submitDockerTask('image.prune', { serverId: server.id }, { skipConfirm: true, silent: true });
+        const result = await submitDockerTask(
+          'image.prune',
+          { serverId: server.id },
+          { skipConfirm: true, silent: true }
+        );
         if (result?.ok) ok += 1;
         else failed += 1;
       }
@@ -5359,7 +6195,8 @@ function ServerPage() {
       toast.warning('当前没有可清理网络的主机');
       return;
     }
-    const confirmKey = options.confirmKey || `network.prune.all::${targets.map(server => server.id).join('|')}`;
+    const confirmKey =
+      options.confirmKey || `network.prune.all::${targets.map(server => server.id).join('|')}`;
     if (!confirmDockerUpdatePress(confirmKey, `清理 ${targets.length} 台主机未使用网络`)) return;
 
     let ok = 0;
@@ -5368,7 +6205,11 @@ function ServerPage() {
     const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
       while (queue.length > 0) {
         const server = queue.shift();
-        const result = await submitDockerTask('network.prune', { serverId: server.id }, { skipConfirm: true, silent: true });
+        const result = await submitDockerTask(
+          'network.prune',
+          { serverId: server.id },
+          { skipConfirm: true, silent: true }
+        );
         if (result?.ok) ok += 1;
         else failed += 1;
       }
@@ -5416,37 +6257,52 @@ function ServerPage() {
         '      - "8080:80"',
         '',
       ].join('\n');
-      setDockerComposeEditor(prev => prev ? {
-        ...prev,
-        content: mockContent,
-        originalContent: mockContent,
-        loading: false,
-      } : prev);
+      setDockerComposeEditor(prev =>
+        prev
+          ? {
+              ...prev,
+              content: mockContent,
+              originalContent: mockContent,
+              loading: false,
+            }
+          : prev
+      );
       return;
     }
 
     try {
       const data = await readSftpFile(server.id, path, 1024 * 1024);
       const content = data.data || '';
-      setDockerComposeEditor(prev => prev ? {
-        ...prev,
-        content,
-        originalContent: content,
-        loading: false,
-        error: '',
-      } : prev);
+      setDockerComposeEditor(prev =>
+        prev
+          ? {
+              ...prev,
+              content,
+              originalContent: content,
+              loading: false,
+              error: '',
+            }
+          : prev
+      );
     } catch (error) {
-      setDockerComposeEditor(prev => prev ? {
-        ...prev,
-        loading: false,
-        error: error.message || '读取 Compose 配置失败',
-      } : prev);
+      setDockerComposeEditor(prev =>
+        prev
+          ? {
+              ...prev,
+              loading: false,
+              error: error.message || '读取 Compose 配置失败',
+            }
+          : prev
+      );
       toast.error(error.message || '读取 Compose 配置失败');
     }
   };
 
   const requestCloseDockerComposeEditor = async () => {
-    if (dockerComposeEditor?.mode === 'edit' && dockerComposeEditor.content !== dockerComposeEditor.originalContent) {
+    if (
+      dockerComposeEditor?.mode === 'edit' &&
+      dockerComposeEditor.content !== dockerComposeEditor.originalContent
+    ) {
       const ok = await dialog.confirm({
         title: '放弃未保存修改',
         message: `Compose 配置 ${dockerComposeEditor.path || ''} 还有未保存内容。`,
@@ -5461,46 +6317,58 @@ function ServerPage() {
 
   const saveDockerComposeConfig = async () => {
     if (!dockerComposeEditor?.path || dockerComposeEditor.mode !== 'edit') return;
-    setDockerComposeEditor(prev => prev ? { ...prev, saving: true, error: '' } : prev);
+    setDockerComposeEditor(prev => (prev ? { ...prev, saving: true, error: '' } : prev));
     if (isDockerMockPreviewEnabled()) {
-      setDockerComposeEditor(prev => prev ? {
-        ...prev,
-        saving: false,
-        mode: 'view',
-        originalContent: prev.content,
-        saved: true,
-      } : prev);
+      setDockerComposeEditor(prev =>
+        prev
+          ? {
+              ...prev,
+              saving: false,
+              mode: 'view',
+              originalContent: prev.content,
+              saved: true,
+            }
+          : prev
+      );
       toast.success('Mock 模式: Compose 配置已保存');
       return;
     }
 
     try {
-      await writeSftpFile(dockerComposeEditor.serverId, dockerComposeEditor.path, dockerComposeEditor.content);
-      setDockerComposeEditor(prev => prev ? {
-        ...prev,
-        saving: false,
-        mode: 'view',
-        originalContent: prev.content,
-        saved: true,
-      } : prev);
+      await writeSftpFile(
+        dockerComposeEditor.serverId,
+        dockerComposeEditor.path,
+        dockerComposeEditor.content
+      );
+      setDockerComposeEditor(prev =>
+        prev
+          ? {
+              ...prev,
+              saving: false,
+              mode: 'view',
+              originalContent: prev.content,
+              saved: true,
+            }
+          : prev
+      );
       toast.success('Compose 配置已保存');
       scheduleDockerResourceRefresh(500);
     } catch (error) {
-      setDockerComposeEditor(prev => prev ? {
-        ...prev,
-        saving: false,
-        error: error.message || '保存 Compose 配置失败',
-      } : prev);
+      setDockerComposeEditor(prev =>
+        prev
+          ? {
+              ...prev,
+              saving: false,
+              error: error.message || '保存 Compose 配置失败',
+            }
+          : prev
+      );
       toast.error(error.message || '保存 Compose 配置失败');
     }
   };
 
-
-
-
-  const openSSHTerminal = (server) => {
+  const openSSHTerminal = server => {
     if (!server) return;
-
 
     const existing = sshSessions.find(s => s.server.id === server.id);
     if (existing) {
@@ -5531,7 +6399,7 @@ function ServerPage() {
       server: terminalServer,
       type,
       connected: false,
-      name: terminalServer.name
+      name: terminalServer.name,
     };
 
     // 归还现有所有 xterm 节点到 warehouse 仓库
@@ -5563,21 +6431,26 @@ function ServerPage() {
     const containerName = getDockerContainerName(container);
 
     setDockerLogsLoading(true);
-    setDockerLogsContent('\u6b63\u5728\u8fde\u63a5\u4e3b\u673a\u5e76\u83b7\u53d6\u5bb9\u5668\u65e5\u5fd7...\n');
+    setDockerLogsContent(
+      '\u6b63\u5728\u8fde\u63a5\u4e3b\u673a\u5e76\u83b7\u53d6\u5bb9\u5668\u65e5\u5fd7...\n'
+    );
 
     try {
       const params = new URLSearchParams();
       params.set('tail', String(Number(tail) || 200));
-      const res = await fetch(`/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}/logs?${params.toString()}`, {
-        cache: 'no-store',
-      });
+      const res = await fetch(
+        `/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}/logs?${params.toString()}`,
+        {
+          cache: 'no-store',
+        }
+      );
       const text = await res.text();
       if (!res.ok) {
         let message = text;
         try {
           const payload = JSON.parse(text);
           message = payload.error || payload.message || message;
-        } catch (_) { }
+        } catch (_) {}
         throw new Error(message || '\u83b7\u53d6\u65e5\u5fd7\u5931\u8d25');
       }
       setDockerLogsContent(text || '\u6ca1\u6709\u65e5\u5fd7\u8f93\u51fa');
@@ -5588,7 +6461,7 @@ function ServerPage() {
     }
   };
 
-  const switchToSSHTab = (sessionId) => {
+  const switchToSSHTab = sessionId => {
     saveTerminalsToWarehouse();
 
     setServerCurrentTab('terminal');
@@ -5628,7 +6501,7 @@ function ServerPage() {
     }, 100);
   };
 
-  const activateSSHSession = (sessionId) => {
+  const activateSSHSession = sessionId => {
     setActiveSSHSessionId(sessionId);
     if (showSftpSidebar) syncSftpToSession(sessionId);
     setTimeout(() => {
@@ -5637,7 +6510,7 @@ function ServerPage() {
     }, 80);
   };
 
-  const syncSftpToSession = (sessionId) => {
+  const syncSftpToSession = sessionId => {
     const session = sshSessions.find(item => item.id === sessionId);
     const serverId = session?.server?.id;
     if (!serverId) return;
@@ -5651,12 +6524,13 @@ function ServerPage() {
     const text = String(command || '').trim();
     if (!sessionId || !text) return;
 
-    const targetIds = Array.isArray(options.targetSessionIds) && options.targetSessionIds.length > 0
-      ? options.targetSessionIds
-      : [sessionId];
+    const targetIds =
+      Array.isArray(options.targetSessionIds) && options.targetSessionIds.length > 0
+        ? options.targetSessionIds
+        : [sessionId];
     const appendNewline = options.appendNewline !== false;
     const payload = appendNewline ? `${text}\r` : text;
-    const sendToSession = (targetId) => {
+    const sendToSession = targetId => {
       const target = sshSessionRefs.current[targetId];
       if (target?.ws?.readyState === WebSocket.OPEN) {
         target.ws.send(JSON.stringify({ type: 'input', data: payload }));
@@ -5665,7 +6539,12 @@ function ServerPage() {
     };
 
     targetIds.forEach(sendToSession);
-    if (targetIds.length === 1 && appendNewline && sshSyncEnabledRef.current && visibleSessionIdsRef.current.includes(sessionId)) {
+    if (
+      targetIds.length === 1 &&
+      appendNewline &&
+      sshSyncEnabledRef.current &&
+      visibleSessionIdsRef.current.includes(sessionId)
+    ) {
       visibleSessionIdsRef.current.forEach(targetId => {
         if (targetId !== sessionId) sendToSession(targetId);
       });
@@ -5688,7 +6567,8 @@ function ServerPage() {
     if (!inst?.fit || !inst?.terminal || !termEl) return;
 
     const rect = termEl.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0 || termEl.parentElement === warehouseRef.current) return;
+    if (rect.width <= 0 || rect.height <= 0 || termEl.parentElement === warehouseRef.current)
+      return;
 
     const prevCols = inst.terminal.cols;
     const prevRows = inst.terminal.rows;
@@ -5703,7 +6583,11 @@ function ServerPage() {
     const rows = inst.terminal.rows;
     const sizeChanged = prevCols !== cols || prevRows !== rows;
     const backendSizeChanged = inst.lastResizeCols !== cols || inst.lastResizeRows !== rows;
-    if (notifyBackend && (sizeChanged || backendSizeChanged) && inst.ws?.readyState === WebSocket.OPEN) {
+    if (
+      notifyBackend &&
+      (sizeChanged || backendSizeChanged) &&
+      inst.ws?.readyState === WebSocket.OPEN
+    ) {
       inst.lastResizeCols = cols;
       inst.lastResizeRows = rows;
       inst.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
@@ -5721,7 +6605,6 @@ function ServerPage() {
     }, delay);
   };
 
-
   const saveTerminalsToWarehouse = () => {
     const warehouse = warehouseRef.current;
     if (!warehouse) return;
@@ -5734,14 +6617,13 @@ function ServerPage() {
     });
   };
 
-  const getTerminalPtyId = (session) => (
+  const getTerminalPtyId = session =>
     session?.sessionMeta?.attachToPtyId ||
     session?.sessionMeta?.ptyId ||
     session?.attachToPtyId ||
     session?.ptyId ||
     session?.id ||
-    ''
-  );
+    '';
 
   const createSSHSocket = (sessionId, sessionMeta, terminal) => {
     if (typeof WebSocket !== 'undefined') {
@@ -5750,9 +6632,9 @@ function ServerPage() {
         server_id: String(sessionMeta.server.id),
         session_id: sessionId,
         transport: resolveTerminalSocketTransport(
-			sessionMeta.server,
-			sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'auto',
-		),
+          sessionMeta.server,
+          sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'auto'
+        ),
         cols: String(sshSessionRefs.current[sessionId]?.terminal?.cols || 120),
         rows: String(sshSessionRefs.current[sessionId]?.terminal?.rows || 32),
       });
@@ -5765,15 +6647,24 @@ function ServerPage() {
       }
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh?${params.toString()}`);
 
-      ws.onmessage = (event) => {
+      ws.onmessage = event => {
         try {
           const message = JSON.parse(event.data);
           if (message.type === 'data') {
             const inst = sshSessionRefs.current[sessionId];
             if (inst) inst.hasTerminalData = true;
             terminal.write(message.data || '');
-          } else if (message.type === 'status' && (message.data === 'connected' || message.data === 'connected_legacy' || message.data === 'attached')) {
-            const connectedTransport = message.transport || sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'ssh';
+          } else if (
+            message.type === 'status' &&
+            (message.data === 'connected' ||
+              message.data === 'connected_legacy' ||
+              message.data === 'attached')
+          ) {
+            const connectedTransport =
+              message.transport ||
+              sessionMeta.server.preferred_terminal_transport ||
+              sessionMeta.type ||
+              'ssh';
             const inst = sshSessionRefs.current[sessionId];
             if (inst && !inst.connectionBannerCleared && !inst.hasTerminalData) {
               terminal.clear();
@@ -5784,7 +6675,11 @@ function ServerPage() {
               inst.connected = true;
               inst.transport = connectedTransport;
             }
-            setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: true, transport: connectedTransport } : s));
+            setSshSessions(prev =>
+              prev.map(s =>
+                s.id === sessionId ? { ...s, connected: true, transport: connectedTransport } : s
+              )
+            );
           } else if (message.type === 'error') {
             terminal.writeln(`\r\n\x1b[1;31m${message.data || 'SSH connection failed'}\x1b[0m`);
           }
@@ -5798,27 +6693,29 @@ function ServerPage() {
       ws.onclose = () => {
         const inst = sshSessionRefs.current[sessionId];
         if (inst) inst.connected = false;
-        setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
+        setSshSessions(prev =>
+          prev.map(s => (s.id === sessionId ? { ...s, connected: false } : s))
+        );
         terminal.writeln('\r\n\x1b[1;33mSSH 终端连接已关闭。\x1b[0m');
       };
       return ws;
     }
 
-    terminal.writeln('\n\x1b[1;33mSSH 终端 WebSocket 已随 Node 后端迁移退役，当前 Go 后端仅保留 Agent /socket.io/ 实时通道。\x1b[0m');
-    setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
+    terminal.writeln(
+      '\n\x1b[1;33mSSH 终端 WebSocket 已随 Node 后端迁移退役，当前 Go 后端仅保留 Agent /socket.io/ 实时通道。\x1b[0m'
+    );
+    setSshSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, connected: false } : s)));
     return {
       readyState: WebSocket.CLOSED,
-      send: () => { },
-      close: () => { },
+      send: () => {},
+      close: () => {},
       onclose: null,
       onerror: null,
     };
   };
 
-
   const initSessionTerminal = (sessionId, sessionMeta) => {
     if (sshSessionRefs.current[sessionId]) return;
-
 
     const container = document.createElement('div');
     container.id = 'ssh-terminal-' + sessionId;
@@ -5835,7 +6732,7 @@ function ServerPage() {
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: terminalTheme,
       scrollback: 10000,
-      allowProposedApi: true
+      allowProposedApi: true,
     });
 
     const fitAddon = new FitAddon();
@@ -5845,9 +6742,10 @@ function ServerPage() {
     terminal.open(container);
     terminal.writeln(`\x1b[1;33m正在尝试建立与 ${sessionMeta.server.name} 的连接...\x1b[0m`);
 
-    const resizeObserver = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => scheduleTerminalFit(sessionId, 80))
-      : null;
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => scheduleTerminalFit(sessionId, 80))
+        : null;
     if (resizeObserver) resizeObserver.observe(container);
 
     sshSessionRefs.current[sessionId] = {
@@ -5864,7 +6762,7 @@ function ServerPage() {
       lastResizeRows: 0,
       lastSeq: 0,
       connectionBannerCleared: false,
-      hasTerminalData: false
+      hasTerminalData: false,
     };
 
     const ws = createSSHSocket(sessionId, sessionMeta, terminal);
@@ -5936,7 +6834,7 @@ function ServerPage() {
   };
 
   // 关闭终端会话
-  const closeSSHSession = (sessionId) => {
+  const closeSSHSession = sessionId => {
     saveTerminalsToWarehouse();
 
     const session = sshSessionRefs.current[sessionId];
@@ -5967,10 +6865,12 @@ function ServerPage() {
     const remaining = sshSessions.filter(s => s.id !== sessionId);
     const remainingIds = new Set(remaining.map(s => s.id));
     const remainsVisible = visibleSessionIds.filter(id => id !== sessionId && remainingIds.has(id));
-    const nextActiveId = activeSSHSessionId === sessionId
-      ? (remainsVisible[remainsVisible.length - 1] || remaining[remaining.length - 1]?.id || '')
-      : activeSSHSessionId;
-    const nextVisibleIds = remainsVisible.length > 0 ? remainsVisible : (nextActiveId ? [nextActiveId] : []);
+    const nextActiveId =
+      activeSSHSessionId === sessionId
+        ? remainsVisible[remainsVisible.length - 1] || remaining[remaining.length - 1]?.id || ''
+        : activeSSHSessionId;
+    const nextVisibleIds =
+      remainsVisible.length > 0 ? remainsVisible : nextActiveId ? [nextActiveId] : [];
     const nextLayout = getTerminalLayoutForSessionIds(nextVisibleIds, sshViewLayout);
     const nextSide = nextLayout === 'single' ? '' : sshSplitSide;
 
@@ -5979,7 +6879,9 @@ function ServerPage() {
     setVisibleSessionIds(nextVisibleIds);
     setSshViewLayout(nextLayout);
     setSshSplitSide(nextSide);
-    setSshGroupState(nextVisibleIds.length > 1 ? { ids: nextVisibleIds, layout: nextLayout, side: nextSide } : null);
+    setSshGroupState(
+      nextVisibleIds.length > 1 ? { ids: nextVisibleIds, layout: nextLayout, side: nextSide } : null
+    );
 
     if (remaining.length === 0) {
       setActiveSSHSessionId('');
@@ -5995,7 +6897,7 @@ function ServerPage() {
     }
   };
 
-  const removeSSHSessionFromView = (sessionId) => {
+  const removeSSHSessionFromView = sessionId => {
     if (visibleSessionIds.length <= 1) {
       closeSSHSession(sessionId);
       return;
@@ -6004,15 +6906,18 @@ function ServerPage() {
     const nextVisibleIds = visibleSessionIds.filter(id => id !== sessionId);
     const nextLayout = getTerminalLayoutForSessionIds(nextVisibleIds, sshViewLayout);
     const nextSide = nextLayout === 'single' ? '' : sshSplitSide;
-    const nextActiveId = activeSSHSessionId === sessionId
-      ? (nextVisibleIds[nextVisibleIds.length - 1] || '')
-      : activeSSHSessionId;
+    const nextActiveId =
+      activeSSHSessionId === sessionId
+        ? nextVisibleIds[nextVisibleIds.length - 1] || ''
+        : activeSSHSessionId;
 
     visibleSessionIdsRef.current = nextVisibleIds;
     setVisibleSessionIds(nextVisibleIds);
     setSshViewLayout(nextLayout);
     setSshSplitSide(nextSide);
-    setSshGroupState(nextVisibleIds.length > 1 ? { ids: nextVisibleIds, layout: nextLayout, side: nextSide } : null);
+    setSshGroupState(
+      nextVisibleIds.length > 1 ? { ids: nextVisibleIds, layout: nextLayout, side: nextSide } : null
+    );
     setActiveSSHSessionId(nextActiveId);
     if (showSftpSidebar && nextActiveId) syncSftpToSession(nextActiveId);
 
@@ -6023,7 +6928,7 @@ function ServerPage() {
   };
 
   const toggleTerminalSidebar = (sidebar, options = {}) => {
-    setActiveTerminalSidebar((current) => {
+    setActiveTerminalSidebar(current => {
       const next = current === sidebar ? null : sidebar;
       if (next === 'sftp' && options.serverId) {
         setSftpServerId(options.serverId);
@@ -6034,7 +6939,7 @@ function ServerPage() {
   };
 
   // 重新连接
-  const reconnectSSHSession = (sessionId) => {
+  const reconnectSSHSession = sessionId => {
     const session = sshSessionRefs.current[sessionId];
     if (!session) return;
 
@@ -6048,7 +6953,7 @@ function ServerPage() {
     }
 
     session.terminal.writeln(`\r\n\x1b[1;33m正在恢复终端会话...\x1b[0m`);
-    setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
+    setSshSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, connected: false } : s)));
 
     const nextWs = createSSHSocket(sessionId, session.sessionMeta, session.terminal);
     session.ws = nextWs;
@@ -6087,17 +6992,19 @@ function ServerPage() {
     }
   };
 
-  const getSplitSourceSessionId = (targetId) => {
+  const getSplitSourceSessionId = targetId => {
     if (draggedSessionId && draggedSessionId !== targetId) return draggedSessionId;
     if (activeSSHSessionId && activeSSHSessionId !== targetId) return activeSSHSessionId;
     return (
-      sshSessions.find(session => session.id !== targetId && !visibleSessionIds.includes(session.id))?.id ||
+      sshSessions.find(
+        session => session.id !== targetId && !visibleSessionIds.includes(session.id)
+      )?.id ||
       sshSessions.find(session => session.id !== targetId)?.id ||
       ''
     );
   };
 
-  const getDropPosition = (event) => {
+  const getDropPosition = event => {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
     const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
@@ -6106,7 +7013,7 @@ function ServerPage() {
     return x < 0.5 ? 'left' : 'right';
   };
 
-  const getTerminalDropPreviewStyle = (position) => {
+  const getTerminalDropPreviewStyle = position => {
     const gap = '0.5rem';
     switch (position) {
       case 'left':
@@ -6123,22 +7030,29 @@ function ServerPage() {
   };
 
   const updateDockerComposeDeployment = async () => {
-    if (!dockerComposeEditor?.serverId || !dockerComposeEditor?.projectName || !dockerComposeEditor?.path) return;
-    setDockerComposeEditor(prev => prev ? { ...prev, updating: true, error: '' } : prev);
+    if (
+      !dockerComposeEditor?.serverId ||
+      !dockerComposeEditor?.projectName ||
+      !dockerComposeEditor?.path
+    )
+      return;
+    setDockerComposeEditor(prev => (prev ? { ...prev, updating: true, error: '' } : prev));
     const payload = {
       serverId: dockerComposeEditor.serverId,
       project: dockerComposeEditor.projectName,
       config_file: dockerComposeEditor.configFiles?.join(', ') || dockerComposeEditor.path,
     };
     const result = await submitDockerTask('compose.update', payload, { silent: true });
-    setDockerComposeEditor(prev => prev ? { ...prev, updating: false, saved: result?.ok ? false : prev.saved } : prev);
+    setDockerComposeEditor(prev =>
+      prev ? { ...prev, updating: false, saved: result?.ok ? false : prev.saved } : prev
+    );
     if (result?.ok) {
       toast.success('编排已更新，并已强制拉取镜像');
       scheduleDockerResourceRefresh(500);
     }
   };
 
-  const openRemoteDesktop = (server) => {
+  const openRemoteDesktop = server => {
     if (!canOpenRemoteDesktop(server)) {
       toast.warning('远程桌面仅支持在线且已升级的 Windows Agent');
       return;
@@ -6146,16 +7060,23 @@ function ServerPage() {
     window.open(remoteDesktopPath(server.id), '_blank', 'noopener,noreferrer');
   };
 
-  const getTerminalCopyBaseName = (session) => {
+  const getTerminalCopyBaseName = session => {
     const name = String(session?.name || session?.server?.name || '终端').trim();
     return name.replace(/\s+(?:共享|复制(?:\s*\d+)?)$/u, '') || '终端';
   };
 
-  const getNextTerminalCopyName = (session) => {
+  const getNextTerminalCopyName = session => {
     const baseName = getTerminalCopyBaseName(session);
-    const pattern = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(?:共享|复制(?:\\s*(\\d+))?)$`, 'u');
+    const pattern = new RegExp(
+      `^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(?:共享|复制(?:\\s*(\\d+))?)$`,
+      'u'
+    );
     const copyNumbers = sshSessions
-      .map(item => String(item.name || '').trim().match(pattern))
+      .map(item =>
+        String(item.name || '')
+          .trim()
+          .match(pattern)
+      )
       .filter(Boolean)
       .map(match => Number(match[1] || 1));
     return `${baseName} 复制 ${Math.max(0, ...copyNumbers) + 1}`;
@@ -6196,7 +7117,12 @@ function ServerPage() {
     }
 
     if (position !== 'center') {
-      nextLayout = updated.length > 2 ? 'grid' : (position === 'top' || position === 'bottom' ? 'split-v' : 'split-h');
+      nextLayout =
+        updated.length > 2
+          ? 'grid'
+          : position === 'top' || position === 'bottom'
+            ? 'split-v'
+            : 'split-h';
       nextSide = position;
     }
 
@@ -6204,7 +7130,9 @@ function ServerPage() {
     setVisibleSessionIds(updated);
     setSshViewLayout(nextLayout);
     setSshSplitSide(nextSide);
-    setSshGroupState(updated.length > 1 ? { ids: updated, layout: nextLayout, side: nextSide } : null);
+    setSshGroupState(
+      updated.length > 1 ? { ids: updated, layout: nextLayout, side: nextSide } : null
+    );
     setActiveSSHSessionId(sessionId);
     if (showSftpSidebar) syncSftpToSession(targetId);
     setDraggedSessionId(null);
@@ -6240,7 +7168,12 @@ function ServerPage() {
       } else {
         updated.splice(idx + 1, 0, sourceId);
       }
-      nextLayout = updated.length > 2 ? 'grid' : (position === 'top' || position === 'bottom' ? 'split-v' : 'split-h');
+      nextLayout =
+        updated.length > 2
+          ? 'grid'
+          : position === 'top' || position === 'bottom'
+            ? 'split-v'
+            : 'split-h';
       nextSide = position;
     }
 
@@ -6248,7 +7181,9 @@ function ServerPage() {
     setVisibleSessionIds(updated);
     setSshViewLayout(nextLayout);
     setSshSplitSide(nextSide);
-    setSshGroupState(updated.length > 1 ? { ids: updated, layout: nextLayout, side: nextSide } : null);
+    setSshGroupState(
+      updated.length > 1 ? { ids: updated, layout: nextLayout, side: nextSide } : null
+    );
     setActiveSSHSessionId(sourceId);
     if (showSftpSidebar) syncSftpToSession(sourceId);
     setDraggedSessionId(null);
@@ -6271,15 +7206,15 @@ function ServerPage() {
     }
     if (serverSearchText.trim()) {
       const query = serverSearchText.toLowerCase();
-      list = list.filter(s =>
-        s.name.toLowerCase().includes(query) ||
-        (s.host && s.host.toLowerCase().includes(query)) ||
-        (s.tags && s.tags.some(t => t.toLowerCase().includes(query)))
+      list = list.filter(
+        s =>
+          s.name.toLowerCase().includes(query) ||
+          (s.host && s.host.toLowerCase().includes(query)) ||
+          (s.tags && s.tags.some(t => t.toLowerCase().includes(query)))
       );
     }
     return list;
   }, [serverList, serverStatusFilter, serverSearchText]);
-
 
   const statsSummary = useMemo(() => {
     const total = serverList.length;
@@ -6288,21 +7223,23 @@ function ServerPage() {
       acc[state] = (acc[state] || 0) + 1;
       return acc;
     }, {});
-		const online = counts.online || 0;
+    const online = counts.online || 0;
     const interrupted = counts.interrupted || 0;
     const degraded = counts.degraded || 0;
     const offline = counts.offline || 0;
     return { total, online, interrupted, degraded, offline, warning: interrupted + degraded };
   }, [serverList]);
 
-  const visibleCompactColumnDefs = useMemo(() => (
-    HOST_COMPACT_COLUMNS.filter(column => compactVisibleColumns.includes(column.id))
-  ), [compactVisibleColumns]);
-  const visibleCompactColumnWidths = useMemo(() => (
-    visibleCompactColumnDefs.map(column => HOST_COMPACT_COLUMN_WIDTHS[column.id] || 120)
-  ), [visibleCompactColumnDefs]);
+  const visibleCompactColumnDefs = useMemo(
+    () => HOST_COMPACT_COLUMNS.filter(column => compactVisibleColumns.includes(column.id)),
+    [compactVisibleColumns]
+  );
+  const visibleCompactColumnWidths = useMemo(
+    () => visibleCompactColumnDefs.map(column => HOST_COMPACT_COLUMN_WIDTHS[column.id] || 120),
+    [visibleCompactColumnDefs]
+  );
 
-  const isCompactColumnVisible = (columnId) => compactVisibleColumns.includes(columnId);
+  const isCompactColumnVisible = columnId => compactVisibleColumns.includes(columnId);
 
   const toggleCompactColumn = (columnId, visible) => {
     const column = HOST_COMPACT_COLUMNS.find(item => item.id === columnId);
@@ -6315,7 +7252,7 @@ function ServerPage() {
 
   const showAllCompactColumns = () => setCompactVisibleColumns(HOST_COMPACT_COLUMN_IDS);
 
-  const openCompactColumnMenu = (event) => {
+  const openCompactColumnMenu = event => {
     event.preventDefault();
     setCompactColumnMenu({
       open: true,
@@ -6324,14 +7261,14 @@ function ServerPage() {
     });
   };
 
-  const renderServerContextMenu = (server) => (
+  const renderServerContextMenu = server => (
     <ContextMenu.Portal>
       <ContextMenu.Positioner sideOffset={6}>
         <ContextMenu.Popup className="z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-						disabled={!isServerOnline(server) || server.loading}
-            onClick={(event) => {
+            disabled={!isServerOnline(server) || server.loading}
+            onClick={event => {
               event.stopPropagation();
               refreshServerInfo(server.id);
             }}
@@ -6341,7 +7278,7 @@ function ServerPage() {
           </ContextMenu.Item>
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-            onClick={(event) => {
+            onClick={event => {
               event.stopPropagation();
               showAgentInstallModal(server.id);
             }}
@@ -6351,7 +7288,7 @@ function ServerPage() {
           </ContextMenu.Item>
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-            onClick={(event) => {
+            onClick={event => {
               event.stopPropagation();
               openEditServerModal(server);
             }}
@@ -6362,8 +7299,8 @@ function ServerPage() {
           <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-						disabled={!isServerOnline(server)}
-            onClick={(event) => {
+            disabled={!isServerOnline(server)}
+            onClick={event => {
               event.stopPropagation();
               runServerPowerAction(server.id, 'reboot');
             }}
@@ -6373,8 +7310,8 @@ function ServerPage() {
           </ContextMenu.Item>
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
-						disabled={!isServerOnline(server)}
-            onClick={(event) => {
+            disabled={!isServerOnline(server)}
+            onClick={event => {
               event.stopPropagation();
               runServerPowerAction(server.id, 'shutdown');
             }}
@@ -6385,7 +7322,7 @@ function ServerPage() {
           <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
-            onClick={(event) => {
+            onClick={event => {
               event.stopPropagation();
               deleteServer(server.id);
             }}
@@ -6414,11 +7351,13 @@ function ServerPage() {
         onClose={() => setCompactColumnMenu(prev => ({ ...prev, open: false }))}
       />
       {/* 顶部标签导航 */}
-      <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
+      <div
+        className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}
+      >
         <Tabs
           {...MODULE_TABS_PROPS}
           value={serverCurrentTab}
-          onValueChange={(value) => {
+          onValueChange={value => {
             if (serverCurrentTab === 'terminal' && value !== 'terminal') {
               saveTerminalsToWarehouse();
             }
@@ -6426,16 +7365,61 @@ function ServerPage() {
             if (value === 'status-pages') loadServerStatusPages();
           }}
           tabs={[
-            { value: 'list', label: <ServerModuleTabLabel icon={Server} short="主机">主机</ServerModuleTabLabel> },
-            { value: 'docker', label: <ServerModuleTabLabel icon={Box} short="容器">容器</ServerModuleTabLabel> },
-            { value: 'forward', label: <ServerModuleTabLabel icon={Shuffle} short="转发">端口转发</ServerModuleTabLabel> },
-            { value: 'status-pages', label: <ServerModuleTabLabel icon={Globe} short="公开">公开</ServerModuleTabLabel> },
-            { value: 'management', label: <ServerModuleTabLabel icon={Settings} short="管理">管理</ServerModuleTabLabel> },
+            {
+              value: 'list',
+              label: (
+                <ServerModuleTabLabel icon={Server} short="主机">
+                  主机
+                </ServerModuleTabLabel>
+              ),
+            },
+            {
+              value: 'docker',
+              label: (
+                <ServerModuleTabLabel icon={Box} short="容器">
+                  容器
+                </ServerModuleTabLabel>
+              ),
+            },
+            {
+              value: 'forward',
+              label: (
+                <ServerModuleTabLabel icon={Shuffle} short="转发">
+                  端口转发
+                </ServerModuleTabLabel>
+              ),
+            },
+            {
+              value: 'status-pages',
+              label: (
+                <ServerModuleTabLabel icon={Globe} short="公开">
+                  公开
+                </ServerModuleTabLabel>
+              ),
+            },
+            {
+              value: 'management',
+              label: (
+                <ServerModuleTabLabel icon={Settings} short="管理">
+                  管理
+                </ServerModuleTabLabel>
+              ),
+            },
             ...(sshSessions.length > 0
-              ? [{
-                value: 'terminal',
-                label: <ServerModuleTabLabel icon={TerminalIcon} short="终端" badge={sshSessions.length}>终端</ServerModuleTabLabel>,
-              }]
+              ? [
+                  {
+                    value: 'terminal',
+                    label: (
+                      <ServerModuleTabLabel
+                        icon={TerminalIcon}
+                        short="终端"
+                        badge={sshSessions.length}
+                      >
+                        终端
+                      </ServerModuleTabLabel>
+                    ),
+                  },
+                ]
               : []),
           ]}
         />
@@ -6443,58 +7427,70 @@ function ServerPage() {
         {/* 右侧快速连接 */}
         <div className="flex shrink-0 items-center gap-2">
           {serverCurrentTab === 'forward' && (
-            <Button size="sm" variant="primary" onClick={() => forwardPanelRef.current?.openCreate()}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => forwardPanelRef.current?.openCreate()}
+            >
               <Plus className="h-3.5 w-3.5" />
               创建转发规则
             </Button>
           )}
           {serverCurrentTab === 'list' && (
             <Toolbar size="sm" aria-label="导出导入主机配置" className="shrink-0">
-              <Toolbar.Button onClick={exportServers} aria-label="导出主机配置" icon={<Upload className="h-3.5 w-3.5" />}>
+              <Toolbar.Button
+                onClick={exportServers}
+                aria-label="导出主机配置"
+                icon={<Upload className="h-3.5 w-3.5" />}
+              >
                 <span className="hidden cq-sm:inline">导出</span>
               </Toolbar.Button>
-              <Toolbar.Button onClick={openImportServerModal} aria-label="导入主机配置" icon={<Download className="h-3.5 w-3.5" />}>
+              <Toolbar.Button
+                onClick={openImportServerModal}
+                aria-label="导入主机配置"
+                icon={<Download className="h-3.5 w-3.5" />}
+              >
                 <span className="hidden cq-sm:inline">导入</span>
               </Toolbar.Button>
             </Toolbar>
           )}
           <TabBarOverflowActions
-          items={
-            serverCurrentTab === 'list'
-              ? [
-                  {
-                    key: 'upgrade-agent',
-                    label: '升级 Agent',
-                    title: '升级所有在线 Agent',
-                    icon: <Upload className="w-3.5 h-3.5" />,
-                    onClick: openUpgradeModal,
-                  },
-                  {
-                    key: 'batch-deploy',
-                    label: '批量部署',
-                    title: '批量部署 Agent',
-                    icon: <Shield className="w-3.5 h-3.5" />,
-                    onClick: openBatchAgentModal,
-                  },
-                  {
-                    key: 'refresh',
-                    label: '刷新列表',
-                    title: '刷新列表和地理位置',
-                    icon: <RefreshCw className="w-3.5 h-3.5" />,
-                    onClick: refreshServerLocationsAndList,
-                    loading: serverLoading,
-                  },
-                  {
-                    key: 'add',
-                    label: '新增主机',
-                    icon: <Plus className="w-3.5 h-3.5" />,
-                    onClick: openAddServerModal,
-                    variant: 'primary',
-                  },
-                ]
-              : []
-          }
-        />
+            items={
+              serverCurrentTab === 'list'
+                ? [
+                    {
+                      key: 'upgrade-agent',
+                      label: '升级 Agent',
+                      title: '升级所有在线 Agent',
+                      icon: <Upload className="w-3.5 h-3.5" />,
+                      onClick: openUpgradeModal,
+                    },
+                    {
+                      key: 'batch-deploy',
+                      label: '批量部署',
+                      title: '批量部署 Agent',
+                      icon: <Shield className="w-3.5 h-3.5" />,
+                      onClick: openBatchAgentModal,
+                    },
+                    {
+                      key: 'refresh',
+                      label: '刷新列表',
+                      title: '刷新列表和地理位置',
+                      icon: <RefreshCw className="w-3.5 h-3.5" />,
+                      onClick: refreshServerLocationsAndList,
+                      loading: serverLoading,
+                    },
+                    {
+                      key: 'add',
+                      label: '新增主机',
+                      icon: <Plus className="w-3.5 h-3.5" />,
+                      onClick: openAddServerModal,
+                      variant: 'primary',
+                    },
+                  ]
+                : []
+            }
+          />
         </div>
       </div>
 
@@ -6509,18 +7505,80 @@ function ServerPage() {
                 </h3>
               </div>
               {serverStatusPageForm.id && (
-                <Button size="sm" variant="secondary" shape="square" icon={<X className="h-3.5 w-3.5" />} onClick={resetServerStatusPageForm} aria-label="取消编辑" />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  shape="square"
+                  icon={<X className="h-3.5 w-3.5" />}
+                  onClick={resetServerStatusPageForm}
+                  aria-label="取消编辑"
+                />
               )}
             </LayerCard.Secondary>
 
             <LayerCard.Primary className="space-y-4 p-4">
               <div className="grid gap-3 cq-sm:grid-cols-2">
-                <Input size="sm" label="名称" value={serverStatusPageForm.title} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, title: event.target.value, slug: prev.slug || normalizeServerStatusSlug(event.target.value) }))} placeholder="基础设施状态" />
-                <Input size="sm" label="Slug" value={serverStatusPageForm.slug} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, slug: normalizeServerStatusSlug(event.target.value) }))} placeholder="infra" />
-                <Input size="sm" label="自定义域名" value={serverStatusPageForm.domain} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, domain: normalizeServerStatusDomain(event.target.value) }))} placeholder="status.example.com" />
-                <Input size="sm" label="缓存秒数" type="number" min="30" value={serverStatusPageForm.cacheSeconds} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, cacheSeconds: event.target.value }))} />
+                <Input
+                  size="sm"
+                  label="名称"
+                  value={serverStatusPageForm.title}
+                  onChange={event =>
+                    setServerStatusPageForm(prev => ({
+                      ...prev,
+                      title: event.target.value,
+                      slug: prev.slug || normalizeServerStatusSlug(event.target.value),
+                    }))
+                  }
+                  placeholder="基础设施状态"
+                />
+                <Input
+                  size="sm"
+                  label="Slug"
+                  value={serverStatusPageForm.slug}
+                  onChange={event =>
+                    setServerStatusPageForm(prev => ({
+                      ...prev,
+                      slug: normalizeServerStatusSlug(event.target.value),
+                    }))
+                  }
+                  placeholder="infra"
+                />
+                <Input
+                  size="sm"
+                  label="自定义域名"
+                  value={serverStatusPageForm.domain}
+                  onChange={event =>
+                    setServerStatusPageForm(prev => ({
+                      ...prev,
+                      domain: normalizeServerStatusDomain(event.target.value),
+                    }))
+                  }
+                  placeholder="status.example.com"
+                />
+                <Input
+                  size="sm"
+                  label="缓存秒数"
+                  type="number"
+                  min="30"
+                  value={serverStatusPageForm.cacheSeconds}
+                  onChange={event =>
+                    setServerStatusPageForm(prev => ({ ...prev, cacheSeconds: event.target.value }))
+                  }
+                />
                 <div className="cq-sm:col-span-2">
-                  <Textarea size="sm" label="说明" value={serverStatusPageForm.description} onChange={(event) => setServerStatusPageForm(prev => ({ ...prev, description: event.target.value }))} placeholder="可选说明" rows={3} />
+                  <Textarea
+                    size="sm"
+                    label="说明"
+                    value={serverStatusPageForm.description}
+                    onChange={event =>
+                      setServerStatusPageForm(prev => ({
+                        ...prev,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="可选说明"
+                    rows={3}
+                  />
                 </div>
               </div>
 
@@ -6532,59 +7590,106 @@ function ServerPage() {
                   ['showCharts', '历史指标', '公开接口下发最近指标历史。'],
                   ['showOnDashboard', '首页快捷卡片', '在仪表盘显示跳转到此状态页的快捷入口。'],
                 ].map(([key, title, desc]) => (
-                  <div key={key} className="flex items-center justify-between gap-3 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
+                  <div
+                    key={key}
+                    className="flex items-center justify-between gap-3 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3"
+                  >
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-kumo-strong">{title}</div>
                       <div className="mt-1 text-xs text-kumo-subtle">{desc}</div>
                     </div>
-                    <Switch checked={!!serverStatusPageForm[key]} onCheckedChange={(checked) => setServerStatusPageForm(prev => ({ ...prev, [key]: checked }))} />
+                    <Switch
+                      checked={!!serverStatusPageForm[key]}
+                      onCheckedChange={checked =>
+                        setServerStatusPageForm(prev => ({ ...prev, [key]: checked }))
+                      }
+                    />
                   </div>
                 ))}
               </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-semibold text-kumo-strong">绑定主机</div>
-                <Button size="sm" variant="secondary" onClick={() => setServerStatusPageForm(prev => ({ ...prev, serverIds: serverList.map(item => item.id) }))} disabled={serverList.length === 0}>全选</Button>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-kumo-strong">绑定主机</div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      setServerStatusPageForm(prev => ({
+                        ...prev,
+                        serverIds: serverList.map(item => item.id),
+                      }))
+                    }
+                    disabled={serverList.length === 0}
+                  >
+                    全选
+                  </Button>
+                </div>
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-2 scrollbar-thin">
+                  {serverList.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-kumo-subtle">暂无主机实例。</div>
+                  ) : (
+                    <div className="grid gap-1.5">
+                      {serverList.map(server => (
+                        <label
+                          key={server.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-recessed"
+                        >
+                          <Checkbox
+                            checked={serverStatusPageForm.serverIds.includes(server.id)}
+                            onCheckedChange={checked =>
+                              toggleServerStatusPageServer(server.id, checked)
+                            }
+                            aria-label={`绑定 ${server.name}`}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">
+                            {server.name}
+                          </span>
+                          <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle cq-sm:block">
+                            {server.host || server.id}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="max-h-64 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-2 scrollbar-thin">
-                {serverList.length === 0 ? (
-                  <div className="p-4 text-center text-xs text-kumo-subtle">暂无主机实例。</div>
-                ) : (
-                  <div className="grid gap-1.5">
-                    {serverList.map((server) => (
-                      <label key={server.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-kumo-recessed">
-                        <Checkbox checked={serverStatusPageForm.serverIds.includes(server.id)} onCheckedChange={(checked) => toggleServerStatusPageServer(server.id, checked)} aria-label={`绑定 ${server.name}`} />
-                        <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">{server.name}</span>
-                        <span className="hidden max-w-[12rem] truncate font-mono text-[10px] text-kumo-subtle cq-sm:block">{server.host || server.id}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
 
-            <div className="rounded-lg border border-kumo-line bg-kumo-recessed/35 p-3 text-xs text-kumo-subtle">
-              <div className="font-semibold text-kumo-strong">预览地址</div>
-              <div className="mt-2 space-y-1.5">
-                {[getServerStatusPageUrl(serverStatusPageForm, 'servers'), getServerStatusPageUrl(serverStatusPageForm, 's'), getServerStatusDomainUrl(serverStatusPageForm)]
-                  .filter(Boolean)
-                  .map((url) => (
-                    <ClipboardText
-                      key={url}
-                      size="sm"
-                      text={url}
-                      className="w-full"
-                      tooltip={{ text: '复制地址', copiedText: '地址已复制', side: 'top' }}
-                      labels={{ copyAction: '复制状态页地址' }}
-                    />
-                  ))}
+              <div className="rounded-lg border border-kumo-line bg-kumo-recessed/35 p-3 text-xs text-kumo-subtle">
+                <div className="font-semibold text-kumo-strong">预览地址</div>
+                <div className="mt-2 space-y-1.5">
+                  {[
+                    getServerStatusPageUrl(serverStatusPageForm, 'servers'),
+                    getServerStatusPageUrl(serverStatusPageForm, 's'),
+                    getServerStatusDomainUrl(serverStatusPageForm),
+                  ]
+                    .filter(Boolean)
+                    .map(url => (
+                      <ClipboardText
+                        key={url}
+                        size="sm"
+                        text={url}
+                        className="w-full"
+                        tooltip={{ text: '复制地址', copiedText: '地址已复制', side: 'top' }}
+                        labels={{ copyAction: '复制状态页地址' }}
+                      />
+                    ))}
+                </div>
               </div>
-            </div>
 
               <div className="flex flex-wrap justify-end gap-2">
-                <Button size="sm" variant="secondary" onClick={resetServerStatusPageForm}>重置</Button>
-                <Button size="sm" variant="primary" loading={serverStatusPagesLoading} onClick={saveServerStatusPage} icon={<Save className="h-3.5 w-3.5" />}>{serverStatusPageForm.id ? '保存状态页' : '创建状态页'}</Button>
+                <Button size="sm" variant="secondary" onClick={resetServerStatusPageForm}>
+                  重置
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={serverStatusPagesLoading}
+                  onClick={saveServerStatusPage}
+                  icon={<Save className="h-3.5 w-3.5" />}
+                >
+                  {serverStatusPageForm.id ? '保存状态页' : '创建状态页'}
+                </Button>
               </div>
             </LayerCard.Primary>
           </LayerCard>
@@ -6592,61 +7697,128 @@ function ServerPage() {
           <LayerCard className="overflow-hidden p-0">
             <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
               <div>
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-kumo-strong"><Globe className="h-4 w-4" />已发布状态页</h3>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+                  <Globe className="h-4 w-4" />
+                  已发布状态页
+                </h3>
               </div>
-              <Button size="sm" variant="secondary" icon={<RotateCw className="h-3.5 w-3.5" />} onClick={loadServerStatusPages} loading={serverStatusPagesLoading}>刷新</Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<RotateCw className="h-3.5 w-3.5" />}
+                onClick={loadServerStatusPages}
+                loading={serverStatusPagesLoading}
+              >
+                刷新
+              </Button>
             </LayerCard.Secondary>
 
             <LayerCard.Primary className="p-4">
               {serverStatusPages.length === 0 ? (
-              <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-kumo-line text-center text-sm text-kumo-subtle">
-                <Globe className="mb-3 h-8 w-8 opacity-40" />
-                暂无主机状态页。
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {serverStatusPages.map((page) => {
-                  const statusUrl = getServerStatusPageUrl(page, 'servers');
-                  const compactUrl = getServerStatusPageUrl(page, 's');
-                  const domainUrl = getServerStatusDomainUrl(page);
-                  return (
-                    <div key={page.id} className="rounded-lg border border-kumo-line bg-kumo-base p-3">
-                      <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
-                              <PublicPageBrandIcon pageKind="server" config={page.config} iconClassName="h-4 w-4" customIconClassName="h-4 w-4" />
-                            </span>
-                            <span className="truncate text-sm font-semibold text-kumo-strong">{page.title || page.slug}</span>
-                            <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${page.public ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}>{page.public ? '公开' : '私有'}</span>
-                            <span className="rounded bg-kumo-recessed px-2 py-0.5 font-mono text-[10px] text-kumo-subtle">{page.cacheSeconds || 300}s</span>
+                <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-kumo-line text-center text-sm text-kumo-subtle">
+                  <Globe className="mb-3 h-8 w-8 opacity-40" />
+                  暂无主机状态页。
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {serverStatusPages.map(page => {
+                    const statusUrl = getServerStatusPageUrl(page, 'servers');
+                    const compactUrl = getServerStatusPageUrl(page, 's');
+                    const domainUrl = getServerStatusDomainUrl(page);
+                    return (
+                      <div
+                        key={page.id}
+                        className="rounded-lg border border-kumo-line bg-kumo-base p-3"
+                      >
+                        <div className="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-start cq-sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
+                                <PublicPageBrandIcon
+                                  pageKind="server"
+                                  config={page.config}
+                                  iconClassName="h-4 w-4"
+                                  customIconClassName="h-4 w-4"
+                                />
+                              </span>
+                              <span className="truncate text-sm font-semibold text-kumo-strong">
+                                {page.title || page.slug}
+                              </span>
+                              <span
+                                className={`rounded px-2 py-0.5 text-[10px] font-semibold ${page.public ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}
+                              >
+                                {page.public ? '公开' : '私有'}
+                              </span>
+                              <span className="rounded bg-kumo-recessed px-2 py-0.5 font-mono text-[10px] text-kumo-subtle">
+                                {page.cacheSeconds || 300}s
+                              </span>
+                            </div>
+                            <div className="mt-1 truncate font-mono text-xs text-kumo-subtle">
+                              {page.slug}
+                            </div>
+                            {page.description && (
+                              <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-kumo-subtle">
+                                {page.description}
+                              </div>
+                            )}
                           </div>
-                          <div className="mt-1 truncate font-mono text-xs text-kumo-subtle">{page.slug}</div>
-                          {page.description && <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-kumo-subtle">{page.description}</div>}
+                          <div className="flex shrink-0 flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              shape="square"
+                              icon={<Edit className="h-3.5 w-3.5" />}
+                              onClick={() => editServerStatusPage(page)}
+                              aria-label="编辑主机状态页"
+                            />
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              shape="square"
+                              icon={<ExternalLink className="h-3.5 w-3.5" />}
+                              onClick={() =>
+                                window.open(statusUrl, '_blank', 'noopener,noreferrer')
+                              }
+                              aria-label="打开主机状态页"
+                            />
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              shape="square"
+                              icon={<Copy className="h-3.5 w-3.5" />}
+                              onClick={() => copyServerStatusUrl(statusUrl)}
+                              aria-label="复制主机状态页地址"
+                            />
+                            <Button
+                              size="sm"
+                              variant={
+                                isArmed(`status-page.delete::${page.id}`)
+                                  ? 'destructive'
+                                  : 'secondary-destructive'
+                              }
+                              shape="square"
+                              icon={<Trash className="h-3.5 w-3.5" />}
+                              onClick={() => deleteServerStatusPage(page)}
+                              aria-label="删除主机状态页"
+                            />
+                          </div>
                         </div>
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          <Button size="sm" variant="secondary" shape="square" icon={<Edit className="h-3.5 w-3.5" />} onClick={() => editServerStatusPage(page)} aria-label="编辑主机状态页" />
-                          <Button size="sm" variant="secondary" shape="square" icon={<ExternalLink className="h-3.5 w-3.5" />} onClick={() => window.open(statusUrl, '_blank', 'noopener,noreferrer')} aria-label="打开主机状态页" />
-                          <Button size="sm" variant="secondary" shape="square" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyServerStatusUrl(statusUrl)} aria-label="复制主机状态页地址" />
-                          <Button size="sm" variant={isArmed(`status-page.delete::${page.id}`) ? 'destructive' : 'secondary-destructive'} shape="square" icon={<Trash className="h-3.5 w-3.5" />} onClick={() => deleteServerStatusPage(page)} aria-label="删除主机状态页" />
+                        <div className="mt-3 grid gap-2">
+                          {[statusUrl, compactUrl, domainUrl].filter(Boolean).map(url => (
+                            <ClipboardText
+                              key={url}
+                              size="sm"
+                              text={url}
+                              className="w-full"
+                              tooltip={{ text: '复制地址', copiedText: '地址已复制', side: 'top' }}
+                              labels={{ copyAction: '复制状态页地址' }}
+                            />
+                          ))}
                         </div>
                       </div>
-                      <div className="mt-3 grid gap-2">
-                        {[statusUrl, compactUrl, domainUrl].filter(Boolean).map((url) => (
-                          <ClipboardText
-                            key={url}
-                            size="sm"
-                            text={url}
-                            className="w-full"
-                            tooltip={{ text: '复制地址', copiedText: '地址已复制', side: 'top' }}
-                            labels={{ copyAction: '复制状态页地址' }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
               )}
             </LayerCard.Primary>
           </LayerCard>
@@ -6654,9 +7826,7 @@ function ServerPage() {
       )}
 
       {/* ==================== 端口转发 ==================== */}
-      {serverCurrentTab === 'forward' && (
-        <ForwardPanel ref={forwardPanelRef} />
-      )}
+      {serverCurrentTab === 'forward' && <ForwardPanel ref={forwardPanelRef} />}
 
       {/* ==================== 1. 主机管理 ==================== */}
       {serverCurrentTab === 'list' && (
@@ -6682,8 +7852,22 @@ function ServerPage() {
                 value={serverListViewMode}
                 onValueChange={setServerListViewMode}
                 tabs={[
-                  { value: 'cards', label: <span title="卡片视图" aria-label="卡片视图"><LayoutDashboard className="h-3.5 w-3.5" /></span> },
-                  { value: 'compact', label: <span title="表格视图" aria-label="表格视图"><Menu className="h-3.5 w-3.5" /></span> },
+                  {
+                    value: 'cards',
+                    label: (
+                      <span title="卡片视图" aria-label="卡片视图">
+                        <LayoutDashboard className="h-3.5 w-3.5" />
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'compact',
+                    label: (
+                      <span title="表格视图" aria-label="表格视图">
+                        <Menu className="h-3.5 w-3.5" />
+                      </span>
+                    ),
+                  },
                 ]}
               />
               <Button
@@ -6710,26 +7894,35 @@ function ServerPage() {
           {/* 列表渲染 */}
           {serverMapOpen ? (
             serverLoading && filteredServers.length === 0 ? (
-              <div className="w-full overflow-hidden rounded-lg border border-kumo-line/70 bg-kumo-base" style={{ height: 'calc(100vh - 260px)' }}>
+              <div
+                className="w-full overflow-hidden rounded-lg border border-kumo-line/70 bg-kumo-base"
+                style={{ height: 'calc(100vh - 260px)' }}
+              >
                 <SkeletonLine className="h-full w-full rounded-none" />
               </div>
             ) : (
               <ServerLocationMap
                 echarts={echarts}
                 servers={filteredServers}
-                resolveStatus={(server) => resolveServerDisplayStatus(server).state}
+                resolveStatus={server => resolveServerDisplayStatus(server).state}
                 title="主机地图"
                 subtitle="当前筛选中的主机地理分布"
                 height="calc(100vh - 260px)"
               />
             )
           ) : serverLoading && serverList.length === 0 ? (
-            <AppCard padding="none" className="flex flex-col items-center justify-center gap-2 p-12 text-kumo-subtle">
+            <AppCard
+              padding="none"
+              className="flex flex-col items-center justify-center gap-2 p-12 text-kumo-subtle"
+            >
               <Loader size={24} />
               <p className="text-xs">正在加载主机列表...</p>
             </AppCard>
           ) : filteredServers.length === 0 ? (
-            <AppCard padding="none" className="flex flex-col items-center justify-center gap-1.5 p-16 text-kumo-subtle">
+            <AppCard
+              padding="none"
+              className="flex flex-col items-center justify-center gap-1.5 p-16 text-kumo-subtle"
+            >
               <span className="text-xl">🔍</span>
               <p className="text-xs">未找到符合当前条件的主机节点</p>
             </AppCard>
@@ -6747,7 +7940,11 @@ function ServerPage() {
                       {visibleCompactColumnWidths.map((width, index) => (
                         <col
                           key={`${visibleCompactColumnDefs[index]?.id || index}-${width}`}
-                          style={HOST_COMPACT_ADAPTIVE_COLUMNS.has(visibleCompactColumnDefs[index]?.id) ? undefined : { width }}
+                          style={
+                            HOST_COMPACT_ADAPTIVE_COLUMNS.has(visibleCompactColumnDefs[index]?.id)
+                              ? undefined
+                              : { width }
+                          }
                         />
                       ))}
                     </colgroup>
@@ -6759,7 +7956,9 @@ function ServerPage() {
                             sticky={column.id === 'actions' ? 'right' : undefined}
                             className={`!px-[2px] !py-2 text-center text-[10px] whitespace-nowrap ${column.id === 'actions' ? `!pl-[1px] !pr-[2px] ${COMPACT_STICKY_ACTION_CLASS}` : ''}`}
                           >
-                            <div className={`mx-auto flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}>
+                            <div
+                              className={`mx-auto flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}
+                            >
                               {column.label}
                             </div>
                           </Table.Head>
@@ -6772,7 +7971,8 @@ function ServerPage() {
                         const locationText = getServerLocationText(server);
                         const locationTitle = getServerLocationTitle(server);
                         const isExpanded = expandedServers.includes(server.id);
-                        const shouldRenderExpandedRow = isExpanded || renderedCompactExpandedServers.includes(server.id);
+                        const shouldRenderExpandedRow =
+                          isExpanded || renderedCompactExpandedServers.includes(server.id);
                         const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
                         const isDarkMode = theme === 'dark';
                         const {
@@ -6790,11 +7990,21 @@ function ServerPage() {
                           cpuMemSeries,
                           gpuSeries,
                           netSeries,
-                        } = getServerMetricDisplay(server.id, server.metricsCache, isExpanded && isChartSeriesReady, isDarkMode);
-                        const hasGpuData = !!getGpuModelText(server.info?.gpu) || records.some(r => (
-                          (r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0)
-                          || getGpuTemp(r) > 0
-                        ));
+                        } = getServerMetricDisplay(
+                          server.id,
+                          server.metricsCache,
+                          isExpanded && isChartSeriesReady,
+                          isDarkMode
+                        );
+                        const hasGpuData =
+                          !!getGpuModelText(server.info?.gpu) ||
+                          records.some(
+                            r =>
+                              (r.gpu_usage !== null &&
+                                r.gpu_usage !== undefined &&
+                                toNumber(r.gpu_usage, 0) > 0) ||
+                              getGpuTemp(r) > 0
+                          );
                         const tx = parseSpeed(server.info?.network?.tx_speed);
                         const rx = parseSpeed(server.info?.network?.rx_speed);
                         const txTotal = getByteParts(server.info?.network?.tx_total);
@@ -6806,23 +8016,35 @@ function ServerPage() {
                         const cpuUsage = clampPercent(toNumber(server.info?.cpu?.Usage, 0));
                         const cpuTemp = toNumber(server.info?.cpu?.Temp, 0);
                         const terminalProtocol = resolveTerminalProtocol(server);
-                        const effectiveTerminalProtocol = terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
-                        const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 隧道终端' : 'SSH 终端';
+                        const effectiveTerminalProtocol =
+                          terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
+                        const terminalLabel =
+                          effectiveTerminalProtocol === 'agent' ? 'Agent 隧道终端' : 'SSH 终端';
                         const chartLoading = !!server.metricsLoading && records.length === 0;
-                        const physicalCores = server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
+                        const physicalCores =
+                          server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
                         const logicalCores = server.info?.cpu?.LogicalCores;
-                        const coreText = physicalCores && logicalCores && physicalCores !== logicalCores
-                          ? `${physicalCores}核 / ${logicalCores}线程`
-                          : `${physicalCores || '-'}核`;
-                        const dockerSummary = summarizeDockerContainers(server.info?.docker, getDockerContainerState);
+                        const coreText =
+                          physicalCores && logicalCores && physicalCores !== logicalCores
+                            ? `${physicalCores}核 / ${logicalCores}线程`
+                            : `${physicalCores || '-'}核`;
+                        const dockerSummary = summarizeDockerContainers(
+                          server.info?.docker,
+                          getDockerContainerState
+                        );
                         const lifecycle = getServerLifecycle(server);
                         const networkQuality = networkQualityByServer[server.id] || {};
-                        const networkQualitySeries = isExpanded ? buildNetworkQualitySeries(networkQuality, isDarkMode) : [];
-                        const hasNetworkQualityData = isExpanded && networkQualitySeries.some(series => series.data.length > 0);
-                        const networkQualityUnsupported = isExpanded && (
-                          !!networkQuality.unsupported
-                          || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage)
-                        );
+                        const networkQualitySeries = isExpanded
+                          ? buildNetworkQualitySeries(networkQuality, isDarkMode)
+                          : [];
+                        const hasNetworkQualityData =
+                          isExpanded && networkQualitySeries.some(series => series.data.length > 0);
+                        const networkQualityUnsupported =
+                          isExpanded &&
+                          (!!networkQuality.unsupported ||
+                            isNetworkQualityUnsupportedError(
+                              networkQuality.error || networkQuality.unsupportedMessage
+                            ));
                         const metricsHealth = resolveServerMetricsHealth(server);
                         const rowMuted = !isServerOnline(server);
 
@@ -6830,7 +8052,7 @@ function ServerPage() {
                           <React.Fragment key={server.id}>
                             <ContextMenu.Root>
                               <ContextMenu.Trigger
-                                render={(
+                                render={
                                   <Table.Row
                                     variant={isExpanded ? 'selected' : 'default'}
                                     className="cursor-pointer border-b border-kumo-line/80 hover:bg-kumo-recessed/15"
@@ -6841,7 +8063,11 @@ function ServerPage() {
                                         <Badge
                                           variant={metricsHealth.variant}
                                           appearance="dot"
-                                          title={metricsHealth.stale ? 'Agent 连接存在，但最近未收到有效指标上报' : undefined}
+                                          title={
+                                            metricsHealth.stale
+                                              ? 'Agent 连接存在，但最近未收到有效指标上报'
+                                              : undefined
+                                          }
                                         >
                                           {metricsHealth.label}
                                         </Badge>
@@ -6849,10 +8075,19 @@ function ServerPage() {
                                     )}
                                     {isCompactColumnVisible('name') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 whitespace-nowrap">
-                                        <div className={`mx-auto flex w-[96px] items-center gap-2 ${rowMuted ? 'text-kumo-subtle' : ''}`}>
-                                          <i className={`${getOSIconClass(server.info?.platform)} ${rowMuted ? 'opacity-60 grayscale' : ''}`}></i>
+                                        <div
+                                          className={`mx-auto flex w-[96px] items-center gap-2 ${rowMuted ? 'text-kumo-subtle' : ''}`}
+                                        >
+                                          <i
+                                            className={`${getOSIconClass(server.info?.platform)} ${rowMuted ? 'opacity-60 grayscale' : ''}`}
+                                          ></i>
                                           <div className="min-w-0">
-                                            <div className={`truncate font-semibold ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`} title={server.name}>{server.name}</div>
+                                            <div
+                                              className={`truncate font-semibold ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
+                                              title={server.name}
+                                            >
+                                              {server.name}
+                                            </div>
                                             {/* {(server.tags || []).filter(t => t !== 'Agent').length > 0 && (
                                         <div className="flex min-w-0 gap-1">
                                           {(server.tags || []).filter(t => t !== 'Agent').slice(0, 2).map(tag => (
@@ -6871,25 +8106,44 @@ function ServerPage() {
                                         <div className="mx-auto flex w-[55px] items-center justify-center gap-1.5">
                                           {locationText ? (
                                             <>
-                                              {country && <CountryFlag preferSvg countryCode={country} className={`h-3.5 w-5 shrink-0 !rounded-[2px] text-sm ${rowMuted ? 'opacity-60 grayscale' : ''}`} />}
-                                              <span className={`truncate font-semibold uppercase ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`} title={locationTitle}>{locationText}</span>
+                                              {country && (
+                                                <CountryFlag
+                                                  preferSvg
+                                                  countryCode={country}
+                                                  className={`h-3.5 w-5 shrink-0 !rounded-[2px] text-sm ${rowMuted ? 'opacity-60 grayscale' : ''}`}
+                                                />
+                                              )}
+                                              <span
+                                                className={`truncate font-semibold uppercase ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
+                                                title={locationTitle}
+                                              >
+                                                {locationText}
+                                              </span>
                                             </>
                                           ) : (
-                                            <span className="font-semibold text-kumo-subtle">-</span>
+                                            <span className="font-semibold text-kumo-subtle">
+                                              -
+                                            </span>
                                           )}
                                         </div>
                                       </Table.Cell>
                                     )}
                                     {isCompactColumnVisible('uptime') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 text-center whitespace-nowrap">
-                                        <span className={`inline-flex w-[55px] justify-center font-semibold tabular-nums ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}>
-                                          {formatUptimeDaysOnly(server.info?.uptime || server.info?.system?.Uptime)}
+                                        <span
+                                          className={`inline-flex w-[55px] justify-center font-semibold tabular-nums ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
+                                        >
+                                          {formatUptimeDaysOnly(
+                                            server.info?.uptime || server.info?.system?.Uptime
+                                          )}
                                         </span>
                                       </Table.Cell>
                                     )}
                                     {isCompactColumnVisible('load') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 text-center whitespace-nowrap">
-                                        <code className={`rounded-md bg-kumo-recessed/50 px-2 py-1 font-mono text-xs font-semibold ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'} ${COMPACT_INLINE_BOX_CLASS}`}>
+                                        <code
+                                          className={`rounded-md bg-kumo-recessed/50 px-2 py-1 font-mono text-xs font-semibold ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'} ${COMPACT_INLINE_BOX_CLASS}`}
+                                        >
                                           {getPrimaryLoadValue(server.info?.cpu?.Load)}
                                         </code>
                                       </Table.Cell>
@@ -6955,8 +8209,17 @@ function ServerPage() {
                                     )}
                                     {isCompactColumnVisible('remaining') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 whitespace-nowrap">
-                                        <div title={lifecycle.expiresAt ? `${formatDateTime(lifecycle.startsAt)} - ${formatDateTime(lifecycle.expiresAt)}，剩余 ${Math.round(lifecycle.remainingPercent)}%` : '永久'}>
-                                          <DenseLifecycleMeter lifecycle={lifecycle} muted={rowMuted} />
+                                        <div
+                                          title={
+                                            lifecycle.expiresAt
+                                              ? `${formatDateTime(lifecycle.startsAt)} - ${formatDateTime(lifecycle.expiresAt)}，剩余 ${Math.round(lifecycle.remainingPercent)}%`
+                                              : '永久'
+                                          }
+                                        >
+                                          <DenseLifecycleMeter
+                                            lifecycle={lifecycle}
+                                            muted={rowMuted}
+                                          />
                                         </div>
                                       </Table.Cell>
                                     )}
@@ -6964,36 +8227,61 @@ function ServerPage() {
                                       <Table.Cell className="!px-[2px] !py-1.5 whitespace-nowrap">
                                         <DenseUsageMeter
                                           label="余量"
-                                          value={trafficQuota.unlimited ? 100 : Math.max(0, 100 - trafficQuota.percent)}
-                                          detail={trafficQuota.unlimited ? '无限' : trafficQuota.remainingText}
-                                          indicatorClassName={trafficQuota.overLimit ? '!bg-none !bg-kumo-danger' : '!bg-none !bg-kumo-info'}
+                                          value={
+                                            trafficQuota.unlimited
+                                              ? 100
+                                              : Math.max(0, 100 - trafficQuota.percent)
+                                          }
+                                          detail={
+                                            trafficQuota.unlimited
+                                              ? '无限'
+                                              : trafficQuota.remainingText
+                                          }
+                                          indicatorClassName={
+                                            trafficQuota.overLimit
+                                              ? '!bg-none !bg-kumo-danger'
+                                              : '!bg-none !bg-kumo-info'
+                                          }
                                           muted={rowMuted}
                                         />
                                       </Table.Cell>
                                     )}
-                                      {isCompactColumnVisible('actions') && (
-                                        <Table.Cell sticky="right" className={`!py-1.5 !pl-[1px] !pr-[2px] text-center whitespace-nowrap ${COMPACT_STICKY_ACTION_CLASS}`}>
-                                          <div className="flex items-center justify-center gap-1" onClick={event => event.stopPropagation()}>
-                                            <ServerConnectionActions
-                                              remoteDesktopAvailable={canOpenRemoteDesktop(server)}
-                                              terminalLabel={terminalLabel}
-                                              terminalDisabled={!canOpenTerminal(server) && !hasSshEndpoint(server)}
-                                              onOpenRemoteDesktop={() => openRemoteDesktop(server)}
-                                              onOpenTerminal={() => openSSHTerminal(server)}
-                                              buttonClassName={COMPACT_ACTION_BUTTON_CLASS}
-                                            />
-                                          </div>
-                                        </Table.Cell>
-                                      )}
+                                    {isCompactColumnVisible('actions') && (
+                                      <Table.Cell
+                                        sticky="right"
+                                        className={`!py-1.5 !pl-[1px] !pr-[2px] text-center whitespace-nowrap ${COMPACT_STICKY_ACTION_CLASS}`}
+                                      >
+                                        <div
+                                          className="flex items-center justify-center gap-1"
+                                          onClick={event => event.stopPropagation()}
+                                        >
+                                          <ServerConnectionActions
+                                            remoteDesktopAvailable={canOpenRemoteDesktop(server)}
+                                            terminalLabel={terminalLabel}
+                                            terminalDisabled={
+                                              !canOpenTerminal(server) && !hasSshEndpoint(server)
+                                            }
+                                            onOpenRemoteDesktop={() => openRemoteDesktop(server)}
+                                            onOpenTerminal={() => openSSHTerminal(server)}
+                                            buttonClassName={COMPACT_ACTION_BUTTON_CLASS}
+                                          />
+                                        </div>
+                                      </Table.Cell>
+                                    )}
                                   </Table.Row>
-                                )}
+                                }
                               />
                               {renderServerContextMenu(server)}
                             </ContextMenu.Root>
 
                             {shouldRenderExpandedRow && (
-                              <CompactExpandedRow open={isExpanded} colSpan={visibleCompactColumnDefs.length}>
-                                <div className={`flex flex-col ${isDenseViewport ? 'gap-1.5 p-1.5' : 'gap-2 p-2'}`}>
+                              <CompactExpandedRow
+                                open={isExpanded}
+                                colSpan={visibleCompactColumnDefs.length}
+                              >
+                                <div
+                                  className={`flex flex-col ${isDenseViewport ? 'gap-1.5 p-1.5' : 'gap-2 p-2'}`}
+                                >
                                   {server.loading && !server.info ? (
                                     <div className="space-y-2 py-5">
                                       <SkeletonLine className="mx-auto h-4 w-1/3" />
@@ -7007,31 +8295,91 @@ function ServerPage() {
                                     <>
                                       <div className="grid grid-cols-1 gap-1.5 cq-sm:grid-cols-2 cq-lg:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
                                         <DenseDetailChip label="核心" value={coreText} />
-                                        <DenseDetailChip label="Agent 版本" value={server.info?.agentVersion || '未报告'} valueClassName="font-mono text-kumo-strong" />
-                                        <DenseDetailChip label="内存" value={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`} />
-                                        <DenseDetailChip label="连接" value={server.info?.network?.connections || 0} />
-                                        <DenseDetailChip label="Docker" value={server.info?.docker?.installed ? `${dockerSummary.running}/${dockerSummary.total} 运行` : '未安装'} />
-                                        <DenseDetailChip label="生命周期" value={lifecycle.expiresAt ? `${lifecycle.label} / ${Math.round(lifecycle.remainingPercent)}%` : '永久'} valueClassName={lifecycle.toneClass} />
-                                        <DenseDetailChip label="模式" value={getServerMonitorModeLabel(server)} />
+                                        <DenseDetailChip
+                                          label="Agent 版本"
+                                          value={server.info?.agentVersion || '未报告'}
+                                          valueClassName="font-mono text-kumo-strong"
+                                        />
+                                        <DenseDetailChip
+                                          label="内存"
+                                          value={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`}
+                                        />
+                                        <DenseDetailChip
+                                          label="连接"
+                                          value={server.info?.network?.connections || 0}
+                                        />
+                                        <DenseDetailChip
+                                          label="Docker"
+                                          value={
+                                            server.info?.docker?.installed
+                                              ? `${dockerSummary.running}/${dockerSummary.total} 运行`
+                                              : '未安装'
+                                          }
+                                        />
+                                        <DenseDetailChip
+                                          label="生命周期"
+                                          value={
+                                            lifecycle.expiresAt
+                                              ? `${lifecycle.label} / ${Math.round(lifecycle.remainingPercent)}%`
+                                              : '永久'
+                                          }
+                                          valueClassName={lifecycle.toneClass}
+                                        />
+                                        <DenseDetailChip
+                                          label="模式"
+                                          value={getServerMonitorModeLabel(server)}
+                                        />
                                       </div>
 
                                       <div className="flex min-w-0 flex-col gap-2">
-                                        <div className={getExpandedTrendGridClassName(true, isDenseViewport)}>
+                                        <div
+                                          className={getExpandedTrendGridClassName(
+                                            true,
+                                            isDenseViewport
+                                          )}
+                                        >
                                           <ExpandedTrendChartCard
                                             title="CPU / 内存趋势"
                                             tone="success"
                                             compact
                                             className={getExpandedCardSpanClassName(0, 3)}
-                                            legend={(
+                                            legend={
                                               <>
-                                                <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} loading={chartLoading} />
-                                                <ChartLegend.SmallItem name="内存" color={memColor} value={`${Math.round(memUsage)}%`} loading={chartLoading} />
-                                                <ChartLegend.SmallItem name="温度" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} loading={chartLoading} />
+                                                <ChartLegend.SmallItem
+                                                  name="CPU"
+                                                  color={cpuColor}
+                                                  value={`${Math.round(cpuUsage)}%`}
+                                                  loading={chartLoading}
+                                                />
+                                                <ChartLegend.SmallItem
+                                                  name="内存"
+                                                  color={memColor}
+                                                  value={`${Math.round(memUsage)}%`}
+                                                  loading={chartLoading}
+                                                />
+                                                <ChartLegend.SmallItem
+                                                  name="温度"
+                                                  color={cpuTempColor}
+                                                  value={getLatestMetricValue(
+                                                    records,
+                                                    getCpuTemp,
+                                                    v => `${v.toFixed(1)}°C`
+                                                  )}
+                                                  loading={chartLoading}
+                                                />
                                               </>
-                                            )}
+                                            }
                                           >
-                                            {(tooltipBoundary) => (
-                                              <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
+                                            {tooltipBoundary => (
+                                              <DeferredRender
+                                                open={isExpanded}
+                                                delay={SERVER_CHART_RENDER_DEFER_MS}
+                                                fallback={
+                                                  <ChartWarmupSkeleton
+                                                    height={compactExpandedChartHeight}
+                                                  />
+                                                }
+                                              >
                                                 <SiteFontTimeseriesChart
                                                   echarts={fastTimeseriesEcharts}
                                                   data={cpuMemSeries}
@@ -7045,7 +8393,9 @@ function ServerPage() {
                                                   xAxisTickFormat={expandedChartXAxisTickFormat}
                                                   yAxisTickFormat={expandedNumberAxisTickFormat}
                                                   tooltipValueFormat={formatMetricTooltipValue}
-                                                  optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                  optionUpdateBehavior={
+                                                    SERVER_FAST_CHART_UPDATE_BEHAVIOR
+                                                  }
                                                   ariaDescription={`${server.name} CPU 与内存使用趋势`}
                                                 />
                                               </DeferredRender>
@@ -7056,21 +8406,70 @@ function ServerPage() {
                                             title={hasGpuData ? 'GPU 趋势' : '网络趋势'}
                                             tone={hasGpuData ? 'warning' : 'info'}
                                             compact
-                                            className={getExpandedCardSpanClassName(1, hasGpuData ? 3 : 2)}
-                                            legend={(
-                                              <>
-                                                {hasGpuData && <TrendSeriesLabel name="GPU" color={gpuColor} />}
-                                                {hasGpuData && <TrendSeriesLabel name="显存" color={vramColor} />}
-                                                {hasGpuData && <TrendSeriesLabel name="功耗" color={powerColor} />}
-                                                {hasGpuData && <TrendSeriesLabel name="温度" color={gpuTempColor} />}
-                                                {!hasGpuData && <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} loading={chartLoading} />}
-                                                {!hasGpuData && <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} loading={chartLoading} />}
-                                              </>
+                                            className={getExpandedCardSpanClassName(
+                                              1,
+                                              hasGpuData ? 3 : 2
                                             )}
+                                            legend={
+                                              <>
+                                                {hasGpuData && (
+                                                  <TrendSeriesLabel name="GPU" color={gpuColor} />
+                                                )}
+                                                {hasGpuData && (
+                                                  <TrendSeriesLabel name="显存" color={vramColor} />
+                                                )}
+                                                {hasGpuData && (
+                                                  <TrendSeriesLabel
+                                                    name="功耗"
+                                                    color={powerColor}
+                                                  />
+                                                )}
+                                                {hasGpuData && (
+                                                  <TrendSeriesLabel
+                                                    name="温度"
+                                                    color={gpuTempColor}
+                                                  />
+                                                )}
+                                                {!hasGpuData && (
+                                                  <ChartLegend.SmallItem
+                                                    name="上行"
+                                                    color={txColor}
+                                                    value={getLatestMetricValue(
+                                                      records,
+                                                      r => toNumber(r.net_tx, 0),
+                                                      formatBytesSpeed
+                                                    )}
+                                                    loading={chartLoading}
+                                                  />
+                                                )}
+                                                {!hasGpuData && (
+                                                  <ChartLegend.SmallItem
+                                                    name="下行"
+                                                    color={rxColor}
+                                                    value={getLatestMetricValue(
+                                                      records,
+                                                      r => toNumber(r.net_rx, 0),
+                                                      formatBytesSpeed
+                                                    )}
+                                                    loading={chartLoading}
+                                                  />
+                                                )}
+                                              </>
+                                            }
                                           >
-                                            {(tooltipBoundary) => (
-                                              <div className={`grid min-w-0 gap-1.5 ${hasGpuData ? 'grid-cols-1' : 'cq-sm:grid-cols-[minmax(0,1fr)_8.5rem]'}`}>
-                                                <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
+                                            {tooltipBoundary => (
+                                              <div
+                                                className={`grid min-w-0 gap-1.5 ${hasGpuData ? 'grid-cols-1' : 'cq-sm:grid-cols-[minmax(0,1fr)_8.5rem]'}`}
+                                              >
+                                                <DeferredRender
+                                                  open={isExpanded}
+                                                  delay={SERVER_CHART_RENDER_DEFER_MS}
+                                                  fallback={
+                                                    <ChartWarmupSkeleton
+                                                      height={compactExpandedChartHeight}
+                                                    />
+                                                  }
+                                                >
                                                   <SiteFontTimeseriesChart
                                                     echarts={fastTimeseriesEcharts}
                                                     data={hasGpuData ? gpuSeries : netSeries}
@@ -7082,13 +8481,30 @@ function ServerPage() {
                                                     xAxisTickCount={expandedChartXAxisTickCount}
                                                     yAxisTickCount={compactExpandedYAxisTickCount}
                                                     xAxisTickFormat={expandedChartXAxisTickFormat}
-                                                    yAxisTickFormat={hasGpuData ? expandedNumberAxisTickFormat : formatCompactBytesSpeed}
-                                                    tooltipValueFormat={hasGpuData ? formatMetricTooltipValue : formatBytesSpeed}
-                                                    optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                    yAxisTickFormat={
+                                                      hasGpuData
+                                                        ? expandedNumberAxisTickFormat
+                                                        : formatCompactBytesSpeed
+                                                    }
+                                                    tooltipValueFormat={
+                                                      hasGpuData
+                                                        ? formatMetricTooltipValue
+                                                        : formatBytesSpeed
+                                                    }
+                                                    optionUpdateBehavior={
+                                                      SERVER_FAST_CHART_UPDATE_BEHAVIOR
+                                                    }
                                                     ariaDescription={`${server.name} 主机精简趋势`}
                                                   />
                                                 </DeferredRender>
-                                                {!hasGpuData && <TrafficTotalSummary txTotal={txTotal} rxTotal={rxTotal} quota={trafficQuota} compact />}
+                                                {!hasGpuData && (
+                                                  <TrafficTotalSummary
+                                                    txTotal={txTotal}
+                                                    rxTotal={rxTotal}
+                                                    quota={trafficQuota}
+                                                    compact
+                                                  />
+                                                )}
                                               </div>
                                             )}
                                           </ExpandedTrendChartCard>
@@ -7099,16 +8515,42 @@ function ServerPage() {
                                               tone="info"
                                               compact
                                               className={getExpandedCardSpanClassName(2, 3)}
-                                              legend={(
+                                              legend={
                                                 <>
-                                                  <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} loading={chartLoading} />
-                                                  <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} loading={chartLoading} />
+                                                  <ChartLegend.SmallItem
+                                                    name="上行"
+                                                    color={txColor}
+                                                    value={getLatestMetricValue(
+                                                      records,
+                                                      r => toNumber(r.net_tx, 0),
+                                                      formatBytesSpeed
+                                                    )}
+                                                    loading={chartLoading}
+                                                  />
+                                                  <ChartLegend.SmallItem
+                                                    name="下行"
+                                                    color={rxColor}
+                                                    value={getLatestMetricValue(
+                                                      records,
+                                                      r => toNumber(r.net_rx, 0),
+                                                      formatBytesSpeed
+                                                    )}
+                                                    loading={chartLoading}
+                                                  />
                                                 </>
-                                              )}
+                                              }
                                             >
-                                              {(tooltipBoundary) => (
+                                              {tooltipBoundary => (
                                                 <div className="grid min-w-0 gap-1.5 cq-sm:grid-cols-[minmax(0,1fr)_8.5rem]">
-                                                  <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
+                                                  <DeferredRender
+                                                    open={isExpanded}
+                                                    delay={SERVER_CHART_RENDER_DEFER_MS}
+                                                    fallback={
+                                                      <ChartWarmupSkeleton
+                                                        height={compactExpandedChartHeight}
+                                                      />
+                                                    }
+                                                  >
                                                     <SiteFontTimeseriesChart
                                                       echarts={fastTimeseriesEcharts}
                                                       data={netSeries}
@@ -7122,16 +8564,22 @@ function ServerPage() {
                                                       xAxisTickFormat={expandedChartXAxisTickFormat}
                                                       yAxisTickFormat={formatCompactBytesSpeed}
                                                       tooltipValueFormat={formatBytesSpeed}
-                                                      optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                      optionUpdateBehavior={
+                                                        SERVER_FAST_CHART_UPDATE_BEHAVIOR
+                                                      }
                                                       ariaDescription={`${server.name} 网络精简趋势`}
                                                     />
                                                   </DeferredRender>
-                                                  <TrafficTotalSummary txTotal={txTotal} rxTotal={rxTotal} quota={trafficQuota} compact />
+                                                  <TrafficTotalSummary
+                                                    txTotal={txTotal}
+                                                    rxTotal={rxTotal}
+                                                    quota={trafficQuota}
+                                                    compact
+                                                  />
                                                 </div>
                                               )}
                                             </ExpandedTrendChartCard>
                                           )}
-
                                         </div>
 
                                         <NetworkQualityPanel
@@ -7144,7 +8592,9 @@ function ServerPage() {
                                           isDarkMode={isDarkMode}
                                           chartEcharts={staticTimeseriesEcharts}
                                           isCompactViewport={isCompactViewport}
-                                          onCollect={() => loadNetworkQuality(server.id, { collect: true })}
+                                          onCollect={() =>
+                                            loadNetworkQuality(server.id, { collect: true })
+                                          }
                                           compact
                                           className="min-w-0"
                                         />
@@ -7182,28 +8632,44 @@ function ServerPage() {
                     cpuMemSeries,
                     gpuSeries,
                     netSeries,
-                  } = getServerMetricDisplay(server.id, server.metricsCache, isExpanded && isChartSeriesReady, isDarkMode);
-                  const hasGpuData = !!getGpuModelText(server.info?.gpu) || records.some(r => (
-                    (r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0)
-                    || getGpuTemp(r) > 0
-                  ));
+                  } = getServerMetricDisplay(
+                    server.id,
+                    server.metricsCache,
+                    isExpanded && isChartSeriesReady,
+                    isDarkMode
+                  );
+                  const hasGpuData =
+                    !!getGpuModelText(server.info?.gpu) ||
+                    records.some(
+                      r =>
+                        (r.gpu_usage !== null &&
+                          r.gpu_usage !== undefined &&
+                          toNumber(r.gpu_usage, 0) > 0) ||
+                        getGpuTemp(r) > 0
+                    );
                   const tx = parseSpeed(server.info?.network?.tx_speed);
                   const rx = parseSpeed(server.info?.network?.rx_speed);
-                  const dockerSummary = summarizeDockerContainers(server.info?.docker, getDockerContainerState);
+                  const dockerSummary = summarizeDockerContainers(
+                    server.info?.docker,
+                    getDockerContainerState
+                  );
                   const dockerContainers = dockerSummary.containers;
                   const dockerExpanded = expandedDockerPanels.includes(server.id);
                   const runningContainers = dockerSummary.running;
                   const pausedContainers = dockerSummary.paused;
                   const stoppedContainers = dockerSummary.stopped;
                   const lifecycle = getServerLifecycle(server);
-                  const canDrag = !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
+                  const canDrag =
+                    !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
                   const txTotal = getByteParts(server.info?.network?.tx_total);
                   const rxTotal = getByteParts(server.info?.network?.rx_total);
                   const trafficQuota = getTrafficQuota(server);
                   const chartLoading = !!server.metricsLoading && records.length === 0;
                   const terminalProtocol = resolveTerminalProtocol(server);
-                  const effectiveTerminalProtocol = terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
-                  const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 隧道终端' : 'SSH 终端';
+                  const effectiveTerminalProtocol =
+                    terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
+                  const terminalLabel =
+                    effectiveTerminalProtocol === 'agent' ? 'Agent 隧道终端' : 'SSH 终端';
                   const primaryDisk = server.info?.disk?.[0];
                   const cpuUsage = clampPercent(toNumber(server.info?.cpu?.Usage, 0));
                   const memUsage = clampPercent(toNumber(server.info?.memory?.Usage, 0));
@@ -7215,16 +8681,22 @@ function ServerPage() {
                   const gpuMemPercent = clampPercent(toNumber(server.info?.gpu?.Percent, 0));
                   const physicalCores = server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
                   const logicalCores = server.info?.cpu?.LogicalCores;
-                  const coreText = physicalCores && logicalCores && physicalCores !== logicalCores
-                    ? `${physicalCores}核 / ${logicalCores}线程`
-                    : `${physicalCores || '-'} 核`;
+                  const coreText =
+                    physicalCores && logicalCores && physicalCores !== logicalCores
+                      ? `${physicalCores}核 / ${logicalCores}线程`
+                      : `${physicalCores || '-'} 核`;
                   const networkQuality = networkQualityByServer[server.id] || {};
-                  const networkQualitySeries = isExpanded ? buildNetworkQualitySeries(networkQuality, isDarkMode) : [];
-                  const hasNetworkQualityData = isExpanded && networkQualitySeries.some(series => series.data.length > 0);
-                  const networkQualityUnsupported = isExpanded && (
-                    !!networkQuality.unsupported
-                    || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage)
-                  );
+                  const networkQualitySeries = isExpanded
+                    ? buildNetworkQualitySeries(networkQuality, isDarkMode)
+                    : [];
+                  const hasNetworkQualityData =
+                    isExpanded && networkQualitySeries.some(series => series.data.length > 0);
+                  const networkQualityUnsupported =
+                    isExpanded &&
+                    (!!networkQuality.unsupported ||
+                      isNetworkQualityUnsupportedError(
+                        networkQuality.error || networkQuality.unsupportedMessage
+                      ));
                   const metricsHealth = resolveServerMetricsHealth(server);
                   const rowMuted = !isServerOnline(server);
 
@@ -7232,9 +8704,9 @@ function ServerPage() {
                     <ContextMenu.Root key={server.id}>
                       <ContextMenu.Trigger
                         draggable={canDrag}
-                        onDragStart={(event) => handleServerDragStart(server, event)}
+                        onDragStart={event => handleServerDragStart(server, event)}
                         onDragOver={handleServerDragOver}
-                        onDrop={(event) => handleServerDrop(server.id, event)}
+                        onDrop={event => handleServerDrop(server.id, event)}
                         onDragEnd={() => setDraggedServerId(null)}
                         className={`bg-kumo-base border rounded-lg ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
                       >
@@ -7244,8 +8716,12 @@ function ServerPage() {
                         >
                           <div className="order-1 flex min-w-0 items-center gap-3">
                             <span className="relative flex h-2 w-2 rounded-full">
-                              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${metricsHealth.dotClassName}`}></span>
-                              <span className={`relative inline-flex rounded-full h-2 w-2 ${metricsHealth.dotClassName}`}></span>
+                              <span
+                                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${metricsHealth.dotClassName}`}
+                              ></span>
+                              <span
+                                className={`relative inline-flex rounded-full h-2 w-2 ${metricsHealth.dotClassName}`}
+                              ></span>
                             </span>
 
                             <div className="flex flex-col min-w-0 gap-1">
@@ -7259,15 +8735,24 @@ function ServerPage() {
                                   className="text-xs font-semibold text-kumo-strong truncate hover:text-brand"
                                 >
                                   {country && (
-                                    <CountryFlag countryCode={country} className="mr-1.5 h-3 w-4 align-[-1px] text-xs" />
+                                    <CountryFlag
+                                      countryCode={country}
+                                      className="mr-1.5 h-3 w-4 align-[-1px] text-xs"
+                                    />
                                   )}
                                   {server.name}
                                 </span>
-                                {server.tags && server.tags.filter(t => t !== 'Agent').map(t => (
-                                  <span key={t} className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-kumo-recessed/60 text-kumo-subtle">
-                                    {t}
-                                  </span>
-                                ))}
+                                {server.tags &&
+                                  server.tags
+                                    .filter(t => t !== 'Agent')
+                                    .map(t => (
+                                      <span
+                                        key={t}
+                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-kumo-recessed/60 text-kumo-subtle"
+                                      >
+                                        {t}
+                                      </span>
+                                    ))}
                                 {metricsHealth.stale && (
                                   <Badge
                                     variant={metricsHealth.variant}
@@ -7282,7 +8767,7 @@ function ServerPage() {
                           </div>
 
                           <div className="contents cq-sm:order-2 cq-sm:ml-auto cq-sm:flex cq-sm:shrink-0 cq-sm:flex-nowrap cq-sm:items-center cq-sm:gap-2.5">
-							{isServerOnline(server) && server.info && (
+                            {isServerOnline(server) && server.info && (
                               <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-subtle cq-sm:order-none cq-sm:col-span-1 cq-sm:flex cq-sm:h-9 cq-sm:w-auto cq-sm:items-center cq-sm:gap-2.5">
                                 {hasGpuData && (
                                   <CompactMetricBar
@@ -7323,16 +8808,32 @@ function ServerPage() {
                                 <div className="hidden cq-sm:block">
                                   <CompactMetricBar
                                     label="剩余"
-                                    value={lifecycle.expiresAt ? `${Math.round(lifecycle.remainingPercent)}%` : '永久'}
+                                    value={
+                                      lifecycle.expiresAt
+                                        ? `${Math.round(lifecycle.remainingPercent)}%`
+                                        : '永久'
+                                    }
                                     valueClassName={lifecycle.toneClass}
-                                    barClassName={lifecycle.expired ? 'bg-kumo-danger' : lifecycle.remainingPercent <= 20 ? 'bg-kumo-warning' : 'bg-kumo-success'}
+                                    barClassName={
+                                      lifecycle.expired
+                                        ? 'bg-kumo-danger'
+                                        : lifecycle.remainingPercent <= 20
+                                          ? 'bg-kumo-warning'
+                                          : 'bg-kumo-success'
+                                    }
                                     width={`${lifecycle.remainingPercent}%`}
                                   />
                                 </div>
                                 {!hasGpuData && server.info.network && (
                                   <div className="flex min-w-0 flex-col justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 font-mono leading-[1.2] tabular-nums cq-sm:hidden">
-                                    <span className="truncate text-kumo-info">&uarr; {tx.num}{tx.unit}</span>
-                                    <span className="truncate text-kumo-success">&darr; {rx.num}{rx.unit}</span>
+                                    <span className="truncate text-kumo-info">
+                                      &uarr; {tx.num}
+                                      {tx.unit}
+                                    </span>
+                                    <span className="truncate text-kumo-success">
+                                      &darr; {rx.num}
+                                      {rx.unit}
+                                    </span>
                                   </div>
                                 )}
                                 {server.info.network && (
@@ -7341,28 +8842,49 @@ function ServerPage() {
                                       <span className="flex flex-1 items-center">
                                         <span className="w-2 text-center opacity-70">&uarr;</span>
                                         <span className="ml-1 w-[30px] text-right">{tx.num}</span>
-                                        <span className="ml-0.5 w-3 text-left opacity-80">{tx.unit}</span>
+                                        <span className="ml-0.5 w-3 text-left opacity-80">
+                                          {tx.unit}
+                                        </span>
                                       </span>
-                                      <span className="w-[62px] truncate text-right opacity-85" title={txTotal.text}>{txTotal.num}{txTotal.unit}</span>
+                                      <span
+                                        className="w-[62px] truncate text-right opacity-85"
+                                        title={txTotal.text}
+                                      >
+                                        {txTotal.num}
+                                        {txTotal.unit}
+                                      </span>
                                     </span>
                                     <span className="flex items-center justify-between whitespace-nowrap font-mono text-kumo-success">
                                       <span className="flex flex-1 items-center">
                                         <span className="w-2 text-center opacity-70">&darr;</span>
                                         <span className="ml-1 w-[30px] text-right">{rx.num}</span>
-                                        <span className="ml-0.5 w-3 text-left opacity-80">{rx.unit}</span>
+                                        <span className="ml-0.5 w-3 text-left opacity-80">
+                                          {rx.unit}
+                                        </span>
                                       </span>
-                                      <span className="w-[62px] truncate text-right opacity-85" title={rxTotal.text}>{rxTotal.num}{rxTotal.unit}</span>
+                                      <span
+                                        className="w-[62px] truncate text-right opacity-85"
+                                        title={rxTotal.text}
+                                      >
+                                        {rxTotal.num}
+                                        {rxTotal.unit}
+                                      </span>
                                     </span>
                                   </div>
                                 )}
                               </div>
                             )}
 
-                            <div className="order-2 flex items-center justify-end gap-1.5 cq-sm:order-none" onClick={e => e.stopPropagation()}>
+                            <div
+                              className="order-2 flex items-center justify-end gap-1.5 cq-sm:order-none"
+                              onClick={e => e.stopPropagation()}
+                            >
                               <ServerConnectionActions
                                 remoteDesktopAvailable={canOpenRemoteDesktop(server)}
                                 terminalLabel={terminalLabel}
-                                terminalDisabled={!canOpenTerminal(server) && !hasSshEndpoint(server)}
+                                terminalDisabled={
+                                  !canOpenTerminal(server) && !hasSshEndpoint(server)
+                                }
                                 onOpenRemoteDesktop={() => openRemoteDesktop(server)}
                                 onOpenTerminal={() => openSSHTerminal(server)}
                                 buttonClassName="h-9 w-9 p-0 cq-sm:h-8 cq-sm:w-8"
@@ -7372,7 +8894,9 @@ function ServerPage() {
                         </div>
 
                         <AnimatedCollapse open={isExpanded} keepMounted>
-                          <div className={`rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 ${isDenseViewport ? 'p-1.5' : 'p-1.5 cq-sm:p-2'}`}>
+                          <div
+                            className={`rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 ${isDenseViewport ? 'p-1.5' : 'p-1.5 cq-sm:p-2'}`}
+                          >
                             {server.loading && !server.info ? (
                               <div className="space-y-2 py-5">
                                 <SkeletonLine className="h-4 w-1/3 mx-auto" />
@@ -7383,7 +8907,9 @@ function ServerPage() {
                                 {server.error}
                               </div>
                             ) : (
-                              <div className={`flex flex-col ${isDenseViewport ? 'gap-1.5' : 'gap-2'}`}>
+                              <div
+                                className={`flex flex-col ${isDenseViewport ? 'gap-1.5' : 'gap-2'}`}
+                              >
                                 <ExpandedSection title="资源状态" tone="brand">
                                   <div className="grid grid-cols-2 gap-1.5 cq-lg:grid-cols-4">
                                     <ExpandedProgressMetric
@@ -7408,7 +8934,11 @@ function ServerPage() {
                                       label="磁盘"
                                       value={diskUsage}
                                       detail={primaryDisk ? `${Math.round(diskUsage)}%` : '-'}
-                                      caption={primaryDisk ? `${primaryDisk.used || '-'} / ${primaryDisk.total || '-'}` : '未上报'}
+                                      caption={
+                                        primaryDisk
+                                          ? `${primaryDisk.used || '-'} / ${primaryDisk.total || '-'}`
+                                          : '未上报'
+                                      }
                                       indicatorClassName="!bg-none !bg-kumo-warning"
                                       valueClassName="text-kumo-warning"
                                       muted={rowMuted}
@@ -7417,7 +8947,11 @@ function ServerPage() {
                                       label="剩余"
                                       value={lifecycle.remainingPercent}
                                       detail={lifecycle.label}
-                                      caption={lifecycle.expiresAt ? `${formatDateTime(lifecycle.startsAt)} - ${formatDateTime(lifecycle.expiresAt)}` : '长期有效'}
+                                      caption={
+                                        lifecycle.expiresAt
+                                          ? `${formatDateTime(lifecycle.startsAt)} - ${formatDateTime(lifecycle.expiresAt)}`
+                                          : '长期有效'
+                                      }
                                       indicatorClassName={lifecycle.indicatorClassName}
                                       valueClassName={lifecycle.toneClass}
                                       muted={rowMuted}
@@ -7427,35 +8961,120 @@ function ServerPage() {
 
                                 <div className="flex min-w-0 flex-col gap-2">
                                   <div className={getExpandedInfoGridClassName(isDenseViewport)}>
-                                    <ExpandedSection title="系统概览" tone="success" className={getExpandedCardSpanClassName(0, 1)}>
+                                    <ExpandedSection
+                                      title="系统概览"
+                                      tone="success"
+                                      className={getExpandedCardSpanClassName(0, 1)}
+                                    >
                                       <div className="grid grid-cols-1 gap-1.5 cq-sm:grid-cols-3 cq-xl:grid-cols-4">
-                                        <ExpandedInfoChip label="系统" value={server.info?.platform || server.info?.platformVersion || server.info?.system?.Kernel || '-'} />
+                                        <ExpandedInfoChip
+                                          label="系统"
+                                          value={
+                                            server.info?.platform ||
+                                            server.info?.platformVersion ||
+                                            server.info?.system?.Kernel ||
+                                            '-'
+                                          }
+                                        />
                                         {/* <ExpandedInfoChip label="版本" value={server.info?.platformVersion || server.info?.system?.Kernel || '-'} /> */}
-                                        <ExpandedInfoChip label="CPU 型号" value={server.info?.cpu?.Model || server.metadata?.cpu_model || server.metadata?.cpu_name || server.metadata?.processor || '-'} />
+                                        <ExpandedInfoChip
+                                          label="CPU 型号"
+                                          value={
+                                            server.info?.cpu?.Model ||
+                                            server.metadata?.cpu_model ||
+                                            server.metadata?.cpu_name ||
+                                            server.metadata?.processor ||
+                                            '-'
+                                          }
+                                        />
                                         <ExpandedInfoChip label="核心" value={coreText} />
-                                        <ExpandedInfoChip label="GPU 型号" value={getGpuModelText(server.info?.gpu) || server.metadata?.gpu_model || server.metadata?.gpu_name || getGpuModelText(server.metadata?.gpu) || '-'} />
-                                        <ExpandedInfoChip label="负载" value={server.info?.cpu?.Load || '-'} valueClassName="font-mono text-kumo-strong" />
-                                        <ExpandedInfoChip label="在线" value={formatUptimeDaysOnly(server.info?.uptime || server.info?.system?.Uptime)} />
+                                        <ExpandedInfoChip
+                                          label="GPU 型号"
+                                          value={
+                                            getGpuModelText(server.info?.gpu) ||
+                                            server.metadata?.gpu_model ||
+                                            server.metadata?.gpu_name ||
+                                            getGpuModelText(server.metadata?.gpu) ||
+                                            '-'
+                                          }
+                                        />
+                                        <ExpandedInfoChip
+                                          label="负载"
+                                          value={server.info?.cpu?.Load || '-'}
+                                          valueClassName="font-mono text-kumo-strong"
+                                        />
+                                        <ExpandedInfoChip
+                                          label="在线"
+                                          value={formatUptimeDaysOnly(
+                                            server.info?.uptime || server.info?.system?.Uptime
+                                          )}
+                                        />
                                         {/* <ExpandedInfoChip label="延迟" value={formatResponseTime(server.response_time)} valueClassName="text-kumo-success" /> */}
-                                        <ExpandedInfoChip label="Agent 版本" value={server.info?.agentVersion || '-'} />
+                                        <ExpandedInfoChip
+                                          label="Agent 版本"
+                                          value={server.info?.agentVersion || '-'}
+                                        />
                                         {/* <ExpandedInfoChip label="模式" value={getServerMonitorModeLabel(server)} /> */}
-                                        <ExpandedInfoChip label="地址" value={getHostAddress(server, serverIpDisplayMode)} valueClassName="font-mono text-kumo-strong" />
+                                        <ExpandedInfoChip
+                                          label="地址"
+                                          value={getHostAddress(server, serverIpDisplayMode)}
+                                          valueClassName="font-mono text-kumo-strong"
+                                        />
                                       </div>
                                     </ExpandedSection>
 
-
-                                    <ExpandedSection title="网络" tone="info" className={getExpandedCardSpanClassName(1, 3)}>
+                                    <ExpandedSection
+                                      title="网络"
+                                      tone="info"
+                                      className={getExpandedCardSpanClassName(1, 3)}
+                                    >
                                       <div className="grid grid-cols-2 gap-1.5">
-                                        <ExpandedStatTile label="上传" value={server.info?.network?.tx_speed || '0 B/s'} tone="info" inline />
-                                        <ExpandedStatTile label="下载" value={server.info?.network?.rx_speed || '0 B/s'} tone="success" inline />
-                                        <ExpandedInfoChip label="累计上行" value={txTotal.text} valueClassName="text-kumo-info" />
-                                        <ExpandedInfoChip label="累计下行" value={rxTotal.text} valueClassName="text-kumo-success" />
-                                        <ExpandedInfoChip label="连接" value={server.info?.network?.connections || 0} />
+                                        <ExpandedStatTile
+                                          label="上传"
+                                          value={server.info?.network?.tx_speed || '0 B/s'}
+                                          tone="info"
+                                          inline
+                                        />
+                                        <ExpandedStatTile
+                                          label="下载"
+                                          value={server.info?.network?.rx_speed || '0 B/s'}
+                                          tone="success"
+                                          inline
+                                        />
+                                        <ExpandedInfoChip
+                                          label="累计上行"
+                                          value={txTotal.text}
+                                          valueClassName="text-kumo-info"
+                                        />
+                                        <ExpandedInfoChip
+                                          label="累计下行"
+                                          value={rxTotal.text}
+                                          valueClassName="text-kumo-success"
+                                        />
+                                        <ExpandedInfoChip
+                                          label="连接"
+                                          value={server.info?.network?.connections || 0}
+                                        />
                                         {trafficQuota && (
                                           <ExpandedInfoChip
                                             label="剩余流量"
-                                            value={trafficQuota.unlimited ? '无限' : trafficQuota.overLimit ? '已超限' : trafficQuota.remainingText || `${trafficQuota.percent.toFixed(trafficQuota.percent >= 10 ? 0 : 1)}%`}
-                                            valueClassName={trafficQuota.unlimited ? 'text-kumo-info' : trafficQuota.overLimit ? 'text-kumo-danger' : trafficQuota.nearAlert ? 'text-kumo-warning' : 'text-kumo-info'}
+                                            value={
+                                              trafficQuota.unlimited
+                                                ? '无限'
+                                                : trafficQuota.overLimit
+                                                  ? '已超限'
+                                                  : trafficQuota.remainingText ||
+                                                    `${trafficQuota.percent.toFixed(trafficQuota.percent >= 10 ? 0 : 1)}%`
+                                            }
+                                            valueClassName={
+                                              trafficQuota.unlimited
+                                                ? 'text-kumo-info'
+                                                : trafficQuota.overLimit
+                                                  ? 'text-kumo-danger'
+                                                  : trafficQuota.nearAlert
+                                                    ? 'text-kumo-warning'
+                                                    : 'text-kumo-info'
+                                            }
                                           />
                                         )}
                                       </div>
@@ -7465,15 +9084,41 @@ function ServerPage() {
                                       title="网络趋势"
                                       tone="info"
                                       className={getExpandedCardSpanClassName(1, 3)}
-                                      legend={(
+                                      legend={
                                         <>
-                                          <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} loading={chartLoading} />
-                                          <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} loading={chartLoading} />
+                                          <ChartLegend.SmallItem
+                                            name="上行"
+                                            color={txColor}
+                                            value={getLatestMetricValue(
+                                              records,
+                                              r => toNumber(r.net_tx, 0),
+                                              formatBytesSpeed
+                                            )}
+                                            loading={chartLoading}
+                                          />
+                                          <ChartLegend.SmallItem
+                                            name="下行"
+                                            color={rxColor}
+                                            value={getLatestMetricValue(
+                                              records,
+                                              r => toNumber(r.net_rx, 0),
+                                              formatBytesSpeed
+                                            )}
+                                            loading={chartLoading}
+                                          />
                                         </>
-                                      )}
+                                      }
                                     >
-                                      {(tooltipBoundary) => (
-                                        <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                      {tooltipBoundary => (
+                                        <DeferredRender
+                                          open={isExpanded}
+                                          delay={SERVER_CHART_RENDER_DEFER_MS}
+                                          fallback={
+                                            <ChartWarmupSkeleton
+                                              height={expandedTrendChartHeight}
+                                            />
+                                          }
+                                        >
                                           <SiteFontTimeseriesChart
                                             echarts={fastTimeseriesEcharts}
                                             data={netSeries}
@@ -7495,21 +9140,56 @@ function ServerPage() {
                                     </ExpandedTrendChartCard>
                                   </div>
 
-                                  <div className={getExpandedTrendGridClassName(false, isDenseViewport)}>
+                                  <div
+                                    className={getExpandedTrendGridClassName(
+                                      false,
+                                      isDenseViewport
+                                    )}
+                                  >
                                     <ExpandedTrendChartCard
                                       title="CPU / 内存趋势"
                                       tone="success"
-                                      className={getExpandedCardSpanClassName(0, hasGpuData ? 2 : 1)}
-                                      legend={(
-                                        <>
-                                          <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} loading={chartLoading} />
-                                          <ChartLegend.SmallItem name="内存" color={memColor} value={`${Math.round(memUsage)}%`} loading={chartLoading} />
-                                          <ChartLegend.SmallItem name="温度" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} loading={chartLoading} />
-                                        </>
+                                      className={getExpandedCardSpanClassName(
+                                        0,
+                                        hasGpuData ? 2 : 1
                                       )}
+                                      legend={
+                                        <>
+                                          <ChartLegend.SmallItem
+                                            name="CPU"
+                                            color={cpuColor}
+                                            value={`${Math.round(cpuUsage)}%`}
+                                            loading={chartLoading}
+                                          />
+                                          <ChartLegend.SmallItem
+                                            name="内存"
+                                            color={memColor}
+                                            value={`${Math.round(memUsage)}%`}
+                                            loading={chartLoading}
+                                          />
+                                          <ChartLegend.SmallItem
+                                            name="温度"
+                                            color={cpuTempColor}
+                                            value={getLatestMetricValue(
+                                              records,
+                                              getCpuTemp,
+                                              v => `${v.toFixed(1)}°C`
+                                            )}
+                                            loading={chartLoading}
+                                          />
+                                        </>
+                                      }
                                     >
-                                      {(tooltipBoundary) => (
-                                        <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                      {tooltipBoundary => (
+                                        <DeferredRender
+                                          open={isExpanded}
+                                          delay={SERVER_CHART_RENDER_DEFER_MS}
+                                          fallback={
+                                            <ChartWarmupSkeleton
+                                              height={expandedTrendChartHeight}
+                                            />
+                                          }
+                                        >
                                           <SiteFontTimeseriesChart
                                             echarts={fastTimeseriesEcharts}
                                             data={cpuMemSeries}
@@ -7535,17 +9215,25 @@ function ServerPage() {
                                         title="GPU 趋势"
                                         tone="warning"
                                         className={getExpandedCardSpanClassName(1, 2)}
-                                        legend={(
+                                        legend={
                                           <>
                                             <TrendSeriesLabel name="GPU" color={gpuColor} />
                                             <TrendSeriesLabel name="显存" color={vramColor} />
                                             <TrendSeriesLabel name="功耗" color={powerColor} />
                                             <TrendSeriesLabel name="温度" color={gpuTempColor} />
                                           </>
-                                        )}
+                                        }
                                       >
-                                        {(tooltipBoundary) => (
-                                          <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                        {tooltipBoundary => (
+                                          <DeferredRender
+                                            open={isExpanded}
+                                            delay={SERVER_CHART_RENDER_DEFER_MS}
+                                            fallback={
+                                              <ChartWarmupSkeleton
+                                                height={expandedTrendChartHeight}
+                                              />
+                                            }
+                                          >
                                             <SiteFontTimeseriesChart
                                               echarts={fastTimeseriesEcharts}
                                               data={gpuSeries}
@@ -7559,7 +9247,9 @@ function ServerPage() {
                                               xAxisTickFormat={expandedChartXAxisTickFormat}
                                               yAxisTickFormat={expandedNumberAxisTickFormat}
                                               tooltipValueFormat={formatMetricTooltipValue}
-                                              optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                              optionUpdateBehavior={
+                                                SERVER_FAST_CHART_UPDATE_BEHAVIOR
+                                              }
                                               ariaDescription={`${server.name} GPU 使用率、显存与功耗趋势`}
                                             />
                                           </DeferredRender>
@@ -7586,19 +9276,36 @@ function ServerPage() {
                                   <AppCard padding="none" className="overflow-hidden">
                                     <Button
                                       type="button"
-                                      variant="ghost" size="sm"
+                                      variant="ghost"
+                                      size="sm"
                                       className="h-8 w-full justify-between px-3 text-left"
-                                      onClick={(event) => {
+                                      onClick={event => {
                                         event.stopPropagation();
                                         toggleDockerPanel(server.id);
                                       }}
                                     >
-                                      <span className="text-xs font-semibold text-kumo-strong">Docker 容器</span>
+                                      <span className="text-xs font-semibold text-kumo-strong">
+                                        Docker 容器
+                                      </span>
                                       <span className="flex min-w-0 items-center gap-1.5">
-                                        <Badge variant="success" appearance="dot">{runningContainers} 运行</Badge>
-                                        {pausedContainers > 0 && <Badge variant="warning" appearance="dot">{pausedContainers} 暂停</Badge>}
-                                        {stoppedContainers > 0 && <Badge variant="error" appearance="dot">{stoppedContainers} 停止</Badge>}
-                                        {dockerExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                        <Badge variant="success" appearance="dot">
+                                          {runningContainers} 运行
+                                        </Badge>
+                                        {pausedContainers > 0 && (
+                                          <Badge variant="warning" appearance="dot">
+                                            {pausedContainers} 暂停
+                                          </Badge>
+                                        )}
+                                        {stoppedContainers > 0 && (
+                                          <Badge variant="error" appearance="dot">
+                                            {stoppedContainers} 停止
+                                          </Badge>
+                                        )}
+                                        {dockerExpanded ? (
+                                          <ChevronUp className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <ChevronDown className="w-3.5 h-3.5" />
+                                        )}
                                       </span>
                                     </Button>
 
@@ -7611,31 +9318,97 @@ function ServerPage() {
                                             const containerId = getDockerContainerId(c);
                                             const containerName = getDockerContainerName(c);
                                             const containerImage = getDockerContainerImage(c);
-                                            const updateCheck = getDockerContainerUpdateCheck(server.id, c);
+                                            const updateCheck = getDockerContainerUpdateCheck(
+                                              server.id,
+                                              c
+                                            );
                                             const updateBadge = getDockerUpdateBadge(updateCheck);
-                                            const updateChecking = isDockerContainerUpdateChecking(server.id, c);
-                                            const toggleAction = state === 'running' ? 'container.pause' : state === 'paused' ? 'container.unpause' : 'container.start';
-                                            const togglePayload = { serverId: server.id, containerId, containerName, image: containerImage };
-                                            const togglePending = isDockerActionPending(server.id, toggleAction, togglePayload);
-                                            const restartPayload = { serverId: server.id, containerId, containerName, image: containerImage };
-                                            const restartPending = isDockerActionPending(server.id, 'container.restart', restartPayload);
-                                            const updatePayload = { serverId: server.id, containerId, containerName, image: containerImage };
-                                            const updatePending = isDockerActionPending(server.id, 'container.update', updatePayload);
-                                            const updateProgress = getDockerActionProgress(server.id, 'container.update', updatePayload);
+                                            const updateChecking = isDockerContainerUpdateChecking(
+                                              server.id,
+                                              c
+                                            );
+                                            const toggleAction =
+                                              state === 'running'
+                                                ? 'container.pause'
+                                                : state === 'paused'
+                                                  ? 'container.unpause'
+                                                  : 'container.start';
+                                            const togglePayload = {
+                                              serverId: server.id,
+                                              containerId,
+                                              containerName,
+                                              image: containerImage,
+                                            };
+                                            const togglePending = isDockerActionPending(
+                                              server.id,
+                                              toggleAction,
+                                              togglePayload
+                                            );
+                                            const restartPayload = {
+                                              serverId: server.id,
+                                              containerId,
+                                              containerName,
+                                              image: containerImage,
+                                            };
+                                            const restartPending = isDockerActionPending(
+                                              server.id,
+                                              'container.restart',
+                                              restartPayload
+                                            );
+                                            const updatePayload = {
+                                              serverId: server.id,
+                                              containerId,
+                                              containerName,
+                                              image: containerImage,
+                                            };
+                                            const updatePending = isDockerActionPending(
+                                              server.id,
+                                              'container.update',
+                                              updatePayload
+                                            );
+                                            const updateProgress = getDockerActionProgress(
+                                              server.id,
+                                              'container.update',
+                                              updatePayload
+                                            );
                                             const updateConfirmKey = `container.update::${getDockerContainerSelectionKey(server.id, updatePayload)}`;
                                             return (
-                                              <div key={containerId || `${server.id}-${containerName}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-xs hover:bg-kumo-recessed/20">
+                                              <div
+                                                key={containerId || `${server.id}-${containerName}`}
+                                                className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-xs hover:bg-kumo-recessed/20"
+                                              >
                                                 <div className="flex min-w-0 items-center gap-2">
-                                                  <Badge variant={stateBadge.variant} appearance="dot" className="shrink-0">{stateBadge.label}</Badge>
+                                                  <Badge
+                                                    variant={stateBadge.variant}
+                                                    appearance="dot"
+                                                    className="shrink-0"
+                                                  >
+                                                    {stateBadge.label}
+                                                  </Badge>
                                                   <div className="min-w-0">
-                                                    <div className="truncate font-semibold text-kumo-strong" title={containerName}>{containerName}</div>
-                                                    <div className="truncate font-mono text-[10px] text-kumo-subtle" title={containerImage}>{containerImage}</div>
-                                                    {(updateCheck || updateChecking || updatePending) && (
+                                                    <div
+                                                      className="truncate font-semibold text-kumo-strong"
+                                                      title={containerName}
+                                                    >
+                                                      {containerName}
+                                                    </div>
+                                                    <div
+                                                      className="truncate font-mono text-[10px] text-kumo-subtle"
+                                                      title={containerImage}
+                                                    >
+                                                      {containerImage}
+                                                    </div>
+                                                    {(updateCheck ||
+                                                      updateChecking ||
+                                                      updatePending) && (
                                                       <div className="mt-1">
                                                         {updatePending ? (
                                                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand">
                                                             <RefreshCw className="h-3 w-3 animate-spin" />
-                                                            更新中{updateProgress > 0 ? ` ${updateProgress}%` : ''}
+                                                            更新中
+                                                            {updateProgress > 0
+                                                              ? ` ${updateProgress}%`
+                                                              : ''}
                                                           </span>
                                                         ) : updateChecking ? (
                                                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-kumo-subtle">
@@ -7643,7 +9416,11 @@ function ServerPage() {
                                                             检测中
                                                           </span>
                                                         ) : (
-                                                          <Badge variant={updateBadge.variant} appearance="dot" title={updateBadge.title}>
+                                                          <Badge
+                                                            variant={updateBadge.variant}
+                                                            appearance="dot"
+                                                            title={updateBadge.title}
+                                                          >
                                                             {updateBadge.label}
                                                           </Badge>
                                                         )}
@@ -7653,49 +9430,118 @@ function ServerPage() {
                                                 </div>
                                                 <div className="flex shrink-0 items-center gap-1">
                                                   <Button
-                                                    shape="square" size="sm"
+                                                    shape="square"
+                                                    size="sm"
                                                     variant="secondary"
-                                                    aria-label={state === 'running' ? '暂停容器' : state === 'paused' ? '恢复容器' : '启动容器'}
-                                                    title={state === 'running' ? '暂停' : state === 'paused' ? '恢复' : '启动'}
-                                                    icon={togglePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                                                    disabled={togglePending || restartPending || updatePending}
-                                                    onClick={(event) => {
+                                                    aria-label={
+                                                      state === 'running'
+                                                        ? '暂停容器'
+                                                        : state === 'paused'
+                                                          ? '恢复容器'
+                                                          : '启动容器'
+                                                    }
+                                                    title={
+                                                      state === 'running'
+                                                        ? '暂停'
+                                                        : state === 'paused'
+                                                          ? '恢复'
+                                                          : '启动'
+                                                    }
+                                                    icon={
+                                                      togglePending ? (
+                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                      ) : state === 'running' ? (
+                                                        <Pause className="h-3.5 w-3.5" />
+                                                      ) : (
+                                                        <Play className="h-3.5 w-3.5" />
+                                                      )
+                                                    }
+                                                    disabled={
+                                                      togglePending ||
+                                                      restartPending ||
+                                                      updatePending
+                                                    }
+                                                    onClick={event => {
                                                       event.stopPropagation();
                                                       submitDockerTask(toggleAction, togglePayload);
                                                     }}
                                                   />
                                                   <Button
-                                                    shape="square" size="sm"
+                                                    shape="square"
+                                                    size="sm"
                                                     variant="secondary"
                                                     aria-label="重启容器"
                                                     title="重启"
-                                                    icon={restartPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-                                                    disabled={togglePending || restartPending || updatePending}
-                                                    onClick={(event) => {
+                                                    icon={
+                                                      restartPending ? (
+                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                      ) : (
+                                                        <RotateCw className="h-3.5 w-3.5" />
+                                                      )
+                                                    }
+                                                    disabled={
+                                                      togglePending ||
+                                                      restartPending ||
+                                                      updatePending
+                                                    }
+                                                    onClick={event => {
                                                       event.stopPropagation();
-                                                      submitDockerTask('container.restart', restartPayload);
+                                                      submitDockerTask(
+                                                        'container.restart',
+                                                        restartPayload
+                                                      );
                                                     }}
                                                   />
                                                   <Button
-                                                    shape="square" size="sm"
+                                                    shape="square"
+                                                    size="sm"
                                                     variant="secondary"
                                                     aria-label="检测镜像更新"
                                                     title="检测更新"
-                                                    icon={updateChecking ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                                                    icon={
+                                                      updateChecking ? (
+                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                      ) : (
+                                                        <Search className="h-3.5 w-3.5" />
+                                                      )
+                                                    }
                                                     disabled={updateChecking}
-                                                    onClick={(event) => {
+                                                    onClick={event => {
                                                       event.stopPropagation();
                                                       checkDockerUpdatesForServer(server, c);
                                                     }}
                                                   />
                                                   <Button
-                                                    shape="square" size="sm"
-                                                    variant={isDockerUpdateConfirmActive(updateConfirmKey) ? 'secondary-destructive' : 'primary'}
-                                                    aria-label={isDockerUpdateConfirmActive(updateConfirmKey) ? '再次确认更新容器' : '一键更新容器'}
-                                                    title={isDockerUpdateConfirmActive(updateConfirmKey) ? '再次点击确认更新' : '一键更新'}
-                                                    icon={updatePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                                                    disabled={togglePending || restartPending || updatePending}
-                                                    onClick={(event) => {
+                                                    shape="square"
+                                                    size="sm"
+                                                    variant={
+                                                      isDockerUpdateConfirmActive(updateConfirmKey)
+                                                        ? 'secondary-destructive'
+                                                        : 'primary'
+                                                    }
+                                                    aria-label={
+                                                      isDockerUpdateConfirmActive(updateConfirmKey)
+                                                        ? '再次确认更新容器'
+                                                        : '一键更新容器'
+                                                    }
+                                                    title={
+                                                      isDockerUpdateConfirmActive(updateConfirmKey)
+                                                        ? '再次点击确认更新'
+                                                        : '一键更新'
+                                                    }
+                                                    icon={
+                                                      updatePending ? (
+                                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                      ) : (
+                                                        <Upload className="h-3.5 w-3.5" />
+                                                      )
+                                                    }
+                                                    disabled={
+                                                      togglePending ||
+                                                      restartPending ||
+                                                      updatePending
+                                                    }
+                                                    onClick={event => {
                                                       event.stopPropagation();
                                                       handleDockerContainerUpdate(updatePayload);
                                                     }}
@@ -7706,7 +9552,9 @@ function ServerPage() {
                                           })}
                                         </div>
                                       ) : (
-                                        <div className="px-3 py-4 text-center text-xs text-kumo-subtle">暂无容器</div>
+                                        <div className="px-3 py-4 text-center text-xs text-kumo-subtle">
+                                          暂无容器
+                                        </div>
                                       )}
                                     </AnimatedCollapse>
                                   </AppCard>
@@ -7720,7 +9568,8 @@ function ServerPage() {
                       {renderServerContextMenu(server)}
                     </ContextMenu.Root>
                   );
-                }))}
+                })
+              )}
             </div>
           )}
         </div>
@@ -7736,12 +9585,51 @@ function ServerPage() {
                 value={dockerSubTab}
                 onValueChange={setDockerSubTab}
                 tabs={[
-                  { value: 'containers', label: <span className="inline-flex items-center gap-1.5"><Box className="w-3.5 h-3.5" />容器</span> },
-                  { value: 'compose', label: <span className="inline-flex items-center gap-1.5"><FolderOpen className="w-3.5 h-3.5" />Compose</span> },
-                  { value: 'images', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="w-3.5 h-3.5" />镜像</span> },
-                  { value: 'networks', label: <span className="inline-flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" />网络</span> },
-                  { value: 'volumes', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="w-3.5 h-3.5" />存储卷</span> },
-
+                  {
+                    value: 'containers',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Box className="w-3.5 h-3.5" />
+                        容器
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'compose',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        Compose
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'images',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <HardDrive className="w-3.5 h-3.5" />
+                        镜像
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'networks',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5" />
+                        网络
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'volumes',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <HardDrive className="w-3.5 h-3.5" />
+                        存储卷
+                      </span>
+                    ),
+                  },
                 ]}
               />
             </div>
@@ -7757,11 +9645,12 @@ function ServerPage() {
                     placeholder="搜索容器 / 镜像 / 端口"
                     className="h-6.5 w-full min-w-[12rem] cq-sm:w-52"
                   />
-                  <Select alignItemWithTrigger
+                  <Select
+                    alignItemWithTrigger
                     aria-label="筛选容器状态"
                     size="sm"
                     value={dockerContainerStateFilter}
-                    onValueChange={(value) => setDockerContainerStateFilter(String(value))}
+                    onValueChange={value => setDockerContainerStateFilter(String(value))}
                     className="h-6.5 w-28"
                     items={[
                       { value: 'all', label: '全部状态' },
@@ -7777,7 +9666,11 @@ function ServerPage() {
                 shape="square"
                 size="sm"
                 variant="secondary"
-                icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerResourceLoading ? 'animate-spin' : ''}`} />}
+                icon={
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${dockerResourceLoading ? 'animate-spin' : ''}`}
+                  />
+                }
                 disabled={dockerResourceLoading}
                 aria-label="刷新 Docker 数据"
                 title="刷新 Docker 数据"
@@ -7787,7 +9680,11 @@ function ServerPage() {
                 <Button
                   size="sm"
                   variant="secondary"
-                  icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerBulkUpdateChecking ? 'animate-spin' : ''}`} />}
+                  icon={
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${dockerBulkUpdateChecking ? 'animate-spin' : ''}`}
+                    />
+                  }
                   disabled={dockerBulkUpdateChecking || visibleDockerContainerServers.length === 0}
                   onClick={checkVisibleDockerUpdates}
                 >
@@ -7797,14 +9694,24 @@ function ServerPage() {
               {dockerSubTab === 'containers' && (
                 <Button
                   size="sm"
-                  variant={isDockerUpdateConfirmActive(dockerActiveBatchUpdateConfirmKey) ? 'secondary-destructive' : 'primary'}
+                  variant={
+                    isDockerUpdateConfirmActive(dockerActiveBatchUpdateConfirmKey)
+                      ? 'secondary-destructive'
+                      : 'primary'
+                  }
                   icon={<Upload className="h-3.5 w-3.5" />}
                   disabled={dockerActiveBatchUpdateTargets.length === 0}
-                  onClick={() => batchUpdateVisibleDockerContainers('', false, dockerActiveBatchUpdateTargets, {
-                    scopeName: dockerActiveBatchUpdateScopeName,
-                    confirmKey: dockerActiveBatchUpdateConfirmKey,
-                  })}
-                  title={dockerActiveBatchUpdateTargets.length > 0 ? `${dockerActiveBatchUpdateScopeName}下可更新的容器` : '请先检测出可更新容器'}
+                  onClick={() =>
+                    batchUpdateVisibleDockerContainers('', false, dockerActiveBatchUpdateTargets, {
+                      scopeName: dockerActiveBatchUpdateScopeName,
+                      confirmKey: dockerActiveBatchUpdateConfirmKey,
+                    })
+                  }
+                  title={
+                    dockerActiveBatchUpdateTargets.length > 0
+                      ? `${dockerActiveBatchUpdateScopeName}下可更新的容器`
+                      : '请先检测出可更新容器'
+                  }
                 >
                   {isDockerUpdateConfirmActive(dockerActiveBatchUpdateConfirmKey)
                     ? '再次确认'
@@ -7817,28 +9724,57 @@ function ServerPage() {
           </div>
 
           {/* Docker 任务中心 */}
-          {dockerSubTab !== 'containers' && dockerSubTab === 'task-center' && dockerTasks.length > 0 && (
-            <AppCard padding="none" className="bg-kumo-recessed p-2.5 text-xs text-kumo-default">
+          {dockerSubTab !== 'containers' &&
+            dockerSubTab === 'task-center' &&
+            dockerTasks.length > 0 && (
+              <AppCard padding="none" className="bg-kumo-recessed p-2.5 text-xs text-kumo-default">
                 {(() => {
                   const latestTask = dockerTasks[0];
                   const progress = clampPercent(toNumber(latestTask.progress, 0));
-                  const showProgress = !['success', 'failed', 'timeout', 'cancelled'].includes(latestTask.state) && progress > 0;
-                  const stateVariant = latestTask.state === 'success' ? 'success' : latestTask.state === 'failed' ? 'error' : 'warning';
+                  const showProgress =
+                    !['success', 'failed', 'timeout', 'cancelled'].includes(latestTask.state) &&
+                    progress > 0;
+                  const stateVariant =
+                    latestTask.state === 'success'
+                      ? 'success'
+                      : latestTask.state === 'failed'
+                        ? 'error'
+                        : 'warning';
                   return (
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2">
                           <Activity className="h-3.5 w-3.5 shrink-0 text-brand" />
                           <span className="shrink-0 font-semibold text-brand">Docker 任务</span>
-                          <Badge variant={stateVariant} appearance="dot">{getDockerTaskStateLabel(latestTask.state)}</Badge>
-                          <span className="min-w-0 truncate text-kumo-subtle">{getDockerTaskActionLabel(latestTask.action)}</span>
-                          <span className="min-w-0 truncate text-kumo-subtle">{summarizeDockerTaskMessage(latestTask)}</span>
+                          <Badge variant={stateVariant} appearance="dot">
+                            {getDockerTaskStateLabel(latestTask.state)}
+                          </Badge>
+                          <span className="min-w-0 truncate text-kumo-subtle">
+                            {getDockerTaskActionLabel(latestTask.action)}
+                          </span>
+                          <span className="min-w-0 truncate text-kumo-subtle">
+                            {summarizeDockerTaskMessage(latestTask)}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant={dockerTaskStreamConnected ? 'success' : 'warning'} appearance="dot">
+                          <Badge
+                            variant={dockerTaskStreamConnected ? 'success' : 'warning'}
+                            appearance="dot"
+                          >
                             {dockerTaskStreamConnected ? '实时连接' : '重连中'}
                           </Badge>
-                          <Button size="sm" variant="secondary" icon={showDockerTaskDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />} onClick={() => setShowDockerTaskDetails(v => !v)}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            icon={
+                              showDockerTaskDetails ? (
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              )
+                            }
+                            onClick={() => setShowDockerTaskDetails(v => !v)}
+                          >
                             {showDockerTaskDetails ? '收起' : `详情 ${dockerTasks.length}`}
                           </Button>
                         </div>
@@ -7857,27 +9793,48 @@ function ServerPage() {
                   );
                 })()}
                 <AnimatedCollapse open={showDockerTaskDetails} keepMounted>
-                <div className="mt-2 max-h-36 overflow-y-auto border-t border-kumo-line pt-2">
-                  <div className="flex flex-col gap-1.5">
-                    {dockerTasks.slice(0, 12).map(t => {
-                      const progress = clampPercent(toNumber(t.progress, 0));
-                      const showProgress = !['success', 'failed', 'timeout', 'cancelled'].includes(t.state) && progress > 0;
-                      const stateVariant = t.state === 'success' ? 'success' : t.state === 'failed' ? 'error' : 'warning';
-                      return (
-                        <div key={t.taskId} className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)_minmax(0,1.25fr)] items-center gap-2 text-[11px]">
-                          <Badge variant={stateVariant} appearance="dot">{getDockerTaskStateLabel(t.state)}</Badge>
-                          <span className="truncate font-semibold text-kumo-strong" title={getDockerTaskActionLabel(t.action)}>{getDockerTaskActionLabel(t.action)}</span>
-                          <span className="truncate text-kumo-subtle" title={String(t.message || '')}>
-                            {showProgress ? `${progress}% · ` : ''}{summarizeDockerTaskMessage(t)}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  <div className="mt-2 max-h-36 overflow-y-auto border-t border-kumo-line pt-2">
+                    <div className="flex flex-col gap-1.5">
+                      {dockerTasks.slice(0, 12).map(t => {
+                        const progress = clampPercent(toNumber(t.progress, 0));
+                        const showProgress =
+                          !['success', 'failed', 'timeout', 'cancelled'].includes(t.state) &&
+                          progress > 0;
+                        const stateVariant =
+                          t.state === 'success'
+                            ? 'success'
+                            : t.state === 'failed'
+                              ? 'error'
+                              : 'warning';
+                        return (
+                          <div
+                            key={t.taskId}
+                            className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)_minmax(0,1.25fr)] items-center gap-2 text-[11px]"
+                          >
+                            <Badge variant={stateVariant} appearance="dot">
+                              {getDockerTaskStateLabel(t.state)}
+                            </Badge>
+                            <span
+                              className="truncate font-semibold text-kumo-strong"
+                              title={getDockerTaskActionLabel(t.action)}
+                            >
+                              {getDockerTaskActionLabel(t.action)}
+                            </span>
+                            <span
+                              className="truncate text-kumo-subtle"
+                              title={String(t.message || '')}
+                            >
+                              {showProgress ? `${progress}% · ` : ''}
+                              {summarizeDockerTaskMessage(t)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
                 </AnimatedCollapse>
-            </AppCard>
-          )}
+              </AppCard>
+            )}
 
           {/* 内容区域 */}
           {showDockerBlockingLoading ? (
@@ -7897,188 +9854,409 @@ function ServerPage() {
               {dockerSubTab === 'containers' && (
                 <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
                   <div className="flex min-w-0 flex-col gap-3 cq-xl:order-2">
-                    {dockerOverviewServers.length === 0 ? (
-                      renderDockerEmptyState('未检测到可用的 Docker 主机')
-                    ) : visibleDockerContainerServers.length === 0 ? (
-                      renderDockerEmptyState('当前筛选下没有容器')
-                    ) : (
-                      visibleDockerContainerServers.map(server => {
-                        const summary = getDockerContainerSummary(server.resources?.containers, server.id);
-                        const isOpen = isDockerHostExpanded(server.id, visibleDockerContainerServers[0]?.id);
-                        const hostUpdateTargets = getUpdatableDockerContainers([server], server.id);
-                        const hostUpdateConfirmKey = `host.update::${server.id}::${hostUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
-                        return (
-                        <div key={server.id} className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base">
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => toggleDockerOverviewServer(server.id, visibleDockerContainerServers[0]?.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  toggleDockerOverviewServer(server.id, visibleDockerContainerServers[0]?.id);
-                                }
-                              }}
-                              className="flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 border-b border-kumo-line/70 px-3 py-3.5"
-                            >
-                              <div className="flex min-w-0 items-center gap-2">
-                                <Box className="h-4 w-4 shrink-0 text-brand" />
-                                <span className="truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
-                                {renderDockerFilterChip(server.id, 'all', `${summary.total} 容器`, 'neutral', `${server.name} 全部容器`)}
-                                {renderDockerFilterChip(server.id, 'running', `${summary.running} 运行`, 'success', `${server.name} 运行容器`)}
-                                {summary.paused > 0 && renderDockerFilterChip(server.id, 'paused', `${summary.paused} 暂停`, 'warning', `${server.name} 暂停容器`)}
-                                {summary.stopped > 0 && renderDockerFilterChip(server.id, 'stopped', `${summary.stopped} 停止`, 'error', `${server.name} 停止容器`)}
-                                {summary.updatable > 0 && renderDockerFilterChip(server.id, 'updatable', `${summary.updatable} 可更新`, 'warning', `${server.name} 可更新容器`)}
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                {summary.updatable > 0 && (
-                                  <Button
-                                    size="sm"
-                                    variant={isDockerUpdateConfirmActive(hostUpdateConfirmKey) ? 'secondary-destructive' : 'primary'}
-                                    icon={<Upload className="h-3.5 w-3.5" />}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      batchUpdateVisibleDockerContainers(server.id, false, hostUpdateTargets, {
-                                        confirmKey: hostUpdateConfirmKey,
-                                      });
-                                    }}
-                                  >
-                                    {isDockerUpdateConfirmActive(hostUpdateConfirmKey) ? '再次确认' : '一键更新'}
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  icon={isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    toggleDockerOverviewServer(server.id, visibleDockerContainerServers[0]?.id);
+                    {dockerOverviewServers.length === 0
+                      ? renderDockerEmptyState('未检测到可用的 Docker 主机')
+                      : visibleDockerContainerServers.length === 0
+                        ? renderDockerEmptyState('当前筛选下没有容器')
+                        : visibleDockerContainerServers.map(server => {
+                            const summary = getDockerContainerSummary(
+                              server.resources?.containers,
+                              server.id
+                            );
+                            const isOpen = isDockerHostExpanded(
+                              server.id,
+                              visibleDockerContainerServers[0]?.id
+                            );
+                            const hostUpdateTargets = getUpdatableDockerContainers(
+                              [server],
+                              server.id
+                            );
+                            const hostUpdateConfirmKey = `host.update::${server.id}::${hostUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
+                            return (
+                              <div
+                                key={server.id}
+                                className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base"
+                              >
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() =>
+                                    toggleDockerOverviewServer(
+                                      server.id,
+                                      visibleDockerContainerServers[0]?.id
+                                    )
+                                  }
+                                  onKeyDown={event => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      toggleDockerOverviewServer(
+                                        server.id,
+                                        visibleDockerContainerServers[0]?.id
+                                      );
+                                    }
                                   }}
+                                  className="flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 border-b border-kumo-line/70 px-3 py-3.5"
                                 >
-                                  {isOpen ? '收起' : '展开'}
-                                </Button>
-                              </div>
-                            </div>
-
-                          <AnimatedCollapse open={isOpen} keepMounted>
-                          {server.resources.containers.length === 0 ? (
-                            <div className="p-8 text-center text-xs text-kumo-subtle">
-                              暂无容器
-                            </div>
-                          ) : (
-                            <div className="divide-y divide-kumo-line">
-                              {server.resources.containers.map(c => {
-                                const state = getDockerContainerState(c);
-                                const stateBadge = getDockerStateBadge(state);
-                                const containerId = getDockerContainerId(c);
-                                const containerName = getDockerContainerName(c);
-                                const containerImage = getDockerContainerImage(c);
-                                const containerPorts = getDockerContainerPorts(c);
-                                const updateCheck = getDockerContainerUpdateCheck(server.id, c);
-                                const updateBadge = getDockerUpdateBadge(updateCheck);
-                                const updateChecking = isDockerContainerUpdateChecking(server.id, c);
-                                const toggleAction = state === 'running' ? 'container.stop' : 'container.start';
-                                const togglePayload = { serverId: server.id, containerId, containerName, image: containerImage };
-                                const togglePending = isDockerActionPending(server.id, toggleAction, togglePayload);
-                                const restartPayload = { serverId: server.id, containerId, containerName, image: containerImage };
-                                const restartPending = isDockerActionPending(server.id, 'container.restart', restartPayload);
-                                const updatePayload = { serverId: server.id, containerId, containerName, image: containerImage };
-                                const updatePending = isDockerActionPending(server.id, 'container.update', updatePayload);
-                                const updateProgress = getDockerActionProgress(server.id, 'container.update', updatePayload);
-                                const updateConfirmKey = `container.update::${getDockerContainerSelectionKey(server.id, updatePayload)}`;
-                                const selectionKey = getDockerContainerSelectionKey(server.id, updatePayload);
-                                const canSelectForUpdate = !!updateCheck?.hasUpdate && !updatePending;
-                                return (
-                                  <div key={containerId || `${server.id}-${containerName}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
-                                    <Checkbox
-                                      checked={dockerSelectedContainerKeySet.has(selectionKey)}
-                                      disabled={!canSelectForUpdate}
-                                      onCheckedChange={(checked) => toggleDockerContainerSelection(selectionKey, Boolean(checked))}
-                                      aria-label={`选择更新 ${containerName}`}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                        <span className="min-w-0 truncate text-xs font-semibold leading-5 text-kumo-strong" title={containerName}>{containerName}</span>
-                                        <span className="min-w-0 truncate font-mono text-[10px] text-kumo-subtle" title={containerImage}>{containerImage}</span>
-                                      </div>
-                                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                        <Badge variant={stateBadge.variant} appearance="dot">{stateBadge.label}</Badge>
-                                        {updatePending ? (
-                                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand">
-                                            <RefreshCw className="h-3 w-3 animate-spin" />
-                                            更新中{updateProgress > 0 ? ` ${updateProgress}%` : ''}
-                                          </span>
-                                        ) : updateChecking ? (
-                                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-kumo-subtle">
-                                            <RefreshCw className="h-3 w-3 animate-spin" />
-                                            检测中
-                                          </span>
-                                        ) : (
-                                          <Badge variant={updateBadge.variant} appearance="dot" title={updateBadge.title}>
-                                            {updateBadge.label}
-                                          </Badge>
-                                        )}
-                                        {containerPorts && <span className="truncate font-mono" title={containerPorts}>{containerPorts}</span>}
-                                      </div>
-                                      {updatePending && updateProgress > 0 && (
-                                        <Meter
-                                          label={`${containerName} 更新进度`}
-                                          value={updateProgress}
-                                          showValue={false}
-                                          className="mt-1.5 w-28 gap-0"
-                                          trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
-                                          indicatorClassName="!h-full !bg-none !bg-brand"
-                                        />
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <Box className="h-4 w-4 shrink-0 text-brand" />
+                                    <span className="truncate text-xs font-semibold text-kumo-strong">
+                                      {server.name}
+                                    </span>
+                                    {renderDockerFilterChip(
+                                      server.id,
+                                      'all',
+                                      `${summary.total} 容器`,
+                                      'neutral',
+                                      `${server.name} 全部容器`
+                                    )}
+                                    {renderDockerFilterChip(
+                                      server.id,
+                                      'running',
+                                      `${summary.running} 运行`,
+                                      'success',
+                                      `${server.name} 运行容器`
+                                    )}
+                                    {summary.paused > 0 &&
+                                      renderDockerFilterChip(
+                                        server.id,
+                                        'paused',
+                                        `${summary.paused} 暂停`,
+                                        'warning',
+                                        `${server.name} 暂停容器`
                                       )}
-                                    </div>
-                                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                                      <Button
-                                        shape="square" size="sm"
-                                        variant={state === 'running' ? 'secondary-destructive' : 'secondary'}
-                                        icon={togglePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                                        aria-label={state === 'running' ? '停止容器' : '启动容器'}
-                                        disabled={togglePending || restartPending || updatePending}
-                                        onClick={() => submitDockerTask(toggleAction, togglePayload)}
-                                        title={state === 'running' ? '停止' : '启动'}
-                                      />
-                                      <Button
-                                        shape="square" size="sm"
-                                        variant="secondary"
-                                        icon={restartPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-                                        aria-label="重启容器"
-                                        disabled={togglePending || restartPending || updatePending}
-                                        onClick={() => submitDockerTask('container.restart', restartPayload)}
-                                        title="重启"
-                                      />
-                                      <Button
-                                        shape="square" size="sm"
-                                        variant="secondary"
-                                        icon={updateChecking ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-                                        aria-label="检测镜像更新"
-                                        disabled={updateChecking}
-                                        onClick={() => checkDockerUpdatesForServer(server, c)}
-                                        title="检测更新"
-                                      />
-                                      <Button
-                                        shape="square" size="sm"
-                                        variant={isDockerUpdateConfirmActive(updateConfirmKey) ? 'secondary-destructive' : 'primary'}
-                                        icon={updatePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                                        aria-label={isDockerUpdateConfirmActive(updateConfirmKey) ? '再次确认更新容器' : '一键更新容器'}
-                                        disabled={togglePending || restartPending || updatePending}
-                                        onClick={() => handleDockerContainerUpdate(updatePayload)}
-                                        title={isDockerUpdateConfirmActive(updateConfirmKey) ? '再次点击确认更新' : '一键更新'}
-                                      />
-                                    </div>
+                                    {summary.stopped > 0 &&
+                                      renderDockerFilterChip(
+                                        server.id,
+                                        'stopped',
+                                        `${summary.stopped} 停止`,
+                                        'error',
+                                        `${server.name} 停止容器`
+                                      )}
+                                    {summary.updatable > 0 &&
+                                      renderDockerFilterChip(
+                                        server.id,
+                                        'updatable',
+                                        `${summary.updatable} 可更新`,
+                                        'warning',
+                                        `${server.name} 可更新容器`
+                                      )}
                                   </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          </AnimatedCollapse>
-                        </div>
-                        );
-                      })
-                    )}
+                                  <div className="flex items-center gap-1.5">
+                                    {summary.updatable > 0 && (
+                                      <Button
+                                        size="sm"
+                                        variant={
+                                          isDockerUpdateConfirmActive(hostUpdateConfirmKey)
+                                            ? 'secondary-destructive'
+                                            : 'primary'
+                                        }
+                                        icon={<Upload className="h-3.5 w-3.5" />}
+                                        onClick={event => {
+                                          event.stopPropagation();
+                                          batchUpdateVisibleDockerContainers(
+                                            server.id,
+                                            false,
+                                            hostUpdateTargets,
+                                            {
+                                              confirmKey: hostUpdateConfirmKey,
+                                            }
+                                          );
+                                        }}
+                                      >
+                                        {isDockerUpdateConfirmActive(hostUpdateConfirmKey)
+                                          ? '再次确认'
+                                          : '一键更新'}
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      icon={
+                                        isOpen ? (
+                                          <ChevronUp className="h-3.5 w-3.5" />
+                                        ) : (
+                                          <ChevronDown className="h-3.5 w-3.5" />
+                                        )
+                                      }
+                                      onClick={event => {
+                                        event.stopPropagation();
+                                        toggleDockerOverviewServer(
+                                          server.id,
+                                          visibleDockerContainerServers[0]?.id
+                                        );
+                                      }}
+                                    >
+                                      {isOpen ? '收起' : '展开'}
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                <AnimatedCollapse open={isOpen} keepMounted>
+                                  {server.resources.containers.length === 0 ? (
+                                    <div className="p-8 text-center text-xs text-kumo-subtle">
+                                      暂无容器
+                                    </div>
+                                  ) : (
+                                    <div className="divide-y divide-kumo-line">
+                                      {server.resources.containers.map(c => {
+                                        const state = getDockerContainerState(c);
+                                        const stateBadge = getDockerStateBadge(state);
+                                        const containerId = getDockerContainerId(c);
+                                        const containerName = getDockerContainerName(c);
+                                        const containerImage = getDockerContainerImage(c);
+                                        const containerPorts = getDockerContainerPorts(c);
+                                        const updateCheck = getDockerContainerUpdateCheck(
+                                          server.id,
+                                          c
+                                        );
+                                        const updateBadge = getDockerUpdateBadge(updateCheck);
+                                        const updateChecking = isDockerContainerUpdateChecking(
+                                          server.id,
+                                          c
+                                        );
+                                        const toggleAction =
+                                          state === 'running'
+                                            ? 'container.stop'
+                                            : 'container.start';
+                                        const togglePayload = {
+                                          serverId: server.id,
+                                          containerId,
+                                          containerName,
+                                          image: containerImage,
+                                        };
+                                        const togglePending = isDockerActionPending(
+                                          server.id,
+                                          toggleAction,
+                                          togglePayload
+                                        );
+                                        const restartPayload = {
+                                          serverId: server.id,
+                                          containerId,
+                                          containerName,
+                                          image: containerImage,
+                                        };
+                                        const restartPending = isDockerActionPending(
+                                          server.id,
+                                          'container.restart',
+                                          restartPayload
+                                        );
+                                        const updatePayload = {
+                                          serverId: server.id,
+                                          containerId,
+                                          containerName,
+                                          image: containerImage,
+                                        };
+                                        const updatePending = isDockerActionPending(
+                                          server.id,
+                                          'container.update',
+                                          updatePayload
+                                        );
+                                        const updateProgress = getDockerActionProgress(
+                                          server.id,
+                                          'container.update',
+                                          updatePayload
+                                        );
+                                        const updateConfirmKey = `container.update::${getDockerContainerSelectionKey(server.id, updatePayload)}`;
+                                        const selectionKey = getDockerContainerSelectionKey(
+                                          server.id,
+                                          updatePayload
+                                        );
+                                        const canSelectForUpdate =
+                                          !!updateCheck?.hasUpdate && !updatePending;
+                                        return (
+                                          <div
+                                            key={containerId || `${server.id}-${containerName}`}
+                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
+                                          >
+                                            <Checkbox
+                                              checked={dockerSelectedContainerKeySet.has(
+                                                selectionKey
+                                              )}
+                                              disabled={!canSelectForUpdate}
+                                              onCheckedChange={checked =>
+                                                toggleDockerContainerSelection(
+                                                  selectionKey,
+                                                  Boolean(checked)
+                                                )
+                                              }
+                                              aria-label={`选择更新 ${containerName}`}
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                                <span
+                                                  className="min-w-0 truncate text-xs font-semibold leading-5 text-kumo-strong"
+                                                  title={containerName}
+                                                >
+                                                  {containerName}
+                                                </span>
+                                                <span
+                                                  className="min-w-0 truncate font-mono text-[10px] text-kumo-subtle"
+                                                  title={containerImage}
+                                                >
+                                                  {containerImage}
+                                                </span>
+                                              </div>
+                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
+                                                <Badge
+                                                  variant={stateBadge.variant}
+                                                  appearance="dot"
+                                                >
+                                                  {stateBadge.label}
+                                                </Badge>
+                                                {updatePending ? (
+                                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand">
+                                                    <RefreshCw className="h-3 w-3 animate-spin" />
+                                                    更新中
+                                                    {updateProgress > 0
+                                                      ? ` ${updateProgress}%`
+                                                      : ''}
+                                                  </span>
+                                                ) : updateChecking ? (
+                                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-kumo-subtle">
+                                                    <RefreshCw className="h-3 w-3 animate-spin" />
+                                                    检测中
+                                                  </span>
+                                                ) : (
+                                                  <Badge
+                                                    variant={updateBadge.variant}
+                                                    appearance="dot"
+                                                    title={updateBadge.title}
+                                                  >
+                                                    {updateBadge.label}
+                                                  </Badge>
+                                                )}
+                                                {containerPorts && (
+                                                  <span
+                                                    className="truncate font-mono"
+                                                    title={containerPorts}
+                                                  >
+                                                    {containerPorts}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              {updatePending && updateProgress > 0 && (
+                                                <Meter
+                                                  label={`${containerName} 更新进度`}
+                                                  value={updateProgress}
+                                                  showValue={false}
+                                                  className="mt-1.5 w-28 gap-0"
+                                                  trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
+                                                  indicatorClassName="!h-full !bg-none !bg-brand"
+                                                />
+                                              )}
+                                            </div>
+                                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant={
+                                                  state === 'running'
+                                                    ? 'secondary-destructive'
+                                                    : 'secondary'
+                                                }
+                                                icon={
+                                                  togglePending ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : state === 'running' ? (
+                                                    <Pause className="h-3.5 w-3.5" />
+                                                  ) : (
+                                                    <Play className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                aria-label={
+                                                  state === 'running' ? '停止容器' : '启动容器'
+                                                }
+                                                disabled={
+                                                  togglePending || restartPending || updatePending
+                                                }
+                                                onClick={() =>
+                                                  submitDockerTask(toggleAction, togglePayload)
+                                                }
+                                                title={state === 'running' ? '停止' : '启动'}
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="secondary"
+                                                icon={
+                                                  restartPending ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : (
+                                                    <RotateCw className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                aria-label="重启容器"
+                                                disabled={
+                                                  togglePending || restartPending || updatePending
+                                                }
+                                                onClick={() =>
+                                                  submitDockerTask(
+                                                    'container.restart',
+                                                    restartPayload
+                                                  )
+                                                }
+                                                title="重启"
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="secondary"
+                                                icon={
+                                                  updateChecking ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : (
+                                                    <Search className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                aria-label="检测镜像更新"
+                                                disabled={updateChecking}
+                                                onClick={() =>
+                                                  checkDockerUpdatesForServer(server, c)
+                                                }
+                                                title="检测更新"
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant={
+                                                  isDockerUpdateConfirmActive(updateConfirmKey)
+                                                    ? 'secondary-destructive'
+                                                    : 'primary'
+                                                }
+                                                icon={
+                                                  updatePending ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : (
+                                                    <Upload className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                aria-label={
+                                                  isDockerUpdateConfirmActive(updateConfirmKey)
+                                                    ? '再次确认更新容器'
+                                                    : '一键更新容器'
+                                                }
+                                                disabled={
+                                                  togglePending || restartPending || updatePending
+                                                }
+                                                onClick={() =>
+                                                  handleDockerContainerUpdate(updatePayload)
+                                                }
+                                                title={
+                                                  isDockerUpdateConfirmActive(updateConfirmKey)
+                                                    ? '再次点击确认更新'
+                                                    : '一键更新'
+                                                }
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </AnimatedCollapse>
+                              </div>
+                            );
+                          })}
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3 cq-xl:order-1 cq-xl:sticky cq-xl:top-0 cq-xl:self-start">
@@ -8091,13 +10269,22 @@ function ServerPage() {
                           管理
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">
-                          <Badge variant="neutral">{dockerContainerManagementServers.length} 主机</Badge>
+                          <Badge variant="neutral">
+                            {dockerContainerManagementServers.length} 主机
+                          </Badge>
                           <Button
                             shape="square"
                             size="sm"
                             variant="secondary"
-                            icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerBulkUpdateChecking ? 'animate-spin' : ''}`} />}
-                            disabled={dockerBulkUpdateChecking || dockerContainerManagementServers.length === 0}
+                            icon={
+                              <RefreshCw
+                                className={`h-3.5 w-3.5 ${dockerBulkUpdateChecking ? 'animate-spin' : ''}`}
+                              />
+                            }
+                            disabled={
+                              dockerBulkUpdateChecking ||
+                              dockerContainerManagementServers.length === 0
+                            }
                             onClick={checkAllDockerUpdates}
                             aria-label="检测可更新"
                             title="检测全部主机可更新"
@@ -8105,18 +10292,30 @@ function ServerPage() {
                           <Button
                             shape="square"
                             size="sm"
-                            variant={isDockerUpdateConfirmActive(dockerManagementBatchUpdateConfirmKey) ? 'secondary-destructive' : 'primary'}
+                            variant={
+                              isDockerUpdateConfirmActive(dockerManagementBatchUpdateConfirmKey)
+                                ? 'secondary-destructive'
+                                : 'primary'
+                            }
                             icon={<Upload className="h-3.5 w-3.5" />}
                             disabled={dockerContainerManagementUpdatableContainers.length === 0}
-                            onClick={() => batchUpdateVisibleDockerContainers('', true, null, {
-                              confirmKey: dockerManagementBatchUpdateConfirmKey,
-                            })}
-                            aria-label={isDockerUpdateConfirmActive(dockerManagementBatchUpdateConfirmKey) ? '再次确认一键更新' : '一键更新'}
-                            title={dockerContainerManagementUpdatableContainers.length > 0
-                              ? isDockerUpdateConfirmActive(dockerManagementBatchUpdateConfirmKey)
-                                ? '再次点击确认更新全部主机'
-                                : `一键更新全部主机 ${dockerContainerManagementUpdatableContainers.length} 个容器`
-                              : '请先检测出可更新容器'}
+                            onClick={() =>
+                              batchUpdateVisibleDockerContainers('', true, null, {
+                                confirmKey: dockerManagementBatchUpdateConfirmKey,
+                              })
+                            }
+                            aria-label={
+                              isDockerUpdateConfirmActive(dockerManagementBatchUpdateConfirmKey)
+                                ? '再次确认一键更新'
+                                : '一键更新'
+                            }
+                            title={
+                              dockerContainerManagementUpdatableContainers.length > 0
+                                ? isDockerUpdateConfirmActive(dockerManagementBatchUpdateConfirmKey)
+                                  ? '再次点击确认更新全部主机'
+                                  : `一键更新全部主机 ${dockerContainerManagementUpdatableContainers.length} 个容器`
+                                : '请先检测出可更新容器'
+                            }
                           />
                         </span>
                       </LayerCard.Secondary>
@@ -8124,786 +10323,1447 @@ function ServerPage() {
                         <div className="grid grid-cols-4 gap-1.5">
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">容器</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-strong">{dockerContainerManagementTotals.total}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-strong">
+                              {dockerContainerManagementTotals.total}
+                            </div>
                           </div>
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">运行</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-success">{dockerContainerManagementTotals.running}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-success">
+                              {dockerContainerManagementTotals.running}
+                            </div>
                           </div>
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">停止</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-subtle">{dockerContainerManagementTotals.stopped}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-subtle">
+                              {dockerContainerManagementTotals.stopped}
+                            </div>
                           </div>
                           <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                             <div className="text-[10px] text-kumo-subtle">更新</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-warning">{dockerContainerManagementTotals.updatable}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-kumo-warning">
+                              {dockerContainerManagementTotals.updatable}
+                            </div>
                           </div>
                         </div>
 
                         <div className="flex flex-col gap-2">
                           {dockerContainerManagementServers.map(server => {
-                            const summary = getDockerContainerSummary(server.resources?.containers, server.id);
-                            const isOpen = isDockerHostExpanded(server.id, dockerContainerManagementServers[0]?.id);
-                            const managementHostUpdateTargets = getUpdatableDockerContainers([server], server.id);
+                            const summary = getDockerContainerSummary(
+                              server.resources?.containers,
+                              server.id
+                            );
+                            const isOpen = isDockerHostExpanded(
+                              server.id,
+                              dockerContainerManagementServers[0]?.id
+                            );
+                            const managementHostUpdateTargets = getUpdatableDockerContainers(
+                              [server],
+                              server.id
+                            );
                             const managementHostUpdateConfirmKey = `management.host.update::${server.id}::${managementHostUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
                             return (
-                              <div key={`management-${server.id}`} className={`overflow-hidden rounded-md border ${isOpen ? 'border-brand/55 bg-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}>
-                                  <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => toggleDockerOverviewServer(server.id, dockerContainerManagementServers[0]?.id)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'Enter' || event.key === ' ') {
-                                        event.preventDefault();
-                                        toggleDockerOverviewServer(server.id, dockerContainerManagementServers[0]?.id);
-                                      }
-                                    }}
-                                    className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-2.5 py-2"
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <Box className="h-3.5 w-3.5 shrink-0 text-brand" />
-                                      <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">{server.name}</span>
+                              <div
+                                key={`management-${server.id}`}
+                                className={`overflow-hidden rounded-md border ${isOpen ? 'border-brand/55 bg-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}
+                              >
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() =>
+                                    toggleDockerOverviewServer(
+                                      server.id,
+                                      dockerContainerManagementServers[0]?.id
+                                    )
+                                  }
+                                  onKeyDown={event => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      toggleDockerOverviewServer(
+                                        server.id,
+                                        dockerContainerManagementServers[0]?.id
+                                      );
+                                    }
+                                  }}
+                                  className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-2.5 py-2"
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <Box className="h-3.5 w-3.5 shrink-0 text-brand" />
+                                    <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">
+                                      {server.name}
                                     </span>
-                                    <span className="flex shrink-0 items-center gap-1.5">
-                                      {renderDockerFilterChip(server.id, 'all', String(summary.total), 'neutral', `${server.name} 全部容器`)}
-                                      {summary.updatable > 0 && renderDockerFilterChip(server.id, 'updatable', String(summary.updatable), 'warning', `${server.name} 可更新容器`)}
-                                    </span>
-                                  </div>
+                                  </span>
+                                  <span className="flex shrink-0 items-center gap-1.5">
+                                    {renderDockerFilterChip(
+                                      server.id,
+                                      'all',
+                                      String(summary.total),
+                                      'neutral',
+                                      `${server.name} 全部容器`
+                                    )}
+                                    {summary.updatable > 0 &&
+                                      renderDockerFilterChip(
+                                        server.id,
+                                        'updatable',
+                                        String(summary.updatable),
+                                        'warning',
+                                        `${server.name} 可更新容器`
+                                      )}
+                                  </span>
+                                </div>
 
-                                  <AnimatedCollapse open={isOpen} keepMounted>
-                                    <div className="border-t border-kumo-line/70 px-2.5 py-2">
-                                      <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div className="flex flex-wrap gap-1.5">
-                                          {renderDockerFilterChip(server.id, 'running', `${summary.running} 运行`, 'success', `${server.name} 运行容器`)}
-                                          {summary.paused > 0 && renderDockerFilterChip(server.id, 'paused', `${summary.paused} 暂停`, 'warning', `${server.name} 暂停容器`)}
-                                          {summary.stopped > 0 && renderDockerFilterChip(server.id, 'stopped', `${summary.stopped} 停止`, 'error', `${server.name} 停止容器`)}
-                                          {summary.updatable > 0 && renderDockerFilterChip(server.id, 'updatable', `${summary.updatable} 可更新`, 'warning', `${server.name} 可更新容器`)}
-                                        </div>
-                                        <Button
-                                          shape="square"
-                                          size="sm"
-                                          variant={isDockerUpdateConfirmActive(managementHostUpdateConfirmKey) ? 'secondary-destructive' : 'primary'}
-                                          icon={<Upload className="h-3.5 w-3.5" />}
-                                          disabled={summary.updatable === 0}
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            batchUpdateVisibleDockerContainers(server.id, false, managementHostUpdateTargets, {
+                                <AnimatedCollapse open={isOpen} keepMounted>
+                                  <div className="border-t border-kumo-line/70 px-2.5 py-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {renderDockerFilterChip(
+                                          server.id,
+                                          'running',
+                                          `${summary.running} 运行`,
+                                          'success',
+                                          `${server.name} 运行容器`
+                                        )}
+                                        {summary.paused > 0 &&
+                                          renderDockerFilterChip(
+                                            server.id,
+                                            'paused',
+                                            `${summary.paused} 暂停`,
+                                            'warning',
+                                            `${server.name} 暂停容器`
+                                          )}
+                                        {summary.stopped > 0 &&
+                                          renderDockerFilterChip(
+                                            server.id,
+                                            'stopped',
+                                            `${summary.stopped} 停止`,
+                                            'error',
+                                            `${server.name} 停止容器`
+                                          )}
+                                        {summary.updatable > 0 &&
+                                          renderDockerFilterChip(
+                                            server.id,
+                                            'updatable',
+                                            `${summary.updatable} 可更新`,
+                                            'warning',
+                                            `${server.name} 可更新容器`
+                                          )}
+                                      </div>
+                                      <Button
+                                        shape="square"
+                                        size="sm"
+                                        variant={
+                                          isDockerUpdateConfirmActive(
+                                            managementHostUpdateConfirmKey
+                                          )
+                                            ? 'secondary-destructive'
+                                            : 'primary'
+                                        }
+                                        icon={<Upload className="h-3.5 w-3.5" />}
+                                        disabled={summary.updatable === 0}
+                                        onClick={event => {
+                                          event.stopPropagation();
+                                          batchUpdateVisibleDockerContainers(
+                                            server.id,
+                                            false,
+                                            managementHostUpdateTargets,
+                                            {
                                               confirmKey: managementHostUpdateConfirmKey,
-                                            });
-                                          }}
-                                          aria-label={isDockerUpdateConfirmActive(managementHostUpdateConfirmKey) ? `再次确认更新 ${server.name}` : `更新 ${server.name} 可更新容器`}
-                                          title={summary.updatable > 0
-                                            ? isDockerUpdateConfirmActive(managementHostUpdateConfirmKey)
+                                            }
+                                          );
+                                        }}
+                                        aria-label={
+                                          isDockerUpdateConfirmActive(
+                                            managementHostUpdateConfirmKey
+                                          )
+                                            ? `再次确认更新 ${server.name}`
+                                            : `更新 ${server.name} 可更新容器`
+                                        }
+                                        title={
+                                          summary.updatable > 0
+                                            ? isDockerUpdateConfirmActive(
+                                                managementHostUpdateConfirmKey
+                                              )
                                               ? `再次点击确认更新 ${server.name}`
                                               : `更新 ${server.name} 的 ${summary.updatable} 个可更新容器`
-                                            : `${server.name} 暂无可更新容器`}
-                                        />
-                                      </div>
+                                            : `${server.name} 暂无可更新容器`
+                                        }
+                                      />
                                     </div>
-                                  </AnimatedCollapse>
-                                </div>
+                                  </div>
+                                </AnimatedCollapse>
+                              </div>
                             );
                           })}
                         </div>
                       </LayerCard.Primary>
                     </LayerCard>
-                </div>
+                  </div>
                 </div>
               )}
 
               {/* 2. Compose */}
-              {dockerSubTab === 'compose' && (() => {
-                const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'compose'));
-                const runningProjects = dockerComposeProjects.filter(item => getComposeStatus(item).includes('running')).length;
-                return (
-                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                    {renderDockerResourceSideRail({
-                      title: 'Compose 项目',
-                      icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
-                      hosts,
-                      totalCount: dockerComposeProjects.length,
-                      countLabel: '项目',
-                      summaryItems: [
-                        { label: '运行', value: runningProjects, className: 'text-kumo-success' },
-                        { label: '停止', value: Math.max(0, dockerComposeProjects.length - runningProjects), className: 'text-kumo-subtle' },
-                      ],
-                      getHostCount: server => asArray(server.resources?.composeProjects).length,
-                      getHostBadges: server => {
-                        const projects = asArray(server.resources?.composeProjects);
-                        const running = projects.filter(project => getComposeStatus(project).toLowerCase().includes('running')).length;
-                        return running > 0 ? [{ label: `${running} 运行`, variant: 'success', appearance: 'dot' }] : [];
-                      },
-                    })}
-                    <div className="flex min-w-0 flex-col gap-3">
-                      {hosts.length === 0 ? (
-                        renderDockerEmptyState('未检测到可用的 Docker 主机')
-                      ) : (
-                        hosts.map(server => {
+              {dockerSubTab === 'compose' &&
+                (() => {
+                  const hosts = dockerOverviewServers.filter(server =>
+                    isDockerOverviewHostVisible(server, 'compose')
+                  );
+                  const runningProjects = dockerComposeProjects.filter(item =>
+                    getComposeStatus(item).includes('running')
+                  ).length;
+                  return (
+                    <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
+                      {renderDockerResourceSideRail({
+                        title: 'Compose 项目',
+                        icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
+                        hosts,
+                        totalCount: dockerComposeProjects.length,
+                        countLabel: '项目',
+                        summaryItems: [
+                          { label: '运行', value: runningProjects, className: 'text-kumo-success' },
+                          {
+                            label: '停止',
+                            value: Math.max(0, dockerComposeProjects.length - runningProjects),
+                            className: 'text-kumo-subtle',
+                          },
+                        ],
+                        getHostCount: server => asArray(server.resources?.composeProjects).length,
+                        getHostBadges: server => {
                           const projects = asArray(server.resources?.composeProjects);
-                          const running = projects.filter(project => getComposeStatus(project).toLowerCase().includes('running')).length;
-                          return renderDockerHostResourceSection({
-                            server,
-                            isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
-                            count: projects.length,
-                            countLabel: '项目',
-                            badges: running > 0 ? [{ label: `${running} 运行`, variant: 'success', appearance: 'dot' }] : [],
-                            children: projects.length === 0 ? (
-                              <div className="p-8 text-center text-xs text-kumo-subtle">
-                                暂无 Compose 项目
-                              </div>
-                            ) : (
-                              <div className="divide-y divide-kumo-line">
-                                {projects.map(proj => {
-                                  const projectName = getComposeProjectName(proj);
-                                  const configFiles = getComposeConfigFiles(proj);
-                                  const primaryConfigFile = getComposePrimaryConfigFile(proj);
-                                  const workingDir = getComposeWorkingDir(proj);
-                                  const status = getComposeStatus(proj);
-                                  const statusLower = status.toLowerCase();
-                                  const statusLabel = formatComposeStatusLabel(status);
-                                  const composePayload = { serverId: server.id, project: projectName, config_file: configFiles };
-                                  const composeUpPending = isDockerActionPending(server.id, 'compose.up', composePayload);
-                                  const composeDownPending = isDockerActionPending(server.id, 'compose.down', composePayload);
-                                  const composeRestartPending = isDockerActionPending(server.id, 'compose.restart', composePayload);
-                                  const composePullPending = isDockerActionPending(server.id, 'compose.pull', composePayload);
-                                  const composeBusy = composeUpPending || composeDownPending || composeRestartPending || composePullPending;
-                                  return (
-                                    <div key={`${server.id}-${projectName}-${configFiles}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                          <span className="truncate text-xs font-semibold leading-5 text-kumo-strong">{projectName}</span>
-                                          <Badge variant={statusLower.includes('running') ? 'success' : 'error'} appearance="dot">{statusLabel}</Badge>
-                                        </div>
-                                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                          <span className="min-w-0 truncate font-mono" title={configFiles}>配置: {configFiles || '-'}</span>
-                                          <span className="min-w-0 truncate font-mono" title={workingDir}>目录: {workingDir || '-'}</span>
-                                        </div>
-                                      </div>
-                                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                                        <Button
-                                          shape="square"
-                                          size="sm"
-                                          variant="secondary"
-                                          icon={<FileText className="h-3.5 w-3.5" />}
-                                          onClick={() => openDockerComposeConfig(server, proj, 'view')}
-                                          disabled={!primaryConfigFile}
-                                          aria-label={`查看 ${projectName} 配置`}
-                                          title={primaryConfigFile ? '查看配置' : '未找到配置文件'}
-                                        />
-                                        <Button
-                                          shape="square"
-                                          size="sm"
-                                          variant="secondary"
-                                          icon={<Edit className="h-3.5 w-3.5" />}
-                                          onClick={() => openDockerComposeConfig(server, proj, 'edit')}
-                                          disabled={!primaryConfigFile}
-                                          aria-label={`修改 ${projectName} 配置`}
-                                          title={primaryConfigFile ? '修改配置' : '未找到配置文件'}
-                                        />
-                                        <Button
-                                          shape="square"
-                                          size="sm"
-                                          variant="secondary"
-                                          icon={composePullPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                                          disabled={composeBusy}
-                                          onClick={() => submitDockerTask('compose.pull', composePayload)}
-                                          aria-label={`升级 ${projectName}`}
-                                          title="升级镜像"
-                                        />
-                                        <Button
-                                          shape="square"
-                                          size="sm"
-                                          variant="secondary"
-                                          icon={composeRestartPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-                                          disabled={composeBusy}
-                                          onClick={() => submitDockerTask('compose.restart', composePayload)}
-                                          aria-label={`重启 ${projectName}`}
-                                          title="重启项目"
-                                        />
-                                        <Button
-                                          shape="square"
-                                          size="sm"
-                                          variant="primary"
-                                          icon={composeUpPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                                          disabled={composeBusy}
-                                          onClick={() => submitDockerTask('compose.up', composePayload)}
-                                          aria-label={`启动 ${projectName}`}
-                                          title="启动项目"
-                                        />
-                                        <Button
-                                          shape="square"
-                                          size="sm"
-                                          variant="secondary"
-                                          icon={composeDownPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-                                          disabled={composeBusy}
-                                          onClick={() => submitDockerTask('compose.down', composePayload)}
-                                          aria-label={`停止 ${projectName}`}
-                                          title="停止项目"
-                                        />
-                                      </div>
+                          const running = projects.filter(project =>
+                            getComposeStatus(project).toLowerCase().includes('running')
+                          ).length;
+                          return running > 0
+                            ? [{ label: `${running} 运行`, variant: 'success', appearance: 'dot' }]
+                            : [];
+                        },
+                      })}
+                      <div className="flex min-w-0 flex-col gap-3">
+                        {hosts.length === 0
+                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
+                          : hosts.map(server => {
+                              const projects = asArray(server.resources?.composeProjects);
+                              const running = projects.filter(project =>
+                                getComposeStatus(project).toLowerCase().includes('running')
+                              ).length;
+                              return renderDockerHostResourceSection({
+                                server,
+                                isFirstVisible: server.id === hosts[0]?.id,
+                                icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
+                                count: projects.length,
+                                countLabel: '项目',
+                                badges:
+                                  running > 0
+                                    ? [
+                                        {
+                                          label: `${running} 运行`,
+                                          variant: 'success',
+                                          appearance: 'dot',
+                                        },
+                                      ]
+                                    : [],
+                                children:
+                                  projects.length === 0 ? (
+                                    <div className="p-8 text-center text-xs text-kumo-subtle">
+                                      暂无 Compose 项目
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            ),
-                          });
-                        })
-                      )}
+                                  ) : (
+                                    <div className="divide-y divide-kumo-line">
+                                      {projects.map(proj => {
+                                        const projectName = getComposeProjectName(proj);
+                                        const configFiles = getComposeConfigFiles(proj);
+                                        const primaryConfigFile = getComposePrimaryConfigFile(proj);
+                                        const workingDir = getComposeWorkingDir(proj);
+                                        const status = getComposeStatus(proj);
+                                        const statusLower = status.toLowerCase();
+                                        const statusLabel = formatComposeStatusLabel(status);
+                                        const composePayload = {
+                                          serverId: server.id,
+                                          project: projectName,
+                                          config_file: configFiles,
+                                        };
+                                        const composeUpPending = isDockerActionPending(
+                                          server.id,
+                                          'compose.up',
+                                          composePayload
+                                        );
+                                        const composeDownPending = isDockerActionPending(
+                                          server.id,
+                                          'compose.down',
+                                          composePayload
+                                        );
+                                        const composeRestartPending = isDockerActionPending(
+                                          server.id,
+                                          'compose.restart',
+                                          composePayload
+                                        );
+                                        const composePullPending = isDockerActionPending(
+                                          server.id,
+                                          'compose.pull',
+                                          composePayload
+                                        );
+                                        const composeBusy =
+                                          composeUpPending ||
+                                          composeDownPending ||
+                                          composeRestartPending ||
+                                          composePullPending;
+                                        return (
+                                          <div
+                                            key={`${server.id}-${projectName}-${configFiles}`}
+                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                                <span className="truncate text-xs font-semibold leading-5 text-kumo-strong">
+                                                  {projectName}
+                                                </span>
+                                                <Badge
+                                                  variant={
+                                                    statusLower.includes('running')
+                                                      ? 'success'
+                                                      : 'error'
+                                                  }
+                                                  appearance="dot"
+                                                >
+                                                  {statusLabel}
+                                                </Badge>
+                                              </div>
+                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
+                                                <span
+                                                  className="min-w-0 truncate font-mono"
+                                                  title={configFiles}
+                                                >
+                                                  配置: {configFiles || '-'}
+                                                </span>
+                                                <span
+                                                  className="min-w-0 truncate font-mono"
+                                                  title={workingDir}
+                                                >
+                                                  目录: {workingDir || '-'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="secondary"
+                                                icon={<FileText className="h-3.5 w-3.5" />}
+                                                onClick={() =>
+                                                  openDockerComposeConfig(server, proj, 'view')
+                                                }
+                                                disabled={!primaryConfigFile}
+                                                aria-label={`查看 ${projectName} 配置`}
+                                                title={
+                                                  primaryConfigFile ? '查看配置' : '未找到配置文件'
+                                                }
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="secondary"
+                                                icon={<Edit className="h-3.5 w-3.5" />}
+                                                onClick={() =>
+                                                  openDockerComposeConfig(server, proj, 'edit')
+                                                }
+                                                disabled={!primaryConfigFile}
+                                                aria-label={`修改 ${projectName} 配置`}
+                                                title={
+                                                  primaryConfigFile ? '修改配置' : '未找到配置文件'
+                                                }
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="secondary"
+                                                icon={
+                                                  composePullPending ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : (
+                                                    <Upload className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                disabled={composeBusy}
+                                                onClick={() =>
+                                                  submitDockerTask('compose.pull', composePayload)
+                                                }
+                                                aria-label={`升级 ${projectName}`}
+                                                title="升级镜像"
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="secondary"
+                                                icon={
+                                                  composeRestartPending ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : (
+                                                    <RotateCw className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                disabled={composeBusy}
+                                                onClick={() =>
+                                                  submitDockerTask(
+                                                    'compose.restart',
+                                                    composePayload
+                                                  )
+                                                }
+                                                aria-label={`重启 ${projectName}`}
+                                                title="重启项目"
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="primary"
+                                                icon={
+                                                  composeUpPending ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : (
+                                                    <Play className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                disabled={composeBusy}
+                                                onClick={() =>
+                                                  submitDockerTask('compose.up', composePayload)
+                                                }
+                                                aria-label={`启动 ${projectName}`}
+                                                title="启动项目"
+                                              />
+                                              <Button
+                                                shape="square"
+                                                size="sm"
+                                                variant="secondary"
+                                                icon={
+                                                  composeDownPending ? (
+                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                                  ) : (
+                                                    <Square className="h-3.5 w-3.5" />
+                                                  )
+                                                }
+                                                disabled={composeBusy}
+                                                onClick={() =>
+                                                  submitDockerTask('compose.down', composePayload)
+                                                }
+                                                aria-label={`停止 ${projectName}`}
+                                                title="停止项目"
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ),
+                              });
+                            })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
 
               {/* 3. 镜像管理 */}
-              {dockerSubTab === 'images' && (() => {
-                const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'images'));
-                const allImagePruneConfirmKey = `image.prune.all::${hosts.map(server => server.id).join('|')}`;
-                const pruneCandidateCount = dockerImages.filter(isDockerImagePruneCandidate).length;
-                return (
-                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                    {renderDockerResourceSideRail({
-                      title: '镜像',
-                      icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
-                      hosts,
-                      totalCount: dockerImages.length,
-                      countLabel: '镜像',
-                      summaryItems: [
-                        { label: '仓库', value: new Set(dockerImages.map(item => getDockerImageRepository(item))).size },
-                        { label: '可清理', value: pruneCandidateCount, className: pruneCandidateCount > 0 ? 'text-kumo-warning' : 'text-kumo-success' },
-                      ],
-                      actions: (
-                        <Button
-                          size="sm"
-                          variant={isDockerUpdateConfirmActive(allImagePruneConfirmKey) ? 'secondary-destructive' : 'primary'}
-                          icon={<Trash className="h-3.5 w-3.5" />}
-                          disabled={hosts.length === 0}
-                          onClick={() => pruneDockerImagesForHosts(hosts, { confirmKey: allImagePruneConfirmKey })}
-                          aria-label={isDockerUpdateConfirmActive(allImagePruneConfirmKey) ? '再次确认一键清理镜像' : '一键清理镜像'}
-                          title={isDockerUpdateConfirmActive(allImagePruneConfirmKey) ? '再次点击确认清理全部主机镜像' : '一键清理全部主机未使用镜像'}
-                        >
-                          {isDockerUpdateConfirmActive(allImagePruneConfirmKey) ? '再次确认' : '一键清理'}
-                        </Button>
-                      ),
-                      getHostCount: server => asArray(server.resources?.images).length,
-                      getHostBadges: server => {
-                        const images = asArray(server.resources?.images);
-                        const pruneCandidates = images.filter(isDockerImagePruneCandidate).length;
-                        return images.length > 0 ? [
-                          { label: `${new Set(images.map(img => getDockerImageRepository(img))).size} 仓库` },
-                          ...(pruneCandidates > 0 ? [{ label: `${pruneCandidates} 可清理`, variant: 'warning' }] : []),
-                        ] : [];
-                      },
-                      renderHostAction: server => {
-                        const prunePayload = { serverId: server.id };
-                        const prunePending = isDockerActionPending(server.id, 'image.prune', prunePayload);
-                        const pruneConfirmKey = `image.prune::${server.id}`;
-                        return (
+              {dockerSubTab === 'images' &&
+                (() => {
+                  const hosts = dockerOverviewServers.filter(server =>
+                    isDockerOverviewHostVisible(server, 'images')
+                  );
+                  const allImagePruneConfirmKey = `image.prune.all::${hosts.map(server => server.id).join('|')}`;
+                  const pruneCandidateCount = dockerImages.filter(
+                    isDockerImagePruneCandidate
+                  ).length;
+                  return (
+                    <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
+                      {renderDockerResourceSideRail({
+                        title: '镜像',
+                        icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
+                        hosts,
+                        totalCount: dockerImages.length,
+                        countLabel: '镜像',
+                        summaryItems: [
+                          {
+                            label: '仓库',
+                            value: new Set(dockerImages.map(item => getDockerImageRepository(item)))
+                              .size,
+                          },
+                          {
+                            label: '可清理',
+                            value: pruneCandidateCount,
+                            className:
+                              pruneCandidateCount > 0 ? 'text-kumo-warning' : 'text-kumo-success',
+                          },
+                        ],
+                        actions: (
                           <Button
-                            shape="square"
                             size="sm"
-                            variant={isDockerUpdateConfirmActive(pruneConfirmKey) ? 'secondary-destructive' : 'secondary'}
-                            icon={prunePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                            disabled={prunePending}
-                            onClick={() => submitDockerPruneTask('image.prune', prunePayload, pruneConfirmKey, `清理 ${server.name} 未使用镜像`)}
-                            aria-label={isDockerUpdateConfirmActive(pruneConfirmKey) ? `再次确认清理 ${server.name} 镜像` : `清理 ${server.name} 镜像`}
-                            title={isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次点击确认清理' : '清理未使用镜像'}
-                          />
-                        );
-                      },
-                    })}
-                    <div className="flex min-w-0 flex-col gap-3">
-                      {hosts.length === 0 ? (
-                        renderDockerEmptyState('未检测到可用的 Docker 主机')
-                      ) : (
-                        hosts.map(server => {
+                            variant={
+                              isDockerUpdateConfirmActive(allImagePruneConfirmKey)
+                                ? 'secondary-destructive'
+                                : 'primary'
+                            }
+                            icon={<Trash className="h-3.5 w-3.5" />}
+                            disabled={hosts.length === 0}
+                            onClick={() =>
+                              pruneDockerImagesForHosts(hosts, {
+                                confirmKey: allImagePruneConfirmKey,
+                              })
+                            }
+                            aria-label={
+                              isDockerUpdateConfirmActive(allImagePruneConfirmKey)
+                                ? '再次确认一键清理镜像'
+                                : '一键清理镜像'
+                            }
+                            title={
+                              isDockerUpdateConfirmActive(allImagePruneConfirmKey)
+                                ? '再次点击确认清理全部主机镜像'
+                                : '一键清理全部主机未使用镜像'
+                            }
+                          >
+                            {isDockerUpdateConfirmActive(allImagePruneConfirmKey)
+                              ? '再次确认'
+                              : '一键清理'}
+                          </Button>
+                        ),
+                        getHostCount: server => asArray(server.resources?.images).length,
+                        getHostBadges: server => {
                           const images = asArray(server.resources?.images);
-                          const prunePayload = { serverId: server.id };
-                          const prunePending = isDockerActionPending(server.id, 'image.prune', prunePayload);
-                          const pruneConfirmKey = `image.prune.section::${server.id}`;
                           const pruneCandidates = images.filter(isDockerImagePruneCandidate).length;
-                          return renderDockerHostResourceSection({
-                            server,
-                            isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
-                            count: images.length,
-                            countLabel: '镜像',
-                            badges: images.length > 0 ? [
-                              { label: `${new Set(images.map(img => getDockerImageRepository(img))).size} 仓库` },
-                              ...(pruneCandidates > 0 ? [{ label: `${pruneCandidates} 可清理`, variant: 'warning' }] : []),
-                            ] : [],
-                            actions: (
-                              <Button
-                                size="sm"
-                                variant={isDockerUpdateConfirmActive(pruneConfirmKey) ? 'secondary-destructive' : 'secondary'}
-                                icon={prunePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                                disabled={prunePending}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  submitDockerPruneTask('image.prune', prunePayload, pruneConfirmKey, `清理 ${server.name} 未使用镜像`);
-                                }}
-                              >
-                                {isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次确认' : '清理镜像'}
-                              </Button>
-                            ),
-                            children: images.length === 0 ? (
-                              <div className="p-8 text-center text-xs text-kumo-subtle">
-                                暂无镜像
-                              </div>
-                            ) : (
-                              <div className="divide-y divide-kumo-line">
-                                {images.map((img, i) => {
-                                  const repository = getDockerImageRepository(img);
-                                  const tag = getDockerImageTag(img);
-                                  const imageId = getDockerImageId(img);
-                                  const imageRef = imageId || (tag && tag !== '-' ? `${repository}:${tag}` : repository);
-                                  const removePayload = { serverId: server.id, image: imageRef };
-                                  const removePending = isDockerActionPending(server.id, 'image.remove', removePayload);
-                                  return (
-                                    <div key={`${server.id}-${imageId || repository}-${i}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
-                                      <div className="min-w-0 flex-1">
-                                        <div className="truncate text-xs font-semibold leading-5 text-kumo-strong" title={repository}>{repository}</div>
-                                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                          <Badge variant="secondary" className="font-mono text-[10px]">{tag}</Badge>
-                                          <span className="shrink-0">{getDockerImageSize(img)}</span>
-                                        </div>
-                                      </div>
-                                      <Button
-                                        shape="square"
-                                        size="sm"
-                                        variant={isArmed(`docker.image.remove::${server.id}::${imageRef}`) ? 'destructive' : 'secondary-destructive'}
-                                        aria-label={`删除 ${repository || '镜像'}`}
-                                        disabled={removePending}
-                                        onClick={() => {
-                                          if (!confirmPress(`docker.image.remove::${server.id}::${imageRef}`, `删除镜像「${repository || '镜像'}」`)) return;
-                                          submitDockerTask('image.remove', removePayload, { skipConfirm: true });
-                                        }}
-                                        className="text-kumo-danger"
-                                        title="删除镜像"
-                                      >
-                                        {removePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                                      </Button>
+                          return images.length > 0
+                            ? [
+                                {
+                                  label: `${new Set(images.map(img => getDockerImageRepository(img))).size} 仓库`,
+                                },
+                                ...(pruneCandidates > 0
+                                  ? [{ label: `${pruneCandidates} 可清理`, variant: 'warning' }]
+                                  : []),
+                              ]
+                            : [];
+                        },
+                        renderHostAction: server => {
+                          const prunePayload = { serverId: server.id };
+                          const prunePending = isDockerActionPending(
+                            server.id,
+                            'image.prune',
+                            prunePayload
+                          );
+                          const pruneConfirmKey = `image.prune::${server.id}`;
+                          return (
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? 'secondary-destructive'
+                                  : 'secondary'
+                              }
+                              icon={
+                                prunePending ? (
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash className="h-3.5 w-3.5" />
+                                )
+                              }
+                              disabled={prunePending}
+                              onClick={() =>
+                                submitDockerPruneTask(
+                                  'image.prune',
+                                  prunePayload,
+                                  pruneConfirmKey,
+                                  `清理 ${server.name} 未使用镜像`
+                                )
+                              }
+                              aria-label={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? `再次确认清理 ${server.name} 镜像`
+                                  : `清理 ${server.name} 镜像`
+                              }
+                              title={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? '再次点击确认清理'
+                                  : '清理未使用镜像'
+                              }
+                            />
+                          );
+                        },
+                      })}
+                      <div className="flex min-w-0 flex-col gap-3">
+                        {hosts.length === 0
+                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
+                          : hosts.map(server => {
+                              const images = asArray(server.resources?.images);
+                              const prunePayload = { serverId: server.id };
+                              const prunePending = isDockerActionPending(
+                                server.id,
+                                'image.prune',
+                                prunePayload
+                              );
+                              const pruneConfirmKey = `image.prune.section::${server.id}`;
+                              const pruneCandidates = images.filter(
+                                isDockerImagePruneCandidate
+                              ).length;
+                              return renderDockerHostResourceSection({
+                                server,
+                                isFirstVisible: server.id === hosts[0]?.id,
+                                icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
+                                count: images.length,
+                                countLabel: '镜像',
+                                badges:
+                                  images.length > 0
+                                    ? [
+                                        {
+                                          label: `${new Set(images.map(img => getDockerImageRepository(img))).size} 仓库`,
+                                        },
+                                        ...(pruneCandidates > 0
+                                          ? [
+                                              {
+                                                label: `${pruneCandidates} 可清理`,
+                                                variant: 'warning',
+                                              },
+                                            ]
+                                          : []),
+                                      ]
+                                    : [],
+                                actions: (
+                                  <Button
+                                    size="sm"
+                                    variant={
+                                      isDockerUpdateConfirmActive(pruneConfirmKey)
+                                        ? 'secondary-destructive'
+                                        : 'secondary'
+                                    }
+                                    icon={
+                                      prunePending ? (
+                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Trash className="h-3.5 w-3.5" />
+                                      )
+                                    }
+                                    disabled={prunePending}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      submitDockerPruneTask(
+                                        'image.prune',
+                                        prunePayload,
+                                        pruneConfirmKey,
+                                        `清理 ${server.name} 未使用镜像`
+                                      );
+                                    }}
+                                  >
+                                    {isDockerUpdateConfirmActive(pruneConfirmKey)
+                                      ? '再次确认'
+                                      : '清理镜像'}
+                                  </Button>
+                                ),
+                                children:
+                                  images.length === 0 ? (
+                                    <div className="p-8 text-center text-xs text-kumo-subtle">
+                                      暂无镜像
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            ),
-                          });
-                        })
-                      )}
+                                  ) : (
+                                    <div className="divide-y divide-kumo-line">
+                                      {images.map((img, i) => {
+                                        const repository = getDockerImageRepository(img);
+                                        const tag = getDockerImageTag(img);
+                                        const imageId = getDockerImageId(img);
+                                        const imageRef =
+                                          imageId ||
+                                          (tag && tag !== '-'
+                                            ? `${repository}:${tag}`
+                                            : repository);
+                                        const removePayload = {
+                                          serverId: server.id,
+                                          image: imageRef,
+                                        };
+                                        const removePending = isDockerActionPending(
+                                          server.id,
+                                          'image.remove',
+                                          removePayload
+                                        );
+                                        return (
+                                          <div
+                                            key={`${server.id}-${imageId || repository}-${i}`}
+                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <div
+                                                className="truncate text-xs font-semibold leading-5 text-kumo-strong"
+                                                title={repository}
+                                              >
+                                                {repository}
+                                              </div>
+                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
+                                                <Badge
+                                                  variant="secondary"
+                                                  className="font-mono text-[10px]"
+                                                >
+                                                  {tag}
+                                                </Badge>
+                                                <span className="shrink-0">
+                                                  {getDockerImageSize(img)}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <Button
+                                              shape="square"
+                                              size="sm"
+                                              variant={
+                                                isArmed(
+                                                  `docker.image.remove::${server.id}::${imageRef}`
+                                                )
+                                                  ? 'destructive'
+                                                  : 'secondary-destructive'
+                                              }
+                                              aria-label={`删除 ${repository || '镜像'}`}
+                                              disabled={removePending}
+                                              onClick={() => {
+                                                if (
+                                                  !confirmPress(
+                                                    `docker.image.remove::${server.id}::${imageRef}`,
+                                                    `删除镜像「${repository || '镜像'}」`
+                                                  )
+                                                )
+                                                  return;
+                                                submitDockerTask('image.remove', removePayload, {
+                                                  skipConfirm: true,
+                                                });
+                                              }}
+                                              className="text-kumo-danger"
+                                              title="删除镜像"
+                                            >
+                                              {removePending ? (
+                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <Trash className="h-3.5 w-3.5" />
+                                              )}
+                                            </Button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ),
+                              });
+                            })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
 
               {/* 4. 网络管理 */}
-              {dockerSubTab === 'networks' && (() => {
-                const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'networks'));
-                const allNetworkPruneConfirmKey = `network.prune.all::${hosts.map(server => server.id).join('|')}`;
-                return (
-                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                    {renderDockerResourceSideRail({
-                      title: '网络',
-                      icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
-                      hosts,
-                      totalCount: dockerNetworks.length,
-                      countLabel: '网络',
-                      summaryItems: [
-                        { label: '驱动', value: new Set(dockerNetworks.map(item => getDockerNetworkDriver(item))).size },
-                      ],
-                      actions: (
-                        <Button
-                          size="sm"
-                          variant={isDockerUpdateConfirmActive(allNetworkPruneConfirmKey) ? 'secondary-destructive' : 'primary'}
-                          icon={<Trash className="h-3.5 w-3.5" />}
-                          disabled={hosts.length === 0}
-                          onClick={() => pruneDockerNetworksForHosts(hosts, { confirmKey: allNetworkPruneConfirmKey })}
-                          aria-label={isDockerUpdateConfirmActive(allNetworkPruneConfirmKey) ? '再次确认一键清理网络' : '一键清理网络'}
-                          title={isDockerUpdateConfirmActive(allNetworkPruneConfirmKey) ? '再次点击确认清理全部主机网络' : '一键清理全部主机未使用网络'}
-                        >
-                          {isDockerUpdateConfirmActive(allNetworkPruneConfirmKey) ? '再次确认' : '一键清理'}
-                        </Button>
-                      ),
-                      getHostCount: server => asArray(server.resources?.networks).length,
-                      getHostBadges: server => {
-                        const networks = asArray(server.resources?.networks);
-                        return networks.length > 0 ? [{ label: `${new Set(networks.map(network => getDockerNetworkDriver(network))).size} 驱动` }] : [];
-                      },
-                      renderHostAction: server => {
-                        const prunePayload = { serverId: server.id };
-                        const prunePending = isDockerActionPending(server.id, 'network.prune', prunePayload);
-                        const pruneConfirmKey = `network.prune::${server.id}`;
-                        return (
+              {dockerSubTab === 'networks' &&
+                (() => {
+                  const hosts = dockerOverviewServers.filter(server =>
+                    isDockerOverviewHostVisible(server, 'networks')
+                  );
+                  const allNetworkPruneConfirmKey = `network.prune.all::${hosts.map(server => server.id).join('|')}`;
+                  return (
+                    <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
+                      {renderDockerResourceSideRail({
+                        title: '网络',
+                        icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
+                        hosts,
+                        totalCount: dockerNetworks.length,
+                        countLabel: '网络',
+                        summaryItems: [
+                          {
+                            label: '驱动',
+                            value: new Set(dockerNetworks.map(item => getDockerNetworkDriver(item)))
+                              .size,
+                          },
+                        ],
+                        actions: (
                           <Button
-                            shape="square"
                             size="sm"
-                            variant={isDockerUpdateConfirmActive(pruneConfirmKey) ? 'secondary-destructive' : 'secondary'}
-                            icon={prunePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                            disabled={prunePending}
-                            onClick={() => submitDockerPruneTask('network.prune', prunePayload, pruneConfirmKey, `清理 ${server.name} 未使用网络`)}
-                            aria-label={isDockerUpdateConfirmActive(pruneConfirmKey) ? `再次确认清理 ${server.name} 网络` : `清理 ${server.name} 网络`}
-                            title={isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次点击确认清理' : '清理未使用网络'}
-                          />
-                        );
-                      },
-                    })}
-                    <div className="flex min-w-0 flex-col gap-3">
-                      {hosts.length === 0 ? (
-                        renderDockerEmptyState('未检测到可用的 Docker 主机')
-                      ) : (
-                        hosts.map(server => {
+                            variant={
+                              isDockerUpdateConfirmActive(allNetworkPruneConfirmKey)
+                                ? 'secondary-destructive'
+                                : 'primary'
+                            }
+                            icon={<Trash className="h-3.5 w-3.5" />}
+                            disabled={hosts.length === 0}
+                            onClick={() =>
+                              pruneDockerNetworksForHosts(hosts, {
+                                confirmKey: allNetworkPruneConfirmKey,
+                              })
+                            }
+                            aria-label={
+                              isDockerUpdateConfirmActive(allNetworkPruneConfirmKey)
+                                ? '再次确认一键清理网络'
+                                : '一键清理网络'
+                            }
+                            title={
+                              isDockerUpdateConfirmActive(allNetworkPruneConfirmKey)
+                                ? '再次点击确认清理全部主机网络'
+                                : '一键清理全部主机未使用网络'
+                            }
+                          >
+                            {isDockerUpdateConfirmActive(allNetworkPruneConfirmKey)
+                              ? '再次确认'
+                              : '一键清理'}
+                          </Button>
+                        ),
+                        getHostCount: server => asArray(server.resources?.networks).length,
+                        getHostBadges: server => {
                           const networks = asArray(server.resources?.networks);
+                          return networks.length > 0
+                            ? [
+                                {
+                                  label: `${new Set(networks.map(network => getDockerNetworkDriver(network))).size} 驱动`,
+                                },
+                              ]
+                            : [];
+                        },
+                        renderHostAction: server => {
                           const prunePayload = { serverId: server.id };
-                          const prunePending = isDockerActionPending(server.id, 'network.prune', prunePayload);
-                          const pruneConfirmKey = `network.prune.section::${server.id}`;
-                          return renderDockerHostResourceSection({
-                            server,
-                            isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
-                            count: networks.length,
-                            countLabel: '网络',
-                            badges: networks.length > 0 ? [{ label: `${new Set(networks.map(network => getDockerNetworkDriver(network))).size} 驱动` }] : [],
-                            actions: (
-                              <Button
-                                size="sm"
-                                variant={isDockerUpdateConfirmActive(pruneConfirmKey) ? 'secondary-destructive' : 'secondary'}
-                                icon={prunePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                                disabled={prunePending}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  submitDockerPruneTask('network.prune', prunePayload, pruneConfirmKey, `清理 ${server.name} 未使用网络`);
-                                }}
-                              >
-                                {isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次确认' : '清理网络'}
-                              </Button>
-                            ),
-                            children: networks.length === 0 ? (
-                              <div className="p-8 text-center text-xs text-kumo-subtle">
-                                暂无 Docker 网络
-                              </div>
-                            ) : (
-                              <div className="divide-y divide-kumo-line">
-                                {networks.map((network, i) => {
-                                  const networkName = getDockerNetworkName(network);
-                                  const networkId = getDockerNetworkId(network);
-                                  const isBuiltinNetwork = ['bridge', 'host', 'none'].includes(networkName);
-                                  const removePayload = { serverId: server.id, name: networkName };
-                                  const removePending = isDockerActionPending(server.id, 'network.remove', removePayload);
-                                  return (
-                                    <div key={`${server.id}-${networkId || networkName}-${i}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
-                                      <div className="min-w-0 flex-1">
-                                        <div className="truncate text-xs font-semibold leading-5 text-kumo-strong" title={networkName}>{networkName}</div>
-                                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                          <span className="truncate font-mono">{networkId || '-'}</span>
-                                          <Badge variant="teal" className="font-mono text-[10px]">{getDockerNetworkDriver(network)}</Badge>
-                                          <Badge variant="neutral" className="font-mono text-[10px]">{getDockerNetworkScope(network)}</Badge>
-                                        </div>
-                                      </div>
-                                      <Button
-                                        shape="square"
-                                        size="sm"
-                                        variant={isArmed(`docker.network.remove::${server.id}::${networkName}`) ? 'destructive' : 'secondary-destructive'}
-                                        aria-label={`删除 ${networkName || '网络'}`}
-                                        disabled={isBuiltinNetwork || removePending}
-                                        onClick={() => {
-                                          if (!confirmPress(`docker.network.remove::${server.id}::${networkName}`, `删除网络「${networkName || '网络'}」`)) return;
-                                          submitDockerTask('network.remove', removePayload, { skipConfirm: true });
-                                        }}
-                                        className="text-kumo-danger disabled:opacity-40"
-                                        title={isBuiltinNetwork ? '内置网络不可删除' : '删除网络'}
-                                      >
-                                        {removePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                                      </Button>
+                          const prunePending = isDockerActionPending(
+                            server.id,
+                            'network.prune',
+                            prunePayload
+                          );
+                          const pruneConfirmKey = `network.prune::${server.id}`;
+                          return (
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? 'secondary-destructive'
+                                  : 'secondary'
+                              }
+                              icon={
+                                prunePending ? (
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash className="h-3.5 w-3.5" />
+                                )
+                              }
+                              disabled={prunePending}
+                              onClick={() =>
+                                submitDockerPruneTask(
+                                  'network.prune',
+                                  prunePayload,
+                                  pruneConfirmKey,
+                                  `清理 ${server.name} 未使用网络`
+                                )
+                              }
+                              aria-label={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? `再次确认清理 ${server.name} 网络`
+                                  : `清理 ${server.name} 网络`
+                              }
+                              title={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? '再次点击确认清理'
+                                  : '清理未使用网络'
+                              }
+                            />
+                          );
+                        },
+                      })}
+                      <div className="flex min-w-0 flex-col gap-3">
+                        {hosts.length === 0
+                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
+                          : hosts.map(server => {
+                              const networks = asArray(server.resources?.networks);
+                              const prunePayload = { serverId: server.id };
+                              const prunePending = isDockerActionPending(
+                                server.id,
+                                'network.prune',
+                                prunePayload
+                              );
+                              const pruneConfirmKey = `network.prune.section::${server.id}`;
+                              return renderDockerHostResourceSection({
+                                server,
+                                isFirstVisible: server.id === hosts[0]?.id,
+                                icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
+                                count: networks.length,
+                                countLabel: '网络',
+                                badges:
+                                  networks.length > 0
+                                    ? [
+                                        {
+                                          label: `${new Set(networks.map(network => getDockerNetworkDriver(network))).size} 驱动`,
+                                        },
+                                      ]
+                                    : [],
+                                actions: (
+                                  <Button
+                                    size="sm"
+                                    variant={
+                                      isDockerUpdateConfirmActive(pruneConfirmKey)
+                                        ? 'secondary-destructive'
+                                        : 'secondary'
+                                    }
+                                    icon={
+                                      prunePending ? (
+                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Trash className="h-3.5 w-3.5" />
+                                      )
+                                    }
+                                    disabled={prunePending}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      submitDockerPruneTask(
+                                        'network.prune',
+                                        prunePayload,
+                                        pruneConfirmKey,
+                                        `清理 ${server.name} 未使用网络`
+                                      );
+                                    }}
+                                  >
+                                    {isDockerUpdateConfirmActive(pruneConfirmKey)
+                                      ? '再次确认'
+                                      : '清理网络'}
+                                  </Button>
+                                ),
+                                children:
+                                  networks.length === 0 ? (
+                                    <div className="p-8 text-center text-xs text-kumo-subtle">
+                                      暂无 Docker 网络
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            ),
-                          });
-                        })
-                      )}
+                                  ) : (
+                                    <div className="divide-y divide-kumo-line">
+                                      {networks.map((network, i) => {
+                                        const networkName = getDockerNetworkName(network);
+                                        const networkId = getDockerNetworkId(network);
+                                        const isBuiltinNetwork = [
+                                          'bridge',
+                                          'host',
+                                          'none',
+                                        ].includes(networkName);
+                                        const removePayload = {
+                                          serverId: server.id,
+                                          name: networkName,
+                                        };
+                                        const removePending = isDockerActionPending(
+                                          server.id,
+                                          'network.remove',
+                                          removePayload
+                                        );
+                                        return (
+                                          <div
+                                            key={`${server.id}-${networkId || networkName}-${i}`}
+                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <div
+                                                className="truncate text-xs font-semibold leading-5 text-kumo-strong"
+                                                title={networkName}
+                                              >
+                                                {networkName}
+                                              </div>
+                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
+                                                <span className="truncate font-mono">
+                                                  {networkId || '-'}
+                                                </span>
+                                                <Badge
+                                                  variant="teal"
+                                                  className="font-mono text-[10px]"
+                                                >
+                                                  {getDockerNetworkDriver(network)}
+                                                </Badge>
+                                                <Badge
+                                                  variant="neutral"
+                                                  className="font-mono text-[10px]"
+                                                >
+                                                  {getDockerNetworkScope(network)}
+                                                </Badge>
+                                              </div>
+                                            </div>
+                                            <Button
+                                              shape="square"
+                                              size="sm"
+                                              variant={
+                                                isArmed(
+                                                  `docker.network.remove::${server.id}::${networkName}`
+                                                )
+                                                  ? 'destructive'
+                                                  : 'secondary-destructive'
+                                              }
+                                              aria-label={`删除 ${networkName || '网络'}`}
+                                              disabled={isBuiltinNetwork || removePending}
+                                              onClick={() => {
+                                                if (
+                                                  !confirmPress(
+                                                    `docker.network.remove::${server.id}::${networkName}`,
+                                                    `删除网络「${networkName || '网络'}」`
+                                                  )
+                                                )
+                                                  return;
+                                                submitDockerTask('network.remove', removePayload, {
+                                                  skipConfirm: true,
+                                                });
+                                              }}
+                                              className="text-kumo-danger disabled:opacity-40"
+                                              title={
+                                                isBuiltinNetwork ? '内置网络不可删除' : '删除网络'
+                                              }
+                                            >
+                                              {removePending ? (
+                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <Trash className="h-3.5 w-3.5" />
+                                              )}
+                                            </Button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ),
+                              });
+                            })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
 
               {/* 5. 存储卷管理 */}
-              {dockerSubTab === 'volumes' && (() => {
-                const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'volumes'));
-                return (
-                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                    {renderDockerResourceSideRail({
-                      title: '存储卷',
-                      icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
-                      hosts,
-                      totalCount: dockerVolumes.length,
-                      countLabel: '存储卷',
-                      summaryItems: [
-                        { label: '驱动', value: new Set(dockerVolumes.map(item => getDockerVolumeDriver(item))).size },
-                      ],
-                      getHostCount: server => asArray(server.resources?.volumes).length,
-                      getHostBadges: server => {
-                        const volumes = asArray(server.resources?.volumes);
-                        return volumes.length > 0 ? [{ label: `${new Set(volumes.map(volume => getDockerVolumeDriver(volume))).size} 驱动` }] : [];
-                      },
-                      renderHostAction: server => {
-                        const prunePayload = { serverId: server.id };
-                        const prunePending = isDockerActionPending(server.id, 'volume.prune', prunePayload);
-                        const pruneConfirmKey = `volume.prune::${server.id}`;
-                        return (
-                          <Button
-                            shape="square"
-                            size="sm"
-                            variant={isDockerUpdateConfirmActive(pruneConfirmKey) ? 'secondary-destructive' : 'secondary'}
-                            icon={prunePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                            disabled={prunePending}
-                            onClick={() => submitDockerPruneTask('volume.prune', prunePayload, pruneConfirmKey, `清理 ${server.name} 未使用存储卷`)}
-                            aria-label={isDockerUpdateConfirmActive(pruneConfirmKey) ? `再次确认清理 ${server.name} 存储卷` : `清理 ${server.name} 存储卷`}
-                            title={isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次点击确认清理' : '清理未使用存储卷'}
-                          />
-                        );
-                      },
-                    })}
-                    <div className="flex min-w-0 flex-col gap-3">
-                      {hosts.length === 0 ? (
-                        renderDockerEmptyState('未检测到可用的 Docker 主机')
-                      ) : (
-                        hosts.map(server => {
+              {dockerSubTab === 'volumes' &&
+                (() => {
+                  const hosts = dockerOverviewServers.filter(server =>
+                    isDockerOverviewHostVisible(server, 'volumes')
+                  );
+                  return (
+                    <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
+                      {renderDockerResourceSideRail({
+                        title: '存储卷',
+                        icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
+                        hosts,
+                        totalCount: dockerVolumes.length,
+                        countLabel: '存储卷',
+                        summaryItems: [
+                          {
+                            label: '驱动',
+                            value: new Set(dockerVolumes.map(item => getDockerVolumeDriver(item)))
+                              .size,
+                          },
+                        ],
+                        getHostCount: server => asArray(server.resources?.volumes).length,
+                        getHostBadges: server => {
                           const volumes = asArray(server.resources?.volumes);
+                          return volumes.length > 0
+                            ? [
+                                {
+                                  label: `${new Set(volumes.map(volume => getDockerVolumeDriver(volume))).size} 驱动`,
+                                },
+                              ]
+                            : [];
+                        },
+                        renderHostAction: server => {
                           const prunePayload = { serverId: server.id };
-                          const prunePending = isDockerActionPending(server.id, 'volume.prune', prunePayload);
-                          const pruneConfirmKey = `volume.prune.section::${server.id}`;
-                          return renderDockerHostResourceSection({
-                            server,
-                            isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
-                            count: volumes.length,
-                            countLabel: '存储卷',
-                            badges: volumes.length > 0 ? [{ label: `${new Set(volumes.map(volume => getDockerVolumeDriver(volume))).size} 驱动` }] : [],
-                            actions: (
-                              <Button
-                                size="sm"
-                                variant={isDockerUpdateConfirmActive(pruneConfirmKey) ? 'secondary-destructive' : 'secondary'}
-                                icon={prunePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                                disabled={prunePending}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  submitDockerPruneTask('volume.prune', prunePayload, pruneConfirmKey, `清理 ${server.name} 未使用存储卷`);
-                                }}
-                              >
-                                {isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次确认' : '清理存储卷'}
-                              </Button>
-                            ),
-                            children: volumes.length === 0 ? (
-                              <div className="p-8 text-center text-xs text-kumo-subtle">
-                                暂无 Docker 存储卷
-                              </div>
-                            ) : (
-                              <div className="divide-y divide-kumo-line">
-                                {volumes.map((volume, i) => {
-                                  const volumeName = getDockerVolumeName(volume);
-                                  const removePayload = { serverId: server.id, name: volumeName };
-                                  const removePending = isDockerActionPending(server.id, 'volume.remove', removePayload);
-                                  return (
-                                    <div key={`${server.id}-${volumeName}-${i}`} className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4">
-                                      <div className="min-w-0 flex-1">
-                                        <div className="truncate text-xs font-semibold leading-5 text-kumo-strong" title={volumeName}>{volumeName}</div>
-                                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                          <Badge variant="teal" className="font-mono text-[10px]">{getDockerVolumeDriver(volume)}</Badge>
-                                          <Badge variant="neutral" className="font-mono text-[10px]">{getDockerVolumeScope(volume)}</Badge>
-                                        </div>
-                                      </div>
-                                      <Button
-                                        shape="square"
-                                        size="sm"
-                                        variant={isArmed(`docker.volume.remove::${server.id}::${volumeName}`) ? 'destructive' : 'secondary-destructive'}
-                                        aria-label={`删除 ${volumeName || '存储卷'}`}
-                                        disabled={removePending}
-                                        onClick={() => {
-                                          if (!confirmPress(`docker.volume.remove::${server.id}::${volumeName}`, `删除存储卷「${volumeName || '存储卷'}」`)) return;
-                                          submitDockerTask('volume.remove', removePayload, { skipConfirm: true });
-                                        }}
-                                        className="text-kumo-danger"
-                                        title="删除存储卷"
-                                      >
-                                        {removePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
-                                      </Button>
+                          const prunePending = isDockerActionPending(
+                            server.id,
+                            'volume.prune',
+                            prunePayload
+                          );
+                          const pruneConfirmKey = `volume.prune::${server.id}`;
+                          return (
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? 'secondary-destructive'
+                                  : 'secondary'
+                              }
+                              icon={
+                                prunePending ? (
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash className="h-3.5 w-3.5" />
+                                )
+                              }
+                              disabled={prunePending}
+                              onClick={() =>
+                                submitDockerPruneTask(
+                                  'volume.prune',
+                                  prunePayload,
+                                  pruneConfirmKey,
+                                  `清理 ${server.name} 未使用存储卷`
+                                )
+                              }
+                              aria-label={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? `再次确认清理 ${server.name} 存储卷`
+                                  : `清理 ${server.name} 存储卷`
+                              }
+                              title={
+                                isDockerUpdateConfirmActive(pruneConfirmKey)
+                                  ? '再次点击确认清理'
+                                  : '清理未使用存储卷'
+                              }
+                            />
+                          );
+                        },
+                      })}
+                      <div className="flex min-w-0 flex-col gap-3">
+                        {hosts.length === 0
+                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
+                          : hosts.map(server => {
+                              const volumes = asArray(server.resources?.volumes);
+                              const prunePayload = { serverId: server.id };
+                              const prunePending = isDockerActionPending(
+                                server.id,
+                                'volume.prune',
+                                prunePayload
+                              );
+                              const pruneConfirmKey = `volume.prune.section::${server.id}`;
+                              return renderDockerHostResourceSection({
+                                server,
+                                isFirstVisible: server.id === hosts[0]?.id,
+                                icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
+                                count: volumes.length,
+                                countLabel: '存储卷',
+                                badges:
+                                  volumes.length > 0
+                                    ? [
+                                        {
+                                          label: `${new Set(volumes.map(volume => getDockerVolumeDriver(volume))).size} 驱动`,
+                                        },
+                                      ]
+                                    : [],
+                                actions: (
+                                  <Button
+                                    size="sm"
+                                    variant={
+                                      isDockerUpdateConfirmActive(pruneConfirmKey)
+                                        ? 'secondary-destructive'
+                                        : 'secondary'
+                                    }
+                                    icon={
+                                      prunePending ? (
+                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Trash className="h-3.5 w-3.5" />
+                                      )
+                                    }
+                                    disabled={prunePending}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      submitDockerPruneTask(
+                                        'volume.prune',
+                                        prunePayload,
+                                        pruneConfirmKey,
+                                        `清理 ${server.name} 未使用存储卷`
+                                      );
+                                    }}
+                                  >
+                                    {isDockerUpdateConfirmActive(pruneConfirmKey)
+                                      ? '再次确认'
+                                      : '清理存储卷'}
+                                  </Button>
+                                ),
+                                children:
+                                  volumes.length === 0 ? (
+                                    <div className="p-8 text-center text-xs text-kumo-subtle">
+                                      暂无 Docker 存储卷
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            ),
-                          });
-                        })
-                      )}
+                                  ) : (
+                                    <div className="divide-y divide-kumo-line">
+                                      {volumes.map((volume, i) => {
+                                        const volumeName = getDockerVolumeName(volume);
+                                        const removePayload = {
+                                          serverId: server.id,
+                                          name: volumeName,
+                                        };
+                                        const removePending = isDockerActionPending(
+                                          server.id,
+                                          'volume.remove',
+                                          removePayload
+                                        );
+                                        return (
+                                          <div
+                                            key={`${server.id}-${volumeName}-${i}`}
+                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <div
+                                                className="truncate text-xs font-semibold leading-5 text-kumo-strong"
+                                                title={volumeName}
+                                              >
+                                                {volumeName}
+                                              </div>
+                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
+                                                <Badge
+                                                  variant="teal"
+                                                  className="font-mono text-[10px]"
+                                                >
+                                                  {getDockerVolumeDriver(volume)}
+                                                </Badge>
+                                                <Badge
+                                                  variant="neutral"
+                                                  className="font-mono text-[10px]"
+                                                >
+                                                  {getDockerVolumeScope(volume)}
+                                                </Badge>
+                                              </div>
+                                            </div>
+                                            <Button
+                                              shape="square"
+                                              size="sm"
+                                              variant={
+                                                isArmed(
+                                                  `docker.volume.remove::${server.id}::${volumeName}`
+                                                )
+                                                  ? 'destructive'
+                                                  : 'secondary-destructive'
+                                              }
+                                              aria-label={`删除 ${volumeName || '存储卷'}`}
+                                              disabled={removePending}
+                                              onClick={() => {
+                                                if (
+                                                  !confirmPress(
+                                                    `docker.volume.remove::${server.id}::${volumeName}`,
+                                                    `删除存储卷「${volumeName || '存储卷'}」`
+                                                  )
+                                                )
+                                                  return;
+                                                submitDockerTask('volume.remove', removePayload, {
+                                                  skipConfirm: true,
+                                                });
+                                              }}
+                                              className="text-kumo-danger"
+                                              title="删除存储卷"
+                                            >
+                                              {removePending ? (
+                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <Trash className="h-3.5 w-3.5" />
+                                              )}
+                                            </Button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ),
+                              });
+                            })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
 
               {/* 6. 实时统计 */}
-              {dockerSubTab === 'stats' && (() => {
-                const hosts = dockerOverviewServers.filter(server => isDockerOverviewHostVisible(server, 'stats'));
-                return (
-                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                    {renderDockerResourceSideRail({
-                      title: '实时统计',
-                      icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
-                      hosts,
-                      totalCount: dockerStats.length,
-                      countLabel: '容器',
-                      summaryItems: [
-                        { label: 'CPU', value: `${dockerStatsSummary.cpu.toFixed(1)}%`, className: 'text-kumo-success' },
-                        { label: '内存', value: `${dockerStatsSummary.memory.toFixed(1)}%`, className: 'text-kumo-info' },
-                        { label: '网络', value: `${formatBytesValue(dockerStatsSummary.netIn)} / ${formatBytesValue(dockerStatsSummary.netOut)}` },
-                        { label: '磁盘', value: `${formatBytesValue(dockerStatsSummary.blockRead)} / ${formatBytesValue(dockerStatsSummary.blockWrite)}` },
-                      ],
-                      getHostCount: server => asArray(server.resources?.stats).length,
-                      getHostBadges: server => {
-                        const serverHistory = dockerStatsHistory
-                          .map(snapshot => snapshot.filter(item => item.serverId === server.id))
-                          .filter(snapshot => snapshot.length > 0);
-                        const latest = serverHistory[serverHistory.length - 1] || [];
-                        const summary = latest.reduce((acc, item) => ({
-                          cpu: acc.cpu + toNumber(item.cpu, 0),
-                          memory: acc.memory + toNumber(item.memory, 0),
-                        }), { cpu: 0, memory: 0 });
-                        return latest.length > 0 ? [
-                          { label: `CPU ${summary.cpu.toFixed(1)}%`, variant: 'success', appearance: 'dot' },
-                          { label: `内存 ${summary.memory.toFixed(1)}%`, variant: 'info', appearance: 'dot' },
-                        ] : [];
-                      },
-                    })}
-                    <div className="flex min-w-0 flex-col gap-3">
-                      {hosts.length === 0 ? (
-                        renderDockerEmptyState('未检测到可用的 Docker 主机')
-                      ) : (
-                        hosts.map(server => {
-                          const currentStats = asArray(server.resources?.stats);
+              {dockerSubTab === 'stats' &&
+                (() => {
+                  const hosts = dockerOverviewServers.filter(server =>
+                    isDockerOverviewHostVisible(server, 'stats')
+                  );
+                  return (
+                    <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
+                      {renderDockerResourceSideRail({
+                        title: '实时统计',
+                        icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
+                        hosts,
+                        totalCount: dockerStats.length,
+                        countLabel: '容器',
+                        summaryItems: [
+                          {
+                            label: 'CPU',
+                            value: `${dockerStatsSummary.cpu.toFixed(1)}%`,
+                            className: 'text-kumo-success',
+                          },
+                          {
+                            label: '内存',
+                            value: `${dockerStatsSummary.memory.toFixed(1)}%`,
+                            className: 'text-kumo-info',
+                          },
+                          {
+                            label: '网络',
+                            value: `${formatBytesValue(dockerStatsSummary.netIn)} / ${formatBytesValue(dockerStatsSummary.netOut)}`,
+                          },
+                          {
+                            label: '磁盘',
+                            value: `${formatBytesValue(dockerStatsSummary.blockRead)} / ${formatBytesValue(dockerStatsSummary.blockWrite)}`,
+                          },
+                        ],
+                        getHostCount: server => asArray(server.resources?.stats).length,
+                        getHostBadges: server => {
                           const serverHistory = dockerStatsHistory
                             .map(snapshot => snapshot.filter(item => item.serverId === server.id))
                             .filter(snapshot => snapshot.length > 0);
                           const latest = serverHistory[serverHistory.length - 1] || [];
-                          const summary = latest.reduce((acc, item) => ({
-                            cpu: acc.cpu + toNumber(item.cpu, 0),
-                            memory: acc.memory + toNumber(item.memory, 0),
-                            netIn: acc.netIn + toNumber(item.netIn, 0),
-                            netOut: acc.netOut + toNumber(item.netOut, 0),
-                            blockRead: acc.blockRead + toNumber(item.blockRead, 0),
-                            blockWrite: acc.blockWrite + toNumber(item.blockWrite, 0),
-                          }), { cpu: 0, memory: 0, netIn: 0, netOut: 0, blockRead: 0, blockWrite: 0 });
-                          const isDarkMode = theme === 'dark';
-                          const netInColor = ChartPalette.categorical(0, isDarkMode);
-                          const netOutColor = ChartPalette.semantic('Success', isDarkMode);
-                          const readColor = ChartPalette.semantic('Warning', isDarkMode);
-                          const writeColor = ChartPalette.categorical(3, isDarkMode);
-                          const charts = [
-                            {
-                              key: 'cpu',
-                              title: 'CPU 使用率',
-                              description: '容器 CPU 趋势',
-                              data: buildDockerStatSeries(serverHistory, 'cpu', isDarkMode),
-                              value: `${summary.cpu.toFixed(1)}%`,
-                              yAxisTickFormat: formatPercentAxis,
-                              tooltipValueFormat: value => `${toNumber(value, 0).toFixed(2)}%`,
-                            },
-                            {
-                              key: 'memory',
-                              title: '内存使用率',
-                              description: '容器内存趋势',
-                              data: buildDockerStatSeries(serverHistory, 'memory', isDarkMode),
-                              value: `${summary.memory.toFixed(1)}%`,
-                              yAxisTickFormat: formatPercentAxis,
-                              tooltipValueFormat: value => `${toNumber(value, 0).toFixed(2)}%`,
-                            },
-                            {
-                              key: 'network',
-                              title: '网络 I/O',
-                              description: '容器网络流量',
-                              data: buildDockerPairSeries(serverHistory, [
-                                { key: 'netIn', name: '接收', color: netInColor },
-                                { key: 'netOut', name: '发送', color: netOutColor },
-                              ]),
-                              value: `${formatBytesValue(summary.netIn)} / ${formatBytesValue(summary.netOut)}`,
-                              yAxisTickFormat: formatBytesValue,
-                              tooltipValueFormat: formatBytesValue,
-                            },
-                            {
-                              key: 'disk',
-                              title: '磁盘 I/O',
-                              description: '容器磁盘流量',
-                              data: buildDockerPairSeries(serverHistory, [
-                                { key: 'blockRead', name: '读取', color: readColor },
-                                { key: 'blockWrite', name: '写入', color: writeColor },
-                              ]),
-                              value: `${formatBytesValue(summary.blockRead)} / ${formatBytesValue(summary.blockWrite)}`,
-                              yAxisTickFormat: formatBytesValue,
-                              tooltipValueFormat: formatBytesValue,
-                            },
-                          ];
-                          return renderDockerHostResourceSection({
-                            server,
-                            isFirstVisible: server.id === hosts[0]?.id,
-                            icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
-                            count: currentStats.length,
-                            countLabel: '容器',
-                            badges: currentStats.length > 0 ? [
-                              { label: `CPU ${summary.cpu.toFixed(1)}%`, variant: 'success', appearance: 'dot' },
-                              { label: `内存 ${summary.memory.toFixed(1)}%`, variant: 'info', appearance: 'dot' },
-                            ] : [],
-                            children: currentStats.length === 0 ? (
-                              <div className="p-8 text-center text-xs text-kumo-subtle">
-                                暂无 Docker 资源统计
-                              </div>
-                            ) : (
-                              <div className="grid gap-3 cq-xl:grid-cols-2">
-                                {charts.map(chart => (
-                                  <ChartBoundaryBox key={chart.key} className="min-w-0 rounded-md border border-kumo-line bg-kumo-base p-3">
-                                    {(tooltipBoundary) => (
-                                      <div className="min-w-0">
-                                        <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
-                                          <div className="min-w-0">
-                                            <div className="truncate text-sm font-semibold text-kumo-strong">{chart.title}</div>
-                                            <div className="mt-0.5 truncate text-xs text-kumo-subtle">{chart.description}</div>
-                                          </div>
-                                          <Badge variant="neutral">{chart.value}</Badge>
-                                        </div>
-                                        {chart.data.length === 0 ? (
-                                          <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed border-kumo-line text-center text-xs text-kumo-subtle">
-                                            暂无可绘制数据
-                                          </div>
-                                        ) : (
-                                          <SiteFontTimeseriesChart
-                                            echarts={fastTimeseriesEcharts}
-                                            data={chart.data}
-                                            height={220}
-                                            isDarkMode={isDarkMode}
-                                            gradient
-                                            loading={dockerResourceLoading}
-                                            tooltipBoundary={tooltipBoundary ?? undefined}
-                                            tooltipFollowCursor="x"
-                                            xAxisTickCount={isCompactViewport ? 3 : 5}
-                                            yAxisTickCount={4}
-                                            xAxisTickFormat={expandedChartXAxisTickFormat}
-                                            yAxisTickFormat={chart.yAxisTickFormat}
-                                            tooltipValueFormat={chart.tooltipValueFormat}
-                                            optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                            ariaDescription={`${server.name} ${chart.title}`}
-                                          />
-                                        )}
-                                      </div>
-                                    )}
-                                  </ChartBoundaryBox>
-                                ))}
-                              </div>
-                            ),
-                          });
-                        })
-                      )}
+                          const summary = latest.reduce(
+                            (acc, item) => ({
+                              cpu: acc.cpu + toNumber(item.cpu, 0),
+                              memory: acc.memory + toNumber(item.memory, 0),
+                            }),
+                            { cpu: 0, memory: 0 }
+                          );
+                          return latest.length > 0
+                            ? [
+                                {
+                                  label: `CPU ${summary.cpu.toFixed(1)}%`,
+                                  variant: 'success',
+                                  appearance: 'dot',
+                                },
+                                {
+                                  label: `内存 ${summary.memory.toFixed(1)}%`,
+                                  variant: 'info',
+                                  appearance: 'dot',
+                                },
+                              ]
+                            : [];
+                        },
+                      })}
+                      <div className="flex min-w-0 flex-col gap-3">
+                        {hosts.length === 0
+                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
+                          : hosts.map(server => {
+                              const currentStats = asArray(server.resources?.stats);
+                              const serverHistory = dockerStatsHistory
+                                .map(snapshot =>
+                                  snapshot.filter(item => item.serverId === server.id)
+                                )
+                                .filter(snapshot => snapshot.length > 0);
+                              const latest = serverHistory[serverHistory.length - 1] || [];
+                              const summary = latest.reduce(
+                                (acc, item) => ({
+                                  cpu: acc.cpu + toNumber(item.cpu, 0),
+                                  memory: acc.memory + toNumber(item.memory, 0),
+                                  netIn: acc.netIn + toNumber(item.netIn, 0),
+                                  netOut: acc.netOut + toNumber(item.netOut, 0),
+                                  blockRead: acc.blockRead + toNumber(item.blockRead, 0),
+                                  blockWrite: acc.blockWrite + toNumber(item.blockWrite, 0),
+                                }),
+                                {
+                                  cpu: 0,
+                                  memory: 0,
+                                  netIn: 0,
+                                  netOut: 0,
+                                  blockRead: 0,
+                                  blockWrite: 0,
+                                }
+                              );
+                              const isDarkMode = theme === 'dark';
+                              const netInColor = ChartPalette.categorical(0, isDarkMode);
+                              const netOutColor = ChartPalette.semantic('Success', isDarkMode);
+                              const readColor = ChartPalette.semantic('Warning', isDarkMode);
+                              const writeColor = ChartPalette.categorical(3, isDarkMode);
+                              const charts = [
+                                {
+                                  key: 'cpu',
+                                  title: 'CPU 使用率',
+                                  description: '容器 CPU 趋势',
+                                  data: buildDockerStatSeries(serverHistory, 'cpu', isDarkMode),
+                                  value: `${summary.cpu.toFixed(1)}%`,
+                                  yAxisTickFormat: formatPercentAxis,
+                                  tooltipValueFormat: value => `${toNumber(value, 0).toFixed(2)}%`,
+                                },
+                                {
+                                  key: 'memory',
+                                  title: '内存使用率',
+                                  description: '容器内存趋势',
+                                  data: buildDockerStatSeries(serverHistory, 'memory', isDarkMode),
+                                  value: `${summary.memory.toFixed(1)}%`,
+                                  yAxisTickFormat: formatPercentAxis,
+                                  tooltipValueFormat: value => `${toNumber(value, 0).toFixed(2)}%`,
+                                },
+                                {
+                                  key: 'network',
+                                  title: '网络 I/O',
+                                  description: '容器网络流量',
+                                  data: buildDockerPairSeries(serverHistory, [
+                                    { key: 'netIn', name: '接收', color: netInColor },
+                                    { key: 'netOut', name: '发送', color: netOutColor },
+                                  ]),
+                                  value: `${formatBytesValue(summary.netIn)} / ${formatBytesValue(summary.netOut)}`,
+                                  yAxisTickFormat: formatBytesValue,
+                                  tooltipValueFormat: formatBytesValue,
+                                },
+                                {
+                                  key: 'disk',
+                                  title: '磁盘 I/O',
+                                  description: '容器磁盘流量',
+                                  data: buildDockerPairSeries(serverHistory, [
+                                    { key: 'blockRead', name: '读取', color: readColor },
+                                    { key: 'blockWrite', name: '写入', color: writeColor },
+                                  ]),
+                                  value: `${formatBytesValue(summary.blockRead)} / ${formatBytesValue(summary.blockWrite)}`,
+                                  yAxisTickFormat: formatBytesValue,
+                                  tooltipValueFormat: formatBytesValue,
+                                },
+                              ];
+                              return renderDockerHostResourceSection({
+                                server,
+                                isFirstVisible: server.id === hosts[0]?.id,
+                                icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
+                                count: currentStats.length,
+                                countLabel: '容器',
+                                badges:
+                                  currentStats.length > 0
+                                    ? [
+                                        {
+                                          label: `CPU ${summary.cpu.toFixed(1)}%`,
+                                          variant: 'success',
+                                          appearance: 'dot',
+                                        },
+                                        {
+                                          label: `内存 ${summary.memory.toFixed(1)}%`,
+                                          variant: 'info',
+                                          appearance: 'dot',
+                                        },
+                                      ]
+                                    : [],
+                                children:
+                                  currentStats.length === 0 ? (
+                                    <div className="p-8 text-center text-xs text-kumo-subtle">
+                                      暂无 Docker 资源统计
+                                    </div>
+                                  ) : (
+                                    <div className="grid gap-3 cq-xl:grid-cols-2">
+                                      {charts.map(chart => (
+                                        <ChartBoundaryBox
+                                          key={chart.key}
+                                          className="min-w-0 rounded-md border border-kumo-line bg-kumo-base p-3"
+                                        >
+                                          {tooltipBoundary => (
+                                            <div className="min-w-0">
+                                              <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                  <div className="truncate text-sm font-semibold text-kumo-strong">
+                                                    {chart.title}
+                                                  </div>
+                                                  <div className="mt-0.5 truncate text-xs text-kumo-subtle">
+                                                    {chart.description}
+                                                  </div>
+                                                </div>
+                                                <Badge variant="neutral">{chart.value}</Badge>
+                                              </div>
+                                              {chart.data.length === 0 ? (
+                                                <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed border-kumo-line text-center text-xs text-kumo-subtle">
+                                                  暂无可绘制数据
+                                                </div>
+                                              ) : (
+                                                <SiteFontTimeseriesChart
+                                                  echarts={fastTimeseriesEcharts}
+                                                  data={chart.data}
+                                                  height={220}
+                                                  isDarkMode={isDarkMode}
+                                                  gradient
+                                                  loading={dockerResourceLoading}
+                                                  tooltipBoundary={tooltipBoundary ?? undefined}
+                                                  tooltipFollowCursor="x"
+                                                  xAxisTickCount={isCompactViewport ? 3 : 5}
+                                                  yAxisTickCount={4}
+                                                  xAxisTickFormat={expandedChartXAxisTickFormat}
+                                                  yAxisTickFormat={chart.yAxisTickFormat}
+                                                  tooltipValueFormat={chart.tooltipValueFormat}
+                                                  optionUpdateBehavior={
+                                                    SERVER_FAST_CHART_UPDATE_BEHAVIOR
+                                                  }
+                                                  ariaDescription={`${server.name} ${chart.title}`}
+                                                />
+                                              )}
+                                            </div>
+                                          )}
+                                        </ChartBoundaryBox>
+                                      ))}
+                                    </div>
+                                  ),
+                              });
+                            })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
             </div>
           )}
         </div>
@@ -8912,72 +11772,82 @@ function ServerPage() {
       {/* ==================== 4. 后台管理 ==================== */}
       {serverCurrentTab === 'management' && (
         <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 items-start gap-4 cq-xl:grid-cols-2">
-              <div className="flex min-w-0 flex-col gap-4">
-            <SectionCard
-              title="主机偏好"
-              icon={<Settings className={MANAGEMENT_CARD_ICON_CLASS} />}
-              actions={(
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={saveServerModuleSettings}
-                  loading={serverSettingsSaving}
-                  icon={<Save className="h-3.5 w-3.5" />}
-                >
-                  保存偏好
-                </Button>
-              )}
-              bodyPadding="none"
-            >
-              <div className="divide-y divide-kumo-line/80">
-                <div className="grid gap-3 px-4 py-3.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] cq-lg:items-center">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold leading-5 text-kumo-strong">主机地址显示</div>
-                  </div>
-                  <div className="flex justify-start cq-lg:justify-end">
-                    <Select alignItemWithTrigger
-                      size="sm"
-                      aria-label="主机地址显示"
-                      value={serverIpDisplayMode}
-                      onValueChange={handleServerIpDisplayModeChange}
-                      items={[
-                        { value: 'normal', label: '明文' },
-                        { value: 'masked', label: '打码' },
-                        { value: 'hidden', label: '隐藏' },
-                      ]}
-                      className="w-full cq-lg:w-auto"
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-3 px-4 py-3.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(18rem,1fr)] cq-lg:items-center">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold leading-5 text-kumo-strong">Agent 下载目录</div>
-                    <div className="mt-0.5 text-[11px] leading-4 text-kumo-subtle">
-                      留空使用主控端内置 /agent 目录；自定义时填目录 URL，不填文件名。
+          <div className="grid grid-cols-1 items-start gap-4 cq-xl:grid-cols-2">
+            <div className="flex min-w-0 flex-col gap-4">
+              <SectionCard
+                title="主机偏好"
+                icon={<Settings className={MANAGEMENT_CARD_ICON_CLASS} />}
+                actions={
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={saveServerModuleSettings}
+                    loading={serverSettingsSaving}
+                    icon={<Save className="h-3.5 w-3.5" />}
+                  >
+                    保存偏好
+                  </Button>
+                }
+                bodyPadding="none"
+              >
+                <div className="divide-y divide-kumo-line/80">
+                  <div className="grid gap-3 px-4 py-3.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)] cq-lg:items-center">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold leading-5 text-kumo-strong">
+                        主机地址显示
+                      </div>
+                    </div>
+                    <div className="flex justify-start cq-lg:justify-end">
+                      <Select
+                        alignItemWithTrigger
+                        size="sm"
+                        aria-label="主机地址显示"
+                        value={serverIpDisplayMode}
+                        onValueChange={handleServerIpDisplayModeChange}
+                        items={[
+                          { value: 'normal', label: '明文' },
+                          { value: 'masked', label: '打码' },
+                          { value: 'hidden', label: '隐藏' },
+                        ]}
+                        className="w-full cq-lg:w-auto"
+                      />
                     </div>
                   </div>
-                  <div className="flex justify-start cq-lg:justify-end">
-                    <Input
-                      size="sm"
-                      aria-label="Agent 下载目录"
-                      value={serverSettingsForm.agentDownloadUrl}
-                      onChange={(event) => setServerSettingsForm(prev => ({ ...prev, agentDownloadUrl: event.target.value }))}
-                      placeholder="https://cdn.example.com/agent"
-                      className="w-full cq-lg:w-auto"
-                    />
+                  <div className="grid gap-3 px-4 py-3.5 cq-lg:grid-cols-[minmax(0,1fr)_minmax(18rem,1fr)] cq-lg:items-center">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold leading-5 text-kumo-strong">
+                        Agent 下载目录
+                      </div>
+                      <div className="mt-0.5 text-[11px] leading-4 text-kumo-subtle">
+                        留空使用主控端内置 /agent 目录；自定义时填目录 URL，不填文件名。
+                      </div>
+                    </div>
+                    <div className="flex justify-start cq-lg:justify-end">
+                      <Input
+                        size="sm"
+                        aria-label="Agent 下载目录"
+                        value={serverSettingsForm.agentDownloadUrl}
+                        onChange={event =>
+                          setServerSettingsForm(prev => ({
+                            ...prev,
+                            agentDownloadUrl: event.target.value,
+                          }))
+                        }
+                        placeholder="https://cdn.example.com/agent"
+                        className="w-full cq-lg:w-auto"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </SectionCard>
+              </SectionCard>
 
-            <SectionCard
-              title="批量录入"
-              icon={<FolderOpen className={MANAGEMENT_CARD_ICON_CLASS} />}
-              meta={<span className="text-xs font-semibold text-kumo-subtle">CSV</span>}
-              bodyPadding="sm"
-              bodyClassName="flex flex-col gap-2"
-            >
+              <SectionCard
+                title="批量录入"
+                icon={<FolderOpen className={MANAGEMENT_CARD_ICON_CLASS} />}
+                meta={<span className="text-xs font-semibold text-kumo-subtle">CSV</span>}
+                bodyPadding="sm"
+                bodyClassName="flex flex-col gap-2"
+              >
                 <CodeEditor
                   label="主机列表"
                   language="text"
@@ -9000,15 +11870,15 @@ function ServerPage() {
                 >
                   批量录入
                 </Button>
-            </SectionCard>
+              </SectionCard>
 
-            <SectionCard
-              title="配置迁移"
-              icon={<Database className={MANAGEMENT_CARD_ICON_CLASS} />}
-              meta={<span className="text-xs font-semibold text-kumo-subtle">JSON</span>}
-              bodyPadding="sm"
-              bodyClassName="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between"
-            >
+              <SectionCard
+                title="配置迁移"
+                icon={<Database className={MANAGEMENT_CARD_ICON_CLASS} />}
+                meta={<span className="text-xs font-semibold text-kumo-subtle">JSON</span>}
+                bodyPadding="sm"
+                bodyClassName="flex flex-col gap-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between"
+              >
                 <div className="min-w-0 space-y-1">
                   <div className="text-xs font-medium text-kumo-strong">主机配置</div>
                   <div className="max-w-xl text-xs leading-5 text-kumo-subtle">
@@ -9016,46 +11886,52 @@ function ServerPage() {
                   </div>
                 </div>
                 <div className="flex w-full flex-col gap-2 cq-sm:w-auto cq-sm:flex-row cq-sm:items-center">
-                <Toolbar size="sm" aria-label="导出导入主机配置" className="w-full justify-center cq-sm:w-auto">
-                  <Toolbar.Button
-                    onClick={exportServers}
-                    aria-label="导出主机配置备份"
-                    icon={<Upload className="h-3.5 w-3.5" />}
-                    className="w-full cq-sm:w-auto"
+                  <Toolbar
+                    size="sm"
+                    aria-label="导出导入主机配置"
+                    className="w-full justify-center cq-sm:w-auto"
                   >
-                    <span className="hidden cq-sm:inline">导出</span>
-                  </Toolbar.Button>
-                  <Toolbar.Button
-                    onClick={openImportServerModal}
-                    aria-label="导入主机配置"
-                    icon={<Download className="h-3.5 w-3.5" />}
-                    className="w-full cq-sm:w-auto"
-                  >
-                    <span className="hidden cq-sm:inline">导入</span>
-                  </Toolbar.Button>
-                </Toolbar>
+                    <Toolbar.Button
+                      onClick={exportServers}
+                      aria-label="导出主机配置备份"
+                      icon={<Upload className="h-3.5 w-3.5" />}
+                      className="w-full cq-sm:w-auto"
+                    >
+                      <span className="hidden cq-sm:inline">导出</span>
+                    </Toolbar.Button>
+                    <Toolbar.Button
+                      onClick={openImportServerModal}
+                      aria-label="导入主机配置"
+                      icon={<Download className="h-3.5 w-3.5" />}
+                      className="w-full cq-sm:w-auto"
+                    >
+                      <span className="hidden cq-sm:inline">导入</span>
+                    </Toolbar.Button>
+                  </Toolbar>
                 </div>
-            </SectionCard>
-              </div>
+              </SectionCard>
+            </div>
 
-              <div className="flex min-w-0 flex-col gap-4">
-            <SectionCard
-              title="SSH 凭据库"
-              icon={<Key className={MANAGEMENT_CARD_ICON_CLASS} />}
-              actions={(
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => setShowAddCredentialModal(true)}
-                  icon={<Plus className="h-3.5 w-3.5" />}
-                >
-                  添加
-                </Button>
-              )}
-              bodyPadding="none"
-            >
+            <div className="flex min-w-0 flex-col gap-4">
+              <SectionCard
+                title="SSH 凭据库"
+                icon={<Key className={MANAGEMENT_CARD_ICON_CLASS} />}
+                actions={
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => setShowAddCredentialModal(true)}
+                    icon={<Plus className="h-3.5 w-3.5" />}
+                  >
+                    添加
+                  </Button>
+                }
+                bodyPadding="none"
+              >
                 {serverCredentials.length === 0 ? (
-                  <div className="px-3 py-8 text-center text-xs text-kumo-subtle">暂无预设访问凭据</div>
+                  <div className="px-3 py-8 text-center text-xs text-kumo-subtle">
+                    暂无预设访问凭据
+                  </div>
                 ) : (
                   <div className="max-h-64 overflow-auto">
                     <Table layout="fixed">
@@ -9073,16 +11949,31 @@ function ServerPage() {
                       </Table.Header>
                       <Table.Body>
                         {serverCredentials.map(cred => (
-                          <Table.Row key={cred.id} className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10 text-center">
+                          <Table.Row
+                            key={cred.id}
+                            className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10 text-center"
+                          >
                             <Table.Cell className="whitespace-nowrap">
                               {/* <div className="flex justify-center"> */}
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <span className="truncate font-semibold text-kumo-strong" title={cred.name}>{cred.name}</span>
-                                  {cred.is_default && <Badge variant="success" appearance="dot">默认</Badge>}
-                                </div>
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span
+                                  className="truncate font-semibold text-kumo-strong"
+                                  title={cred.name}
+                                >
+                                  {cred.name}
+                                </span>
+                                {cred.is_default && (
+                                  <Badge variant="success" appearance="dot">
+                                    默认
+                                  </Badge>
+                                )}
+                              </div>
                               {/* </div> */}
                             </Table.Cell>
-                            <Table.Cell className="whitespace-nowrap font-mono text-[11px] text-kumo-subtle" title={cred.username}>
+                            <Table.Cell
+                              className="whitespace-nowrap font-mono text-[11px] text-kumo-subtle"
+                              title={cred.username}
+                            >
                               {cred.username}
                             </Table.Cell>
                             <Table.Cell className="whitespace-nowrap text-center">
@@ -9101,7 +11992,11 @@ function ServerPage() {
                                 <Button
                                   shape="square"
                                   size="sm"
-                                  variant={isArmed(`credential.delete::${cred.id}`) ? 'destructive' : 'secondary-destructive'}
+                                  variant={
+                                    isArmed(`credential.delete::${cred.id}`)
+                                      ? 'destructive'
+                                      : 'secondary-destructive'
+                                  }
                                   aria-label="删除凭据"
                                   onClick={() => deleteCredential(cred.id)}
                                   icon={<Trash className="h-3.5 w-3.5" />}
@@ -9115,35 +12010,35 @@ function ServerPage() {
                     </Table>
                   </div>
                 )}
-            </SectionCard>
+              </SectionCard>
 
-            <SectionCard
-              title="网络拨测目标"
-              icon={<Globe className={MANAGEMENT_CARD_ICON_CLASS} />}
-              actions={(
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => {
-                    setNetworkTargetModalMode('add');
-                    setNetworkTargetForm({
-                      id: null,
-                      name: '',
-                      host: '',
-                      port: 80,
-                      type: 'tcp',
-                      enabled: true,
-                      order_index: 0,
-                    });
-                    setShowNetworkTargetModal(true);
-                  }}
-                  icon={<Plus className="h-3.5 w-3.5" />}
-                >
-                  添加
-                </Button>
-              )}
-              bodyPadding="none"
-            >
+              <SectionCard
+                title="网络拨测目标"
+                icon={<Globe className={MANAGEMENT_CARD_ICON_CLASS} />}
+                actions={
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => {
+                      setNetworkTargetModalMode('add');
+                      setNetworkTargetForm({
+                        id: null,
+                        name: '',
+                        host: '',
+                        port: 80,
+                        type: 'tcp',
+                        enabled: true,
+                        order_index: 0,
+                      });
+                      setShowNetworkTargetModal(true);
+                    }}
+                    icon={<Plus className="h-3.5 w-3.5" />}
+                  >
+                    添加
+                  </Button>
+                }
+                bodyPadding="none"
+              >
                 {networkTargets.length === 0 ? (
                   <div className="px-3 py-8 text-center text-xs text-kumo-subtle">暂无监测目标</div>
                 ) : (
@@ -9165,13 +12060,22 @@ function ServerPage() {
                       </Table.Header>
                       <Table.Body>
                         {networkTargets.map(target => (
-                          <Table.Row key={target.id} className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10 text-center">
+                          <Table.Row
+                            key={target.id}
+                            className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10 text-center"
+                          >
                             <Table.Cell className="whitespace-nowrap">
-                              <span className="font-semibold text-kumo-strong truncate block" title={target.name}>
+                              <span
+                                className="font-semibold text-kumo-strong truncate block"
+                                title={target.name}
+                              >
                                 {target.name}
                               </span>
                             </Table.Cell>
-                            <Table.Cell className="whitespace-nowrap font-mono text-[11px] text-kumo-subtle truncate text-center" title={`${target.host}:${target.port}`}>
+                            <Table.Cell
+                              className="whitespace-nowrap font-mono text-[11px] text-kumo-subtle truncate text-center"
+                              title={`${target.host}:${target.port}`}
+                            >
                               {target.host}:{target.port} ({target.type})
                             </Table.Cell>
                             <Table.Cell className="whitespace-nowrap">
@@ -9209,7 +12113,11 @@ function ServerPage() {
                                 <Button
                                   shape="square"
                                   size="sm"
-                                  variant={isArmed(`network-target.delete::${target.id}`) ? 'destructive' : 'secondary-destructive'}
+                                  variant={
+                                    isArmed(`network-target.delete::${target.id}`)
+                                      ? 'destructive'
+                                      : 'secondary-destructive'
+                                  }
                                   aria-label="删除目标"
                                   onClick={() => deleteNetworkTarget(target.id)}
                                   icon={<Trash className="h-3.5 w-3.5" />}
@@ -9223,349 +12131,455 @@ function ServerPage() {
                     </Table>
                   </div>
                 )}
-            </SectionCard>
-              </div>
+              </SectionCard>
             </div>
+          </div>
         </div>
       )}
 
       {/* ==================== 5. SSH 终端 (多分屏支持) ==================== */}
-      {serverCurrentTab === 'terminal' && (() => {
-        const activeSession = sshSessions.find(s => s.id === activeSSHSessionId);
-        const activeServer = serverList.find(server => String(server.id) === String(activeSession?.server?.id)) || activeSession?.server;
-        const activeInfo = activeServer?.info || {};
-        const activePrimaryDisk = activeInfo.disk?.[0];
-        const terminalCpuUsage = clampPercent(toNumber(activeInfo.cpu?.Usage, 0));
-        const terminalMemUsage = clampPercent(toNumber(activeInfo.memory?.Usage, 0));
-        const terminalDiskUsage = clampPercent(toNumber(activePrimaryDisk?.usage, 0));
-        const terminalGpuUsage = clampPercent(toNumber(activeInfo.gpu?.Usage, 0));
-        const terminalCpuTemp = toNumber(activeInfo.cpu?.Temp, 0);
-        const terminalCpuPower = toNumber(activeInfo.cpu?.Power, 0);
-        const terminalGpuTemp = toNumber(activeInfo.gpu?.Temp, 0);
-        const terminalPhysicalCores = activeInfo.cpu?.PhysicalCores || activeInfo.cpu?.Cores;
-        const terminalLogicalCores = activeInfo.cpu?.LogicalCores;
-        const terminalCoreText = terminalPhysicalCores && terminalLogicalCores && terminalPhysicalCores !== terminalLogicalCores
-          ? `${terminalPhysicalCores}核 / ${terminalLogicalCores}线程`
-          : `${terminalPhysicalCores || '-'} 核`;
-        const terminalGpuModel = getGpuModelText(activeInfo.gpu);
-        const terminalHasGpu = !!terminalGpuModel || terminalGpuUsage > 0 || terminalGpuTemp > 0;
-        const terminalTxTotal = getByteParts(activeInfo.network?.tx_total);
-        const terminalRxTotal = getByteParts(activeInfo.network?.rx_total);
-        return (
-          <AppCard padding="none" className="flex h-full min-h-0 w-full flex-1 flex-col overflow-visible">
-            <div className="flex min-h-11 items-center justify-between gap-3 rounded-t-[inherit] border-b border-kumo-line bg-kumo-base px-3 py-2 text-xs">
-              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-thin">
-                {sshSessions.map(sess => (
-                  <div
-                    key={sess.id}
-                    draggable
-                    onDragStart={event => handleTerminalDragStart(event, sess.id)}
-                    onDragEnd={() => {
-                      setDraggedSessionId(null);
-                      setDropTargetId(null);
-                      setDropHint('');
-                    }}
-                    className={`flex h-7 shrink-0 items-center rounded-md border ${activeSSHSessionId === sess.id
-                      ? 'border-brand/60 bg-kumo-recessed text-kumo-strong'
-                      : 'border-kumo-line bg-kumo-base text-kumo-subtle'
-                      }`}
-                  >
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (visibleSessionIds.includes(sess.id)) {
-                          activateSSHSession(sess.id);
-                        } else {
-                          switchToSSHTab(sess.id);
-                        }
+      {serverCurrentTab === 'terminal' &&
+        (() => {
+          const activeSession = sshSessions.find(s => s.id === activeSSHSessionId);
+          const activeServer =
+            serverList.find(server => String(server.id) === String(activeSession?.server?.id)) ||
+            activeSession?.server;
+          const activeInfo = activeServer?.info || {};
+          const activePrimaryDisk = activeInfo.disk?.[0];
+          const terminalCpuUsage = clampPercent(toNumber(activeInfo.cpu?.Usage, 0));
+          const terminalMemUsage = clampPercent(toNumber(activeInfo.memory?.Usage, 0));
+          const terminalDiskUsage = clampPercent(toNumber(activePrimaryDisk?.usage, 0));
+          const terminalGpuUsage = clampPercent(toNumber(activeInfo.gpu?.Usage, 0));
+          const terminalCpuTemp = toNumber(activeInfo.cpu?.Temp, 0);
+          const terminalCpuPower = toNumber(activeInfo.cpu?.Power, 0);
+          const terminalGpuTemp = toNumber(activeInfo.gpu?.Temp, 0);
+          const terminalPhysicalCores = activeInfo.cpu?.PhysicalCores || activeInfo.cpu?.Cores;
+          const terminalLogicalCores = activeInfo.cpu?.LogicalCores;
+          const terminalCoreText =
+            terminalPhysicalCores &&
+            terminalLogicalCores &&
+            terminalPhysicalCores !== terminalLogicalCores
+              ? `${terminalPhysicalCores}核 / ${terminalLogicalCores}线程`
+              : `${terminalPhysicalCores || '-'} 核`;
+          const terminalGpuModel = getGpuModelText(activeInfo.gpu);
+          const terminalHasGpu = !!terminalGpuModel || terminalGpuUsage > 0 || terminalGpuTemp > 0;
+          const terminalTxTotal = getByteParts(activeInfo.network?.tx_total);
+          const terminalRxTotal = getByteParts(activeInfo.network?.rx_total);
+          return (
+            <AppCard
+              padding="none"
+              className="flex h-full min-h-0 w-full flex-1 flex-col overflow-visible"
+            >
+              <div className="flex min-h-11 items-center justify-between gap-3 rounded-t-[inherit] border-b border-kumo-line bg-kumo-base px-3 py-2 text-xs">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-thin">
+                  {sshSessions.map(sess => (
+                    <div
+                      key={sess.id}
+                      draggable
+                      onDragStart={event => handleTerminalDragStart(event, sess.id)}
+                      onDragEnd={() => {
+                        setDraggedSessionId(null);
+                        setDropTargetId(null);
+                        setDropHint('');
                       }}
-                      className="h-full min-w-0 justify-start px-2 text-[11px] font-semibold text-inherit"
+                      className={`flex h-7 shrink-0 items-center rounded-md border ${
+                        activeSSHSessionId === sess.id
+                          ? 'border-brand/60 bg-kumo-recessed text-kumo-strong'
+                          : 'border-kumo-line bg-kumo-base text-kumo-subtle'
+                      }`}
                     >
-                      <span className={`h-1.5 w-1.5 rounded-full ${sess.connected ? 'bg-kumo-success' : 'bg-kumo-warning'}`}></span>
-                      <span className="max-w-28 truncate">{sess.name}</span>
-                      <span className="text-[9px] uppercase text-kumo-subtle">{sess.type}</span>
-                    </Button>
-                    <Button
-                      shape="square" size="sm"
-                      variant="ghost"
-                      icon={<X className="h-3 w-3" />}
-                      aria-label="关闭终端会话"
-                      title="关闭终端会话"
-                      onClick={e => {
-                        e.stopPropagation();
-                        closeSSHSession(sess.id);
-                      }}
-                      className="hover:text-kumo-danger"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex shrink-0 items-center gap-1.5">
-                <Button
-                  size="sm"
-                  variant={sshSyncEnabled ? 'primary' : 'secondary'}
-                  icon={<Send className="h-3.5 w-3.5" />}
-                  onClick={() => setSshSyncEnabled(prev => !prev)}
-                  title="同步输入"
-                >
-                  同步{sshSyncEnabled ? '开' : '关'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<RefreshCw className="h-3.5 w-3.5" />}
-                  onClick={() => reconnectSSHSession(activeSSHSessionId)}
-                  disabled={!activeSSHSessionId}
-                  title="恢复连接"
-                >
-                  重连
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-[inherit]">
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="relative flex min-h-0 flex-1 overflow-hidden">
-                  <div
-                    className={`grid min-h-0 min-w-0 flex-1 gap-1.5 overflow-hidden bg-kumo-recessed p-1.5 transition-[margin] duration-200 ${activeTerminalSidebar ? 'mr-[clamp(18rem,24vw,26rem)]' : ''} ${sshViewLayout === 'split-h' ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)] grid-rows-1' :
-                      sshViewLayout === 'split-v' ? 'grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)]' :
-                        sshViewLayout === 'grid' ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-1 grid-rows-1'
-                      }`}
-                  >
-                    {visibleSessionIds.map((id, index) => {
-                      const slotSession = sshSessions.find(s => s.id === id);
-                      const showDropPreview = dropTargetId === id && dropHint && draggedSessionId && draggedSessionId !== id;
-                      return (
-                        <div
-                          key={id}
-                          onMouseDown={() => activateSSHSession(id)}
-                          onDragOver={e => handleTerminalDragOver(e, id)}
-                          onDragLeave={e => handleTerminalDragLeave(e, id)}
-                          onDrop={e => {
-                            e.preventDefault();
-                            const sourceId = draggedSessionId || e.dataTransfer?.getData('text/plain') || undefined;
-                            triggerSplitPane(id, getDropPosition(e), sourceId);
-                            setDropTargetId(null);
-                            setDropHint('');
-                          }}
-                          className={`relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-md border bg-kumo-base ${activeSSHSessionId === id ? 'border-kumo-interact' : 'border-kumo-line'
-                            }`}
-                        >
-                          <div
-                            draggable
-                            onDragStart={event => handleTerminalDragStart(event, id)}
-                            className="flex h-8 cursor-move select-none items-center justify-between border-b border-kumo-line bg-kumo-base px-2 text-[10px] text-kumo-subtle"
-                          >
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => activateSSHSession(id)}
-                              className="h-6 min-w-0 justify-start px-0 text-[10px] font-semibold text-kumo-strong"
-                            >
-                              <TerminalIcon className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate">{slotSession?.name || '终端'}</span>
-                            </Button>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => createAttachedTerminalView(id, 'right')}
-                                title="复制终端"
-                              >
-                                复制
-                              </Button>
-                              <Button
-                                shape="square" size="sm"
-                                variant="ghost"
-                                icon={<X className="h-3 w-3" />}
-                                aria-label="关闭终端"
-                                title="关闭终端"
-                                onClick={event => {
-                                  event.stopPropagation();
-                                  removeSSHSessionFromView(id);
-                                }}
-                                className="hover:text-kumo-danger"
-                              />
-                            </div>
-                          </div>
-                          <div id={`ssh-slot-idx-${index}`} className="app-terminal-surface min-h-0 flex-1 overflow-hidden" />
-                          {showDropPreview && (
-                            <div
-                              className="pointer-events-none absolute z-20 rounded-md border border-dashed border-brand bg-brand/10 ring-1 ring-brand/25"
-                              style={getTerminalDropPreviewStyle(dropHint)}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {activeTerminalSidebar && (
-                    <div className="absolute bottom-0 right-0 top-0 z-10 flex min-h-0 w-[clamp(18rem,24vw,26rem)] flex-col overflow-hidden border-l border-kumo-line bg-kumo-base">
-                      {showServerStatusSidebar && (
-                        <div className="flex h-full min-h-0 flex-col p-2.5 text-xs">
-                          <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">
-                            <span className="text-[11px] font-semibold text-kumo-strong">资源监控</span>
-                            <Button
-                              shape="square" size="sm"
-                              variant="ghost"
-                              icon={<X className="h-3 w-3" />}
-                              aria-label="关闭资源监控"
-                              title="关闭资源监控"
-                              onClick={() => setActiveTerminalSidebar(null)}
-                            />
-                          </div>
-                          <div className="min-h-0 space-y-2 overflow-y-auto px-1 pb-1 pr-2">
-                            <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 p-2">
-                              <div className="flex min-w-0 items-center gap-2">
-                                <i className={getOSIconClass(activeInfo.platform)}></i>
-                                <div className="min-w-0">
-                                  <div className="truncate text-xs font-semibold text-kumo-strong">{activeSession?.name || activeServer?.name || '-'}</div>
-                                  <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">{getHostAddress(activeServer, serverIpDisplayMode) || activeServer?.host || 'Agent'}</div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <ExpandedSection title="资源状态" tone="success">
-                              <div className="grid grid-cols-2 gap-1.5">
-                                <ExpandedProgressMetric
-                                  label="CPU"
-                                  value={terminalCpuUsage}
-                                  detail={`${Math.round(terminalCpuUsage)}%`}
-                                  caption={`${terminalCoreText}${terminalCpuTemp > 0 ? ` · ${Math.round(terminalCpuTemp)}°C` : ''}${terminalCpuPower > 0 ? ` · ${terminalCpuPower.toFixed(1)}W` : ''}`}
-                                  indicatorClassName="!bg-none !bg-kumo-success"
-                                  valueClassName="text-kumo-success"
-                                />
-                                <ExpandedProgressMetric
-                                  label="内存"
-                                  value={terminalMemUsage}
-                                  detail={`${Math.round(terminalMemUsage)}%`}
-                                  caption={`${activeInfo.memory?.Used || '-'} / ${activeInfo.memory?.Total || '-'}`}
-                                  indicatorClassName="!bg-none !bg-kumo-info"
-                                  valueClassName="text-kumo-info"
-                                />
-                                {activePrimaryDisk && (
-                                  <ExpandedProgressMetric
-                                    label="磁盘"
-                                    value={terminalDiskUsage}
-                                    detail={`${Math.round(terminalDiskUsage)}%`}
-                                    caption={`${activePrimaryDisk.used || '-'} / ${activePrimaryDisk.total || '-'}`}
-                                    indicatorClassName="!bg-none !bg-kumo-warning"
-                                    valueClassName="text-kumo-warning"
-                                  />
-                                )}
-                                {terminalHasGpu && (
-                                  <ExpandedProgressMetric
-                                    label="GPU"
-                                    value={terminalGpuUsage}
-                                    detail={`${Math.round(terminalGpuUsage)}%`}
-                                    caption={`${terminalGpuModel || 'GPU'}${terminalGpuTemp > 0 ? ` · ${Math.round(terminalGpuTemp)}°C` : ''}`}
-                                    indicatorClassName="!bg-none !bg-kumo-warning"
-                                    valueClassName="text-kumo-warning"
-                                  />
-                                )}
-                              </div>
-                            </ExpandedSection>
-
-                            <ExpandedSection title="系统概览" tone="brand">
-                              <div className="grid grid-cols-1 gap-1.5">
-                                <ExpandedInfoChip label="系统" value={activeInfo.platform || activeInfo.platformVersion || activeInfo.system?.Kernel || '-'} />
-                                <ExpandedInfoChip label="CPU 型号" value={activeInfo.cpu?.Model || activeServer?.metadata?.cpu_model || activeServer?.metadata?.cpu_name || '-'} />
-                                <ExpandedInfoChip label="负载" value={activeInfo.cpu?.Load || '-'} valueClassName="font-mono text-kumo-strong" />
-                                <ExpandedInfoChip label="在线" value={formatUptimeDaysOnly(activeInfo.uptime || activeInfo.system?.Uptime)} />
-                                <ExpandedInfoChip label="Agent 版本" value={activeInfo.agentVersion || '-'} />
-                              </div>
-                            </ExpandedSection>
-
-                            {activeInfo.network && (
-                              <ExpandedSection title="网络" tone="info">
-                                <div className="grid grid-cols-2 gap-1.5">
-                                  <ExpandedStatTile label="上传" value={activeInfo.network.tx_speed || '0 B/s'} tone="info" />
-                                  <ExpandedStatTile label="下载" value={activeInfo.network.rx_speed || '0 B/s'} tone="success" />
-                                  <ExpandedInfoChip label="累计上行" value={terminalTxTotal.text} valueClassName="text-kumo-info" className="col-span-2" />
-                                  <ExpandedInfoChip label="累计下行" value={terminalRxTotal.text} valueClassName="text-kumo-success" className="col-span-2" />
-                                  <ExpandedInfoChip label="连接" value={activeInfo.network.connections || 0} className="col-span-2" />
-                                </div>
-                              </ExpandedSection>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {showSftpSidebar && (
-                        <div className="flex h-full min-h-0 overflow-hidden">
-                          <SftpPanel
-                            serverId={activeServer?.id || sftpServerId}
-                            serverName={activeServer?.name}
-                            initialPath={sftpPathByServerRef.current[activeServer?.id] || sftpCurrentPath || '.'}
-                            onClose={() => setActiveTerminalSidebar(null)}
-                            onPathChange={(serverId, path) => {
-                              sftpPathByServerRef.current[serverId] = path;
-                              setSftpServerId(serverId);
-                              setSftpCurrentPath(path);
-                            }}
-                          />
-                        </div>
-                      )}
-                      {showCommandSidebar && (
-                        <div className="flex h-full min-h-0 overflow-hidden">
-                          <QuickCommandBar
-                            activeServer={activeServer}
-                            activeSessionId={activeSSHSessionId}
-                            sessions={sshSessions}
-                            visibleSessionIds={visibleSessionIds}
-                            syncEnabled={sshSyncEnabled}
-                            onRunCommand={(command, options) => runQuickCommand(command, options)}
-                          />
-                        </div>
-                      )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (visibleSessionIds.includes(sess.id)) {
+                            activateSSHSession(sess.id);
+                          } else {
+                            switchToSSHTab(sess.id);
+                          }
+                        }}
+                        className="h-full min-w-0 justify-start px-2 text-[11px] font-semibold text-inherit"
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${sess.connected ? 'bg-kumo-success' : 'bg-kumo-warning'}`}
+                        ></span>
+                        <span className="max-w-28 truncate">{sess.name}</span>
+                        <span className="text-[9px] uppercase text-kumo-subtle">{sess.type}</span>
+                      </Button>
+                      <Button
+                        shape="square"
+                        size="sm"
+                        variant="ghost"
+                        icon={<X className="h-3 w-3" />}
+                        aria-label="关闭终端会话"
+                        title="关闭终端会话"
+                        onClick={e => {
+                          e.stopPropagation();
+                          closeSSHSession(sess.id);
+                        }}
+                        className="hover:text-kumo-danger"
+                      />
                     </div>
-                  )}
+                  ))}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant={sshSyncEnabled ? 'primary' : 'secondary'}
+                    icon={<Send className="h-3.5 w-3.5" />}
+                    onClick={() => setSshSyncEnabled(prev => !prev)}
+                    title="同步输入"
+                  >
+                    同步{sshSyncEnabled ? '开' : '关'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<RefreshCw className="h-3.5 w-3.5" />}
+                    onClick={() => reconnectSSHSession(activeSSHSessionId)}
+                    disabled={!activeSSHSessionId}
+                    title="恢复连接"
+                  >
+                    重连
+                  </Button>
                 </div>
               </div>
-              <div className="flex w-11 shrink-0 flex-col items-center gap-3 border-l border-kumo-line bg-kumo-base py-3 text-kumo-subtle">
-                <Button
-                  shape="square" size="sm"
-                  variant={showServerStatusSidebar ? 'secondary' : 'ghost'}
-                  icon={<Activity className="h-4 w-4" />}
-                  aria-label="资源监控"
-                  title="资源监控"
-                  onClick={() => toggleTerminalSidebar('status')}
-                />
-                <Button
-                  shape="square" size="sm"
-                  variant={showSftpSidebar ? 'secondary' : 'ghost'}
-                  icon={<FolderOpen className="h-4 w-4" />}
-                  aria-label="SFTP 文件浏览"
-                  title="SFTP 文件浏览"
-                  onClick={() => {
-                    const serverId = sshSessions.find(s => s.id === activeSSHSessionId)?.server.id;
-                    toggleTerminalSidebar('sftp', { serverId });
-                  }}
-                />
-                <Button
-                  shape="square" size="sm"
-                  variant={showCommandSidebar ? 'secondary' : 'ghost'}
-                  icon={<TerminalIcon className="h-4 w-4" />}
-                  aria-label="命令片段"
-                  title="命令片段"
-                  onClick={() => toggleTerminalSidebar('commands')}
-                />
+
+              <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-[inherit]">
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="relative flex min-h-0 flex-1 overflow-hidden">
+                    <div
+                      className={`grid min-h-0 min-w-0 flex-1 gap-1.5 overflow-hidden bg-kumo-recessed p-1.5 transition-[margin] duration-200 ${activeTerminalSidebar ? 'mr-[clamp(18rem,24vw,26rem)]' : ''} ${
+                        sshViewLayout === 'split-h'
+                          ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)] grid-rows-1'
+                          : sshViewLayout === 'split-v'
+                            ? 'grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
+                            : sshViewLayout === 'grid'
+                              ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
+                              : 'grid-cols-1 grid-rows-1'
+                      }`}
+                    >
+                      {visibleSessionIds.map((id, index) => {
+                        const slotSession = sshSessions.find(s => s.id === id);
+                        const showDropPreview =
+                          dropTargetId === id &&
+                          dropHint &&
+                          draggedSessionId &&
+                          draggedSessionId !== id;
+                        return (
+                          <div
+                            key={id}
+                            onMouseDown={() => activateSSHSession(id)}
+                            onDragOver={e => handleTerminalDragOver(e, id)}
+                            onDragLeave={e => handleTerminalDragLeave(e, id)}
+                            onDrop={e => {
+                              e.preventDefault();
+                              const sourceId =
+                                draggedSessionId ||
+                                e.dataTransfer?.getData('text/plain') ||
+                                undefined;
+                              triggerSplitPane(id, getDropPosition(e), sourceId);
+                              setDropTargetId(null);
+                              setDropHint('');
+                            }}
+                            className={`relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-md border bg-kumo-base ${
+                              activeSSHSessionId === id
+                                ? 'border-kumo-interact'
+                                : 'border-kumo-line'
+                            }`}
+                          >
+                            <div
+                              draggable
+                              onDragStart={event => handleTerminalDragStart(event, id)}
+                              className="flex h-8 cursor-move select-none items-center justify-between border-b border-kumo-line bg-kumo-base px-2 text-[10px] text-kumo-subtle"
+                            >
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => activateSSHSession(id)}
+                                className="h-6 min-w-0 justify-start px-0 text-[10px] font-semibold text-kumo-strong"
+                              >
+                                <TerminalIcon className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{slotSession?.name || '终端'}</span>
+                              </Button>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => createAttachedTerminalView(id, 'right')}
+                                  title="复制终端"
+                                >
+                                  复制
+                                </Button>
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  icon={<X className="h-3 w-3" />}
+                                  aria-label="关闭终端"
+                                  title="关闭终端"
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    removeSSHSessionFromView(id);
+                                  }}
+                                  className="hover:text-kumo-danger"
+                                />
+                              </div>
+                            </div>
+                            <div
+                              id={`ssh-slot-idx-${index}`}
+                              className="app-terminal-surface min-h-0 flex-1 overflow-hidden"
+                            />
+                            {showDropPreview && (
+                              <div
+                                className="pointer-events-none absolute z-20 rounded-md border border-dashed border-brand bg-brand/10 ring-1 ring-brand/25"
+                                style={getTerminalDropPreviewStyle(dropHint)}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {activeTerminalSidebar && (
+                      <div className="absolute bottom-0 right-0 top-0 z-10 flex min-h-0 w-[clamp(18rem,24vw,26rem)] flex-col overflow-hidden border-l border-kumo-line bg-kumo-base">
+                        {showServerStatusSidebar && (
+                          <div className="flex h-full min-h-0 flex-col p-2.5 text-xs">
+                            <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">
+                              <span className="text-[11px] font-semibold text-kumo-strong">
+                                资源监控
+                              </span>
+                              <Button
+                                shape="square"
+                                size="sm"
+                                variant="ghost"
+                                icon={<X className="h-3 w-3" />}
+                                aria-label="关闭资源监控"
+                                title="关闭资源监控"
+                                onClick={() => setActiveTerminalSidebar(null)}
+                              />
+                            </div>
+                            <div className="min-h-0 space-y-2 overflow-y-auto px-1 pb-1 pr-2">
+                              <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 p-2">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <i className={getOSIconClass(activeInfo.platform)}></i>
+                                  <div className="min-w-0">
+                                    <div className="truncate text-xs font-semibold text-kumo-strong">
+                                      {activeSession?.name || activeServer?.name || '-'}
+                                    </div>
+                                    <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">
+                                      {getHostAddress(activeServer, serverIpDisplayMode) ||
+                                        activeServer?.host ||
+                                        'Agent'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <ExpandedSection title="资源状态" tone="success">
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <ExpandedProgressMetric
+                                    label="CPU"
+                                    value={terminalCpuUsage}
+                                    detail={`${Math.round(terminalCpuUsage)}%`}
+                                    caption={`${terminalCoreText}${terminalCpuTemp > 0 ? ` · ${Math.round(terminalCpuTemp)}°C` : ''}${terminalCpuPower > 0 ? ` · ${terminalCpuPower.toFixed(1)}W` : ''}`}
+                                    indicatorClassName="!bg-none !bg-kumo-success"
+                                    valueClassName="text-kumo-success"
+                                  />
+                                  <ExpandedProgressMetric
+                                    label="内存"
+                                    value={terminalMemUsage}
+                                    detail={`${Math.round(terminalMemUsage)}%`}
+                                    caption={`${activeInfo.memory?.Used || '-'} / ${activeInfo.memory?.Total || '-'}`}
+                                    indicatorClassName="!bg-none !bg-kumo-info"
+                                    valueClassName="text-kumo-info"
+                                  />
+                                  {activePrimaryDisk && (
+                                    <ExpandedProgressMetric
+                                      label="磁盘"
+                                      value={terminalDiskUsage}
+                                      detail={`${Math.round(terminalDiskUsage)}%`}
+                                      caption={`${activePrimaryDisk.used || '-'} / ${activePrimaryDisk.total || '-'}`}
+                                      indicatorClassName="!bg-none !bg-kumo-warning"
+                                      valueClassName="text-kumo-warning"
+                                    />
+                                  )}
+                                  {terminalHasGpu && (
+                                    <ExpandedProgressMetric
+                                      label="GPU"
+                                      value={terminalGpuUsage}
+                                      detail={`${Math.round(terminalGpuUsage)}%`}
+                                      caption={`${terminalGpuModel || 'GPU'}${terminalGpuTemp > 0 ? ` · ${Math.round(terminalGpuTemp)}°C` : ''}`}
+                                      indicatorClassName="!bg-none !bg-kumo-warning"
+                                      valueClassName="text-kumo-warning"
+                                    />
+                                  )}
+                                </div>
+                              </ExpandedSection>
+
+                              <ExpandedSection title="系统概览" tone="brand">
+                                <div className="grid grid-cols-1 gap-1.5">
+                                  <ExpandedInfoChip
+                                    label="系统"
+                                    value={
+                                      activeInfo.platform ||
+                                      activeInfo.platformVersion ||
+                                      activeInfo.system?.Kernel ||
+                                      '-'
+                                    }
+                                  />
+                                  <ExpandedInfoChip
+                                    label="CPU 型号"
+                                    value={
+                                      activeInfo.cpu?.Model ||
+                                      activeServer?.metadata?.cpu_model ||
+                                      activeServer?.metadata?.cpu_name ||
+                                      '-'
+                                    }
+                                  />
+                                  <ExpandedInfoChip
+                                    label="负载"
+                                    value={activeInfo.cpu?.Load || '-'}
+                                    valueClassName="font-mono text-kumo-strong"
+                                  />
+                                  <ExpandedInfoChip
+                                    label="在线"
+                                    value={formatUptimeDaysOnly(
+                                      activeInfo.uptime || activeInfo.system?.Uptime
+                                    )}
+                                  />
+                                  <ExpandedInfoChip
+                                    label="Agent 版本"
+                                    value={activeInfo.agentVersion || '-'}
+                                  />
+                                </div>
+                              </ExpandedSection>
+
+                              {activeInfo.network && (
+                                <ExpandedSection title="网络" tone="info">
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <ExpandedStatTile
+                                      label="上传"
+                                      value={activeInfo.network.tx_speed || '0 B/s'}
+                                      tone="info"
+                                    />
+                                    <ExpandedStatTile
+                                      label="下载"
+                                      value={activeInfo.network.rx_speed || '0 B/s'}
+                                      tone="success"
+                                    />
+                                    <ExpandedInfoChip
+                                      label="累计上行"
+                                      value={terminalTxTotal.text}
+                                      valueClassName="text-kumo-info"
+                                      className="col-span-2"
+                                    />
+                                    <ExpandedInfoChip
+                                      label="累计下行"
+                                      value={terminalRxTotal.text}
+                                      valueClassName="text-kumo-success"
+                                      className="col-span-2"
+                                    />
+                                    <ExpandedInfoChip
+                                      label="连接"
+                                      value={activeInfo.network.connections || 0}
+                                      className="col-span-2"
+                                    />
+                                  </div>
+                                </ExpandedSection>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {showSftpSidebar && (
+                          <div className="flex h-full min-h-0 overflow-hidden">
+                            <SftpPanel
+                              serverId={activeServer?.id || sftpServerId}
+                              serverName={activeServer?.name}
+                              initialPath={
+                                sftpPathByServerRef.current[activeServer?.id] ||
+                                sftpCurrentPath ||
+                                '.'
+                              }
+                              onClose={() => setActiveTerminalSidebar(null)}
+                              onPathChange={(serverId, path) => {
+                                sftpPathByServerRef.current[serverId] = path;
+                                setSftpServerId(serverId);
+                                setSftpCurrentPath(path);
+                              }}
+                            />
+                          </div>
+                        )}
+                        {showCommandSidebar && (
+                          <div className="flex h-full min-h-0 overflow-hidden">
+                            <QuickCommandBar
+                              activeServer={activeServer}
+                              activeSessionId={activeSSHSessionId}
+                              sessions={sshSessions}
+                              visibleSessionIds={visibleSessionIds}
+                              syncEnabled={sshSyncEnabled}
+                              onRunCommand={(command, options) => runQuickCommand(command, options)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex w-11 shrink-0 flex-col items-center gap-3 border-l border-kumo-line bg-kumo-base py-3 text-kumo-subtle">
+                  <Button
+                    shape="square"
+                    size="sm"
+                    variant={showServerStatusSidebar ? 'secondary' : 'ghost'}
+                    icon={<Activity className="h-4 w-4" />}
+                    aria-label="资源监控"
+                    title="资源监控"
+                    onClick={() => toggleTerminalSidebar('status')}
+                  />
+                  <Button
+                    shape="square"
+                    size="sm"
+                    variant={showSftpSidebar ? 'secondary' : 'ghost'}
+                    icon={<FolderOpen className="h-4 w-4" />}
+                    aria-label="SFTP 文件浏览"
+                    title="SFTP 文件浏览"
+                    onClick={() => {
+                      const serverId = sshSessions.find(s => s.id === activeSSHSessionId)?.server
+                        .id;
+                      toggleTerminalSidebar('sftp', { serverId });
+                    }}
+                  />
+                  <Button
+                    shape="square"
+                    size="sm"
+                    variant={showCommandSidebar ? 'secondary' : 'ghost'}
+                    icon={<TerminalIcon className="h-4 w-4" />}
+                    aria-label="命令片段"
+                    title="命令片段"
+                    onClick={() => toggleTerminalSidebar('commands')}
+                  />
+                </div>
               </div>
-            </div>
-          </AppCard>
-        );
-      })()}
+            </AppCard>
+          );
+        })()}
 
       {/* ==================== xterm.js 实例静默挂载的仓库 ==================== */}
-      <div ref={warehouseRef} className="hidden absolute -top-[9999px]" id="ssh-terminal-warehouse"></div>
+      <div
+        ref={warehouseRef}
+        className="hidden absolute -top-[9999px]"
+        id="ssh-terminal-warehouse"
+      ></div>
 
       {/* ==================== 模态框: 添加与编辑服务器 ==================== */}
       <Dialog.Root open={showServerModal} onOpenChange={setShowServerModal}>
-        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[48rem] flex-col overflow-hidden p-0 cq-sm:max-w-[calc(100vw-3rem)]">
+        <Dialog
+          size="xl"
+          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[48rem] flex-col overflow-hidden p-0 cq-sm:max-w-[calc(100vw-3rem)]"
+        >
           <div ref={serverModalPortalRef} className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
               <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
@@ -9573,12 +12587,13 @@ function ServerPage() {
               </Dialog.Title>
               <Dialog.Close
                 aria-label="关闭"
-                render={(props) => (
+                render={props => (
                   <Button
                     {...props}
                     type="button"
                     variant="secondary"
-                    shape="square" size="sm"
+                    shape="square"
+                    size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
                     className="shrink-0"
@@ -9592,7 +12607,7 @@ function ServerPage() {
                 <Tabs
                   {...TOOL_TABS_PROPS}
                   value={serverAddMode}
-                  onValueChange={(value) => {
+                  onValueChange={value => {
                     setServerAddMode(value);
                     setServerModalError('');
                   }}
@@ -9608,7 +12623,8 @@ function ServerPage() {
                   <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-kumo-subtle">主机名称 (别名)</label>
-                      <Input size="sm"
+                      <Input
+                        size="sm"
                         aria-label="主机名称"
                         type="text"
                         value={serverForm.name}
@@ -9619,22 +12635,18 @@ function ServerPage() {
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-kumo-subtle">开始时间</label>
-                      <Input size="sm"
-                        aria-label="开始时间"
-                        type="date"
+                      <DateField
                         value={serverForm.startsAt}
-                        onChange={e => setServerForm(prev => ({ ...prev, startsAt: e.target.value }))}
-                        className="px-3 py-2 text-kumo-strong"
+                        onChange={startsAt => setServerForm(prev => ({ ...prev, startsAt }))}
+                        placeholder="未设置"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-kumo-subtle">到期时间</label>
-                      <Input size="sm"
-                        aria-label="到期时间"
-                        type="date"
+                      <DateField
                         value={serverForm.expiresAt}
-                        onChange={e => setServerForm(prev => ({ ...prev, expiresAt: e.target.value }))}
-                        className="px-3 py-2 text-kumo-strong"
+                        onChange={expiresAt => setServerForm(prev => ({ ...prev, expiresAt }))}
+                        placeholder="永不过期"
                       />
                     </div>
                   </div>
@@ -9650,20 +12662,33 @@ function ServerPage() {
                         <div className="flex min-w-0 flex-col gap-1.5">
                           <label className="font-semibold text-kumo-subtle">流量配额</label>
                           <div className="grid grid-cols-[minmax(0,1fr)_4.5rem] gap-2">
-                            <Input size="sm"
+                            <Input
+                              size="sm"
                               aria-label="总流量配额"
                               type="number"
                               min="0"
                               step="0.001"
                               value={serverForm.trafficLimitValue}
-                              onChange={e => setServerForm(prev => ({ ...prev, trafficLimitValue: e.target.value }))}
+                              onChange={e =>
+                                setServerForm(prev => ({
+                                  ...prev,
+                                  trafficLimitValue: e.target.value,
+                                }))
+                              }
                               placeholder="留空则不限额"
                               className="px-3 py-2 text-kumo-strong"
                             />
-                            <Select alignItemWithTrigger size="sm"
+                            <Select
+                              alignItemWithTrigger
+                              size="sm"
                               aria-label="流量配额单位"
                               value={serverForm.trafficLimitUnit}
-                              onValueChange={(value) => setServerForm(prev => ({ ...prev, trafficLimitUnit: String(value) }))}
+                              onValueChange={value =>
+                                setServerForm(prev => ({
+                                  ...prev,
+                                  trafficLimitUnit: String(value),
+                                }))
+                              }
                               className="px-3 py-2"
                               items={[
                                 { value: 'GB', label: 'GB' },
@@ -9675,12 +12700,20 @@ function ServerPage() {
                         </div>
                         <div className="flex min-w-0 flex-col gap-1.5">
                           <label className="font-semibold text-kumo-subtle">统计范围</label>
-                          <Select alignItemWithTrigger size="sm"
+                          <Select
+                            alignItemWithTrigger
+                            size="sm"
                             aria-label="配额方向"
                             value={serverForm.trafficLimitMode}
-                            onValueChange={(value) => setServerForm(prev => ({ ...prev, trafficLimitMode: String(value) }))}
+                            onValueChange={value =>
+                              setServerForm(prev => ({ ...prev, trafficLimitMode: String(value) }))
+                            }
                             className="px-3 py-2"
-                            items={[{ value: 'total', label: '总流量' }, { value: 'upload', label: '上行' }, { value: 'download', label: '下行' }]}
+                            items={[
+                              { value: 'total', label: '总流量' },
+                              { value: 'upload', label: '上行' },
+                              { value: 'download', label: '下行' },
+                            ]}
                           />
                         </div>
                       </div>
@@ -9692,20 +12725,49 @@ function ServerPage() {
                             <Checkbox
                               label="启用"
                               checked={Boolean(serverForm.trafficAlertEnabled)}
-                              disabled={trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
-                              onCheckedChange={(checked) => setServerForm(prev => ({ ...prev, trafficAlertEnabled: Boolean(checked) }))}
+                              disabled={
+                                trafficQuotaInputToBytes(
+                                  serverForm.trafficLimitValue,
+                                  serverForm.trafficLimitUnit
+                                ) <= 0
+                              }
+                              onCheckedChange={checked =>
+                                setServerForm(prev => ({
+                                  ...prev,
+                                  trafficAlertEnabled: Boolean(checked),
+                                }))
+                              }
                             />
                           </div>
-                          <Input size="sm"
+                          <Input
+                            size="sm"
                             aria-label="报警阈值百分比"
                             type="number"
                             min="1"
                             max="100"
                             step="1"
                             value={serverForm.trafficAlertPercent}
-                            disabled={!serverForm.trafficAlertEnabled || trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
-                            onChange={e => setServerForm(prev => ({ ...prev, trafficAlertPercent: e.target.value }))}
-                            onBlur={() => setServerForm(prev => ({ ...prev, trafficAlertPercent: normalizeTrafficAlertPercentInput(prev.trafficAlertPercent) }))}
+                            disabled={
+                              !serverForm.trafficAlertEnabled ||
+                              trafficQuotaInputToBytes(
+                                serverForm.trafficLimitValue,
+                                serverForm.trafficLimitUnit
+                              ) <= 0
+                            }
+                            onChange={e =>
+                              setServerForm(prev => ({
+                                ...prev,
+                                trafficAlertPercent: e.target.value,
+                              }))
+                            }
+                            onBlur={() =>
+                              setServerForm(prev => ({
+                                ...prev,
+                                trafficAlertPercent: normalizeTrafficAlertPercentInput(
+                                  prev.trafficAlertPercent
+                                ),
+                              }))
+                            }
                             className="min-w-0 px-3 py-2 text-kumo-strong"
                           />
                           <span className="text-kumo-subtle">%</span>
@@ -9713,7 +12775,14 @@ function ServerPage() {
                             type="button"
                             size="sm"
                             variant="secondary"
-                            disabled={serverModalSaving || !serverForm.trafficAlertEnabled || trafficQuotaInputToBytes(serverForm.trafficLimitValue, serverForm.trafficLimitUnit) <= 0}
+                            disabled={
+                              serverModalSaving ||
+                              !serverForm.trafficAlertEnabled ||
+                              trafficQuotaInputToBytes(
+                                serverForm.trafficLimitValue,
+                                serverForm.trafficLimitUnit
+                              ) <= 0
+                            }
                             onClick={testTrafficAlert}
                             className="whitespace-nowrap px-3 py-1.5 text-xs font-semibold"
                           >
@@ -9726,10 +12795,14 @@ function ServerPage() {
                     <div className="mt-3 grid grid-cols-1 gap-3 border-t border-kumo-line pt-3 cq-sm:grid-cols-3">
                       <div className="flex flex-col gap-1.5">
                         <label className="font-semibold text-kumo-subtle">流量周期</label>
-                        <Select alignItemWithTrigger size="sm"
+                        <Select
+                          alignItemWithTrigger
+                          size="sm"
                           aria-label="流量周期"
                           value={serverForm.trafficCycleType}
-                          onValueChange={(value) => setServerForm(prev => ({ ...prev, trafficCycleType: String(value) }))}
+                          onValueChange={value =>
+                            setServerForm(prev => ({ ...prev, trafficCycleType: String(value) }))
+                          }
                           className="px-3 py-2"
                           items={TRAFFIC_CYCLE_OPTIONS}
                         />
@@ -9737,15 +12810,25 @@ function ServerPage() {
                       {serverForm.trafficCycleType === 'monthly' && (
                         <div className="flex flex-col gap-1.5 cq-sm:col-span-2">
                           <label className="font-semibold text-kumo-subtle">账单日</label>
-                          <Input size="sm"
+                          <Input
+                            size="sm"
                             aria-label="每月流量重置日"
                             type="number"
                             min="1"
                             max="28"
                             step="1"
                             value={serverForm.trafficCycleDay}
-                            onChange={e => setServerForm(prev => ({ ...prev, trafficCycleDay: e.target.value }))}
-                            onBlur={() => setServerForm(prev => ({ ...prev, trafficCycleDay: normalizeTrafficCycleDayInput(prev.trafficCycleDay) }))}
+                            onChange={e =>
+                              setServerForm(prev => ({ ...prev, trafficCycleDay: e.target.value }))
+                            }
+                            onBlur={() =>
+                              setServerForm(prev => ({
+                                ...prev,
+                                trafficCycleDay: normalizeTrafficCycleDayInput(
+                                  prev.trafficCycleDay
+                                ),
+                              }))
+                            }
                             className="px-3 py-2 text-kumo-strong"
                           />
                         </div>
@@ -9754,29 +12837,32 @@ function ServerPage() {
                         <div className="grid grid-cols-1 gap-3 cq-sm:col-span-2 cq-sm:grid-cols-2">
                           <div className="flex flex-col gap-1.5">
                             <label className="font-semibold text-kumo-subtle">周期开始</label>
-                            <Input size="sm"
-                              aria-label="流量周期开始"
-                              type="date"
+                            <DateField
                               value={serverForm.trafficCycleStart}
-                              onChange={e => setServerForm(prev => ({ ...prev, trafficCycleStart: e.target.value }))}
-                              className="px-3 py-2 text-kumo-strong"
+                              onChange={trafficCycleStart =>
+                                setServerForm(prev => ({ ...prev, trafficCycleStart }))
+                              }
+                              placeholder="未设置"
                             />
                           </div>
                           <div className="flex flex-col gap-1.5">
                             <label className="font-semibold text-kumo-subtle">周期结束</label>
-                            <Input size="sm"
-                              aria-label="流量周期结束"
-                              type="date"
+                            <DateField
                               value={serverForm.trafficCycleEnd}
-                              onChange={e => setServerForm(prev => ({ ...prev, trafficCycleEnd: e.target.value }))}
-                              className="px-3 py-2 text-kumo-strong"
+                              onChange={trafficCycleEnd =>
+                                setServerForm(prev => ({ ...prev, trafficCycleEnd }))
+                              }
+                              placeholder="未设置"
                             />
                           </div>
                         </div>
                       )}
-                      {(serverForm.trafficCycleType === 'calendar_month' || serverForm.trafficCycleType === 'none') && (
+                      {(serverForm.trafficCycleType === 'calendar_month' ||
+                        serverForm.trafficCycleType === 'none') && (
                         <div className="rounded-md border border-kumo-line bg-kumo-surface px-3 py-2 text-xs text-kumo-subtle cq-sm:col-span-2">
-                          {serverForm.trafficCycleType === 'calendar_month' ? '每月 1 日作为新流量周期。' : '不设置重置周期，按累计流量显示。'}
+                          {serverForm.trafficCycleType === 'calendar_month'
+                            ? '每月 1 日作为新流量周期。'
+                            : '不设置重置周期，按累计流量显示。'}
                         </div>
                       )}
                     </div>
@@ -9788,120 +12874,117 @@ function ServerPage() {
                       <span className="text-[11px] text-kumo-subtle">SSH 登录信息</span>
                     </div>
 
-                  <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-3">
-                    <div className="flex flex-col gap-1.5 cq-sm:col-span-2">
-                      <label className="font-semibold text-kumo-subtle">连接地址（IP 或域名）</label>
-                      <Input size="sm"
-                        aria-label="连接地址"
-                        type="text"
-                        value={serverForm.host}
-                        onChange={e => setServerForm(prev => ({ ...prev, host: e.target.value }))}
-                        placeholder="12.34.56.78"
-                        className="px-3 py-2 text-kumo-strong"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-kumo-subtle">端口</label>
-                      <Input size="sm"
-                        aria-label="端口"
-                        type="number"
-                        value={serverForm.port}
-                        onChange={e => setServerForm(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
-                        placeholder="22"
-                        className="px-3 py-2 text-kumo-strong"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-col gap-1.5">
-                    <label className="font-semibold text-kumo-subtle">凭据预设</label>
-                    <Select alignItemWithTrigger size="sm"
-                      aria-label="选择凭据预设"
-                      value={selectedCredentialId}
-                      onValueChange={applyCredential}
-                      placeholder="手动录入"
-                      className="w-full min-w-0 px-3 py-2"
-                      items={[
-                        { value: '', label: '手动录入' },
-                        ...serverCredentials.map(c => ({
-                          value: String(c.id),
-                          label: `${c.name} (${c.username})`,
-                        })),
-                      ]}
-                    />
-                  </div>
-
-                  <div className="mt-3 flex flex-col gap-3 border-t border-kumo-line pt-3">
-                    <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2">
-                      <div className="flex flex-col gap-1.5">
-                        <label className="font-semibold text-kumo-subtle">登录用户名</label>
-                        <Input size="sm"
-                          aria-label="登录用户名"
+                    <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-3">
+                      <div className="flex flex-col gap-1.5 cq-sm:col-span-2">
+                        <label className="font-semibold text-kumo-subtle">
+                          连接地址（IP 或域名）
+                        </label>
+                        <Input
+                          size="sm"
+                          aria-label="连接地址"
                           type="text"
-                          value={serverForm.username}
-                          onChange={e => setServerForm(prev => ({ ...prev, username: e.target.value }))}
-                          placeholder="root"
+                          value={serverForm.host}
+                          onChange={e => setServerForm(prev => ({ ...prev, host: e.target.value }))}
+                          placeholder="12.34.56.78"
                           className="px-3 py-2 text-kumo-strong"
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="font-semibold text-kumo-subtle">身份验证方案</label>
-                        <div className="flex flex-wrap gap-2">
-                          <Button size="sm"
-                            variant={serverForm.authType === 'password' ? 'primary' : 'secondary'}
-                            onClick={() => setServerForm(prev => ({ ...prev, authType: 'password' }))}
-                          >
-                            密码验证
-                          </Button>
-                          <Button size="sm"
-                            variant={serverForm.authType === 'privateKey' ? 'primary' : 'secondary'}
-                            onClick={() => setServerForm(prev => ({ ...prev, authType: 'privateKey' }))}
-                          >
-                            密钥证书
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {serverForm.authType === 'password' ? (
-                      <div className="flex flex-col gap-1.5">
-                        <label className="font-semibold text-kumo-subtle">连接密码</label>
-                        <Input size="sm"
-                          aria-label="连接密码"
-                          type="text"
-                          value={serverForm.password}
-                          onChange={e => setServerForm(prev => ({ ...prev, password: e.target.value }))}
-                          placeholder={serverModalMode === 'edit' ? '****** (留空不修改)' : '登录密码'}
-                          autoComplete="off"
-                          data-1p-ignore
-                          data-lpignore="true"
-                          data-bwignore="true"
-                          data-form-type="other"
-                          spellCheck={false}
+                        <label className="font-semibold text-kumo-subtle">端口</label>
+                        <Input
+                          size="sm"
+                          aria-label="端口"
+                          type="number"
+                          value={serverForm.port}
+                          onChange={e =>
+                            setServerForm(prev => ({
+                              ...prev,
+                              port: parseInt(e.target.value) || 22,
+                            }))
+                          }
+                          placeholder="22"
                           className="px-3 py-2 text-kumo-strong"
                         />
                       </div>
-                    ) : (
-                      <div className="flex flex-col gap-3">
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-1.5">
+                      <label className="font-semibold text-kumo-subtle">凭据预设</label>
+                      <Select
+                        alignItemWithTrigger
+                        size="sm"
+                        aria-label="选择凭据预设"
+                        value={selectedCredentialId}
+                        onValueChange={applyCredential}
+                        placeholder="手动录入"
+                        className="w-full min-w-0 px-3 py-2"
+                        items={[
+                          { value: '', label: '手动录入' },
+                          ...serverCredentials.map(c => ({
+                            value: String(c.id),
+                            label: `${c.name} (${c.username})`,
+                          })),
+                        ]}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-3 border-t border-kumo-line pt-3">
+                      <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2">
                         <div className="flex flex-col gap-1.5">
-                          <label className="font-semibold text-kumo-subtle">私钥证书</label>
-                          <CodeEditor
-                            label="证书密钥"
-                            language="text"
-                            value={serverForm.privateKey}
-                            onChange={privateKey => setServerForm(prev => ({ ...prev, privateKey }))}
-                            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                            minHeight="8rem"
+                          <label className="font-semibold text-kumo-subtle">登录用户名</label>
+                          <Input
+                            size="sm"
+                            aria-label="登录用户名"
+                            type="text"
+                            value={serverForm.username}
+                            onChange={e =>
+                              setServerForm(prev => ({ ...prev, username: e.target.value }))
+                            }
+                            placeholder="root"
+                            className="px-3 py-2 text-kumo-strong"
                           />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <label className="font-semibold text-kumo-subtle">密钥口令（如有）</label>
-                          <Input size="sm"
-                            aria-label="密钥口令"
+                          <label className="font-semibold text-kumo-subtle">身份验证方案</label>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant={serverForm.authType === 'password' ? 'primary' : 'secondary'}
+                              onClick={() =>
+                                setServerForm(prev => ({ ...prev, authType: 'password' }))
+                              }
+                            >
+                              密码验证
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={
+                                serverForm.authType === 'privateKey' ? 'primary' : 'secondary'
+                              }
+                              onClick={() =>
+                                setServerForm(prev => ({ ...prev, authType: 'privateKey' }))
+                              }
+                            >
+                              密钥证书
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {serverForm.authType === 'password' ? (
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-semibold text-kumo-subtle">连接密码</label>
+                          <Input
+                            size="sm"
+                            aria-label="连接密码"
                             type="text"
-                            value={serverForm.passphrase}
-                            onChange={e => setServerForm(prev => ({ ...prev, passphrase: e.target.value }))}
-                            placeholder="Key Passphrase"
+                            value={serverForm.password}
+                            onChange={e =>
+                              setServerForm(prev => ({ ...prev, password: e.target.value }))
+                            }
+                            placeholder={
+                              serverModalMode === 'edit' ? '****** (留空不修改)' : '登录密码'
+                            }
                             autoComplete="off"
                             data-1p-ignore
                             data-lpignore="true"
@@ -9911,30 +12994,65 @@ function ServerPage() {
                             className="px-3 py-2 text-kumo-strong"
                           />
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="font-semibold text-kumo-subtle">私钥证书</label>
+                            <CodeEditor
+                              label="证书密钥"
+                              language="text"
+                              value={serverForm.privateKey}
+                              onChange={privateKey =>
+                                setServerForm(prev => ({ ...prev, privateKey }))
+                              }
+                              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                              minHeight="8rem"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="font-semibold text-kumo-subtle">
+                              密钥口令（如有）
+                            </label>
+                            <Input
+                              size="sm"
+                              aria-label="密钥口令"
+                              type="text"
+                              value={serverForm.passphrase}
+                              onChange={e =>
+                                setServerForm(prev => ({ ...prev, passphrase: e.target.value }))
+                              }
+                              placeholder="Key Passphrase"
+                              autoComplete="off"
+                              data-1p-ignore
+                              data-lpignore="true"
+                              data-bwignore="true"
+                              data-form-type="other"
+                              spellCheck={false}
+                              className="px-3 py-2 text-kumo-strong"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
-                  <div className="mt-3 flex flex-col gap-1.5 border-t border-kumo-line pt-3">
-                    <label className="font-semibold text-kumo-subtle">主机标签（使用英文逗号分隔）</label>
-                    <Input size="sm"
-                      aria-label="自定义主机标签"
-                      type="text"
-                      value={serverForm.tagsInput}
-                      onChange={e => setServerForm(prev => ({ ...prev, tagsInput: e.target.value }))}
-                      placeholder="生产环境,数据库,美国"
-                      className="px-3 py-2 text-kumo-strong"
-                    />
-                  </div>
+                    <div className="mt-3 flex flex-col gap-1.5 border-t border-kumo-line pt-3">
+                      <TagInput
+                        size="sm"
+                        label="主机标签"
+                        value={serverForm.tags}
+                        onValueChange={tags => setServerForm(prev => ({ ...prev, tags }))}
+                        placeholder="输入后回车添加，如：生产环境"
+                      />
+                    </div>
                   </section>
-
                 </>
               ) : (
                 <div className="flex flex-col gap-4">
                   <Input
-                    label="主机名称" size="sm"
+                    label="主机名称"
+                    size="sm"
                     value={quickDeployName}
-                    onChange={(e) => setQuickDeployName(e.target.value)}
+                    onChange={e => setQuickDeployName(e.target.value)}
                     placeholder="prod-agent-01"
                   />
 
@@ -9943,8 +13061,10 @@ function ServerPage() {
                   </div>
                   {quickDeployResult && (
                     <div className="flex flex-col gap-3">
-                      <Select alignItemWithTrigger
-                        label="安装目标" size="sm"
+                      <Select
+                        alignItemWithTrigger
+                        label="安装目标"
+                        size="sm"
                         value={agentInstallOS}
                         onValueChange={setAgentInstallOS}
                         items={[
@@ -9954,7 +13074,11 @@ function ServerPage() {
                       />
                       <ClipboardText
                         size="sm"
-                        text={isWindowsAgentInstallOs(agentInstallOS) ? quickDeployResult.winInstallCommand || '' : quickDeployResult.installCommand || ''}
+                        text={
+                          isWindowsAgentInstallOs(agentInstallOS)
+                            ? quickDeployResult.winInstallCommand || ''
+                            : quickDeployResult.installCommand || ''
+                        }
                         className="w-full"
                         tooltip={{ text: '复制命令', copiedText: '安装命令已复制', side: 'top' }}
                         labels={{ copyAction: '复制安装命令' }}
@@ -9969,7 +13093,9 @@ function ServerPage() {
                         </AppCard>
                         <AppCard padding="none" className="p-2">
                           <div className="font-semibold text-kumo-strong">API 地址</div>
-                          <div className="mt-1 truncate font-mono" title={quickDeployResult.apiUrl}>{quickDeployResult.apiUrl}</div>
+                          <div className="mt-1 truncate font-mono" title={quickDeployResult.apiUrl}>
+                            {quickDeployResult.apiUrl}
+                          </div>
                         </AppCard>
                       </div>
                     </div>
@@ -9988,7 +13114,8 @@ function ServerPage() {
               {serverModalMode === 'add' && serverAddMode === 'agent' ? (
                 <>
                   <Button
-                    type="button" size="sm"
+                    type="button"
+                    size="sm"
                     variant="primary"
                     loading={serverModalSaving}
                     onClick={generateQuickInstallCommand}
@@ -9998,7 +13125,8 @@ function ServerPage() {
                   </Button>
                 </>
               ) : null}
-              <Button size="sm"
+              <Button
+                size="sm"
                 variant="secondary"
                 onClick={testServerConnection}
                 disabled={serverModalSaving}
@@ -10006,7 +13134,8 @@ function ServerPage() {
               >
                 连接测试
               </Button>
-              <Button size="sm"
+              <Button
+                size="sm"
                 variant="primary"
                 onClick={saveServer}
                 disabled={serverModalSaving}
@@ -10020,76 +13149,94 @@ function ServerPage() {
       </Dialog.Root>
 
       {/* ==================== 模态框: 凭据预设新增 ==================== */}
-      <Dialog.Root open={showAddCredentialModal} onOpenChange={setShowAddCredentialModal}>
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
-          <div ref={credentialModalPortalRef} className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
-                新增 SSH 验证凭据
-              </Dialog.Title>
-              <Dialog.Close
-                aria-label="关闭"
-                render={(props) => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    shape="square" size="sm"
-                    icon={<X className="h-3.5 w-3.5" />}
-                    aria-label="关闭"
-                    className="shrink-0"
-                  />
-                )}
+      <LayerDialog.Root open={showAddCredentialModal} onOpenChange={setShowAddCredentialModal}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>新增 SSH 验证凭据</LayerDialog.Title>
+          <LayerDialog.Body ref={credentialModalPortalRef} className="flex flex-col gap-4 text-xs">
+            <div className="flex flex-col gap-1.5">
+              <label className="font-semibold text-kumo-subtle font-medium">凭据别名</label>
+              <Input
+                size="sm"
+                aria-label="凭据别名"
+                type="text"
+                value={credForm.name}
+                onChange={e => setCredForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="美国节点通用 root 秘钥"
+                className="px-3 py-2 text-kumo-strong"
               />
             </div>
 
-            <div className="min-w-0 p-4 flex flex-col gap-4 overflow-y-auto text-xs">
+            <div className="flex flex-col gap-1.5">
+              <label className="font-semibold text-kumo-subtle">用户登录名</label>
+              <Input
+                size="sm"
+                aria-label="用户登录名"
+                type="text"
+                value={credForm.username}
+                onChange={e => setCredForm(prev => ({ ...prev, username: e.target.value }))}
+                placeholder="root"
+                className="px-3 py-2 text-kumo-strong"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="font-semibold text-kumo-subtle font-medium">登录凭据模式</label>
+              <Select
+                alignItemWithTrigger
+                size="sm"
+                aria-label="登录凭据模式"
+                value={credForm.auth_type}
+                onValueChange={value =>
+                  setCredForm(prev => ({ ...prev, auth_type: String(value) }))
+                }
+                className="w-full min-w-0 px-3 py-2"
+                items={[
+                  { value: 'password', label: '明文密码' },
+                  { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
+                ]}
+              />
+            </div>
+
+            {credForm.auth_type === 'password' ? (
               <div className="flex flex-col gap-1.5">
-                <label className="font-semibold text-kumo-subtle font-medium">凭据别名</label>
-                <Input size="sm"
-                  aria-label="凭据别名"
+                <label className="font-semibold text-kumo-subtle">默认登录密码</label>
+                <Input
+                  size="sm"
+                  aria-label="默认登录密码"
                   type="text"
-                  value={credForm.name}
-                  onChange={e => setCredForm(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="美国节点通用 root 秘钥"
+                  value={credForm.password}
+                  onChange={e => setCredForm(prev => ({ ...prev, password: e.target.value }))}
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
                   className="px-3 py-2 text-kumo-strong"
                 />
               </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="font-semibold text-kumo-subtle">用户登录名</label>
-                <Input size="sm"
-                  aria-label="用户登录名"
-                  type="text"
-                  value={credForm.username}
-                  onChange={e => setCredForm(prev => ({ ...prev, username: e.target.value }))}
-                  placeholder="root"
-                  className="px-3 py-2 text-kumo-strong"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="font-semibold text-kumo-subtle font-medium">登录凭据模式</label>
-                <Select alignItemWithTrigger size="sm"
-                  aria-label="登录凭据模式"
-                  value={credForm.auth_type}
-                  onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
-                  className="w-full min-w-0 px-3 py-2"
-                  items={[
-                    { value: 'password', label: '明文密码' },
-                    { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
-                  ]}
-                />
-              </div>
-
-              {credForm.auth_type === 'password' ? (
+            ) : (
+              <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-kumo-subtle">默认登录密码</label>
-                  <Input size="sm"
-                    aria-label="默认登录密码"
+                  <label className="font-semibold text-kumo-subtle">PEM 私钥证书内容</label>
+                  <CodeEditor
+                    label="PEM 私钥证书内容"
+                    language="text"
+                    value={credForm.private_key}
+                    onChange={private_key => setCredForm(prev => ({ ...prev, private_key }))}
+                    placeholder="-----BEGIN RSA PRIVATE KEY-----"
+                    minHeight="8rem"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-semibold text-kumo-subtle">证书保护密码短语 (口令)</label>
+                  <Input
+                    size="sm"
+                    aria-label="证书保护密码短语"
                     type="text"
-                    value={credForm.password}
-                    onChange={e => setCredForm(prev => ({ ...prev, password: e.target.value }))}
+                    value={credForm.passphrase}
+                    onChange={e => setCredForm(prev => ({ ...prev, passphrase: e.target.value }))}
+                    placeholder="Passphrase"
                     autoComplete="off"
                     data-1p-ignore
                     data-lpignore="true"
@@ -10099,75 +13246,31 @@ function ServerPage() {
                     className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-kumo-subtle">PEM 私钥证书内容</label>
-                    <CodeEditor
-                      label="PEM 私钥证书内容"
-                      language="text"
-                      value={credForm.private_key}
-                      onChange={private_key => setCredForm(prev => ({ ...prev, private_key }))}
-                      placeholder="-----BEGIN RSA PRIVATE KEY-----"
-                      minHeight="8rem"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-kumo-subtle">证书保护密码短语 (口令)</label>
-                    <Input size="sm"
-                      aria-label="证书保护密码短语"
-                      type="text"
-                      value={credForm.passphrase}
-                      onChange={e => setCredForm(prev => ({ ...prev, passphrase: e.target.value }))}
-                      placeholder="Passphrase"
-                      autoComplete="off"
-                      data-1p-ignore
-                      data-lpignore="true"
-                      data-bwignore="true"
-                      data-form-type="other"
-                      spellCheck={false}
-                      className="px-3 py-2 text-kumo-strong"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs cq-sm:flex-row cq-sm:justify-end">
-              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="w-full cq-sm:w-auto">取消</Button>
-              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-semibold cq-sm:w-auto">保存</Button>
-            </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+              </div>
+            )}
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              onClick={addCredential}
+            >
+              保存
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       {/* ==================== 模态框: 导入主机备份 ==================== */}
-      <Dialog.Root open={showImportServerModal} onOpenChange={setShowImportServerModal}>
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
-          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
-              导入主机备份配置
-            </Dialog.Title>
-            <Dialog.Close
-              aria-label="关闭"
-              render={(props) => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square" size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  aria-label="关闭"
-                  className="shrink-0"
-                />
-              )}
-            />
-          </div>
-
-          <div className="min-w-0 p-4 flex flex-col gap-4 overflow-y-auto text-xs">
+      <LayerDialog.Root open={showImportServerModal} onOpenChange={setShowImportServerModal}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>导入主机备份配置</LayerDialog.Title>
+          <LayerDialog.Body className="flex flex-col gap-4 text-xs">
             <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-kumo-subtle font-medium">选择备份 JSON 文件</label>
-              <Input size="sm"
+              <label className="font-semibold text-kumo-subtle font-medium">
+                选择备份 JSON 文件
+              </label>
+              <Input
+                size="sm"
                 aria-label="选择备份 JSON 文件"
                 type="file"
                 onChange={e => {
@@ -10189,43 +13292,44 @@ function ServerPage() {
                 {importModalError}
               </div>
             )}
-          </div>
-
-          <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs cq-sm:flex-row cq-sm:justify-end">
-            <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)} className="w-full cq-sm:w-auto">取消</Button>
-            <Button size="sm"
-              variant="primary"
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
               onClick={confirmImportServers}
               disabled={importModalSaving || !importPreview}
-              className="w-full text-kumo-inverse font-semibold disabled:opacity-50 cq-sm:w-auto"
             >
-              {importModalSaving ? '恢复中...' : '确认恢复导入'}
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+              确认恢复导入
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       {/* ==================== 模态框: 单机 Agent 部署 ==================== */}
       <Dialog.Root
         open={showAgentModal}
-        onOpenChange={(open) => {
+        onOpenChange={open => {
           setShowAgentModal(open);
           if (!open) setAgentModalData(null);
         }}
       >
-        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-lg:!w-[min(72rem,calc(100vw-3rem))] cq-lg:!max-w-[min(72rem,calc(100vw-3rem))]">
+        <Dialog
+          size="xl"
+          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-lg:!w-[min(72rem,calc(100vw-3rem))] cq-lg:!max-w-[min(72rem,calc(100vw-3rem))]"
+        >
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
               部署 Agent
             </Dialog.Title>
             <Dialog.Close
               aria-label="关闭"
-              render={(props) => (
+              render={props => (
                 <Button
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                   className="shrink-0"
@@ -10245,7 +13349,9 @@ function ServerPage() {
               <div className="flex flex-col gap-4">
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">目标主机</div>
-                  <div className="mt-1 font-semibold text-kumo-strong">{agentModalData.serverName}</div>
+                  <div className="mt-1 font-semibold text-kumo-strong">
+                    {agentModalData.serverName}
+                  </div>
                 </div>
 
                 <div className="flex flex-col gap-3">
@@ -10279,7 +13385,8 @@ function ServerPage() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
-                  <LinkButton size="sm"
+                  <LinkButton
+                    size="sm"
                     variant="secondary"
                     href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/${isWindowsAgentInstallOs(agentInstallOS) ? 'agent-windows-amd64.exe' : 'agent-linux-amd64'}`}
                     target="_blank"
@@ -10288,16 +13395,19 @@ function ServerPage() {
                     icon={<Download className="h-3.5 w-3.5" />}
                     className="w-full justify-center"
                   >
-                    下载 {isWindowsAgentInstallOs(agentInstallOS) ? 'Windows x64' : 'Linux x64'} Agent
+                    下载 {isWindowsAgentInstallOs(agentInstallOS) ? 'Windows x64' : 'Linux x64'}{' '}
+                    Agent
                   </LinkButton>
                 </div>
 
                 {agentModalData.agentKey && (
                   <ClipboardText
                     size="sm"
-                    text={!isWindowsAgentInstallOs(agentInstallOS)
-                      ? `chmod +x agent-linux-amd64 && ./agent-linux-amd64 service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`
-                      : `.\\agent-windows-amd64.exe service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`}
+                    text={
+                      !isWindowsAgentInstallOs(agentInstallOS)
+                        ? `chmod +x agent-linux-amd64 && ./agent-linux-amd64 service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`
+                        : `.\\agent-windows-amd64.exe service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`
+                    }
                     className="w-full"
                     tooltip={{ text: '复制', copiedText: '手动安装命令已复制', side: 'top' }}
                     labels={{ copyAction: '复制手动安装命令' }}
@@ -10311,14 +13421,15 @@ function ServerPage() {
                     value={agentInstallLog}
                     readOnly
                     minHeight="10rem"
-                    className={`${agentInstallResult === 'success'
-                      ? 'ring-kumo-success/40'
-                      : agentInstallResult === 'error'
-                        ? 'ring-kumo-danger/40'
-                        : agentInstallResult === 'warning'
-                          ? 'ring-kumo-warning/40'
-                          : ''
-                      }`}
+                    className={`${
+                      agentInstallResult === 'success'
+                        ? 'ring-kumo-success/40'
+                        : agentInstallResult === 'error'
+                          ? 'ring-kumo-danger/40'
+                          : agentInstallResult === 'warning'
+                            ? 'ring-kumo-warning/40'
+                            : ''
+                    }`}
                   />
                 )}
               </div>
@@ -10330,7 +13441,8 @@ function ServerPage() {
           <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="secondary-destructive"
                 icon={<Trash className="h-3.5 w-3.5" />}
                 disabled={!agentModalData || agentInstallLoading || agentInstalling}
@@ -10339,7 +13451,8 @@ function ServerPage() {
                 卸载
               </Button>
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="secondary"
                 icon={<Key className="h-3.5 w-3.5" />}
                 disabled={!agentModalData || agentInstallLoading || agentInstalling}
@@ -10349,14 +13462,20 @@ function ServerPage() {
               </Button>
             </div>
             <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-end cq-sm:gap-3">
-              {!isWindowsAgentInstallOs(agentInstallOS) && canSshDeployAgent(serverList.find((server) => server.id === agentModalData?.serverId)) && <Checkbox
-                label="Linux SSH 覆盖"
-                checked={agentForceSsh}
-                disabled={agentInstallLoading || agentInstalling}
-                onCheckedChange={(checked) => setAgentForceSsh(Boolean(checked))}
-              />}
+              {!isWindowsAgentInstallOs(agentInstallOS) &&
+                canSshDeployAgent(
+                  serverList.find(server => server.id === agentModalData?.serverId)
+                ) && (
+                  <Checkbox
+                    label="Linux SSH 覆盖"
+                    checked={agentForceSsh}
+                    disabled={agentInstallLoading || agentInstalling}
+                    onCheckedChange={checked => setAgentForceSsh(Boolean(checked))}
+                  />
+                )}
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="secondary"
                 onClick={() => setShowAgentModal(false)}
                 className="w-full cq-sm:w-auto"
@@ -10364,7 +13483,8 @@ function ServerPage() {
                 关闭
               </Button>
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="primary"
                 icon={<Play className="h-3.5 w-3.5" />}
                 loading={agentInstalling}
@@ -10382,24 +13502,28 @@ function ServerPage() {
       {/* ==================== 模态框: 批量 Agent 部署 ==================== */}
       <Dialog.Root
         open={showBatchAgentModal}
-        onOpenChange={(open) => {
+        onOpenChange={open => {
           if (!open && agentInstallLoading) return;
           setShowBatchAgentModal(open);
         }}
       >
-        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]">
+        <Dialog
+          size="xl"
+          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]"
+        >
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
               批量部署 Agent
             </Dialog.Title>
             <Dialog.Close
               aria-label="关闭"
-              render={(props) => (
+              render={props => (
                 <Button
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                   disabled={agentInstallLoading}
@@ -10418,10 +13542,22 @@ function ServerPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="font-semibold text-kumo-strong">目标主机</div>
                 <div className="flex items-center gap-2">
-                  <Button type="button" size="sm" variant="secondary" onClick={selectAllBatchServers} disabled={agentInstallLoading}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={selectAllBatchServers}
+                    disabled={agentInstallLoading}
+                  >
                     全选
                   </Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => setSelectedBatchServers([])} disabled={agentInstallLoading}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setSelectedBatchServers([])}
+                    disabled={agentInstallLoading}
+                  >
                     清空
                   </Button>
                 </div>
@@ -10436,17 +13572,27 @@ function ServerPage() {
                         label={
                           <span className="inline-flex min-w-0 items-center gap-1.5">
                             {getFlagCountry(server) && (
-                              <CountryFlag countryCode={getFlagCountry(server)} className="h-3 w-4 text-xs" />
+                              <CountryFlag
+                                countryCode={getFlagCountry(server)}
+                                className="h-3 w-4 text-xs"
+                              />
                             )}
-                            <span className="truncate font-semibold text-kumo-strong">{server.name}</span>
-                            {!deployable && <span className="shrink-0 text-[10px] font-medium text-kumo-subtle">无 SSH</span>}
+                            <span className="truncate font-semibold text-kumo-strong">
+                              {server.name}
+                            </span>
+                            {!deployable && (
+                              <span className="shrink-0 text-[10px] font-medium text-kumo-subtle">
+                                无 SSH
+                              </span>
+                            )}
                           </span>
                         }
                         checked={selectedBatchServers.includes(server.id)}
                         disabled={agentInstallLoading || !deployable}
-                        onCheckedChange={(checked) => {
+                        onCheckedChange={checked => {
                           setSelectedBatchServers(prev => {
-                            if (checked) return prev.includes(server.id) ? prev : [...prev, server.id];
+                            if (checked)
+                              return prev.includes(server.id) ? prev : [...prev, server.id];
                             return prev.filter(id => id !== server.id);
                           });
                         }}
@@ -10461,21 +13607,36 @@ function ServerPage() {
                   <div className="font-semibold text-kumo-strong">部署进度</div>
                   <div className="overflow-hidden rounded-md border border-kumo-line">
                     {batchInstallResults.map(result => (
-                      <div key={result.serverId} className="flex items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 last:border-b-0">
+                      <div
+                        key={result.serverId}
+                        className="flex items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 last:border-b-0"
+                      >
                         <div className="min-w-0">
-                          <div className="truncate font-semibold text-kumo-strong">{result.serverName}</div>
-                          {result.error && <div className="truncate text-[11px] text-kumo-danger" title={result.error}>{result.error}</div>}
+                          <div className="truncate font-semibold text-kumo-strong">
+                            {result.serverName}
+                          </div>
+                          {result.error && (
+                            <div
+                              className="truncate text-[11px] text-kumo-danger"
+                              title={result.error}
+                            >
+                              {result.error}
+                            </div>
+                          )}
                         </div>
-                        <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold ${result.status === 'success'
-                          ? 'bg-kumo-success/10 text-kumo-success'
-                          : result.status === 'failed'
-                            ? 'bg-kumo-danger/10 text-kumo-danger'
-                            : result.status === 'verifying'
-                              ? 'bg-kumo-warning/10 text-kumo-warning'
-                              : result.status === 'processing'
-                                ? 'bg-brand/10 text-brand'
-                                : 'bg-kumo-recessed text-kumo-subtle'
-                          }`}>
+                        <span
+                          className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold ${
+                            result.status === 'success'
+                              ? 'bg-kumo-success/10 text-kumo-success'
+                              : result.status === 'failed'
+                                ? 'bg-kumo-danger/10 text-kumo-danger'
+                                : result.status === 'verifying'
+                                  ? 'bg-kumo-warning/10 text-kumo-warning'
+                                  : result.status === 'processing'
+                                    ? 'bg-brand/10 text-brand'
+                                    : 'bg-kumo-recessed text-kumo-subtle'
+                          }`}
+                        >
                           {result.status === 'waiting'
                             ? '等待'
                             : result.status === 'processing'
@@ -10500,13 +13661,14 @@ function ServerPage() {
                 label="强制 SSH 覆盖"
                 checked={batchAgentForceSsh}
                 disabled={agentInstallLoading}
-                onCheckedChange={(checked) => setBatchAgentForceSsh(Boolean(checked))}
+                onCheckedChange={checked => setBatchAgentForceSsh(Boolean(checked))}
               />
               {agentInstallLoading && <span>任务执行中</span>}
             </div>
             <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="secondary"
                 disabled={agentInstallLoading}
                 onClick={() => setShowBatchAgentModal(false)}
@@ -10515,7 +13677,8 @@ function ServerPage() {
                 关闭
               </Button>
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="primary"
                 icon={<Play className="h-3.5 w-3.5" />}
                 loading={agentInstallLoading}
@@ -10533,23 +13696,27 @@ function ServerPage() {
       {/* ==================== 模态框: Agent 一键升级 ==================== */}
       <Dialog.Root
         open={showUpgradeModal}
-        onOpenChange={(open) => {
+        onOpenChange={open => {
           setShowUpgradeModal(open);
         }}
       >
-        <Dialog size="xl" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]">
+        <Dialog
+          size="xl"
+          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]"
+        >
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
             <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
               升级 Agent
             </Dialog.Title>
             <Dialog.Close
               aria-label="关闭"
-              render={(props) => (
+              render={props => (
                 <Button
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                   className="shrink-0"
@@ -10563,7 +13730,9 @@ function ServerPage() {
               <div className="grid grid-cols-1 gap-2 cq-sm:grid-cols-2">
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">目标 Agent</div>
-                  <div className="mt-1 text-sm font-semibold text-kumo-strong">{upgradeBatchSnapshot?.items?.length || getAgentUpgradeTargets().length}</div>
+                  <div className="mt-1 text-sm font-semibold text-kumo-strong">
+                    {upgradeBatchSnapshot?.items?.length || getAgentUpgradeTargets().length}
+                  </div>
                 </div>
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">状态</div>
@@ -10595,23 +13764,33 @@ function ServerPage() {
                   {upgradeBatchSnapshot?.items?.length > 0 ? (
                     <div className="max-h-[24rem] overflow-auto rounded-md border border-kumo-line scrollbar-thin">
                       {upgradeBatchSnapshot.items.map(item => (
-                        <div key={item.serverId} className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 last:border-b-0">
+                        <div
+                          key={item.serverId}
+                          className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 last:border-b-0"
+                        >
                           <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold text-kumo-strong">{item.serverName || item.serverId}</div>
+                            <div className="truncate text-xs font-semibold text-kumo-strong">
+                              {item.serverName || item.serverId}
+                            </div>
                             {(item.error || item.log?.at?.(-1)) && (
-                              <div className={`mt-0.5 truncate text-[11px] ${item.error ? 'text-kumo-danger' : 'text-kumo-subtle'}`} title={item.error || item.log.at(-1)}>
+                              <div
+                                className={`mt-0.5 truncate text-[11px] ${item.error ? 'text-kumo-danger' : 'text-kumo-subtle'}`}
+                                title={item.error || item.log.at(-1)}
+                              >
                                 {item.error || item.log.at(-1)}
                               </div>
                             )}
                           </div>
                           <Badge
-                            variant={item.status === 'succeeded'
-                              ? 'success'
-                              : item.status === 'failed'
-                                ? 'danger'
-                                : item.status === 'verifying'
-                                  ? 'warning'
-                                  : 'info'}
+                            variant={
+                              item.status === 'succeeded'
+                                ? 'success'
+                                : item.status === 'failed'
+                                  ? 'danger'
+                                  : item.status === 'verifying'
+                                    ? 'warning'
+                                    : 'info'
+                            }
                           >
                             {getUpgradeItemStatusLabel(item.status)}
                           </Badge>
@@ -10619,7 +13798,9 @@ function ServerPage() {
                       ))}
                     </div>
                   ) : (
-                    <AppCard padding="none" className="min-h-56 p-3 text-kumo-subtle">等待开始升级。</AppCard>
+                    <AppCard padding="none" className="min-h-56 p-3 text-kumo-subtle">
+                      等待开始升级。
+                    </AppCard>
                   )}
                 </div>
 
@@ -10633,7 +13814,9 @@ function ServerPage() {
                       {upgradeLog}
                     </pre>
                   ) : (
-                    <AppCard padding="none" className="min-h-56 p-3 text-kumo-subtle">将对在线 Agent 下发后台自升级任务。</AppCard>
+                    <AppCard padding="none" className="min-h-56 p-3 text-kumo-subtle">
+                      将对在线 Agent 下发后台自升级任务。
+                    </AppCard>
                   )}
                 </div>
               </div>
@@ -10646,12 +13829,13 @@ function ServerPage() {
                 label="Linux SSH 保底"
                 checked={upgradeFallbackSsh}
                 disabled={upgrading}
-                onCheckedChange={(checked) => setUpgradeFallbackSsh(Boolean(checked))}
+                onCheckedChange={checked => setUpgradeFallbackSsh(Boolean(checked))}
               />
             </div>
             <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="secondary"
                 onClick={() => setShowUpgradeModal(false)}
                 className="w-full cq-sm:w-auto"
@@ -10659,7 +13843,8 @@ function ServerPage() {
                 {upgrading ? '后台运行' : '关闭'}
               </Button>
               <Button
-                type="button" size="sm"
+                type="button"
+                size="sm"
                 variant="primary"
                 icon={<Upload className="h-3.5 w-3.5" />}
                 loading={upgrading}
@@ -10676,24 +13861,30 @@ function ServerPage() {
 
       <Dialog.Root
         open={Boolean(dockerComposeEditor)}
-        onOpenChange={(open) => {
+        onOpenChange={open => {
           if (!open) requestCloseDockerComposeEditor();
         }}
       >
-        <Dialog size="xl" className="@container flex h-[min(78dvh,760px)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[56rem] cq-sm:max-w-[calc(100vw-3rem)]">
+        <Dialog
+          size="xl"
+          className="@container flex h-[min(78dvh,760px)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[56rem] cq-sm:max-w-[calc(100vw-3rem)]"
+        >
           <div className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/35 px-4 py-3">
             <Dialog.Title className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold text-kumo-strong">
               <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
-              <span className="truncate">{dockerComposeEditor?.mode === 'edit' ? '修改 Compose 配置' : '查看 Compose 配置'}</span>
+              <span className="truncate">
+                {dockerComposeEditor?.mode === 'edit' ? '修改 Compose 配置' : '查看 Compose 配置'}
+              </span>
             </Dialog.Title>
             <Dialog.Close
               aria-label="关闭"
-              render={(props) => (
+              render={props => (
                 <Button
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   className="shrink-0"
                 />
@@ -10708,28 +13899,49 @@ function ServerPage() {
                   <Settings className="h-4 w-4 shrink-0 text-brand" />
                   项目信息
                 </span>
-                <Badge variant={dockerComposeEditor?.status?.includes('运行') ? 'success' : 'neutral'} appearance="dot">
+                <Badge
+                  variant={dockerComposeEditor?.status?.includes('运行') ? 'success' : 'neutral'}
+                  appearance="dot"
+                >
                   {dockerComposeEditor?.status || '-'}
                 </Badge>
               </LayerCard.Secondary>
               <LayerCard.Primary className="flex flex-1 flex-col space-y-2 p-3">
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">主机</div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">{dockerComposeEditor?.serverName || '-'}</div>
+                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">
+                    {dockerComposeEditor?.serverName || '-'}
+                  </div>
                 </div>
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">项目</div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">{dockerComposeEditor?.projectName || '-'}</div>
+                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">
+                    {dockerComposeEditor?.projectName || '-'}
+                  </div>
                 </div>
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">工作目录</div>
-                  <div className="mt-0.5 truncate font-mono text-[11px] text-kumo-strong" title={dockerComposeEditor?.workingDir}>{dockerComposeEditor?.workingDir || '-'}</div>
+                  <div
+                    className="mt-0.5 truncate font-mono text-[11px] text-kumo-strong"
+                    title={dockerComposeEditor?.workingDir}
+                  >
+                    {dockerComposeEditor?.workingDir || '-'}
+                  </div>
                 </div>
                 <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
                   <div className="text-[10px] text-kumo-subtle">配置文件</div>
                   <div className="mt-0.5 flex flex-col gap-1">
-                    {(dockerComposeEditor?.configFiles?.length ? dockerComposeEditor.configFiles : ['-']).map(path => (
-                      <span key={path} className="truncate font-mono text-[11px] text-kumo-strong" title={path}>{path}</span>
+                    {(dockerComposeEditor?.configFiles?.length
+                      ? dockerComposeEditor.configFiles
+                      : ['-']
+                    ).map(path => (
+                      <span
+                        key={path}
+                        className="truncate font-mono text-[11px] text-kumo-strong"
+                        title={path}
+                      >
+                        {path}
+                      </span>
                     ))}
                   </div>
                 </div>
@@ -10738,7 +13950,9 @@ function ServerPage() {
                     size="sm"
                     variant="primary"
                     icon={<Edit className="h-3.5 w-3.5" />}
-                    onClick={() => setDockerComposeEditor(prev => prev ? { ...prev, mode: 'edit' } : prev)}
+                    onClick={() =>
+                      setDockerComposeEditor(prev => (prev ? { ...prev, mode: 'edit' } : prev))
+                    }
                     className="w-full justify-center"
                   >
                     修改配置
@@ -10754,8 +13968,14 @@ function ServerPage() {
               <CodeEditor
                 label="Compose 配置内容"
                 language="yaml"
-                value={dockerComposeEditor?.loading ? '正在读取 Compose 配置...' : dockerComposeEditor?.content || ''}
-                onChange={content => setDockerComposeEditor(prev => prev ? { ...prev, content } : prev)}
+                value={
+                  dockerComposeEditor?.loading
+                    ? '正在读取 Compose 配置...'
+                    : dockerComposeEditor?.content || ''
+                }
+                onChange={content =>
+                  setDockerComposeEditor(prev => (prev ? { ...prev, content } : prev))
+                }
                 readOnly={dockerComposeEditor?.mode !== 'edit' || dockerComposeEditor?.loading}
                 className="min-h-0 flex-1"
                 minHeight="0"
@@ -10810,9 +14030,9 @@ function ServerPage() {
         </Dialog>
       </Dialog.Root>
 
-      <Dialog.Root
+      <LayerDialog.Root
         open={dockerLogsModalOpen}
-        onOpenChange={(open) => {
+        onOpenChange={open => {
           setDockerLogsModalOpen(open);
           if (!open) {
             setDockerLogsContent('');
@@ -10820,40 +14040,21 @@ function ServerPage() {
           }
         }}
       >
-        <Dialog size="lg" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[48rem] cq-sm:max-w-[calc(100vw-3rem)]">
-          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong flex items-center gap-2">
-              <FileText className="h-4 w-4 text-brand" />
-              <span>容器日志: {dockerLogsContainer ? getDockerContainerName(dockerLogsContainer) : ''}</span>
-            </Dialog.Title>
-            <Dialog.Close
-              aria-label="关闭"
-              render={(props) => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square" size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  className="shrink-0"
-                />
-              )}
-            />
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 text-xs font-mono bg-kumo-recessed text-kumo-default flex flex-col gap-3 min-h-96">
-            <div className="flex-1 rounded border border-kumo-line bg-kumo-canvas/15 p-2 overflow-auto max-h-[50vh] whitespace-pre-wrap select-text font-mono text-[11px] leading-relaxed">
-              {dockerLogsContent}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
+        <LayerDialog.Content size="lg">
+          <LayerDialog.Title>
+            <FileText className="h-4 w-4 text-brand" />
+            <span>
+              容器日志: {dockerLogsContainer ? getDockerContainerName(dockerLogsContainer) : ''}
+            </span>
+          </LayerDialog.Title>
+          <LayerDialog.Body className="flex flex-col gap-3 text-xs font-mono text-kumo-default">
             <div className="flex items-center gap-3">
-              <Select alignItemWithTrigger
+              <Select
+                alignItemWithTrigger
                 size="sm"
                 label="日志行数"
                 value={String(dockerLogsTail)}
-                onValueChange={(value) => {
+                onValueChange={value => {
                   const val = Number(value);
                   setDockerLogsTail(val);
                   loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, val);
@@ -10868,55 +14069,37 @@ function ServerPage() {
                 </span>
               )}
             </div>
-            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
-              <Button
-                type="button" size="sm"
-                variant="secondary"
-                onClick={() => {
-                  loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, dockerLogsTail);
-                }}
-                disabled={dockerLogsLoading}
-                icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerLogsLoading ? 'animate-spin' : ''}`} />}
-                className="w-full cq-sm:w-auto"
-              >
-                刷新
-              </Button>
-              <Button
-                type="button" size="sm"
-                variant="primary"
-                onClick={() => {
-                  setDockerLogsModalOpen(false);
-                }}
-                className="w-full cq-sm:w-auto"
-              >
-                关闭
-              </Button>
+            <div className="min-h-96 flex-1 rounded border border-kumo-line bg-kumo-canvas/15 p-2 overflow-auto max-h-[50vh] whitespace-pre-wrap select-text font-mono text-[11px] leading-relaxed">
+              {dockerLogsContent}
             </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
-      <Dialog.Root open={showNetworkTargetModal} onOpenChange={setShowNetworkTargetModal}>
-        <Dialog size="sm" className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(24rem,calc(100vw-2rem))] !max-w-[min(24rem,calc(100vw-2rem))]">
-          <form onSubmit={saveNetworkTarget} className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex shrink-0 items-center justify-between border-b border-kumo-line/80 px-4 py-3">
-              <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
-                {networkTargetModalMode === 'add' ? '添加拨测目标' : '编辑拨测目标'}
-              </Dialog.Title>
-              <Dialog.Close
-                aria-label="关闭"
-                render={(props) => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    shape="square" size="sm"
-                    icon={<X className="h-3.5 w-3.5" />}
-                    className="shrink-0"
-                  />
-                )}
-              />
-            </div>
-            <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="关闭">
+            <LayerDialog.Actions.Primary
+              type="button"
+              onClick={() => {
+                loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, dockerLogsTail);
+              }}
+              disabled={dockerLogsLoading}
+              icon={
+                <RefreshCw className={`h-3.5 w-3.5 ${dockerLogsLoading ? 'animate-spin' : ''}`} />
+              }
+            >
+              刷新
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
+      <LayerDialog.Root open={showNetworkTargetModal} onOpenChange={setShowNetworkTargetModal}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>
+            {networkTargetModalMode === 'add' ? '添加拨测目标' : '编辑拨测目标'}
+          </LayerDialog.Title>
+          <LayerDialog.Body>
+            <form
+              id="network-target-form"
+              onSubmit={saveNetworkTarget}
+              className="flex flex-col gap-3"
+            >
               <Input
                 size="sm"
                 label="目标名称"
@@ -10940,17 +14123,22 @@ function ServerPage() {
                   type="number"
                   required
                   value={networkTargetForm.port}
-                  onChange={e => setNetworkTargetForm(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))}
+                  onChange={e =>
+                    setNetworkTargetForm(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))
+                  }
                 />
-                <Select alignItemWithTrigger
+                <Select
+                  alignItemWithTrigger
                   size="sm"
                   label="协议"
                   value={networkTargetForm.type}
-                  onValueChange={(value) => setNetworkTargetForm(prev => ({ ...prev, type: String(value) }))}
+                  onValueChange={value =>
+                    setNetworkTargetForm(prev => ({ ...prev, type: String(value) }))
+                  }
                   className="w-full min-w-0"
                   items={[
                     { label: 'TCP', value: 'tcp' },
-                    { label: 'UDP', value: 'udp' }
+                    { label: 'UDP', value: 'udp' },
                   ]}
                 />
               </div>
@@ -10959,31 +14147,37 @@ function ServerPage() {
                 label="排序权重"
                 type="number"
                 value={networkTargetForm.order_index}
-                onChange={e => setNetworkTargetForm(prev => ({ ...prev, order_index: parseInt(e.target.value) || 0 }))}
+                onChange={e =>
+                  setNetworkTargetForm(prev => ({
+                    ...prev,
+                    order_index: parseInt(e.target.value) || 0,
+                  }))
+                }
               />
               <div className="flex items-center gap-2 mt-2">
                 <Checkbox
                   checked={networkTargetForm.enabled}
-                  onChange={() => setNetworkTargetForm(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  onChange={() =>
+                    setNetworkTargetForm(prev => ({ ...prev, enabled: !prev.enabled }))
+                  }
                   id="target-enabled-checkbox"
                 />
-                <label htmlFor="target-enabled-checkbox" className="text-xs font-semibold text-kumo-strong select-none cursor-pointer">
+                <label
+                  htmlFor="target-enabled-checkbox"
+                  className="text-xs font-semibold text-kumo-strong select-none cursor-pointer"
+                >
                   是否启用该探测目标
                 </label>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line/80 px-4 py-3 bg-kumo-canvas/50">
-              <Button type="button" size="sm" variant="secondary" onClick={() => setShowNetworkTargetModal(false)}>
-                取消
-              </Button>
-              <Button size="sm" variant="primary" type="submit">
-                保存
-              </Button>
-            </div>
-          </form>
-        </Dialog>
-      </Dialog.Root>
-
+            </form>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="submit" form="network-target-form">
+              保存
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </div>
   );
 }

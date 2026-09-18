@@ -3,7 +3,6 @@ import { CalendarDotsIcon } from '@phosphor-icons/react';
 import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
 import { Button, RefreshButton } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { ChartPalette, Popover, Tabs, Toolbar } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';

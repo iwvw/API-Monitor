@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { cx } from '../ui/AppPrimitives.jsx';
 import { Check, RefreshCw, Trash, Upload } from '../Icons.jsx';
 import { dialog } from '../../modules/dialog.js';
@@ -315,18 +315,15 @@ export default function PublicPageIconPicker({
     <>
       {trigger}
       {isAuthenticated ? (
-        <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (!saving && !uploading && !deletingId) setOpen(nextOpen); }}>
-          <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),36rem)] !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-            <div className="flex items-start justify-between border-b border-kumo-line px-4 py-3">
-              <div>
-                <Dialog.Title className="text-base font-semibold text-kumo-strong">公开页图标</Dialog.Title>
-                <Dialog.Description className="mt-1 text-xs leading-relaxed text-kumo-subtle">
-                  只影响当前公开页，可随时恢复默认。
-                </Dialog.Description>
-              </div>
-              <Dialog.Close />
-            </div>
-            <div className="flex flex-wrap items-center gap-2 border-b border-kumo-line px-4 py-3">
+        <LayerDialog.Root open={open} onOpenChange={(nextOpen) => { if (!saving && !uploading && !deletingId) setOpen(nextOpen); }}>
+          <LayerDialog.Content size="base">
+            <LayerDialog.Title>公开页图标</LayerDialog.Title>
+            <LayerDialog.Description>
+              只影响当前公开页，可随时恢复默认。
+            </LayerDialog.Description>
+            <LayerDialog.Body>
+            <div className="@container">
+            <div className="flex flex-wrap items-center gap-2 border-b border-kumo-line pb-3">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -362,7 +359,7 @@ export default function PublicPageIconPicker({
                 title="刷新图标列表"
               />
             </div>
-            <div className="overflow-y-auto p-4">
+            <div className="pt-3">
               <div className="grid gap-3 cq-sm:grid-cols-2">
                 <PublicPageIconOption
                   active={!selectedIconId}
@@ -402,8 +399,10 @@ export default function PublicPageIconPicker({
                 </div>
               ) : null}
             </div>
-          </Dialog>
-        </Dialog.Root>
+            </div>
+            </LayerDialog.Body>
+          </LayerDialog.Content>
+        </LayerDialog.Root>
       ) : null}
     </>
   );

@@ -1,17 +1,18 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 
 export default function KoyebCreateDialog({ koyebCreateTarget, setKoyebCreateTarget, koyebCreateForm, setKoyebCreateForm, koyebCatalogInstances, koyebCatalogRegions, koyebCreateError, createKoyebService, koyebCreateSaving }) {
   return (
-      <Dialog.Root open={!!koyebCreateTarget} onOpenChange={(open) => { if (!open) setKoyebCreateTarget(null); }}>
-        <Dialog className="flex max-h-[90vh] !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] flex-col p-6">
-          <Dialog.Title className="text-sm font-semibold text-kumo-strong mb-1">新建服务</Dialog.Title>
-          <Dialog.Description className="text-xs text-kumo-subtle mb-4">
+      <LayerDialog.Root open={!!koyebCreateTarget} onOpenChange={(open) => { if (!open) setKoyebCreateTarget(null); }}>
+        <LayerDialog.Content size="base">
+          <LayerDialog.Title>新建服务</LayerDialog.Title>
+          <LayerDialog.Description>
             {koyebCreateTarget ? `在应用 ${koyebCreateTarget.app.name} 下创建服务` : ''}
-          </Dialog.Description>
+          </LayerDialog.Description>
+          <LayerDialog.Body>
           <div className="space-y-3 overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -85,13 +86,13 @@ export default function KoyebCreateDialog({ koyebCreateTarget, setKoyebCreateTar
               <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">{koyebCreateError}</div>
             )}
           </div>
-          <div className="flex justify-end gap-2 pt-4">
-            <Dialog.Close render={(props) => <Button size="sm" {...props} variant="secondary" className="text-xs">取消</Button>} />
-            <Button size="sm" onClick={createKoyebService} disabled={koyebCreateSaving} className="text-xs">
-              {koyebCreateSaving ? '创建中...' : '创建并部署'}
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" onClick={createKoyebService} loading={koyebCreateSaving}>
+              创建并部署
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }

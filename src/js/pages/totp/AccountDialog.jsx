@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Banner } from '@cloudflare/kumo/components/banner';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { LayerCard, Loader, SensitiveInput, Tabs } from '@cloudflare/kumo';
@@ -12,7 +12,6 @@ import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import {
   ChevronRight,
   Upload,
-  X,
 } from '../../components/Icons.jsx';
 import TotpBrandMark from './TotpBrandMark.jsx';
 import { normalizeHexColor, normalizeSVGRepoIconRef, resolveFormColor } from './utils.js';
@@ -47,41 +46,24 @@ const AccountDialog = ({
   accountModalSaving,
 }) => {
   return (
-    <Dialog.Root
+    <LayerDialog.Root
       open={showAccountModal}
       onOpenChange={open => {
         setShowAccountModal(open);
         if (!open) void stopQrScan();
       }}
     >
-      <Dialog size="xl" className="@container flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0">
-        <div className="flex items-start justify-between gap-4 border-b border-kumo-line px-5 py-4">
-          <div className="min-w-0">
-            <Dialog.Title className="text-base font-semibold text-kumo-strong">
-              {accountModalMode === 'add' ? '添加或导入 2FA 账号' : '编辑 2FA 账号'}
-            </Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs leading-5 text-kumo-subtle">
-              {accountModalMode === 'add'
-                ? '扫码、上传二维码或手动填写动态验证码信息。'
-                : '修改令牌标签、品牌标识、分组和验证码参数。'}
-            </Dialog.Description>
-          </div>
-          <Dialog.Close
-            render={props => (
-              <Button
-                {...props}
-                type="button"
-                size="sm"
-                shape="square"
-                variant="ghost"
-                icon={<X className="size-4" />}
-                aria-label="关闭"
-              />
-            )}
-          />
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin">
+      <LayerDialog.Content size="xl">
+        <LayerDialog.Title>
+          {accountModalMode === 'add' ? '添加或导入 2FA 账号' : '编辑 2FA 账号'}
+        </LayerDialog.Title>
+        <LayerDialog.Description>
+          {accountModalMode === 'add'
+            ? '扫码、上传二维码或手动填写动态验证码信息。'
+            : '修改令牌标签、品牌标识、分组和验证码参数。'}
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+        <div className="@container">
           {accountModalMode === 'add' && (
             <div className="mb-5">
               <Tabs
@@ -432,38 +414,29 @@ const AccountDialog = ({
             />
           )}
         </div>
+        </LayerDialog.Body>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-kumo-line px-5 py-4">
-          <Dialog.Close
-            render={props => (
-              <Button size="sm" {...props} variant="secondary">
-                取消
-              </Button>
-            )}
-          />
-
+        <LayerDialog.Actions dismissLabel="取消">
           {accountModalMode === 'add' && accountAddTab === 'scan' ? (
-            <Button
-              size="sm"
-              variant="primary"
+            <LayerDialog.Actions.Primary
+              type="button"
               onClick={() => importUrisDirectly(importUris)}
               disabled={!importUris.trim()}
             >
               执行导入
-            </Button>
+            </LayerDialog.Actions.Primary>
           ) : (
-            <Button
-              size="sm"
-              variant="primary"
+            <LayerDialog.Actions.Primary
+              type="button"
               onClick={handleSaveAccount}
               loading={accountModalSaving}
             >
               保存账号
-            </Button>
+            </LayerDialog.Actions.Primary>
           )}
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 };
 

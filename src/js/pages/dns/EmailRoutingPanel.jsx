@@ -10,7 +10,7 @@ import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { Mail, Plus, Trash, RefreshCw, Key, Copy, Inbox, Eye, GitBranch } from '../../components/Icons.jsx';
 import { toast } from '../../modules/toast.js';
 import { formatDate } from './utils.jsx';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 
 // emailcode 收件箱接口不在 /api/cloudflare 前缀下，直接走原生 fetch。
 const emailcodeApi = async (path, options = {}) => {
@@ -525,16 +525,14 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
         ) : null}
       </div>
 
-      <Dialog.Root open={!!detail} onOpenChange={open => { if (!open) setDetail(null); }}>
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(46rem,calc(100vw-2rem))] !max-w-[min(46rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
-          <div className="shrink-0 px-6 pt-5">
-            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">{detail?.subject || '邮件详情'}</Dialog.Title>
-            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
-              <span className="font-mono">{detail?.sender || ''}</span>
-              {detail?.receivedAt ? <span className="ml-2">{formatDate(detail.receivedAt)}</span> : null}
-            </Dialog.Description>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+      <LayerDialog.Root open={!!detail} onOpenChange={open => { if (!open) setDetail(null); }}>
+        <LayerDialog.Content size="lg">
+          <LayerDialog.Title>{detail?.subject || '邮件详情'}</LayerDialog.Title>
+          <LayerDialog.Description>
+            <span className="font-mono">{detail?.sender || ''}</span>
+            {detail?.receivedAt ? <span className="ml-2">{formatDate(detail.receivedAt)}</span> : null}
+          </LayerDialog.Description>
+          <LayerDialog.Body>
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2 text-xs text-kumo-subtle">
                 <span className="font-mono">收件人 {detail?.mailbox || '—'}</span>
@@ -547,12 +545,9 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                 {detail?.textBody || '（无正文）'}
               </div>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
-            <Button size="sm" variant="secondary" onClick={() => setDetail(null)}>关闭</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </div>
   );
 }

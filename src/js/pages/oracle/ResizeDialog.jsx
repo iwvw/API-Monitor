@@ -1,6 +1,5 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
@@ -23,14 +22,15 @@ export default function ResizeDialog({
   formatBaselineLabel,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">实例升降配</Dialog.Title>
-        <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="base">
+        <LayerDialog.Title>实例升降配</LayerDialog.Title>
+        <LayerDialog.Description>
           调整 shape 或 Flex 规格时，Oracle 可能重启实例，建议在低峰期执行。
-        </Dialog.Description>
+        </LayerDialog.Description>
+        <LayerDialog.Body>
         {selectedInstance ? (
-          <div className="space-y-4">
+          <div className="@container space-y-4">
             <InsetPanel tone="recessed">
               <KeyValueGrid
                 items={[
@@ -142,18 +142,22 @@ export default function ResizeDialog({
               checked={resizeForm.avoidDowntime}
               onCheckedChange={(checked) => setResizeForm((current) => ({ ...current, avoidDowntime: Boolean(checked) }))}
             />
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button>
-              <Button type="button" onClick={saveResize} disabled={submittingResize || loadingResizeShapes}>
-                {submittingResize ? '提交中...' : '提交变更'}
-              </Button>
-            </div>
           </div>
         ) : (
           <div className="py-8 text-center text-sm text-kumo-subtle">请先选择一个实例。</div>
         )}
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary
+            type="button"
+            onClick={saveResize}
+            loading={submittingResize}
+            disabled={loadingResizeShapes}
+          >
+            提交变更
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

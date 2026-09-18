@@ -1,6 +1,5 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 
 export default function AccountDialog({
@@ -13,10 +12,10 @@ export default function AccountDialog({
   submittingAccount,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-xl">
-        <div className="space-y-4">
-          <Dialog.Title>{editingAccount ? '编辑租户' : '新增租户'}</Dialog.Title>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="base">
+        <LayerDialog.Title>{editingAccount ? '编辑租户' : '新增租户'}</LayerDialog.Title>
+        <LayerDialog.Body>
           <div className="grid gap-3">
             <Input
               size="sm"
@@ -63,21 +62,17 @@ export default function AccountDialog({
               placeholder="备注或租户说明"
             />
           </div>
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={submitAccount}
-              disabled={submittingAccount}
-            >
-              {submittingAccount ? '保存中...' : '保存'}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary
+            type="button"
+            onClick={submitAccount}
+            loading={submittingAccount}
+          >
+            保存
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

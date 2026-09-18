@@ -1,6 +1,5 @@
 import React from 'react';
-import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { ChevronDown } from '../../components/Icons.jsx';
@@ -19,11 +18,11 @@ export default function PublicPageDialog({
   submittingPublicPage,
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
-        <div className="space-y-4">
-          <Dialog.Title>{publicPageForm.id ? '编辑公开页' : '新建公开页'}</Dialog.Title>
-          <div className="grid gap-4 cq-lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="xl">
+        <LayerDialog.Title>{publicPageForm.id ? '编辑公开页' : '新建公开页'}</LayerDialog.Title>
+        <LayerDialog.Body>
+          <div className="@container grid gap-4 cq-lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
             <div className="grid gap-3">
               <Input
                 size="sm"
@@ -222,21 +221,13 @@ export default function PublicPageDialog({
               )}
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={submitPublicPage}
-              disabled={submittingPublicPage}
-            >
-              {submittingPublicPage ? '保存中...' : '保存'}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" onClick={submitPublicPage} loading={submittingPublicPage}>
+            保存
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

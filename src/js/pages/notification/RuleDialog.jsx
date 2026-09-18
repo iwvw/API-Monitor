@@ -1,9 +1,10 @@
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { DateTimeField } from '../../components/ui/DateTimeField.jsx';
 import { AppCard } from '../../components/ui/AppPrimitives.jsx';
 import { Save, CheckDouble } from '../../components/Icons.jsx';
 import { parseNotificationPreviewLine } from './utils.js';
@@ -23,16 +24,14 @@ export function RuleDialog({
   notificationSaving,
 }) {
   return (
-    <Dialog.Root open={showRuleModal} onOpenChange={setShowRuleModal}>
-      <Dialog className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="text-base font-semibold text-kumo-strong mb-1 select-none">
+    <LayerDialog.Root open={showRuleModal} onOpenChange={setShowRuleModal}>
+      <LayerDialog.Content size="lg">
+        <LayerDialog.Title>
           {ruleForm.id ? '编辑告警规则' : '添加告警规则'}
-        </Dialog.Title>
-        <Dialog.Description className="text-xs text-kumo-subtle mb-4 select-none">
-          配置触发条件和投递渠道
-        </Dialog.Description>
-
-        <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pb-2 pr-2 scrollbar-thin">
+        </LayerDialog.Title>
+        <LayerDialog.Description>配置触发条件和投递渠道</LayerDialog.Description>
+        <LayerDialog.Body>
+        <div className="space-y-4">
           {/* Rule Name */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-kumo-subtle">规则名称 *</label>
@@ -234,41 +233,31 @@ export function RuleDialog({
           {/* Quiet until */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-kumo-subtle">静默至（此前不发送）</label>
-            <Input size="sm"
-              aria-label="手动全局静默直至"
-              type="datetime-local"
+            <DateTimeField
               value={ruleForm.quiet_until}
-              onChange={(e) => setRuleForm(prev => ({ ...prev, quiet_until: e.target.value }))}
-              className="w-full font-mono"
+              onChange={quiet_until => setRuleForm(prev => ({ ...prev, quiet_until }))}
+              placeholder="未设置"
             />
           </div>
 
-          </div>
-
-        <div className="flex items-center justify-between gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between border-t border-kumo-line pt-4 select-none">
+            <span className="text-xs font-semibold text-kumo-strong">启用规则</span>
             <Switch
               checked={!!ruleForm.enabled}
               onCheckedChange={(checked) => setRuleForm(prev => ({ ...prev, enabled: checked }))}
               size="sm"
               aria-label="启用规则"
             />
-            <span className="text-xs font-semibold text-kumo-strong">启用规则</span>
           </div>
-          <div className="flex gap-3">
-            <Dialog.Close
-              render={(props) => (
-                <Button size="sm" {...props} variant="secondary">
-                  取消
-                </Button>
-              )}
-            />
-            <Button size="sm" variant="primary" onClick={handleSaveRule} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
-              保存规则
-            </Button>
           </div>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" onClick={handleSaveRule} loading={notificationSaving}>
+            <Save className="w-3.5 h-3.5" />
+            保存规则
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

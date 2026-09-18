@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
@@ -216,14 +216,13 @@ export default function AIAuditConsole({
         </Pagination>
       )}
 
-      <Dialog.Root open={!!selected} onOpenChange={open => !open && setSelected(null)}>
-        <Dialog className="!w-[min(44rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 select-none text-base font-semibold text-kumo-strong">
-            审计详情
-          </Dialog.Title>
-          <Dialog.Description className="mb-4 select-none text-xs text-kumo-subtle">
+      <LayerDialog.Root open={!!selected} onOpenChange={open => !open && setSelected(null)}>
+        <LayerDialog.Content size="base">
+          <LayerDialog.Title>审计详情</LayerDialog.Title>
+          <LayerDialog.Description>
             {selected ? `#${selected.id} · ${formatDateTime(selected.createdAt)}` : ''}
-          </Dialog.Description>
+          </LayerDialog.Description>
+          <LayerDialog.Body>
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
             {[
               { label: 'Agent', value: selected?.agentName || '-' },
@@ -261,15 +260,9 @@ export default function AIAuditConsole({
               </pre>
             </div>
           </div>
-          <div className="mt-5 flex justify-end">
-            <Dialog.Close asChild>
-              <Button size="sm" variant="secondary" onClick={() => setSelected(null)}>
-                关闭
-              </Button>
-            </Dialog.Close>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </LayerCard>
     </>
   );

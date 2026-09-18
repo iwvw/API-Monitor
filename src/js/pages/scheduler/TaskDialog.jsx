@@ -1,13 +1,12 @@
 import React from 'react';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { Button } from '@cloudflare/kumo/components/button';
 import { Textarea } from '@cloudflare/kumo';
 import FormCard from '../../components/ui/FormCard.jsx';
 import CodeEditor from '../../components/ui/CodeEditor.jsx';
-import { Clock, Save, Server, Sliders, Sparkle, X } from '../../components/Icons.jsx';
+import { Clock, Save, Server, Sliders, Sparkle } from '../../components/Icons.jsx';
 import { AI_POLICY_ITEMS, TYPE_ITEMS } from './constants.js';
 import { CronEditor } from './CronEditor.jsx';
 
@@ -27,11 +26,11 @@ export function TaskDialog({
   saving,
 }) {
   return (
-    <Dialog.Root open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-      <Dialog className="@container scheduler-task-dialog flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-5 cq-sm:p-6">
-        <Dialog.Title className="mb-4 shrink-0 text-base font-semibold text-kumo-strong">{taskForm.id ? '编辑任务' : '新建任务'}</Dialog.Title>
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <div className="grid gap-4 cq-xs:grid-cols-2 cq-xs:items-start">
+    <LayerDialog.Root open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
+      <LayerDialog.Content size="base">
+        <LayerDialog.Title>{taskForm.id ? '编辑任务' : '新建任务'}</LayerDialog.Title>
+        <LayerDialog.Body>
+          <div className="@container grid gap-4 cq-xs:grid-cols-2 cq-xs:items-start">
             <div className="min-w-0 space-y-4">
           <FormCard icon={<Server className="h-4 w-4" />} title="基础信息" description="任务名称、描述与执行节点">
             <div className="space-y-3 py-4">
@@ -101,12 +100,13 @@ export function TaskDialog({
           </FormCard>
           </div>
           </div>
-        </div>
-        <div className="mt-3 flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line pt-3">
-          <Button size="sm" variant="secondary" onClick={() => setTaskDialogOpen(false)}><X className="h-3.5 w-3.5" />取消</Button>
-          <Button size="sm" variant="primary" onClick={saveTask} disabled={saving || Boolean(cronPreviewError)}><Save className="h-3.5 w-3.5" />保存</Button>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" onClick={saveTask} loading={saving} disabled={Boolean(cronPreviewError)}>
+            <Save className="h-3.5 w-3.5" />保存
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

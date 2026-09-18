@@ -1,24 +1,27 @@
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Badge } from '@cloudflare/kumo/components/badge';
-import { Button } from '@cloudflare/kumo/components/button';
 import { Select } from '@cloudflare/kumo/components/select';
 import { formatFileSize } from '../../modules/utils.js';
 
 export function TransferDialog({ transferModal, setTransferModal, storageNodes, onSubmit }) {
   return (
-    <Dialog.Root
+    <LayerDialog.Root
       open={transferModal.open}
-      onOpenChange={(open) => !transferModal.transferring && setTransferModal((prev) => ({ ...prev, open }))}
+      dismissDisabled={transferModal.transferring}
+      onOpenChange={(open) => {
+        if (transferModal.transferring) return;
+        if (open) {
+          setTransferModal((prev) => ({ ...prev, open }));
+          return;
+        }
+        setTransferModal({ open: false, entry: null, targetNodeId: 'local', transferring: false });
+      }}
     >
-      <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-        <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
-          <Dialog.Title className="text-sm font-semibold text-kumo-strong">
-            转移文件存储位置
-          </Dialog.Title>
-          <Dialog.Close disabled={transferModal.transferring} />
-        </div>
+      <LayerDialog.Content size="sm">
+        <LayerDialog.Title>转移文件存储位置</LayerDialog.Title>
 
-        <div className="space-y-4 p-4 text-xs">
+        <LayerDialog.Body>
+        <div className="space-y-4 text-xs">
           {transferModal.entry && (
             <div className="space-y-2 rounded-md border border-kumo-line bg-kumo-recessed/30 p-3">
               <div className="flex justify-between gap-2">
@@ -63,26 +66,18 @@ export function TransferDialog({ transferModal, setTransferModal, storageNodes, 
             </p>
           </div>
         </div>
+        </LayerDialog.Body>
 
-        <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={transferModal.transferring}
-            onClick={() => setTransferModal({ open: false, entry: null, targetNodeId: 'local', transferring: false })}
-          >
-            取消
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary
+            type="button"
             loading={transferModal.transferring}
             onClick={onSubmit}
           >
             开始转移
-          </Button>
-        </div>
-      </Dialog>
-    </Dialog.Root>
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Table } from '@cloudflare/kumo/components/table';
 import { DropdownMenu } from '@cloudflare/kumo';
@@ -428,44 +429,41 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
         </Dialog>
       </Dialog.Root>
 
-      <Dialog.Root open={mkdirOpen} onOpenChange={setMkdirOpen}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-semibold text-kumo-strong">新建目录</Dialog.Title><Dialog.Close /></div>
-          <div className="p-4">
+      <LayerDialog.Root open={mkdirOpen} onOpenChange={setMkdirOpen}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>新建目录</LayerDialog.Title>
+          <LayerDialog.Body>
             <Input size="sm" label="目录名" value={mkdirName} onChange={event => setMkdirName(event.target.value)} />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={() => setMkdirOpen(false)}>取消</Button>
-            <Button size="sm" variant="primary" onClick={createDirectory}>创建</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" onClick={createDirectory}>创建</LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root open={Boolean(renameFile)} onOpenChange={open => !open && setRenameFile(null)}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-semibold text-kumo-strong">重命名</Dialog.Title><Dialog.Close /></div>
-          <div className="p-4">
+      <LayerDialog.Root open={Boolean(renameFile)} onOpenChange={open => !open && setRenameFile(null)}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>重命名</LayerDialog.Title>
+          <LayerDialog.Body>
             <Input size="sm" label="新名称" value={renameValue} onChange={event => setRenameValue(event.target.value)} />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={() => setRenameFile(null)}>取消</Button>
-            <Button size="sm" variant="primary" onClick={renamePath}>保存</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" onClick={renamePath}>保存</LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root open={Boolean(chmodFile)} onOpenChange={open => !open && setChmodFile(null)}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-semibold text-kumo-strong">修改权限</Dialog.Title><Dialog.Close /></div>
-          <div className="p-4">
+      <LayerDialog.Root open={Boolean(chmodFile)} onOpenChange={open => !open && setChmodFile(null)}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>修改权限</LayerDialog.Title>
+          <LayerDialog.Body>
             <Input size="sm" label="权限值" value={chmodValue} onChange={event => setChmodValue(event.target.value)} className="font-mono" />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={() => setChmodFile(null)}>取消</Button>
-            <Button size="sm" variant="primary" onClick={chmodPath}>保存</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" onClick={chmodPath}>保存</LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </>
   );
 }

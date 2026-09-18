@@ -1,20 +1,22 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import { Info, Upload } from '../../components/Icons.jsx';
 
 export default function AccountDialog({ open, onOpenChange, editingAccount, accountForm, setAccountForm, accountConfigText, updateAccountConfigText, privateKeyFileRef, uploadPrivateKey, saveAccount, submittingAccount }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] p-6">
-        <Dialog.Title className="mb-1 text-base font-semibold text-kumo-strong">
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="lg">
+        <LayerDialog.Title>
           {editingAccount ? '编辑 Oracle 账号' : '添加 Oracle 账号'}
-        </Dialog.Title>
-        <Dialog.Description className="mb-4 text-xs text-kumo-subtle">
+        </LayerDialog.Title>
+        <LayerDialog.Description>
           从 OCI 控制台复制 API Key 配置，并粘贴 PEM 私钥全文。
-        </Dialog.Description>
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+        <div className="@container">
         <div className="mb-4 space-y-2">
           <CodeEditor
             label="OCI 配置文件"
@@ -122,11 +124,14 @@ key_file=<path to your private keyfile>`}
             />
           </div>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button type="button" onClick={saveAccount} disabled={submittingAccount}>{submittingAccount ? '保存中...' : '保存'}</Button>
         </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary type="button" onClick={saveAccount} loading={submittingAccount}>
+            保存
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

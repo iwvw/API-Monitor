@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Empty, LayerCard, Tabs } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Select } from '@cloudflare/kumo/components/select';
 import DocumentWorkspace from '../components/editor/DocumentWorkspace.jsx';
 import PromptDetailsPanel from '../components/prompts/PromptDetailsPanel.jsx';
@@ -470,29 +470,32 @@ export default function PromptLibraryPage() {
         )}
       </div>
 
-      <Dialog.Root open={conflictOpen} onOpenChange={setConflictOpen} role="alertdialog">
-        <Dialog className="p-6">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-kumo-warning" />
-            <Dialog.Title>草稿冲突</Dialog.Title>
-          </div>
-          <Dialog.Description className="mt-3 text-kumo-subtle">
+      <LayerDialog.Alert open={conflictOpen} onOpenChange={setConflictOpen}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>
+            <span className="inline-flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-kumo-warning" />
+              草稿冲突
+            </span>
+          </LayerDialog.Title>
+          <LayerDialog.Description>
             另一会话已更新此草稿。
-          </Dialog.Description>
-          <div className="mt-6 flex justify-end">
-            <Button
-              size="sm"
-              variant="primary"
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="关闭">
+            <LayerDialog.Actions.Primary
+              type="button"
               onClick={() => {
                 setConflictOpen(false);
                 loadEntry(entry.id);
               }}
             >
               加载最新草稿
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Alert>
     </div>
   );
 }

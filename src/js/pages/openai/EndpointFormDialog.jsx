@@ -1,5 +1,5 @@
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
@@ -36,24 +36,22 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
     saveEndpoint,
   } = endpointsApi;
   return (
-      <Dialog.Root
+      <LayerDialog.Root
         open={endpointFormOpen}
         onOpenChange={open => {
           setEndpointFormOpen(open);
           if (!open) setEndpointKeyChecks([]);
         }}
       >
-        <Dialog className="flex max-h-[min(calc(100dvh-2rem),46rem)] !w-[min(58rem,calc(100vw-2rem))] !max-w-[min(58rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
-          <div className="shrink-0 px-6 pt-5">
-            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
-              {editingEndpoint ? '编辑端点' : '添加 API 端点'}
-            </Dialog.Title>
-            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
-              配置 OpenAI 兼容 API 端点，用于中转或对话。
-            </Dialog.Description>
-          </div>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>
+            {editingEndpoint ? '编辑端点' : '添加 API 端点'}
+          </LayerDialog.Title>
+          <LayerDialog.Description>
+            配置 OpenAI 兼容 API 端点，用于中转或对话。
+          </LayerDialog.Description>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+          <LayerDialog.Body>
             <div className="grid grid-cols-2 gap-x-5 gap-y-4">
               {/* ====== 左列：基本信息 ====== */}
               <div className="space-y-4">
@@ -454,21 +452,19 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
             {endpointFormError && (
                 <p className="mt-4 text-sm text-kumo-danger font-semibold">{endpointFormError}</p>
               )}
-            </div>
+          </LayerDialog.Body>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-kumo-line bg-kumo-base px-6 py-4">
-              <Dialog.Close
-                render={props => (
-                  <Button size="sm" {...props} variant="secondary">
-                    取消
-                  </Button>
-                )}
-              />
-              <Button size="sm" variant="primary" disabled={endpointSaving} onClick={saveEndpoint}>
-                {endpointSaving ? '保存中...' : '保存端点'}
-              </Button>
-            </div>
-        </Dialog>
-      </Dialog.Root>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              disabled={endpointSaving}
+              onClick={saveEndpoint}
+              loading={endpointSaving}
+            >
+              保存端点
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }

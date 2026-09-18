@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -38,10 +38,16 @@ export default function UserDialog({
         ? '!bg-kumo-warning'
         : '!bg-brand';
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog className="@container w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] p-5 cq-sm:w-full cq-sm:max-w-3xl">
-        <div className="space-y-4">
-          <Dialog.Title>{editingUser ? '编辑用户' : '新增用户'}</Dialog.Title>
+    <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+      <LayerDialog.Content size="lg">
+        <LayerDialog.Title>{editingUser ? '编辑用户' : '新增用户'}</LayerDialog.Title>
+        <LayerDialog.Description>
+          {editingUser
+            ? '更新用户资料、许可证与 OneDrive 容量。'
+            : '填写账号信息并按需分配订阅许可证。'}
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+        <div className="@container space-y-4">
           {loadingUserDialog ? (
             <div className="space-y-3">
               <SkeletonLine className="h-10 w-full" />
@@ -301,21 +307,19 @@ export default function UserDialog({
               ) : null}
             </div>
           )}
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={submitUser}
-              disabled={submittingUser || loadingUserDialog || assigningLicense}
-            >
-              {submittingUser || assigningLicense ? '保存中...' : '保存'}
-            </Button>
-          </div>
         </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="取消">
+          <LayerDialog.Actions.Primary
+            type="button"
+            onClick={submitUser}
+            loading={submittingUser || assigningLicense}
+            disabled={loadingUserDialog}
+          >
+            保存
+          </LayerDialog.Actions.Primary>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 }

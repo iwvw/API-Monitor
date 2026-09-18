@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Label } from '@cloudflare/kumo/components/label';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -15,10 +16,11 @@ import { NodeFlag, TemplateCodeEditor, TrafficSizeInput } from './components.jsx
 
 export function PlanDialog({ open, onOpenChange, editingPlanId, planForm, setPlanForm, nodes, allVisiblePlanNodesSelected, visiblePlanNodeIDs, visiblePlanNodes, planNodeTypeItems, planNodeSourceFilter, setPlanNodeSourceFilter, planNodeTypeFilter, setPlanNodeTypeFilter, saving, onSave }) {
   return (
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="xl" className="@container flex max-h-[min(calc(100dvh-2rem),48rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:!w-[min(72rem,calc(100vw-3rem))] cq-sm:!max-w-[min(72rem,calc(100vw-3rem))]">
-          <div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>{editingPlanId ? '编辑套餐' : '新建套餐'}</Dialog.Title></div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 scrollbar-thin cq-sm:p-5">
+      <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>{editingPlanId ? '编辑套餐' : '新建套餐'}</LayerDialog.Title>
+          <LayerDialog.Body>
+          <div className="@container space-y-4">
             <div className="grid gap-3 cq-sm:grid-cols-2"><Input size="sm" label="套餐名称" value={planForm.name} onChange={(e) => setPlanForm((prev) => ({ ...prev, name: e.target.value }))} /><Input size="sm" label="备注" value={planForm.remark} onChange={(e) => setPlanForm((prev) => ({ ...prev, remark: e.target.value }))} /></div>
             <div className="grid items-end gap-3 cq-md:grid-cols-[minmax(16rem,1.2fr)_minmax(12rem,.8fr)_minmax(10rem,.7fr)]"><TrafficSizeInput label="订阅额度（仅托管节点，0 不限）" value={planForm.total_bytes} onChange={(value) => setPlanForm((prev) => ({ ...prev, total_bytes: value }))} /><Select alignItemWithTrigger size="sm" label="重置周期" value={planForm.cycle_type} onValueChange={(value) => setPlanForm((prev) => ({ ...prev, cycle_type: String(value) }))} items={[{ value: 'monthly', label: '每月重置' }, { value: 'none', label: '不重置' }]} /><Input size="sm" label="每月重置日" type="number" min="1" max="31" value={planForm.cycle_day} disabled={planForm.cycle_type !== 'monthly'} onChange={(e) => setPlanForm((prev) => ({ ...prev, cycle_day: Number(e.target.value) || 1 }))} /></div>
 			{planForm.total_bytes > 0 && ((planForm.selection_mode === 'all' && planForm.include_external_nodes) || (planForm.selection_mode === 'explicit' && planForm.node_ids.some((id) => nodes.some((node) => node.id === id)))) && <div className="rounded-md border border-kumo-warning/30 bg-kumo-warning/10 px-3 py-2 text-xs text-kumo-warning">外部节点不受 Agent 管理，额度仅约束内部节点。</div>}
@@ -34,18 +36,24 @@ export function PlanDialog({ open, onOpenChange, editingPlanId, planForm, setPla
               </>}
             </div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5"><Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} /><Button size="sm" variant="primary" loading={saving} onClick={onSave}><Save className="h-3.5 w-3.5" />保存套餐</Button></div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+              <Save className="h-3.5 w-3.5" />保存套餐
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }
 
 export function InternalNodeDialog({ open, onOpenChange, editingInternalNodeId, internalNodeForm, setInternalNodeForm, selectedInternalHosts, setSelectedInternalHosts, runtimeReadyServers, servers, preferredAddresses, saving, onSave, onCreate }) {
   return (
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="xl" className="@container !w-[min(58rem,calc(100vw-1rem))] !max-w-[min(58rem,calc(100vw-1rem))] overflow-hidden p-0">
-          <div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>{editingInternalNodeId ? '编辑内部节点' : '生成内部节点'}</Dialog.Title></div>
-          <div className="grid gap-3 p-3 cq-sm:grid-cols-2 cq-sm:p-5">
+      <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>{editingInternalNodeId ? '编辑内部节点' : '生成内部节点'}</LayerDialog.Title>
+          <LayerDialog.Body>
+          <div className="@container grid gap-3">
             {!editingInternalNodeId && <div className="cq-sm:col-span-2">
 				<div className="flex items-center justify-between gap-2"><Label className="text-xs font-semibold text-kumo-subtle">已安装代理程序的实例</Label><Badge variant="neutral">已选 {selectedInternalHosts.size} / {runtimeReadyServers.length}</Badge></div>
               <div className="mt-1.5 max-h-44 overflow-auto rounded-md border border-kumo-line bg-kumo-recessed/20 p-1.5 scrollbar-thin">
@@ -67,50 +75,45 @@ export function InternalNodeDialog({ open, onOpenChange, editingInternalNodeId, 
             {internalNodeForm.access_mode === 'cloudflare_tunnel' && <Select alignItemWithTrigger size="sm" label="优选地址" value={internalNodeForm.preferred_address_id || ''} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, preferred_address_id: String(value) }))} items={[{ value: '', label: '继承默认地址' }, ...preferredAddresses.map((item) => ({ value: item.id, label: `${item.name} · ${item.address}` }))]} />}
             <div className="flex min-h-8 items-center rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2"><Switch size="sm" label="稳定节点" controlFirst={false} checked={!!internalNodeForm.stable} onCheckedChange={(checked) => setInternalNodeForm((prev) => ({ ...prev, stable: checked }))} /></div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button><Button size="sm" variant="primary" loading={saving} onClick={editingInternalNodeId ? onSave : onCreate}>{editingInternalNodeId ? '保存' : '生成节点'}</Button></div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={editingInternalNodeId ? onSave : onCreate}>
+              {editingInternalNodeId ? '保存' : '生成节点'}
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }
 
 export function TunnelDialog({ open, onOpenChange, tunnelForm, setTunnelForm, cloudflareAccounts, cloudflareZones, tunnelTargetServer, onDeploy }) {
   return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<Dialog size="lg" className="@container w-[calc(100vw-1rem)] max-w-2xl p-0">
-				<div className="border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Dialog.Title>部署 Cloudflare Named Tunnel</Dialog.Title></div>
-				<div className="grid gap-3 p-3 cq-sm:grid-cols-2 cq-sm:p-5"><Select alignItemWithTrigger size="sm" label="Cloudflare 账号" value={tunnelForm.account_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, account_id: String(value), zone_id: '', hostname: '' }))} items={cloudflareAccounts.map((item) => ({ value: item.id, label: item.name || item.email || item.id }))} /><Select alignItemWithTrigger size="sm" label="DNS Zone" value={tunnelForm.zone_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, zone_id: String(value) }))} items={cloudflareZones.map((item) => ({ value: item.id, label: item.name || item.id }))} /><Input size="sm" className="cq-sm:col-span-2" label="自动生成的 Tunnel 域名" value={tunnelForm.hostname || '选择 DNS Zone 后自动生成'} readOnly /></div>
-				<div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4"><Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>取消</Button><Button size="sm" variant="primary" onClick={() => onDeploy()} disabled={!tunnelTargetServer || !tunnelForm.hostname}>开始部署</Button></div>
-			</Dialog>
-		</Dialog.Root>
+		<LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+			<LayerDialog.Content size="base">
+				<LayerDialog.Title>部署 Cloudflare Named Tunnel</LayerDialog.Title>
+				<LayerDialog.Body>
+				<div className="@container grid gap-3">
+					<Select alignItemWithTrigger size="sm" label="Cloudflare 账号" value={tunnelForm.account_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, account_id: String(value), zone_id: '', hostname: '' }))} items={cloudflareAccounts.map((item) => ({ value: item.id, label: item.name || item.email || item.id }))} /><Select alignItemWithTrigger size="sm" label="DNS Zone" value={tunnelForm.zone_id} onValueChange={(value) => setTunnelForm((prev) => ({ ...prev, zone_id: String(value) }))} items={cloudflareZones.map((item) => ({ value: item.id, label: item.name || item.id }))} /><Input size="sm" className="cq-sm:col-span-2" label="自动生成的 Tunnel 域名" value={tunnelForm.hostname || '选择 DNS Zone 后自动生成'} readOnly />
+				</div>
+				</LayerDialog.Body>
+				<LayerDialog.Actions dismissLabel="取消">
+					<LayerDialog.Actions.Primary type="button" onClick={() => onDeploy()} disabled={!tunnelTargetServer || !tunnelForm.hostname}>开始部署</LayerDialog.Actions.Primary>
+				</LayerDialog.Actions>
+			</LayerDialog.Content>
+		</LayerDialog.Root>
   );
 }
 
 export function PreferredAddressDialog({ open, onOpenChange, preferredAddresses, preferredForm, setPreferredForm, onSave, onSetDefault, onDelete }) {
   return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<Dialog size="lg" className="@container !w-[min(56rem,calc(100vw-1rem))] !max-w-[min(56rem,calc(100vw-1rem))] overflow-hidden p-0">
-				<div className="flex min-h-12 items-center justify-between gap-3 border-b border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
-					<Dialog.Title>优选地址</Dialog.Title>
-					<div className="flex shrink-0 items-center gap-2">
-						<Badge variant="neutral">{preferredAddresses.length} 个地址</Badge>
-						<Dialog.Close
-							aria-label="关闭"
-							render={(props) => (
-								<Button
-									{...props}
-									type="button"
-									variant="secondary"
-									shape="square"
-									size="sm"
-									icon={<X className="h-3.5 w-3.5" />}
-									aria-label="关闭"
-								/>
-							)}
-						/>
-					</div>
-				</div>
-				<div className="grid min-h-0 min-w-0 cq-lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-					<div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line p-3 cq-sm:p-4 cq-lg:border-b-0 cq-lg:border-r">
+		<LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+			<LayerDialog.Content size="lg">
+				<LayerDialog.Title>
+					<span className="inline-flex min-w-0 items-center gap-2">优选地址<Badge variant="neutral">{preferredAddresses.length} 个地址</Badge></span>
+				</LayerDialog.Title>
+				<LayerDialog.Body>
+				<div className="@container grid min-h-0 min-w-0 gap-3 cq-lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+					<div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line pb-3 cq-lg:border-b-0 cq-lg:border-r cq-lg:pb-0 cq-lg:pr-4">
 						<div className="text-xs font-semibold text-kumo-strong">新地址</div>
 						<Input size="sm" label="名称" value={preferredForm.name} onChange={(event) => setPreferredForm((prev) => ({ ...prev, name: event.target.value }))} />
 						<Input size="sm" label="域名或 IP" placeholder="saas.sin.fan" value={preferredForm.address} onChange={(event) => setPreferredForm((prev) => ({ ...prev, address: event.target.value }))} />
@@ -143,43 +146,21 @@ export function PreferredAddressDialog({ open, onOpenChange, preferredAddresses,
 						</div>
 					</div>
 				</div>
-				<div className="flex justify-end gap-2 border-t border-kumo-line px-3 py-3 cq-sm:px-5 cq-sm:py-4">
-					<Button size="sm" variant="secondary" onClick={() => onOpenChange(false)}>关闭</Button>
-				</div>
-			</Dialog>
-		</Dialog.Root>
+				</LayerDialog.Body>
+			</LayerDialog.Content>
+		</LayerDialog.Root>
   );
 }
 
 export function SubscriptionDialog({ open, onOpenChange, editingSubscriptionId, subscriptionForm, setSubscriptionForm, planItems, saving, onSave }) {
   return (
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] !w-[min(64rem,calc(100vw-1rem))] !max-w-[min(64rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
-              <div className="min-w-0">
-                <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">
-                  {editingSubscriptionId ? '编辑对外订阅' : '创建对外订阅'}
-                </Dialog.Title>
-              </div>
-              <Dialog.Close
-                aria-label="关闭"
-                render={(props) => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    shape="square"
-                    size="sm"
-                    icon={<X className="h-3.5 w-3.5" />}
-                    aria-label="关闭"
-                    className="shrink-0"
-                  />
-                )}
-              />
-            </div>
-
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 text-xs scrollbar-thin cq-sm:px-5 cq-sm:py-4">
+      <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>
+            {editingSubscriptionId ? '编辑对外订阅' : '创建对外订阅'}
+          </LayerDialog.Title>
+          <LayerDialog.Body>
+          <div className="@container min-w-0 text-xs">
               <div className="space-y-4">
                 <section className="space-y-3">
                   <div className="text-[11px] font-semibold uppercase text-kumo-subtle">基础信息</div>
@@ -192,45 +173,26 @@ export function SubscriptionDialog({ open, onOpenChange, editingSubscriptionId, 
                 </section>
 
               </div>
-            </div>
-
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5 cq-sm:justify-end">
-              <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
-              <Button size="sm" variant="primary" loading={saving} onClick={onSave}><Save className="h-3.5 w-3.5" />保存</Button>
-            </div>
           </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+              <Save className="h-3.5 w-3.5" />保存
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }
 
 export function NodeDialog({ open, onOpenChange, nodeForm, setNodeForm, saving, onSave }) {
   return (
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(72rem,calc(100vw-1rem))] !max-w-[min(72rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
-              <div className="min-w-0">
-                <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">编辑节点</Dialog.Title>
-              </div>
-              <Dialog.Close
-                aria-label="关闭"
-                render={(props) => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    shape="square"
-                    size="sm"
-                    icon={<X className="h-3.5 w-3.5" />}
-                    aria-label="关闭"
-                    className="shrink-0"
-                  />
-                )}
-              />
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin cq-sm:px-5 cq-sm:py-4">
+      <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>编辑节点</LayerDialog.Title>
+          <LayerDialog.Body>
+          <div className="@container min-w-0">
               <div className="space-y-4">
                 <section className="min-w-0 space-y-3">
                   <div className="text-[11px] font-semibold uppercase text-kumo-subtle">连接信息</div>
@@ -264,15 +226,15 @@ export function NodeDialog({ open, onOpenChange, nodeForm, setNodeForm, saving, 
                   </div>
                 </section>
               </div>
-            </div>
-
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5 cq-sm:justify-end">
-              <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
-              <Button size="sm" variant="primary" loading={saving} onClick={onSave}><Save className="h-3.5 w-3.5" />保存节点</Button>
-            </div>
           </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+              <Save className="h-3.5 w-3.5" />保存节点
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }
 
@@ -357,33 +319,13 @@ export function ImportDialog({ open, onOpenChange, importSourceURL, setImportSou
 
 export function TemplateDialog({ open, onOpenChange, editingTemplateId, templateForm, setTemplateForm, saving, onSave }) {
   return (
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog size="lg" className="@container flex max-h-[min(calc(100dvh-2rem),42rem)] !w-[min(64rem,calc(100vw-1rem))] !max-w-[min(64rem,calc(100vw-1rem))] flex-col overflow-hidden p-0">
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-kumo-line bg-kumo-recessed/20 px-3 py-3 cq-sm:px-5 cq-sm:py-3.5">
-              <div className="min-w-0">
-                <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">
-                  {editingTemplateId ? '编辑模板' : '创建模板'}
-                </Dialog.Title>
-              </div>
-              <Dialog.Close
-                aria-label="关闭"
-                render={(props) => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    shape="square"
-                    size="sm"
-                    icon={<X className="h-3.5 w-3.5" />}
-                    aria-label="关闭"
-                    className="shrink-0"
-                  />
-                )}
-              />
-            </div>
-
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 scrollbar-thin cq-sm:px-5 cq-sm:py-4">
+      <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>
+            {editingTemplateId ? '编辑模板' : '创建模板'}
+          </LayerDialog.Title>
+          <LayerDialog.Body>
+          <div className="@container min-w-0">
               <div className="grid gap-4">
                 <div className="grid gap-3 cq-sm:grid-cols-2">
                   <Input size="sm" label="名称" value={templateForm.name} onChange={(e) => setTemplateForm((prev) => ({ ...prev, name: e.target.value }))} />
@@ -392,14 +334,14 @@ export function TemplateDialog({ open, onOpenChange, editingTemplateId, template
                 <TemplateCodeEditor label="模板内容" value={templateForm.content} format={templateForm.format} onChange={(content) => setTemplateForm((prev) => ({ ...prev, content }))} />
                 <Input size="sm" label="描述" value={templateForm.description} onChange={(e) => setTemplateForm((prev) => ({ ...prev, description: e.target.value }))} />
               </div>
-            </div>
-
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-3 py-3 cq-sm:px-5 cq-sm:justify-end">
-              <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
-              <Button size="sm" variant="primary" loading={saving} onClick={onSave}><Save className="h-3.5 w-3.5" />保存模板</Button>
-            </div>
           </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+              <Save className="h-3.5 w-3.5" />保存模板
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
   );
 }

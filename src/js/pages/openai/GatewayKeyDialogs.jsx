@@ -1,6 +1,6 @@
 import { CalendarDotsIcon } from '@phosphor-icons/react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import {
@@ -36,12 +36,16 @@ export function GatewayKeyDialogs({ keysApi, endpointsApi }) {
   const { allModels, endpoints } = endpointsApi;
   return (
     <>
-      <Dialog.Root open={gatewayKeyDialogOpen} onOpenChange={setGatewayKeyDialogOpen}>
-        <Dialog className="!w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
+      <LayerDialog.Root open={gatewayKeyDialogOpen} onOpenChange={setGatewayKeyDialogOpen}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>
             {editingGatewayKey ? '编辑 API 密钥' : '新建 API 密钥'}
-          </Dialog.Title>
+          </LayerDialog.Title>
+          <LayerDialog.Description>
+            配置 API 密钥的名称、有效期与访问范围。
+          </LayerDialog.Description>
 
+          <LayerDialog.Body>
           <div className="space-y-4">
             <Input
               size="sm"
@@ -249,58 +253,53 @@ export function GatewayKeyDialogs({ keysApi, endpointsApi }) {
             {gatewayKeyFormError && (
               <p className="text-sm font-semibold text-kumo-danger">{gatewayKeyFormError}</p>
             )}
-            <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close
-                render={props => (
-                  <Button size="sm" {...props} variant="secondary">
-                    取消
-                  </Button>
-                )}
-              />
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={gatewayKeySaving}
-                onClick={saveGatewayKey}
-              >
-                {gatewayKeySaving ? '保存中...' : '保存密钥'}
-              </Button>
-            </div>
           </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
 
-      <Dialog.Root open={!!newGatewayKey} onOpenChange={open => !open && setNewGatewayKey(null)}>
-        <Dialog className="!w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] p-6">
-          <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              onClick={saveGatewayKey}
+              loading={gatewayKeySaving}
+            >
+              保存密钥
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
+
+      <LayerDialog.Root open={!!newGatewayKey} onOpenChange={open => !open && setNewGatewayKey(null)}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>
             API 密钥已创建
-          </Dialog.Title>
-          <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+          </LayerDialog.Title>
+          <LayerDialog.Description>
             可立即复制，也可稍后从 API 密钥列表查看并复制。
-          </Dialog.Description>
-          <div className="space-y-4">
-            <p className="text-sm font-medium text-kumo-strong">
-              {newGatewayKey?.name || 'API Key'}
-            </p>
-            <ClipboardText
-              size="sm"
-              text={newGatewayKey?.apiKey || ''}
-              className="min-w-0 w-full"
-              tooltip={{ text: '复制 API Key', copiedText: 'API Key 已复制' }}
-              labels={{ copyAction: '复制 API Key' }}
-            />
-            <div className="flex justify-end">
-              <Dialog.Close
-                render={props => (
-                  <Button size="sm" variant="primary" {...props}>
-                    我已保存
-                  </Button>
-                )}
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <div className="space-y-4">
+              <p className="text-sm font-medium text-kumo-strong">
+                {newGatewayKey?.name || 'API Key'}
+              </p>
+              <ClipboardText
+                size="sm"
+                text={newGatewayKey?.apiKey || ''}
+                className="min-w-0 w-full"
+                tooltip={{ text: '复制 API Key', copiedText: 'API Key 已复制' }}
+                labels={{ copyAction: '复制 API Key' }}
               />
             </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              onClick={() => setNewGatewayKey(null)}
+            >
+              我已保存
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       {/* 3. Health Check Config Dialog */}
     </>

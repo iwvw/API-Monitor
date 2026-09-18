@@ -1,5 +1,5 @@
 // TilesBoard —— 卡片式图块看板（可嵌入正式仪表盘或独立 demo 页）。
-// 消费 src/js/pages/tiles/ 组件库：TileGrid 拖拽/档位缩放/响应式列数，TileFrame/TileChart/StatValue/MiniMeter/StatTileCard 卡片体系。
+// 消费 src/js/pages/tiles/ 组件库：TileGrid 拖拽/档位缩放/响应式列数，TileFrame/TileChart/StatValue 卡片体系。
 // 布局按移动端/桌面端分桶保存到后端用户设置（data.db，云端）；顶栏提供时间范围/增删指标/刷新/重置。
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';

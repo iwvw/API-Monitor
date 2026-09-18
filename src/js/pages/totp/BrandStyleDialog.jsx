@@ -1,9 +1,9 @@
 import React from 'react';
 import { Button, LinkButton } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { LayerCard } from '@cloudflare/kumo';
 import { cx } from '../../components/ui/AppPrimitives.jsx';
-import { Trash, Upload, X } from '../../components/Icons.jsx';
+import { Trash, Upload } from '../../components/Icons.jsx';
 import TotpBrandMark from './TotpBrandMark.jsx';
 
 const BrandStyleDialog = ({
@@ -24,32 +24,13 @@ const BrandStyleDialog = ({
   deleteCustomBrandIcon,
 }) => {
   return (
-    <Dialog.Root open={showBrandStyleModal} onOpenChange={setShowBrandStyleModal}>
-      <Dialog size="xl" className="@container flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0">
-        <div className="flex items-start justify-between gap-4 border-b border-kumo-line px-5 py-4">
-          <div className="min-w-0">
-            <Dialog.Title className="text-base font-semibold text-kumo-strong">
-              选择品牌标识样式
-            </Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs leading-5 text-kumo-subtle">
-              选择系统样式或管理自定义图标；保存账号后同步到同发行商账号。
-            </Dialog.Description>
-          </div>
-          <Dialog.Close
-            render={props => (
-              <Button
-                {...props}
-                size="sm"
-                shape="square"
-                variant="ghost"
-                icon={<X className="size-4" />}
-                aria-label="关闭"
-              />
-            )}
-          />
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin">
+    <LayerDialog.Root open={showBrandStyleModal} onOpenChange={setShowBrandStyleModal}>
+      <LayerDialog.Content size="xl">
+        <LayerDialog.Title>选择品牌标识样式</LayerDialog.Title>
+        <LayerDialog.Description>
+          选择系统样式或管理自定义图标；保存账号后同步到同发行商账号。
+        </LayerDialog.Description>
+        <LayerDialog.Body>
           <LayerCard className="mb-4 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-[11px] leading-5 text-kumo-subtle">
@@ -102,7 +83,7 @@ const BrandStyleDialog = ({
             源码或图片链接，并自动下载应用。
           </div>
 
-          <div className="grid grid-cols-1 items-start gap-2 cq-sm:grid-cols-2">
+          <div className="@container grid grid-cols-1 items-start gap-2 cq-sm:grid-cols-2">
             {!customBrandIconsLoading && brandStyleOptions.length === 0 && (
               <div className="col-span-full rounded-md border border-kumo-line bg-kumo-recessed/20 px-3 py-6 text-center text-xs text-kumo-subtle">
                 当前还没有可选图标。
@@ -168,19 +149,9 @@ const BrandStyleDialog = ({
               );
             })}
           </div>
-        </div>
-
-        <div className="flex shrink-0 justify-end gap-2 border-t border-kumo-line px-5 py-4">
-          <Dialog.Close
-            render={props => (
-              <Button size="sm" {...props} variant="secondary">
-                取消
-              </Button>
-            )}
-          />
-        </div>
-      </Dialog>
-    </Dialog.Root>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
   );
 };
 

@@ -3,7 +3,6 @@ import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
