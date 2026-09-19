@@ -1787,7 +1787,6 @@ function ServerPage() {
   const sshSessionRefs = useRef({});
   const warehouseRef = useRef(null);
   const serverModalPortalRef = useRef(null);
-  const credentialModalPortalRef = useRef(null);
   const dockerTaskStreamRef = useRef(null);
   const dockerRefreshTimerRef = useRef(null);
   const dockerTaskMetaRef = useRef({});
@@ -13152,91 +13151,61 @@ function ServerPage() {
       <LayerDialog.Root open={showAddCredentialModal} onOpenChange={setShowAddCredentialModal}>
         <LayerDialog.Content size="sm">
           <LayerDialog.Title>新增 SSH 验证凭据</LayerDialog.Title>
-          <LayerDialog.Body ref={credentialModalPortalRef} className="flex flex-col gap-4 text-xs">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-kumo-subtle font-medium">凭据别名</label>
-              <Input
-                size="sm"
-                aria-label="凭据别名"
-                type="text"
-                value={credForm.name}
-                onChange={e => setCredForm(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="美国节点通用 root 秘钥"
-                className="px-3 py-2 text-kumo-strong"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-kumo-subtle">用户登录名</label>
-              <Input
-                size="sm"
-                aria-label="用户登录名"
-                type="text"
-                value={credForm.username}
-                onChange={e => setCredForm(prev => ({ ...prev, username: e.target.value }))}
-                placeholder="root"
-                className="px-3 py-2 text-kumo-strong"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-kumo-subtle font-medium">登录凭据模式</label>
-              <Select
-                alignItemWithTrigger
-                size="sm"
-                aria-label="登录凭据模式"
-                value={credForm.auth_type}
-                onValueChange={value =>
-                  setCredForm(prev => ({ ...prev, auth_type: String(value) }))
-                }
-                className="w-full min-w-0 px-3 py-2"
-                items={[
-                  { value: 'password', label: '明文密码' },
-                  { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
-                ]}
-              />
-            </div>
-
-            {credForm.auth_type === 'password' ? (
+          <LayerDialog.Body>
+            <div className="flex flex-col gap-4 text-xs">
               <div className="flex flex-col gap-1.5">
-                <label className="font-semibold text-kumo-subtle">默认登录密码</label>
+                <label className="font-semibold text-kumo-subtle font-medium">凭据别名</label>
                 <Input
                   size="sm"
-                  aria-label="默认登录密码"
+                  aria-label="凭据别名"
                   type="text"
-                  value={credForm.password}
-                  onChange={e => setCredForm(prev => ({ ...prev, password: e.target.value }))}
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  spellCheck={false}
+                  value={credForm.name}
+                  onChange={e => setCredForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="美国节点通用 root 秘钥"
                   className="px-3 py-2 text-kumo-strong"
                 />
               </div>
-            ) : (
-              <div className="flex flex-col gap-3">
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-semibold text-kumo-subtle">用户登录名</label>
+                <Input
+                  size="sm"
+                  aria-label="用户登录名"
+                  type="text"
+                  value={credForm.username}
+                  onChange={e => setCredForm(prev => ({ ...prev, username: e.target.value }))}
+                  placeholder="root"
+                  className="px-3 py-2 text-kumo-strong"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-semibold text-kumo-subtle font-medium">登录凭据模式</label>
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  aria-label="登录凭据模式"
+                  value={credForm.auth_type}
+                  onValueChange={value =>
+                    setCredForm(prev => ({ ...prev, auth_type: String(value) }))
+                  }
+                  className="w-full min-w-0 px-3 py-2"
+                  items={[
+                    { value: 'password', label: '明文密码' },
+                    { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
+                  ]}
+                />
+              </div>
+
+              {credForm.auth_type === 'password' ? (
                 <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-kumo-subtle">PEM 私钥证书内容</label>
-                  <CodeEditor
-                    label="PEM 私钥证书内容"
-                    language="text"
-                    value={credForm.private_key}
-                    onChange={private_key => setCredForm(prev => ({ ...prev, private_key }))}
-                    placeholder="-----BEGIN RSA PRIVATE KEY-----"
-                    minHeight="8rem"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-kumo-subtle">证书保护密码短语 (口令)</label>
+                  <label className="font-semibold text-kumo-subtle">默认登录密码</label>
                   <Input
                     size="sm"
-                    aria-label="证书保护密码短语"
+                    aria-label="默认登录密码"
                     type="text"
-                    value={credForm.passphrase}
-                    onChange={e => setCredForm(prev => ({ ...prev, passphrase: e.target.value }))}
-                    placeholder="Passphrase"
+                    value={credForm.password}
+                    onChange={e => setCredForm(prev => ({ ...prev, password: e.target.value }))}
                     autoComplete="off"
                     data-1p-ignore
                     data-lpignore="true"
@@ -13246,14 +13215,45 @@ function ServerPage() {
                     className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-kumo-subtle">PEM 私钥证书内容</label>
+                    <CodeEditor
+                      label="PEM 私钥证书内容"
+                      language="text"
+                      value={credForm.private_key}
+                      onChange={private_key => setCredForm(prev => ({ ...prev, private_key }))}
+                      placeholder="-----BEGIN RSA PRIVATE KEY-----"
+                      minHeight="8rem"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-kumo-subtle">
+                      证书保护密码短语 (口令)
+                    </label>
+                    <Input
+                      size="sm"
+                      aria-label="证书保护密码短语"
+                      type="text"
+                      value={credForm.passphrase}
+                      onChange={e => setCredForm(prev => ({ ...prev, passphrase: e.target.value }))}
+                      placeholder="Passphrase"
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-bwignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      className="px-3 py-2 text-kumo-strong"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
-              type="button"
-              onClick={addCredential}
-            >
+            <LayerDialog.Actions.Primary type="button" onClick={addCredential}>
               保存
             </LayerDialog.Actions.Primary>
           </LayerDialog.Actions>
@@ -13264,34 +13264,36 @@ function ServerPage() {
       <LayerDialog.Root open={showImportServerModal} onOpenChange={setShowImportServerModal}>
         <LayerDialog.Content size="sm">
           <LayerDialog.Title>导入主机备份配置</LayerDialog.Title>
-          <LayerDialog.Body className="flex flex-col gap-4 text-xs">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-kumo-subtle font-medium">
-                选择备份 JSON 文件
-              </label>
-              <Input
-                size="sm"
-                aria-label="选择备份 JSON 文件"
-                type="file"
-                onChange={e => {
-                  const f = e.target.files[0];
-                  if (f) processImportFile(f);
-                }}
-                className="px-3 py-2"
-              />
+          <LayerDialog.Body>
+            <div className="flex flex-col gap-4 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-semibold text-kumo-subtle font-medium">
+                  选择备份 JSON 文件
+                </label>
+                <Input
+                  size="sm"
+                  aria-label="选择备份 JSON 文件"
+                  type="file"
+                  onChange={e => {
+                    const f = e.target.files[0];
+                    if (f) processImportFile(f);
+                  }}
+                  className="px-3 py-2"
+                />
+              </div>
+
+              {importPreview && (
+                <div className="bg-kumo-success/10 border border-kumo-success/20 p-2.5 rounded text-xs text-kumo-success font-semibold">
+                  ✓ 已识别 {importPreview.length} 台主机，确认恢复？
+                </div>
+              )}
+
+              {importModalError && (
+                <div className="text-xs text-kumo-danger font-semibold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
+                  {importModalError}
+                </div>
+              )}
             </div>
-
-            {importPreview && (
-              <div className="bg-kumo-success/10 border border-kumo-success/20 p-2.5 rounded text-xs text-kumo-success font-semibold">
-                ✓ 已识别 {importPreview.length} 台主机，确认恢复？
-              </div>
-            )}
-
-            {importModalError && (
-              <div className="text-xs text-kumo-danger font-semibold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
-                {importModalError}
-              </div>
-            )}
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
             <LayerDialog.Actions.Primary
@@ -14047,30 +14049,32 @@ function ServerPage() {
               容器日志: {dockerLogsContainer ? getDockerContainerName(dockerLogsContainer) : ''}
             </span>
           </LayerDialog.Title>
-          <LayerDialog.Body className="flex flex-col gap-3 text-xs font-mono text-kumo-default">
-            <div className="flex items-center gap-3">
-              <Select
-                alignItemWithTrigger
-                size="sm"
-                label="日志行数"
-                value={String(dockerLogsTail)}
-                onValueChange={value => {
-                  const val = Number(value);
-                  setDockerLogsTail(val);
-                  loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, val);
-                }}
-                disabled={dockerLogsLoading}
-                items={DOCKER_LOG_TAIL_ITEMS}
-              />
-              {dockerLogsLoading && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-kumo-subtle">
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                  更新中...
-                </span>
-              )}
-            </div>
-            <div className="min-h-96 flex-1 rounded border border-kumo-line bg-kumo-canvas/15 p-2 overflow-auto max-h-[50vh] whitespace-pre-wrap select-text font-mono text-[11px] leading-relaxed">
-              {dockerLogsContent}
+          <LayerDialog.Body>
+            <div className="flex flex-col gap-3 text-xs font-mono text-kumo-default">
+              <div className="flex items-center gap-3">
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  label="日志行数"
+                  value={String(dockerLogsTail)}
+                  onValueChange={value => {
+                    const val = Number(value);
+                    setDockerLogsTail(val);
+                    loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, val);
+                  }}
+                  disabled={dockerLogsLoading}
+                  items={DOCKER_LOG_TAIL_ITEMS}
+                />
+                {dockerLogsLoading && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-kumo-subtle">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    更新中...
+                  </span>
+                )}
+              </div>
+              <div className="min-h-96 flex-1 rounded border border-kumo-line bg-kumo-canvas/15 p-2 overflow-auto max-h-[50vh] whitespace-pre-wrap select-text font-mono text-[11px] leading-relaxed">
+                {dockerLogsContent}
+              </div>
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="关闭">

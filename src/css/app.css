@@ -1311,6 +1311,25 @@ samp {
   max-height: calc(100dvh - 1rem);
 }
 
+/* Kumo LayerDialog.Body 的滚动内容层只有 px-4.5 pb-4.5（窄屏 px-4 pb-4），顶部无内边距；
+   该层外层 ScrollAreaViewport（.base-ui-disable-scrollbar，overflow: scroll）是裁剪容器，
+   而 Kumo Button/Input 的描边用 Tailwind ring（向外溢出的 box-shadow）。于是 Body 首个子
+   元素一旦自身带 ring（刷新按钮、普通 Input 等），上边缘正好贴着裁剪区顶部，边框被裁掉。
+   这里给该内容层补顶部内边距；同时把 mask 渐变的起始透明区归零，避免多出 24px 的额外
+   淡出（顶部内边距已经提供了视觉间隔，头部本身也会吸顶遮挡）。
+   选择器限定：弹层内容根（data-drawer-content）+ 滚动视口（.base-ui-disable-scrollbar）
+   + 内容层特征（role=presentation 且带 px-4.5 pb-4.5 / px-4 pb-4 内边距类），避免误伤
+   业务自定义的 px-4 pb-4 容器。 */
+[data-drawer-content]
+  div.base-ui-disable-scrollbar
+  > div[role='presentation'][class~='px-4.5'][class~='pb-4.5'],
+[data-drawer-content]
+  div.base-ui-disable-scrollbar
+  > div[role='presentation'][class~='px-4'][class~='pb-4'] {
+  padding-top: 0.75rem;
+  --scroll-area-overflow-y-start: 0px;
+}
+
 /* Kumo Dialog 固定定位用 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 居中：
    视口或弹窗尺寸为奇数时 translate 会落在半像素上，元素被抬进 GPU 合成层，
    Windows 下 ClearType 亚像素抗锯齿失效，弹窗内文字整体发糊。

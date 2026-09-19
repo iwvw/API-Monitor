@@ -3,12 +3,13 @@ import { toast } from '../../modules/toast.js';
 import { del, get, post, put } from '../../modules/apiClient.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { Button } from '@cloudflare/kumo/components/button';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
-import { ClipboardText as ClipboardTextField, Empty, LayerCard, Tabs } from '@cloudflare/kumo';
+import { ClipboardText as ClipboardTextField, Empty, Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import {
@@ -166,14 +167,11 @@ function shortId(value) {
   return value.length > 12 ? `${value.slice(0, 12)}…` : value;
 }
 
-function instanceDialogDescription(editingInstance, instanceOwner) {
+function instanceDialogDescription(editingInstance) {
   if (editingInstance) {
     return '实例指向一台已安装 Agent 的主机上的 AI Agent 本地服务端口。';
   }
-  if (instanceOwner) {
-    return `为该用户（${instanceOwner.username}）登记一台已安装 Agent 的主机上的 AI Agent 服务。`;
-  }
-  return '实例指向一台已安装 Agent 的主机上的 AI Agent 本地服务端口。';
+  return '实例是平台共享资源，登记后可在「用户管理」中按需授权给用户。';
 }
 
 const RESULT_META = {
@@ -186,17 +184,16 @@ function resultMeta(result) {
   return RESULT_META[result] || { label: result || '-', tone: 'neutral' };
 }
 
-// InstanceTable 是实例列表的共用表格：「我的实例」按登录身份呈现，
-// 管理员的「用户实例」弹层复用同一份渲染（此时 isAdmin 传 false，归属已知）。
-function InstanceTable({ instances, isAdmin, onAccess, onEdit, onDelete, isArmed }) {
+// InstanceTable 是实例列表的共用表格。实例是平台资源，不归属用户，
+// 用户可用哪些实例由「用户管理」里的授权勾选决定。
+function InstanceTable({ instances, onAccess, onEdit, onDelete, isArmed }) {
   return (
     <div className="overflow-x-auto">
-      <Table layout="fixed" className={isAdmin ? 'min-w-[1010px]' : 'min-w-[880px]'}>
+      <Table layout="fixed" className="min-w-[880px]">
         <colgroup>
-          <col className="w-[200px]" />
-          {isAdmin && <col className="w-[130px]" />}
+          <col className="w-[220px]" />
           <col className="w-[130px]" />
-          <col className="w-[170px]" />
+          <col className="w-[180px]" />
           <col className="w-[90px]" />
           <col className="w-[140px]" />
           <col className="w-[210px]" />
@@ -204,7 +201,6 @@ function InstanceTable({ instances, isAdmin, onAccess, onEdit, onDelete, isArmed
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head>名称</Table.Head>
-            {isAdmin && <Table.Head>归属用户</Table.Head>}
             <Table.Head>Provider</Table.Head>
             <Table.Head>主机</Table.Head>
             <Table.Head className="text-right">端口</Table.Head>
@@ -223,11 +219,6 @@ function InstanceTable({ instances, isAdmin, onAccess, onEdit, onDelete, isArmed
                     {!instance.enabled && <StatusBadge tone="neutral">已停用</StatusBadge>}
                   </div>
                 </Table.Cell>
-                {isAdmin && (
-                  <Table.Cell className="text-xs text-kumo-subtle">
-                    {instance.username || shortId(instance.userId)}
-                  </Table.Cell>
-                )}
                 <Table.Cell>{instance.providerLabel || instance.provider}</Table.Cell>
                 <Table.Cell>{instance.hostName || instance.serverId}</Table.Cell>
                 <Table.Cell className="text-right font-mono text-xs">{instance.port}</Table.Cell>
@@ -307,9 +298,6 @@ export default function AiAgentConsole() {
   const [servers, setServers] = useState([]);
   const [instanceDialogOpen, setInstanceDialogOpen] = useState(false);
   const [editingInstance, setEditingInstance] = useState(null);
-  // instanceOwner 是新增实例时的归属用户（管理员从「用户管理」指定）；
-  // 普通用户新增时为空，由后端归属到当前账号。
-  const [instanceOwner, setInstanceOwner] = useState(null);
   const [instanceForm, setInstanceForm] = useState({
     serverId: '',
     provider: 'opencode',
@@ -319,10 +307,12 @@ export default function AiAgentConsole() {
   });
   const [instanceSaving, setInstanceSaving] = useState(false);
   const [accessInfo, setAccessInfo] = useState(null);
-  // userInstancesTarget 是管理员正在查看实例的用户（用户管理里的二级弹层）。
-  const [userInstancesTarget, setUserInstancesTarget] = useState(null);
-  const [userInstances, setUserInstances] = useState([]);
-  const [userInstancesLoading, setUserInstancesLoading] = useState(false);
+  // grantsTarget 是管理员正在配置「可用实例」的用户（用户管理里的授权弹层）。
+  const [grantsTarget, setGrantsTarget] = useState(null);
+  const [grantsLoading, setGrantsLoading] = useState(false);
+  const [grantsSaving, setGrantsSaving] = useState(false);
+  // grantedIds 是该用户当前被授权的实例 ID 集合。
+  const [grantedIds, setGrantedIds] = useState(() => new Set());
 
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -391,31 +381,57 @@ export default function AiAgentConsole() {
     }
   }, []);
 
-  // loadUserInstances 拉取指定用户的实例（管理员在用户管理里的二级弹层）。
+  // loadUserGrants 拉取指定用户被授权的实例 ID（用户管理里的授权弹层）。
   // 重新选择用户时用请求序号丢弃过期响应，避免旧请求覆盖新用户的数据。
-  const userInstancesSeqRef = useRef(0);
-  const loadUserInstances = useCallback(async user => {
-    const seq = ++userInstancesSeqRef.current;
-    setUserInstancesLoading(true);
+  const grantsSeqRef = useRef(0);
+  const loadUserGrants = useCallback(async user => {
+    const seq = ++grantsSeqRef.current;
+    setGrantsLoading(true);
     try {
-      const payload = await get(
-        `/api/aiagent/instances?probe=1&userId=${encodeURIComponent(user.id)}`
-      );
-      if (seq !== userInstancesSeqRef.current) return;
-      setUserInstances(payload.data || []);
+      const payload = await get(`/api/aiagent/users/${user.id}/instances`);
+      if (seq !== grantsSeqRef.current) return;
+      setGrantedIds(new Set(payload.data?.instanceIds || []));
     } catch (error) {
-      if (seq !== userInstancesSeqRef.current) return;
-      toast.error(error.message || '加载该用户实例失败');
-      setUserInstances([]);
+      if (seq !== grantsSeqRef.current) return;
+      toast.error(error.message || '加载该用户可用实例失败');
+      setGrantedIds(new Set());
     } finally {
-      if (seq === userInstancesSeqRef.current) setUserInstancesLoading(false);
+      if (seq === grantsSeqRef.current) setGrantsLoading(false);
     }
   }, []);
 
-  const openUserInstances = user => {
-    setUserInstancesTarget(user);
-    setUserInstances([]);
-    loadUserInstances(user);
+  const openUserGrants = user => {
+    setGrantsTarget(user);
+    setGrantedIds(new Set());
+    loadUserGrants(user);
+  };
+
+  const toggleGrant = instanceId => {
+    setGrantedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(instanceId)) {
+        next.delete(instanceId);
+      } else {
+        next.add(instanceId);
+      }
+      return next;
+    });
+  };
+
+  const saveUserGrants = async () => {
+    if (!grantsTarget) return;
+    setGrantsSaving(true);
+    try {
+      await put(`/api/aiagent/users/${grantsTarget.id}/instances`, {
+        instanceIds: Array.from(grantedIds),
+      });
+      toast.success('可用实例已更新');
+      setGrantsTarget(null);
+    } catch (error) {
+      toast.error(error.message || '保存可用实例失败');
+    } finally {
+      setGrantsSaving(false);
+    }
   };
 
   const loadProviders = useCallback(async () => {
@@ -518,11 +534,10 @@ export default function AiAgentConsole() {
     loadLogs();
   }, [activeTab, loadLogs]);
 
-  // openCreateInstance 新增实例。管理员从「用户管理」逐用户进入时传入 owner，
-  // 归属由入口决定，不再在表单里选择；普通用户新增时 owner 为空，由后端归属自己。
-  const openCreateInstance = owner => {
+  // openCreateInstance 新增实例。实例是平台资源，不归属用户；
+  // 用户可用哪些实例由「用户管理」里的授权勾选决定。
+  const openCreateInstance = () => {
     setEditingInstance(null);
-    setInstanceOwner(owner || null);
     setInstanceForm({
       serverId: '',
       provider: defaultProviderId(providers),
@@ -538,7 +553,6 @@ export default function AiAgentConsole() {
 
   const openEditInstance = instance => {
     setEditingInstance(instance);
-    setInstanceOwner(null);
     setInstanceForm({
       serverId: instance.serverId,
       provider: instance.provider,
@@ -558,7 +572,7 @@ export default function AiAgentConsole() {
     // 主机已被移除时不允许直接提交旧值，要求重新选择。
     // 所选主机不可用（列表已加载但无此项，或列表未加载且当前值无法解析）时要求重选。
     const hostKnown = serverOptions.some(option => option.value === instanceForm.serverId);
-    if (!hostKnown && (serverOptions.length > 0 || !isAdmin)) {
+    if (!hostKnown && serverOptions.length > 0) {
       toast.warning('所选主机已不可用，请重新选择主机');
       return;
     }
@@ -619,16 +633,11 @@ export default function AiAgentConsole() {
         await put(`/api/aiagent/instances/${editingInstance.id}`, body);
         toast.success('实例已更新');
       } else {
-        // 归属由入口决定：管理员从用户实例弹层进入时带 owner，普通用户由后端归属自己。
-        if (instanceOwner?.id) body.userId = instanceOwner.id;
         await post('/api/aiagent/instances', body);
         toast.success('实例已添加');
       }
       setInstanceDialogOpen(false);
-      await Promise.all([
-        loadInstances(),
-        userInstancesTarget ? loadUserInstances(userInstancesTarget) : Promise.resolve(),
-      ]);
+      await loadInstances();
     } catch (error) {
       toast.error(error.message || '保存实例失败');
     } finally {
@@ -645,10 +654,7 @@ export default function AiAgentConsole() {
     try {
       await del(`/api/aiagent/instances/${instance.id}`);
       toast.success('实例已删除');
-      await Promise.all([
-        loadInstances(),
-        userInstancesTarget ? loadUserInstances(userInstancesTarget) : Promise.resolve(),
-      ]);
+      await loadInstances();
     } catch (error) {
       toast.error(error.message || '删除实例失败');
     }
@@ -777,7 +783,7 @@ export default function AiAgentConsole() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Plug className="w-3.5 h-3.5" />
-                  {isAdmin ? '全部实例' : '我的实例'}
+                  AI Agent 实例
                 </span>
               ),
             },
@@ -805,12 +811,8 @@ export default function AiAgentConsole() {
 
       {activeTab === 'instances' && (
         <SectionCard
-          title={isAdmin ? '全部实例' : '我的实例'}
-          description={
-            isAdmin
-              ? '各用户名下的 AI Agent 实例；新增与归属请在「用户管理」中按用户操作。'
-              : '登记已分配主机上的 AI Agent 服务。'
-          }
+          title="AI Agent 实例"
+          description="登记各主机上的 AI Agent 服务；用户在「用户管理」中按需授权可用实例。"
           bodyPadding="none"
           actions={
             <>
@@ -818,12 +820,10 @@ export default function AiAgentConsole() {
                 <RefreshCw className="h-4 w-4" />
                 刷新
               </Button>
-              {!isAdmin && (
-                <Button size="sm" variant="primary" onClick={() => openCreateInstance(null)}>
-                  <Plus className="h-4 w-4" />
-                  添加实例
-                </Button>
-              )}
+              <Button size="sm" variant="primary" onClick={openCreateInstance}>
+                <Plus className="h-4 w-4" />
+                添加实例
+              </Button>
             </>
           }
         >
@@ -834,15 +834,10 @@ export default function AiAgentConsole() {
               size="sm"
               className="rounded-none border-0 bg-transparent"
               title="还没有实例"
-              description={
-                isAdmin
-                  ? '在「用户管理」中选择用户后为其添加实例'
-                  : '添加一台已安装 Agent 的主机上的 AI Agent 服务'
-              }
+              description="添加一台已安装 Agent 的主机上的 AI Agent 服务"
             />,
             <InstanceTable
               instances={instances}
-              isAdmin={isAdmin}
               onAccess={showAccessInfo}
               onEdit={openEditInstance}
               onDelete={removeInstance}
@@ -855,7 +850,7 @@ export default function AiAgentConsole() {
       {activeTab === 'users' && (
         <SectionCard
           title="用户管理"
-          description="创建用户、设置密码，并按用户管理其 AI Agent 实例。"
+          description="创建用户、设置密码，并按用户授权其可用的 AI Agent 实例。"
           bodyPadding="none"
           actions={
             isAdmin ? (
@@ -919,9 +914,9 @@ export default function AiAgentConsole() {
                           <Button
                             size="sm"
                             variant="secondary"
-                            aria-label="管理实例"
-                            title="管理实例"
-                            onClick={() => openUserInstances(user)}
+                            aria-label="可用实例"
+                            title="可用实例"
+                            onClick={() => openUserGrants(user)}
                           >
                             <Plug className="h-3.5 w-3.5" />
                           </Button>
@@ -1073,65 +1068,69 @@ export default function AiAgentConsole() {
         <LayerDialog.Content size="sm">
           <LayerDialog.Title>{editingInstance ? '编辑实例' : '添加实例'}</LayerDialog.Title>
           <LayerDialog.Description>
-            {instanceDialogDescription(editingInstance, instanceOwner)}
+            {instanceDialogDescription(editingInstance)}
           </LayerDialog.Description>
-          <LayerDialog.Body className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-kumo-subtle">主机</span>
-              <Select
-                alignItemWithTrigger
-                size="sm"
-                value={instanceForm.serverId}
-                onValueChange={value => setInstanceForm(prev => ({ ...prev, serverId: value }))}
-                items={buildServerOptions(serverOptions, instanceForm.serverId)}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-kumo-subtle">Provider</span>
-              <Select
-                alignItemWithTrigger
-                size="sm"
-                value={instanceForm.provider}
-                onValueChange={value =>
-                  // 切换 Provider 时清空端口：各 Provider 默认端口不同，沿用旧端口会被后端拒绝。
-                  setInstanceForm(prev => ({ ...prev, provider: value, port: '' }))
-                }
-                items={buildProviderOptions(providerOptions, instanceForm.provider)}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-kumo-subtle">实例名称</span>
-              <Input
-                size="sm"
-                value={instanceForm.label}
-                placeholder="例如：家里台机"
-                onChange={event =>
-                  setInstanceForm(prev => ({ ...prev, label: event.target.value }))
-                }
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-kumo-subtle">
-                端口（当前仅支持该 Provider 的默认端口
-                {selectedProviderPort ? ` ${selectedProviderPort}` : ''}）
-              </span>
-              <Input
-                size="sm"
-                value={instanceForm.port}
-                inputMode="numeric"
-                placeholder={selectedProviderPort ? String(selectedProviderPort) : '默认端口'}
-                onChange={event => setInstanceForm(prev => ({ ...prev, port: event.target.value }))}
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm text-kumo-subtle">
-              <Switch
-                checked={instanceForm.enabled}
-                onCheckedChange={checked =>
-                  setInstanceForm(prev => ({ ...prev, enabled: checked }))
-                }
-              />
-              启用该实例
-            </label>
+          <LayerDialog.Body>
+            <div className="flex flex-col gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-kumo-subtle">主机</span>
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  value={instanceForm.serverId}
+                  onValueChange={value => setInstanceForm(prev => ({ ...prev, serverId: value }))}
+                  items={buildServerOptions(serverOptions, instanceForm.serverId)}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-kumo-subtle">Provider</span>
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  value={instanceForm.provider}
+                  onValueChange={value =>
+                    // 切换 Provider 时清空端口：各 Provider 默认端口不同，沿用旧端口会被后端拒绝。
+                    setInstanceForm(prev => ({ ...prev, provider: value, port: '' }))
+                  }
+                  items={buildProviderOptions(providerOptions, instanceForm.provider)}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-kumo-subtle">实例名称</span>
+                <Input
+                  size="sm"
+                  value={instanceForm.label}
+                  placeholder="例如：家里台机"
+                  onChange={event =>
+                    setInstanceForm(prev => ({ ...prev, label: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-kumo-subtle">
+                  端口（当前仅支持该 Provider 的默认端口
+                  {selectedProviderPort ? ` ${selectedProviderPort}` : ''}）
+                </span>
+                <Input
+                  size="sm"
+                  value={instanceForm.port}
+                  inputMode="numeric"
+                  placeholder={selectedProviderPort ? String(selectedProviderPort) : '默认端口'}
+                  onChange={event =>
+                    setInstanceForm(prev => ({ ...prev, port: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-kumo-subtle">
+                <Switch
+                  checked={instanceForm.enabled}
+                  onCheckedChange={checked =>
+                    setInstanceForm(prev => ({ ...prev, enabled: checked }))
+                  }
+                />
+                启用该实例
+              </label>
+            </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
             <LayerDialog.Actions.Primary
@@ -1146,56 +1145,71 @@ export default function AiAgentConsole() {
       </LayerDialog.Root>
 
       <LayerDialog.Root
-        open={Boolean(userInstancesTarget)}
+        open={Boolean(grantsTarget)}
         onOpenChange={open => {
-          if (!open) setUserInstancesTarget(null);
+          if (!open) setGrantsTarget(null);
         }}
       >
         <LayerDialog.Content size="lg">
-          <LayerDialog.Title>{userInstancesTarget?.username} 的实例</LayerDialog.Title>
+          <LayerDialog.Title>{grantsTarget?.username} 的可用实例</LayerDialog.Title>
           <LayerDialog.Description>
-            登记在用户名下的 AI Agent 实例，可为其新增、编辑或删除。
+            勾选该用户可以使用的 AI Agent 实例；默认不授权任何实例。
           </LayerDialog.Description>
           <LayerDialog.Body>
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => openUserInstances(userInstancesTarget)}
-              >
-                <RefreshCw className="h-4 w-4" />
-                刷新
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => openCreateInstance(userInstancesTarget)}
-              >
-                <Plus className="h-4 w-4" />
-                添加实例
-              </Button>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <Button size="sm" variant="secondary" onClick={() => loadUserGrants(grantsTarget)}>
+                  <RefreshCw className="h-4 w-4" />
+                  刷新
+                </Button>
+                <span className="text-xs text-kumo-subtle">
+                  已选 {grantedIds.size} / {instances.length}
+                </span>
+              </div>
+              {renderLoadingOrEmpty(
+                grantsLoading,
+                instances.length === 0,
+                <Empty
+                  size="sm"
+                  className="rounded-none border-0 bg-transparent"
+                  title="还没有实例"
+                  description="请先在「AI Agent 实例」中登记实例"
+                />,
+                <div className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto">
+                  {instances.map(instance => (
+                    <label
+                      key={instance.id}
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-kumo-fill/40"
+                    >
+                      <Checkbox
+                        checked={grantedIds.has(instance.id)}
+                        onCheckedChange={() => toggleGrant(instance.id)}
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate font-medium text-kumo-strong">
+                          {instance.label}
+                        </span>
+                        <span className="truncate text-xs text-kumo-subtle">
+                          {instance.providerLabel || instance.provider} ·{' '}
+                          {instance.hostName || instance.serverId} · 端口 {instance.port}
+                          {instance.enabled ? '' : ' · 已停用'}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
-            {renderLoadingOrEmpty(
-              userInstancesLoading,
-              userInstances.length === 0,
-              <Empty
-                size="sm"
-                className="rounded-none border-0 bg-transparent"
-                title="该用户还没有实例"
-                description="点击「添加实例」为其登记一台已安装 Agent 的机器"
-              />,
-              <LayerCard className="overflow-x-auto p-0">
-                <InstanceTable
-                  instances={userInstances}
-                  isAdmin={false}
-                  onAccess={showAccessInfo}
-                  onEdit={openEditInstance}
-                  onDelete={removeInstance}
-                  isArmed={isArmed}
-                />
-              </LayerCard>
-            )}
           </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Actions.Primary
+              type="button"
+              onClick={saveUserGrants}
+              loading={grantsSaving}
+            >
+              保存
+            </LayerDialog.Actions.Primary>
+          </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
 
@@ -1207,49 +1221,55 @@ export default function AiAgentConsole() {
           <LayerDialog.Description>
             用户用于客户端登录，与面板管理员账号相互独立。
           </LayerDialog.Description>
-          <LayerDialog.Body className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-kumo-subtle">用户名</span>
-              <Input
-                size="sm"
-                value={userForm.username}
-                disabled={Boolean(editingUser)}
-                placeholder="3-32 位字母数字与 - _ ."
-                onChange={event => setUserForm(prev => ({ ...prev, username: event.target.value }))}
-              />
-            </label>
-            {!editingUser && (
+          <LayerDialog.Body>
+            <div className="flex flex-col gap-3">
               <label className="flex flex-col gap-1">
-                <span className="text-sm text-kumo-subtle">密码（至少 8 位）</span>
+                <span className="text-sm text-kumo-subtle">用户名</span>
                 <Input
                   size="sm"
-                  type="password"
-                  value={userForm.password}
+                  value={userForm.username}
+                  disabled={Boolean(editingUser)}
+                  placeholder="3-32 位字母数字与 - _ ."
                   onChange={event =>
-                    setUserForm(prev => ({ ...prev, password: event.target.value }))
+                    setUserForm(prev => ({ ...prev, username: event.target.value }))
                   }
                 />
               </label>
-            )}
-            <label className="flex flex-col gap-1">
-              <span className="text-sm text-kumo-subtle">显示名</span>
-              <Input
-                size="sm"
-                value={userForm.displayName}
-                onChange={event =>
-                  setUserForm(prev => ({ ...prev, displayName: event.target.value }))
-                }
-              />
-            </label>
-            {editingUser && (
-              <label className="flex items-center gap-2 text-sm text-kumo-subtle">
-                <Switch
-                  checked={userForm.disabled}
-                  onCheckedChange={checked => setUserForm(prev => ({ ...prev, disabled: checked }))}
+              {!editingUser && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-sm text-kumo-subtle">密码（至少 8 位）</span>
+                  <Input
+                    size="sm"
+                    type="password"
+                    value={userForm.password}
+                    onChange={event =>
+                      setUserForm(prev => ({ ...prev, password: event.target.value }))
+                    }
+                  />
+                </label>
+              )}
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-kumo-subtle">显示名</span>
+                <Input
+                  size="sm"
+                  value={userForm.displayName}
+                  onChange={event =>
+                    setUserForm(prev => ({ ...prev, displayName: event.target.value }))
+                  }
                 />
-                禁用该用户（其全部令牌立即失效）
               </label>
-            )}
+              {editingUser && (
+                <label className="flex items-center gap-2 text-sm text-kumo-subtle">
+                  <Switch
+                    checked={userForm.disabled}
+                    onCheckedChange={checked =>
+                      setUserForm(prev => ({ ...prev, disabled: checked }))
+                    }
+                  />
+                  禁用该用户（其全部令牌立即失效）
+                </label>
+              )}
+            </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
             <LayerDialog.Actions.Primary type="button" onClick={saveUser} loading={userSaving}>
