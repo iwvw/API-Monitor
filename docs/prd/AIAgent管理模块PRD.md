@@ -2,6 +2,12 @@
 
 最后更新：2026-09-17
 
+> 变更说明（实现期调整，2026-09-19）：实例模型已从「实例归属单个用户」改为
+> 「平台实例 + 用户授权」。实例由面板管理员统一登记，AI Agent 用户通过
+> `aiagent_instance_grants` 被逐个授权可用实例，**默认不授权**。下文凡涉及
+> 「实例归属/分配到用户名下/唯一约束 (user_id, server_id, port)」的描述均已
+> 被此模型取代，详见 [ADR-0004](../adr/0004-AIAgent管理模块架构决策.md)。
+
 ## Problem Statement
 
 API Monitor 目前管理的是基础设施与会话型服务（主机、云厂商、模型网关、DNS、订阅等），但没有一个模块用来管理「跑在各主机上的 AI 编码 Agent」。这类 Agent（OpenCode 已在使用，后续还有 Pi、Codex CLI、Claude Code 等）具有共同特征：以本地进程形式运行在开发者机器上，暴露一个本地 HTTP/SSE 服务端口，承载项目、会话、消息、任务等数据。
@@ -161,19 +167,24 @@ API Monitor 目前管理的是基础设施与会话型服务（主机、云厂�
 
 字段：
 
-- `user_id`：归属用户
 - `server_id`：关联主机（复用 `server_accounts` 中已装 Agent 的主机）
 - `provider`：Agent 类型（`opencode` / `pi` / `codex` / `claude-code`）
 - `label`：实例名称，如「家里台机」「工作本」
 - `port`：Agent 本地服务端口，**每实例可配**，默认取 Provider 默认端口（OpenCode 默认 `4096`）
 - `enabled`：启用位（禁用后网关拒绝转发）
 
+授权关系：
+
+- `aiagent_instance_grants(instance_id, user_id)`：用户可用的实例集合，多对多
+- **默认不授权**：新建实例不自动开放，需在用户管理里逐个勾选
+
 规则：
 
-- 用户只能看到并操作自己的实例；管理员可看到全部
-- 同一 `(user_id, server_id, port)` 不允许重复登记
+- 实例是平台共享资源，不归属用户；由面板管理员统一登记
+- 用户只能看到并操作被授权的实例；管理员可看到全部
+- 同一 `(server_id, provider)` 不允许重复登记（实例已是平台资源，不按用户区分）
 - 端口第一版仅允许 Provider 默认端口（避免网关变成主机任意本地服务的转发器）
-- **主机归属**：把一台新主机首次纳入某用户名下属于管理员动作；普通用户只能在已分配的主机上增删实例，不能枚举或探测其余主机（跨租户隔离）
+- **主机纳管**：把一台新主机首次纳入清单属于管理员动作；用户不可枚举或探测未被授权实例涉及的主机（跨租户隔离）
 - 新增实例必须校验主机上的 Agent 在线（否则允许登记但提示离线）
 - 实例在线判定：Agent 在线 **且** 探测返回该 Provider 进程正在运行（见第 6 节）
 
@@ -317,7 +328,6 @@ CREATE INDEX IF NOT EXISTS idx_aiagent_tokens_prefix  ON aiagent_tokens(token_pr
 ```sql
 CREATE TABLE IF NOT EXISTS aiagent_instances (
   id         TEXT PRIMARY KEY,               -- inst_<random>
-  user_id    TEXT NOT NULL,
   server_id  TEXT NOT NULL,                  -- 关联 server_accounts.id
   provider   TEXT NOT NULL,                  -- opencode|pi|codex|claude-code
   label      TEXT NOT NULL,
@@ -326,10 +336,21 @@ CREATE TABLE IF NOT EXISTS aiagent_instances (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_aiagent_instances_user   ON aiagent_instances(user_id);
 CREATE INDEX IF NOT EXISTS idx_aiagent_instances_server ON aiagent_instances(server_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_aiagent_instances_unique
-  ON aiagent_instances(user_id, server_id, port);
+  ON aiagent_instances(server_id, provider);
+```
+
+### `aiagent_instance_grants`
+
+```sql
+CREATE TABLE IF NOT EXISTS aiagent_instance_grants (
+  instance_id TEXT NOT NULL,
+  user_id     TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (instance_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_aiagent_instance_grants_user ON aiagent_instance_grants(user_id);
 ```
 
 ### `aiagent_instance_meta`

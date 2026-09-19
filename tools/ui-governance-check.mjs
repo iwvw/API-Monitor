@@ -396,6 +396,19 @@ function topLevelBraces(src) {
   return blocks;
 }
 
+// kumo 的 LayerDialog slot（Content/Title/Description/Body）只解构固定字段，
+// className/ref 等属性会被静默丢弃。静默丢弃比报错更难发现
+// （例如 Body 上的 gap-3 从未生效，视觉上各行贴在一起），因此这里在构建前拦下。
+function checkDroppedLayerDialogAttrs(rel, openTag, slotName, lineNumber) {
+  for (const attr of ['className', 'ref']) {
+    if (new RegExp(`\\b${attr}\\s*=`).test(openTag)) {
+      failures.push(
+        `${rel}:${lineNumber} ${slotName} drops "${attr}" at runtime (kumo only reads its own fields); move it to an inner element`
+      );
+    }
+  }
+}
+
 // LayerDialog 是结构化弹窗：Content 的直接子元素只允许 Title/Body（各一个）与可选的
 // Description/Actions；Actions 只能含一个 Primary。违反会在运行时抛错（kumo 源码硬校验），
 // 因此这里在构建前把守，避免迁移或新增时又写出会崩的结构。
@@ -412,6 +425,14 @@ function scanLayerDialogs(files) {
       const closeEnd = findMatchingClose(content, match.index, 'LayerDialog.Content');
       if (closeEnd < 0) continue;
       let rest = content.slice(tagEnd + 1, closeEnd - '</LayerDialog.Content>'.length);
+
+      // Content 自身同样只解构固定字段，className/ref 会被静默丢弃。
+      checkDroppedLayerDialogAttrs(
+        rel,
+        content.slice(match.index, tagEnd + 1),
+        'LayerDialog.Content',
+        content.slice(0, match.index).split(/\r?\n/).length
+      );
 
       // 先于 slot 剔除做检查：若某个顶层 {} 块内出现 Title/Body/Description 标签，
       // 说明 slot 被条件表达式包裹。Children.toArray 不展开顶层 Fragment，
@@ -438,6 +459,19 @@ function scanLayerDialogs(files) {
         while ((slotMatch = slotRe.exec(rest))) {
           const slotClose = findMatchingClose(rest, slotMatch.index, slot);
           if (slotClose < 0) break;
+          const slotTagEnd = findTagEnd(rest, slotMatch.index);
+          if (slotTagEnd > 0) {
+            const lineNumber =
+              content.slice(0, match.index).split(/\r?\n/).length +
+              rest.slice(0, slotMatch.index).split(/\r?\n/).length -
+              1;
+            checkDroppedLayerDialogAttrs(
+              rel,
+              rest.slice(slotMatch.index, slotTagEnd + 1),
+              slot,
+              lineNumber
+            );
+          }
           rest = rest.slice(0, slotMatch.index) + ' '.repeat(slotClose - slotMatch.index) + rest.slice(slotClose);
           slotRe.lastIndex = slotMatch.index + 1;
         }
