@@ -43,11 +43,12 @@ type Token struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
-// Instance 是用户登记的一台机器上的一个 AI Agent 服务。
+// Instance 是平台上登记的一台机器上的一个 AI Agent 服务。
+//
+// 实例是平台资源，不归属任何用户：用户通过 aiagent_instance_grants 被授权
+// 使用其中的若干实例。
 type Instance struct {
 	ID        string `json:"id"`
-	UserID    string `json:"userId"`
-	Username  string `json:"username,omitempty"`
 	ServerID  string `json:"serverId"`
 	Provider  string `json:"provider"`
 	Label     string `json:"label"`
@@ -124,8 +125,20 @@ type instancePayload struct {
 	Label    string `json:"label"`
 	Port     int    `json:"port"`
 	Enabled  *bool  `json:"enabled"`
-	// UserID 仅管理员使用：为指定用户创建/转移实例。普通用户忽略该字段。
-	UserID string `json:"userId"`
+}
+
+// grantsPayload 是「设置某用户可用实例」的载荷：传入的列表即最终授权集合，
+// 未包含的实例会被收回授权。
+type grantsPayload struct {
+	InstanceIDs []string `json:"instanceIds"`
+}
+
+// InstanceGrant 描述某用户被授权使用的某个实例，用于实例侧展示授权用户。
+type InstanceGrant struct {
+	InstanceID string `json:"instanceId"`
+	UserID     string `json:"userId"`
+	Username   string `json:"username,omitempty"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 type metaPayload struct {

@@ -317,6 +317,11 @@ func shouldSkipRequestLog(r *http.Request, status int) bool {
 	if status < http.StatusBadRequest && r.URL.Path == "/api/system/host-metrics" {
 		return true
 	}
+	// MCP describe 元数据探测（GET /api/ai/mcp）可高达每秒一次，成功响应不记日志避免刷屏；
+	// 真正的工具调用走 POST，仍照常记录，失败也照常记录。
+	if status < http.StatusBadRequest && r.Method == http.MethodGet && r.URL.Path == "/api/ai/mcp" {
+		return true
+	}
 	if status < http.StatusBadRequest && isStaticAssetRequest(r.URL.Path) {
 		return true
 	}

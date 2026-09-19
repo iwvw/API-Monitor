@@ -334,10 +334,8 @@ func (s *Service) deleteUser(ctx context.Context, db *sql.DB, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_tokens WHERE user_id = ?`, id); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_instances WHERE user_id = ?`, id); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_instance_meta WHERE user_id = ?`, id); err != nil {
+	// 实例是平台资源，删除用户只收回其授权，不删除实例本身。
+	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_instance_grants WHERE user_id = ?`, id); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_user_preferences WHERE user_id = ?`, id); err != nil {
@@ -520,16 +518,35 @@ func (s *Service) revokeUserTokens(ctx context.Context, db *sql.DB, userID strin
 
 // ---------- 实例 ----------
 
-func (s *Service) listInstances(ctx context.Context, db *sql.DB, userID string, allUsers bool) ([]Instance, error) {
-	query := `SELECT i.id, i.user_id, u.username, i.server_id, i.provider, i.label, i.port, i.enabled, i.created_at, i.updated_at
-		FROM aiagent_instances i LEFT JOIN aiagent_users u ON u.id = i.user_id`
-	args := []interface{}{}
-	if !allUsers {
-		query += ` WHERE i.user_id = ?`
-		args = append(args, userID)
+// listInstances 返回全部实例。allUsers 参数保留以兼容调用点语义：
+// 实例已是平台资源，不再按用户过滤，可见性由调用方按授权另行收窄。
+func (s *Service) listInstances(ctx context.Context, db *sql.DB) ([]Instance, error) {
+	query := `SELECT id, server_id, provider, label, port, enabled, created_at, updated_at
+		FROM aiagent_instances ORDER BY label`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
 	}
-	query += ` ORDER BY u.username, i.label`
-	rows, err := db.QueryContext(ctx, query, args...)
+	defer rows.Close()
+	instances := make([]Instance, 0)
+	for rows.Next() {
+		instance, err := scanInstance(rows)
+		if err != nil {
+			return nil, err
+		}
+		instances = append(instances, instance)
+	}
+	return instances, rows.Err()
+}
+
+// listInstancesForUser 只返回该用户被授权的实例。空授权即空列表（默认不授权）。
+func (s *Service) listInstancesForUser(ctx context.Context, db *sql.DB, userID string) ([]Instance, error) {
+	query := `SELECT i.id, i.server_id, i.provider, i.label, i.port, i.enabled, i.created_at, i.updated_at
+		FROM aiagent_instances i
+		INNER JOIN aiagent_instance_grants g ON g.instance_id = i.id
+		WHERE g.user_id = ?
+		ORDER BY i.label`
+	rows, err := db.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -549,20 +566,18 @@ func scanInstance(scanner interface {
 	Scan(dest ...interface{}) error
 }) (Instance, error) {
 	var instance Instance
-	var username sql.NullString
 	var enabled int
-	if err := scanner.Scan(&instance.ID, &instance.UserID, &username, &instance.ServerID, &instance.Provider,
+	if err := scanner.Scan(&instance.ID, &instance.ServerID, &instance.Provider,
 		&instance.Label, &instance.Port, &enabled, &instance.CreatedAt, &instance.UpdatedAt); err != nil {
 		return Instance{}, err
 	}
-	instance.Username = username.String
 	instance.Enabled = enabled != 0
 	return instance, nil
 }
 
 func (s *Service) getInstance(ctx context.Context, db *sql.DB, id string) (Instance, error) {
-	row := db.QueryRowContext(ctx, `SELECT i.id, i.user_id, u.username, i.server_id, i.provider, i.label, i.port, i.enabled, i.created_at, i.updated_at
-		FROM aiagent_instances i LEFT JOIN aiagent_users u ON u.id = i.user_id WHERE i.id = ?`, id)
+	row := db.QueryRowContext(ctx, `SELECT id, server_id, provider, label, port, enabled, created_at, updated_at
+		FROM aiagent_instances WHERE id = ?`, id)
 	instance, err := scanInstance(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Instance{}, errNotFound
@@ -570,19 +585,96 @@ func (s *Service) getInstance(ctx context.Context, db *sql.DB, id string) (Insta
 	return instance, err
 }
 
-func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instancePayload, userID string) (Instance, error) {
+// instanceGrantedTo 判断实例是否已授权给该用户。
+func (s *Service) instanceGrantedTo(ctx context.Context, db *sql.DB, instanceID, userID string) (bool, error) {
+	var count int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM aiagent_instance_grants WHERE instance_id = ? AND user_id = ?`,
+		instanceID, userID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// listInstanceIDsForUser 返回该用户被授权的实例 ID 集合。
+func (s *Service) listInstanceIDsForUser(ctx context.Context, db *sql.DB, userID string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `SELECT instance_id FROM aiagent_instance_grants WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
+}
+
+// listGrantsForInstance 返回实例已授权的用户（含用户名），供实例侧展示。
+func (s *Service) listGrantsForInstance(ctx context.Context, db *sql.DB, instanceID string) ([]InstanceGrant, error) {
+	rows, err := db.QueryContext(ctx, `SELECT g.instance_id, g.user_id, COALESCE(u.username, ''), g.created_at
+		FROM aiagent_instance_grants g LEFT JOIN aiagent_users u ON u.id = g.user_id
+		WHERE g.instance_id = ? ORDER BY u.username`, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	grants := make([]InstanceGrant, 0)
+	for rows.Next() {
+		var grant InstanceGrant
+		if err := rows.Scan(&grant.InstanceID, &grant.UserID, &grant.Username, &grant.CreatedAt); err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return grants, rows.Err()
+}
+
+// setGrantsForUser 把该用户的授权集合整体替换为 instanceIDs。事务内先删后插，
+// 避免中途失败留下半套授权。返回实际生效的实例 ID。
+func (s *Service) setGrantsForUser(ctx context.Context, db *sql.DB, userID string, instanceIDs []string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_instance_grants WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	now := nowRFC3339()
+	seen := make(map[string]bool, len(instanceIDs))
+	for _, instanceID := range instanceIDs {
+		instanceID = strings.TrimSpace(instanceID)
+		if instanceID == "" || seen[instanceID] {
+			continue
+		}
+		seen[instanceID] = true
+		// 实例可能已被删除：跳过无效 ID，而不是让整批写入失败。
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM aiagent_instances WHERE id = ?`, instanceID).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO aiagent_instance_grants (instance_id, user_id, created_at) VALUES (?, ?, ?)`,
+			instanceID, userID, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instancePayload) (Instance, error) {
 	provider, ok := LookupProvider(payload.Provider)
 	if !ok {
 		return Instance{}, errInvalidProvider
-	}
-	if userID == "" {
-		return Instance{}, errInvalidCreds
-	}
-	if _, err := s.getUserByID(ctx, db, userID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Instance{}, errNotFound
-		}
-		return Instance{}, err
 	}
 	port := payload.Port
 	if port == 0 {
@@ -596,7 +688,6 @@ func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instan
 	now := nowRFC3339()
 	instance := Instance{
 		ID:        newID("inst_"),
-		UserID:    userID,
 		ServerID:  payload.ServerID,
 		Provider:  provider.ID,
 		Label:     payload.Label,
@@ -616,9 +707,9 @@ func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instan
 		enabled = 1
 	}
 	_, err := db.ExecContext(ctx, `INSERT INTO aiagent_instances
-		(id, user_id, server_id, provider, label, port, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		instance.ID, instance.UserID, instance.ServerID, instance.Provider, instance.Label, instance.Port,
+		(id, server_id, provider, label, port, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		instance.ID, instance.ServerID, instance.Provider, instance.Label, instance.Port,
 		enabled, now, now)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
@@ -629,13 +720,10 @@ func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instan
 	return instance, nil
 }
 
-func (s *Service) updateInstance(ctx context.Context, db *sql.DB, id string, payload instancePayload, userID string, isAdmin bool) (Instance, error) {
+func (s *Service) updateInstance(ctx context.Context, db *sql.DB, id string, payload instancePayload) (Instance, error) {
 	current, err := s.getInstance(ctx, db, id)
 	if err != nil {
 		return Instance{}, err
-	}
-	if !isAdmin && current.UserID != userID {
-		return Instance{}, errNotFound
 	}
 	provider := current.Provider
 	if payload.Provider != "" {
@@ -695,24 +783,23 @@ func (s *Service) updateInstance(ctx context.Context, db *sql.DB, id string, pay
 	return s.getInstance(ctx, db, id)
 }
 
-func (s *Service) deleteInstance(ctx context.Context, db *sql.DB, id, userID string, isAdmin bool) error {
-	current, err := s.getInstance(ctx, db, id)
-	if err != nil {
+func (s *Service) deleteInstance(ctx context.Context, db *sql.DB, id string) error {
+	if _, err := s.getInstance(ctx, db, id); err != nil {
 		return err
-	}
-	if !isAdmin && current.UserID != userID {
-		return errNotFound
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_instance_meta WHERE instance_id = ?`, id); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM aiagent_instances WHERE id = ?`, id); err != nil {
-		return err
+	for _, statement := range []string{
+		`DELETE FROM aiagent_instance_meta WHERE instance_id = ?`,
+		`DELETE FROM aiagent_instance_grants WHERE instance_id = ?`,
+		`DELETE FROM aiagent_instances WHERE id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, id); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

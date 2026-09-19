@@ -40,6 +40,76 @@ func TestInitializeIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestMigrateInstanceOwnership 覆盖旧库（实例带 user_id 归属列）升级到
+// 「平台实例 + 授权表」的迁移：旧归属转成授权，列与旧索引被移除。
+func TestMigrateInstanceOwnership(t *testing.T) {
+	cfg := testConfig(t)
+	service := New(cfg)
+	ctx := context.Background()
+
+	db, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	// 构造旧版 schema：实例带 user_id，唯一索引含 user_id。
+	legacy := []string{
+		`CREATE TABLE aiagent_users (
+			id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
+			display_name TEXT, disabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL, last_login_at TEXT)`,
+		`CREATE TABLE aiagent_instances (
+			id TEXT PRIMARY KEY, user_id TEXT NOT NULL, server_id TEXT NOT NULL, provider TEXT NOT NULL,
+			label TEXT NOT NULL, port INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE INDEX idx_aiagent_instances_user ON aiagent_instances(user_id)`,
+		`CREATE UNIQUE INDEX idx_aiagent_instances_unique ON aiagent_instances(user_id, server_id, port)`,
+	}
+	for _, statement := range legacy {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("legacy schema %q: %v", statement, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO aiagent_users (id, username, password_hash, created_at, updated_at)
+		VALUES ('usr_legacy', 'legacy', 'x', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO aiagent_instances
+		(id, user_id, server_id, provider, label, port, enabled, created_at, updated_at)
+		VALUES ('inst_legacy', 'usr_legacy', 'server-001', 'opencode', 'old', 4096, 1,
+		'2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+	db.Close()
+
+	if err := service.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize after legacy schema: %v", err)
+	}
+	db, err = service.store.Open(ctx)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer db.Close()
+
+	if has, err := columnExists(ctx, db, "aiagent_instances", "user_id"); err != nil || has {
+		t.Fatalf("user_id column must be dropped, has=%v err=%v", has, err)
+	}
+	granted, err := service.instanceGrantedTo(ctx, db, "inst_legacy", "usr_legacy")
+	if err != nil {
+		t.Fatalf("instanceGrantedTo: %v", err)
+	}
+	if !granted {
+		t.Fatal("legacy owner must be converted into a grant")
+	}
+	// 迁移后唯一索引按 (server_id, provider)：同一主机同 Provider 再建应冲突。
+	if _, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Provider: "opencode", Label: "dup"}); err != errDuplicate {
+		t.Fatalf("expected errDuplicate after migration, got %v", err)
+	}
+	// 另一 Provider 可共存。
+	if _, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Provider: "pi", Label: "pi-node"}); err != nil {
+		t.Fatalf("different provider on same host should be allowed: %v", err)
+	}
+}
+
 func TestProviderRegistry(t *testing.T) {
 	providers := Providers()
 	if len(providers) == 0 {
@@ -146,7 +216,7 @@ func TestDisabledUserCannotAuthenticate(t *testing.T) {
 	}
 }
 
-func TestInstanceOwnershipEnforced(t *testing.T) {
+func TestInstanceGrantEnforced(t *testing.T) {
 	service := newTestService(t)
 	ctx := context.Background()
 	db, err := service.open(ctx)
@@ -155,20 +225,20 @@ func TestInstanceOwnershipEnforced(t *testing.T) {
 	}
 	defer db.Close()
 
-	owner, err := service.createUser(ctx, db, "owner", "secret-pass-1", "")
+	alice, err := service.createUser(ctx, db, "alice", "secret-pass-1", "")
 	if err != nil {
-		t.Fatalf("createUser owner: %v", err)
+		t.Fatalf("createUser alice: %v", err)
 	}
-	intruder, err := service.createUser(ctx, db, "intruder", "secret-pass-2", "")
+	bob, err := service.createUser(ctx, db, "bob", "secret-pass-2", "")
 	if err != nil {
-		t.Fatalf("createUser intruder: %v", err)
+		t.Fatalf("createUser bob: %v", err)
 	}
 
 	instance, err := service.createInstance(ctx, db, instancePayload{
 		ServerID: "server-001",
 		Provider: "opencode",
 		Label:    "home-pc",
-	}, owner.ID)
+	})
 	if err != nil {
 		t.Fatalf("createInstance: %v", err)
 	}
@@ -176,36 +246,99 @@ func TestInstanceOwnershipEnforced(t *testing.T) {
 		t.Fatalf("expected provider default port, got %d", instance.Port)
 	}
 
-	// 同一用户同主机同端口不可重复登记。
+	// 同一主机同一 Provider 不可重复登记。
 	if _, err := service.createInstance(ctx, db, instancePayload{
 		ServerID: "server-001",
 		Provider: "opencode",
 		Label:    "dup",
-	}, owner.ID); err != errDuplicate {
+	}); err != errDuplicate {
 		t.Fatalf("expected duplicate instance error, got %v", err)
 	}
 
-	// 越权访问必须表现为「不存在」。
-	if err := service.deleteInstance(ctx, db, instance.ID, intruder.ID, false); err != errNotFound {
-		t.Fatalf("expected not-found for cross-user delete, got %v", err)
-	}
-	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Label: "hijacked"}, intruder.ID, false); err != errNotFound {
-		t.Fatalf("expected not-found for cross-user update, got %v", err)
-	}
-	// 管理员可跨用户操作。
-	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Label: "renamed"}, intruder.ID, true); err != nil {
-		t.Fatalf("admin update should succeed: %v", err)
+	// 默认不授权：两个用户都看不到实例。
+	for _, user := range []User{alice, bob} {
+		list, err := service.listInstancesForUser(ctx, db, user.ID)
+		if err != nil {
+			t.Fatalf("listInstancesForUser: %v", err)
+		}
+		if len(list) != 0 {
+			t.Fatalf("expected no granted instances for %s, got %d", user.Username, len(list))
+		}
 	}
 
-	owned, err := service.listInstances(ctx, db, owner.ID, false)
+	// 授权给 alice 后只有 alice 可见。
+	if err := service.setGrantsForUser(ctx, db, alice.ID, []string{instance.ID}); err != nil {
+		t.Fatalf("setGrantsForUser: %v", err)
+	}
+	aliceList, err := service.listInstancesForUser(ctx, db, alice.ID)
 	if err != nil {
-		t.Fatalf("listInstances: %v", err)
+		t.Fatalf("listInstancesForUser alice: %v", err)
 	}
-	if len(owned) != 1 {
-		t.Fatalf("expected 1 instance for owner, got %d", len(owned))
+	if len(aliceList) != 1 || aliceList[0].ID != instance.ID {
+		t.Fatalf("expected alice to see the granted instance, got %+v", aliceList)
 	}
-	if len(owner.ID) == 0 || len(intruder.ID) == 0 {
-		t.Fatal("expected user ids")
+	if granted, err := service.instanceGrantedTo(ctx, db, instance.ID, alice.ID); err != nil || !granted {
+		t.Fatalf("expected grant for alice, got granted=%v err=%v", granted, err)
+	}
+	if granted, err := service.instanceGrantedTo(ctx, db, instance.ID, bob.ID); err != nil || granted {
+		t.Fatalf("expected no grant for bob, got granted=%v err=%v", granted, err)
+	}
+
+	// 整体替换语义：清空后 alice 也不再可见。
+	if err := service.setGrantsForUser(ctx, db, alice.ID, nil); err != nil {
+		t.Fatalf("clear grants: %v", err)
+	}
+	cleared, err := service.listInstancesForUser(ctx, db, alice.ID)
+	if err != nil {
+		t.Fatalf("listInstancesForUser after clear: %v", err)
+	}
+	if len(cleared) != 0 {
+		t.Fatalf("expected grants to be cleared, got %d", len(cleared))
+	}
+
+	// 删除实例时授权一并清理。
+	if err := service.setGrantsForUser(ctx, db, alice.ID, []string{instance.ID}); err != nil {
+		t.Fatalf("re-grant: %v", err)
+	}
+	if err := service.deleteInstance(ctx, db, instance.ID); err != nil {
+		t.Fatalf("deleteInstance: %v", err)
+	}
+	grants, err := service.listGrantsForInstance(ctx, db, instance.ID)
+	if err != nil {
+		t.Fatalf("listGrantsForInstance: %v", err)
+	}
+	if len(grants) != 0 {
+		t.Fatalf("expected grants to be removed with the instance, got %d", len(grants))
+	}
+}
+
+func TestSetGrantsIgnoresUnknownInstance(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "grant-user", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "x"})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+	// 无效 ID 被跳过，有效 ID 正常写入，整批不失败。
+	if err := service.setGrantsForUser(ctx, db, user.ID, []string{"inst_missing", instance.ID, instance.ID}); err != nil {
+		t.Fatalf("setGrantsForUser: %v", err)
+	}
+	ids, err := service.listInstanceIDsForUser(ctx, db, user.ID)
+	if err != nil {
+		t.Fatalf("listInstanceIDsForUser: %v", err)
+	}
+	if len(ids) != 1 || !ids[instance.ID] {
+		t.Fatalf("expected only the valid instance to be granted, got %+v", ids)
 	}
 }
 
@@ -218,15 +351,11 @@ func TestInstanceRejectsUnknownProviderAndBadPort(t *testing.T) {
 	}
 	defer db.Close()
 
-	user, err := service.createUser(ctx, db, "bee", "secret-pass-1", "")
-	if err != nil {
-		t.Fatalf("createUser: %v", err)
-	}
 	if _, err := service.createInstance(ctx, db, instancePayload{
 		ServerID: "server-001",
 		Provider: "nope",
 		Label:    "x",
-	}, user.ID); err == nil {
+	}); err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
 }
@@ -244,7 +373,7 @@ func TestInstanceMetaRoundTripAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createUser: %v", err)
 	}
-	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "x"}, user.ID)
+	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "x"})
 	if err != nil {
 		t.Fatalf("createInstance: %v", err)
 	}
@@ -325,29 +454,25 @@ func TestUpdateInstanceRejectsOutOfRangePort(t *testing.T) {
 	}
 	defer db.Close()
 
-	user, err := service.createUser(ctx, db, "porter", "secret-pass-1", "")
-	if err != nil {
-		t.Fatalf("createUser: %v", err)
-	}
-	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "x"}, user.ID)
+	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "x"})
 	if err != nil {
 		t.Fatalf("createInstance: %v", err)
 	}
-	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 70000}, user.ID, true); err != errInvalidPort {
+	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 70000}); err != errInvalidPort {
 		t.Fatalf("expected errInvalidPort for out-of-range port, got %v", err)
 	}
-	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: -1}, user.ID, true); err != errInvalidPort {
+	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: -1}); err != errInvalidPort {
 		t.Fatalf("expected errInvalidPort for negative port, got %v", err)
 	}
+
 	// 第一版只允许 Provider 已知端口：非默认端口同样拒绝，防止网关变成任意端口转发器。
-	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 8080}, user.ID, true); err != errInvalidPort {
+	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 8080}); err != errInvalidPort {
 		t.Fatalf("expected errInvalidPort for non-provider port, got %v", err)
 	}
-	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 4096}, user.ID, true); err != nil {
+	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 4096}); err != nil {
 		t.Fatalf("provider default port update should succeed: %v", err)
 	}
 }
-
 func TestCreateInstanceRejectsNonProviderPort(t *testing.T) {
 	service := newTestService(t)
 	ctx := context.Background()
@@ -357,34 +482,13 @@ func TestCreateInstanceRejectsNonProviderPort(t *testing.T) {
 	}
 	defer db.Close()
 
-	user, err := service.createUser(ctx, db, "portguard", "secret-pass-1", "")
-	if err != nil {
-		t.Fatalf("createUser: %v", err)
-	}
 	if _, err := service.createInstance(ctx, db, instancePayload{
 		ServerID: "server-001",
 		Provider: "opencode",
 		Label:    "redis",
 		Port:     6379,
-	}, user.ID); err != errInvalidPort {
+	}); err != errInvalidPort {
 		t.Fatalf("expected errInvalidPort for non-provider port, got %v", err)
-	}
-}
-
-func TestCreateInstanceRequiresExistingOwner(t *testing.T) {
-	service := newTestService(t)
-	ctx := context.Background()
-	db, err := service.open(ctx)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer db.Close()
-
-	if _, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "orphan"}, "usr_missing"); err != errNotFound {
-		t.Fatalf("expected errNotFound for missing owner, got %v", err)
-	}
-	if _, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "orphan"}, ""); err != errInvalidCreds {
-		t.Fatalf("expected errInvalidCreds for empty owner, got %v", err)
 	}
 }
 
@@ -419,15 +523,26 @@ func TestServerAllowedValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createUser: %v", err)
 	}
-	// 未注入 ServerProvider：只有已登记实例涉及的主机可用（任何身份）。
+	// 未注入 ServerProvider：只有已登记实例涉及的主机可用（管理员）。
 	if service.serverAllowed(ctx, "server-001", user.ID, false) {
 		t.Fatal("unregistered server id must be rejected when provider is absent")
 	}
-	if _, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "x"}, user.ID); err != nil {
+	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Label: "x"})
+	if err != nil {
 		t.Fatalf("createInstance: %v", err)
 	}
+	if !service.serverAllowed(ctx, "server-001", user.ID, true) {
+		t.Fatal("an already-registered server id must be allowed for admins")
+	}
+	// 普通用户未获授权时不可达该主机。
+	if service.serverAllowed(ctx, "server-001", user.ID, false) {
+		t.Fatal("non-admin without a grant must not reach the server")
+	}
+	if err := service.setGrantsForUser(ctx, db, user.ID, []string{instance.ID}); err != nil {
+		t.Fatalf("setGrantsForUser: %v", err)
+	}
 	if !service.serverAllowed(ctx, "server-001", user.ID, false) {
-		t.Fatal("an already-registered server id must be allowed")
+		t.Fatal("non-admin with a granted instance must reach its server")
 	}
 
 	service.SetServerProvider(stubServerProvider{options: []ServerOption{{ID: "server-002", Name: "desk"}}})
@@ -438,9 +553,9 @@ func TestServerAllowedValidation(t *testing.T) {
 	if service.serverAllowed(ctx, "server-999", user.ID, true) {
 		t.Fatal("unregistered server id must be rejected")
 	}
-	// 普通用户不得使用自己未涉及的已登记主机（跨租户隔离）。
+	// 普通用户不得使用自己未被授权实例涉及的已登记主机（跨租户隔离）。
 	if service.serverAllowed(ctx, "server-002", user.ID, false) {
-		t.Fatal("non-admin must not reach a server they have no instance on")
+		t.Fatal("non-admin must not reach a server they have no granted instance on")
 	}
 }
 
@@ -557,11 +672,7 @@ func TestUpdateInstanceProviderSwitchResetsPort(t *testing.T) {
 	}
 	defer db.Close()
 
-	user, err := service.createUser(ctx, db, "switchuser", "secret-pass-1", "")
-	if err != nil {
-		t.Fatalf("createUser: %v", err)
-	}
-	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Provider: "opencode", Label: "x"}, user.ID)
+	instance, err := service.createInstance(ctx, db, instancePayload{ServerID: "server-001", Provider: "opencode", Label: "x"})
 	if err != nil {
 		t.Fatalf("createInstance: %v", err)
 	}
@@ -569,7 +680,7 @@ func TestUpdateInstanceProviderSwitchResetsPort(t *testing.T) {
 		t.Fatalf("expected opencode default 4096, got %d", instance.Port)
 	}
 	// 换 Provider 且不传端口：端口应回落到新 Provider 的默认端口（pi=3000），而非沿用 4096。
-	updated, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Provider: "pi"}, user.ID, false)
+	updated, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Provider: "pi"})
 	if err != nil {
 		t.Fatalf("provider switch should succeed: %v", err)
 	}

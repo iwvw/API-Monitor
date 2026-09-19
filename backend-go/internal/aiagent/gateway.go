@@ -301,12 +301,21 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 		s.writeGatewayError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		return
 	}
-	if !auth.IsAdmin && instance.UserID != auth.UserID {
-		db.Close()
-		// 统一按「不存在」返回，避免暴露实例存在性/归属/启用状态。
-		s.logGatewayDenied(r, instanceID, auth, "forbidden", "instance not owned by caller")
-		s.writeGatewayError(w, http.StatusNotFound, CodeNotFound, "instance not found")
-		return
+	if !auth.IsAdmin {
+		granted, grantErr := s.instanceGrantedTo(r.Context(), db, instance.ID, auth.UserID)
+		if grantErr != nil {
+			db.Close()
+			s.logGatewayDenied(r, instanceID, auth, "forbidden", "grant lookup failed")
+			s.writeGatewayError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+			return
+		}
+		if !granted {
+			db.Close()
+			// 统一按「不存在」返回，避免暴露实例存在性/归属/启用状态。
+			s.logGatewayDenied(r, instanceID, auth, "forbidden", "instance not granted to caller")
+			s.writeGatewayError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+			return
+		}
 	}
 	if !instance.Enabled {
 		db.Close()

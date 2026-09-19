@@ -149,6 +149,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleCreateUser(w, r)
 	case strings.HasPrefix(path, "/users/") && strings.HasSuffix(path, "/reset-password") && r.Method == http.MethodPost:
 		s.handleResetPassword(w, r, trimSegment(path, "/users/", "/reset-password"))
+	case strings.HasPrefix(path, "/users/") && strings.HasSuffix(path, "/instances"):
+		s.handleInstanceGrants(w, r, trimSegment(path, "/users/", "/instances"))
 	case strings.HasPrefix(path, "/users/") && r.Method == http.MethodPut:
 		s.handleUpdateUser(w, r, strings.TrimPrefix(path, "/users/"))
 	case strings.HasPrefix(path, "/users/") && r.Method == http.MethodDelete:
@@ -165,6 +167,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleCreateInstance(w, r)
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/status") && r.Method == http.MethodGet:
 		s.handleInstanceStatus(w, r, trimSegment(path, "/instances/", "/status"))
+	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/grants") && r.Method == http.MethodGet:
+		s.handleInstanceGrantUsers(w, r, trimSegment(path, "/instances/", "/grants"))
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/access-info") && r.Method == http.MethodGet:
 		s.handleAccessInfo(w, r, trimSegment(path, "/instances/", "/access-info"))
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/meta"):
@@ -596,26 +600,19 @@ func (s *Service) handleListInstances(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
 		return
 	}
-	instances, err := s.listInstances(r.Context(), db, auth.UserID, auth.IsAdmin)
+	// 管理员看全部实例；用户只看被授权的实例（默认不授权）。
+	var instances []Instance
+	if auth.IsAdmin {
+		instances, err = s.listInstances(r.Context(), db)
+	} else {
+		instances, err = s.listInstancesForUser(r.Context(), db, auth.UserID)
+	}
 	// 列表查询完成后立即归还唯一的 SQLite 连接：后续探测会往返主机 Agent，
 	// 期间不应继续占用连接（连接池上限为 1）。
 	db.Close()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
 		return
-	}
-	// 管理员可按 userId 收窄列表（用户管理里的单用户实例视图）：只列出该用户
-	// 的实例，避免为一个用户弹层而探测全舰实例。
-	if auth.IsAdmin {
-		if scoped := strings.TrimSpace(r.URL.Query().Get("userId")); scoped != "" {
-			filtered := make([]Instance, 0, len(instances))
-			for _, instance := range instances {
-				if instance.UserID == scoped {
-					filtered = append(filtered, instance)
-				}
-			}
-			instances = filtered
-		}
 	}
 	views := make([]InstanceView, 0, len(instances))
 	hostNames := s.resolveHostNames(r.Context())
@@ -655,7 +652,7 @@ func probeInstancesConcurrently(ctx context.Context, service *Service, instances
 }
 
 func (s *Service) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
-	auth, ok := s.requireAuth(w, r)
+	auth, ok := s.requireAdmin(w, r)
 	if !ok {
 		return
 	}
@@ -685,31 +682,16 @@ func (s *Service) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalid, "port out of range")
 		return
 	}
-	// 实例必须有归属：管理员需显式指定目标用户，普通用户归属自己。
-	ownerID := auth.UserID
-	if auth.IsAdmin {
-		ownerID = strings.TrimSpace(payload.UserID)
-		if ownerID == "" {
-			writeError(w, http.StatusBadRequest, CodeInvalid, "userId is required when creating instances as an administrator")
-			return
-		}
-	}
-	// 普通用户只能在自己的机器上建实例；把新主机纳入清单是管理员动作，
-	// 避免任何登录用户枚举全舰主机并探测其端口状态。
-	if !auth.IsAdmin && !s.serverAllowed(r.Context(), payload.ServerID, auth.UserID, false) {
-		writeError(w, http.StatusForbidden, CodeForbidden, "host not assigned to this account; ask an administrator to add it")
-		return
-	}
 	db, err := s.open(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
 		return
 	}
-	instance, err := s.createInstance(r.Context(), db, payload, ownerID)
+	instance, err := s.createInstance(r.Context(), db, payload)
 	if err != nil {
 		db.Close()
 		if err == errDuplicate {
-			writeError(w, http.StatusConflict, CodeConflict, "instance already exists for this host and port")
+			writeError(w, http.StatusConflict, CodeConflict, "instance already exists for this host and provider")
 			return
 		}
 		if err == errInvalidProvider {
@@ -718,14 +700,6 @@ func (s *Service) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == errInvalidPort {
 			writeError(w, http.StatusBadRequest, CodeInvalid, "port not allowed for this provider")
-			return
-		}
-		if err == errNotFound {
-			writeError(w, http.StatusBadRequest, CodeInvalid, "owner user not found")
-			return
-		}
-		if err == errInvalidCreds {
-			writeError(w, http.StatusBadRequest, CodeInvalid, "instance owner is required")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
@@ -741,8 +715,7 @@ func (s *Service) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, id string) {
-	auth, ok := s.requireAuth(w, r)
-	if !ok {
+	if _, ok := s.requireAdmin(w, r); !ok {
 		return
 	}
 	var payload instancePayload
@@ -753,7 +726,7 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusBadRequest, CodeInvalid, "port out of range")
 		return
 	}
-	if payload.ServerID != "" && !s.serverAllowed(r.Context(), payload.ServerID, auth.UserID, auth.IsAdmin) {
+	if payload.ServerID != "" && !s.serverAllowed(r.Context(), payload.ServerID, "", true) {
 		writeError(w, http.StatusBadRequest, CodeInvalid, "unknown server")
 		return
 	}
@@ -762,14 +735,14 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
 		return
 	}
-	instance, err := s.updateInstance(r.Context(), db, id, payload, auth.UserID, auth.IsAdmin)
+	instance, err := s.updateInstance(r.Context(), db, id, payload)
 	if err != nil {
 		db.Close()
 		switch err {
 		case errNotFound:
 			writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		case errDuplicate:
-			writeError(w, http.StatusConflict, CodeConflict, "instance already exists for this host and port")
+			writeError(w, http.StatusConflict, CodeConflict, "instance already exists for this host and provider")
 		case errInvalidProvider:
 			writeError(w, http.StatusBadRequest, CodeInvalid, "unknown provider")
 		case errInvalidPort:
@@ -785,8 +758,7 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 }
 
 func (s *Service) handleDeleteInstance(w http.ResponseWriter, r *http.Request, id string) {
-	auth, ok := s.requireAuth(w, r)
-	if !ok {
+	if _, ok := s.requireAdmin(w, r); !ok {
 		return
 	}
 	db, err := s.open(r.Context())
@@ -795,7 +767,7 @@ func (s *Service) handleDeleteInstance(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	defer db.Close()
-	if err := s.deleteInstance(r.Context(), db, id, auth.UserID, auth.IsAdmin); err != nil {
+	if err := s.deleteInstance(r.Context(), db, id); err != nil {
 		if err == errNotFound {
 			writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 			return
@@ -804,6 +776,92 @@ func (s *Service) handleDeleteInstance(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	writeOK(w, map[string]interface{}{"success": true})
+}
+
+// requireInstanceAccess 校验调用方可用该实例：管理员放行，用户需已被授权。
+// 未授权与不存在统一按「不存在」返回，避免暴露实例存在性。
+func (s *Service) requireInstanceAccess(w http.ResponseWriter, r *http.Request, db *sql.DB, auth authContext, instance Instance) bool {
+	if auth.IsAdmin {
+		return true
+	}
+	granted, err := s.instanceGrantedTo(r.Context(), db, instance.ID, auth.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+		return false
+	}
+	if !granted {
+		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+		return false
+	}
+	return true
+}
+
+// ---------- 实例授权（管理员） ----------
+
+// handleInstanceGrants 读取或整体替换某用户可用的实例集合。
+// GET 返回该用户的授权实例 ID 列表；PUT 用传入列表整体覆盖（默认不授权）。
+func (s *Service) handleInstanceGrants(w http.ResponseWriter, r *http.Request, userID string) {
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+		return
+	}
+	defer db.Close()
+	if _, err := s.getUserByID(r.Context(), db, userID); err != nil {
+		writeError(w, http.StatusNotFound, CodeNotFound, "user not found")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		ids, err := s.listInstanceIDsForUser(r.Context(), db, userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
+			return
+		}
+		list := make([]string, 0, len(ids))
+		for id := range ids {
+			list = append(list, id)
+		}
+		writeOK(w, map[string]interface{}{"userId": userID, "instanceIds": list})
+	case http.MethodPut:
+		var payload grantsPayload
+		if !decodeJSON(w, r, &payload) {
+			return
+		}
+		if err := s.setGrantsForUser(r.Context(), db, userID, payload.InstanceIDs); err != nil {
+			writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
+			return
+		}
+		writeOK(w, map[string]interface{}{"success": true})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, CodeInvalid, "method not allowed")
+	}
+}
+
+// handleInstanceGrantUsers 返回某实例已授权给哪些用户（实例侧展示）。
+func (s *Service) handleInstanceGrantUsers(w http.ResponseWriter, r *http.Request, instanceID string) {
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+		return
+	}
+	defer db.Close()
+	if _, err := s.getInstance(r.Context(), db, instanceID); err != nil {
+		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+		return
+	}
+	grants, err := s.listGrantsForInstance(r.Context(), db, instanceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
+		return
+	}
+	writeOK(w, grants)
 }
 
 func (s *Service) handleInstanceStatus(w http.ResponseWriter, r *http.Request, id string) {
@@ -822,9 +880,8 @@ func (s *Service) handleInstanceStatus(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		return
 	}
-	if !auth.IsAdmin && instance.UserID != auth.UserID {
+	if !s.requireInstanceAccess(w, r, db, auth, instance) {
 		db.Close()
-		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		return
 	}
 	if !instance.Enabled {
@@ -853,8 +910,7 @@ func (s *Service) handleAccessInfo(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		return
 	}
-	if !auth.IsAdmin && instance.UserID != auth.UserID {
-		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+	if !s.requireInstanceAccess(w, r, db, auth, instance) {
 		return
 	}
 	provider, _ := LookupProvider(instance.Provider)
@@ -887,8 +943,7 @@ func (s *Service) handleInstanceMeta(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		return
 	}
-	if !auth.IsAdmin && instance.UserID != auth.UserID {
-		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+	if !s.requireInstanceAccess(w, r, db, auth, instance) {
 		return
 	}
 	switch r.Method {
@@ -908,7 +963,7 @@ func (s *Service) handleInstanceMeta(w http.ResponseWriter, r *http.Request, id 
 			writeError(w, http.StatusBadRequest, CodeInvalid, "meta must be valid JSON")
 			return
 		}
-		if err := s.putMeta(r.Context(), db, id, instance.UserID, payload.Meta); err != nil {
+		if err := s.putMeta(r.Context(), db, id, auth.UserID, payload.Meta); err != nil {
 			if err == errMetaTooLarge {
 				writeError(w, http.StatusRequestEntityTooLarge, CodeInvalid, "meta too large")
 				return
@@ -1071,15 +1126,14 @@ func (s *Service) handleStreamToken(w http.ResponseWriter, r *http.Request, inst
 		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		return
 	}
-	if !auth.IsAdmin && instance.UserID != auth.UserID {
-		writeError(w, http.StatusForbidden, CodeForbidden, "instance not owned by caller")
+	if !s.requireInstanceAccess(w, r, db, auth, instance) {
 		return
 	}
 	if !instance.Enabled {
 		writeError(w, http.StatusForbidden, CodeForbidden, "instance disabled")
 		return
 	}
-	token := s.streamTokens.issue(instance.UserID, instance.ID)
+	token := s.streamTokens.issue(auth.UserID, instance.ID)
 	if token == "" {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, "failed to issue stream token")
 		return
@@ -1104,14 +1158,16 @@ func (s *Service) serverAllowed(ctx context.Context, serverID, userID string, is
 	defer db.Close()
 
 	if !isAdmin {
-		// 非管理员只允许使用自己已登记实例涉及的主机，避免枚举/探测全舰主机。
-		var owned int
+		// 非管理员只允许使用自己被授权实例涉及的主机，避免枚举/探测全舰主机。
+		var granted int
 		if err := db.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM aiagent_instances WHERE server_id = ? AND user_id = ?`,
-			serverID, userID).Scan(&owned); err != nil {
+			`SELECT COUNT(*) FROM aiagent_instance_grants g
+			 INNER JOIN aiagent_instances i ON i.id = g.instance_id
+			 WHERE i.server_id = ? AND g.user_id = ?`,
+			serverID, userID).Scan(&granted); err != nil {
 			return false
 		}
-		return owned > 0
+		return granted > 0
 	}
 
 	// 管理员：必须是已登记的可选主机。未注入 ServerProvider 时退化为
@@ -1132,7 +1188,7 @@ func (s *Service) serverAllowed(ctx context.Context, serverID, userID string, is
 	return false
 }
 
-// listServersFor 返回调用方可见的主机：管理员看全部；普通用户只看自己实例涉及的主机。
+// listServersFor 返回调用方可见的主机：管理员看全部；普通用户只看被授权实例涉及的主机。
 func (s *Service) listServersFor(ctx context.Context, userID string, isAdmin bool) []ServerOption {
 	if s.servers == nil {
 		return []ServerOption{}
@@ -1146,8 +1202,9 @@ func (s *Service) listServersFor(ctx context.Context, userID string, isAdmin boo
 		return []ServerOption{}
 	}
 	defer db.Close()
-	owned := make(map[string]bool)
-	rows, err := db.QueryContext(ctx, `SELECT DISTINCT server_id FROM aiagent_instances WHERE user_id = ?`, userID)
+	granted := make(map[string]bool)
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT i.server_id FROM aiagent_instance_grants g
+		INNER JOIN aiagent_instances i ON i.id = g.instance_id WHERE g.user_id = ?`, userID)
 	if err != nil {
 		return []ServerOption{}
 	}
@@ -1157,14 +1214,14 @@ func (s *Service) listServersFor(ctx context.Context, userID string, isAdmin boo
 		if err := rows.Scan(&serverID); err != nil {
 			return []ServerOption{}
 		}
-		owned[serverID] = true
+		granted[serverID] = true
 	}
 	if err := rows.Err(); err != nil {
 		return []ServerOption{}
 	}
 	filtered := make([]ServerOption, 0, len(all))
 	for _, option := range all {
-		if owned[option.ID] {
+		if granted[option.ID] {
 			filtered = append(filtered, option)
 		}
 	}

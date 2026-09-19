@@ -204,6 +204,76 @@ func TestPruneRotatedLogsKeepsNewest(t *testing.T) {
 	}
 }
 
+func TestMiddlewareSkipsSuccessfulMCPDescribePoll(t *testing.T) {
+	var buf bytes.Buffer
+	previous := Logger()
+	SetLogger(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer func() {
+		SetLogger(previous)
+	}()
+
+	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ai/mcp", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if got := strings.TrimSpace(buf.String()); got != "" {
+		t.Fatalf("expected mcp describe poll to be skipped, got log %q", got)
+	}
+}
+
+func TestMiddlewareLogsMCPToolCall(t *testing.T) {
+	var buf bytes.Buffer
+	previous := Logger()
+	SetLogger(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer func() {
+		SetLogger(previous)
+	}()
+
+	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0"}`))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/ai/mcp", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	logLine := buf.String()
+	if !strings.Contains(logLine, "\"path\":\"/api/ai/mcp\"") {
+		t.Fatalf("expected mcp tool call log, got %q", logLine)
+	}
+}
+
+func TestMiddlewareLogsFailedMCPDescribePoll(t *testing.T) {
+	var buf bytes.Buffer
+	previous := Logger()
+	SetLogger(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer func() {
+		SetLogger(previous)
+	}()
+
+	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ai/mcp", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	logLine := buf.String()
+	if !strings.Contains(logLine, "\"path\":\"/api/ai/mcp\"") {
+		t.Fatalf("expected failed mcp describe poll log, got %q", logLine)
+	}
+}
+
 func TestMiddlewareLogsNormalAPIRequest(t *testing.T) {
 	var buf bytes.Buffer
 	previous := Logger()
