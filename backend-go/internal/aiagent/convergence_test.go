@@ -588,6 +588,34 @@ func TestUnmanagedInstanceUsesProbePath(t *testing.T) {
 	}
 }
 
+// 未托管实例也必须上报 Agent 能力标记（Supported）：
+// 前端据此区分「可托管」与「Agent 版本过旧」，而不是对未托管实例一律
+// 显示「主机 Agent 版本过旧，请升级后使用进程管理」。
+func TestUnmanagedInstanceReportsLifecycleSupport(t *testing.T) {
+	service := newTestService(t)
+	runtime := &stubRuntime{online: true, supportsLife: true}
+	service.SetAgentRuntime(runtime)
+
+	instance := Instance{
+		ID: "inst_1", ServerID: "s1", Provider: "opencode", Port: 4096, Enabled: true,
+	}
+	view := service.buildInstanceViewWithHosts(context.Background(), instance, true, nil, nil)
+
+	if !view.Lifecycle.Supported {
+		t.Fatal("Agent 支持 lifecycle 时，未托管实例也应上报 Supported=true")
+	}
+	if view.Lifecycle.Managed {
+		t.Fatal("能力标记不应把未托管实例染成托管")
+	}
+	// 不支持能力的旧 Agent：必须保持 Supported=false，前端才能正确提示升级。
+	service2 := newTestService(t)
+	service2.SetAgentRuntime(&stubRuntime{online: true, supportsLife: false})
+	view2 := service2.buildInstanceViewWithHosts(context.Background(), instance, true, nil, nil)
+	if view2.Lifecycle.Supported {
+		t.Fatal("旧 Agent 的未托管实例不应上报 Supported=true")
+	}
+}
+
 // StopConvergence 必须可重复调用且不 panic（优雅退出路径）。
 func TestStopConvergenceIsSafeWithoutStart(t *testing.T) {
 	service := newTestService(t)

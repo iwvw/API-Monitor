@@ -1728,7 +1728,10 @@ func (s *Service) buildInstanceViewWithHosts(
 		switch {
 		case precomputedLifecycle != nil:
 			lifecycle = *precomputedLifecycle
-		case managed:
+		default:
+			// 无论托管与否都查一次 lifecycle 能力标记：queryLifecycle 对空
+			// DesiredState 会返回 Supported=true（仅查 Agent 能力，不往返主机），
+			// 让前端能区分「可托管」与「Agent 版本过旧」而不是一律报旧版本。
 			lifecycle = s.queryLifecycle(ctx, instance)
 		}
 		view.Lifecycle = lifecycle
