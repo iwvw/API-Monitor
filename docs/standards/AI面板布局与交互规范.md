@@ -1,18 +1,69 @@
 # AI面板布局与交互规范
 
-最后更新：2026-08-19
+最后更新：2026-09-20
 
-AI 侧栏/全屏对话面板（`src/js/components/adminai/`）的布局与交互定案。凡涉及以下区域（消息区、折叠动画、输入框、头部按钮、品牌强调色）的改动，先对照本规范。
+AI 侧栏/全屏对话面板（`src/js/components/adminai/`）的布局与交互定案。凡涉及以下区域（消息区、折叠动画、输入框、头部按钮、品牌强调色、动效时长）的改动，先对照本规范。
 
-## 折叠动画（.askai-collapse）
+## 消息动作与输入区
 
-消息卡片、推理展开块、工具步骤组共用一套 grid 折叠动画，三个坑必须避开（通用原理见[前端布局约定·卡片与网格](./前端布局约定.md)）：
+### 助手消息 footer（`MessageActions`）
 
-1. **列轨道/行轨道必须显式 `minmax(0, …)`**：`fr` 只设上限、下限默认 `auto`（=内容 min-content）。
-   - 列用 `grid-template-columns: minmax(0, 1fr)`，否则长 JSON/长路径（truncate/line-clamp 元素的 intrinsic 宽度）会把整条消息列撑出横向滚动；
-   - 收起态用 `grid-template-rows: minmax(0, 0fr)`、展开态 `minmax(0, 1fr)`（两者可插值动画），否则收起态轨道缩不到 0，内容被裁后残留一条约 18px 的空白条。
-2. **动画裁剪放在子元素层（`.askai-collapse > * { overflow: clip }`），不要放容器层**：容器 `overflow: clip` 会裁掉直接子元素外扩的 box-shadow（卡片 `ring-1` 边框整圈消失）。
-3. **子级 clip 会误杀内部滚动区**：推理展开块（`.askai-reason-fade`，max-h 220px + overflow-y-auto）需要滚动，用高特异性恢复：`.askai-collapse > .askai-reason-fade { overflow-y: auto; overflow-x: clip; }`，不要为此把 clip 移回容器层。
+助手消息在终态（非 pending、非流式）显示 footer 动作：复制整条回复、重新生成。复制内容取该消息所有 `text` part 拼接（不含推理与工具结果）；重新生成复用 `handleEditResend` 的截断重发路径，只是把入口从「用户消息」换成「助手消息往前找最近一条 user 消息」。流式期间两个动作都禁用（后端活跃 run 会 409）。
+
+### 滚动到底部
+
+消息列表容器是 `relative`，列表本体是内部滚动区，`atBottom` 由 `onScroll` 维护；不在底部时浮出「回到最新」圆形按钮（绝对定位在列表底部居中）。
+
+### 输入区
+
+- **思考强度**：`admin_ai_reasoning_effort`（设置页「基础设置」），取值 `low|medium|high`，留空表示不携带 `reasoning_effort`、保持上游默认。厂商差异（`max`→`high`、`thinking`/`effort` 别名、Claude 的 budget 语义）由 `/v1` 网关的 `normalizeReasoningEffort` / `requestEnablesReasoning` 统一处理，面板侧不做分支。非法值在写入时（`clampAISetting`）与请求构造时（`normalizeReasoningEffort`）各收敛一次，都不会透传给上游。
+- **`@` 资源菜单**：子序列模糊匹配（`fuzzyMatch`，前缀与连续命中加权）+ 匹配高亮 + 上下键/Enter 键盘导航。菜单与输入框是兄弟节点，keydown 不冒泡到菜单容器，因此在**捕获阶段**挂 document 监听（capture 先于 target 冒泡）。
+- **`/` 斜杠命令**：仅行首 `/` 且未输入空格时触发，命令只做本地动作（切模式/新对话/停止），不写入消息正文。命令清单在 `SlashCommandMenu.jsx` 的 `SLASH_COMMANDS`，新增命令必须对应已有能力，不引入新的后端语义。
+- **模型选择器**（`ModelPicker.jsx`）：选项来自 `/api/openai/models`，空选项时不渲染。选择结果通过 `POST /api/admin-ai/messages` 的 `model` 字段传递，只影响随后发送的消息；空值表示用管理设置里的 `admin_ai_default_model`。
+- **Enter 冲突**：`handleTextareaKeyDown` 在 `atMenuOpen || slashMenuOpen` 时直接返回，把 Enter 让给菜单键盘导航。
+
+## 原语分层
+
+对话界面按「行布局 / 气泡外观 / 内联 trace」三层拆分，避免单组件同时承担对齐、外观、状态与动作。新增原子组件放 `src/js/components/adminai/primitives/`，只放 Kumo 覆盖不到的业务组合。
+
+- `MessageRow`（`primitives/MessageBubble.jsx`）—— 只管对齐（`align: start|end`）与槽位编排（`header` 状态条 / `children` 正文 / `footer` 动作）。对应 shadcn/ui `Message` 的职责。
+- `MessageBubble`（同文件）—— 只管气泡外观。`variant: user|assistant|error` 决定配色，`shape: card|chat` 决定圆角与内边距，`streaming` 追加品牌色 ring。对应 shadcn/ui `Bubble` 的职责；**不要**在气泡里塞状态徽章或动作按钮。
+  - `card`（助手正文）：`w-full rounded-xl px-4 py-3`
+  - `chat`（用户气泡/编辑框）：`min-w-0 max-w-full rounded-2xl rounded-tr-md px-4 py-2.5`，宽度随内容
+- `TracePill` / `TraceChevron` / `TraceTypingDots`（`primitives/TracePill.jsx`）—— 内联 trace 胶囊（推理、工具步骤组）与助手消息头三处共用同一视觉。`emphasis` 区分消息级外壳（实线边框）与内联 trace（半透明边框）。
+- `StatusDot`（`primitives/StatusDot.jsx`）—— 工具/步骤状态环（running=品牌 spinner / success=绿勾 / failed=红叉）。尺寸走静态类名映射：Tailwind 无法从 `h-${n}` 拼接串生成 CSS，会静默失效。
+
+这三处胶囊此前各自复制了一串 Tailwind 类，边框透明度已经漂移，统一收敛到 `TracePill`。新增同类折叠行必须复用，不要再复制类名。
+
+### 弹层原语选择
+
+会话下拉（Tabs + 会话列表 + 底部按钮）用 Kumo `Popover`，**不要**用 `DropdownMenu`：内含可聚焦控件时，菜单的 `menuitem` 语义与 roving tabindex 会破坏内部控件的键盘导航。`DropdownMenu` 只用于纯动作菜单（审批卡的次级动作、模型选择器）。`CommandPalette` 是模态 Dialog，不适用于锚定在输入框上方的内联弹层。
+
+### 审批卡
+
+主操作「仅此次」独占一行，其余动作（允许此对话 / 请求更改 / 拒绝）收进 `DropdownMenu`。「允许此对话」的二次确认走菜单项的两步点击（切到确认态再点一次），**不再**用 `setTimeout` 5 秒静默复位——那种写法键盘不可靠且不可测。过期判断用 `expiresAt` 算 `remainingMs`，不要拿倒计时文案字符串比较。
+
+## 流式阶段文案
+
+消息头的运行中文案由 `AskAiPanel/phaseLabel.js` 的 `streamPhaseLabel(parts)` 按**最后一个 part 的类型**推导，不再固定显示「正在回复…」：末段是工具调用/结果 → 正在执行工具，末段是推理 → 正在思考，末段是审批 → 等待审批，否则正在回复。外部 run（`live.phase`）优先用后端给的 phase。
+
+**不显示耗时**：parts 数据模型没有 per-part 时间戳，任何「思考 N 秒」都是编造精度。只有历史行有 `createdAt`，不足以为时间线分段计时。若将来要做，先给 part 加时间戳再改文案。
+
+## 动效 token
+
+过渡时长与缓动一律引用 token，禁止在 `adminai/**` 与 `app.css` 的 `askai-*` 规则里裸写毫秒数或 `cubic-bezier(...)`。
+
+- 源变量定义在 `app.css` 的 `:root`：`--motion-duration-{quick,base,medium,slow,slower}`（150/200/250/300/350ms）、`--motion-ease-{soft,snappy,out,panel}`。
+- `@theme inline` 把 `--transition-duration-*` / `--ease-*` 映射到上述源变量，供 Tailwind 生成 `duration-quick|base|medium|slow|slower` 与 `ease-soft|snappy|panel` 工具类；手写 CSS 用 `var(--motion-duration-base)` / `var(--motion-ease-soft)`。
+- 为什么源变量放 `:root` 而不是直接写在 `@theme`：`@theme inline` 会把取值内联进工具类且不落盘变量定义，`var(--duration-base)` 会悬空失效。`@theme` 只做映射，`var(--motion-*)` 才始终有值。
+- 周期性循环动画（含 `infinite`，如 `askai-caret-blink`、`askai-live-pulse`）的时长是循环周期而非运动时长，不纳入 token；`animation-delay` 是错峰偏移量，同样不纳入。
+- 把守脚本 `tools/motion-governance-check.mjs`（含在 `governance:check`）：`adminai/**` 与 `askai-*` 规则硬失败，其余区域只输出 warning 供增量迁移。
+
+## 折叠动画（AnimatedCollapse）
+
+消息卡片、推理展开块、工具步骤组共用 `src/js/components/AnimatedCollapse.jsx`（Kumo `Collapsible.Panel` 封装，高度 0↔auto 过渡 + `prefers-reduced-motion` 降级）。**不要**再自绘折叠容器，`app.css` 里旧的 `.askai-collapse` grid-rows 方案已删除。
+
+历史坑位记录（自绘方案遗留，仅供理解为什么改走 Kumo）：旧实现依赖 `grid-template-rows: minmax(0, 0fr/1fr)` 插值，必须显式给列轨道 `minmax(0, 1fr)` 才能防长 JSON/长路径撑宽；容器层 `overflow: clip` 会裁掉子元素外扩的 box-shadow（卡片 `ring-1` 整圈消失），所以裁剪必须放子元素层；而子级 clip 又会误杀推理块的内部滚动区。这三个坑都是自绘 grid 方案的固有代价，换 `AnimatedCollapse` 后不再适用。
 
 ## 宽度与截断
 

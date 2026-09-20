@@ -210,6 +210,9 @@ function allowedColorReason(rel, line, value, lines, index) {
       return 'Ask AI 用户消息气泡（含编辑态）对比文字';
     }
   }
+  if (rel === 'src/js/components/adminai/primitives/MessageBubble.jsx' && value === 'text-white') {
+    return 'Ask AI 用户消息气泡（user variant）对比文字';
+  }
   if (rel === 'src/js/components/adminai/AskAiPanel/ApprovalCard.jsx' && value === 'text-white' && line.includes('bg-kumo-success')) {
     return 'Ask AI 批准按钮白色对比文字';
   }

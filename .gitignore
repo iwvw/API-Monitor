@@ -20,6 +20,9 @@ antigravity-accounts-*.json
 agent-rust/config.json
 agent-rust/*.exe
 agent-rust/target/
+# AI Agent 托管进程表是 Agent 运行期状态，由 Agent 自行读写，不入库。
+# 测试运行也会生成它，必须忽略，否则会带着测试数据（inst_e2e 等）被提交。
+agent-rust/aiagent_processes.json
 docs/MODULE_NAMING.md
 inspect_db.js
 inspect_logs.js

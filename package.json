@@ -31,7 +31,7 @@
     "db:audit": "cd backend-go && go run ./cmd/schema-audit",
     "ui:governance": "node tools/ui-governance-check.mjs",
     "docs:check": "node tools/docs-link-check.mjs",
-    "governance:check": "node tools/three-side-governance-check.mjs && node tools/tz-governance-check.mjs",
+    "governance:check": "node tools/three-side-governance-check.mjs && node tools/tz-governance-check.mjs && node tools/motion-governance-check.mjs",
     "gen-api-catalog": "node tools/gen-api-catalog.mjs",
     "backend-go:smoke": "node tools/backend-go-smoke.mjs",
     "refactor:snapshot": "node tools/refactor-snapshot.mjs",

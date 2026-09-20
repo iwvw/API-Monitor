@@ -60,6 +60,13 @@ Touch these files only for focused reasons. Avoid broad formatting or opportunis
   uptime 维护窗口、notification、openai analytics、system API 日报、订阅计费/用量周期
   （`subscriptionledger.CycleWindow`/`planCycleWindow`）。CI 由 `tools/tz-governance-check.mjs`
   （含在 `governance:check`）把守，新增功能默认遵守。
+- 过渡时长与缓动统一走 motion token：源变量 `--motion-duration-*`/`--motion-ease-*` 定义在
+  `app.css` 的 `:root`，`@theme inline` 仅映射为 Tailwind `duration-*`/`ease-*` 工具类
+  （`@theme inline` 会内联取值且不落盘变量定义，源变量必须放 `:root`，否则 `var()` 悬空）。
+  禁止在 `src/js/components/adminai/**` 与 `app.css` 的 `askai-*` 规则里裸写毫秒数或
+  `cubic-bezier(...)`；循环动画周期（`infinite`）与 `animation-delay` 不在此列。
+  `tools/motion-governance-check.mjs`（含在 `governance:check`）把守，其余区域先以 warning
+  增量迁移。
 
 ## AI Maintenance Commands
 
