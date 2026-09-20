@@ -61,6 +61,7 @@ var routeAliases = map[string][]string{
 	"/api/aiagent/instances/batch":            {"批量启动", "批量停止", "批量重启", "一键操作"},
 	"/api/aiagent/metrics":                    {"运行指标", "收敛统计", "健康度", "监控"},
 	"/api/aiagent/providers":                  {"agent 类型", "provider", "支持哪些 agent"},
+	"/api/aiagent/servers/{id}/diagnose":      {"诊断", "可用性检查", "exe 路径", "端口占用", "建议端口"},
 	"/api/aiagent/gw":                         {"agent 网关", "智能体网关", "转发到本机 agent"},
 
 	"/api/gcp":                                                              {"gcp", "google cloud", "谷歌云"},

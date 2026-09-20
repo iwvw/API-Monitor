@@ -244,6 +244,7 @@ var routeDescriptions = map[string]string{
 	"/api/aiagent/instances/{id}/meta":        "读取或写入实例级 UI 元数据",
 	"/api/aiagent/providers":                  "列出内置 AI Agent Provider 注册表",
 	"/api/aiagent/servers":                    "列出可登记为实例的主机",
+	"/api/aiagent/servers/{id}/diagnose":        "诊断主机上某 Provider 的可用性（exe 是否就绪、端口区间占用、建议空闲端口）",
 	"/api/aiagent/logs":                       "查询 AI Agent 访问日志（管理员）",
 	"/api/aiagent/gw/{instanceId}/stream-token": "换取网关一次性短令牌（用于 SSE/WebSocket）",
 	"/api/aiagent/gw":                         "AI Agent 原生流网关（HTTP 与 SSE 透传）",

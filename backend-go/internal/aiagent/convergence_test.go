@@ -74,6 +74,16 @@ func (r *stubRuntime) ProcessStatus(context.Context, string, string) (LifecycleR
 	return r.current, nil
 }
 
+func (r *stubRuntime) Diagnose(context.Context, string, string) (DiagnoseResult, error) {
+	return DiagnoseResult{
+		Provider:        "opencode",
+		Executable:      "C:\\programs\\opencode.exe",
+		ExecutableFound: true,
+		PortRange:       PortRange{Min: 4096, Max: 4195},
+		SuggestedPort:   4096,
+	}, nil
+}
+
 func (r *stubRuntime) RoundTrip(context.Context, string, int, AgentHTTPRequest) (AgentHTTPResponse, error) {
 	return AgentHTTPResponse{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(nil)}, nil
 }

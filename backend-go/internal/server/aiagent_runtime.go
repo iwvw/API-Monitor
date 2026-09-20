@@ -83,6 +83,52 @@ func (r *aiagentRuntime) ProcessStatus(ctx context.Context, serverID, instanceID
 	return decodeLifecycleResult(result)
 }
 
+// Diagnose 下发任务 60 诊断某 Provider 在主机侧的可用性：
+// exe 是否就绪、端口区间占用与建议空闲端口。
+func (r *aiagentRuntime) Diagnose(ctx context.Context, serverID, provider string) (aiagent.DiagnoseResult, error) {
+	raw, err := json.Marshal(map[string]string{"provider": provider})
+	if err != nil {
+		return aiagent.DiagnoseResult{}, err
+	}
+	result, err := r.server.RunAIAgentDiagnoseTaskAndWaitCtx(ctx, serverID, string(raw))
+	if err != nil {
+		return aiagent.DiagnoseResult{}, err
+	}
+	return decodeDiagnoseResult(result)
+}
+
+// decodeDiagnoseResult 解析 Agent 返回的诊断 JSON。字段缺失视为合法
+// （如 usedPorts 为空数组、suggestedPort 缺省为 0）。
+func decodeDiagnoseResult(raw string) (aiagent.DiagnoseResult, error) {
+	var decoded struct {
+		Provider     string `json:"provider"`
+		Executable   struct {
+			Path  string `json:"path"`
+			Found bool   `json:"found"`
+		} `json:"executable"`
+		PortRange struct {
+			Min int `json:"min"`
+			Max int `json:"max"`
+		} `json:"portRange"`
+		UsedPorts     []int `json:"usedPorts"`
+		SuggestedPort int    `json:"suggestedPort"`
+	}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return aiagent.DiagnoseResult{}, fmt.Errorf("invalid agent diagnose response: %w", err)
+	}
+	return aiagent.DiagnoseResult{
+		Provider:        decoded.Provider,
+		Executable:      decoded.Executable.Path,
+		ExecutableFound: decoded.Executable.Found,
+		PortRange: aiagent.PortRange{
+			Min: decoded.PortRange.Min,
+			Max: decoded.PortRange.Max,
+		},
+		UsedPorts:     decoded.UsedPorts,
+		SuggestedPort: decoded.SuggestedPort,
+	}, nil
+}
+
 // decodeLifecycleResult 解析 Agent 返回的进程状态 JSON。
 // Agent 用同构 JSON 表达成功与失败（running=false 也是合法结果），
 // 因此解析失败才是错误，字段缺失不算。

@@ -47,6 +47,9 @@ const (
 	taskAIAgentStop = 58
 	// taskAIAgentStatus 查询该实例的托管进程状态。
 	taskAIAgentStatus = 59
+	// taskAIAgentDiagnose 让 Agent 诊断某 Provider 在主机侧的可用性：
+	// exe 是否就绪 + 端口区间占用 + 建议空闲端口（创建/编辑实例时前端预检用）。
+	taskAIAgentDiagnose = 60
 )
 
 type agentPortStream struct {
@@ -513,6 +516,12 @@ func (s *Service) RunAIAgentStopTaskAndWaitCtx(ctx context.Context, serverID str
 // RunAIAgentStatusTaskAndWaitCtx 查询指定实例的托管进程状态（任务 59）。纯本地查表，短超时。
 func (s *Service) RunAIAgentStatusTaskAndWaitCtx(ctx context.Context, serverID string, payload string) (string, error) {
 	return s.runAgentTaskAndWaitCtx(ctx, serverID, taskAIAgentStatus, payload, 10*time.Second)
+}
+
+// RunAIAgentDiagnoseTaskAndWaitCtx 诊断某 Provider 在主机侧的可用性（任务 60）：
+// exe 是否就绪、端口区间占用与建议空闲端口。纯本地查询，短超时。
+func (s *Service) RunAIAgentDiagnoseTaskAndWaitCtx(ctx context.Context, serverID string, payload string) (string, error) {
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, taskAIAgentDiagnose, payload, 10*time.Second)
 }
 
 // HasAgentConnection 报告目标主机的 Agent 控制连接是否在线。

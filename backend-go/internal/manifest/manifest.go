@@ -295,6 +295,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/aiagent/gw", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "AI Agent native stream gateway (HTTP + SSE passthrough)", MatchMode: MatchPrefix},
 		{Prefix: "/api/aiagent/providers", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent provider registry", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/servers", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent eligible host list", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/servers/{id}/diagnose", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent provider availability diagnose (exe + port range)", MatchMode: MatchPattern},
 		{Prefix: "/api/aiagent/logs", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent access logs (admin)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/metrics", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent runtime metrics (convergence/lifecycle counters)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/preferences", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent per-user preferences (multi-device sync)", MatchMode: MatchExact},

@@ -178,6 +178,10 @@ func init() {
 		"instanceIds": {t: "array", d: "实例 ID 列表，最多 50 个"},
 	})
 	routeRequestContracts["/api/aiagent/instances/{id}/access-info"] = obj(nil, map[string]prop{})
+	// 诊断为只读预检：provider 通过 query 传递。
+	routeRequestContracts["/api/aiagent/servers/{id}/diagnose"] = obj(nil, map[string]prop{
+		"provider": {t: "string", d: "Provider ID（query 参数），如 opencode"},
+	})
 	routeRequestContracts["/api/aiagent/instances/{id}/meta"] = obj(nil, map[string]prop{
 		"meta": {t: "string", d: "客户端 UI 偏好 JSON 字符串，上限 64KB"},
 	})

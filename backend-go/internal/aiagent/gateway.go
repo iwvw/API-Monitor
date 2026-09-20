@@ -62,6 +62,9 @@ type AgentRuntime interface {
 	StopProcess(ctx context.Context, serverID, instanceID string) (LifecycleResult, error)
 	// ProcessStatus 查询该实例的托管进程状态（任务 59）。
 	ProcessStatus(ctx context.Context, serverID, instanceID string) (LifecycleResult, error)
+	// Diagnose 让主机 Agent 诊断某 Provider 在主机侧的可用性（任务 60）：
+	// 可执行文件是否就绪、端口区间占用与建议空闲端口。
+	Diagnose(ctx context.Context, serverID, provider string) (DiagnoseResult, error)
 	// RoundTrip 经 Agent 数据通道完成一次 HTTP 往返，响应体为流式。
 	RoundTrip(ctx context.Context, serverID string, port int, req AgentHTTPRequest) (AgentHTTPResponse, error)
 }

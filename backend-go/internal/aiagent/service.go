@@ -283,6 +283,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleProviders(w, r)
 	case path == "/servers" && r.Method == http.MethodGet:
 		s.handleServers(w, r)
+	case strings.HasPrefix(path, "/servers/") && strings.HasSuffix(path, "/diagnose") && r.Method == http.MethodGet:
+		// 诊断某主机上指定 Provider 的可用性（exe 是否就绪 + 端口占用 + 建议空闲端口）。
+		// 供创建/编辑实例时预检：默认端口被占时前端能自动建议切换。
+		s.handleServerDiagnose(w, r, trimSegment(path, "/servers/", "/diagnose"))
 	case path == "/logs" && r.Method == http.MethodGet:
 		s.handleLogs(w, r)
 	case path == "/metrics" && r.Method == http.MethodGet:
@@ -1530,6 +1534,65 @@ func (s *Service) handleServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeOK(w, s.listServersFor(r.Context(), auth.UserID, auth.IsAdmin))
+}
+
+// handleServerDiagnose 诊断指定主机上某 Provider 的可用性。
+//
+// 返回 Agent 侧解析出的可执行文件路径与是否就绪、Provider 端口区间、
+// 区间内被占用的端口与第一个建议空闲端口。前端在创建/编辑实例时用它
+// 预检：默认端口被占时提示并一键切换，避免 start 阶段才报「端口被占用」。
+//
+// 权限与实例接口一致：管理员全权，用户需能看到该主机。能力不足（旧 Agent）
+// 或主机离线时给出可读错误，不回退到「默认端口可用」的猜测。
+func (s *Service) handleServerDiagnose(w http.ResponseWriter, r *http.Request, serverID string) {
+	auth, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "server id is required")
+		return
+	}
+	provider := strings.TrimSpace(r.URL.Query().Get("provider"))
+	if provider == "" {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "provider is required")
+		return
+	}
+	if _, ok := LookupProvider(provider); !ok {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "unknown provider")
+		return
+	}
+	if !s.serverAllowed(r.Context(), serverID, auth.UserID, auth.IsAdmin) {
+		writeError(w, http.StatusForbidden, CodeForbidden, "server not accessible")
+		return
+	}
+	if s.runtime == nil {
+		writeError(w, http.StatusServiceUnavailable, CodeChannelError, "agent runtime not configured")
+		return
+	}
+	if !s.runtime.AgentOnline(serverID) {
+		writeError(w, http.StatusServiceUnavailable, CodeChannelError, "host agent offline")
+		return
+	}
+	if !s.runtime.AgentSupportsLifecycle(serverID) {
+		writeError(w, http.StatusServiceUnavailable, CodeChannelError,
+			"host agent does not support lifecycle management; please upgrade the agent")
+		return
+	}
+
+	result, err := s.runtime.Diagnose(r.Context(), serverID, provider)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, CodeChannelError, err.Error())
+		return
+	}
+	// 补全服务端已知的端口区间（Agent 返回的 portRange 可能为空时兜底）。
+	if result.PortRange.Min == 0 && result.PortRange.Max == 0 {
+		if p, ok := LookupProvider(provider); ok {
+			result.PortRange = PortRange{Min: p.DefaultPort, Max: p.DefaultPort + p.PortRangeSize}
+		}
+	}
+	writeOK(w, result)
 }
 
 func (s *Service) handleLogs(w http.ResponseWriter, r *http.Request) {

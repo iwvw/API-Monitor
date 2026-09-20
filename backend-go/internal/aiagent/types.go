@@ -85,6 +85,28 @@ type InstanceView struct {
 	GatewayURL string         `json:"gatewayUrl"`
 }
 
+// DiagnoseResult 是主机 Agent 返回的 Provider 可用性诊断（任务 60）。
+// 供创建/编辑实例时预检：exe 是否就绪、端口区间占用与建议空闲端口。
+type DiagnoseResult struct {
+	Provider string `json:"provider"`
+	// Executable 是 Agent 解析出的可执行文件路径。
+	Executable string `json:"executablePath"`
+	// ExecutableFound 为真表示该路径确实存在；false 表示需安装或配置环境变量。
+	ExecutableFound bool `json:"executableFound"`
+	// PortRange 是该 Provider 的允许端口区间（含两端）。
+	PortRange PortRange `json:"portRange"`
+	// UsedPorts 是区间内当前被占用的端口。
+	UsedPorts []int `json:"usedPorts,omitempty"`
+	// SuggestedPort 是区间内第一个空闲端口（可为 0 表示区间全被占）。
+	SuggestedPort int `json:"suggestedPort,omitempty"`
+}
+
+// PortRange 是端口区间（min/max 均含）。
+type PortRange struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
+}
+
 // LifecycleState 是主机 Agent 上报的托管进程状态（ADR-0006 第 5 条）。
 type LifecycleState struct {
 	Managed bool `json:"managed"`
