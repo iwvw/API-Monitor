@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 mod aiagent;
+mod aiagent_lifecycle;
 mod cloudflared;
 mod collector;
 mod docker;
@@ -56,6 +57,7 @@ fn agent_capabilities() -> Vec<String> {
         "storage_node_v1".to_string(),
         "aiagent_probe_v1".to_string(),
         "aiagent_stream_v1".to_string(),
+        "aiagent_lifecycle_v1".to_string(),
     ];
     #[cfg(target_os = "linux")]
     capabilities.push("proxy_runtime_v1".to_string());
@@ -198,6 +200,21 @@ async fn main() {
     println!("  ServerID: {}", config.server_id);
     println!("  Interval: {}ms", config.report_interval);
     println!("=================================================");
+
+    // 恢复托管的 AI Agent 进程表：仍存活的保留，已死的等 supervisor 拉起。
+    aiagent_lifecycle::reconcile_on_boot();
+
+    // 进程守护：按退避策略自动重启崩溃的托管进程（ADR-0006 第 4.1 条）。
+    tokio::spawn(aiagent_lifecycle::run_supervisor());
+
+    // Agent 主动退出时终止托管进程，避免留下孤儿进程占用端口（ADR-0006 第 4.3 条）。
+    tokio::spawn(async {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            println!("[Agent] 收到退出信号，正在停止托管的 AI Agent 进程...");
+            aiagent_lifecycle::shutdown_all().await;
+            std::process::exit(0);
+        }
+    });
 
     let collector = Arc::new(tokio::sync::Mutex::new(Collector::new()));
     let docker_bridge = Arc::new(tokio::sync::Mutex::new(DockerBridge::new()));
@@ -1214,6 +1231,53 @@ async fn run_client(
                                             }
                                             Err(err) => {
                                                 res_data = err;
+                                            }
+                                        }
+                                    }
+                                    57 => {
+                                        // AIAGENT_START：按 Provider 模板启动本地 Agent 服务。
+                                        match aiagent_lifecycle::start(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    58 => {
+                                        // AIAGENT_STOP：停止该实例的托管进程。
+                                        match aiagent_lifecycle::stop(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    59 => {
+                                        // AIAGENT_STATUS：查询该实例的托管进程状态。
+                                        // status 内部做阻塞式系统调用（Linux 遍历 /proc 查监听 PID、
+                                        // sysinfo 全表刷新做关联验证），与 probe（56）一样放到
+                                        // blocking 线程池，避免占用 Tokio worker。
+                                        let data = task.data.clone();
+                                        match tokio::task::spawn_blocking(move || {
+                                            aiagent_lifecycle::status(&data)
+                                        })
+                                        .await
+                                        {
+                                            Ok(Ok(out)) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Ok(Err(err)) => {
+                                                res_data = err;
+                                            }
+                                            Err(err) => {
+                                                res_data = format!("状态查询任务失败: {}", err);
                                             }
                                         }
                                     }

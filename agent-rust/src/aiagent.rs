@@ -43,8 +43,44 @@ pub struct BridgePayload {
     pub stream_token: String,
 }
 
+/// 持久化的 sysinfo 实例：CPU 使用率是「距上次刷新的增量」，
+/// 每次新建 System 做单次刷新会因为没有基线而恒返回 0。
+/// 这里复用一个实例，使 CPU 有可比较的上一次采样。
+fn resource_sampler() -> &'static std::sync::Mutex<sysinfo::System> {
+    static SAMPLER: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> =
+        std::sync::OnceLock::new();
+    SAMPLER.get_or_init(|| std::sync::Mutex::new(sysinfo::System::new()))
+}
+
+/// 查询指定进程的资源占用（内存字节数 + CPU 百分比）。
+///
+/// 只刷新目标进程，不做全表扫描——探测是高频路径。
+/// 查不到进程时返回 (0, 0.0)。
+///
+/// 注意：CPU 百分比是「距上一次刷新的增量」。探测由用户打开面板触发，
+/// 间隔通常是秒级，远大于 sysinfo 的 MINIMUM_CPU_UPDATE_INTERVAL，
+/// 因此无需额外节流；首次探测因无基线可能偏低，属预期行为。
+pub(crate) fn process_resources(pid: u32) -> (u64, f32) {
+    if pid == 0 {
+        return (0, 0.0);
+    }
+    let target = sysinfo::Pid::from_u32(pid);
+    let Ok(mut system) = resource_sampler().lock() else {
+        return (0, 0.0);
+    };
+    system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[target]));
+    let Some(process) = system.process(target) else {
+        return (0, 0.0);
+    };
+    (process.memory(), process.cpu_usage())
+}
+
 /// 探测 AI Agent 运行时状态。返回 JSON 字符串供云端解析；即使未命中进程也返回
 /// 同构的 JSON（processRunning=false + detail），避免云端按 successful 与否遇到两种载荷形态。
+///
+/// 除「进程是否运行」「端口是否监听」外，还返回**监听该端口的 PID**。
+/// 云端据此做关联验证：进程命中与端口监听必须指向同一个进程，否则会把
+/// 「A 进程占端口 + 系统里另有同名进程」误报为在线（见 ADR-0006 第 2 条）。
 pub async fn probe(raw: &str) -> Result<String, String> {
     let payload: ProbePayload =
         serde_json::from_str(raw).map_err(|err| format!("探测参数无效: {}", err))?;
@@ -57,11 +93,34 @@ pub async fn probe(raw: &str) -> Result<String, String> {
         .filter(|term| !term.is_empty())
         .collect();
 
-    // 进程枚举是阻塞式全表扫描，放到 blocking 线程池，避免占用 Tokio worker。
-    let (process_running, pid, detail) =
-        tokio::task::spawn_blocking(move || match_process(&match_terms))
-            .await
-            .map_err(|err| format!("进程匹配任务失败: {}", err))?;
+    // 监听 PID 查询、进程枚举与资源采集都是阻塞式系统调用，一起放到 blocking 线程池，
+    // 避免占用 Tokio worker。
+    let terms_for_pid = match_terms.clone();
+    let port = payload.port;
+    let (process_running, pid, detail, listener_pid, listener_matches, memory_bytes, cpu_percent) =
+        tokio::task::spawn_blocking(move || {
+            let listener_pid = listening_pid(port);
+            let (process_running, pid, detail) = match_process(&terms_for_pid);
+            // 关联验证：监听 PID 命中进程规则才算「该实例在跑」。
+            let listener_matches = match listener_pid {
+                Some(lpid) => process_name_matches(lpid, &terms_for_pid),
+                None => false,
+            };
+            // 资源占用以「实际监听端口的进程」为准；没有监听者时退回进程匹配结果。
+            let resource_pid = listener_pid.unwrap_or(pid);
+            let (memory_bytes, cpu_percent) = process_resources(resource_pid);
+            (
+                process_running,
+                pid,
+                detail,
+                listener_pid,
+                listener_matches,
+                memory_bytes,
+                cpu_percent,
+            )
+        })
+        .await
+        .map_err(|err| format!("进程匹配任务失败: {}", err))?;
 
     let response = serde_json::json!({
         "provider": payload.provider,
@@ -69,9 +128,206 @@ pub async fn probe(raw: &str) -> Result<String, String> {
         "processRunning": process_running,
         "portListening": port_listening,
         "pid": pid,
+        "listenerPid": listener_pid,
+        "listenerMatchesProcess": listener_matches,
+        "memoryBytes": memory_bytes,
+        "cpuPercent": cpu_percent,
         "detail": detail,
     });
     Ok(response.to_string())
+}
+
+/// 判断指定 PID 的进程名是否命中匹配规则（用于监听端口与进程的关联验证）。
+pub(crate) fn process_name_matches(pid: u32, terms: &[String]) -> bool {
+    if terms.is_empty() {
+        return false;
+    }
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    let Some(process) = system.process(sysinfo::Pid::from_u32(pid)) else {
+        return false;
+    };
+    let name = process.name().to_string_lossy().to_lowercase();
+    let trimmed = name.strip_suffix(".exe").unwrap_or(name.as_str());
+    if terms.iter().any(|term| trimmed == term.as_str()) {
+        return true;
+    }
+    if terms.iter().any(|term| name.contains(term.as_str())) {
+        return true;
+    }
+    // 名称未命中时再看命令行，与 match_process 的判定保持一致。
+    process.cmd().iter().any(|part| {
+        let value = part.to_string_lossy().to_lowercase();
+        let value = value.strip_suffix(".exe").unwrap_or(&value);
+        terms.iter().any(|term| value.contains(term.as_str()))
+    })
+}
+
+/// 查询监听指定回环端口的进程 PID。
+///
+/// 只关心 `127.0.0.1:<port>` 上的 LISTEN：AI Agent 服务按约定绑定回环。
+/// 查不到返回 None（端口未监听，或无权限查询）。
+#[cfg(target_os = "windows")]
+pub(crate) fn listening_pid(port: u16) -> Option<u32> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, MIB_TCP6TABLE_OWNER_PID, MIB_TCP6ROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
+        MIB_TCPROW_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+    };
+    use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
+
+    const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+    // MIB_TCP_STATE_LISTEN
+    const TCP_STATE_LISTEN: u32 = 2;
+
+    unsafe {
+        // IPv4
+        let mut size: u32 = 0;
+        let mut ret = GetExtendedTcpTable(
+            std::ptr::null_mut(),
+            &mut size,
+            0,
+            AF_INET as u32,
+            TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        );
+        if ret == ERROR_INSUFFICIENT_BUFFER && size > 0 {
+            let mut buf = vec![0u8; size as usize];
+            ret = GetExtendedTcpTable(
+                buf.as_mut_ptr() as *mut _,
+                &mut size,
+                0,
+                AF_INET as u32,
+                TCP_TABLE_OWNER_PID_LISTENER,
+                0,
+            );
+            if ret == 0 {
+                let table = buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+                let count = (*table).dwNumEntries as usize;
+                let rows = std::ptr::addr_of!((*table).table) as *const MIB_TCPROW_OWNER_PID;
+                for index in 0..count {
+                    let row = &*rows.add(index);
+                    if row.dwState != TCP_STATE_LISTEN {
+                        continue;
+                    }
+                    // dwLocalPort 是网络字节序，低 16 位为端口。
+                    let local_port = u16::from_be((row.dwLocalPort & 0xFFFF) as u16);
+                    // dwLocalAddr 同为网络字节序；0x0100007F 即 127.0.0.1。
+                    if local_port == port && u32::from_be(row.dwLocalAddr) == 0x7F00_0001 {
+                        return Some(row.dwOwningPid);
+                    }
+                }
+            }
+        }
+
+        // IPv6（回环 ::1）
+        let mut size6: u32 = 0;
+        let mut ret6 = GetExtendedTcpTable(
+            std::ptr::null_mut(),
+            &mut size6,
+            0,
+            AF_INET6 as u32,
+            TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        );
+        if ret6 == ERROR_INSUFFICIENT_BUFFER && size6 > 0 {
+            let mut buf6 = vec![0u8; size6 as usize];
+            ret6 = GetExtendedTcpTable(
+                buf6.as_mut_ptr() as *mut _,
+                &mut size6,
+                0,
+                AF_INET6 as u32,
+                TCP_TABLE_OWNER_PID_LISTENER,
+                0,
+            );
+            if ret6 == 0 {
+                let table6 = buf6.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID;
+                let count6 = (*table6).dwNumEntries as usize;
+                let rows6 = std::ptr::addr_of!((*table6).table) as *const MIB_TCP6ROW_OWNER_PID;
+                for index in 0..count6 {
+                    let row = &*rows6.add(index);
+                    if row.dwState != TCP_STATE_LISTEN {
+                        continue;
+                    }
+                    let local_port = u16::from_be((row.dwLocalPort & 0xFFFF) as u16);
+                    // ::1 的 16 字节表示为前 15 字节全 0、最后一字节为 1。
+                    let mut loopback = [0u8; 16];
+                    loopback[15] = 1;
+                    if local_port == port && row.ucLocalAddr == loopback {
+                        return Some(row.dwOwningPid);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Linux：从 /proc/net/tcp{,6} 找监听该端口的 socket inode，再反查持有它的 PID。
+#[cfg(target_os = "linux")]
+pub(crate) fn listening_pid(port: u16) -> Option<u32> {
+    use std::collections::HashSet;
+
+    let mut inodes: HashSet<String> = HashSet::new();
+    for path in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in content.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            // 字段：sl local_address rem_address st ... inode(9)
+            if fields.len() < 10 {
+                continue;
+            }
+            // st == 0A 表示 LISTEN
+            if fields[3] != "0A" {
+                continue;
+            }
+            let Some((_, port_hex)) = fields[1].split_once(':') else {
+                continue;
+            };
+            let Ok(local_port) = u16::from_str_radix(port_hex, 16) else {
+                continue;
+            };
+            if local_port == port {
+                inodes.insert(fields[9].to_string());
+            }
+        }
+    }
+    if inodes.is_empty() {
+        return None;
+    }
+
+    // 遍历 /proc/<pid>/fd 找持有该 socket inode 的进程。
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return None;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Ok(fds) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
+            continue;
+        };
+        for fd in fds.flatten() {
+            let Ok(target) = std::fs::read_link(fd.path()) else {
+                continue;
+            };
+            let target = target.to_string_lossy();
+            if let Some(inode) = target.strip_prefix("socket:[") {
+                if let Some(inode) = inode.strip_suffix(']') {
+                    if inodes.contains(inode) {
+                        return Some(pid);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+pub(crate) fn listening_pid(_port: u16) -> Option<u32> {
+    None
 }
 
 async fn tcp_listening(port: u16) -> bool {
@@ -342,7 +598,105 @@ fn agent_port_stream_url(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_token, redact_secrets};
+    use super::{extract_token, listening_pid, probe, process_resources, redact_secrets};
+    use tokio::net::TcpListener;
+
+    // 起一个真实监听回环端口的 socket，验证 listening_pid 能反查到本进程 PID。
+    // 这是「进程 ↔ 端口」关联验证的基础：查不到 PID 就无法判定实例是否真的在跑。
+    #[tokio::test]
+    async fn listening_pid_finds_own_listener() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let expected = std::process::id();
+
+        let found = listening_pid(port);
+        assert_eq!(found, Some(expected), "应能反查到监听该端口的本进程 PID");
+    }
+
+    #[tokio::test]
+    async fn listening_pid_returns_none_for_unused_port() {
+        // 绑一个端口再立即释放，得到「几乎确定无人监听」的端口号。
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        assert_eq!(listening_pid(port), None);
+    }
+
+    #[tokio::test]
+    async fn probe_reports_listener_pid_and_process_match() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // 用当前测试进程的可执行名做匹配，验证关联判定为真。
+        let exe_name = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_default();
+        let payload = serde_json::json!({
+            "provider": "opencode",
+            "port": port,
+            "process_match": [exe_name],
+        });
+
+        let raw = probe(&payload.to_string()).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(parsed["portListening"], serde_json::json!(true));
+        assert_eq!(parsed["listenerPid"], serde_json::json!(std::process::id()));
+        assert_eq!(
+            parsed["listenerMatchesProcess"],
+            serde_json::json!(true),
+            "监听 PID 的进程名应命中匹配规则"
+        );
+        // 资源字段必须存在且为数值：前端据此展示内存/CPU。
+        assert!(
+            parsed["memoryBytes"].as_u64().is_some(),
+            "memoryBytes 应为数值: {raw}"
+        );
+        assert!(
+            parsed["cpuPercent"].as_f64().is_some(),
+            "cpuPercent 应为数值: {raw}"
+        );
+        // 监听者就是本测试进程，内存必然大于 0。
+        assert!(
+            parsed["memoryBytes"].as_u64().unwrap() > 0,
+            "本进程内存占用应大于 0"
+        );
+    }
+
+    #[test]
+    fn process_resources_returns_zero_for_unknown_pid() {
+        // 不存在的 PID 不应 panic，返回 0 让调用方自行判断。
+        assert_eq!(process_resources(0), (0, 0.0));
+    }
+
+    #[test]
+    fn process_resources_reads_own_memory() {
+        let (memory, cpu) = process_resources(std::process::id());
+        assert!(memory > 0, "本进程内存应大于 0，got {memory}");
+        assert!(cpu >= 0.0, "CPU 百分比不应为负，got {cpu}");
+    }
+
+    #[tokio::test]
+    async fn probe_does_not_match_listener_when_process_name_differs() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // 匹配一个不存在的进程名：端口在监听，但关联判定必须为假。
+        // 这正是修复前会误报 online 的场景。
+        let payload = serde_json::json!({
+            "provider": "opencode",
+            "port": port,
+            "process_match": ["definitely-not-a-real-process-xyz"],
+        });
+
+        let raw = probe(&payload.to_string()).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(parsed["portListening"], serde_json::json!(true));
+        assert_eq!(parsed["listenerMatchesProcess"], serde_json::json!(false));
+    }
 
     #[test]
     fn redacts_token_query_values() {
