@@ -138,12 +138,65 @@ fn lookup_template(provider: &str) -> Option<&'static ProviderTemplate> {
     PROVIDER_TEMPLATES.iter().find(|template| template.id == id)
 }
 
-/// 解析可执行文件路径：优先本地配置的环境变量，其次回退到 PATH 查找。
-fn resolve_executable(template: &ProviderTemplate) -> String {
-    match std::env::var(template.executable_env) {
-        Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-        _ => template.executable.to_string(),
+/// 解析可执行文件路径：优先本地配置的环境变量，其次自动探测 npm 全局安装位置，
+/// 最后回退到 PATH 查找。
+///
+/// 返回 `(路径, 是否确认存在)`。自动探测解决「Agent 服务 PATH 不含用户级 npm 目录、
+/// 且 PATH 根目录只有 .cmd shim 没有真身 .exe」导致的启动失败（Windows 上 npm 全局
+/// 安装的 opencode 真身在 `node_modules/opencode-ai/bin/` 下，Command::new 只认 .exe）。
+fn resolve_executable(template: &ProviderTemplate) -> (String, bool) {
+    // 1. 显式环境变量优先（ADR-0006 第 6.1 条：路径来自 Agent 本地配置）。
+    if let Ok(value) = std::env::var(template.executable_env) {
+        let value = value.trim().to_string();
+        if !value.is_empty() {
+            let exists = PathBuf::from(&value).is_file();
+            return (value, exists);
+        }
     }
+    // 2. 自动探测常见 npm 全局安装位置（真身 exe，绕过 .cmd shim）。
+    if let Some(path) = detect_npm_executable(template) {
+        return (path.to_string_lossy().to_string(), true);
+    }
+    // 3. 回退到裸命令名（走 PATH；可能仍是 shim，由 spawn 失败时给出提示）。
+    (template.executable.to_string(), false)
+}
+
+/// 在常见 npm 全局安装位置中探测 Provider 的真身可执行文件。
+///
+/// 覆盖两处：用户级 npm 全局目录与系统级 npm 全局目录；Windows 上真身
+/// 命名带 `.exe`。探测到即返回，未找到返回 None。
+fn detect_npm_executable(template: &ProviderTemplate) -> Option<PathBuf> {
+    // 用户级 npm 全局目录（Windows 为 %APPDATA%\npm，Linux 为 ~/.local/share/npm 或 ~/.npm-global）
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        let npm = PathBuf::from(appdata).join("npm");
+        candidates.push(npm.join("node_modules"));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(home.join(".local/share/npm/node_modules"));
+        candidates.push(home.join(".npm-global/node_modules"));
+        candidates.push(home.join("node_modules"));
+    }
+    // 系统级 npm 全局目录（Linux 常见）。
+    candidates.push(PathBuf::from("/usr/local/lib/node_modules"));
+    candidates.push(PathBuf::from("/usr/lib/node_modules"));
+
+    let exe_name = if cfg!(target_os = "windows") {
+        format!("{}.exe", template.executable)
+    } else {
+        template.executable.to_string()
+    };
+    for modules_dir in candidates {
+        let candidate = modules_dir
+            .join(format!("{}-ai", template.id))
+            .join("bin")
+            .join(&exe_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// 校验端口是否落在该 Provider 的允许区间内（ADR-0006 第 6.3 条）。
@@ -181,7 +234,17 @@ fn spawn_process(template: &ProviderTemplate, port: u16) -> Result<u32, String> 
         })
         .collect();
 
-    let executable = resolve_executable(template);
+    let (executable, found) = resolve_executable(template);
+    if !found {
+        // 未能通过环境变量或常见安装位置定位真身：明确报错而非让 spawn 抛出
+        // 含糊的 program not found，提示用户安装或配置 API_MONITOR_AIAGENT_OPENCODE_BIN。
+        return Err(format!(
+            "未找到 Provider {} 的可执行文件（{}），请安装或设置环境变量 {} 指向真实路径",
+            template.id,
+            template.executable,
+            template.executable_env
+        ));
+    }
     let child = std::process::Command::new(&executable)
         .args(&args)
         .spawn()
@@ -274,7 +337,7 @@ pub async fn start(raw: &str) -> Result<String, String> {
         persist(&table);
         return Err(format!(
             "{} 启动后立即退出，请检查主机日志",
-            resolve_executable(template)
+            resolve_executable(template).0
         ));
     }
 
@@ -415,6 +478,60 @@ pub fn status(raw: &str) -> Result<String, String> {
         "portListening": port_listening,
         "listenerPid": listener_pid.unwrap_or(0),
         "listenerMatchesProcess": listener_matches_process,
+    })
+    .to_string())
+}
+
+/// 诊断 Provider 在主机侧的可用性（任务 60）。
+///
+/// 返回三块信息供云端在创建/编辑实例时直接消费：
+///   - executable：解析出的可执行文件路径与是否确认存在（found=false 时云端应
+///     提示安装或配置 API_MONITOR_AIAGENT_OPENCODE_BIN）；
+///   - portRange：该 Provider 的允许端口区间（与云端注册表一致的 min/max）；
+///   - usedPorts / suggestedPort：区间内当前被占用的端口与第一个空闲端口，
+///     让云端在默认端口被占时自动建议切换，而不是等 start 才报「端口被占用」。
+///
+/// 纯本地查询，不启动任何进程。
+#[derive(Debug, Deserialize)]
+pub struct DiagnosePayload {
+    pub provider: String,
+}
+
+pub fn diagnose(raw: &str) -> Result<String, String> {
+    let payload: DiagnosePayload =
+        serde_json::from_str(raw).map_err(|err| format!("诊断参数无效: {}", err))?;
+
+    let template = lookup_template(&payload.provider)
+        .ok_or_else(|| format!("未登记的 Provider: {}", payload.provider))?;
+
+    let (executable, found) = resolve_executable(template);
+    let max_port = template.default_port.saturating_add(MAX_PORT_OFFSET);
+
+    // 扫描允许区间内的占用情况：逐个查监听 PID。区间上界 99 个端口，
+    // listening_pid 在 Windows 走 GetExtendedTcpTable、Linux 遍历 /proc，
+    // 单端口开销很小，诊断是低频操作，顺序扫描可接受。
+    let mut used_ports: Vec<u16> = Vec::new();
+    let mut suggested_port: Option<u16> = None;
+    for port in template.default_port..=max_port {
+        if listening_pid(port).is_some() {
+            used_ports.push(port);
+        } else if suggested_port.is_none() {
+            suggested_port = Some(port);
+        }
+    }
+
+    Ok(serde_json::json!({
+        "provider": template.id,
+        "executable": {
+            "path": executable,
+            "found": found,
+        },
+        "portRange": {
+            "min": template.default_port,
+            "max": max_port,
+        },
+        "usedPorts": used_ports,
+        "suggestedPort": suggested_port,
     })
     .to_string())
 }
@@ -722,19 +839,31 @@ mod tests {
     #[test]
     fn executable_env_override_wins() {
         let template = lookup_template("opencode").expect("opencode template");
-        // 未设置时回退到裸命令名（走 PATH）。
-        assert_eq!(resolve_executable(template), "opencode");
+        // 用空临时目录抑制自动探测，保证「未设置时回退到裸命令名」可确定断言
+        // （本机可能装了 opencode，探测会命中真实路径导致断言不稳定）。
+        let temp_appdata = std::env::temp_dir().join("aiagent-test-empty-appdata");
+        std::fs::create_dir_all(&temp_appdata).ok();
+        std::env::set_var("APPDATA", &temp_appdata);
+        std::env::remove_var(template.executable_env);
+        let (path, found) = resolve_executable(template);
+        assert_eq!(path, "opencode", "未设置时应回退到裸命令名（走 PATH）");
+        assert!(!found, "未设置且无探测命中时 found 应为 false");
 
         // 设置后使用绝对路径：Agent 作为服务运行时 PATH 与交互式登录不同，
         // 需要部署方显式指定。
         std::env::set_var(template.executable_env, "C:\\custom\\opencode.exe");
-        assert_eq!(resolve_executable(template), "C:\\custom\\opencode.exe");
+        let (path, found) = resolve_executable(template);
+        assert_eq!(path, "C:\\custom\\opencode.exe");
+        assert!(!found, "显式配置的路径不存在时应如实返回 found=false（spawn 前报错而非 program not found）");
 
         // 空白值不应覆盖，避免误配成空路径。
         std::env::set_var(template.executable_env, "   ");
-        assert_eq!(resolve_executable(template), "opencode");
+        let (path, _) = resolve_executable(template);
+        assert_eq!(path, "opencode");
 
         std::env::remove_var(template.executable_env);
+        std::env::remove_var("APPDATA");
+        std::fs::remove_dir_all(&temp_appdata).ok();
     }
 
     #[tokio::test]
@@ -1247,5 +1376,33 @@ mod tests {
 
         let _ = child.wait();
         process_table().lock().unwrap().remove(instance_id);
+    }
+
+    // diagose 必须返回合法的端口区间与建议端口：默认端口在区间内且建议端口不大于上界。
+    #[test]
+    fn diagnose_reports_port_range_and_suggestion() {
+        let payload = serde_json::json!({ "provider": "opencode" });
+        let out = diagnose(&payload.to_string()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+        assert_eq!(parsed["provider"], serde_json::json!("opencode"));
+        let min = parsed["portRange"]["min"].as_u64().unwrap();
+        let max = parsed["portRange"]["max"].as_u64().unwrap();
+        assert!(min <= max, "端口区间 min 不应大于 max");
+        assert!(min <= 4096 && 4096 <= max, "默认端口应落在区间内");
+        let suggested = parsed["suggestedPort"].as_u64();
+        if let Some(s) = suggested {
+            assert!(min <= s && s <= max, "建议端口应在区间内");
+        }
+        // executable 字段必须存在（found 可能为 false，但结构要完整）。
+        assert!(parsed["executable"]["path"].is_string());
+    }
+
+    // 未知 Provider 必须明确报错，而不是给一个空诊断让云端猜。
+    #[test]
+    fn diagnose_rejects_unknown_provider() {
+        let payload = serde_json::json!({ "provider": "nope" });
+        let err = diagnose(&payload.to_string()).unwrap_err();
+        assert!(err.contains("未登记"), "应报未登记的 Provider: {err}");
     }
 }

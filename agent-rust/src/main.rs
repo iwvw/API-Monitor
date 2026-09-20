@@ -1281,6 +1281,29 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    60 => {
+                                        // AIAGENT_DIAGNOSE：诊断 Provider 在主机侧的可用性
+                                        // （exe 是否就绪 + 端口区间占用 + 建议空闲端口）。
+                                        // 内部做阻塞式系统调用（listening_pid），放到
+                                        // blocking 线程池，避免占用 Tokio worker。
+                                        let data = task.data.clone();
+                                        match tokio::task::spawn_blocking(move || {
+                                            aiagent_lifecycle::diagnose(&data)
+                                        })
+                                        .await
+                                        {
+                                            Ok(Ok(out)) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Ok(Err(err)) => {
+                                                res_data = err;
+                                            }
+                                            Err(err) => {
+                                                res_data = format!("诊断任务失败: {}", err);
+                                            }
+                                        }
+                                    }
                                     12 => {
                                         // PTY_START
                                         let _ = handle_pty_start(
