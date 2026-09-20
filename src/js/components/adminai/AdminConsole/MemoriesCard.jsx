@@ -294,7 +294,7 @@ export function MemoriesCard() {
                       </div>
                       <div
                         data-mem-wrap
-                        className="max-h-12 overflow-hidden transition-[max-height] duration-300 ease-out"
+                        className="max-h-12 overflow-hidden transition-[max-height] duration-slow ease-out"
                       >
                         <div data-mem-content className="line-clamp-2 text-sm leading-relaxed text-kumo-strong">
                           {item.content}

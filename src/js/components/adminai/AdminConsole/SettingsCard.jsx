@@ -6,7 +6,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Loader } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, cx } from '../../ui/AppPrimitives.jsx';
 import { ShieldCheck } from '../../Icons.jsx';
-import { SETTING_FIELDS, SETTING_SECTIONS } from './constants.jsx';
+import { SETTING_FIELDS, SETTING_SECTIONS, REASONING_EFFORT_OPTIONS } from './constants.jsx';
 
 export function SettingsCard({ form }) {
   const { values, loading, modelOptions, setField } = form;
@@ -67,6 +67,18 @@ className={cx(
           value={current}
           onValueChange={(vals) => setField(field.key, (vals || []).join(','))}
           renderValue={(vals) => (vals && vals.length ? `已选 ${vals.length} 个` : null)}
+          size="sm"
+          className="w-full"
+        />
+      );
+    } else if (field.kind === 'effort_select') {
+      control = (
+        <Select
+          alignItemWithTrigger
+          placeholder="不指定"
+          value={value || undefined}
+          onValueChange={(v) => setField(field.key, v ? String(v) : '')}
+          items={REASONING_EFFORT_OPTIONS}
           size="sm"
           className="w-full"
         />

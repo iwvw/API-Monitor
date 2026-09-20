@@ -4,7 +4,7 @@ import { ChatsCircle, Lock } from '@phosphor-icons/react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Textarea, Input } from '@cloudflare/kumo/components/input';
-import { Empty, Sidebar, Tabs, Tooltip } from '@cloudflare/kumo';
+import { Empty, Sidebar, Tabs, Tooltip, Popover } from '@cloudflare/kumo';
 import useStore from '../../../store.js';
 import {
   Sparkle, X, Send, Plus, ChevronDown, Settings as SettingsIcon,
@@ -40,6 +40,8 @@ import BotTaskList from './BotTaskList.jsx';
 import SessionTitleText from './SessionTitleText.jsx';
 import DotGrid from './DotGrid.jsx';
 import AtResourceMenu from './AtResourceMenu.jsx';
+import ModelPicker from './ModelPicker.jsx';
+import SlashCommandMenu from './SlashCommandMenu.jsx';
 import { isBotSession, groupCronSessions } from './sessionHelpers.js';
 import { extractResourceList } from './resources.js';
 import {
@@ -92,6 +94,14 @@ import {
   const [behavior, setBehavior] = useState(() => {
     try { return localStorage.getItem('adminai-behavior') === 'ask' ? 'ask' : 'agent'; } catch { return 'agent'; }
   });
+  // 本次会话的模型选择（空 = 用管理设置里的默认模型）。只影响随后发送的消息，
+  // 通过 POST /api/admin-ai/messages 的 model 字段传给后端。
+  const [model, setModel] = useState(() => {
+    try { return localStorage.getItem('adminai-model') || ''; } catch { return ''; }
+  });
+  const [modelOptions, setModelOptions] = useState([]);
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [slashQuery, setSlashQuery] = useState('');
 
   // 背景光斑（鼠标跟随橙色光斑）
   const spotlightSidebarRef = useCloudflareSpotlight();
@@ -615,6 +625,35 @@ import {
     } else {
       setAtMenuOpen(false);
     }
+    // 斜杠命令：仅在行首输入 / 且尚未输入空格时触发（避免与正文里的 / 冲突）
+    const slashMatch = value.match(/^\/(\S*)$/);
+    if (slashMatch) {
+      setAtMenuOpen(false);
+      setSlashQuery(slashMatch[1]);
+      setSlashMenuOpen(true);
+    } else {
+      setSlashMenuOpen(false);
+    }
+  };
+
+  /* 执行斜杠命令：命令只做本地动作，不写入消息正文。 */
+  const runSlashCommand = (name) => {
+    setSlashMenuOpen(false);
+    setInput('');
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.value = '';
+        resizeTextarea();
+        textareaRef.current.focus();
+      }
+    }, 0);
+    if (name === 'agent' || name === 'ask') {
+      chooseBehavior(name);
+    } else if (name === 'new') {
+      handleNewSession();
+    } else if (name === 'stop') {
+      handleCancel();
+    }
   };
 
   const insertAtResource = (res) => {
@@ -657,6 +696,34 @@ import {
     setBehavior(mode);
     try { localStorage.setItem('adminai-behavior', mode); } catch { }
   };
+  const chooseModel = (next) => {
+    setModel(next);
+    try {
+      if (next) localStorage.setItem('adminai-model', next);
+      else localStorage.removeItem('adminai-model');
+    } catch { }
+  };
+  // 模型选项来自对外暴露的模型列表（/api/openai/models 与 /v1/models 同源）。
+  // 面板常驻挂载，首次打开时懒加载一次即可，失败静默降级为「不显示选择器」。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/openai/models');
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.data || []);
+        if (cancelled) return;
+        const options = (list || [])
+          .filter((m) => m && m.id)
+          .map((m) => ({ value: m.id, label: m.id }))
+          .sort((a, b) => a.label.localeCompare(b.label));
+        setModelOptions(options);
+      } catch {
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
    /* 发起一轮执行：发送 prompt 并将流式响应挂到 assistantId 消息；rewindId 为编辑重发的服务端截断点；
       join 为运行中追问（join 语义）：服务端把消息入队由活跃 run 续跑，前端不重开流，轮次分段自动建段 */
   const startRun = async (sessionId, trimmed, assistantId, rewindId, join, mentions) => {
@@ -672,6 +739,7 @@ import {
           sessionId,
           prompt: trimmed,
           mode: behavior,
+          ...(model ? { model } : {}),
           ...(mentions && mentions.length > 0 ? { mentions } : {}),
           ...(rewindId ? { rewindId } : {}),
         }),
@@ -769,6 +837,24 @@ import {
       return [...base, createAssistantMessage(assistantMsgId)];
     });
     await startRun(activeSessionId, trimmed, assistantMsgId, rewindId, false, mentions);
+  };
+
+  /* 重新生成：从该助手消息往前找最近的 user 消息，用它的原文与 mentions 重跑。
+   * 复用 handleEditResend 的截断重发路径——服务端按 rewindId 删除该 user 消息及其后所有行，
+   * 因此不必单独写截断逻辑；这里只做「助手消息 → 前置 user 消息」的定位。 */
+  const handleRegenerate = async (assistantMessageId) => {
+    if (streaming || botActive) return;
+    const idx = messages.findIndex((m) => m.id === assistantMessageId);
+    if (idx <= 0) return;
+    let userMsg = null;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userMsg = messages[i];
+        break;
+      }
+    }
+    if (!userMsg) return;
+    await handleEditResend(userMsg.id, userMsg.content || '');
   };
 
   const handleCancel = async () => {
@@ -901,10 +987,12 @@ import {
     resizeTextarea();
   }, [input, resizeTextarea]);
 
-  /* 回车发送，Shift+Enter 换行（中文输入法组词回车不发） */
+  /* 回车发送，Shift+Enter 换行（中文输入法组词回车不发）
+     @ 菜单或 / 命令菜单打开时让位给菜单的键盘导航，否则 Enter 会先发送消息。 */
   const handleTextareaKeyDown = (e) => {
     if (e.key !== 'Enter') return;
     if (e.shiftKey || e.nativeEvent.isComposing) return;
+    if (atMenuOpen || slashMenuOpen) return;
     e.preventDefault();
     handleSend();
   };
@@ -1077,7 +1165,7 @@ import {
     >
       <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-brand/80 bg-kumo-canvas">
         <div
-          className={`flex h-full shrink-0 flex-col overflow-hidden bg-kumo-base transition-[width] duration-300 ease-in-out ${fullscreenSidebar ? 'w-64 border-r border-kumo-line' : 'w-0'}`}
+          className={`flex h-full shrink-0 flex-col overflow-hidden bg-kumo-base transition-[width] duration-slow ease-in-out ${fullscreenSidebar ? 'w-64 border-r border-kumo-line' : 'w-0'}`}
           aria-hidden={!fullscreenSidebar}
         >
           <div className="flex h-full w-64 shrink-0 flex-col">
@@ -1094,7 +1182,7 @@ import {
             side="bottom"
             render={
               <Button size="sm" shape="square" variant="ghost" aria-label="新建会话" onClick={handleNewSession}>
-                <Plus className="h-4 w-4 transition-transform duration-300 hover:rotate-90" />
+                <Plus className="h-4 w-4 transition-transform duration-slow hover:rotate-90" />
               </Button>
             }
           />
@@ -1206,7 +1294,7 @@ import {
                       <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
                     )
                   ) : (
-                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
                   )}
                 </div>
                 {/* 全屏输入区（实底不透明，与消息区无缝衔接）；机器人会话只读不渲染输入框 */}
@@ -1256,12 +1344,16 @@ import {
                 style={{ maxHeight: 256 }}
               />
               {atMenuOpen && (
-                <AtResourceMenu resources={resources} tab={atTab} setTab={setAtTab} q={atQuery} setQ={setAtQuery} error={atError} loading={atLoading} onInsert={insertAtResource} />
-              )}
+                <AtResourceMenu resources={resources} tab={atTab} setTab={setAtTab} q={atQuery} setQ={setAtQuery} error={atError} loading={atLoading} onInsert={insertAtResource} onClose={() => setAtMenuOpen(false)} />
+                )}
+                {slashMenuOpen && (
+                  <SlashCommandMenu query={slashQuery} onPick={runSlashCommand} onClose={() => setSlashMenuOpen(false)} />
+                )}
               <div className="flex items-center justify-between gap-1.5 p-4 pt-1.5">
                 <div className="flex min-w-0 items-center gap-2">
                   <Tabs size="sm" variant="segmented" className="shrink-0" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
                   {externalRunIndicator}
+                  <ModelPicker options={modelOptions} value={model} onChange={chooseModel} disabled={streaming} />
                   {writeGrantChip}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -1299,7 +1391,7 @@ import {
   const renderSidebar = () => (
     <div
       ref={panelRef}
-      className="@container fixed right-0 top-0 z-[1150] flex h-dvh flex-col overflow-hidden border-l border-kumo-line bg-[var(--app-main-surface)] transition-[width,transform] duration-300 ease-in-out max-lg:!w-screen"
+      className="@container fixed right-0 top-0 z-[1150] flex h-dvh flex-col overflow-hidden border-l border-kumo-line bg-[var(--app-main-surface)] transition-[width,transform] duration-slow ease-in-out max-lg:!w-screen"
       style={{ width: 'var(--askai-panel-w)', transform: animated ? 'translateX(0)' : 'translateX(100%)', pointerEvents: animated ? 'auto' : 'none' }}
     >
       {/* 拖宽手柄 */}
@@ -1312,7 +1404,7 @@ import {
       <div className="relative min-h-0 flex-1 overflow-clip">
         {/* ===== 管理视图（设置/频道/审计收进侧栏） ===== */}
         <div
-          className={`absolute inset-0 flex flex-col transition-[transform,opacity,visibility] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] ${
+          className={`absolute inset-0 flex flex-col transition-[transform,opacity,visibility] duration-slower ease-panel will-change-[transform,opacity] ${
             manageOpen ? 'visible translate-x-0 opacity-100' : 'pointer-events-none invisible translate-x-8 opacity-0'
           }`}
         >
@@ -1336,36 +1428,37 @@ import {
 
         {/* ===== 对话视图 ===== */}
         <div
-          className={`absolute inset-0 flex flex-col transition-[transform,opacity,visibility] duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[transform,opacity] ${
+          className={`absolute inset-0 flex flex-col transition-[transform,opacity,visibility] duration-slower ease-panel will-change-[transform,opacity] ${
             manageOpen ? 'pointer-events-none invisible -translate-x-8 opacity-0' : 'visible translate-x-0 opacity-100'
           }`}
         >
           <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-kumo-line bg-[var(--app-main-surface)] px-4">
         <div className="relative flex items-center gap-1" data-askai-menu>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => { setAtMenuOpen(false); setSessionMenuOpen(!sessionMenuOpen); }}
-            className={`flex h-8 max-w-[200px] min-w-0 items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-medium ${
-              sessionMenuOpen
-                ? 'bg-kumo-tint text-kumo-strong'
-                : 'bg-kumo-fill text-kumo-default hover:bg-kumo-tint'
-            }`}
-            aria-haspopup="menu"
-            aria-expanded={sessionMenuOpen}
-          >
-            <span className="truncate"><SessionTitleText title={activeSessionRow?.title} active={!!activeSessionId} /></span>
-            <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${sessionMenuOpen ? 'rotate-180' : ''}`} />
-          </Button>
-          <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleNewSession} aria-label="新对话" title="新对话">
-            <Plus className="h-4 w-4" />
-          </Button>
-          {sessionMenuOpen && (
-            <div
-              className="absolute left-0 top-[calc(100%+4px)] z-40 w-64 overflow-hidden rounded-xl bg-kumo-base shadow-lg ring-1 ring-kumo-line"
-              style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': '250ms' }}
+          <Popover open={sessionMenuOpen} onOpenChange={(next) => { if (next) setAtMenuOpen(false); setSessionMenuOpen(next); }}>
+            <Popover.Trigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={`flex h-8 max-w-[200px] min-w-0 items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-medium ${
+                  sessionMenuOpen
+                    ? 'bg-kumo-tint text-kumo-strong'
+                    : 'bg-kumo-fill text-kumo-default hover:bg-kumo-tint'
+                }`}
+                aria-haspopup="menu"
+              >
+                <span className="truncate"><SessionTitleText title={activeSessionRow?.title} active={!!activeSessionId} /></span>
+                <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-base ${sessionMenuOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </Popover.Trigger>
+            <Popover.Content
+              align="start"
+              sideOffset={4}
+              className="z-40 w-64 overflow-hidden p-0"
             >
+              <div
+                style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': '250ms' }}
+              >
               <div className="border-b border-kumo-line p-1.5">
                 <Tabs
                   size="sm"
@@ -1442,8 +1535,12 @@ import {
                   <Plus className="h-3.5 w-3.5" /> 新对话
                 </Button>
               </div>
-            </div>
-          )}
+              </div>
+            </Popover.Content>
+          </Popover>
+          <Button type="button" size="sm" variant="ghost" shape="square" onClick={handleNewSession} aria-label="新对话" title="新对话">
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
          <div className="flex items-center gap-0.5">
           <Button type="button" variant="ghost" shape="square" onClick={() => setExpanded(true)} aria-label="展开侧栏" title="展开侧栏">
@@ -1475,7 +1572,7 @@ import {
                   <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
                 )
               ) : (
-                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} />
+                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
               )}
             </div>
           </div>
@@ -1528,12 +1625,16 @@ import {
               style={{ maxHeight: 256 }}
             />
             {atMenuOpen && (
-              <AtResourceMenu resources={resources} tab={atTab} setTab={setAtTab} q={atQuery} setQ={setAtQuery} error={atError} loading={atLoading} onInsert={insertAtResource} />
-            )}
+              <AtResourceMenu resources={resources} tab={atTab} setTab={setAtTab} q={atQuery} setQ={setAtQuery} error={atError} loading={atLoading} onInsert={insertAtResource} onClose={() => setAtMenuOpen(false)} />
+              )}
+              {slashMenuOpen && (
+                <SlashCommandMenu query={slashQuery} onPick={runSlashCommand} onClose={() => setSlashMenuOpen(false)} />
+              )}
             <div className="flex items-center justify-between gap-1.5 p-4 pt-1.5">
               <div className="flex min-w-0 items-center gap-2">
                 <Tabs size="sm" variant="segmented" className="shrink-0" value={behavior} onValueChange={chooseBehavior} tabs={BEHAVIOR_TABS} />
                 {externalRunIndicator}
+                <ModelPicker options={modelOptions} value={model} onChange={chooseModel} disabled={streaming} />
                 {writeGrantChip}
               </div>
               <div className="flex shrink-0 items-center gap-1">

@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Loader, Textarea } from '@cloudflare/kumo';
+import { Button, Loader, Textarea, Table } from '@cloudflare/kumo';
 import { CodeHighlighted } from '@cloudflare/kumo/code';
-import { ChevronDown, Sparkle, Terminal, MessageSquare, Globe, Server, Cloud, Clock, Sliders, Bell, FlyIoBrand, KoyebBrand, Copy, Check, X, Edit } from '../../Icons.jsx';
+import { Sparkle, Terminal, MessageSquare, Globe, Server, Cloud, Clock, Sliders, Bell, FlyIoBrand, KoyebBrand, Copy, Check, X, Edit, ChevronDown, RotateCw } from '../../Icons.jsx';
 import ToolCallCard, { toolLabel, toolPathLabel, ToolSteps } from './ToolCallCard.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
+import { AnimatedCollapse } from '../../AnimatedCollapse.jsx';
+import { TracePill, TraceChevron, TraceTypingDots } from '../primitives/TracePill.jsx';
+import { MessageBubble, MessageRow } from '../primitives/MessageBubble.jsx';
 import { isStreaming } from '../../../modules/adminAiMessages.js';
+import { streamPhaseLabel } from './phaseLabel.js';
 import { typewriterFrame } from '../../../modules/typewriter.js';
 
 /* ---------- 行内渲染（粗体/斜体/删除线/行内代码/链接）——TextBlock 与 TableBlock 共用 ---------- */
@@ -35,14 +39,16 @@ function renderInline(text) {
   });
 }
 
-/* ---------- 代码块 ---------- */
+/* ---------- 代码块（行号仅在多行时显示，单行加了反而噪音） ---------- */
 function CodeBlock({ code, language }) {
+  const multiline = (code || '').includes('\n');
   return (
     <CodeHighlighted
       code={code}
       lang={language || 'bash'}
       variant="plain"
       showCopyButton
+      showLineNumbers={multiline}
       className="my-2 rounded-lg border border-kumo-line"
     />
   );
@@ -65,24 +71,24 @@ function TableBlock({ rows }) {
   const bodyRows = cells.slice(1);
   return (
     <div className="my-2 overflow-x-auto rounded-lg border border-kumo-line">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-kumo-control">
+      <Table className="text-xs">
+        <Table.Header>
+          <Table.Row>
             {headerCells.map((c, i) => (
-              <th key={i} className="border-r border-kumo-line px-3 py-1.5 text-left font-medium text-kumo-default last:border-r-0">{renderInline(c)}</th>
+              <Table.Head key={i} className="text-left">{renderInline(c)}</Table.Head>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {bodyRows.map((row, ri) => (
-            <tr key={ri} className="border-t border-kumo-line">
+            <Table.Row key={ri}>
               {row.map((c, ci) => (
-                <td key={ci} className="border-r border-kumo-line px-3 py-1.5 text-kumo-default last:border-r-0">{renderInline(c)}</td>
+                <Table.Cell key={ci}>{renderInline(c)}</Table.Cell>
               ))}
-            </tr>
+            </Table.Row>
           ))}
-        </tbody>
-      </table>
+        </Table.Body>
+      </Table>
     </div>
   );
 }
@@ -131,7 +137,7 @@ function TypewriterText({ text, streaming }) {
   );
 }
 
-/* ---------- 富文本渲染（标题/列表/代码块/表格/行内样式；折叠由外层卡片 askai-collapse 控制） ---------- */
+/* ---------- 富文本渲染（标题/列表/代码块/表格/行内样式；折叠由外层 AnimatedCollapse 控制） ---------- */
 function TextBlock({ text, streaming }) {
   if (!text) return null;
   return (
@@ -330,34 +336,24 @@ function ReasoningPart({ part, streaming, isLastPart }) {
   const displaySummary = summarizeByPunctuation(cleanSummaryText(part.summary));
   return (
     <div className="flex flex-col gap-1">
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
+      <TracePill
         onClick={() => (streaming ? setFollowOn(!followOn) : setOpen(!open))}
         title={streaming ? (followOn ? '暂停跟随推理' : '恢复跟随推理') : (open ? '收起推理' : '查看完整推理')}
-        className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
+        icon={<Sparkle weight="fill" className={`h-4 w-4 shrink-0 text-brand ${streaming && isLastPart ? 'askai-live-icon' : ''}`} />}
+        trailing={!(streaming && isLastPart) && <TraceChevron open={open} />}
       >
-        <Sparkle weight="fill" className={`h-4 w-4 shrink-0 text-brand ${streaming && isLastPart ? 'askai-live-icon' : ''}`} />
         {streaming || !displaySummary ? <span className="shrink-0">推理</span> : null}
         {streaming && isLastPart ? (
-          <span className="ml-0.5 flex items-center gap-0.5 text-brand">
-            <span className="askai-typing-dot" />
-            <span className="askai-typing-dot" />
-            <span className="askai-typing-dot" />
-          </span>
+          <TraceTypingDots className="ml-0.5 text-brand" />
         ) : (
-          <>
-            {displaySummary && (
-              <span className="askai-reason-fade max-w-[240px] min-w-0 truncate leading-4">
-                {displaySummary}
-              </span>
-            )}
-            <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${open ? '' : '-rotate-90'}`} />
-          </>
+          displaySummary && (
+            <span className="askai-reason-fade max-w-[240px] min-w-0 truncate leading-4">
+              {displaySummary}
+            </span>
+          )
         )}
-      </Button>
-      <div className="askai-collapse" data-open={(streaming && isLastPart) || open}>
+      </TracePill>
+      <AnimatedCollapse open={(streaming && isLastPart) || open}>
         <div
           ref={scrollRef}
           className="askai-reason-fade max-h-[220px] overflow-y-auto overscroll-contain border-l-2 border-kumo-line pl-3 pr-1"
@@ -367,7 +363,7 @@ function ReasoningPart({ part, streaming, isLastPart }) {
             <RenderLines text={part.text} />
           </div>
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -451,8 +447,63 @@ function TimelinePart({ part, streaming, isLastPart, onResolveApproval, onRetry,
   }
 }
 
+/* ---------- 助手消息 footer 动作（复制整条回复 / 重新生成） ----------
+ * 仅在消息终态显示：流式中重新生成没有意义，且后端活跃 run 会 409。
+ * 复制内容取该消息所有 text part 拼接，不含推理与工具结果。 */
+function MessageActions({ msg, streaming, onRegenerate }) {
+  const [copied, setCopied] = useState(false);
+  const text = (msg.parts || [])
+    .filter((p) => p.type === 'text' && p.text)
+    .map((p) => p.text)
+    .join('\n\n');
+  const disabled = streaming || msg.status === 'cancelled';
+  if (!text && !onRegenerate) return null;
+  const handleCopy = async () => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+    }
+  };
+  return (
+    <div className="flex items-center gap-0.5 text-kumo-subtle">
+      {text && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          shape="square"
+          onClick={handleCopy}
+          className="!h-6 !w-6 !rounded-md !p-0 text-kumo-subtle hover:!bg-kumo-tint hover:!text-kumo-default"
+          aria-label="复制回复"
+          title="复制回复"
+        >
+          {copied ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
+        </Button>
+      )}
+      {onRegenerate && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          shape="square"
+          onClick={() => onRegenerate(msg.id)}
+          disabled={disabled}
+          className="!h-6 !w-6 !rounded-md !p-0 text-kumo-subtle hover:!bg-kumo-tint hover:!text-kumo-default disabled:opacity-40"
+          aria-label="重新生成"
+          title={disabled ? '流式进行中，无法重新生成' : '重新生成'}
+        >
+          <RotateCw className="h-3 w-3" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /* ---------- 助手消息（timeline：推理/工具/正文按时间序） ---------- */
-function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, isCollapsed, toggleCollapse, mode }) {
+function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, onEditResend, onRegenerate, isCollapsed, toggleCollapse, mode }) {
   const parts = msg.parts || [];
   // 仅本条消息处于流式/占位状态才打 live 徽章：markLiveMessage 只把目标消息标 STREAMING，
   // 否则多轮会话里每条历史 assistant 消息都会误显示「正在执行工具…」
@@ -480,54 +531,43 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, is
     }
   }
   return (
-    <div className="flex w-full flex-col gap-1">
-      <div className="mb-1 flex items-center gap-1.5 text-xs text-kumo-subtle">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={toggleCollapse}
-          title={isCollapsed ? '展开回复' : '收起回复'}
-className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
-        >
-          {mode === 'ask' ? (
-            <MessageSquare className={`h-4 w-4 shrink-0 text-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
-          ) : (
-            <Terminal className={`h-4 w-4 shrink-0 text-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
-          )}
-          {mode === 'ask' ? '询问' : '代理'}
-          {!streaming && (
-            <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`} />
-          )}
-        </Button>
-        {(streaming && !hasText && !pending) || liveActive ? (
-          <span className="flex items-center gap-1.5 text-brand">
-            <span className="flex items-center gap-0.5">
-              <span className="askai-typing-dot" />
-              <span className="askai-typing-dot" />
-              <span className="askai-typing-dot" />
+    <MessageRow
+      header={(
+        <div className="mb-1 flex items-center gap-1.5 text-xs text-kumo-subtle">
+          <TracePill
+            emphasis
+            onClick={toggleCollapse}
+            title={isCollapsed ? '展开回复' : '收起回复'}
+            icon={mode === 'ask' ? (
+              <MessageSquare className={`h-4 w-4 shrink-0 text-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
+            ) : (
+              <Terminal className={`h-4 w-4 shrink-0 text-brand ${streaming || liveActive ? 'askai-live-icon' : ''}`} />
+            )}
+            trailing={!streaming && <TraceChevron open={!isCollapsed} />}
+          >
+            {mode === 'ask' ? '询问' : '代理'}
+          </TracePill>
+          {(streaming && !hasText && !pending) || liveActive ? (
+            <span className="flex items-center gap-1.5 text-brand">
+              <TraceTypingDots />
+              <span className="text-[10px]">
+                {liveActive ? livePhaseLabel(live.phase) : streamPhaseLabel(parts)}
+              </span>
             </span>
-            <span className="text-[10px]">
-              {liveActive ? livePhaseLabel(live.phase) : '正在回复…'}
-            </span>
-          </span>
-        ) : null}
-        {msg.status === 'cancelled' && (
-          <span className="rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] text-kumo-subtle">已停止</span>
-        )}
-        {msg.status === 'error' && (
-          <span className="rounded-full bg-kumo-danger/10 px-1.5 py-0.5 text-[10px] text-kumo-danger">出错了</span>
-        )}
-      </div>
+          ) : null}
+          {msg.status === 'cancelled' && (
+            <span className="rounded-full bg-kumo-tint px-1.5 py-0.5 text-[10px] text-kumo-subtle">已停止</span>
+          )}
+          {msg.status === 'error' && (
+            <span className="rounded-full bg-kumo-danger/10 px-1.5 py-0.5 text-[10px] text-kumo-danger">出错了</span>
+          )}
+        </div>
+      )}
+      footer={!pending && !streaming && <MessageActions msg={msg} streaming={streaming} onRegenerate={onRegenerate} />}
+    >
       <div className="w-full">
-        <div className="askai-collapse" data-open={!isCollapsed}>
-        <div
-          className={`w-full max-w-full rounded-xl px-4 py-3 text-sm !leading-relaxed ${
-            streaming
-              ? 'bg-kumo-base ring-1 ring-brand/30'
-              : 'bg-kumo-base ring-1 ring-kumo-line'
-          }`}
-        >
+        <AnimatedCollapse open={!isCollapsed}>
+        <MessageBubble variant="assistant" streaming={streaming}>
           {pending ? (
             <div className="flex flex-col gap-2 py-0.5">
               <div className="askai-skeleton-line w-11/12" />
@@ -560,10 +600,10 @@ className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg 
               })}
             </div>
           )}
-        </div>
-        </div>
+        </MessageBubble>
+        </AnimatedCollapse>
       </div>
-    </div>
+    </MessageRow>
   );
 }
 
@@ -575,13 +615,14 @@ function livePhaseLabel(phase) {
 }
 
 /* ---------- 消息列表 ---------- */
-export default function MessageList({ messages, mode, live, hasMoreOlder, loadingOlder, onLoadOlder, onResolveApproval, onRetry, onEditResend }) {
+export default function MessageList({ messages, mode, live, hasMoreOlder, loadingOlder, onLoadOlder, onResolveApproval, onRetry, onEditResend, onRegenerate }) {
   const listRef = useRef(null);
   const userScrolledUp = useRef(false);
   const [collapsedIds, setCollapsedIds] = useState({});
   const [editing, setEditing] = useState(null);
   const [editWidth, setEditWidth] = useState(null);
   const [copiedEdit, setCopiedEdit] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
   const editRef = useRef(null);
   // 向上懒加载时保留视口：记录本次渲染前的首条 id 与滚动高度，检测到「更早内容
   // 前插」后用高度差补偿 scrollTop，让用户正看着的消息不被顶走。
@@ -642,18 +683,28 @@ export default function MessageList({ messages, mode, live, hasMoreOlder, loadin
   const handleScroll = () => {
     const el = listRef.current;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    userScrolledUp.current = !atBottom;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    userScrolledUp.current = !bottom;
+    setAtBottom(bottom);
     // 接近顶部且还有更早历史：触发懒加载（loadingOlder 防止并发重复请求）。
     if (el.scrollTop < 120 && hasMoreOlder && !loadingOlderRef.current) {
       onLoadOlder?.();
     }
   };
 
+  const scrollToBottom = () => {
+    const el = listRef.current;
+    if (!el) return;
+    userScrolledUp.current = false;
+    setAtBottom(true);
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  };
+
   if (!messages || messages.length === 0) return null;
 
   return (
-    <div ref={listRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain scrollbar-thin px-1.5 pt-4 pb-4">
+    <div className="relative h-full">
+      <div ref={listRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain scrollbar-thin px-1.5 pt-4 pb-4">
       <div className="flex w-full flex-col gap-4">
         {(loadingOlder || hasMoreOlder) && (
           <div className="flex items-center justify-center py-1 text-[11px] text-kumo-subtle">
@@ -693,7 +744,7 @@ export default function MessageList({ messages, mode, live, hasMoreOlder, loadin
                     {copiedEdit ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                   </Button>
                   <div className="w-fit min-w-[10rem] max-w-full" style={editWidth ? { width: editWidth } : undefined}>
-                    <div className="w-full rounded-2xl rounded-tr-md bg-gradient-to-b from-brand to-brand-hover px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                    <MessageBubble variant="user" shape="chat">
                       <Textarea
                         ref={editRef}
                         rows={1}
@@ -711,7 +762,7 @@ export default function MessageList({ messages, mode, live, hasMoreOlder, loadin
                         className="!ring-0 max-h-48 w-full resize-none rounded-lg border-0 bg-transparent p-0 text-sm !leading-relaxed text-white outline-none placeholder:text-white/50"
                         style={{ maxHeight: 192 }}
                       />
-                    </div>
+                    </MessageBubble>
                     <div className="mt-1.5 flex items-center justify-end gap-1.5">
                       <Button
                         type="button"
@@ -748,14 +799,14 @@ export default function MessageList({ messages, mode, live, hasMoreOlder, loadin
                       setEditWidth(bubble ? bubble.getBoundingClientRect().width : null);
                       setEditing({ id: msg.id, text: msg.content || '' });
                     }}
-                    className="mb-0.5 !h-6 !w-6 shrink-0 !rounded-full !p-0 !text-kumo-subtle opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
+                    className="mb-0.5 !h-6 !w-6 shrink-0 !rounded-full !p-0 !text-kumo-subtle opacity-0 transition-opacity duration-base group-hover:opacity-100 hover:!bg-kumo-tint hover:!text-kumo-default"
                     aria-label="编辑重发"
                   >
                     <Edit className="h-3 w-3" />
                   </Button>
-                  <div data-user-bubble className="min-w-0 rounded-2xl rounded-tr-md bg-gradient-to-b from-brand to-brand-hover px-4 py-2.5 text-sm !leading-relaxed text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                  <MessageBubble variant="user" shape="chat" data-user-bubble>
                     <TextBlock text={msg.content} />
-                  </div>
+                  </MessageBubble>
                   </div>
                 </div>
               )
@@ -766,6 +817,7 @@ export default function MessageList({ messages, mode, live, hasMoreOlder, loadin
                 live={live}
                 onResolveApproval={onResolveApproval}
                 onRetry={onRetry}
+                onRegenerate={onRegenerate}
                 isCollapsed={isCollapsed}
                 toggleCollapse={toggleCollapse}
                 mode={mode}
@@ -775,6 +827,21 @@ export default function MessageList({ messages, mode, live, hasMoreOlder, loadin
           );
         })}
       </div>
+      </div>
+      {!atBottom && (
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          shape="circle"
+          onClick={scrollToBottom}
+          className="!absolute bottom-4 left-1/2 !h-8 !w-8 -translate-x-1/2 !p-0 shadow-md"
+          aria-label="回到最新"
+          title="回到最新"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </Button>
+      )}
     </div>
   );
 }

@@ -48,7 +48,7 @@ function EmptyState({ onPrompt }) {
                 onClick={() => onPrompt(p.subtitle || p.title)}
                 className="group relative flex !h-auto w-full cursor-pointer items-center gap-3 rounded-xl border border-kumo-line/50 bg-kumo-elevated p-2 text-left hover:border-brand/40 hover:bg-kumo-base"
               >
-                <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-brand/80 to-brand transition-all duration-200 group-hover:h-5" />
+                <span className="absolute left-0 top-1/2 h-0 w-[2px] -translate-y-1/2 rounded-full bg-gradient-to-b from-brand/80 to-brand transition-all duration-base group-hover:h-5" />
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-kumo-fill/80 group-hover:bg-brand/10 dark:bg-kumo-control/60 dark:group-hover:bg-brand/20">
                   <PromptIcon className="h-3.5 w-3.5 text-kumo-subtle group-hover:text-brand" />
                 </span>

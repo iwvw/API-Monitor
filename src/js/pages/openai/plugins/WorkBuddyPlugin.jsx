@@ -756,7 +756,7 @@ export function WorkBuddyPlugin() {
                       <span title="最近一次签到时刻（站点时区显示由浏览器决定）；点击查看连续登录天数与档位状态">签到</span>
                     </Table.Head>
                     <Table.Head className="!w-28 !px-2 !py-1.5 text-center">余额</Table.Head>
-                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">token</Table.Head>
+                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">状态</Table.Head>
                     <Table.Head className="!w-36 !px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
@@ -953,21 +953,69 @@ export function WorkBuddyPlugin() {
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
                               <div className="flex flex-wrap items-center justify-center gap-1">
-                                <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
-                                  {meta.label}
-                                  {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
-                                </Badge>
+                                {/* token 状态徽标：账号级问题（即将过期/已过期/未知）才显示；
+                                    token 正常时省略，由「限流 N 模型」徽标表达
+                                    「账号可用、仅部分模型限流」，避免与「正常」并排冲突。 */}
+                                {a.tokenState !== 'valid' && (
+                                  <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
+                                    {meta.label}
+                                    {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
+                                  </Badge>
+                                )}
                                 {/* 模型级限流：只影响列出的模型，账号本身仍可用（其它模型照常转发），
-                                    悬浮可看到每个模型的恢复时刻。 */}
+                                    hover/点击弹层展示每个模型的解冻时间。 */}
                                 {(a.limitedModels?.length ?? 0) > 0 && (
-                                  <Badge
-                                    variant="warning"
-                                    className="text-xs"
-                                    title={a.limitedModels
-                                      .map(m => `${m.model} 限流至 ${fmtUntil(m.until)}`)
-                                      .join('\n')}
-                                  >
-                                    限流 {a.limitedModels.length} 模型
+                                  <Popover>
+                                    <Popover.Trigger
+                                      openOnHover
+                                      delay={150}
+                                      render={
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="!px-1.5 !py-0.5 bg-transparent! hover:bg-transparent! active:bg-transparent! focus-visible:bg-transparent! focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                                          title="查看各模型的解冻时间"
+                                        >
+                                          <Badge variant="warning" className="text-xs">
+                                            限流 {a.limitedModels.length} 模型
+                                          </Badge>
+                                        </Button>
+                                      }
+                                    />
+                                    <Popover.Content
+                                      side="bottom"
+                                      align="center"
+                                      className="w-72 shrink-0 px-3 pb-2 pt-2.5"
+                                    >
+                                      <div className="truncate text-xs font-semibold leading-normal text-kumo-strong">
+                                        {a.nickname || a.uid || a.id}
+                                      </div>
+                                      <div className="mt-1.5 flex flex-col divide-y divide-kumo-line">
+                                        {a.limitedModels.map(m => (
+                                          <div
+                                            key={m.model}
+                                            className="flex items-center justify-between gap-3 py-1.5"
+                                          >
+                                            <span className="truncate text-xs text-kumo-strong" title={m.model}>
+                                              {m.model}
+                                            </span>
+                                            <span
+                                              className="shrink-0 font-mono text-xs text-kumo-subtle"
+                                              title={`解冻于 ${fmtUntil(m.until)}`}
+                                            >
+                                              {fmtLeft(m.remainingSeconds)}后解冻
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </Popover.Content>
+                                  </Popover>
+                                )}
+                                {/* 无任何限流且 token 正常时显示「正常」徽标。 */}
+                                {(a.limitedModels?.length ?? 0) === 0 && a.tokenState === 'valid' && (
+                                  <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
+                                    {meta.label}
                                   </Badge>
                                 )}
                               </div>

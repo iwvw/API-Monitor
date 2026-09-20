@@ -6,6 +6,7 @@ import { Bot, ShieldCheck, Sliders, Database } from '../../Icons.jsx';
 export const SETTING_FIELDS = [
   { key: 'admin_ai_enabled', kind: 'switch', group: 'basic', label: '管理 AI 总开关'},
   { key: 'admin_ai_default_model', kind: 'select', group: 'basic', label: '推理模型'},
+  { key: 'admin_ai_reasoning_effort', kind: 'effort_select', group: 'basic', label: '思考强度'},
   { key: 'admin_ai_summary_model', kind: 'multi_select', group: 'basic', label: '摘要模型' },
   { key: 'admin_ai_briefing_model', kind: 'select', group: 'basic', label: '简报模型'},
   { key: 'admin_ai_write_enabled', kind: 'switch', group: 'security', label: '写操作全局开关'},
@@ -22,8 +23,15 @@ export const SETTING_FIELDS = [
   { key: 'admin_ai_max_concurrent_runs', kind: 'number', group: 'runtime', label: '全局并发执行上限' },
 ];
 
-export const SETTING_SECTIONS = [
-  { key: 'basic', title: '基础设置', description: '总开关与模型选择', icon: <Bot className="h-4 w-4 text-brand" /> },
+// 思考强度选项（与后端 reasoningEffortValues 对齐；空值=不传，保持上游默认）。
+export const REASONING_EFFORT_OPTIONS = [
+  { value: '', label: '不指定（上游默认）' },
+  { value: 'low', label: 'low（低）' },
+  { value: 'medium', label: 'medium（中）' },
+  { value: 'high', label: 'high（高）' },
+];
+
+export const SETTING_SECTIONS = [  { key: 'basic', title: '基础设置', description: '总开关与模型选择', icon: <Bot className="h-4 w-4 text-brand" /> },
   { key: 'security', title: '安全与审批', description: '写操作与审批策略', icon: <ShieldCheck className="h-4 w-4 text-brand" /> },
   { key: 'runtime', title: '运行参数', description: '工具调用上限与超时', icon: <Sliders className="h-4 w-4 text-brand" /> },
   { key: 'retention', title: '数据保留', description: '审计记录保留时长', icon: <Database className="h-4 w-4 text-brand" /> },

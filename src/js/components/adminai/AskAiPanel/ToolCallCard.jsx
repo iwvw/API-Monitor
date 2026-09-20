@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { Button, Loader } from '@cloudflare/kumo';
-import { Copy, Check, ChevronDown, X, Wrench } from '../../Icons.jsx';
+import { Copy, Check, ChevronDown, Wrench } from '../../Icons.jsx';
+import { AnimatedCollapse } from '../../AnimatedCollapse.jsx';
+import { TracePill, TraceChevron } from '../primitives/TracePill.jsx';
+import { StatusDot } from '../primitives/StatusDot.jsx';
 import { STEP } from '../../../modules/adminAiMessages.js';
 
 /* 工具名中文标识：折叠组标题与无描述回退共用 */
@@ -144,28 +147,8 @@ export default function ToolCallCard({ toolCall, inline }) {
 
   /* 状态徽章：只显示图标（running=spinner / success=绿勾 / failed=红叉） */
   const statusBadge = () => {
-    switch (status) {
-      case 'running':
-        return (
-          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-            <Loader size={10} className="animate-spin" />
-          </span>
-        );
-      case 'success':
-        return (
-          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-success/10 text-kumo-success">
-            <Check className="h-2.5 w-2.5" />
-          </span>
-        );
-      case 'failed':
-        return (
-          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-danger/10 text-kumo-danger">
-            <X className="h-2.5 w-2.5" />
-          </span>
-        );
-      default:
-        return null;
-    }
+    if (!status) return null;
+    return <StatusDot status={status} />;
   };
 
   /* 内联行：语义视图=中文动作描述（无 desc 时回退工具中文名）+ 灰色小字路径；
@@ -305,39 +288,14 @@ export function ToolSteps({ items, streaming, isLastPart }) {
     }
   };
 
-  const groupBadge = (m) => {
-    if (m.hasRunning) {
-      return (
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-          <Loader size={10} className="animate-spin" />
-        </span>
-      );
-    }
-    if (m.hasFailed) {
-      return (
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-danger/10 text-kumo-danger">
-          <X className="h-2.5 w-2.5" />
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-kumo-success/10 text-kumo-success">
-        <Check className="h-2.5 w-2.5" />
-      </span>
-    );
-  };
-
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
+      <TracePill
         onClick={() => setOpen(!open)}
-        className="flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-kumo-line/60 bg-kumo-recessed/60 py-1 pl-1.5 pr-2 text-[11px] text-kumo-default hover:bg-kumo-recessed hover:text-kumo-strong"
-        aria-expanded={isOpen}
+        ariaExpanded={isOpen}
+        icon={<Wrench className={`h-4 w-4 shrink-0 text-brand ${anyRunning ? 'askai-live-icon' : ''}`} />}
+        trailing={<TraceChevron open={isOpen} />}
       >
-        <Wrench className={`h-4 w-4 shrink-0 text-brand ${anyRunning ? 'askai-live-icon' : ''}`} />
         {single ? (
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 line-clamp-1 break-all leading-4" title={singleLabel}>
@@ -350,58 +308,65 @@ export function ToolSteps({ items, streaming, isLastPart }) {
         ) : (
           <span className="shrink-0 leading-4">工具步骤 · {total} 次</span>
         )}
-        <ChevronDown className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} />
-      </Button>
-      <div className="askai-collapse" data-open={isOpen}>
-        <div className="askai-tool-stagger flex min-w-0 flex-col gap-1.5 rounded-lg border border-kumo-line/50 bg-kumo-control/40 p-2">
-          {merged.map((m, i) => {
-            const label = m.call ? (briefToolDesc(m.call.desc) || toolLabel(m.call.toolName) || '未知工具') : '工具结果';
-            const path = m.call ? toolPathLabel(m.call.toolName, m.call.args) : '';
-            const argsKey = m.call ? callArgsKey(m.call.args) : '';
-            const copyText = m.result?.summary || m.call?.error || '';
-            // 该行自己的状态（逐行真实状态，不依赖组级汇总）
-            const rowRunning = m.call?.status === STEP.RUNNING;
-            const rowFailed = isFailed(m);
-            return (
-              <div key={`${m.sig}-${i}`} className={`flex min-w-0 flex-col gap-0.5 rounded-md px-1 ${rowRunning ? 'bg-brand/5' : ''}`}>
-                <div className="flex min-w-0 items-center gap-1.5 text-xs">
-                  {rowRunning ? (
-                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-                      <Loader size={10} className="animate-spin" />
-                    </span>
-                  ) : groupBadge(m)}
-                  <span className="min-w-0 line-clamp-1 break-all font-medium text-kumo-default" title={label}>{label}</span>
-                  {m.count > 1 && (
-                    <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{m.count}</span>
-                  )}
-                  {copyText && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      shape="square"
-                      onClick={() => handleCopy(`${i}`, copyText)}
-                      className="ml-auto !h-5 !w-5 shrink-0 !rounded !p-0 text-kumo-subtle hover:!bg-kumo-tint"
-                      aria-label="复制工具结果"
-                      title={m.result?.summary ? '复制工具结果' : '复制错误信息'}
-                    >
-                      {copiedKey === `${i}` ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
-                    </Button>
-                  )}
-                </div>
-                {path && path !== label && (
-                  <div className="min-w-0 pl-[22px]">
-                    <span className="min-w-0 line-clamp-1 break-all font-mono text-[10px] text-kumo-subtle/70" title={path}>{path}</span>
-                  </div>
-                )}
-                {rowFailed && m.failedCall?.error && (
-                  <p className="min-w-0 line-clamp-1 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger" title={m.failedCall.error}>{m.failedCall.error}</p>
-                )}
+      </TracePill>
+      <AnimatedCollapse open={isOpen}>
+        <ToolStepList items={merged} isFailed={isFailed} copiedKey={copiedKey} onCopy={handleCopy} />
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+/* 工具步骤明细列表：抽出来供 AgentActivity 内嵌复用（不套自己的胶囊）。 */
+export function ToolStepList({ items, isFailed, copiedKey, onCopy }) {
+  return (
+    <div className="askai-tool-stagger flex min-w-0 flex-col gap-1.5 rounded-lg border border-kumo-line/50 bg-kumo-control/40 p-2">
+      {items.map((m, i) => {
+        const label = m.call ? (briefToolDesc(m.call.desc) || toolLabel(m.call.toolName) || '未知工具') : '工具结果';
+        const path = m.call ? toolPathLabel(m.call.toolName, m.call.args) : '';
+        const copyText = m.result?.summary || m.call?.error || '';
+        // 该行自己的状态（逐行真实状态，不依赖组级汇总）
+        const rowRunning = m.call?.status === STEP.RUNNING;
+        const rowFailed = isFailed(m);
+        return (
+          <div key={`${m.sig}-${i}`} className={`flex min-w-0 flex-col gap-0.5 rounded-md px-1 ${rowRunning ? 'bg-brand/5' : ''}`}>
+            <div className="flex min-w-0 items-center gap-1.5 text-xs">
+              {rowRunning ? (
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                  <Loader size={10} className="animate-spin" />
+                </span>
+              ) : (
+                <StatusDot status={rowFailed ? STEP.FAILED : STEP.SUCCESS} />
+              )}
+              <span className="min-w-0 line-clamp-1 break-all font-medium text-kumo-default" title={label}>{label}</span>
+              {m.count > 1 && (
+                <span className="shrink-0 rounded-full bg-kumo-base px-1.5 py-px text-[10px] font-semibold leading-4 text-kumo-subtle">×{m.count}</span>
+              )}
+              {copyText && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  shape="square"
+                  onClick={() => onCopy(`${i}`, copyText)}
+                  className="ml-auto !h-5 !w-5 shrink-0 !rounded !p-0 text-kumo-subtle hover:!bg-kumo-tint"
+                  aria-label="复制工具结果"
+                  title={m.result?.summary ? '复制工具结果' : '复制错误信息'}
+                >
+                  {copiedKey === `${i}` ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
+                </Button>
+              )}
+            </div>
+            {path && path !== label && (
+              <div className="min-w-0 pl-[22px]">
+                <span className="min-w-0 line-clamp-1 break-all font-mono text-[10px] text-kumo-subtle/70" title={path}>{path}</span>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            )}
+            {rowFailed && m.failedCall?.error && (
+              <p className="min-w-0 line-clamp-1 break-all pl-[22px] font-mono text-[11px] leading-5 text-kumo-danger" title={m.failedCall.error}>{m.failedCall.error}</p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

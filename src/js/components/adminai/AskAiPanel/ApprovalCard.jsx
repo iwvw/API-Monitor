@@ -1,10 +1,37 @@
-import React, { useEffect, useState } from 'react';
-import { Button, Loader } from '@cloudflare/kumo';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, Loader, DropdownMenu } from '@cloudflare/kumo';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { ChevronDown, ChevronRight, Check } from '../../Icons.jsx';
 
-/* 审批卡片 — Cloudflare Agent 风格：
- * 计划摘要 + 参数 code 高亮 + 「N 处更改」展开 diff + 4 操作按钮 + 请求更改输入 */
+/* 审批卡片 — 计划摘要 + 参数 + 「N 处更改」展开 + 主次分层的操作区。
+ *
+ * 主次分层：主操作「仅此次」独占一行，其余三个动作（允许此对话/拒绝/请求更改）
+ * 收进溢出菜单。此前四个按钮同排等权重，用户难以判断哪个是安全默认值。
+ *
+ * 「允许此对话」需要二次确认，改用菜单项的独立确认步骤（切到确认态再点一次），
+ * 不再用 setTimeout 5 秒后静默复位——那种写法无法用键盘可靠操作，也不可测。
+ *
+ * 过期判断用 expiresAt 时间戳直接算 remainingMs，不再拿倒计时文案字符串比较。 */
+
+function useRemainingMs(expiresAt, active) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active || !expiresAt) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active, expiresAt]);
+  if (!expiresAt) return null;
+  return new Date(expiresAt).getTime() - now;
+}
+
+function formatRemaining(ms) {
+  if (ms === null) return '';
+  if (ms <= 0) return '已过期';
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  return `${mins}分${secs}秒`;
+}
+
 export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
   const {
     id,
@@ -16,48 +43,45 @@ export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
     status,
     errorMessage,
   } = approval || {};
-  const [countdown, setCountdown] = useState('');
   const [resolving, setResolving] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [requestText, setRequestText] = useState('');
   const [requestOpen, setRequestOpen] = useState(false);
-  const [confirmAllow, setConfirmAllow] = useState(false); // 「允许此对话」二次确认
+  const [confirmAllow, setConfirmAllow] = useState(false);
 
-  useEffect(() => {
-    if (!expiresAt || status !== 'pending') return;
-    const update = () => {
-      const remaining = new Date(expiresAt).getTime() - Date.now();
-      if (remaining <= 0) { setCountdown('已过期'); return; }
-      const mins = Math.floor(remaining / 60000);
-      const secs = Math.floor((remaining % 60000) / 1000);
-      setCountdown(`${mins}分${secs}秒`);
-    };
-    update();
-    const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
-  }, [expiresAt, status]);
+  const remainingMs = useRemainingMs(expiresAt, status === 'pending');
+  const expired = remainingMs !== null && remainingMs <= 0;
+  const countdown = formatRemaining(remainingMs);
 
-  // 从 body 快照与 method/path 组合变更明细行（近似 Cloudflare 的「N 处更改」）
-  const diffRows = [];
-  if (bodySnapshot) {
-    try {
-      const parsed = typeof bodySnapshot === 'string' ? JSON.parse(bodySnapshot) : bodySnapshot;
-      if (parsed && typeof parsed === 'object') {
-        for (const [k, v] of Object.entries(parsed)) {
-          diffRows.push({ key: k, value: typeof v === 'string' ? v : JSON.stringify(v) });
+  // 确认态允许取消：展开菜单时重置，避免上次的待确认状态残留。
+  const closeMenu = () => setConfirmAllow(false);
+
+  // 从 body 快照与 method/path 组合变更明细行
+  const diffRows = useMemo(() => {
+    const rows = [];
+    if (bodySnapshot) {
+      try {
+        const parsed = typeof bodySnapshot === 'string' ? JSON.parse(bodySnapshot) : bodySnapshot;
+        if (parsed && typeof parsed === 'object') {
+          for (const [k, v] of Object.entries(parsed)) {
+            rows.push({ key: k, value: typeof v === 'string' ? v : JSON.stringify(v) });
+          }
         }
+      } catch {
+        rows.push({ key: 'body', value: String(bodySnapshot).slice(0, 200) });
       }
-    } catch {
-      diffRows.push({ key: 'body', value: String(bodySnapshot).slice(0, 200) });
     }
-  }
-  diffRows.push({ key: 'method', value: method || 'GET' });
-  if (path) diffRows.push({ key: 'path', value: path });
+    rows.push({ key: 'method', value: method || 'GET' });
+    if (path) rows.push({ key: 'path', value: path });
+    return rows;
+  }, [bodySnapshot, method, path]);
 
-  const handleResolve = async (action, applyToSession) => {
+  const changeCount = diffRows.length;
+
+  const handleResolve = async (action, applyToSession, message) => {
     setResolving(true);
     try {
-      await onResolve(id, action, applyToSession);
+      await onResolve(id, action, applyToSession, message);
     } finally {
       setResolving(false);
     }
@@ -102,7 +126,7 @@ export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
     <div className="overflow-visible rounded-xl bg-kumo-base px-4 py-3 ring-1 ring-kumo-line">
       {/* 计划摘要 */}
       <div className="text-sm font-medium text-kumo-default">{planSummary}</div>
-      {/* 参数详情（method/path + body） */}
+      {/* 参数详情（method/path） */}
       <div className="mt-1.5 text-xs leading-relaxed text-kumo-default">
         <span className="mr-1 rounded bg-kumo-fill px-1.5 py-0.5 font-mono text-[11px]">{method || 'GET'}</span>
         <code className="rounded bg-kumo-fill px-1.5 py-0.5 font-mono text-[11px]">{path || ''}</code>
@@ -116,9 +140,10 @@ export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
             variant="ghost"
             onClick={() => setShowDiff(!showDiff)}
             className="flex items-center gap-1 text-xs !text-brand hover:!text-kumo-strong"
+            aria-expanded={showDiff}
           >
             {showDiff ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-            {diffRows.length} 处更改
+            {changeCount} 处更改
           </Button>
           {showDiff && (
             <div className="mt-2 space-y-1 rounded-lg bg-kumo-control p-2.5 font-mono text-[11px] text-kumo-default">
@@ -135,7 +160,9 @@ export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
 
       {/* 倒计时 */}
       {countdown && (
-        <div className="mt-2 text-[11px] text-kumo-warning">剩余 {countdown}</div>
+        <div className={`mt-2 text-[11px] ${expired ? 'text-kumo-danger' : 'text-kumo-warning'}`}>
+          剩余 {countdown}
+        </div>
       )}
 
       {/* 请求更改输入 */}
@@ -172,52 +199,52 @@ export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
         </div>
       )}
 
-      {/* 操作按钮：仅此次（主）/ 允许此对话（需二次确认）/ 拒绝 / 请求更改 */}
+      {/* 操作区：主操作独占一行，次级动作收进溢出菜单 */}
       {!requestOpen && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex items-center gap-2">
           <Button
             size="sm"
             variant="primary"
-            disabled={resolving || countdown === '已过期'}
+            disabled={resolving || expired}
             onClick={() => handleResolve('approve', false)}
           >
             {resolving ? <Loader size={12} /> : null}
             仅此次
           </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={resolving || countdown === '已过期'}
-            onClick={() => {
-              if (!confirmAllow) {
-                setConfirmAllow(true);
-                window.setTimeout(() => setConfirmAllow(false), 5000);
-                return;
-              }
-              handleResolve('approve', true);
-              setConfirmAllow(false);
-            }}
-          >
-            {confirmAllow ? '确认允许本会话全部写操作？' : '允许此对话'}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={resolving || countdown === '已过期'}
-            onClick={() => handleResolve('reject')}
-            className="!text-kumo-danger hover:!bg-kumo-danger/10"
-          >
-            拒绝
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={resolving || countdown === '已过期'}
-            onClick={() => setRequestOpen(true)}
-            className="!text-kumo-subtle hover:!text-kumo-default"
-          >
-            请求更改
-          </Button>
+          <DropdownMenu>
+            <DropdownMenu.Trigger
+              render={(
+                <Button size="sm" variant="secondary" disabled={resolving || expired} aria-label="更多操作">
+                  更多
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              )}
+            />
+            <DropdownMenu.Content onClose={closeMenu}>
+              <DropdownMenu.Item
+                onClick={() => {
+                  if (!confirmAllow) {
+                    setConfirmAllow(true);
+                    return;
+                  }
+                  handleResolve('approve', true);
+                  setConfirmAllow(false);
+                }}
+              >
+                {confirmAllow ? '确认允许本会话全部写操作' : '允许此对话'}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onClick={() => setRequestOpen(true)}>
+                请求更改
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item variant="danger" onClick={() => handleResolve('reject')}>
+                拒绝
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu>
+          {confirmAllow && (
+            <span className="text-[10px] text-kumo-warning">再次点击确认本会话全部写操作</span>
+          )}
         </div>
       )}
       {remaining > 1 && (

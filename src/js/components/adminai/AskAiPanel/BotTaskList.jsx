@@ -30,7 +30,7 @@ function BotTaskList({
               </span>
               <span className="shrink-0 text-[10px] text-kumo-subtle">{group.items.length} 次</span>
               <ChevronDown
-                className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`}
+                className={`h-3 w-3 shrink-0 text-kumo-subtle transition-transform duration-base ${collapsed ? '' : 'rotate-180'}`}
               />
             </Sidebar.MenuButton>
             {!collapsed && (
