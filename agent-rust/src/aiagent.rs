@@ -144,10 +144,15 @@ pub(crate) fn process_name_matches(pid: u32, terms: &[String]) -> bool {
     }
     let mut system = sysinfo::System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::All);
-    let Some(process) = system.process(sysinfo::Pid::from_u32(pid)) else {
-        return false;
+    let name = match system.process(sysinfo::Pid::from_u32(pid)) {
+        Some(process) => process.name().to_string_lossy().to_lowercase(),
+        // Linux 上 sysinfo 可能读不到目标进程（权限/快照时机），
+        // 直接看 /proc/<pid> 兜底，避免把「查不到」误判为「不匹配」。
+        None => match comm_name(pid) {
+            Some(name) => name,
+            None => return false,
+        },
     };
-    let name = process.name().to_string_lossy().to_lowercase();
     let trimmed = name.strip_suffix(".exe").unwrap_or(name.as_str());
     if terms.iter().any(|term| trimmed == term.as_str()) {
         return true;
@@ -156,11 +161,49 @@ pub(crate) fn process_name_matches(pid: u32, terms: &[String]) -> bool {
         return true;
     }
     // 名称未命中时再看命令行，与 match_process 的判定保持一致。
-    process.cmd().iter().any(|part| {
-        let value = part.to_string_lossy().to_lowercase();
-        let value = value.strip_suffix(".exe").unwrap_or(&value);
-        terms.iter().any(|term| value.contains(term.as_str()))
+    // sysinfo 的 Process::cmd() 在某些平台/刷新组合下可能为空，
+    // Linux 上额外读 /proc/<pid>/cmdline 兜底，避免把「查得到但 cmd 未填充」
+    // 误判为「不匹配」。
+    let cmd_hit = match system.process(sysinfo::Pid::from_u32(pid)) {
+        Some(process) => process.cmd().iter().any(|part| {
+            let value = part.to_string_lossy().to_lowercase();
+            let value = value.strip_suffix(".exe").unwrap_or(&value);
+            terms.iter().any(|term| value.contains(term.as_str()))
+        }),
+        None => false,
+    };
+    cmd_hit || cmdline_matches(pid, terms)
+}
+
+/// Linux：读取 /proc/<pid>/comm（进程名，注意被内核截断到 15 字符）。
+#[cfg(target_os = "linux")]
+fn comm_name(pid: u32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .ok()
+        .map(|s| s.trim().to_lowercase())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn comm_name(_pid: u32) -> Option<String> {
+    None
+}
+
+/// Linux：读取 /proc/<pid>/cmdline（NUL 分隔的 argv），逐段匹配。
+#[cfg(target_os = "linux")]
+fn cmdline_matches(pid: u32, terms: &[String]) -> bool {
+    let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+        return false;
+    };
+    let lower = String::from_utf8_lossy(&raw).to_lowercase();
+    lower.split('\0').any(|part| {
+        let part = part.strip_suffix(".exe").unwrap_or(part);
+        terms.iter().any(|term| part.contains(term.as_str()))
     })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn cmdline_matches(_pid: u32, _terms: &[String]) -> bool {
+    false
 }
 
 /// 查询监听指定回环端口的进程 PID。

@@ -627,8 +627,21 @@ fn process_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    // /proc/<pid> 存在即视为存活；不存在则为僵尸或已退出。
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    // 只凭 /proc/<pid> 目录存在会误判：僵尸进程（未被父进程 wait 回收）的目录
+    // 仍保留，会被当成「还活着」，导致 supervisor 不重启崩溃进程、terminate
+    // 的退出轮询永不结束。改读 /proc/<pid>/stat，取括号后第一个字符（状态位），
+    // Z=zombie、X=dead 均视为已退出。
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    // 格式：pid (comm) state ...，comm 可能含空格/括号，从最后一个 ')' 之后取状态。
+    let Some(rest) = stat.rsplit_once(')') else {
+        return false;
+    };
+    let Some(state) = rest.1.trim_start().chars().next() else {
+        return false;
+    };
+    state != 'Z' && state != 'X'
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
