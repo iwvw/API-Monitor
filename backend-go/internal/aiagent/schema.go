@@ -40,17 +40,21 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_aiagent_tokens_prefix ON aiagent_tokens(token_prefix)`,
 		`CREATE INDEX IF NOT EXISTS idx_aiagent_tokens_hash ON aiagent_tokens(token_hash)`,
 		`CREATE TABLE IF NOT EXISTS aiagent_instances (
-			id         TEXT PRIMARY KEY,
-			server_id  TEXT NOT NULL,
-			provider   TEXT NOT NULL,
-			label      TEXT NOT NULL,
-			port       INTEGER NOT NULL,
-			enabled    INTEGER NOT NULL DEFAULT 1,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
+			id            TEXT PRIMARY KEY,
+			server_id     TEXT NOT NULL,
+			provider      TEXT NOT NULL,
+			label         TEXT NOT NULL,
+			port          INTEGER NOT NULL,
+			enabled       INTEGER NOT NULL DEFAULT 1,
+			desired_state TEXT NOT NULL DEFAULT '',
+			created_at    TEXT NOT NULL,
+			updated_at    TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_aiagent_instances_server ON aiagent_instances(server_id)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_aiagent_instances_unique ON aiagent_instances(server_id, provider)`,
+		// 端口放开区间后（ADR-0006 第 1 条），同一主机上两个实例可能指向同一端口。
+		// 那会让网关把两个实例的流量都送到同一个本地服务，必须禁止。
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_aiagent_instances_host_port ON aiagent_instances(server_id, port)`,
 		// 用户 ↔ 实例授权：默认不授权，由管理员按用户勾选可用的实例。
 		`CREATE TABLE IF NOT EXISTS aiagent_instance_grants (
 			instance_id TEXT NOT NULL,
@@ -96,7 +100,27 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := s.migrateInstanceOwnership(ctx, db); err != nil {
 		return fmt.Errorf("aiagent migrateInstanceOwnership: %w", err)
 	}
+	if err := s.migrateInstanceDesiredState(ctx, db); err != nil {
+		return fmt.Errorf("aiagent migrateInstanceDesiredState: %w", err)
+	}
 	return nil
+}
+
+// migrateInstanceDesiredState 为旧库补上 desired_state 列（ADR-0006 第 3 条）。
+// 存量实例默认为空串（不托管），行为与升级前完全一致：只探测与转发，
+// 不会因为升级而突然开始管理用户手工启动的进程。
+//
+// 幂等：列已存在时直接返回。
+func (s *Service) migrateInstanceDesiredState(ctx context.Context, db *sql.DB) error {
+	hasColumn, err := columnExists(ctx, db, "aiagent_instances", "desired_state")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = db.ExecContext(ctx, `ALTER TABLE aiagent_instances ADD COLUMN desired_state TEXT NOT NULL DEFAULT ''`)
+	return err
 }
 
 // migrateInstanceOwnership 把旧库的实例归属列转为授权记录。

@@ -41,6 +41,12 @@ const (
 	taskAIAgentProbe = 56
 	// taskAIAgentStream 让 Agent 反连数据通道并桥接本机端口。
 	taskAIAgentStream = 55
+	// taskAIAgentStart 让 Agent 按 Provider 模板启动本地服务（ADR-0006）。
+	taskAIAgentStart = 57
+	// taskAIAgentStop 让 Agent 停止该实例的托管进程。
+	taskAIAgentStop = 58
+	// taskAIAgentStatus 查询该实例的托管进程状态。
+	taskAIAgentStatus = 59
 )
 
 type agentPortStream struct {
@@ -481,6 +487,32 @@ func (s *Service) AgentSupportsAIAgentStream(serverID string) bool {
 		return false
 	}
 	return conn.GetCapabilities()["aiagent_stream_v1"]
+}
+
+// AgentSupportsAIAgentLifecycle 判断目标主机 Agent 是否声明了进程生命周期能力（ADR-0006）。
+func (s *Service) AgentSupportsAIAgentLifecycle(serverID string) bool {
+	conn, ok := s.registry.Get(serverID)
+	if !ok {
+		return false
+	}
+	return conn.GetCapabilities()["aiagent_lifecycle_v1"]
+}
+
+// RunAIAgentStartTaskAndWaitCtx 让 Agent 启动指定实例的本地服务（任务 57）。
+// 启动包含 400ms 的存活确认，给足 20 秒。
+func (s *Service) RunAIAgentStartTaskAndWaitCtx(ctx context.Context, serverID string, payload string) (string, error) {
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, taskAIAgentStart, payload, 20*time.Second)
+}
+
+// RunAIAgentStopTaskAndWaitCtx 让 Agent 停止指定实例的托管进程（任务 58）。
+// 停止含优雅终止 + 强杀兜底，给足 15 秒。
+func (s *Service) RunAIAgentStopTaskAndWaitCtx(ctx context.Context, serverID string, payload string) (string, error) {
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, taskAIAgentStop, payload, 15*time.Second)
+}
+
+// RunAIAgentStatusTaskAndWaitCtx 查询指定实例的托管进程状态（任务 59）。纯本地查表，短超时。
+func (s *Service) RunAIAgentStatusTaskAndWaitCtx(ctx context.Context, serverID string, payload string) (string, error) {
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, taskAIAgentStatus, payload, 10*time.Second)
 }
 
 // HasAgentConnection 报告目标主机的 Agent 控制连接是否在线。

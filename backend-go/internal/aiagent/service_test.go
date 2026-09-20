@@ -465,12 +465,269 @@ func TestUpdateInstanceRejectsOutOfRangePort(t *testing.T) {
 		t.Fatalf("expected errInvalidPort for negative port, got %v", err)
 	}
 
-	// 第一版只允许 Provider 已知端口：非默认端口同样拒绝，防止网关变成任意端口转发器。
+	// 端口必须落在 Provider 允许区间 [4096, 4195] 内：区间外同样拒绝，
+	// 防止网关变成任意端口转发器（ADR-0006 第 1 条）。
 	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 8080}); err != errInvalidPort {
-		t.Fatalf("expected errInvalidPort for non-provider port, got %v", err)
+		t.Fatalf("expected errInvalidPort for out-of-range port, got %v", err)
 	}
 	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Port: 4096}); err != nil {
 		t.Fatalf("provider default port update should succeed: %v", err)
+	}
+}
+
+// 端口区间放开后，区间内的非默认端口应当被接受（ADR-0006 第 1 条）。
+func TestCreateInstanceAcceptsPortWithinProviderRange(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-001",
+		Provider: "opencode",
+		Label:    "second",
+		Port:     4100,
+	})
+	if err != nil {
+		t.Fatalf("区间内端口应被接受: %v", err)
+	}
+	if instance.Port != 4100 {
+		t.Fatalf("expected port 4100, got %d", instance.Port)
+	}
+}
+
+// 新建实例默认不托管：升级到本版本不应突然开始管理用户手工启动的进程。
+func TestNewInstanceDefaultsToUnmanaged(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-001",
+		Provider: "opencode",
+		Label:    "manual",
+	})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+	if instance.DesiredState != "" {
+		t.Fatalf("新实例期望状态应为空（不托管），got %q", instance.DesiredState)
+	}
+}
+
+// 期望状态可被设置并持久化；非法值被拒绝。
+func TestInstanceDesiredStateRoundTrip(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-001",
+		Provider: "opencode",
+		Label:    "managed",
+	})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+
+	updated, err := service.updateInstance(ctx, db, instance.ID, instancePayload{
+		DesiredState: DesiredStateRunning,
+	})
+	if err != nil {
+		t.Fatalf("updateInstance: %v", err)
+	}
+	if updated.DesiredState != DesiredStateRunning {
+		t.Fatalf("期望 running，got %q", updated.DesiredState)
+	}
+
+	// 回读确认落库。
+	reloaded, err := service.getInstance(ctx, db, instance.ID)
+	if err != nil {
+		t.Fatalf("getInstance: %v", err)
+	}
+	if reloaded.DesiredState != DesiredStateRunning {
+		t.Fatalf("期望状态未持久化，got %q", reloaded.DesiredState)
+	}
+
+	// 非法值必须拒绝，且不改变已存值。
+	if _, err := service.updateInstance(ctx, db, instance.ID, instancePayload{
+		DesiredState: "definitely-invalid",
+	}); err != errInvalidDesiredState {
+		t.Fatalf("expected errInvalidDesiredState, got %v", err)
+	}
+	after, err := service.getInstance(ctx, db, instance.ID)
+	if err != nil {
+		t.Fatalf("getInstance: %v", err)
+	}
+	if after.DesiredState != DesiredStateRunning {
+		t.Fatalf("非法更新不应改变已存期望状态，got %q", after.DesiredState)
+	}
+}
+
+// 不传 desiredState 时不应改动它（避免「改标签顺手关掉托管」）。
+func TestUpdateWithoutDesiredStatePreservesIt(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID:     "server-001",
+		Provider:     "opencode",
+		Label:        "managed",
+		DesiredState: DesiredStateRunning,
+	})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+
+	updated, err := service.updateInstance(ctx, db, instance.ID, instancePayload{Label: "renamed"})
+	if err != nil {
+		t.Fatalf("updateInstance: %v", err)
+	}
+	if updated.Label != "renamed" {
+		t.Fatalf("标签应更新，got %q", updated.Label)
+	}
+	if updated.DesiredState != DesiredStateRunning {
+		t.Fatalf("期望状态不应被改动，got %q", updated.DesiredState)
+	}
+}
+
+// ClearDesiredState 可把实例转回「不托管」。
+func TestClearDesiredStateReturnsToUnmanaged(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID:     "server-001",
+		Provider:     "opencode",
+		Label:        "managed",
+		DesiredState: DesiredStateRunning,
+	})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+
+	updated, err := service.updateInstance(ctx, db, instance.ID, instancePayload{ClearDesiredState: true})
+	if err != nil {
+		t.Fatalf("updateInstance: %v", err)
+	}
+	if updated.DesiredState != "" {
+		t.Fatalf("期望状态应被清空，got %q", updated.DesiredState)
+	}
+}
+
+// 迁移必须幂等：重复 Initialize 不应报错，也不应重复加列。
+func TestDesiredStateMigrationIsIdempotent(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := service.Initialize(ctx); err != nil {
+			t.Fatalf("第 %d 次 Initialize 失败: %v", attempt+1, err)
+		}
+	}
+}
+
+// ValidDesiredState 的取值边界。
+func TestValidDesiredState(t *testing.T) {
+	valid := []string{"", DesiredStateRunning, DesiredStateStopped}
+	for _, value := range valid {
+		if !ValidDesiredState(value) {
+			t.Fatalf("%q 应合法", value)
+		}
+	}
+	invalid := []string{"Running", "running ", "stopped2", "pause"}
+	for _, value := range invalid {
+		if ValidDesiredState(value) {
+			t.Fatalf("%q 应非法", value)
+		}
+	}
+}
+
+// 区间边界：默认端口与上界都合法，超出上界一个即拒绝。
+func TestProviderPortAllowedBoundaries(t *testing.T) {
+	provider, ok := LookupProvider("opencode")
+	if !ok {
+		t.Fatal("opencode provider missing")
+	}
+	upper := provider.DefaultPort + provider.PortRangeSize
+
+	cases := []struct {
+		port int
+		want bool
+	}{
+		{provider.DefaultPort - 1, false},
+		{provider.DefaultPort, true},
+		{provider.DefaultPort + 1, true},
+		{upper, true},
+		{upper + 1, false},
+		{0, false},
+		{-1, false},
+		{70000, false},
+	}
+	for _, testCase := range cases {
+		if got := provider.PortAllowed(testCase.port); got != testCase.want {
+			t.Fatalf("PortAllowed(%d) = %v, want %v", testCase.port, got, testCase.want)
+		}
+	}
+}
+
+// 同一主机上两个实例不能指向同一端口，否则网关会把两股流量送到同一本地服务。
+func TestInstanceRejectsDuplicatePortOnSameHost(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-001",
+		Provider: "opencode",
+		Label:    "first",
+		Port:     4100,
+	}); err != nil {
+		t.Fatalf("first instance: %v", err)
+	}
+
+	// 同主机同端口必须被拒绝，否则网关会把两股流量送到同一本地服务。
+	if _, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-001",
+		Provider: "opencode",
+		Label:    "dup",
+		Port:     4100,
+	}); err == nil {
+		t.Fatal("expected error for duplicate port on same host")
+	}
+
+	// 换一台主机后同端口应当可以登记。
+	if _, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-002",
+		Provider: "opencode",
+		Label:    "other-host",
+		Port:     4100,
+	}); err != nil {
+		t.Fatalf("same port on a different host should be allowed: %v", err)
 	}
 }
 func TestCreateInstanceRejectsNonProviderPort(t *testing.T) {

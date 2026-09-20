@@ -521,7 +521,7 @@ func (s *Service) revokeUserTokens(ctx context.Context, db *sql.DB, userID strin
 // listInstances 返回全部实例。allUsers 参数保留以兼容调用点语义：
 // 实例已是平台资源，不再按用户过滤，可见性由调用方按授权另行收窄。
 func (s *Service) listInstances(ctx context.Context, db *sql.DB) ([]Instance, error) {
-	query := `SELECT id, server_id, provider, label, port, enabled, created_at, updated_at
+	query := `SELECT id, server_id, provider, label, port, enabled, desired_state, created_at, updated_at
 		FROM aiagent_instances ORDER BY label`
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
@@ -541,7 +541,7 @@ func (s *Service) listInstances(ctx context.Context, db *sql.DB) ([]Instance, er
 
 // listInstancesForUser 只返回该用户被授权的实例。空授权即空列表（默认不授权）。
 func (s *Service) listInstancesForUser(ctx context.Context, db *sql.DB, userID string) ([]Instance, error) {
-	query := `SELECT i.id, i.server_id, i.provider, i.label, i.port, i.enabled, i.created_at, i.updated_at
+	query := `SELECT i.id, i.server_id, i.provider, i.label, i.port, i.enabled, i.desired_state, i.created_at, i.updated_at
 		FROM aiagent_instances i
 		INNER JOIN aiagent_instance_grants g ON g.instance_id = i.id
 		WHERE g.user_id = ?
@@ -568,7 +568,8 @@ func scanInstance(scanner interface {
 	var instance Instance
 	var enabled int
 	if err := scanner.Scan(&instance.ID, &instance.ServerID, &instance.Provider,
-		&instance.Label, &instance.Port, &enabled, &instance.CreatedAt, &instance.UpdatedAt); err != nil {
+		&instance.Label, &instance.Port, &enabled, &instance.DesiredState,
+		&instance.CreatedAt, &instance.UpdatedAt); err != nil {
 		return Instance{}, err
 	}
 	instance.Enabled = enabled != 0
@@ -576,7 +577,7 @@ func scanInstance(scanner interface {
 }
 
 func (s *Service) getInstance(ctx context.Context, db *sql.DB, id string) (Instance, error) {
-	row := db.QueryRowContext(ctx, `SELECT id, server_id, provider, label, port, enabled, created_at, updated_at
+	row := db.QueryRowContext(ctx, `SELECT id, server_id, provider, label, port, enabled, desired_state, created_at, updated_at
 		FROM aiagent_instances WHERE id = ?`, id)
 	instance, err := scanInstance(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -680,9 +681,9 @@ func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instan
 	if port == 0 {
 		port = provider.DefaultPort
 	}
-	// 第一版只允许 Provider 的已知端口：网关会转发到 127.0.0.1:<port>，
-	// 放开任意端口会把网关变成到 Agent 主机任意本地服务的转发器。
-	if port != provider.DefaultPort {
+	// 端口必须落在该 Provider 的允许区间内（ADR-0006 第 1 条）。
+	// 保留区间约束而非完全放开，是为了不把网关变成到主机任意本地服务的转发器。
+	if !provider.PortAllowed(port) {
 		return Instance{}, errInvalidPort
 	}
 	now := nowRFC3339()
@@ -702,15 +703,23 @@ func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instan
 	if payload.Enabled != nil {
 		instance.Enabled = *payload.Enabled
 	}
+	// 新建实例默认不托管（desired_state 为空）：只有用户显式要求才接管进程，
+	// 避免升级后突然开始管理手工启动的实例（ADR-0006 第 7 条）。
+	if payload.DesiredState != "" {
+		if !ValidDesiredState(payload.DesiredState) {
+			return Instance{}, errInvalidDesiredState
+		}
+		instance.DesiredState = payload.DesiredState
+	}
 	enabled := 0
 	if instance.Enabled {
 		enabled = 1
 	}
 	_, err := db.ExecContext(ctx, `INSERT INTO aiagent_instances
-		(id, server_id, provider, label, port, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, server_id, provider, label, port, enabled, desired_state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		instance.ID, instance.ServerID, instance.Provider, instance.Label, instance.Port,
-		enabled, now, now)
+		enabled, instance.DesiredState, now, now)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return Instance{}, errDuplicate
@@ -757,14 +766,22 @@ func (s *Service) updateInstance(ctx context.Context, db *sql.DB, id string, pay
 		}
 		port = payload.Port
 	}
-	// 无论是否显式传端口，最终端口都必须匹配（可能已变更的）Provider 默认端口，
+	// 最终端口必须落在（可能已变更的）Provider 允许区间内，
 	// 否则换 Provider 但沿用旧端口会写入一个与 Provider 不匹配的实例。
-	if port != targetProvider.DefaultPort {
+	if !targetProvider.PortAllowed(port) {
 		return Instance{}, errInvalidPort
 	}
 	enabled := current.Enabled
 	if payload.Enabled != nil {
 		enabled = *payload.Enabled
+	}
+	// 期望状态：只有显式传入才改动，避免「改个标签就把托管关掉」。
+	desiredState := current.DesiredState
+	if payload.DesiredState != "" || payload.ClearDesiredState {
+		if !ValidDesiredState(payload.DesiredState) {
+			return Instance{}, errInvalidDesiredState
+		}
+		desiredState = payload.DesiredState
 	}
 	enabledValue := 0
 	if enabled {
@@ -772,8 +789,8 @@ func (s *Service) updateInstance(ctx context.Context, db *sql.DB, id string, pay
 	}
 	now := nowRFC3339()
 	_, err = db.ExecContext(ctx, `UPDATE aiagent_instances SET
-		server_id = ?, provider = ?, label = ?, port = ?, enabled = ?, updated_at = ?
-		WHERE id = ?`, serverID, provider, label, port, enabledValue, now, id)
+		server_id = ?, provider = ?, label = ?, port = ?, enabled = ?, desired_state = ?, updated_at = ?
+		WHERE id = ?`, serverID, provider, label, port, enabledValue, desiredState, now, id)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return Instance{}, errDuplicate
@@ -806,6 +823,7 @@ func (s *Service) deleteInstance(ctx context.Context, db *sql.DB, id string) err
 
 var errInvalidProvider = errors.New("invalid provider")
 var errInvalidPort = errors.New("port out of range")
+var errInvalidDesiredState = errors.New("invalid desired state")
 
 // ---------- 实例元数据 ----------
 
@@ -990,12 +1008,26 @@ func (s *Service) writeAccessLog(ctx context.Context, entry AccessLog) {
 // accessLogPurgeInterval 是运行期清理访问日志的最小间隔。
 const accessLogPurgeInterval = 6 * time.Hour
 
-func (s *Service) listAccessLogs(ctx context.Context, db *sql.DB, limit int) ([]AccessLog, error) {
+// listAccessLogs 按条件查询访问日志。
+//
+// instanceID 非空时只返回该实例的日志：排查单个实例的问题时，
+// 全量日志里翻找效率极低。
+func (s *Service) listAccessLogs(ctx context.Context, db *sql.DB, limit int, instanceID string) ([]AccessLog, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := db.QueryContext(ctx, `SELECT id, user_id, token_id, instance_id, action, result, status_code, error_summary, ip, user_agent, created_at
-		FROM aiagent_access_logs ORDER BY id DESC LIMIT ?`, limit)
+
+	query := `SELECT id, user_id, token_id, instance_id, action, result, status_code, error_summary, ip, user_agent, created_at
+		FROM aiagent_access_logs`
+	args := make([]interface{}, 0, 2)
+	if instanceID != "" {
+		query += ` WHERE instance_id = ?`
+		args = append(args, instanceID)
+	}
+	query += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -52,10 +52,46 @@ type AgentRuntime interface {
 	AgentOnline(serverID string) bool
 	// AgentSupportsAIAgentStream 报告主机 Agent 是否支持原生流数据通道能力。
 	AgentSupportsAIAgentStream(serverID string) bool
+	// AgentSupportsLifecycle 报告主机 Agent 是否支持进程生命周期能力（ADR-0006）。
+	AgentSupportsLifecycle(serverID string) bool
 	// Probe 让主机 Agent 检测目标 Provider 的进程是否运行、端口是否监听。
 	Probe(ctx context.Context, serverID, provider string, port int, processMatch []string) (ProbeResult, error)
+	// StartProcess 让主机 Agent 按 Provider 模板启动本地服务（任务 57）。
+	StartProcess(ctx context.Context, serverID string, payload LifecycleStartPayload) (LifecycleResult, error)
+	// StopProcess 让主机 Agent 停止该实例的托管进程（任务 58）。
+	StopProcess(ctx context.Context, serverID, instanceID string) (LifecycleResult, error)
+	// ProcessStatus 查询该实例的托管进程状态（任务 59）。
+	ProcessStatus(ctx context.Context, serverID, instanceID string) (LifecycleResult, error)
 	// RoundTrip 经 Agent 数据通道完成一次 HTTP 往返，响应体为流式。
 	RoundTrip(ctx context.Context, serverID string, port int, req AgentHTTPRequest) (AgentHTTPResponse, error)
+}
+
+// LifecycleStartPayload 是启动托管进程的载荷。云端只能传 Provider ID 与端口，
+// 不能传可执行路径或任意参数（ADR-0006 第 6 条）。
+type LifecycleStartPayload struct {
+	InstanceID string `json:"instance_id"`
+	Provider   string `json:"provider"`
+	Port       int    `json:"port"`
+}
+
+// LifecycleResult 是主机 Agent 返回的进程生命周期结果。
+type LifecycleResult struct {
+	Managed bool `json:"managed"`
+	Running bool `json:"running"`
+	PID     int  `json:"pid,omitempty"`
+	// DesiredRunning 是 Agent 侧记录的期望运行标记。
+	DesiredRunning bool `json:"desiredRunning"`
+	// Crashed 为真表示重启次数用尽，进入终态。
+	Crashed bool `json:"crashed"`
+	// PortListening / ListenerPID / ListenerMatchesProcess 让托管实例
+	// 无需额外探测即可完成端口关联验证。
+	PortListening          bool    `json:"portListening"`
+	ListenerPID            int     `json:"listenerPid,omitempty"`
+	ListenerMatchesProcess bool    `json:"listenerMatchesProcess"`
+	UptimeSeconds          int     `json:"uptimeSeconds,omitempty"`
+	Restarts               int     `json:"restarts,omitempty"`
+	MemoryBytes            uint64  `json:"memoryBytes,omitempty"`
+	CPUPercent             float32 `json:"cpuPercent,omitempty"`
 }
 
 type streamGrant struct {

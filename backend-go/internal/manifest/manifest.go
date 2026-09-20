@@ -284,6 +284,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/aiagent/tokens/{id}/revoke", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent token revoke", MatchMode: MatchPattern},
 		{Prefix: "/api/aiagent/tokens", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent token list", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/instances/{id}/status", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent instance runtime status", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/{id}/lifecycle", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent instance process lifecycle (start/stop/restart)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/batch", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent batch instance lifecycle (admin)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/instances/{id}/grants", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent instance granted users (admin)", MatchMode: MatchPattern},
 		{Prefix: "/api/aiagent/instances/{id}/access-info", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent instance access info", MatchMode: MatchPattern},
 		{Prefix: "/api/aiagent/instances/{id}/meta", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent instance UI metadata", MatchMode: MatchPattern},
@@ -294,6 +296,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/aiagent/providers", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent provider registry", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/servers", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent eligible host list", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/logs", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent access logs (admin)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/metrics", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent runtime metrics (convergence/lifecycle counters)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/preferences", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent per-user preferences (multi-device sync)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI agent accounts, instances, and native stream gateway"},
 

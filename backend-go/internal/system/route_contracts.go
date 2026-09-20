@@ -167,6 +167,16 @@ func init() {
 		"enabled":  {t: "boolean", d: "是否启用"},
 	})
 	routeRequestContracts["/api/aiagent/instances/{id}/status"] = obj(nil, map[string]prop{})
+	// action 与 desiredState 都可省略：只传 desiredState 表示仅改期望状态，
+	// 由后续查询触发收敛；因此两个字段都不是必填。
+	routeRequestContracts["/api/aiagent/instances/{id}/lifecycle"] = obj(nil, map[string]prop{
+		"action":       {t: "string", d: "start / stop / restart；留空表示只改期望状态"},
+		"desiredState": {t: "string", d: "running / stopped；设置后期望状态由云端收敛"},
+	})
+	routeRequestContracts["/api/aiagent/instances/batch"] = obj([]string{"action", "instanceIds"}, map[string]prop{
+		"action":      {t: "string", d: "start / stop / restart"},
+		"instanceIds": {t: "array", d: "实例 ID 列表，最多 50 个"},
+	})
 	routeRequestContracts["/api/aiagent/instances/{id}/access-info"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/aiagent/instances/{id}/meta"] = obj(nil, map[string]prop{
 		"meta": {t: "string", d: "客户端 UI 偏好 JSON 字符串，上限 64KB"},
@@ -1346,6 +1356,7 @@ func init() {
 		"gatewayKey":                    {t: "string", d: "管理 AI 网关密钥"},
 		"admin_ai_enabled":              {t: "string", d: "管理 AI 总开关（true/false）"},
 		"admin_ai_default_model":        {t: "string", d: "默认推理模型"},
+		"admin_ai_reasoning_effort":     {t: "string", e: []string{"", "low", "medium", "high"}, d: "思考强度（留空不传，由上游决定）"},
 		"admin_ai_default_mode":         {t: "string", e: []string{"agent", "ask"}, d: "新会话默认模式（agent=代理可调用工具，ask=询问纯问答）"},
 		"admin_ai_write_enabled":        {t: "string", d: "写操作全局开关（true/false）"},
 		"admin_ai_tool_call_limit":      {t: "string", d: "单轮最大工具调用次数"},

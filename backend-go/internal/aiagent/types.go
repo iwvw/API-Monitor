@@ -48,14 +48,28 @@ type Token struct {
 // 实例是平台资源，不归属任何用户：用户通过 aiagent_instance_grants 被授权
 // 使用其中的若干实例。
 type Instance struct {
-	ID        string `json:"id"`
-	ServerID  string `json:"serverId"`
-	Provider  string `json:"provider"`
-	Label     string `json:"label"`
-	Port      int    `json:"port"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID       string `json:"id"`
+	ServerID string `json:"serverId"`
+	Provider string `json:"provider"`
+	Label    string `json:"label"`
+	Port     int    `json:"port"`
+	Enabled  bool   `json:"enabled"`
+	// DesiredState 是期望状态：running / stopped / ""（空表示不托管，仅探测与转发）。
+	// 由用户显式设置后，云端按它收敛实际进程状态（ADR-0006 第 3 条）。
+	DesiredState string `json:"desiredState,omitempty"`
+	CreatedAt    string `json:"createdAt"`
+	UpdatedAt    string `json:"updatedAt"`
+}
+
+// 期望状态取值。空串表示「不托管」，用于兼容用户手工启动的实例。
+const (
+	DesiredStateRunning = "running"
+	DesiredStateStopped = "stopped"
+)
+
+// ValidDesiredState 判断期望状态是否合法。空串合法（不托管）。
+func ValidDesiredState(value string) bool {
+	return value == "" || value == DesiredStateRunning || value == DesiredStateStopped
 }
 
 // InstanceView 是实例列表返回的完整视图，含在线探测结果与接入信息。
@@ -65,28 +79,72 @@ type InstanceView struct {
 	HostName      string        `json:"hostName,omitempty"`
 	HostOnline    bool          `json:"hostOnline"`
 	Status        InstanceState `json:"status"`
-	AccessPath    string        `json:"accessPath"`
-	GatewayURL    string        `json:"gatewayUrl"`
+	// Lifecycle 是托管进程的状态；未托管时为 managed=false。
+	Lifecycle  LifecycleState `json:"lifecycle"`
+	AccessPath string         `json:"accessPath"`
+	GatewayURL string         `json:"gatewayUrl"`
+}
+
+// LifecycleState 是主机 Agent 上报的托管进程状态（ADR-0006 第 5 条）。
+type LifecycleState struct {
+	Managed bool `json:"managed"`
+	Running bool `json:"running"`
+	PID     int  `json:"pid,omitempty"`
+	// DesiredRunning 是 Agent 侧记录的期望运行标记：显式 stop 后为 false。
+	DesiredRunning bool `json:"desiredRunning"`
+	// Crashed 为真表示重启次数已用尽，进入终态，需显式 start 才能恢复。
+	Crashed bool `json:"crashed"`
+	// PortListening / ListenerPID / ListenerMatchesProcess 让托管实例
+	// 无需额外探测即可完成端口关联验证（ADR-0006 第 2 条）。
+	PortListening          bool   `json:"portListening"`
+	ListenerPID            int    `json:"listenerPid,omitempty"`
+	ListenerMatchesProcess bool   `json:"listenerMatchesProcess"`
+	UptimeSeconds          int    `json:"uptimeSeconds,omitempty"`
+	Restarts               int    `json:"restarts,omitempty"`
+	// MemoryBytes 是托管进程的常驻内存（字节）。
+	MemoryBytes uint64 `json:"memoryBytes,omitempty"`
+	// CPUPercent 是托管进程的 CPU 占用（相对单核的百分比）。
+	CPUPercent float32 `json:"cpuPercent,omitempty"`
+	// Supported 表示目标主机 Agent 是否声明了生命周期能力。
+	Supported bool `json:"supported"`
 }
 
 // InstanceState 是实例的在线状态。
 type InstanceState struct {
-	// Online 为真表示 Agent 进程正在运行且端口在监听。
-	Online         bool   `json:"online"`
-	HostOnline     bool   `json:"hostOnline"`
-	ProcessRunning bool   `json:"processRunning"`
-	PortListening  bool   `json:"portListening"`
-	PID            int    `json:"pid,omitempty"`
-	ProbedAt       string `json:"probedAt,omitempty"`
-	Error          string `json:"error,omitempty"`
+	// Online 为真表示「监听该端口的进程」正是目标 Provider 的进程。
+	// 仅凭端口监听或仅凭进程存在都不足以判定在线（见 ADR-0006 第 2 条）。
+	Online         bool `json:"online"`
+	HostOnline     bool `json:"hostOnline"`
+	ProcessRunning bool `json:"processRunning"`
+	PortListening  bool `json:"portListening"`
+	// PID 是进程匹配命中的 PID（可能不是监听端口的那个进程）。
+	PID int `json:"pid,omitempty"`
+	// ListenerPID 是实际监听实例端口的进程 PID。
+	ListenerPID int `json:"listenerPid,omitempty"`
+	// ListenerMatchesProcess 为真表示监听端口的进程命中了 Provider 的进程规则。
+	ListenerMatchesProcess bool `json:"listenerMatchesProcess"`
+	// MemoryBytes 是目标进程的常驻内存（字节）。0 表示未采集到。
+	MemoryBytes uint64 `json:"memoryBytes,omitempty"`
+	// CPUPercent 是目标进程的 CPU 占用（相对单核的百分比）。
+	CPUPercent float32        `json:"cpuPercent,omitempty"`
+	ProbedAt   string         `json:"probedAt,omitempty"`
+	Error      string         `json:"error,omitempty"`
 }
 
 // ProbeResult 是主机 Agent 返回的运行时探测结果。
 type ProbeResult struct {
-	ProcessRunning bool   `json:"processRunning"`
-	PortListening  bool   `json:"portListening"`
-	PID            int    `json:"pid,omitempty"`
-	Detail         string `json:"detail,omitempty"`
+	ProcessRunning bool `json:"processRunning"`
+	PortListening  bool `json:"portListening"`
+	PID            int  `json:"pid,omitempty"`
+	// ListenerPID 是监听目标端口的进程 PID；查不到为 0。
+	ListenerPID int `json:"listenerPid,omitempty"`
+	// ListenerMatchesProcess 表示监听端口的进程是否命中 Provider 的进程匹配规则。
+	ListenerMatchesProcess bool `json:"listenerMatchesProcess"`
+	// MemoryBytes 是目标进程的常驻内存（字节）。
+	MemoryBytes uint64 `json:"memoryBytes,omitempty"`
+	// CPUPercent 是目标进程的 CPU 占用（相对单核的百分比）。
+	CPUPercent float32 `json:"cpuPercent,omitempty"`
+	Detail     string  `json:"detail,omitempty"`
 }
 
 // AccessLog 是一条模块访问日志。
@@ -125,6 +183,11 @@ type instancePayload struct {
 	Label    string `json:"label"`
 	Port     int    `json:"port"`
 	Enabled  *bool  `json:"enabled"`
+	// DesiredState 设置期望状态（running/stopped）。空串表示不改动。
+	DesiredState string `json:"desiredState"`
+	// ClearDesiredState 显式把期望状态清空（转回「不托管」）。
+	// 需要独立布尔量，因为 JSON 里无法区分「未传」与「传了空串」。
+	ClearDesiredState bool `json:"clearDesiredState"`
 }
 
 // grantsPayload 是「设置某用户可用实例」的载荷：传入的列表即最终授权集合，

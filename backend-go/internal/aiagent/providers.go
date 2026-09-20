@@ -7,6 +7,13 @@ type Provider struct {
 	Label        string   `json:"label"`
 	DefaultPort  int      `json:"defaultPort"`
 	ProcessMatch []string `json:"processMatch"`
+	// PortRangeSize 是允许的端口区间大小：合法端口落在
+	// [DefaultPort, DefaultPort+PortRangeSize]。为 0 时退化为「只允许默认端口」。
+	//
+	// 放开区间是为了解决「默认端口被占用即不可用」的问题（ADR-0006 第 1 条）。
+	// 保留区间上界而非完全放开，是为了不把网关变成到主机任意本地服务的转发器：
+	// 端口仍必须落在该 Provider 的约定区间内，且同一主机内 (server_id, port) 唯一。
+	PortRangeSize int `json:"portRangeSize"`
 	// BasePath 是网关转发时的目标前缀（挂在 127.0.0.1:<port> 之后）。
 	BasePath  string `json:"basePath"`
 	Streaming string `json:"streaming"`
@@ -19,44 +26,59 @@ type Provider struct {
 // 端口与进程名可在实测后修正，不需要改动网关与账号体系。
 var providerRegistry = []Provider{
 	{
-		ID:           "opencode",
-		Label:        "OpenCode",
-		DefaultPort:  4096,
-		ProcessMatch: []string{"opencode"},
-		BasePath:     "",
-		Streaming:    "sse",
-		Verified:     true,
+		ID:            "opencode",
+		Label:         "OpenCode",
+		DefaultPort:   4096,
+		PortRangeSize: 99,
+		ProcessMatch:  []string{"opencode"},
+		BasePath:      "",
+		Streaming:     "sse",
+		Verified:      true,
 	},
 	{
-		ID:           "pi",
-		Label:        "Pi",
-		DefaultPort:  3000,
-		ProcessMatch: []string{"pi"},
-		BasePath:     "",
-		Streaming:    "sse",
-		Verified:     false,
-		Notes:        "默认端口与进程名待实测确认",
+		ID:            "pi",
+		Label:         "Pi",
+		DefaultPort:   3000,
+		PortRangeSize: 99,
+		ProcessMatch:  []string{"pi"},
+		BasePath:      "",
+		Streaming:     "sse",
+		Verified:      false,
+		Notes:         "默认端口与进程名待实测确认",
 	},
 	{
-		ID:           "codex",
-		Label:        "Codex CLI",
-		DefaultPort:  1455,
-		ProcessMatch: []string{"codex"},
-		BasePath:     "",
-		Streaming:    "sse",
-		Verified:     false,
-		Notes:        "默认端口与进程名待实测确认",
+		ID:            "codex",
+		Label:         "Codex CLI",
+		DefaultPort:   1455,
+		PortRangeSize: 99,
+		ProcessMatch:  []string{"codex"},
+		BasePath:      "",
+		Streaming:     "sse",
+		Verified:      false,
+		Notes:         "默认端口与进程名待实测确认",
 	},
 	{
-		ID:           "claude-code",
-		Label:        "Claude Code",
-		DefaultPort:  4000,
-		ProcessMatch: []string{"claude"},
-		BasePath:     "",
-		Streaming:    "sse",
-		Verified:     false,
-		Notes:        "默认端口与进程名待实测确认",
+		ID:            "claude-code",
+		Label:         "Claude Code",
+		DefaultPort:   4000,
+		PortRangeSize: 99,
+		ProcessMatch:  []string{"claude"},
+		BasePath:      "",
+		Streaming:     "sse",
+		Verified:      false,
+		Notes:         "默认端口与进程名待实测确认",
 	},
+}
+
+// PortAllowed 判断端口是否落在该 Provider 的允许区间内。
+func (p Provider) PortAllowed(port int) bool {
+	if port <= 0 || port > 65535 {
+		return false
+	}
+	if p.PortRangeSize <= 0 {
+		return port == p.DefaultPort
+	}
+	return port >= p.DefaultPort && port <= p.DefaultPort+p.PortRangeSize
 }
 
 // Providers 返回 Provider 注册表副本。

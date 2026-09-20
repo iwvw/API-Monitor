@@ -169,6 +169,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	if err := aiagentService.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize aiagent schema: %w", err)
 	}
+	// 后台收敛：定时把「已设期望状态」的实例拉回期望状态。
+	// 覆盖「进程崩溃但无人打开面板」的场景（ADR-0006 第 3.3 条）。
+	aiagentService.StartConvergence()
 	server := &Server{
 		cfg:         cfg,
 		auth:        authService,
@@ -304,6 +307,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		// 停止审批清理 goroutine 与频道轮询（runs 通道由 RunLoop 结束时的 defer 清理）
 		s.adminai.StopBackground()
 		s.adminai.StopAllChannels()
+	}
+	if s.aiagent != nil {
+		// 停止后台收敛循环：它会定时往返主机 Agent，不应在 Shutdown 之后继续跑。
+		s.aiagent.StopConvergence()
 	}
 	if s.cron == nil {
 		return nil

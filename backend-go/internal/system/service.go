@@ -1226,6 +1226,14 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"GET"}
 	case "/api/admin-ai/cron/task-run":
 		return []string{"POST"}
+	// 只读接口：描述里若恰好含 "run" 等会被 POST 规则抢先匹配的词
+	// （如 "runtime"），必须显式登记，否则会被推断成可写接口。
+	case "/api/aiagent/logs", "/api/aiagent/metrics", "/api/aiagent/providers", "/api/aiagent/servers":
+		return []string{"GET"}
+	// 操作型子路由：MatchPattern 默认只声明 GET，会让 AI 按错误方法调用（405）。
+	// 这两个接口都带请求体，必须显式登记真实方法。
+	case "/api/aiagent/instances/{id}/lifecycle", "/api/aiagent/instances/batch":
+		return []string{"POST"}
 	// 操作型子路由：显式登记真实方法，避免 MatchPattern 默认推断 4 方法导致巡检/文档误报。
 	case "/api/openai/endpoints/{id}/proxy-state":
 		return []string{"GET"}

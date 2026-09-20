@@ -39,6 +39,87 @@ func (r *aiagentRuntime) AgentSupportsAIAgentStream(serverID string) bool {
 	return r.server.AgentSupportsAIAgentStream(serverID)
 }
 
+func (r *aiagentRuntime) AgentSupportsLifecycle(serverID string) bool {
+	return r.server.AgentSupportsAIAgentLifecycle(serverID)
+}
+
+// StartProcess 下发任务 57 启动托管进程。云端只能传 Provider ID 与端口，
+// 可执行路径与参数由 Agent 侧模板决定（ADR-0006 第 6 条）。
+func (r *aiagentRuntime) StartProcess(ctx context.Context, serverID string, payload aiagent.LifecycleStartPayload) (aiagent.LifecycleResult, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return aiagent.LifecycleResult{}, err
+	}
+	result, err := r.server.RunAIAgentStartTaskAndWaitCtx(ctx, serverID, string(raw))
+	if err != nil {
+		return aiagent.LifecycleResult{}, err
+	}
+	return decodeLifecycleResult(result)
+}
+
+// StopProcess 下发任务 58 停止托管进程。
+func (r *aiagentRuntime) StopProcess(ctx context.Context, serverID, instanceID string) (aiagent.LifecycleResult, error) {
+	raw, err := json.Marshal(map[string]string{"instance_id": instanceID})
+	if err != nil {
+		return aiagent.LifecycleResult{}, err
+	}
+	result, err := r.server.RunAIAgentStopTaskAndWaitCtx(ctx, serverID, string(raw))
+	if err != nil {
+		return aiagent.LifecycleResult{}, err
+	}
+	return decodeLifecycleResult(result)
+}
+
+// ProcessStatus 下发任务 59 查询托管进程状态。
+func (r *aiagentRuntime) ProcessStatus(ctx context.Context, serverID, instanceID string) (aiagent.LifecycleResult, error) {
+	raw, err := json.Marshal(map[string]string{"instance_id": instanceID})
+	if err != nil {
+		return aiagent.LifecycleResult{}, err
+	}
+	result, err := r.server.RunAIAgentStatusTaskAndWaitCtx(ctx, serverID, string(raw))
+	if err != nil {
+		return aiagent.LifecycleResult{}, err
+	}
+	return decodeLifecycleResult(result)
+}
+
+// decodeLifecycleResult 解析 Agent 返回的进程状态 JSON。
+// Agent 用同构 JSON 表达成功与失败（running=false 也是合法结果），
+// 因此解析失败才是错误，字段缺失不算。
+func decodeLifecycleResult(raw string) (aiagent.LifecycleResult, error) {
+	var decoded struct {
+		Managed                bool    `json:"managed"`
+		Running                bool    `json:"running"`
+		PID                    int     `json:"pid"`
+		DesiredRunning         bool    `json:"desiredRunning"`
+		Crashed                bool    `json:"crashed"`
+		PortListening          bool    `json:"portListening"`
+		ListenerPID            int     `json:"listenerPid"`
+		ListenerMatchesProcess bool    `json:"listenerMatchesProcess"`
+		UptimeSeconds          int     `json:"uptimeSeconds"`
+		Restarts               int     `json:"restarts"`
+		MemoryBytes            uint64  `json:"memoryBytes"`
+		CPUPercent             float32 `json:"cpuPercent"`
+	}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return aiagent.LifecycleResult{}, fmt.Errorf("invalid agent lifecycle response: %w", err)
+	}
+	return aiagent.LifecycleResult{
+		Managed:                decoded.Managed,
+		Running:                decoded.Running,
+		PID:                    decoded.PID,
+		DesiredRunning:         decoded.DesiredRunning,
+		Crashed:                decoded.Crashed,
+		PortListening:          decoded.PortListening,
+		ListenerPID:            decoded.ListenerPID,
+		ListenerMatchesProcess: decoded.ListenerMatchesProcess,
+		UptimeSeconds:          decoded.UptimeSeconds,
+		Restarts:               decoded.Restarts,
+		MemoryBytes:            decoded.MemoryBytes,
+		CPUPercent:             decoded.CPUPercent,
+	}, nil
+}
+
 func (r *aiagentRuntime) Probe(ctx context.Context, serverID, provider string, port int, processMatch []string) (aiagent.ProbeResult, error) {
 	payload, err := json.Marshal(map[string]interface{}{
 		"provider":      provider,
@@ -53,19 +134,27 @@ func (r *aiagentRuntime) Probe(ctx context.Context, serverID, provider string, p
 		return aiagent.ProbeResult{}, err
 	}
 	var decoded struct {
-		ProcessRunning bool   `json:"processRunning"`
-		PortListening  bool   `json:"portListening"`
-		PID            int    `json:"pid"`
-		Detail         string `json:"detail"`
+		ProcessRunning         bool    `json:"processRunning"`
+		PortListening          bool    `json:"portListening"`
+		PID                    int     `json:"pid"`
+		ListenerPID            int     `json:"listenerPid"`
+		ListenerMatchesProcess bool    `json:"listenerMatchesProcess"`
+		MemoryBytes            uint64  `json:"memoryBytes"`
+		CPUPercent             float32 `json:"cpuPercent"`
+		Detail                 string  `json:"detail"`
 	}
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return aiagent.ProbeResult{}, fmt.Errorf("invalid agent probe response: %w", err)
 	}
 	return aiagent.ProbeResult{
-		ProcessRunning: decoded.ProcessRunning,
-		PortListening:  decoded.PortListening,
-		PID:            decoded.PID,
-		Detail:         decoded.Detail,
+		ProcessRunning:         decoded.ProcessRunning,
+		PortListening:          decoded.PortListening,
+		PID:                    decoded.PID,
+		ListenerPID:            decoded.ListenerPID,
+		ListenerMatchesProcess: decoded.ListenerMatchesProcess,
+		MemoryBytes:            decoded.MemoryBytes,
+		CPUPercent:             decoded.CPUPercent,
+		Detail:                 decoded.Detail,
 	}, nil
 }
 

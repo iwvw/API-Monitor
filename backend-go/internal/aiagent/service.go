@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
@@ -53,6 +54,12 @@ type Service struct {
 	// 访问日志清理节流状态。
 	accessLogPurgeMu   sync.Mutex
 	lastAccessLogPurge time.Time
+	// 后台收敛循环的生命周期。
+	convergenceOnce   sync.Once
+	convergenceCancel context.CancelFunc
+	convergenceWG     sync.WaitGroup
+	// 运行期计数：观测后台收敛与进程管理的健康度。
+	metrics *Metrics
 }
 
 // maxConcurrentGatewayStreams 是网关并发流上限。
@@ -66,6 +73,7 @@ func New(cfg config.Config) *Service {
 		limiter:      newLoginLimiter(),
 		streamTokens: newStreamTokenBroker(),
 		gatewaySlots: make(chan struct{}, maxConcurrentGatewayStreams),
+		metrics:      newMetrics(),
 	}
 }
 
@@ -83,6 +91,94 @@ func (s *Service) Initialize(ctx context.Context) error {
 // accessLogRetention 是访问日志保留时长；网关流式转发与登录尝试都会写日志，
 // 不清理会在单机 SQLite 上无限增长。
 const accessLogRetention = 30 * 24 * time.Hour
+
+// ConvergenceInterval 是后台收敛的巡检间隔。
+//
+// 收敛曾只在实例视图被构建时触发，导致「进程崩溃但没人打开面板」永远不会被拉起。
+// 这里改为后台定时巡检，覆盖「无人查看」的场景（ADR-0006 第 3.3 条）。
+//
+// 30 秒是权衡：足够快地恢复，又不会让纳管主机上的 Agent 承受高频任务往返。
+// 主机侧的 supervisor 负责亚秒级的崩溃自愈，本循环只做期望状态层面的纠偏，
+// 因此无需更短。
+const ConvergenceInterval = 30 * time.Second
+
+// StartConvergence 启动后台收敛循环。
+//
+// 由进程入口在启动期调用一次。自行持有可取消的 context（与 settings 模块的
+// StartBackgroundCleanup 一致），收敛必须比任意请求活得更久，不能挂在某个
+// HTTP 请求的生命周期上。幂等：重复调用不会启动第二个循环。
+func (s *Service) StartConvergence() {
+	s.convergenceOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.convergenceCancel = cancel
+		s.convergenceWG.Add(1)
+		go func() {
+			defer s.convergenceWG.Done()
+			ticker := time.NewTicker(ConvergenceInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					s.convergeAllInstances(ctx)
+				}
+			}
+		}()
+	})
+}
+
+// StopConvergence 停止后台收敛循环，供优雅退出使用。
+func (s *Service) StopConvergence() {
+	if s.convergenceCancel != nil {
+		s.convergenceCancel()
+		s.convergenceWG.Wait()
+	}
+}
+
+// convergeAllInstances 对全部「已设期望状态」的实例做一次收敛。
+//
+// 单个实例失败不影响其它实例：收敛是互相独立的。
+func (s *Service) convergeAllInstances(ctx context.Context) {
+	if s.runtime == nil {
+		return
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		applog.Warn(ctx, "aiagent", "converge: open database failed", "error", err.Error())
+		return
+	}
+	instances, err := s.listInstances(ctx, db)
+	// 收敛会往返主机 Agent，期间不占用唯一的 SQLite 连接。
+	db.Close()
+	if err != nil {
+		applog.Warn(ctx, "aiagent", "converge: list instances failed", "error", err.Error())
+		return
+	}
+
+	// 逐个收敛：并发往返多台主机会让 Agent 侧任务队列拥塞，
+	// 而收敛本身是低频后台任务，顺序执行的延迟可以接受。
+	s.metrics.convergenceRounds.Add(1)
+	converged := 0
+	for _, instance := range instances {
+		if instance.DesiredState == "" || !instance.Enabled {
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		s.convergeInstance(ctx, instance)
+		converged++
+	}
+	s.metrics.lastConvergenceAt.Store(time.Now().Unix())
+	if converged > 0 {
+		applog.Info(ctx, "aiagent", "convergence round finished",
+			"instances", converged,
+			"starts", s.metrics.convergenceStarts.Load(),
+			"stops", s.metrics.convergenceStops.Load(),
+			"failures", s.metrics.convergenceFailures.Load())
+	}
+}
 
 // purgeAccessLogs 删除超过保留期的访问日志。启动期执行一次，避免长期运行后表无界膨胀。
 func (s *Service) purgeAccessLogs(ctx context.Context, db *sql.DB, retention time.Duration) error {
@@ -165,8 +261,13 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleListInstances(w, r)
 	case path == "/instances" && r.Method == http.MethodPost:
 		s.handleCreateInstance(w, r)
+	// 批量操作必须排在 /instances/{id} 的通配匹配之前，否则 "batch" 会被当成实例 ID。
+	case path == "/instances/batch" && r.Method == http.MethodPost:
+		s.handleBatchLifecycle(w, r)
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/status") && r.Method == http.MethodGet:
 		s.handleInstanceStatus(w, r, trimSegment(path, "/instances/", "/status"))
+	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/lifecycle") && r.Method == http.MethodPost:
+		s.handleInstanceLifecycle(w, r, trimSegment(path, "/instances/", "/lifecycle"))
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/grants") && r.Method == http.MethodGet:
 		s.handleInstanceGrantUsers(w, r, trimSegment(path, "/instances/", "/grants"))
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/access-info") && r.Method == http.MethodGet:
@@ -184,6 +285,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleServers(w, r)
 	case path == "/logs" && r.Method == http.MethodGet:
 		s.handleLogs(w, r)
+	case path == "/metrics" && r.Method == http.MethodGet:
+		s.handleMetrics(w, r)
 
 	case path == "/preferences" && r.Method == http.MethodGet:
 		s.handleListPreferences(w, r)
@@ -620,7 +723,7 @@ func (s *Service) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	probe := parseBoolQuery(r, "probe", false)
 	if !probe {
 		for _, instance := range instances {
-			views = append(views, s.buildInstanceViewWithHosts(r.Context(), instance, false, hostNames))
+			views = append(views, s.buildInstanceViewWithHosts(r.Context(), instance, false, hostNames, nil))
 		}
 		writeOK(w, views)
 		return
@@ -644,7 +747,7 @@ func probeInstancesConcurrently(ctx context.Context, service *Service, instances
 		go func(index int, instance Instance) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			views[index] = service.buildInstanceViewWithHosts(ctx, instance, true, hostNames)
+			views[index] = service.buildInstanceViewWithHosts(ctx, instance, true, hostNames, nil)
 		}(index, instance)
 	}
 	wg.Wait()
@@ -714,6 +817,26 @@ func (s *Service) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, s.buildInstanceView(r.Context(), instance, true))
 }
 
+// lifecycleCapabilityError 判断目标主机是否具备进程管理能力。
+// 返回空串表示可用，否则返回可直接下发给客户端的错误说明。
+//
+// 设置 desiredState 之前必须调用：旧 Agent 上写入期望状态不会生效
+// （收敛每轮都会被能力门禁挡下），若不提前报错，用户会看到「设置了但没反应」，
+// 且没有任何线索指向「Agent 版本过旧」。
+func (s *Service) lifecycleCapabilityError(instance Instance) string {
+	if s.runtime == nil {
+		return "agent runtime not configured"
+	}
+	if !s.runtime.AgentOnline(instance.ServerID) {
+		return "host agent offline"
+	}
+	if !s.runtime.AgentSupportsLifecycle(instance.ServerID) {
+		return "host agent does not support lifecycle management; please upgrade the agent"
+	}
+	return ""
+}
+
+// handleUpdateInstance 处理实例更新。
 func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, id string) {
 	if _, ok := s.requireAdmin(w, r); !ok {
 		return
@@ -729,6 +852,25 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 	if payload.ServerID != "" && !s.serverAllowed(r.Context(), payload.ServerID, "", true) {
 		writeError(w, http.StatusBadRequest, CodeInvalid, "unknown server")
 		return
+	}
+	// 写期望状态前先校验能力：不支持时明确报错，
+	// 而不是落库后静默不收敛（ADR-0006 第 6.5 条）。
+	if payload.DesiredState != "" {
+		db, err := s.open(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+			return
+		}
+		current, err := s.getInstance(r.Context(), db, id)
+		db.Close()
+		if err != nil {
+			writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+			return
+		}
+		if reason := s.lifecycleCapabilityError(current); reason != "" {
+			writeError(w, http.StatusServiceUnavailable, CodeChannelError, reason)
+			return
+		}
 	}
 	db, err := s.open(r.Context())
 	if err != nil {
@@ -754,7 +896,27 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 	}
 	// 探测会往返主机 Agent（最长 8 秒），先归还唯一的 SQLite 连接再探测。
 	db.Close()
-	writeOK(w, s.buildInstanceView(r.Context(), instance, true))
+
+	// 期望状态变化时立即收敛一次，而不是等后台循环（最长 30 秒）。
+	// 用户改了「期望运行」却要等半分钟才看到动静，会以为没生效。
+	//
+	// 只在期望状态真的被写入时收敛：编辑标签这类操作不该触发进程启停。
+	// convergeInstance 内部已含全部守卫（runtime、主机在线、能力门禁），
+	// 因此这里无需重复判断；它会按期望状态决定是否下发 start/stop。
+	//
+	// 禁用实例不立即收敛：与后台循环（convergeAllInstances 跳过 !Enabled）及
+	// 单实例 lifecycle 接口（disabled 拒绝）语义一致。期望状态照常落库，
+	// 重新启用后由后台收敛接管。
+	//
+	// 收敛结果直接带入视图，避免视图再查一次状态（省一次主机往返）。
+	var converged *LifecycleState
+	if payload.DesiredState != "" || payload.ClearDesiredState {
+		if instance.Enabled {
+			state := s.convergeInstance(r.Context(), instance)
+			converged = &state
+		}
+	}
+	writeOK(w, s.buildInstanceViewWithHosts(r.Context(), instance, true, nil, converged))
 }
 
 func (s *Service) handleDeleteInstance(w http.ResponseWriter, r *http.Request, id string) {
@@ -892,6 +1054,285 @@ func (s *Service) handleInstanceStatus(w http.ResponseWriter, r *http.Request, i
 	// 探测需要往返主机 Agent（最长 8 秒），先归还唯一的 SQLite 连接再探测。
 	db.Close()
 	writeOK(w, s.probeInstance(r.Context(), instance))
+}
+
+// handleBatchLifecycle 批量对多个实例执行同一生命周期操作。
+//
+// 请求体：{"action":"start"|"stop"|"restart","instanceIds":["..."]}
+//
+// 语义与单个操作一致（落期望状态 + 立即执行），但**逐个执行、不并发**：
+// 并发启停多个实例会让主机 Agent 的任务队列拥塞，
+// 且批量场景本来就是低频运维动作，串行的延迟可以接受。
+//
+// 部分失败不影响其它实例：逐个收集结果，整体返回 200 并标明每项成败，
+// 让前端能精确展示「哪几个成功、哪几个失败」，而不是笼统报错。
+func (s *Service) handleBatchLifecycle(w http.ResponseWriter, r *http.Request) {
+	auth, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	var payload struct {
+		Action      string   `json:"action"`
+		InstanceIDs []string `json:"instanceIds"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+
+	verb := payload.Action
+	if verb != "start" && verb != "stop" && verb != "restart" {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "action must be start, stop or restart")
+		return
+	}
+	// 上限保护：批量是运维便利功能，不应被当成批量接口滥用。
+	const maxBatchSize = 50
+	if len(payload.InstanceIDs) == 0 {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "instanceIds is required")
+		return
+	}
+	if len(payload.InstanceIDs) > maxBatchSize {
+		writeError(w, http.StatusBadRequest, CodeInvalid,
+			fmt.Sprintf("too many instances in one batch (max %d)", maxBatchSize))
+		return
+	}
+
+	type itemResult struct {
+		InstanceID   string `json:"instanceId"`
+		Success      bool   `json:"success"`
+		Error        string `json:"error,omitempty"`
+		DesiredState string `json:"desiredState,omitempty"`
+	}
+	results := make([]itemResult, 0, len(payload.InstanceIDs))
+	succeeded := 0
+
+	for _, instanceID := range payload.InstanceIDs {
+		if r.Context().Err() != nil {
+			break
+		}
+		result, err := s.runLifecycleAction(r.Context(), instanceID, payload.Action, verb)
+		if err != nil {
+			results = append(results, itemResult{InstanceID: instanceID, Success: false, Error: err.Error()})
+			continue
+		}
+		results = append(results, itemResult{
+			InstanceID:   instanceID,
+			Success:      true,
+			DesiredState: result,
+		})
+		succeeded++
+	}
+
+	s.writeAccessLog(r.Context(), AccessLog{
+		UserID: auth.UserID, Action: "instance.batch." + verb,
+		Result: fmt.Sprintf("%d/%d", succeeded, len(payload.InstanceIDs)),
+		IP: s.clientIP(r), UserAgent: r.UserAgent(),
+	})
+	writeOK(w, map[string]interface{}{
+		"succeeded": succeeded,
+		"failed":    len(results) - succeeded,
+		"results":   results,
+	})
+}
+
+// handleInstanceLifecycle 处理实例进程的生命周期操作（ADR-0006）。
+//
+// 请求体：{"action":"start"|"stop"|"restart","desiredState":"running"|"stopped"|"clear"}
+//   - start / stop：立即对目标实例执行一次，并同步设置期望状态；
+//   - restart：先 stop 再 start，期望状态置为 running；
+//   - 只传 desiredState 时仅改期望状态，由后续查询触发收敛。
+//
+// 权限与其它实例接口一致：管理员全权，用户需被授权。
+func (s *Service) handleInstanceLifecycle(w http.ResponseWriter, r *http.Request, id string) {
+	auth, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	var payload struct {
+		Action       string `json:"action"`
+		DesiredState string `json:"desiredState"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+
+	db, err := s.open(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+		return
+	}
+	instance, err := s.getInstance(r.Context(), db, id)
+	if err != nil {
+		db.Close()
+		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+		return
+	}
+	if !s.requireInstanceAccess(w, r, db, auth, instance) {
+		db.Close()
+		return
+	}
+	if !instance.Enabled {
+		db.Close()
+		writeError(w, http.StatusForbidden, CodeForbidden, "instance disabled")
+		return
+	}
+
+	// 能力门禁：旧 Agent 明确报错，而不是静默降级为「只探测」（ADR-0006 第 6.5 条）。
+	if reason := s.lifecycleCapabilityError(instance); reason != "" {
+		db.Close()
+		writeError(w, http.StatusServiceUnavailable, CodeChannelError, reason)
+		return
+	}
+
+	// 先确定本次要落库的期望状态。
+	nextDesired := instance.DesiredState
+	switch payload.Action {
+	case "start", "restart":
+		nextDesired = DesiredStateRunning
+	case "stop":
+		nextDesired = DesiredStateStopped
+	case "":
+		// 仅改期望状态。
+	default:
+		db.Close()
+		writeError(w, http.StatusBadRequest, CodeInvalid, "unknown action")
+		return
+	}
+	if payload.DesiredState != "" {
+		if !ValidDesiredState(payload.DesiredState) {
+			db.Close()
+			writeError(w, http.StatusBadRequest, CodeInvalid, "invalid desiredState")
+			return
+		}
+		nextDesired = payload.DesiredState
+	}
+
+	if nextDesired != instance.DesiredState {
+		if _, err := s.updateInstance(r.Context(), db, instance.ID, instancePayload{DesiredState: nextDesired}); err != nil {
+			db.Close()
+			writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
+			return
+		}
+		instance.DesiredState = nextDesired
+	}
+	// 后续动作要往返主机 Agent，先归还唯一的 SQLite 连接。
+	db.Close()
+
+	result, err := s.executeLifecycleAction(r.Context(), instance, payload.Action)
+	if err != nil {
+		// 动作失败不改期望状态：保留它，让下一次收敛重试（ADR-0006 第 3.5 条）。
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID: auth.UserID, InstanceID: instance.ID,
+			Action: "instance.lifecycle." + payload.Action, Result: "error",
+			Error: err.Error(), IP: s.clientIP(r), UserAgent: r.UserAgent(),
+		})
+		writeError(w, http.StatusBadGateway, CodeChannelError, err.Error())
+		return
+	}
+
+	s.writeAccessLog(r.Context(), AccessLog{
+		UserID: auth.UserID, InstanceID: instance.ID,
+		Action: "instance.lifecycle." + payload.Action, Result: "ok",
+		IP: s.clientIP(r), UserAgent: r.UserAgent(),
+	})
+	writeOK(w, map[string]interface{}{
+		"desiredState": nextDesired,
+		"lifecycle":    lifecycleFromResult(result, true),
+	})
+}
+
+// executeLifecycleAction 对单个实例执行一次进程操作，返回操作后的实际状态。
+//
+// 抽出公共实现供单实例与批量接口复用，避免两条路径的行为漂移。
+// 空 action 表示只回读状态（用于「仅改期望状态」的场景）。
+func (s *Service) executeLifecycleAction(
+	ctx context.Context,
+	instance Instance,
+	action string,
+) (LifecycleResult, error) {
+	// restart 先停：失败不阻断，start 会因为端口仍被占用而明确报错。
+	if action == "restart" {
+		stopCtx, stopCancel := context.WithTimeout(ctx, 20*time.Second)
+		_, _ = s.runtime.StopProcess(stopCtx, instance.ServerID, instance.ID)
+		stopCancel()
+	}
+
+	switch action {
+	case "start", "restart":
+		startCtx, startCancel := context.WithTimeout(ctx, 25*time.Second)
+		defer startCancel()
+		provider, _ := LookupProvider(instance.Provider)
+		result, err := s.runtime.StartProcess(startCtx, instance.ServerID, LifecycleStartPayload{
+			InstanceID: instance.ID,
+			Provider:   provider.ID,
+			Port:       instance.Port,
+		})
+		if err != nil {
+			s.metrics.lifecycleFailures.Add(1)
+			s.metrics.recordError("lifecycle " + action + " " + instance.ID + ": " + err.Error())
+		} else {
+			s.metrics.lifecycleStarts.Add(1)
+		}
+		return result, err
+	case "stop":
+		stopCtx, stopCancel := context.WithTimeout(ctx, 20*time.Second)
+		defer stopCancel()
+		result, err := s.runtime.StopProcess(stopCtx, instance.ServerID, instance.ID)
+		if err != nil {
+			s.metrics.lifecycleFailures.Add(1)
+			s.metrics.recordError("lifecycle stop " + instance.ID + ": " + err.Error())
+		} else {
+			s.metrics.lifecycleStops.Add(1)
+		}
+		return result, err
+	default:
+		// 只改期望状态：回读一次实际状态。
+		statusCtx, statusCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer statusCancel()
+		return s.runtime.ProcessStatus(statusCtx, instance.ServerID, instance.ID)
+	}
+}
+
+// runLifecycleAction 是批量接口的单实例入口：校验 + 落期望状态 + 执行。
+// 返回落库后的期望状态字符串，供批量结果展示。
+//
+// 与单实例接口共用同一套校验（启用状态、能力门禁），保证两条路径语义一致。
+func (s *Service) runLifecycleAction(ctx context.Context, instanceID, action, verb string) (string, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return "", errors.New("database unavailable")
+	}
+	instance, err := s.getInstance(ctx, db, instanceID)
+	if err != nil {
+		db.Close()
+		return "", errors.New("instance not found")
+	}
+	if !instance.Enabled {
+		db.Close()
+		return "", errors.New("instance disabled")
+	}
+	if reason := s.lifecycleCapabilityError(instance); reason != "" {
+		db.Close()
+		return "", errors.New(reason)
+	}
+
+	nextDesired := DesiredStateRunning
+	if verb == "stop" {
+		nextDesired = DesiredStateStopped
+	}
+	if nextDesired != instance.DesiredState {
+		if _, err := s.updateInstance(ctx, db, instance.ID, instancePayload{DesiredState: nextDesired}); err != nil {
+			db.Close()
+			return "", err
+		}
+		instance.DesiredState = nextDesired
+	}
+	// 执行动作要往返主机 Agent，先归还唯一的 SQLite 连接。
+	db.Close()
+
+	if _, err := s.executeLifecycleAction(ctx, instance, action); err != nil {
+		return "", err
+	}
+	return nextDesired, nil
 }
 
 func (s *Service) handleAccessInfo(w http.ResponseWriter, r *http.Request, id string) {
@@ -1102,12 +1543,24 @@ func (s *Service) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 	limit, _ := parseIntQuery(r, "limit", 100)
-	logs, err := s.listAccessLogs(r.Context(), db, limit)
+	// instanceId 可选：用于排查单个实例的问题。
+	instanceID := strings.TrimSpace(r.URL.Query().Get("instanceId"))
+	logs, err := s.listAccessLogs(r.Context(), db, limit, instanceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
 		return
 	}
 	writeOK(w, logs)
+}
+
+// handleMetrics 返回模块运行期计数，供运维排查「收敛是否在正常工作」。
+//
+// 仅管理员可读：计数值本身不敏感，但含最近错误摘要，可能带主机/实例标识。
+func (s *Service) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireAdmin(w, r); !ok {
+		return
+	}
+	writeOK(w, s.Metrics())
 }
 
 func (s *Service) handleStreamToken(w http.ResponseWriter, r *http.Request, instanceID string) {
@@ -1231,12 +1684,21 @@ func (s *Service) listServersFor(ctx context.Context, userID string, isAdmin boo
 // ---------- 视图组装 ----------
 
 func (s *Service) buildInstanceView(ctx context.Context, instance Instance, probe bool) InstanceView {
-	return s.buildInstanceViewWithHosts(ctx, instance, probe, nil)
+	return s.buildInstanceViewWithHosts(ctx, instance, probe, nil, nil)
 }
 
 // buildInstanceViewWithHosts 允许调用方传入一次解析好的主机名映射，
 // 避免列表场景下每个实例都去查一次主机（N+1）。
-func (s *Service) buildInstanceViewWithHosts(ctx context.Context, instance Instance, probe bool, hostNames map[string]string) InstanceView {
+//
+// precomputedLifecycle 非 nil 时直接采用它，不再查询主机：
+// 更新接口在写入期望状态后已收敛过一次，重复查询会白多一次往返。
+func (s *Service) buildInstanceViewWithHosts(
+	ctx context.Context,
+	instance Instance,
+	probe bool,
+	hostNames map[string]string,
+	precomputedLifecycle *LifecycleState,
+) InstanceView {
 	provider, _ := LookupProvider(instance.Provider)
 	view := InstanceView{
 		Instance:      instance,
@@ -1255,10 +1717,65 @@ func (s *Service) buildInstanceViewWithHosts(ctx context.Context, instance Insta
 		}
 	}
 	if probe {
-		view.Status = s.probeInstance(ctx, instance)
-		view.HostOnline = view.Status.HostOnline
+		// 读路径只读：收敛已移到 30 秒后台循环（convergeAllInstances），
+		// GET 列表不再产生启动/停止副作用。
+		//
+		// 托管实例（desired_state 非空）走 lifecycle 查询：它已包含端口与资源信息，
+		// 因此不必再单独发一次探测任务，每次刷新从 2-3 次主机往返降到 1 次。
+		// 未托管实例保持原有探测路径，行为与升级前完全一致。
+		managed := instance.DesiredState != ""
+		var lifecycle LifecycleState
+		switch {
+		case precomputedLifecycle != nil:
+			lifecycle = *precomputedLifecycle
+		case managed:
+			lifecycle = s.queryLifecycle(ctx, instance)
+		}
+		view.Lifecycle = lifecycle
+
+		if managed {
+			view.Status = statusFromLifecycle(lifecycle)
+			view.HostOnline = lifecycle.Supported
+		} else {
+			view.Status = s.probeInstance(ctx, instance)
+			view.HostOnline = view.Status.HostOnline
+		}
 	}
 	return view
+}
+
+// statusFromLifecycle 把托管状态映射成探测视图。
+//
+// 托管实例的权威来源是 Agent 持有的进程表，因此这里直接以它为准构造
+// InstanceState，而不是再发一次探测任务去「猜」。关联验证的语义保持一致：
+// 在线要求「端口被监听」且「监听者是本 Provider 的进程」。
+func statusFromLifecycle(lifecycle LifecycleState) InstanceState {
+	state := InstanceState{
+		HostOnline:             lifecycle.Supported,
+		ProcessRunning:         lifecycle.Running,
+		PortListening:          lifecycle.PortListening,
+		PID:                    lifecycle.PID,
+		ListenerPID:            lifecycle.ListenerPID,
+		ListenerMatchesProcess: lifecycle.ListenerMatchesProcess,
+		MemoryBytes:            lifecycle.MemoryBytes,
+		CPUPercent:             lifecycle.CPUPercent,
+		ProbedAt:               nowRFC3339(),
+	}
+	state.Online = lifecycle.Running && lifecycle.PortListening && lifecycle.ListenerMatchesProcess
+
+	if !state.Online && lifecycle.Supported {
+		switch {
+		case lifecycle.Crashed:
+			state.Error = "process crashed and restart attempts are exhausted"
+		case lifecycle.PortListening && !lifecycle.ListenerMatchesProcess:
+			state.Error = "port is occupied by a different process"
+		case lifecycle.Running && !lifecycle.PortListening:
+			state.Error = "process is running but not listening on the expected port"
+		default:
+			state.Error = "process is not running"
+		}
+	}
+	return state
 }
 
 // resolveHostNames 一次取回 serverId → 主机名 映射，供列表组装复用。
@@ -1271,6 +1788,141 @@ func (s *Service) resolveHostNames(ctx context.Context) map[string]string {
 		names[option.ID] = option.Name
 	}
 	return names
+}
+
+// queryLifecycle 只查询托管进程状态，不产生任何副作用。
+//
+// 读路径（实例列表/详情）专用：收敛是写操作，已移到后台循环，
+// GET 请求不应触发进程启停。
+//
+// 未托管或能力不足时返回零值 + Supported 标记，让调用方知道「为什么没有状态」。
+func (s *Service) queryLifecycle(ctx context.Context, instance Instance) LifecycleState {
+	state := LifecycleState{}
+	if s.runtime == nil {
+		return state
+	}
+	if !s.runtime.AgentOnline(instance.ServerID) {
+		return state
+	}
+	if !s.runtime.AgentSupportsLifecycle(instance.ServerID) {
+		return state
+	}
+	state.Supported = true
+	if instance.DesiredState == "" {
+		// 未托管：能力可用但未纳管，返回 Supported 让前端可以展示「可托管」。
+		return state
+	}
+
+	statusCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	result, err := s.runtime.ProcessStatus(statusCtx, instance.ServerID, instance.ID)
+	if err != nil {
+		applog.Warn(ctx, "aiagent", "lifecycle query failed",
+			"instance", instance.ID, "error", err.Error())
+		return state
+	}
+	return lifecycleFromResult(result, true)
+}
+
+// convergeInstance 按期望状态收敛实例进程（ADR-0006 第 3.3 条），并返回收敛后的状态。
+//
+// 幂等：实际状态已符合期望时不下发任何任务。收敛失败只记录日志，
+// 不修改期望状态——否则一次网络抖动就会把「期望 running」悄悄改成 stopped。
+//
+// 收敛后回读一次状态：启动/停止是异步的，直接返回动作前的结果会让 UI 看到过期状态。
+func (s *Service) convergeInstance(ctx context.Context, instance Instance) LifecycleState {
+	state := LifecycleState{}
+	if s.runtime == nil || instance.DesiredState == "" {
+		return state
+	}
+	if !s.runtime.AgentOnline(instance.ServerID) {
+		return state
+	}
+	if !s.runtime.AgentSupportsLifecycle(instance.ServerID) {
+		return state
+	}
+	state.Supported = true
+
+	statusCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	current, err := s.runtime.ProcessStatus(statusCtx, instance.ServerID, instance.ID)
+	cancel()
+	if err != nil {
+		applog.Warn(ctx, "aiagent", "converge: status failed",
+			"instance", instance.ID, "error", err.Error())
+		return state
+	}
+
+	acted := false
+	switch instance.DesiredState {
+	case DesiredStateRunning:
+		if !current.Managed || !current.Running {
+			startCtx, startCancel := context.WithTimeout(ctx, 25*time.Second)
+			provider, _ := LookupProvider(instance.Provider)
+			_, startErr := s.runtime.StartProcess(startCtx, instance.ServerID, LifecycleStartPayload{
+				InstanceID: instance.ID,
+				Provider:   provider.ID,
+				Port:       instance.Port,
+			})
+			startCancel()
+			if startErr != nil {
+				s.metrics.convergenceFailures.Add(1)
+				s.metrics.recordError("converge start " + instance.ID + ": " + startErr.Error())
+				applog.Warn(ctx, "aiagent", "converge: start failed",
+					"instance", instance.ID, "error", startErr.Error())
+			} else {
+				s.metrics.convergenceStarts.Add(1)
+			}
+			acted = true
+		}
+	case DesiredStateStopped:
+		if current.Managed && current.Running {
+			stopCtx, stopCancel := context.WithTimeout(ctx, 20*time.Second)
+			_, stopErr := s.runtime.StopProcess(stopCtx, instance.ServerID, instance.ID)
+			stopCancel()
+			if stopErr != nil {
+				s.metrics.convergenceFailures.Add(1)
+				s.metrics.recordError("converge stop " + instance.ID + ": " + stopErr.Error())
+				applog.Warn(ctx, "aiagent", "converge: stop failed",
+					"instance", instance.ID, "error", stopErr.Error())
+			} else {
+				s.metrics.convergenceStops.Add(1)
+			}
+			acted = true
+		}
+	}
+
+	if !acted {
+		return lifecycleFromResult(current, state.Supported)
+	}
+
+	// 动作之后回读，反映收敛结果。
+	readbackCtx, readbackCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer readbackCancel()
+	after, err := s.runtime.ProcessStatus(readbackCtx, instance.ServerID, instance.ID)
+	if err != nil {
+		return state
+	}
+	return lifecycleFromResult(after, state.Supported)
+}
+
+// lifecycleFromResult 把 Agent 返回的进程状态映射为对外视图。
+// 抽出来避免「无需动作」与「动作后回读」两条路径字段遗漏（曾漏过 memory/cpu）。
+func lifecycleFromResult(result LifecycleResult, supported bool) LifecycleState {
+	return LifecycleState{
+		Managed:                result.Managed,
+		Running:                result.Running,
+		PID:                    result.PID,
+		DesiredRunning:         result.DesiredRunning,
+		Crashed:                result.Crashed,
+		PortListening:          result.PortListening,
+		ListenerPID:            result.ListenerPID,
+		ListenerMatchesProcess: result.ListenerMatchesProcess,
+		UptimeSeconds:          result.UptimeSeconds,
+		Restarts:               result.Restarts,
+		MemoryBytes:            result.MemoryBytes,
+		CPUPercent:             result.CPUPercent,
+		Supported:              supported,
+	}
 }
 
 // probeInstance 解析实例运行时状态。探测失败与「进程未运行」严格区分。
@@ -1302,10 +1954,30 @@ func (s *Service) probeInstance(ctx context.Context, instance Instance) Instance
 	state.ProcessRunning = result.ProcessRunning
 	state.PortListening = result.PortListening
 	state.PID = result.PID
-	state.Online = result.ProcessRunning && result.PortListening
+	state.ListenerPID = result.ListenerPID
+	state.ListenerMatchesProcess = result.ListenerMatchesProcess
+	// 资源占用：仅在真正在线时才有意义，否则会显示占用者的数值造成误读。
+	state.MemoryBytes = result.MemoryBytes
+	state.CPUPercent = result.CPUPercent
+
+	// 关联判定（ADR-0006 第 2 条）：只有在「端口被监听」且「监听它的进程命中
+	// Provider 进程规则」时才算在线。这样能区分三种原本会被混为一谈的情况：
+	//   1. 目标进程在跑且占着端口 → 在线
+	//   2. 端口被其它进程占用 → 离线，且给出明确原因
+	//   3. 目标进程在跑但没监听该端口 → 离线，且给出明确原因
+	state.Online = result.PortListening && result.ListenerMatchesProcess
+
 	if !state.Online {
-		// 探测明细可能包含主机路径/权限等内部信息，不下发给客户端，只保留统一说明。
-		state.Error = "process or port not reachable on host"
+		switch {
+		case !state.HostOnline:
+			state.Error = "host agent offline"
+		case result.PortListening && !result.ListenerMatchesProcess:
+			state.Error = "port is occupied by a different process"
+		case result.ProcessRunning && !result.PortListening:
+			state.Error = "process is running but not listening on the expected port"
+		default:
+			state.Error = "process or port not reachable on host"
+		}
 	}
 	return state
 }

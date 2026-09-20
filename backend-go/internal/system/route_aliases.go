@@ -57,6 +57,9 @@ var routeAliases = map[string][]string{
 	"/api/aiagent/users":                      {"agent 用户", "智能体用户", "模块用户", "添加用户"},
 	"/api/aiagent/instances":                  {"agent 实例", "智能体实例", "添加机器", "我的电脑"},
 	"/api/aiagent/instances/{id}/status":      {"实例状态", "agent 是否运行", "进程探测"},
+	"/api/aiagent/instances/{id}/lifecycle":   {"启动实例", "停止实例", "重启实例", "进程管理"},
+	"/api/aiagent/instances/batch":            {"批量启动", "批量停止", "批量重启", "一键操作"},
+	"/api/aiagent/metrics":                    {"运行指标", "收敛统计", "健康度", "监控"},
 	"/api/aiagent/providers":                  {"agent 类型", "provider", "支持哪些 agent"},
 	"/api/aiagent/gw":                         {"agent 网关", "智能体网关", "转发到本机 agent"},
 
