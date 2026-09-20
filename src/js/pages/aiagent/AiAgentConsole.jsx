@@ -46,6 +46,7 @@ import {
   writeAutoRefreshPreference,
 } from '../../modules/aiagentAutoRefresh.js';
 import { sortInstances } from '../../modules/aiagentInstanceList.js';
+import { resolvePortConflict } from '../../modules/aiagentPortConflict.js';
 import { useVisiblePolling } from '../../modules/usePageVisibility.js';
 
 // 生命周期控件（ADR-0006）：仅当主机 Agent 声明了能力、且实例启用时可用。
@@ -424,6 +425,12 @@ export default function AiAgentConsole() {
   const [instanceSaving, setInstanceSaving] = useState(false);
   // 正在执行生命周期操作的实例 id：用于禁用按钮，避免重复点击发出并发 start/stop。
   const [lifecycleBusyId, setLifecycleBusyId] = useState(null);
+  // serverDiagnose 是「主机 × Provider」可用性诊断结果（exe 是否就绪 + 端口占用 +
+  // 建议空闲端口）。在实例弹层中选择主机/Provider 后自动拉取，用于端口冲突预检
+  // 与 Agent exe 缺失提示；diagnoseError 记录拉取失败原因（离线/旧 Agent 等）。
+  const [serverDiagnose, setServerDiagnose] = useState(null);
+  const [serverDiagnoseError, setServerDiagnoseError] = useState('');
+  const [serverDiagnoseLoading, setServerDiagnoseLoading] = useState(false);
   const [accessInfo, setAccessInfo] = useState(null);
   // grantsTarget 是管理员正在配置「可用实例」的用户（用户管理里的授权弹层）。
   const [grantsTarget, setGrantsTarget] = useState(null);
@@ -478,6 +485,24 @@ export default function AiAgentConsole() {
     return { min: provider.defaultPort, max: provider.defaultPort + size };
   }, [providers, instanceForm.provider]);
   const selectedProviderPort = selectedProviderRange?.min;
+
+  // 端口冲突预检：结合诊断结果与当前表单值推导「是否冲突 + 建议端口」。
+  // 用户未填端口（将用默认端口）时看默认端口是否被占；已填则看该端口是否被占。
+  // 返回 null 表示无冲突或诊断未就绪。判定逻辑抽到纯函数模块便于测试锁定。
+  const portConflict = useMemo(
+    () => resolvePortConflict(serverDiagnose, instanceForm.port, selectedProviderPort),
+    [serverDiagnose, instanceForm.port, selectedProviderPort]
+  );
+
+  // 诊断提示的 exe 状态：Agent 找不到可执行文件时给出可操作提示。
+  const diagnoseExecutableIssue = useMemo(() => {
+    const diagnose = serverDiagnose;
+    if (!diagnose) return null;
+    if (diagnose.executableFound !== false) return null;
+    return {
+      path: diagnose.executablePath || '',
+    };
+  }, [serverDiagnose]);
 
   // 排序后的列表：异常优先，其次按名称。
   const visibleInstances = useMemo(() => sortInstances(instances), [instances]);
@@ -731,6 +756,42 @@ export default function AiAgentConsole() {
     });
     setInstanceDialogOpen(true);
   };
+
+  // 实例弹层中选择主机 + Provider 后自动拉取可用性诊断：
+  // exe 是否就绪、端口区间占用、建议空闲端口。用于创建/编辑时预检端口冲突，
+  // 避免提交后才发现默认端口被占（ADR-0006 端口不抢占语义）。
+  useEffect(() => {
+    if (!instanceDialogOpen) return;
+    const serverId = instanceForm.serverId;
+    const provider = instanceForm.provider;
+    setServerDiagnose(null);
+    setServerDiagnoseError('');
+    if (!serverId || !provider) {
+      setServerDiagnoseLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setServerDiagnoseLoading(true);
+    (async () => {
+      try {
+        const payload = await get(
+          `/api/aiagent/servers/${encodeURIComponent(serverId)}/diagnose?provider=${encodeURIComponent(provider)}`
+        );
+        if (cancelled) return;
+        setServerDiagnose(payload.data || null);
+      } catch (error) {
+        if (cancelled) return;
+        // 主机离线/旧 Agent/无 runtime 都会让诊断失败：
+        // 记下原因展示，但不在保存路径上硬拦截（后端仍会做最终校验）。
+        setServerDiagnoseError(error.message || '无法诊断主机可用性');
+      } finally {
+        if (!cancelled) setServerDiagnoseLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [instanceDialogOpen, instanceForm.serverId, instanceForm.provider, get]);
 
   const saveInstance = async () => {
     const label = instanceForm.label.trim();
@@ -1475,6 +1536,44 @@ export default function AiAgentConsole() {
                     setInstanceForm(prev => ({ ...prev, port: event.target.value }))
                   }
                 />
+                {serverDiagnoseLoading && (
+                  <span className="text-[11px] text-kumo-subtle">
+                    <Loader size={10} className="animate-spin" />
+                    正在检测端口占用…
+                  </span>
+                )}
+                {serverDiagnoseError && (
+                  <span className="text-[11px] text-kumo-subtle">
+                    无法检测端口占用（{serverDiagnoseError}），保存时后端会再做校验
+                  </span>
+                )}
+                {diagnoseExecutableIssue && (
+                  <span className="text-[11px] text-kumo-warning">
+                    主机未找到 {instanceForm.provider} 可执行文件
+                    {diagnoseExecutableIssue.path ? `（${diagnoseExecutableIssue.path}）` : ''}
+                    ，请先在主机上安装，或在主机 Agent 环境配置对应
+                    API_MONITOR_AIAGENT_*_BIN 变量
+                  </span>
+                )}
+                {portConflict && (
+                  <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-kumo-warning">
+                    端口 {portConflict.occupied} 已被占用
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setInstanceForm(prev => ({
+                          ...prev,
+                          port: String(portConflict.suggested),
+                        }))
+                      }
+                      className="!h-6 !px-2 !text-[11px] !text-brand hover:!text-kumo-strong"
+                    >
+                      使用空闲端口 {portConflict.suggested}
+                    </Button>
+                  </span>
+                )}
               </label>
               <label className="flex items-center gap-2 text-sm text-kumo-subtle">
                 <Switch
