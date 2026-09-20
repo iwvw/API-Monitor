@@ -188,10 +188,14 @@ type streamToolCall struct {
 // 实时把 content / reasoning 增量推给 eventCh；返回完整响应（含 usage / tool_calls）。
 // 网关侧本身非流式时（上游不支持），返回单块但同样推一次 delta，行为无差异。
 // withTools=false（询问模式）时不携带工具 schema，模型退化为纯对话。
-func (s *Service) callLLMStream(ctx context.Context, model string, messages []map[string]interface{}, eventCh chan SSEEvent, userMsgID string, withTools bool) (*llmResponse, error) {
+func (s *Service) callLLMStream(ctx context.Context, model string, messages []map[string]interface{}, eventCh chan SSEEvent, userMsgID string, withTools bool, reasoningEffort string) (*llmResponse, error) {
 	reqBody := map[string]interface{}{"model": model, "messages": messages, "stream": true}
 	if withTools {
 		reqBody["tools"] = adminAITools
+	}
+	// 思考强度：留空不携带该字段（保持上游默认），厂商差异交给网关归一化。
+	if effort := normalizeReasoningEffort(reasoningEffort); effort != "" {
+		reqBody["reasoning_effort"] = effort
 	}
 	bodyBytes, _ := json.Marshal(reqBody)
 

@@ -54,7 +54,27 @@ const (
 
 	adminAIKeyMaxConcurrentRuns = "admin_ai_max_concurrent_runs" // 全局并发执行上限
 	adminAIKeySummaryModel      = "admin_ai_summary_model"       // 推理摘要专用模型（留空回退默认模型）
+	adminAIKeyReasoningEffort   = "admin_ai_reasoning_effort"    // 思考强度（low/medium/high，留空不传由上游决定）
 )
+
+// reasoningEffortValues 是思考强度的合法取值域。留空表示不携带 reasoning_effort，
+// 保持上游默认行为；厂商差异（max→high、thinking/effort 别名、budget 语义）由
+// /v1 网关的 normalizeReasoningEffort / requestEnablesReasoning 统一处理。
+var reasoningEffortValues = map[string]bool{
+	"low":    true,
+	"medium": true,
+	"high":   true,
+}
+
+// normalizeReasoningEffort 收敛思考强度取值：非法值一律归空（不传），避免把
+// 拼写错误直接透传给上游导致请求被拒。
+func normalizeReasoningEffort(value string) string {
+	v := strings.ToLower(strings.TrimSpace(value))
+	if reasoningEffortValues[v] {
+		return v
+	}
+	return ""
+}
 
 const defaultMemoriesBootstrapChars = 2000
 

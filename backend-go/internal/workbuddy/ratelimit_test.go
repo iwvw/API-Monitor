@@ -80,6 +80,32 @@ func TestRateLimitFromTextRequiresBothSignalAndTime(t *testing.T) {
 	}
 }
 
+// 国际版（workbuddy.ai）实测限流文案是英文 "usage exceeds frequency limit"，
+// 措辞与重置时刻都带。曾因信号清单只有中文/rate limit 措辞而漏判，
+// 导致 429 被当成普通瞬时故障走账号冷却、最终累积成 502（生产实测）。
+// 必须能被 rateLimitFromText 识别为模型限流。
+func TestRateLimitFromTextRecognizesIntlWording(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skipf("缺少时区数据: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	future := now.In(loc).Add(3 * time.Hour).Format("2006-01-02 15:04:05")
+	msg := "usage exceeds frequency limit, but don't worry, your usage will reset at " +
+		future + " UTC+8, alternatively, you can switch to the other models to continue using it."
+	until, ok := rateLimitFromText(msg, loc, now)
+	if !ok {
+		t.Fatalf("国际版英文措辞应被识别为限流: %s", msg)
+	}
+	if d := until.Sub(now); d != 3*time.Hour {
+		t.Fatalf("应按文案解析出 3 小时后的重置时刻，得到 %v（差 %v）", until, d)
+	}
+	// 错误信封路径（宽松，有措辞即可）同样应命中。
+	if _, ok := rateLimitFromError(msg, loc, now); !ok {
+		t.Fatal("国际版英文措辞在错误信封路径也应识别为限流")
+	}
+}
+
 // 错误信封的 msg 是**错误说明**而非模型正文，故有措辞即可判定；
 // 没有重置时刻时回落到 30 分钟兜底（短期节流很常见）。
 func TestRateLimitFromErrorFallsBackToDefault(t *testing.T) {

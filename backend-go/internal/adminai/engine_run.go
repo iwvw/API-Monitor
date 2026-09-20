@@ -155,6 +155,8 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 
 	toolCallLimit := s.getIntSetting(readCtx, adminAIKeyToolCallLimit, defaultMaxToolCalls)
 	timeoutSeconds := s.getIntSetting(readCtx, adminAIKeyTimeoutSeconds, defaultRunTimeoutSec)
+	// 思考强度：留空表示不携带 reasoning_effort（保持上游默认）。
+	reasoningEffort := normalizeReasoningEffort(s.getSetting(readCtx, adminAIKeyReasoningEffort, ""))
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultRunTimeoutSec
 	}
@@ -435,7 +437,7 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 					case <-time.After(backoff):
 					}
 				}
-				resp, respErr = s.callLLMStream(runCtx, m, llmMessages, eventCh, userMsgID, !askMode)
+				resp, respErr = s.callLLMStream(runCtx, m, llmMessages, eventCh, userMsgID, !askMode, reasoningEffort)
 				if respErr == nil {
 					usedModel = m
 					break outer

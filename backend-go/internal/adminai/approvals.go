@@ -243,6 +243,7 @@ var adminAISettingDefs = []struct {
 }{
 	{"admin_ai_enabled", "true", "管理 AI 总开关"},
 	{"admin_ai_default_model", "", "默认推理模型（经 /v1 网关负载均衡，支持逗号分隔按序回退）"},
+	{"admin_ai_reasoning_effort", "", "思考强度（low/medium/high，留空不传由上游决定）"},
 	{"admin_ai_default_mode", "agent", "新会话默认模式（agent=代理可调用工具，ask=询问纯问答）"},
 	{"admin_ai_summary_model", "", "推理摘要专用模型（留空回退默认模型）"},
 	{"admin_ai_briefing_model", "", "站点简报专用模型（留空回退默认模型）"},
@@ -384,6 +385,9 @@ func clampAISetting(key, value string) string {
 			}
 			return strconv.Itoa(n)
 		}
+	case "admin_ai_reasoning_effort":
+		// 非法取值归空（不传），避免拼写错误透传给上游。
+		return normalizeReasoningEffort(value)
 	}
 	return value
 }

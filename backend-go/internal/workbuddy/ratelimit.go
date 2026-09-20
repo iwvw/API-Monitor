@@ -57,6 +57,13 @@ var rateLimitSignals = []string{
 	"rate limit",
 	"rate-limit",
 	"too many requests",
+	// 国际版（workbuddy.ai）实测措辞：usage exceeds frequency limit,
+	// ... your usage will reset at 2026-09-21 13:19:38 UTC+8。
+	// 与国内版「使用量已超出频率限制」同源，但用了英文 "frequency limit"，
+	// 不在上面的中文/英文清单里，导致国际版 429 被误判为普通瞬时故障、
+	// 走账号冷却而不是模型限流（见 relay.go 的处置路径）。
+	"frequency limit",
+	"usage exceeds",
 }
 
 // rateLimitResetPatterns 抓「重置时刻」。两种分隔风格都收（`-` 与 `/`），
