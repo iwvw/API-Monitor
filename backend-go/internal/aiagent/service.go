@@ -2080,8 +2080,32 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool
 		writeError(w, http.StatusBadRequest, CodeInvalid, "request body required")
 		return false
 	}
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	raw, readErr := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if readErr != nil {
+		writeError(w, http.StatusBadRequest, CodeInvalid, "invalid JSON body")
+		return false
+	}
+	// 临时诊断：定位 Tauri plugin-http 发出的 PUT 为何被判定为非法 JSON。
+	// 记录实际到达服务端的字节数、Content-Length、Content-Type 与 body 首尾。
+	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/preferences") {
+		head := raw
+		if len(head) > 120 {
+			head = head[:120]
+		}
+		tail := raw
+		if len(tail) > 120 {
+			tail = tail[len(tail)-120:]
+		}
+		applog.Warn(r.Context(), "aiagent", "preferences PUT body received",
+			"bytes", len(raw),
+			"content_length", r.ContentLength,
+			"content_type", r.Header.Get("Content-Type"),
+			"transfer_encoding", strings.Join(r.TransferEncoding, ","),
+			"head", string(head),
+			"tail", string(tail),
+		)
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalid, "invalid JSON body")
 		return false
 	}
