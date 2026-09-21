@@ -469,6 +469,14 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	if route.Auth != manifest.AuthSession {
 		return true
 	}
+	// aiagent 模块的路由鉴权由模块内部 resolveAuth 完整处理：它同时支持
+	// 模块用户 Bearer token（OpenCodeUI 客户端）与面板管理员 session（后台
+	// 管理面）。若这里按 AuthSession 的标准分支先行拦截，会挡住模块用户
+	// 的 Bearer token（返回「请先登录」）。因此对该模块跳过外层会话校验，
+	// 交由内部统一识别两种身份（AI 内部调用另有 context 标记放行）。
+	if isAIAgentRoute(r.URL.Path) {
+		return true
+	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/totp/accounts" {
 		pluginAuthorized, err := s.auth.IsPluginToken(r.Context(), r)
 		if err != nil {
