@@ -1,6 +1,8 @@
 package aiagent
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -67,6 +69,10 @@ type AgentRuntime interface {
 	Diagnose(ctx context.Context, serverID, provider string) (DiagnoseResult, error)
 	// RoundTrip 经 Agent 数据通道完成一次 HTTP 往返，响应体为流式。
 	RoundTrip(ctx context.Context, serverID string, port int, req AgentHTTPRequest) (AgentHTTPResponse, error)
+	// OpenStream 打开一条到目标主机端口的原始双向字节流连接。
+	// 用于 WebSocket 升级（PTY、SSH 终端等）这类需要接管字节流的场景：
+	// RoundTrip 只给出 HTTP 语义的响应体，无法透传 101 切换后的全双工帧。
+	OpenStream(ctx context.Context, serverID string, port int) (io.ReadWriteCloser, error)
 }
 
 // LifecycleStartPayload 是启动托管进程的载荷。云端只能传 Provider ID 与端口，
@@ -303,6 +309,269 @@ func buildTargetPath(provider Provider, rest string) string {
 	}
 }
 
+// isWebSocketUpgradeRequest 判断是否为 WebSocket 协议升级请求。
+// 这类请求必须保留 Connection: Upgrade / Upgrade: websocket 头，
+// 并把 101 切换后的字节流透传给目标，不能走普通 HTTP 往返。
+func isWebSocketUpgradeRequest(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket")
+}
+
+// handleGatewayWebSocket 处理 WebSocket 升级请求：打开到目标主机端口的
+// 原始数据通道，把客户端升级请求原样写向目标，再把目标返回的 101 响应
+// 与后续全双工帧双向搬运。数据通道底层是字节流（agentPortConn 实现完整
+// net.Conn），可承载任意 WebSocket 帧，因此无需在网关层解析帧协议。
+func (s *Service) handleGatewayWebSocket(
+	w http.ResponseWriter,
+	r *http.Request,
+	instanceID, rest string,
+	auth authContext,
+	instance Instance,
+	provider Provider,
+) {
+	if s.runtime == nil {
+		s.writeGatewayError(w, http.StatusServiceUnavailable, CodeChannelError, "agent runtime not configured")
+		return
+	}
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	upstream, err := s.runtime.OpenStream(ctx, instance.ServerID, instance.Port)
+	if err != nil {
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID:     auth.UserID,
+			TokenID:    auth.TokenID,
+			InstanceID: instance.ID,
+			Action:     "gw ws",
+			Result:     "error",
+			Error:      "open agent stream failed: " + err.Error(),
+			IP:         s.clientIP(r),
+			UserAgent:  r.UserAgent(),
+		})
+		s.writeGatewayError(w, http.StatusBadGateway, CodeChannelError, "upstream agent stream failed")
+		return
+	}
+	defer upstream.Close()
+
+	// 构造发往目标 Agent 的 HTTP/1.1 升级请求。
+	// 保留客户端携带的 Connection/Upgrade/Sec-WebSocket-* 头；
+	// 过滤掉面板专用的鉴权与转发头，避免把云端口令透传给外部进程。
+	targetPath := buildTargetPath(provider, rest)
+	if values := r.URL.Query(); len(values) > 0 {
+		values.Del("st")
+		if encoded := values.Encode(); encoded != "" {
+			targetPath += "?" + encoded
+		}
+	}
+	upgradeReq, err := buildWebSocketUpgradeRequest(r, targetPath)
+	if err != nil {
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID:     auth.UserID,
+			TokenID:    auth.TokenID,
+			InstanceID: instance.ID,
+			Action:     "gw ws",
+			Result:     "error",
+			Error:      "build upgrade request failed",
+			IP:         s.clientIP(r),
+			UserAgent:  r.UserAgent(),
+		})
+		s.writeGatewayError(w, http.StatusBadRequest, CodeInvalid, "invalid websocket upgrade request")
+		return
+	}
+
+	if _, err := upstream.Write(upgradeReq); err != nil {
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID:     auth.UserID,
+			TokenID:    auth.TokenID,
+			InstanceID: instance.ID,
+			Action:     "gw ws",
+			Result:     "error",
+			Error:      "write upgrade request failed: " + err.Error(),
+			IP:         s.clientIP(r),
+			UserAgent:  r.UserAgent(),
+		})
+		s.writeGatewayError(w, http.StatusBadGateway, CodeChannelError, "upstream agent request failed")
+		return
+	}
+
+	// 读取目标返回的响应头：期望 101 Switching Protocols。
+	br := bufio.NewReader(upstream)
+	resp, err := http.ReadResponse(br, r)
+	if err != nil {
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID:     auth.UserID,
+			TokenID:    auth.TokenID,
+			InstanceID: instance.ID,
+			Action:     "gw ws",
+			Result:     "error",
+			Error:      "read upstream response failed: " + err.Error(),
+			IP:         s.clientIP(r),
+			UserAgent:  r.UserAgent(),
+		})
+		s.writeGatewayError(w, http.StatusBadGateway, CodeChannelError, "upstream agent request failed")
+		return
+	}
+
+	// 目标拒绝升级：把非 101 响应原样返回给客户端（WebSocket 握手失败）。
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		defer resp.Body.Close()
+		for key, values := range filterResponseHeaders(resp.Header) {
+			if strings.EqualFold(key, "Set-Cookie") {
+				continue
+			}
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID:     auth.UserID,
+			TokenID:    auth.TokenID,
+			InstanceID: instance.ID,
+			Action:     "gw ws",
+			Result:     "error",
+			StatusCode: resp.StatusCode,
+			Error:      fmt.Sprintf("upstream refused upgrade with %d", resp.StatusCode),
+			IP:         s.clientIP(r),
+			UserAgent:  r.UserAgent(),
+		})
+		return
+	}
+
+	// 101：接管客户端连接（hijack），把目标响应头写回，随后双向搬运字节流。
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID:     auth.UserID,
+			TokenID:    auth.TokenID,
+			InstanceID: instance.ID,
+			Action:     "gw ws",
+			Result:     "error",
+			Error:      "response writer does not support hijacking",
+			IP:         s.clientIP(r),
+			UserAgent:  r.UserAgent(),
+		})
+		s.writeGatewayError(w, http.StatusInternalServerError, CodeChannelError, "websocket upgrade unsupported")
+		return
+	}
+	clientConn, rw, err := hijacker.Hijack()
+	if err != nil {
+		s.writeAccessLog(r.Context(), AccessLog{
+			UserID:     auth.UserID,
+			TokenID:    auth.TokenID,
+			InstanceID: instance.ID,
+			Action:     "gw ws",
+			Result:     "error",
+			Error:      "hijack client connection failed: " + err.Error(),
+			IP:         s.clientIP(r),
+			UserAgent:  r.UserAgent(),
+		})
+		return
+	}
+	defer clientConn.Close()
+
+	// 写回 101 状态行 + 响应头（含 Sec-WebSocket-Accept 等握手关键头）。
+	statusLine := fmt.Sprintf("HTTP/1.1 %d %s\r\n", resp.StatusCode, http.StatusText(resp.StatusCode))
+	if _, err := rw.WriteString(statusLine); err != nil {
+		return
+	}
+	if err := resp.Header.Write(rw); err != nil {
+		return
+	}
+	if _, err := rw.WriteString("\r\n"); err != nil {
+		return
+	}
+	if err := rw.Flush(); err != nil {
+		return
+	}
+
+	s.writeAccessLog(r.Context(), AccessLog{
+		UserID:     auth.UserID,
+		TokenID:    auth.TokenID,
+		InstanceID: instance.ID,
+		Action:     fmt.Sprintf("gw ws %s (%s)", sanitizeLogToken(r.Method), sanitizeLogToken(targetPath)),
+		Result:     "ok",
+		StatusCode: http.StatusSwitchingProtocols,
+		IP:         s.clientIP(r),
+		UserAgent:  r.UserAgent(),
+	})
+
+	// 双向字节流搬运：客户端 → 目标 与 目标 → 客户端。
+	// 任一端关闭即结束整个隧道；缓冲写入端需要显式 Flush。
+	errc := make(chan struct{}, 2)
+	go func() {
+		defer func() { errc <- struct{}{} }()
+		_, _ = io.Copy(upstream, rw.Reader)
+		// 客户端侧 EOF/关闭：通知目标关闭（data channel 的 Close 会终止流）。
+		_ = upstream.Close()
+	}()
+	go func() {
+		defer func() { errc <- struct{}{} }()
+		_, _ = io.Copy(rw.Writer, br)
+		_ = rw.Flush()
+		// 目标侧 EOF/关闭：通知客户端关闭。
+		_ = clientConn.Close()
+	}()
+	<-errc
+	<-errc
+}
+
+// buildWebSocketUpgradeRequest 把客户端 HTTP 升级请求重写为发往目标 Agent 的
+// HTTP/1.1 请求字节。保留 WebSocket 握手必需头，剥离面板专用鉴权/转发头。
+func buildWebSocketUpgradeRequest(r *http.Request, targetPath string) ([]byte, error) {
+	var buf bytes.Buffer
+
+	buf.WriteString(r.Method)
+	buf.WriteByte(' ')
+	buf.WriteString(targetPath)
+	buf.WriteString(" HTTP/1.1\r\n")
+
+	// Host 必须指向目标服务（数据通道暴露的是 127.0.0.1:<port>），
+	// 而非面板域。端口由数据通道隐含，Host 仅填 IP 即可。
+	buf.WriteString("Host: 127.0.0.1\r\n")
+
+	// 握手必需头：原样保留客户端提供的 Connection/Upgrade/Sec-WebSocket-*。
+	// 若客户端（如某些库）只发了 Upgrade 没发 Connection，补上。
+	hasConnectionUpgrade := false
+	for key, values := range r.Header {
+		lower := strings.ToLower(key)
+		if lower == "host" || lower == "content-length" {
+			continue
+		}
+		// 剥离面板鉴权/转发/逐跳头，避免泄漏云端口令或让上游被伪造来源头欺骗。
+		if hopByHopHeaders[lower] || lower == "authorization" || lower == "cookie" ||
+			strings.HasPrefix(lower, "x-forwarded-") || lower == "x-real-ip" ||
+			lower == "cf-connecting-ip" || lower == "true-client-ip" ||
+			lower == "x-original-url" {
+			if lower == "connection" || lower == "upgrade" {
+				// WebSocket 握手必须保留 Connection/Upgrade。
+				for _, value := range values {
+					buf.WriteString(key)
+					buf.WriteString(": ")
+					buf.WriteString(value)
+					buf.WriteString("\r\n")
+					if lower == "connection" && strings.Contains(strings.ToLower(value), "upgrade") {
+						hasConnectionUpgrade = true
+					}
+				}
+			}
+			continue
+		}
+		for _, value := range values {
+			buf.WriteString(key)
+			buf.WriteString(": ")
+			buf.WriteString(value)
+			buf.WriteString("\r\n")
+		}
+	}
+	if !hasConnectionUpgrade {
+		buf.WriteString("Connection: Upgrade\r\n")
+	}
+	buf.WriteString("\r\n")
+	return buf.Bytes(), nil
+}
+
 // handleGateway 处理 ANY /api/aiagent/gw/{instanceId}/{rest...}。
 func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instanceID, rest string) {
 	if s.runtime == nil {
@@ -407,6 +676,14 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 			s.writeGatewayError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid or expired stream token")
 			return
 		}
+	}
+
+	// WebSocket 升级请求（opencode PTY 连接、SSH 终端等）无法经 HTTP 语义的
+	// RoundTrip 透传：需要保留 Upgrade/Connection 头并把 101 切换后的全双工
+	// 字节流原样搬运。识别到升级请求后走专用隧道。
+	if isWebSocketUpgradeRequest(r) {
+		s.handleGatewayWebSocket(w, r, instanceID, rest, auth, instance, provider)
+		return
 	}
 
 	req := AgentHTTPRequest{

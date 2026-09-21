@@ -223,6 +223,13 @@ func (o *aiagentServerOptions) ListServerOptions(ctx context.Context) []aiagent.
 	return result
 }
 
+// OpenStream 打开一条到目标主机端口的原始字节流连接（数据通道）。
+// 直接复用 serveragent.OpenAIAgentPortStream：它返回的 net.Conn 实现了
+// 完整双向读写，可承载 WebSocket 升级后的全双工帧。
+func (r *aiagentRuntime) OpenStream(ctx context.Context, serverID string, port int) (io.ReadWriteCloser, error) {
+	return r.server.OpenAIAgentPortStream(ctx, serverID, port)
+}
+
 // RoundTrip 经原生流通道完成一次 HTTP 往返。使用 http.Transport 自定义
 // DialContext（每个请求一条数据通道），并通过 ReverseProxy 逐块转发以支持 SSE。
 func (r *aiagentRuntime) RoundTrip(ctx context.Context, serverID string, port int, req aiagent.AgentHTTPRequest) (aiagent.AgentHTTPResponse, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -86,6 +87,11 @@ func (r *stubRuntime) Diagnose(context.Context, string, string) (DiagnoseResult,
 
 func (r *stubRuntime) RoundTrip(context.Context, string, int, AgentHTTPRequest) (AgentHTTPResponse, error) {
 	return AgentHTTPResponse{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(nil)}, nil
+}
+
+func (r *stubRuntime) OpenStream(context.Context, string, int) (io.ReadWriteCloser, error) {
+	client, _ := net.Pipe()
+	return client, nil
 }
 
 func (r *stubRuntime) counters() (starts int, stops int, statuses int) {
