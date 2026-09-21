@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -2106,6 +2107,19 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool
 		)
 	}
 	if err := json.Unmarshal(raw, target); err != nil {
+		// 临时诊断：把完整 body 写入文件以便离线定位非法字节。
+		if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/preferences") {
+			_ = os.WriteFile("/tmp/preferences-bad-body.json", raw, 0o644)
+			offset := 0
+			if syntaxErr, ok := err.(*json.SyntaxError); ok {
+				offset = int(syntaxErr.Offset)
+			}
+			applog.Warn(r.Context(), "aiagent", "preferences PUT decode failed",
+				"error", err.Error(),
+				"offset", offset,
+				"bytes", len(raw),
+			)
+		}
 		writeError(w, http.StatusBadRequest, CodeInvalid, "invalid JSON body")
 		return false
 	}
