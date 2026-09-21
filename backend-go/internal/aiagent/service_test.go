@@ -1098,7 +1098,7 @@ func TestPreferencesRoundTripAndIsolation(t *testing.T) {
 		"srv:server-1:opencode-hidden-directories": json.RawMessage(`["/work/secret"]`),
 		"theme-preset": json.RawMessage(`"eucalyptus"`),
 	}
-	if _, err := service.putPreferences(ctx, db, alice.ID, values, "2026-01-01T00:00:00Z", false); err != nil {
+	if _, err := service.putPreferences(ctx, db, alice.ID, values, "2026-01-01T00:00:00Z", nil, false); err != nil {
 		t.Fatalf("putPreferences: %v", err)
 	}
 
@@ -1154,7 +1154,7 @@ func TestPreferencesRoundTripAndIsolation(t *testing.T) {
 	}
 	// 含斜杠的键必须能写入并删除，验证不走路径分段的回归。
 	slashKey := map[string]json.RawMessage{"srv:a/b:c": json.RawMessage(`1`)}
-	if _, err := service.putPreferences(ctx, db, alice.ID, slashKey, "", false); err != nil {
+	if _, err := service.putPreferences(ctx, db, alice.ID, slashKey, "", nil, false); err != nil {
 		t.Fatalf("putPreferences slash key: %v", err)
 	}
 	removed, err = service.deletePreferences(ctx, db, alice.ID, []string{"srv:a/b:c"})
@@ -1181,13 +1181,13 @@ func TestPreferencesLastWriteWins(t *testing.T) {
 	}
 
 	newer := map[string]json.RawMessage{"project-order": json.RawMessage(`["b","a"]`)}
-	if _, err := service.putPreferences(ctx, db, user.ID, newer, "2026-05-01T00:00:00Z", true); err != nil {
+	if _, err := service.putPreferences(ctx, db, user.ID, newer, "2026-05-01T00:00:00Z", nil, true); err != nil {
 		t.Fatalf("putPreferences newer: %v", err)
 	}
 
 	// 旧时间戳不得覆盖新值。
 	stale := map[string]json.RawMessage{"project-order": json.RawMessage(`["a","b"]`)}
-	written, err := service.putPreferences(ctx, db, user.ID, stale, "2026-01-01T00:00:00Z", true)
+	written, err := service.putPreferences(ctx, db, user.ID, stale, "2026-01-01T00:00:00Z", nil, true)
 	if err != nil {
 		t.Fatalf("putPreferences stale: %v", err)
 	}
@@ -1203,7 +1203,7 @@ func TestPreferencesLastWriteWins(t *testing.T) {
 	}
 
 	// 不启用条件覆盖时，同样的旧值会直接写入。
-	written, err = service.putPreferences(ctx, db, user.ID, stale, "2026-01-01T00:00:00Z", false)
+	written, err = service.putPreferences(ctx, db, user.ID, stale, "2026-01-01T00:00:00Z", nil, false)
 	if err != nil {
 		t.Fatalf("putPreferences unconditional: %v", err)
 	}
@@ -1227,11 +1227,11 @@ func TestPreferencesRejectsOversizedValueAndBadKey(t *testing.T) {
 	}
 
 	huge := map[string]json.RawMessage{"big": json.RawMessage(`"` + strings.Repeat("x", maxPreferenceValueBytes+1) + `"`)}
-	if _, err := service.putPreferences(ctx, db, user.ID, huge, "", false); err != errPreferenceTooLarge {
+	if _, err := service.putPreferences(ctx, db, user.ID, huge, "", nil, false); err != errPreferenceTooLarge {
 		t.Fatalf("expected oversized error, got %v", err)
 	}
 	longKey := map[string]json.RawMessage{strings.Repeat("k", 129): json.RawMessage(`1`)}
-	if _, err := service.putPreferences(ctx, db, user.ID, longKey, "", false); err != errInvalidPreferenceKey {
+	if _, err := service.putPreferences(ctx, db, user.ID, longKey, "", nil, false); err != errInvalidPreferenceKey {
 		t.Fatalf("expected invalid key error, got %v", err)
 	}
 }
@@ -1249,7 +1249,7 @@ func TestDeleteUserCascadesPreferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createUser: %v", err)
 	}
-	if _, err := service.putPreferences(ctx, db, user.ID, map[string]json.RawMessage{"theme-preset": json.RawMessage(`"sakura"`)}, "", false); err != nil {
+	if _, err := service.putPreferences(ctx, db, user.ID, map[string]json.RawMessage{"theme-preset": json.RawMessage(`"sakura"`)}, "", nil, false); err != nil {
 		t.Fatalf("putPreferences: %v", err)
 	}
 	if err := service.deleteUser(ctx, db, user.ID); err != nil {
@@ -1310,6 +1310,164 @@ func TestPreferencesHTTPRequiresBearer(t *testing.T) {
 	}
 	if !strings.Contains(res.Body.String(), "theme-preset") {
 		t.Fatalf("list response missing stored preference: %s", res.Body.String())
+	}
+}
+
+// TestPreferencesHTTPAcceptsPerKeyTimestamps 是线上 400 的回归用例：客户端
+// 按逐键上报 updatedAt（对象形态），服务端曾把它声明为 string，导致
+// json.Unmarshal 类型不符、整个 PUT 被拒为 invalid JSON body。
+func TestPreferencesHTTPAcceptsPerKeyTimestamps(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "gina", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	plain, _, err := service.issueToken(ctx, db, user.ID, "laptop", "")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	body := strings.NewReader(`{"values":{"theme-preset":"\"ocean\"","font-scale":"1.1"},"updatedAt":{"theme-preset":"2030-01-01T00:00:00.000Z","font-scale":"2029-01-01T00:00:00.000Z"}}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/aiagent/preferences?lastWriteWins=1", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+plain)
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("per-key updatedAt must be accepted, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	items, err := service.listPreferences(ctx, db, user.ID)
+	if err != nil {
+		t.Fatalf("listPreferences: %v", err)
+	}
+	stamps := make(map[string]string, len(items))
+	for _, item := range items {
+		stamps[item.Key] = item.UpdatedAt
+	}
+	if stamps["theme-preset"] != "2030-01-01T00:00:00.000Z" || stamps["font-scale"] != "2029-01-01T00:00:00.000Z" {
+		t.Fatalf("per-key timestamps not stored independently: %+v", stamps)
+	}
+}
+
+// TestPreferencesHTTPAcceptsStringTimestamp 保证批次级字符串形态仍可用，
+// 旧客户端不需要跟着改。
+func TestPreferencesHTTPAcceptsStringTimestamp(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "hank", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	plain, _, err := service.issueToken(ctx, db, user.ID, "laptop", "")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	body := strings.NewReader(`{"values":{"theme-preset":"\"ocean\""},"updatedAt":"2030-01-01T00:00:00.000Z"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/aiagent/preferences?lastWriteWins=1", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+plain)
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("string updatedAt must stay accepted, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	items, err := service.listPreferences(ctx, db, user.ID)
+	if err != nil {
+		t.Fatalf("listPreferences: %v", err)
+	}
+	if len(items) != 1 || items[0].UpdatedAt != "2030-01-01T00:00:00.000Z" {
+		t.Fatalf("batch timestamp not applied: %+v", items)
+	}
+}
+
+// TestPutPreferencesPerKeyStampWins 验证逐键戳参与 lastWriteWins 仲裁：
+// 同一批次里新戳的键写入、旧戳的键被库中现值拦下。
+func TestPutPreferencesPerKeyStampWins(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "ivan", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+
+	base := map[string]json.RawMessage{
+		"a": json.RawMessage(`"old"`),
+		"b": json.RawMessage(`"old"`),
+	}
+	if _, err := service.putPreferences(ctx, db, user.ID, base, "", nil, false); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	mixed := map[string]json.RawMessage{
+		"a": json.RawMessage(`"new"`),
+		"b": json.RawMessage(`"new"`),
+	}
+	written, err := service.putPreferences(ctx, db, user.ID, mixed, "", map[string]string{
+		"a": "2030-01-01T00:00:00Z",
+		"b": "2000-01-01T00:00:00Z",
+	}, true)
+	if err != nil {
+		t.Fatalf("putPreferences: %v", err)
+	}
+	if len(written) != 1 || written[0] != "a" {
+		t.Fatalf("only the newer per-key stamp may win, wrote %v", written)
+	}
+	items, err := service.listPreferences(ctx, db, user.ID)
+	if err != nil {
+		t.Fatalf("listPreferences: %v", err)
+	}
+	for _, item := range items {
+		want := `"new"`
+		if item.Key == "b" {
+			want = `"old"`
+		}
+		if string(item.Value) != want {
+			t.Fatalf("key %s = %s, want %s", item.Key, item.Value, want)
+		}
+	}
+}
+
+// TestDecodeJSONReportsCause 验证错误文案带上具体原因，避免类型不符与语法
+// 错误共用一句「invalid JSON body」把排查带偏。
+func TestDecodeJSONReportsCause(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/aiagent/preferences", strings.NewReader(`{"values":`))
+	if decodeJSON(rec, req, &preferencesPayload{}) {
+		t.Fatal("malformed body must be rejected")
+	}
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid JSON body: ") {
+		t.Fatalf("syntax error must carry cause, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/aiagent/preferences", strings.NewReader(strings.Repeat("x", maxRequestBodyBytes+16)))
+	if decodeJSON(rec, req, &preferencesPayload{}) {
+		t.Fatal("oversized body must be rejected")
+	}
+	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "request body too large") {
+		t.Fatalf("oversized body must report size, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

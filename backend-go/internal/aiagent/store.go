@@ -880,12 +880,16 @@ func (s *Service) listPreferences(ctx context.Context, db *sql.DB, userID string
 
 // putPreferences 批量 upsert 偏好，返回实际写入的键。lastWriteWins 为真表示仅当
 // 传入时间戳不早于库中现值时才覆盖，用于避免多端并发下旧数据回退新数据。
-func (s *Service) putPreferences(ctx context.Context, db *sql.DB, userID string, values map[string]json.RawMessage, updatedAt string, lastWriteWins bool) ([]string, error) {
+//
+// 时间戳优先取 perKey[key]（客户端逐键上报，同一批次里各键改动时间不同），
+// 缺失时回退 defaultStamp，仍为空则用服务端当前时间。
+func (s *Service) putPreferences(ctx context.Context, db *sql.DB, userID string, values map[string]json.RawMessage, defaultStamp string, perKey map[string]string, lastWriteWins bool) ([]string, error) {
 	if len(values) == 0 {
 		return nil, nil
 	}
-	if updatedAt == "" {
-		updatedAt = nowRFC3339()
+	fallback := defaultStamp
+	if fallback == "" {
+		fallback = nowRFC3339()
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -900,6 +904,10 @@ func (s *Service) putPreferences(ctx context.Context, db *sql.DB, userID string,
 		}
 		if len(value) > maxPreferenceValueBytes {
 			return nil, errPreferenceTooLarge
+		}
+		updatedAt := fallback
+		if stamp, ok := perKey[key]; ok && stamp != "" {
+			updatedAt = stamp
 		}
 		query := `INSERT INTO aiagent_user_preferences (user_id, key, value_json, updated_at)
 			VALUES (?, ?, ?, ?)

@@ -1,6 +1,7 @@
 package aiagent
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 )
@@ -232,11 +233,49 @@ type metaPayload struct {
 
 // preferencesPayload 是客户端偏好同步的批量写入载荷。Values 为键到原始 JSON
 // 的映射，服务端不解析其内容，仅原样存储后回吐，因此新增客户端设置项无需改
-// 服务端；UpdatedAt 为客户端本地改动时间戳，用于多端冲突时判定新旧。
+// 服务端。
+//
+// UpdatedAt 为客户端本地改动时间戳，用于多端冲突时判定新旧，支持两种形态：
+//   - 字符串：整个批次共用一个时间戳（旧客户端）
+//   - 对象：键到时间戳的映射，逐键独立仲裁（新客户端）
+//
+// 声明为 json.RawMessage 是因为逐键形态是对象、批次形态是字符串，统一成单一
+// 具体类型会让另一种形态在 Unmarshal 阶段直接失败。
 type preferencesPayload struct {
 	Values    map[string]json.RawMessage `json:"values"`
 	Keys      []string                   `json:"keys,omitempty"`
-	UpdatedAt string                     `json:"updatedAt,omitempty"`
+	UpdatedAt json.RawMessage            `json:"updatedAt,omitempty"`
+}
+
+// timestamps 解析 UpdatedAt 的两种形态，返回逐键时间戳与批次默认时间戳。
+// 无法识别的形态返回空值，由调用方回退到服务端当前时间。
+func (p preferencesPayload) timestamps() (map[string]string, string) {
+	raw := bytes.TrimSpace(p.UpdatedAt)
+	if len(raw) == 0 {
+		return nil, ""
+	}
+	if raw[0] == '{' {
+		perKey := make(map[string]string)
+		var parsed map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, ""
+		}
+		for key, value := range parsed {
+			var stamp string
+			if err := json.Unmarshal(value, &stamp); err == nil && stamp != "" {
+				perKey[key] = stamp
+			}
+		}
+		if len(perKey) == 0 {
+			return nil, ""
+		}
+		return perKey, ""
+	}
+	var stamp string
+	if err := json.Unmarshal(raw, &stamp); err != nil {
+		return nil, ""
+	}
+	return nil, stamp
 }
 
 // Preference 是单条用户偏好的存储视图。

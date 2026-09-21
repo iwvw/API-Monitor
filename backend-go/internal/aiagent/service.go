@@ -1469,13 +1469,14 @@ func (s *Service) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lastWriteWins := r.URL.Query().Get("lastWriteWins") == "1"
+	perKeyStamps, defaultStamp := payload.timestamps()
 	db, err := s.open(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
 		return
 	}
 	defer db.Close()
-	written, err := s.putPreferences(r.Context(), db, auth.UserID, payload.Values, payload.UpdatedAt, lastWriteWins)
+	written, err := s.putPreferences(r.Context(), db, auth.UserID, payload.Values, defaultStamp, perKeyStamps, lastWriteWins)
 	if err != nil {
 		switch {
 		case errors.Is(err, errPreferenceTooLarge):
@@ -2075,18 +2076,30 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
+// maxRequestBodyBytes 限制请求体大小。超限时此前由 LimitReader 静默截断，
+// 截断后的片段必然解析失败，于是统一回「invalid JSON body」——文案指向 JSON
+// 语法，真实原因是体积过大，排查时会被严重误导。此处多读一个字节以区分两者。
+const maxRequestBodyBytes = 1 << 20
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool {
 	if r.Body == nil {
 		writeError(w, http.StatusBadRequest, CodeInvalid, "request body required")
 		return false
 	}
-	raw, readErr := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	raw, readErr := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes+1))
 	if readErr != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalid, "invalid JSON body")
+		writeError(w, http.StatusBadRequest, CodeInvalid, "failed to read request body: "+readErr.Error())
+		return false
+	}
+	if len(raw) > maxRequestBodyBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, CodeInvalid,
+			fmt.Sprintf("request body too large (limit %d bytes)", maxRequestBodyBytes))
 		return false
 	}
 	if err := json.Unmarshal(raw, target); err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalid, "invalid JSON body")
+		// 带上具体原因：类型不符（如 updatedAt 传了对象而服务端声明为字符串）
+		// 与语法错误此前共用同一句文案，客户端只能靠猜。
+		writeError(w, http.StatusBadRequest, CodeInvalid, "invalid JSON body: "+err.Error())
 		return false
 	}
 	return true
