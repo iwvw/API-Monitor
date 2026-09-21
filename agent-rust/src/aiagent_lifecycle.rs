@@ -134,8 +134,30 @@ const PROVIDER_TEMPLATES: &[ProviderTemplate] = &[ProviderTemplate {
 }];
 
 fn lookup_template(provider: &str) -> Option<&'static ProviderTemplate> {
-    let id = if provider.is_empty() { "opencode" } else { provider };
+    let id = if provider.is_empty() {
+        "opencode"
+    } else {
+        provider
+    };
     PROVIDER_TEMPLATES.iter().find(|template| template.id == id)
+}
+
+/// 去掉路径两侧可能残留的引号与空白。
+///
+/// 用 `setx` 或手写 .reg 设置环境变量时，很容易把值连同英文双引号一起写进去
+/// （`setx VAR "C:\a\b.exe"` 在部分写法下引号会成为值的一部分）。这种值传给
+/// `PathBuf::is_file()` 会判定不存在，spawn 也只剩一句含糊的 program not found。
+/// 这里只剥离**首尾成对**的引号，不碰路径中间出现的引号字符。
+fn strip_wrapping_quotes(value: &str) -> String {
+    let trimmed = value.trim();
+    for (open, close) in [('"', '"'), ('\'', '\'')] {
+        if trimmed.len() >= 2 && trimmed.starts_with(open) && trimmed.ends_with(close) {
+            return trimmed[1..trimmed.len() - close.len_utf8()]
+                .trim()
+                .to_string();
+        }
+    }
+    trimmed.to_string()
 }
 
 /// 解析可执行文件路径：优先本地配置的环境变量，其次自动探测 npm 全局安装位置，
@@ -146,8 +168,9 @@ fn lookup_template(provider: &str) -> Option<&'static ProviderTemplate> {
 /// 安装的 opencode 真身在 `node_modules/opencode-ai/bin/` 下，Command::new 只认 .exe）。
 fn resolve_executable(template: &ProviderTemplate) -> (String, bool) {
     // 1. 显式环境变量优先（ADR-0006 第 6.1 条：路径来自 Agent 本地配置）。
+    //    先剥离首尾引号：setx/.reg 写入时常把引号一并存进值里。
     if let Ok(value) = std::env::var(template.executable_env) {
-        let value = value.trim().to_string();
+        let value = strip_wrapping_quotes(&value);
         if !value.is_empty() {
             let exists = PathBuf::from(&value).is_file();
             return (value, exists);
@@ -240,9 +263,7 @@ fn spawn_process(template: &ProviderTemplate, port: u16) -> Result<u32, String> 
         // 含糊的 program not found，提示用户安装或配置 API_MONITOR_AIAGENT_OPENCODE_BIN。
         return Err(format!(
             "未找到 Provider {} 的可执行文件（{}），请安装或设置环境变量 {} 指向真实路径",
-            template.id,
-            template.executable,
-            template.executable_env
+            template.id, template.executable, template.executable_env
         ));
     }
     let child = std::process::Command::new(&executable)
@@ -854,7 +875,10 @@ mod tests {
         std::env::set_var(template.executable_env, "C:\\custom\\opencode.exe");
         let (path, found) = resolve_executable(template);
         assert_eq!(path, "C:\\custom\\opencode.exe");
-        assert!(!found, "显式配置的路径不存在时应如实返回 found=false（spawn 前报错而非 program not found）");
+        assert!(
+            !found,
+            "显式配置的路径不存在时应如实返回 found=false（spawn 前报错而非 program not found）"
+        );
 
         // 空白值不应覆盖，避免误配成空路径。
         std::env::set_var(template.executable_env, "   ");
@@ -864,6 +888,62 @@ mod tests {
         std::env::remove_var(template.executable_env);
         std::env::remove_var("APPDATA");
         std::fs::remove_dir_all(&temp_appdata).ok();
+    }
+
+    #[test]
+    fn wrapped_quotes_in_env_are_stripped() {
+        // setx / .reg 写入时常把英文双引号一并存进值里，解析时必须剥掉，
+        // 否则 is_file() 判定不存在，只会抛出含糊的 program not found。
+        assert_eq!(
+            strip_wrapping_quotes(r#""C:\custom\opencode.exe""#),
+            r"C:\custom\opencode.exe"
+        );
+        assert_eq!(
+            strip_wrapping_quotes(r#"'C:\custom\opencode.exe'"#),
+            r"C:\custom\opencode.exe"
+        );
+        // 带空白的成对引号同样要剥掉。
+        assert_eq!(
+            strip_wrapping_quotes(r#"  "C:\custom\opencode.exe"  "#),
+            r"C:\custom\opencode.exe"
+        );
+        // 只有单边引号时不剥，避免把合法路径改坏。
+        assert_eq!(
+            strip_wrapping_quotes(r#""C:\custom\opencode.exe"#),
+            r#""C:\custom\opencode.exe"#
+        );
+        // 路径中间出现的引号字符保持原样。
+        assert_eq!(
+            strip_wrapping_quotes(r#""C:\my "dir"\opencode.exe""#),
+            r#"C:\my "dir"\opencode.exe"#
+        );
+    }
+
+    #[test]
+    fn env_override_with_quotes_resolves_to_real_path() {
+        let template = lookup_template("opencode").expect("opencode template");
+        let temp_appdata = std::env::temp_dir().join("aiagent-test-quotes-appdata");
+        std::fs::create_dir_all(&temp_appdata).ok();
+        std::env::set_var("APPDATA", &temp_appdata);
+
+        let temp_dir = std::env::temp_dir().join("aiagent-test-quotes-bin");
+        std::fs::create_dir_all(&temp_dir).ok();
+        let real = temp_dir.join("opencode.exe");
+        std::fs::write(&real, b"").ok();
+
+        // 引号包裹的合法路径必须被识别为已找到。
+        std::env::set_var(
+            template.executable_env,
+            format!("\"{}\"", real.to_string_lossy()),
+        );
+        let (path, found) = resolve_executable(template);
+        assert_eq!(path, real.to_string_lossy().to_string());
+        assert!(found, "带引号的合法路径应被判定为存在");
+
+        std::env::remove_var(template.executable_env);
+        std::env::remove_var("APPDATA");
+        std::fs::remove_dir_all(&temp_appdata).ok();
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[tokio::test]

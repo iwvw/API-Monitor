@@ -302,6 +302,70 @@ func TestEngineIOWebSocketDeliversQueuedMessageWithoutPollingDelay(t *testing.T)
 	}
 }
 
+func TestEngineIOWriteLoopDeliversMessagesQueuedWhileDraining(t *testing.T) {
+	engine := NewEngineIOServer(NewConnectionRegistry())
+	// ping 间隔取足够大，确保本用例只可能由入队通知唤醒，而不是被 tick 顺带刷出。
+	engine.pingInterval = 30 * time.Second
+	server := httptest.NewServer(engine)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/socket.io/?EIO=4&transport=websocket"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket connect: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("read handshake: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("40")); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	var session *EngineIOSession
+	for time.Now().Before(deadline) {
+		engine.mu.RLock()
+		for _, s := range engine.sessions {
+			session = s
+			break
+		}
+		engine.mu.RUnlock()
+		if session != nil {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("read ack: %v", err)
+	}
+
+	// writeLoop 在「本轮有数据发出 → continue」之后必须重新取一次通知通道，
+	// 否则在清空队列的同一瞬间入队的消息会丢失唤醒，只能在 30s 后的 ping
+	// tick 里被顺带发出。这里只断言送达本身，不设时延阈值：一旦写循环取用
+	// 过期通道，消息将随测试整体超时而失败。
+	started := time.Now()
+	engine.queueMessage(session, `42/metrics,["metrics:update",{"serverId":"srv-race-first"}]`)
+	engine.queueMessage(session, `42/metrics,["metrics:update",{"serverId":"srv-race-second"}]`)
+
+	for _, want := range []string{"srv-race-first", "srv-race-second"} {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read %s: %v (waited %s)", want, err, time.Since(started))
+		}
+		if !strings.Contains(string(msg), want) {
+			t.Fatalf("message = %q, want %s", msg, want)
+		}
+	}
+}
+
 func TestEngineIOPendingMessagesAreBounded(t *testing.T) {
 	engine := NewEngineIOServer(NewConnectionRegistry())
 	session := &EngineIOSession{
