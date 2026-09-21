@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
@@ -87,6 +88,13 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	// 重新鉴权，这类端点（如 agent heartbeat）凭据语义与 Agent 会话不同，放行即越权。
 	if route.Auth == manifest.AuthAPIKey || route.Auth == manifest.AuthAgent {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("接口需要专用密钥鉴权，不允许通过 Agent 调用")
+	}
+	// aiagent 模块内部有自己的会话鉴权（模块用户 token / 面板会话），但 AI 调用
+	// 会剥掉 bearer 与 cookie（见下），若不做识别会被其 requireAuth 拦成 401。
+	// 因此对 aiagent 路由注入「管理 AI 内部调用」context 标记，让其 resolveAuth
+	// 识别为面板管理员（context 值不可由外部 HTTP 请求伪造）。
+	if route.Module == "aiagent" {
+		ctx = aiagent.WithInternalAICall(ctx)
 	}
 
 	var body io.Reader

@@ -328,6 +328,13 @@ func trimSegment(path, prefix, suffix string) string {
 
 // resolveAuth 解析请求身份：优先 Bearer 令牌（用户面），否则面板 session（管理员面）。
 func (s *Service) resolveAuth(r *http.Request) (authContext, error) {
+	// 管理 AI 内部调用：由 server/ai_caller.go 注入的 context 标记，无法被
+	// 普通 HTTP 请求伪造（同 serveragent.WithAdminAIFullApprove 模式）。
+	// AI 调用走 serveGoRoute 绕过外层 authorizeGoRoute，本模块是少数需要
+	// 内部做会话鉴权的组件，故需显式识别这个内部管理员身份。
+	if isInternalAICall(r.Context()) {
+		return authContext{IsAdmin: true, UserID: adminActorID, Username: "admin"}, nil
+	}
 	if bearer := bearerToken(r); bearer != "" {
 		db, err := s.store.Open(r.Context())
 		if err != nil {

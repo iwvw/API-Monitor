@@ -1312,3 +1312,34 @@ func TestPreferencesHTTPRequiresBearer(t *testing.T) {
 		t.Fatalf("list response missing stored preference: %s", res.Body.String())
 	}
 }
+
+// TestInternalAICallIsAdmin 验证「管理 AI 内部调用」context 标记能让模块把
+// 请求识别为面板管理员——这是接入 AskAI 的基础（server/ai_caller.go 注入，
+// 无该标记时普通 HTTP 请求仍须 bearer/session）。
+func TestInternalAICallIsAdmin(t *testing.T) {
+	service := newTestService(t)
+
+	// 无标记的普通请求：无 bearer、无 session → 必须 401。
+	req := httptest.NewRequest(http.MethodGet, "/api/aiagent/providers", nil)
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("无凭据普通请求应 401，got %d", res.Code)
+	}
+
+	// 带 AI 内部调用标记：应放行为管理员，可访问需鉴权的接口。
+	req = httptest.NewRequest(http.MethodGet, "/api/aiagent/providers", nil).WithContext(WithInternalAICall(req.Context()))
+	res = httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("AI 内部调用应放行为管理员，got %d body=%s", res.Code, res.Body.String())
+	}
+
+	// 管理员专属接口（用户管理）也应可访问。
+	req = httptest.NewRequest(http.MethodGet, "/api/aiagent/users", nil).WithContext(WithInternalAICall(req.Context()))
+	res = httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("AI 内部调用应可访问管理员用户接口，got %d", res.Code)
+	}
+}
