@@ -299,6 +299,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/aiagent/logs", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent access logs (admin)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/metrics", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent runtime metrics (convergence/lifecycle counters)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/preferences", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent per-user preferences (multi-device sync)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/preferences/events", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseStream, Description: "AI Agent preference change stream (SSE)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent accounts, instances, and native stream gateway"},
 
 		{Prefix: "/api/m365/public/register", Module: "m365-public-register", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Microsoft 365 public registration descriptor/create", MatchMode: MatchExact},

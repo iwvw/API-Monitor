@@ -49,6 +49,8 @@ type Service struct {
 	servers      ServerProvider
 	limiter      *loginLimiter
 	streamTokens *streamTokenBroker
+	// preferenceEvents 是偏好变更的 SSE 推送总线（多端同步实时化）。
+	preferenceEvents *preferenceEventHub
 	// gatewaySlots 限制并发的网关流数量（含 Bearer 直连与一次性令牌两条路径）。
 	gatewaySlots chan struct{}
 	// 访问日志清理节流状态。
@@ -68,12 +70,13 @@ const maxConcurrentGatewayStreams = 256
 // New 构造服务。cfg 是唯一必填入参；auth/runtime 通过 Setter 注入。
 func New(cfg config.Config) *Service {
 	return &Service{
-		cfg:          cfg,
-		store:        database.New(cfg),
-		limiter:      newLoginLimiter(),
-		streamTokens: newStreamTokenBroker(),
-		gatewaySlots: make(chan struct{}, maxConcurrentGatewayStreams),
-		metrics:      newMetrics(),
+		cfg:              cfg,
+		store:            database.New(cfg),
+		limiter:          newLoginLimiter(),
+		streamTokens:     newStreamTokenBroker(),
+		preferenceEvents: newPreferenceEventHub(),
+		gatewaySlots:     make(chan struct{}, maxConcurrentGatewayStreams),
+		metrics:          newMetrics(),
 	}
 }
 
@@ -298,6 +301,9 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handlePutPreferences(w, r)
 	case path == "/preferences" && r.Method == http.MethodDelete:
 		s.handleDeletePreferences(w, r)
+	// 偏好变更推送（SSE）：客户端收到后立刻拉取，替代纯轮询。
+	case path == "/preferences/events" && r.Method == http.MethodGet:
+		s.handlePreferenceEvents(w, r)
 
 	case strings.HasPrefix(path, "/gw/"):
 		rest := strings.TrimPrefix(path, "/gw/")
@@ -1492,6 +1498,9 @@ func (s *Service) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 		UserID: auth.UserID, TokenID: auth.TokenID, Action: "preferences.put", Result: "ok",
 		IP: s.clientIP(r), UserAgent: r.UserAgent(),
 	})
+	// 只通知实际写入的键：被 lastWriteWins 拦下的键没有变化，推给客户端只会
+	// 换来一次无意义的拉取。
+	s.publishPreferenceChange(auth.UserID, written, defaultStamp)
 	writeOK(w, map[string]interface{}{"written": written})
 }
 
@@ -1526,6 +1535,7 @@ func (s *Service) handleDeletePreferences(w http.ResponseWriter, r *http.Request
 		UserID: auth.UserID, TokenID: auth.TokenID, Action: "preferences.delete", Result: "ok",
 		IP: s.clientIP(r), UserAgent: r.UserAgent(),
 	})
+	s.publishPreferenceChange(auth.UserID, removed, nowRFC3339())
 	writeOK(w, map[string]interface{}{"removed": removed})
 }
 
