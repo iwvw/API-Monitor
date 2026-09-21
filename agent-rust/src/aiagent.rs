@@ -474,30 +474,37 @@ pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
     let payload: BridgePayload =
         serde_json::from_str(raw).map_err(|err| format!("数据通道参数无效: {}", err))?;
 
-    // 先连本机端口：连不上就直接失败，避免占用云端一次性凭证。
     // 端口来自云端经鉴权控制通道下发、并以一次性 token 绑定的任务；云端已把实例
     // 端口限制为 Provider 默认端口，这里不再重复维护端口白名单。
     let target = format!("127.0.0.1:{}", payload.port);
-    let mut local = tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, TcpStream::connect(&target))
+    // 本机端口与云端数据通道的目标互不依赖（前者是 127.0.0.1:<agent_port>，后者是面板
+    // 网关），两次握手并发执行，避免把两段 RTT 串成首包前的固定延迟。
+    // 两者各自的超时、错误文案与失败语义保持原样：任一失败即整体失败。
+    let local_fut = async {
+        tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, TcpStream::connect(&target))
+            .await
+            .map_err(|_| format!("连接 {} 超时", target))?
+            .map_err(|err| format!("连接 {} 失败: {}", target, err))
+    };
+    let ws_fut = async {
+        let url = agent_port_stream_url(config, &payload.stream_id, &payload.stream_token)?;
+        // 帧/消息上限与云端网关的请求体上限（8MB）对齐，约束最坏情况下的内存分配。
+        let mut ws_config = WebSocketConfig::default();
+        ws_config.max_frame_size = Some(BRIDGE_MAX_MESSAGE);
+        ws_config.max_message_size = Some(BRIDGE_MAX_MESSAGE);
+        // 第三个参数是 disable_nagle（关闭 Nagle 以降低流式延迟），不是跳过证书校验：
+        // TLS 校验沿用 tokio-tungstenite 的 rustls + webpki-roots 默认行为，与主控制连接一致。
+        let disable_nagle = true;
+        tokio::time::timeout(
+            Duration::from_secs(12),
+            connect_async_with_config(url, Some(ws_config), disable_nagle),
+        )
         .await
-        .map_err(|_| format!("连接 {} 超时", target))?
-        .map_err(|err| format!("连接 {} 失败: {}", target, err))?;
-
-    let url = agent_port_stream_url(config, &payload.stream_id, &payload.stream_token)?;
-    // 帧/消息上限与云端网关的请求体上限（8MB）对齐，约束最坏情况下的内存分配。
-    let mut ws_config = WebSocketConfig::default();
-    ws_config.max_frame_size = Some(BRIDGE_MAX_MESSAGE);
-    ws_config.max_message_size = Some(BRIDGE_MAX_MESSAGE);
-    // 第三个参数是 disable_nagle（关闭 Nagle 以降低流式延迟），不是跳过证书校验：
-    // TLS 校验沿用 tokio-tungstenite 的 rustls + webpki-roots 默认行为，与主控制连接一致。
-    let disable_nagle = true;
-    let (mut ws_stream, _) = tokio::time::timeout(
-        Duration::from_secs(12),
-        connect_async_with_config(url, Some(ws_config), disable_nagle),
-    )
-    .await
-    .map_err(|_| "数据通道连接超时".to_string())?
-    .map_err(|err| format!("数据通道连接失败: {}", err))?;
+        .map_err(|_| "数据通道连接超时".to_string())?
+        .map_err(|err| format!("数据通道连接失败: {}", err))
+        .map(|(ws_stream, _)| ws_stream)
+    };
+    let (mut local, mut ws_stream) = tokio::try_join!(local_fut, ws_fut)?;
 
     let mut read_buf = vec![0u8; BRIDGE_READ_BUF];
     // 单循环同时持有两侧，任一侧结束即可优雅收尾：向对端发送 Close 帧、

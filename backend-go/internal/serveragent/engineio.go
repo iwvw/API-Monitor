@@ -70,6 +70,10 @@ type EngineIOSession struct {
 	PendingMessages []string
 	wsConn          *websocket.Conn
 	mu              sync.RWMutex
+
+	// notify 在队列由空转非空时被关闭并替换，用于唤醒 writeLoop 立即发送，
+	// 替代原先 50ms 的忙等轮询。恒为非 nil。
+	notify chan struct{}
 }
 
 // EngineIOServer Engine.IO 服务器
@@ -352,9 +356,34 @@ func (s *EngineIOServer) writeLoop(session *EngineIOSession, conn *websocket.Con
 	var pingSentAt time.Time
 
 	for {
+		// 每轮先取走已入队的消息。取用「先关闭再替换」的 notify 通道语义：
+		// 只要在本次读取时队列非空就发送，否则等下一次通知。
+		session.mu.Lock()
+		pending := session.PendingMessages
+		session.PendingMessages = []string{}
+		notify := session.notify
+		if session.notify == nil {
+			session.notify = make(chan struct{})
+			notify = session.notify
+		}
+		session.mu.Unlock()
+
+		for _, msg := range pending {
+			if err := s.safeWrite(session, websocket.TextMessage, []byte(msg)); err != nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		if len(pending) > 0 {
+			// 本轮有数据发出，立即回到循环再次检查，避免先等一次通知。
+			continue
+		}
+
 		select {
 		case <-done:
 			return
+		case <-notify:
+			// 队列由空转非空，下一轮发送。
 		case <-ticker.C:
 			if awaitingPong {
 				session.mu.RLock()
@@ -393,24 +422,6 @@ func (s *EngineIOServer) writeLoop(session *EngineIOSession, conn *websocket.Con
 				return
 			}
 			awaitingPong = false
-		default:
-			// 检查是否有待发送的消息
-			session.mu.Lock()
-			if len(session.PendingMessages) > 0 {
-				messages := session.PendingMessages
-				session.PendingMessages = []string{}
-				session.mu.Unlock()
-
-				for _, msg := range messages {
-					if err := s.safeWrite(session, websocket.TextMessage, []byte(msg)); err != nil {
-						_ = conn.Close()
-						return
-					}
-				}
-			} else {
-				session.mu.Unlock()
-				time.Sleep(50 * time.Millisecond)
-			}
 		}
 	}
 }
@@ -455,6 +466,7 @@ func (s *EngineIOServer) handleHandshake(w http.ResponseWriter, r *http.Request)
 		LastActivity:    time.Now(),
 		RemoteIP:        requestRemoteIP(r),
 		PendingMessages: []string{},
+		notify:          make(chan struct{}),
 	}
 
 	s.mu.Lock()
@@ -802,9 +814,22 @@ func enqueuePendingMessage(session *EngineIOSession, message string) {
 	if len(session.PendingMessages) >= maxPendingMessagesPerSession {
 		copy(session.PendingMessages, session.PendingMessages[1:])
 		session.PendingMessages[len(session.PendingMessages)-1] = message
-		return
+	} else {
+		session.PendingMessages = append(session.PendingMessages, message)
 	}
-	session.PendingMessages = append(session.PendingMessages, message)
+	notifyPendingMessagesLocked(session)
+}
+
+// notifyPendingMessagesLocked 唤醒正在等待入队的 writeLoop。
+// 调用方必须持有 session.mu。仅在队列由空转非空时唤醒并替换 notify 通道，
+// 避免重复唤醒与丢失通知：关闭旧通道使所有等待者立即返回，再换上新通道，
+// 下次为空时才能再次阻塞。
+func notifyPendingMessagesLocked(session *EngineIOSession) {
+	if session.notify == nil {
+		session.notify = make(chan struct{})
+	}
+	close(session.notify)
+	session.notify = make(chan struct{})
 }
 
 // sendEvent 发送 Socket.IO 事件

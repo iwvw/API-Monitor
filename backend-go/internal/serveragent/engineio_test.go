@@ -225,6 +225,83 @@ func TestEngineIOPollingWaitsForQueuedMessages(t *testing.T) {
 	}
 }
 
+func TestEngineIOWebSocketDeliversQueuedMessageWithoutPollingDelay(t *testing.T) {
+	engine := NewEngineIOServer(NewConnectionRegistry())
+	// ping 间隔取足够大，确保本用例只可能由入队通知唤醒，而不是被 tick 顺带刷出。
+	engine.pingInterval = 30 * time.Second
+	server := httptest.NewServer(engine)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/socket.io/?EIO=4&transport=websocket"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket connect: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("read handshake: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("40")); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+
+	// 等待会话进入可写状态（writeLoop 已阻塞在通知上）。
+	deadline := time.Now().Add(time.Second)
+	var session *EngineIOSession
+	for time.Now().Before(deadline) {
+		engine.mu.RLock()
+		for _, s := range engine.sessions {
+			session = s
+			break
+		}
+		engine.mu.RUnlock()
+		if session != nil {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if session == nil {
+		t.Fatal("session not found")
+	}
+
+	// 等 connect ack 被 writeLoop 取走后（队列清空）再入队，确保测到的是
+	// 「阻塞 → 唤醒」这条路径，而不是恰好撞上一轮未清的队列。
+	ackDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(ackDeadline) {
+		session.mu.RLock()
+		empty := len(session.PendingMessages) == 0
+		session.mu.RUnlock()
+		if empty {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("read ack: %v", err)
+	}
+
+	started := time.Now()
+	engine.queueMessage(session, `42/metrics,["metrics:update",{"serverId":"srv-notify"}]`)
+
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read queued message: %v", err)
+	}
+	elapsed := time.Since(started)
+	if !strings.Contains(string(msg), "srv-notify") {
+		t.Fatalf("message = %q", msg)
+	}
+	// 原先 time.Sleep(50ms) 忙等下这里平均要等 25ms、最坏 50ms；
+	// 改为通知后应远低于该量级（留 35ms 余量抵御 CI 抖动）。
+	if elapsed > 35*time.Millisecond {
+		t.Fatalf("queued message took %s, want notification-driven delivery under 35ms", elapsed)
+	}
+}
+
 func TestEngineIOPendingMessagesAreBounded(t *testing.T) {
 	engine := NewEngineIOServer(NewConnectionRegistry())
 	session := &EngineIOSession{
