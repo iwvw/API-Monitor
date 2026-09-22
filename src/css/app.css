@@ -1330,7 +1330,14 @@ samp {
   max-height: calc(100dvh - 2rem);
 }
 
-[role='dialog'] {
+/* 旧版 Dialog 的 Popup 是 fixed top-8 left-1/2 -translate-x-1/2（无 bottom、无自身
+   max-height），内容超高时会溢出屏幕，这条全局上界是为它补的。
+   必须排除 LayerDialog：新版 LayerDialog 的 role="dialog" 元素是 base-ui 的
+   DrawerPopup，其内部含 data-drawer-content（DrawerContent）；自身已按断点约束
+   高度（移动端 max-h-[85dvh]、桌面端 sm:max-h-full 由 flex 容器约束）。若不移除，
+   会把它移动端 bottom sheet 的 85dvh 覆盖成近满屏，底部 Actions 被挤出视口。 */
+[role='dialog']:not(:has([data-drawer-content])),
+[role='alertdialog']:not(:has([data-drawer-content])) {
   max-height: calc(100dvh - 1rem);
 }
 
@@ -1358,16 +1365,24 @@ samp {
    Windows 下 ClearType 亚像素抗锯齿失效，弹窗内文字整体发糊。
    此处改为 inset:0 + margin:auto 居中（纯布局偏移，无 transform），
    文字渲染回到像素级清晰。仅作用于 modal 弹窗（.fixed + role=dialog），
-   Popover/Select/Tooltip 等 floating 定位弹层走内联样式，不受影响。 */
-[role='dialog']:is(.fixed),
-[role='alertdialog']:is(.fixed) {
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  margin: auto;
-  height: fit-content;
-  translate: none;
+   Popover/Select/Tooltip 等 floating 定位弹层走内联样式，不受影响。
+
+   必须限定在 Kumo 的桌面断点（min-width: 640px，见 layer-dialog 的
+   useMediaQuery("(min-width: 640px)")）：移动端 Kumo 的 LayerDialog 是
+   bottom sheet（fixed inset-x-0 bottom-0 + max-h-[85dvh]，Actions 内联在
+   Body 底部），本规则若无条件应用会把抽屉改成 inset:0 居中，配合
+   height:fit-content 让超高内容从顶部溢出、底部 Actions 被挤出视口。 */
+@media (min-width: 640px) {
+  [role='dialog']:is(.fixed),
+  [role='alertdialog']:is(.fixed) {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: auto;
+    height: fit-content;
+    translate: none;
+  }
 }
 
 th > button[aria-label='Resize column'] {

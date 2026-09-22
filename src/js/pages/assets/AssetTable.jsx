@@ -1,10 +1,10 @@
 import React from 'react';
-import { Badge, Empty } from '@cloudflare/kumo';
+import { Empty } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { AppTable, DataTableFrame, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
-import { Box, Edit, HardDrive, Plus, RefreshCw, Trash } from '../../components/Icons.jsx';
-import { ASSET_COLUMNS } from './constants.js';
+import { Box, Edit, HardDrive, Plug, Plus, RefreshCw, Trash } from '../../components/Icons.jsx';
+import { ASSET_COLUMNS, sourceModuleLabel } from './constants.js';
 import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost } from './utils.js';
 
 export default function AssetTable({
@@ -69,8 +69,11 @@ export default function AssetTable({
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-kumo-strong" title={asset.name}>{asset.name}</div>
                       {asset.origin === 'linked' && (
-                        <span className="mt-0.5 inline-flex items-center gap-1">
-                          <Badge variant="neutral">纳管 · {asset.source_module || '来源'}</Badge>
+                        <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-kumo-subtle">
+                          <Plug className="h-3 w-3 shrink-0" />
+                          <span className="truncate" title={asset.source_module}>
+                            纳管自 {sourceModuleLabel(asset.source_module)}
+                          </span>
                         </span>
                       )}
                     </div>

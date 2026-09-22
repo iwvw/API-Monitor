@@ -97,6 +97,20 @@ export const BUCKET_LABEL = {
   no_renew: '不续费',
 };
 
+// 纳管来源模块的中文名。与后端 sources.go 的 sourceGroup.label 保持一致，
+// 避免在列表里直接暴露 server_accounts 这类表名。
+export const SOURCE_MODULE_LABEL = {
+  server_accounts: '主机实例',
+  subscription_subscriptions: '订阅套餐',
+  uptime_monitor_states: 'SSL 证书',
+  openai_gateway_keys: '模型网关 Key',
+  api_access_keys: '集中访问密钥',
+  aiagent_tokens: 'Agent 令牌',
+  managed_proxy_nodes: '托管代理节点',
+};
+
+export const sourceModuleLabel = module => SOURCE_MODULE_LABEL[module] || module || '来源';
+
 export const BUCKET_TONE = {
   expired: 'danger',
   within_7: 'danger',

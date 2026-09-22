@@ -4,7 +4,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { KeyValueGrid, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { RefreshCw } from '../../components/Icons.jsx';
-import { CATEGORY_LABEL, COST_CYCLE_LABEL, TYPE_LABEL } from './constants.js';
+import { CATEGORY_LABEL, COST_CYCLE_LABEL, TYPE_LABEL, sourceModuleLabel } from './constants.js';
 import { fetchAlerts, fetchEvents } from './api.js';
 import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost, formatSyncTime } from './utils.js';
 
@@ -76,7 +76,7 @@ export default function AssetDetailDialog({ open, asset, refreshNonce, onClose, 
   }
   if (asset.origin === 'linked') {
     items.push(
-      { key: 'source', label: '来源模块', value: asset.source_module || '--' },
+      { key: 'source', label: '来源模块', value: sourceModuleLabel(asset.source_module) },
       { key: 'synced', label: '上次同步', value: formatSyncTime(asset.source_synced_at) },
     );
   }
@@ -103,7 +103,7 @@ export default function AssetDetailDialog({ open, asset, refreshNonce, onClose, 
                 <div className="min-w-0">
                   <div className="text-xs font-semibold text-kumo-strong">来源快照</div>
                   <div className="mt-0.5 text-[11px] text-kumo-subtle">
-                    {asset.source_module || '--'} · 上次同步 {formatSyncTime(asset.source_synced_at)}
+                    {sourceModuleLabel(asset.source_module)} · 上次同步 {formatSyncTime(asset.source_synced_at)}
                   </div>
                 </div>
                 <Button
