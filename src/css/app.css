@@ -2238,26 +2238,6 @@ table.isolate tr:last-child td {
     display: none;
   }
 }
-edia (max-width: 639px) {
-  .app-semantic-table[data-app-table-hide-sm~='1'] :is(col, th, td):nth-child(1),
-  .app-semantic-table[data-app-table-hide-sm~='2'] :is(col, th, td):nth-child(2),
-  .app-semantic-table[data-app-table-hide-sm~='3'] :is(col, th, td):nth-child(3),
-  .app-semantic-table[data-app-table-hide-sm~='4'] :is(col, th, td):nth-child(4),
-  .app-semantic-table[data-app-table-hide-sm~='5'] :is(col, th, td):nth-child(5),
-  .app-semantic-table[data-app-table-hide-sm~='6'] :is(col, th, td):nth-child(6),
-  .app-semantic-table[data-app-table-hide-sm~='7'] :is(col, th, td):nth-child(7),
-  .app-semantic-table[data-app-table-hide-sm~='8'] :is(col, th, td):nth-child(8),
-  .app-semantic-table[data-app-table-hide-sm~='9'] :is(col, th, td):nth-child(9),
-  .app-semantic-table[data-app-table-hide-sm~='10'] :is(col, th, td):nth-child(10),
-  .app-semantic-table[data-app-table-hide-sm~='11'] :is(col, th, td):nth-child(11),
-  .app-semantic-table[data-app-table-hide-sm~='12'] :is(col, th, td):nth-child(12),
-  .app-semantic-table[data-app-table-hide-sm~='13'] :is(col, th, td):nth-child(13),
-  .app-semantic-table[data-app-table-hide-sm~='14'] :is(col, th, td):nth-child(14),
-  .app-semantic-table[data-app-table-hide-sm~='15'] :is(col, th, td):nth-child(15),
-  .app-semantic-table[data-app-table-hide-sm~='16'] :is(col, th, td):nth-child(16) {
-    display: none;
-  }
-}
 
 /* Keep operation headers and their row actions on the same visual axis. */
 .app-table-action {

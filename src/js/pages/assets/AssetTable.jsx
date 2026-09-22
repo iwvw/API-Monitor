@@ -31,9 +31,8 @@ export default function AssetTable({
             ? '登记服务器、网络设备、存储与终端，统一掌握它们的到期情况'
             : '登记域名、证书、订阅、许可证与密钥，统一掌握它们的到期与成本'
         }
-      >
-        <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={onCreate}>登记资产</Button>
-      </Empty>
+        contents={<Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={onCreate}>登记资产</Button>}
+      />
     );
   }
 

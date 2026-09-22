@@ -42,7 +42,6 @@ const bucketToStatus = {
   within_7: 'expiring',
   within_30: 'expiring',
   normal: 'active',
-  no_renew: 'retired',
 };
 
 function SettingsDialog({ open, settings, saving, onClose, onSave, onReset }) {
@@ -101,6 +100,7 @@ function AssetsPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [assets, setAssets] = useState([]);
   const [overview, setOverview] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -119,6 +119,7 @@ function AssetsPage() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [bucketFilter, setBucketFilter] = useState('');
   const [expiringFilter, setExpiringFilter] = useState('');
 
   const category = activeTab === 'physical' || activeTab === 'virtual' ? activeTab : '';
@@ -131,11 +132,14 @@ function AssetsPage() {
   }, [query]);
 
   const loadOverview = useCallback(async () => {
+    setOverviewLoading(true);
     try {
       const data = await fetchOverview();
       setOverview(data);
     } catch (error) {
       toast.error(error.message || '加载资产总览失败');
+    } finally {
+      setOverviewLoading(false);
     }
   }, []);
 
@@ -148,6 +152,7 @@ function AssetsPage() {
         q: debouncedQuery.trim(),
         asset_type: typeFilter,
         status: statusFilter,
+        bucket: bucketFilter,
         expiring_within: expiringFilter,
         limit: PAGE_SIZE,
       });
@@ -158,7 +163,7 @@ function AssetsPage() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery, typeFilter, statusFilter, expiringFilter]);
+  }, [debouncedQuery, typeFilter, statusFilter, bucketFilter, expiringFilter]);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -333,8 +338,10 @@ function AssetsPage() {
   };
 
   const selectBucket = bucket => {
-    const status = bucketToStatus[bucket];
-    setStatusFilter(status || '');
+    // 桶口径与总览一致：no_renew 同时含「已退役」与「来源失效」，不能用单一
+    // status 表达，改传 bucket 参数让后端按同一 bucketFor 判定。
+    setBucketFilter(bucket === 'no_renew' ? 'no_renew' : '');
+    setStatusFilter(bucket === 'no_renew' ? '' : (bucketToStatus[bucket] || ''));
     // 「不续费」桶指向已退役/来源失效，落在虚拟视图；其余桶保持当前视图，
     // 若当前在总览则默认切到实体视图。
     let target = activeTab;
@@ -349,7 +356,11 @@ function AssetsPage() {
         <Tabs
           {...MODULE_TABS_PROPS}
           value={activeTab}
-          onValueChange={setActiveTab}
+          onValueChange={tab => {
+            // 切换 tab 时清掉桶筛选，否则 no_renew 这类桶会残留并静默过滤其他视图。
+            setBucketFilter('');
+            setActiveTab(tab);
+          }}
           tabs={assetTabs}
         />
       </div>
@@ -392,7 +403,7 @@ function AssetsPage() {
         {activeTab === 'overview' && (
           <OverviewPanel
             overview={overview}
-            loading={loading}
+            loading={overviewLoading}
             onSelectBucket={selectBucket}
             onOpenAsset={setDetailAsset}
           />
@@ -439,7 +450,7 @@ function AssetsPage() {
                     aria-label="状态筛选"
                     className="w-32"
                     value={statusFilter}
-                    onValueChange={setStatusFilter}
+                    onValueChange={value => { setBucketFilter(''); setStatusFilter(value); }}
                     items={[{ value: '', label: '全部状态' }, ...PERSISTED_STATUSES, { value: 'expiring', label: '即将到期' }, { value: 'expired', label: '已过期' }]}
                   />
                   <Select

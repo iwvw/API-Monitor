@@ -287,10 +287,14 @@ function scanLegacyFrontend(files) {
 // 新增违规（超过基线）即失败；减少后需同步下调基线文件。
 function loadTableBaseline() {
   const baselinePath = path.join(root, 'tools', 'table-layout-baseline.json');
-  if (!fs.existsSync(baselinePath)) return null;
+  if (!fs.existsSync(baselinePath)) {
+    failures.push('tools/table-layout-baseline.json is missing; cannot enforce table layout migration gates');
+    return null;
+  }
   try {
     return JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
-  } catch {
+  } catch (error) {
+    failures.push(`tools/table-layout-baseline.json is not valid JSON: ${error.message}`);
     return null;
   }
 }

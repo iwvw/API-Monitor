@@ -6,7 +6,7 @@ import { KeyValueGrid, StatusBadge } from '../../components/ui/AppPrimitives.jsx
 import { RefreshCw } from '../../components/Icons.jsx';
 import { CATEGORY_LABEL, COST_CYCLE_LABEL, TYPE_LABEL, sourceModuleLabel } from './constants.js';
 import { fetchAlerts, fetchEvents } from './api.js';
-import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost, formatSyncTime } from './utils.js';
+import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost, formatSyncTime, formatEventTime } from './utils.js';
 
 const EVENT_LABEL = {
   created: '创建',
@@ -141,7 +141,7 @@ export default function AssetDetailDialog({ open, asset, refreshNonce, onClose, 
                     <div key={event.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-kumo-recessed/25">
                       <span className="text-xs text-kumo-strong">{EVENT_LABEL[event.event_type] || event.event_type}</span>
                       <span className="truncate text-[11px] text-kumo-subtle">{event.detail || ''}</span>
-                      <span className="whitespace-nowrap text-[11px] text-kumo-subtle">{event.created_at || ''}</span>
+                      <span className="whitespace-nowrap text-[11px] text-kumo-subtle">{formatEventTime(event.created_at)}</span>
                     </div>
                   ))}
                 </div>

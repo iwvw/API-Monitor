@@ -13,6 +13,7 @@ export const formatExpireAt = value => {
 export const formatDaysLeft = asset => {
   if (asset.days_left === null || asset.days_left === undefined) return '--';
   const days = Number(asset.days_left);
+  if (!Number.isFinite(days)) return '--';
   if (days < 0) return `已过期 ${Math.abs(days)} 天`;
   if (days === 0) return '今天到期';
   return `剩 ${days} 天`;
@@ -45,10 +46,31 @@ export const formatMoney = (amount, currency) => {
   return `${currency || ''} ${value.toLocaleString()}`.trim();
 };
 
+// parseUtcTimestamp 解析后端 CURRENT_TIMESTAMP 产生的无时区字符串
+// （YYYY-MM-DD HH:MM:SS，UTC）。直接 new Date(...) 会按浏览器本地时区解释，
+// 导致非 UTC 站点显示偏移数小时/跨天。
+const parseUtcTimestamp = value => {
+  if (!value) return null;
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)) {
+    const date = new Date(text.replace(' ', 'T') + 'Z');
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 export const formatSyncTime = value => {
   if (!value) return '未同步';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = parseUtcTimestamp(value);
+  if (!date) return String(value);
+  return formatDateTime(date);
+};
+
+export const formatEventTime = value => {
+  if (!value) return '';
+  const date = parseUtcTimestamp(value);
+  if (!date) return String(value);
   return formatDateTime(date);
 };
 

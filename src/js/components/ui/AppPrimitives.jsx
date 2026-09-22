@@ -493,8 +493,17 @@ export function AppTable({
     if (hasSemanticColumns && hasExplicitColgroup) {
       warnings.push({ code: 'semantic-columns-with-explicit-colgroup' });
     }
+    // 覆盖宽度必须与语义列数一致：短于列数时多出的列既无覆盖宽度、又因
+    // overrideWidths 存在而禁用容器分配，会静默退化为浏览器均分。
+    if (overrideWidths && hasSemanticColumns && overrideWidths.length !== semanticLayout.columns.length) {
+      warnings.push({
+        code: 'column-widths-length-mismatch',
+        expected: semanticLayout.columns.length,
+        actual: overrideWidths.length,
+      });
+    }
     return warnings;
-  }, [hasExplicitColgroup, hasSemanticColumns, semanticLayout.warnings]);
+  }, [hasExplicitColgroup, hasSemanticColumns, semanticLayout.warnings, semanticLayout.columns.length, overrideWidths]);
   const warningKey = JSON.stringify(layoutWarnings);
 
   React.useEffect(() => {
