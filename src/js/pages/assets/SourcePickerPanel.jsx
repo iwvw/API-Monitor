@@ -60,7 +60,7 @@ export default function SourcePickerPanel({ groups, loading, linking, onLink, on
 
   if (!loading && groups.length === 0) {
     return (
-      <div className="rounded-lg border border-kumo-line bg-kumo-base">
+      <div className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base">
         <Empty
           size="base"
           className="rounded-none border-0 bg-transparent"
@@ -100,7 +100,7 @@ export default function SourcePickerPanel({ groups, loading, linking, onLink, on
         </div>
       </div>
       {loading && groups.length === 0 ? (
-        <div className="flex items-center justify-center rounded-lg border border-kumo-line py-8">
+        <div className="flex items-center justify-center overflow-hidden rounded-lg border border-kumo-line py-8">
           <Loader size={28} className="text-kumo-info" />
         </div>
       ) : (
@@ -111,7 +111,7 @@ export default function SourcePickerPanel({ groups, loading, linking, onLink, on
             const allSelected = selectable.length > 0
               && selectable.every(item => selected[`${group.module}\x00${item.source_ref_id}`]);
             return (
-              <div key={group.module} className="min-w-0 rounded-lg border border-kumo-line">
+              <div key={group.module} className="min-w-0 overflow-hidden rounded-lg border border-kumo-line">
                 <div className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <Checkbox
