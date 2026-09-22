@@ -464,6 +464,7 @@ export function DataTableFrame({
 export function AppTable({
   columns,
   widths,
+  columnWidths,
   fitContent = false,
   tableId,
   layout,
@@ -476,6 +477,9 @@ export function AppTable({
     ? widths.map((width) => Math.max(Number(width) || 0, 0))
     : [];
   const totalWeight = columnWeights.reduce((total, width) => total + width, 0);
+  // columnWidths：外部托管的逐列像素覆盖（如 useTableResize 的拖拽调宽）。
+  // 与语义 columns 配合：有覆盖时按覆盖值渲染，未提供的位置回退到角色分配。
+  const overrideWidths = Array.isArray(columnWidths) ? columnWidths : null;
   const semanticLayout = React.useMemo(
     () => resolveTableColumns(Array.isArray(columns) ? columns : []),
     [columns]
@@ -503,7 +507,8 @@ export function AppTable({
   // 固定列保持角色像素不随容器伸缩；弹性列按 grow 权重分剩余空间。
   const tableRef = React.useRef(null);
   const [allocatedWidths, setAllocatedWidths] = React.useState(null);
-  const canAllocate = hasSemanticColumns && !hasExplicitColgroup;
+  // 有外部覆盖宽度（拖拽调宽）时不再用容器分配，避免与用户手动宽度冲突。
+  const canAllocate = hasSemanticColumns && !hasExplicitColgroup && !overrideWidths;
 
   React.useEffect(() => {
     if (!canAllocate) return undefined;
@@ -571,7 +576,9 @@ export function AppTable({
           {hasSemanticColumns
             ? semanticLayout.columns.map((column, index) => {
                 // 有分配结果时用像素；否则回退到「固定列像素 + 弹性列不设宽（浏览器均分）」。
-                const allocated = allocatedWidths ? allocatedWidths[index] : null;
+                const allocated = overrideWidths
+                  ? overrideWidths[index]
+                  : (allocatedWidths ? allocatedWidths[index] : null);
                 const width = allocated ?? column.width;
                 return (
                   <col

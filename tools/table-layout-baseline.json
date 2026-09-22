@@ -1,6 +1,6 @@
 {
   "_comment": "表格布局迁移基线。数值只允许下降，不允许上升。新增违规会使 ui:governance 失败；减少后请同步下调这里的数字。迁移完成后目标全部为 0。",
-  "appTableWidths": 8,
+  "appTableWidths": 1,
   "bareFixedTables": 57,
   "headWidthClasses": 125,
   "percentCols": 6

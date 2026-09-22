@@ -61,7 +61,17 @@ export const panelBodyClass = 'flex min-h-0 flex-1 flex-col';
 export const scrollViewportClass = 'min-h-0 flex-1 overflow-auto scrollbar-thin';
 export const tableFrameClass = 'flex h-0 min-h-0 flex-1 flex-col overflow-hidden';
 export const DEFAULT_NEW_USER_PASSWORD = 'Mjj@1234';
-export const USER_TABLE_COLUMN_WIDTHS = [96, 180, 220, 220, 260, 220, 200];
+// 语义列定义（替代旧 widths 数组）：状态居中，显示名为主列，
+// 账号/邮箱/许可证/OneDrive 用量为内容列，操作为固定列。
+export const USER_TABLE_COLUMNS = [
+  { id: 'status', role: 'status' },
+  { id: 'displayName', role: 'primary', minWidth: 160, maxWidth: 220, grow: 1 },
+  { id: 'account', role: 'identifier', minWidth: 180, maxWidth: 240, grow: 1 },
+  { id: 'email', role: 'content', minWidth: 180, verticalAlign: 'middle' },
+  { id: 'license', role: 'content', minWidth: 200, verticalAlign: 'middle' },
+  { id: 'oneDrive', role: 'content', minWidth: 180, verticalAlign: 'middle' },
+  { id: 'actions', role: 'actions-lg' },
+];
 export const REGISTRATION_TABLE_COLUMNS = [
   { id: 'check', role: 'check' },
   { id: 'account', role: 'primary', minWidth: 176 },

@@ -14,7 +14,7 @@ import {
   StatusBadge,
 } from '../../components/ui/AppPrimitives.jsx';
 import { Database, Plus, RefreshCw, Trash, User, Users } from '../../components/Icons.jsx';
-import { panelBodyClass, scrollViewportClass, USER_TABLE_COLUMN_WIDTHS } from './constants.js';
+import { panelBodyClass, scrollViewportClass, USER_TABLE_COLUMNS } from './constants.js';
 import { CardTableSkeleton, SkuGridSkeleton } from './Skeletons.jsx';
 import {
   clampPercent,
@@ -205,15 +205,10 @@ export default function UsersTab({
             className="overflow-auto scrollbar-thin"
           >
             <AppTable
-              layout="fixed"
-              widths={USER_TABLE_COLUMN_WIDTHS}
+              tableId="m365-users"
+              columns={USER_TABLE_COLUMNS}
               className="w-full text-xs [&_td]:align-middle"
             >
-              <colgroup>
-                {USER_TABLE_COLUMN_WIDTHS.map((width, index) => (
-                  <col key={index} style={{ width }} />
-                ))}
-              </colgroup>
               <Table.Header sticky variant="compact">
                 <Table.Row>
                   <Table.Head className="!px-3 !py-2 text-center">状态</Table.Head>

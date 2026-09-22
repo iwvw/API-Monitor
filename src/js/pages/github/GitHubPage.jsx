@@ -62,8 +62,8 @@ import {
   X,
 } from '../../components/Icons.jsx';
 import {
-  GITHUB_ACTIONS_TABLE_WIDTHS,
-  GITHUB_EVENTS_TABLE_WIDTHS,
+  GITHUB_ACTIONS_COLUMNS,
+  GITHUB_EVENTS_COLUMNS,
   fineGrainedTokenURL,
   rangeOptions,
   tokenTypeOptions,
@@ -1289,15 +1289,7 @@ function GitHubPage() {
                     density="compact"
                     className="min-w-0 overflow-x-auto overflow-y-visible scrollbar-thin"
                   >
-                    <AppTable layout="fixed" widths={GITHUB_ACTIONS_TABLE_WIDTHS}>
-                      <colgroup>
-                        <col style={{ width: GITHUB_ACTIONS_TABLE_WIDTHS[0] }} />
-                        <col style={{ width: GITHUB_ACTIONS_TABLE_WIDTHS[1] }} />
-                        <col style={{ width: GITHUB_ACTIONS_TABLE_WIDTHS[2] }} />
-                        <col style={{ width: GITHUB_ACTIONS_TABLE_WIDTHS[3] }} />
-                        <col style={{ width: GITHUB_ACTIONS_TABLE_WIDTHS[4] }} />
-                        <col style={{ width: GITHUB_ACTIONS_TABLE_WIDTHS[5] }} />
-                      </colgroup>
+                    <AppTable tableId="github-actions" columns={GITHUB_ACTIONS_COLUMNS}>
                       <Table.Header sticky variant="compact">
                         <Table.Row>
                           <Table.Head className="align-middle text-center">状态</Table.Head>
@@ -1560,13 +1552,7 @@ function GitHubPage() {
                       density="compact"
                       className="min-w-0 overflow-x-auto overflow-y-visible scrollbar-thin"
                     >
-                      <AppTable layout="fixed" widths={GITHUB_EVENTS_TABLE_WIDTHS}>
-                        <colgroup>
-                          <col style={{ width: GITHUB_EVENTS_TABLE_WIDTHS[0] }} />
-                          <col style={{ width: GITHUB_EVENTS_TABLE_WIDTHS[1] }} />
-                          <col style={{ width: GITHUB_EVENTS_TABLE_WIDTHS[2] }} />
-                          <col style={{ width: GITHUB_EVENTS_TABLE_WIDTHS[3] }} />
-                        </colgroup>
+                      <AppTable tableId="github-events" columns={GITHUB_EVENTS_COLUMNS}>
                         <Table.Header sticky variant="compact">
                           <Table.Row>
                             <Table.Head>事件</Table.Head>

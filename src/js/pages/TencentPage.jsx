@@ -34,6 +34,24 @@ const TENCENT_INSTANCE_COLUMNS = [
   { id: 'actions', role: 'actions-md', width: 144 },
 ];
 
+// DNS 域名表：配合 useTableResize 拖拽调宽（columnWidths 覆盖），语义列提供对齐与兜底宽度。
+const TENCENT_DNS_COLUMNS = [
+  { id: 'domain', role: 'primary', minWidth: 200 },
+  { id: 'records', role: 'count' },
+  { id: 'status', role: 'status' },
+  { id: 'expire', role: 'date' },
+  { id: 'actions', role: 'actions-md' },
+];
+
+// 账号表：同样配合拖拽调宽。
+const TENCENT_ACCOUNT_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 160 },
+  { id: 'secretId', role: 'identifier', minWidth: 200 },
+  { id: 'region', role: 'meta', minWidth: 140 },
+  { id: 'description', role: 'content', minWidth: 200, verticalAlign: 'middle' },
+  { id: 'actions', role: 'actions-md' },
+];
+
 const extractTencentDomains = (result) => {
   if (Array.isArray(result)) return result;
   if (Array.isArray(result?.Domains)) return result.Domains;
@@ -332,8 +350,7 @@ function TencentPage() {
   const renderDns = () => (
     <SectionCard title="DNS 域名" icon={<Globe className="h-4 w-4 text-brand" />} bodyPadding="none">
       <DataTableFrame variant="embedded" density="compact">
-        <AppTable layout="fixed" widths={dnsColWidths}>
-          <colgroup>{dnsColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+        <AppTable columns={TENCENT_DNS_COLUMNS} columnWidths={dnsColWidths}>
           <Table.Header sticky variant="compact">
             <Table.Row>
               <Table.Head className="relative pr-6">域名<Table.ResizeHandle onMouseDown={(event) => startDnsResize(0, event)} /></Table.Head>
@@ -444,8 +461,7 @@ function TencentPage() {
       bodyPadding="none"
     >
       <DataTableFrame variant="embedded" density="compact">
-        <AppTable layout="fixed" widths={accountsColWidths}>
-          <colgroup>{accountsColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+        <AppTable columns={TENCENT_ACCOUNT_COLUMNS} columnWidths={accountsColWidths}>
           <Table.Header sticky variant="compact">
             <Table.Row>
               <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(event) => startAccountsResize(0, event)} /></Table.Head>

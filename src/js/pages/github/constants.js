@@ -28,8 +28,22 @@ const rangeOptions = [
   { value: '365', label: '365 天' },
 ];
 
-const GITHUB_ACTIONS_TABLE_WIDTHS = [132, 220, 480, 132, 168, 124];
-const GITHUB_EVENTS_TABLE_WIDTHS = [420, 120, 140, 200];
+// 语义列定义（替代旧 widths 数组）：状态/时间/操作居中、提交说明与事件为弹性内容列。
+export const GITHUB_ACTIONS_COLUMNS = [
+  { id: 'status', role: 'status', minWidth: 132, maxWidth: 160 },
+  { id: 'workflow', role: 'primary', minWidth: 180, maxWidth: 260, grow: 1 },
+  { id: 'commit', role: 'content', minWidth: 280, grow: 3 },
+  { id: 'branch', role: 'meta', minWidth: 120, maxWidth: 180 },
+  { id: 'time', role: 'datetime', align: 'center' },
+  { id: 'actions', role: 'actions-md' },
+];
+
+export const GITHUB_EVENTS_COLUMNS = [
+  { id: 'event', role: 'content', minWidth: 320, grow: 3 },
+  { id: 'severity', role: 'status' },
+  { id: 'source', role: 'type', align: 'center' },
+  { id: 'time', role: 'datetime', align: 'center' },
+];
 
 const SCOPE_BADGE_VARIANTS = {
   'admin:org': 'red',
@@ -78,8 +92,6 @@ export {
   tokenTypeOptions,
   fineGrainedTokenURL,
   rangeOptions,
-  GITHUB_ACTIONS_TABLE_WIDTHS,
-  GITHUB_EVENTS_TABLE_WIDTHS,
   SCOPE_BADGE_VARIANTS,
   scopeBadgeVariant,
   ACTION_FLOW_CARD_WIDTH,
