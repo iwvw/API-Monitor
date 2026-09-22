@@ -1,11 +1,19 @@
 import React from 'react';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Toolbar } from '@cloudflare/kumo';
 import { Download, Edit, FileText, Plus, Trash, Upload } from '../../components/Icons.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
 import { downloadJson, formatDate } from './utils.jsx';
+
+const DNS_TEMPLATE_COLUMNS = [
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'records', role: 'count' },
+  { id: 'description', role: 'content', grow: 2 },
+  { id: 'updatedAt', role: 'datetime' },
+  { id: 'actions', role: 'actions-lg' },
+];
 
 function TemplatesPanel({
   templates,
@@ -37,8 +45,7 @@ function TemplatesPanel({
       bodyPadding="none"
       bodyClassName="overflow-x-auto"
     >
-      <Table layout="fixed">
-        <colgroup>{templateColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+      <AppTable tableId="dns-templates" columns={DNS_TEMPLATE_COLUMNS} columnWidths={templateColWidths}>
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startTemplateResize(0, e)} onTouchStart={(e) => startTemplateResize(0, e)} /></Table.Head>
@@ -72,7 +79,7 @@ function TemplatesPanel({
             </Table.Row>
           ))}
         </Table.Body>
-      </Table>
+      </AppTable>
     </SectionCard>
   );
 }

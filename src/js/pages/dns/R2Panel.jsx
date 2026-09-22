@@ -3,9 +3,17 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { AppCard, ResponsiveSearchInput } from '../../components/ui/AppPrimitives.jsx';
+import { AppCard, AppTable, ResponsiveSearchInput } from '../../components/ui/AppPrimitives.jsx';
 import { AlertTriangle, ArrowLeft, Box, ChevronDown, ChevronRight, Database, Download, Eye, FileText, Folder, Plus, RefreshCw, Trash, Upload } from '../../components/Icons.jsx';
 import { formatBytes, formatDate } from './utils.jsx';
+
+const DNS_R2_COLUMNS = [
+  { id: 'check', role: 'check' },
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'size', role: 'count' },
+  { id: 'modified', role: 'datetime' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 function R2Panel({
   loading,
@@ -236,8 +244,7 @@ function R2Panel({
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto">
-                <Table layout="fixed">
-                  <colgroup>{r2ColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                <AppTable tableId="dns-r2" columns={DNS_R2_COLUMNS} columnWidths={r2ColWidths}>
                   <Table.Header variant="compact">
                     <Table.Row>
                       <Table.CheckHead
@@ -348,7 +355,7 @@ function R2Panel({
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
             </div>
           </div>
         )}

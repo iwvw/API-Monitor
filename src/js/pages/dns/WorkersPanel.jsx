@@ -1,5 +1,5 @@
 import React from 'react';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
@@ -7,6 +7,13 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Plus, Terminal, Trash } from '../../components/Icons.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
 import { formatDate } from './utils.jsx';
+
+const DNS_WORKER_COLUMNS = [
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'createdOn', role: 'datetime' },
+  { id: 'modifiedOn', role: 'datetime' },
+  { id: 'actions', role: 'actions-xl' },
+];
 
 function WorkersPanel({
   loading,
@@ -35,8 +42,7 @@ function WorkersPanel({
       bodyPadding="none"
       bodyClassName="overflow-x-auto"
     >
-      <Table layout="fixed">
-        <colgroup>{workerColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+      <AppTable tableId="dns-workers" columns={DNS_WORKER_COLUMNS} columnWidths={workerColWidths}>
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startWorkerResize(0, e)} onTouchStart={(e) => startWorkerResize(0, e)} /></Table.Head>
@@ -73,7 +79,7 @@ function WorkersPanel({
             </Table.Row>
           ))}
         </Table.Body>
-      </Table>
+      </AppTable>
     </SectionCard>
   );
 }

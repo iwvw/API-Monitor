@@ -140,7 +140,6 @@ function DnsPage() {
   const [tunnelConfigState, setTunnelConfigState] = useState({ tunnel: null, text: EMPTY_TUNNEL_CONFIG });
   const [tunnelConnectionState, setTunnelConnectionState] = useState({ tunnel: null, connections: [] });
 
-  const zoneColWidths = ['31%', '20%', '13%', '11%', '25%'];
   const [recordColWidths, startRecordResize] = useTableResize([34, 54, 82, 140, 48, 50, 106, 70]);
   const [workerColWidths, startWorkerResize] = useTableResize([260, 160, 180, 280]);
   const [pageColWidths, startPageResize] = useTableResize([240, 220, 150, 150, 220]);
@@ -1827,7 +1826,6 @@ function DnsPage() {
                   zones={zones}
                   selectedZoneId={selectedZoneId}
                   selectedZone={selectedZone}
-                  zoneColWidths={zoneColWidths}
                   isArmed={isArmed}
                   onOpenZoneModal={openZoneModal}
                   onPurgeZoneCache={purgeZoneCache}

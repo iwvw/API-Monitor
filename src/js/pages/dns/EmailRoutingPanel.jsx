@@ -5,7 +5,7 @@ import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { SectionCard, EmptyState } from '../../components/ui/AppPrimitives.jsx';
+import { SectionCard, EmptyState, AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { Mail, Plus, Trash, RefreshCw, Key, Copy, Inbox, Eye, GitBranch } from '../../components/Icons.jsx';
 import { toast } from '../../modules/toast.js';
@@ -31,6 +31,33 @@ const FORWARD_STRATEGIES = [
   { value: 'inbox_and_forward', label: '收件 + 续转（推荐）' },
   { value: 'inbox_only', label: '只收件，不外发' },
   { value: 'forward', label: '只转发，不收件' },
+];
+
+const EMAIL_ZONE_COLUMNS = [
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'enabled', role: 'status' },
+];
+
+const EMAIL_ADDRESS_COLUMNS = [
+  { id: 'address', role: 'identifier', grow: 1 },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-sm' },
+];
+
+const EMAIL_RULE_COLUMNS = [
+  { id: 'matcher', role: 'primary', minWidth: 224 },
+  { id: 'actionDetail', role: 'content', grow: 1 },
+  { id: 'enabled', role: 'status' },
+  { id: 'actions', role: 'actions-sm' },
+];
+
+const EMAIL_MESSAGE_COLUMNS = [
+  { id: 'code', role: 'meta' },
+  { id: 'mailbox', role: 'identifier' },
+  { id: 'subject', role: 'content', grow: 1, verticalAlign: 'middle' },
+  { id: 'receivedAt', role: 'datetime' },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
 ];
 
 // 邮件 Tab：管理 Cloudflare Email Routing。
@@ -259,11 +286,11 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
       <div className="flex min-w-0 flex-col gap-2 cq-lg:self-start">
         <div className="dns-table-frame flex max-w-full">
           <div className="dns-table-scroll scrollbar-thin">
-            <Table layout="fixed" className="w-full min-w-[15rem] text-xs">
+            <AppTable tableId="email-zones" columns={EMAIL_ZONE_COLUMNS} className="w-full min-w-[15rem] text-xs">
               <Table.Header sticky variant="compact">
                 <Table.Row className="h-8">
                   <Table.Head className="!px-2.5 !py-1.5 text-left">域名</Table.Head>
-                  <Table.Head className="!w-24 !px-2 !py-1.5 text-center">转发</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">转发</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -292,7 +319,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                   </Table.Row>
                 ))}
               </Table.Body>
-            </Table>
+            </AppTable>
           </div>
         </div>
 
@@ -320,12 +347,12 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
           </div>
           {addrLoading || addresses.length ? (
           <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-            <Table layout="fixed" className="w-full min-w-[17rem] text-xs">
+            <AppTable tableId="email-addresses" columns={EMAIL_ADDRESS_COLUMNS} className="w-full min-w-[17rem] text-xs">
               <Table.Header variant="compact">
                 <Table.Row className="h-8">
                   <Table.Head className="!px-2.5 !py-1.5">地址</Table.Head>
-                  <Table.Head className="!w-20 !px-2 !py-1.5 text-center">状态</Table.Head>
-                  <Table.Head className="!w-14 !px-2 !py-1.5 text-center">操作</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -345,7 +372,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                   </Table.Row>
                 ))}
               </Table.Body>
-            </Table>
+            </AppTable>
           </div>
         ) : (
           <div className="p-4">
@@ -406,13 +433,13 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
         <SectionCard title="路由规则" icon={<GitBranch className="h-4 w-4 text-brand" />} bodyPadding="none">
           {loading || rules.length ? (
             <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-              <Table layout="fixed" className="w-full min-w-[38rem] text-xs">
+              <AppTable tableId="email-rules" columns={EMAIL_RULE_COLUMNS} className="w-full min-w-[38rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-56 !px-2.5 !py-1.5">匹配条件</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">匹配条件</Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">动作</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">启用</Table.Head>
-                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -434,7 +461,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">
@@ -471,15 +498,15 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
           >
             {messages.length ? (
               <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-                <Table layout="fixed" className="w-full min-w-[48rem] text-xs">
+                <AppTable tableId="email-messages" columns={EMAIL_MESSAGE_COLUMNS} className="w-full min-w-[48rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
-                      <Table.Head className="!w-28 !px-2.5 !py-1.5">验证码</Table.Head>
-                      <Table.Head className="!w-44 !px-2.5 !py-1.5">收件人</Table.Head>
+                      <Table.Head className="!px-2.5 !py-1.5">验证码</Table.Head>
+                      <Table.Head className="!px-2.5 !py-1.5">收件人</Table.Head>
                       <Table.Head className="!px-2.5 !py-1.5">主题 / 发件人</Table.Head>
-                      <Table.Head className="!w-36 !px-2 !py-1.5 text-center">收件时间</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">状态</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">操作</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">收件时间</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -514,7 +541,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
             ) : (
               <div className="p-4">

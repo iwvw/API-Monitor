@@ -6,14 +6,22 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { InlineCopyText } from '@cloudflare/kumo/components/inline-copy-text';
 import { Check, Copy, Eye, Plus, Search, Shield, Trash } from '../../components/Icons.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
+import { AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { statusVariant, zoneNameServers, zoneStatusLabel, zoneTypeLabel } from './utils.jsx';
+
+const DNS_ZONE_COLUMNS = [
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'status', role: 'status' },
+  { id: 'type', role: 'type' },
+  { id: 'nameservers', role: 'control' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 function ZoneListPanel({
   loading,
   zones,
   selectedZoneId,
   selectedZone,
-  zoneColWidths,
   isArmed,
   onOpenZoneModal,
   onPurgeZoneCache,
@@ -68,10 +76,7 @@ function ZoneListPanel({
       </div>
       <div className="dns-table-frame hidden max-w-full cq-md:flex">
         <div className="dns-table-scroll scrollbar-thin">
-        <Table layout="fixed" className="w-full text-xs">
-          <colgroup>
-            {zoneColWidths.map((width, index) => <col key={index} style={{ width }} />)}
-          </colgroup>
+        <AppTable tableId="dns-zones" columns={DNS_ZONE_COLUMNS} className="w-full text-xs">
           <Table.Header sticky variant="compact">
             <Table.Row className="h-8">
               <Table.Head className="!px-2.5 !py-1.5 text-left">域名</Table.Head>
@@ -190,7 +195,7 @@ function ZoneListPanel({
               </Table.Row>
             ))}
           </Table.Body>
-        </Table>
+        </AppTable>
         </div>
       </div>
     </>

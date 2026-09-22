@@ -1,11 +1,20 @@
 import React from 'react';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Toolbar } from '@cloudflare/kumo';
 import { Download, Edit, Eye, EyeOff, Plus, Settings, Shield, Trash, Upload } from '../../components/Icons.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
 import { formatDate } from './utils.jsx';
+
+const DNS_ACCOUNT_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 160 },
+  { id: 'email', role: 'identifier', minWidth: 160 },
+  { id: 'accountId', role: 'identifier', minWidth: 200 },
+  { id: 'token', role: 'identifier', minWidth: 180 },
+  { id: 'lastUsed', role: 'datetime' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 function AccountsPanel({
   accounts,
@@ -40,8 +49,7 @@ function AccountsPanel({
       bodyPadding="none"
       bodyClassName="overflow-x-auto"
     >
-        <Table layout="fixed">
-          <colgroup>{accountColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+        <AppTable tableId="dns-accounts" columns={DNS_ACCOUNT_COLUMNS} columnWidths={accountColWidths}>
           <Table.Header variant="compact">
             <Table.Row>
               <Table.Head className="relative pr-6">备注名称<Table.ResizeHandle onMouseDown={(e) => startAccountResize(0, e)} onTouchStart={(e) => startAccountResize(0, e)} /></Table.Head>
@@ -86,7 +94,7 @@ function AccountsPanel({
               </Table.Row>
             ))}
           </Table.Body>
-        </Table>
+        </AppTable>
     </SectionCard>
   );
 }

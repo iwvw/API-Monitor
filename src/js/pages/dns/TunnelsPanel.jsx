@@ -1,11 +1,19 @@
 import React from 'react';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Edit, Lock, Plus, Trash } from '../../components/Icons.jsx';
 import { tunnelStatusLabel, statusVariant, formatDate } from './utils.jsx';
+
+const DNS_TUNNEL_COLUMNS = [
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'status', role: 'status' },
+  { id: 'connections', role: 'count' },
+  { id: 'createdAt', role: 'datetime' },
+  { id: 'actions', role: 'actions-xl' },
+];
 
 function TunnelsPanel({
   loading,
@@ -33,8 +41,7 @@ function TunnelsPanel({
       bodyPadding="none"
       bodyClassName="overflow-x-auto"
     >
-      <Table layout="fixed">
-        <colgroup>{tunnelColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+      <AppTable tableId="dns-tunnels" columns={DNS_TUNNEL_COLUMNS} columnWidths={tunnelColWidths}>
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startTunnelResize(0, e)} onTouchStart={(e) => startTunnelResize(0, e)} /></Table.Head>
@@ -72,7 +79,7 @@ function TunnelsPanel({
             </Table.Row>
           ))}
         </Table.Body>
-      </Table>
+      </AppTable>
     </SectionCard>
   );
 }

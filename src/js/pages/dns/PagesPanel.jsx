@@ -1,11 +1,19 @@
 import React from 'react';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { ExternalLink, Layers, Trash } from '../../components/Icons.jsx';
 import { statusVariant } from './utils.jsx';
+
+const DNS_PAGE_COLUMNS = [
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'subdomain', role: 'identifier', grow: 1 },
+  { id: 'productionBranch', role: 'meta' },
+  { id: 'latestDeployment', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
 
 function PagesPanel({
   loading,
@@ -24,8 +32,7 @@ function PagesPanel({
       bodyPadding="none"
       bodyClassName="overflow-x-auto"
     >
-      <Table layout="fixed">
-        <colgroup>{pageColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+      <AppTable tableId="dns-pages" columns={DNS_PAGE_COLUMNS} columnWidths={pageColWidths}>
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head className="relative pr-6">项目<Table.ResizeHandle onMouseDown={(e) => startPageResize(0, e)} onTouchStart={(e) => startPageResize(0, e)} /></Table.Head>
@@ -66,7 +73,7 @@ function PagesPanel({
             </Table.Row>
           ))}
         </Table.Body>
-      </Table>
+      </AppTable>
     </SectionCard>
   );
 }

@@ -10,6 +10,7 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import SiteFontTimeseriesChart from '../../components/SiteFontTimeseriesChart.jsx';
 import { ChevronDown, ChevronUp, Download, Edit, Globe, Plus, Trash, Upload } from '../../components/Icons.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
+import { AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { SSL_MODES } from './constants.js';
 import {
   DnsPanelCard,
@@ -22,6 +23,17 @@ import {
   recordTypeBadgeVariant,
   sslModeLabel,
 } from './utils.jsx';
+
+const DNS_RECORD_COLUMNS = [
+  { id: 'check', role: 'check' },
+  { id: 'type', role: 'type' },
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'content', role: 'content', minWidth: 200, verticalAlign: 'middle', grow: 1 },
+  { id: 'ttl', role: 'count' },
+  { id: 'proxied', role: 'status' },
+  { id: 'modifiedOn', role: 'datetime' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 function DnsRecordsPanel({
   loading,
@@ -245,10 +257,7 @@ function DnsRecordsPanel({
           </div>
           <div className="dns-table-frame order-2 hidden max-w-full cq-md:flex cq-md:order-none">
             <div className="dns-table-scroll scrollbar-thin">
-            <Table layout="fixed" className="w-full text-xs" style={{ minWidth: recordColWidths.reduce((sum, width) => sum + width, 0) }}>
-              <colgroup>
-                {recordColWidths.map((width, index) => <col key={index} style={{ width }} />)}
-              </colgroup>
+            <AppTable tableId="dns-records" columns={DNS_RECORD_COLUMNS} columnWidths={recordColWidths} className="w-full text-xs">
               <Table.Header sticky variant="compact">
                 <Table.Row className="h-8">
                   <Table.CheckHead
@@ -319,7 +328,7 @@ function DnsRecordsPanel({
                   </Table.Row>
                 ))}
               </Table.Body>
-            </Table>
+            </AppTable>
             </div>
           </div>
         </>
