@@ -10,10 +10,10 @@ import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatMoney, form
 const bucketOrder = ['expired', 'within_7', 'within_30', 'normal', 'no_renew'];
 
 const bucketToneClass = {
-  danger: 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20',
-  warning: 'bg-kumo-warning/10 text-kumo-warning border-kumo-warning/20',
-  info: 'bg-kumo-info/10 text-kumo-info border-kumo-info/20',
-  neutral: 'bg-kumo-recessed text-kumo-subtle border-kumo-line',
+  danger: 'bg-kumo-danger/10 text-kumo-danger',
+  warning: 'bg-kumo-warning/10 text-kumo-warning',
+  info: 'bg-kumo-info/10 text-kumo-info',
+  neutral: 'bg-kumo-recessed text-kumo-subtle',
 };
 
 function StatCard({ icon, label, value, tone = 'info' }) {
@@ -87,7 +87,7 @@ export default function OverviewPanel({ overview, loading, onSelectBucket, onOpe
                 disabled={count === 0}
                 onClick={() => onSelectBucket?.(bucket)}
                 className={cx(
-                  'flex h-auto min-w-[7rem] flex-1 flex-col items-start gap-1 rounded-lg border px-3 py-2.5 text-left font-normal',
+                  'flex h-auto min-w-[7rem] flex-1 flex-col items-start gap-1 rounded-md px-3 py-2.5 text-left font-normal',
                   bucketToneClass[tone],
                   count === 0 ? 'cursor-default opacity-60' : 'hover:brightness-110'
                 )}
@@ -110,7 +110,7 @@ export default function OverviewPanel({ overview, loading, onSelectBucket, onOpe
           <div className="flex min-w-0 flex-col gap-3">
             <div className="flex min-w-0 flex-wrap gap-2">
               {data.costs.map(cost => (
-                <div key={cost.currency} className="min-w-[10rem] flex-1 rounded-lg border border-kumo-line bg-kumo-recessed/30 px-3 py-2.5">
+                <div key={cost.currency} className="min-w-[10rem] flex-1 rounded-md bg-kumo-recessed/40 px-3 py-2.5">
                   <div className="text-xs text-kumo-subtle">{cost.currency} 月均</div>
                   <div className="mt-0.5 font-mono text-base font-semibold text-kumo-strong">
                     {formatMoney(cost.monthly, cost.currency)}
@@ -150,7 +150,7 @@ export default function OverviewPanel({ overview, loading, onSelectBucket, onOpe
             {data.type_stats.map(stat => (
               <div
                 key={stat.asset_type}
-                className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 rounded-md border border-kumo-line px-3 py-2"
+                className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 rounded-md bg-kumo-recessed/40 px-3 py-2"
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="text-sm font-medium text-kumo-strong">{TYPE_LABEL[stat.asset_type] || stat.asset_type}</span>

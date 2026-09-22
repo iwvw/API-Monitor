@@ -21,21 +21,19 @@ export default function AssetTable({
   if (!loading && assets.length === 0) {
     const isPhysical = category === 'physical';
     return (
-      <div className="rounded-lg border border-kumo-line bg-kumo-base">
-        <Empty
-          size="base"
-          className="rounded-none border-0 bg-transparent"
-          icon={isPhysical ? <HardDrive className="h-8 w-8 text-kumo-secondary" /> : <Box className="h-8 w-8 text-kumo-secondary" />}
-          title={isPhysical ? '还没有实体资产' : '还没有虚拟资产'}
-          description={
-            isPhysical
-              ? '登记服务器、网络设备、存储与终端，统一掌握它们的到期情况'
-              : '登记域名、证书、订阅、许可证与密钥，统一掌握它们的到期与成本'
-          }
-        >
-          <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={onCreate}>登记资产</Button>
-        </Empty>
-      </div>
+      <Empty
+        size="base"
+        className="rounded-none border-0 bg-transparent"
+        icon={isPhysical ? <HardDrive className="h-8 w-8 text-kumo-secondary" /> : <Box className="h-8 w-8 text-kumo-secondary" />}
+        title={isPhysical ? '还没有实体资产' : '还没有虚拟资产'}
+        description={
+          isPhysical
+            ? '登记服务器、网络设备、存储与终端，统一掌握它们的到期情况'
+            : '登记域名、证书、订阅、许可证与密钥，统一掌握它们的到期与成本'
+        }
+      >
+        <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={onCreate}>登记资产</Button>
+      </Empty>
     );
   }
 
