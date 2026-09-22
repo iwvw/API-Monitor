@@ -1073,6 +1073,9 @@ func routeGroup(route manifest.Route) string {
 	// 双因子认证
 	case strings.HasPrefix(prefix, "/api/totp"):
 		return "双因子认证"
+	// 资产管理
+	case strings.HasPrefix(prefix, "/api/assets"):
+		return "资产管理"
 	// 通知中心
 	case strings.HasPrefix(prefix, "/api/notification"):
 		return "通知中心"

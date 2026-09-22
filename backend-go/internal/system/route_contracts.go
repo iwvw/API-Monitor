@@ -243,6 +243,55 @@ func init() {
 		"confirm": {t: "string", req: true, e: []string{"RESTORE"}},
 	})
 
+	// ===== 资产管理 =====
+	routeRequestContracts["/api/assets"] = obj([]string{"name", "category", "asset_type"}, map[string]prop{
+		"name":          {t: "string", req: true, d: "资产名称"},
+		"category":      {t: "string", req: true, e: []string{"physical", "virtual"}, d: "实体或虚拟"},
+		"asset_type":    {t: "string", req: true, d: "资产类型，需与 category 匹配"},
+		"provider":      {t: "string", d: "提供方"},
+		"owner":         {t: "string", d: "负责人"},
+		"location":      {t: "string", d: "位置"},
+		"serial_no":     {t: "string", d: "序列号（实体资产）"},
+		"model":         {t: "string", d: "型号（实体资产）"},
+		"status":        {t: "string", e: []string{"active", "retired", "orphan", "unknown"}, d: "持久状态，默认 active"},
+		"acquire_date":  {t: "string", d: "购置日期"},
+		"expire_at":     {t: "string", d: "到期时刻，RFC3339 或 YYYY-MM-DD"},
+		"warn_days":     {t: "array", d: "覆盖全局的到期告警阈值天数数组"},
+		"auto_renew":    {t: "boolean", d: "是否自动续费，true 时不产生到期告警"},
+		"cost_amount":   {t: "number", d: "成本金额"},
+		"cost_currency": {t: "string", d: "币种，如 CNY / USD"},
+		"cost_cycle":    {t: "string", e: []string{"monthly", "quarterly", "yearly", "one_time", "usage"}, d: "计费周期"},
+		"tags":          {t: "array", d: "标签数组"},
+		"metadata":      {t: "object", d: "扩展字段容器"},
+		"remark":        {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/assets/{id}"] = obj(nil, map[string]prop{
+		"name":          {t: "string", d: "资产名称"},
+		"category":      {t: "string", e: []string{"physical", "virtual"}, d: "实体或虚拟"},
+		"asset_type":    {t: "string", d: "资产类型，需与 category 匹配"},
+		"provider":      {t: "string", d: "提供方"},
+		"owner":         {t: "string", d: "负责人"},
+		"location":      {t: "string", d: "位置"},
+		"serial_no":     {t: "string", d: "序列号（实体资产）"},
+		"model":         {t: "string", d: "型号（实体资产）"},
+		"status":        {t: "string", e: []string{"active", "retired", "orphan", "unknown"}, d: "持久状态"},
+		"acquire_date":  {t: "string", d: "购置日期"},
+		"expire_at":     {t: "string", d: "到期时刻，RFC3339 或 YYYY-MM-DD"},
+		"warn_days":     {t: "array", d: "覆盖全局的到期告警阈值天数数组"},
+		"auto_renew":    {t: "boolean", d: "是否自动续费"},
+		"cost_amount":   {t: "number", d: "成本金额"},
+		"cost_currency": {t: "string", d: "币种，如 CNY / USD"},
+		"cost_cycle":    {t: "string", e: []string{"monthly", "quarterly", "yearly", "one_time", "usage"}, d: "计费周期"},
+		"tags":          {t: "array", d: "标签数组"},
+		"metadata":      {t: "object", d: "扩展字段容器"},
+		"remark":        {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/assets/settings"] = obj(nil, map[string]prop{
+		"base_currency":  {t: "string", d: "成本合计的基准币种，留空表示不合计"},
+		"exchange_rates": {t: "object", d: "各币种到基准币种的手工汇率，如 {\"USD\": 7.2}"},
+		"warn_days":      {t: "array", d: "全局到期告警阈值天数数组，默认 [30,14,7,1]"},
+	})
+
 	// ===== PaaS：Fly.io =====
 	routeRequestContracts["/api/flyio/apps"] = obj([]string{"accountId", "name"}, map[string]prop{
 		"accountId": {t: "string", req: true, d: "Fly.io 账号 ID"},
@@ -1287,6 +1336,7 @@ func init() {
 	routeRequestContracts["/api/ai/manifest"] = noBody
 	routeRequestContracts["/api/ai/mcp"] = noBody
 	routeRequestContracts["/api/backup/run"] = noBody
+	routeRequestContracts["/api/assets/settings/reset"] = noBody
 	routeRequestContracts["/api/system/logs/download"] = noBody
 
 	// ===== 管理 AI admin-ai =====

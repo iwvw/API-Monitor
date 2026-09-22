@@ -163,6 +163,15 @@ var routeAliases = map[string][]string{
 	"/api/backup/configs": {"备份配置列表", "备份配置", "备份列表"},
 	"/api/api-keys":       {"api 密钥", "apikey", "密钥列表", "api key", "密钥管理"},
 
+	"/api/assets":              {"资产", "资产管理", "资产台账", "资产登记", "添加资产", "新建资产"},
+	"/api/assets/{id}":         {"编辑资产", "修改资产", "删除资产", "资产详情"},
+	"/api/assets/{id}/events":  {"资产事件", "资产生命周期", "资产变更记录"},
+	"/api/assets/overview":     {"资产总览", "资产统计", "资产概览", "到期汇总"},
+	"/api/assets/expiring":     {"即将到期", "快到期", "到期提醒", "续费提醒"},
+	"/api/assets/categories":   {"资产分类", "资产类型", "计费周期"},
+	"/api/assets/settings":     {"资产设置", "资产成本设置", "到期告警阈值", "基准币种"},
+	"/api/assets/settings/reset": {"重置资产设置", "恢复默认阈值"},
+
 	"/api/openai/analytics/logs":  {"网关日志", "调用日志", "请求日志", "openai 日志"},
 	"/api/openai/analytics/clear-history": {"清理看板历史", "清空看板历史", "清除看板历史"},
 	"/api/openai/analytics":       {"网关统计", "用量统计", "令牌统计"},

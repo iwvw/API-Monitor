@@ -163,6 +163,7 @@ const routeGroup = route => {
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'drawio'))) return '图编辑器';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'prompts'))) return '提示词库';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'totp'))) return '双因子认证';
+  if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'assets'))) return '资产管理';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'notification'))) return '通知中心';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'auth'))) return '认证';
   if (

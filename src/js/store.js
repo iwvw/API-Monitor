@@ -17,6 +17,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-tachometer-alt',
     description: '系统概览',
   },
+  assets: {
+    name: '资产管理',
+    shortName: '资产',
+    icon: 'fa-boxes',
+    description: '实体与虚拟资产',
+  },
   settings: {
     name: '系统设置',
     shortName: '设置',
@@ -183,6 +189,12 @@ export const MODULE_GROUPS = [
     name: '仪表盘',
     icon: 'fa-tachometer-alt',
     modules: ['dashboard'],
+  },
+  {
+    id: 'assets',
+    name: '资产',
+    icon: 'fa-boxes',
+    modules: ['assets'],
   },
   {
     id: 'infrastructure',

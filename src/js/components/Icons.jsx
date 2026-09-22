@@ -284,6 +284,7 @@ export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 export const MODULE_ICON_MAP = {
   dashboard: LayoutDashboard,
   settings: Settings,
+  assets: HardDrive,
   openai: Sparkle,
   aiagent: Terminal,
   subscription: Plug,
@@ -313,6 +314,7 @@ export const MODULE_ICON_MAP = {
 
 export const MODULE_GROUP_ICON_MAP = {
   overview: LayoutDashboard,
+  assets: HardDrive,
   'api-gateway': TrendingUp,
   infrastructure: Layers,
   'cloud-vendors': Cloud,

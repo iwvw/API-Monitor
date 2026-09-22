@@ -34,6 +34,7 @@ import {
 } from './Icons.jsx';
 
 const DashboardPage = lazy(() => import('../pages/DashboardPage.jsx'));
+const AssetsPage = lazy(() => import('../pages/assets/AssetsPage.jsx'));
 const ServerPage = lazy(() => import('../pages/ServerPage.jsx'));
 const TotpPage = lazy(() => import('../pages/TotpPage.jsx'));
 const FileboxPage = lazy(() => import('../pages/filebox/FileboxPage.jsx'));
@@ -682,6 +683,8 @@ function MainLayout() {
     switch (mainActiveTab) {
       case 'dashboard':
         return <DashboardPage />;
+      case 'assets':
+        return <AssetsPage />;
       case 'openai':
         return <OpenAIPage />;
       case 'subscription':

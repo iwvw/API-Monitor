@@ -34,6 +34,7 @@ var moduleHandlers = map[string]routeHandler{
 	"auth-plugin-pairing":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
 	"auth-webauthn-login":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
 	"auth-webauthn-management":   func(s *Server, w http.ResponseWriter, r *http.Request) { s.auth.ServeHTTP(w, r) },
+	"assets":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.assets.ServeHTTP(w, r) },
 	"backup":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.backup.ServeHTTP(w, r) },
 	"bookmarks":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.bookmarks.ServeHTTP(w, r) },
 	"bookmarks-favicon":          func(s *Server, w http.ResponseWriter, r *http.Request) { s.bookmarks.ServeHTTP(w, r) },

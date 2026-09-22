@@ -483,6 +483,8 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 		{"/api/drawio/documents", "图编辑器"},
 		{"/api/prompts/entries", "提示词库"},
 		{"/api/totp/accounts", "双因子认证"},
+		{"/api/assets", "资产管理"},
+		{"/api/assets/overview", "资产管理"},
 		{"/api/notification/rules", "通知中心"},
 		{"/api/auth/login", "认证"},
 		{"/api/system/logs/stream", "系统日志"},

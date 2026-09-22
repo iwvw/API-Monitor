@@ -16,6 +16,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
 	"github.com/iwvw/api-monitor/backend-go/internal/aliyun"
 	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
+	"github.com/iwvw/api-monitor/backend-go/internal/assets"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
 	"github.com/iwvw/api-monitor/backend-go/internal/backup"
 	bookmarksmodule "github.com/iwvw/api-monitor/backend-go/internal/bookmarks"
@@ -97,6 +98,7 @@ type Server struct {
 	bookmarks   *bookmarksmodule.Service
 	adminai     *adminai.Service
 	aiagent     *aiagent.Service
+	assets      *assets.Service
 
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
@@ -172,6 +174,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 后台收敛：定时把「已设期望状态」的实例拉回期望状态。
 	// 覆盖「进程崩溃但无人打开面板」的场景（ADR-0006 第 3.3 条）。
 	aiagentService.StartConvergence()
+	assetsService := assets.New(cfg)
+	if err := assetsService.Initialize(context.Background()); err != nil {
+		return nil, fmt.Errorf("initialize assets schema: %w", err)
+	}
 	server := &Server{
 		cfg:         cfg,
 		auth:        authService,
@@ -212,6 +218,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		bookmarks:   bookmarksService,
 		adminai:     adminaiService,
 		aiagent:     aiagentService,
+		assets:      assetsService,
 	}
 	server.onepanel.SetAgentRunner(serverAgentService)
 	server.filebox.SetNodeProvider(serverAgentService)

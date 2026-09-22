@@ -139,6 +139,16 @@ var routeDescriptions = map[string]string{
 	"/api/backup/run":     "手动触发一次备份",
 	"/api/backup/restore": "从指定备份恢复数据库（需 confirm=RESTORE）",
 
+	// ===== 资产管理 =====
+	"/api/assets":                  "资产登记册总入口（列表 / 新建）",
+	"/api/assets/{id}":             "读取、更新或删除单个资产",
+	"/api/assets/{id}/events":      "查看资产的生命周期事件",
+	"/api/assets/overview":         "资产计数、到期分桶与成本汇总",
+	"/api/assets/expiring":         "查询指定窗口内即将到期的资产",
+	"/api/assets/categories":       "读取资产分类、类型与计费周期枚举",
+	"/api/assets/settings":         "读取或更新资产成本与告警阈值设置",
+	"/api/assets/settings/reset":   "重置资产成本与告警阈值设置为默认值",
+
 	// ===== Cloudflare =====
 	"/api/cloudflare/accounts":                         "列出或新增 Cloudflare 账号",
 	"/api/cloudflare/accounts/{id}":                    "更新或删除 Cloudflare 账号",

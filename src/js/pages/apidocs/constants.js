@@ -64,6 +64,7 @@ export const MODULE_LABELS = {
   scheduler: '工作流调度',
   cron: '定时任务',
   backup: '备份中心',
+  assets: '资产管理',
   'cloudflare-accounts': '账号',
   'cloudflare-templates': 'DNS 模板',
   'cloudflare-pages': 'Pages',
@@ -148,6 +149,7 @@ export const GROUP_ORDER = [
   '图编辑器',
   '提示词库',
   '双因子认证',
+  '资产管理',
   '模型网关',
   '订阅分发',
   '通知中心',
@@ -180,6 +182,7 @@ export const GROUP_NAME_TO_MODULE_ID = {
   图编辑器: 'drawio',
   提示词库: 'prompts',
   双因子认证: 'totp',
+  资产管理: 'assets',
   通知中心: 'notification',
   'API 接口': 'apidocs',
   系统日志: 'systemlogs',
@@ -208,7 +211,7 @@ export const FALLBACK_SECTION = {
   基础: '基础',
 };
 
-export const SECTION_ORDER = ['仪表盘', '云服务', '工具箱', 'API 服务', '系统', '认证', '系统基础', '基础', '其他'];
+export const SECTION_ORDER = ['仪表盘', '资产', '云服务', '工具箱', 'API 服务', '系统', '认证', '系统基础', '基础', '其他'];
 
 export const AI_ACCESS_BASE = '/api/ai-access';
 export const API_KEYS_BASE = '/api/api-keys';

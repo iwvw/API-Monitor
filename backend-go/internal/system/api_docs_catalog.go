@@ -357,6 +357,39 @@ var apiDocSeeds = []apiDocSeed{
 	{Route: manifest.Route{Prefix: "/api/backup/configs", Module: "backup", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Backup config list/create with multiple remote channels (OSS/COS/S3/WebDAV)", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/backup/run", Module: "backup", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Backup job run", MatchMode: manifest.MatchExact}},
 	{Route: manifest.Route{Prefix: "/api/backup/restore", Module: "backup", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Backup restore", MatchMode: manifest.MatchExact}},
+	// 资产管理：写接口显式登记方法，避免 MatchPattern/描述推断误判。
+	{
+		Route: manifest.Route{Prefix: "/api/assets", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Asset registry list/create", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET", "POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/{id}", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Asset get/update/delete", MatchMode: manifest.MatchPattern},
+		Docs:  apiRouteDocs{Methods: []string{"GET", "PUT", "DELETE"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/{id}/events", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Asset lifecycle events", MatchMode: manifest.MatchPattern},
+		Docs:  apiRouteDocs{Methods: []string{"GET"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/overview", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Asset overview stats", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/expiring", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Assets expiring soon", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/categories", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Asset categories and cycles", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/settings", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Asset settings read/update", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET", "PUT"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/settings/reset", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Reset asset settings", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"POST"}},
+	},
 	// 主机 Agent 操作型子路由：GET/POST 双方法无法从中文描述推断
 	// （「发送命令执行（POST）」标注可覆盖，此处显式登记双保险；
 	// 修复前契约只暴露 GET，导致 AI 无法向 Agent 下发命令执行）。
