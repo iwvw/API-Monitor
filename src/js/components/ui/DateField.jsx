@@ -2,8 +2,46 @@ import React, { useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { DatePicker } from '@cloudflare/kumo/components/date-picker';
 import { Popover } from '@cloudflare/kumo/components/popover';
+import { Select } from '@cloudflare/kumo/components/select';
 import { CalendarDotsIcon } from '@phosphor-icons/react';
+import { zhCN } from 'react-day-picker/locale';
 import { cx } from './AppPrimitives.jsx';
+
+// DayPicker 的年/月下拉默认渲染原生 select 元素：样式原生、且弹出的选项列表会
+// 溢出弹窗。这里用 Kumo Select 覆盖 components.Dropdown，保持全站视觉一致。
+// DayPicker 传入的是原生 select 契约（value + onChange(event)），转成 Kumo 的
+// items + onValueChange。
+function KumoDayPickerDropdown({ options, value, onChange, disabled, className, 'aria-label': ariaLabel }) {
+  const items = (options || []).map(option => ({
+    value: String(option.value),
+    label: option.label,
+    disabled: option.disabled,
+  }));
+  return (
+    <Select
+      alignItemWithTrigger
+      size="sm"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      value={value === undefined || value === null ? '' : String(value)}
+      onValueChange={next => {
+        onChange?.({ target: { value: next } });
+      }}
+      items={items}
+      className={cx('w-[4.5rem] shrink-0', className)}
+    />
+  );
+}
+
+// 下拉导航容器：DayPicker 固定「月在前、年在后」，这里重排为「年在前后」。
+// 用 key 判定（月下拉 key="month"、年下拉 key="year"）。
+function KumoDropdownNav({ children, ...props }) {
+  const reordered = React.Children.toArray(children).sort((a, b) => {
+    const rank = node => (React.isValidElement(node) && String(node.key ?? '').includes('year') ? 0 : 1);
+    return rank(a) - rank(b);
+  });
+  return <div {...props}>{reordered}</div>;
+}
 
 // 本地日期字符串（YYYY-MM-DD）与 Date 互转。原生 date 输入用的是本地日历日，
 // 这里保持一致，避免 toISOString 的 UTC 偏移把日期挪一天。
@@ -149,22 +187,29 @@ export function DateField({
           )}
           <div className="p-3">
             <DatePicker
+              className={cx('app-date-picker', showDropdown && 'app-date-picker--dropdown')}
               mode="single"
               selected={selected}
               onChange={select}
               disabled={disabledDays}
               fixedWeeks
+              locale={zhCN}
+              navLayout="around"
               captionLayout={showDropdown ? 'dropdown' : 'label'}
               startMonth={startMonth}
               endMonth={endMonth}
+              components={{
+                Dropdown: KumoDayPickerDropdown,
+                DropdownNav: KumoDropdownNav,
+              }}
               footer={
-                <span className="block w-full pt-2 text-[11px] text-kumo-subtle">
+                <span className="block w-full text-[11px] text-kumo-subtle">
                   以站点时区显示，选中后按当日零点保存
                 </span>
               }
             />
             {value && (
-              <div className="mt-2 flex justify-end border-t border-kumo-line pt-2">
+              <div className="mt-2 flex justify-start border-t border-kumo-line pt-2">
                 <Button
                   type="button"
                   size="xs"

@@ -2693,3 +2693,33 @@ input[type='number'] {
 .react-grid-item > .react-resizable-handle::after {
   display: none !important;
 }
+
+/* Kumo DatePicker 的微调（其余布局/配色由 Kumo 自带的 rdp-* 样式提供）。
+   两处必要修正：
+   1. 左右箭头默认 1.5rem 且顶到 caption 上沿，与 26px 高的年/月下拉不同轴；
+      这里强制与下拉同高（1.625rem）并垂直居中。
+   2. 下拉模式下 DayPicker 会在下拉旁渲染一个无障碍回显标签（如「2026年9月」），
+      已被 Kumo Select 取代，需隐藏。依赖类名 rdp-button_previous/_next、
+   rdp-caption_label、rdp-dropdown；升级 react-day-picker 时需复核。 */
+.app-date-picker .rdp-button_previous,
+.app-date-picker .rdp-button_next {
+  width: 1.625rem !important;
+  height: 1.625rem !important;
+  /* 箭头是 .rdp-month 的直接子元素（绝对定位锚点），而 caption 高 2.5rem；
+     让 1.625rem 高的箭头在 caption 内垂直居中：top = (2.5 - 1.625) / 2。 */
+  inset-block-start: 0.4375rem !important;
+  top: 0.4375rem !important;
+  transform: none;
+  border-radius: 0.375rem;
+}
+
+.app-date-picker .rdp-button_previous svg,
+.app-date-picker .rdp-button_next svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.app-date-picker--dropdown .rdp-caption_label,
+.app-date-picker--dropdown .rdp-dropdown {
+  display: none;
+}
