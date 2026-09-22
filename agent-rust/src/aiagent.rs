@@ -236,7 +236,7 @@ fn unix_same_process_group(_pid: u32, _ancestors: &[u32]) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn process_group_id(pid: u32) -> Result<u32, ()> {
+pub(crate) fn process_group_id(pid: u32) -> Result<u32, ()> {
     // /proc/<pid>/stat 第 5 个字段是 pgrp；comm 可能含空格/括号，从最后一个 ')' 之后切。
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|_| ())?;
     let rest = stat.rsplit_once(')').map(|(_, rest)| rest).ok_or(())?;

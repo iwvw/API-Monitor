@@ -127,6 +127,7 @@ dependencies = [
  "hmac",
  "hostname",
  "if-addrs",
+ "libc",
  "nvenc",
  "nvml-wrapper",
  "portable-pty",

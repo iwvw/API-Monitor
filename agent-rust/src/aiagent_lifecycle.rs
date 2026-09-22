@@ -848,21 +848,37 @@ async fn terminate(pid: u32) -> bool {
     if !process_alive(pid) {
         return true;
     }
-    // 按进程组终止整棵树：spawn 时已把子进程设为独立进程组（PGID = 子 PID），
-    // 负 PID 即向该组发信号，覆盖「父进程已死、子进程仍持端口」的残留场景。
-    // 同时仍向 PID 本身发一次，兼容历史遗留的、未建组的进程。
-    let group = format!("-{pid}");
-    let _ = std::process::Command::new("kill")
-        .args(["-TERM", &group, &pid.to_string()])
-        .status();
-    // 给进程一个退出窗口，超时后强杀。
+    // 先尽力终止整个进程组（覆盖「父进程已死、子进程仍持端口」的残留场景），
+    // 再向 PID 本身发信号（主路径）。
+    kill_signal(pid, libc::SIGTERM);
     if wait_process_exit(pid).await {
         return true;
     }
-    let _ = std::process::Command::new("kill")
-        .args(["-9", &group, &pid.to_string()])
-        .status();
+    kill_signal(pid, libc::SIGKILL);
     wait_process_exit(pid).await
+}
+
+/// 向目标进程发送信号；仅当该进程是**自己进程组的组长**时才附带组终止。
+///
+/// 组长判定（pgid == pid）正是本 Agent spawn 时建立的形态（`process_group(0)`），
+/// 覆盖「父进程已死、子进程仍持端口」的残留场景。对非组长进程只杀 PID 本身——
+/// 否则会波及它所属的整个组（可能是用户会话或测试进程组），造成误杀。
+///
+/// 直接用 libc::kill 而非 shell 调用 `kill`：负的组 ID 作为信号目标时，shell 的
+/// `kill -TERM -<pid> <pid>` 会把 `-<pid>` 当成非法选项导致整条命令失败（信号
+/// 根本送不到），且 `--` 在 busybox/musl 下不保证支持。系统调用没有这些歧义。
+#[cfg(target_os = "linux")]
+fn kill_signal(pid: u32, signal: i32) {
+    let is_group_leader = crate::aiagent::process_group_id(pid)
+        .map(|pgid| pgid == pid)
+        .unwrap_or(false);
+    unsafe {
+        if is_group_leader {
+            // 负 PID 表示向该进程组发信号。
+            libc::kill(-(pid as i32), signal);
+        }
+        libc::kill(pid as i32, signal);
+    }
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
