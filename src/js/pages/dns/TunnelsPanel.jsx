@@ -59,14 +59,14 @@ function TunnelsPanel({
           ) : tunnels.map((tunnel) => (
             <Table.Row key={tunnel.id}>
               <Table.Cell>
-                <div className="flex flex-col">
-                  <span className="font-medium text-kumo-strong">{tunnel.name}</span>
-                  <span className="text-xs text-kumo-subtle">{tunnel.id}</span>
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate font-medium text-kumo-strong" title={tunnel.name}>{tunnel.name}</span>
+                  <span className="truncate text-xs text-kumo-subtle" title={tunnel.id}>{tunnel.id}</span>
                 </div>
               </Table.Cell>
               <Table.Cell><Badge variant={statusVariant(tunnel.status)}>{tunnelStatusLabel(tunnel.status, tunnel.connections || [])}</Badge></Table.Cell>
-              <Table.Cell>{tunnel.connections?.length || 0}</Table.Cell>
-              <Table.Cell>{formatDate(tunnel.createdAt)}</Table.Cell>
+              <Table.Cell className="text-right tabular-nums">{tunnel.connections?.length || 0}</Table.Cell>
+              <Table.Cell className="whitespace-nowrap">{formatDate(tunnel.createdAt)}</Table.Cell>
               <Table.Cell className="text-right">
                 <div className="inline-flex flex-wrap justify-end gap-2">
                   <Button size="sm" variant="secondary" onClick={() => openTunnelTokenModal(tunnel)}>令牌</Button>

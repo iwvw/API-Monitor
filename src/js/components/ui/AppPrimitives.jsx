@@ -544,10 +544,16 @@ export function AppTable({
     };
   }, [canAllocate, semanticLayout]);
 
+  // 有拖拽宽度覆盖时，表格的 min-width 必须等于覆盖列宽之和：否则会沿用角色
+  // 推导出的更大 minWidth，把列拉伸到超出拖拽设定，内容横向溢出侵入相邻列。
+  const overrideTotal = overrideWidths
+    ? overrideWidths.reduce((total, width) => total + Math.max(Number(width) || 0, 0), 0)
+    : 0;
+  const semanticMinWidth = overrideWidths ? overrideTotal : semanticLayout.minWidth;
   const semanticStyle = hasSemanticColumns
     ? {
-        minWidth: semanticLayout.minWidth,
-        width: fitContent ? semanticLayout.minWidth : '100%',
+        minWidth: semanticMinWidth,
+        width: fitContent ? semanticMinWidth : '100%',
       }
     : undefined;
   const legacyStyle = totalWeight > 0

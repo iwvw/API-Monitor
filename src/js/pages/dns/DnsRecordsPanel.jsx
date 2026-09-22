@@ -270,9 +270,9 @@ function DnsRecordsPanel({
                   {renderResizeHead('类型', 1, startRecordResize, 'center')}
                   {renderResizeHead('名称', 2, startRecordResize)}
                   {renderResizeHead('内容', 3, startRecordResize)}
-                  {renderResizeHead('TTL', 4, startRecordResize, 'center')}
+                  {renderResizeHead('TTL', 4, startRecordResize, 'right')}
                   {renderResizeHead('代理', 5, startRecordResize, 'center')}
-                  {renderResizeHead('更新时间', 6, startRecordResize, 'center')}
+                  {renderResizeHead('更新时间', 6, startRecordResize)}
                   <Table.Head className="app-table-action !px-2 !py-1.5">操作</Table.Head>
                 </Table.Row>
               </Table.Header>
@@ -314,9 +314,9 @@ function DnsRecordsPanel({
                     <Table.Cell className="!px-2.5 !py-1.5 text-left">
                       <div className="truncate font-mono text-[11px]" title={record.content}>{record.content}</div>
                     </Table.Cell>
-                    <Table.Cell className="!px-2.5 !py-1.5 text-center">{record.ttl === 1 ? '自动' : record.ttl}</Table.Cell>
+                    <Table.Cell className="!px-2.5 !py-1.5 text-right whitespace-nowrap">{record.ttl === 1 ? '自动' : record.ttl}</Table.Cell>
                     <Table.Cell className="!px-2.5 !py-1.5 text-center"><Badge variant={record.proxied ? 'success' : 'outline'} className="text-[10px] leading-4">{record.proxied ? '开启' : '关闭'}</Badge></Table.Cell>
-                    <Table.Cell className="!px-2.5 !py-1.5 text-center">
+                    <Table.Cell className="!px-2.5 !py-1.5 whitespace-nowrap">
                       <div className="truncate" title={formatDate(record.modifiedOn)}>{formatDate(record.modifiedOn)}</div>
                     </Table.Cell>
                     <Table.Cell className="!px-2 !py-1.5 text-center">

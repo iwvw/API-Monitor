@@ -38,8 +38,7 @@ function PagesPanel({
             <Table.Head className="relative pr-6">项目<Table.ResizeHandle onMouseDown={(e) => startPageResize(0, e)} onTouchStart={(e) => startPageResize(0, e)} /></Table.Head>
             <Table.Head className="relative pr-6">访问地址<Table.ResizeHandle onMouseDown={(e) => startPageResize(1, e)} onTouchStart={(e) => startPageResize(1, e)} /></Table.Head>
             <Table.Head className="relative pr-6">生产分支<Table.ResizeHandle onMouseDown={(e) => startPageResize(2, e)} onTouchStart={(e) => startPageResize(2, e)} /></Table.Head>
-            <Table.Head className="relative pr-6">最新部署<Table.ResizeHandle onMouseDown={(e) => startPageResize(3, e)} onTouchStart={(e) => startPageResize(3, e)} /></Table.Head>
-            <Table.Head className="app-table-action">操作</Table.Head>
+            <Table.Head className="relative pr-6">最新部署<Table.ResizeHandle onMouseDown={(e) => startPageResize(3, e)} onTouchStart={(e) => startPageResize(3, e)} /></Table.Head>            <Table.Head className="app-table-action">操作</Table.Head>
           </Table.Row>
         </Table.Header>
         <Table.Body>
@@ -49,7 +48,7 @@ function PagesPanel({
             <Table.Row><Table.Cell colSpan={5} className="py-10 text-center text-kumo-subtle">没有 Pages 项目。</Table.Cell></Table.Row>
           ) : pages.map((project) => (
             <Table.Row key={project.name}>
-              <Table.Cell className="font-medium text-kumo-strong">{project.name}</Table.Cell>
+              <Table.Cell className="font-medium text-kumo-strong"><div className="truncate" title={project.name}>{project.name}</div></Table.Cell>
               <Table.Cell>
                 {project.subdomain ? (
                   <LinkButton size="sm" variant="secondary" href={`https://${project.subdomain}`} external icon={<ExternalLink className="h-4 w-4" />}>
@@ -57,7 +56,7 @@ function PagesPanel({
                   </LinkButton>
                 ) : '-'}
               </Table.Cell>
-              <Table.Cell>{project.productionBranch || '-'}</Table.Cell>
+              <Table.Cell><div className="truncate" title={project.productionBranch || '-'}>{project.productionBranch || '-'}</div></Table.Cell>
               <Table.Cell>
                 <Badge variant={statusVariant(project.latestDeployment?.status)}>
                   {project.latestDeployment?.status || '未知'}

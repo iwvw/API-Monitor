@@ -504,7 +504,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                       <Table.Head className="!px-2.5 !py-1.5">验证码</Table.Head>
                       <Table.Head className="!px-2.5 !py-1.5">收件人</Table.Head>
                       <Table.Head className="!px-2.5 !py-1.5">主题 / 发件人</Table.Head>
-                      <Table.Head className="!px-2 !py-1.5 text-center">收件时间</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5">收件时间</Table.Head>
                       <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
                       <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                     </Table.Row>
@@ -520,7 +520,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                           <div className="truncate text-kumo-strong" title={m.subject}>{m.subject || '—'}</div>
                           <div className="truncate font-mono text-kumo-subtle" title={m.sender}>{m.sender || ''}</div>
                         </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center text-kumo-subtle">{formatDate(m.receivedAt) || '—'}</Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 whitespace-nowrap text-kumo-subtle">{formatDate(m.receivedAt) || '—'}</Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <div className="flex flex-col items-center gap-0.5">
                             {m.extractStatus === 'ok'

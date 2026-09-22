@@ -4,6 +4,13 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Edit, Trash } from '../../components/Icons.jsx';
+import { AppTable } from '../../components/ui/AppPrimitives.jsx';
+
+const WORKER_ROUTE_COLUMNS = [
+  { id: 'pattern', role: 'primary', minWidth: 200, grow: 1 },
+  { id: 'script', role: 'identifier', minWidth: 160, grow: 1 },
+  { id: 'actions', role: 'actions-md' },
+];
 
 function WorkerRoutesDialog({
   open,
@@ -40,7 +47,7 @@ function WorkerRoutesDialog({
               </div>
             </div>
             <LayerCard className="overflow-x-auto p-0">
-              <Table>
+              <AppTable tableId="worker-routes" columns={WORKER_ROUTE_COLUMNS}>
                 <Table.Header variant="compact">
                   <Table.Row>
                     <Table.Head>规则</Table.Head>
@@ -53,9 +60,9 @@ function WorkerRoutesDialog({
                     <Table.Row><Table.Cell colSpan={3} className="py-8 text-center text-kumo-subtle">没有 Worker 路由。</Table.Cell></Table.Row>
                   ) : workerRouteState.routes.map((route) => (
                     <Table.Row key={route.id}>
-                      <Table.Cell>{route.pattern}</Table.Cell>
-                      <Table.Cell>{route.script || '-'}</Table.Cell>
-                      <Table.Cell className="text-right">
+                      <Table.Cell><div className="truncate" title={route.pattern}>{route.pattern}</div></Table.Cell>
+                      <Table.Cell><div className="truncate" title={route.script || '-'}>{route.script || '-'}</div></Table.Cell>
+                      <Table.Cell>
                         <div className="inline-flex gap-2">
                           <Button size="sm" shape="square" variant="secondary" onClick={() => setWorkerRouteState((prev) => ({ ...prev, form: { id: route.id, pattern: route.pattern, script: route.script || workerRouteState.worker?.name || '' } }))} aria-label="编辑 Worker 路由" title="编辑" icon={<Edit className="h-4 w-4" />} />
                           <Button size="sm" shape="square" variant={isArmed(`worker-route:${route.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => onDeleteWorkerRoute(route)} aria-label="删除 Worker 路由" title="删除" icon={<Trash className="h-4 w-4" />} />
@@ -64,7 +71,7 @@ function WorkerRoutesDialog({
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </LayerCard>
           </div>
         </LayerDialog.Body>

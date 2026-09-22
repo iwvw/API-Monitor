@@ -63,9 +63,9 @@ function WorkersPanel({
               title="双击编辑 Worker 代码"
               onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openWorkerModal(worker))}
             >
-              <Table.Cell className="font-medium text-kumo-strong">{worker.name}</Table.Cell>
-              <Table.Cell>{formatDate(worker.createdOn)}</Table.Cell>
-              <Table.Cell>{formatDate(worker.modifiedOn)}</Table.Cell>
+              <Table.Cell className="font-medium text-kumo-strong"><div className="truncate" title={worker.name}>{worker.name}</div></Table.Cell>
+              <Table.Cell className="whitespace-nowrap">{formatDate(worker.createdOn)}</Table.Cell>
+              <Table.Cell className="whitespace-nowrap">{formatDate(worker.modifiedOn)}</Table.Cell>
               <Table.Cell className="text-right">
                 <div className="inline-flex flex-wrap justify-end gap-2">
                   <Button size="sm" variant="secondary" onClick={() => openWorkerModal(worker)}>代码</Button>

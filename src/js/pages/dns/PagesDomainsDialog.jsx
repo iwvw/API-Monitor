@@ -5,7 +5,16 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Trash } from '../../components/Icons.jsx';
+import { AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { formatDate, statusVariant } from './utils.jsx';
+
+const PAGES_DOMAIN_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 200, grow: 1 },
+  { id: 'status', role: 'status' },
+  { id: 'validation', role: 'meta' },
+  { id: 'createdOn', role: 'datetime' },
+  { id: 'actions', role: 'actions-sm' },
+];
 
 function PagesDomainsDialog({
   open,
@@ -27,7 +36,7 @@ function PagesDomainsDialog({
               <div className="flex items-end"><Button size="sm" onClick={onAddPagesDomain}>添加域名</Button></div>
             </div>
             <LayerCard className="overflow-x-auto p-0">
-              <Table>
+              <AppTable tableId="pages-domains" columns={PAGES_DOMAIN_COLUMNS}>
                 <Table.Header variant="compact">
                   <Table.Row><Table.Head>域名</Table.Head><Table.Head>状态</Table.Head><Table.Head>验证状态</Table.Head><Table.Head>创建时间</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row>
                 </Table.Header>
@@ -36,15 +45,15 @@ function PagesDomainsDialog({
                     <Table.Row><Table.Cell colSpan={5} className="py-8 text-center text-kumo-subtle">没有自定义域名。</Table.Cell></Table.Row>
                   ) : pagesDomainState.domains.map((domain) => (
                     <Table.Row key={domain.id || domain.name}>
-                      <Table.Cell>{domain.name}</Table.Cell>
+                      <Table.Cell><div className="truncate" title={domain.name}>{domain.name}</div></Table.Cell>
                       <Table.Cell><Badge variant={statusVariant(domain.status)}>{domain.status || '未知'}</Badge></Table.Cell>
                       <Table.Cell>{domain.validationStatus || '-'}</Table.Cell>
-                      <Table.Cell>{formatDate(domain.createdOn)}</Table.Cell>
-                      <Table.Cell className="text-right"><Button size="sm" shape="square" variant={isArmed(`pages-domain:${domain.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => onDeletePagesDomain(domain)} aria-label={`删除 ${domain.name}`} title="删除" icon={<Trash className="h-4 w-4" />} /></Table.Cell>
+                      <Table.Cell className="whitespace-nowrap">{formatDate(domain.createdOn)}</Table.Cell>
+                      <Table.Cell><Button size="sm" shape="square" variant={isArmed(`pages-domain:${domain.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => onDeletePagesDomain(domain)} aria-label={`删除 ${domain.name}`} title="删除" icon={<Trash className="h-4 w-4" />} /></Table.Cell>
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </LayerCard>
           </div>
         </LayerDialog.Body>

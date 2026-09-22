@@ -4,6 +4,14 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Trash } from '../../components/Icons.jsx';
+import { AppTable } from '../../components/ui/AppPrimitives.jsx';
+
+const WORKER_DOMAIN_COLUMNS = [
+  { id: 'hostname', role: 'primary', minWidth: 200, grow: 1 },
+  { id: 'environment', role: 'type' },
+  { id: 'zone', role: 'identifier', minWidth: 160, grow: 1 },
+  { id: 'actions', role: 'actions-sm' },
+];
 
 function WorkerDomainsDialog({
   open,
@@ -26,7 +34,7 @@ function WorkerDomainsDialog({
               <div className="flex items-end"><Button size="sm" onClick={onAddWorkerDomain}>添加域名</Button></div>
             </div>
             <LayerCard className="overflow-x-auto p-0">
-              <Table>
+              <AppTable tableId="worker-domains" columns={WORKER_DOMAIN_COLUMNS}>
                 <Table.Header variant="compact">
                   <Table.Row><Table.Head>域名</Table.Head><Table.Head>环境</Table.Head><Table.Head>Zone</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row>
                 </Table.Header>
@@ -35,14 +43,14 @@ function WorkerDomainsDialog({
                     <Table.Row><Table.Cell colSpan={4} className="py-8 text-center text-kumo-subtle">没有自定义域名。</Table.Cell></Table.Row>
                   ) : workerDomainState.domains.map((domain) => (
                     <Table.Row key={domain.id}>
-                      <Table.Cell>{domain.hostname}</Table.Cell>
+                      <Table.Cell><div className="truncate" title={domain.hostname}>{domain.hostname}</div></Table.Cell>
                       <Table.Cell>{domain.environment || '-'}</Table.Cell>
-                      <Table.Cell>{domain.zoneName || domain.zoneId || '-'}</Table.Cell>
-                      <Table.Cell className="text-right"><Button size="sm" shape="square" variant={isArmed(`worker-domain:${domain.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => onDeleteWorkerDomain(domain)} aria-label={`删除 ${domain.hostname}`} title="删除" icon={<Trash className="h-4 w-4" />} /></Table.Cell>
+                      <Table.Cell><div className="truncate" title={domain.zoneName || domain.zoneId || '-'}>{domain.zoneName || domain.zoneId || '-'}</div></Table.Cell>
+                      <Table.Cell><Button size="sm" shape="square" variant={isArmed(`worker-domain:${domain.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => onDeleteWorkerDomain(domain)} aria-label={`删除 ${domain.hostname}`} title="删除" icon={<Trash className="h-4 w-4" />} /></Table.Cell>
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </LayerCard>
           </div>
         </LayerDialog.Body>

@@ -1448,6 +1448,10 @@ th > button[aria-label='Resize column'] > span {
   flex: 1 1 auto;
   position: relative;
   z-index: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
 }
 
 .dns-toolbar-frame {
@@ -2086,6 +2090,13 @@ table.isolate tr:last-child td {
 .app-semantic-table th,
 .app-semantic-table td {
   vertical-align: middle;
+}
+
+/* 安全网：固定布局下，任何超宽内容（长 URL、等宽 ID、多标签）都会被裁在列内，
+   不再横向溢出侵入相邻列。行高由内容决定，纵向不受影响。 */
+.app-semantic-table th,
+.app-semantic-table td {
+  overflow: hidden;
 }
 
 .app-semantic-table[data-app-table-align-center~='1'] :is(th, td):nth-child(1),

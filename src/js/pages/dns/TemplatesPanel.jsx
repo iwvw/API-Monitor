@@ -65,10 +65,10 @@ function TemplatesPanel({
               title="双击编辑模板"
               onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openTemplateModal(template))}
             >
-              <Table.Cell className="font-medium text-kumo-strong">{template.name}</Table.Cell>
-              <Table.Cell>{template.records?.length || 0}</Table.Cell>
-              <Table.Cell><div className="truncate">{template.description || '-'}</div></Table.Cell>
-              <Table.Cell>{formatDate(template.updatedAt || template.createdAt)}</Table.Cell>
+              <Table.Cell className="font-medium text-kumo-strong"><div className="truncate" title={template.name}>{template.name}</div></Table.Cell>
+              <Table.Cell className="whitespace-nowrap">{template.records?.length || 0}</Table.Cell>
+              <Table.Cell><div className="truncate" title={template.description || '-'}>{template.description || '-'}</div></Table.Cell>
+              <Table.Cell className="whitespace-nowrap">{formatDate(template.updatedAt || template.createdAt)}</Table.Cell>
               <Table.Cell className="text-right">
                 <div className="inline-flex gap-2">
                   <Button size="sm" variant="secondary" onClick={() => applyTemplate(template)}>应用</Button>

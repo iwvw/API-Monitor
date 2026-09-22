@@ -336,8 +336,8 @@ function R2Panel({
                             )}
                           </div>
                         </Table.Cell>
-                        <Table.Cell>{row.isFolder ? '-' : formatBytes(row.size)}</Table.Cell>
-                        <Table.Cell>{row.isFolder ? '-' : formatDate(row.uploaded || row.last_modified)}</Table.Cell>
+                        <Table.Cell className="whitespace-nowrap tabular-nums">{row.isFolder ? '-' : formatBytes(row.size)}</Table.Cell>
+                        <Table.Cell className="whitespace-nowrap">{row.isFolder ? '-' : formatDate(row.uploaded || row.last_modified)}</Table.Cell>
                         <Table.Cell className="text-right">
                           {row.isFolder ? (
                             <div className="inline-flex gap-2" onClick={(event) => event.stopPropagation()}>

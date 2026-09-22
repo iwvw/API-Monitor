@@ -70,9 +70,9 @@ function AccountsPanel({
                 title="双击编辑账号"
                 onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openAccountModal(account))}
               >
-                <Table.Cell className="font-medium text-kumo-strong">{account.name}</Table.Cell>
-                <Table.Cell>{account.userEmail || account.email || '-'}</Table.Cell>
-                <Table.Cell><code className="block truncate text-xs">{account.cfAccountId || '-'}</code></Table.Cell>
+                <Table.Cell className="font-medium text-kumo-strong"><div className="truncate" title={account.name}>{account.name}</div></Table.Cell>
+                <Table.Cell><div className="truncate" title={account.userEmail || account.email || '-'}>{account.userEmail || account.email || '-'}</div></Table.Cell>
+                <Table.Cell><code className="block truncate text-xs" title={account.cfAccountId || '-'}>{account.cfAccountId || '-'}</code></Table.Cell>
                 <Table.Cell>
                   <div className="flex items-center gap-2">
                     <code className="truncate text-xs">{accountTokens[account.id] || (account.hasToken ? '••••••••••••••••' : '-')}</code>
@@ -83,7 +83,7 @@ function AccountsPanel({
                     )}
                   </div>
                 </Table.Cell>
-                <Table.Cell>{formatDate(account.lastUsed)}</Table.Cell>
+                <Table.Cell className="whitespace-nowrap">{formatDate(account.lastUsed)}</Table.Cell>
                 <Table.Cell className="text-right">
                   <div className="inline-flex gap-2">
                     <Button size="sm" shape="square" variant="secondary" onClick={() => verifyAccount(account)} aria-label={`验证 ${account.name}`} title="验证" icon={<Shield className="h-4 w-4" />} />
