@@ -291,6 +291,9 @@ func init() {
 		"exchange_rates": {t: "object", d: "各币种到基准币种的手工汇率，如 {\"USD\": 7.2}"},
 		"warn_days":      {t: "array", d: "全局到期告警阈值天数数组，默认 [30,14,7,1]"},
 	})
+	routeRequestContracts["/api/assets/links"] = obj([]string{"links"}, map[string]prop{
+		"links": {t: "array", req: true, d: "待纳管对象数组，每项含 source_module 与 source_ref_id"},
+	})
 
 	// ===== PaaS：Fly.io =====
 	routeRequestContracts["/api/flyio/apps"] = obj([]string{"accountId", "name"}, map[string]prop{
@@ -1337,6 +1340,9 @@ func init() {
 	routeRequestContracts["/api/ai/mcp"] = noBody
 	routeRequestContracts["/api/backup/run"] = noBody
 	routeRequestContracts["/api/assets/settings/reset"] = noBody
+	routeRequestContracts["/api/assets/refresh-all"] = noBody
+	routeRequestContracts["/api/assets/scan-expiry"] = noBody
+	routeRequestContracts["/api/assets/{id}/refresh"] = noBody
 	routeRequestContracts["/api/system/logs/download"] = noBody
 
 	// ===== 管理 AI admin-ai =====

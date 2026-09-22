@@ -10,6 +10,8 @@ import (
 func generateFingerprint(rule Rule, data map[string]interface{}) string {
 	parts := []string{rule.SourceModule, rule.EventType}
 	switch {
+	case stringValue(data["assetId"]) != "":
+		parts = append(parts, "asset:"+stringValue(data["assetId"]))
 	case stringValue(data["monitorId"]) != "":
 		parts = append(parts, "monitor:"+stringValue(data["monitorId"]))
 	case stringValue(data["serverId"]) != "":

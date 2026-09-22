@@ -171,6 +171,10 @@ var routeAliases = map[string][]string{
 	"/api/assets/categories":   {"资产分类", "资产类型", "计费周期"},
 	"/api/assets/settings":     {"资产设置", "资产成本设置", "到期告警阈值", "基准币种"},
 	"/api/assets/settings/reset": {"重置资产设置", "恢复默认阈值"},
+	"/api/assets/candidates":   {"可纳管对象", "待纳管", "纳管来源", "已有对象导入"},
+	"/api/assets/links":        {"纳管资产", "批量纳管", "导入已有对象"},
+	"/api/assets/refresh-all":  {"刷新纳管", "同步来源", "刷新全部资产"},
+	"/api/assets/scan-expiry":  {"资产到期扫描", "执行到期检查", "触发到期告警"},
 
 	"/api/openai/analytics/logs":  {"网关日志", "调用日志", "请求日志", "openai 日志"},
 	"/api/openai/analytics/clear-history": {"清理看板历史", "清空看板历史", "清除看板历史"},

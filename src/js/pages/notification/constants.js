@@ -17,6 +17,7 @@ export const getSourceModuleName = (module) => {
     totp: '双因子认证',
     antigravity: 'Antigravity',
     cron: '定时任务',
+    assets: '资产管理',
   };
   return names[module] || module;
 };
@@ -72,6 +73,7 @@ export const getEventTypeName = (type) => {
     'task.failed': '定时任务执行失败',
     'workflow.completed': '工作流执行完成',
     'workflow.failed': '工作流执行失败',
+    asset_expiry: '资产即将到期',
     created: '已创建',
     updated: '已更新',
     deleted: '已删除',
@@ -91,4 +93,5 @@ export const FALLBACK_EVENT_CATALOG = [
   { module: 'totp', events: ['resource.created', 'resource.updated', 'resource.deleted', 'security.revealed', 'backup.imported', 'backup.exported'] },
   { module: 'antigravity', events: ['quota_window_refreshed'] },
   { module: 'cron', events: ['task.completed', 'task.failed', 'workflow.completed', 'workflow.failed'] },
+  { module: 'assets', events: ['asset_expiry'] },
 ];

@@ -20,8 +20,12 @@ import {
   createAsset,
   deleteAsset,
   fetchAssets,
+  fetchCandidates,
   fetchOverview,
   fetchSettings,
+  linkAssets,
+  refreshAllAssets,
+  refreshAsset,
   resetSettings,
   updateAsset,
   updateSettings,
@@ -30,6 +34,7 @@ import OverviewPanel from './OverviewPanel.jsx';
 import AssetTable from './AssetTable.jsx';
 import AssetFormDialog from './AssetFormDialog.jsx';
 import AssetDetailDialog from './AssetDetailDialog.jsx';
+import SourcePickerPanel from './SourcePickerPanel.jsx';
 
 const bucketToStatus = {
   expired: 'expired',
@@ -107,6 +112,10 @@ function AssetsPage() {
   const [formMode, setFormMode] = useState('create');
   const [editing, setEditing] = useState(null);
   const [detailAsset, setDetailAsset] = useState(null);
+  const [candidates, setCandidates] = useState([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [linking, setLinking] = useState('');
+  const [refreshingId, setRefreshingId] = useState('');
 
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -154,6 +163,19 @@ function AssetsPage() {
     }
   }, []);
 
+  const loadCandidates = useCallback(async () => {
+    setCandidatesLoading(true);
+    try {
+      const groups = await fetchCandidates();
+      setCandidates(groups);
+    } catch (error) {
+      toast.error(error.message || '加载纳管来源失败');
+      setCandidates([]);
+    } finally {
+      setCandidatesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadOverview();
     void loadSettings();
@@ -163,6 +185,41 @@ function AssetsPage() {
     if (!category) return;
     void loadAssets(category);
   }, [category, loadAssets]);
+
+  useEffect(() => {
+    if (activeTab !== 'sources') return;
+    void loadCandidates();
+  }, [activeTab, loadCandidates]);
+
+  const linkSelected = async links => {
+    setLinking('link');
+    try {
+      const results = await linkAssets(links);
+      const linked = results.filter(item => item.status === 'linked').length;
+      const skipped = results.filter(item => item.status === 'skipped').length;
+      if (linked > 0) toast.success(`已纳管 ${linked} 个对象`);
+      if (skipped > 0) toast.warning(`${skipped} 个对象已纳管，已跳过`);
+      await Promise.all([loadCandidates(), loadOverview()]);
+    } catch (error) {
+      toast.error(error.message || '纳管失败');
+    } finally {
+      setLinking('');
+    }
+  };
+
+  const refreshAll = async () => {
+    setLinking('refresh');
+    try {
+      const result = await refreshAllAssets();
+      toast.success(`已刷新 ${result.refreshed ?? 0} 个纳管资产`);
+      if (result.failed) toast.warning(`${result.failed} 个刷新失败`);
+      await Promise.all([loadCandidates(), loadOverview(), category ? loadAssets(category) : Promise.resolve()]);
+    } catch (error) {
+      toast.error(error.message || '刷新失败');
+    } finally {
+      setLinking('');
+    }
+  };
 
   const typeOptions = useMemo(() => {
     const found = CATEGORIES.find(item => item.value === category);
@@ -247,6 +304,23 @@ function AssetsPage() {
     }
   };
 
+  const refreshOne = async asset => {
+    setRefreshingId(asset.id);
+    try {
+      const updated = await refreshAsset(asset.id);
+      if (updated.status === 'orphan') {
+        toast.warning('来源对象已消失，资产已标记为来源失效');
+      } else {
+        toast.success('已刷新来源快照');
+      }
+      await Promise.all([loadAssets(category), loadOverview()]);
+    } catch (error) {
+      toast.error(error.message || '刷新失败');
+    } finally {
+      setRefreshingId('');
+    }
+  };
+
   const selectBucket = bucket => {
     const status = bucketToStatus[bucket];
     setStatusFilter(status || '');
@@ -308,6 +382,16 @@ function AssetsPage() {
           />
         )}
 
+        {activeTab === 'sources' && (
+          <SourcePickerPanel
+            groups={candidates}
+            loading={candidatesLoading}
+            linking={linking}
+            onLink={linkSelected}
+            onRefreshAll={refreshAll}
+          />
+        )}
+
         {(activeTab === 'physical' || activeTab === 'virtual') && (
           <div className="flex min-w-0 flex-col gap-3">
             <SectionCard
@@ -363,6 +447,8 @@ function AssetsPage() {
                 onEdit={openEdit}
                 onDelete={confirmDelete}
                 onOpenAsset={setDetailAsset}
+                onRefresh={refreshOne}
+                refreshingId={refreshingId}
               />
             </SectionCard>
           </div>
@@ -381,6 +467,8 @@ function AssetsPage() {
       <AssetDetailDialog
         open={Boolean(detailAsset)}
         asset={detailAsset}
+        refreshing={refreshingId === detailAsset?.id}
+        onRefresh={refreshOne}
         onClose={() => setDetailAsset(null)}
       />
 

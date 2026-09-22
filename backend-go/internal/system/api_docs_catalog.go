@@ -390,6 +390,30 @@ var apiDocSeeds = []apiDocSeed{
 		Route: manifest.Route{Prefix: "/api/assets/settings/reset", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Reset asset settings", MatchMode: manifest.MatchExact},
 		Docs:  apiRouteDocs{Methods: []string{"POST"}},
 	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/candidates", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Linkable source candidates", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"GET"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/links", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Batch link existing objects", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/refresh-all", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Refresh all linked assets", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/scan-expiry", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Run asset expiry scan", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/{id}/refresh", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Refresh linked asset snapshot", MatchMode: manifest.MatchPattern},
+		Docs:  apiRouteDocs{Methods: []string{"POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/assets/{id}/alerts", Module: "assets", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Asset expiry alert markers", MatchMode: manifest.MatchPattern},
+		Docs:  apiRouteDocs{Methods: []string{"GET"}},
+	},
 	// 主机 Agent 操作型子路由：GET/POST 双方法无法从中文描述推断
 	// （「发送命令执行（POST）」标注可覆盖，此处显式登记双保险；
 	// 修复前契约只暴露 GET，导致 AI 无法向 Agent 下发命令执行）。

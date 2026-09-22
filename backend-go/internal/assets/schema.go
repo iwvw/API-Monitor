@@ -63,6 +63,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_asset_events_asset ON asset_events(asset_id)`,
+		`CREATE TABLE IF NOT EXISTS asset_alerts (
+			asset_id TEXT NOT NULL,
+			marker TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (asset_id, marker)
+		)`,
 	}
 
 	for _, statement := range statements {

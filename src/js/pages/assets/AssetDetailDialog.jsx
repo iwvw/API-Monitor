@@ -1,31 +1,50 @@
 import React, { useEffect, useState } from 'react';
 import { Empty, Loader } from '@cloudflare/kumo';
+import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { KeyValueGrid, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
+import { RefreshCw } from '../../components/Icons.jsx';
 import { CATEGORY_LABEL, COST_CYCLE_LABEL, TYPE_LABEL } from './constants.js';
-import { fetchEvents } from './api.js';
+import { fetchAlerts, fetchEvents } from './api.js';
 import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost, formatSyncTime } from './utils.js';
 
 const EVENT_LABEL = {
   created: '创建',
   updated: '更新',
+  linked: '纳管',
+  refreshed: '刷新快照',
   renewed: '续费',
   retired: '退役',
+  expiry_alert: '到期告警',
   source_lost: '来源失效',
   source_restored: '来源恢复',
 };
 
-export default function AssetDetailDialog({ open, asset, onClose }) {
+const ALERT_LABEL = marker => {
+  if (!marker) return '';
+  if (marker === 'expired') return '已过期';
+  if (/^d\d+$/.test(marker)) return `剩余 ${marker.slice(1)} 天`;
+  return marker;
+};
+
+export default function AssetDetailDialog({ open, asset, onClose, onRefresh, refreshing }) {
   const [events, setEvents] = useState([]);
+  const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!open || !asset?.id) return;
     let cancelled = false;
     setLoading(true);
-    fetchEvents(asset.id)
-      .then(list => { if (!cancelled) setEvents(list); })
-      .catch(() => { if (!cancelled) setEvents([]); })
+    Promise.all([fetchEvents(asset.id), fetchAlerts(asset.id)])
+      .then(([eventList, alertList]) => {
+        if (cancelled) return;
+        setEvents(eventList);
+        setAlerts(alertList);
+      })
+      .catch(() => {
+        if (!cancelled) { setEvents([]); setAlerts([]); }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [open, asset?.id]);
@@ -76,6 +95,37 @@ export default function AssetDetailDialog({ open, asset, onClose }) {
                 {asset.tags.map(tag => (
                   <span key={tag} className="rounded border border-kumo-line bg-kumo-recessed px-1.5 py-0.5 text-[11px] text-kumo-subtle">{tag}</span>
                 ))}
+              </div>
+            )}
+
+            {asset.origin === 'linked' && (
+              <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-kumo-line px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-kumo-strong">来源快照</div>
+                  <div className="mt-0.5 text-[11px] text-kumo-subtle">
+                    {asset.source_module || '--'} · 上次同步 {formatSyncTime(asset.source_synced_at)}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<RefreshCw className="h-3.5 w-3.5" />}
+                  loading={refreshing}
+                  onClick={() => onRefresh?.(asset)}
+                >立即刷新</Button>
+              </div>
+            )}
+
+            {alerts.length > 0 && (
+              <div>
+                <div className="mb-2 text-xs font-semibold text-kumo-strong">已触发的到期告警</div>
+                <div className="flex min-w-0 flex-wrap gap-1">
+                  {alerts.map(alert => (
+                    <StatusBadge key={alert.marker} tone="warning">
+                      {ALERT_LABEL(alert.marker)}
+                    </StatusBadge>
+                  ))}
+                </div>
               </div>
             )}
 

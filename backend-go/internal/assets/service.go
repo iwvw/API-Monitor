@@ -26,6 +26,10 @@ type Service struct {
 	store      *database.Store
 	schemaOnce sync.Once
 	schemaErr  error
+	notifier   Notifier
+	schedStart sync.Once
+	schedMu    sync.Mutex
+	scheduler  *cronRuntime
 }
 
 // Asset 是资产的对外结构。expire_at 统一存储为 UTC RFC3339 字符串，
@@ -82,6 +86,16 @@ type CurrencyCost struct {
 	Count    int     `json:"count"`
 }
 
+// TypeStat 是按资产类型聚合的统计，用于总览的聚合仪表盘。
+type TypeStat struct {
+	AssetType    string  `json:"asset_type"`
+	Category     string  `json:"category"`
+	Count        int     `json:"count"`
+	Expiring     int     `json:"expiring"`
+	Expired      int     `json:"expired"`
+	MonthlyByCcy []CurrencyCost `json:"monthly_by_currency"`
+}
+
 type Overview struct {
 	PhysicalCount int                     `json:"physical_count"`
 	VirtualCount  int                     `json:"virtual_count"`
@@ -91,6 +105,7 @@ type Overview struct {
 	Buckets       ExpiringBucket          `json:"buckets"`
 	Costs         []CurrencyCost          `json:"costs"`
 	TotalMonthly  map[string]float64      `json:"total_monthly"`
+	TypeStats     []TypeStat              `json:"type_stats"`
 	RecentExpiring []Asset                `json:"recent_expiring"`
 }
 
@@ -169,6 +184,36 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.overview(w, r)
+	case len(parts) == 1 && parts[0] == "candidates":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.candidates(w, r)
+	case len(parts) == 1 && parts[0] == "links":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.linkAssets(w, r)
+	case len(parts) == 1 && parts[0] == "refresh-all":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.refreshAll(w, r)
+	case len(parts) == 1 && parts[0] == "scan-expiry":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.scanExpiry(w, r)
+	case len(parts) == 2 && parts[1] == "refresh" && r.Method == http.MethodPost:
+		s.refreshAsset(w, r, parts[0])
+	case len(parts) == 2 && parts[1] == "events" && r.Method == http.MethodGet:
+		s.listEvents(w, r, parts[0])
+	case len(parts) == 2 && parts[1] == "alerts" && r.Method == http.MethodGet:
+		s.listAlerts(w, r, parts[0])
 	case len(parts) == 1:
 		switch r.Method {
 		case http.MethodGet:
@@ -180,8 +225,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
-	case len(parts) == 2 && parts[1] == "events" && r.Method == http.MethodGet:
-		s.listEvents(w, r, parts[0])
 	default:
 		response.Error(w, http.StatusNotFound, "assets route not implemented")
 	}

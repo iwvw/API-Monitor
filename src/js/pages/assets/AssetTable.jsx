@@ -3,7 +3,7 @@ import { Badge, Empty } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { AppTable, DataTableFrame, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
-import { Box, Edit, HardDrive, Plus, Trash } from '../../components/Icons.jsx';
+import { Box, Edit, HardDrive, Plus, RefreshCw, Trash } from '../../components/Icons.jsx';
 import { ASSET_COLUMNS } from './constants.js';
 import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost } from './utils.js';
 
@@ -15,6 +15,8 @@ export default function AssetTable({
   onDelete,
   onCreate,
   onOpenAsset,
+  onRefresh,
+  refreshingId,
 }) {
   if (!loading && assets.length === 0) {
     const isPhysical = category === 'physical';
@@ -97,6 +99,18 @@ export default function AssetTable({
                 </Table.Cell>
                 <Table.Cell className="text-right">
                   <div className="flex justify-end gap-1 whitespace-nowrap">
+                    {asset.origin === 'linked' && (
+                      <Button
+                        size="sm"
+                        shape="square"
+                        variant="secondary"
+                        icon={<RefreshCw className="h-3.5 w-3.5" />}
+                        aria-label="刷新来源快照"
+                        title="刷新来源快照"
+                        loading={refreshingId === asset.id}
+                        onClick={() => onRefresh?.(asset)}
+                      />
+                    )}
                     <Button
                       size="sm"
                       shape="square"

@@ -4,7 +4,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { AppTable, DataTableFrame, SectionCard, StatusBadge, cx } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, Box, HardDrive, Layers, ShieldCheck } from '../../components/Icons.jsx';
-import { BUCKET_LABEL, BUCKET_TONE, TABLE_SUMMARY_COLUMNS } from './constants.js';
+import { BUCKET_LABEL, BUCKET_TONE, CATEGORY_LABEL, TABLE_SUMMARY_COLUMNS, TYPE_LABEL } from './constants.js';
 import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatMoney, formatCost } from './utils.js';
 
 const bucketOrder = ['expired', 'within_7', 'within_30', 'normal', 'no_renew'];
@@ -54,6 +54,7 @@ export default function OverviewPanel({ overview, loading, onSelectBucket, onOpe
     buckets: {},
     costs: [],
     total_monthly: {},
+    type_stats: [],
     recent_expiring: [],
   };
 
@@ -135,6 +136,43 @@ export default function OverviewPanel({ overview, loading, onSelectBucket, onOpe
           </div>
         ) : (
           <div className="text-xs text-kumo-subtle">暂无成本信息。为资产填写成本金额与计费周期后在此汇总。</div>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        icon={<Box className="h-4 w-4 text-kumo-info" />}
+        title="按类型聚合"
+        description="按资产类型统计数量、到期与月均成本，便于发现集中风险"
+        bodyPadding="md"
+      >
+        {data.type_stats && data.type_stats.length > 0 ? (
+          <div className="flex min-w-0 flex-col gap-2">
+            {data.type_stats.map(stat => (
+              <div
+                key={stat.asset_type}
+                className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 rounded-md border border-kumo-line px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="text-sm font-medium text-kumo-strong">{TYPE_LABEL[stat.asset_type] || stat.asset_type}</span>
+                  <span className="text-[11px] text-kumo-subtle">{CATEGORY_LABEL[stat.category] || stat.category}</span>
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <StatusBadge tone="info">{stat.count} 个</StatusBadge>
+                  {stat.expiring > 0 && <StatusBadge tone="warning">即将到期 {stat.expiring}</StatusBadge>}
+                  {stat.expired > 0 && <StatusBadge tone="danger">已过期 {stat.expired}</StatusBadge>}
+                  {stat.monthly_by_currency?.map(cost => (
+                    cost.monthly > 0 && (
+                      <span key={cost.currency} className="font-mono text-xs text-kumo-subtle">
+                        {formatMoney(cost.monthly, cost.currency)}/月
+                      </span>
+                    )
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-kumo-subtle">登记资产后在此按类型聚合展示。</div>
         )}
       </SectionCard>
 

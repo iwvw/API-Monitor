@@ -113,3 +113,24 @@ func convertToBase(costs []CurrencyCost, settings Settings) map[string]float64 {
 	}
 	return map[string]float64{base: math.Round(total*100) / 100}
 }
+
+// costsForType 过滤出指定类型的资产，供按类型聚合成本使用。
+func costsForType(assets []Asset, assetType string) []Asset {
+	filtered := []Asset{}
+	for _, asset := range assets {
+		if asset.AssetType == assetType {
+			filtered = append(filtered, asset)
+		}
+	}
+	return filtered
+}
+
+// sortTypeStats 让类型统计按数量降序、类型名升序排列，保证输出稳定。
+func sortTypeStats(stats []TypeStat) {
+	sort.SliceStable(stats, func(i, j int) bool {
+		if stats[i].Count != stats[j].Count {
+			return stats[i].Count > stats[j].Count
+		}
+		return stats[i].AssetType < stats[j].AssetType
+	})
+}

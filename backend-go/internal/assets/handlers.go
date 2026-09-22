@@ -103,6 +103,74 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request, id string) 
 	response.OK(w, events)
 }
 
+func (s *Service) listAlerts(w http.ResponseWriter, r *http.Request, id string) {
+	alerts, err := s.LoadAlerts(r.Context(), id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, alerts)
+}
+
+func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.LoadCandidates(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, groups)
+}
+
+func (s *Service) linkAssets(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Links []LinkInput `json:"links"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	results, err := s.LinkAssets(r.Context(), payload.Links)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidInput) {
+			status = http.StatusBadRequest
+		}
+		response.Error(w, status, err.Error())
+		return
+	}
+	response.OK(w, results)
+}
+
+func (s *Service) refreshAsset(w http.ResponseWriter, r *http.Request, id string) {
+	asset, err := s.RefreshAsset(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			response.Error(w, http.StatusNotFound, "asset not found")
+			return
+		}
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidInput) {
+			status = http.StatusBadRequest
+		}
+		response.Error(w, status, err.Error())
+		return
+	}
+	response.OK(w, asset)
+}
+
+func (s *Service) refreshAll(w http.ResponseWriter, r *http.Request) {
+	success, failed, err := s.RefreshAllLinked(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]int{"refreshed": success, "failed": failed})
+}
+
+func (s *Service) scanExpiry(w http.ResponseWriter, r *http.Request) {
+	s.RunExpiryScan(r.Context())
+	response.OK(w, map[string]bool{"success": true})
+}
+
 func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 	assets, settings, err := s.loadAllForStats(r.Context())
 	if err != nil {
@@ -113,8 +181,10 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 	result := Overview{
 		Costs:          aggregateCosts(assets),
 		TotalMonthly:   map[string]float64{},
+		TypeStats:      []TypeStat{},
 		RecentExpiring: []Asset{},
 	}
+	typeAccumulator := map[string]*TypeStat{}
 	for _, asset := range assets {
 		if asset.Category == categoryPhysical {
 			result.PhysicalCount++
@@ -141,7 +211,25 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request) {
 		default:
 			result.Buckets.Normal++
 		}
+
+		stat, ok := typeAccumulator[asset.AssetType]
+		if !ok {
+			stat = &TypeStat{AssetType: asset.AssetType, Category: asset.Category, MonthlyByCcy: []CurrencyCost{}}
+			typeAccumulator[asset.AssetType] = stat
+		}
+		stat.Count++
+		if asset.DerivedStatus == statusExpiring {
+			stat.Expiring++
+		}
+		if asset.DerivedStatus == statusExpired {
+			stat.Expired++
+		}
 	}
+	for _, stat := range typeAccumulator {
+		stat.MonthlyByCcy = aggregateCosts(costsForType(assets, stat.AssetType))
+		result.TypeStats = append(result.TypeStats, *stat)
+	}
+	sortTypeStats(result.TypeStats)
 	if total := convertToBase(result.Costs, settings); total != nil {
 		result.TotalMonthly = total
 	}

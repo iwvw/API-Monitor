@@ -67,7 +67,7 @@
 
 ## 参考资料
 
-- [PRD 目录](./prd/)，含[转发中心 PRD](./prd/转发中心PRD.md)、[Oracle OCI 主机管理模块](./prd/OracleOCI主机管理模块.md)、[GCP 云资源管理模块](./prd/GCP云资源管理模块PRD.md)、[HuaweiCloud 模块](./prd/HuaweiCloud模块PRD.md)、[资产管理模块](./prd/资产管理模块PRD.md)（P0 已实现）、[提示词库模块](./prd/提示词库模块.md)、[文档编辑器重构](./prd/文档编辑器重构.md)、[Draw.io 图编辑工具模块](./prd/Drawio图编辑工具模块.md)、[AI Agent 管理模块](./prd/AIAgent管理模块PRD.md) 等
+- [PRD 目录](./prd/)，含[转发中心 PRD](./prd/转发中心PRD.md)、[Oracle OCI 主机管理模块](./prd/OracleOCI主机管理模块.md)、[GCP 云资源管理模块](./prd/GCP云资源管理模块PRD.md)、[HuaweiCloud 模块](./prd/HuaweiCloud模块PRD.md)、[资产管理模块](./prd/资产管理模块PRD.md)（已实现）、[提示词库模块](./prd/提示词库模块.md)、[文档编辑器重构](./prd/文档编辑器重构.md)、[Draw.io 图编辑工具模块](./prd/Drawio图编辑工具模块.md)、[AI Agent 管理模块](./prd/AIAgent管理模块PRD.md) 等
 - [Kumo 参考资料](./reference/)（含组件注册表与 Dialog 说明）
 - [插件登记清单](./plugins/registry.json)
 - [GCP API 契约](./gcp-api-contracts/)

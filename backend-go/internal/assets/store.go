@@ -362,6 +362,34 @@ func (s *Service) LoadEvents(ctx context.Context, assetID string, limit int) ([]
 	return events, rows.Err()
 }
 
+// LoadAlerts 返回资产的告警去重标记（用于详情页展示已触发的档位）。
+func (s *Service) LoadAlerts(ctx context.Context, assetID string) ([]map[string]interface{}, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx,
+		"SELECT marker, created_at FROM asset_alerts WHERE asset_id = ? ORDER BY created_at DESC",
+		assetID)
+	if err != nil {
+		return nil, fmt.Errorf("list asset alerts: %w", err)
+	}
+	defer rows.Close()
+	alerts := []map[string]interface{}{}
+	for rows.Next() {
+		var marker, createdAt string
+		if err := rows.Scan(&marker, &createdAt); err != nil {
+			return nil, err
+		}
+		alerts = append(alerts, map[string]interface{}{
+			"marker":     marker,
+			"created_at": createdAt,
+		})
+	}
+	return alerts, rows.Err()
+}
+
 func (s *Service) LoadSettings(ctx context.Context) (Settings, error) {
 	db, err := s.open(ctx)
 	if err != nil {

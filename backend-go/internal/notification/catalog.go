@@ -11,5 +11,6 @@ func eventCatalog() []map[string]interface{} {
 		{"module": "openai", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
 		{"module": "antigravity", "events": []string{"quota_window_refreshed"}},
 		{"module": "cron", "events": []string{"task.completed", "task.failed", "workflow.completed", "workflow.failed"}, "dynamic_events": []string{}},
+		{"module": "assets", "events": []string{"asset_expiry"}},
 	}
 }

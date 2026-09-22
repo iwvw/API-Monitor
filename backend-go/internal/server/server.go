@@ -178,6 +178,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	if err := assetsService.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("initialize assets schema: %w", err)
 	}
+	assetsService.SetNotifier(notifyService)
 	server := &Server{
 		cfg:         cfg,
 		auth:        authService,
@@ -230,6 +231,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 启动代理池预热：预建立各代理到上游的连接，缓解首次请求冷启动握手延迟。
 	warmupCtx, warmupCancel := context.WithCancel(context.Background())
 	server.warmupCancel = warmupCancel
+	// 资产到期扫描：每日按站点时区扫描并触发 asset_expiry 通知。
+	server.assets.StartExpiryScheduler(warmupCtx)
 	server.openai.SetNotifier(notifyService)
 	server.posthogcode.SetInbox(server.emailcode)
 	// 收件箱的可用域名来自 Cloudflare 的收件箱部署记录。

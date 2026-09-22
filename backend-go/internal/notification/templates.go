@@ -252,6 +252,7 @@ func notificationEventLabel(eventType string) string {
 		"quota_window_refreshed": "Antigravity 配额窗口已刷新",
 		"task.completed": "定时任务执行完成", "task.failed": "定时任务执行失败",
 		"workflow.completed": "工作流执行完成", "workflow.failed": "工作流执行失败",
+		"asset_expiry": "资产即将到期",
 	}
 	if label := labels[strings.ToLower(strings.TrimSpace(eventType))]; label != "" {
 		return label

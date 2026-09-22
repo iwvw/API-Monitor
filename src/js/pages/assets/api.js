@@ -65,3 +65,33 @@ export const fetchEvents = async id => {
   const result = await request('GET', `${ASSETS_API}/${id}/events`);
   return Array.isArray(result.data) ? result.data : [];
 };
+
+export const fetchAlerts = async id => {
+  const result = await request('GET', `${ASSETS_API}/${id}/alerts`);
+  return Array.isArray(result.data) ? result.data : [];
+};
+
+export const fetchCandidates = async () => {
+  const result = await request('GET', `${ASSETS_API}/candidates`);
+  return Array.isArray(result.data) ? result.data : [];
+};
+
+export const linkAssets = async links => {
+  const result = await request('POST', `${ASSETS_API}/links`, { links });
+  return Array.isArray(result.data) ? result.data : [];
+};
+
+export const refreshAsset = async id => {
+  const result = await request('POST', `${ASSETS_API}/${id}/refresh`);
+  return result.data ?? result;
+};
+
+export const refreshAllAssets = async () => {
+  const result = await request('POST', `${ASSETS_API}/refresh-all`);
+  return result.data ?? result;
+};
+
+export const scanExpiry = async () => {
+  const result = await request('POST', `${ASSETS_API}/scan-expiry`);
+  return result.data ?? result;
+};

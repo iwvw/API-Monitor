@@ -148,6 +148,12 @@ var routeDescriptions = map[string]string{
 	"/api/assets/categories":       "读取资产分类、类型与计费周期枚举",
 	"/api/assets/settings":         "读取或更新资产成本与告警阈值设置",
 	"/api/assets/settings/reset":   "重置资产成本与告警阈值设置为默认值",
+	"/api/assets/candidates":       "列出可纳管的来源对象，按来源模块分组",
+	"/api/assets/links":            "批量把已有对象纳管为资产",
+	"/api/assets/refresh-all":      "刷新全部纳管资产的来源快照",
+	"/api/assets/scan-expiry":      "立即执行一次资产到期扫描与告警",
+	"/api/assets/{id}/refresh":     "刷新单个纳管资产的来源快照",
+	"/api/assets/{id}/alerts":      "查看资产已触发的到期告警档位",
 
 	// ===== Cloudflare =====
 	"/api/cloudflare/accounts":                         "列出或新增 Cloudflare 账号",
