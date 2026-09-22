@@ -394,7 +394,7 @@ pub async fn stop(raw: &str) -> Result<String, String> {
     // 第一步（同步）：先把期望置为停止并重置计数，让 supervisor 立刻不再拉起。
     // 这一步不 await，避免在终止期间被 supervisor 抢先重启。
     // pid 暂留，等终止确认后再清——否则未确认退出时会谎报「已停止」。
-    let pid = {
+    let (pid, port) = {
         let mut table = process_table().lock().unwrap();
         match table.get_mut(&payload.instance_id) {
             Some(process) => {
@@ -402,8 +402,9 @@ pub async fn stop(raw: &str) -> Result<String, String> {
                 process.crashed = false;
                 process.restarts = 0;
                 let pid = process.pid;
+                let port = process.port;
                 persist(&table);
-                pid
+                (pid, port)
             }
             None => {
                 return Ok(serde_json::json!({
@@ -417,14 +418,28 @@ pub async fn stop(raw: &str) -> Result<String, String> {
     };
 
     // 第二步（异步）：终止进程。pid 为 0 表示此前已停止，无需再终止。
-    let terminated = if pid == 0 { true } else { terminate(pid).await };
+    let mut terminated = if pid == 0 { true } else { terminate(pid).await };
+
+    // 第二步补充：记录的 PID 可能只是已退出的 shim/launcher，真正持有监听端口的是
+    // 它的孤儿子进程（Windows shim 形态、Linux 父先死）。terminate 只确认了记录的
+    // PID 退出，不代表端口已释放。此处按端口复查，若仍被本 Agent 托管的进程占用，
+    // 一并清理，避免 stop 报成功但端口未释放、restart 的端口预检失败。
+    // pid == 0 表示此前已停止，属幂等成功，不做端口复查（表内 pid 已为 0，
+    // 归属判定必然失败，否则会把成功的幂等 stop 误报为失败）。
+    if pid != 0 && terminated && port != 0 && listening_pid(port).is_some() {
+        terminated = terminate_managed_occupant(port).await && listening_pid(port).is_none();
+    }
 
     // 第三步：确认退出后才清 pid，如实反映「是否真的停了」。
+    // 只在 pid 仍等于本次要终止的值时清零：避免 supervisor 在终止期间已基于旧快照
+    // 拉起新进程并写入新 pid 后，被这里抹掉而成为无法追踪的孤儿（TOCTOU）。
     if terminated {
         let mut table = process_table().lock().unwrap();
         if let Some(entry) = table.get_mut(&payload.instance_id) {
-            entry.pid = 0;
-            persist(&table);
+            if entry.pid == pid {
+                entry.pid = 0;
+                persist(&table);
+            }
         }
     }
 
@@ -869,9 +884,18 @@ async fn terminate(pid: u32) -> bool {
 /// 根本送不到），且 `--` 在 busybox/musl 下不保证支持。系统调用没有这些歧义。
 #[cfg(target_os = "linux")]
 fn kill_signal(pid: u32, signal: i32) {
+    // pid 为 0 时信号发给整个进程组，语义错误；超出 i32 范围时 `pid as i32`
+    // 会回绕成负值或错误的目标，直接跳过。
+    if pid == 0 || pid > i32::MAX as u32 {
+        return;
+    }
     let is_group_leader = crate::aiagent::process_group_id(pid)
         .map(|pgid| pgid == pid)
         .unwrap_or(false);
+    // SAFETY: kill 是异步信号安全的系统调用，仅需一个有效 pid 与信号编号。
+    // 上面已保证 pid 落在 (0, i32::MAX]；负目标表示向该进程组发信号（组 ID 取正数
+    // 的 pid），是 kill(2) 的既定语义。返回值（0/-1）此处不做区分：ESRCH/EPERM
+    // 的最终判定由后续 wait_process_exit 的存活性轮询负责。
     unsafe {
         if is_group_leader {
             // 负 PID 表示向该进程组发信号。
