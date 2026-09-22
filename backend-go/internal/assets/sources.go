@@ -51,7 +51,10 @@ type sourceDescriptor struct {
 
 func sourceDescriptors() []sourceDescriptor {
 	return []sourceDescriptor{
-		{"server_accounts", "主机实例", "server", categoryPhysical, loadServerAccounts},
+		// server_accounts 是面板纳管的云/远程主机（法兰克福、伦敦等 VPS 与实例），
+		// 语义上是虚拟资产而非物理硬件，故归 cloud_instance / virtual。
+		// 真正的物理设备（网络设备、存储、终端、线下机柜）由用户手工登记到 physical。
+		{"server_accounts", "主机实例", "cloud_instance", categoryVirtual, loadServerAccounts},
 		{"subscription_subscriptions", "订阅套餐", "subscription", categoryVirtual, loadSubscriptions},
 		{"uptime_monitor_states", "SSL 证书", "ssl_cert", categoryVirtual, loadSSLMonitors},
 		{"openai_gateway_keys", "模型网关 Key", "api_key", categoryVirtual, loadOpenAIKeys},
@@ -415,8 +418,8 @@ func loadServerAccounts(ctx context.Context, db *sql.DB) ([]SourceCandidate, err
 			SourceRefID:  id,
 			Name:         name,
 			Provider:     provider,
-			AssetType:    "server",
-			Category:     categoryPhysical,
+			AssetType:    "cloud_instance",
+			Category:     categoryVirtual,
 			ExpireAt:     expiresAt.String,
 			Tags:         parseStringList(tags.String),
 			Remark:       description,

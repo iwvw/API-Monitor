@@ -139,6 +139,10 @@ func TestLinkAssetsAndDedup(t *testing.T) {
 	if linked.Origin != "linked" || linked.SourceModule != "server_accounts" {
 		t.Fatalf("unexpected linked asset: %#v", linked)
 	}
+	// 面板纳管的云/远程主机属虚拟资产，不是实体硬件。
+	if linked.Category != "virtual" || linked.AssetType != "cloud_instance" {
+		t.Fatalf("linked server should be virtual/cloud_instance, got %s/%s", linked.Category, linked.AssetType)
+	}
 	if linked.ExpireAt != "2027-01-01T00:00:00Z" {
 		t.Fatalf("expected normalized expire, got %s", linked.ExpireAt)
 	}
@@ -230,8 +234,67 @@ func TestRefreshAssetAndOrphan(t *testing.T) {
 	}
 }
 
-func TestRefreshNonLinkedRejected(t *testing.T) {
+// 一次性迁移：把历史遗留的 server_accounts 纳管资产从 physical/server 纠正到
+// virtual/cloud_instance，且不得触碰用户手工登记的实体资产。
+func TestMigrateLinkedServerCategory(t *testing.T) {
 	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	// 手工登记的物理设备 + 历史遗留的纳管主机（旧分类）。
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO assets (id, origin, category, asset_type, name)
+		VALUES ('manual-1', 'manual', 'physical', 'server', '线下物理机')`); err != nil {
+		t.Fatalf("seed manual: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO assets (id, origin, category, asset_type, name, source_module, source_ref_id)
+		VALUES ('linked-1', 'linked', 'physical', 'server', '旧纳管主机', 'server_accounts', 'srv1')`); err != nil {
+		t.Fatalf("seed linked: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO assets (id, origin, category, asset_type, name, source_module, source_ref_id)
+		VALUES ('linked-2', 'linked', 'virtual', 'subscription', '旧纳管订阅', 'subscription_subscriptions', 'sub1')`); err != nil {
+		t.Fatalf("seed linked sub: %v", err)
+	}
+
+	if err := migrateLinkedServerCategory(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	db.Close()
+
+	// 纳管主机被纠正。
+	linked, _, err := service.LoadAsset(ctx, "linked-1")
+	if err != nil {
+		t.Fatalf("load linked: %v", err)
+	}
+	if linked.Category != "virtual" || linked.AssetType != "cloud_instance" {
+		t.Fatalf("linked host should be virtual/cloud_instance, got %s/%s", linked.Category, linked.AssetType)
+	}
+
+	// 手工登记的物理设备不受影响。
+	manual, _, err := service.LoadAsset(ctx, "manual-1")
+	if err != nil {
+		t.Fatalf("load manual: %v", err)
+	}
+	if manual.Category != "physical" || manual.AssetType != "server" {
+		t.Fatalf("manual asset must be untouched, got %s/%s", manual.Category, manual.AssetType)
+	}
+
+	// 其它来源的纳管资产不受影响。
+	sub, _, err := service.LoadAsset(ctx, "linked-2")
+	if err != nil {
+		t.Fatalf("load sub: %v", err)
+	}
+	if sub.AssetType != "subscription" {
+		t.Fatalf("non-server linked asset must be untouched, got %s", sub.AssetType)
+	}
+}
+
+func TestRefreshNonLinkedRejected(t *testing.T) {	service := newTestService(t)
 	ctx := context.Background()
 	asset, err := service.CreateAsset(ctx, map[string]interface{}{
 		"name": "手工", "category": "physical", "asset_type": "server",

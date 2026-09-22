@@ -76,5 +76,25 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("ensure assets schema: %w", err)
 		}
 	}
+	return migrateLinkedServerCategory(ctx, db)
+}
+
+// migrateLinkedServerCategory 一次性纠正历史数据：
+// server_accounts 早期被纳管为 server/physical（实体资产），但面板纳管的是
+// 云/远程主机，语义上是虚拟资产。在启动时把这类存量纳管资产改到
+// cloud_instance/virtual。幂等：已纠正的行不再命中 WHERE 条件。
+//
+// 只改动「来源为 server_accounts 且 origin=linked」的行，绝不触碰用户手工
+// 登记的实体资产（那可能是真正的物理设备）。
+func migrateLinkedServerCategory(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE assets
+		SET category = 'virtual', asset_type = 'cloud_instance', updated_at = CURRENT_TIMESTAMP
+		WHERE origin = 'linked' AND source_module = 'server_accounts'
+		  AND (category = 'physical' OR asset_type = 'server')
+	`)
+	if err != nil {
+		return fmt.Errorf("migrate linked server category: %w", err)
+	}
 	return nil
 }

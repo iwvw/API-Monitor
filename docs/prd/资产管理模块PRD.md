@@ -132,9 +132,15 @@ API Monitor 目前管理着大量可被视作「资产」的对象：主机与�
 
 资产分实体与虚拟两类，用同一张表承载。
 
-实体类 `asset_type`：`server`（服务器/主机）、`network`（网络设备）、`storage`（存储）、`terminal`（终端）、`other_hw`（其他硬件）。
+实体类 `asset_type`：`server`（服务器/主机，用于手工登记的线下物理机）、`network`（网络设备）、`storage`（存储）、`terminal`（终端）、`other_hw`（其他硬件）。
 
-虚拟类 `asset_type`：`cloud_instance`（云资源实例）、`domain`（域名）、`ssl_cert`（SSL 证书）、`subscription`（订阅/套餐）、`license`（许可证）、`api_key`（API Key/凭据）、`proxy_node`（代理节点）、`saas`（SaaS）。
+虚拟类 `asset_type`：`cloud_instance`（云资源实例，含面板纳管的主机）、`domain`（域名）、`ssl_cert`（SSL 证书）、`subscription`（订阅/套餐）、`license`（许可证）、`api_key`（API Key/凭据）、`proxy_node`（代理节点）、`saas`（SaaS）。
+
+纳管来源的 `category`/`asset_type` 固定映射（见 `backend-go/internal/assets/sources.go`）：
+
+- `server_accounts` → `virtual` / `cloud_instance`：面板纳管的是云/远程主机（VPS、云实例），属虚拟资产。
+- 其余来源（订阅、SSL 证书、各级 Key、代理节点）→ `virtual`。
+- 真正的物理设备（网络设备、存储、终端、线下机柜）由用户手工登记到 `physical`。
 
 字段清单见 Technical Design Principles 的数据模型小节。
 
@@ -195,7 +201,7 @@ API Monitor 目前管理着大量可被视作「资产」的对象：主机与�
 
 | 来源表 | 映射类型 | 可取字段 |
 | --- | --- | --- |
-| `server_accounts` | `server` / `cloud_instance` | `expires_at`、`tags`、`description` |
+| `server_accounts` | `cloud_instance`（虚拟） | `expires_at`、`tags`、`description` |
 | `subscription_subscriptions` | `subscription` | `expire_at`、`cycle_*`、`total_bytes` |
 | `cf_accounts` 及各云 `*_accounts` | `cloud_instance` / `api_key` | `expires_on` |
 | `aliyun_domains` / `tencent_domains` | `domain` | 到期时间（刷新时拉取） |
