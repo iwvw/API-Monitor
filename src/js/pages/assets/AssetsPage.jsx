@@ -16,6 +16,7 @@ import {
 import { Plus, RefreshCw, Settings } from '../../components/Icons.jsx';
 import { assetTabs } from './tabs.jsx';
 import { CATEGORIES, PAGE_SIZE, PERSISTED_STATUSES } from './constants.js';
+import { parseWarnDays } from './utils.js';
 import {
   createAsset,
   deleteAsset,
@@ -55,11 +56,7 @@ function SettingsDialog({ open, settings, saving, onClose, onSave, onReset }) {
   }, [open, settings]);
 
   const save = () => {
-    const days = String(warnDays || '')
-      .split(/[,，\s]+/)
-      .map(item => Number(item.trim()))
-      .filter(day => Number.isFinite(day) && day > 0);
-    void onSave({ base_currency: baseCurrency.trim(), warn_days: days });
+    void onSave({ base_currency: baseCurrency.trim(), warn_days: parseWarnDays(warnDays) });
   };
 
   return (
@@ -116,13 +113,22 @@ function AssetsPage() {
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [linking, setLinking] = useState('');
   const [refreshingId, setRefreshingId] = useState('');
+  const [detailNonce, setDetailNonce] = useState(0);
 
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expiringFilter, setExpiringFilter] = useState('');
 
   const category = activeTab === 'physical' || activeTab === 'virtual' ? activeTab : '';
+
+  // 搜索防抖：输入时更新 query，停顿 300ms 后才触发请求，
+  // 避免每敲一个字都打一次后端。
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   const loadOverview = useCallback(async () => {
     try {
@@ -139,7 +145,7 @@ function AssetsPage() {
     try {
       const list = await fetchAssets({
         category: cat,
-        q: query.trim(),
+        q: debouncedQuery.trim(),
         asset_type: typeFilter,
         status: statusFilter,
         expiring_within: expiringFilter,
@@ -152,7 +158,7 @@ function AssetsPage() {
     } finally {
       setLoading(false);
     }
-  }, [query, typeFilter, statusFilter, expiringFilter]);
+  }, [debouncedQuery, typeFilter, statusFilter, expiringFilter]);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -200,8 +206,10 @@ function AssetsPage() {
       if (linked > 0) toast.success(`已纳管 ${linked} 个对象`);
       if (skipped > 0) toast.warning(`${skipped} 个对象已纳管，已跳过`);
       await Promise.all([loadCandidates(), loadOverview()]);
+      return true;
     } catch (error) {
       toast.error(error.message || '纳管失败');
+      return false;
     } finally {
       setLinking('');
     }
@@ -313,6 +321,9 @@ function AssetsPage() {
       } else {
         toast.success('已刷新来源快照');
       }
+      // 详情弹窗开着时同步最新快照，并触发事件/告警重新拉取。
+      setDetailAsset(prev => (prev && prev.id === asset.id ? updated : prev));
+      setDetailNonce(n => n + 1);
       await Promise.all([loadAssets(category), loadOverview()]);
     } catch (error) {
       toast.error(error.message || '刷新失败');
@@ -324,7 +335,12 @@ function AssetsPage() {
   const selectBucket = bucket => {
     const status = bucketToStatus[bucket];
     setStatusFilter(status || '');
-    setActiveTab(bucket === 'no_renew' ? 'virtual' : activeTab === 'overview' ? 'physical' : activeTab);
+    // 「不续费」桶指向已退役/来源失效，落在虚拟视图；其余桶保持当前视图，
+    // 若当前在总览则默认切到实体视图。
+    let target = activeTab;
+    if (bucket === 'no_renew') target = 'virtual';
+    else if (activeTab === 'overview') target = 'physical';
+    setActiveTab(target);
   };
 
   const tabsHeader = (
@@ -460,6 +476,7 @@ function AssetsPage() {
         mode={formMode}
         asset={editing}
         saving={saving}
+        defaultCategory={category || 'physical'}
         onClose={() => { setFormOpen(false); setEditing(null); }}
         onSubmit={submitForm}
       />
@@ -467,6 +484,7 @@ function AssetsPage() {
       <AssetDetailDialog
         open={Boolean(detailAsset)}
         asset={detailAsset}
+        refreshNonce={detailNonce}
         refreshing={refreshingId === detailAsset?.id}
         onRefresh={refreshOne}
         onClose={() => setDetailAsset(null)}

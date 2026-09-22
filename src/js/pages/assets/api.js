@@ -12,11 +12,6 @@ export const fetchAssets = async (params = {}) => {
   return Array.isArray(result.data) ? result.data : [];
 };
 
-export const fetchAsset = async id => {
-  const result = await request('GET', `${ASSETS_API}/${id}`);
-  return result.data ?? result;
-};
-
 export const createAsset = async body => {
   const result = await request('POST', ASSETS_API, body);
   return result.data ?? result;
@@ -33,16 +28,6 @@ export const deleteAsset = async id => {
 
 export const fetchOverview = async () => {
   const result = await request('GET', `${ASSETS_API}/overview`);
-  return result.data ?? result;
-};
-
-export const fetchExpiring = async (within = 30) => {
-  const result = await request('GET', `${ASSETS_API}/expiring?within=${within}`);
-  return Array.isArray(result.data) ? result.data : [];
-};
-
-export const fetchCategories = async () => {
-  const result = await request('GET', `${ASSETS_API}/categories`);
   return result.data ?? result;
 };
 
@@ -88,10 +73,5 @@ export const refreshAsset = async id => {
 
 export const refreshAllAssets = async () => {
   const result = await request('POST', `${ASSETS_API}/refresh-all`);
-  return result.data ?? result;
-};
-
-export const scanExpiry = async () => {
-  const result = await request('POST', `${ASSETS_API}/scan-expiry`);
   return result.data ?? result;
 };

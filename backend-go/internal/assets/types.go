@@ -56,14 +56,25 @@ func normalizeAssetStatus(value string) string {
 }
 
 // normalizeExpireAt 归一化到期时刻为 UTC RFC3339。
-// 接受 RFC3339、RFC3339 带毫秒、纯日期（按 UTC 当日零点）。
-func normalizeExpireAt(value string) string {
+//
+// 带时区的 RFC3339 是绝对时刻，原样保留；纯日期（YYYY-MM-DD）与无时区
+// 日期时间按**站点时区**解释——用户选的「9 月 22 日」指的是站点时区的
+// 那一天，若按 UTC 零点存，负时区展示会退回前一天。
+func normalizeExpireAt(value string, loc *time.Location) string {
 	text := strings.TrimSpace(value)
 	if text == "" {
 		return ""
 	}
-	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
-		if parsed, err := time.Parse(layout, text); err == nil {
+	if loc == nil {
+		loc = time.Local
+	}
+	// 带时区偏移的绝对时刻：直接解析。
+	if parsed, err := time.Parse(time.RFC3339, text); err == nil {
+		return parsed.UTC().Format(time.RFC3339)
+	}
+	// 无时区：按站点时区解释后转 UTC。
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02"} {
+		if parsed, err := time.ParseInLocation(layout, text, loc); err == nil {
 			return parsed.UTC().Format(time.RFC3339)
 		}
 	}

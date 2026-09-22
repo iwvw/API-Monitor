@@ -266,8 +266,17 @@ fn spawn_process(template: &ProviderTemplate, port: u16) -> Result<u32, String> 
             template.id, template.executable, template.executable_env
         ));
     }
-    let child = std::process::Command::new(&executable)
-        .args(&args)
+    let mut command = std::process::Command::new(&executable);
+    command.args(&args);
+    // Unix：把子进程放进独立进程组（PGID = 子 PID），让 terminate 能按组终止
+    // 整棵进程树。否则父进程退出后子进程被 reparent 到 init，父链断开，残留
+    // 子进程仍持端口却再也追溯不到归属。
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let child = command
         .spawn()
         .map_err(|err| format!("启动 {} 失败: {}", executable, err))?;
     Ok(child.id())
@@ -839,15 +848,19 @@ async fn terminate(pid: u32) -> bool {
     if !process_alive(pid) {
         return true;
     }
+    // 按进程组终止整棵树：spawn 时已把子进程设为独立进程组（PGID = 子 PID），
+    // 负 PID 即向该组发信号，覆盖「父进程已死、子进程仍持端口」的残留场景。
+    // 同时仍向 PID 本身发一次，兼容历史遗留的、未建组的进程。
+    let group = format!("-{pid}");
     let _ = std::process::Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
+        .args(["-TERM", &group, &pid.to_string()])
         .status();
     // 给进程一个退出窗口，超时后强杀。
     if wait_process_exit(pid).await {
         return true;
     }
     let _ = std::process::Command::new("kill")
-        .args(["-9", &pid.to_string()])
+        .args(["-9", &group, &pid.to_string()])
         .status();
     wait_process_exit(pid).await
 }
@@ -857,41 +870,34 @@ async fn terminate(_pid: u32) -> bool {
     false
 }
 
-/// 若监听该端口的进程属于本 Agent 托管（可能只是残留的子进程），终止它并返回是否成功。
+/// 若监听该端口的进程确属本 Agent 托管（可能只是残留的子进程），终止它并返回是否成功。
 ///
 /// 仅清理「确实归我们管」的进程，绝不触碰无关进程（ADR-0006 第 7.3 条：不静默
-/// 杀掉他人进程）。所有权信号有两条，命中其一即可：
-///   1. 监听 PID 正是进程表里某条目的 pid；
-///   2. 存在一条 `port` 相同的托管条目，且监听进程名命中该 Provider 的匹配规则
-///      —— 覆盖「父进程已死、子进程仍持有端口」的孤儿场景（PID 匹配不到）。
+/// 杀掉他人进程）。所有权证据只有一条：**监听进程的父进程链能追溯到本 Agent
+/// 记录的 spawn PID**——这覆盖「父进程已死、子进程仍持有端口」的孤儿场景。
+///
+/// 刻意不用「同端口 + 进程名匹配」作为证据：用户完全可能手工运行同名的
+/// `opencode serve`，仅凭进程名会误杀用户自己的进程。查不到归属一律不杀，
+/// 交回调用方按「端口被他人占用」处理。
 async fn terminate_managed_occupant(port: u16) -> bool {
     let Some(occupant) = listening_pid(port) else {
         return false;
     };
 
-    let owned = {
+    // 在锁内只收集候选 PID，阻塞式的父链查询放到锁外。
+    let candidate_pids: Vec<u32> = {
         let table = process_table().lock().unwrap();
-        // 信号 1：PID 直接命中。
-        if table.values().any(|process| process.pid == occupant) {
-            true
-        } else {
-            // 信号 2：端口相同 + 进程名匹配该 Provider 规则。
-            table.values().filter(|process| process.port == port).any(|process| {
-                let terms: Vec<String> = lookup_template(&process.provider)
-                    .map(|template| {
-                        template
-                            .process_match
-                            .iter()
-                            .map(|term| term.trim().to_lowercase())
-                            .filter(|term| !term.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                !terms.is_empty() && crate::aiagent::process_name_matches(occupant, &terms)
-            })
-        }
+        table
+            .values()
+            .filter(|process| process.port == port && process.pid != 0)
+            .map(|process| process.pid)
+            .collect()
     };
+    if candidate_pids.is_empty() {
+        return false;
+    }
 
+    let owned = crate::aiagent::process_descends_from(occupant, &candidate_pids);
     if !owned {
         return false;
     }

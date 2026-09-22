@@ -1,5 +1,5 @@
 import { formatDateTime } from '../../modules/utils.js';
-import { COST_CYCLE_LABEL, STATUS_META } from './constants.js';
+import { COST_CYCLE_LABEL, STATUS_META, TYPE_BY_CATEGORY } from './constants.js';
 
 export const statusMeta = status => STATUS_META[status] || STATUS_META.unknown;
 
@@ -58,9 +58,9 @@ export const toExpireInputValue = value => {
   return text.length >= 10 ? text.slice(0, 10) : text;
 };
 
-export const emptyForm = () => ({
-  category: 'physical',
-  asset_type: 'server',
+export const emptyForm = (category = 'physical') => ({
+  category,
+  asset_type: (TYPE_BY_CATEGORY[category] || TYPE_BY_CATEGORY.physical)[0].value,
   name: '',
   provider: '',
   owner: '',
@@ -121,7 +121,9 @@ export const formToPayload = form => ({
   model: form.model.trim(),
   status: form.status,
   acquire_date: form.acquire_date,
-  expire_at: form.expire_at ? `${form.expire_at}T00:00:00Z` : '',
+  // 送裸日期（YYYY-MM-DD），由后端按站点时区解释为当日零点。
+  // 前端硬拼 Z 会按 UTC 解释，负时区展示会退回前一天。
+  expire_at: form.expire_at || '',
   warn_days: parseWarnDays(form.warn_days_text),
   auto_renew: Boolean(form.auto_renew),
   cost_amount: form.cost_amount === '' ? 0 : Number(form.cost_amount),

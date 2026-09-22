@@ -49,7 +49,10 @@ func daysUntil(expire, now time.Time, loc *time.Location) int {
 
 // deriveStatus 根据到期时刻、阈值与自动续费派生状态。
 // autoRenew 的资产不进入 expiring，避免无意义的续费提醒。
-func deriveStatus(asset Asset, now time.Time, loc *time.Location) (string, *int) {
+//
+// globalWarn 是站点全局告警阈值；资产自身的 warn_days 优先。必须传全局值，
+// 否则派生状态会退回硬编码默认值，与到期扫描告警口径不一致。
+func deriveStatus(asset Asset, now time.Time, loc *time.Location, globalWarn []int) (string, *int) {
 	if asset.Status == statusRetired || asset.Status == statusOrphan {
 		days := daysLeftFor(asset.ExpireAt, now, loc)
 		return asset.Status, days
@@ -65,7 +68,7 @@ func deriveStatus(asset Asset, now time.Time, loc *time.Location) (string, *int)
 	if asset.AutoRenew {
 		return statusActive, &days
 	}
-	threshold := warnThreshold(asset.WarnDays)
+	threshold := warnThreshold(effectiveWarnDays(asset.WarnDays, globalWarn))
 	if days <= threshold {
 		return statusExpiring, &days
 	}
@@ -81,7 +84,7 @@ func daysLeftFor(expireAt string, now time.Time, loc *time.Location) *int {
 	return &days
 }
 
-// warnThreshold 取资产自身阈值里的最大天数；为空则用全局默认的最大值。
+// warnThreshold 取生效阈值数组里的最大天数；为空时用内置默认值。
 func warnThreshold(warnDays []int) int {
 	if len(warnDays) == 0 {
 		return defaultWarnDays[0]
@@ -107,8 +110,8 @@ func effectiveWarnDays(assetWarn []int, globalWarn []int) []int {
 }
 
 // applyDerived 为单个资产填充 days_left 与 derived_status。
-func applyDerived(asset *Asset, now time.Time, loc *time.Location) {
-	status, days := deriveStatus(*asset, now, loc)
+func applyDerived(asset *Asset, now time.Time, loc *time.Location, globalWarn []int) {
+	status, days := deriveStatus(*asset, now, loc, globalWarn)
 	asset.DerivedStatus = status
 	asset.DaysLeft = days
 }

@@ -145,7 +145,9 @@ func (s *Service) RunExpiryScan(ctx context.Context) {
 	loc := timeutil.LocationFromSettings(ctx, db)
 	now := nowUTC()
 
-	assets, err := s.LoadAssets(ctx, assetFilter{Limit: maxLimit})
+	// 扫描必须覆盖全部资产：分批遍历，避免 API 面向的 maxLimit 把到期资产
+	// 截断在分页之外，导致告警被静默漏掉。
+	assets, err := s.loadAllAssetsForScan(ctx)
 	if err != nil {
 		applog.Warn(ctx, "assets", "expiry scan load failed", "error", err.Error())
 		return
@@ -153,9 +155,12 @@ func (s *Service) RunExpiryScan(ctx context.Context) {
 
 	for _, asset := range assets {
 		if asset.AutoRenew || asset.DaysLeft == nil {
+			// 无到期信息或自动续费：清掉历史标记，避免续费后旧标记永久压制告警。
+			s.clearAlertMarkers(ctx, db, asset.ID)
 			continue
 		}
 		if asset.Status == statusRetired || asset.Status == statusOrphan {
+			s.clearAlertMarkers(ctx, db, asset.ID)
 			continue
 		}
 		days := *asset.DaysLeft
@@ -171,12 +176,17 @@ func (s *Service) RunExpiryScan(ctx context.Context) {
 			hit = 0
 		}
 		if hit == 0 && days >= 0 {
+			// 尚未进入任何告警档位（含已续费拉远到期）：清掉旧标记，
+			// 让下一轮到期能重新告警，而不是被上一周期的标记永久压制。
+			s.clearAlertMarkers(ctx, db, asset.ID)
 			continue
 		}
 		marker := "expired"
 		if hit > 0 {
 			marker = fmt.Sprintf("d%d", hit)
 		}
+		// 档位前进时，清掉比当前档位更宽松的旧标记，保证每个周期只保留最紧档位。
+		s.clearAlertMarkersExcept(ctx, db, asset.ID, marker)
 		if !s.claimAlertMarker(ctx, db, asset.ID, marker) {
 			continue
 		}
@@ -201,6 +211,24 @@ func (s *Service) RunExpiryScan(ctx context.Context) {
 	}
 }
 
+// loadAllAssetsForScan 分批读取全部资产（含派生状态），供到期扫描使用。
+// 复用 LoadAssets 的派生逻辑，但通过翻页覆盖全表，不受 API 分页上限约束。
+func (s *Service) loadAllAssetsForScan(ctx context.Context) ([]Asset, error) {
+	const batch = maxLimit
+	all := []Asset{}
+	for offset := 0; ; offset += batch {
+		page, err := s.LoadAssets(ctx, assetFilter{Limit: batch, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < batch {
+			break
+		}
+	}
+	return all, nil
+}
+
 // claimAlertMarker 以 (asset_id, marker) 为键做告警去重：
 // 首次声明返回 true，已存在返回 false。重复提醒在档位变化时才会再次触发。
 func (s *Service) claimAlertMarker(ctx context.Context, db *sql.DB, assetID, marker string) bool {
@@ -220,4 +248,16 @@ func (s *Service) claimAlertMarker(ctx context.Context, db *sql.DB, assetID, mar
 func (s *Service) releaseAlertMarker(ctx context.Context, db *sql.DB, assetID, marker string) {
 	_, _ = db.ExecContext(ctx,
 		"DELETE FROM asset_alerts WHERE asset_id = ? AND marker = ?", assetID, marker)
+}
+
+// clearAlertMarkers 清掉资产的全部告警标记。
+// 用于「资产已续费/退役/来源失效」等不再需要告警的场景，避免旧标记永久压制后续周期。
+func (s *Service) clearAlertMarkers(ctx context.Context, db *sql.DB, assetID string) {
+	_, _ = db.ExecContext(ctx, "DELETE FROM asset_alerts WHERE asset_id = ?", assetID)
+}
+
+// clearAlertMarkersExcept 只保留指定标记，清掉其余（更宽松档位的旧标记）。
+func (s *Service) clearAlertMarkersExcept(ctx context.Context, db *sql.DB, assetID, keep string) {
+	_, _ = db.ExecContext(ctx,
+		"DELETE FROM asset_alerts WHERE asset_id = ? AND marker != ?", assetID, keep)
 }

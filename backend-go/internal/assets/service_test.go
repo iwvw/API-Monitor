@@ -2,12 +2,25 @@ package assets
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
+
+func mustOpen(t *testing.T, service *Service) *sql.DB {
+	t.Helper()
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
@@ -53,8 +66,14 @@ func TestCreateAndLoadAsset(t *testing.T) {
 	if asset.Origin != "manual" {
 		t.Fatalf("expected manual origin, got %s", asset.Origin)
 	}
-	if asset.ExpireAt != "2027-01-01T00:00:00Z" {
-		t.Fatalf("expected normalized expire_at, got %s", asset.ExpireAt)
+	// 纯日期按站点时区解释：解析回来必须仍是「2027-01-01」这一天（不因时区偏移漂移）。
+	expire, err := time.Parse(time.RFC3339, asset.ExpireAt)
+	if err != nil {
+		t.Fatalf("expire_at not RFC3339: %s", asset.ExpireAt)
+	}
+	loc := timeutil.LocationFromSettings(ctx, mustOpen(t, service))
+	if expire.In(loc).Format("2006-01-02") != "2027-01-01" {
+		t.Fatalf("expire_at should stay on 2027-01-01 in site tz, got %s", expire.In(loc).Format("2006-01-02"))
 	}
 	if asset.CostCurrency != "CNY" {
 		t.Fatalf("expected normalized currency CNY, got %s", asset.CostCurrency)
@@ -145,7 +164,7 @@ func TestDeriveStatus(t *testing.T) {
 	}
 	for _, tc := range cases {
 		asset := Asset{ExpireAt: tc.expireAt, AutoRenew: tc.autoRenew, WarnDays: tc.warnDays}
-		status, days := deriveStatus(asset, now, loc)
+		status, days := deriveStatus(asset, now, loc, nil)
 		if status != tc.wantStatus {
 			t.Errorf("%s: status=%s want %s", tc.name, status, tc.wantStatus)
 		}
@@ -165,10 +184,124 @@ func TestDeriveStatusRetiredOrphan(t *testing.T) {
 	now := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
 	for _, status := range []string{statusRetired, statusOrphan} {
 		asset := Asset{Status: status, ExpireAt: "2026-12-31T00:00:00Z"}
-		got, _ := deriveStatus(asset, now, time.UTC)
+		got, _ := deriveStatus(asset, now, time.UTC, nil)
 		if got != status {
 			t.Errorf("expected %s preserved, got %s", status, got)
 		}
+	}
+}
+
+// 回归：派生状态必须使用站点全局阈值，而不是硬编码默认值。
+func TestDeriveStatusUsesGlobalWarnDays(t *testing.T) {
+	now := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	// 距到期 40 天。
+	asset := Asset{ExpireAt: now.AddDate(0, 0, 40).Format(time.RFC3339)}
+
+	// 全局阈值 30 天：40 天外，应判正常。
+	if status, _ := deriveStatus(asset, now, time.UTC, []int{30}); status != statusActive {
+		t.Errorf("with global 30: got %s want active", status)
+	}
+	// 全局阈值 60 天：40 天内，应判即将到期。
+	if status, _ := deriveStatus(asset, now, time.UTC, []int{60}); status != statusExpiring {
+		t.Errorf("with global 60: got %s want expiring", status)
+	}
+	// 资产自身阈值优先于全局。
+	if status, _ := deriveStatus(Asset{ExpireAt: asset.ExpireAt, WarnDays: []int{10}}, now, time.UTC, []int{60}); status != statusActive {
+		t.Errorf("asset override 10: got %s want active", status)
+	}
+}
+
+// 回归：纯日期到期时间按站点时区解释，避免负时区展示退回前一天。
+func TestNormalizeExpireAtUsesSiteTimezone(t *testing.T) {
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Skip("America/Los_Angeles unavailable")
+	}
+	got := normalizeExpireAt("2026-09-22", la)
+	// 洛杉矶 2026-09-22 00:00 = UTC 2026-09-22 07:00。
+	if got != "2026-09-22T07:00:00Z" {
+		t.Fatalf("unexpected normalization: %s", got)
+	}
+	// 带时区的绝对时刻原样归一。
+	if got := normalizeExpireAt("2026-09-22T00:00:00Z", la); got != "2026-09-22T00:00:00Z" {
+		t.Fatalf("absolute instant should be preserved, got %s", got)
+	}
+}
+
+// 回归：到期筛选 + 分页必须先在筛选后分页，不能因 SQL LIMIT 截断。
+func TestLoadAssetsFilterBeforePaging(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+
+	// 先建 3 个正常资产，再建 1 个即将到期（插入顺序靠后）。
+	for i := 0; i < 3; i++ {
+		if _, err := service.CreateAsset(ctx, map[string]interface{}{
+			"name": fmt.Sprintf("正常%d", i), "category": "virtual", "asset_type": "domain",
+			"expire_at": nowUTC().AddDate(1, 0, 0).Format(time.RFC3339),
+		}); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+	if _, err := service.CreateAsset(ctx, map[string]interface{}{
+		"name": "即将到期", "category": "virtual", "asset_type": "domain",
+		"expire_at": nowUTC().AddDate(0, 0, 3).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("create expiring: %v", err)
+	}
+
+	// limit=1 的到期筛选仍应命中那条即将到期资产（若先分页再筛选会返回空）。
+	list, err := service.LoadAssets(ctx, assetFilter{ExpiringWithin: 30, Limit: 1})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(list) != 1 || list[0].Name != "即将到期" {
+		t.Fatalf("expected the expiring asset, got %#v", list)
+	}
+}
+
+// 回归：资产续费（到期拉远）后，旧告警标记必须被清理，以便下个周期重新告警。
+func TestExpiryScanClearsMarkersAfterRenew(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	notifier := &fakeNotifier{}
+	service.SetNotifier(notifier)
+
+	soon := nowUTC().AddDate(0, 0, 3).Format(time.RFC3339)
+	asset, err := service.CreateAsset(ctx, map[string]interface{}{
+		"name": "待续费", "category": "virtual", "asset_type": "domain", "expire_at": soon,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	service.RunExpiryScan(ctx)
+	if len(notifier.events) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(notifier.events))
+	}
+
+	// 续费：到期推到一年后。
+	if err := service.UpdateAsset(ctx, asset.ID, map[string]interface{}{
+		"expire_at": nowUTC().AddDate(1, 0, 0).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("renew: %v", err)
+	}
+	service.RunExpiryScan(ctx)
+	// 续费后不再告警，且旧标记应被清空。
+	alerts, err := service.LoadAlerts(ctx, asset.ID)
+	if err != nil {
+		t.Fatalf("load alerts: %v", err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("expected markers cleared after renew, got %#v", alerts)
+	}
+	// 再次临近到期应能重新告警。
+	if err := service.UpdateAsset(ctx, asset.ID, map[string]interface{}{
+		"expire_at": nowUTC().AddDate(0, 0, 3).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("re-expire: %v", err)
+	}
+	service.RunExpiryScan(ctx)
+	if len(notifier.events) != 2 {
+		t.Fatalf("expected re-alert after renew, got %d events", len(notifier.events))
 	}
 }
 

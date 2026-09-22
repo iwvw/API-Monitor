@@ -53,8 +53,9 @@ export default function SourcePickerPanel({ groups, loading, linking, onLink, on
   const submit = async () => {
     const links = Object.values(selected);
     if (links.length === 0) return;
-    await onLink(links);
-    setSelected({});
+    const ok = await onLink(links);
+    // 仅成功后清空选择：失败时保留用户勾选，避免白选一次。
+    if (ok) setSelected({});
   };
 
   if (!loading && groups.length === 0) {

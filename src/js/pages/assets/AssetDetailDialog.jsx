@@ -27,7 +27,7 @@ const ALERT_LABEL = marker => {
   return marker;
 };
 
-export default function AssetDetailDialog({ open, asset, onClose, onRefresh, refreshing }) {
+export default function AssetDetailDialog({ open, asset, refreshNonce, onClose, onRefresh, refreshing }) {
   const [events, setEvents] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -47,7 +47,7 @@ export default function AssetDetailDialog({ open, asset, onClose, onRefresh, ref
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [open, asset?.id]);
+  }, [open, asset?.id, refreshNonce]);
 
   if (!asset) return null;
   const meta = statusMeta(asset.derived_status);

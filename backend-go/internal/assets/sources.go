@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // 纳管来源：以只读 SELECT 读取已有模块的对象，不依赖其表外键，也不写回来源模块。
@@ -255,7 +256,7 @@ func (s *Service) insertLinkedAsset(ctx context.Context, db *sql.DB, descriptor 
 		expire_at, warn_days_json, tags_json, metadata_json, remark
 	) VALUES (?, 'linked', ?, ?, ?, ?, 'active', ?, ?, CURRENT_TIMESTAMP, ?, '[]', ?, '{}', ?)`,
 		id, descriptor.Category, descriptor.AssetType, name, source.Provider,
-		source.SourceModule, source.SourceRefID, normalizeExpireAt(source.ExpireAt),
+		source.SourceModule, source.SourceRefID, normalizeExpireAt(source.ExpireAt, time.UTC),
 		jsonString(tags), source.Remark,
 	)
 	if err != nil {
@@ -336,7 +337,7 @@ func (s *Service) RefreshAsset(ctx context.Context, id string) (Asset, error) {
 		name = ?, provider = ?, status = ?, expire_at = ?, tags_json = ?,
 		source_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?`,
-		name, source.Provider, status, normalizeExpireAt(source.ExpireAt), jsonString(tags), id,
+		name, source.Provider, status, normalizeExpireAt(source.ExpireAt, time.UTC), jsonString(tags), id,
 	); err != nil {
 		return Asset{}, err
 	}

@@ -175,6 +175,86 @@ pub(crate) fn process_name_matches(pid: u32, terms: &[String]) -> bool {
     cmd_hit || cmdline_matches(pid, terms)
 }
 
+/// 判断 `pid` 的父进程链上是否存在 `ancestors` 中的任一 PID（含 pid 自身）。
+///
+/// 用于「残留子进程归属判定」：父进程已死、子进程仍持有端口时，只凭 PID 无法
+/// 确认归属，但父链能追溯到本 Agent 记录的 spawn PID。带环与深度保护，避免
+/// 异常进程表导致死循环。查不到父进程时保守返回 false（宁可漏清也不误杀）。
+///
+/// Unix 上父进程先死会使子进程被 reparent 到 init，父链随之断开。因此额外比对
+/// 进程组：本 Agent spawn 时把子进程设为独立进程组（PGID = 子 PID），同一组的
+/// 进程即视为归属本 Agent。
+pub(crate) fn process_descends_from(pid: u32, ancestors: &[u32]) -> bool {
+    if ancestors.is_empty() {
+        return false;
+    }
+    if ancestors.contains(&pid) {
+        return true;
+    }
+    if unix_same_process_group(pid, ancestors) {
+        return true;
+    }
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+
+    let mut current = pid;
+    let mut visited: Vec<u32> = vec![pid];
+    // 深度上限：进程树异常深或存在环时及时退出。
+    for _ in 0..64 {
+        let Some(parent) = system
+            .process(sysinfo::Pid::from_u32(current))
+            .and_then(|process| process.parent())
+        else {
+            return false;
+        };
+        let parent = parent.as_u32();
+        if parent == 0 || visited.contains(&parent) {
+            return false;
+        }
+        if ancestors.contains(&parent) {
+            return true;
+        }
+        visited.push(parent);
+        current = parent;
+    }
+    false
+}
+
+/// Unix：判断 `pid` 的进程组 ID 是否等于 `ancestors` 中某个 PID
+/// （spawn 时以子 PID 作为独立进程组 ID）。非 Unix 恒返回 false。
+#[cfg(unix)]
+fn unix_same_process_group(pid: u32, ancestors: &[u32]) -> bool {
+    let Ok(pgid) = process_group_id(pid) else {
+        return false;
+    };
+    pgid != 0 && ancestors.contains(&pgid)
+}
+
+#[cfg(not(unix))]
+fn unix_same_process_group(_pid: u32, _ancestors: &[u32]) -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn process_group_id(pid: u32) -> Result<u32, ()> {
+    // /proc/<pid>/stat 第 5 个字段是 pgrp；comm 可能含空格/括号，从最后一个 ')' 之后切。
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|_| ())?;
+    let rest = stat.rsplit_once(')').map(|(_, rest)| rest).ok_or(())?;
+    let mut fields = rest.split_whitespace();
+    // rest 首字段是 state，其后依次是 ppid、pgrp。
+    fields.next();
+    fields.next();
+    fields
+        .next()
+        .and_then(|value| value.parse::<u32>().ok())
+        .ok_or(())
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn process_group_id(_pid: u32) -> Result<u32, ()> {
+    Err(())
+}
+
 /// Linux：读取 /proc/<pid>/comm（进程名，注意被内核截断到 15 字符）。
 #[cfg(target_os = "linux")]
 fn comm_name(pid: u32) -> Option<String> {

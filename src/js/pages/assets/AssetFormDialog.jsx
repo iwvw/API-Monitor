@@ -8,8 +8,8 @@ import { DateField } from '../../components/ui/DateField.jsx';
 import { CURRENCY_OPTIONS, CATEGORIES, COST_CYCLES, PERSISTED_STATUSES, TYPE_BY_CATEGORY } from './constants.js';
 import { assetToForm, emptyForm, formToPayload, validateForm } from './utils.js';
 
-export default function AssetFormDialog({ open, mode, asset, saving, onClose, onSubmit }) {
-  const [form, setForm] = useState(emptyForm());
+export default function AssetFormDialog({ open, mode, asset, saving, defaultCategory, onClose, onSubmit }) {
+  const [form, setForm] = useState(() => emptyForm(defaultCategory));
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -18,9 +18,9 @@ export default function AssetFormDialog({ open, mode, asset, saving, onClose, on
     if (mode === 'edit' && asset) {
       setForm(assetToForm(asset));
     } else {
-      setForm(emptyForm());
+      setForm(emptyForm(defaultCategory));
     }
-  }, [open, mode, asset]);
+  }, [open, mode, asset, defaultCategory]);
 
   const typeOptions = useMemo(() => TYPE_BY_CATEGORY[form.category] || [], [form.category]);
   const isPhysical = form.category === 'physical';

@@ -61,15 +61,9 @@ func (s *Service) LoadAssets(ctx context.Context, filter assetFilter) ([]Asset, 
 	if len(conditions) > 0 {
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
+	// 不把 LIMIT/OFFSET 下推到 SQL：status 与 expiring_within 依赖派生状态，
+	// 只能在 Go 侧判定。若先分页再筛选，会漏掉「第一页之外」的到期资产。
 	query := "SELECT " + assetColumns + " FROM assets" + where + " ORDER BY created_at DESC"
-	if filter.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
-		if filter.Offset > 0 {
-			query += " OFFSET ?"
-			args = append(args, filter.Offset)
-		}
-	}
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -90,15 +84,29 @@ func (s *Service) LoadAssets(ctx context.Context, filter assetFilter) ([]Asset, 
 	}
 
 	loc := timeutil.LocationFromSettings(ctx, db)
+	globalWarn, err := s.loadWarnDays(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 	now := nowUTC()
 
-	filtered := assets[:0]
+	filtered := make([]Asset, 0, len(assets))
 	for i := range assets {
-		applyDerived(&assets[i], now, loc)
+		applyDerived(&assets[i], now, loc, globalWarn)
 		if !matchesPostFilter(assets[i], filter) {
 			continue
 		}
 		filtered = append(filtered, assets[i])
+	}
+	// 筛选完成后再分页，保证「到期筛选 + 分页」不会互相截断。
+	if filter.Offset > 0 {
+		if filter.Offset >= len(filtered) {
+			return []Asset{}, nil
+		}
+		filtered = filtered[filter.Offset:]
+	}
+	if filter.Limit > 0 && filter.Limit < len(filtered) {
+		filtered = filtered[:filter.Limit]
 	}
 	return filtered, nil
 }
@@ -114,6 +122,24 @@ func matchesPostFilter(asset Asset, filter assetFilter) bool {
 		}
 	}
 	return true
+}
+
+// loadWarnDays 读取站点全局告警阈值，供派生状态与到期扫描共用同一口径。
+func (s *Service) loadWarnDays(ctx context.Context, db *sql.DB) ([]int, error) {
+	var warnJSON string
+	err := db.QueryRowContext(ctx,
+		"SELECT warn_days_json FROM asset_settings WHERE id = 1").Scan(&warnJSON)
+	if err == sql.ErrNoRows {
+		return append([]int{}, defaultWarnDays...), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load asset warn days: %w", err)
+	}
+	days := parseWarnDays(warnJSON)
+	if len(days) == 0 {
+		return append([]int{}, defaultWarnDays...), nil
+	}
+	return days, nil
 }
 
 func (s *Service) LoadAsset(ctx context.Context, id string) (Asset, bool, error) {
@@ -132,7 +158,11 @@ func (s *Service) LoadAsset(ctx context.Context, id string) (Asset, bool, error)
 		return Asset{}, false, err
 	}
 	loc := timeutil.LocationFromSettings(ctx, db)
-	applyDerived(&asset, nowUTC(), loc)
+	globalWarn, err := s.loadWarnDays(ctx, db)
+	if err != nil {
+		return Asset{}, false, err
+	}
+	applyDerived(&asset, nowUTC(), loc, globalWarn)
 	return asset, true, nil
 }
 
@@ -164,6 +194,8 @@ func (s *Service) CreateAsset(ctx context.Context, payload map[string]interface{
 	}
 	defer db.Close()
 
+	loc := timeutil.LocationFromSettings(ctx, db)
+
 	_, err = db.ExecContext(ctx, `INSERT INTO assets (
 		id, origin, category, asset_type, name, provider, owner, location, serial_no, model,
 		status, source_module, source_ref_id, source_synced_at, acquire_date, expire_at,
@@ -175,7 +207,7 @@ func (s *Service) CreateAsset(ctx context.Context, payload map[string]interface{
 		trimmedString(payload["serial_no"]), trimmedString(payload["model"]),
 		normalizeAssetStatus(trimmedString(payload["status"])),
 		"", "", nil,
-		trimmedString(payload["acquire_date"]), normalizeExpireAt(trimmedString(payload["expire_at"])),
+		trimmedString(payload["acquire_date"]), normalizeExpireAt(trimmedString(payload["expire_at"]), loc),
 		jsonString(warnDaysFromPayload(payload["warn_days"])), boolInt(boolValue(payload["auto_renew"], false)),
 		numberValue(payload["cost_amount"], 0), normalizeCurrency(trimmedString(payload["cost_currency"])), cycle,
 		jsonString(stringListFromPayload(payload["tags"])), jsonString(objectFromPayload(payload["metadata"])),
@@ -200,6 +232,13 @@ func (s *Service) UpdateAsset(ctx context.Context, id string, payload map[string
 	}
 	if !ok {
 		return sql.ErrNoRows
+	}
+
+	// 提前取站点时区：纯日期到期时间需按站点时区解释（与 CreateAsset 一致）。
+	loc := timeutil.LocationFromName("")
+	if tzDB, tzErr := s.open(ctx); tzErr == nil {
+		loc = timeutil.LocationFromSettings(ctx, tzDB)
+		tzDB.Close()
 	}
 
 	updates := []string{}
@@ -256,7 +295,7 @@ func (s *Service) UpdateAsset(ctx context.Context, id string, payload map[string
 		set("acquire_date", trimmedString(payload["acquire_date"]))
 	}
 	if _, has := payload["expire_at"]; has {
-		set("expire_at", normalizeExpireAt(trimmedString(payload["expire_at"])))
+		set("expire_at", normalizeExpireAt(trimmedString(payload["expire_at"]), loc))
 	}
 	if _, has := payload["warn_days"]; has {
 		set("warn_days_json", jsonString(warnDaysFromPayload(payload["warn_days"])))
