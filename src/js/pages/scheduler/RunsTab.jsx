@@ -3,10 +3,19 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Empty } from '@cloudflare/kumo/components/empty';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, Eye, RefreshCw, Trash, X } from '../../components/Icons.jsx';
 import { IconButton } from './shared.jsx';
 import { formatTimestamp, statusBadgeVariant, statusLabel } from './utils.js';
+
+const SCHEDULER_RUN_COLUMNS = [
+  { id: 'workflow', role: 'primary', grow: 1, minWidth: 200 },
+  { id: 'status', role: 'status' },
+  { id: 'trigger', role: 'type' },
+  { id: 'startTime', role: 'datetime' },
+  { id: 'duration', role: 'number' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 export function RunsTab({ runs, isArmed, clearOldRuns, clearAllRuns, authHeaders, setSelectedRun, retryRun, cancelRun }) {
   return (
@@ -25,8 +34,7 @@ export function RunsTab({ runs, isArmed, clearOldRuns, clearAllRuns, authHeaders
         <Empty size="sm" className="rounded-none border-0 bg-transparent" icon={<Activity className="h-8 w-8 text-kumo-inactive" />} title="暂无运行记录" description="运行后显示结果" />
       ) : (
         <div className="overflow-x-auto">
-          <Table layout="fixed" className="min-w-[920px]">
-            <colgroup><col /><col className="w-[110px]" /><col className="w-[130px]" /><col className="w-[180px]" /><col className="w-[120px]" /><col className="w-[128px]" /></colgroup>
+          <AppTable tableId="scheduler-runs" columns={SCHEDULER_RUN_COLUMNS} className="min-w-[920px]">
             <Table.Header><Table.Row><Table.Head>运行对象</Table.Head><Table.Head>状态</Table.Head><Table.Head>触发方式</Table.Head><Table.Head>开始时间</Table.Head><Table.Head>耗时</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
             <Table.Body>
               {runs.map((run) => (
@@ -44,7 +52,7 @@ export function RunsTab({ runs, isArmed, clearOldRuns, clearAllRuns, authHeaders
                 </Table.Row>
               ))}
             </Table.Body>
-          </Table>
+          </AppTable>
         </div>
       )}
     </SectionCard>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select } from '@cloudflare/kumo';
-import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, PieChart, Upload, Download } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
@@ -52,6 +52,44 @@ const fmtRate = r => {
   if (!Number.isFinite(n) || n <= 0) return '—';
   return `${(n * 100).toFixed(1)}%`;
 };
+
+const GEMINI_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'token', role: 'status' },
+  { id: 'available', role: 'status' },
+  { id: 'actions', role: 'actions-md' },
+];
+
+const GEMINI_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const GEMINI_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const GEMINI_MODEL_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'context', role: 'count', align: 'center' },
+  { id: 'maxOutput', role: 'count', align: 'center' },
+];
+
+const GEMINI_QUOTA_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'remaining', role: 'count', align: 'center' },
+  { id: 'resetAt', role: 'datetime', align: 'center' },
+];
 
 // GeminiCliBrand 是 Gemini CLI 的简洁内联品牌图标（四角星形，无外部依赖）。
 export function GeminiCliBrand({ className }) {
@@ -548,15 +586,15 @@ export function GeminiCliPlugin() {
         >
           {accounts.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[46rem] text-xs">
+              <AppTable tableId="geminicli-accounts" columns={GEMINI_ACCOUNT_COLUMNS} className="w-full min-w-[46rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                    <Table.Head className="!w-64 !px-2.5 !py-1.5">账号</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">token</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">可用</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">token</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">可用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -631,7 +669,7 @@ export function GeminiCliPlugin() {
                     );
                   })}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">
@@ -691,14 +729,14 @@ export function GeminiCliPlugin() {
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="geminicli-usage-accounts" columns={GEMINI_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
                       <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -724,18 +762,18 @@ export function GeminiCliPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="geminicli-usage-models" columns={GEMINI_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
                       <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -761,7 +799,7 @@ export function GeminiCliPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
             </>
           ) : (
@@ -781,10 +819,10 @@ export function GeminiCliPlugin() {
         >
           {models.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+              <AppTable tableId="geminicli-models" columns={GEMINI_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
+                    <Table.Head className="!px-2 !py-1.5 text-center">
                       <div className="flex justify-center">
                         <Switch
                           size="sm"
@@ -796,8 +834,8 @@ export function GeminiCliPlugin() {
                       </div>
                     </Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">上下文</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出上限</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">上下文</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">输出上限</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -835,7 +873,7 @@ export function GeminiCliPlugin() {
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">
@@ -872,12 +910,12 @@ export function GeminiCliPlugin() {
                   {acc.error ? (
                     <div className="text-xs text-kumo-subtle">{acc.error}</div>
                   ) : acc.models?.length ? (
-                    <Table layout="fixed" className="w-full min-w-[34rem] text-xs">
+                    <AppTable tableId="geminicli-quota" columns={GEMINI_QUOTA_COLUMNS} className="w-full min-w-[34rem] text-xs">
                       <Table.Header variant="compact">
                         <Table.Row className="h-8">
                           <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                          <Table.Head className="!w-28 !px-2 !py-1.5 text-center">剩余额度</Table.Head>
-                          <Table.Head className="!w-40 !px-2 !py-1.5 text-center">重置时间</Table.Head>
+                          <Table.Head className="!px-2 !py-1.5 text-center">剩余额度</Table.Head>
+                          <Table.Head className="!px-2 !py-1.5 text-center">重置时间</Table.Head>
                         </Table.Row>
                       </Table.Header>
                       <Table.Body>
@@ -895,7 +933,7 @@ export function GeminiCliPlugin() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </Table>
+                    </AppTable>
                   ) : (
                     <div className="text-xs text-kumo-subtle">暂无配额数据。</div>
                   )}

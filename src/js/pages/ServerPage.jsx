@@ -40,6 +40,7 @@ import {
   ChartBoundaryBox,
   ChartWarmupSkeleton,
   AppCard,
+  AppTable,
   ResponsiveSearchInput,
   ScrollableTable,
   SectionCard,
@@ -519,6 +520,19 @@ const getTrafficQuota = (server = {}) => {
 };
 
 const EMPTY_SERIES = [];
+
+const SERVER_CREDENTIAL_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 120 },
+  { id: 'username', role: 'identifier', minWidth: 120 },
+  { id: 'actions', role: 'actions-sm' },
+];
+
+const NETWORK_TARGET_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 96 },
+  { id: 'endpoint', role: 'identifier', minWidth: 150 },
+  { id: 'enabled', role: 'status' },
+  { id: 'actions', role: 'actions-sm' },
+];
 const EMPTY_SERVER_METRIC_DISPLAY = {
   records: EMPTY_METRIC_RECORDS,
   chartRecords: EMPTY_METRIC_RECORDS,
@@ -11933,12 +11947,7 @@ function ServerPage() {
                   </div>
                 ) : (
                   <div className="max-h-64 overflow-auto">
-                    <Table layout="fixed">
-                      <colgroup>
-                        <col style={{ width: 50 }} />
-                        <col style={{ width: 120 }} />
-                        <col style={{ width: 86 }} />
-                      </colgroup>
+                    <AppTable tableId="server-credentials" columns={SERVER_CREDENTIAL_COLUMNS}>
                       <Table.Header variant="compact">
                         <Table.Row>
                           <Table.Head className="text-left">名称</Table.Head>
@@ -12006,7 +12015,7 @@ function ServerPage() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </Table>
+                    </AppTable>
                   </div>
                 )}
               </SectionCard>
@@ -12042,13 +12051,7 @@ function ServerPage() {
                   <div className="px-3 py-8 text-center text-xs text-kumo-subtle">暂无监测目标</div>
                 ) : (
                   <div className="max-h-64 overflow-auto">
-                    <Table layout="fixed">
-                      <colgroup>
-                        <col style={{ width: 80 }} />
-                        <col style={{ width: 150 }} />
-                        <col style={{ width: 60 }} />
-                        <col style={{ width: 86 }} />
-                      </colgroup>
+                    <AppTable tableId="network-targets" columns={NETWORK_TARGET_COLUMNS}>
                       <Table.Header variant="compact">
                         <Table.Row>
                           <Table.Head className="text-center">名称</Table.Head>
@@ -12127,7 +12130,7 @@ function ServerPage() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </Table>
+                    </AppTable>
                   </div>
                 )}
               </SectionCard>

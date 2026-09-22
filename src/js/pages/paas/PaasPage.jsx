@@ -11,7 +11,7 @@ import { Badge, ClipboardText, Empty, LayerCard, Link, Loader, Tabs, Text, Toolb
 import { AnimatedCollapse } from '../../components/AnimatedCollapse.jsx';
 import useStore from '../../store.js';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
-import { getStatusPillClass, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, sectionCardHeaderClass, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
+import { getStatusPillClass, AppTable, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, sectionCardHeaderClass, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
 import {
   Server,
   Users,
@@ -61,6 +61,14 @@ import KoyebSecretsDialog from './KoyebSecretsDialog.jsx';
 import KoyebCreateDialog from './KoyebCreateDialog.jsx';
 import KoyebUsageDialog from './KoyebUsageDialog.jsx';
 import LogViewerDialog from './LogViewerDialog.jsx';
+
+const PAAS_ACCOUNT_COLUMNS = [
+  { id: 'platform', role: 'type', minWidth: 144 },
+  { id: 'name', role: 'primary', minWidth: 200, grow: 1 },
+  { id: 'email', role: 'identifier', grow: 1 },
+  { id: 'balance', role: 'number' },
+  { id: 'actions', role: 'actions-sm' },
+];
 function PaasPage() {
   const theme = useStore(s => s.theme);
   const { isArmed, confirmPress } = useConfirmPress();
@@ -2866,14 +2874,7 @@ function PaasPage() {
             bodyPadding="none"
           >
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="min-w-[56rem]">
-                <colgroup>
-                  <col className="w-[9rem]" />
-                  <col className="w-[20%]" />
-                  <col />
-                  <col className="w-[8rem]" />
-                  <col className="w-[7rem]" />
-                </colgroup>
+              <AppTable tableId="paas-accounts" columns={PAAS_ACCOUNT_COLUMNS} className="min-w-[56rem]">
                 <Table.Header variant="compact">
                   <Table.Row>
                     <Table.Head>平台</Table.Head>
@@ -2925,7 +2926,7 @@ function PaasPage() {
                     </>
                   )}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           </SectionCard>
         </div>

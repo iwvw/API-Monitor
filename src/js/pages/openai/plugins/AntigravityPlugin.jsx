@@ -1,12 +1,37 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Select, Loader, Input, Dialog, Table, Badge, Toolbar, LayerCard } from '@cloudflare/kumo';
-import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit, Rocket, TrendingUp } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/antigravity';
+
+const ANTIGRAVITY_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'plan', role: 'type' },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-md' },
+];
+
+const ANTIGRAVITY_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const ANTIGRAVITY_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
 
 // 配额标签中文化：上游返回的英文标签映射为中文，未命中时原样返回。
 const QUOTA_LABEL_ZH = {
@@ -546,15 +571,15 @@ export function AntigravityPlugin() {
         >
           {accounts.length ? (
             <div className="overflow-x-auto">
-            <Table layout="fixed" className="w-full min-w-[42rem] text-xs">
+            <AppTable tableId="antigravity-accounts" columns={ANTIGRAVITY_ACCOUNT_COLUMNS} className="w-full min-w-[42rem] text-xs">
               <Table.Header variant="compact">
                 <Table.Row className="h-8">
-                  <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                  <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
-                  <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                  <Table.Head className="!w-24 !px-2 !py-1.5 text-center">套餐</Table.Head>
-                  <Table.Head className="!w-20 !px-2 !py-1.5 text-center">状态</Table.Head>
-                  <Table.Head className="!w-24 !px-2 !py-1.5 text-center">操作</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                  <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">套餐</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -619,7 +644,7 @@ export function AntigravityPlugin() {
                   </Table.Row>
                 ))}
               </Table.Body>
-            </Table>
+            </AppTable>
             </div>
           ) : (
             <div className="p-4">
@@ -678,14 +703,14 @@ export function AntigravityPlugin() {
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="antigravity-usage-accounts" columns={ANTIGRAVITY_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
                       <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -711,18 +736,18 @@ export function AntigravityPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="antigravity-usage-models" columns={ANTIGRAVITY_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
                       <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -748,7 +773,7 @@ export function AntigravityPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
             </>
           ) : (

@@ -4,10 +4,20 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Empty } from '@cloudflare/kumo/components/empty';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, Check, Clock, Edit, Pause, Play, Plus, Terminal, Trash } from '../../components/Icons.jsx';
 import { IconButton } from './shared.jsx';
 import { formatTimestamp, statusBadgeVariant, statusLabel, taskTypeLabel } from './utils.js';
+
+const SCHEDULER_TASK_COLUMNS = [
+  { id: 'status', role: 'status' },
+  { id: 'name', role: 'primary', grow: 1, minWidth: 200 },
+  { id: 'type', role: 'type' },
+  { id: 'schedule', role: 'content', grow: 1, minWidth: 176, verticalAlign: 'middle' },
+  { id: 'nextRun', role: 'datetime' },
+  { id: 'logs', role: 'content', grow: 1, minWidth: 176, verticalAlign: 'middle' },
+  { id: 'actions', role: 'actions-lg' },
+];
 
 export function TaskListTab({ tasks, loading, isArmed, openCreateTask, openEditTask, openTaskLogs, runTask, toggleTask, deleteTask }) {
   return (
@@ -24,8 +34,7 @@ export function TaskListTab({ tasks, loading, isArmed, openCreateTask, openEditT
         <Empty size="sm" className="rounded-none border-0 bg-transparent" icon={<Clock className="h-8 w-8 text-kumo-inactive" />} title="暂无任务" description="创建后可被工作流引用。" contents={<Button size="sm" variant="primary" onClick={openCreateTask}><Plus className="h-3.5 w-3.5" />新建任务</Button>} />
       ) : (
         <div className="overflow-x-auto">
-          <Table layout="fixed" className="min-w-[1080px]">
-            <colgroup><col className="w-[104px]" /><col className="w-[220px]" /><col className="w-[128px]" /><col className="w-[190px]" /><col className="w-[180px]" /><col className="w-[180px]" /><col className="w-[160px]" /></colgroup>
+          <AppTable tableId="scheduler-tasks" columns={SCHEDULER_TASK_COLUMNS} className="min-w-[1080px]">
             <Table.Header><Table.Row><Table.Head>状态</Table.Head><Table.Head>任务</Table.Head><Table.Head>类型</Table.Head><Table.Head>周期</Table.Head><Table.Head>下次运行</Table.Head><Table.Head>日志</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
             <Table.Body>
               {tasks.map((task) => (
@@ -56,7 +65,7 @@ export function TaskListTab({ tasks, loading, isArmed, openCreateTask, openEditT
                 </Table.Row>
               ))}
             </Table.Body>
-          </Table>
+          </AppTable>
         </div>
       )}
     </SectionCard>

@@ -3,8 +3,19 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { ClipboardText, LayerCard, Table } from '@cloudflare/kumo';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
 import { formatDateTime } from '../../modules/utils.js';
-import { StatusBadge } from '../../components/ui/AppPrimitives.jsx';
+import { StatusBadge, AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { Trash, RotateCw, Edit, Star, Reboot } from '../../components/Icons.jsx';
+
+const GATEWAY_KEY_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 180, grow: 1 },
+  { id: 'key', role: 'identifier', minWidth: 240, align: 'center' },
+  { id: 'status', role: 'status' },
+  { id: 'lastUsed', role: 'datetime', align: 'center' },
+  { id: 'expiresAt', role: 'datetime', align: 'center' },
+  { id: 'requests', role: 'count', align: 'center' },
+  { id: 'tokens', role: 'count', align: 'center' },
+  { id: 'actions', role: 'actions-lg' },
+];
 
 export function GatewayKeysTab({ keys, isArmed }) {
   const {
@@ -22,17 +33,7 @@ export function GatewayKeysTab({ keys, isArmed }) {
         <div className="flex grow flex-col gap-3">
           <LayerCard className="w-full min-w-0 overflow-hidden p-0 shadow-none">
             <div className="min-w-0 overflow-x-auto scrollbar-thin">
-              <Table layout="fixed" className="min-w-[1200px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
-                <colgroup>
-                  <col style={{ width: 180 }} />
-                  <col style={{ width: 240 }} />
-                  <col style={{ width: 88 }} />
-                  <col style={{ width: 150 }} />
-                  <col style={{ width: 150 }} />
-                  <col style={{ width: 100 }} />
-                  <col style={{ width: 140 }} />
-                  <col style={{ width: 152 }} />
-                </colgroup>
+              <AppTable tableId="gateway-keys" columns={GATEWAY_KEY_COLUMNS} className="min-w-[1200px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
                 <Table.Header sticky variant="compact">
                   <Table.Row>
                     <Table.Head>名称</Table.Head>
@@ -209,7 +210,7 @@ export function GatewayKeysTab({ keys, isArmed }) {
                     ))
                   )}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           </LayerCard>
         </div>

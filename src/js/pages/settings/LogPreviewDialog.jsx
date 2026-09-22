@@ -1,7 +1,15 @@
 import React from 'react';
 import { Table } from '@cloudflare/kumo/components/table';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
+import { AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { Trash } from '../../components/Icons.jsx';
+
+const LOG_PREVIEW_COLUMNS = [
+  { id: 'table', role: 'identifier', grow: 1 },
+  { id: 'current', role: 'count', width: 96 },
+  { id: 'kept', role: 'count', width: 96 },
+  { id: 'deleted', role: 'count', width: 96 },
+];
 
 export function LogPreviewDialog({ confirmEnforceLogLimits, logPreview, setLogPreview }) {
   return (
@@ -19,13 +27,7 @@ export function LogPreviewDialog({ confirmEnforceLogLimits, logPreview, setLogPr
           <LayerDialog.Body>
             {logPreview?.tables?.length > 0 && (
               <div className="max-h-64 overflow-auto rounded-lg border border-kumo-line">
-                <Table layout="fixed">
-                  <colgroup>
-                    <col />
-                    <col className="w-[96px]" />
-                    <col className="w-[96px]" />
-                    <col className="w-[96px]" />
-                  </colgroup>
+                <AppTable tableId="log-preview" columns={LOG_PREVIEW_COLUMNS}>
                   <Table.Header>
                     <Table.Row>
                       <Table.Head>表</Table.Head>
@@ -44,7 +46,7 @@ export function LogPreviewDialog({ confirmEnforceLogLimits, logPreview, setLogPr
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
             )}
             {logPreview?.sizeOverLimit && (

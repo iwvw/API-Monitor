@@ -122,7 +122,7 @@ export default function StoragePanel({
               <AppTable tableId="gcp-objects" columns={OBJECT_TABLE_COLUMNS}>
                 <Table.Header variant="compact">
                   <Table.Row>
-                    <Table.Head className="w-10">
+                    <Table.Head>
                       <Checkbox checked={objects.length > 0 && selectedObjects.size === objects.length} onCheckedChange={onToggleAllObjects} aria-label="全选" />
                     </Table.Head>
                     <Table.Head>名称</Table.Head>

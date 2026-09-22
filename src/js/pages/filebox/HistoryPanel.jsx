@@ -4,9 +4,18 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { formatDateTime } from '../../modules/utils.js';
 import { Clock, History, RefreshCw, Server, Trash } from '../../components/Icons.jsx';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { EntryName } from './EntryName.jsx';
 import { formatExpiry } from './utils.js';
+
+const SHARE_HISTORY_COLUMNS = [
+  { id: 'content', role: 'primary', grow: 1 },
+  { id: 'code', role: 'meta' },
+  { id: 'storage', role: 'content', grow: 1, verticalAlign: 'middle' },
+  { id: 'downloads', role: 'count' },
+  { id: 'expiry', role: 'datetime' },
+  { id: 'actions', role: 'actions-lg' },
+];
 
 export function HistoryPanel({
   isArmed,
@@ -39,15 +48,7 @@ export function HistoryPanel({
         bodyPadding="none"
         bodyClassName="overflow-x-auto"
       >
-        <Table layout="fixed" className="min-w-[880px]">
-          <colgroup>
-            <col />
-            <col className="w-24" />
-            <col className="w-36" />
-            <col className="w-28" />
-            <col className="w-32" />
-            <col className="w-36" />
-          </colgroup>
+        <AppTable tableId="share-history" columns={SHARE_HISTORY_COLUMNS} className="min-w-[880px]">
           <Table.Header>
             <Table.Row>
               <Table.Head>内容</Table.Head>
@@ -118,7 +119,7 @@ export function HistoryPanel({
               })
             )}
           </Table.Body>
-        </Table>
+        </AppTable>
       </SectionCard>
 
       <div className="grid items-start gap-4 cq-xl:grid-cols-2">

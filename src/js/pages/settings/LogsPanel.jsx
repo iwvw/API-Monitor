@@ -4,9 +4,16 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Database, FileText, Save, Trash } from '../../components/Icons.jsx';
 import { toInt } from './utils.js';
+
+const AUDIT_LOG_COLUMNS = [
+  { id: 'time', role: 'datetime' },
+  { id: 'operation', role: 'type' },
+  { id: 'table', role: 'identifier' },
+  { id: 'trace', role: 'content', grow: 1, verticalAlign: 'middle' },
+];
 
 export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogLimits, saveLogSettings, setLogSettings }) {
   return (
@@ -49,13 +56,7 @@ export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogL
               bodyPadding="none"
               bodyClassName="overflow-x-auto"
             >
-              <Table layout="fixed" className="min-w-[700px]">
-                <colgroup>
-                  <col className="w-[170px]" />
-                  <col className="w-[220px]" />
-                  <col className="w-[130px]" />
-                  <col />
-                </colgroup>
+              <AppTable tableId="audit-logs" columns={AUDIT_LOG_COLUMNS} className="min-w-[700px]">
                 <Table.Header>
                   <Table.Row>
                     <Table.Head>时间</Table.Head>
@@ -79,7 +80,7 @@ export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogL
                     </Table.Row>
                   )}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </SectionCard>
           </div>
         </div>

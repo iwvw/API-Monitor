@@ -10,7 +10,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Badge, ClipboardText, Empty, Loader, Tabs, Text } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
-import { ResponsiveSearchInput, SectionCard, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
+import { AppTable, ResponsiveSearchInput, SectionCard, TabBarOverflowActions, stickyTabsBaseClass } from '../components/ui/AppPrimitives.jsx';
 import {
   Box,
   Plus,
@@ -23,6 +23,17 @@ import {
 } from '../components/Icons.jsx';
 
 const DEFAULT_PAGE_SIZE = '100';
+
+const DOCKERHUB_REPO_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 256, grow: 1 },
+  { id: 'description', role: 'content', minWidth: 200, grow: 1, verticalAlign: 'middle' },
+  { id: 'stars', role: 'count' },
+  { id: 'pulls', role: 'count' },
+  { id: 'size', role: 'count' },
+  { id: 'updatedAt', role: 'datetime' },
+  { id: 'type', role: 'type' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 function DockerHubPage() {
   const { confirmPress } = useConfirmPress();
@@ -222,17 +233,7 @@ function DockerHubPage() {
 
   const renderReposTable = (rows, { accountId, linkBase } = {}) => (
     <div className="overflow-x-auto">
-      <Table layout="fixed" className="min-w-[76rem]">
-        <colgroup>
-          <col className="w-[16rem]" />
-          <col />
-          <col className="w-[6rem]" />
-          <col className="w-[7.5rem]" />
-          <col className="w-[7.5rem]" />
-          <col className="w-[11rem]" />
-          <col className="w-[5.5rem]" />
-          <col className="w-[7.5rem]" />
-        </colgroup>
+      <AppTable tableId="dockerhub-repos" columns={DOCKERHUB_REPO_COLUMNS} className="min-w-[76rem]">
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head>仓库名</Table.Head>
@@ -297,7 +298,7 @@ function DockerHubPage() {
             })
           )}
         </Table.Body>
-      </Table>
+      </AppTable>
     </div>
   );
 

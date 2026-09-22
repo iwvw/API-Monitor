@@ -1,12 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Meter, Select, Toolbar } from '@cloudflare/kumo';
-import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, PostHogBrand, Settings as SettingsIcon, Plus, RefreshCw, Trash, ExternalLink, ShieldCheck, TrendingUp, Upload, Download, Copy } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders } from '../utils.js';
 
 const API = '/api/posthogcode';
+
+const POSTHOG_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
+
+const POSTHOG_USAGE_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'remaining', role: 'content', grow: 2, verticalAlign: 'middle' },
+  { id: 'used', role: 'count', align: 'right' },
+  { id: 'burst', role: 'count', align: 'center' },
+  { id: 'sustained', role: 'count', align: 'center' },
+  { id: 'period', role: 'date', align: 'center' },
+];
+
+const POSTHOG_MODEL_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'source', role: 'type' },
+  { id: 'context', role: 'count', align: 'center' },
+  { id: 'multiplier', role: 'count', align: 'center' },
+  { id: 'plan', role: 'status' },
+];
 
 // 回调地址由后端固定为 PostHog OAuth 应用注册过的值（默认 http://localhost/callback）。
 // 不能按面板所在源推导：注册值与部署域名无关，用 window.location.origin 会得到
@@ -856,14 +882,14 @@ export function PostHogCodePlugin() {
           {accounts.length ? (
             <LayerCard className="min-w-0 overflow-hidden p-0 shadow-none">
               <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-                <Table layout="fixed" className="w-full min-w-[42rem] text-xs">
+                <AppTable tableId="posthogcode-accounts" columns={POSTHOG_ACCOUNT_COLUMNS} className="w-full min-w-[42rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                    <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">状态</Table.Head>
-                    <Table.Head className="!w-40 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -954,8 +980,8 @@ export function PostHogCodePlugin() {
                       </Table.Cell>
                     </Table.Row>
                   ))}
-                 </Table.Body>
-              </Table>
+                     </Table.Body>
+              </AppTable>
               </div>
             </LayerCard>
           ) : (
@@ -982,15 +1008,15 @@ export function PostHogCodePlugin() {
           {usageRows.length ? (
             <LayerCard className="min-w-0 overflow-hidden p-0 shadow-none">
               <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-                <Table layout="fixed" className="w-full min-w-[46rem] text-xs">
+                <AppTable tableId="posthogcode-usage" columns={POSTHOG_USAGE_COLUMNS} className="w-full min-w-[46rem] text-xs">
                   <Table.Header sticky variant="compact">
                     <Table.Row className="h-8">
-                      <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
+                      <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
                       <Table.Head className="!px-2.5 !py-1.5">剩余额度</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-right">已用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center" title="日窗口用量占比，超过会被网关限流">日窗口</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center" title="月窗口用量占比，超过会被网关限流">月窗口</Table.Head>
-                      <Table.Head className="!w-28 !px-2 !py-1.5 text-center" title="各账号额度互相独立，周期结束日按各自计费周期">计费周期</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-right">已用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center" title="日窗口用量占比，超过会被网关限流">日窗口</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center" title="月窗口用量占比，超过会被网关限流">月窗口</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center" title="各账号额度互相独立，周期结束日按各自计费周期">计费周期</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -1061,7 +1087,7 @@ export function PostHogCodePlugin() {
                       );
                     })}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
             </LayerCard>
           ) : (
@@ -1085,19 +1111,19 @@ export function PostHogCodePlugin() {
           {models.length ? (
             <LayerCard className="min-w-0 overflow-hidden p-0 shadow-none">
               <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-                <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
+                <AppTable tableId="posthogcode-models" columns={POSTHOG_MODEL_COLUMNS} className="w-full min-w-[44rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
+                    <Table.Head className="!px-2 !py-1.5 text-center">
                       <div className="flex justify-center">
                         <Switch size="sm" checked={allEnabled} onCheckedChange={toggleAllModels} aria-label="全选模型" />
                       </div>
                     </Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">来源</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">上下文</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">倍率</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">计划</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">来源</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">上下文</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">倍率</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">计划</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -1144,8 +1170,8 @@ export function PostHogCodePlugin() {
                       </Table.Cell>
                     </Table.Row>
                   ))}
-                 </Table.Body>
-              </Table>
+                     </Table.Body>
+              </AppTable>
               </div>
             </LayerCard>
           ) : (

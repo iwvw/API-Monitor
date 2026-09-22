@@ -5,6 +5,7 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { ClipboardText, LayerCard, Loader, Popover, Table, Badge } from '@cloudflare/kumo';
 import {
   AppCard,
+  AppTable,
   EmptyState,
   StatusBadge,
   actionIconClass,
@@ -27,6 +28,22 @@ import { modelHealthKey } from '../../modules/openaiModelHealth.js';
 import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
 import { KeyStatusBadge } from './KeyStatusBadge.jsx';
+
+const ENDPOINT_LIST_COLUMNS = [
+  { id: 'endpoint', role: 'primary', minWidth: 200, grow: 1 },
+  { id: 'priority', role: 'count', align: 'center', width: 72 },
+  { id: 'weight', role: 'count', align: 'center', width: 72 },
+  { id: 'status', role: 'status', width: 72 },
+];
+
+const ENDPOINT_MODEL_COLUMNS = [
+  { id: 'check', role: 'control' },
+  { id: 'model', role: 'primary', minWidth: 260, grow: 1 },
+  { id: 'mapping', role: 'meta', align: 'center' },
+  { id: 'health', role: 'status' },
+  { id: 'latency', role: 'count', align: 'center' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 export function EndpointsTab({
   endpointsApi,
@@ -191,13 +208,7 @@ export function EndpointsTab({
                     </div>
                     <LayerCard className="min-w-0 p-0 shadow-none">
                       <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
-                        <Table layout="fixed" className="w-full min-w-[420px] text-xs">
-                          <colgroup>
-                            <col style={{ width: 200 }} />
-                            <col style={{ width: 64 }} />
-                            <col style={{ width: 64 }} />
-                            <col style={{ width: 64 }} />
-                          </colgroup>
+                        <AppTable tableId="endpoints-list" columns={ENDPOINT_LIST_COLUMNS} className="w-full min-w-[420px] text-xs">
                           <Table.Header sticky variant="compact">
                             <Table.Row className="h-8">
                               <Table.Head className="!px-2.5 !py-1.5">端点</Table.Head>
@@ -335,7 +346,7 @@ export function EndpointsTab({
                               </Table.Row>
                             ))}
                           </Table.Body>
-                        </Table>
+                        </AppTable>
                       </div>
                     </LayerCard>
                   </section>
@@ -478,15 +489,7 @@ export function EndpointsTab({
 
                     <LayerCard className="min-w-0 p-0 shadow-none">
                       <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
-                        <Table layout="fixed" className="min-w-[820px] text-xs">
-                          <colgroup>
-                            <col style={{ width: 56 }} />
-                            <col style={{ width: 260 }} />
-                            <col style={{ width: 150 }} />
-                            <col style={{ width: 92 }} />
-                            <col style={{ width: 96 }} />
-                            <col style={{ width: 150 }} />
-                          </colgroup>
+                        <AppTable tableId="endpoint-models" columns={ENDPOINT_MODEL_COLUMNS} className="min-w-[820px] text-xs">
                           <Table.Header sticky variant="compact">
                             <Table.Row className="h-8">
                               <Table.Head className="!px-2 !py-1.5 text-center">
@@ -702,7 +705,7 @@ export function EndpointsTab({
                               </Table.Row>
                             )}
                           </Table.Body>
-                        </Table>
+                        </AppTable>
                       </div>
                     </LayerCard>
                   </section>

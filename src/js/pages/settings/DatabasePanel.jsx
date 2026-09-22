@@ -5,10 +5,23 @@ import { Input } from '@cloudflare/kumo/components/input';
 import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { toast } from '../../modules/toast.js';
-import { AppCard, FieldRow, SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppCard, AppTable, FieldRow, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, ChevronDown, ChevronUp, Columns, Database, Download, FileText, HardDrive, RefreshCw, Trash, Upload } from '../../components/Icons.jsx';
 import { BackupPanel } from '../BackupPage.jsx';
 import { formatFileSize, toInt } from './utils.js';
+
+const DB_IMPORT_PREVIEW_COLUMNS = [
+  { id: 'name', role: 'identifier', grow: 1 },
+  { id: 'rows', role: 'count', width: 80 },
+];
+
+const DB_TABLE_STATS_COLUMNS = [
+  { id: 'name', role: 'identifier', grow: 1 },
+  { id: 'rows', role: 'count' },
+  { id: 'size', role: 'meta' },
+  { id: 'indexSize', role: 'meta' },
+  { id: 'avgRowSize', role: 'meta' },
+];
 
 export function DatabasePanel({
   cleanupDeprecatedTables,
@@ -102,11 +115,11 @@ export function DatabasePanel({
                   </div>
                 )}
                 <div className="mt-3 max-h-44 overflow-y-auto rounded border border-kumo-line bg-kumo-base">
-                  <Table layout="fixed">
+                  <AppTable tableId="db-import-preview" columns={DB_IMPORT_PREVIEW_COLUMNS}>
                     <Table.Header variant="compact">
                       <Table.Row>
                         <Table.Head>表名</Table.Head>
-                        <Table.Head className="w-20">记录数</Table.Head>
+                        <Table.Head>记录数</Table.Head>
                       </Table.Row>
                     </Table.Header>
                     <Table.Body>
@@ -117,7 +130,7 @@ export function DatabasePanel({
                         </Table.Row>
                       ))}
                     </Table.Body>
-                  </Table>
+                  </AppTable>
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Button size="sm" variant="primary" className="flex-1 justify-center" onClick={commitDatabaseImport} loading={databaseBusy}>
@@ -278,14 +291,7 @@ export function DatabasePanel({
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-auto">
-              <Table layout="fixed">
-                <colgroup>
-                  <col className="w-[28%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[19%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[21%]" />
-                </colgroup>
+              <AppTable tableId="db-table-stats" columns={DB_TABLE_STATS_COLUMNS}>
                 <Table.Header>
                   <Table.Row>
                     <Table.Head>表名</Table.Head>
@@ -318,7 +324,7 @@ export function DatabasePanel({
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           </SectionCard>
           </div>

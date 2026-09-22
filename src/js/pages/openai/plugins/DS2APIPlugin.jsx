@@ -1,12 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Textarea, Toolbar, Select, SensitiveInput } from '@cloudflare/kumo';
-import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, DeepSeekBrand, Settings as SettingsIcon, Plus, Upload, Download, RefreshCw, Trash, Edit, TrendingUp } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/ds2api';
+
+const DS2API_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
+
+const DS2API_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const DS2API_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
 
 const fmtUntil = (v) => {
   if (!v || v <= 0) return '';
@@ -505,14 +529,14 @@ export function DS2APIPlugin() {
           >
             {engineUp && accounts.length ? (
               <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[42rem] text-xs">
+              <AppTable tableId="ds2api-accounts" columns={DS2API_ACCOUNT_COLUMNS} className="w-full min-w-[42rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                    <Table.Head className="!w-52 !px-2.5 !py-1.5">账号</Table.Head>
-                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">调用</Table.Head>
-                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">状态</Table.Head>
-                    <Table.Head className="!w-40 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -572,7 +596,7 @@ export function DS2APIPlugin() {
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
               </div>
             ) : (
               <div className="p-4">
@@ -674,14 +698,14 @@ export function DS2APIPlugin() {
                 </div>
 
                 <div className="overflow-x-auto border-t border-kumo-line">
-                  <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                  <AppTable tableId="ds2api-usage-accounts" columns={DS2API_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
                     <Table.Header variant="compact">
                       <Table.Row className="h-8">
                         <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
-                        <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                       </Table.Row>
                     </Table.Header>
                     <Table.Body>
@@ -707,18 +731,18 @@ export function DS2APIPlugin() {
                         </Table.Row>
                       ))}
                     </Table.Body>
-                  </Table>
+                  </AppTable>
                 </div>
 
                 <div className="overflow-x-auto border-t border-kumo-line">
-                  <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                  <AppTable tableId="ds2api-usage-models" columns={DS2API_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
                     <Table.Header variant="compact">
                       <Table.Row className="h-8">
                         <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                        <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                        <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                        <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                       </Table.Row>
                     </Table.Header>
                     <Table.Body>
@@ -744,7 +768,7 @@ export function DS2APIPlugin() {
                         </Table.Row>
                       ))}
                     </Table.Body>
-                  </Table>
+                  </AppTable>
                 </div>
               </>
             ) : (

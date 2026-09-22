@@ -22,6 +22,15 @@ import {
 } from '../../modules/server-sftp.js';
 import { ArrowLeft, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload, X } from '../Icons.jsx';
 import CodeEditor from '../ui/CodeEditor.jsx';
+import { AppTable } from '../ui/AppPrimitives.jsx';
+
+const SFTP_FILE_COLUMNS = [
+  { id: 'path', role: 'primary', minWidth: 220, grow: 3 },
+  { id: 'size', role: 'count', minWidth: 88 },
+  { id: 'mtime', role: 'datetime', minWidth: 120 },
+  { id: 'permissions', role: 'meta', minWidth: 96 },
+  { id: 'actions', role: 'actions-sm' },
+];
 
 const contextMenuItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay';
 const contextMenuDangerItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger';
@@ -337,13 +346,13 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
               ) : error ? (
                 <div className="m-3 rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-3 text-xs text-kumo-danger">{error}</div>
               ) : (
-                <Table size="sm">
+                <AppTable tableId="sftp-files" columns={SFTP_FILE_COLUMNS} size="sm">
                   <Table.Header>
                     <Table.Row>
-                      <Table.Head className="w-[45%]">路径</Table.Head>
-                      <Table.Head className="w-[12%]">大小</Table.Head>
-                      <Table.Head className="w-[18%]">最后修改</Table.Head>
-                      <Table.Head className="w-[15%]">权限</Table.Head>
+                      <Table.Head>路径</Table.Head>
+                      <Table.Head>大小</Table.Head>
+                      <Table.Head>最后修改</Table.Head>
+                      <Table.Head>权限</Table.Head>
                       <Table.Head className="app-table-action">操作</Table.Head>
                     </Table.Row>
                   </Table.Header>
@@ -396,7 +405,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
                       );
                     })}
                   </Table.Body>
-                </Table>
+                </AppTable>
               )}
             </div>
           </div>

@@ -2,8 +2,17 @@ import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
-import { AppCard, DataTableFrame, EmptyState, SectionCard, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
+import { AppCard, AppTable, DataTableFrame, EmptyState, SectionCard, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { Plus, RotateCw, Shield } from '../../components/Icons.jsx';
+
+const MAINTENANCE_WINDOW_COLUMNS = [
+  { id: 'title', role: 'primary', minWidth: 208, grow: 1 },
+  { id: 'status', role: 'status' },
+  { id: 'window', role: 'content', minWidth: 224, grow: 1, verticalAlign: 'middle' },
+  { id: 'strategy', role: 'meta' },
+  { id: 'timezone', role: 'meta' },
+  { id: 'updatedAt', role: 'datetime' },
+];
 
 function MaintenancePanel({
   maintenanceWindows,
@@ -93,15 +102,15 @@ function MaintenancePanel({
           </div>
 
           <DataTableFrame variant="embedded">
-            <Table layout="fixed">
+            <AppTable tableId="maintenance-windows" columns={MAINTENANCE_WINDOW_COLUMNS}>
               <Table.Header variant="compact">
                 <Table.Row>
-                  <Table.Head className="w-52">标题</Table.Head>
-                  <Table.Head className="w-24 text-center">状态</Table.Head>
+                  <Table.Head>标题</Table.Head>
+                  <Table.Head className="text-center">状态</Table.Head>
                   <Table.Head>时间窗口</Table.Head>
-                  <Table.Head className="w-28">策略</Table.Head>
-                  <Table.Head className="w-24">时区</Table.Head>
-                  <Table.Head className="w-36">更新时间</Table.Head>
+                  <Table.Head>策略</Table.Head>
+                  <Table.Head>时区</Table.Head>
+                  <Table.Head>更新时间</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -143,7 +152,7 @@ function MaintenancePanel({
                   );
                 })}
               </Table.Body>
-            </Table>
+            </AppTable>
           </DataTableFrame>
         </AppCard>
       )}

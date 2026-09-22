@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
-import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Clock, Upload, Download } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
@@ -54,6 +54,38 @@ const fmtRate = r => {
   if (!Number.isFinite(n) || n <= 0) return '—';
   return `${(n * 100).toFixed(1)}%`;
 };
+
+const LOBSTER_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'credits', role: 'meta', align: 'center' },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'token', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
+
+const LOBSTER_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const LOBSTER_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const LOBSTER_MODEL_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'source', role: 'type' },
+  { id: 'multiplier', role: 'meta', align: 'center' },
+];
 
 // LobsterAIBrand 是 LobsterAI（网易有道龙虾）的简洁内联品牌图标（爪形，无外部依赖）。
 export function LobsterAIBrand({ className }) {
@@ -653,15 +685,15 @@ export function LobsterAIPlugin() {
         >
           {accounts.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[54rem] text-xs">
+              <AppTable tableId="lobsterai-accounts" columns={LOBSTER_ACCOUNT_COLUMNS} className="w-full min-w-[54rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                    <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">积分</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">token</Table.Head>
-                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">积分</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">token</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -838,7 +870,7 @@ export function LobsterAIPlugin() {
                     );
                   })}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">
@@ -898,14 +930,14 @@ export function LobsterAIPlugin() {
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="lobsterai-usage-accounts" columns={LOBSTER_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
                       <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -931,18 +963,18 @@ export function LobsterAIPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="lobsterai-usage-models" columns={LOBSTER_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
                       <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -968,7 +1000,7 @@ export function LobsterAIPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
             </>
           ) : (
@@ -993,10 +1025,10 @@ export function LobsterAIPlugin() {
         >
           {models.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
+              <AppTable tableId="lobsterai-models" columns={LOBSTER_MODEL_COLUMNS} className="w-full min-w-[44rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
+                    <Table.Head className="!px-2 !py-1.5 text-center">
                       <div className="flex justify-center">
                         <Switch
                           size="sm"
@@ -1008,8 +1040,8 @@ export function LobsterAIPlugin() {
                       </div>
                     </Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">来源</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">倍率</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">来源</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">倍率</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -1049,7 +1081,7 @@ export function LobsterAIPlugin() {
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">

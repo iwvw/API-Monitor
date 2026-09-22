@@ -1,13 +1,52 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
-import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { CodeBuddyBrand, Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Upload, Download } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/workbuddy';
+
+const WORKBUDDY_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'region', role: 'type' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'checkin', role: 'meta', align: 'center' },
+  { id: 'balance', role: 'meta', align: 'center' },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
+
+const WORKBUDDY_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+  { id: 'credit', role: 'count', align: 'center' },
+];
+
+const WORKBUDDY_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+  { id: 'credit', role: 'count', align: 'center' },
+];
+
+const WORKBUDDY_MODEL_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'region', role: 'type' },
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'credits', role: 'meta', align: 'center' },
+  { id: 'context', role: 'count', align: 'center' },
+  { id: 'maxOutput', role: 'count', align: 'center' },
+  { id: 'images', role: 'status' },
+];
 
 // 登录轮询间隔：与参考实现一致，2 秒一次，由前端驱动节奏。
 const POLL_INTERVAL_MS = 2000;
@@ -745,19 +784,19 @@ export function WorkBuddyPlugin() {
         >
           {accounts.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[48rem] text-xs">
+              <AppTable tableId="workbuddy-accounts" columns={WORKBUDDY_ACCOUNT_COLUMNS} className="w-full min-w-[48rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">启用</Table.Head>
-                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">区域</Table.Head>
-                    <Table.Head className="!w-56 !px-2.5 !py-1.5">账号</Table.Head>
-                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">调用</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">
+                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
                       <span title="最近一次签到时刻（站点时区显示由浏览器决定）；点击查看连续登录天数与档位状态">签到</span>
                     </Table.Head>
-                    <Table.Head className="!w-28 !px-2 !py-1.5 text-center">余额</Table.Head>
-                    <Table.Head className="!w-32 !px-2 !py-1.5 text-center">状态</Table.Head>
-                    <Table.Head className="!w-36 !px-2 !py-1.5 text-center">操作</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">余额</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -1070,7 +1109,7 @@ export function WorkBuddyPlugin() {
                     </Fragment>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">
@@ -1131,15 +1170,15 @@ export function WorkBuddyPlugin() {
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="workbuddy-usage-accounts" columns={WORKBUDDY_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                     <Table.Row className="h-8">
                       <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">扣费</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">扣费</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -1168,19 +1207,19 @@ export function WorkBuddyPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
 
               <div className="overflow-x-auto border-t border-kumo-line">
-                <Table layout="fixed" className="w-full min-w-[40rem] text-xs">
+                <AppTable tableId="workbuddy-usage-models" columns={WORKBUDDY_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
                   <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                      <Table.Head className="!w-20 !px-2 !py-1.5 text-center">调用</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输入</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">缓存命中</Table.Head>
-                      <Table.Head className="!w-24 !px-2 !py-1.5 text-center">扣费</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">扣费</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -1209,7 +1248,7 @@ export function WorkBuddyPlugin() {
                       </Table.Row>
                     ))}
                   </Table.Body>
-                </Table>
+                </AppTable>
               </div>
 
               {usage.creditReported === false ? (
@@ -1235,10 +1274,10 @@ export function WorkBuddyPlugin() {
         >
           {models.length ? (
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="w-full min-w-[44rem] text-xs">
+              <AppTable tableId="workbuddy-models" columns={WORKBUDDY_MODEL_COLUMNS} className="w-full min-w-[44rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!w-12 !px-2 !py-1.5 text-center">
+                    <Table.Head className="!px-2 !py-1.5 text-center">
                       <div className="flex justify-center">
                         <Switch
                           size="sm"
@@ -1249,14 +1288,14 @@ export function WorkBuddyPlugin() {
                         />
                       </div>
                     </Table.Head>
-                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">区域</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">
+                    <Table.Head className="!px-2 !py-1.5 text-center">
                       <span title="上游积分倍率（/v3/config 的 credits），CodeBuddy 计费体系内的相对倍数，不含货币单价">倍率</span>
                     </Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">上下文</Table.Head>
-                    <Table.Head className="!w-24 !px-2 !py-1.5 text-center">输出上限</Table.Head>
-                    <Table.Head className="!w-20 !px-2 !py-1.5 text-center">图像</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">上下文</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">输出上限</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">图像</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -1339,7 +1378,7 @@ export function WorkBuddyPlugin() {
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">

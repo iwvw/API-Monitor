@@ -1,10 +1,17 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
-import { AppCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppCard, AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { Edit, FolderOpen, Trash } from '../../components/Icons.jsx';
 import { BRAND_COLOR_FALLBACK } from '../../components/ui/BrandIcon.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
+
+const TOTP_GROUP_COLUMNS = [
+  { id: 'color', role: 'control', minWidth: 80, maxWidth: 80 },
+  { id: 'name', role: 'primary', grow: 1 },
+  { id: 'accounts', role: 'count', align: 'center' },
+  { id: 'actions', role: 'actions-md' },
+];
 
 const GroupsTab = ({
   totpGroups,
@@ -26,13 +33,7 @@ const GroupsTab = ({
         </div>
       ) : (
         <div className="w-full overflow-x-auto">
-          <Table layout="fixed">
-            <colgroup>
-              <col className="w-20" />
-              <col />
-              <col className="w-28" />
-              <col className="w-36" />
-            </colgroup>
+          <AppTable tableId="totp-groups" columns={TOTP_GROUP_COLUMNS}>
             <Table.Header variant="compact">
               <Table.Row>
                 <Table.Head>颜色</Table.Head>
@@ -96,7 +97,7 @@ const GroupsTab = ({
                 </Table.Row>
               ))}
             </Table.Body>
-          </Table>
+          </AppTable>
         </div>
       )}
     </AppCard>

@@ -1,7 +1,8 @@
 {
   "_comment": "表格布局迁移基线。数值只允许下降，不允许上升。新增违规会使 ui:governance 失败；减少后请同步下调这里的数字。迁移完成后目标全部为 0。",
+  "_appTableWidths_note": "仅剩 1 处：AppPrimitives 的 ScrollableTable 泛型包装器向 AppTable 转发 widths。其唯一调用点是 ServerPage 主机紧凑表（动态可见列 + 自适应列内层 w-full min-w-* + 右侧吸顶操作列），与语义列模型不兼容，保留为有意例外。",
   "appTableWidths": 1,
-  "bareFixedTables": 45,
-  "headWidthClasses": 114,
-  "percentCols": 6
+  "bareFixedTables": 0,
+  "headWidthClasses": 0,
+  "percentCols": 0
 }

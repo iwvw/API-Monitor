@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Loader, Textarea, Input, Dialog, Table, LayerCard, Badge } from '@cloudflare/kumo';
-import { SectionCard, FieldRow, EmptyState } from '../../../components/ui/AppPrimitives.jsx';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Globe, Plus, RefreshCw, Trash, Upload } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders } from '../utils.js';
 
 const API = '/api/proxypool';
+
+const PROXY_POOL_COLUMNS = [
+  { id: 'pool', role: 'primary', grow: 1 },
+  { id: 'exits', role: 'count' },
+];
 
 // ProxyPoolPlugin：模型网关「插件中心」的独立代理池管理插件。
 // 提供可被其他插件或网关端点复用的出口代理池：
@@ -241,11 +246,11 @@ export function ProxyPoolPlugin() {
         <LayerCard className="min-w-0 overflow-hidden p-0 shadow-none">
           {pools?.length ? (
             <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-              <Table layout="fixed" className="w-full min-w-[32rem] text-xs">
+              <AppTable tableId="proxypool-list" columns={PROXY_POOL_COLUMNS} className="w-full min-w-[32rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!px-2.5 !py-1.5">代理池</Table.Head>
-                    <Table.Head className="!w-16 !px-2 !py-1.5 text-center">出口</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">出口</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -274,7 +279,7 @@ export function ProxyPoolPlugin() {
                     );
                   })}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           ) : (
             <div className="p-4">

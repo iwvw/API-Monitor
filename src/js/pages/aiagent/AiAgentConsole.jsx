@@ -13,6 +13,7 @@ import { ClipboardText as ClipboardTextField, Empty, Loader, Tabs } from '@cloud
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import {
+  AppTable,
   PageStack,
   SectionCard,
   StatusBadge,
@@ -48,6 +49,34 @@ import {
 import { sortInstances } from '../../modules/aiagentInstanceList.js';
 import { resolvePortConflict } from '../../modules/aiagentPortConflict.js';
 import { useVisiblePolling } from '../../modules/usePageVisibility.js';
+
+const AI_AGENT_INSTANCE_COLUMNS = [
+  { id: 'check', role: 'check' },
+  { id: 'name', role: 'primary', minWidth: 200, grow: 1 },
+  { id: 'provider', role: 'type' },
+  { id: 'host', role: 'content', minWidth: 150, grow: 1, verticalAlign: 'middle' },
+  { id: 'port', role: 'number', align: 'right' },
+  { id: 'status', role: 'status' },
+  { id: 'memory', role: 'number', align: 'right' },
+  { id: 'cpu', role: 'number', align: 'right' },
+  { id: 'actions', role: 'actions-xl' },
+];
+
+const AI_AGENT_USER_COLUMNS = [
+  { id: 'username', role: 'identifier', minWidth: 170, grow: 1 },
+  { id: 'displayName', role: 'primary', minWidth: 160, grow: 1 },
+  { id: 'status', role: 'status' },
+  { id: 'lastLogin', role: 'datetime' },
+  { id: 'actions', role: 'actions-lg' },
+];
+
+const AI_AGENT_LOG_COLUMNS = [
+  { id: 'time', role: 'datetime' },
+  { id: 'action', role: 'content', minWidth: 320, grow: 1, verticalAlign: 'middle' },
+  { id: 'result', role: 'status' },
+  { id: 'instance', role: 'content', minWidth: 150, grow: 1, verticalAlign: 'middle' },
+  { id: 'ip', role: 'identifier' },
+];
 
 // 生命周期控件（ADR-0006）：仅当主机 Agent 声明了能力、且实例启用时可用。
 // 未声明能力时按钮置灰并提示升级，而不是点了没反应。
@@ -249,18 +278,7 @@ function InstanceTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <Table layout="fixed" className="min-w-[1140px]">
-        <colgroup>
-          <col className="w-[40px]" />
-          <col className="w-[200px]" />
-          <col className="w-[110px]" />
-          <col className="w-[150px]" />
-          <col className="w-[80px]" />
-          <col className="w-[130px]" />
-          <col className="w-[90px]" />
-          <col className="w-[80px]" />
-          <col className="w-[260px]" />
-        </colgroup>
+      <AppTable tableId="ai-agent-instances" columns={AI_AGENT_INSTANCE_COLUMNS} className="min-w-[1140px]">
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head>
@@ -381,7 +399,7 @@ function InstanceTable({
             );
           })}
         </Table.Body>
-      </Table>
+      </AppTable>
     </div>
   );
 }
@@ -1269,14 +1287,7 @@ export default function AiAgentConsole() {
               description="用户管理仅对面板管理员开放"
             />,
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="min-w-[860px]">
-                <colgroup>
-                  <col className="w-[170px]" />
-                  <col className="w-[160px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[160px]" />
-                  <col className="w-[210px]" />
-                </colgroup>
+              <AppTable tableId="ai-agent-users" columns={AI_AGENT_USER_COLUMNS} className="min-w-[860px]">
                 <Table.Header variant="compact">
                   <Table.Row>
                     <Table.Head>用户名</Table.Head>
@@ -1351,7 +1362,7 @@ export default function AiAgentConsole() {
                     </Table.Row>
                   ))}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           )}
         </SectionCard>
@@ -1401,14 +1412,7 @@ export default function AiAgentConsole() {
               description="有登录或转发行为后会在这里出现记录"
             />,
             <div className="overflow-x-auto">
-              <Table layout="fixed" className="min-w-[860px]">
-                <colgroup>
-                  <col className="w-[160px]" />
-                  <col className="w-[340px]" />
-                  <col className="w-[90px]" />
-                  <col className="w-[150px]" />
-                  <col className="w-[120px]" />
-                </colgroup>
+              <AppTable tableId="ai-agent-logs" columns={AI_AGENT_LOG_COLUMNS} className="min-w-[860px]">
                 <Table.Header variant="compact">
                   <Table.Row>
                     <Table.Head>时间</Table.Head>
@@ -1472,7 +1476,7 @@ export default function AiAgentConsole() {
                     );
                   })}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
           )}
         </SectionCard>

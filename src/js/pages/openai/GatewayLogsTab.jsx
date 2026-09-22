@@ -3,7 +3,7 @@ import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Loader, LayerCard, Pagination, Popover, Table } from '@cloudflare/kumo';
 import { formatDateTime } from '../../modules/utils.js';
-import { StatusBadge } from '../../components/ui/AppPrimitives.jsx';
+import { StatusBadge, AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { X } from '../../components/Icons.jsx';
 import {
   resultTone,
@@ -16,6 +16,20 @@ import {
 } from './utils.js';
 import { FailoverPathBadge } from './FailoverPathBadge.jsx';
 import { IpCell } from './IpCell.jsx';
+
+const GATEWAY_LOG_COLUMNS = [
+  { id: 'time', role: 'datetime', align: 'left' },
+  { id: 'endpoint', role: 'meta', align: 'left' },
+  { id: 'model', role: 'identifier', align: 'left' },
+  { id: 'status', role: 'status' },
+  { id: 'upstreamIp', role: 'meta', align: 'left' },
+  { id: 'clientIp', role: 'meta', align: 'left' },
+  { id: 'latency', role: 'content', minWidth: 160, align: 'left', verticalAlign: 'middle' },
+  { id: 'tokens', role: 'content', minWidth: 132, align: 'left', verticalAlign: 'middle' },
+  { id: 'cache', role: 'content', minWidth: 132, align: 'left', verticalAlign: 'middle' },
+  { id: 'cost', role: 'content', minWidth: 150, align: 'left', verticalAlign: 'middle' },
+  { id: 'speed', role: 'meta', align: 'left' },
+];
 
 export function GatewayLogsTab({ analytics, endpoints }) {
   const {
@@ -100,20 +114,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               滚动、分页在内容下方，符合「移动端整页滚动」约定。 */}
           <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none max-sm:h-auto max-sm:min-h-0">
             <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
-              <Table layout="fixed" className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
-<colgroup>
-                  <col style={{ width: 140 }} />
-                  <col style={{ width: 104 }} />
-                  <col style={{ width: 140 }} />
-                  <col style={{ width: 64 }} />
-                  <col style={{ width: 100 }} />
-                  <col style={{ width: 100 }} />
-                  <col style={{ width: 160 }} />
-                  <col style={{ width: 132 }} />
-                  <col style={{ width: 132 }} />
-                  <col style={{ width: 150 }} />
-                  <col style={{ width: 88 }} />
-                </colgroup>
+              <AppTable tableId="gateway-logs" columns={GATEWAY_LOG_COLUMNS} className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
                 <Table.Header sticky variant="compact">
                   <Table.Row>
                     <Table.Head className="text-left">时间</Table.Head>
@@ -430,7 +431,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
                     })
                   )}
                 </Table.Body>
-              </Table>
+              </AppTable>
             </div>
 
             {analyticsTotal > 0 && (

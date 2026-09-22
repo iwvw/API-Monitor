@@ -2,9 +2,18 @@ import React from 'react';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Empty } from '@cloudflare/kumo/components/empty';
-import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Server } from '../../components/Icons.jsx';
 import { statusBadgeVariant, statusLabel } from './utils.js';
+
+const SCHEDULER_NODE_COLUMNS = [
+  { id: 'node', role: 'primary', grow: 1, minWidth: 200 },
+  { id: 'status', role: 'status' },
+  { id: 'kind', role: 'type' },
+  { id: 'concurrency', role: 'number' },
+  { id: 'labels', role: 'content', grow: 1, minWidth: 176, verticalAlign: 'middle' },
+  { id: 'note', role: 'content', grow: 2, minWidth: 240, verticalAlign: 'middle' },
+];
 
 export function NodesTab({ nodes }) {
   return (
@@ -17,15 +26,7 @@ export function NodesTab({ nodes }) {
         <Empty size="sm" className="rounded-none border-0 bg-transparent" icon={<Server className="h-8 w-8 text-kumo-inactive" />} title="暂无执行节点" description="本机默认作为执行节点。" />
       ) : (
         <div className="overflow-x-auto">
-          <Table layout="fixed" className="w-full min-w-[760px]">
-            <colgroup>
-              <col style={{ width: '18%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: '40%' }} />
-            </colgroup>
+          <AppTable tableId="scheduler-nodes" columns={SCHEDULER_NODE_COLUMNS} className="w-full min-w-[760px]">
             <Table.Header><Table.Row><Table.Head>节点</Table.Head><Table.Head>状态</Table.Head><Table.Head>类型</Table.Head><Table.Head>并发</Table.Head><Table.Head>标签</Table.Head><Table.Head>说明</Table.Head></Table.Row></Table.Header>
             <Table.Body>
               {nodes.map((node) => (
@@ -51,7 +52,7 @@ export function NodesTab({ nodes }) {
                 </Table.Row>
               ))}
             </Table.Body>
-          </Table>
+          </AppTable>
         </div>
       )}
     </SectionCard>

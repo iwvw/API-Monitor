@@ -5,9 +5,20 @@ import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { LayerCard, Loader, Pagination, Table } from '@cloudflare/kumo';
-import { AppCard, EmptyState, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
+import { AppCard, AppTable, EmptyState, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, Eye, Search } from '../../components/Icons.jsx';
 import { formatAuditDetails, formatDateTime } from './utils.js';
+
+const AI_AUDIT_COLUMNS = [
+  { id: 'time', role: 'datetime', align: 'center' },
+  { id: 'agent', role: 'identifier', align: 'center' },
+  { id: 'action', role: 'meta', align: 'center' },
+  { id: 'target', role: 'content', minWidth: 190, grow: 1, align: 'center', verticalAlign: 'middle' },
+  { id: 'status', role: 'status' },
+  { id: 'latency', role: 'number' },
+  { id: 'ip', role: 'identifier', align: 'center' },
+  { id: 'details', role: 'content', minWidth: 240, grow: 1, align: 'center', verticalAlign: 'middle' },
+];
 
 export default function AIAuditConsole({
   records,
@@ -87,17 +98,7 @@ export default function AIAuditConsole({
         ) : null}
       </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
-        <Table layout="fixed" className="min-w-[1080px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
-          <colgroup>
-            <col style={{ width: 150 }} />
-            <col style={{ width: 110 }} />
-            <col style={{ width: 150 }} />
-            <col style={{ width: 190 }} />
-            <col style={{ width: 84 }} />
-            <col style={{ width: 92 }} />
-            <col style={{ width: 140 }} />
-            <col style={{ width: 240 }} />
-          </colgroup>
+        <AppTable tableId="ai-audit-records" columns={AI_AUDIT_COLUMNS} className="min-w-[1080px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
           <Table.Header sticky variant="compact">
             <Table.Row>
               <Table.Head className="text-center">时间</Table.Head>
@@ -178,7 +179,7 @@ export default function AIAuditConsole({
               ))
             )}
           </Table.Body>
-        </Table>
+        </AppTable>
       </div>
 
       {total > 0 && (
