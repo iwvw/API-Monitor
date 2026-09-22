@@ -191,12 +191,6 @@ export const MODULE_GROUPS = [
     modules: ['dashboard'],
   },
   {
-    id: 'assets',
-    name: '资产',
-    icon: 'fa-boxes',
-    modules: ['assets'],
-  },
-  {
     id: 'infrastructure',
     name: '云服务',
     icon: 'fa-cubes',
@@ -229,7 +223,7 @@ export const MODULE_GROUPS = [
       {
         id: 'utility-tools',
         name: '实用工具',
-        modules: ['filebox', 'drawio', 'prompts', 'bookmarks'],
+        modules: ['filebox', 'drawio', 'prompts', 'bookmarks', 'assets'],
       },
     ],
     trailingModules: ['totp'],

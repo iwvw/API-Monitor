@@ -58,7 +58,7 @@ API Monitor 目前管理着大量可被视作「资产」的对象：主机与�
 
 ## Solution
 
-新增独立模块，模块 ID 为 `assets`，入口名称「资产管理」，位于前端侧边栏新增的顶层分组「资产」中。
+新增独立模块，模块 ID 为 `assets`，入口名称「资产管理」，位于前端侧边栏「工具箱 → 实用工具」子组中。
 
 核心设计是**两层资产模型 + 快照式纳管**：
 
@@ -124,7 +124,7 @@ API Monitor 目前管理着大量可被视作「资产」的对象：主机与�
 
 - 模块 ID：`assets`
 - 前端导航文案：`资产管理`，短名 `资产`
-- 分组：新增顶层分组「资产」（group id `assets`），排在「仪表盘」之后
+- 分组：`工具箱 → 实用工具` 子组（`utility-tools`），排在 `bookmarks` 之后
 - 路由路径：`/assets`
 - 页面目录：`src/js/pages/assets/`
 
@@ -344,7 +344,7 @@ src/js/pages/assets/
 
 新增模块四处接线：
 
-1. `src/js/store.js`：`MODULE_CONFIG` 加配置，`MODULE_GROUPS` 加顶层分组。
+1. `src/js/store.js`：`MODULE_CONFIG` 加配置，`MODULE_GROUPS` 的「工具箱 → 实用工具」子组加模块。
 2. `src/js/components/MainLayout.jsx`：lazy import 与 `renderActivePage()` 分支。
 3. `src/js/components/Icons.jsx`：`MODULE_ICON_MAP` 加图标。
 4. 页面目录 `src/js/pages/assets/`。
@@ -516,7 +516,7 @@ npm test
 
 ## Acceptance Criteria
 
-1. 侧边栏中可以看到「资产」分组与「资产管理」入口。
+1. 侧边栏「工具箱 → 实用工具」下可以看到「资产管理」入口。
 2. 用户可以手工登记一条资产，并在列表与总览中看到它。
 3. 实体资产与虚拟资产视图各自正确分类展示。
 4. 用户可以按类型、状态、提供方、标签筛选，并按名称搜索。
