@@ -18,6 +18,7 @@ type assetFilter struct {
 	Category       string
 	AssetType      string
 	Status         string
+	Bucket         string
 	Provider       string
 	Tag            string
 	Query          string
@@ -63,7 +64,11 @@ func (s *Service) LoadAssets(ctx context.Context, filter assetFilter) ([]Asset, 
 	}
 	// 不把 LIMIT/OFFSET 下推到 SQL：status 与 expiring_within 依赖派生状态，
 	// 只能在 Go 侧判定。若先分页再筛选，会漏掉「第一页之外」的到期资产。
-	query := "SELECT " + assetColumns + " FROM assets" + where + " ORDER BY created_at DESC"
+	//
+	// 排序必须带稳定二级键 id：created_at 为秒级 CURRENT_TIMESTAMP，批量写入
+	// 时大量行同秒，SQLite 对同值排序不稳定，翻页窗口会重叠或跳行，进而让
+	// scan 的到期告警静默漏报。
+	query := "SELECT " + assetColumns + " FROM assets" + where + " ORDER BY created_at DESC, id DESC"
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -112,8 +117,13 @@ func (s *Service) LoadAssets(ctx context.Context, filter assetFilter) ([]Asset, 
 }
 
 // matchesPostFilter 处理需要派生状态才能判定的筛选：status 与 expiring_within。
+// Bucket 用于「不续费」这类跨多个持久状态的桶（retired + orphan），与总览计数
+// 保持同一口径，避免点击桶后列表数量与桶计数对不上。
 func matchesPostFilter(asset Asset, filter assetFilter) bool {
 	if filter.Status != "" && asset.DerivedStatus != filter.Status {
+		return false
+	}
+	if filter.Bucket != "" && bucketFor(asset) != filter.Bucket {
 		return false
 	}
 	if filter.ExpiringWithin > 0 {
@@ -351,12 +361,25 @@ func (s *Service) DeleteAsset(ctx context.Context, id string) error {
 		return err
 	}
 	defer db.Close()
-	if _, err := db.ExecContext(ctx, "DELETE FROM assets WHERE id = ?", id); err != nil {
+
+	// assets 与 asset_links / asset_events 的删除必须原子：中途失败会留下
+	// 指向已删资产的悬挂 link/event，且来源刷新无法再修正。
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM assets WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete asset: %w", err)
 	}
-	_, _ = db.ExecContext(ctx, "DELETE FROM asset_links WHERE asset_id = ?", id)
-	_, _ = db.ExecContext(ctx, "DELETE FROM asset_events WHERE asset_id = ?", id)
-	return nil
+	if _, err := tx.ExecContext(ctx, "DELETE FROM asset_links WHERE asset_id = ?", id); err != nil {
+		return fmt.Errorf("delete asset links: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM asset_events WHERE asset_id = ?", id); err != nil {
+		return fmt.Errorf("delete asset events: %w", err)
+	}
+	return tx.Commit()
 }
 
 func (s *Service) recordEvent(ctx context.Context, assetID, eventType, detail string) error {

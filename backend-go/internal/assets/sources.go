@@ -203,16 +203,8 @@ func (s *Service) LinkAssets(ctx context.Context, inputs []LinkInput) ([]LinkRes
 			continue
 		}
 
-		asset, err := s.insertLinkedAsset(ctx, db, descriptor, *source)
+		asset, err := s.insertLinkedAssetTx(ctx, db, descriptor, *source, module, refID)
 		if err != nil {
-			result.Status = "failed"
-			result.Message = err.Error()
-			results = append(results, result)
-			continue
-		}
-		if _, err := db.ExecContext(ctx,
-			"INSERT INTO asset_links (id, asset_id, source_module, source_ref_id) VALUES (?, ?, ?, ?)",
-			mustRandomID("link"), asset.ID, module, refID); err != nil {
 			result.Status = "failed"
 			result.Message = err.Error()
 			results = append(results, result)
@@ -240,8 +232,15 @@ func (s *Service) findLinkedAssetID(ctx context.Context, db *sql.DB, module, ref
 	return assetID, nil
 }
 
-func (s *Service) insertLinkedAsset(ctx context.Context, db *sql.DB, descriptor sourceDescriptor, source SourceCandidate) (Asset, error) {
-	id, err := randomID("asset")
+// insertLinkedAssetTx 在单个事务里写入 assets 行与 asset_links 行。
+// 两步必须原子：若 link 写入失败而 assets 行已落库，会留下没有来源映射的
+// 孤儿资产，重试时 findLinkedAssetID 查不到 link，会再次插入新行持续累积。
+func (s *Service) insertLinkedAssetTx(ctx context.Context, db *sql.DB, descriptor sourceDescriptor, source SourceCandidate, module, refID string) (Asset, error) {
+	assetID, err := randomID("asset")
+	if err != nil {
+		return Asset{}, err
+	}
+	linkID, err := randomID("link")
 	if err != nil {
 		return Asset{}, err
 	}
@@ -253,19 +252,33 @@ func (s *Service) insertLinkedAsset(ctx context.Context, db *sql.DB, descriptor 
 	if tags == nil {
 		tags = []string{}
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO assets (
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return Asset{}, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `INSERT INTO assets (
 		id, origin, category, asset_type, name, provider, status,
 		source_module, source_ref_id, source_synced_at,
 		expire_at, warn_days_json, tags_json, metadata_json, remark
 	) VALUES (?, 'linked', ?, ?, ?, ?, 'active', ?, ?, CURRENT_TIMESTAMP, ?, '[]', ?, '{}', ?)`,
-		id, descriptor.Category, descriptor.AssetType, name, source.Provider,
+		assetID, descriptor.Category, descriptor.AssetType, name, source.Provider,
 		source.SourceModule, source.SourceRefID, normalizeExpireAt(source.ExpireAt, time.UTC),
 		jsonString(tags), source.Remark,
-	)
-	if err != nil {
+	); err != nil {
 		return Asset{}, fmt.Errorf("insert linked asset: %w", err)
 	}
-	asset, _, err := s.LoadAsset(ctx, id)
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO asset_links (id, asset_id, source_module, source_ref_id) VALUES (?, ?, ?, ?)",
+		linkID, assetID, module, refID); err != nil {
+		return Asset{}, fmt.Errorf("insert asset link: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Asset{}, err
+	}
+	asset, _, err := s.LoadAsset(ctx, assetID)
 	return asset, err
 }
 
@@ -386,14 +399,6 @@ func (s *Service) RefreshAllLinked(ctx context.Context) (int, int, error) {
 		success++
 	}
 	return success, failed, nil
-}
-
-func mustRandomID(prefix string) string {
-	id, err := randomID(prefix)
-	if err != nil {
-		return prefix
-	}
-	return id
 }
 
 // ---------- 各来源读取实现 ----------
