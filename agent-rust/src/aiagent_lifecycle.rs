@@ -320,11 +320,15 @@ pub async fn start(raw: &str) -> Result<String, String> {
     }
 
     // 端口必须空闲：已被其它进程占用时明确失败，不静默抢占（ADR-0006 第 7.3 条）。
+    // 例外：占用者是本 Agent 托管表里记录过的残留进程（上一次 stop 未及清理就发生
+    // Agent 重启等），先终止它再启动——否则自己的残留会把自己挡在门外。
     if let Some(occupant) = listening_pid(payload.port) {
-        return Err(format!(
-            "端口 {} 已被 PID {} 占用，无法启动",
-            payload.port, occupant
-        ));
+        if !terminate_managed_occupant(payload.port).await {
+            return Err(format!(
+                "端口 {} 已被 PID {} 占用，无法启动",
+                payload.port, occupant
+            ));
+        }
     }
 
     let pid = spawn_process(template, payload.port)?;
@@ -378,44 +382,55 @@ pub async fn stop(raw: &str) -> Result<String, String> {
     let payload: StopPayload =
         serde_json::from_str(raw).map_err(|err| format!("停止参数无效: {}", err))?;
 
-    // 保留条目但标记 desired_running=false：supervisor 据此跳过，不会把它拉回来；
-    // 同时 status 仍能报告「托管中但已停止」，前端可区分「未托管」与「已停止」。
-    // pid 置 0 表示当前没有进程。
-    let previous_pid = {
+    // 第一步（同步）：先把期望置为停止并重置计数，让 supervisor 立刻不再拉起。
+    // 这一步不 await，避免在终止期间被 supervisor 抢先重启。
+    // pid 暂留，等终止确认后再清——否则未确认退出时会谎报「已停止」。
+    let pid = {
         let mut table = process_table().lock().unwrap();
         match table.get_mut(&payload.instance_id) {
             Some(process) => {
-                let pid = process.pid;
-                process.pid = 0;
                 process.desired_running = false;
                 process.crashed = false;
                 process.restarts = 0;
+                let pid = process.pid;
                 persist(&table);
-                Some(pid)
+                pid
             }
-            None => None,
+            None => {
+                return Ok(serde_json::json!({
+                    "instanceId": payload.instance_id,
+                    "stopped": false,
+                    "detail": "该实例没有托管的进程",
+                })
+                .to_string());
+            }
         }
     };
 
-    let Some(pid) = previous_pid else {
-        return Ok(serde_json::json!({
-            "instanceId": payload.instance_id,
-            "stopped": false,
-            "detail": "该实例没有托管的进程",
-        })
-        .to_string());
-    };
+    // 第二步（异步）：终止进程。pid 为 0 表示此前已停止，无需再终止。
+    let terminated = if pid == 0 { true } else { terminate(pid).await };
 
-    // pid 为 0 表示此前已被停止（或从未真正启动），无需再终止。
-    if pid != 0 {
-        terminate(pid).await;
+    // 第三步：确认退出后才清 pid，如实反映「是否真的停了」。
+    if terminated {
+        let mut table = process_table().lock().unwrap();
+        if let Some(entry) = table.get_mut(&payload.instance_id) {
+            entry.pid = 0;
+            persist(&table);
+        }
     }
-    Ok(serde_json::json!({
+
+    let mut result = serde_json::json!({
         "instanceId": payload.instance_id,
-        "stopped": pid != 0,
+        "stopped": terminated,
         "pid": pid,
-    })
-    .to_string())
+    });
+    if !terminated {
+        result["detail"] = serde_json::Value::String(format!(
+            "进程 {} 未能在超时内退出，端口可能仍被占用",
+            pid
+        ));
+    }
+    Ok(result.to_string())
 }
 
 /// 查询托管进程状态（任务 59）。
@@ -692,20 +707,23 @@ async fn supervise_once() {
             continue;
         };
 
-        // 端口被别的进程占用时不要盲目拉起：记一次失败并累计重启次数，
-        // 避免与占用者形成「反复抢端口」的循环。
+        // 端口被占用时不要盲目拉起。若占用者是我们自己的残留（父进程已死、子进程
+        // 仍持端口），先清理再拉起；否则记一次失败并累计重启次数，避免与占用者
+        // 形成「反复抢端口」的循环（ADR-0006 第 7.3 条：不静默杀掉他人进程）。
         if let Some(occupant) = listening_pid(port) {
-            let mut table = process_table().lock().unwrap();
-            if let Some(process) = table.get_mut(&instance_id) {
-                process.restarts = process.restarts.saturating_add(1);
-                process.pid = 0;
-                persist(&table);
+            if !terminate_managed_occupant(port).await {
+                let mut table = process_table().lock().unwrap();
+                if let Some(process) = table.get_mut(&instance_id) {
+                    process.restarts = process.restarts.saturating_add(1);
+                    process.pid = 0;
+                    persist(&table);
+                }
+                eprintln!(
+                    "[aiagent] instance {} 重启失败：端口 {} 被 PID {} 占用",
+                    instance_id, port, occupant
+                );
+                continue;
             }
-            eprintln!(
-                "[aiagent] instance {} 重启失败：端口 {} 被 PID {} 占用",
-                instance_id, port, occupant
-            );
-            continue;
         }
 
         match spawn_process(template, port) {
@@ -787,40 +805,98 @@ fn process_alive(_pid: u32) -> bool {
     false
 }
 
-/// 终止进程：先优雅终止，超时后强杀。
-#[cfg(target_os = "windows")]
-async fn terminate(pid: u32) {
-    if !process_alive(pid) {
-        return;
+/// 轮询等待进程退出，最多约 2 秒。返回是否已确认退出。
+async fn wait_process_exit(pid: u32) -> bool {
+    for _ in 0..10 {
+        if !process_alive(pid) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    // Windows 无 SIGTERM 语义，直接强杀（opencode serve 无需要保存的状态）。
+    !process_alive(pid)
+}
+
+/// 终止进程：先优雅终止，超时后强杀。返回是否**确认已退出**。
+///
+/// 返回值供调用方判断端口是否真正释放。Windows 上 opencode 常以 shim/launcher
+/// 形态拉起子进程并让子进程持有监听端口，只杀父 PID 会留下子进程继续占用端口，
+/// 造成 stop 报成功、restart 时 start 的端口预检却失败。因此必须按进程树终止
+/// （`taskkill /T`），与 `tcp_forwarder` / `cloudflared` 的既有做法保持一致。
+#[cfg(target_os = "windows")]
+async fn terminate(pid: u32) -> bool {
+    if !process_alive(pid) {
+        return true;
+    }
+    // Windows 无 SIGTERM 语义，直接强杀整棵进程树（/T）。
     let _ = std::process::Command::new("taskkill")
-        .args(["/F", "/PID", &pid.to_string()])
+        .args(["/F", "/T", "/PID", &pid.to_string()])
         .output();
+    wait_process_exit(pid).await
 }
 
 #[cfg(target_os = "linux")]
-async fn terminate(pid: u32) {
+async fn terminate(pid: u32) -> bool {
     if !process_alive(pid) {
-        return;
+        return true;
     }
     let _ = std::process::Command::new("kill")
         .args(["-TERM", &pid.to_string()])
         .status();
     // 给进程一个退出窗口，超时后强杀。
-    for _ in 0..10 {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        if !process_alive(pid) {
-            return;
-        }
+    if wait_process_exit(pid).await {
+        return true;
     }
     let _ = std::process::Command::new("kill")
         .args(["-9", &pid.to_string()])
         .status();
+    wait_process_exit(pid).await
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-async fn terminate(_pid: u32) {}
+async fn terminate(_pid: u32) -> bool {
+    false
+}
+
+/// 若监听该端口的进程属于本 Agent 托管（可能只是残留的子进程），终止它并返回是否成功。
+///
+/// 仅清理「确实归我们管」的进程，绝不触碰无关进程（ADR-0006 第 7.3 条：不静默
+/// 杀掉他人进程）。所有权信号有两条，命中其一即可：
+///   1. 监听 PID 正是进程表里某条目的 pid；
+///   2. 存在一条 `port` 相同的托管条目，且监听进程名命中该 Provider 的匹配规则
+///      —— 覆盖「父进程已死、子进程仍持有端口」的孤儿场景（PID 匹配不到）。
+async fn terminate_managed_occupant(port: u16) -> bool {
+    let Some(occupant) = listening_pid(port) else {
+        return false;
+    };
+
+    let owned = {
+        let table = process_table().lock().unwrap();
+        // 信号 1：PID 直接命中。
+        if table.values().any(|process| process.pid == occupant) {
+            true
+        } else {
+            // 信号 2：端口相同 + 进程名匹配该 Provider 规则。
+            table.values().filter(|process| process.port == port).any(|process| {
+                let terms: Vec<String> = lookup_template(&process.provider)
+                    .map(|template| {
+                        template
+                            .process_match
+                            .iter()
+                            .map(|term| term.trim().to_lowercase())
+                            .filter(|term| !term.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                !terms.is_empty() && crate::aiagent::process_name_matches(occupant, &terms)
+            })
+        }
+    };
+
+    if !owned {
+        return false;
+    }
+    terminate(occupant).await
+}
 
 /// Agent 主动退出时终止所有托管进程，避免留下孤儿进程占用端口（ADR-0006 第 4.3 条）。
 pub async fn shutdown_all() {
@@ -832,7 +908,15 @@ pub async fn shutdown_all() {
         values
     };
     for process in processes {
-        terminate(process.pid).await;
+        if process.pid == 0 {
+            continue;
+        }
+        if !terminate(process.pid).await {
+            eprintln!(
+                "[aiagent] 退出时未能终止进程 {}（端口 {}），可能残留占用",
+                process.pid, process.port
+            );
+        }
     }
 }
 
@@ -1320,6 +1404,46 @@ mod tests {
 
         // 回收子进程，避免测试进程留下僵尸。
         let _ = child.wait();
+    }
+
+    /// `terminate` 必须确认进程真的退出，而不是只发一次终止信号。
+    ///
+    /// 这是「restart 报端口被占用」的回归防线：若 terminate 只看「发过信号」
+    /// 就返回成功，stop 会谎报已停止、端口却没释放。
+    #[tokio::test]
+    async fn terminate_confirms_exit() {
+        #[cfg(target_os = "windows")]
+        let child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        #[cfg(target_os = "linux")]
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        let Ok(mut child) = child else {
+            eprintln!("跳过：环境缺少长跑命令");
+            return;
+        };
+        let pid = child.id();
+        assert!(process_alive(pid), "刚启动的进程应判为存活");
+
+        let confirmed = terminate(pid).await;
+        assert!(confirmed, "terminate 应确认进程已退出");
+        assert!(!process_alive(pid), "确认退出后进程不应再判为存活");
+
+        let _ = child.wait();
+    }
+
+    /// 已退出进程的 terminate 必须返回 true（幂等），供 stop 正确判定。
+    #[tokio::test]
+    async fn terminate_is_idempotent_for_dead_pid() {
+        assert!(terminate(0).await, "pid 0 应视为已终止");
     }
 
     /// 已退出进程的 PID 必须被判为不存活（这是 supervisor 拉起的前提）。
