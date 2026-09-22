@@ -119,14 +119,16 @@ export const BUCKET_TONE = {
   no_renew: 'neutral',
 };
 
-// 实体/虚拟资产表：名称与提供方是主要阅读对象，给更高权重；日期/剩余/成本是
-// 窄的语义列（固定像素不伸缩）；标签按内容给中等权重；操作列固定。
+// 实体/虚拟资产表：名称与提供方是主要阅读对象，给更高权重；日期是语义列（固定
+// 像素不伸缩）；「状态」与「剩余」都渲染徽标，统一用 status 角色居中（数值角色
+// 会把徽标推到列右缘，左侧留白，与相邻列不协调）；成本是纯数值用 number 右对齐；
+// 标签按内容给中等权重；操作列固定。
 export const ASSET_COLUMNS = [
   { id: 'name', role: 'primary', minWidth: 200, maxWidth: 320, grow: 3 },
   { id: 'provider', role: 'meta', minWidth: 140, maxWidth: 220, grow: 2 },
   { id: 'status', role: 'status' },
   { id: 'expire', role: 'date' },
-  { id: 'days', role: 'count' },
+  { id: 'days', role: 'status' },
   { id: 'cost', role: 'number' },
   { id: 'tags', role: 'content', minWidth: 160, maxWidth: 260, grow: 2 },
   { id: 'actions', role: 'actions-md' },
@@ -136,7 +138,7 @@ export const TABLE_SUMMARY_COLUMNS = [
   { id: 'name', role: 'primary', minWidth: 160, maxWidth: 280, grow: 3 },
   { id: 'status', role: 'status' },
   { id: 'expire', role: 'date' },
-  { id: 'days', role: 'count' },
+  { id: 'days', role: 'status' },
   { id: 'cost', role: 'content', minWidth: 140, maxWidth: 220, grow: 2 },
 ];
 
