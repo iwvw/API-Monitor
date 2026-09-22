@@ -283,24 +283,70 @@ function scanLegacyFrontend(files) {
   }
 }
 
+// 表格布局迁移基线：数值只允许下降。详见 tools/table-layout-baseline.json。
+// 新增违规（超过基线）即失败；减少后需同步下调基线文件。
+function loadTableBaseline() {
+  const baselinePath = path.join(root, 'tools', 'table-layout-baseline.json');
+  if (!fs.existsSync(baselinePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 function scanTableLayouts(files) {
+  const baseline = loadTableBaseline();
+  const counts = { appTableWidths: 0, bareFixedTables: 0, headWidthClasses: 0, percentCols: 0 };
+
   for (const rel of files.filter((file) => /\.jsx$/.test(file))) {
     const content = fs.readFileSync(path.join(root, rel), 'utf8');
+    const lineOf = (index) => content.slice(0, index).split(/\r?\n/).length;
+
     if (/<AppTable\b[^>]*\bpercentageWidths\b/.test(content)) {
       failures.push(`${rel}: percentageWidths is not allowed; use semantic columns with fixed utility roles`);
     }
 
-    for (const match of content.matchAll(/<AppTable\b(?=[^>]*\bwidths\s*=)[^>]*>([\s\S]*?)<\/AppTable>/g)) {
-      if (/<colgroup\b/.test(match[1])) continue;
-      const lineNumber = content.slice(0, match.index).split(/\r?\n/).length;
-      warnings.push(`${rel}:${lineNumber} legacy AppTable widths should migrate to semantic columns`);
+    // 旧 widths API：应为 0，全部迁移到语义 columns。
+    for (const match of content.matchAll(/<AppTable\b[^>]*\bwidths\s*=/g)) {
+      counts.appTableWidths += 1;
+      if (baseline && counts.appTableWidths > baseline.appTableWidths) {
+        failures.push(`${rel}:${lineOf(match.index)} legacy AppTable widths must migrate to semantic columns (baseline ${baseline.appTableWidths})`);
+      }
     }
 
-    for (const match of content.matchAll(/<Table\b(?=[^>]*\blayout=["']fixed["'])[^>]*>([\s\S]*?)<\/Table>/g)) {
-      if (/<colgroup\b/.test(match[1]) || /<Table\.Head\b[^>]*\bw-/.test(match[1])) continue;
-      const lineNumber = content.slice(0, match.index).split(/\r?\n/).length;
-      warnings.push(`${rel}:${lineNumber} fixed Kumo Table has no semantic AppTable columns or colgroup`);
+    // 裸固定表：应改为语义 columns。
+    for (const match of content.matchAll(/<Table\b[^>]*\blayout=["']fixed["']/g)) {
+      counts.bareFixedTables += 1;
+      if (baseline && counts.bareFixedTables > baseline.bareFixedTables) {
+        failures.push(`${rel}:${lineOf(match.index)} fixed Kumo Table must use semantic AppTable columns (baseline ${baseline.bareFixedTables})`);
+      }
     }
+
+    // 表头硬编码宽度类：应改为语义列的固定宽度。
+    for (const match of content.matchAll(/<Table\.Head\b[^>]*\b!?w-/g)) {
+      counts.headWidthClasses += 1;
+      if (baseline && counts.headWidthClasses > baseline.headWidthClasses) {
+        failures.push(`${rel}:${lineOf(match.index)} Table.Head hardcoded width class should use semantic column roles (baseline ${baseline.headWidthClasses})`);
+      }
+    }
+
+    // 手写百分比列宽：规范禁止，迁移期间按基线门禁，目标清零。
+    for (const match of content.matchAll(/<col\b[^>]*className=["'][^"']*w-\[\d+(?:\.\d+)?%\]/g)) {
+      counts.percentCols += 1;
+      if (baseline && counts.percentCols > baseline.percentCols) {
+        failures.push(`${rel}:${lineOf(match.index)} percentage column width is not allowed; use semantic column roles (baseline ${baseline.percentCols})`);
+      }
+    }
+  }
+
+  if (baseline) {
+    warnings.push(
+      `table layout migration progress: appTableWidths=${counts.appTableWidths}/${baseline.appTableWidths}, ` +
+        `bareFixedTables=${counts.bareFixedTables}/${baseline.bareFixedTables}, ` +
+        `headWidthClasses=${counts.headWidthClasses}/${baseline.headWidthClasses}, ` +
+        `percentCols=${counts.percentCols}/${baseline.percentCols}`
+    );
   }
 }
 

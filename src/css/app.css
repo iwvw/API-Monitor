@@ -2083,7 +2083,6 @@ table.isolate tr:last-child td {
   border-bottom: 0;
 }
 
-/* Semantic table columns keep utility cells stable while content columns grow. */
 .app-semantic-table th,
 .app-semantic-table td {
   vertical-align: middle;
@@ -2104,7 +2103,15 @@ table.isolate tr:last-child td {
 .app-semantic-table[data-app-table-align-center~='13'] :is(th, td):nth-child(13),
 .app-semantic-table[data-app-table-align-center~='14'] :is(th, td):nth-child(14),
 .app-semantic-table[data-app-table-align-center~='15'] :is(th, td):nth-child(15),
-.app-semantic-table[data-app-table-align-center~='16'] :is(th, td):nth-child(16) {
+.app-semantic-table[data-app-table-align-center~='16'] :is(th, td):nth-child(16),
+.app-semantic-table[data-app-table-align-center~='17'] :is(th, td):nth-child(17),
+.app-semantic-table[data-app-table-align-center~='18'] :is(th, td):nth-child(18),
+.app-semantic-table[data-app-table-align-center~='19'] :is(th, td):nth-child(19),
+.app-semantic-table[data-app-table-align-center~='20'] :is(th, td):nth-child(20),
+.app-semantic-table[data-app-table-align-center~='21'] :is(th, td):nth-child(21),
+.app-semantic-table[data-app-table-align-center~='22'] :is(th, td):nth-child(22),
+.app-semantic-table[data-app-table-align-center~='23'] :is(th, td):nth-child(23),
+.app-semantic-table[data-app-table-align-center~='24'] :is(th, td):nth-child(24) {
   text-align: center !important;
 }
 
@@ -2123,7 +2130,15 @@ table.isolate tr:last-child td {
 .app-semantic-table[data-app-table-align-right~='13'] :is(th, td):nth-child(13),
 .app-semantic-table[data-app-table-align-right~='14'] :is(th, td):nth-child(14),
 .app-semantic-table[data-app-table-align-right~='15'] :is(th, td):nth-child(15),
-.app-semantic-table[data-app-table-align-right~='16'] :is(th, td):nth-child(16) {
+.app-semantic-table[data-app-table-align-right~='16'] :is(th, td):nth-child(16),
+.app-semantic-table[data-app-table-align-right~='17'] :is(th, td):nth-child(17),
+.app-semantic-table[data-app-table-align-right~='18'] :is(th, td):nth-child(18),
+.app-semantic-table[data-app-table-align-right~='19'] :is(th, td):nth-child(19),
+.app-semantic-table[data-app-table-align-right~='20'] :is(th, td):nth-child(20),
+.app-semantic-table[data-app-table-align-right~='21'] :is(th, td):nth-child(21),
+.app-semantic-table[data-app-table-align-right~='22'] :is(th, td):nth-child(22),
+.app-semantic-table[data-app-table-align-right~='23'] :is(th, td):nth-child(23),
+.app-semantic-table[data-app-table-align-right~='24'] :is(th, td):nth-child(24) {
   text-align: right !important;
   font-variant-numeric: tabular-nums;
 }
@@ -2143,7 +2158,15 @@ table.isolate tr:last-child td {
 .app-semantic-table[data-app-table-valign-top~='13'] tbody td:nth-child(13),
 .app-semantic-table[data-app-table-valign-top~='14'] tbody td:nth-child(14),
 .app-semantic-table[data-app-table-valign-top~='15'] tbody td:nth-child(15),
-.app-semantic-table[data-app-table-valign-top~='16'] tbody td:nth-child(16) {
+.app-semantic-table[data-app-table-valign-top~='16'] tbody td:nth-child(16),
+.app-semantic-table[data-app-table-valign-top~='17'] tbody td:nth-child(17),
+.app-semantic-table[data-app-table-valign-top~='18'] tbody td:nth-child(18),
+.app-semantic-table[data-app-table-valign-top~='19'] tbody td:nth-child(19),
+.app-semantic-table[data-app-table-valign-top~='20'] tbody td:nth-child(20),
+.app-semantic-table[data-app-table-valign-top~='21'] tbody td:nth-child(21),
+.app-semantic-table[data-app-table-valign-top~='22'] tbody td:nth-child(22),
+.app-semantic-table[data-app-table-valign-top~='23'] tbody td:nth-child(23),
+.app-semantic-table[data-app-table-valign-top~='24'] tbody td:nth-child(24) {
   vertical-align: top;
 }
 
@@ -2163,12 +2186,48 @@ table.isolate tr:last-child td {
   .app-semantic-table[data-app-table-hide-md~='13'] :is(col, th, td):nth-child(13),
   .app-semantic-table[data-app-table-hide-md~='14'] :is(col, th, td):nth-child(14),
   .app-semantic-table[data-app-table-hide-md~='15'] :is(col, th, td):nth-child(15),
-  .app-semantic-table[data-app-table-hide-md~='16'] :is(col, th, td):nth-child(16) {
+  .app-semantic-table[data-app-table-hide-md~='16'] :is(col, th, td):nth-child(16),
+  .app-semantic-table[data-app-table-hide-md~='17'] :is(col, th, td):nth-child(17),
+  .app-semantic-table[data-app-table-hide-md~='18'] :is(col, th, td):nth-child(18),
+  .app-semantic-table[data-app-table-hide-md~='19'] :is(col, th, td):nth-child(19),
+  .app-semantic-table[data-app-table-hide-md~='20'] :is(col, th, td):nth-child(20),
+  .app-semantic-table[data-app-table-hide-md~='21'] :is(col, th, td):nth-child(21),
+  .app-semantic-table[data-app-table-hide-md~='22'] :is(col, th, td):nth-child(22),
+  .app-semantic-table[data-app-table-hide-md~='23'] :is(col, th, td):nth-child(23),
+  .app-semantic-table[data-app-table-hide-md~='24'] :is(col, th, td):nth-child(24) {
     display: none;
   }
 }
 
 @media (max-width: 639px) {
+  .app-semantic-table[data-app-table-hide-sm~='1'] :is(col, th, td):nth-child(1),
+  .app-semantic-table[data-app-table-hide-sm~='2'] :is(col, th, td):nth-child(2),
+  .app-semantic-table[data-app-table-hide-sm~='3'] :is(col, th, td):nth-child(3),
+  .app-semantic-table[data-app-table-hide-sm~='4'] :is(col, th, td):nth-child(4),
+  .app-semantic-table[data-app-table-hide-sm~='5'] :is(col, th, td):nth-child(5),
+  .app-semantic-table[data-app-table-hide-sm~='6'] :is(col, th, td):nth-child(6),
+  .app-semantic-table[data-app-table-hide-sm~='7'] :is(col, th, td):nth-child(7),
+  .app-semantic-table[data-app-table-hide-sm~='8'] :is(col, th, td):nth-child(8),
+  .app-semantic-table[data-app-table-hide-sm~='9'] :is(col, th, td):nth-child(9),
+  .app-semantic-table[data-app-table-hide-sm~='10'] :is(col, th, td):nth-child(10),
+  .app-semantic-table[data-app-table-hide-sm~='11'] :is(col, th, td):nth-child(11),
+  .app-semantic-table[data-app-table-hide-sm~='12'] :is(col, th, td):nth-child(12),
+  .app-semantic-table[data-app-table-hide-sm~='13'] :is(col, th, td):nth-child(13),
+  .app-semantic-table[data-app-table-hide-sm~='14'] :is(col, th, td):nth-child(14),
+  .app-semantic-table[data-app-table-hide-sm~='15'] :is(col, th, td):nth-child(15),
+  .app-semantic-table[data-app-table-hide-sm~='16'] :is(col, th, td):nth-child(16),
+  .app-semantic-table[data-app-table-hide-sm~='17'] :is(col, th, td):nth-child(17),
+  .app-semantic-table[data-app-table-hide-sm~='18'] :is(col, th, td):nth-child(18),
+  .app-semantic-table[data-app-table-hide-sm~='19'] :is(col, th, td):nth-child(19),
+  .app-semantic-table[data-app-table-hide-sm~='20'] :is(col, th, td):nth-child(20),
+  .app-semantic-table[data-app-table-hide-sm~='21'] :is(col, th, td):nth-child(21),
+  .app-semantic-table[data-app-table-hide-sm~='22'] :is(col, th, td):nth-child(22),
+  .app-semantic-table[data-app-table-hide-sm~='23'] :is(col, th, td):nth-child(23),
+  .app-semantic-table[data-app-table-hide-sm~='24'] :is(col, th, td):nth-child(24) {
+    display: none;
+  }
+}
+edia (max-width: 639px) {
   .app-semantic-table[data-app-table-hide-sm~='1'] :is(col, th, td):nth-child(1),
   .app-semantic-table[data-app-table-hide-sm~='2'] :is(col, th, td):nth-child(2),
   .app-semantic-table[data-app-table-hide-sm~='3'] :is(col, th, td):nth-child(3),
