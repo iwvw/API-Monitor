@@ -163,3 +163,91 @@ export function resolveTableColumns(columnSpecs = []) {
     warnings,
   };
 }
+
+// 弹性列按 grow 权重分配剩余空间；grow 缺省视为 1（保持既有「均分」行为）。
+function effectiveGrow(column) {
+  return column.grow > 0 ? column.grow : 1;
+}
+
+/**
+ * allocateColumnWidths 按容器可用宽度算出每列的实际像素宽度。
+ *
+ * 分配模型（table-layout: fixed 的硬约束决定必须用像素而非 calc 百分比）：
+ *   1. 固定列（grow=0）：width = clamp(ideal, min, max)，不随表宽伸缩；
+ *   2. 弹性池 = max(0, containerWidth - Σ固定列)；
+ *   3. 弹性列：按 grow 权重分弹性池，再各自 clamp(min, max)；
+ *   4. 容器 < minWidth 时整体按 minWidth 铺开（外层 overflow-x-auto 横向滚动）。
+ *
+ * 返回与 columns 等长的像素数组；不可分配时返回 null（调用方回退到默认行为）。
+ *
+ * @param {{columns: Array, minWidth: number}} layout resolveTableColumns 的结果
+ * @param {number} containerWidth 表格容器可用宽度（px）
+ * @returns {number[]|null}
+ */
+export function allocateColumnWidths(layout, containerWidth) {
+  const columns = layout?.columns || [];
+  if (columns.length === 0) return null;
+  const flexibleColumns = columns.filter((column) => column.width === null && column.grow > 0);
+  // 没有弹性列时交给浏览器按 width:100% 分配，不接管（保持既有行为）。
+  if (flexibleColumns.length === 0) return null;
+  const available = Math.max(
+    layout.minWidth || 0,
+    Math.floor(Number(containerWidth) || 0)
+  );
+  if (available <= 0) return null;
+
+  const fixedColumns = columns.filter((column) => column.width !== null);
+  const fixedTotal = fixedColumns.reduce((total, column) => total + column.width, 0);
+  const pool = Math.max(0, available - fixedTotal);
+
+  // 弹性列按权重分池，但不得低于各自的 minWidth 或高于 maxWidth。
+  // 先按权重算理想值，再夹紧；夹紧后若仍有余额，留给未触顶的列。
+  const growTotal = flexibleColumns.reduce((total, column) => total + effectiveGrow(column), 0) || 1;
+  const flexibleWidths = new Map();
+  let remaining = pool;
+  let remainingGrow = growTotal;
+  const unpinned = [...flexibleColumns];
+  // 最多迭代列数轮：每轮解决一批触顶/触底的列。
+  for (let pass = 0; pass < flexibleColumns.length + 1 && unpinned.length > 0; pass += 1) {
+    const share = remainingGrow > 0 ? remaining / remainingGrow : 0;
+    let pinnedThisPass = false;
+    for (let i = unpinned.length - 1; i >= 0; i -= 1) {
+      const column = unpinned[i];
+      const ideal = share * effectiveGrow(column);
+      const lower = column.minWidth;
+      const upper = column.maxWidth === null ? Infinity : column.maxWidth;
+      if (ideal < lower) {
+        flexibleWidths.set(column.id, lower);
+        remaining -= lower;
+        remainingGrow -= effectiveGrow(column);
+        unpinned.splice(i, 1);
+        pinnedThisPass = true;
+      } else if (ideal > upper) {
+        flexibleWidths.set(column.id, upper);
+        remaining -= upper;
+        remainingGrow -= effectiveGrow(column);
+        unpinned.splice(i, 1);
+        pinnedThisPass = true;
+      }
+    }
+    if (!pinnedThisPass) break;
+  }
+  for (const column of unpinned) {
+    const share = remainingGrow > 0 ? remaining / remainingGrow : 0;
+    flexibleWidths.set(column.id, Math.max(0, Math.floor(share * effectiveGrow(column))));
+  }
+
+  const result = columns.map((column) => {
+    if (column.width !== null) return column.width;
+    return flexibleWidths.get(column.id) ?? column.minWidth;
+  });
+
+  // 修正整数取整造成的尾差，把差额补到最后一个弹性列，保证总宽等于 available。
+  const total = result.reduce((sum, value) => sum + value, 0);
+  if (flexibleColumns.length > 0 && total !== available) {
+    const lastFlexible = flexibleColumns[flexibleColumns.length - 1];
+    const index = columns.indexOf(lastFlexible);
+    if (index >= 0) result[index] = Math.max(lastFlexible.minWidth, result[index] + (available - total));
+  }
+  return result;
+}

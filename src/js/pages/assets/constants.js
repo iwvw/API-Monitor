@@ -119,23 +119,25 @@ export const BUCKET_TONE = {
   no_renew: 'neutral',
 };
 
+// 实体/虚拟资产表：名称与提供方是主要阅读对象，给更高权重；日期/剩余/成本是
+// 窄的语义列（固定像素不伸缩）；标签按内容给中等权重；操作列固定。
 export const ASSET_COLUMNS = [
-  { id: 'name', role: 'primary', minWidth: 200, maxWidth: 260, grow: 0 },
-  { id: 'provider', role: 'meta', grow: 1, minWidth: 140 },
+  { id: 'name', role: 'primary', minWidth: 200, maxWidth: 320, grow: 3 },
+  { id: 'provider', role: 'meta', minWidth: 140, maxWidth: 220, grow: 2 },
   { id: 'status', role: 'status' },
-  { id: 'expire', role: 'date', grow: 1, minWidth: 120 },
-  { id: 'days', role: 'count', grow: 1, minWidth: 100 },
-  { id: 'cost', role: 'number', grow: 1, minWidth: 120 },
-  { id: 'tags', role: 'content', grow: 1, minWidth: 160 },
+  { id: 'expire', role: 'date' },
+  { id: 'days', role: 'count' },
+  { id: 'cost', role: 'number' },
+  { id: 'tags', role: 'content', minWidth: 160, maxWidth: 260, grow: 2 },
   { id: 'actions', role: 'actions-md' },
 ];
 
 export const TABLE_SUMMARY_COLUMNS = [
-  { id: 'name', role: 'primary', minWidth: 160, maxWidth: 240, grow: 0 },
+  { id: 'name', role: 'primary', minWidth: 160, maxWidth: 280, grow: 3 },
   { id: 'status', role: 'status' },
-  { id: 'expire', role: 'date', grow: 1, minWidth: 120 },
-  { id: 'days', role: 'count', grow: 1, minWidth: 110 },
-  { id: 'cost', role: 'content', grow: 1, minWidth: 140 },
+  { id: 'expire', role: 'date' },
+  { id: 'days', role: 'count' },
+  { id: 'cost', role: 'content', minWidth: 140, maxWidth: 220, grow: 2 },
 ];
 
 export const PAGE_SIZE = 100;

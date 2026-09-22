@@ -9,7 +9,7 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { Info } from '../IconsCore.jsx';
 import { Menu, Search } from '../Icons.jsx';
-import { resolveTableColumns } from '../../modules/tableLayout.js';
+import { allocateColumnWidths, resolveTableColumns } from '../../modules/tableLayout.js';
 
 export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-4 cq-sm:pb-8';
 export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-0';
@@ -498,6 +498,47 @@ export function AppTable({
     console.warn(`[AppTable${tableId ? `:${tableId}` : ''}] layout warnings`, layoutWarnings);
   }, [layoutWarnings, tableId, warningKey]);
 
+  // 动态列宽：table-layout: fixed 下 <col> 不支持「(100% - 固定列) × 权重」这类
+  // 相对计算（浏览器会忽略），因此弹性列必须由 JS 按容器实测宽度算出像素。
+  // 固定列保持角色像素不随容器伸缩；弹性列按 grow 权重分剩余空间。
+  const tableRef = React.useRef(null);
+  const [allocatedWidths, setAllocatedWidths] = React.useState(null);
+  const canAllocate = hasSemanticColumns && !hasExplicitColgroup;
+
+  React.useEffect(() => {
+    if (!canAllocate) return undefined;
+    const node = tableRef.current;
+    if (!node || typeof ResizeObserver !== 'function') return undefined;
+
+    let frame = 0;
+    const measure = () => {
+      // 用父容器宽度（表格自身 width:100%，直接量它会形成反馈循环）。
+      const parent = node.parentElement;
+      const available = parent ? parent.clientWidth : node.clientWidth;
+      setAllocatedWidths(current => {
+        const next = allocateColumnWidths(semanticLayout, available);
+        if (!next) return null;
+        if (current && current.length === next.length && current.every((v, i) => v === next[i])) {
+          return current;
+        }
+        return next;
+      });
+    };
+    const schedule = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+
+    schedule();
+    const observer = new ResizeObserver(schedule);
+    if (node.parentElement) observer.observe(node.parentElement);
+    observer.observe(node);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [canAllocate, semanticLayout]);
+
   const semanticStyle = hasSemanticColumns
     ? {
         minWidth: semanticLayout.minWidth,
@@ -512,6 +553,7 @@ export function AppTable({
   return (
     <Table
       {...props}
+      ref={tableRef}
       layout={layout || (hasSemanticColumns || totalWeight > 0 ? 'fixed' : undefined)}
       {...semanticLayout.dataAttributes}
       data-app-table-id={tableId}
@@ -527,14 +569,19 @@ export function AppTable({
       {shouldRenderGeneratedColgroup && (
         <colgroup>
           {hasSemanticColumns
-            ? semanticLayout.columns.map((column) => (
-                <col
-                  key={column.id}
-                  data-column-id={column.id}
-                  data-column-role={column.role}
-                  style={column.width === null ? undefined : { width: column.width }}
-                />
-              ))
+            ? semanticLayout.columns.map((column, index) => {
+                // 有分配结果时用像素；否则回退到「固定列像素 + 弹性列不设宽（浏览器均分）」。
+                const allocated = allocatedWidths ? allocatedWidths[index] : null;
+                const width = allocated ?? column.width;
+                return (
+                  <col
+                    key={column.id}
+                    data-column-id={column.id}
+                    data-column-role={column.role}
+                    style={width === null ? undefined : { width }}
+                  />
+                );
+              })
             : columnWeights.map((width, index) => (
                 <col
                   key={index}
