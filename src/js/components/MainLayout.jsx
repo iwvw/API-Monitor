@@ -659,6 +659,7 @@ function MainLayout() {
     'm365',
     'adminai',
     'bookmarks',
+    'assets',
   ].includes(mainActiveTab);
   const mainCanvasClassName =
     (stickyHeaderScrollModule
