@@ -52,7 +52,7 @@
       "version": "1",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "Claude 订阅账号（Google OAuth）转 Anthropic 兼容 API：OAuth 授权、token 管理、Claude→Gemini→v1internal 协议转换、SSE 回转。",
+      "summary": "Claude 订阅账号（Google OAuth）转 Anthropic 兼容 API：OAuth 授权、token 管理、Claude→Gemini→v1internal 协议转换、SSE 回转。多账号选号策略（固定首个 / 轮询 / 按剩余额度，默认固定首个），带账号失败冷却、失效过滤与换号重试（最多 3 个账号），额度快照带 2 小时 TTL 与后台刷新；选号原语复用 internal/accountpick。设置面 GET 已脱敏，不再下发 token。",
       "backendDirs": ["backend-go/internal/antigravity/"],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
@@ -149,7 +149,7 @@
       "version": "1",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "腾讯 CodeBuddy（copilot.tencent.com）扫码登录转 OpenAI 兼容 API：扫码登录 + token 自动刷新、上游动态模型目录（/v3/config）、对话转发（强制流式）、网关端点一键接入，以及国内版账号的每日自动签到（含连登档位兑换与抽奖）与对话活跃上报。参照 CLIProxyAPI 插件 workbuddy-cliproxy 原生实现。",
+      "summary": "腾讯 CodeBuddy（copilot.tencent.com）扫码登录转 OpenAI 兼容 API：扫码登录 + token 自动刷新、上游动态模型目录（/v3/config）、对话转发（强制流式）、网关端点一键接入，以及国内版账号的每日自动签到（含连登档位兑换与抽奖）与对话活跃上报。多账号选号策略（按今日消耗（默认）/ 固定首个 / 轮询），默认「站点时区今天已消耗 credit 最少」；轮询游标复用 internal/accountpick 的原始下标锚定实现。参照 CLIProxyAPI 插件 workbuddy-cliproxy 原生实现。",
       "backendDirs": ["backend-go/internal/workbuddy/"],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
@@ -204,7 +204,7 @@
       "version": "1",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "Google Gemini CLI（Cloud Code Assist，cloudcode-pa.googleapis.com 的 v1internal 协议）OAuth 登录转 OpenAI 兼容 API：gemini-cli OAuth client + PKCE 授权、access token 自动刷新、静态模型目录（7 个）、对话转发（流式 + 非流式）、账号失败冷却与选号、网关端点一键接入。与 antigravity 插件的额度桶相互独立。",
+      "summary": "Google Gemini CLI（Cloud Code Assist，cloudcode-pa.googleapis.com 的 v1internal 协议）OAuth 登录转 OpenAI 兼容 API：gemini-cli OAuth client + PKCE 授权、access token 自动刷新、静态模型目录（7 个）、对话转发（流式 + 非流式）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询 / 按剩余额度）、网关端点一键接入。least-used 的额度快照由模型级 remainingFraction 折算，带 2 小时 TTL、转发后节流刷新与后台周期刷新；选号原语复用 internal/accountpick。与 antigravity 插件的额度桶相互独立。",
       "backendDirs": ["backend-go/internal/geminicli/"],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
@@ -327,7 +327,7 @@
       "version": "1",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "网易有道 LobsterAI（龙虾）转 OpenAI 兼容 API：OAuth 本地回环/粘贴回调登录、token 自动刷新、动态模型目录（/api/models/available）、强制流式对话转发（/api/proxy/v1/chat/completions）、额度批次与到期明细（/api/user/profile-summary）、每日自动签到（/api/client-activities，+100 积分/号/天）、账号失败冷却与选号、用量统计、网关端点一键接入。协议参考开源反代 lobsterai2api 原生实现。",
+      "summary": "网易有道 LobsterAI（龙虾）转 OpenAI 兼容 API：OAuth 本地回环/粘贴回调登录、token 自动刷新、动态模型目录（/api/models/available）、强制流式对话转发（/api/proxy/v1/chat/completions）、额度批次与到期明细（/api/user/profile-summary）、每日自动签到（/api/client-activities，+100 积分/号/天）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询 / 按剩余额度，额度取 Account.Credits）、用量统计、网关端点一键接入。least-used 额度快照带 2 小时 TTL、转发后节流刷新与后台周期刷新；选号原语复用 internal/accountpick。协议参考开源反代 lobsterai2api 原生实现。",
       "backendDirs": ["backend-go/internal/lobsterai/"],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
