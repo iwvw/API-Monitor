@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
 )
@@ -195,24 +196,47 @@ func TestTokenStateAndAvailability(t *testing.T) {
 	}
 }
 
-// 选号：跳过停用/过期/无 token/冷却账号，在候选中取调用次数最少者。
+// 选号：跳过停用/过期/无 token/冷却账号；三种策略各自行为正确。
 func TestPickAccount(t *testing.T) {
 	s := newTestService(t)
 	a1 := validAccount("a1", "t1")
 	a2 := validAccount("a2", "t2")
-	s.settings = Settings{Accounts: []Account{a1, a2}}
+	s.settings = Settings{Accounts: []Account{a1, a2}, AccountStrategy: accountpick.First}
 
-	// 零调用 → 取列表序首个。
+	// first：固定取列表序首个。
 	acc, ok := s.pickAccount(nil)
 	if !ok || acc.ID != "a1" {
-		t.Fatalf("零调用应取列表序首个，得到 %v/%v", acc.ID, ok)
+		t.Fatalf("first 应取列表序首个 a1，得到 %v/%v", acc.ID, ok)
+	}
+	s.callBase["a1"] = 10
+	if acc, _ = s.pickAccount(nil); acc.ID != "a1" {
+		t.Fatalf("first 不应受调用次数影响，得到 %v", acc.ID)
 	}
 
-	// a1 调用更多 → 选 a2。
-	s.callBase["a1"] = 10
-	acc, ok = s.pickAccount(nil)
-	if !ok || acc.ID != "a2" {
-		t.Fatalf("应选调用更少的 a2，得到 %v", acc.ID)
+	// round-robin：依次轮换。
+	s.settings.AccountStrategy = accountpick.RoundRobin
+	s.rr = accountpick.Cursor{}
+	seq := []string{}
+	for i := 0; i < 4; i++ {
+		a, ok := s.pickAccount(nil)
+		if !ok {
+			t.Fatal("round-robin 应能选中")
+		}
+		seq = append(seq, a.ID)
+	}
+	want := []string{"a1", "a2", "a1", "a2"}
+	for i := range want {
+		if seq[i] != want[i] {
+			t.Fatalf("round-robin 序列错误：%v want %v", seq, want)
+		}
+	}
+
+	// least-used：选剩余额度最多的。
+	s.settings.AccountStrategy = accountpick.LeastUsed
+	s.quotaSnap.Set("a1", 1)
+	s.quotaSnap.Set("a2", 5)
+	if acc, _ = s.pickAccount(nil); acc.ID != "a2" {
+		t.Fatalf("least-used 应选额度更多的 a2，得到 %v", acc.ID)
 	}
 
 	// a2 冷却中 → 回落到 a1，并把 a2 排除。

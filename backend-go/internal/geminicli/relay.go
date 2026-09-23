@@ -131,6 +131,8 @@ func (s *Service) proxyNonStream(ctx context.Context, w http.ResponseWriter, mod
 		s.recordCall(acc.ID)
 		innerResp := unwrapGenerateResponse(body)
 		s.recordUsageFromResponse(acc.ID, model, innerResp)
+		// 转发会消耗额度；异步刷新该账号的选号快照，让 least-used 策略及时感知消耗。
+		s.maybeRefreshQuotaSnapshot(acc)
 		out, convErr := openai.GeminiGenerateToOpenAIChat(innerResp, model)
 		if convErr != nil {
 			writeOpenAIError(w, http.StatusBadGateway, "响应转换失败: "+convErr.Error(), "upstream_error")
@@ -189,6 +191,7 @@ func (s *Service) proxyStream(ctx context.Context, w http.ResponseWriter, model 
 		}
 		s.clearCooldown(acc.ID)
 		s.recordCall(acc.ID)
+		s.maybeRefreshQuotaSnapshot(acc)
 		s.pipeStream(ctx, w, resp.Body, acc.ID, model)
 		return
 	}

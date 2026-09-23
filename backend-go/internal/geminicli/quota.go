@@ -224,11 +224,15 @@ func (s *Service) handleQuota(w http.ResponseWriter, r *http.Request) {
 			if a.Disabled {
 				continue
 			}
-			out = append(out, s.quotaForAccount(r.Context(), a, force))
+			q := s.quotaForAccount(r.Context(), a, force)
+			s.recordQuotaSnapshotFromAccount(q)
+			out = append(out, q)
 		}
 	} else {
 		if acc, ok := s.pickAccount(nil); ok {
-			out = append(out, s.quotaForAccount(r.Context(), acc, force))
+			q := s.quotaForAccount(r.Context(), acc, force)
+			s.recordQuotaSnapshotFromAccount(q)
+			out = append(out, q)
 		}
 	}
 	responseJSON(w, map[string]interface{}{"success": true, "accounts": out})
