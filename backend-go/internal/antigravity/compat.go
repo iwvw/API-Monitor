@@ -232,159 +232,161 @@ type chatCompletionsResponse struct {
 }
 
 // forwardOpenAIChat 用 Claude 转发链路处理 OpenAI chat.completions 请求，输出 OpenAI 格式。
+// 失败时按选号策略换号重试（最多 maxAccountAttempts 个账号）。
 func (s *Service) forwardOpenAIChat(ctx context.Context, w http.ResponseWriter, oaiReq *openAIChatRequest) error {
 	claudeReq, err := buildClaudeRequest(oaiReq)
 	if err != nil {
 		return err
 	}
-	claudeBody, err := json.Marshal(claudeReq)
-	if err != nil {
-		return fmt.Errorf("marshal claude request: %w", err)
-	}
 	claudeReq.Stream = oaiReq.Stream
 
-	if !oaiReq.Stream {
-		return s.forwardOpenAINonStream(ctx, w, oaiReq, claudeBody)
-	}
-	return s.forwardOpenAIStream(ctx, w, oaiReq, claudeBody)
-}
-
-// forwardOpenAINonStream 非流式：转 Claude → 上游 → 转回 OpenAI JSON。
-func (s *Service) forwardOpenAINonStream(ctx context.Context, w http.ResponseWriter, oaiReq *openAIChatRequest, claudeBody []byte) error {
-	acc := s.pickAccount()
-	if acc == nil {
-		return fmt.Errorf("尚无可用账号")
-	}
-	s.incrementCall(acc.Email)
 	proxyURI := s.resolveProxy(ctx)
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return fmt.Errorf("构造客户端失败: %w", err)
 	}
-	opts := engineag.DefaultTransformOptions()
-	opts.EnableIdentityPatch = true
 
-	var claudeReq engineag.ClaudeRequest
-	_ = json.Unmarshal(claudeBody, &claudeReq)
-	geminiBody, err := engineag.TransformClaudeToGeminiWithOptions(&claudeReq, acc.ProjectID, s.resolveUpstreamModel(claudeReq.Model), opts)
-	if err != nil {
-		return fmt.Errorf("请求转换失败: %w", err)
-	}
-	freshToken, err := s.ensureFreshToken(ctx, acc)
-	if err != nil {
-		return fmt.Errorf("获取访问凭证失败: %w", err)
-	}
-	req, err := engineag.NewAPIRequestWithURL(ctx, forwardBaseURL(acc), "generateContent", freshToken, geminiBody)
-	if err != nil {
-		return fmt.Errorf("构造上游请求失败: %w", err)
-	}
-	resp, err := agClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("上游请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		return fmt.Errorf("上游返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-	full, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取上游响应失败: %w", err)
-	}
-	claudeOut, usage, err := engineag.TransformGeminiToClaude(full, claudeReq.Model)
-	if err != nil {
-		return fmt.Errorf("响应转换失败: %w", err)
-	}
-	var claudeResp engineag.ClaudeResponse
-	if err := json.Unmarshal(claudeOut, &claudeResp); err != nil {
-		return fmt.Errorf("claude 响应解析失败: %w", err)
-	}
-
-	out := chatCompletionsResponse{
-		ID:      "chatcmpl-" + claudeResp.ID,
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   oaiReq.Model,
-	}
-	var content string
-	for _, c := range claudeResp.Content {
-		if c.Type == "text" {
-			content += c.Text
+	tried := make(map[string]bool, maxAccountAttempts)
+	var lastErr error
+	for attempt := 0; attempt < maxAccountAttempts; attempt++ {
+		acc, ok := s.pickForRelay(tried)
+		if !ok {
+			break
 		}
+		tried[acc.Email] = true
+		res := s.attemptOpenAIChat(ctx, w, agClient, &acc, oaiReq, claudeReq)
+		if res.wrote {
+			return res.err
+		}
+		if res.err == nil {
+			s.clearCooldown(acc.Email)
+			return nil
+		}
+		lastErr = res.err
+		if !res.retryable {
+			return res.err
+		}
+		s.markCooldown(acc.Email, res.err.Error())
 	}
-	if content == "" {
-		content = " "
+	if lastErr != nil {
+		return lastErr
 	}
-	out.Choices = append(out.Choices, struct {
-		Index        int    `json:"index"`
-		Message      struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
-	}{
-		Index: 0, FinishReason: claudeStopReasonToOpenAI(claudeResp.StopReason),
-	})
-	out.Choices[0].Message.Role = "assistant"
-	out.Choices[0].Message.Content = content
-	if usage != nil {
-		out.Usage.PromptTokens = usage.InputTokens
-		out.Usage.CompletionTokens = usage.OutputTokens
-		out.Usage.TotalTokens = usage.InputTokens + usage.OutputTokens
-		s.recordUsage(acc.Email, claudeReq.Model, int64(usage.InputTokens), int64(usage.OutputTokens), int64(usage.CacheReadInputTokens))
-	}
-	w.Header().Set("Content-Type", "application/json")
-	return json.NewEncoder(w).Encode(out)
+	return fmt.Errorf("尚无可用账号，请先完成 Google 账号授权")
 }
 
-// forwardOpenAIStream 流式：转 Claude SSE → OpenAI SSE chunk。
-func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter, oaiReq *openAIChatRequest, claudeBody []byte) error {
-	acc := s.pickAccount()
-	if acc == nil {
-		return fmt.Errorf("尚无可用账号")
-	}
+// attemptOpenAIChat 用指定账号执行一次 OpenAI 转发；失败且尚未写出任何字节时
+// 返回 retryable 供上层换号。wrote=true 表示已开始写响应，不可再重试。
+func (s *Service) attemptOpenAIChat(ctx context.Context, w http.ResponseWriter, agClient *engineag.Client, acc *Account, oaiReq *openAIChatRequest, claudeReq *engineag.ClaudeRequest) attemptResult {
 	s.incrementCall(acc.Email)
-	proxyURI := s.resolveProxy(ctx)
-	agClient, err := engineag.NewClient(proxyURI)
-	if err != nil {
-		return fmt.Errorf("构造客户端失败: %w", err)
-	}
 	opts := engineag.DefaultTransformOptions()
 	opts.EnableIdentityPatch = true
-
-	var claudeReq engineag.ClaudeRequest
-	_ = json.Unmarshal(claudeBody, &claudeReq)
-	geminiBody, err := engineag.TransformClaudeToGeminiWithOptions(&claudeReq, acc.ProjectID, s.resolveUpstreamModel(claudeReq.Model), opts)
+	geminiBody, err := engineag.TransformClaudeToGeminiWithOptions(claudeReq, acc.ProjectID, s.resolveUpstreamModel(claudeReq.Model), opts)
 	if err != nil {
-		return fmt.Errorf("请求转换失败: %w", err)
+		return attemptResult{err: fmt.Errorf("请求转换失败: %w", err)}
 	}
 	freshToken, err := s.ensureFreshToken(ctx, acc)
 	if err != nil {
-		return fmt.Errorf("获取访问凭证失败: %w", err)
+		return attemptResult{retryable: true, err: fmt.Errorf("获取访问凭证失败: %w", err)}
 	}
+
+	if !oaiReq.Stream {
+		action := "generateContent"
+		req, err := engineag.NewAPIRequestWithURL(ctx, forwardBaseURL(acc), action, freshToken, geminiBody)
+		if err != nil {
+			return attemptResult{err: fmt.Errorf("构造上游请求失败: %w", err)}
+		}
+		resp, err := agClient.Do(req)
+		if err != nil {
+			return attemptResult{retryable: true, err: fmt.Errorf("上游请求失败: %w", err)}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+			ue := classifyUpstream(resp.StatusCode, string(b))
+			return attemptResult{retryable: ue.retryable, err: ue}
+		}
+		full, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应失败: %w", err)}
+		}
+		claudeOut, usage, err := engineag.TransformGeminiToClaude(full, claudeReq.Model)
+		if err != nil {
+			return attemptResult{err: fmt.Errorf("响应转换失败: %w", err)}
+		}
+		var claudeResp engineag.ClaudeResponse
+		if err := json.Unmarshal(claudeOut, &claudeResp); err != nil {
+			return attemptResult{err: fmt.Errorf("claude 响应解析失败: %w", err)}
+		}
+
+		out := chatCompletionsResponse{
+			ID:      "chatcmpl-" + claudeResp.ID,
+			Object:  "chat.completion",
+			Created: time.Now().Unix(),
+			Model:   oaiReq.Model,
+		}
+		var content string
+		for _, c := range claudeResp.Content {
+			if c.Type == "text" {
+				content += c.Text
+			}
+		}
+		if content == "" {
+			content = " "
+		}
+		out.Choices = append(out.Choices, struct {
+			Index        int    `json:"index"`
+			Message      struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		}{
+			Index: 0, FinishReason: claudeStopReasonToOpenAI(claudeResp.StopReason),
+		})
+		out.Choices[0].Message.Role = "assistant"
+		out.Choices[0].Message.Content = content
+		if usage != nil {
+			out.Usage.PromptTokens = usage.InputTokens
+			out.Usage.CompletionTokens = usage.OutputTokens
+			out.Usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+			s.recordUsage(acc.Email, claudeReq.Model, int64(usage.InputTokens), int64(usage.OutputTokens), int64(usage.CacheReadInputTokens))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(out); err != nil {
+			return attemptResult{wrote: true, err: err}
+		}
+		return attemptResult{}
+	}
+
 	req, err := engineag.NewAPIRequestWithURL(ctx, forwardBaseURL(acc), "streamGenerateContent", freshToken, geminiBody)
 	if err != nil {
-		return fmt.Errorf("构造上游请求失败: %w", err)
+		return attemptResult{err: fmt.Errorf("构造上游请求失败: %w", err)}
 	}
 	resp, err := agClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("上游请求失败: %w", err)
+		return attemptResult{retryable: true, err: fmt.Errorf("上游请求失败: %w", err)}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		return fmt.Errorf("上游返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		ue := classifyUpstream(resp.StatusCode, string(b))
+		return attemptResult{retryable: ue.retryable, err: ue}
 	}
+	return s.pipeOpenAIStream(ctx, w, resp.Body, acc, oaiReq, claudeReq)
+}
 
+// pipeOpenAIStream 把上游 Claude SSE 转成 OpenAI SSE 写出。
+func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, body io.Reader, acc *Account, oaiReq *openAIChatRequest, claudeReq *engineag.ClaudeRequest) attemptResult {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	flusher, _ := w.(http.Flusher)
 
 	processor := engineag.NewStreamingProcessor(claudeReq.Model)
-	scanner := newScanner(resp.Body)
+	scanner := newScanner(body)
 	inTok, outTok := 0, 0
 	delivered := false
+	wrote := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		event := processor.ProcessLine(line)
@@ -407,13 +409,14 @@ func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter
 			continue
 		}
 		delivered = true
+		wrote = true
 		chunk := map[string]any{
 			"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
 			"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": text}, "finish_reason": nil}},
 		}
 		b, _ := json.Marshal(chunk)
 		if _, err := w.Write(append([]byte("data: "), append(b, '\n', '\n')...)); err != nil {
-			return nil
+			return attemptResult{wrote: true}
 		}
 		if flusher != nil {
 			flusher.Flush()
@@ -439,12 +442,13 @@ func (s *Service) forwardOpenAIStream(ctx context.Context, w http.ResponseWriter
 		flusher.Flush()
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("读取上游响应流失败: %w", err)
+		// 流中途出错时可能已写出部分内容：不可换号重试，直接返回。
+		if wrote || delivered {
+			return attemptResult{wrote: true}
+		}
+		return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应流失败: %w", err)}
 	}
-	if !delivered {
-		return nil
-	}
-	return nil
+	return attemptResult{wrote: wrote}
 }
 
 // claudeStopReasonToOpenAI 映射 Claude stop_reason → OpenAI finish_reason。

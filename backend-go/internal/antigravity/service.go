@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
@@ -56,14 +56,39 @@ type Settings struct {
 	// QuotaMonitorEnabled 配额刷新自动化检测：后台轮询各账号配额窗口的剩余比例，
 	// 比例回升（窗口被重置/刷新）时触发通知。
 	QuotaMonitorEnabled bool `json:"quotaMonitorEnabled"`
+	// AccountStrategy 是多账号选号策略：
+	//   first        —— 固定用列表首个可用账号（主备，默认，行为最可预期）
+	//   round-robin  —— 依次轮询，请求均匀分摊
+	//   least-used   —— 选剩余额度最多的账号，按实际额度拉平消耗
+	AccountStrategy string `json:"accountStrategy"`
+}
+
+// 选号策略取值。
+const (
+	strategyFirst      = "first"
+	strategyRoundRobin = "round-robin"
+	strategyLeastUsed  = "least-used"
+)
+
+// normalizeStrategy 归一化策略值，未知值回落到默认的 first。
+func normalizeStrategy(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case strategyRoundRobin:
+		return strategyRoundRobin
+	case strategyLeastUsed:
+		return strategyLeastUsed
+	default:
+		return strategyFirst
+	}
 }
 
 func defaultSettings() Settings {
 	return Settings{
-		Enabled:        false,
-		Accounts:       []Account{},
-		DisabledModels: []string{},
-		ModelAliases:   map[string]string{},
+		Enabled:         false,
+		Accounts:        []Account{},
+		DisabledModels:  []string{},
+		ModelAliases:    map[string]string{},
+		AccountStrategy: strategyFirst,
 	}
 }
 
@@ -131,7 +156,18 @@ type Service struct {
 
 	mu       sync.RWMutex
 	settings Settings
-	cursor   uint64
+
+	// rr 是 round-robin 策略的轮询游标（按原始列表下标锚定）。
+	rr accountpick.Cursor
+
+	// 账号失败冷却：email → 冷却截止时刻。上游返回可重试错误（429/5xx/网络）
+	// 后被写入，选号时跳过。纯内存态：重启即清空。
+	cooldownMu    sync.Mutex
+	cooldownUntil map[string]time.Time
+
+	// quotaSnap 是「账号 email → 剩余额度」的选号权重快照，供 least-used 策略使用。
+	// 由配额查询与后台刷新共同维护，读路径不查库。
+	quotaSnap *accountpick.Snapshot
 
 	// externalPool 是独立代理池选择器（server 注入）。
 	externalPool ProxyPoolSelector
@@ -182,11 +218,13 @@ func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
 // New 构造服务并加载持久化设置。
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:          cfg,
-		store:        database.New(cfg),
-		callCounts:   map[string]int64{},
-		callBase:     map[string]int64{},
-		usagePending: map[usageKey]*usageDelta{},
+		cfg:           cfg,
+		store:         database.New(cfg),
+		callCounts:    map[string]int64{},
+		callBase:      map[string]int64{},
+		usagePending:  map[usageKey]*usageDelta{},
+		cooldownUntil: map[string]time.Time{},
+		quotaSnap:     accountpick.NewSnapshot(),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -269,6 +307,7 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	if cfg.ModelAliases == nil {
 		cfg.ModelAliases = map[string]string{}
 	}
+	cfg.AccountStrategy = normalizeStrategy(cfg.AccountStrategy)
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
@@ -325,6 +364,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	if next.ModelAliases == nil {
 		next.ModelAliases = map[string]string{}
 	}
+	next.AccountStrategy = normalizeStrategy(next.AccountStrategy)
 	db, err := s.open(ctx)
 	if err != nil {
 		return err
@@ -429,26 +469,6 @@ func (s *Service) resolveProxy(ctx context.Context) string {
 		return p
 	}
 	return ""
-}
-
-// pickAccount 轮询返回下一个启用且有 token 的账号；无可用返回 nil。
-func (s *Service) pickAccount() *Account {
-	st := s.Settings()
-	enabled := make([]Account, 0, len(st.Accounts))
-	for _, a := range st.Accounts {
-		if a.Disabled {
-			continue
-		}
-		if strings.TrimSpace(a.AccessToken) != "" && strings.TrimSpace(a.ProjectID) != "" {
-			enabled = append(enabled, a)
-		}
-	}
-	if len(enabled) == 0 {
-		return nil
-	}
-	idx := atomic.AddUint64(&s.cursor, 1) - 1
-	acc := enabled[idx%uint64(len(enabled))]
-	return &acc
 }
 
 // incrementCall 记录一次账号被选中处理推理请求（计入未落盘增量，定期合并落库）。
@@ -621,16 +641,12 @@ func (s *Service) accountCount() int {
 
 // ForwardClaude 转发单次 Claude Messages 请求到 Antigravity 上游。
 // stream=true 时 writes 直接输出 SSE；否则收集完整响应返回。
+// 失败时按选号策略换号重试（最多 maxAccountAttempts 个账号）。
 func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body []byte, stream bool) error {
 	st := s.Settings()
 	if !st.Enabled {
 		return fmt.Errorf("插件未启用")
 	}
-	acc := s.pickAccount()
-	if acc == nil {
-		return fmt.Errorf("尚无可用账号，请先完成 Google 账号授权")
-	}
-	s.incrementCall(acc.Email)
 	var claudeReq engineag.ClaudeRequest
 	if err := json.Unmarshal(body, &claudeReq); err != nil {
 		return fmt.Errorf("请求体解析失败: %w", err)
@@ -647,53 +663,87 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 		return fmt.Errorf("构造客户端失败: %w", err)
 	}
 
+	tried := make(map[string]bool, maxAccountAttempts)
+	var lastErr error
+	for attempt := 0; attempt < maxAccountAttempts; attempt++ {
+		acc, ok := s.pickForRelay(tried)
+		if !ok {
+			break
+		}
+		tried[acc.Email] = true
+		res := s.attemptClaudeForward(ctx, w, agClient, &acc, &claudeReq, originalModel, mappedModel, stream)
+		if res.wrote {
+			return res.err
+		}
+		if res.err == nil {
+			s.clearCooldown(acc.Email)
+			return nil
+		}
+		lastErr = res.err
+		if !res.retryable {
+			return res.err
+		}
+		s.markCooldown(acc.Email, res.err.Error())
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("尚无可用账号，请先完成 Google 账号授权")
+}
+
+// attemptClaudeForward 用指定账号执行一次 Claude Messages 转发；失败且尚未写出
+// 任何字节时返回 retryable 供上层换号。
+func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWriter, agClient *engineag.Client, acc *Account, claudeReq *engineag.ClaudeRequest, originalModel, mappedModel string, stream bool) attemptResult {
+	s.incrementCall(acc.Email)
 	opts := engineag.DefaultTransformOptions()
 	opts.EnableIdentityPatch = true
-	geminiBody, err := engineag.TransformClaudeToGeminiWithOptions(&claudeReq, acc.ProjectID, mappedModel, opts)
+	geminiBody, err := engineag.TransformClaudeToGeminiWithOptions(claudeReq, acc.ProjectID, mappedModel, opts)
 	if err != nil {
-		return fmt.Errorf("请求转换失败: %w", err)
+		return attemptResult{err: fmt.Errorf("请求转换失败: %w", err)}
 	}
 
 	action := "generateContent"
 	if stream {
 		action = "streamGenerateContent"
 	}
-	base := forwardBaseURL(acc)
 	freshToken, err := s.ensureFreshToken(ctx, acc)
 	if err != nil {
-		return fmt.Errorf("获取访问凭证失败: %w", err)
+		return attemptResult{retryable: true, err: fmt.Errorf("获取访问凭证失败: %w", err)}
 	}
-	req, err := engineag.NewAPIRequestWithURL(ctx, base, action, freshToken, geminiBody)
+	req, err := engineag.NewAPIRequestWithURL(ctx, forwardBaseURL(acc), action, freshToken, geminiBody)
 	if err != nil {
-		return fmt.Errorf("构造上游请求失败: %w", err)
+		return attemptResult{err: fmt.Errorf("构造上游请求失败: %w", err)}
 	}
 
 	resp, err := agClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("上游请求失败: %w", err)
+		return attemptResult{retryable: true, err: fmt.Errorf("上游请求失败: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		return fmt.Errorf("上游返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		ue := classifyUpstream(resp.StatusCode, string(b))
+		return attemptResult{retryable: ue.retryable, err: ue}
 	}
 
 	if !stream {
 		full, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return fmt.Errorf("读取上游响应失败: %w", err)
+			return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应失败: %w", err)}
 		}
 		claudeOut, usage, err := engineag.TransformGeminiToClaude(full, originalModel)
 		if err != nil {
-			return fmt.Errorf("响应转换失败: %w", err)
+			return attemptResult{err: fmt.Errorf("响应转换失败: %w", err)}
 		}
 		if usage != nil {
 			s.recordUsage(acc.Email, mappedModel, int64(usage.InputTokens), int64(usage.OutputTokens), int64(usage.CacheReadInputTokens))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(claudeOut)
-		return nil
+		if _, err := w.Write(claudeOut); err != nil {
+			return attemptResult{wrote: true, err: err}
+		}
+		return attemptResult{}
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -704,10 +754,12 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	inTok, outTok := 0, 0
+	wrote := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		event := processor.ProcessLine(line)
 		if len(event) > 0 {
+			wrote = true
 			// 从 Claude SSE 事件里累计 token 用量（message_start 的 input_tokens /
 			// message_delta 的 output_tokens），流结束后记账。
 			if it, ot, ok := extractClaudeStreamUsage(event); ok {
@@ -719,7 +771,7 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 				}
 			}
 			if _, err := w.Write(event); err != nil {
-				return nil
+				return attemptResult{wrote: true}
 			}
 			if flusher != nil {
 				flusher.Flush()
@@ -730,7 +782,7 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 	// Finish 内部对 messageStartSent/messageStopSent 有守卫，正常结束不会产生重复事件。
 	if tail, _ := processor.Finish(); len(tail) > 0 {
 		if _, err := w.Write(tail); err != nil {
-			return nil
+			return attemptResult{wrote: true}
 		}
 		if flusher != nil {
 			flusher.Flush()
@@ -740,9 +792,12 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 		s.recordUsage(acc.Email, mappedModel, int64(inTok), int64(outTok), 0)
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("读取上游响应流失败: %w", err)
+		if wrote {
+			return attemptResult{wrote: true}
+		}
+		return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应流失败: %w", err)}
 	}
-	return nil
+	return attemptResult{wrote: wrote}
 }
 
 // FetchModels 用指定账号从上游拉取模型列表。
@@ -808,6 +863,8 @@ func (s *Service) FetchQuota(ctx context.Context, email string) (*QuotaView, err
 	if view.Credits == nil && len(view.Groups) == 0 {
 		return nil, fmt.Errorf("上游未返回配额信息")
 	}
+	// 顺带更新选号额度快照，让 least-used 策略及时感知余额。
+	s.recordQuotaSnapshot(view)
 	return view, nil
 }
 
@@ -913,6 +970,8 @@ func (s *Service) StartAutoRefresh(ctx context.Context) {
 				select {
 				case <-ticker.C:
 					s.RefreshStaleAccounts(ctx)
+					// 选号额度快照：仅在 least-used 策略下刷新，其余策略零开销。
+					s.refreshQuotaSnapshots(ctx)
 				case <-ctx.Done():
 					return
 				}

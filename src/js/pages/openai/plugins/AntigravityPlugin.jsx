@@ -528,6 +528,23 @@ export function AntigravityPlugin() {
             '后台每 15 分钟检测各账号配额窗口，剩余比例回升（窗口刷新）时通知；拉取失败记录到系统日志；消耗中、不变不通知。需在通知中心为 Antigravity 配置规则',
             <Switch checked={!!settings?.quotaMonitorEnabled} onCheckedChange={v => update({ quotaMonitorEnabled: v })} />
           )}
+          {field(
+            '选号策略',
+            '多账号时的选号策略。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。按剩余额度：优先用剩余额度最多的账号，避免某个账号先撞上限。三种都自动跳过已停用、token 过期与失败冷却中的账号',
+            <Select
+              alignItemWithTrigger
+              size="sm"
+              className="w-44"
+              value={settings?.accountStrategy || 'first'}
+              onValueChange={v => update({ accountStrategy: v })}
+              items={[
+                { value: 'first', label: '固定首个可用' },
+                { value: 'round-robin', label: '轮询' },
+                { value: 'least-used', label: '按剩余额度' },
+              ]}
+              disabled={saving || accounts.length < 2}
+            />
+          )}
         </SectionCard>
 
         <SectionCard

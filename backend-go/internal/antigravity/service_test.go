@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 )
 
@@ -236,6 +237,78 @@ func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
 	}
 }
 
+
+// 选号：三种策略各自行为正确，且都跳过不可用、冷却与缺 ProjectID 的账号。
+func TestPickForRelayStrategies(t *testing.T) {
+	now := time.Now().Unix()
+	newSvc := func(strategy string) *Service {
+		s := &Service{
+			cooldownUntil: map[string]time.Time{},
+			quotaSnap:     accountpick.NewSnapshot(),
+		}
+		s.settings = Settings{
+			AccountStrategy: strategy,
+			Accounts: []Account{
+				{Email: "a@x", AccessToken: "t", ProjectID: "p1", ExpiresAt: now + 3600},
+				{Email: "b@x", AccessToken: "t", ProjectID: "p2", ExpiresAt: now + 3600},
+			},
+		}
+		return s
+	}
+
+	// first：固定首个。
+	s := newSvc(strategyFirst)
+	if acc, ok := s.pickForRelay(nil); !ok || acc.Email != "a@x" {
+		t.Fatalf("first 应取 a@x，得到 %v/%v", acc.Email, ok)
+	}
+
+	// round-robin：依次轮换。
+	s = newSvc(strategyRoundRobin)
+	seq := []string{}
+	for i := 0; i < 4; i++ {
+		a, ok := s.pickForRelay(nil)
+		if !ok {
+			t.Fatal("round-robin 应能选中")
+		}
+		seq = append(seq, a.Email)
+	}
+	want := []string{"a@x", "b@x", "a@x", "b@x"}
+	for i := range want {
+		if seq[i] != want[i] {
+			t.Fatalf("round-robin 序列错误：%v want %v", seq, want)
+		}
+	}
+
+	// least-used：选额度更高的。
+	s = newSvc(strategyLeastUsed)
+	s.quotaSnap.Set("a@x", 1)
+	s.quotaSnap.Set("b@x", 9)
+	if acc, _ := s.pickForRelay(nil); acc.Email != "b@x" {
+		t.Fatalf("least-used 应选 b@x，得到 %v", acc.Email)
+	}
+
+	// 冷却账号被跳过；全冷却时回退最早恢复者。
+	s = newSvc(strategyFirst)
+	s.markCooldown("a@x", "boom")
+	if acc, _ := s.pickForRelay(nil); acc.Email != "b@x" {
+		t.Fatalf("冷却账号应被跳过，得到 %v", acc.Email)
+	}
+	if acc, ok := s.pickForRelay(map[string]bool{"b@x": true}); !ok || acc.Email != "a@x" {
+		t.Fatalf("候选全冷却时应回退 a@x，得到 %v/%v", acc.Email, ok)
+	}
+
+	// 缺 ProjectID / 过期 / 停用一律不可选。
+	s.mu.Lock()
+	s.settings.Accounts = []Account{
+		{Email: "noproj@x", AccessToken: "t", ExpiresAt: now + 3600},
+		{Email: "expired@x", AccessToken: "t", ProjectID: "p", ExpiresAt: now - 10},
+		{Email: "off@x", AccessToken: "t", ProjectID: "p", ExpiresAt: now + 3600, Disabled: true},
+	}
+	s.mu.Unlock()
+	if _, ok := s.pickForRelay(nil); ok {
+		t.Fatal("无可用账号应返回 false")
+	}
+}
 
 // TestTokenStateAndAvailability 校验凭据状态判据与「可用」综合判据的一致性。
 // 前端状态列与后端选号必须用同一判据，否则会出现「界面绿色可用但实际不被选中」。

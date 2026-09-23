@@ -110,7 +110,7 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "settings": s.Settings()})
+		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "settings": s.publicSettings()})
 	case http.MethodPut, http.MethodPost:
 		var body Settings
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -128,9 +128,28 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if !body.Enabled {
 			s.unlinkIfDisabled(r.Context())
 		}
-		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "settings": s.Settings()})
+		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "settings": s.publicSettings()})
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// publicSettings 返回可下发前端的设置。账号不发凭据：账号列表由 /accounts 单独提供
+// 脱敏视图，这里只回一个空数组占位，避免整对象 PUT 时把账号清空。
+//
+// DisabledModels 与 ModelAliases 必须原样回传：前端是整对象 PUT，服务端只回填 Accounts，
+// 若这两个字段不下发，一次保存就会被零值覆盖。
+func (s *Service) publicSettings() map[string]interface{} {
+	st := s.Settings()
+	return map[string]interface{}{
+		"enabled":             st.Enabled,
+		"proxyPoolId":         st.ProxyPoolID,
+		"modelPrefix":         st.ModelPrefix,
+		"quotaMonitorEnabled": st.QuotaMonitorEnabled,
+		"disabledModels":      st.DisabledModels,
+		"modelAliases":        st.ModelAliases,
+		"accountStrategy":     normalizeStrategy(st.AccountStrategy),
+		"accounts":            []accountView{},
 	}
 }
 
