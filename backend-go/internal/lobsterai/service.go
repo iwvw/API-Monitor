@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
@@ -51,6 +52,11 @@ type Settings struct {
 	DisabledModels []string `json:"disabledModels"`
 	// AutoCheckin 每日自动签到（站点时区 9 点与 21 点各一次），默认开启。
 	AutoCheckin *bool `json:"autoCheckin,omitempty"`
+	// AccountStrategy 是多账号选号策略：
+	//   first        —— 固定用列表首个可用账号（主备，默认，行为最可预期）
+	//   round-robin  —— 依次轮询，请求均匀分摊
+	//   least-used   —— 选剩余积分最多的账号，按实际额度拉平消耗
+	AccountStrategy string `json:"accountStrategy"`
 	// Accounts OAuth 登录产生的账号凭据。含 token，仅服务端可见，
 	// 下发前端前必须经 toAccountView() 脱敏。
 	Accounts []Account `json:"accounts"`
@@ -59,10 +65,11 @@ type Settings struct {
 func defaultSettings() Settings {
 	enabled := true
 	return Settings{
-		Enabled:        true,
-		DisabledModels: []string{},
-		AutoCheckin:    &enabled,
-		Accounts:       []Account{},
+		Enabled:         true,
+		DisabledModels:  []string{},
+		AutoCheckin:     &enabled,
+		AccountStrategy: accountpick.First,
+		Accounts:        []Account{},
 	}
 }
 
@@ -127,6 +134,15 @@ type Service struct {
 	scheduler  *cronRuntime
 	schedStart sync.Once
 
+	// rr 是 round-robin 策略的轮询游标（按原始列表下标锚定）。
+	rr accountpick.Cursor
+	// quotaSnap 是「账号 ID → 剩余积分」的选号权重快照，供 least-used 策略使用。
+	// 由额度查询与转发后异步刷新共同维护，读路径不查库。
+	quotaSnap *accountpick.Snapshot
+	// quotaBgThrottle 给后台额度快照刷新做全局节流：落盘 ticker 是分钟级，
+	// 但额度接口打上游，不能按分钟刷。
+	quotaBgThrottle accountpick.Throttle
+
 	externalPool ProxyPoolSelector
 }
 
@@ -150,6 +166,7 @@ func New(cfg config.Config) *Service {
 		callPending:   map[string]int64{},
 		cooldownUntil: map[string]time.Time{},
 		usagePending:  map[usageKey]*usageDelta{},
+		quotaSnap:     accountpick.NewSnapshot(),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -219,6 +236,7 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	if cfg.Accounts == nil {
 		cfg.Accounts = []Account{}
 	}
+	cfg.AccountStrategy = accountpick.Normalize(cfg.AccountStrategy)
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
@@ -249,6 +267,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	if next.Accounts == nil {
 		next.Accounts = []Account{}
 	}
+	next.AccountStrategy = accountpick.Normalize(next.AccountStrategy)
 	s.mu.RLock()
 	oldPrefix := s.settings.ModelPrefix
 	s.mu.RUnlock()
@@ -478,6 +497,11 @@ func (s *Service) StartCallStatsFlush(ctx context.Context) {
 				case <-ticker.C:
 					s.flushCallStats(context.Background())
 					s.flushUsage(context.Background())
+					// 后台额度快照刷新：仅在 least-used 策略下有效，且全局节流
+					// （落盘 ticker 是分钟级，额度接口不能按分钟打上游）。
+					if s.quotaBgThrottle.Allow(quotaSnapshotTTL / 4) {
+						s.refreshQuotaSnapshots(context.Background())
+					}
 				case <-ctx.Done():
 					s.flushCallStats(context.Background())
 					s.flushUsage(context.Background())
@@ -600,12 +624,13 @@ func (s *Service) publicSettings() map[string]interface{} {
 		autoCheckin = *st.AutoCheckin
 	}
 	return map[string]interface{}{
-		"enabled":        st.Enabled,
-		"modelPrefix":    st.ModelPrefix,
-		"proxyPoolId":    st.ProxyPoolID,
-		"disabledModels": st.DisabledModels,
-		"autoCheckin":    autoCheckin,
-		"accounts":       views,
+		"enabled":         st.Enabled,
+		"modelPrefix":     st.ModelPrefix,
+		"proxyPoolId":     st.ProxyPoolID,
+		"disabledModels":  st.DisabledModels,
+		"autoCheckin":     autoCheckin,
+		"accountStrategy": accountpick.Normalize(st.AccountStrategy),
+		"accounts":        views,
 	}
 }
 

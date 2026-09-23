@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 )
 
 // toAccountView 把账号脱敏成可下发前端的视图（不下发任何 token）。
@@ -156,6 +158,7 @@ func (s *Service) finishLogin(ctx context.Context, w http.ResponseWriter, state 
 	// 登录后立即拉一次额度，让前端马上看到余额。
 	if remain, _, err := s.FetchCredits(ctx, acc); err == nil {
 		acc.Credits = remain
+		s.recordQuotaSnapshot(acc.ID, remain)
 	}
 	if err := s.upsertAccount(ctx, acc); err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
@@ -346,6 +349,7 @@ func (s *Service) handleTestAccount(w http.ResponseWriter, r *http.Request, id s
 	}
 	acc.LastError = ""
 	acc.Credits = remain
+	s.recordQuotaSnapshot(acc.ID, remain)
 	if err := s.upsertAccount(ctx, acc); err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -376,6 +380,7 @@ func (s *Service) handleAccountCredits(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	acc.Credits = remain
+	s.recordQuotaSnapshot(acc.ID, remain)
 	_ = s.upsertAccount(ctx, acc)
 	responseJSON(w, map[string]interface{}{
 		"success": true,
@@ -431,6 +436,7 @@ func (s *Service) runCheckin(ctx context.Context, acc Account) (CheckinResult, e
 	}
 	if remain, _, cerr := s.FetchCredits(ctx, acc); cerr == nil {
 		acc.Credits = remain
+		s.recordQuotaSnapshot(acc.ID, remain)
 	}
 	acc.LastError = ""
 	acc.LastCheckinAt = time.Now().UTC().Format(time.RFC3339)
@@ -545,45 +551,70 @@ func decodeImportBody(r *http.Request) ([]Account, error) {
 // 选号
 // -----------------------------------------------------------------------------
 
-// pickAccount 选择用于转发的账号：优先未停用、token 未过期、不在冷却期的账号；
-// 在候选里取累计调用次数最少者（消耗均衡），全部冷却时回退到可用账号。
+// pickAccount 按当前策略选取本次转发的账号。
+//
+// 三种策略（Settings.AccountStrategy）：
+//   - first：列表首个可用账号，其余作主备。
+//   - round-robin：从上次位置继续向后轮询，请求均匀分摊。
+//   - least-used：选剩余积分最多的账号（额度快照缺失时退化为列表序）。
+//
+// 三种策略都跳过：不可用（停用/过期/无 token）、本次已尝试、处于冷却期的账号。
+// 若可用账号全在冷却中，退回「冷却最早结束」的那个继续尝试 —— 冷却只是软偏好，
+// 不该把一次瞬时抖动放大成整池不可用。
 func (s *Service) pickAccount(exclude map[string]bool) (Account, bool) {
 	st := s.Settings()
 	now := time.Now()
-	type cand struct {
-		acc   Account
-		calls int64
+	strategy := accountpick.Normalize(st.AccountStrategy)
+
+	cands := make([]accountpick.Candidate, 0, len(st.Accounts))
+	byID := make(map[string]Account, len(st.Accounts))
+	for i, a := range st.Accounts {
+		byID[a.ID] = a
+		if exclude[a.ID] || !accountAvailable(a) || s.inCooldown(a.ID, now) {
+			continue
+		}
+		cands = append(cands, accountpick.Candidate{ID: a.ID, Index: i})
 	}
-	var pool []cand
-	var fallback []cand
-	for _, a := range st.Accounts {
+
+	if len(cands) > 0 {
+		switch strategy {
+		case accountpick.RoundRobin:
+			if c, ok := s.rr.Pick(cands); ok {
+				return byID[c.ID], true
+			}
+		case accountpick.LeastUsed:
+			if c, ok := accountpick.Best(cands, s.quotaWeight); ok {
+				return byID[c.ID], true
+			}
+		default: // first
+			return byID[cands[0].ID], true
+		}
+	}
+
+	// 全部在冷却中：退回最早恢复的账号。
+	bestIdx := -1
+	var bestUntil time.Time
+	for i, a := range st.Accounts {
 		if exclude[a.ID] || !accountAvailable(a) {
 			continue
 		}
-		if s.inCooldown(a.ID, now) {
+		until, cooled := s.cooldownUntilOf(a.ID, now)
+		if !cooled {
 			continue
 		}
-		pool = append(pool, cand{acc: a, calls: s.callDisplay(a.ID)})
-	}
-	if len(pool) == 0 {
-		for _, a := range st.Accounts {
-			if exclude[a.ID] || !accountAvailable(a) {
-				continue
-			}
-			fallback = append(fallback, cand{acc: a, calls: s.callDisplay(a.ID)})
-		}
-		pool = fallback
-	}
-	if len(pool) == 0 {
-		return Account{}, false
-	}
-	best := pool[0]
-	for _, c := range pool[1:] {
-		if c.calls < best.calls {
-			best = c
+		if bestIdx < 0 || until.Before(bestUntil) {
+			bestIdx, bestUntil = i, until
 		}
 	}
-	return best.acc, true
+	if bestIdx >= 0 {
+		return st.Accounts[bestIdx], true
+	}
+	return Account{}, false
+}
+
+// quotaWeight 返回账号的选号权重（剩余积分）；快照缺失或失效时返回 0。
+func (s *Service) quotaWeight(id string) float64 {
+	return s.quotaSnap.Get(id, quotaSnapshotTTL)
 }
 
 // inCooldown 判断账号是否处于失败冷却期。
@@ -609,4 +640,75 @@ func (s *Service) clearCooldown(id string) {
 	s.cooldownMu.Lock()
 	defer s.cooldownMu.Unlock()
 	delete(s.cooldownUntil, id)
+}
+
+// cooldownUntilOf 读取账号当前冷却的截止时刻；未冷却或已过冷却期返回 ok=false。
+func (s *Service) cooldownUntilOf(id string, now time.Time) (time.Time, bool) {
+	s.cooldownMu.Lock()
+	defer s.cooldownMu.Unlock()
+	until, ok := s.cooldownUntil[id]
+	if !ok || !now.Before(until) {
+		return time.Time{}, false
+	}
+	return until, true
+}
+
+// -----------------------------------------------------------------------------
+// 选号额度快照
+// -----------------------------------------------------------------------------
+
+// quotaSnapshotTTL 是选号额度快照的有效期。超期视为失效（least-used 按 0 处理），
+// 避免基于陈旧数据选号。
+const quotaSnapshotTTL = 2 * time.Hour
+
+// quotaRefreshMinInterval 是单账号额度快照的最小刷新间隔（转发后刷新节流）。
+const quotaRefreshMinInterval = 2 * time.Minute
+
+// recordQuotaSnapshot 把账号剩余积分写入选号快照。
+func (s *Service) recordQuotaSnapshot(accountID string, credits float64) {
+	s.quotaSnap.Set(accountID, credits)
+}
+
+// maybeRefreshQuotaSnapshot 在需要时异步刷新单个账号的选号额度快照。
+// 仅在 least-used 策略下生效；同一账号在 quotaRefreshMinInterval 内只刷新一次。
+func (s *Service) maybeRefreshQuotaSnapshot(acc Account) {
+	if accountpick.Normalize(s.Settings().AccountStrategy) != accountpick.LeastUsed {
+		return
+	}
+	if !s.quotaSnap.ClaimRefresh(acc.ID, quotaRefreshMinInterval) {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		a := acc
+		if err := s.ensureToken(ctx, &a); err != nil {
+			return
+		}
+		remain, _, err := s.FetchCredits(ctx, a)
+		if err != nil {
+			return
+		}
+		s.recordQuotaSnapshot(acc.ID, remain)
+	}()
+}
+
+// refreshQuotaSnapshots 刷新所有可用账号的选号额度快照。
+// 仅在 least-used 策略下有意义，其余策略直接跳过以免无谓打上游。
+func (s *Service) refreshQuotaSnapshots(ctx context.Context) {
+	if accountpick.Normalize(s.Settings().AccountStrategy) != accountpick.LeastUsed {
+		return
+	}
+	for _, a := range s.Settings().Accounts {
+		if !accountAvailable(a) {
+			continue
+		}
+		acc := a
+		if err := s.ensureToken(ctx, &acc); err != nil {
+			continue
+		}
+		if remain, _, err := s.FetchCredits(ctx, acc); err == nil {
+			s.recordQuotaSnapshot(acc.ID, remain)
+		}
+	}
 }

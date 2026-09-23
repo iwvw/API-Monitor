@@ -133,6 +133,8 @@ func (s *Service) proxyNonStream(ctx context.Context, w http.ResponseWriter, mod
 		s.clearCooldown(acc.ID)
 		s.recordCall(acc.ID)
 		s.recordUsageFromOpenAI(acc.ID, model, resp)
+		// 转发会消耗积分；异步刷新该账号的选号快照，让 least-used 策略及时感知消耗。
+		s.maybeRefreshQuotaSnapshot(acc)
 		out, merr := json.Marshal(resp)
 		if merr != nil {
 			writeOpenAIError(w, http.StatusBadGateway, "响应序列化失败: "+merr.Error(), "upstream_error")
@@ -177,6 +179,7 @@ func (s *Service) proxyStream(ctx context.Context, w http.ResponseWriter, model 
 		}
 		s.clearCooldown(acc.ID)
 		s.recordCall(acc.ID)
+		s.maybeRefreshQuotaSnapshot(acc)
 		usage := s.pipeStreamCounted(ctx, w, rc, acc.ID, model)
 		if usage != nil {
 			s.recordUsageFromOpenAI(acc.ID, model, usage)

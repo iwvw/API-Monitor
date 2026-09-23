@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 )
 
 func TestPrepareChatBodyForcesStream(t *testing.T) {
@@ -339,5 +341,68 @@ func TestNormalizeUpstreamTime(t *testing.T) {
 		if got := normalizeUpstreamTime(c.in); got != c.want {
 			t.Errorf("normalizeUpstreamTime(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// 选号：三种策略各自行为正确，且都跳过不可用与冷却账号。
+func TestPickAccount(t *testing.T) {
+	s := &Service{
+		cooldownUntil: map[string]time.Time{},
+		quotaSnap:     accountpick.NewSnapshot(),
+		settings: Settings{
+			AccountStrategy: accountpick.First,
+			Accounts: []Account{
+				{ID: "u1", AccessToken: "t1", ExpiresAt: time.Now().Add(time.Hour).Unix()},
+				{ID: "u2", AccessToken: "t2", ExpiresAt: time.Now().Add(time.Hour).Unix()},
+			},
+		},
+	}
+
+	// first：固定取列表序首个。
+	acc, ok := s.pickAccount(nil)
+	if !ok || acc.ID != "u1" {
+		t.Fatalf("first 应取 u1，得到 %v/%v", acc.ID, ok)
+	}
+
+	// round-robin：依次轮换。
+	s.settings.AccountStrategy = accountpick.RoundRobin
+	s.rr = accountpick.Cursor{}
+	seq := []string{}
+	for i := 0; i < 4; i++ {
+		a, ok := s.pickAccount(nil)
+		if !ok {
+			t.Fatal("round-robin 应能选中")
+		}
+		seq = append(seq, a.ID)
+	}
+	want := []string{"u1", "u2", "u1", "u2"}
+	for i := range want {
+		if seq[i] != want[i] {
+			t.Fatalf("round-robin 序列错误：%v want %v", seq, want)
+		}
+	}
+
+	// least-used：选剩余积分最多的。
+	s.settings.AccountStrategy = accountpick.LeastUsed
+	s.quotaSnap.Set("u1", 10)
+	s.quotaSnap.Set("u2", 50)
+	if acc, _ = s.pickAccount(nil); acc.ID != "u2" {
+		t.Fatalf("least-used 应选积分更多的 u2，得到 %v", acc.ID)
+	}
+
+	// 冷却账号被跳过，且全冷却时回退到最早恢复者。
+	s.settings.AccountStrategy = accountpick.First
+	s.setCooldown("u1", time.Minute)
+	if acc, _ = s.pickAccount(nil); acc.ID != "u2" {
+		t.Fatalf("冷却账号应被跳过，得到 %v", acc.ID)
+	}
+	if acc, ok = s.pickAccount(map[string]bool{"u2": true}); !ok || acc.ID != "u1" {
+		t.Fatalf("候选全冷却时应回退 u1，得到 %v/%v", acc.ID, ok)
+	}
+
+	// 全不可用 → false。
+	s.settings = Settings{Accounts: []Account{{ID: "x", Disabled: true}}}
+	if _, ok := s.pickAccount(nil); ok {
+		t.Fatal("无可用账号应返回 false")
 	}
 }

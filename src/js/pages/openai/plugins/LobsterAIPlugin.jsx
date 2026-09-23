@@ -626,6 +626,21 @@ export function LobsterAIPlugin() {
               disabled={saving}
             />
           </FieldRow>
+          <FieldRow title={<span title="多账号时的选号策略。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。按剩余额度：优先用剩余积分最多的账号，避免某个账号先耗尽。后两种都自动跳过已停用、token 过期与失败冷却中的账号">选号策略</span>}>
+            <Select
+              alignItemWithTrigger
+              size="sm"
+              className="w-44"
+              value={settings?.accountStrategy || 'first'}
+              onValueChange={v => update({ accountStrategy: v })}
+              items={[
+                { value: 'first', label: '固定首个可用' },
+                { value: 'round-robin', label: '轮询' },
+                { value: 'least-used', label: '按剩余额度' },
+              ]}
+              disabled={saving || accounts.length < 2}
+            />
+          </FieldRow>
           <FieldRow title={<span title="可用账号/账号总数、处于失败冷却的账号数，以及上游模型目录条数">运行状态</span>}>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Badge
