@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
@@ -209,15 +210,19 @@ func (s *Service) markCooldown(id, reason string) {
 
 // pickAccount 选取本次转发的账号。
 //
-// 选号策略：**站点时区「今天已消耗 credit 最少」的可用账号**（消耗相同取列表序靠前者），
-// 且跳过本次请求已尝试过的账号、失败冷却期的账号、以及在该 model 上被限流的账号。
-// 这样按实际计费额度自然拉平各账号消耗，也避免某个账号先撞上限额；权重来自内存快照，
-// 选号本身不查库。
+// 选号策略（Settings.AccountStrategy）：
+//   - least-consumed（默认）：站点时区「今天已消耗 credit 最少」的可用账号
+//     （消耗相同取列表序靠前者），按实际计费额度自然拉平各账号消耗；
+//   - first：列表首个可用账号，其余作主备，行为最可预期；
+//   - round-robin：从上次位置继续向后轮询，请求均匀分摊。
+//
+// 三种策略都跳过本次请求已尝试过的账号、失败冷却期的账号、在该 model 上被限流的
+// 账号，以及不提供该模型区域外的账号（区域过滤）。权重来自内存快照，选号本身不查库。
 //
 // 一个可用账号都没有时，再试着刷新「已过期但可刷新」的账号（对应设置页的
 // 「扫码登录 + 自动刷新」语义）；若仍选不出，最后兜底到「都在冷却中」的账号继续尝试。
 func (s *Service) pickAccount(ctx context.Context, model string, tried map[string]bool) (Account, bool) {
-	if acc, ok := s.pickLeastConsumed(s.Settings().Accounts, model, tried); ok {
+	if acc, ok := s.pickByStrategy(model, tried); ok {
 		return acc, true
 	}
 	if acc, ok := s.refreshFirstStaleAccount(ctx, model, tried); ok {
@@ -227,6 +232,67 @@ func (s *Service) pickAccount(ctx context.Context, model string, tried map[strin
 		return acc, true
 	}
 	return Account{}, false
+}
+
+// pickByStrategy 按配置的策略从符合硬条件的候选里选号。
+func (s *Service) pickByStrategy(model string, tried map[string]bool) (Account, bool) {
+	switch normalizeStrategy(s.Settings().AccountStrategy) {
+	case strategyFirst:
+		return s.pickFirst(model, tried)
+	case strategyRoundRobin:
+		return s.pickRoundRobin(model, tried)
+	default:
+		return s.pickLeastConsumed(s.Settings().Accounts, model, tried)
+	}
+}
+
+// eligibleCandidates 收集符合硬条件（可用、未尝试、未冷却、未被该模型限流、
+// 区域提供该模型）的候选，保持列表序并记录原始下标。
+func (s *Service) eligibleCandidates(accounts []Account, model string, tried map[string]bool) []accountpick.Candidate {
+	cands := make([]accountpick.Candidate, 0, len(accounts))
+	for i, a := range accounts {
+		if !accountAvailable(a) {
+			continue
+		}
+		if tried != nil && tried[a.ID] {
+			continue
+		}
+		if s.inCooldown(a.ID) {
+			continue
+		}
+		if model != "" && s.inModelLimit(a.ID, model) {
+			continue
+		}
+		if !s.accountServesModel(a, model) {
+			continue
+		}
+		cands = append(cands, accountpick.Candidate{ID: a.ID, Index: i})
+	}
+	return cands
+}
+
+// pickFirst 取列表序首个符合硬条件的账号。
+func (s *Service) pickFirst(model string, tried map[string]bool) (Account, bool) {
+	accounts := s.Settings().Accounts
+	cands := s.eligibleCandidates(accounts, model, tried)
+	if len(cands) == 0 {
+		return Account{}, false
+	}
+	return accounts[cands[0].Index], true
+}
+
+// pickRoundRobin 从上次位置继续向后轮询，符合硬条件的候选里选下一个。
+func (s *Service) pickRoundRobin(model string, tried map[string]bool) (Account, bool) {
+	accounts := s.Settings().Accounts
+	cands := s.eligibleCandidates(accounts, model, tried)
+	if len(cands) == 0 {
+		return Account{}, false
+	}
+	c, ok := s.rr.Pick(cands)
+	if !ok {
+		return Account{}, false
+	}
+	return accounts[c.Index], true
 }
 
 // pickCooledFallback 兜底选取「可用、未被尝试、未被该模型限流，但正处于失败冷却」的账号，

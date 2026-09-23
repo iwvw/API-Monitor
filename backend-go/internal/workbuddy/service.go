@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 )
@@ -46,19 +47,45 @@ type Settings struct {
 	AutoCheckin *bool `json:"autoCheckin,omitempty"`
 	// AutoActivity 每日自动活跃上报开关（站点时区 10 点一次）。
 	AutoActivity *bool `json:"autoActivity,omitempty"`
+	// AccountStrategy 是多账号选号策略：
+	//   least-consumed —— 站点时区「今天已消耗 credit 最少」（默认；按实际计费额度拉平）
+	//   first          —— 固定用列表首个可用账号（主备，行为最可预期）
+	//   round-robin    —— 依次轮询，请求均匀分摊
+	AccountStrategy string `json:"accountStrategy"`
 	// Accounts 扫码登录产生的账号凭据。含 token，仅服务端可见，
 	// 下发前端前必须经 toAccountView() 脱敏。
 	Accounts []Account `json:"accounts"`
 }
 
+// 选号策略取值。默认 least-consumed：这是本插件唯一带真实计费语义的策略，
+// 也是改造前的既有行为，保持为默认以免默认行为退化。
+const (
+	strategyLeastConsumed = "least-consumed"
+	strategyFirst         = "first"
+	strategyRoundRobin    = "round-robin"
+)
+
+// normalizeStrategy 归一化策略值，未知值回落到默认的 least-consumed。
+func normalizeStrategy(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case strategyFirst:
+		return strategyFirst
+	case strategyRoundRobin:
+		return strategyRoundRobin
+	default:
+		return strategyLeastConsumed
+	}
+}
+
 func defaultSettings() Settings {
 	enabled := true
 	return Settings{
-		Enabled:        false,
-		DisabledModels: []string{},
-		AutoCheckin:    &enabled,
-		AutoActivity:   &enabled,
-		Accounts:       []Account{},
+		Enabled:         false,
+		DisabledModels:  []string{},
+		AutoCheckin:     &enabled,
+		AutoActivity:    &enabled,
+		AccountStrategy: strategyLeastConsumed,
+		Accounts:        []Account{},
 	}
 }
 
@@ -157,6 +184,9 @@ type Service struct {
 	modelLimits       map[string]modelLimit
 	rateLimitSample   string
 	rateLimitSampleAt string
+
+	// rr 是 round-robin 策略的轮询游标（按原始列表下标锚定）。
+	rr accountpick.Cursor
 
 	externalPool ProxyPoolSelector
 }
@@ -260,6 +290,7 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	if cfg.Accounts == nil {
 		cfg.Accounts = []Account{}
 	}
+	cfg.AccountStrategy = normalizeStrategy(cfg.AccountStrategy)
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
@@ -290,6 +321,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	if next.Accounts == nil {
 		next.Accounts = []Account{}
 	}
+	next.AccountStrategy = normalizeStrategy(next.AccountStrategy)
 	s.mu.RLock()
 	oldPrefix := s.settings.ModelPrefix
 	s.mu.RUnlock()
@@ -675,13 +707,14 @@ func (s *Service) publicSettings() map[string]interface{} {
 		views = append(views, s.toAccountView(a))
 	}
 	return map[string]interface{}{
-		"enabled":        st.Enabled,
-		"modelPrefix":    st.ModelPrefix,
-		"proxyPoolId":    st.ProxyPoolID,
-		"disabledModels": st.DisabledModels,
-		"autoCheckin":    st.autoCheckinEnabled(),
-		"autoActivity":   st.autoActivityEnabled(),
-		"accounts":       views,
+		"enabled":         st.Enabled,
+		"modelPrefix":     st.ModelPrefix,
+		"proxyPoolId":     st.ProxyPoolID,
+		"disabledModels":  st.DisabledModels,
+		"autoCheckin":     st.autoCheckinEnabled(),
+		"autoActivity":    st.autoActivityEnabled(),
+		"accountStrategy": normalizeStrategy(st.AccountStrategy),
+		"accounts":        views,
 	}
 }
 

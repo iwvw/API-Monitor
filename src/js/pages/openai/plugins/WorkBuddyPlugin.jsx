@@ -685,6 +685,21 @@ export function WorkBuddyPlugin() {
           <FieldRow title={<span title="站点时区 10 点自动上报一次对话活跃（点亮连登并解锁 first_buddy 任务）。仅国内版账号参与。">每日活跃上报</span>}>
             <Switch checked={settings?.autoActivity !== false} onCheckedChange={v => update({ autoActivity: v })} />
           </FieldRow>
+          <FieldRow title={<span title="多账号时的选号策略。按今日消耗（默认）：优先用站点时区今天已消耗 credit 最少的账号，按实际计费额度拉平消耗。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。三种都自动跳过已停用、token 过期、失败冷却中，以及该模型不提供的区域账号">选号策略</span>}>
+            <Select
+              alignItemWithTrigger
+              size="sm"
+              className="w-44"
+              value={settings?.accountStrategy || 'least-consumed'}
+              onValueChange={v => update({ accountStrategy: v })}
+              items={[
+                { value: 'least-consumed', label: '按今日消耗' },
+                { value: 'first', label: '固定首个可用' },
+                { value: 'round-robin', label: '轮询' },
+              ]}
+              disabled={saving || accounts.length < 2}
+            />
+          </FieldRow>
           <div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-tight:flex-row cq-tight:items-center">
             <div className="min-w-0 shrink-0">
               <div className="truncate text-sm font-semibold text-kumo-strong" title="可用账号/账号总数，以及上游模型目录条数">

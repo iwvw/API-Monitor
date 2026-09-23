@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 )
 
 func validAccount(id, token string) Account {
@@ -118,6 +120,52 @@ func TestRefreshCreditDaySnapshotKeepsInflight(t *testing.T) {
 	}
 	if got := s.creditDayUsed["u2"]; got != 0.2 {
 		t.Errorf("库里没有的账号应保留内存值：u2=%v want=0.2", got)
+	}
+}
+
+// first 与 round-robin 策略：默认 least-consumed 不变，另两种按配置生效。
+func TestPickAccountStrategies(t *testing.T) {
+	accounts := []Account{validAccount("u1", "t1"), validAccount("u2", "t2")}
+	// least-consumed：u1 消耗更多 → 选 u2（既有行为，作为默认）。
+	s := &Service{creditDayUsed: map[string]float64{"u1": 0.5, "u2": 0.1}}
+	s.settings = Settings{AccountStrategy: strategyLeastConsumed, Accounts: accounts}
+	if acc, ok := s.pickByStrategy("hy3", nil); !ok || acc.ID != "u2" {
+		t.Fatalf("least-consumed 应选消耗更少的 u2，得到 %v/%v", acc.ID, ok)
+	}
+
+	// 空串也归一化为默认 least-consumed。
+	s.settings.AccountStrategy = ""
+	if acc, _ := s.pickByStrategy("hy3", nil); acc.ID != "u2" {
+		t.Fatalf("空策略应回落 least-consumed，得到 %v", acc.ID)
+	}
+
+	// first：固定取列表序首个，不受消耗影响。
+	s.settings.AccountStrategy = strategyFirst
+	if acc, ok := s.pickByStrategy("hy3", nil); !ok || acc.ID != "u1" {
+		t.Fatalf("first 应取 u1，得到 %v/%v", acc.ID, ok)
+	}
+
+	// round-robin：依次轮换。
+	s.settings.AccountStrategy = strategyRoundRobin
+	s.rr = accountpick.Cursor{}
+	seq := []string{}
+	for i := 0; i < 4; i++ {
+		a, ok := s.pickByStrategy("hy3", nil)
+		if !ok {
+			t.Fatal("round-robin 应能选中")
+		}
+		seq = append(seq, a.ID)
+	}
+	want := []string{"u1", "u2", "u1", "u2"}
+	for i := range want {
+		if seq[i] != want[i] {
+			t.Fatalf("round-robin 序列错误：%v want %v", seq, want)
+		}
+	}
+
+	// tried 去重：u1 已尝试则 next 为 u2。
+	if acc, _ := s.pickByStrategy("hy3", map[string]bool{"u1": true}); acc.ID != "u2" {
+		t.Fatalf("tried 应排除 u1，得到 %v", acc.ID)
 	}
 }
 
