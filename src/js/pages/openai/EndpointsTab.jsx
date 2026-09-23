@@ -38,8 +38,8 @@ const ENDPOINT_LIST_COLUMNS = [
 
 const ENDPOINT_MODEL_COLUMNS = [
   { id: 'check', role: 'control' },
-  { id: 'model', role: 'primary', minWidth: 260, grow: 1 },
-  { id: 'mapping', role: 'meta', align: 'center' },
+  { id: 'model', role: 'primary', minWidth: 260, maxWidth: 320, grow: 1 },
+  { id: 'mapping', role: 'meta', minWidth: 180, grow: 1 },
   { id: 'health', role: 'status' },
   { id: 'latency', role: 'count', align: 'center' },
   { id: 'actions', role: 'actions-md' },
@@ -524,7 +524,7 @@ export function EndpointsTab({
                                 </div>
                               </Table.Head>
                               <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                              <Table.Head className="!px-2 !py-1.5 text-center">映射</Table.Head>
+                              <Table.Head className="!px-2 !py-1.5">映射</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">健康</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">延迟</Table.Head>
                               <Table.Head className="app-table-action !px-2 !py-1.5">操作</Table.Head>
@@ -590,7 +590,7 @@ export function EndpointsTab({
                                         {modelId}
                                       </span>
                                     </Table.Cell>
-                                    <Table.Cell className="!px-2 !py-1.5 text-center">
+                                    <Table.Cell className="!px-2 !py-1.5">
                                       {mappingEditKey === `${endpoint.id}:${modelId}` ? (
                                         <Input
                                           autoFocus
@@ -611,7 +611,7 @@ export function EndpointsTab({
                                               saveEndpointMapping(endpoint, modelId, mappingDraft);
                                             }
                                           }}
-                                          className="w-full font-mono text-[10px] text-center"
+                                          className="w-full font-mono text-[10px]"
                                           placeholder="对外名称"
                                         />
                                       ) : (
