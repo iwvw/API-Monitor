@@ -160,12 +160,18 @@ fn strip_wrapping_quotes(value: &str) -> String {
     trimmed.to_string()
 }
 
-/// 解析可执行文件路径：优先本地配置的环境变量，其次自动探测 npm 全局安装位置，
-/// 最后回退到 PATH 查找。
+/// 解析可执行文件路径：优先本地配置的环境变量，其次自动探测常见安装位置，
+/// 最后在 PATH 中查找。
 ///
-/// 返回 `(路径, 是否确认存在)`。自动探测解决「Agent 服务 PATH 不含用户级 npm 目录、
-/// 且 PATH 根目录只有 .cmd shim 没有真身 .exe」导致的启动失败（Windows 上 npm 全局
-/// 安装的 opencode 真身在 `node_modules/opencode-ai/bin/` 下，Command::new 只认 .exe）。
+/// 返回 `(路径, 是否确认存在)`。自动探测解决「Agent 服务 PATH 不含用户级安装目录、
+/// 且 PATH 根目录只有 .cmd shim 没有真身 .exe」导致的启动失败：
+///   - Windows 上 npm 全局安装的 opencode 真身在 `node_modules/opencode-ai/bin/`
+///     下，Command::new 只认 .exe；
+///   - Linux/macOS 上官方安装脚本（`curl -fsSL https://opencode.ai/install | bash`）
+///     把二进制放到 `~/.opencode/bin/opencode`，服务环境的 PATH 通常不含该目录。
+///
+/// 最后一步在 PATH 中做真实查找（Windows 只认 .exe；Unix 需任一执行位），
+/// 而不是无条件回退裸命令名——否则已装好且 PATH 可达时仍会报 found=false。
 fn resolve_executable(template: &ProviderTemplate) -> (String, bool) {
     // 1. 显式环境变量优先（ADR-0006 第 6.1 条：路径来自 Agent 本地配置）。
     //    先剥离首尾引号：setx/.reg 写入时常把引号一并存进值里。
@@ -180,7 +186,11 @@ fn resolve_executable(template: &ProviderTemplate) -> (String, bool) {
     if let Some(path) = detect_npm_executable(template) {
         return (path.to_string_lossy().to_string(), true);
     }
-    // 3. 回退到裸命令名（走 PATH；可能仍是 shim，由 spawn 失败时给出提示）。
+    // 3. 探测常见安装目录与 PATH（覆盖官方安装脚本的 ~/.opencode/bin 等）。
+    if let Some(path) = find_in_search_dirs(template) {
+        return (path.to_string_lossy().to_string(), true);
+    }
+    // 4. 回退到裸命令名（走 PATH；仍可能因服务 PATH 精简而未命中，由 spawn 报错）。
     (template.executable.to_string(), false)
 }
 
@@ -217,6 +227,86 @@ fn detect_npm_executable(template: &ProviderTemplate) -> Option<PathBuf> {
             .join(&exe_name);
         if candidate.is_file() {
             return Some(candidate);
+        }
+    }
+    None
+}
+
+/// 平台相关的可执行文件名候选。
+///
+/// Windows 只认 `.exe`：`Command::new` 走 CreateProcess，不会执行 `.cmd`/`.bat`
+/// 包装脚本，把 shim 当命中会让诊断谎报就绪、start 阶段才失败。npm 的 shim 由
+/// `detect_npm_executable` 定位真身 .exe 来覆盖。
+fn executable_names(template: &ProviderTemplate) -> Vec<String> {
+    if cfg!(target_os = "windows") {
+        vec![format!("{}.exe", template.executable)]
+    } else {
+        vec![template.executable.to_string()]
+    }
+}
+
+/// 判断路径是否为一个可执行文件：普通文件，Unix 上还需任一执行位。
+fn is_executable_file(path: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// 常见安装目录（官方安装脚本、包管理器与用户级 bin），再拼接 PATH 目录，按顺序查找。
+///
+/// 先查固定目录是为了解决「Agent 作为系统服务运行时 PATH 与交互式登录不同」：
+/// 二进制可能装在 PATH 之外的 `~/.opencode/bin`。去重避免 PATH 已含同一目录时重复探测。
+fn find_in_search_dirs(template: &ProviderTemplate) -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+
+    // 官方安装脚本固定落在 $HOME/.opencode/bin（各平台一致）。
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home = PathBuf::from(home);
+        dirs.push(home.join(".opencode/bin"));
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join("bin"));
+    }
+    // 包管理器常见系统目录（Linux/macOS）。
+    dirs.push(PathBuf::from("/usr/local/bin"));
+    dirs.push(PathBuf::from("/usr/bin"));
+    dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    dirs.push(PathBuf::from("/home/linuxbrew/.linuxbrew/bin"));
+    dirs.push(PathBuf::from("/snap/bin"));
+    // Windows 包管理器。
+    dirs.push(PathBuf::from(r"C:\ProgramData\chocolatey\bin"));
+    if let Some(profile) = std::env::var_os("USERPROFILE") {
+        dirs.push(PathBuf::from(profile).join("scoop/shim"));
+    }
+
+    // 再拼接 PATH（split_paths 跨平台处理 PATH）。服务 PATH 精简时上面的固定目录兜底。
+    if let Some(path_var) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path_var));
+    }
+
+    let names = executable_names(template);
+    let mut seen: Vec<PathBuf> = Vec::new();
+    for dir in dirs {
+        if dir.as_os_str().is_empty() || seen.contains(&dir) {
+            continue;
+        }
+        seen.push(dir.clone());
+        for name in &names {
+            let candidate = dir.join(name);
+            if is_executable_file(&candidate) {
+                return Some(candidate);
+            }
         }
     }
     None
@@ -970,6 +1060,14 @@ pub async fn shutdown_all() {
 mod tests {
     use super::*;
 
+    /// 修改进程级环境变量（PATH/HOME/APPDATA/USERPROFILE/覆盖变量）的用例必须串行，
+    /// 否则并行线程会互相看到对方临时设置的 PATH，断言随机失败。
+    /// 用法：在用例首行 `let _guard = env_guard();`，持有到用例结束。
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn port_range_matches_cloud_contract() {
         let template = lookup_template("opencode").expect("opencode template");
@@ -989,12 +1087,21 @@ mod tests {
 
     #[test]
     fn executable_env_override_wins() {
+        let _guard = env_guard();
         let template = lookup_template("opencode").expect("opencode template");
-        // 用空临时目录抑制自动探测，保证「未设置时回退到裸命令名」可确定断言
-        // （本机可能装了 opencode，探测会命中真实路径导致断言不稳定）。
-        let temp_appdata = std::env::temp_dir().join("aiagent-test-empty-appdata");
-        std::fs::create_dir_all(&temp_appdata).ok();
-        std::env::set_var("APPDATA", &temp_appdata);
+        // 用空临时目录抑制所有自动探测（APPDATA/HOME/USERPROFILE/PATH），保证
+        // 「未设置时回退到裸命令名」可确定断言：本机可能已装 opencode，PATH 或
+        // ~/.opencode/bin 命中真实路径会让断言不稳定。
+        let temp_empty = std::env::temp_dir().join("aiagent-test-empty-appdata");
+        std::fs::create_dir_all(&temp_empty).ok();
+        let saved_appdata = std::env::var_os("APPDATA");
+        let saved_home = std::env::var_os("HOME");
+        let saved_profile = std::env::var_os("USERPROFILE");
+        let saved_path = std::env::var_os("PATH");
+        std::env::set_var("APPDATA", &temp_empty);
+        std::env::set_var("HOME", &temp_empty);
+        std::env::set_var("USERPROFILE", &temp_empty);
+        std::env::set_var("PATH", &temp_empty);
         std::env::remove_var(template.executable_env);
         let (path, found) = resolve_executable(template);
         assert_eq!(path, "opencode", "未设置时应回退到裸命令名（走 PATH）");
@@ -1016,8 +1123,165 @@ mod tests {
         assert_eq!(path, "opencode");
 
         std::env::remove_var(template.executable_env);
-        std::env::remove_var("APPDATA");
-        std::fs::remove_dir_all(&temp_appdata).ok();
+        restore_env("APPDATA", saved_appdata);
+        restore_env("HOME", saved_home);
+        restore_env("USERPROFILE", saved_profile);
+        restore_env("PATH", saved_path);
+        std::fs::remove_dir_all(&temp_empty).ok();
+    }
+
+    /// 恢复环境变量：原值存在则写回，否则删除。
+    fn restore_env(key: &str, value: Option<std::ffi::OsString>) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+
+    /// 官方安装脚本把二进制放在 $HOME/.opencode/bin：即便 PATH 不含该目录也应命中。
+    /// 这是 Linux 上「装好了却仍报未找到」的根因回归用例。
+    #[test]
+    fn resolves_home_opencode_bin_outside_path() {
+        let _guard = env_guard();
+        let template = lookup_template("opencode").expect("opencode template");
+        let saved_appdata = std::env::var_os("APPDATA");
+        let saved_home = std::env::var_os("HOME");
+        let saved_profile = std::env::var_os("USERPROFILE");
+        let saved_path = std::env::var_os("PATH");
+        let saved_override = std::env::var_os(template.executable_env);
+
+        let home = std::env::temp_dir().join("aiagent-test-home-opencode");
+        let bin_dir = home.join(".opencode/bin");
+        std::fs::create_dir_all(&bin_dir).ok();
+        let exe_name = if cfg!(target_os = "windows") {
+            "opencode.exe"
+        } else {
+            "opencode"
+        };
+        let real = bin_dir.join(exe_name);
+        std::fs::write(&real, b"").ok();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).ok();
+        }
+
+        // PATH 指向空目录，证明命中来自固定安装目录探测而非 PATH。
+        let empty_path = std::env::temp_dir().join("aiagent-test-empty-path");
+        std::fs::create_dir_all(&empty_path).ok();
+        std::env::set_var("APPDATA", &empty_path);
+        std::env::set_var("HOME", &home);
+        std::env::set_var("USERPROFILE", &home);
+        std::env::set_var("PATH", &empty_path);
+        std::env::remove_var(template.executable_env);
+
+        let (path, found) = resolve_executable(template);
+        assert!(found, "~/.opencode/bin 下的可执行文件应被识别为已找到");
+        assert_eq!(path, real.to_string_lossy().to_string());
+
+        restore_env(template.executable_env, saved_override);
+        restore_env("APPDATA", saved_appdata);
+        restore_env("HOME", saved_home);
+        restore_env("USERPROFILE", saved_profile);
+        restore_env("PATH", saved_path);
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(&empty_path).ok();
+    }
+
+    /// PATH 中真实存在的可执行文件应被判定为已找到：回退不再无条件报 found=false。
+    #[test]
+    fn resolves_executable_from_path() {
+        let _guard = env_guard();
+        let template = lookup_template("opencode").expect("opencode template");
+        let saved_appdata = std::env::var_os("APPDATA");
+        let saved_home = std::env::var_os("HOME");
+        let saved_profile = std::env::var_os("USERPROFILE");
+        let saved_path = std::env::var_os("PATH");
+        let saved_override = std::env::var_os(template.executable_env);
+
+        let home = std::env::temp_dir().join("aiagent-test-home-path-empty");
+        std::fs::create_dir_all(&home).ok();
+        let path_dir = std::env::temp_dir().join("aiagent-test-path-hit");
+        std::fs::create_dir_all(&path_dir).ok();
+        let exe_name = if cfg!(target_os = "windows") {
+            "opencode.exe"
+        } else {
+            "opencode"
+        };
+        let real = path_dir.join(exe_name);
+        std::fs::write(&real, b"").ok();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).ok();
+        }
+
+        // HOME 指向空目录，证明命中来自 PATH。
+        std::env::set_var("APPDATA", &home);
+        std::env::set_var("HOME", &home);
+        std::env::set_var("USERPROFILE", &home);
+        std::env::set_var("PATH", &path_dir);
+        std::env::remove_var(template.executable_env);
+
+        let (path, found) = resolve_executable(template);
+        assert!(found, "PATH 中存在的可执行文件应被识别为已找到");
+        assert_eq!(path, real.to_string_lossy().to_string());
+
+        restore_env(template.executable_env, saved_override);
+        restore_env("APPDATA", saved_appdata);
+        restore_env("HOME", saved_home);
+        restore_env("USERPROFILE", saved_profile);
+        restore_env("PATH", saved_path);
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(&path_dir).ok();
+    }
+
+    /// 软链指向真实可执行文件时必须命中：生产环境常在 /usr/local/bin 放软链
+    /// （如 `ln -s ~/.opencode/bin/opencode /usr/local/bin/opencode`）。
+    /// metadata 会跟随软链，应识别其目标为可执行文件。
+    #[cfg(unix)]
+    #[test]
+    fn resolves_symlinked_executable() {
+        let _guard = env_guard();
+        let template = lookup_template("opencode").expect("opencode template");
+        let saved_appdata = std::env::var_os("APPDATA");
+        let saved_home = std::env::var_os("HOME");
+        let saved_profile = std::env::var_os("USERPROFILE");
+        let saved_path = std::env::var_os("PATH");
+        let saved_override = std::env::var_os(template.executable_env);
+
+        let home = std::env::temp_dir().join("aiagent-test-home-symlink-empty");
+        std::fs::create_dir_all(&home).ok();
+        let bin_dir = std::env::temp_dir().join("aiagent-test-symlink-bin");
+        std::fs::create_dir_all(&bin_dir).ok();
+        let target = bin_dir.join("opencode-real");
+        std::fs::write(&target, b"").ok();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).ok();
+        }
+        let link = bin_dir.join("opencode");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).expect("创建软链");
+
+        // HOME 指向空目录，PATH 只含软链所在目录。
+        std::env::set_var("APPDATA", &home);
+        std::env::set_var("HOME", &home);
+        std::env::set_var("USERPROFILE", &home);
+        std::env::set_var("PATH", &bin_dir);
+        std::env::remove_var(template.executable_env);
+
+        let (path, found) = resolve_executable(template);
+        assert!(found, "软链指向可执行文件时应识别为已找到");
+        assert_eq!(path, link.to_string_lossy().to_string());
+
+        restore_env(template.executable_env, saved_override);
+        restore_env("APPDATA", saved_appdata);
+        restore_env("HOME", saved_home);
+        restore_env("USERPROFILE", saved_profile);
+        restore_env("PATH", saved_path);
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(&bin_dir).ok();
     }
 
     #[test]
@@ -1051,6 +1315,7 @@ mod tests {
 
     #[test]
     fn env_override_with_quotes_resolves_to_real_path() {
+        let _guard = env_guard();
         let template = lookup_template("opencode").expect("opencode template");
         let temp_appdata = std::env::temp_dir().join("aiagent-test-quotes-appdata");
         std::fs::create_dir_all(&temp_appdata).ok();
