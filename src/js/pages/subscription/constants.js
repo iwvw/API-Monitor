@@ -50,8 +50,8 @@ export const NODE_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'name', role: 'primary', minWidth: 176, maxWidth: 200, grow: 0 },
   { id: 'type', role: 'type', grow: 1, minWidth: 160 },
-  { id: 'connection', role: 'content', grow: 1, minWidth: 216, align: 'left', verticalAlign: 'middle' },
-  { id: 'host', role: 'meta', grow: 1, minWidth: 200, align: 'left' },
+  { id: 'connection', role: 'content', grow: 1, minWidth: 216, maxWidth: 360, align: 'left', verticalAlign: 'middle' },
+  { id: 'host', role: 'meta', grow: 1, minWidth: 240, maxWidth: 360, align: 'left' },
   { id: 'actions', role: 'actions-lg', width: 160, maxWidth: 200 },
 ];
 
