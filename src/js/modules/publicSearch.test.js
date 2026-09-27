@@ -12,6 +12,7 @@ import {
   normalizeEngine,
   persistableEngines,
   readStoredEngineId,
+  readStoredEngineIdValue,
   readStoredNewTab,
   resolveSearchEngines,
   runSearch,
@@ -114,6 +115,23 @@ describe('publicSearch', () => {
     expect(readStoredEngineId()).toBe(getDefaultEngine().id);
   });
 
+  it('readStoredEngineIdValue 读原始值，不按列表回退', () => {
+    const { store } = installWindow();
+    expect(readStoredEngineIdValue()).toBe('');
+    // 选的是自定义引擎：此刻列表可能只有内置三个，原值必须保住，
+    // 否则首屏对账会把选择抹成 bing
+    store.set('publicBookmarksSearchEngine', 'kagi');
+    expect(readStoredEngineIdValue()).toBe('kagi');
+    expect(readStoredEngineId()).toBe(getDefaultEngine().id);
+    const custom = resolveSearchEngines({
+      searchEngines: [
+        ...DEFAULT_SEARCH_ENGINES,
+        { id: 'kagi', label: 'Kagi', url: 'https://kagi.com/search?q=%s' },
+      ],
+    });
+    expect(readStoredEngineId(custom)).toBe('kagi');
+  });
+
   it('新窗口开关持久化，默认开启', () => {
     installWindow();
     expect(readStoredNewTab()).toBe(true);
@@ -130,6 +148,8 @@ describe('publicSearch', () => {
       location: { href: '' },
     };
     expect(() => readStoredEngineId()).not.toThrow();
+    expect(() => readStoredEngineIdValue()).not.toThrow();
+    expect(readStoredEngineIdValue()).toBe('');
     expect(() => writeStoredEngineId('bing')).not.toThrow();
     expect(() => readStoredNewTab()).not.toThrow();
     expect(readStoredNewTab()).toBe(true);

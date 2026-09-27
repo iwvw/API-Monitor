@@ -140,13 +140,25 @@ export function findEngine(id, engines = DEFAULT_SEARCH_ENGINES) {
   return list.find(engine => engine.id === id) || list[0];
 }
 
-export function readStoredEngineId(engines = DEFAULT_SEARCH_ENGINES) {
+/**
+ * 读取上次选中的引擎 id，**不做列表回退**（列表里没有也照原样返回）。
+ *
+ * 公开页的引擎列表是异步拿到的：Hero 挂载时可能只有内置默认三个，
+ * 此时用 readStoredEngineId 回退会把「自定义引擎」的选择抹成第一个内置项。
+ * 所以先读原值，等真正的列表到了再由调用方对账。
+ */
+export function readStoredEngineIdValue() {
   try {
-    const value = window.localStorage?.getItem(ENGINE_STORAGE_KEY);
-    return findEngine(value, engines).id;
+    return String(window.localStorage?.getItem(ENGINE_STORAGE_KEY) ?? '').trim();
   } catch {
-    return getDefaultEngine(engines).id;
+    return '';
   }
+}
+
+export function readStoredEngineId(engines = DEFAULT_SEARCH_ENGINES) {
+  const value = readStoredEngineIdValue();
+  if (!value) return getDefaultEngine(engines).id;
+  return findEngine(value, engines).id;
 }
 
 export function writeStoredEngineId(id, engines = DEFAULT_SEARCH_ENGINES) {

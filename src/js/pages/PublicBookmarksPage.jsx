@@ -602,6 +602,7 @@ function PublicBookmarksPage({ domainOnly = false, onDomainNotFound }) {
           onFilterChange={setKeyword}
           matchCount={keyword ? visibleItemCount : null}
           engines={searchEngines}
+          enginesReady={!loading && !error}
           className="mb-6"
         />
 

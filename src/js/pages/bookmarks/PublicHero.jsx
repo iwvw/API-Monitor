@@ -12,7 +12,8 @@ import EngineIconPreview from './EngineIconPreview.jsx';
 import {
   DEFAULT_SEARCH_ENGINES,
   buildSearchUrl,
-  readStoredEngineId,
+  getDefaultEngine,
+  readStoredEngineIdValue,
   readStoredNewTab,
   runSearch,
   writeStoredEngineId,
@@ -82,11 +83,21 @@ export default function PublicHero({
    * 不传时用内置默认列表，组件单独使用时也能工作。
    */
   engines = DEFAULT_SEARCH_ENGINES,
+  /**
+   * 引擎列表是否已经是「最终结果」。
+   *
+   * 公开页的公开配置是异步取的，挂载那一刻往往只有内置默认三个。
+   * 此时若立刻对账（把读到的选择纠正成默认首个），等真列表到达时
+   * 用户选的自定义引擎就已经被抹掉了。列表确认后再对账即可。
+   * 父组件没传时按「已就绪」处理，组件单独使用时行为不变。
+   */
+  enginesReady = true,
   className,
 }) {
   const now = useClock();
   const list = Array.isArray(engines) && engines.length ? engines : DEFAULT_SEARCH_ENGINES;
-  const [engineId, setEngineId] = useState(() => readStoredEngineId(list));
+  // 只读存储原值，不在这里回退：列表还没到齐时无法判断选择是否还有效
+  const [engineId, setEngineId] = useState(() => readStoredEngineIdValue());
   const [newTab, setNewTab] = useState(() => readStoredNewTab());
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -100,6 +111,18 @@ export default function PublicHero({
     () => list.find(item => item.id === engineId) || list[0],
     [list, engineId]
   );
+
+  // 选择持久化：等列表就绪后再对账。
+  // 选中的引擎仍在列表里就保持不动（首屏读到自定义引擎时靠这一步保住选择）；
+  // 确实不存在了（管理页删掉了该引擎）才回落到首个，并同步写回存储，
+  // 免得下次打开又读到那个失效 id 反复回退。
+  useEffect(() => {
+    if (!enginesReady) return;
+    if (list.some(item => item.id === engineId)) return;
+    const fallback = getDefaultEngine(list).id;
+    setEngineId(fallback);
+    writeStoredEngineId(fallback, list);
+  }, [enginesReady, list, engineId]);
 
   // 点击外部关闭引擎菜单
   useEffect(() => {
