@@ -65,6 +65,33 @@ export function normalizeEngine(raw) {
 }
 
 /**
+ * 给列表补齐 id：已有的保留，缺失时按主机名推断，再用 engine-N 兜底。
+ * 供管理页编辑草稿使用，保证 React key 与选中态稳定。
+ */
+export function assignEngineIds(list = []) {
+  return list
+    .slice(0, SEARCH_ENGINE_MAX_COUNT)
+    .map((item, index) => {
+      const id = String(item?.id ?? '').trim();
+      if (id) return { ...item, id };
+      return { ...item, id: idFromUrl(item?.url) || `engine-${index + 1}` };
+    });
+}
+
+/**
+ * 从编辑草稿里取出**当前有效**的引擎项，用于写回设置。
+ *
+ * 关键点：还在填写中的空项（缺名称、缺 %s）只留在表单里，不写进配置。
+ * 后端 sanitizeSearchEngines 同样会丢弃它们，写进去只会让配置与表单
+ * 不一致；表单侧靠本地草稿保留这些行（见 SearchEnginesSettings）。
+ */
+export function persistableEngines(list = []) {
+  return assignEngineIds(list)
+    .map(item => normalizeEngine(item))
+    .filter(Boolean);
+}
+
+/**
  * 从公开页配置解析出实际使用的引擎列表。
  *
  * 配置优先：管理页配了就整份替换（而不是与内置合并）——

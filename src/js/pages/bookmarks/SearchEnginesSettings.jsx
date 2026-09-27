@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, Plus, RotateCw, Trash } from '../../components/Icons.jsx';
+import { Plus, RotateCw, Trash } from '../../components/Icons.jsx';
 import {
   DEFAULT_SEARCH_ENGINES,
   SEARCH_ENGINE_MAX_COUNT,
-  idFromUrl,
   isImageIcon,
   normalizeEngine,
+  persistableEngines,
   resolveSearchEngines,
 } from '../../modules/publicSearch.js';
 
@@ -26,26 +26,36 @@ import EngineIconPreview from './EngineIconPreview.jsx';
  *   - 列表为空 → 公开页回落到内置默认引擎（bing / google / duckduckgo）；
  *   - 保存非空列表 → **整份替换**，不与内置合并。
  *     合并的话「删掉某个内置引擎」就删不掉了。
+ *
+ * 表单用本地草稿渲染列表：搜索地址只有含 %s 才算合法，而用户是逐字输入的，
+ * 刚点「添加引擎」或只填了一半的行还不合法。若直接用归一化后的配置当列表，
+ * 这些行会立刻被过滤掉 —— 表现为「添加引擎没反应」、输入到一半整行消失。
+ * 草稿保留这些行，只在写回配置时取有效子集（后端同样会丢弃它们）。
  */
 export default function SearchEnginesSettings({ config = {}, onChange }) {
   const configured = Array.isArray(config?.searchEngines) ? config.searchEngines : [];
-  // 表单里始终展示「实际生效」的列表：未配置时用内置默认填充，
-  // 让用户从一份可编辑的初始值开始改，而不是面对空列表。
-  const engines = resolveSearchEngines(config);
   const usingDefault = configured.length === 0;
 
-  // 展开的编辑项索引；null 表示全部折叠
+  // 草稿初始值就是「实际生效」的列表：未配置时用内置默认填充，
+  // 让用户从一份可编辑的初始值开始改，而不是面对空列表。
+  const [engines, setEngines] = useState(() => resolveSearchEngines(config));
   const [editing, setEditing] = useState(null);
 
+  // 配置在外部变化时（刷新页面、恢复默认、导入）重建草稿；
+  // 自己刚写回的那份则跳过，否则输入到一半的行会被重置掉（每次输入都会保存）。
+  const savedSignature = JSON.stringify(configured);
+  const lastPersisted = useRef(null);
+  useEffect(() => {
+    if (lastPersisted.current === savedSignature) return;
+    lastPersisted.current = null;
+    setEngines(resolveSearchEngines(config));
+  }, [savedSignature]);
+
   const commit = (list) => {
-    // 归一化后再写回：拦掉非法项（缺 %s、非 http），
-    // 与后端 sanitizeSearchEngines 同一套规则，避免保存后才发现被丢弃。
-    const normalized = list
-      .slice(0, SEARCH_ENGINE_MAX_COUNT)
-      .map(item => normalizeEngine(item))
-      .filter(Boolean)
-      .map((item, index) => ({ ...item, id: item.id || idFromUrl(item.url) || `engine-${index + 1}` }));
-    onChange?.({ ...config, searchEngines: normalized });
+    setEngines(list);
+    const persistable = persistableEngines(list);
+    lastPersisted.current = JSON.stringify(persistable);
+    onChange?.({ ...config, searchEngines: persistable });
   };
 
   const updateAt = (index, patch) => {
@@ -63,12 +73,13 @@ export default function SearchEnginesSettings({ config = {}, onChange }) {
       ...engines,
       { id: '', label: '', url: '', icon: '', color: '' },
     ];
-    commit(next);
+    setEngines(next);
     setEditing(next.length - 1);
   };
 
   const resetToDefault = () => {
     // 清空配置 = 回落内置默认（不是复制一份默认列表进配置）
+    setEngines(DEFAULT_SEARCH_ENGINES);
     onChange?.({ ...config, searchEngines: [] });
     setEditing(null);
   };
@@ -81,7 +92,7 @@ export default function SearchEnginesSettings({ config = {}, onChange }) {
           <div className="mt-0.5 text-[11px] text-kumo-subtle">
             {usingDefault
               ? `当前使用内置默认（${DEFAULT_SEARCH_ENGINES.length} 个）。修改后会整份替换。`
-              : `已自定义 ${configured.length} 个引擎。`}
+              : `已自定义 ${engines.length} 个引擎。`}
           </div>
         </div>
         <div className="flex shrink-0 gap-2">

@@ -3,12 +3,14 @@ import {
   DEFAULT_SEARCH_ENGINES,
   SEARCH_ENGINE_MAX_COUNT,
   SEARCH_ENGINES,
+  assignEngineIds,
   buildSearchUrl,
   findEngine,
   getDefaultEngine,
   idFromUrl,
   isImageIcon,
   normalizeEngine,
+  persistableEngines,
   readStoredEngineId,
   readStoredNewTab,
   resolveSearchEngines,
@@ -209,5 +211,39 @@ describe('自定义搜索引擎', () => {
     expect(isImageIcon('/logo.svg')).toBe(true);
     expect(isImageIcon('logos:bing')).toBe(false);
     expect(isImageIcon('')).toBe(false);
+  });
+
+  it('assignEngineIds 补 id：保留已有、按主机名推断、空地址退化为 engine-N', () => {
+    const ids = assignEngineIds([
+      { id: 'bing', label: '必应', url: 'https://www.bing.com/search?q=%s' },
+      { label: '自建', url: 'https://s.example.com/?q=%s' },
+      { label: '待填', url: '' },
+    ]);
+    expect(ids[0].id).toBe('bing');
+    expect(ids[1].id).toBe('s');
+    expect(ids[2].id).toBe('engine-3');
+  });
+
+  it('persistableEngines 丢掉还在填写中的空项，其余补 id 后写回', () => {
+    // 「添加引擎」刚点出来的空行、只填了名称的行，都还没含 %s，
+    // 不该进配置（表单侧靠本地草稿保留，否则整行会消失）
+    const persistable = persistableEngines([
+      { id: 'bing', label: '必应', url: 'https://www.bing.com/search?q=%s' },
+      { id: '', label: '', url: '', icon: '', color: '' },
+      { id: '', label: '新引擎', url: '' },
+      { id: '', label: 'Kagi', url: 'https://kagi.com/search?q=%s' },
+    ]);
+    expect(persistable).toHaveLength(2);
+    expect(persistable[0].id).toBe('bing');
+    expect(persistable[1].id).toBe('kagi');
+    expect(persistable[1].url).toBe('https://kagi.com/search?q=%s');
+  });
+
+  it('persistableEngines 对超限列表截断', () => {
+    const many = Array.from({ length: SEARCH_ENGINE_MAX_COUNT + 3 }, (_, i) => ({
+      label: `e${i}`,
+      url: `https://e${i}.com/?q=%s`,
+    }));
+    expect(persistableEngines(many)).toHaveLength(SEARCH_ENGINE_MAX_COUNT);
   });
 });
