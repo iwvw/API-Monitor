@@ -20,7 +20,6 @@ const rateLimitMsg = "当前您在Deepseek-V4.1-Flash模型的使用量已超出
 func newLimitService() *Service {
 	return &Service{
 		creditDayUsed: map[string]float64{},
-		cooldownUntil: map[string]time.Time{},
 		modelLimits:   map[string]modelLimit{},
 	}
 }
@@ -332,9 +331,6 @@ func TestRelayFailoverOnModelRateLimit(t *testing.T) {
 	if !s.inModelLimit("u1", "hy3") {
 		t.Fatal("u1 应在 hy3 上被标记限流")
 	}
-	if s.inCooldown("u1") {
-		t.Fatal("模型级限流**不应**把整个账号打进冷却（会连坐它的其它模型）")
-	}
 	if s.inModelLimit("u2", "hy3") {
 		t.Fatal("成功的 u2 不应被限流")
 	}
@@ -405,9 +401,6 @@ func TestRelayRateLimitOnHTTPErrorReturns429WithReset(t *testing.T) {
 	if _, ok := s.modelLimitUntil("u1", "hy3"); !ok {
 		t.Fatal("应在 hy3 上记录限流")
 	}
-	if s.inCooldown("u1") {
-		t.Fatal("限流不应同时把账号打进账号冷却")
-	}
 }
 
 // 普通业务错误信封（非限流）也不能被当成「成功但空回答」透给下游 ——
@@ -437,9 +430,9 @@ func TestRelayBusinessErrorEnvelopeBecomesErrorNotEmptyAnswer(t *testing.T) {
 // 【回归】「一个号都没打成」**不等于**「所有账号都被该模型限流」。
 //
 // 反例：一个早已停用的账号身上留着一条历史限流记录（恢复时刻在很远的将来），
-// 而真正可用的账号只是因为瞬时故障在冷却中 —— 此时选号同样返回 false。
+// 而真正可用的账号凭据已过期、根本选不出来 —— 此时选号同样返回 false。
 // 若不加区分地把限流簿里最早的时刻报出去，用户会看到「该模型 N 天后恢复」，
-// 而那个 N 天来自一个根本不参与转发的账号，纯属误导（实际几分钟后就能用）。
+// 而那个 N 天来自一个根本不参与转发的账号，纯属误导。
 func TestNoAttemptDoesNotBlamModelLimitFromUnusableAccount(t *testing.T) {
 	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
 		return http.StatusOK, okSSE
@@ -448,8 +441,7 @@ func TestNoAttemptDoesNotBlamModelLimitFromUnusableAccount(t *testing.T) {
 	s := newTestService(t)
 	dead := validAccount("dead", "t9")
 	dead.Disabled = true // 不参与选号，但限流簿里仍留着它的记录
-	// 另一个账号凭据已过期且没有 refresh token → 真的一号都选不出来
-	// （冷却号会被兜底重试，已不算「选不出账号」，故这里用真不可用的号来构造 no-attempt）。
+	// 另一个账号凭据已过期且没有 refresh token → 真的一号都选不出来。
 	expired := validAccount("expired", "t1")
 	expired.ExpiresAt = time.Now().Add(-time.Hour).Unix()
 	if err := s.SaveSettings(context.Background(), Settings{
@@ -474,7 +466,7 @@ func TestNoAttemptDoesNotBlamModelLimitFromUnusableAccount(t *testing.T) {
 }
 
 // 【回归】确有可用账号、但只有一个没被限流时，不构成「全部限流」。
-// 选号失败另有原因（这里是瞬时冷却），应报常规错误而非限流 429。
+// 选号失败另有原因（这里是该模型不提供的区域账号被排除），应报常规错误而非限流 429。
 func TestAllUsableAccountsModelLimitedRequiresEveryUsableAccount(t *testing.T) {
 	s := newLimitService()
 	limited := validAccount("u1", "t1")

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // failoverUpstream 起一个按鉴权头分流的假上游：每个 token 返回 (状态码, 响应体)。
@@ -53,35 +52,7 @@ func serveChat(t *testing.T, s *Service, body string) *httptest.ResponseRecorder
 const okSSE = "data: {\"id\":\"c1\",\"model\":\"hy3\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n" +
 	"data: [DONE]\n\n"
 
-// 冷却中的账号不得被选号（失败换号的前提：先把踩坑账号晾到一边）。
-func TestPickLeastConsumedSkipsCooldown(t *testing.T) {
-	s := &Service{creditDayUsed: map[string]float64{}}
-	s.cooldownUntil = map[string]time.Time{}
-	a1 := validAccount("u1", "t1")
-	a2 := validAccount("u2", "t2")
-	s.cooldownUntil["u1"] = time.Now().Add(time.Minute)
-
-	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3", nil)
-	if !ok || acc.ID != "u2" {
-		t.Fatalf("应跳过冷却中的 u1 选 u2，得到 %v/%v", acc.ID, ok)
-	}
-}
-
-// 冷却过期后账号恢复可被选号。
-func TestPickLeastConsumedRecoversAfterCooldown(t *testing.T) {
-	s := &Service{creditDayUsed: map[string]float64{}}
-	s.cooldownUntil = map[string]time.Time{}
-	a1 := validAccount("u1", "t1")
-	a2 := validAccount("u2", "t2")
-	s.cooldownUntil["u1"] = time.Now().Add(-time.Minute)
-
-	acc, ok := s.pickLeastConsumed([]Account{a1, a2}, "hy3", nil)
-	if !ok || acc.ID != "u1" {
-		t.Fatalf("冷却过期后应恢复 u1 参与选号，得到 %v/%v", acc.ID, ok)
-	}
-}
-
-// 首号上游返回 429 → 标记冷却并换下一个号 → 成功。下游只看到一次成功。
+// 首号上游返回 429 → 换下一个号 → 成功。下游只看到一次成功。
 func TestRelayFailoverSwitchesAccountOn429(t *testing.T) {
 	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
 		if token == "Bearer t2" {
@@ -116,12 +87,6 @@ func TestRelayFailoverSwitchesAccountOn429(t *testing.T) {
 		if got := getAuths(); got[i] != want[i] {
 			t.Fatalf("换号顺序错误：第 %d 次 %q want %q（完整 %v）", i+1, got[i], want[i], got)
 		}
-	}
-	if !s.inCooldown("u1") {
-		t.Fatal("失败的 u1 应进入冷却期")
-	}
-	if s.inCooldown("u2") {
-		t.Fatal("成功的 u2 不应进入冷却期")
 	}
 }
 
@@ -181,10 +146,14 @@ func TestRelayNoFailoverOnNonRetryableError(t *testing.T) {
 	}
 }
 
-// 上个请求把 u1 打进冷却期后，下一个请求直接从凉爽的账号开始（不再踩同坑）。
-func TestRelaySkipsCooldownAccountOnNextRequest(t *testing.T) {
+// 没有账号级冷却：一次失败不会被记到下一个请求。上一个请求 u1 撞 429 换号成功后，
+// 下一个请求仍按选号策略从 u1 重新开始（而不是把它晾几分钟）。
+func TestRelayDoesNotRememberFailureAcrossRequests(t *testing.T) {
 	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
-		return http.StatusOK, okSSE
+		if token == "Bearer t2" {
+			return http.StatusOK, okSSE
+		}
+		return http.StatusTooManyRequests, "quota exceeded"
 	})
 
 	s := newTestService(t)
@@ -197,72 +166,21 @@ func TestRelaySkipsCooldownAccountOnNextRequest(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s.cooldownUntil["u1"] = time.Now().Add(5 * time.Minute)
 
-	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("应返回 200，得到 %d: %s", rec.Code, rec.Body.String())
-	}
-	if got := getAuths(); len(got) != 1 || got[0] != "Bearer t2" {
-		t.Fatalf("冷却中的 u1 不应被选中，实际上游收到 %v", got)
-	}
-}
-
-// 【回归】所有账号都在冷却时仍应兜底强行尝试，绝不因为「都在冷却」直接回 503。
-// 这是曾经的事故形态：一次瞬时抖动冷却整池账号 5 分钟，期间所有请求全部 503。
-func TestRelayAttemptsWhenAllAccountsCooled(t *testing.T) {
-	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
-		return http.StatusOK, okSSE
-	})
-
-	s := newTestService(t)
-	if err := s.SaveSettings(context.Background(), Settings{
-		Enabled: true,
-		Accounts: []Account{
-			validAccount("u1", "t1"),
-			validAccount("u2", "t2"),
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	s.cooldownUntil["u1"] = time.Now().Add(5 * time.Minute)
-	s.cooldownUntil["u2"] = time.Now().Add(5 * time.Minute)
-
-	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("全部冷却时应兜底尝试并返回 200，得到 %d: %s", rec.Code, rec.Body.String())
-	}
-	if got := getAuths(); len(got) != 1 {
-		t.Fatalf("应只尝试一个账号，实际 %v", got)
-	}
-}
-
-// 【回归】全部账号都在冷却、且上游持续失败 → 回 502（真实上游错误）而非 503，
-// 且每个账号在一次请求里最多尝试一次（靠请求内 tried 去重，不靠冷却）。
-func TestRelayAllCooledFailsOverToBadGateway(t *testing.T) {
-	getAuths, _ := failoverUpstream(t, func(token string) (int, string) {
-		return http.StatusServiceUnavailable, "upstream down"
-	})
-
-	s := newTestService(t)
-	if err := s.SaveSettings(context.Background(), Settings{
-		Enabled: true,
-		Accounts: []Account{
-			validAccount("u1", "t1"),
-			validAccount("u2", "t2"),
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	s.cooldownUntil["u1"] = time.Now().Add(5 * time.Minute)
-	s.cooldownUntil["u2"] = time.Now().Add(5 * time.Minute)
-
-	rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("上游失败应返回 502 而非 503，得到 %d: %s", rec.Code, rec.Body.String())
+	for i := 0; i < 2; i++ {
+		rec := serveChat(t, s, `{"model":"hy3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("第 %d 次请求应换号成功返回 200，得到 %d: %s", i+1, rec.Code, rec.Body.String())
+		}
 	}
 	got := getAuths()
-	if len(got) != 2 || got[0] != "Bearer t1" || got[1] != "Bearer t2" {
-		t.Fatalf("应对两个账号各尝试一次，实际 %v", got)
+	want := []string{"Bearer t1", "Bearer t2", "Bearer t1", "Bearer t2"}
+	if len(got) != len(want) {
+		t.Fatalf("两次请求各自从 u1 开始换号，期望 %v，实际 %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("换号顺序错误：第 %d 次 %q want %q（完整 %v）", i+1, got[i], want[i], got)
+		}
 	}
 }

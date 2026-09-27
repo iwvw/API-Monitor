@@ -86,7 +86,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 失败换号重试：单次转发最多尝试 maxAccountAttempts 个账号。
 	// 失败分两类，处置**不同**（见 ratelimit.go 开头）：
-	//   - 瞬时故障（429/5xx/网络/流中断）→ 账号冷却（软偏好，优先避开该账号）；
+	//   - 瞬时故障（429/5xx/网络/流中断）→ 换下一个账号继续尝试（不做账号级冷却）；
 	//   - 模型级限流（上游点名「<模型> 超出频率限制，<时刻> 重置」）→ 只封
 	//     「该账号 × 该模型」，同一账号的其它模型照常可用，且冷却到上游给的真实时刻。
 	// chatCompletions 保证错误发生在写出任何响应之前，因此重试不会破坏已下发的字节。
@@ -96,8 +96,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// attempted 记录本轮是否真的打过上游：没打过（全被限流拦下）与「打完全部失败」
 	// 是两种截然不同的情形，报错也该不同。
 	attempted := false
-	// tried 记录本次请求已尝试过的账号：保证换号不会反复命中同一个账号
-	// （冷却只是软偏好，不能依赖它来做请求内的去重）。
+	// tried 记录本次请求已尝试过的账号：保证换号不会反复命中同一个账号。
 	tried := make(map[string]bool, maxAccountAttempts)
 	for attempt := 0; attempt < maxAccountAttempts; attempt++ {
 		acc, ok := s.pickAccount(r.Context(), model, tried)
@@ -124,7 +123,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 					}
 					continue
 				}
-				s.markCooldown(acc.ID, ue.msg)
+				// 瞬时故障（429/5xx/网络/流中断）：不记账号级冷却，直接换下一个账号。
 				continue
 			}
 			break
@@ -133,7 +132,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	loc := s.siteLocation(r.Context())
 	// 一个号都没打成：**不能**就此断定「所有账号都被该模型限流」——选号返回 false
-	// 还有别的常见原因（可用账号都在瞬时冷却中、全部停用/无凭据）。若不加区分地
+	// 还有别的常见原因（全部停用/无凭据/选号出错）。若不加区分地
 	// 报「该模型最早 N 天后恢复」，而那个 N 天其实来自一个已停用账号的历史记录，
 	// 就把用户往错误方向带了。故这里要求**确有可用账号、且它们全部被该模型限流**
 	// 才报 429，否则回落到下面的常规提示。
@@ -165,48 +164,9 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"没有可用账号：请先扫码登录，或检查账号是否已停用/token 是否已失效", "service_unavailable")
 }
 
-// accountCooldown 是账号遇到可重试上游失败（429/5xx/网络/流中断）后的冷却时长。
-// 冷却只是**软偏好**：冷却期内选号会优先避开该账号；但若可用账号全在冷却，会兜底
-// 选最早恢复的那个继续尝试（绝不因为「都在冷却」就直接 503，否则一次瞬时抖动会让
-// 整池账号冷却数分钟、期间所有请求全部失败）。
-const accountCooldown = 5 * time.Minute
-
 // maxAccountAttempts 是单次转发最多尝试的账号数（首号 + 最多两次换号）。
 // 账号再多也不无限重试，避免拖垮单请求延迟。
 const maxAccountAttempts = 3
-
-// inCooldown 返回账号是否处于失败冷却期（冷却中的账号在选号时劣后）。
-func (s *Service) inCooldown(id string) bool {
-	_, ok := s.cooldownUntilOf(id)
-	return ok
-}
-
-// cooldownUntilOf 读取账号当前冷却的截止时刻；未冷却或已过冷却期返回 ok=false。
-func (s *Service) cooldownUntilOf(id string) (time.Time, bool) {
-	s.cooldownMu.Lock()
-	defer s.cooldownMu.Unlock()
-	until, ok := s.cooldownUntil[id]
-	if !ok || !time.Now().Before(until) {
-		return time.Time{}, false
-	}
-	return until, true
-}
-
-// markCooldown 记录账号一次可重试的上游失败，进入冷却期。
-// 纯内存、只写不删：过期的键被 inCooldown 的时间比较自然放过，顶多占用一个 map 槽位。
-func (s *Service) markCooldown(id, reason string) {
-	until := time.Now().Add(accountCooldown)
-	s.cooldownMu.Lock()
-	if s.cooldownUntil == nil {
-		s.cooldownUntil = map[string]time.Time{}
-	}
-	s.cooldownUntil[id] = until
-	s.cooldownMu.Unlock()
-	applog.Warn(context.Background(), "workbuddy", "account cooled down after upstream failure",
-		"account", s.accountLogLabel(id),
-		"until", until.UTC().Format(time.RFC3339),
-		"reason", truncate(reason, 300))
-}
 
 // pickAccount 选取本次转发的账号。
 //
@@ -216,19 +176,16 @@ func (s *Service) markCooldown(id, reason string) {
 //   - first：列表首个可用账号，其余作主备，行为最可预期；
 //   - round-robin：从上次位置继续向后轮询，请求均匀分摊。
 //
-// 三种策略都跳过本次请求已尝试过的账号、失败冷却期的账号、在该 model 上被限流的
+// 三种策略都跳过本次请求已尝试过的账号、在该 model 上被限流的
 // 账号，以及不提供该模型区域外的账号（区域过滤）。权重来自内存快照，选号本身不查库。
 //
 // 一个可用账号都没有时，再试着刷新「已过期但可刷新」的账号（对应设置页的
-// 「扫码登录 + 自动刷新」语义）；若仍选不出，最后兜底到「都在冷却中」的账号继续尝试。
+// 「扫码登录 + 自动刷新」语义）。
 func (s *Service) pickAccount(ctx context.Context, model string, tried map[string]bool) (Account, bool) {
 	if acc, ok := s.pickByStrategy(model, tried); ok {
 		return acc, true
 	}
 	if acc, ok := s.refreshFirstStaleAccount(ctx, model, tried); ok {
-		return acc, true
-	}
-	if acc, ok := s.pickCooledFallback(s.Settings().Accounts, model, tried); ok {
 		return acc, true
 	}
 	return Account{}, false
@@ -246,7 +203,7 @@ func (s *Service) pickByStrategy(model string, tried map[string]bool) (Account, 
 	}
 }
 
-// eligibleCandidates 收集符合硬条件（可用、未尝试、未冷却、未被该模型限流、
+// eligibleCandidates 收集符合硬条件（可用、未尝试、未被该模型限流、
 // 区域提供该模型）的候选，保持列表序并记录原始下标。
 func (s *Service) eligibleCandidates(accounts []Account, model string, tried map[string]bool) []accountpick.Candidate {
 	cands := make([]accountpick.Candidate, 0, len(accounts))
@@ -255,9 +212,6 @@ func (s *Service) eligibleCandidates(accounts []Account, model string, tried map
 			continue
 		}
 		if tried != nil && tried[a.ID] {
-			continue
-		}
-		if s.inCooldown(a.ID) {
 			continue
 		}
 		if model != "" && s.inModelLimit(a.ID, model) {
@@ -295,52 +249,12 @@ func (s *Service) pickRoundRobin(model string, tried map[string]bool) (Account, 
 	return accounts[c.Index], true
 }
 
-// pickCooledFallback 兜底选取「可用、未被尝试、未被该模型限流，但正处于失败冷却」的账号，
-// 取冷却最早结束（最接近恢复）的那个。
-//
-// 为什么需要它：冷却若作为硬闸，一次瞬时上游抖动会把整池账号一起冷却数分钟，期间每个
-// 请求都选不出账号、直接 503。此时拒绝服务并不比直接尝试更安全，反而把一次短暂抖动
-// 放大成数分钟的不可用。故冷却只作软偏好：有更好的号就优先用，没有就退回冷却号继续试，
-// 真实的上游错误仍会正常返回给调用方。
-//
-// 被模型级限流的账号不参与兜底：那是上游明确的配额限制，强行重试没有意义。
-func (s *Service) pickCooledFallback(accounts []Account, model string, tried map[string]bool) (Account, bool) {
-	bestIdx := -1
-	var bestUntil time.Time
-	for i, a := range accounts {
-		if !accountAvailable(a) {
-			continue
-		}
-		if tried != nil && tried[a.ID] {
-			continue
-		}
-		if model != "" && s.inModelLimit(a.ID, model) {
-			continue
-		}
-		// 区域过滤：只在该模型所属区域的账号里兜底（国际独有模型不落到国内账号）。
-		if !s.accountServesModel(a, model) {
-			continue
-		}
-		until, cooled := s.cooldownUntilOf(a.ID)
-		if !cooled {
-			continue
-		}
-		if bestIdx < 0 || until.Before(bestUntil) {
-			bestIdx, bestUntil = i, until
-		}
-	}
-	if bestIdx < 0 {
-		return Account{}, false
-	}
-	return accounts[bestIdx], true
-}
-
-// refreshFirstStaleAccount 找出第一个「未停用、有 refresh token、token 已失效、不在冷却期
+// refreshFirstStaleAccount 找出第一个「未停用、有 refresh token、token 已失效
 // 且本次请求尚未尝试过」的账号，尝试刷新并把结果落库；刷新成功才算可用。
 // 仅在「所有账号都不可用」时才走到这里，是兜底路径而非常规选号。
 func (s *Service) refreshFirstStaleAccount(ctx context.Context, model string, tried map[string]bool) (Account, bool) {
 	for _, a := range s.Settings().Accounts {
-		if a.Disabled || a.RefreshToken == "" || tokenState(a) == "valid" || s.inCooldown(a.ID) {
+		if a.Disabled || a.RefreshToken == "" || tokenState(a) == "valid" {
 			continue
 		}
 		if tried != nil && tried[a.ID] {

@@ -7,21 +7,21 @@ package workbuddy
 //	当前您在Deepseek-V4.1-Flash模型的使用量已超出频率限制，
 //	可在2026-09-12 17:22:50 重置可用。您可切换其他模型或消耗积分继续使用该模型
 //
-// 它与 relay.go 里的「账号冷却」是**两件事**，互补而不重叠，切勿互相替代：
+// 它与 relay.go 里的「失败换号」是**两件事**，互补而不重叠，切勿互相替代：
 //
-//	账号冷却（markCooldown）：HTTP 429/5xx/网络/SSE 中断等**瞬时故障**的通用退避，
-//	  把该账号的**所有模型**一起晾 5 分钟，目的是等抖动过去。
+//	失败换号（relay.go）：HTTP 429/5xx/网络/SSE 中断等**瞬时故障**时，直接换下一个
+//	  账号继续尝试；不做账号级冷却，失败账号在同一请求内靠 tried 去重不会重试。
 //	模型限流（markModelLimit，本文件）：上游明确点名「<模型> 超出频率限制，<时刻> 重置」。
 //	  这是**账号 × 模型**维度的长窗口限制（实测重置窗口可达数天），因此：
-//	  1. 只封这一个模型 —— 同一账号的**其它模型照常可用**。用账号冷却会把该账号
+//	  1. 只封这一个模型 —— 同一账号的**其它模型照常可用**。若按账号封禁会把该账号
 //	     还能用的模型一起误伤，这是本文件存在的首要原因。
-//	  2. 冷却到上游给出的**真实重置时刻**，而不是固定 5 分钟。5 分钟后重试只会
+//	  2. 冷却到上游给出的**真实重置时刻**，而不是固定时长。固定时长后重试只会
 //	     继续撞墙，并对上游产生无谓请求。
 //	  3. 所有账号在该模型上都撞限流时，**完全不再请求上游**，直接回 429 并带上最早
 //	     恢复时刻，让调用方（网关/用户）一眼看到「什么时候能再用」——这才是用户
 //	     真正需要的信息，而不是一个笼统的 502。
 //
-// 与账号冷却一致，本状态**纯内存**：重启即清空。理由相同——上游的重置时刻会变，
+// 本状态**纯内存**：重启即清空。理由：上游的重置时刻会变，
 // 把「猜测的窗口」持久化并跨重启沿用，比丢掉它更危险（重启后重新试一次，最坏就是
 // 再撞一次限流，代价远小于长期锁死一个其实已经恢复的账号）。
 
@@ -61,7 +61,7 @@ var rateLimitSignals = []string{
 	// ... your usage will reset at 2026-09-21 13:19:38 UTC+8。
 	// 与国内版「使用量已超出频率限制」同源，但用了英文 "frequency limit"，
 	// 不在上面的中文/英文清单里，导致国际版 429 被误判为普通瞬时故障、
-	// 走账号冷却而不是模型限流（见 relay.go 的处置路径）。
+	// 只走失败换号而没有记入模型限流（见 relay.go 的处置路径）。
 	"frequency limit",
 	"usage exceeds",
 }
@@ -278,7 +278,7 @@ func (s *Service) inModelLimit(accountID, model string) bool {
 //   - 没有可用账号时返回 false —— 那是「没账号可用」而非「模型被限流」，
 //     调用方（relay 的 !attempted 分支）该报后者才是准确的；
 //   - 只要有一个可用账号没被限流，就返回 false —— 那说明选号失败另有原因
-//     （例如该账号正在瞬时冷却中），不该拿限流来解释。
+//     （例如该模型不提供的区域账号被排除），不该拿限流来解释。
 //
 // 注意：ok == false 时，usable 只是「扫到中途」的计数、无意义，调用方不得使用；
 // 仅 ok == true 时 usable 才是完整的可用账号数。
@@ -348,12 +348,6 @@ func (s *Service) accountUnavailableReason(a Account, model string) string {
 	case tokenState(a) == "expired":
 		return "token 已过期"
 	}
-	s.cooldownMu.Lock()
-	until, cooled := s.cooldownUntil[a.ID]
-	s.cooldownMu.Unlock()
-	if cooled && time.Now().Before(until) {
-		return "失败冷却至 " + until.UTC().Format(time.RFC3339)
-	}
 	if model != "" {
 		if t, limited := s.modelLimitUntil(a.ID, model); limited {
 			return "该模型限流至 " + t.UTC().Format(time.RFC3339)
@@ -366,7 +360,7 @@ func (s *Service) accountUnavailableReason(a Account, model string) string {
 }
 
 // accountPoolDiagnosis 汇总账号池里每个账号此刻的状态，供「没有可用账号」时的日志排查。
-// 形如：昵称(ID)=失败冷却至 ...; 昵称2(ID2)=可用; ...
+// 形如：昵称(ID)=该模型限流至 ...; 昵称2(ID2)=可用; ...
 func (s *Service) accountPoolDiagnosis(accounts []Account, model string) string {
 	if len(accounts) == 0 {
 		return "<账号池为空>"

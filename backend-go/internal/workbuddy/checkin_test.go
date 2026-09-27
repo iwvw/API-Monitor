@@ -32,7 +32,6 @@ func newCheckinTestService(accounts ...Account) *Service {
 		callBase:      map[string]int64{},
 		callPending:   map[string]int64{},
 		creditDayUsed: map[string]float64{},
-		cooldownUntil: map[string]time.Time{},
 	}
 }
 

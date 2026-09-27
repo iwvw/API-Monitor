@@ -155,7 +155,7 @@ func detectTokenRegion(accessToken, domain string) (string, bool) {
 
 // accountIDForRegion 构造账号的稳定标识。国内版沿用原始 uid（存量兼容）；
 // 国际版加 "intl-" 前缀，保证同一 uid 在两个区域是两条互不覆盖的记录
-// （冷却/限流/用量/选号权重都按 ID 记账，因此天然按区域隔离）。
+// （限流/用量/选号权重都按 ID 记账，因此天然按区域隔离）。
 func accountIDForRegion(region, rawID string) string {
 	rawID = strings.TrimSpace(rawID)
 	if normalizeRegion(region) == regionIntl {

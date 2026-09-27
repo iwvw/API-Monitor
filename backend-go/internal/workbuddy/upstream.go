@@ -125,7 +125,7 @@ type ModelInfo struct {
 type Account struct {
 	// ID 是账号稳定标识，取上游 uid；uid 缺失时回退为 nickname。
 	// 国际版账号在 uid 前加 "intl-" 前缀，保证同一 uid 在两个区域是两条互不覆盖的记录
-	// （额度/冷却/限流/用量都按 ID 记账，因此天然按区域隔离）。
+	// （额度/限流/用量都按 ID 记账，因此天然按区域隔离）。
 	ID           string `json:"id"`
 	UID          string `json:"uid,omitempty"`
 	EnterpriseID string `json:"enterpriseId,omitempty"`
@@ -617,14 +617,14 @@ type chatRequest struct {
 }
 
 // upstreamError 表示一次上游失败的分类结果。
-// retryable 为 true 时，relay 层会把该账号标记冷却并换号重试。
+// retryable 为 true 时，relay 层会换下一个账号重试。
 // 约定：chatCompletions 返回的 error（无论可重试与否）都保证发生在
 // **写出任何下游字节之前**，因此换号重试是安全的。
 type upstreamError struct {
 	msg       string
 	retryable bool
 	// rateLimit 为 true 表示这是**模型级频率限制**（而非普通瞬时故障）：
-	// relay 层据此只封「该账号 × 该模型」，而不是把整个账号打进冷却。见 ratelimit.go。
+	// relay 层据此只封「该账号 × 该模型」。见 ratelimit.go。
 	rateLimit bool
 	// rateLimitUntil 是上游给出的恢复时刻（rateLimit 为 true 时有意义）。
 	rateLimitUntil time.Time
