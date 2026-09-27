@@ -660,6 +660,11 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 网址导航公开页的自定义背景图（公开可读）
+	if s.bookmarks != nil && s.bookmarks.ServePublicBackgroundAsset(w, r) {
+		return
+	}
+
 	if s.servePublicPageFavicon(w, r) {
 		return
 	}

@@ -372,6 +372,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/bookmarks", Module: "bookmarks", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Bookmarks navigation groups and items"},
 		{Prefix: "/api/bookmarks/favicons/{filename}", Module: "bookmarks-favicon", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Downloaded bookmark site icons (public, md5-named, non-enumerable)", MatchMode: MatchPattern},
 		{Prefix: "/api/bookmarks/public/groups/{slug}", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group page data", MatchMode: MatchPattern},
+		{Prefix: "/api/bookmarks/public/all/{sort}", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks aggregate page: every public group (sort: order|name|items|updated with -asc/-desc)", MatchMode: MatchPattern},
+		{Prefix: "/api/bookmarks/public/all", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks aggregate page: every public group", MatchMode: MatchExact},
 		{Prefix: "/api/bookmarks/public/page-by-domain", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group by custom domain", MatchMode: MatchExact},
 
 		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},

@@ -785,6 +785,10 @@ func init() {
 	routeRequestContracts["/api/bookmarks/groups/sort"] = obj(nil, map[string]prop{
 		"items": {t: "array", d: "排序数组，元素为 {id, sort}"},
 	})
+	routeRequestContracts["/api/bookmarks/groups/public"] = obj([]string{"public"}, map[string]prop{
+		"public": {t: "boolean", req: true, d: "目标公开状态"},
+		"ids":    {t: "array", d: "分组 id 数组；省略或为空表示全部分组"},
+	})
 	routeRequestContracts["/api/bookmarks/groups/{id}"] = routeRequestContracts["/api/bookmarks/groups"]
 	routeRequestContracts["/api/bookmarks/items"] = obj([]string{"group_id", "title", "url"}, map[string]prop{
 		"group_id":      {t: "integer", req: true},
@@ -805,7 +809,31 @@ func init() {
 	routeRequestContracts["/api/bookmarks/favicon/fetch"] = obj([]string{"url"}, map[string]prop{
 		"url": {t: "string", req: true},
 	})
+	routeRequestContracts["/api/bookmarks/favicons/fetch-batch"] = obj(nil, map[string]prop{
+		"ids":          {t: "array", d: "指定条目 id；省略表示全部"},
+		"only_missing": {t: "boolean", d: "只处理没有图标的条目，默认 true"},
+		"overwrite":    {t: "boolean", d: "是否覆盖已有图标"},
+		"limit":        {t: "integer", d: "本次最多处理条数，默认 50，上限 200"},
+	})
+	routeRequestContracts["/api/bookmarks/backgrounds/upload"] = obj(nil, map[string]prop{
+		"file": {t: "string", d: "multipart 表单中的图片文件（png/jpg/webp/gif/bmp，最大 8MB）"},
+		"name": {t: "string", d: "可选显示名称"},
+	})
+	routeRequestContracts["/api/bookmarks/backgrounds/{id}"] = noBody
+	routeRequestContracts["/api/bookmarks/public-settings"] = obj(nil, map[string]prop{
+		"config": {t: "object", d: "公开页全局配置（bgImage/bgColor/bgBlur/bgDim/bgSize/bgFixed）"},
+	})
+	routeRequestContracts["/api/bookmarks/import"] = obj([]string{"payload"}, map[string]prop{
+		"payload":              {t: "object", req: true, d: "SunPanel .sun-panel.json 内容（对象或已序列化字符串）"},
+		"group_mode":           {t: "string", d: "new=每组新建 merge=并入同名 single=全部并入指定分组"},
+		"target_group_id":      {t: "integer", d: "group_mode=single 时的目标分组"},
+		"skip_local_icons":     {t: "boolean", d: "跳过 /uploads/ 等相对路径图标，默认 true"},
+		"include_system_cards": {t: "boolean", d: "是否导入无网址的系统卡片，默认 false"},
+		"dry_run":              {t: "boolean", d: "仅解析并回报，不写库"},
+	})
 	routeRequestContracts["/api/bookmarks/public/groups/{slug}"] = noBody
+	routeRequestContracts["/api/bookmarks/public/all"] = noBody
+	routeRequestContracts["/api/bookmarks/public/all/{sort}"] = noBody
 	routeRequestContracts["/api/bookmarks/public/page-by-domain"] = noBody
 
 	// ===== 图编辑器 drawio =====
