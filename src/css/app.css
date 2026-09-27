@@ -88,6 +88,30 @@ html {
   --app-canvas-gutter-top: 12px;
   --app-canvas-gutter-bottom: 12px;
   --app-tab-gutter-x: 12px;
+  /* 网址导航公开页的玻璃拟态（浅色主题）
+     卡片底色掺白，让深色文字在花色/深色背景图上也有稳定的底。
+     白量取「偏实」一侧：背景图花的时候，过于通透会让文字发糊。 */
+  --public-glass-bg: rgb(255 255 255 / 0.24);
+  --public-glass-border: rgb(71 85 105 / 0.22);
+  --public-glass-item-bg: rgb(255 255 255 / 0.42);
+  --public-glass-item-bg-hover: rgb(255 255 255 / 0.46);
+  --public-glass-item-bg-active: rgb(255 255 255 / 0.40);
+  /* 卡片的玻璃：模糊 + 提亮 + 加饱和。brightness(1.22) 让卡片在暗背景上
+     「亮起来」而不只是变白，是 3D 通透感的关键（单纯加白色会显灰）。 */
+  --public-glass-item-filter: blur(9px) saturate(150%) brightness(1.22);
+  /* 投影与内阴影分层（值参照成熟实现，按本项目卡片尺寸微调）：
+     外投影三层 = 贴地细影 + 主投影 + 中间过渡；
+     内阴影四层 = 左上高光 + 右下暗部（双向配对，圆角处不产生硬边）。 */
+  --glass3d-shadow-0: rgba(18, 30, 58, .06);
+  --glass3d-shadow-1: rgba(18, 30, 58, .28);
+  --glass3d-shadow-2: rgba(18, 30, 58, .14);
+  --glass3d-inset-hi-0: rgba(255, 255, 255, .62);
+  --glass3d-inset-hi-1: rgba(255, 255, 255, .20);
+  --glass3d-inset-lo-0: rgba(20, 35, 70, .16);
+  --glass3d-inset-lo-1: rgba(20, 35, 70, .09);
+  /* 需要模糊的浮动控件（搜索框/菜单）底色：比卡片更实一些，保证文字可读 */
+  --public-glass-control-bg: rgb(255 255 255 / 0.55);
+  --public-glass-control-border: rgb(71 85 105 / 0.22);
   /* 动效源 token（@theme 映射的取值来源） */
   --motion-duration-quick: 150ms;
   --motion-duration-base: 200ms;
@@ -108,6 +132,30 @@ html {
   color-scheme: dark;
   --app-main-bg: color-mix(in oklab, var(--color-kumo-canvas) 90%, #0f172a 10%);
   --app-main-surface: color-mix(in oklab, var(--color-kumo-base) 88%, var(--color-kumo-canvas) 12%);
+  /* 网址导航公开页的玻璃拟态（深色主题）：同样只用黑/白 + alpha，不带色调。
+     卡片底色为「黑 + 白」的叠加：纯黑会让背景图透上来把文字糊掉，
+     掺一层白提亮卡片、给文字一个稳定的底，白字才读得清。 */
+  --public-glass-bg: rgb(0 0 0 / 0.22);
+  --public-glass-border: rgb(255 255 255 / 0.22);
+  --public-glass-item-bg: rgb(18 22 32 / 0.38);
+  --public-glass-item-bg-hover: rgb(20 25 35 / 0.41);
+  --public-glass-item-bg-active: rgb(16 20 29 / 0.39);
+  /* 深色玻璃：不压亮度（深色底再压就糊了），只拉饱和度让背景色透出来 */
+  --public-glass-item-filter: blur(9px) saturate(170%);
+  /* 深色投影：近黑。深色底上黑影对比度低，因此单层透明度比亮色高不少 */
+  --glass3d-shadow-0: rgba(0, 0, 0, .16);
+  --glass3d-shadow-1: rgba(0, 0, 0, .68);
+  --glass3d-shadow-2: rgba(0, 0, 0, .42);
+  /* 深色内阴影是**双向受光**：左上主光 + 右上反射光，
+     右下压暗形成厚度。只做单向的话边缘会显得单薄、没有玻璃的通透。 */
+  --glass3d-inset-hi-0: rgba(255, 255, 255, .34);
+  --glass3d-inset-hi-1: rgba(255, 255, 255, .10);
+  --glass3d-inset-lo-0: rgba(0, 0, 0, .38);
+  --glass3d-inset-lo-1: rgba(0, 0, 0, .22);
+  --glass3d-inset-refl-0: rgba(255, 255, 255, .14);
+  --glass3d-inset-refl-1: rgba(255, 255, 255, .09);
+  --public-glass-control-bg: rgb(17 24 39 / 0.5);
+  --public-glass-control-border: rgb(255 255 255 / 0.16);
   background: var(--app-main-bg);
 }
 
@@ -1566,6 +1614,382 @@ th > button[aria-label='Resize column'] > span {
 
 .public-status-page {
   background: var(--app-main-bg);
+}
+
+/* --- 网址导航公开页：背景图 + 玻璃拟态 --- */
+
+/* 背景图铺满视口且不参与布局；内容层在其之上。 */
+.public-bookmarks-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* 压暗/模糊覆层：独立一层，避免把前景内容一起模糊。
+   使用 backdrop-filter 对「后面的背景层」生效。 */
+.public-bookmarks-bg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 自定义背景存在时页面本身透明，让背景图透出来。 */
+.public-bookmarks-page.has-custom-bg {
+  background: transparent;
+}
+
+/* 网址导航公开页的表面（surface）体系。
+   统一成一套语汇，避免页面上出现三种不同的「半透明块」：
+     .public-glass-blur  浮动控件（搜索框 / 菜单）—— 需要看得最清，模糊最强
+     .public-glass       区块容器（工具条等）      —— 中等，无模糊
+     .public-glass-item  列表条目                 —— 最轻，带毛玻璃模糊，hover 提亮
+
+   关于 backdrop-filter 的属性顺序（踩过的坑）：
+   构建期 lightningcss 会把 backdrop-filter 折叠为单一属性，保留「后写的那个」。
+   若写成 标准属性在前、-webkit- 在后，最终只剩 -webkit-，
+   而现代 Chromium 只认标准属性（-webkit-backdrop-filter 的 CSS.supports 为 false），
+   结果是模糊完全失效。因此 -webkit- 必须写在前面，标准属性写在最后。 */
+
+/* 浮动控件：压在背景图上，必须有模糊 + 较实的半透明底 */
+.public-glass-blur {
+  background: var(--public-glass-control-bg);
+  border: 1px solid var(--public-glass-control-border);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  backdrop-filter: blur(10px) saturate(1.1);
+}
+
+/* 区块容器（工具条等）：中等半透明，不加模糊 */
+.public-glass {
+  background: var(--public-glass-bg);
+  border: 1px solid var(--public-glass-border);
+}
+
+/* ============================================================================
+   书签卡片：3D 玻璃
+   ----------------------------------------------------------------------------
+   实现要点（这套结构来自一个成熟的手写实现，替换掉了此前基于伪元素分层的版本）：
+
+   1. **不用伪元素分层**。backdrop-filter、底色、所有阴影都放在卡片自身上，
+      配合 `isolation: isolate` 建立独立层叠上下文。
+      之前的版本把玻璃放到 ::before 上，结果连踩三个坑：
+        - absolute 伪元素在正常流文字之上，文字被整块盖住（要用 z-index: -1 救）；
+        - 负层级跳过圆角的子像素抗锯齿，边缘出现白色锯齿；
+        - 负层级元素不参与 transform 合成，hover 位移没有动画。
+      全部收回元素自身后，这些问题一次消失，结构也简单得多。
+
+   2. **内外阴影都分「左上高光 + 右下暗部」两组配对**。
+      边缘的立体感来自明暗对照：只有高光没有暗部，边缘会显得「贴了一条亮线」；
+      配对之后，圆角弧线上的明暗过渡自然是连续的。
+      这也是之前白边的根因 —— 当时只做了单向高光。
+
+   3. **深色模式用双向受光**：左上主光 + 右上反射光 + 右下暗部。
+      玻璃在暗环境下除了主光源，边缘还会有环境反射光，少了这一层会显得单薄。
+
+   4. **transition 用 cubic-bezier(.22,.61,.36,1)**：比 ease 收尾更柔和，
+      且 active 用更短的时长（.08s）模拟「按下」的即时感。
+
+   属性顺序：-webkit-backdrop-filter 在前、标准属性在后
+   （构建期 lightningcss 会折叠，顺序反了标准属性会失效）。
+   ============================================================================ */
+
+.public-glass-item {
+  position: relative;
+  z-index: 4;
+  /* isolate：建立独立层叠上下文，让内部的 z-index 不影响外部，
+     同时保证 backdrop-filter 只对卡片背后的内容取样。 */
+  isolation: isolate;
+  transform: translateY(0);
+  /* 不加 border-radius: inherit —— 那会继承网格容器的圆角（通常为 0），
+     反而覆盖掉 JSX 上的 rounded-xl。卡片圆角由 Tailwind 类负责。 */
+  -webkit-backdrop-filter: var(--public-glass-item-filter);
+  backdrop-filter: var(--public-glass-item-filter);
+  background-color: var(--public-glass-item-bg);
+  /* 外投影三层（贴地细影 + 主投影 + 中间过渡）+ 内阴影
+     （左上高光、右下暗部，双向配对）。
+     深色主题额外多两组「右上反射光」，由变量提供默认透明值来统一结构。 */
+  box-shadow:
+    /* 外投影：偏移向右下（光从左上），模拟卡片离开桌面 */
+    0 1px 1px var(--glass3d-shadow-0),
+    4px 5px 14px -5px var(--glass3d-shadow-1),
+    1px 2px 6px -3px var(--glass3d-shadow-2),
+    /* 内阴影：左上受光 */
+    inset 1px 1px 2px var(--glass3d-inset-hi-0),
+    inset 2px 2px 9px var(--glass3d-inset-hi-1),
+    /* 内阴影：右下厚度（暗部） */
+    inset -1px -1px 3px var(--glass3d-inset-lo-0),
+    inset -1px -1px 1px var(--glass3d-inset-lo-1);
+  transition:
+    transform .18s cubic-bezier(.22, .61, .36, 1),
+    box-shadow .18s cubic-bezier(.22, .61, .36, 1),
+    background-color .18s ease;
+}
+
+/* hover：微浮 + 阴影小幅拉远 + 底色略提亮。
+   三者同步才有「离开桌面」的观感，只改位移会显得卡片在滑动。 */
+.public-glass-item:hover {
+  transform: translateY(-1px);
+  background-color: var(--public-glass-item-bg-hover);
+  box-shadow:
+    0 1px 1px var(--glass3d-shadow-0),
+    5px 7px 17px -6px var(--glass3d-shadow-1),
+    2px 3px 8px -4px var(--glass3d-shadow-2),
+    inset 1px 1px 2px var(--glass3d-inset-hi-0),
+    inset 2px 2px 9px var(--glass3d-inset-hi-1),
+    inset -1px -1px 3px var(--glass3d-inset-lo-0),
+    inset -1px -1px 1px var(--glass3d-inset-lo-1);
+}
+
+/* 按下：既要「沉下去」，又要内阴影反向（高光转暗部）做出被压凹的观感。
+   ----------------------------------------------------------------------------
+   位移为什么是 +0.5px 而不是 0：
+     transition 只在起止值之间做一次插值。hover 是 -1px，若 active 写 0，
+     过渡全程都是「往上走」，视觉上只是归位、没有下压感。
+     目标值设成略低于原位（+0.5px）后，插值会经过 0 继续下沉，
+     才读得出「先归位再压下去」。
+   transition-duration 缩短到 .08s：按下要即时响应，不能有拖尾。 */
+.public-glass-item:active {
+  transform: translateY(0.5px);
+  background-color: var(--public-glass-item-bg-active);
+  transition-duration: .08s;
+  box-shadow:
+    0 1px 1px var(--glass3d-shadow-0),
+    3px 3px 9px -4px var(--glass3d-shadow-1),
+    1px 2px 5px -3px var(--glass3d-shadow-2),
+    inset 1px 1px 3px var(--glass3d-inset-lo-0),
+    inset 1px 1px 2px var(--glass3d-inset-lo-1),
+    inset -1px -1px 2px var(--glass3d-inset-hi-0);
+}
+
+/* 键盘聚焦：外描边，避免与玻璃的阴影结构打架。 */
+.public-glass-item:focus-visible {
+  outline: 2px solid var(--color-kumo-focus);
+  outline-offset: 2px;
+}
+
+/* 深色主题的玻璃参数（模糊/底色/阴影材质）全部由 :root[data-mode='dark']
+   里的变量承载，规则本体只写一次（见上方 .public-glass-item）。
+   不要在这里重复写 backdrop-filter 或 background ——
+   本选择器优先级更高，会把 hover 的底色变化整个盖掉。 */
+
+/* 背景图模式下，压在图上的文字加一层柔和阴影，保证在浅色/花色背景上也立得住。
+   只作用于公开页顶部区域（hero 与工具条），不影响卡片内文字。 */
+.public-bookmarks-page.has-custom-bg .public-on-bg-shadow {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.45),
+    0 2px 10px rgb(0 0 0 / 0.3);
+}
+
+/* 时钟/日期始终带阴影：它们是**固定白色**（不跟随主题），
+   没有背景图时压在页面底色上，纯白会看不清。
+   因此这一条不挂在 .has-custom-bg 上 —— 无论有没有背景图都要生效。 */
+.public-clock-shadow {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.45),
+    0 2px 10px rgb(0 0 0 / 0.3);
+}
+
+/* 公开页右键菜单的条目：放开 Kumo Button size="sm" 的固定高度。
+   Button 自带 h-6.5，会把 py-1.5 吃掉，导致条目显得又矮又挤；
+   这里改成由 padding 决定高度，与 Kumo DropdownMenu.Item 的观感一致。 */
+.public-menu-item {
+  height: auto;
+  min-height: 0;
+}
+
+/* 顶部搜索框：聚焦时不要 Kumo 默认的焦点环。
+   那圈 ring 由 Kumo 的 Input 内部写死（基础 ring + focus:ring-[1.5px]），
+   与传进去的 className 同层级，靠工具类覆盖不稳妥，这里提优先级兜底。
+   外层玻璃容器本身就是清晰的焦点区域，再画一圈反而像「黑边」。 */
+.public-bookmarks-page .public-hero-search-input,
+.public-bookmarks-page .public-hero-search-input:focus,
+.public-bookmarks-page .public-hero-search-input:focus-visible,
+.public-bookmarks-page .public-hero-search-input:focus-within {
+  --tw-ring-shadow: 0 0 transparent;
+  --tw-ring-offset-shadow: 0 0 transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+/* 深色主题：在亮色那套结构上**追加两组「右上反射光」内阴影**。
+   深色玻璃在暗环境里除了左上主光，边缘还会有环境反射，
+   少了这一层边缘会显得单薄。放在后面是为了在亮色规则基础上叠加，
+   不用把整串 box-shadow 重复一遍。 */
+:root[data-mode='dark'] .public-glass-item,
+:root[data-mode='dark'] .public-glass-item:hover {
+  box-shadow:
+    0 1px 1px var(--glass3d-shadow-0),
+    5px 6px 16px -6px var(--glass3d-shadow-1),
+    1px 3px 7px -4px var(--glass3d-shadow-2),
+    /* 左上主光 */
+    inset 1px 1px 1.5px var(--glass3d-inset-hi-0),
+    inset 3px 3px 9px var(--glass3d-inset-hi-1),
+    /* 右上反射光（深色独有） */
+    inset -1px 1px 5px var(--glass3d-inset-refl-0),
+    inset -1px 1px 1.5px var(--glass3d-inset-refl-1),
+    /* 右下厚度 */
+    inset -1px -1px 4px var(--glass3d-inset-lo-0),
+    inset -1px -1px 1px var(--glass3d-inset-lo-1);
+}
+
+/* 深色 hover：只把外投影拉远，内阴影保持不变（材质没变，只是浮起） */
+:root[data-mode='dark'] .public-glass-item:hover {
+  box-shadow:
+    0 1px 1px var(--glass3d-shadow-0),
+    6px 8px 19px -7px var(--glass3d-shadow-1),
+    2px 4px 9px -4px var(--glass3d-shadow-2),
+    inset 1px 1px 1.5px var(--glass3d-inset-hi-0),
+    inset 3px 3px 9px var(--glass3d-inset-hi-1),
+    inset -1px 1px 5px var(--glass3d-inset-refl-0),
+    inset -1px 1px 1.5px var(--glass3d-inset-refl-1),
+    inset -1px -1px 4px var(--glass3d-inset-lo-0),
+    inset -1px -1px 1px var(--glass3d-inset-lo-1);
+}
+
+/* 深色按下：高光与暗部**反转**（内凹），与其他主题同一手法 */
+:root[data-mode='dark'] .public-glass-item:active {
+  box-shadow:
+    0 1px 1px var(--glass3d-shadow-0),
+    3px 3px 10px -5px var(--glass3d-shadow-1),
+    1px 2px 5px -3px var(--glass3d-shadow-2),
+    inset 1px 1px 3px var(--glass3d-inset-lo-0),
+    inset 1px 1px 2px var(--glass3d-inset-lo-1),
+    inset -1px -1px 3px var(--glass3d-inset-refl-0),
+    inset -1px -1px 1px var(--glass3d-inset-refl-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .public-glass-item {
+    transition: none;
+  }
+  /* 关闭位移：对运动敏感的访客不应看到上浮/下沉动画。
+     阴影与底色的静态变化保留，悬停与按下的反馈依然存在。 */
+  .public-glass-item:hover,
+  .public-glass-item:active {
+    transform: none;
+  }
+}
+
+/* 静态玻璃：用于小组件（分组名胶囊、数量胶囊等）。
+   它们同样需要玻璃材质，但**不是可点击目标** ——
+   悬停时上浮/提亮会造成「这里能点」的误导，因此关掉交互态，
+   只保留静态材质（模糊 + 底色 + 内外阴影）。
+   同时把模糊调小：这些元素只有 24~28px 高，blur(9px) 会把内部
+   图标与文字一起糊掉。 */
+.public-glass-item.public-glass-static {
+  transform: none;
+}
+
+.public-glass-item.public-glass-static:hover,
+.public-glass-item.public-glass-static:active {
+  transform: none;
+  background-color: var(--public-glass-item-bg);
+  box-shadow:
+    0 1px 1px var(--glass3d-shadow-0),
+    4px 5px 14px -5px var(--glass3d-shadow-1),
+    1px 2px 6px -3px var(--glass3d-shadow-2),
+    inset 1px 1px 2px var(--glass3d-inset-hi-0),
+    inset 2px 2px 9px var(--glass3d-inset-hi-1),
+    inset -1px -1px 3px var(--glass3d-inset-lo-0),
+    inset -1px -1px 1px var(--glass3d-inset-lo-1);
+}
+
+.public-glass-item.public-glass-static {
+  -webkit-backdrop-filter: blur(4px) saturate(150%);
+  backdrop-filter: blur(4px) saturate(150%);
+}
+
+/* 分组外框：用户不需要容器描边与底色，分组只靠标题行区分，
+   卡片平铺在背景上。这里保留类名以免结构大改，只去掉视觉外框。 */
+.public-group-frame {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+/* 分组标题行的 ghost 操作按钮：默认隐藏，hover/聚焦时才出现。 */
+.public-group-actions {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.public-group-header:hover .public-group-actions,
+.public-group-header:focus-within .public-group-actions {
+  opacity: 1;
+}
+
+/* 触屏设备没有 hover，直接常显，否则按钮永远点不到。 */
+@media (hover: none) {
+  .public-group-actions {
+    opacity: 1;
+  }
+}
+
+/* 被拖起的条目：降透明度并轻微缩小，弱化它本身、把注意力让给落点提示。 */
+.public-bookmark-dragging {
+  opacity: 0.4;
+  transform: scale(0.97);
+}
+
+/* 拖拽悬停的落点卡片：显眼的虚线描边 + 提亮底色，明确「会插到这里」。
+   配合卡片的 transform 过渡，其余卡片让位时有平滑感。 */
+.public-bookmark-over {
+  border-color: var(--color-kumo-brand) !important;
+  border-style: dashed;
+  background: color-mix(in oklab, var(--color-kumo-brand) 12%, transparent) !important;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-kumo-brand) 35%, transparent);
+}
+
+/* 排序模式下所有卡片都参与让位/落点动画：
+   位移与尺寸变化用同一缓动，拖动时画面更接近拖拽排序库的观感。 */
+.public-bookmark-draggable {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .public-bookmark-draggable {
+    transition: none;
+  }
+  .public-bookmark-dragging {
+    transform: none;
+  }
+}
+
+/* 书签卡片可点击（打开网址），因此鼠标移上去要显示手型。
+   注意用 .public-glass-item 之外的类命中卡片：
+   卡片本身带 role=button，直接用属性选择器最稳。 */
+.public-bookmarks-page [role='button'],
+.public-bookmarks-page [role='button'] * {
+  cursor: pointer;
+}
+
+/* 排序模式下卡片用于拖拽，改为抓手（优先级高于上面的 pointer）。 */
+.public-bookmarks-page .public-bookmark-draggable,
+.public-bookmarks-page .public-bookmark-draggable * {
+  cursor: grab;
+}
+
+.public-bookmarks-page .public-bookmark-draggable:active,
+.public-bookmarks-page .public-bookmark-draggable:active * {
+  cursor: grabbing;
+}
+
+/* 卡片内的输入类元素（颜色选择器等）不应该是手型 */
+.public-bookmarks-page [role='button'] input,
+.public-bookmarks-page [role='button'] label {
+  cursor: auto;
+}
+
+/* 拖拽排序仅在登录态开启，未登录时不显示抓手。 */
+.public-bookmarks-page:not(.is-authenticated) .public-bookmark-draggable {
+  cursor: pointer;
 }
 
 .public-status-meter-compact {

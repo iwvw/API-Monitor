@@ -48,6 +48,8 @@
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/view": "^6.43.9",
+    "@iconify-json/logos": "^1.2.14",
+    "@iconify/react": "^6.0.2",
     "@lezer/markdown": "^1.7.2",
     "@milkdown/crepe": "^7.22.1",
     "@phosphor-icons/react": "^2.1.10",

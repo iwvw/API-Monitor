@@ -71,7 +71,10 @@ const getDeleteDescription = (options, resourceName, resourceType) => {
 function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }) {
   const resourceName = getDeleteResourceName(options);
   const resourceType = getDeleteResourceType(options);
-  const canDelete = normalizeText(promptValue) === normalizeText(resourceName);
+  // requireConfirmationInput 为 false 时跳过「输入名称确认」防误触步骤，删除按钮直接可点。
+  // 公开书签页的右键删除使用该模式（免去复制/粘贴确认的繁琐）。
+  const requireInput = options.requireConfirmationInput !== false;
+  const canDelete = !requireInput || normalizeText(promptValue) === normalizeText(resourceName);
 
   return (
     <LayerDialog.Alert
@@ -98,30 +101,32 @@ function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }
               <Banner variant="error" title={options.errorMessage} />
             ) : null}
 
-            <div className="space-y-2">
-              <div className="text-sm text-kumo-default">
-                输入以下内容确认删除：
+            {requireInput ? (
+              <div className="space-y-2">
+                <div className="text-sm text-kumo-default">
+                  输入以下内容确认删除：
+                </div>
+                <ClipboardText
+                  size="sm"
+                  text={resourceName}
+                  className="w-full"
+                  tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }}
+                  labels={{ copyAction: `复制 ${resourceName}` }}
+                />
+                <Input
+                  size="sm"
+                  autoFocus
+                  aria-label={`请输入 ${resourceName} 进行确认`}
+                  placeholder={resourceName}
+                  value={promptValue}
+                  onChange={(event) => setPromptValue(event.target.value)}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />
               </div>
-              <ClipboardText
-                size="sm"
-                text={resourceName}
-                className="w-full"
-                tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }}
-                labels={{ copyAction: `复制 ${resourceName}` }}
-              />
-              <Input
-                size="sm"
-                autoFocus
-                aria-label={`请输入 ${resourceName} 进行确认`}
-                placeholder={resourceName}
-                value={promptValue}
-                onChange={(event) => setPromptValue(event.target.value)}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-              />
-            </div>
+            ) : null}
           </form>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">

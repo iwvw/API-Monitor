@@ -30,6 +30,8 @@ import {
   Cursor as PhCursor,
   Cube,
   Database as PhDatabase,
+  ArrowsOutCardinal as PhArrowsOutCardinal,
+  DotsSixVertical,
   DotsThreeVertical,
   Desktop as PhDesktop,
   DownloadSimple,
@@ -254,6 +256,12 @@ export const GitBranch = createIcon(PhGitBranch);
 export const Square = createIcon(PhSquare);
 export const Hexagon = createIcon(PhHexagon);
 export const MoreVertical = createIcon(DotsThreeVertical);
+
+/** 四向箭头：用于「排序」开关（与公开页分组标题行一致）。 */
+export const SortArrows = createIcon(PhArrowsOutCardinal);
+
+/** 六点抓手：用于拖拽排序的条目。 */
+export const DragHandle = createIcon(DotsSixVertical);
 export const SkipBack = createIcon(PhSkipBack);
 export const SkipForward = createIcon(PhSkipForward);
 export const Repeat = createIcon(PhRepeat);

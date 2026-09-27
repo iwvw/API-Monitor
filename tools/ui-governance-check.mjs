@@ -27,6 +27,8 @@ const hardcodedColorRe =
   /#[0-9A-Fa-f]{3,8}\b|\b(?:bg|text|border|ring|from|to|via)-(?:red|orange|amber|yellow|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone|black|white)(?:-[0-9]{2,3})?\b/g;
 const destructiveConfirmRe = /\b(?:window\.)?confirm\(|dialog\.confirm\(/;
 const destructiveWordsRe = /删除|delete|remove|destroy|purge/i;
+// 已迁移到 items={[{value,label}]} 的范围：这些文件里再出现 <Select.Option> 即判失败。
+const selectOptionScopeRe = /^src\/js\/(pages\/BookmarksPage\.jsx|pages\/bookmarks\/|pages\/PublicBookmarksPage\.jsx)/;
 
 function toPosix(file) {
   return file.split(path.sep).join('/');
@@ -82,6 +84,9 @@ function isAllowedRawControl(tag, line, lines, index) {
   if (tag === 'button' && /\brounded-xl border px-3 py-3/.test(block)) {
     return 'public page icon selectable card';
   }
+  if (tag === 'button' && /\bmin-w-0 flex-1 text-left\b/.test(block)) {
+    return '搜索引擎折叠行：整行两行文本 + aria-expanded 的展开/收起按钮';
+  }
   if (tag === 'button' && /\btriggerClassName\b/.test(block)) {
     return 'public page icon picker trigger';
   }
@@ -105,6 +110,10 @@ function isAllowedRawControl(tag, line, lines, index) {
 }
 
 function allowedColorReason(rel, line, value, lines, index) {
+  // 测试文件里的十六进制只是「待校验的数据」，不是样式，不应按硬编码颜色处理。
+  if (/\.test\.jsx?$/.test(rel)) {
+    return '测试固件中的颜色字面量（被断言的数据）';
+  }
   if (rel === 'src/js/modules/pwa.js' && value.startsWith('#')) {
     return 'browser titlebar theme-color metadata';
   }
@@ -234,6 +243,35 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/pages/BookmarksPage.jsx' && value === '#808080') {
     return '原生颜色选择器中性占位值（空背景时）';
   }
+  // 网址导航的共享弹窗与公开页背景面板：原生颜色选择器需要中性占位值，
+  // 弹窗已从 BookmarksPage.jsx 抽到 pages/bookmarks/ 下，因此这里按目录放行。
+  if (rel.startsWith('src/js/pages/bookmarks/') && value === '#808080') {
+    return '原生颜色选择器中性占位值（空背景时）';
+  }
+  if (rel.startsWith('src/js/pages/bookmarks/') && value === '#1f2937') {
+    return '原生颜色选择器默认值（深色背景兜底）';
+  }
+  if (rel.startsWith('src/js/pages/bookmarks/') && value === 'text-white') {
+    return '背景库「使用中」角标文字对比色';
+  }
+  if (rel === 'src/js/pages/PublicBookmarksPage.jsx' && value === 'border-white') {
+    return '玻璃卡片分隔线（半透明白，任意背景上可分）';
+  }
+  // 公开页在自定义背景图之上：文字/控件必须用白色系才能保证对比度，
+  // 背景图颜色不可预知，无法用主题语义色。
+  if (rel === 'src/js/pages/PublicBookmarksPage.jsx' && (value === 'text-white' || value === 'bg-white')) {
+    return '自定义背景图上的文字/控件对比色（背景色不可预知）';
+  }
+  if (rel.startsWith('src/js/pages/bookmarks/') && value === 'bg-white') {
+    return '自定义背景图上的控件底色（半透明白）';
+  }
+  if (rel.startsWith('src/js/pages/bookmarks/') && value === 'border-white') {
+    return '自定义背景图上的控件描边（半透明白）';
+  }
+  // 搜索引擎品牌色：用于区分各引擎的圆形图标，属于品牌标识而非主题色。
+  if (rel === 'src/js/modules/publicSearch.js' && value.startsWith('#')) {
+    return '搜索引擎品牌色（必应/百度/Google/DuckDuckGo 标识）';
+  }
   return null;
 }
 
@@ -257,6 +295,19 @@ function scanFile(rel) {
 
     if (destructiveConfirmRe.test(line) && destructiveWordsRe.test(line)) {
       warnings.push(`${rel}:${lineNumber} destructive confirm should migrate toward dialog.deleteResource`);
+    }
+
+    // Kumo 的 Select 用 items=[{value,label}] 渲染选中项文案。
+    // 传 <Select.Option> 子节点时选项能弹出、但触发器只显示原始 value
+    // （例如显示 "2" 而不是「网站图标」），是静默的显示缺陷。
+    //
+    // 历史代码里还有多处同类写法（drawio/prompts/openai 等），迁移未完成，
+    // 因此当前只在「网址导航」范围内判失败，其余记为告警，避免把既有
+    // 技术债变成红灯；迁移完成后可移除 selectOptionScope 收口。
+    if (/<Select\.Option\b/.test(line)) {
+      const message = `${rel}:${lineNumber} Select must use items={[{value,label}]} instead of <Select.Option> children (trigger would render the raw value)`;
+      if (selectOptionScopeRe.test(rel)) failures.push(message);
+      else warnings.push(message);
     }
 
     for (const match of line.matchAll(hardcodedColorRe)) {
