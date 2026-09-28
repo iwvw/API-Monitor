@@ -28,6 +28,11 @@ type Config struct {
 	// 小内存主机上全量读入 body 会放大 3 倍内存，超限请求直接 413。
 	// 环境变量 GATEWAY_BODY_MAX_MB（默认 16）配置。
 	GatewayBodyMaxBytes int64
+	// AgentFileRoots 是下发给 Agent 的额外文件白名单根目录（逗号分隔）。
+	// 注入到安装脚本后，Agent 以 API_MONITOR_FILE_ROOTS 读取，仅这些目录
+	// 可与默认沙箱一并被面板文件管理访问；为空时不注入，保持历史行为。
+	// 环境变量 API_MONITOR_AGENT_FILE_ROOTS 配置。
+	AgentFileRoots []string
 }
 
 func Load(version string) Config {
@@ -49,6 +54,7 @@ func Load(version string) Config {
 		TrustedProxyCIDRs:    trustedProxyCIDRs(),
 		AdminAIDefaultModel:  envString("ADMIN_AI_DEFAULT_MODEL", ""),
 		GatewayBodyMaxBytes:  int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
+		AgentFileRoots:       envList("API_MONITOR_AGENT_FILE_ROOTS"),
 	}
 }
 

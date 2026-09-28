@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	subscriptionservice "github.com/iwvw/api-monitor/backend-go/internal/subscription"
 	"github.com/iwvw/api-monitor/backend-go/internal/subscriptionledger"
@@ -22,11 +23,12 @@ import (
 
 func testService(t *testing.T) (*Service, *sql.DB) {
 	t.Helper()
-	service := New(config.Config{
+	cfg := config.Config{
 		Version: "test",
 		DataDir: t.TempDir(),
 		DBName:  "data.db",
-	})
+	}
+	service := New(cfg)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -34,8 +36,131 @@ func testService(t *testing.T) (*Service, *sql.DB) {
 	t.Cleanup(func() {
 		service.Stop()
 		_ = db.Close()
+		// 连接池按 dbPath 进程级复用，需显式失效，否则临时目录在 Windows 上无法删除。
+		database.ResetPool(cfg.DatabasePath())
 	})
 	return service, db
+}
+
+// TestResolveAgentNodeByLabel 覆盖标签选择：命中在线节点、跳过离线节点、无匹配返回空。
+func TestResolveAgentNodeByLabel(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	seed := func(id, name, tags string, order int) {
+		if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type,tags,order_index) VALUES(?,?,?,?,?,?,?)`,
+			id, name, "192.0.2.1", "root", "password", tags, order); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("n-win", "win-a", `["win","prod"]`, 0)
+	seed("n-linux", "linux-a", `["linux"]`, 1)
+
+	// 无标签：返回空，不报错。
+	if got, err := service.ResolveAgentNode(ctx, ""); err != nil || got != "" {
+		t.Fatalf("empty selector: got=%q err=%v", got, err)
+	}
+
+	// 标签命中但节点离线：应返回空（只选在线节点）。
+	if got, err := service.ResolveAgentNode(ctx, "win"); err != nil || got != "" {
+		t.Fatalf("offline node should not be selected: got=%q err=%v", got, err)
+	}
+
+	// 注册在线连接后应能选中。
+	service.registry.Register("n-win", &stubSocket{})
+	got, err := service.ResolveAgentNode(ctx, "win, prod")
+	if err != nil {
+		t.Fatalf("resolve err: %v", err)
+	}
+	if got != "n-win" {
+		t.Fatalf("expected n-win, got %q", got)
+	}
+
+	// 无匹配标签返回空。
+	if got, err := service.ResolveAgentNode(ctx, "macos"); err != nil || got != "" {
+		t.Fatalf("no-match: got=%q err=%v", got, err)
+	}
+}
+
+type stubSocket struct{}
+
+func (s *stubSocket) Close() error { return nil }
+
+// TestAgentInstallScriptInjectsFileRoots 验证额外文件白名单根目录按平台注入安装脚本：
+// Linux 走 systemd Environment=，Windows 走 VBS 进程环境；未配置时不出现该变量。
+func TestAgentInstallScriptInjectsFileRoots(t *testing.T) {
+	cfg := config.Config{
+		Version:        "test",
+		DataDir:        t.TempDir(),
+		DBName:         "data.db",
+		AgentFileRoots: []string{`C:\scripts`, `/opt/scripts`, `/srv/tools/`},
+	}
+	service := New(cfg)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		service.Stop()
+		_ = db.Close()
+		database.ResetPool(cfg.DatabasePath())
+	})
+
+	serverID := "file-roots-host"
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO server_accounts(id,name,host,port,username,auth_type) VALUES(?,?,?,?,?,?)`,
+		serverID, "roots", "192.0.2.9", 22, "root", "password"); err != nil {
+		t.Fatal(err)
+	}
+	agentKey, err := service.getOrGenerateAgentKeyForServer(context.Background(), db, serverID)
+	if err != nil {
+		t.Fatalf("agent key: %v", err)
+	}
+
+	fetch := func(kind string) string {
+		req := httptest.NewRequest(http.MethodGet, "/api/server/agent/install/"+kind+"/"+serverID+"/"+agentKey+"?protocol=http", nil)
+		req.Host = "127.0.0.1:3010"
+		rec := httptest.NewRecorder()
+		service.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s install status=%d body=%s", kind, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	// Linux：冒号分隔，走 systemd Environment=。
+	linux := fetch("linux")
+	if !strings.Contains(linux, "Environment=API_MONITOR_FILE_ROOTS=C:\\scripts:/opt/scripts:/srv/tools") {
+		t.Fatalf("linux script missing expected file roots env: %s", linux)
+	}
+
+	// Windows：分号分隔，走 VBS 进程环境。
+	win := fetch("win")
+	if !strings.Contains(win, `$FILE_ROOTS_VALUE = "C:\scripts;/opt/scripts;/srv/tools/`) {
+		t.Fatalf("windows script missing expected file roots value: %s", win)
+	}
+	if !strings.Contains(win, `WshEnv("API_MONITOR_FILE_ROOTS")`) {
+		t.Fatalf("windows script missing process env injection: %s", win)
+	}
+
+	// 未配置时不应出现该变量，保持历史行为。
+	bareCfg := config.Config{Version: "test", DataDir: t.TempDir(), DBName: "data.db"}
+	bare := New(bareCfg)
+	bareDB, err := bare.open(context.Background())
+	if err != nil {
+		t.Fatalf("open bare db: %v", err)
+	}
+	t.Cleanup(func() {
+		bare.Stop()
+		_ = bareDB.Close()
+		database.ResetPool(bareCfg.DatabasePath())
+	})
+	if line := bare.systemdFileRootsEnvLine(); line != "" {
+		t.Fatalf("expected no systemd env line when unconfigured, got %q", line)
+	}
+	if val := bare.agentFileRootsEnvValue(true); val != "" {
+		t.Fatalf("expected empty file roots when unconfigured, got %q", val)
+	}
 }
 
 func TestDeleteAccountRequiresForceWhenAgentOfflineWithManagedDependencies(t *testing.T) {

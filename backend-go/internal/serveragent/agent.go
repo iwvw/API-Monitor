@@ -249,6 +249,29 @@ func (s *Service) getAgentInstallScriptWithKey(w http.ResponseWriter, r *http.Re
 	s.getAgentInstallScript(w, r, db, accountID)
 }
 
+// agentFileRootsEnvValue 把配置的额外文件白名单根目录拼成 Agent 可读的
+// API_MONITOR_FILE_ROOTS 值。分隔符按平台：Windows 用分号，其它用冒号
+// （与 Rust 端 std::env::split_paths 的约定一致）。无配置时返回空串。
+func (s *Service) agentFileRootsEnvValue(windows bool) string {
+	if len(s.cfg.AgentFileRoots) == 0 {
+		return ""
+	}
+	sep := ":"
+	if windows {
+		sep = ";"
+	}
+	return strings.Join(s.cfg.AgentFileRoots, sep)
+}
+
+// systemdFileRootsEnvLine 生成 systemd unit 里的 Environment= 行（无配置时为空）。
+func (s *Service) systemdFileRootsEnvLine() string {
+	value := s.agentFileRootsEnvValue(false)
+	if value == "" {
+		return ""
+	}
+	return "Environment=API_MONITOR_FILE_ROOTS=" + value + "\n"
+}
+
 func (s *Service) getAgentInstallScript(w http.ResponseWriter, r *http.Request, db *sql.DB, accountID string) {
 	var name, host string
 	var port int
@@ -408,7 +431,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/api-monitor-agent -s $SERVER_URL --id $SERVER_ID -k $AGENT_KEY
+%sExecStart=$INSTALL_DIR/api-monitor-agent -s $SERVER_URL --id $SERVER_ID -k $AGENT_KEY
 Restart=always
 RestartSec=10
 
@@ -461,6 +484,7 @@ echo ""
 		agentKey,
 		name,
 		proto, url.QueryEscape(serverBaseURL),
+		s.systemdFileRootsEnvLine(),
 	)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

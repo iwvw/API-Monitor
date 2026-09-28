@@ -135,8 +135,11 @@ try {
 
 Write-Host "Creating launcher script..."
 $VBS_PATH = "$INSTALL_DIR\launch.vbs"
+$FILE_ROOTS_VALUE = "%s"
 $VBS_CONTENT = @"
 Set WshShell = CreateObject("WScript.Shell")
+Set WshEnv = WshShell.Environment("PROCESS")
+If "$FILE_ROOTS_VALUE" <> "" Then WshEnv("API_MONITOR_FILE_ROOTS") = "$FILE_ROOTS_VALUE"
 WshShell.Run """$AGENT_PATH"" -s ""$SERVER_URL"" --id ""$SERVER_ID"" -k ""$AGENT_KEY"" -b", 0, False
 "@
 
@@ -190,6 +193,7 @@ Write-Host ""
 		agentKey,
 		installScriptURL,
 		name,
+		s.agentFileRootsEnvValue(true),
 	)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

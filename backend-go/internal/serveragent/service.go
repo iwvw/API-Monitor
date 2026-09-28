@@ -587,6 +587,91 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	return s.store.Open(ctx)
 }
 
+// ResolveAgentNode 按标签在「当前在线」的 Agent 节点中挑选一个。
+// selector 为逗号分隔的标签列表；节点侧 tags 以 JSON 数组存储。
+// 匹配语义：任一标签命中即可；多个候选按 order_index、name 稳定排序取第一个，
+// 保证同一任务在节点集合稳定时结果可复现。无匹配时返回空字符串。
+func (s *Service) ResolveAgentNode(ctx context.Context, selector string) (string, error) {
+	want := parseSelectorLabels(selector)
+	if len(want) == 0 {
+		return "", nil
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, tags FROM server_accounts
+		ORDER BY order_index ASC, name ASC
+	`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var ordered []string
+	for rows.Next() {
+		var id string
+		var tags sql.NullString
+		if err := rows.Scan(&id, &tags); err != nil {
+			return "", err
+		}
+		if !matchAnyLabel(parseJSONTags(tags.String), want) {
+			continue
+		}
+		ordered = append(ordered, id)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	// 只在在线节点里选，避免选中离线节点导致任务必然失败。
+	for _, id := range ordered {
+		if _, online := s.registry.Get(id); online {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
+// parseSelectorLabels 拆分逗号（兼容中文逗号）分隔的标签，去空、去重、保序。
+func parseSelectorLabels(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == '，'
+	})
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+// matchAnyLabel 判断候选标签集合是否与期望标签有交集。
+func matchAnyLabel(have, want []string) bool {
+	if len(have) == 0 || len(want) == 0 {
+		return false
+	}
+	set := make(map[string]bool, len(have))
+	for _, h := range have {
+		set[h] = true
+	}
+	for _, w := range want {
+		if set[w] {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Special-case Socket.IO style routes that do not use the /api/server prefix.
 	if strings.HasPrefix(r.URL.Path, "/socket.io/") {

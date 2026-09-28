@@ -213,7 +213,9 @@ func normalizeExecCommand(command string) string {
 		return command
 	}
 	encoded := base64.StdEncoding.EncodeToString(utf16LEBytes(script))
-	return "powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encoded
+	// -OutputFormat Text 抑制非交互场景下 PowerShell 把 Error/Progress 流序列化成
+	// CLIXML XML（即返回里出现的 "#< CLIXML" 噪声），让 stdout/stderr 回到纯文本。
+	return "powershell -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -EncodedCommand " + encoded
 }
 
 // extractPowerShellScript 提取 powershell -Command/-c 之后的脚本内容。
