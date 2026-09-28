@@ -136,6 +136,7 @@ npm run backend-go:build
 | `API_MONITOR_AGENT_OFFLINE_AFTER_MS` / `API_MONITOR_AGENT_SUSPECT_AFTER_MS` / `API_MONITOR_AGENT_STARTUP_GRACE_MS` / `API_MONITOR_AGENT_RECOVERY_SAMPLES` | 可选 | - | Agent 在线状态判定调参 |
 | `API_MONITOR_AGENT_METRICS_PERSIST_INTERVAL_MS` | 可选 | - | Agent 指标持久化间隔（毫秒） |
 | `API_MONITOR_AGENT_NETWORK_QUALITY_PERSIST_INTERVAL_MS` | 可选 | - | Agent 网络质量采集持久化间隔（毫秒） |
+| `API_MONITOR_AGENT_FILE_ROOTS` | 可选 | - | 下发给 Agent 的额外文件白名单根目录（逗号分隔）；生成安装脚本时注入为 `API_MONITOR_FILE_ROOTS` |
 | `API_MONITOR_PPROF` | 可选 | `0` | 设为 `1` 开启 pprof 性能剖析（仅排查性能问题时使用） |
 
 ### 开发工具脚本（可选）
@@ -155,6 +156,7 @@ npm run backend-go:build
 | `API_MONITOR_SING_BOX_BIN` | 可选 | sing-box 运行时二进制路径（托管代理用） |
 | `API_MONITOR_DOCKER_REGISTRY_MIRRORS` | 可选 | Docker Hub 镜像加速地址，逗号分隔 |
 | `API_MONITOR_TRAFFIC_REPORT_SECS` | 可选 | 流量上报间隔（秒，默认 `300`，最小 `60`） |
+| `API_MONITOR_FILE_ROOTS` | 可选 | 额外文件白名单根目录，平台分隔符分隔（Windows `;` / 类 Unix `:`）；留空则仅默认沙箱。由后端 `API_MONITOR_AGENT_FILE_ROOTS` 在安装脚本中自动注入 |
 
 ## 技术栈
 
