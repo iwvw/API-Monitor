@@ -3,10 +3,10 @@ import { Empty, Loader } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { KeyValueGrid, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
-import { RefreshCw } from '../../components/Icons.jsx';
+import { ExternalLink, RefreshCw } from '../../components/Icons.jsx';
 import { CATEGORY_LABEL, COST_CYCLE_LABEL, TYPE_LABEL, sourceModuleLabel } from './constants.js';
 import { fetchAlerts, fetchEvents } from './api.js';
-import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost, formatSyncTime, formatEventTime } from './utils.js';
+import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost, formatSyncTime, formatEventTime, assetLinkUrl } from './utils.js';
 
 const EVENT_LABEL = {
   created: '创建',
@@ -73,6 +73,24 @@ export default function AssetDetailDialog({ open, asset, refreshNonce, onClose, 
       { key: 'serial', label: '序列号', value: asset.serial_no || '--' },
       { key: 'model', label: '型号', value: asset.model || '--' },
     );
+  }
+  const linkUrl = assetLinkUrl(asset);
+  if (linkUrl) {
+    items.push({
+      key: 'url',
+      label: '链接',
+      value: (
+        <a
+          className="inline-flex min-w-0 items-center gap-1 text-brand hover:underline"
+          href={linkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span className="truncate">{linkUrl}</span>
+          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+        </a>
+      ),
+    });
   }
   if (asset.origin === 'linked') {
     items.push(

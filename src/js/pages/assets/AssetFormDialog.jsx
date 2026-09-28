@@ -39,7 +39,7 @@ export default function AssetFormDialog({ open, mode, asset, saving, defaultCate
       return;
     }
     setError('');
-    void onSubmit(formToPayload(form));
+    void onSubmit(formToPayload(form, mode === 'edit' ? asset : null));
   };
 
   return (
@@ -212,6 +212,13 @@ export default function AssetFormDialog({ open, mode, asset, saving, defaultCate
               value={form.tags_text}
               onChange={event => update({ tags_text: event.target.value })}
               placeholder="如 生产, 核心, 华东"
+            />
+            <Input
+              size="sm"
+              label="链接"
+              value={form.url}
+              onChange={event => update({ url: event.target.value })}
+              placeholder="如 https://example.com（填了就在操作列显示「打开」）"
             />
             <Input
               size="sm"

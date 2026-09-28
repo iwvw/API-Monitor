@@ -3,9 +3,9 @@ import { Empty } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Table } from '@cloudflare/kumo/components/table';
 import { AppTable, DataTableFrame, StatusBadge } from '../../components/ui/AppPrimitives.jsx';
-import { Box, Edit, HardDrive, Plug, Plus, RefreshCw, Trash } from '../../components/Icons.jsx';
+import { Box, Edit, ExternalLink, HardDrive, Plug, Plus, RefreshCw, Trash } from '../../components/Icons.jsx';
 import { ASSET_COLUMNS, sourceModuleLabel } from './constants.js';
-import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost } from './utils.js';
+import { statusMeta, formatExpireAt, formatDaysLeft, daysTone, formatCost, assetLinkUrl } from './utils.js';
 
 export default function AssetTable({
   assets,
@@ -56,6 +56,7 @@ export default function AssetTable({
         <Table.Body>
           {assets.map(asset => {
             const meta = statusMeta(asset.derived_status);
+            const linkUrl = assetLinkUrl(asset);
             return (
               <Table.Row
                 key={asset.id}
@@ -99,6 +100,22 @@ export default function AssetTable({
                 </Table.Cell>
                 <Table.Cell className="text-right">
                   <div className="flex justify-end gap-1 whitespace-nowrap">
+                    {linkUrl && (
+                      <Button
+                        size="sm"
+                        shape="square"
+                        variant="secondary"
+                        icon={<ExternalLink className="h-3.5 w-3.5" />}
+                        aria-label="打开链接"
+                        title={linkUrl}
+                        onClick={event => {
+                          // 行上有 onDoubleClick 打开详情，这里必须阻止冒泡，
+                          // 否则在「打开」上双击会同时弹出资产详情。
+                          event.stopPropagation();
+                          window.open(linkUrl, '_blank', 'noopener,noreferrer');
+                        }}
+                      />
+                    )}
                     {asset.origin === 'linked' && (
                       <Button
                         size="sm"

@@ -119,19 +119,25 @@ export const BUCKET_TONE = {
   no_renew: 'neutral',
 };
 
-// 实体/虚拟资产表：名称与提供方是主要阅读对象，给更高权重；日期是语义列（固定
-// 像素不伸缩）；「状态」与「剩余」都渲染徽标，统一用 status 角色居中（数值角色
-// 会把徽标推到列右缘，左侧留白，与相邻列不协调）；成本是纯数值用 number 右对齐；
-// 标签按内容给中等权重；操作列固定。
+// 成本列不用 number 角色：number 的列宽上限 144px（ideal 112 / max 144），而成本
+// 渲染的是「币种 + 金额 + 周期」整串（如 "USD 12,345.67 / 每年"）。实测该串在
+// 13px 字体下约 130px，加 Kumo 单元格左右各 12px 内边距共需 ~154px；金额上到
+// 百万级（"CNY 1,234,567.89 / 每季度"）约 161px，需 ~185px。用 number 角色会
+// 截断成 "CNY 27.19 /…"（截图即为此现象）。
+// 这里改为弹性列：minWidth 168 保证常见金额完整显示，grow 1 让它在宽屏下随容器
+// 继续变宽（表格总宽不足时仍靠外层横向滚动兜底），不写死上限以免大额被截。
 export const ASSET_COLUMNS = [
   { id: 'name', role: 'primary', minWidth: 200, maxWidth: 320, grow: 3 },
   { id: 'provider', role: 'meta', minWidth: 140, maxWidth: 220, grow: 2 },
   { id: 'status', role: 'status' },
   { id: 'expire', role: 'date' },
   { id: 'days', role: 'status' },
-  { id: 'cost', role: 'number' },
+  { id: 'cost', role: 'content', minWidth: 168, maxWidth: null, grow: 1, align: 'right' },
   { id: 'tags', role: 'content', minWidth: 160, maxWidth: 260, grow: 2 },
-  { id: 'actions', role: 'actions-md' },
+  // 操作列用 actions-lg（144）而非 actions-md（120）：纳管且填了链接的资产会有
+  // 4 个按钮（打开/刷新来源/编辑/删除），实测需要 106px 内容宽 + 左右各 12px
+  // 内边距 = 130px，120 的列宽只有 96px 可用，按钮会被裁掉最后一个。
+  { id: 'actions', role: 'actions-lg' },
 ];
 
 export const TABLE_SUMMARY_COLUMNS = [
@@ -139,7 +145,9 @@ export const TABLE_SUMMARY_COLUMNS = [
   { id: 'status', role: 'status' },
   { id: 'expire', role: 'date' },
   { id: 'days', role: 'status' },
-  { id: 'cost', role: 'content', minWidth: 140, maxWidth: 220, grow: 2 },
+  // 同 ASSET_COLUMNS 的成本列：maxWidth 220 对「币种+金额+周期」整串仍偏窄
+  // （百万级金额约需 185px），去掉上限让它随容器增长。
+  { id: 'cost', role: 'content', minWidth: 168, maxWidth: null, grow: 2 },
 ];
 
 export const PAGE_SIZE = 100;
