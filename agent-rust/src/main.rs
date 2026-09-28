@@ -1467,6 +1467,59 @@ async fn handle_server_action(action: &str) -> Result<String, String> {
     }
 }
 
+/// 解码子进程输出字节：优先 UTF-8；Windows 上 cmd/PowerShell 默认使用 OEM 代码页
+/// （简体中文为 GBK），非 UTF-8 字节直接 read_to_string 会失败并导致输出整体丢失，
+/// 因此回退到 GBK 解码；其他平台用 lossy 兜底，保证不丢内容。
+#[cfg(target_os = "windows")]
+fn decode_output(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+    let (decoded, _, _) = encoding_rs::GBK.decode(bytes);
+    decoded.into_owned()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn decode_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// 反转义 CLIXML 文本节点里的 XML 实体。
+fn unescape_xml(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+/// PowerShell 在 stdout 被重定向且未指定 `-OutputFormat Text` 时，会把 Error/Progress
+/// 流序列化为 CLIXML（以 `#< CLIXML` 开头的 XML 文档），污染命令输出。这里做防御性清洗：
+/// 若整体是 CLIXML 文档，抽取其中 `<S S="...">` 文本节点并反转义；无法解析时原样返回。
+fn scrub_clixml(text: String) -> String {
+    if !text.trim_start().starts_with("#< CLIXML") {
+        return text;
+    }
+    let mut out = String::new();
+    let mut pos = 0usize;
+    while let Some(rel) = text[pos..].find("<S S=\"") {
+        let tag_start = pos + rel;
+        let Some(gt_rel) = text[tag_start..].find('>') else {
+            break;
+        };
+        let content_start = tag_start + gt_rel + 1;
+        let Some(end_rel) = text[content_start..].find("</S>") else {
+            break;
+        };
+        out.push_str(&unescape_xml(&text[content_start..content_start + end_rel]));
+        pos = content_start + end_rel + 4;
+    }
+    if out.trim().is_empty() {
+        return text;
+    }
+    out
+}
+
 async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, String> {
     if command.is_empty() {
         return Err("命令不能为空".to_string());
@@ -1499,15 +1552,15 @@ async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, Str
         res = child.wait() => {
             match res {
                 Ok(status) => {
-                    let mut stdout_str = String::new();
+                    let mut stdout_buf = Vec::new();
                     if let Some(mut out) = child.stdout.take() {
-                        let _ = tokio::io::AsyncReadExt::read_to_string(&mut out, &mut stdout_str).await;
+                        let _ = tokio::io::AsyncReadExt::read_to_end(&mut out, &mut stdout_buf).await;
                     }
-                    let mut stderr_str = String::new();
+                    let mut stderr_buf = Vec::new();
                     if let Some(mut err) = child.stderr.take() {
-                        let _ = tokio::io::AsyncReadExt::read_to_string(&mut err, &mut stderr_str).await;
+                        let _ = tokio::io::AsyncReadExt::read_to_end(&mut err, &mut stderr_buf).await;
                     }
-                    let combined = stdout_str + &stderr_str;
+                    let combined = scrub_clixml(decode_output(&stdout_buf) + &decode_output(&stderr_buf));
                     if status.success() {
                         Ok(combined)
                     } else {

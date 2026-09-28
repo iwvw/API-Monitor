@@ -104,7 +104,6 @@ impl FileManager {
         let abs_path = resolve_path(&req.path)?;
 
         let entries = fs::read_dir(&abs_path).map_err(|e| format!("读取目录失败: {}", e))?;
-        let root = canonical_files_root()?;
 
         let mut files = Vec::new();
         for entry_res in entries {
@@ -112,7 +111,7 @@ impl FileManager {
                 if let Ok(meta) = entry.metadata() {
                     let file_path = entry.path();
                     let file_name = entry.file_name().to_string_lossy().to_string();
-                    let path_str = virtual_path(&file_path, &root);
+                    let path_str = virtual_path(&file_path);
 
                     let mtime = meta
                         .modified()
@@ -154,7 +153,7 @@ impl FileManager {
 
         let resp = FileListResponse {
             files,
-            cwd: virtual_path(&abs_path, &root),
+            cwd: virtual_path(&abs_path),
         };
 
         serde_json::to_string(&resp).map_err(|e| e.to_string())
@@ -226,8 +225,10 @@ impl FileManager {
 
         let abs_path = resolve_path(&req.path)?;
 
-        // Safety checks: do not allow deleting the sandbox root
-        if abs_path == canonical_files_root()? {
+        // Safety checks: 不允许删除任何被放行的根目录本身
+        // （默认沙箱根与 API_MONITOR_FILE_ROOTS 额外根都算，
+        // 否则一次递归删除就能把整棵被授权的目录清空）。
+        if allowed_roots()?.contains(&abs_path) {
             return Err("不允许删除文件根目录".to_string());
         }
 
@@ -302,7 +303,7 @@ impl FileManager {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default(),
-            path: virtual_path(&abs_path, &canonical_files_root()?),
+            path: virtual_path(&abs_path),
             is_directory: meta.is_dir(),
             is_file: meta.is_file(),
             is_symlink: meta.file_type().is_symlink(),
@@ -371,7 +372,6 @@ impl FileManager {
         Ok(encoded)
     }
 }
-
 static FILES_ROOT_CACHE: OnceLock<Result<PathBuf, String>> = OnceLock::new();
 
 /// 文件沙箱根目录：确保目录存在并返回规范化绝对路径。
@@ -389,31 +389,113 @@ fn canonical_files_root() -> Result<PathBuf, String> {
         .clone()
 }
 
-/// 把文件沙箱内的真实路径转换为对外暴露的虚拟路径。
-/// 根目录显示为 `/`，子路径为 `/a/b`，保证前端面包屑始终锚定在 `/`。
-fn virtual_path(abs_path: &Path, root: &Path) -> String {
-    if abs_path == root {
+/// 额外允许的文件根目录，来自环境变量 `API_MONITOR_FILE_ROOTS`
+/// （多路径使用平台分隔符：Windows 为 `;`，类 Unix 为 `:`）。
+/// 未设置时返回空列表，此时文件操作行为与历史版本完全一致，仅限默认沙箱。
+/// 用于显式放行脚本目录等受控路径，避免把整个文件系统暴露给面板。
+fn extra_roots() -> Vec<PathBuf> {
+    static EXTRA_ROOTS_CACHE: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    EXTRA_ROOTS_CACHE
+        .get_or_init(|| {
+            let Ok(raw) = std::env::var("API_MONITOR_FILE_ROOTS") else {
+                return Vec::new();
+            };
+            let mut roots = Vec::new();
+            for p in std::env::split_paths(&raw) {
+                if p.as_os_str().is_empty() {
+                    continue;
+                }
+                if let Ok(canonical) = fs::canonicalize(&p) {
+                    if !roots.contains(&canonical) {
+                        roots.push(canonical);
+                    }
+                }
+            }
+            roots
+        })
+        .clone()
+}
+
+/// 返回全部允许的根目录（默认沙箱在前，额外根在后）。
+fn allowed_roots() -> Result<Vec<PathBuf>, String> {
+    let mut roots = vec![canonical_files_root()?];
+    roots.extend(extra_roots());
+    Ok(roots)
+}
+
+/// 判断路径是否落在某个允许根下，返回命中的根。
+fn matched_root(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .find(|root| path.starts_with(root.as_path()))
+        .cloned()
+}
+
+/// 把真实路径转换为对外暴露的虚拟路径。
+/// 默认沙箱根显示为 `/`，子路径为 `/a/b`，保证前端面包屑始终锚定在 `/`。
+/// 额外白名单根下的路径不参与虚拟化，直接返回其规范化绝对路径。
+fn virtual_path(abs_path: &Path) -> String {
+    let fallback = abs_path.to_string_lossy().replace('\\', "/");
+    let Ok(default_root) = canonical_files_root() else {
+        return fallback;
+    };
+    // 非默认根（来自额外白名单）直接用绝对路径展示，避免前端面包屑误锚定。
+    if abs_path != default_root.as_path() && !abs_path.starts_with(&default_root) {
+        return fallback;
+    }
+    if abs_path == default_root.as_path() {
         return "/".to_string();
     }
-    let rel = abs_path.strip_prefix(root).unwrap_or(abs_path);
+    let rel = abs_path.strip_prefix(&default_root).unwrap_or(abs_path);
     let normalized = rel.to_string_lossy().replace('\\', "/");
     format!("/{}", normalized.trim_start_matches('/'))
 }
 
-fn resolve_path(input_path: &str) -> Result<PathBuf, String> {
-    let root = canonical_files_root()?;
+/// 解析输入路径为绝对路径，并返回其所属的允许根。
+/// 优先按「额外白名单根」做绝对路径匹配；未命中再退回历史语义——
+/// 把绝对路径锚定到默认沙箱根内部解析。
+fn resolve_path_root(input_path: &str) -> Result<(PathBuf, PathBuf), String> {
+    let roots = allowed_roots()?;
+    let default_root = canonical_files_root()?;
 
     let normalized = input_path.replace('\\', "/");
     let trimmed = normalized.trim_matches(|c| c == '/' || c == ' ');
-    if trimmed.is_empty() || trimmed == "." {
-        return Ok(root);
+
+    // 额外白名单根：允许用真实绝对路径直接访问（不做沙箱内锚定）。
+    let extra = extra_roots();
+    if !extra.is_empty() && !trimmed.is_empty() && trimmed != "." {
+        let candidate = PathBuf::from(trimmed);
+        if candidate.is_absolute() {
+            if let Ok(canonical) = fs::canonicalize(&candidate) {
+                if let Some(root) = matched_root(&canonical, &extra) {
+                    return Ok((canonical, root));
+                }
+            } else if let Some(parent) = candidate.parent() {
+                if let Ok(parent_canonical) = fs::canonicalize(parent) {
+                    if let Some(file_name) = candidate.file_name() {
+                        let joined = parent_canonical.join(file_name);
+                        if let Some(root) = matched_root(&joined, &extra) {
+                            return Ok((joined, root));
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    // 绝对路径（含 Windows 盘符形式）一律锚定到文件沙箱根目录内解析，
-    // 剥离前导斜杠与盘符前缀后作为沙箱内相对路径校验。
-    let rel = strip_drive_prefix(trimmed.trim_start_matches('/'));
+    if trimmed.is_empty() || trimmed == "." {
+        return Ok((default_root.clone(), default_root));
+    }
 
-    validate_within_allowed_root(&root.join(rel))
+    // 默认沙箱语义：绝对路径（含 Windows 盘符形式）锚定到沙箱根内解析。
+    let rel = strip_drive_prefix(trimmed.trim_start_matches('/'));
+    let abs = validate_within_allowed_root(&default_root.join(rel), &roots)?;
+    Ok((abs, default_root))
+}
+
+/// 解析输入路径为绝对路径（历史签名，供仅需路径的调用点使用）。
+fn resolve_path(input_path: &str) -> Result<PathBuf, String> {
+    resolve_path_root(input_path).map(|(path, _)| path)
 }
 
 /// 剥离 Windows 盘符前缀（如 `C:`），返回去掉前缀后的路径片段。
@@ -427,25 +509,25 @@ fn strip_drive_prefix(p: &str) -> &str {
     }
 }
 
-fn validate_within_allowed_root(path: &Path) -> Result<PathBuf, String> {
-    let root_canonical = canonical_files_root()?;
-
+fn validate_within_allowed_root(path: &Path, roots: &[PathBuf]) -> Result<PathBuf, String> {
     let canonical = if path.exists() {
         fs::canonicalize(path).map_err(|e| format!("无法访问路径: {}", e))?
     } else {
         let parent = path.parent().ok_or_else(|| "无效的路径".to_string())?;
         let parent_canonical =
             fs::canonicalize(parent).map_err(|e| format!("无法访问父目录: {}", e))?;
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| "无效的文件名".to_string())?;
+        let file_name = path.file_name().ok_or_else(|| "无效的文件名".to_string())?;
         parent_canonical.join(file_name)
     };
 
-    if !canonical.starts_with(&root_canonical) {
+    if matched_root(&canonical, roots).is_none() {
         return Err(format!(
             "路径不在允许的文件目录范围内。允许的根目录: {}",
-            root_canonical.display()
+            roots
+                .iter()
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 
