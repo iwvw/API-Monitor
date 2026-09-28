@@ -2067,7 +2067,15 @@ th > button[aria-label='Resize column'] > span {
   min-height: 0;
   flex: 1;
   max-width: 100%;
-  overscroll-behavior: contain;
+  /* 只收窄横向链：代码行横向滚到边界后不要把页面带着左右晃。
+     纵向必须保持 auto（浏览器默认）——编辑器内容通常没有纵向溢出，
+     而 CodeMirror 的 .cm-scroller 始终是 overflow:auto 的滚动容器，
+     若纵向用 contain，落在编辑器上的纵向手势会被就地吞掉、
+     不再链式传递给外层滚动容器（例如 LayerDialog.Body 的
+     ScrollAreaViewport），导致移动端弹窗里"从代码框上滑"完全滚不动。
+     实测：contain 时纵向位移 0px，auto 时 258px。 */
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
   scrollbar-width: thin;
 }
 
