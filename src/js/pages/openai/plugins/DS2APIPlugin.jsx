@@ -566,9 +566,18 @@ export function DS2APIPlugin() {
                         ) : a.disabled ? (
                           <Badge variant="danger" className="text-xs">禁用</Badge>
                         ) : !a.available ? (
-                          <Badge variant="warning" className="text-xs">
-                            冷却{cooldownLabel(a)}
-                          </Badge>
+                          // 冷却详情必须放进 title，不能塞进 Badge 文本：
+                          // cooldownLabel 最多拼接三段（上游禁言 · 风控 · 换号），
+                          // 实测「冷却（上游禁言 2h30m · 风控 45m · 换号 12m）」
+                          // 约 265px，单段也有 139px；而 status 列内容可用宽只有
+                          // 88px，且 Badge 是 shrink-0 且无 truncate，会把相邻列
+                          // 一起挤歪。
+                          // title 挂在外面这层 span 上：Kumo Badge 只解构
+                          // variant/appearance/className/icon/children，
+                          // 直接写在 Badge 上的 title 会被静默丢弃。
+                          <span className="inline-flex" title={`冷却${cooldownLabel(a)}`}>
+                            <Badge variant="warning" className="text-xs">冷却</Badge>
+                          </span>
                         ) : (
                           <Badge variant="success" className="text-xs">可用</Badge>
                         )}

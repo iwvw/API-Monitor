@@ -74,7 +74,7 @@ export default function AccountsPanel({ accounts, loadingAccounts, accountImport
                   </div>
                 </Table.Cell>
                 <Table.Cell>{account.region}</Table.Cell>
-                <Table.Cell><code className="block truncate text-xs">{account.defaultCompartmentId || '-'}</code></Table.Cell>
+                <Table.Cell><code className="block truncate text-xs" title={account.defaultCompartmentId || '-'}>{account.defaultCompartmentId || '-'}</code></Table.Cell>
                 <Table.Cell>
                   <StatusBadge tone={getOciStatusTone(account.lastVerifyStatus)}>
                     {getVerifyStatusLabel(account.lastVerifyStatus)}

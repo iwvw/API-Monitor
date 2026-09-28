@@ -43,11 +43,21 @@ export function formatCount(value) {
   return String(num);
 }
 
+// 与 dns/utils.jsx 的 formatDate 对齐：显式指定到分钟的格式，不依赖 toLocaleString
+// 的默认选项。默认值在多数浏览器会带上秒（"2025/10/23 22:35:22"），比不带秒的写法
+// 多约 12px；列表里的 datetime 列（可用宽 136px，min 时仅 112px）会被撑到裁切。
+// 站点时区由浏览器本地时区决定，与页面其它时间列一致。
 export function formatDate(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export function formatModelUsageAxis(timestamp) {
