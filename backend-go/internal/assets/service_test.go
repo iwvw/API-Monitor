@@ -476,6 +476,61 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestMetadataRoundTrip 覆盖「资产链接」依赖的 metadata 读写链路。
+// 前端把外部链接存在 metadata.url，并依赖 metadata 是整体可回读的对象：
+// 编辑表单合并后回传整个 metadata，若后端丢弃未知键或不做 JSON 往返，
+// 链接（以及来源同步写入的其他元数据）会静默丢失。
+func TestMetadataRoundTrip(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+
+	asset, err := service.CreateAsset(ctx, map[string]interface{}{
+		"name": "带链接", "category": "virtual", "asset_type": "domain",
+		"metadata": map[string]interface{}{"url": "https://example.com"},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	loaded, ok, err := service.LoadAsset(ctx, asset.ID)
+	if err != nil || !ok {
+		t.Fatalf("load after create: ok=%v err=%v", ok, err)
+	}
+	if got := loaded.Metadata["url"]; got != "https://example.com" {
+		t.Fatalf("create lost metadata.url: %#v", loaded.Metadata)
+	}
+
+	// 合并式更新：保留既有键、改写 url、新增一个键。
+	if err := service.UpdateAsset(ctx, asset.ID, map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"url":        "https://example.org/new",
+			"owner_team": "infra",
+		},
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	loaded, _, _ = service.LoadAsset(ctx, asset.ID)
+	if got := loaded.Metadata["url"]; got != "https://example.org/new" {
+		t.Fatalf("update did not apply metadata.url: %#v", loaded.Metadata)
+	}
+	if got := loaded.Metadata["owner_team"]; got != "infra" {
+		t.Fatalf("update lost sibling metadata key: %#v", loaded.Metadata)
+	}
+
+	// 清空链接：删除 url 后其他键仍在。
+	if err := service.UpdateAsset(ctx, asset.ID, map[string]interface{}{
+		"metadata": map[string]interface{}{"owner_team": "infra"},
+	}); err != nil {
+		t.Fatalf("clear url: %v", err)
+	}
+	loaded, _, _ = service.LoadAsset(ctx, asset.ID)
+	if _, has := loaded.Metadata["url"]; has {
+		t.Fatalf("expected metadata.url removed: %#v", loaded.Metadata)
+	}
+	if got := loaded.Metadata["owner_team"]; got != "infra" {
+		t.Fatalf("clearing url dropped sibling key: %#v", loaded.Metadata)
+	}
+}
+
 func TestEventsRecorded(t *testing.T) {
 	service := newTestService(t)
 	ctx := context.Background()
