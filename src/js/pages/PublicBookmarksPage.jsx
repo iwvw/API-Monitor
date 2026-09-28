@@ -26,7 +26,7 @@ import {
   isAggregateSlug,
   parsePublicBookmarksPath,
 } from '../modules/publicBookmarks.js';
-import { AlertTriangle, Bookmark, DragHandle, Edit, ExternalLink, Folder, Home, LogIn, Plus, RefreshCw, SortArrows, Trash } from '../components/Icons.jsx';
+import { AlertTriangle, Bookmark, DragHandle, ExternalLink, Folder, Home, LogIn, Plus, RefreshCw, SortArrows } from '../components/Icons.jsx';
 import ItemFormDialog, { emptyItemForm } from './bookmarks/ItemFormDialog.jsx';
 import ItemIcon from './bookmarks/ItemIcon.jsx';
 import PublicHero from './bookmarks/PublicHero.jsx';
@@ -101,7 +101,7 @@ function PublicItemIcon({ item, density = 'cozy' }) {
   return <ItemIcon item={item} size={shape.icon} innerSize={shape.iconInner} />;
 }
 
-function BookmarkCard({ item, density, editable, sortable, dragging, over, onEdit, onDelete, onDragStart, onDragOver, onDrop, onDragEnd, onContextMenu }) {
+function BookmarkCard({ item, density, editable, sortable, dragging, over, onDragStart, onDragOver, onDrop, onDragEnd, onContextMenu }) {
   const openItem = useCallback(() => {
     const raw = item?.url || '';
     if (/^https?:\/\//i.test(raw)) {
@@ -161,36 +161,16 @@ function BookmarkCard({ item, density, editable, sortable, dragging, over, onEdi
         </div>
         {item.description && <div className="mt-0.5 truncate text-[13px] leading-snug text-kumo-subtle">{item.description}</div>}
       </div>
-      {/* 登录态下的就地编辑/删除；与分组标题行一致使用 ghost 悬浮显示 */}
-      {editable && !sortable && (
-        <div className="public-group-actions absolute right-1 top-1 flex items-center gap-0.5">
-          <Button
-            size="sm"
-            variant="ghost"
-            shape="square"
-            icon={<Edit className="h-3.5 w-3.5" />}
-            aria-label={`编辑 ${item.title}`}
-            title="编辑"
-            onClick={(event) => { event.stopPropagation(); onEdit?.(item); }}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            shape="square"
-            icon={<Trash className="h-3.5 w-3.5" />}
-            aria-label={`删除 ${item.title}`}
-            title="删除"
-            onClick={(event) => { event.stopPropagation(); onDelete?.(item); }}
-          />
-        </div>
-      )}
+      {/* 卡片右上角不再放编辑/删除的悬浮按钮：
+          它们会盖住卡片内容，且鼠标扫过时整片按钮闪现，视觉噪声大。
+          编辑/删除仍可通过**右键菜单**完成（见 BookmarkContextMenu），功能不丢。 */}
     </div>
   );
 }
 
 function GroupSection({
   group, density, editable, sortMode,
-  onAddItem, onEditItem, onDeleteItem, onToggleSort, onReorder, onItemContextMenu,
+  onAddItem, onToggleSort, onReorder, onItemContextMenu,
 }) {
   const items = Array.isArray(group.items) ? group.items : [];
   const [draggingId, setDraggingId] = useState(null);
@@ -295,8 +275,6 @@ function GroupSection({
               sortable={sortMode}
               dragging={String(draggingId) === String(item.id)}
               over={String(overId) === String(item.id)}
-              onEdit={onEditItem}
-              onDelete={onDeleteItem}
               onContextMenu={onItemContextMenu}
               onDragStart={event => handleDragStart(item, event)}
               onDragOver={event => handleDragOver(item, event)}
@@ -686,8 +664,6 @@ function PublicBookmarksPage({ domainOnly = false, onDomainNotFound }) {
                   editable={canEdit}
                   sortMode={sortMode}
                   onAddItem={openAddItem}
-                  onEditItem={openEditItem}
-                  onDeleteItem={deleteItem}
                   onToggleSort={() => setSortMode(current => !current)}
                   onReorder={reorderItems}
                   onItemContextMenu={(event, item) => setContextMenu({ x: event.clientX, y: event.clientY, item })}
