@@ -237,6 +237,19 @@ func normalizeTrafficCycleType(value string) string {
 	}
 }
 
+// normalizeRemoteDesktopNatType 校验远程桌面 1:1 NAT 广播使用的 ICE 候选类型。
+// 只接受 webrtc-rs 的 ExternalIpMapper 支持的两个值：host 与 srflx。其余值
+// （prflx/relay）会让 Agent 创建 peer 时返回 ErrUnsupportedNat1to1IpCandidateType，
+// 导致会话直接起不来，所以在此收敛为默认 srflx。
+func normalizeRemoteDesktopNatType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "host", "srflx":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "srflx"
+	}
+}
+
 func normalizeTrafficCycleDay(value int) int {
 	if value < 1 {
 		return 1

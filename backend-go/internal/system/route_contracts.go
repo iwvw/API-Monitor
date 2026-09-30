@@ -546,6 +546,8 @@ func init() {
 		"password":   {t: "string"},
 		"privateKey": {t: "string"},
 		"group":      {t: "string"},
+		"remote_desktop_nat_ips":  {t: "string", d: "远程桌面 1:1 NAT/公网 IP 直连广播列表（逗号分隔）"},
+		"remote_desktop_nat_type": {t: "string", e: []string{"host", "srflx"}, d: "上述地址使用的 ICE 候选类型"},
 	})
 	routeRequestContracts["/api/server/accounts/{id}"] = routeRequestContracts["/api/server/accounts"]
 	routeRequestContracts["/api/server/accounts/import"] = obj(nil, map[string]prop{

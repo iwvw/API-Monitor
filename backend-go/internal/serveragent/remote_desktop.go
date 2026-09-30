@@ -2,6 +2,7 @@ package serveragent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -319,13 +320,20 @@ func (s *Service) createRemoteDesktopSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	session := s.remoteDesktop.create(req.ServerID, agentConn.Socket)
-	if err := agentConn.SendEvent("dashboard:rd_start", map[string]interface{}{
+	startPayload := map[string]interface{}{
 		"session_id": session.ID,
 		"offer":      json.RawMessage(req.Offer),
 		"ice_servers": []map[string]interface{}{
 			{"urls": []string{"stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"}},
 		},
-	}); err != nil {
+	}
+	// 主机侧配置的 1:1 NAT / 公网 IP 直连广播：直接下发给 Agent，使其在 TURN/打洞
+	// 之外多一条确定性直连路径。未配置时不下发字段，Agent 回落到自身环境变量配置。
+	if natIPs, natType, ok := s.remoteDesktopNatConfig(r.Context(), req.ServerID); ok {
+		startPayload["nat_1to1_ips"] = natIPs
+		startPayload["nat_1to1_candidate_type"] = natType
+	}
+	if err := agentConn.SendEvent("dashboard:rd_start", startPayload); err != nil {
 		s.remoteDesktop.remove(session.ID)
 		response.Error(w, http.StatusBadGateway, "failed to start remote desktop: "+err.Error())
 		return
@@ -431,4 +439,44 @@ func parseInt64(raw string) (int64, error) {
 	var value int64
 	_, err := fmt.Sscan(strings.TrimSpace(raw), &value)
 	return value, err
+}
+
+// remoteDesktopNatConfig 读取主机侧配置的 1:1 NAT / 公网 IP 广播列表与候选类型。
+// 未配置（列不存在或为空）时返回 ok=false，调用方不下发该字段。列表支持逗号或
+// 空白分隔，便于在输入框里一次填多个地址。
+func (s *Service) remoteDesktopNatConfig(ctx context.Context, serverID string) ([]string, string, bool) {
+	// 单测等精简构造的 Service 可能没有 store；此时视为未配置。
+	if s.store == nil {
+		return nil, "", false
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, "", false
+	}
+	defer db.Close()
+	var rawIPs, rawType sql.NullString
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(remote_desktop_nat_ips, ''), COALESCE(remote_desktop_nat_type, 'srflx') FROM server_accounts WHERE id = ?`,
+		serverID,
+	).Scan(&rawIPs, &rawType); err != nil {
+		return nil, "", false
+	}
+	ips := splitRemoteDesktopNatIPs(rawIPs.String)
+	if len(ips) == 0 {
+		return nil, "", false
+	}
+	return ips, normalizeRemoteDesktopNatType(rawType.String), true
+}
+
+func splitRemoteDesktopNatIPs(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

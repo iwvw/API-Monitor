@@ -16,7 +16,7 @@ import (
 )
 
 func (s *Service) listAccounts(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, traffic_cycle_baseline, updated_at FROM server_accounts ORDER BY order_index ASC, created_at DESC")
+	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, traffic_cycle_baseline, updated_at, remote_desktop_nat_ips, remote_desktop_nat_type FROM server_accounts ORDER BY order_index ASC, created_at DESC")
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -195,7 +195,7 @@ func (s *Service) refreshAccountLocationFromAgent(ctx context.Context, db *sql.D
 }
 
 func (s *Service) getAccount(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
-	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, traffic_cycle_baseline, updated_at FROM server_accounts WHERE id = ?", id)
+	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, traffic_cycle_baseline, updated_at, remote_desktop_nat_ips, remote_desktop_nat_type FROM server_accounts WHERE id = ?", id)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -217,28 +217,30 @@ func (s *Service) getAccount(w http.ResponseWriter, r *http.Request, db *sql.DB,
 
 func (s *Service) createAccount(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	var req struct {
-		Name                string      `json:"name"`
-		Host                string      `json:"host"`
-		Port                int         `json:"port"`
-		Username            string      `json:"username"`
-		AuthType            string      `json:"auth_type"`
-		Password            string      `json:"password"`
-		PrivateKey          string      `json:"private_key"`
-		Passphrase          string      `json:"passphrase"`
-		Tags                interface{} `json:"tags"`
-		Description         string      `json:"description"`
-		Country             string      `json:"country"`
-		StartsAt            string      `json:"starts_at"`
-		ExpiresAt           string      `json:"expires_at"`
-		MonitorMode         string      `json:"monitor_mode"`
-		TrafficLimitBytes   int64       `json:"traffic_limit_bytes"`
-		TrafficLimitMode    string      `json:"traffic_limit_mode"`
-		TrafficAlertEnabled bool        `json:"traffic_alert_enabled"`
-		TrafficAlertPercent float64     `json:"traffic_alert_percent"`
-		TrafficCycleType    string      `json:"traffic_cycle_type"`
-		TrafficCycleDay     int         `json:"traffic_cycle_day"`
-		TrafficCycleStart   string      `json:"traffic_cycle_start"`
-		TrafficCycleEnd     string      `json:"traffic_cycle_end"`
+		Name                 string      `json:"name"`
+		Host                 string      `json:"host"`
+		Port                 int         `json:"port"`
+		Username             string      `json:"username"`
+		AuthType             string      `json:"auth_type"`
+		Password             string      `json:"password"`
+		PrivateKey           string      `json:"private_key"`
+		Passphrase           string      `json:"passphrase"`
+		Tags                 interface{} `json:"tags"`
+		Description          string      `json:"description"`
+		Country              string      `json:"country"`
+		StartsAt             string      `json:"starts_at"`
+		ExpiresAt            string      `json:"expires_at"`
+		MonitorMode          string      `json:"monitor_mode"`
+		TrafficLimitBytes    int64       `json:"traffic_limit_bytes"`
+		TrafficLimitMode     string      `json:"traffic_limit_mode"`
+		TrafficAlertEnabled  bool        `json:"traffic_alert_enabled"`
+		TrafficAlertPercent  float64     `json:"traffic_alert_percent"`
+		TrafficCycleType     string      `json:"traffic_cycle_type"`
+		TrafficCycleDay      int         `json:"traffic_cycle_day"`
+		TrafficCycleStart    string      `json:"traffic_cycle_start"`
+		TrafficCycleEnd      string      `json:"traffic_cycle_end"`
+		RemoteDesktopNatIPs  string      `json:"remote_desktop_nat_ips"`
+		RemoteDesktopNatType string      `json:"remote_desktop_nat_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
@@ -279,10 +281,10 @@ func (s *Service) createAccount(w http.ResponseWriter, r *http.Request, db *sql.
 
 	_, err := db.ExecContext(r.Context(), `
 		INSERT INTO server_accounts (
-			id, name, host, port, username, auth_type, password, private_key, passphrase, status, tags, description, monitor_mode, country, resolved_country, starts_at, expires_at, traffic_limit_bytes, traffic_limit_mode, traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, order_index, created_at, updated_at, cached_info
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, name, host, port, username, auth_type, password, private_key, passphrase, status, tags, description, monitor_mode, country, resolved_country, starts_at, expires_at, traffic_limit_bytes, traffic_limit_mode, traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, order_index, created_at, updated_at, cached_info, remote_desktop_nat_ips, remote_desktop_nat_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, req.Name, req.Host, coalesceInt(req.Port, 22), coalesceStr(req.Username, "agent"), coalesceStr(req.AuthType, "password"),
-		encPassword, encPrivateKey, encPassphrase, "unknown", SerializeList(req.Tags), req.Description, coalesceStr(req.MonitorMode, "agent"), nullStr(country), nullStr(resolvedCountry), nullStr(req.StartsAt), nullStr(req.ExpiresAt), trafficLimitBytes, trafficLimitMode, boolToInt(req.TrafficAlertEnabled), trafficAlertPercent, trafficCycleType, trafficCycleDay, nullStr(req.TrafficCycleStart), nullStr(req.TrafficCycleEnd), orderIndex, now, now, nullStr(cachedInfo.String),
+		encPassword, encPrivateKey, encPassphrase, "unknown", SerializeList(req.Tags), req.Description, coalesceStr(req.MonitorMode, "agent"), nullStr(country), nullStr(resolvedCountry), nullStr(req.StartsAt), nullStr(req.ExpiresAt), trafficLimitBytes, trafficLimitMode, boolToInt(req.TrafficAlertEnabled), trafficAlertPercent, trafficCycleType, trafficCycleDay, nullStr(req.TrafficCycleStart), nullStr(req.TrafficCycleEnd), orderIndex, now, now, nullStr(cachedInfo.String), nullStr(strings.TrimSpace(req.RemoteDesktopNatIPs)), normalizeRemoteDesktopNatType(req.RemoteDesktopNatType),
 	)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -323,9 +325,10 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 		trafficCycleDay                                                      int
 		responseTime                                                         sql.NullInt64
 		lastCheckTime, lastCheckStatus, cachedInfo                           sql.NullString
+		remoteDesktopNatIPs, remoteDesktopNatType                            sql.NullString
 	}
-	err := db.QueryRowContext(r.Context(), "SELECT name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, tags, description, country, resolved_country, starts_at, expires_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, order_index, created_at, response_time, last_check_time, last_check_status, cached_info FROM server_accounts WHERE id = ?", id).
-		Scan(&raw.name, &raw.host, &raw.port, &raw.username, &raw.authType, &raw.password, &raw.privateKey, &raw.passphrase, &raw.status, &raw.monitorMode, &raw.tags, &raw.description, &raw.country, &raw.resolvedCountry, &raw.startsAt, &raw.expiresAt, &raw.trafficLimitBytes, &raw.trafficLimitMode, &raw.trafficAlertEnabled, &raw.trafficAlertPercent, &raw.trafficCycleType, &raw.trafficCycleDay, &raw.trafficCycleStart, &raw.trafficCycleEnd, &raw.orderIndex, &raw.createdAt, &raw.responseTime, &raw.lastCheckTime, &raw.lastCheckStatus, &raw.cachedInfo)
+	err := db.QueryRowContext(r.Context(), "SELECT name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, tags, description, country, resolved_country, starts_at, expires_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, order_index, created_at, response_time, last_check_time, last_check_status, cached_info, COALESCE(remote_desktop_nat_ips, ''), COALESCE(remote_desktop_nat_type, 'srflx') FROM server_accounts WHERE id = ?", id).
+		Scan(&raw.name, &raw.host, &raw.port, &raw.username, &raw.authType, &raw.password, &raw.privateKey, &raw.passphrase, &raw.status, &raw.monitorMode, &raw.tags, &raw.description, &raw.country, &raw.resolvedCountry, &raw.startsAt, &raw.expiresAt, &raw.trafficLimitBytes, &raw.trafficLimitMode, &raw.trafficAlertEnabled, &raw.trafficAlertPercent, &raw.trafficCycleType, &raw.trafficCycleDay, &raw.trafficCycleStart, &raw.trafficCycleEnd, &raw.orderIndex, &raw.createdAt, &raw.responseTime, &raw.lastCheckTime, &raw.lastCheckStatus, &raw.cachedInfo, &raw.remoteDesktopNatIPs, &raw.remoteDesktopNatType)
 	if err == sql.ErrNoRows {
 		response.Error(w, http.StatusNotFound, "服务器不存在")
 		return
@@ -364,6 +367,8 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 	trafficCycleDay := normalizeTrafficCycleDay(getIntVal(req, "traffic_cycle_day", raw.trafficCycleDay))
 	trafficCycleStart := getStringVal(req, "traffic_cycle_start", raw.trafficCycleStart.String)
 	trafficCycleEnd := getStringVal(req, "traffic_cycle_end", raw.trafficCycleEnd.String)
+	remoteDesktopNatIPs := strings.TrimSpace(getStringVal(req, "remote_desktop_nat_ips", raw.remoteDesktopNatIPs.String))
+	remoteDesktopNatType := normalizeRemoteDesktopNatType(getStringVal(req, "remote_desktop_nat_type", raw.remoteDesktopNatType.String))
 
 	password := raw.password.String
 	if p, ok := req["password"].(string); ok {
@@ -387,9 +392,9 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 
 	_, err = db.ExecContext(r.Context(), `
 		UPDATE server_accounts
-		SET name = ?, host = ?, port = ?, username = ?, auth_type = ?, password = ?, private_key = ?, passphrase = ?, tags = ?, description = ?, monitor_mode = ?, country = ?, resolved_country = ?, starts_at = ?, expires_at = ?, traffic_limit_bytes = ?, traffic_limit_mode = ?, traffic_alert_enabled = ?, traffic_alert_percent = ?, traffic_cycle_type = ?, traffic_cycle_day = ?, traffic_cycle_start = ?, traffic_cycle_end = ?, order_index = ?, cached_info = ?, updated_at = ?
+		SET name = ?, host = ?, port = ?, username = ?, auth_type = ?, password = ?, private_key = ?, passphrase = ?, tags = ?, description = ?, monitor_mode = ?, country = ?, resolved_country = ?, starts_at = ?, expires_at = ?, traffic_limit_bytes = ?, traffic_limit_mode = ?, traffic_alert_enabled = ?, traffic_alert_percent = ?, traffic_cycle_type = ?, traffic_cycle_day = ?, traffic_cycle_start = ?, traffic_cycle_end = ?, order_index = ?, cached_info = ?, updated_at = ?, remote_desktop_nat_ips = ?, remote_desktop_nat_type = ?
 		WHERE id = ?`,
-		name, host, port, username, authType, password, privateKey, passphrase, tags, description, monitorMode, nullStr(country), nullStr(resolvedCountry), nullStr(startsAt), nullStr(expiresAt), trafficLimitBytes, trafficLimitMode, boolToInt(trafficAlertEnabled), trafficAlertPercent, trafficCycleType, trafficCycleDay, nullStr(trafficCycleStart), nullStr(trafficCycleEnd), orderIndex, nullStr(cachedInfo.String), now, id,
+		name, host, port, username, authType, password, privateKey, passphrase, tags, description, monitorMode, nullStr(country), nullStr(resolvedCountry), nullStr(startsAt), nullStr(expiresAt), trafficLimitBytes, trafficLimitMode, boolToInt(trafficAlertEnabled), trafficAlertPercent, trafficCycleType, trafficCycleDay, nullStr(trafficCycleStart), nullStr(trafficCycleEnd), orderIndex, nullStr(cachedInfo.String), now, nullStr(remoteDesktopNatIPs), remoteDesktopNatType, id,
 	)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -1116,9 +1121,10 @@ func (s *Service) scanAccount(row *sql.Rows) (map[string]interface{}, error) {
 	var trafficCycleType, trafficCycleStart, trafficCycleEnd sql.NullString
 	var trafficCycleDay int
 	var trafficCycleBaseline int64
+	var remoteDesktopNatIPs, remoteDesktopNatType sql.NullString
 	var tagsStr string
 
-	err := row.Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &trafficCycleType, &trafficCycleDay, &trafficCycleStart, &trafficCycleEnd, &trafficCycleBaseline, &updatedAt)
+	err := row.Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &trafficCycleType, &trafficCycleDay, &trafficCycleStart, &trafficCycleEnd, &trafficCycleBaseline, &updatedAt, &remoteDesktopNatIPs, &remoteDesktopNatType)
 	if err != nil {
 		return nil, err
 	}
@@ -1131,6 +1137,7 @@ func (s *Service) scanAccount(row *sql.Rows) (map[string]interface{}, error) {
 		description, country, resolvedCountry, startsAt, expiresAt, orderIndex, createdAt, updatedAt,
 		trafficLimitBytes, trafficLimitMode, trafficAlertEnabled != 0, trafficAlertPercent,
 		trafficCycleType, trafficCycleDay, trafficCycleStart, trafficCycleEnd, trafficCycleBaseline,
+		remoteDesktopNatIPs, remoteDesktopNatType,
 	), nil
 }
 
@@ -1147,10 +1154,11 @@ func (s *Service) queryAccountByID(ctx context.Context, db *sql.DB, id string) (
 	var trafficCycleType, trafficCycleStart, trafficCycleEnd sql.NullString
 	var trafficCycleDay int
 	var trafficCycleBaseline int64
+	var remoteDesktopNatIPs, remoteDesktopNatType sql.NullString
 	var tagsStr string
 
-	err := db.QueryRowContext(ctx, "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, traffic_cycle_baseline, updated_at FROM server_accounts WHERE id = ?", id).
-		Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &trafficCycleType, &trafficCycleDay, &trafficCycleStart, &trafficCycleEnd, &trafficCycleBaseline, &updatedAt)
+	err := db.QueryRowContext(ctx, "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, traffic_cycle_type, traffic_cycle_day, traffic_cycle_start, traffic_cycle_end, traffic_cycle_baseline, updated_at, remote_desktop_nat_ips, remote_desktop_nat_type FROM server_accounts WHERE id = ?", id).
+		Scan(&id, &name, &host, &port, &username, &authType, &password, &privateKey, &passphrase, &status, &monitorMode, &lastCheckTime, &lastCheckStatus, &responseTime, &cachedInfo, &tagsStr, &description, &country, &resolvedCountry, &startsAt, &expiresAt, &orderIndex, &createdAt, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &trafficCycleType, &trafficCycleDay, &trafficCycleStart, &trafficCycleEnd, &trafficCycleBaseline, &updatedAt, &remoteDesktopNatIPs, &remoteDesktopNatType)
 	if err != nil {
 		return nil, err
 	}
@@ -1163,5 +1171,6 @@ func (s *Service) queryAccountByID(ctx context.Context, db *sql.DB, id string) (
 		description, country, resolvedCountry, startsAt, expiresAt, orderIndex, createdAt, updatedAt,
 		trafficLimitBytes, trafficLimitMode, trafficAlertEnabled != 0, trafficAlertPercent,
 		trafficCycleType, trafficCycleDay, trafficCycleStart, trafficCycleEnd, trafficCycleBaseline,
+		remoteDesktopNatIPs, remoteDesktopNatType,
 	), nil
 }

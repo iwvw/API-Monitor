@@ -1,6 +1,7 @@
 package serveragent
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -205,5 +206,56 @@ func TestCloseRemoteDesktopSessionHandler(t *testing.T) {
 	service.handleRemoteDesktopRoutes(res, httptest.NewRequest(http.MethodDelete, "/x", nil), []string{"sessions", "missing"})
 	if res.Code != http.StatusOK {
 		t.Fatalf("deleting a missing session status = %d, want 200", res.Code)
+	}
+}
+
+func TestSplitRemoteDesktopNatIPs(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want []string
+	}{
+		{"", nil},
+		{"   ", nil},
+		{"203.0.113.7", []string{"203.0.113.7"}},
+		{"203.0.113.7, 198.51.100.9", []string{"203.0.113.7", "198.51.100.9"}},
+		{"203.0.113.7;198.51.100.9\n192.0.2.1", []string{"203.0.113.7", "198.51.100.9", "192.0.2.1"}},
+		{" 203.0.113.7 ,, ", []string{"203.0.113.7"}},
+	}
+	for _, tc := range cases {
+		got := splitRemoteDesktopNatIPs(tc.raw)
+		if len(got) != len(tc.want) {
+			t.Fatalf("split(%q) = %#v, want %#v", tc.raw, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("split(%q)[%d] = %q, want %q", tc.raw, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+func TestNormalizeRemoteDesktopNatType(t *testing.T) {
+	cases := map[string]string{
+		"":        "srflx",
+		"host":    "host",
+		"HOST":    "host",
+		" srflx ": "srflx",
+		// webrtc-rs rejects prflx/relay for 1:1 NAT; fall back to srflx.
+		"prflx": "srflx",
+		"relay": "srflx",
+		"bogus": "srflx",
+	}
+	for input, want := range cases {
+		if got := normalizeRemoteDesktopNatType(input); got != want {
+			t.Fatalf("normalize(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestRemoteDesktopNatConfigWithoutStore(t *testing.T) {
+	// 精简构造的 Service 没有 store，应安全返回「未配置」而非 panic。
+	service := &Service{}
+	if ips, kind, ok := service.remoteDesktopNatConfig(context.Background(), "windows-1"); ok || ips != nil || kind != "" {
+		t.Fatalf("expected no config without store, got %#v %q %v", ips, kind, ok)
 	}
 }
