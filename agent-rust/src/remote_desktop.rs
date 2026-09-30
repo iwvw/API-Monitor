@@ -1,7 +1,7 @@
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
 
@@ -16,17 +16,22 @@ mod windows_impl {
     use serde_json::{json, Value};
     use webrtc::api::interceptor_registry::register_default_interceptors;
     use webrtc::api::media_engine::MediaEngine;
+    use webrtc::api::setting_engine::SettingEngine;
     use webrtc::api::APIBuilder;
     use webrtc::data_channel::data_channel_message::DataChannelMessage;
     use webrtc::data_channel::RTCDataChannel;
     use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+    use webrtc::ice_transport::ice_candidate_type::RTCIceCandidateType;
     use webrtc::ice_transport::ice_server::RTCIceServer;
+    use webrtc::ice::network_type::NetworkType;
     use webrtc::interceptor::registry::Registry;
     use webrtc::peer_connection::configuration::RTCConfiguration;
     use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+    use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
     use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
     use webrtc::peer_connection::RTCPeerConnection;
     use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+    use webrtc::rtcp::payload_feedbacks::receiver_estimated_maximum_bitrate::ReceiverEstimatedMaximumBitrate;
     use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
     use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
     use webrtc::track::track_local::{TrackLocal, TrackLocalWriter};
@@ -52,12 +57,39 @@ mod windows_impl {
         PT_TOUCH, TOUCH_MASK_CONTACTAREA, TOUCH_MASK_ORIENTATION, TOUCH_MASK_PRESSURE,
     };
 
+    use crate::nat::should_count_interface;
     use crate::protocol::{format_event, EVENT_AGENT_REMOTE_DESKTOP_SIGNAL};
     use crate::OutboundQueues;
 
     const TARGET_FPS: u32 = 60;
-    const KEYFRAME_INTERVAL_SECONDS: u32 = 2;
-    const ENCODED_QUEUE_DEPTH: usize = 1;
+    // One IDR per second bounds error recovery after packet loss to ~1s while
+    // keeping the keyframe overhead small relative to the steady bitrate.
+    const KEYFRAME_INTERVAL_SECONDS: u32 = 1;
+    // Small queue so a momentarily blocked RTP writer (congested link) does not
+    // cause an immediate frame drop. Depth 3 adds at most ~50 ms of latency at
+    // 60 fps while absorbing scheduler/网络抖动, which previously showed up as
+    // dropped frames and triggered the frontend's bitrate downshift.
+    const ENCODED_QUEUE_DEPTH: usize = 3;
+    // Cap the encoded long edge. 2560 keeps 2K/1440p displays sharp; the value
+    // is overridable per session from the frontend (video-config.maxLongEdge).
+    const DEFAULT_MAX_LONG_EDGE: u32 = 2560;
+    const MIN_MAX_LONG_EDGE: u32 = 1280;
+    const MAX_MAX_LONG_EDGE: u32 = 3840;
+    /// 1080p 参考码率上限；更高像素按 `native_pixels / (1920*1080)` 线性放大。
+    /// 这是本项目的产品默认值，不来自上游实现。
+    const NATIVE_BITRATE_1080P: u32 = 20_000_000;
+    const NATIVE_BITRATE_MIN: u32 = 6_000_000;
+    const NATIVE_BITRATE_MAX: u32 = 60_000_000;
+    /// 峰值/目标码率比 = 3/2。依据 JetKVM 低延迟编码器策略
+    /// (`internal/native/cgo/video_bitrate.h`: `maximum = target * 3 / 2`)。
+    const BITRATE_PEAK_NUM: u32 = 3;
+    const BITRATE_PEAK_DEN: u32 = 2;
+    /// 编码器 VBV 窗口 = 2 × 平均码率。依据 FFmpeg nvenc 默认值
+    /// (`libavcodec/nvenc.c`: 未显式指定 bufsize 时 `vbvBufferSize = 2 * averageBitRate`)。
+    const VBV_WINDOW_MULTIPLIER: u32 = 2;
+    /// 码率下限。REMB 反馈可能远低于前端预设，需要允许降到更低值才能真正
+    /// 遵从接收端估计（否则"限速"形同虚设）。
+    const REMOTE_BITRATE_FLOOR: u32 = 1_000_000;
     const RTP_CLOCK_RATE: u128 = 90_000;
     const RTP_PACKET_MTU: usize = 1_200;
     const RTP_HEADER_SIZE: usize = 12;
@@ -65,6 +97,129 @@ mod windows_impl {
     const CF_UNICODETEXT: u32 = 13;
     const PEER_DISCONNECT_GRACE: Duration = Duration::from_secs(5);
     const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+
+    /// Windows tunnel/VPN adapter name fragments that the shared `nat` filter
+    /// does not already cover (TUN-mode proxies such as Clash/Mihomo, sing-box,
+    /// Wintun, OpenVPN, ...). Host candidates gathered on these adapters are
+    /// unreachable from the browser and, worse, route the media stream into the
+    /// proxy tunnel (high latency, consumes the proxy's scarce bandwidth).
+    const DESKTOP_TUNNEL_MARKERS: &[&str] = &[
+        "wintun",
+        "clash",
+        "mihomo",
+        "sing-box",
+        "singbox",
+        "openvpn",
+        "wireguard",
+        "v2ray",
+        "xray",
+        "shadowsocks",
+        "openconnect",
+        "anyconnect",
+        "forticlient",
+    ];
+
+    /// Interface filter for the remote-desktop ICE agent: keep the real
+    /// physical NICs the P2P subsystem would use, and additionally drop
+    /// Windows tunnel adapters.
+    fn should_use_interface_for_desktop(name: &str) -> bool {
+        if !should_count_interface(name) {
+            return false;
+        }
+        let normalized = name.trim().to_ascii_lowercase();
+        !DESKTOP_TUNNEL_MARKERS
+            .iter()
+            .any(|marker| normalized.contains(marker))
+    }
+
+    /// Runtime-tunable remote-desktop parameters. Every field is a **product
+    /// default** of this project (not derived from an upstream implementation)
+    /// and can be overridden with `API_MONITOR_RD_*` environment variables, so a
+    /// deployment can retune without rebuilding the Agent. Per-session values
+    /// pushed from the dashboard (`dashboard:rd_start` / `video-config`) take
+    /// precedence where the field supports it.
+    #[derive(Clone, Debug)]
+    struct RemoteDesktopTuning {
+        /// 编码长边上限的默认值（`video-config.maxLongEdge` 可覆盖）。
+        max_long_edge: u32,
+        /// 1080p 参考码率上限；更高像素按比例放大。
+        native_bitrate_1080p: u32,
+        keyframe_interval_seconds: u32,
+        /// 编码结果队列深度。
+        queue_depth: usize,
+        /// 1:1 NAT / 公网 IP 直连广播（pion `SetNAT1To1IPs` 语义）。
+        nat_1to1_ips: Vec<String>,
+        nat_1to1_candidate_type: RTCIceCandidateType,
+    }
+
+    impl Default for RemoteDesktopTuning {
+        fn default() -> Self {
+            Self {
+                max_long_edge: DEFAULT_MAX_LONG_EDGE,
+                native_bitrate_1080p: NATIVE_BITRATE_1080P,
+                keyframe_interval_seconds: KEYFRAME_INTERVAL_SECONDS,
+                queue_depth: ENCODED_QUEUE_DEPTH,
+                nat_1to1_ips: Vec::new(),
+                nat_1to1_candidate_type: RTCIceCandidateType::Host,
+            }
+        }
+    }
+
+    impl RemoteDesktopTuning {
+        /// Resolve from an arbitrary key/value lookup. Tests pass a closure so
+        /// they never mutate the process-global environment.
+        fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
+            let mut tuning = Self::default();
+            let number = |key: &str| lookup(key).and_then(|value| value.trim().parse::<u32>().ok());
+            if let Some(value) = number("API_MONITOR_RD_MAX_LONG_EDGE") {
+                tuning.max_long_edge = value.clamp(MIN_MAX_LONG_EDGE, MAX_MAX_LONG_EDGE);
+            }
+            if let Some(value) = number("API_MONITOR_RD_BITRATE_1080P") {
+                tuning.native_bitrate_1080p = value.clamp(1_000_000, NATIVE_BITRATE_MAX);
+            }
+            if let Some(value) = number("API_MONITOR_RD_KEYFRAME_SECONDS") {
+                tuning.keyframe_interval_seconds = value.clamp(1, 10);
+            }
+            if let Some(value) = number("API_MONITOR_RD_QUEUE_DEPTH") {
+                tuning.queue_depth = value.clamp(1, 16) as usize;
+            }
+            if let Some(value) = lookup("API_MONITOR_RD_NAT_1TO1_IPS") {
+                tuning.nat_1to1_ips = value
+                    .split(',')
+                    .map(|item| item.trim().to_owned())
+                    .filter(|item| !item.is_empty())
+                    .collect();
+            }
+            if let Some(value) = lookup("API_MONITOR_RD_NAT_1TO1_TYPE") {
+                if let Some(kind) = parse_candidate_type(&value) {
+                    tuning.nat_1to1_candidate_type = kind;
+                }
+            }
+            tuning
+        }
+
+        fn from_env() -> Self {
+            Self::from_lookup(|key| std::env::var(key).ok())
+        }
+    }
+
+    /// Parse an ICE candidate type for 1:1 NAT advertisement. webrtc-rs only
+    /// supports `host` and `srflx` here (`ExternalIpMapper::new` rejects other
+    /// types with `ErrUnsupportedNat1to1IpCandidateType`, which would fail peer
+    /// creation), so anything else is treated as "not configured".
+    fn parse_candidate_type(value: &str) -> Option<RTCIceCandidateType> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "host" => Some(RTCIceCandidateType::Host),
+            "srflx" => Some(RTCIceCandidateType::Srflx),
+            _ => None,
+        }
+    }
+
+    /// Process-wide tuning, resolved once from the environment.
+    fn tuning() -> &'static RemoteDesktopTuning {
+        static TUNING: OnceLock<RemoteDesktopTuning> = OnceLock::new();
+        TUNING.get_or_init(RemoteDesktopTuning::from_env)
+    }
 
     /// WebRTC PLI keyframe requests for the NVENC path. The `DesktopEncoder`
     /// trait's `force_keyframe(&self)` cannot take `&mut self`, so the capture
@@ -77,6 +232,12 @@ mod windows_impl {
         pub offer: RTCSessionDescription,
         #[serde(default)]
         pub ice_servers: Vec<IceServerPayload>,
+        /// 可选：1:1 NAT / 公网 IP 列表，由面板下发时覆盖 Agent 环境变量配置。
+        #[serde(default)]
+        pub nat_1to1_ips: Vec<String>,
+        /// 可选：上述地址使用的候选类型。webrtc-rs 仅支持 host / srflx。
+        #[serde(default)]
+        pub nat_1to1_candidate_type: Option<RTCIceCandidateType>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -126,6 +287,19 @@ mod windows_impl {
     struct StreamProfile {
         fps: u32,
         bitrate: u32,
+        /// 编码长边上限；0 表示使用 DEFAULT_MAX_LONG_EDGE。
+        max_long_edge: u32,
+    }
+
+    impl StreamProfile {
+        fn effective_max_long_edge(&self) -> u32 {
+            if self.max_long_edge == 0 {
+                tuning().max_long_edge
+            } else {
+                self.max_long_edge
+                    .clamp(MIN_MAX_LONG_EDGE, MAX_MAX_LONG_EDGE)
+            }
+        }
     }
 
     impl Default for StreamProfile {
@@ -133,6 +307,7 @@ mod windows_impl {
             Self {
                 fps: 30,
                 bitrate: 6_000_000,
+                max_long_edge: 0,
             }
         }
     }
@@ -175,9 +350,48 @@ mod windows_impl {
                 .map_err(|err| format!("register WebRTC codecs: {err}"))?;
             let registry = register_default_interceptors(Registry::new(), &mut media_engine)
                 .map_err(|err| format!("register WebRTC RTP feedback: {err}"))?;
+
+            // Network behaviour tuned for direct (non-relayed) connectivity:
+            //  * interface_filter keeps virtual/tunnel adapters (tun/tap/wg/
+            //    tailscale/clash/...) out of ICE. Under a TUN proxy they
+            //    otherwise contribute unroutable host candidates that waste
+            //    connectivity-check time and can drag media into the tunnel.
+            //  * webrtc-rs 0.17 has no ICE-TCP support, so only UDP network
+            //    types are gathered.
+            //  * tighter ICE timeouts surface a dead path sooner so the
+            //    frontend's reconnect logic can act instead of hanging.
+            let mut setting_engine = SettingEngine::default();
+            setting_engine.set_interface_filter(Box::new(should_use_interface_for_desktop));
+            setting_engine.set_network_types(vec![NetworkType::Udp4, NetworkType::Udp6]);
+            setting_engine.set_include_loopback_candidate(false);
+            setting_engine.set_ice_timeouts(
+                Some(Duration::from_secs(5)),
+                Some(Duration::from_secs(10)),
+                // 1 s keep-alives hold NAT bindings open on jittery/proxied links.
+                Some(Duration::from_secs(1)),
+            );
+            // 1:1 NAT / public IP advertisement. This is pion's `SetNAT1To1IPs`,
+            // which neko exposes as `webrtc.nat1to1`. When the host has a static
+            // public address (or a 1:1 DNAT), advertising it as a candidate
+            // establishes a direct path without any STUN/hole punching. Values
+            // come from the panel payload when present, otherwise from the
+            // Agent's API_MONITOR_RD_NAT_1TO1_* environment configuration.
+            let nat_1to1_ips = if payload.nat_1to1_ips.is_empty() {
+                tuning().nat_1to1_ips.clone()
+            } else {
+                payload.nat_1to1_ips.clone()
+            };
+            if !nat_1to1_ips.is_empty() {
+                let candidate_type = payload
+                    .nat_1to1_candidate_type
+                    .unwrap_or(tuning().nat_1to1_candidate_type);
+                setting_engine.set_nat_1to1_ips(nat_1to1_ips, candidate_type);
+            }
+
             let api = APIBuilder::new()
                 .with_media_engine(media_engine)
                 .with_interceptor_registry(registry)
+                .with_setting_engine(setting_engine)
                 .build();
             let ice_servers = payload
                 .ice_servers
@@ -192,6 +406,10 @@ mod windows_impl {
             let peer = Arc::new(
                 api.new_peer_connection(RTCConfiguration {
                     ice_servers,
+                    // Gather every candidate type (host/srflx/relay). Relay is
+                    // still preferred to fail loudly rather than silently
+                    // degrade, but direct candidates are what we want.
+                    ice_transport_policy: RTCIceTransportPolicy::All,
                     ..Default::default()
                 })
                 .await
@@ -201,6 +419,10 @@ mod windows_impl {
             let worker = Arc::new(tokio::sync::Mutex::new(None));
             let stream_started = Arc::new(AtomicBool::new(false));
             let force_keyframe = Arc::new(AtomicBool::new(false));
+            // Latest REMB estimate from the receiver (0 = none yet). The capture
+            // loop clamps the encoder target to it; JetKVM drives its encoder the
+            // same way (`video_remb.go`).
+            let remb_limit = Arc::new(AtomicU32::new(0));
             let geometry = Arc::new(Mutex::new(DesktopGeometry::default()));
             let stream_profile = Arc::new(Mutex::new(StreamProfile::default()));
             let enigo = Arc::new(Mutex::new(Enigo::new(&Settings::default()).ok()));
@@ -222,15 +444,32 @@ mod windows_impl {
                 .await
                 .map_err(|err| format!("add H.264 video track: {err}"))?;
             let force_keyframe_for_rtcp = force_keyframe.clone();
+            let remb_limit_for_rtcp = remb_limit.clone();
             tokio::spawn(async move {
                 while let Ok((packets, _)) = rtp_sender.read_rtcp().await {
-                    if packets.iter().any(|packet| {
-                        packet
+                    for packet in &packets {
+                        if packet
                             .as_any()
                             .downcast_ref::<PictureLossIndication>()
                             .is_some()
-                    }) {
-                        force_keyframe_for_rtcp.store(true, Ordering::Release);
+                        {
+                            force_keyframe_for_rtcp.store(true, Ordering::Release);
+                        }
+                        let Some(remb) = packet
+                            .as_any()
+                            .downcast_ref::<ReceiverEstimatedMaximumBitrate>()
+                        else {
+                            continue;
+                        };
+                        // A session carries a single video track, so there is no
+                        // need to match `remb.ssrcs` against a specific SSRC.
+                        let bitrate = remb.bitrate;
+                        if bitrate.is_finite() && bitrate > 0.0 {
+                            remb_limit_for_rtcp.store(
+                                (bitrate as u32).max(REMOTE_BITRATE_FLOOR),
+                                Ordering::Release,
+                            );
+                        }
                     }
                 }
             });
@@ -293,6 +532,7 @@ mod windows_impl {
             let stop_for_channel = stop.clone();
             let stream_started_for_channel = stream_started.clone();
             let force_keyframe_for_channel = force_keyframe.clone();
+            let remb_limit_for_channel = remb_limit.clone();
             let geometry_for_channel = geometry.clone();
             let profile_for_channel = stream_profile.clone();
             let enigo_for_channel = enigo.clone();
@@ -310,6 +550,7 @@ mod windows_impl {
                 let stop = stop_for_channel.clone();
                 let stream_started = stream_started_for_channel.clone();
                 let force_keyframe = force_keyframe_for_channel.clone();
+                let remb_limit = remb_limit_for_channel.clone();
                 let geometry = geometry_for_channel.clone();
                 let profile = profile_for_channel.clone();
                 let enigo = enigo_for_channel.clone();
@@ -370,6 +611,7 @@ mod windows_impl {
                     let frame_outbound = outbound.clone();
                     let frame_track = video_track.clone();
                     let frame_force_keyframe = force_keyframe.clone();
+                    let frame_remb_limit = remb_limit.clone();
                     let frame_worker = worker.clone();
                     let watcher_channel = channel.clone();
                     let watcher_stop = stop.clone();
@@ -381,6 +623,7 @@ mod windows_impl {
                         let outbound = frame_outbound.clone();
                         let track = frame_track.clone();
                         let force_keyframe = frame_force_keyframe.clone();
+                        let remb_limit = frame_remb_limit.clone();
                         let worker = frame_worker.clone();
                         spawn_clipboard_watcher(watcher_channel.clone(), watcher_stop.clone());
                         Box::pin(async move {
@@ -392,6 +635,7 @@ mod windows_impl {
                                     geometry,
                                     profile,
                                     force_keyframe,
+                                    remb_limit,
                                     outbound,
                                     session_id,
                                 ));
@@ -574,10 +818,11 @@ mod windows_impl {
         geometry: Arc<Mutex<DesktopGeometry>>,
         profile: Arc<Mutex<StreamProfile>>,
         force_keyframe: Arc<AtomicBool>,
+        remb_limit: Arc<AtomicU32>,
         outbound: OutboundQueues,
         session_id: String,
     ) {
-        let (sample_tx, mut sample_rx) = tokio::sync::mpsc::channel(ENCODED_QUEUE_DEPTH);
+        let (sample_tx, mut sample_rx) = tokio::sync::mpsc::channel(tuning().queue_depth);
         let capture_stop = stop.clone();
         let capture_geometry = geometry.clone();
         let capture_profile = profile.clone();
@@ -587,6 +832,7 @@ mod windows_impl {
                 capture_geometry,
                 capture_profile,
                 force_keyframe,
+                remb_limit,
                 sample_tx,
             )
         });
@@ -742,10 +988,16 @@ mod windows_impl {
                 )
                 .map_err(|err| format!("NVENC preset config: {err:?}"))?;
 
-            // Low-latency VBR targeting the requested bitrate.
+            // Constrained VBR: target the requested bitrate but cap the peak so
+            // desktop content changes (scrolling, video, images) cannot spike far
+            // above link capacity. Peak ratio and VBV window follow the reference
+            // policies documented on BITRATE_PEAK_* / VBV_WINDOW_MULTIPLIER.
             config.preset_cfg.rc_params.rate_control_mode =
                 nvenc::sys::enums::NVencParamsRcMode::VBR;
             config.preset_cfg.rc_params.average_bit_rate = cfg.bitrate;
+            config.preset_cfg.rc_params.max_bit_rate =
+                cfg.bitrate * BITRATE_PEAK_NUM / BITRATE_PEAK_DEN;
+            config.preset_cfg.rc_params.vbv_buffer_size = cfg.bitrate * VBV_WINDOW_MULTIPLIER;
             config.preset_cfg.gop_len = cfg.keyframe_interval;
             config.preset_cfg.frame_interval_p = 1;
 
@@ -902,6 +1154,7 @@ mod windows_impl {
         geometry: Arc<Mutex<DesktopGeometry>>,
         profile: Arc<Mutex<StreamProfile>>,
         force_keyframe: Arc<AtomicBool>,
+        remb_limit: Arc<AtomicU32>,
         sample_tx: tokio::sync::mpsc::Sender<EncodedVideoSample>,
     ) -> Result<(), String> {
         let (session, frames) = capture::start(
@@ -947,7 +1200,15 @@ mod windows_impl {
                 current.height = frame.height;
             }
 
-            let desired_profile = profile.lock().map(|item| *item).unwrap_or_default();
+            let mut desired_profile = profile.lock().map(|item| *item).unwrap_or_default();
+            // Sender-side clamp to the receiver's REMB estimate (0 = no estimate
+            // yet). Applying it here means it also covers later `video-config`
+            // updates from the dashboard, so the encoder never runs ahead of what
+            // the receiver reports it can take.
+            desired_profile = clamp_bitrate_to_remb(
+                desired_profile,
+                remb_limit.load(Ordering::Acquire),
+            );
             if !should_encode_next_frame(
                 last_encoded_timestamp,
                 frame.timestamp,
@@ -962,7 +1223,11 @@ mod windows_impl {
             // desktop size for pointer coordinate math. Downscaling the stream
             // keeps encode time and network bytes proportional to the visible
             // content rather than the full desktop.
-            let (encode_width, encode_height) = scaled_encode_size(frame.width, frame.height);
+            let (encode_width, encode_height) = scaled_encode_size(
+                frame.width,
+                frame.height,
+                desired_profile.effective_max_long_edge(),
+            );
 
             // A builder shared by the size-change path and the software-MFT
             // bitrate-change path below.
@@ -1002,7 +1267,13 @@ mod windows_impl {
                 // a session re-init stalls the stream for hundreds of
                 // milliseconds, which is the exact jitter the low-latency path
                 // exists to avoid.
-                let config = video_config(encode_width, encode_height, desired_profile);
+                let config = video_config(
+                    encode_width,
+                    encode_height,
+                    frame.width,
+                    frame.height,
+                    desired_profile,
+                );
                 encoder = Some(build_encoder(config)?);
                 encoded_size = (encode_width, encode_height);
                 encoded_profile = desired_profile;
@@ -1018,7 +1289,13 @@ mod windows_impl {
                         .set_bitrate(desired_profile.bitrate)
                         .is_ok();
                 if !applied {
-                    let config = video_config(encode_width, encode_height, desired_profile);
+                    let config = video_config(
+                        encode_width,
+                        encode_height,
+                        frame.width,
+                        frame.height,
+                        desired_profile,
+                    );
                     encoded_size = (encode_width, encode_height);
                     encoder = Some(build_encoder(config)?);
                 }
@@ -1063,15 +1340,13 @@ mod windows_impl {
         Ok(())
     }
 
-    /// Cap the encoder resolution so the software H.264 encoder never runs on
-    /// the full desktop size. Keeps aspect ratio, clamps to the long edge at
-    /// 1080p, and rounds to even dimensions (NV12 requires even sizes). The
-    /// stream geometry for pointer math stays at the native desktop size.
-    fn scaled_encode_size(width: u32, height: u32) -> (u32, u32) {
-        const MAX_LONG_EDGE: u32 = 1920;
+    /// Cap the encoder resolution to `max_long_edge` on the long side. Keeps
+    /// aspect ratio and rounds to even dimensions (NV12 requires even sizes).
+    /// The stream geometry for pointer math stays at the native desktop size.
+    fn scaled_encode_size(width: u32, height: u32, max_long_edge: u32) -> (u32, u32) {
         let long_edge = width.max(height);
-        let scale = if long_edge > MAX_LONG_EDGE {
-            MAX_LONG_EDGE as f64 / long_edge as f64
+        let scale = if long_edge > max_long_edge {
+            max_long_edge as f64 / long_edge as f64
         } else {
             1.0
         };
@@ -1082,25 +1357,49 @@ mod windows_impl {
         (w.max(2), h.max(2))
     }
 
-    fn video_config(width: u32, height: u32, profile: StreamProfile) -> VideoConfig {
-        let pixels = width as u64 * height as u64;
-        let native_bitrate = if pixels > 3_686_400 {
-            28_000_000
-        } else if pixels > 2_073_600 {
-            18_000_000
-        } else {
-            12_000_000
-        };
+    /// Video codec configuration. Bitrate tiers are derived from the *native*
+    /// desktop pixel count, not the (downscaled) encode size: a 1080p encode of
+    /// a 4K desktop must still get the high tier instead of collapsing to the
+    /// 12 Mbps floor, which previously made every screen soft.
+    fn video_config(
+        width: u32,
+        height: u32,
+        native_width: u32,
+        native_height: u32,
+        profile: StreamProfile,
+    ) -> VideoConfig {
+        let native_pixels = (native_width as u64).max(1) * (native_height as u64).max(1);
+        // Scale the 1080p reference ceiling by pixel count. JetKVM's low-latency
+        // encoder scales its target the same way
+        // (`internal/native/cgo/video_bitrate.h`: target proportional to
+        // width*height/(1920*1080)); the 1080p reference value is our product
+        // default (overridable via API_MONITOR_RD_BITRATE_1080P).
+        let reference = u64::from(tuning().native_bitrate_1080p);
+        let scaled = reference * native_pixels / (1_920 * 1_080);
+        let native_bitrate = scaled.clamp(NATIVE_BITRATE_MIN as u64, NATIVE_BITRATE_MAX as u64) as u32;
+        let fps = profile.fps.clamp(30, TARGET_FPS);
         VideoConfig {
             width,
             height,
-            fps: profile.fps.clamp(30, TARGET_FPS),
-            bitrate: profile.bitrate.clamp(3_000_000, native_bitrate),
-            // One IDR every couple of seconds keeps periodic keyframe bursts
-            // off the wire (PLI requests still force an immediate IDR), which
-            // stabilizes the frame cadence on constrained uplinks.
-            keyframe_interval: profile.fps.clamp(30, TARGET_FPS) * KEYFRAME_INTERVAL_SECONDS,
+            fps,
+            // Floor allows REMB-driven bitrates to go below the old 3 Mbps clamp.
+            bitrate: profile
+                .bitrate
+                .clamp(REMOTE_BITRATE_FLOOR, native_bitrate.max(REMOTE_BITRATE_FLOOR)),
+            // One IDR per keyframe_interval_seconds bounds error recovery after
+            // packet loss while keeping keyframe overhead small.
+            keyframe_interval: fps * tuning().keyframe_interval_seconds,
         }
+    }
+
+    /// Apply the receiver's REMB estimate as a ceiling on the target bitrate.
+    /// A `remb` of 0 means "no estimate yet" and leaves the profile untouched.
+    /// Mirrors JetKVM's sender-side behaviour (`video_remb.go`).
+    fn clamp_bitrate_to_remb(mut profile: StreamProfile, remb: u32) -> StreamProfile {
+        if remb > 0 && profile.bitrate > remb {
+            profile.bitrate = remb;
+        }
+        profile
     }
 
     fn should_encode_frame(last: Duration, current: Duration, fps: u32) -> bool {
@@ -1178,9 +1477,21 @@ mod windows_impl {
                 .get("bitrate")
                 .and_then(Value::as_u64)
                 .unwrap_or(12_000_000)
-                .clamp(3_000_000, 30_000_000) as u32;
+                .clamp(3_000_000, 40_000_000) as u32;
+            // Optional per-session resolution cap. Absent means "keep whatever
+            // the current profile uses", so a plain fps/bitrate update does not
+            // reset the user's resolution choice.
+            let requested_max_long_edge = value
+                .get("maxLongEdge")
+                .and_then(Value::as_u64)
+                .map(|edge| edge.clamp(MIN_MAX_LONG_EDGE as u64, MAX_MAX_LONG_EDGE as u64) as u32);
             if let Ok(mut current) = profile.lock() {
-                *current = StreamProfile { fps, bitrate };
+                let max_long_edge = requested_max_long_edge.unwrap_or(current.max_long_edge);
+                *current = StreamProfile {
+                    fps,
+                    bitrate,
+                    max_long_edge,
+                };
             }
             return true;
         }
@@ -1660,18 +1971,41 @@ mod windows_impl {
 
         #[test]
         fn video_profile_is_bounded_for_low_latency_streaming() {
+            // The ceiling follows the *native* pixels: a 4K desktop gets 4x the
+            // 1080p reference ceiling (20 Mbps), clamped to NATIVE_BITRATE_MAX.
             let config = video_config(
+                1_920,
+                1_080,
                 3_840,
                 2_160,
                 StreamProfile {
                     fps: 10,
                     bitrate: 50_000_000,
+                    max_long_edge: 0,
                 },
             );
             assert_eq!(config.fps, 30);
-            assert_eq!(config.bitrate, 28_000_000);
-            // One IDR every two seconds at the clamped 30 fps floor: 60 frames.
-            assert_eq!(config.keyframe_interval, 60);
+            assert_eq!(config.bitrate, 50_000_000);
+            // One IDR per second at the clamped 30 fps floor.
+            assert_eq!(config.keyframe_interval, 30);
+        }
+
+        #[test]
+        fn video_config_caps_the_request_to_the_native_tier() {
+            // A 1080p desktop must not accept more than the 1080p reference
+            // ceiling even if the client asks for more.
+            let config = video_config(
+                1_920,
+                1_080,
+                1_920,
+                1_080,
+                StreamProfile {
+                    fps: 30,
+                    bitrate: 50_000_000,
+                    max_long_edge: 0,
+                },
+            );
+            assert_eq!(config.bitrate, NATIVE_BITRATE_1080P);
         }
 
         #[test]
@@ -1680,32 +2014,122 @@ mod windows_impl {
                 StreamProfile::default(),
                 StreamProfile {
                     fps: 30,
-                    bitrate: 6_000_000
+                    bitrate: 6_000_000,
+                    max_long_edge: 0,
                 }
             );
         }
 
         #[test]
         fn scaled_encode_size_caps_large_desktops_and_keeps_even_dimensions() {
-            // 4K is capped to a 1920-long-edge, even, aspect-preserving size.
-            let (w, h) = scaled_encode_size(3_840, 2_160);
-            assert_eq!((w, h), (1_920, 1_080));
+            const CAP: u32 = DEFAULT_MAX_LONG_EDGE;
+            // 4K is capped to the default 2560 long edge, even, aspect-preserving.
+            let (w, h) = scaled_encode_size(3_840, 2_160, CAP);
+            assert_eq!((w, h), (2_560, 1_440));
             assert_eq!(w % 2, 0);
             assert_eq!(h % 2, 0);
 
             // A non-16:9 4K desktop keeps its aspect ratio under the cap.
-            let (w, h) = scaled_encode_size(3_440, 1_440);
-            assert_eq!((w, h), (1_920, 804));
+            let (w, h) = scaled_encode_size(3_440, 1_440, CAP);
+            assert_eq!((w, h), (2_560, 1_072));
 
             // Below the cap the native size is preserved (still even).
-            let (w, h) = scaled_encode_size(1_920, 1_080);
+            let (w, h) = scaled_encode_size(1_920, 1_080, CAP);
+            assert_eq!((w, h), (1_920, 1_080));
+
+            // A lower per-session cap (e.g. the "smooth" preset) is honoured.
+            let (w, h) = scaled_encode_size(3_840, 2_160, 1_920);
             assert_eq!((w, h), (1_920, 1_080));
 
             // Odd desktop sizes are rounded down to even dimensions.
-            let (w, h) = scaled_encode_size(1_365, 767);
+            let (w, h) = scaled_encode_size(1_365, 767, CAP);
             assert_eq!(w % 2, 0);
             assert_eq!(h % 2, 0);
             assert!(w <= 1_365 && h <= 767);
+        }
+
+        #[test]
+        fn desktop_interface_filter_drops_tunnels_but_keeps_physical_nics() {
+            assert!(should_use_interface_for_desktop("以太网"));
+            assert!(should_use_interface_for_desktop("Ethernet"));
+            assert!(should_use_interface_for_desktop("Wi-Fi"));
+            assert!(should_use_interface_for_desktop("WLAN"));
+            // Loopback / virtual / container adapters are already excluded by
+            // the shared nat filter.
+            assert!(!should_use_interface_for_desktop("lo"));
+            assert!(!should_use_interface_for_desktop("docker0"));
+            // Windows TUN-mode proxies must not contribute ICE candidates.
+            assert!(!should_use_interface_for_desktop("wintun"));
+            assert!(!should_use_interface_for_desktop("Clash"));
+            assert!(!should_use_interface_for_desktop("Mihomo"));
+            assert!(!should_use_interface_for_desktop("sing-box"));
+            assert!(!should_use_interface_for_desktop("WireGuard Tunnel"));
+            assert!(!should_use_interface_for_desktop("OpenVPN TAP-Windows6"));
+        }
+
+        #[test]
+        fn tuning_defaults_match_the_documented_product_defaults() {
+            let tuning = RemoteDesktopTuning::from_lookup(|_| None);
+            assert_eq!(tuning.max_long_edge, DEFAULT_MAX_LONG_EDGE);
+            assert_eq!(tuning.native_bitrate_1080p, NATIVE_BITRATE_1080P);
+            assert_eq!(tuning.keyframe_interval_seconds, KEYFRAME_INTERVAL_SECONDS);
+            assert_eq!(tuning.queue_depth, ENCODED_QUEUE_DEPTH);
+            assert!(tuning.nat_1to1_ips.is_empty());
+            assert_eq!(tuning.nat_1to1_candidate_type, RTCIceCandidateType::Host);
+        }
+
+        #[test]
+        fn tuning_reads_and_clamps_environment_overrides() {
+            let tuning = RemoteDesktopTuning::from_lookup(|key| {
+                match key {
+                    "API_MONITOR_RD_MAX_LONG_EDGE" => Some("1024".to_string()), // below MIN
+                    "API_MONITOR_RD_BITRATE_1080P" => Some(" 12345678 ".to_string()),
+                    "API_MONITOR_RD_KEYFRAME_SECONDS" => Some("99".to_string()), // above max
+                    "API_MONITOR_RD_QUEUE_DEPTH" => Some("5".to_string()),
+                    "API_MONITOR_RD_NAT_1TO1_IPS" => {
+                        Some("203.0.113.7, 198.51.100.9 ,".to_string())
+                    }
+                    "API_MONITOR_RD_NAT_1TO1_TYPE" => Some("Srflx".to_string()),
+                    _ => None,
+                }
+            });
+            assert_eq!(tuning.max_long_edge, MIN_MAX_LONG_EDGE);
+            assert_eq!(tuning.native_bitrate_1080p, 12_345_678);
+            assert_eq!(tuning.keyframe_interval_seconds, 10);
+            assert_eq!(tuning.queue_depth, 5);
+            assert_eq!(
+                tuning.nat_1to1_ips,
+                vec!["203.0.113.7".to_string(), "198.51.100.9".to_string()]
+            );
+            assert_eq!(tuning.nat_1to1_candidate_type, RTCIceCandidateType::Srflx);
+        }
+
+        #[test]
+        fn parse_candidate_type_accepts_the_supported_names() {
+            assert_eq!(parse_candidate_type("HOST"), Some(RTCIceCandidateType::Host));
+            assert_eq!(parse_candidate_type(" srflx "), Some(RTCIceCandidateType::Srflx));
+            // webrtc-rs rejects prflx/relay for 1:1 NAT; treat as unset.
+            assert_eq!(parse_candidate_type("prflx"), None);
+            assert_eq!(parse_candidate_type("relay"), None);
+            assert_eq!(parse_candidate_type("bogus"), None);
+        }
+
+        #[test]
+        fn remb_clamps_the_target_bitrate_only_when_lower() {
+            let profile = StreamProfile {
+                fps: 30,
+                bitrate: 20_000_000,
+                max_long_edge: 0,
+            };
+            // No estimate yet: leave the profile alone.
+            assert_eq!(clamp_bitrate_to_remb(profile, 0).bitrate, 20_000_000);
+            // Estimate above the target: still no change.
+            assert_eq!(clamp_bitrate_to_remb(profile, 30_000_000).bitrate, 20_000_000);
+            // Estimate below the target: clamp down, keeping the other fields.
+            let clamped = clamp_bitrate_to_remb(profile, 4_000_000);
+            assert_eq!(clamped.bitrate, 4_000_000);
+            assert_eq!(clamped.fps, profile.fps);
+            assert_eq!(clamped.max_long_edge, profile.max_long_edge);
         }
 
         #[test]

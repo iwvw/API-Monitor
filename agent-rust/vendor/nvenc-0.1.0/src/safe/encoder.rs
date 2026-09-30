@@ -158,6 +158,11 @@ impl Encoder {
         // dereferenced here.
         let mut config = unsafe { std::ptr::read(&*self.init_config) };
         config.rc_params.average_bit_rate = average_bitrate;
+        // Keep the constrained-VBR limits proportional to the new average.
+        // Peak ratio 3/2 and VBV window 2x follow the reference policies in
+        // remote_desktop.rs (JetKVM peak ratio / FFmpeg nvenc VBV default).
+        config.rc_params.max_bit_rate = average_bitrate + average_bitrate / 2;
+        config.rc_params.vbv_buffer_size = average_bitrate * 2;
         let mut re_init = unsafe { std::ptr::read(&self.init_snapshot) };
         re_init.encode_config = &raw mut config;
         let mut params = NVencReconfigureParams {

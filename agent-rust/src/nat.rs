@@ -153,7 +153,10 @@ pub fn local_ipv4_candidates() -> Vec<Ipv4Addr> {
     out
 }
 
-fn should_count_interface(name: &str) -> bool {
+/// 判断某网卡名是否属于「真实物理网卡」。虚拟/容器/隧道网卡（docker、tun、
+/// tap、wg、tailscale 等）一律排除。远程桌面 WebRTC 也复用该名单，避免在 TUN
+/// 代理环境下收集到黑洞候选、把媒体流量引入代理隧道。
+pub(crate) fn should_count_interface(name: &str) -> bool {
     let normalized = name.trim().to_ascii_lowercase();
     if normalized.is_empty() || normalized == "lo" {
         return false;

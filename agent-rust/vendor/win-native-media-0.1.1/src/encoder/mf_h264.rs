@@ -693,15 +693,37 @@ unsafe fn configure_low_latency(transform: &IMFTransform, cfg: &VideoConfig) {
             &CODECAPI_AVEncCommonRealTime,
             windows::Win32::System::Variant::VARIANT::from(true),
         ),
+        // Dedicated low-latency switch. Chromium's H.264 MFT encoder enables it
+        // (media/gpu/windows/media_foundation_video_encode_accelerator_win.cc).
+        (
+            &CODECAPI_AVLowLatencyMode,
+            windows::Win32::System::Variant::VARIANT::from(true),
+        ),
         (
             &CODECAPI_AVEncCommonMeanBitRate,
             windows::Win32::System::Variant::VARIANT::from(cfg.bitrate),
         ),
+        // Peak = 1.5x the target. JetKVM's low-latency encoder uses the same
+        // ratio (`internal/native/cgo/video_bitrate.h`: maximum = target * 3/2).
+        (
+            &CODECAPI_AVEncCommonMaxBitRate,
+            windows::Win32::System::Variant::VARIANT::from(cfg.bitrate + cfg.bitrate / 2),
+        ),
+        // Peak-constrained VBR is the mode Chromium selects for a VBR stream
+        // carrying both mean and max bitrate. It does NOT set
+        // AVEncCommonBufferSize, so neither do we (the HRD window stays at the
+        // driver default).
         (
             &CODECAPI_AVEncCommonRateControlMode,
             windows::Win32::System::Variant::VARIANT::from(
-                eAVEncCommonRateControlMode_LowDelayVBR.0 as u32,
+                eAVEncCommonRateControlMode_PeakConstrainedVBR.0 as u32,
             ),
+        ),
+        // Keep one reference frame to minimise the decoding (re)order delay.
+        // Same as Chromium's low-latency configuration.
+        (
+            &CODECAPI_AVEncVideoMaxNumRefFrame,
+            windows::Win32::System::Variant::VARIANT::from(1u32),
         ),
         (
             &CODECAPI_AVEncMPVGOPSize,
