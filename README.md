@@ -157,6 +157,12 @@ npm run backend-go:build
 | `API_MONITOR_DOCKER_REGISTRY_MIRRORS` | 可选 | Docker Hub 镜像加速地址，逗号分隔 |
 | `API_MONITOR_TRAFFIC_REPORT_SECS` | 可选 | 流量上报间隔（秒，默认 `300`，最小 `60`） |
 | `API_MONITOR_FILE_ROOTS` | 可选 | 额外文件白名单根目录，平台分隔符分隔（Windows `;` / 类 Unix `:`）；留空则仅默认沙箱。由后端 `API_MONITOR_AGENT_FILE_ROOTS` 在安装脚本中自动注入 |
+| `API_MONITOR_RD_MAX_LONG_EDGE` | 可选 | 远程桌面编码长边上限，默认 `2560`，范围 `1280`-`3840`；前端画质档位可逐会话覆盖 |
+| `API_MONITOR_RD_BITRATE_1080P` | 可选 | 远程桌面 1080p 参考码率上限（bits/s，默认 `20000000`）；更高分辨率按像素比线性放大 |
+| `API_MONITOR_RD_KEYFRAME_SECONDS` | 可选 | 远程桌面关键帧间隔（秒，默认 `1`，范围 `1`-`10`） |
+| `API_MONITOR_RD_QUEUE_DEPTH` | 可选 | 远程桌面编码结果队列深度，默认 `3`，范围 `1`-`16` |
+| `API_MONITOR_RD_NAT_1TO1_IPS` | 可选 | 远程桌面 1:1 NAT / 公网 IP 列表（逗号分隔）。配好后直接广播公网候选，免 STUN 打洞即可直连；面板「主机编辑 → 远程桌面直连」中的配置会覆盖此环境变量 |
+| `API_MONITOR_RD_NAT_1TO1_TYPE` | 可选 | 上述地址使用的 ICE 候选类型：`host` / `srflx`（默认 `srflx`）；同样可被面板逐主机配置覆盖 |
 
 ## 技术栈
 
