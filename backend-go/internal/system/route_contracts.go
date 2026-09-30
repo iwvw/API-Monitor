@@ -669,15 +669,13 @@ func init() {
 		"params":    {t: "object"},
 	})
 	routeRequestContracts["/api/server/v2/docker/overview"] = obj([]string{"serverId"}, map[string]prop{"serverId": {t: "string", req: true}})
-	routeRequestContracts["/api/server/remote-desktop/sessions"] = obj([]string{"serverId"}, map[string]prop{
+	routeRequestContracts["/api/server/remote-desktop/sessions"] = obj([]string{"serverId", "offer"}, map[string]prop{
 		"serverId": {t: "string", req: true},
-		"quality":  {t: "integer", d: "画质 0-100"},
-		"scale":    {t: "number", d: "分辨率缩放"},
+		"offer":    {t: "object", req: true, d: "浏览器端 WebRTC offer (RTCSessionDescription)"},
 	})
 	routeRequestContracts["/api/server/remote-desktop/sessions/{id}"] = noBody
 	routeRequestContracts["/api/server/remote-desktop/sessions/{id}/signals"] = obj([]string{"signal"}, map[string]prop{
-		"signal": {t: "string", req: true},
-		"args":   {t: "object"},
+		"signal": {t: "object", req: true, d: "浏览器端 ICE candidate 信令，原样转发给 Agent"},
 	})
 
 	// Agent

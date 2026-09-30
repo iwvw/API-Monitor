@@ -1,6 +1,7 @@
 package serveragent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,9 +15,17 @@ import (
 )
 
 const (
-	remoteDesktopSessionTTL = 30 * time.Minute
-	remoteDesktopSignalTTL  = 2 * time.Minute
-	remoteDesktopMaxSignals = 256
+	// remoteDesktopIdleTTL 是空闲上限：真实的客户端活动（浏览器轮询信令、Agent
+	// 上报信令/状态）会刷新 LastActivity；持续无活动超过该时长即回收。只要标签页
+	// 还开着就会每 15s 长轮询一次，因此活跃会话不会被误回收，而关闭标签页或
+	// Agent 断线后的会话会被及时清理。
+	remoteDesktopIdleTTL = 5 * time.Minute
+	// remoteDesktopMaxLifetime 是绝对安全上限，防止异常客户端无限滞留会话。
+	remoteDesktopMaxLifetime = 12 * time.Hour
+	remoteDesktopSignalTTL   = 2 * time.Minute
+	remoteDesktopMaxSignals  = 256
+	// remoteDesktopCleanupInterval 是周期清理的节拍，避免会话只能靠请求顺带回收。
+	remoteDesktopCleanupInterval = time.Minute
 )
 
 type remoteDesktopSignal struct {
@@ -54,6 +63,9 @@ func (m *remoteDesktopManager) create(serverID string, agentSocket interface{}) 
 	for id, session := range m.sessions {
 		if session.ServerID == serverID {
 			delete(m.sessions, id)
+			// 关闭被替换会话的 Notify，让旧前端的长轮询立即返回，而不是等到超时。
+			close(session.Notify)
+			session.Notify = nil
 		}
 	}
 	now := time.Now()
@@ -62,7 +74,7 @@ func (m *remoteDesktopManager) create(serverID string, agentSocket interface{}) 
 		ServerID:     serverID,
 		AgentSocket:  agentSocket,
 		CreatedAt:    now,
-		ExpiresAt:    now.Add(remoteDesktopSessionTTL),
+		ExpiresAt:    now.Add(remoteDesktopMaxLifetime),
 		LastActivity: now,
 		State:        "connecting",
 		Notify:       make(chan struct{}, 1),
@@ -162,6 +174,8 @@ func (m *remoteDesktopManager) signals(id string, since int64) ([]remoteDesktopS
 	if !ok {
 		return nil, "", false
 	}
+	// 客户端轮询即「会话仍被使用」的心跳，刷新空闲时间。标签页关闭后不再轮询，
+	// 空闲超时后由周期清理回收。
 	session.LastActivity = time.Now()
 	out := make([]remoteDesktopSignal, 0)
 	for _, signal := range session.Signals {
@@ -178,14 +192,24 @@ func (m *remoteDesktopManager) remove(id string) (*remoteDesktopSession, bool) {
 	session, ok := m.sessions[id]
 	if ok {
 		delete(m.sessions, id)
+		// 关闭 Notify，唤醒仍在长轮询等待该会话的 goroutine，让它们立刻返回，
+		// 而不是空等最长 20 秒才靠超时退出。
+		close(session.Notify)
+		session.Notify = nil
 	}
 	return session, ok
 }
 
+// cleanupLocked 回收过期会话并裁剪过期信令。会话过期判定为「绝对上限」或
+// 「空闲上限」二者取先到者：空闲时间由客户端轮询与 Agent 信令刷新，因此活跃
+// 会话不会被误回收；标签页关闭或 Agent 断线后空闲超时即被清理，绝对上限则
+// 兜底异常客户端。
 func (m *remoteDesktopManager) cleanupLocked(now time.Time) {
 	for id, session := range m.sessions {
-		if now.After(session.ExpiresAt) || now.Sub(session.LastActivity) > remoteDesktopSessionTTL {
+		if now.After(session.ExpiresAt) || now.Sub(session.LastActivity) > remoteDesktopIdleTTL {
 			delete(m.sessions, id)
+			close(session.Notify)
+			session.Notify = nil
 			continue
 		}
 		cutoff := now.Add(-remoteDesktopSignalTTL).UnixMilli()
@@ -195,6 +219,41 @@ func (m *remoteDesktopManager) cleanupLocked(now time.Time) {
 		}
 		if first > 0 {
 			session.Signals = append([]remoteDesktopSignal(nil), session.Signals[first:]...)
+		}
+	}
+}
+
+// closeForServer 移除某台主机上的远程桌面会话（Agent 断线或重连时调用），
+// 并关闭其 Notify 唤醒等待者，避免失效会话与失效 socket 引用滞留内存。
+func (m *remoteDesktopManager) closeForServer(serverID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	removed := 0
+	for id, session := range m.sessions {
+		if session.ServerID != serverID {
+			continue
+		}
+		delete(m.sessions, id)
+		close(session.Notify)
+		session.Notify = nil
+		removed++
+	}
+	return removed
+}
+
+// startCleanupLoop 周期回收过期会话。此前 cleanupLocked 只在请求路径被顺带调用，
+// 无任何请求时过期会话会常驻内存。
+func (m *remoteDesktopManager) startCleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(remoteDesktopCleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.mu.Lock()
+			m.cleanupLocked(time.Now())
+			m.mu.Unlock()
 		}
 	}
 }
@@ -209,9 +268,13 @@ type remoteDesktopBrowserSignalRequest struct {
 }
 
 func (s *Service) handleRemoteDesktopRoutes(w http.ResponseWriter, r *http.Request, parts []string) {
-	if s.remoteDesktop == nil {
-		s.remoteDesktop = newRemoteDesktopManager()
-	}
+	// 惰性初始化加 sync.Once，避免并发首请求下对 s.remoteDesktop 字段的无锁写竞态。
+	// 生产路径在 New() 已初始化，这里只是防御性兜底。
+	s.remoteDesktopOnce.Do(func() {
+		if s.remoteDesktop == nil {
+			s.remoteDesktop = newRemoteDesktopManager()
+		}
+	})
 	switch {
 	case len(parts) == 1 && parts[0] == "sessions" && r.Method == http.MethodPost:
 		s.createRemoteDesktopSession(w, r)

@@ -43,6 +43,7 @@ type Service struct {
 	terminalBroker                *agentTerminalBroker
 	agentPortBroker               *agentPortBroker
 	remoteDesktop                 *remoteDesktopManager
+	remoteDesktopOnce             sync.Once
 	lastCollect                   time.Time
 	lastCollectMu                 sync.RWMutex
 	lastPersist                   map[string]time.Time
@@ -473,6 +474,11 @@ func New(cfg config.Config) *Service {
 					if s.agentPortBroker != nil {
 						s.agentPortBroker.closeForServer(sid, "agent_control_disconnected")
 					}
+					// 远程桌面依赖 Agent 侧 peer 存活，Agent 断线后会话已无意义，
+					// 立即回收，避免失效会话与失效 socket 引用滞留内存。
+					if s.remoteDesktop != nil {
+						s.remoteDesktop.closeForServer(sid)
+					}
 					if s.presence != nil && s.presence.legacyMode() {
 						s.markAgentOfflineLegacy(sid)
 					} else if s.presence != nil {
@@ -545,6 +551,14 @@ func New(cfg config.Config) *Service {
 		defer s.backgroundWG.Done()
 		s.startForwardConnectorSyncLoop(backgroundCtx)
 	}()
+
+	if s.remoteDesktop != nil {
+		s.backgroundWG.Add(1)
+		go func() {
+			defer s.backgroundWG.Done()
+			s.remoteDesktop.startCleanupLoop(backgroundCtx)
+		}()
+	}
 
 	return s
 }

@@ -534,6 +534,9 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/totp",
 		"/api/cron",
 		"/api/scheduler",
+		// 远程桌面等价于 Windows 主机的完整键鼠控制，且信令接口会返回 SDP/ICE
+		// 与转发输入注入信号，绝不允许只读/只写 API key 绕过真实会话。
+		"/api/server/remote-desktop",
 		// 插件账号导入导出会明文返回上游 OAuth 凭据（含 refresh token），
 		// 必须强制真实会话，不能由只读 API key 下载。
 		"/api/posthogcode/accounts/export",

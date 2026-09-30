@@ -85,3 +85,125 @@ func TestRemoteDesktopAgentSignalIsScopedToServer(t *testing.T) {
 		t.Fatalf("signal/state = %#v/%q", signals, state)
 	}
 }
+
+func TestRemoteDesktopSessionExpiresOnAbsoluteDeadline(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	session := manager.create("windows-1", struct{}{})
+	// 绝对上限优先于空闲刷新：直接把绝对截止时间推到达即应回收。
+	session.ExpiresAt = time.Now().Add(-time.Second)
+	if _, ok := manager.get(session.ID); ok {
+		t.Fatal("session past its absolute deadline must be reclaimed")
+	}
+}
+
+func TestRemoteDesktopSessionExpiresWhenIdle(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	session := manager.create("windows-1", struct{}{})
+	session.LastActivity = time.Now().Add(-remoteDesktopIdleTTL - time.Minute)
+	if _, ok := manager.get(session.ID); ok {
+		t.Fatal("session idle past the idle TTL must be reclaimed")
+	}
+}
+
+func TestRemoteDesktopPollingRefreshesIdleTimer(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	session := manager.create("windows-1", struct{}{})
+	// 客户端轮询代表会话仍在使用，应刷新空闲时间，避免活跃会话被误回收。
+	stale := time.Now().Add(-remoteDesktopIdleTTL + time.Minute)
+	session.LastActivity = stale
+	if _, _, ok := manager.signals(session.ID, 0); !ok {
+		t.Fatal("session should still be alive before the idle TTL")
+	}
+	if !session.LastActivity.After(stale) {
+		t.Fatal("polling must refresh LastActivity so an active session is not reclaimed")
+	}
+}
+
+func TestRemoteDesktopSignalCapAndSinceCursor(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	session := manager.create("windows-1", struct{}{})
+	total := remoteDesktopMaxSignals + 40
+	for i := 0; i < total; i++ {
+		if !manager.appendAgentSignal(session.ID, "windows-1", json.RawMessage(`{"kind":"ice"}`)) {
+			t.Fatalf("signal %d should be accepted", i)
+		}
+	}
+	all, _, ok := manager.signals(session.ID, 0)
+	if !ok {
+		t.Fatal("session should exist")
+	}
+	if len(all) != remoteDesktopMaxSignals {
+		t.Fatalf("retained signals = %d, want %d", len(all), remoteDesktopMaxSignals)
+	}
+	lastID := all[len(all)-1].ID
+	if lastID != int64(total) {
+		t.Fatalf("last signal id = %d, want %d", lastID, total)
+	}
+	// since 游标只返回严格大于游标的信号。
+	tail, _, _ := manager.signals(session.ID, lastID-1)
+	if len(tail) != 1 || tail[0].ID != lastID {
+		t.Fatalf("since cursor tail = %#v", tail)
+	}
+	if empty, _, _ := manager.signals(session.ID, lastID); len(empty) != 0 {
+		t.Fatalf("since cursor at head must be empty, got %#v", empty)
+	}
+}
+
+func TestRemoteDesktopRemoveWakesLongPoll(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	session := manager.create("windows-1", struct{}{})
+	done := make(chan bool, 1)
+	go func() {
+		_, _, ok := manager.waitSignals(session.ID, 0, 20*time.Second)
+		done <- ok
+	}()
+	time.Sleep(20 * time.Millisecond)
+	manager.remove(session.ID)
+	select {
+	case ok := <-done:
+		if ok {
+			t.Fatal("waitSignals should report the session as gone after removal")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("removing a session must wake pending long polls instead of waiting for the timeout")
+	}
+}
+
+func TestRemoteDesktopCloseForServer(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	first := manager.create("windows-1", struct{}{})
+	second := manager.create("windows-2", struct{}{})
+	if removed := manager.closeForServer("windows-1"); removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+	if _, ok := manager.get(first.ID); ok {
+		t.Fatal("session on the disconnected server must be removed")
+	}
+	if _, ok := manager.get(second.ID); !ok {
+		t.Fatal("session on another server must be preserved")
+	}
+}
+
+func TestCloseRemoteDesktopSessionHandler(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	service := &Service{registry: NewConnectionRegistry(), remoteDesktop: manager}
+	t.Cleanup(service.registry.Stop)
+	session := manager.create("windows-1", struct{}{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/server/remote-desktop/sessions/"+session.ID, nil)
+	res := httptest.NewRecorder()
+	service.handleRemoteDesktopRoutes(res, req, []string{"sessions", session.ID})
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if _, ok := manager.get(session.ID); ok {
+		t.Fatal("session must be gone after DELETE")
+	}
+
+	// 删除一个不存在的会话也应幂等返回成功。
+	res = httptest.NewRecorder()
+	service.handleRemoteDesktopRoutes(res, httptest.NewRequest(http.MethodDelete, "/x", nil), []string{"sessions", "missing"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("deleting a missing session status = %d, want 200", res.Code)
+	}
+}
