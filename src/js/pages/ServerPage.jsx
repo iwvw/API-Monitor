@@ -1656,6 +1656,8 @@ function ServerPage() {
     trafficCycleStart: '',
     trafficCycleEnd: '',
     monitorMode: 'agent',
+    remoteDesktopNatIps: '',
+    remoteDesktopNatType: 'srflx',
   });
   const [selectedCredentialId, setSelectedCredentialId] = useState('');
   const [serverModalSaving, setServerModalSaving] = useState(false);
@@ -3164,6 +3166,8 @@ function ServerPage() {
       trafficCycleStart: '',
       trafficCycleEnd: '',
       monitorMode: 'agent',
+      remoteDesktopNatIps: '',
+      remoteDesktopNatType: 'srflx',
     });
     setSelectedCredentialId('');
     setServerModalMode('add');
@@ -3197,6 +3201,8 @@ function ServerPage() {
       trafficCycleStart: formatDateInputValue(server.traffic_cycle_start),
       trafficCycleEnd: formatDateInputValue(server.traffic_cycle_end),
       monitorMode: server.monitor_mode || 'agent',
+      remoteDesktopNatIps: server.remote_desktop_nat_ips || '',
+      remoteDesktopNatType: server.remote_desktop_nat_type || 'srflx',
     });
     setServerAddMode('ssh');
     setSelectedCredentialId('');
@@ -3405,6 +3411,8 @@ function ServerPage() {
             ? normalizeExpiryInputValue(serverForm.trafficCycleEnd)
             : null,
         monitor_mode: isAgentForm ? 'agent' : 'ssh',
+        remote_desktop_nat_ips: (serverForm.remoteDesktopNatIps || '').trim(),
+        remote_desktop_nat_type: serverForm.remoteDesktopNatType || 'srflx',
       };
 
       if (serverForm.authType === 'password' && serverForm.password) {
@@ -13045,6 +13053,53 @@ function ServerPage() {
                         onValueChange={tags => setServerForm(prev => ({ ...prev, tags }))}
                         placeholder="输入后回车添加，如：生产环境"
                       />
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg border border-kumo-line bg-kumo-recessed/20 p-3.5">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="font-semibold text-kumo-strong">远程桌面直连</h3>
+                      <span className="text-[11px] text-kumo-subtle">可选</span>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-kumo-subtle">
+                          1:1 NAT / 公网 IP
+                        </label>
+                        <Input
+                          size="sm"
+                          aria-label="远程桌面 1:1 NAT 公网 IP"
+                          type="text"
+                          value={serverForm.remoteDesktopNatIps}
+                          onChange={e =>
+                            setServerForm(prev => ({ ...prev, remoteDesktopNatIps: e.target.value }))
+                          }
+                          placeholder="203.0.113.7, 198.51.100.9（留空则不启用）"
+                          spellCheck={false}
+                          className="px-3 py-2 text-kumo-strong"
+                        />
+                        <span className="text-[11px] text-kumo-subtle">
+                          填写后，远程桌面会把该地址作为 ICE 候选直接广播，免去 STUN
+                          打洞即可建立直连；多个地址用逗号分隔。
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-kumo-subtle">候选类型</label>
+                        <Select
+                          alignItemWithTrigger
+                          size="sm"
+                          aria-label="远程桌面直连候选类型"
+                          value={serverForm.remoteDesktopNatType}
+                          onValueChange={value =>
+                            setServerForm(prev => ({ ...prev, remoteDesktopNatType: value }))
+                          }
+                          className="w-full min-w-0 px-3 py-2"
+                          items={[
+                            { value: 'srflx', label: 'srflx（公网 IP 经 NAT 映射，推荐）' },
+                            { value: 'host', label: 'host（地址就在本机网卡上）' },
+                          ]}
+                        />
+                      </div>
                     </div>
                   </section>
                 </>

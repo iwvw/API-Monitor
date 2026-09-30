@@ -80,13 +80,31 @@ export function normalizedVideoPoint(
   };
 }
 
-// 初始/恢复档位。nativeBitrate 为前端按实际接收分辨率推算的码率上限（未知时传 0）：
-// 桌面端在高分屏上按原生档恢复，粗指针移动端仍以低码率优先，避免移动网络抖动。
-export function initialRemoteDesktopProfile(coarsePointer, nativeBitrate = 0) {
-  if (coarsePointer) {
-    return { fps: 30, bitrate: 6_000_000 };
-  }
-  return { fps: 60, bitrate: nativeBitrate > 12_000_000 ? nativeBitrate : 12_000_000 };
+// 画质预设。桌面场景下提高帧率的边际收益低于单帧清晰度，因此三档都以 30fps
+// 为基准，用分辨率与码率拉开画质差距（编码侧相应放宽了长边上限与码率档）。
+export const DESKTOP_QUALITY_PRESETS = [
+  { id: 'smooth', label: '流畅', fps: 30, bitrate: 6_000_000, maxLongEdge: 1280 },
+  { id: 'balanced', label: '适应', fps: 30, bitrate: 12_000_000, maxLongEdge: 1920 },
+  { id: 'sharp', label: '清晰', fps: 30, bitrate: 24_000_000, maxLongEdge: 2560 },
+];
+
+export const DEFAULT_DESKTOP_PRESET = 'balanced';
+
+export function desktopPresetById(id) {
+  return (
+    DESKTOP_QUALITY_PRESETS.find(preset => preset.id === id)
+    || DESKTOP_QUALITY_PRESETS.find(preset => preset.id === DEFAULT_DESKTOP_PRESET)
+  );
+}
+
+// 预设对应的视频档位。粗指针移动端压低帧率与码率以优先流畅度与流量。
+export function remoteDesktopProfileForPreset(presetId, coarsePointer = false) {
+  const preset = desktopPresetById(presetId);
+  return {
+    fps: coarsePointer ? Math.min(30, preset.fps) : preset.fps,
+    bitrate: coarsePointer ? Math.min(6_000_000, preset.bitrate) : preset.bitrate,
+    maxLongEdge: preset.maxLongEdge,
+  };
 }
 
 export function nextRemoteDesktopProfile({
@@ -95,27 +113,44 @@ export function nextRemoteDesktopProfile({
   bufferMs = 0,
   nativeBitrate = 12_000_000,
   healthyIntervals = 0,
-  current = { fps: 60, bitrate: 12_000_000 },
+  current = { fps: 30, bitrate: 12_000_000, maxLongEdge: 1920 },
   droppedFps = 0,
-  coarsePointer = false,
+  // 当前所选画质预设档位；严重劣化时会在其基础上同时下调码率与分辨率。
+  base = current,
 }) {
+  // 归一化基准档位，容忍调用方省略 maxLongEdge。
+  const baseProfile = {
+    fps: base.fps,
+    bitrate: base.bitrate,
+    maxLongEdge: Number(base.maxLongEdge) > 0 ? base.maxLongEdge : 1920,
+  };
+  const floor = Math.min(6_000_000, nativeBitrate);
+  const mid = Math.min(8_000_000, nativeBitrate);
   if (loss > 5 || rtt > 140 || bufferMs > 100 || droppedFps > 4) {
     return {
-      profile: { fps: 30, bitrate: Math.min(6_000_000, nativeBitrate) },
+      profile: {
+        ...baseProfile,
+        bitrate: floor,
+        maxLongEdge: Math.min(baseProfile.maxLongEdge, 1280),
+      },
       healthyIntervals: 0,
     };
   }
   if (loss > 2 || rtt > 80 || bufferMs > 40 || droppedFps > 1) {
     return {
-      profile: { fps: 30, bitrate: Math.min(8_000_000, nativeBitrate) },
+      profile: {
+        ...baseProfile,
+        bitrate: mid,
+        maxLongEdge: Math.min(baseProfile.maxLongEdge, 1920),
+      },
       healthyIntervals: 0,
     };
   }
   const nextHealthy = healthyIntervals + 1;
   return {
-    // Three healthy 2s intervals (6s) before restoring the full profile, so
-    // recovery from a degraded link is quick without oscillating.
-    profile: nextHealthy >= 3 ? initialRemoteDesktopProfile(coarsePointer, nativeBitrate) : current,
+    // Two healthy 2s intervals (4s) before restoring the preset, so recovery is
+    // quick without oscillating between profiles.
+    profile: nextHealthy >= 2 ? baseProfile : current,
     healthyIntervals: nextHealthy,
   };
 }

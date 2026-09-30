@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DESKTOP_QUALITY_PRESETS,
+  DEFAULT_DESKTOP_PRESET,
   accelerateTrackpadDelta,
   consumeScrollDelta,
-  initialRemoteDesktopProfile,
+  desktopPresetById,
   isDoubleTap,
   nextPinchTransform,
   nextRemoteDesktopProfile,
   normalizedVideoPoint,
   normalizedTrackpadDelta,
   remoteCursorPoint,
+  remoteDesktopProfileForPreset,
   trackpadButtonMessage,
   trackpadPixelDelta,
 } from './remoteDesktopTouch.js';
@@ -58,54 +61,59 @@ describe('remote desktop touch controls', () => {
     expect(trackpadPixelDelta(24, 0, 16).x).toBeGreaterThan(24);
   });
 
-  it('starts coarse-pointer clients in a reaction-first mobile profile', () => {
-    expect(initialRemoteDesktopProfile(true)).toEqual({ fps: 30, bitrate: 6_000_000 });
-    expect(initialRemoteDesktopProfile(false)).toEqual({ fps: 60, bitrate: 12_000_000 });
-    // 高分屏桌面端按原生码率启动，不再被固定压到 12 Mbps。
-    expect(initialRemoteDesktopProfile(false, 18_000_000)).toEqual({ fps: 60, bitrate: 18_000_000 });
-    // 未知分辨率（nativeBitrate 为 0）时回落到默认 12 Mbps。
-    expect(initialRemoteDesktopProfile(false, 0)).toEqual({ fps: 60, bitrate: 12_000_000 });
-    // 粗指针移动端始终以低码率优先，不受高分屏 nativeBitrate 影响。
-    expect(initialRemoteDesktopProfile(true, 28_000_000)).toEqual({ fps: 30, bitrate: 6_000_000 });
+  it('exposes a quality preset ladder with resolution and bitrate', () => {
+    expect(DESKTOP_QUALITY_PRESETS.map(preset => preset.id)).toEqual(['smooth', 'balanced', 'sharp']);
+    expect(desktopPresetById('unknown').id).toBe(DEFAULT_DESKTOP_PRESET);
+    const sharpDesktop = remoteDesktopProfileForPreset('sharp', false);
+    expect(sharpDesktop).toEqual({ fps: 30, bitrate: 24_000_000, maxLongEdge: 2560 });
+    // 粗指针移动端压低帧率与码率，但仍保留所选分辨率档。
+    expect(remoteDesktopProfileForPreset('sharp', true)).toEqual({
+      fps: 30,
+      bitrate: 6_000_000,
+      maxLongEdge: 2560,
+    });
   });
 
-  it('reduces frame cadence when the decoder jitter buffer grows', () => {
-    const next = nextRemoteDesktopProfile({
+  it('reduces bitrate and resolution when the link degrades', () => {
+    const base = remoteDesktopProfileForPreset('sharp', false);
+    const moderate = nextRemoteDesktopProfile({
       bufferMs: 90,
       nativeBitrate: 12_000_000,
-      current: { fps: 60, bitrate: 12_000_000 },
+      current: base,
+      base,
     });
-    expect(next.profile.fps).toBe(30);
-    expect(next.profile.bitrate).toBeLessThanOrEqual(8_000_000);
-    expect(next.profile.bitrate).toBeGreaterThanOrEqual(6_000_000);
-    expect(next.healthyIntervals).toBe(0);
-  });
+    expect(moderate.profile.bitrate).toBeLessThanOrEqual(8_000_000);
+    expect(moderate.profile.bitrate).toBeGreaterThanOrEqual(6_000_000);
+    expect(moderate.profile.maxLongEdge).toBe(1920);
+    expect(moderate.healthyIntervals).toBe(0);
 
-  it('deeply degraded links fall back to the 6 Mbps reaction floor', () => {
-    const next = nextRemoteDesktopProfile({
+    const severe = nextRemoteDesktopProfile({
       loss: 8,
       nativeBitrate: 12_000_000,
-      current: { fps: 60, bitrate: 12_000_000 },
+      current: base,
+      base,
     });
-    expect(next.profile.fps).toBe(30);
-    expect(next.profile.bitrate).toBe(6_000_000);
-    expect(next.healthyIntervals).toBe(0);
+    expect(severe.profile.bitrate).toBe(6_000_000);
+    expect(severe.profile.maxLongEdge).toBe(1280);
+    expect(severe.healthyIntervals).toBe(0);
   });
 
-  it('restores the native bitrate ceiling after sustained health', () => {
+  it('restores the selected preset after sustained health', () => {
+    const base = remoteDesktopProfileForPreset('sharp', false);
+    let profile = { ...base, bitrate: 6_000_000, maxLongEdge: 1280 };
     let healthyIntervals = 0;
-    let profile = { fps: 30, bitrate: 6_000_000 };
-    for (let i = 0; i < 3; i += 1) {
+    // Two healthy 2s intervals (4s) restore the preset.
+    for (let i = 0; i < 2; i += 1) {
       const next = nextRemoteDesktopProfile({
         nativeBitrate: 28_000_000,
         current: profile,
+        base,
         healthyIntervals,
       });
       profile = next.profile;
       healthyIntervals = next.healthyIntervals;
     }
-    // 恢复后应回到原生上限，而不是被固定在 12 Mbps。
-    expect(profile).toEqual({ fps: 60, bitrate: 28_000_000 });
+    expect(profile).toEqual(base);
   });
 
   it('retains sub-threshold two-finger scroll movement', () => {

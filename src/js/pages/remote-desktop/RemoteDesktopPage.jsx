@@ -3,13 +3,15 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { ChevronUp, Cursor, DesktopDisplay, Maximize2, Menu, RefreshCw, X } from '../../components/Icons.jsx';
 import {
+  DESKTOP_QUALITY_PRESETS,
+  DEFAULT_DESKTOP_PRESET,
   TOUCH_LONG_PRESS_MS,
   TOUCH_PINCH_SLOP,
   TOUCH_SCROLL_SLOP,
   TOUCH_TAP_MAX_MS,
   TOUCH_TAP_SLOP,
   consumeScrollDelta,
-  initialRemoteDesktopProfile,
+  desktopPresetById,
   isDoubleTap,
   nextPinchTransform,
   nextRemoteDesktopProfile,
@@ -17,6 +19,7 @@ import {
   normalizedVideoPoint,
   pointDistance,
   remoteCursorPoint,
+  remoteDesktopProfileForPreset,
   trackpadButtonMessage,
   trackpadPixelDelta,
 } from '../../modules/remoteDesktopTouch.js';
@@ -43,6 +46,7 @@ export default function RemoteDesktopPage() {
   const [surfaceSize, setSurfaceSize] = useState({ width: 1, height: 1 });
   const [controlEnabled, setControlEnabled] = useState(true);
   const [touchInputMode, setTouchInputMode] = useState('trackpad');
+  const [qualityPreset, setQualityPreset] = useState(DEFAULT_DESKTOP_PRESET);
   const [clipboardSync, setClipboardSync] = useState(true);
   const clipboardSyncRef = useRef(true);
   clipboardSyncRef.current = clipboardSync;
@@ -78,7 +82,9 @@ export default function RemoteDesktopPage() {
   const coarsePointerRef = useRef(
     Boolean(window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0),
   );
-  const streamProfileRef = useRef(initialRemoteDesktopProfile(coarsePointerRef.current));
+  const baseProfileRef = useRef(remoteDesktopProfileForPreset(DEFAULT_DESKTOP_PRESET, coarsePointerRef.current));
+  const streamProfileRef = useRef(baseProfileRef.current);
+  const qualityPresetRef = useRef(DEFAULT_DESKTOP_PRESET);
   const healthyIntervalsRef = useRef(0);
   const pointerFrameRef = useRef(0);
   const absolutePointerFrameRef = useRef(0);
@@ -264,7 +270,8 @@ export default function RemoteDesktopPage() {
     setState('initializing');
     setError('');
     setControlAcknowledged(false);
-    streamProfileRef.current = initialRemoteDesktopProfile(coarsePointerRef.current);
+    baseProfileRef.current = remoteDesktopProfileForPreset(qualityPresetRef.current, coarsePointerRef.current);
+    streamProfileRef.current = baseProfileRef.current;
     healthyIntervalsRef.current = 0;
     lastSignalRef.current = 0;
     pendingLocalIceRef.current = [];
@@ -300,8 +307,11 @@ export default function RemoteDesktopPage() {
         if (peer !== peerRef.current || generation !== connectionGenerationRef.current || event.track.kind !== 'video') return;
         const receiver = event.receiver;
         try {
-          if ('playoutDelayHint' in receiver) receiver.playoutDelayHint = 0;
-          if ('jitterBufferTarget' in receiver) receiver.jitterBufferTarget = 0;
+          // 不锁定抖动缓冲。原实现把 playoutDelayHint / jitterBufferTarget 强制为 0，
+          // 等于不给解码器任何余量，网络一抖就卡顿并被判定为劣化而降码率。
+          // playoutDelayHint 是可空属性，重置为 undefined 交还 UA 决定（LiveKit 客户端
+          // 默认就是这么做的）；jitterBufferTarget 不可为空，因此完全不设置、保留 UA 默认。
+          if ('playoutDelayHint' in receiver) receiver.playoutDelayHint = undefined;
         } catch {
           // Some mobile browsers expose these experimental hints as read-only.
         }
@@ -457,7 +467,11 @@ export default function RemoteDesktopPage() {
       const measuredBufferMs = jitterCountDelta ? (jitterDelayDelta / jitterCountDelta) * 1000 : 0;
       const measuredRtt = Math.round(Number(pair?.currentRoundTripTime || 0) * 1000);
       const videoPixels = (videoRef.current?.videoWidth || 1920) * (videoRef.current?.videoHeight || 1080);
-      const nativeBitrate = videoPixels > 3_686_400 ? 28_000_000 : videoPixels > 2_073_600 ? 18_000_000 : 12_000_000;
+      // 仅作为劣化下限的参考上限；真实编码档位由 Agent 按原生桌面像素决定。
+      const nativeBitrate = videoPixels >= 8_294_400 ? 40_000_000
+        : videoPixels >= 3_686_400 ? 28_000_000
+          : videoPixels >= 2_073_600 ? 20_000_000
+            : 12_000_000;
       const adaptation = nextRemoteDesktopProfile({
         loss: measuredLoss,
         rtt: measuredRtt,
@@ -466,12 +480,14 @@ export default function RemoteDesktopPage() {
         nativeBitrate,
         healthyIntervals: healthyIntervalsRef.current,
         current: streamProfileRef.current,
-        coarsePointer: coarsePointerRef.current,
+        base: baseProfileRef.current,
       });
       const nextProfile = adaptation.profile;
       healthyIntervalsRef.current = adaptation.healthyIntervals;
       const currentProfile = streamProfileRef.current;
-      if (nextProfile.fps !== currentProfile.fps || nextProfile.bitrate !== currentProfile.bitrate) {
+      if (nextProfile.fps !== currentProfile.fps
+        || nextProfile.bitrate !== currentProfile.bitrate
+        || nextProfile.maxLongEdge !== currentProfile.maxLongEdge) {
         streamProfileRef.current = nextProfile;
         const controlChannel = channelRef.current;
         if (controlChannel?.readyState === 'open') {
@@ -565,7 +581,9 @@ export default function RemoteDesktopPage() {
     // The Agent no longer burns the system cursor into the captured frames
     // (single-cursor layer). Poll the real remote pointer position so the
     // virtual cursor stays visible and tracks movements made outside this tab.
-    const timer = window.setInterval(syncCursor, 2000);
+    // 500 ms keeps it responsive; the query travels over the P2P data channel,
+    // so it costs no server bandwidth.
+    const timer = window.setInterval(syncCursor, 500);
     return () => window.clearInterval(timer);
   }, [requestPointerPosition, videoReady]);
 
@@ -1017,6 +1035,26 @@ export default function RemoteDesktopPage() {
     setFillMode(mode => mode === 'cover' ? 'contain' : 'cover');
   };
 
+  // 选择画质预设：更新基准档位并立即通过控制通道下发（分辨率/帧率/码率）。
+  const applyQualityPreset = useCallback((presetId) => {
+    qualityPresetRef.current = presetId;
+    setQualityPreset(presetId);
+    const profile = remoteDesktopProfileForPreset(presetId, coarsePointerRef.current);
+    baseProfileRef.current = profile;
+    streamProfileRef.current = profile;
+    healthyIntervalsRef.current = 0;
+    const controlChannel = channelRef.current;
+    if (controlChannel?.readyState === 'open') {
+      controlChannel.send(JSON.stringify({ type: 'video-config', ...profile }));
+    }
+  }, []);
+
+  const cycleQualityPreset = () => {
+    const index = DESKTOP_QUALITY_PRESETS.findIndex(preset => preset.id === qualityPresetRef.current);
+    const next = DESKTOP_QUALITY_PRESETS[(index + 1) % DESKTOP_QUALITY_PRESETS.length];
+    applyQualityPreset(next.id);
+  };
+
   const cursorDisplayPoint = remoteCursorPoint(
     virtualCursor,
     surfaceSize,
@@ -1073,6 +1111,15 @@ export default function RemoteDesktopPage() {
           </Button>
           <Button size="sm" variant="secondary" onClick={toggleFillMode}>
             {fillMode === 'cover' ? '填满' : '适应'}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-label="切换画质档位"
+            title="画质档位：流畅 / 适应 / 清晰"
+            onClick={cycleQualityPreset}
+          >
+            画质·{desktopPresetById(qualityPreset).label}
           </Button>
           {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}
           <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={connect} />
@@ -1171,6 +1218,15 @@ export default function RemoteDesktopPage() {
                 </Button>
                 <Button size="sm" variant="secondary" onClick={toggleFillMode}>
                   {fillMode === 'cover' ? '填满' : '适应'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-label="切换画质档位"
+                  title="画质档位：流畅 / 适应 / 清晰"
+                  onClick={cycleQualityPreset}
+                >
+                  画质·{desktopPresetById(qualityPreset).label}
                 </Button>
                 {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}
                 <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={connect} />
