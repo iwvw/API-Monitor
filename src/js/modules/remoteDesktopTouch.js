@@ -80,8 +80,13 @@ export function normalizedVideoPoint(
   };
 }
 
-export function initialRemoteDesktopProfile(coarsePointer) {
-  return coarsePointer ? { fps: 30, bitrate: 6_000_000 } : { fps: 60, bitrate: 12_000_000 };
+// 初始/恢复档位。nativeBitrate 为前端按实际接收分辨率推算的码率上限（未知时传 0）：
+// 桌面端在高分屏上按原生档恢复，粗指针移动端仍以低码率优先，避免移动网络抖动。
+export function initialRemoteDesktopProfile(coarsePointer, nativeBitrate = 0) {
+  if (coarsePointer) {
+    return { fps: 30, bitrate: 6_000_000 };
+  }
+  return { fps: 60, bitrate: nativeBitrate > 12_000_000 ? nativeBitrate : 12_000_000 };
 }
 
 export function nextRemoteDesktopProfile({
@@ -110,7 +115,7 @@ export function nextRemoteDesktopProfile({
   return {
     // Three healthy 2s intervals (6s) before restoring the full profile, so
     // recovery from a degraded link is quick without oscillating.
-    profile: nextHealthy >= 3 ? initialRemoteDesktopProfile(coarsePointer) : current,
+    profile: nextHealthy >= 3 ? initialRemoteDesktopProfile(coarsePointer, nativeBitrate) : current,
     healthyIntervals: nextHealthy,
   };
 }

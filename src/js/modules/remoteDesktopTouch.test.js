@@ -61,6 +61,12 @@ describe('remote desktop touch controls', () => {
   it('starts coarse-pointer clients in a reaction-first mobile profile', () => {
     expect(initialRemoteDesktopProfile(true)).toEqual({ fps: 30, bitrate: 6_000_000 });
     expect(initialRemoteDesktopProfile(false)).toEqual({ fps: 60, bitrate: 12_000_000 });
+    // 高分屏桌面端按原生码率启动，不再被固定压到 12 Mbps。
+    expect(initialRemoteDesktopProfile(false, 18_000_000)).toEqual({ fps: 60, bitrate: 18_000_000 });
+    // 未知分辨率（nativeBitrate 为 0）时回落到默认 12 Mbps。
+    expect(initialRemoteDesktopProfile(false, 0)).toEqual({ fps: 60, bitrate: 12_000_000 });
+    // 粗指针移动端始终以低码率优先，不受高分屏 nativeBitrate 影响。
+    expect(initialRemoteDesktopProfile(true, 28_000_000)).toEqual({ fps: 30, bitrate: 6_000_000 });
   });
 
   it('reduces frame cadence when the decoder jitter buffer grows', () => {
@@ -84,6 +90,22 @@ describe('remote desktop touch controls', () => {
     expect(next.profile.fps).toBe(30);
     expect(next.profile.bitrate).toBe(6_000_000);
     expect(next.healthyIntervals).toBe(0);
+  });
+
+  it('restores the native bitrate ceiling after sustained health', () => {
+    let healthyIntervals = 0;
+    let profile = { fps: 30, bitrate: 6_000_000 };
+    for (let i = 0; i < 3; i += 1) {
+      const next = nextRemoteDesktopProfile({
+        nativeBitrate: 28_000_000,
+        current: profile,
+        healthyIntervals,
+      });
+      profile = next.profile;
+      healthyIntervals = next.healthyIntervals;
+    }
+    // 恢复后应回到原生上限，而不是被固定在 12 Mbps。
+    expect(profile).toEqual({ fps: 60, bitrate: 28_000_000 });
   });
 
   it('retains sub-threshold two-finger scroll movement', () => {

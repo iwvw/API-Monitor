@@ -94,9 +94,11 @@ export default function RemoteDesktopPage() {
   const viewTransformRef = useRef(viewTransform);
   const remoteInputRef = useRef(null);
   const remoteInputValueRef = useRef('');
+  const remoteComposingRef = useRef(false);
   const lastSentClipboardRef = useRef('');
   const lastReceivedClipboardRef = useRef('');
   const skipAutoReconnectRef = useRef(false);
+  const connectRef = useRef(null);
 
   const sendControl = useCallback((payload, { reliable = false } = {}) => {
     const highFrequency = payload.type === 'pointer'
@@ -187,23 +189,27 @@ export default function RemoteDesktopPage() {
   }, []);
 
   const pollSignals = useCallback(async (sessionId, generation, longPoll = false) => {
-    if (!sessionId || stoppedRef.current || sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return;
+    if (!sessionId || stoppedRef.current || sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return true;
     try {
       const data = await apiRequest(`/api/server/remote-desktop/sessions/${encodeURIComponent(sessionId)}/signals?since=${lastSignalRef.current}&wait=${longPoll ? 15000 : 0}`, {
         headers: authHeaders(),
         cache: 'no-store',
       });
-      if (sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return;
+      if (sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return true;
       if (data.state) setState(data.state);
       for (const item of data.signals || []) {
-        if (sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return;
+        if (sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return true;
         lastSignalRef.current = Math.max(lastSignalRef.current, Number(item.id) || 0);
         await applyRemoteSignal(item.payload, sessionId, generation);
       }
+      return true;
     } catch (err) {
       if (!stoppedRef.current && sessionRef.current === sessionId && generation === connectionGenerationRef.current) {
         setError(err.message || '信令同步失败');
       }
+      // 会话已不存在（404/409）：让调用方停止轮询该会话，避免对已失效的会话
+      // 无延迟死循环重试（例如同一主机在另一标签页被重新创建时旧会话会被回收）。
+      return err.status !== 404 && err.status !== 409;
     }
   }, [applyRemoteSignal]);
 
@@ -246,9 +252,9 @@ export default function RemoteDesktopPage() {
     const attempt = autoReconnectRef.current;
     window.setTimeout(() => {
       if (stoppedRef.current || attempt !== autoReconnectRef.current) return;
-      connect();
+      connectRef.current?.();
     }, 500 * attempt);
-  }, [connect]);
+  }, []);
 
   const connect = useCallback(async () => {
     await closeSession();
@@ -357,7 +363,15 @@ export default function RemoteDesktopPage() {
       }
       sessionRef.current = created.sessionId;
       for (const signal of pendingLocalIceRef.current.splice(0)) await postSignal(signal, peer, generation);
-      await pollSignals(created.sessionId, generation);
+      // 首次拉取：若会话已被回收（例如同主机在另一标签页重建），进入终态并停止
+      // 自动重连，避免两个标签页互相抢占会话形成重连风暴。
+      const alive = await pollSignals(created.sessionId, generation);
+      if (!alive && generation === connectionGenerationRef.current) {
+        sessionRef.current = '';
+        skipAutoReconnectRef.current = true;
+        setState('closed');
+        setError('远程桌面会话已被其他连接接管，请刷新页面重试。');
+      }
     } catch (err) {
       if (generation === connectionGenerationRef.current) {
         setState('error');
@@ -370,6 +384,7 @@ export default function RemoteDesktopPage() {
       }
     }
   }, [bindChannel, closeSession, pollSignals, postSignal, serverId]);
+  connectRef.current = connect;
 
   useEffect(() => {
     connect();
@@ -382,7 +397,17 @@ export default function RemoteDesktopPage() {
           await new Promise(resolve => window.setTimeout(resolve, SIGNAL_POLL_MS));
           continue;
         }
-        await pollSignals(sessionId, generation, true);
+        const alive = await pollSignals(sessionId, generation, true);
+        if (!alive) {
+          // 会话已被回收/替换（404）：停止轮询并进入终态，避免对失效会话无延迟重试。
+          if (!signalLoopCancelled && sessionRef.current === sessionId && generation === connectionGenerationRef.current) {
+            sessionRef.current = '';
+            skipAutoReconnectRef.current = true;
+            setState('closed');
+            setError('远程桌面会话已被回收，请刷新页面重试。');
+          }
+          break;
+        }
       }
     };
     runSignalLoop();
@@ -507,7 +532,10 @@ export default function RemoteDesktopPage() {
   }, [clearLongPress]);
 
   useEffect(() => {
-    const closeOnPageHide = () => {
+    const closeOnPageHide = (event) => {
+      // 进入 bfcache（persisted）意味着页面可能被原样恢复，此时销毁会话会在
+      // 用户返回标签页时留下一个已失效的连接；只在真正卸载时关闭。
+      if (event.persisted) return;
       closeSession();
     };
     window.addEventListener('pagehide', closeOnPageHide);
@@ -939,9 +967,9 @@ export default function RemoteDesktopPage() {
     remoteInputRef.current?.focus({ preventScroll: true });
   };
 
-  const handleRemoteTextInput = (event) => {
-    const nextValue = event.target.value;
+  const commitRemoteText = (nextValue) => {
     const previousValue = remoteInputValueRef.current;
+    if (nextValue === previousValue) return;
     if (nextValue.startsWith(previousValue)) {
       const inserted = nextValue.slice(previousValue.length);
       if (inserted) sendControl({ type: 'text', text: inserted });
@@ -949,8 +977,34 @@ export default function RemoteDesktopPage() {
       for (let index = 0; index < previousValue.length - nextValue.length; index += 1) {
         sendControl({ type: 'key', key: 'Backspace', code: 'Backspace', action: 'click' });
       }
+    } else {
+      // 光标在中间编辑/替换：先退格回到公共前缀，再插入新内容。
+      let common = 0;
+      while (common < previousValue.length
+        && common < nextValue.length
+        && previousValue[common] === nextValue[common]) common += 1;
+      for (let index = 0; index < previousValue.length - common; index += 1) {
+        sendControl({ type: 'key', key: 'Backspace', code: 'Backspace', action: 'click' });
+      }
+      const inserted = nextValue.slice(common);
+      if (inserted) sendControl({ type: 'text', text: inserted });
     }
     remoteInputValueRef.current = nextValue;
+  };
+
+  const handleRemoteTextInput = (event) => {
+    // 输入法组合期间不发送：此时输入框里是候选/拼音临时文本，提前发出会污染远程输入。
+    if (remoteComposingRef.current) return;
+    commitRemoteText(event.target.value);
+  };
+
+  const handleRemoteCompositionStart = () => {
+    remoteComposingRef.current = true;
+  };
+
+  const handleRemoteCompositionEnd = (event) => {
+    remoteComposingRef.current = false;
+    commitRemoteText(event.target.value);
   };
 
   const toggleFullscreen = () => {
@@ -1148,6 +1202,8 @@ export default function RemoteDesktopPage() {
         autoCorrect="off"
         value={remoteInputValueRef.current}
         onChange={handleRemoteTextInput}
+        onCompositionStart={handleRemoteCompositionStart}
+        onCompositionEnd={handleRemoteCompositionEnd}
         className="remote-system-keyboard-input fixed -left-[9999px] top-0 h-px w-px opacity-0"
       />
     </div>
