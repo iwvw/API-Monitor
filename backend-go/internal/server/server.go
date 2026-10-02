@@ -955,7 +955,7 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		if origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight")
 			w.Header().Add("Vary", "Origin")
 		}
 		return
@@ -965,7 +965,7 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		if origin != "" && origin == allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight")
 			w.Header().Add("Vary", "Origin")
 			break
 		}
