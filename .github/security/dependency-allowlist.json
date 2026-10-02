@@ -1,0 +1,20 @@
+{
+  "$comment": [
+    "Reviewed, time-limited exceptions to the dependency-vulnerability gate.",
+    "",
+    "An entry here means: 'this advisory affects us, we have assessed it, and we",
+    "have deliberately decided not to block on it yet.' Every entry is a debt",
+    "with an expiry date, not a permanent waiver.",
+    "",
+    "Rules enforced by tools/dependency-audit.mjs:",
+    "  1. 'id', 'ecosystem', 'reason', 'owner' and 'expires' are all required.",
+    "  2. An advisory WITH an available fix may not be listed here -- upgrade it.",
+    "  3. An expired entry does not silently pass; it stops suppressing and the",
+    "     build fails on that advisory again.",
+    "  4. Admins are warned about malformed or expired entries on every run.",
+    "",
+    "Keep this list short. If it grows, the real fix is a dependency upgrade or",
+    "removing the dependency, not another line here."
+  ],
+  "entries": []
+}

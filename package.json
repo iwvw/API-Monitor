@@ -40,7 +40,10 @@
     "audit:fast": "npm run icons:generate && npm run governance:check && npm run ui:governance && npm run docs:check && npm run lint && npm test",
     "audit:full": "npm run audit:fast && npm run backend-go:test && node tools/backend-route-inventory.mjs && npm run backend-go:smoke",
     "clean:check": "node tools/workspace-cleanup.mjs --check",
-    "clean:workspace": "node tools/workspace-cleanup.mjs --apply"
+    "clean:workspace": "node tools/workspace-cleanup.mjs --apply",
+    "security:audit": "node tools/dependency-audit.mjs --ecosystem npm",
+    "security:audit:cargo": "node tools/dependency-audit.mjs --ecosystem cargo",
+    "security:verify": "node tools/verify-audit-parsing.mjs && pwsh -NoProfile -File tools/gitleaks-config-check.ps1"
   },
   "dependencies": {
     "@cloudflare/kumo": "^2.14.0",

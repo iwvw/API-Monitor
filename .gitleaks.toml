@@ -1,0 +1,200 @@
+# Gitleaks configuration for API-Monitor.
+#
+# Why this file exists
+# --------------------
+# Without a config file, gitleaks applies its built-in default ruleset, whose
+# generic high-entropy detectors produced many false positives in this
+# repository. That left the weekly full-history "Security Baseline" run
+# permanently red. A gate that is always red carries no signal: real findings
+# were being ignored alongside the noise.
+#
+# ---------------------------------------------------------------------------
+# HOW TO EDIT THIS FILE SAFELY -- read before adding anything
+# ---------------------------------------------------------------------------
+# Inside one `[[allowlists]]` block, `paths` and `regexes` are combined as a
+# UNION, not an intersection. Adding a `regexes` entry to a path-scoped block
+# silently turns it into a GLOBAL exception for the whole repository. This was
+# verified empirically against gitleaks v8.28.0.
+#
+# Therefore:
+#   * To exempt a location  -> use a block containing ONLY `paths`.
+#   * To exempt a value     -> use a block containing ONLY `regexes`, and make
+#                              sure the pattern cannot match a real credential.
+#   * Never mix `paths` and `regexes` in one block, and never use an empty
+#     `paths` list hoping to "scope" a regex.
+#
+# When a genuinely secret value is found: ROTATE IT and remove it from the
+# code and from history. Never allowlist a real credential.
+
+title = "API-Monitor gitleaks config"
+
+[extend]
+# Inherit the full upstream default ruleset; narrow it below.
+useDefault = true
+
+# ===========================================================================
+# VALUE-BASED EXEMPTIONS (no `paths` in these blocks -- they are global)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# RFC 6455 WebSocket handshake header names.
+#
+# The gateway WebSocket upgrade path and its tests reference the standard
+# handshake header *names*. These are fixed strings defined by RFC 6455
+# (sections 4.2.1-4.2.4) -- protocol vocabulary, not credentials. The generic
+# API key rule matched them purely on shape.
+#
+# These literals are the header names themselves. They contain no
+# credential-shaped randomness, so exempting them globally cannot hide a real
+# secret: a real key would have to be literally spelled "Sec-WebSocket-Key".
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "RFC 6455 WebSocket handshake header names (protocol vocabulary, not secrets)."
+regexTarget = "match"
+regexes = [
+  '''Sec-WebSocket-Key''',
+  '''Sec-WebSocket-Accept''',
+  '''Sec-WebSocket-Protocol''',
+  '''Sec-WebSocket-Version''',
+]
+
+# ---------------------------------------------------------------------------
+# RFC 6455 sample handshake nonce.
+#
+# `dGhlIHNhbXBsZSBub25jZQ==` is the literal sample nonce printed in RFC 6455
+# section 1.3, base64 of "the sample nonce". It is published example data that
+# appears in countless test suites; it is not, and never was, a secret.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "RFC 6455 section 1.3 sample nonce (published example value)."
+regexTarget = "match"
+regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']
+
+# ---------------------------------------------------------------------------
+# Placeholder bearer tokens that are literally the word "placeholder".
+#
+# Documentation and in-app "curl example" blocks show users how to authenticate
+# and therefore contain strings like `Authorization: Bearer YOUR_API_KEY`.
+# The matched value is a placeholder word, not a token. Matching the literal
+# `YOUR_API_KEY` / `<...>` forms keeps this from masking any real token, which
+# would never be spelled that way.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Literal placeholder bearer tokens in examples (not real tokens)."
+regexTarget = "match"
+regexes = [
+  '''Bearer YOUR_API_KEY''',
+  '''Bearer <[A-Za-z_]+>''',
+  '''Bearer \$\{?[A-Za-z_]+\}?''',
+]
+
+# ---------------------------------------------------------------------------
+# Password-generation character alphabet.
+#
+# adminPasswordCharset is the character class used to generate random admin
+# passwords. It deliberately omits look-alike characters (0/O, 1/l/I) so
+# operators can transcribe passwords by hand. It is high entropy but it is an
+# *alphabet*, published in the source by design; knowing it grants nothing.
+#
+# Anchored to the variable name so an actual assigned password cannot match.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Password-generation character alphabet (a character class, not a credential)."
+regexTarget = "match"
+regexes = [
+  '''adminPasswordCharset\s*=\s*"[A-Za-z0-9]+"''',
+]
+
+# ===========================================================================
+# LOCATION-BASED EXEMPTIONS (`paths` only -- never mixed with `regexes`)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Public OAuth *application* credentials for the Antigravity / Gemini CLI.
+#
+# These are the well-known public client credentials of the Antigravity/Gemini
+# CLI OAuth application, shipped identically inside the official client. They
+# identify the application, not a user, and are required for the OAuth flow to
+# authorize at all -- which is why they are hard-coded.
+#
+# This exemption is scoped to the two files that hold them. If the same value
+# appears anywhere else in the repository, the gate still fires.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Antigravity/Gemini CLI public OAuth application credentials (oauth.go, oauth_test.go)."
+paths = [
+  '''^backend-go/internal/antigravity/engine/pkg/antigravity/oauth\.go$''',
+  '''^backend-go/internal/antigravity/engine/pkg/antigravity/oauth_test\.go$''',
+]
+
+# ---------------------------------------------------------------------------
+# Documentation, UI examples and test fixtures.
+#
+# These locations legitimately contain placeholder credentials, dummy values
+# and recorded traffic. They are not production code paths, and treating every
+# `Bearer YOUR_API_KEY` in a doc as an incident trains people to ignore the
+# gate. Anything under these paths is out of scope for secret detection; real
+# credentials must never be committed to docs or tests.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Docs, UI examples, tests and fixtures (placeholders and dummy values only)."
+paths = [
+  '''^docs/''',
+  '''\.md$''',
+  '''^\.agent/''',
+  '''_test\.go$''',
+  '''\.(test|spec)\.(js|jsx|ts|tsx)$''',
+  '''^tests?/''',
+  '''(^|/)testdata/''',
+  '''(^|/)__tests__/''',
+  '''(^|/)fixtures?/''',
+  '''^test-openai\.js$''',
+  '''\.har$''',
+  '''^src/js/modules/deepseek\.js$''',
+  '''^src/js/pages/ServerPage\.jsx$''',
+]
+
+# ---------------------------------------------------------------------------
+# The gitleaks config self-test.
+#
+# tools/gitleaks-config-check.ps1 deliberately embeds *fake* credentials
+# (an AWS key, a GitHub PAT and a Google client secret) to prove the config
+# still detects secrets and that path exemptions do not leak into siblings.
+# They are throwaway probe values, not real credentials. The values are
+# randomly shaped on purpose so gitleaks' own EXAMPLE-based denylist does not
+# skip them, which means the scanner would otherwise flag this test fixture
+# itself. Exempting the file is safe: the script's own assertions still fail
+# the job if detection regresses, and the same values anywhere else in the
+# repository are still caught.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "gitleaks config self-test fixture (intentionally fake probe credentials)."
+paths = [
+  '''^tools/gitleaks-config-check\.ps1$''',
+]
+
+# ---------------------------------------------------------------------------
+# Deleted code that held the same public Antigravity OAuth application
+# credential, plus a plugin-internal loopback key.
+#
+# HISTORY-ONLY. Every path below has been removed from `dev` (verified at
+# HEAD); the findings only surface in the weekly full-history scan. Each value
+# is either the public Antigravity/Gemini CLI application credential described
+# above, or (for service.go) the fixed loopback-only internal key
+# `sk-ds2api-internal`, which is documented in the file itself and is not a
+# user credential.
+#
+# Scoped by path prefix so that reintroducing any of these values in live code
+# still trips the gate. Deliberately NOT scoped by commit, so that if new
+# commits under these paths reappear they remain covered.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Removed modules that held the public Antigravity app credential or the loopback key (history only)."
+paths = [
+  '''^backend-go/internal/openaibeta/''',
+  '''^backend-go/internal/ds2api/service\.go$''',
+  '''^agent-go/config\.json$''',
+  '''^modules/antigravity-api/''',
+  '''^public/js/store\.js$''',
+  '''^src/js/store\.js$''',
+]

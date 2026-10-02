@@ -17,13 +17,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  dependency-audit:
+  # Each scanner is an independent job so that one failing scanner can no longer
+  # mask the results of the others. Previously all of them ran as steps in a
+  # single `dependency-audit` job, so the first failure aborted the rest and the
+  # run gave no signal about the remaining security surface.
+  npm-audit:
+    name: npm audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -31,8 +34,28 @@ jobs:
           node-version: 20.x
           cache: npm
 
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      # The gate's parsing/allowlist logic is covered by a unit suite; run it
+      # first so a regression in the decision logic is reported clearly rather
+      # than as a confusing audit result.
+      - name: Verify audit gate logic
+        run: node tools/verify-audit-parsing.mjs
+
+      # The gate is strict: every advisory fails the build. The only way to
+      # proceed past a no-fix-yet advisory is a reviewed, *expiring* entry in
+      # .github/security/dependency-allowlist.json. Network/registry failures
+      # are reported as infrastructure errors, not as security findings.
       - name: Audit JavaScript dependencies
-        run: npm audit --audit-level=high
+        run: node tools/dependency-audit.mjs --ecosystem npm
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
 
       - name: Setup Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
@@ -44,6 +67,19 @@ jobs:
         working-directory: backend-go
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      # The gate script that wraps cargo-audit runs on Node.
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 20.x
+
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
         with:
@@ -52,16 +88,56 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --version 0.22.2 --locked
 
+      - name: Verify audit gate logic
+        run: node tools/verify-audit-parsing.mjs
+
+      # Runs from the repository root; the script enters agent-rust itself.
+      # A transient crates.io outage is reported as an infrastructure error
+      # rather than as a security finding (see the script's cargoFindings path).
       - name: Audit Rust dependencies
-        working-directory: agent-rust
         env:
           CARGO_HTTP_TIMEOUT: 120
           CARGO_NET_RETRY: 10
-        run: cargo audit
+          CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+        run: node tools/dependency-audit.mjs --ecosystem cargo
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          fetch-depth: 0
 
       - name: Install Gitleaks
-        run: go install github.com/zricethezav/gitleaks/v8@v8.28.0
+        env:
+          GITLEAKS_VERSION: 8.28.0
+        run: |
+          # Install the released binary instead of `go install`, which would
+          # require a Go toolchain setup in this job. Pinned by version and
+          # verified against the official checksum.
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o checksums.txt \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" checksums.txt | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
 
+      # The allowlist in .gitleaks.toml is only trustworthy if it still catches
+      # real secrets. This suite pins both halves: the repo scans clean, AND a
+      # realistic secret is still detected -- including when relocated out of an
+      # exempted path. Without it, a future edit could quietly widen the
+      # allowlist into a no-op.
+      - name: Verify gitleaks config still detects secrets
+        shell: pwsh
+        run: ./tools/gitleaks-config-check.ps1
+
+      # `--config` is passed explicitly rather than relying on auto-discovery,
+      # and `--exit-code 1` is explicit so a future gitleaks default change
+      # cannot silently turn this gate into a no-op.
       - name: Scan pushed commits for secrets
         if: github.event_name == 'push'
         env:
@@ -69,9 +145,9 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            gitleaks git --log-opts="${BASE_SHA}..${HEAD_SHA}" --redact --verbose
+            gitleaks git --log-opts="${BASE_SHA}..${HEAD_SHA}" --config .gitleaks.toml --redact --verbose --exit-code 1
           else
-            gitleaks git --redact --verbose
+            gitleaks git --config .gitleaks.toml --redact --verbose --exit-code 1
           fi
 
       - name: Scan pull request commits for secrets
@@ -79,8 +155,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: gitleaks git --log-opts="${BASE_SHA}..${HEAD_SHA}" --redact --verbose
+        run: gitleaks git --log-opts="${BASE_SHA}..${HEAD_SHA}" --config .gitleaks.toml --redact --verbose --exit-code 1
 
       - name: Scan complete repository history for secrets
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: gitleaks git --redact --verbose
+        run: gitleaks git --config .gitleaks.toml --redact --verbose --exit-code 1
