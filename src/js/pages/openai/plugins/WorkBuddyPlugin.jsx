@@ -11,6 +11,7 @@ const API = '/api/workbuddy';
 
 const WORKBUDDY_ACCOUNT_COLUMNS = [
   { id: 'enabled', role: 'control' },
+  { id: 'checkinEnabled', role: 'control' },
   { id: 'region', role: 'type' },
   { id: 'account', role: 'primary', grow: 1 },
   { id: 'calls', role: 'count', align: 'center' },
@@ -371,6 +372,25 @@ export function WorkBuddyPlugin() {
     }
   };
 
+  const toggleCheckin = async (account, enabled) => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin-toggle`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ disabled: !enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      toast.success(enabled ? '已开启签到' : '已停用签到');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
   const refreshAccount = async account => {
     setBusyAccount(account.id);
     try {
@@ -679,7 +699,7 @@ export function WorkBuddyPlugin() {
               disabled={saving}
             />
           </FieldRow>
-          <FieldRow title={<span title="站点时区 9 点与 21 点自动签到（含连登档位兑换与抽奖）。仅国内版账号参与，国际版无签到体系。">每日自动签到</span>}>
+          <FieldRow title={<span title="站点时区 9 点与 21 点自动签到（含连登档位兑换与抽奖）。仅国内版账号参与，国际版无签到体系。账号级签到开关独立于转发开关：转发停用的账号只要签到开关开启就照常签到，token 过期会自动刷新。">每日自动签到</span>}>
             <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
           </FieldRow>
           <FieldRow title={<span title="站点时区 10 点自动上报一次对话活跃（点亮连登并解锁 first_buddy 任务）。仅国内版账号参与。">每日活跃上报</span>}>
@@ -802,7 +822,8 @@ export function WorkBuddyPlugin() {
               <AppTable tableId="workbuddy-accounts" columns={WORKBUDDY_ACCOUNT_COLUMNS} className="w-full min-w-[48rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
-                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center" title="转发开关：停用后该账号不再参与网关转发与选号，但每日签到不受影响">转发</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center" title="签到开关：独立于转发；只要插件总开关开着，开启即每日自动签到（含连登管家），与转发开关状态无关">签到</Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
@@ -818,7 +839,7 @@ export function WorkBuddyPlugin() {
                   {accountGroups.map(group => (
                     <Fragment key={group.region}>
                       <Table.Row className="h-7 bg-kumo-recessed/40">
-                        <Table.Cell colSpan={8} className="!px-2.5 !py-1 font-medium text-kumo-subtle">
+                        <Table.Cell colSpan={9} className="!px-2.5 !py-1 font-medium text-kumo-subtle">
                           {group.label}（{group.items.length}）
                         </Table.Cell>
                       </Table.Row>
@@ -833,7 +854,20 @@ export function WorkBuddyPlugin() {
                                   checked={!a.disabled}
                                   disabled={busyAccount === a.id}
                                   onCheckedChange={v => toggleAccount(a, v)}
-                                  aria-label={`${a.disabled ? '启用' : '停用'} ${a.id}`}
+                                  aria-label={`${a.disabled ? '启用转发' : '停用转发'} ${a.id}`}
+                                  title="转发开关"
+                                />
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex justify-center">
+                                <Switch
+                                  size="sm"
+                                  checked={!a.checkinDisabled}
+                                  disabled={busyAccount === a.id || a.region === 'intl'}
+                                  onCheckedChange={v => toggleCheckin(a, v)}
+                                  aria-label={`${a.checkinDisabled ? '开启签到' : '停用签到'} ${a.id}`}
+                                  title={a.region === 'intl' ? '国际版无签到体系' : '签到开关（独立于转发）'}
                                 />
                               </div>
                             </Table.Cell>

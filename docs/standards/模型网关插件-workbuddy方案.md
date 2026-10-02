@@ -656,6 +656,25 @@ CREATE TABLE IF NOT EXISTS workbuddy_usage_daily (
 - `AutoCheckin` / `AutoActivity` 均为 `*bool`，缺省视为开启，显式 false 才关闭。
 - 账号间上报限速 800ms，避免同秒集中打上游。
 
+### 9.3.1 签到维度与转发维度解耦（2026-10-02）
+
+账号级 `disabled` 曾同时充当「转发停用」与「签到停用」，导致用户关闭账号转发后
+签到一并中断、连登被迫重攒。现拆成两个独立维度：
+
+| 字段 | 语义 | 影响面 |
+| --- | --- | --- |
+| `disabled` | 转发停用 | 中继选号、网关转发、自动刷新兜底 |
+| `checkinDisabled` | 签到停用 | 每日签到、活跃上报、连登管家 |
+
+- 签到资格只由账号级 `checkinDisabled` 与插件总开关 `AutoCheckin` 决定，与 `disabled`
+  无关：转发停用的账号只要签到未停用就照常每日签到。
+- **签到永不因 token 失效而中断**：签到/活跃上报前统一走 `ensureCheckinToken`，
+  access token 过期且有 refresh token 时先刷新再执行；后台 `RefreshStaleAccounts`
+  也把「转发停用但签到启用」的账号纳入刷新范围。
+- 管理面新增 `POST /api/workbuddy/accounts/{id}/checkin-toggle`（body `{"disabled":bool}`），
+  与 `.../toggle` 相互独立。前端账号表拆成「转发」「签到」两列开关。
+- 数据兼容：`checkinDisabled` 缺省 false，存量账号签到行为不变。
+
 ### 9.4 连登管家（签到排程末尾）
 
 每次签到成功后跑一次，幂等，未解锁/已领取静默跳过：
@@ -668,14 +687,16 @@ CREATE TABLE IF NOT EXISTS workbuddy_usage_daily (
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/workbuddy/checkin` | 全部账号立即签到 |
-| POST | `/api/workbuddy/activity` | 全部国内版账号立即活跃上报 |
+| POST | `/api/workbuddy/checkin` | 全部签到未停用账号立即签到 |
+| POST | `/api/workbuddy/activity` | 全部签到未停用国内版账号立即活跃上报 |
 | POST | `/api/workbuddy/accounts/{id}/checkin` | 单账号签到（含连登管家） |
 | POST | `/api/workbuddy/accounts/{id}/activity` | 单账号活跃上报 |
 | GET | `/api/workbuddy/accounts/{id}/streak` | 连登状态（只读，前端 Popover 用） |
+| POST | `/api/workbuddy/accounts/{id}/checkin-toggle` | 账号级签到开关（独立于转发 toggle） |
 
-账号表新增「签到」列：显示 `lastCheckinAt`，点击展开连登明细；国际版账号显示 `—`。
-账号行操作新增「签到」按钮（国际版禁用并说明原因）。
+账号表拆出「转发」「签到」两列开关：转发开关控制 `disabled`，签到开关控制
+`checkinDisabled`；「签到」列显示 `lastCheckinAt`，点击展开连登明细；国际版账号签到
+列显示 `—`。账号行操作保留「签到」按钮（国际版禁用并说明原因）。
 
 ### 9.6 验证
 
