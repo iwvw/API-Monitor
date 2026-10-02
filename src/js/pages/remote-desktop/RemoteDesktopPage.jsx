@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
-import { ChevronUp, Cursor, DesktopDisplay, Maximize2, Menu, RefreshCw, X } from '../../components/Icons.jsx';
+import { Select } from '@cloudflare/kumo/components/select';
+import { ChevronUp, DesktopDisplay, Maximize2, Menu, RefreshCw, X } from '../../components/Icons.jsx';
 import {
   DESKTOP_QUALITY_PRESETS,
   DEFAULT_DESKTOP_PRESET,
@@ -11,14 +12,12 @@ import {
   TOUCH_TAP_MAX_MS,
   TOUCH_TAP_SLOP,
   consumeScrollDelta,
-  desktopPresetById,
   isDoubleTap,
   nextPinchTransform,
   nextRemoteDesktopProfile,
   normalizedTrackpadDelta,
   normalizedVideoPoint,
   pointDistance,
-  remoteCursorPoint,
   remoteDesktopProfileForPreset,
   trackpadButtonMessage,
   trackpadPixelDelta,
@@ -41,9 +40,7 @@ export default function RemoteDesktopPage() {
   const [fillMode, setFillMode] = useState('contain');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenToolbarOpen, setFullscreenToolbarOpen] = useState(false);
-  const [virtualCursor, setVirtualCursor] = useState({ x: 0.5, y: 0.5, visible: false });
   const [viewTransform, setViewTransform] = useState({ scale: 1, x: 0, y: 0 });
-  const [surfaceSize, setSurfaceSize] = useState({ width: 1, height: 1 });
   const [controlEnabled, setControlEnabled] = useState(true);
   const [touchInputMode, setTouchInputMode] = useState('trackpad');
   const [qualityPreset, setQualityPreset] = useState(DEFAULT_DESKTOP_PRESET);
@@ -343,12 +340,10 @@ export default function RemoteDesktopPage() {
             }
             if (meta.type === 'pointer-position' && Number(meta.sequence || 0) >= lastPointerAckRef.current) {
               lastPointerAckRef.current = Number(meta.sequence || 0);
-              const position = {
+              cursorPositionRef.current = {
                 x: Math.max(0, Math.min(1, Number(meta.x || 0))),
                 y: Math.max(0, Math.min(1, Number(meta.y || 0))),
               };
-              cursorPositionRef.current = position;
-              setVirtualCursor({ ...position, visible: true });
             }
           } catch {
             // Ignore unknown control messages.
@@ -409,14 +404,22 @@ export default function RemoteDesktopPage() {
         }
         const alive = await pollSignals(sessionId, generation, true);
         if (!alive) {
-          // 会话已被回收/替换（404）：停止轮询并进入终态，避免对失效会话无延迟重试。
-          if (!signalLoopCancelled && sessionRef.current === sessionId && generation === connectionGenerationRef.current) {
+          // 仅当「正在轮询的会话仍是当前会话」时才判定为终态并退出。重连/刷新
+          // 会让 closeSession 递增 generation 并清空 sessionRef，此时在途的旧会话
+          // 长轮询会收到 404——那不是会话被回收，而是已被新会话取代，必须继续
+          // 轮询，否则新会话将无人拉取 answer/ICE，导致重连后永远没有画面。
+          const stillCurrent = !signalLoopCancelled
+            && sessionRef.current === sessionId
+            && generation === connectionGenerationRef.current;
+          if (stillCurrent) {
             sessionRef.current = '';
             skipAutoReconnectRef.current = true;
             setState('closed');
             setError('远程桌面会话已被回收，请刷新页面重试。');
+            break;
           }
-          break;
+          // 会话已被新连接取代：短暂等待后由下一轮循环接管新会话。
+          await new Promise(resolve => window.setTimeout(resolve, SIGNAL_POLL_MS));
         }
       }
     };
@@ -524,23 +527,6 @@ export default function RemoteDesktopPage() {
     return () => document.removeEventListener('fullscreenchange', syncFullscreen);
   }, []);
 
-  useEffect(() => {
-    const surface = surfaceRef.current;
-    if (!surface) return undefined;
-    const updateSize = () => {
-      const rect = surface.getBoundingClientRect();
-      setSurfaceSize({ width: Math.max(1, rect.width), height: Math.max(1, rect.height) });
-    };
-    updateSize();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(updateSize) : null;
-    observer?.observe(surface);
-    window.addEventListener('resize', updateSize);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', updateSize);
-    };
-  }, []);
-
   useEffect(() => () => {
     clearLongPress();
     if (pointerFrameRef.current) window.cancelAnimationFrame(pointerFrameRef.current);
@@ -616,7 +602,6 @@ export default function RemoteDesktopPage() {
 
   const scheduleAbsolutePointer = (position) => {
     cursorPositionRef.current = position;
-    setVirtualCursor({ ...position, visible: true });
     pendingAbsolutePointerRef.current = position;
     if (absolutePointerFrameRef.current) return;
     absolutePointerFrameRef.current = window.requestAnimationFrame(() => {
@@ -633,7 +618,6 @@ export default function RemoteDesktopPage() {
       pendingAbsolutePointerRef.current = null;
     }
     cursorPositionRef.current = position;
-    setVirtualCursor({ ...position, visible: true });
     return sendControl({ type: 'pointer-contact', ...position, button, action }, { reliable: true });
   };
 
@@ -709,7 +693,6 @@ export default function RemoteDesktopPage() {
       pendingAbsolutePointerRef.current = null;
     }
     cursorPositionRef.current = position;
-    setVirtualCursor({ ...position, visible: true });
     return sendControl({ type: 'touch-contact', ...position, action }, { reliable: true });
   };
 
@@ -737,8 +720,6 @@ export default function RemoteDesktopPage() {
     const dx = Math.round(pending.x);
     const dy = Math.round(pending.y);
     if (!dx && !dy) return;
-    const latest = cursorPositionRef.current;
-    setVirtualCursor({ ...latest, visible: true });
     sendControl({
       type: 'pointer-relative',
       dx,
@@ -816,7 +797,6 @@ export default function RemoteDesktopPage() {
       const direct = touchInputMode === 'direct';
       const directPosition = direct ? pointerPosition(touches[0]) : null;
       if (direct && !directPosition) return;
-      if (!direct) setVirtualCursor(cursor => ({ ...cursor, visible: true }));
       const doubleTapDrag = !direct && isDoubleTap(lastTapRef.current, point);
       const gesture = {
         kind: 'pointer',
@@ -1049,23 +1029,6 @@ export default function RemoteDesktopPage() {
     }
   }, []);
 
-  const cycleQualityPreset = () => {
-    const index = DESKTOP_QUALITY_PRESETS.findIndex(preset => preset.id === qualityPresetRef.current);
-    const next = DESKTOP_QUALITY_PRESETS[(index + 1) % DESKTOP_QUALITY_PRESETS.length];
-    applyQualityPreset(next.id);
-  };
-
-  const cursorDisplayPoint = remoteCursorPoint(
-    virtualCursor,
-    surfaceSize,
-    {
-      width: videoRef.current?.videoWidth || surfaceSize.width,
-      height: videoRef.current?.videoHeight || surfaceSize.height,
-    },
-    fillMode,
-    viewTransform,
-  );
-
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-kumo-recessed text-kumo-default">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2">
@@ -1112,15 +1075,18 @@ export default function RemoteDesktopPage() {
           <Button size="sm" variant="secondary" onClick={toggleFillMode}>
             {fillMode === 'cover' ? '填满' : '适应'}
           </Button>
-          <Button
+          <Select
+            alignItemWithTrigger
             size="sm"
-            variant="secondary"
-            aria-label="切换画质档位"
-            title="画质档位：流畅 / 适应 / 清晰"
-            onClick={cycleQualityPreset}
-          >
-            画质·{desktopPresetById(qualityPreset).label}
-          </Button>
+            aria-label="画质档位"
+            value={qualityPreset}
+            onValueChange={applyQualityPreset}
+            className="w-auto min-w-0 px-3 py-1.5"
+            items={DESKTOP_QUALITY_PRESETS.map(preset => ({
+              value: preset.id,
+              label: `画质·${preset.label}`,
+            }))}
+          />
           {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}
           <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={connect} />
           <Button size="sm" shape="square" variant="secondary" icon={<Maximize2 className="h-4 w-4" />} aria-label="全屏" onClick={toggleFullscreen} />
@@ -1163,15 +1129,6 @@ export default function RemoteDesktopPage() {
               <DesktopDisplay className="h-12 w-12" />
               <div className="text-sm">{stateLabel(state)}</div>
               <div className="max-w-lg text-xs text-kumo-inverse/45">正在交换公网候选地址并尝试 UDP 打洞。严格直连模式不会使用 fly.io 转发桌面数据。</div>
-            </div>
-          )}
-          {virtualCursor.visible && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute z-20 drop-shadow-[0_1px_1px_rgba(0,0,0,0.75)]"
-              style={{ left: `${cursorDisplayPoint.x}px`, top: `${cursorDisplayPoint.y}px` }}
-            >
-              <Cursor size={18} weight="fill" className="text-brand" />
             </div>
           )}
         </div>
@@ -1219,15 +1176,18 @@ export default function RemoteDesktopPage() {
                 <Button size="sm" variant="secondary" onClick={toggleFillMode}>
                   {fillMode === 'cover' ? '填满' : '适应'}
                 </Button>
-                <Button
+                <Select
+                  alignItemWithTrigger
                   size="sm"
-                  variant="secondary"
-                  aria-label="切换画质档位"
-                  title="画质档位：流畅 / 适应 / 清晰"
-                  onClick={cycleQualityPreset}
-                >
-                  画质·{desktopPresetById(qualityPreset).label}
-                </Button>
+                  aria-label="画质档位"
+                  value={qualityPreset}
+                  onValueChange={applyQualityPreset}
+                  className="w-auto min-w-0 px-3 py-1.5"
+                  items={DESKTOP_QUALITY_PRESETS.map(preset => ({
+                    value: preset.id,
+                    label: `画质·${preset.label}`,
+                  }))}
+                />
                 {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}
                 <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={connect} />
                 <Button size="sm" shape="square" variant="secondary" icon={<Maximize2 className="h-4 w-4" />} aria-label="退出全屏" onClick={toggleFullscreen} />
