@@ -254,7 +254,8 @@ func (s *Service) pickRoundRobin(model string, tried map[string]bool) (Account, 
 // 仅在「所有账号都不可用」时才走到这里，是兜底路径而非常规选号。
 func (s *Service) refreshFirstStaleAccount(ctx context.Context, model string, tried map[string]bool) (Account, bool) {
 	for _, a := range s.Settings().Accounts {
-		if a.Disabled || a.RefreshToken == "" || tokenState(a) == "valid" {
+		// 转发停用但签到仍启用的账号也要刷新：其 token 必须保持有效才能签到。
+		if (a.Disabled && !checkinEligible(a)) || a.RefreshToken == "" || tokenState(a) == "valid" {
 			continue
 		}
 		if tried != nil && tried[a.ID] {
@@ -302,11 +303,12 @@ func (s *Service) StartAutoRefresh(ctx context.Context) {
 	}()
 }
 
-// RefreshStaleAccounts 刷新所有「未停用、有 refresh token、剩余寿命低于提前量」的账号。
+// RefreshStaleAccounts 刷新所有「参与转发或参与签到、有 refresh token、剩余寿命低于提前量」
+// 的账号。转发停用但签到仍启用的账号也要刷新，否则其 token 过期会导致签到中断。
 // 单个账号失败不影响其它账号，失败原因写回 LastError 便于前端排障。
 func (s *Service) RefreshStaleAccounts(ctx context.Context) {
 	for _, a := range s.Settings().Accounts {
-		if a.Disabled || a.RefreshToken == "" {
+		if (a.Disabled && !checkinEligible(a)) || a.RefreshToken == "" {
 			continue
 		}
 		if state := tokenState(a); state == "valid" {

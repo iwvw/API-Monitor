@@ -127,6 +127,8 @@ func (s *Service) rebuildScheduler(ctx context.Context, loc *time.Location) {
 }
 
 // RunScheduledCheckin 是签到定时回调：自动签到关闭或插件停用时静默跳过。
+// 注意这里只看插件总开关，不看账号的转发停用（Disabled）：转发与签到已解耦，
+// 账号即便被转发停用，只要签到未停用（CheckinDisabled=false）就照常签到。
 func (s *Service) RunScheduledCheckin(ctx context.Context) {
 	st := s.Settings()
 	if !st.autoCheckinEnabled() || !st.Enabled {
@@ -144,12 +146,36 @@ func (s *Service) RunScheduledActivity(ctx context.Context) {
 	_ = s.ReportActivityAll(ctx)
 }
 
-// CheckinAll 对全部账号执行签到（含连登管家），返回每账号结果。
-// 国际版账号返回 skipped，不计入失败。
+// checkinEligible 报告账号是否参与签到维度：只认账号级签到停用，
+// 与转发停用（Disabled）无关，确保「关闭转发」不会中断每日签到。
+func checkinEligible(a Account) bool {
+	return !a.CheckinDisabled
+}
+
+// ensureCheckinToken 确保账号在签到前持有可用的 access token。
+// access token 过期时签到必然失败，若账号有 refresh token 就先刷新一次，
+// 保证「无论账号开关如何，签到都不因 token 失效而中断」。
+// 刷新结果写回账号（含失败原因），返回刷新后的账号副本。
+func (s *Service) ensureCheckinToken(ctx context.Context, acc Account) Account {
+	if tokenState(acc) == "valid" || acc.RefreshToken == "" {
+		return acc
+	}
+	refreshed := acc
+	if err := s.refreshAccessToken(ctx, &refreshed); err != nil {
+		refreshed.LastError = err.Error()
+		_ = s.upsertAccount(ctx, refreshed)
+		return refreshed
+	}
+	_ = s.upsertAccount(ctx, refreshed)
+	return refreshed
+}
+
+// CheckinAll 对全部「签到未停用」的账号执行签到（含连登管家），返回每账号结果。
+// 转发停用（Disabled）的账号同样参与；国际版账号返回 skipped，不计入失败。
 func (s *Service) CheckinAll(ctx context.Context) []map[string]interface{} {
 	results := make([]map[string]interface{}, 0)
 	for _, a := range s.Settings().Accounts {
-		if a.Disabled {
+		if !checkinEligible(a) {
 			continue
 		}
 		item := map[string]interface{}{"accountId": a.ID, "nickname": a.Nickname}
@@ -160,7 +186,8 @@ func (s *Service) CheckinAll(ctx context.Context) []map[string]interface{} {
 			results = append(results, item)
 			continue
 		}
-		result, err := s.runCheckin(ctx, a)
+		// 过期 token 先刷新，保证签到不因 token 失效而中断。
+		result, err := s.runCheckin(ctx, s.ensureCheckinToken(ctx, a))
 		if err != nil {
 			item["success"] = false
 			item["error"] = err.Error()
@@ -181,19 +208,20 @@ func (s *Service) CheckinAll(ctx context.Context) []map[string]interface{} {
 	return results
 }
 
-// ReportActivityAll 对全部国内版账号执行一次对话活跃上报。
-// 账号间限速，避免同秒集中打上游。
+// ReportActivityAll 对全部「签到未停用」的国内版账号执行一次对话活跃上报。
+// 转发停用（Disabled）的账号同样参与；账号间限速，避免同秒集中打上游。
 func (s *Service) ReportActivityAll(ctx context.Context) []map[string]interface{} {
 	results := make([]map[string]interface{}, 0)
 	first := true
 	for _, a := range s.Settings().Accounts {
-		if a.Disabled || !checkinSupported(a) {
+		if !checkinEligible(a) || !checkinSupported(a) {
 			continue
 		}
 		if !first {
 			time.Sleep(activityAccountDelay)
 		}
 		first = false
+		a = s.ensureCheckinToken(ctx, a)
 		item := map[string]interface{}{"accountId": a.ID, "nickname": a.Nickname}
 		if err := s.reportChatActivity(ctx, a); err != nil {
 			item["success"] = false
@@ -233,4 +261,3 @@ func (s *Service) runCheckin(ctx context.Context, acc Account) (CheckinResult, e
 	}
 	return result, nil
 }
-

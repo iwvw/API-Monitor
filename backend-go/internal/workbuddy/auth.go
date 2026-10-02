@@ -21,11 +21,13 @@ func (s *Service) toAccountView(a Account) AccountView {
 		EnterpriseID: a.EnterpriseID,
 		Region:       normalizeRegion(a.Region),
 		Disabled:     a.Disabled,
-		TokenState:   tokenState(a),
-		ExpiresAt:    a.ExpiresAt,
-		Available:    accountAvailable(a),
-		CallCount:    s.callDisplay(a.ID),
-		LastError:    a.LastError,
+		// 签到维度独立于转发维度：即便账号被转发停用，签到开关仍单独展示。
+		CheckinDisabled: a.CheckinDisabled,
+		TokenState:      tokenState(a),
+		ExpiresAt:       a.ExpiresAt,
+		Available:       accountAvailable(a),
+		CallCount:       s.callDisplay(a.ID),
+		LastError:       a.LastError,
 		// 签到与余额状态：国际版账号无签到体系，LastCheckinAt 恒为空。
 		LastCheckinAt: a.LastCheckinAt,
 		Credits:       a.Credits,
@@ -237,7 +239,9 @@ func (s *Service) handleUpdateAccount(w http.ResponseWriter, r *http.Request, id
 	responseJSON(w, map[string]interface{}{"success": true})
 }
 
-// handleToggleAccount 启用/停用账号（停用即摘出转发与自动刷新）。
+// handleToggleAccount 启用/停用账号的「转发」维度。
+// 请求体的 disabled 只作用于转发；签到维度由 handleToggleAccountCheckin 独立控制，
+// 因此停用转发不会中断该账号的每日签到。
 func (s *Service) handleToggleAccount(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
@@ -257,6 +261,37 @@ func (s *Service) handleToggleAccount(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	acc.Disabled = body.Disabled
+	if !body.Disabled {
+		acc.LastError = ""
+	}
+	if err := s.upsertAccount(r.Context(), acc); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true})
+}
+
+// handleToggleAccountCheckin 启用/停用账号的「签到」维度（独立于转发）。
+// 签到开关只影响每日签到/活跃上报/连登管家；停用后不影响转发选号与自动刷新。
+func (s *Service) handleToggleAccountCheckin(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Disabled bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
+		return
+	}
+	id = strings.TrimSpace(id)
+	acc, ok := s.findAccount(id)
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	acc.CheckinDisabled = body.Disabled
 	if !body.Disabled {
 		acc.LastError = ""
 	}

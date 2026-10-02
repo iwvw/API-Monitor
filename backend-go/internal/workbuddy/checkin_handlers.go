@@ -47,7 +47,7 @@ func (s *Service) handleCheckinAccount(w http.ResponseWriter, r *http.Request, i
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	result, err := s.runCheckin(ctx, acc)
+	result, err := s.runCheckin(ctx, s.ensureCheckinToken(ctx, acc))
 	if err != nil {
 		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -68,7 +68,7 @@ func (s *Service) handleActivityAccount(w http.ResponseWriter, r *http.Request, 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	if err := s.reportChatActivity(ctx, acc); err != nil {
+	if err := s.reportChatActivity(ctx, s.ensureCheckinToken(ctx, acc)); err != nil {
 		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}

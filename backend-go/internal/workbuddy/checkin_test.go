@@ -35,6 +35,70 @@ func newCheckinTestService(accounts ...Account) *Service {
 	}
 }
 
+// TestCheckinEligibleIndependentOfForwarding 验证签到维度与转发停用解耦：
+// 转发停用（Disabled=true）不影响签到资格，只有 CheckinDisabled 才摘出签到。
+func TestCheckinEligibleIndependentOfForwarding(t *testing.T) {
+	if !checkinEligible(Account{Disabled: true}) {
+		t.Error("转发停用不应剥夺签到资格")
+	}
+	if !checkinEligible(Account{}) {
+		t.Error("默认账号应参与签到")
+	}
+	if checkinEligible(Account{CheckinDisabled: true}) {
+		t.Error("签到停用应摘出签到")
+	}
+}
+
+// TestCheckinAllRefreshesExpiredToken 验证「转发停用但签到启用」的账号在 token
+// 过期时先刷新再签到，确保签到不因 token 失效而中断。
+func TestCheckinAllRefreshesExpiredToken(t *testing.T) {
+	var refreshed, checked atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v2/plugin/auth/token/refresh"):
+			refreshed.Add(1)
+			_, _ = w.Write([]byte(`{"code":0,"data":{"accessToken":"newtok","expiresIn":3600}}`))
+		case strings.HasSuffix(r.URL.Path, "/v2/billing/meter/daily-checkin"):
+			checked.Add(1)
+			if got := r.Header.Get("Authorization"); got != "Bearer newtok" {
+				t.Errorf("签到未使用刷新后的 token: %q", got)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"credit":100,"streak_days":1}}`))
+		case strings.HasSuffix(r.URL.Path, "/v2/billing/meter/get-user-resource"):
+			_, _ = w.Write([]byte(`{"code":0,"data":{"capacityRecords":[]}}`))
+		case strings.HasSuffix(r.URL.Path, "/activity/growth/streak"):
+			_, _ = w.Write([]byte(`{"code":0,"data":{"streak":{"days":1},"makeup_cards":{"balance":0},"redemption_status":{"tiers":[]}}}`))
+		default:
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		}
+	}))
+	defer srv.Close()
+	prevBilling, prevWeb, prevUp := billingBaseOverride, webBaseOverride, upstreamBaseOverride
+	billingBaseOverride, webBaseOverride, upstreamBaseOverride = srv.URL, srv.URL, srv.URL
+	t.Cleanup(func() { billingBaseOverride, webBaseOverride, upstreamBaseOverride = prevBilling, prevWeb, prevUp })
+
+	acc := Account{ID: "u1", UID: "u1", Region: regionCN, AccessToken: "oldtok",
+		RefreshToken: "r", ExpiresAt: time.Now().Add(-time.Hour).Unix(), Disabled: true}
+	s := newTestService(t)
+	if err := s.SaveSettings(context.Background(), Settings{Enabled: true, Accounts: []Account{acc}}); err != nil {
+		t.Fatal(err)
+	}
+
+	results := s.CheckinAll(context.Background())
+	if len(results) != 1 || results[0]["success"] != true {
+		t.Fatalf("转发停用的国内账号应完成签到，结果=%+v", results)
+	}
+	if refreshed.Load() != 1 {
+		t.Errorf("过期 token 应刷新一次，实际 %d", refreshed.Load())
+	}
+	if checked.Load() != 1 {
+		t.Errorf("应签到一次，实际 %d", checked.Load())
+	}
+	if got := s.Settings().Accounts[0].AccessToken; got != "newtok" {
+		t.Errorf("刷新后的 token 未写回: %q", got)
+	}
+}
+
 func TestCheckinSupportedOnlyCN(t *testing.T) {
 	if !checkinSupported(Account{Region: regionCN}) {
 		t.Error("国内版应支持签到")

@@ -628,6 +628,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.handleRefreshAccount(w, r, strings.TrimSuffix(rest, "/refresh"))
 		case strings.HasSuffix(rest, "/toggle"):
 			s.handleToggleAccount(w, r, strings.TrimSuffix(rest, "/toggle"))
+		case strings.HasSuffix(rest, "/checkin-toggle"):
+			s.handleToggleAccountCheckin(w, r, strings.TrimSuffix(rest, "/checkin-toggle"))
 		case strings.HasSuffix(rest, "/test"):
 			s.handleTestAccount(w, r, strings.TrimSuffix(rest, "/test"))
 		case strings.HasSuffix(rest, "/balance"):

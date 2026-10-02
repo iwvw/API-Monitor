@@ -139,7 +139,11 @@ type Account struct {
 	// ExpiresAt 是 access token 过期时刻（Unix 秒）。
 	ExpiresAt int64 `json:"expiresAt,omitempty"`
 
+	// Disabled 是转发停用：停用后不再参与中继选号与网关转发（也不参与自动刷新兜底）。
 	Disabled bool `json:"disabled,omitempty"`
+	// CheckinDisabled 是签到停用：与转发停用相互独立。签到只由该字段与插件总开关
+	// （AutoCheckin）决定，因此账号即便被转发停用，只要签到未停用就照常每日签到。
+	CheckinDisabled bool `json:"checkinDisabled,omitempty"`
 	// CreatedAt / LastRefreshAt / LastCheckinAt 为 RFC3339（UTC）。
 	CreatedAt     string `json:"createdAt,omitempty"`
 	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
@@ -160,6 +164,8 @@ type AccountView struct {
 	// Region 是账号所属区域：cn / intl（前端据此显示区域徽标）。
 	Region   string `json:"region,omitempty"`
 	Disabled bool   `json:"disabled"`
+	// CheckinDisabled 是签到停用，与转发 Disabled 独立；前端据此展示签到开关。
+	CheckinDisabled bool `json:"checkinDisabled"`
 	// TokenState：valid / expiring（<30 分钟）/ expired / unknown。
 	TokenState       string `json:"tokenState"`
 	ExpiresAt        int64  `json:"expiresAt,omitempty"`
