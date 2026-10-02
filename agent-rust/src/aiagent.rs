@@ -557,15 +557,12 @@ pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
     // 端口来自云端经鉴权控制通道下发、并以一次性 token 绑定的任务；云端已把实例
     // 端口限制为 Provider 默认端口，这里不再重复维护端口白名单。
     let target = format!("127.0.0.1:{}", payload.port);
-    // 本机端口与云端数据通道的目标互不依赖（前者是 127.0.0.1:<agent_port>，后者是面板
-    // 网关），两次握手并发执行，避免把两段 RTT 串成首包前的固定延迟。
-    // 两者各自的超时、错误文案与失败语义保持原样：任一失败即整体失败。
-    let local_fut = async {
-        tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, TcpStream::connect(&target))
-            .await
-            .map_err(|_| format!("连接 {} 超时", target))?
-            .map_err(|err| format!("连接 {} 失败: {}", target, err))
-    };
+
+    // 先建立数据通道，再读首包判断请求类型：
+    //   - 轻量消息请求：走投影循环，不占用本机 opencode 连接（投影时按需直连）。
+    //   - 其余请求：连本机端口做裸字节透传。
+    // 若两条路径都在建连时就并发打开本机端口，轻量隧道会白白占用一条 opencode
+    // 连接长达空闲超时，故按类型延迟建立本机连接。
     let ws_fut = async {
         let url = agent_port_stream_url(config, &payload.stream_id, &payload.stream_token)?;
         // 帧/消息上限与云端网关的请求体上限（8MB）对齐，约束最坏情况下的内存分配。
@@ -584,7 +581,36 @@ pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
         .map_err(|err| format!("数据通道连接失败: {}", err))
         .map(|(ws_stream, _)| ws_stream)
     };
-    let (mut local, mut ws_stream) = tokio::try_join!(local_fut, ws_fut)?;
+    let mut ws_stream = ws_fut.await?;
+
+    // 轻量消息投影：云端带 X-Lightweight 的 GET /session/{id}/message 请求，
+    // 不走裸字节透传，而是由本机直连 opencode、裁剪响应后再回传。
+    //
+    // 网关对轻量请求启用了连接复用（keep-alive），因此这里不能处理一次就关隧道，
+    // 而要循环处理同一隧道上的后续请求，直到空闲超时或对端关闭。每条请求由网关
+    // 的 http.Transport 在同一 net.Conn 上串行发出（HTTP/1.1 无流水线），故按
+    // 「读请求头 → 回响应」的顺序处理即可。
+    //
+    // 其余请求（含 SSE/WebSocket 等流式）保持原字节管道，完全不受影响。
+    let first_head = match tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, read_until_http_head(&mut ws_stream)).await {
+        Ok(Ok(head)) => head,
+        Ok(Err(err)) => return Err(err),
+        Err(_) => return Err("读取请求头超时".to_string()),
+    };
+
+    if parse_lightweight_request(&first_head).is_some() {
+        return serve_lightweight_tunnel(payload.port, first_head, &mut ws_stream).await;
+    }
+
+    // 非轻量：连本机端口，首包原样透传，进入原有裸字节搬运循环。
+    let mut local = tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, TcpStream::connect(&target))
+        .await
+        .map_err(|_| format!("连接 {} 超时", target))?
+        .map_err(|err| format!("连接 {} 失败: {}", target, err))?;
+    if let Err(err) = local.write_all(&first_head).await {
+        return Err(format!("本地端口写入失败: {}", err));
+    }
+    let _ = local.flush().await;
 
     let mut read_buf = vec![0u8; BRIDGE_READ_BUF];
     // 单循环同时持有两侧，任一侧结束即可优雅收尾：向对端发送 Close 帧、
@@ -703,6 +729,204 @@ enum Step {
     Finished,
 }
 
+/// 轻量请求的请求头上限：正常 HTTP 请求头只有几 KB，超过即视为异常。
+const HTTP_HEAD_MAX: usize = 64 * 1024;
+
+/// 从数据通道读到 HTTP 请求头结束（\r\n\r\n）。返回的字节包含请求头，不含 body。
+/// body 由调用方按 Content-Length 继续从同一流读取（轻量请求为 GET，无 body）。
+type AgentWsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn read_until_http_head(stream: &mut AgentWsStream) -> Result<Vec<u8>, String> {
+    let mut buf: Vec<u8> = Vec::with_capacity(1024);
+    loop {
+        let next = stream
+            .next()
+            .await
+            .ok_or_else(|| "数据通道在请求头到达前关闭".to_string())?;
+        match next {
+            Ok(Message::Binary(data)) => {
+                buf.extend_from_slice(&data);
+            }
+            Ok(Message::Text(text)) => {
+                buf.extend_from_slice(text.as_bytes());
+            }
+            Ok(Message::Ping(payload)) => {
+                let _ = stream.send(Message::Pong(payload)).await;
+                continue;
+            }
+            Ok(Message::Close(_)) | Err(_) => {
+                return Err("数据通道在请求头到达前关闭".to_string());
+            }
+            _ => continue,
+        }
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+            return Ok(buf);
+        }
+        if buf.len() > HTTP_HEAD_MAX {
+            return Err("请求头超过上限".to_string());
+        }
+    }
+}
+
+/// 轻量隧道服务循环：在一条复用的数据通道上，按「读请求头 → 投影 → 回响应」
+/// 处理多条请求，直到空闲超时或对端关闭。首包 head 已由调用方读入。
+async fn serve_lightweight_tunnel(
+    port: u16,
+    first_head: Vec<u8>,
+    ws_stream: &mut AgentWsStream,
+) -> Result<(), String> {
+    let mut head = first_head;
+    loop {
+        let request = match parse_lightweight_request(&head) {
+            Some(request) => request,
+            // 复用隧道上出现非轻量请求（不应发生）：回一个 400，避免静默挂起。
+            None => {
+                let response = build_http_response(400, "application/json", b"{\"error\":\"bad request\"}", &[]);
+                let _ = ws_stream.send(Message::Binary(Bytes::from(response))).await;
+                return Ok(());
+            }
+        };
+
+        match handle_lightweight_request(port, &request.path).await {
+            Ok(response) => {
+                if ws_stream.send(Message::Binary(Bytes::from(response))).await.is_err() {
+                    return Ok(());
+                }
+            }
+            Err(err) => {
+                // 投影失败：回 502，由客户端按错误处理（不会误当成功响应）。
+                eprintln!("[aiagent] lightweight projection failed: {}", err);
+                let body = format!("{{\"error\":\"projection failed: {}\"}}", err.replace('"', "'"));
+                let response = build_http_response(502, "application/json", body.as_bytes(), &[]);
+                let _ = ws_stream.send(Message::Binary(Bytes::from(response))).await;
+            }
+        }
+
+        // 读下一条请求头；空闲超时或对端关闭即结束整条隧道。
+        match tokio::time::timeout(BRIDGE_IDLE_TIMEOUT, read_until_http_head(ws_stream)).await {
+            Ok(Ok(next_head)) => head = next_head,
+            Ok(Err(_)) | Err(_) => {
+                let _ = ws_stream.close(None).await;
+                return Ok(());
+            }
+        }
+    }
+}
+
+struct LightweightRequest {
+    path: String,
+}
+
+/// 判断请求是否为「轻量消息列表」请求：GET + 带 X-Lightweight 头 +
+/// 路径形如 /session/{id}/message。不匹配返回 None，走普通透传。
+fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
+    let text = std::str::from_utf8(head).ok()?;
+    let mut lines = text.split("\r\n");
+    let request_line = lines.next()?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next()?;
+    let target = request_parts.next()?;
+    if !method.eq_ignore_ascii_case("GET") {
+        return None;
+    }
+
+    let mut lightweight = false;
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("x-lightweight") {
+                let v = value.trim();
+                lightweight = v == "1" || v.eq_ignore_ascii_case("true");
+            }
+        }
+    }
+    if !lightweight {
+        return None;
+    }
+
+    // 路径形如 /session/<id>/message（可带 query）。
+    let path_only = target.split('?').next().unwrap_or(target);
+    let segments: Vec<&str> = path_only.trim_start_matches('/').split('/').collect();
+    if segments.len() != 3 || segments[0] != "session" || segments[2] != "message" {
+        return None;
+    }
+    Some(LightweightRequest {
+        path: target.to_string(),
+    })
+}
+
+/// 直连本机 opencode 拉取完整消息，投影后组装成 HTTP/1.1 响应字节。
+/// 请求走 identity 编码（不压缩），响应体为投影后的 JSON。
+async fn handle_lightweight_request(port: u16, path: &str) -> Result<Vec<u8>, String> {
+    let url = format!("http://127.0.0.1:{}{}", port, path);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|err| format!("构建 HTTP 客户端失败: {}", err))?;
+
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::ACCEPT_ENCODING, "identity")
+        .send()
+        .await
+        .map_err(|err| format!("请求本机 opencode 失败: {}", err))?;
+
+    let status = resp.status();
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|err| format!("读取本机响应失败: {}", err))?;
+
+    if !status.is_success() {
+        // 非 2xx：原样回传状态与 body，让客户端按原有错误路径处理。
+        return Ok(build_http_response(
+            status.as_u16(),
+            "application/json",
+            &body,
+            &[],
+        ));
+    }
+
+    let projected = crate::aiagent_projection::project_message_list(&body)?;
+    Ok(build_http_response(
+        200,
+        "application/json",
+        &projected,
+        &[("X-Lightweight", "1")],
+    ))
+}
+
+/// 组装一个最小 HTTP/1.1 响应：keep-alive + 正确 Content-Length。
+///
+/// 必须 keep-alive：网关对该隧道启用了连接复用，响应里若写 Connection: close，
+/// 网关的 http.Transport 会在每次响应后关闭连接，复用即失效。Content-Length 精确，
+/// 网关据此判定响应边界，无需关闭连接即可继续复用。
+fn build_http_response(status: u16, content_type: &str, body: &[u8], extra: &[(&str, &str)]) -> Vec<u8> {
+    let reason = if status == 200 { "OK" } else { "Error" };
+    let mut head = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: keep-alive\r\n",
+        status,
+        reason,
+        content_type,
+        body.len()
+    );
+    for (name, value) in extra {
+        head.push_str(name);
+        head.push_str(": ");
+        head.push_str(value);
+        head.push_str("\r\n");
+    }
+    head.push_str("\r\n");
+
+    let mut out = Vec::with_capacity(head.len() + body.len());
+    out.extend_from_slice(head.as_bytes());
+    out.extend_from_slice(body);
+    out
+}
+
 fn agent_port_stream_url(
     config: &Config,
     stream_id: &str,
@@ -728,8 +952,44 @@ fn agent_port_stream_url(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_token, listening_pid, probe, process_resources, redact_secrets};
+    use super::{
+        build_http_response, extract_token, listening_pid, parse_lightweight_request, probe,
+        process_resources, redact_secrets,
+    };
     use tokio::net::TcpListener;
+
+    #[test]
+    fn matches_lightweight_message_request() {
+        let head = b"GET /session/ses_abc/message?limit=100&directory=D%3A%2Ftmp HTTP/1.1\r\n\
+Host: 127.0.0.1\r\nX-Lightweight: 1\r\nAccept: */*\r\n\r\n";
+        let req = parse_lightweight_request(head).expect("应命中");
+        assert_eq!(req.path, "/session/ses_abc/message?limit=100&directory=D%3A%2Ftmp");
+    }
+
+    #[test]
+    fn ignores_requests_without_lightweight_header() {
+        let head = b"GET /session/ses_abc/message?limit=100 HTTP/1.1\r\nHost: x\r\n\r\n";
+        assert!(parse_lightweight_request(head).is_none());
+    }
+
+    #[test]
+    fn ignores_non_message_paths_and_non_get() {
+        let get_other = b"GET /session/ses_abc/other HTTP/1.1\r\nX-Lightweight: 1\r\n\r\n";
+        assert!(parse_lightweight_request(get_other).is_none());
+        let post = b"POST /session/ses_abc/message HTTP/1.1\r\nX-Lightweight: 1\r\n\r\n";
+        assert!(parse_lightweight_request(post).is_none());
+    }
+
+    #[test]
+    fn builds_valid_http_response_with_content_length() {
+        let body = b"[]";
+        let resp = build_http_response(200, "application/json", body, &[("X-Lightweight", "1")]);
+        let text = String::from_utf8(resp).unwrap();
+        assert!(text.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(text.contains("Content-Length: 2\r\n"));
+        assert!(text.contains("X-Lightweight: 1\r\n"));
+        assert!(text.ends_with("\r\n\r\n[]"));
+    }
 
     // 起一个真实监听回环端口的 socket，验证 listening_pid 能反查到本进程 PID。
     // 这是「进程 ↔ 端口」关联验证的基础：查不到 PID 就无法判定实例是否真的在跑。

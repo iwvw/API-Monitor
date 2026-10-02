@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 mod aiagent;
 mod aiagent_lifecycle;
+mod aiagent_projection;
 mod cloudflared;
 mod collector;
 mod docker;

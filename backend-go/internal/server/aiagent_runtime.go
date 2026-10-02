@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,8 +22,78 @@ import (
 
 // aiagentRuntime 把 serveragent 的 Agent 能力适配成 aiagent 模块所需的
 // AgentRuntime 抽象：探测走 Agent 任务，转发走原生流通道 + 反向代理。
+//
+// transports 按 (serverID, port) 缓存 http.Transport 并开启 keep-alive：
+// 数据通道（WebSocket 反向隧道）的握手成本约 700-900ms，是每次请求的固定开销。
+// 复用连接后，同一实例的后续请求不再重新握手，小请求的端到端延迟从约 1s 降到
+// 约 200ms。隧道本身仍按需在 DialContext 中创建。
 type aiagentRuntime struct {
 	server *serveragent.Service
+
+	transportMu sync.Mutex
+	transports  map[string]*http.Transport
+}
+
+// lightweightTransportKey 标识一条「轻量消息投影」的复用连接池。
+//
+// 只有轻量请求走连接复用：主机 Agent 对带 X-Lightweight 的请求进入投影循环并
+// 保持隧道开启，使后续轻量请求省去约 700-900ms 的反向握手。普通请求（含 SSE /
+// WebSocket 流式）保持每次新建通道的原有行为，零改动、零风险。
+func lightweightTransportKey(serverID string, port int) string {
+	return serverID + ":" + strconv.Itoa(port) + ":light"
+}
+
+// isLightweightRequest 判断该请求是否走轻量投影通道。
+func isLightweightRequest(header http.Header) bool {
+	return strings.TrimSpace(header.Get("X-Lightweight")) == "1"
+}
+
+// lightweightTransportFor 返回该实例端口的轻量复用传输；首次调用时创建。
+//
+// 关键：数据通道的 WebSocket 反向握手约 700-900ms，是每次请求的固定开销。
+// 开启 keep-alive 后，同一实例的后续轻量请求复用同一条隧道，固定开销降到接近 0
+// （只剩本地 HTTP 往返）。主机 Agent 的投影循环持续到任一端关闭，网关不关隧道
+// 即可天然复用。
+func (r *aiagentRuntime) lightweightTransportFor(serverID string, port int) *http.Transport {
+	key := lightweightTransportKey(serverID, port)
+	r.transportMu.Lock()
+	defer r.transportMu.Unlock()
+	if r.transports == nil {
+		r.transports = make(map[string]*http.Transport)
+	}
+	if transport, ok := r.transports[key]; ok {
+		return transport
+	}
+	transport := &http.Transport{
+		DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
+			return r.server.OpenAIAgentPortStream(dialCtx, serverID, port)
+		},
+		DisableKeepAlives:   false,
+		MaxIdleConns:        8,
+		MaxIdleConnsPerHost: 8,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 5 * time.Second,
+		// 轻量响应是主机 Agent 组装好的 identity JSON，不做传输压缩：关闭自动
+		// Accept-Encoding，避免 Transport 对响应做透明 gzip 解压带来的歧义。
+		DisableCompression: true,
+		// 目标 Agent 只接受连接却不返回响应头时，尽快释放通道，而不是挂到网关超时。
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
+	r.transports[key] = transport
+	return transport
+}
+
+// invalidateLightweightTransport 关闭并移除某实例的轻量复用连接池。
+// Agent 断线/实例变更时调用，避免复用已失效的连接。
+func (r *aiagentRuntime) invalidateLightweightTransport(serverID string, port int) {
+	key := lightweightTransportKey(serverID, port)
+	r.transportMu.Lock()
+	transport := r.transports[key]
+	delete(r.transports, key)
+	r.transportMu.Unlock()
+	if transport != nil {
+		transport.CloseIdleConnections()
+	}
 }
 
 // errAgentStreamAborted 表示上游在响应体传输中途中止（无更具体的错误可用）。
@@ -235,16 +307,23 @@ func (r *aiagentRuntime) OpenStream(ctx context.Context, serverID string, port i
 func (r *aiagentRuntime) RoundTrip(ctx context.Context, serverID string, port int, req aiagent.AgentHTTPRequest) (aiagent.AgentHTTPResponse, error) {
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:0"}
 
-	transport := &http.Transport{
-		DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
-			return r.server.OpenAIAgentPortStream(dialCtx, serverID, port)
-		},
-		DisableKeepAlives:   true,
-		MaxIdleConns:        0,
-		IdleConnTimeout:     0,
-		TLSHandshakeTimeout: 5 * time.Second,
-		// 目标 Agent 只接受连接却不返回响应头时，尽快释放通道，而不是挂到网关超时。
-		ResponseHeaderTimeout: 30 * time.Second,
+	// 轻量消息请求复用一条长隧道（省去每次约 700-900ms 的反向握手）；其余请求
+	// 保持「每次新建通道」的原有行为，不改变 SSE/WebSocket 等流式语义。
+	var transport *http.Transport
+	if isLightweightRequest(req.Header) {
+		transport = r.lightweightTransportFor(serverID, port)
+	} else {
+		transport = &http.Transport{
+			DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
+				return r.server.OpenAIAgentPortStream(dialCtx, serverID, port)
+			},
+			DisableKeepAlives:   true,
+			MaxIdleConns:        0,
+			IdleConnTimeout:     0,
+			TLSHandshakeTimeout: 5 * time.Second,
+			// 目标 Agent 只接受连接却不返回响应头时，尽快释放通道，而不是挂到网关超时。
+			ResponseHeaderTimeout: 30 * time.Second,
+		}
 	}
 
 	var statusCode int
