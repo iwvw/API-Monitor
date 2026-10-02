@@ -737,6 +737,21 @@ const HTTP_HEAD_MAX: usize = 64 * 1024;
 type AgentWsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
+/// 把一段字节按数据通道的单帧上限分片发送。
+///
+/// 网关对数据通道设置了读上限（64KB），单帧超过即被拒并使隧道断开。原透传路径
+/// 天然按 32KB 读缓冲分片；轻量响应是一次性组装的（可能上百 KB），必须在此显式
+/// 分片，否则大会话的轻量响应会 502。
+async fn send_framed(stream: &mut AgentWsStream, payload: &[u8]) -> Result<(), String> {
+    for chunk in payload.chunks(BRIDGE_READ_BUF) {
+        stream
+            .send(Message::Binary(Bytes::copy_from_slice(chunk)))
+            .await
+            .map_err(|_| "数据通道发送失败".to_string())?;
+    }
+    Ok(())
+}
+
 async fn read_until_http_head(stream: &mut AgentWsStream) -> Result<Vec<u8>, String> {
     let mut buf: Vec<u8> = Vec::with_capacity(1024);
     loop {
@@ -783,14 +798,14 @@ async fn serve_lightweight_tunnel(
             // 复用隧道上出现非轻量请求（不应发生）：回一个 400，避免静默挂起。
             None => {
                 let response = build_http_response(400, "application/json", b"{\"error\":\"bad request\"}", &[]);
-                let _ = ws_stream.send(Message::Binary(Bytes::from(response))).await;
+                let _ = send_framed(ws_stream, &response).await;
                 return Ok(());
             }
         };
 
         match handle_lightweight_request(port, &request.path).await {
             Ok(response) => {
-                if ws_stream.send(Message::Binary(Bytes::from(response))).await.is_err() {
+                if send_framed(ws_stream, &response).await.is_err() {
                     return Ok(());
                 }
             }
@@ -799,7 +814,7 @@ async fn serve_lightweight_tunnel(
                 eprintln!("[aiagent] lightweight projection failed: {}", err);
                 let body = format!("{{\"error\":\"projection failed: {}\"}}", err.replace('"', "'"));
                 let response = build_http_response(502, "application/json", body.as_bytes(), &[]);
-                let _ = ws_stream.send(Message::Binary(Bytes::from(response))).await;
+                let _ = send_framed(ws_stream, &response).await;
             }
         }
 
