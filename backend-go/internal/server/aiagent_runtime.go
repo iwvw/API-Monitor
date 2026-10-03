@@ -34,28 +34,38 @@ type aiagentRuntime struct {
 	transports  map[string]*http.Transport
 }
 
-// lightweightTransportKey 标识一条「轻量消息投影」的复用连接池。
+// pooledTransportKey 标识一条「可复用连接池」的隧道。
 //
-// 只有轻量请求走连接复用：主机 Agent 对带 X-Lightweight 的请求进入投影循环并
-// 保持隧道开启，使后续轻量请求省去约 700-900ms 的反向握手。普通请求（含 SSE /
-// WebSocket 流式）保持每次新建通道的原有行为，零改动、零风险。
-func lightweightTransportKey(serverID string, port int) string {
-	return serverID + ":" + strconv.Itoa(port) + ":light"
+// 复用连接对所有**非流式**请求生效：数据通道的 WebSocket 反向握手约 700-900ms，
+// 是每次请求的固定开销。实测打开一个会话会发出 20+ 个短请求（health / mcp /
+// permission / question / vcs / skill / file ...），若每个都新建通道，仅握手就
+// 累加到十几秒 —— 这正是「点击会话要等十几秒」的主因。
+//
+// 主机 Agent 对 keep-alive 请求会进入循环处理模式，直到空闲超时或对端关闭；
+// 网关不主动关隧道即可天然复用。
+func pooledTransportKey(serverID string, port int) string {
+	return serverID + ":" + strconv.Itoa(port) + ":pool"
 }
 
-// isLightweightRequest 判断该请求是否走轻量投影通道。
-func isLightweightRequest(header http.Header) bool {
-	return strings.TrimSpace(header.Get("X-Lightweight")) == "1"
+// isStreamingRequest 判断请求是否要求流式响应。
+//
+// 流式响应（SSE / WebSocket 升级）是长连接，必须每次独占一条通道：
+// 复用池里的连接会被 http.Transport 归还后重新用于下一个请求，而流式响应
+// 的语义是「读到关闭为止」，混用会导致响应交错。因此这类请求继续走
+// 「每次新建通道」的路径。
+func isStreamingRequest(header http.Header) bool {
+	if strings.Contains(strings.ToLower(header.Get("Accept")), "text/event-stream") {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(header.Get("Upgrade")), "websocket") {
+		return true
+	}
+	return false
 }
 
-// lightweightTransportFor 返回该实例端口的轻量复用传输；首次调用时创建。
-//
-// 关键：数据通道的 WebSocket 反向握手约 700-900ms，是每次请求的固定开销。
-// 开启 keep-alive 后，同一实例的后续轻量请求复用同一条隧道，固定开销降到接近 0
-// （只剩本地 HTTP 往返）。主机 Agent 的投影循环持续到任一端关闭，网关不关隧道
-// 即可天然复用。
-func (r *aiagentRuntime) lightweightTransportFor(serverID string, port int) *http.Transport {
-	key := lightweightTransportKey(serverID, port)
+// pooledTransportFor 返回该实例端口的复用传输；首次调用时创建。
+func (r *aiagentRuntime) pooledTransportFor(serverID string, port int) *http.Transport {
+	key := pooledTransportKey(serverID, port)
 	r.transportMu.Lock()
 	defer r.transportMu.Unlock()
 	if r.transports == nil {
@@ -68,13 +78,16 @@ func (r *aiagentRuntime) lightweightTransportFor(serverID string, port int) *htt
 		DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
 			return r.server.OpenAIAgentPortStream(dialCtx, serverID, port)
 		},
+		// 并发额度与客户端一致：客户端打开会话时会并发发出多个短请求，
+		// 池子太小会让它们排队等连接，抵消复用收益。
 		DisableKeepAlives:   false,
-		MaxIdleConns:        8,
-		MaxIdleConnsPerHost: 8,
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 32,
+		MaxConnsPerHost:     32,
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 5 * time.Second,
-		// 轻量响应是主机 Agent 组装好的 identity JSON，不做传输压缩：关闭自动
-		// Accept-Encoding，避免 Transport 对响应做透明 gzip 解压带来的歧义。
+		// 响应体已是 identity 编码（Agent 侧组装好 JSON），不做传输压缩：关闭
+		// 自动 Accept-Encoding，避免 Transport 对响应做透明 gzip 解压带来的歧义。
 		DisableCompression: true,
 		// 目标 Agent 只接受连接却不返回响应头时，尽快释放通道，而不是挂到网关超时。
 		ResponseHeaderTimeout: 30 * time.Second,
@@ -83,10 +96,10 @@ func (r *aiagentRuntime) lightweightTransportFor(serverID string, port int) *htt
 	return transport
 }
 
-// invalidateLightweightTransport 关闭并移除某实例的轻量复用连接池。
+// invalidatePooledTransport 关闭并移除某实例的复用连接池。
 // Agent 断线/实例变更时调用，避免复用已失效的连接。
-func (r *aiagentRuntime) invalidateLightweightTransport(serverID string, port int) {
-	key := lightweightTransportKey(serverID, port)
+func (r *aiagentRuntime) invalidatePooledTransport(serverID string, port int) {
+	key := pooledTransportKey(serverID, port)
 	r.transportMu.Lock()
 	transport := r.transports[key]
 	delete(r.transports, key)
@@ -307,11 +320,11 @@ func (r *aiagentRuntime) OpenStream(ctx context.Context, serverID string, port i
 func (r *aiagentRuntime) RoundTrip(ctx context.Context, serverID string, port int, req aiagent.AgentHTTPRequest) (aiagent.AgentHTTPResponse, error) {
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:0"}
 
-	// 轻量消息请求复用一条长隧道（省去每次约 700-900ms 的反向握手）；其余请求
-	// 保持「每次新建通道」的原有行为，不改变 SSE/WebSocket 等流式语义。
+	// 非流式请求复用长隧道（省去每次约 700-900ms 的反向握手）；流式请求
+	// （SSE / WebSocket）每次独占新建通道，避免复用导致响应交错。
 	var transport *http.Transport
-	if isLightweightRequest(req.Header) {
-		transport = r.lightweightTransportFor(serverID, port)
+	if !isStreamingRequest(req.Header) {
+		transport = r.pooledTransportFor(serverID, port)
 	} else {
 		transport = &http.Transport{
 			DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
