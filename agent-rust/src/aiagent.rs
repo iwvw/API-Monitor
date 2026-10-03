@@ -6,7 +6,7 @@
 // http.Transport 说话，因此天然支持 SSE 流式响应，无需在本层解析 HTTP。
 
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -41,6 +41,27 @@ pub struct BridgePayload {
     pub port: u16,
     pub stream_id: String,
     pub stream_token: String,
+}
+
+/// 复用的本机 HTTP 客户端。
+///
+/// 必须是单例：reqwest::Client 自带连接池，每次新建意味着每条转发请求都要
+/// 重新与 127.0.0.1 上的 opencode 建一次 TCP 连接，且旧客户端的池被丢弃。
+/// 网关侧已经为「复用连接」做了大量工作，本机这一跳不该再退回每次新建。
+///
+/// 关闭自动解压：响应体由本端按 identity 读取后重新组装，若客户端透明解压，
+/// Content-Length 会与实际 body 不一致，网关就无法判定响应边界。
+fn local_http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
 }
 
 /// 持久化的 sysinfo 实例：CPU 使用率是「距上次刷新的增量」，
@@ -583,15 +604,16 @@ pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
     };
     let mut ws_stream = ws_fut.await?;
 
-    // 轻量消息投影：云端带 X-Lightweight 的 GET /session/{id}/message 请求，
-    // 不走裸字节透传，而是由本机直连 opencode、裁剪响应后再回传。
+    // 隧道分流：网关对**非流式**请求启用了连接复用（keep-alive），因此本端不能
+    // 处理一次就关隧道，而要循环处理同一隧道上的后续请求，直到空闲超时或对端
+    // 关闭。每条请求由网关的 http.Transport 在同一 net.Conn 上串行发出
+    // （HTTP/1.1 无流水线），故按「读请求头 → 回响应」的顺序处理即可。
     //
-    // 网关对轻量请求启用了连接复用（keep-alive），因此这里不能处理一次就关隧道，
-    // 而要循环处理同一隧道上的后续请求，直到空闲超时或对端关闭。每条请求由网关
-    // 的 http.Transport 在同一 net.Conn 上串行发出（HTTP/1.1 无流水线），故按
-    // 「读请求头 → 回响应」的顺序处理即可。
-    //
-    // 其余请求（含 SSE/WebSocket 等流式）保持原字节管道，完全不受影响。
+    // 1) 轻量消息投影请求（X-Lightweight + GET /session/{id}/message）：不走
+    //    裸字节透传，而由本机直连 opencode、裁剪响应后再回传。
+    // 2) 其它非流式请求：通用 keep-alive 隧道，透传转发。
+    // 3) 流式请求（SSE / WebSocket）：保持原有裸字节管道，独占一条通道 ——
+    //    那类响应语义是「读到关闭为止」，与复用连接冲突。
     let first_head = match tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, read_until_http_head(&mut ws_stream)).await {
         Ok(Ok(head)) => head,
         Ok(Err(err)) => return Err(err),
@@ -602,7 +624,11 @@ pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
         return serve_lightweight_tunnel(payload.port, first_head, &mut ws_stream).await;
     }
 
-    // 非轻量：连本机端口，首包原样透传，进入原有裸字节搬运循环。
+    if parse_keepalive_request(&first_head).is_some() {
+        return serve_keepalive_tunnel(payload.port, first_head, &mut ws_stream).await;
+    }
+
+    // 流式：连本机端口，首包原样透传，进入原有裸字节搬运循环。
     let mut local = tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, TcpStream::connect(&target))
         .await
         .map_err(|_| format!("连接 {} 超时", target))?
@@ -731,6 +757,10 @@ enum Step {
 
 /// 轻量请求的请求头上限：正常 HTTP 请求头只有几 KB，超过即视为异常。
 const HTTP_HEAD_MAX: usize = 64 * 1024;
+
+/// 复用隧道请求体上限。opencode 的请求体是 JSON（prompt / 配置等），远小于此值；
+/// 设上限是为了防止伪造的超大 Content-Length 让本端无限缓冲。
+const KEEPALIVE_BODY_MAX: usize = 32 * 1024 * 1024;
 
 /// 从数据通道读到 HTTP 请求头结束（\r\n\r\n）。返回的字节包含请求头，不含 body。
 /// body 由调用方按 Content-Length 继续从同一流读取（轻量请求为 GET，无 body）。
@@ -873,14 +903,234 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
     })
 }
 
+/// 解析出「可复用隧道」请求：非流式的普通 HTTP 请求。
+///
+/// 网关对非流式请求启用连接复用，因此本端不能处理一次就关隧道，而要循环处理
+/// 同一隧道上的后续请求（HTTP/1.1 无流水线，串行处理即可）。
+///
+/// 流式请求（Accept: text/event-stream / Upgrade: websocket）返回 None，继续走
+/// 原有裸字节管道 —— 那类响应是长连接，必须独占一条通道。
+fn parse_keepalive_request(head: &[u8]) -> Option<KeepAliveRequest> {
+    let text = std::str::from_utf8(head).ok()?;
+    let mut lines = text.split("\r\n");
+    let request_line = lines.next()?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next()?;
+    let target = request_parts.next()?;
+    if method.is_empty() || target.is_empty() {
+        return None;
+    }
+
+    let mut accept = String::new();
+    let mut upgrade = String::new();
+    let mut content_length: usize = 0;
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            let name = name.trim();
+            let value = value.trim();
+            if name.eq_ignore_ascii_case("accept") {
+                accept = value.to_ascii_lowercase();
+            } else if name.eq_ignore_ascii_case("upgrade") {
+                upgrade = value.to_ascii_lowercase();
+            } else if name.eq_ignore_ascii_case("content-length") {
+                // 请求体长度：keep-alive 隧道的 body 必须按此从同一流读出后转发，
+                // 否则 POST 会以空 body 发出，且残留字节会被当成下一条请求头。
+                content_length = value.parse::<usize>().unwrap_or(0);
+            }
+        }
+    }
+    if accept.contains("text/event-stream") || upgrade.contains("websocket") {
+        return None;
+    }
+
+    Some(KeepAliveRequest {
+        method: method.to_string(),
+        path: target.to_string(),
+        content_length,
+    })
+}
+
+/// 可复用隧道上的单条请求：方法 + 路径（含 query）+ 待读取的请求体长度。
+struct KeepAliveRequest {
+    method: String,
+    path: String,
+    content_length: usize,
+}
+
+/// 可复用隧道服务循环：在一条复用的数据通道上，按「读请求头 → 本地请求 →
+/// 回响应」处理多条请求，直到空闲超时或对端关闭。首包 head 已由调用方读入。
+///
+/// 与轻量隧道的区别：这里做通用透传（不投影），并保留本机 opencode 的
+/// status / content-type / 其它响应头；同时强制 Connection: keep-alive 与精确
+/// Content-Length，网关的 http.Transport 据此判定响应边界后继续复用连接。
+async fn serve_keepalive_tunnel(
+    port: u16,
+    first_head: Vec<u8>,
+    ws_stream: &mut AgentWsStream,
+) -> Result<(), String> {
+    let mut head = first_head;
+    loop {
+        let request = match parse_keepalive_request(&head) {
+            Some(request) => request,
+            // 复用隧道上出现流式请求（不应发生，网关已分流）：回 400，避免静默挂起。
+            None => {
+                let response = build_http_response(400, "application/json", b"{\"error\":\"bad request\"}", &[]);
+                let _ = send_framed(ws_stream, &response).await;
+                return Ok(());
+            }
+        };
+
+        // 请求体必须按 Content-Length 从同一流读出后一并转发：漏读会让 POST 以
+        // 空 body 发出，且残留字节会被下一条 read_until_http_head 当成请求头，
+        // 造成整条复用隧道协议错位。
+        let body = match read_request_body(&head, request.content_length, ws_stream).await {
+            Ok(body) => body,
+            Err(err) => {
+                eprintln!("[aiagent] keepalive body read failed: {}", err);
+                let response = build_http_response(400, "application/json", b"{\"error\":\"bad request body\"}", &[]);
+                let _ = send_framed(ws_stream, &response).await;
+                return Ok(());
+            }
+        };
+
+        match handle_keepalive_request(port, &request, &body).await {
+            Ok(response) => {
+                if send_framed(ws_stream, &response).await.is_err() {
+                    return Ok(());
+                }
+            }
+            Err(err) => {
+                // 转发失败：回 502，由客户端按错误处理（不会误当成功响应）。
+                eprintln!("[aiagent] keepalive forward failed: {}", err);
+                let body = format!("{{\"error\":\"forward failed: {}\"}}", err.replace('"', "'"));
+                let response = build_http_response(502, "application/json", body.as_bytes(), &[]);
+                let _ = send_framed(ws_stream, &response).await;
+            }
+        }
+
+        // 读下一条请求头；空闲超时或对端关闭即结束整条隧道。
+        match tokio::time::timeout(BRIDGE_IDLE_TIMEOUT, read_until_http_head(ws_stream)).await {
+            Ok(Ok(next_head)) => head = next_head,
+            Ok(Err(_)) | Err(_) => {
+                let _ = ws_stream.close(None).await;
+                return Ok(());
+            }
+        }
+    }
+}
+
+/// 从首包中切出请求头与已到达的 body 前缀，并按 Content-Length 读满剩余部分。
+///
+/// `read_until_http_head` 返回的缓冲区以 `\r\n\r\n` 结尾判断「头已读完」，但同一
+/// 帧里可能已经捎带了部分（甚至全部）body，因此不能丢弃分隔符之后的字节。
+///
+/// 泛型化流参数：生产用 `AgentWsStream`，测试可用内存流直接覆盖「首包带 body 前缀」
+/// 与「body 跨帧补齐」这两条真实路径。
+async fn read_request_body<S>(
+    head: &[u8],
+    content_length: usize,
+    stream: &mut S,
+) -> Result<Vec<u8>, String>
+where
+    S: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Sink<Message> + Unpin,
+    S::Error: std::fmt::Debug,
+{
+    if content_length == 0 {
+        return Ok(Vec::new());
+    }
+    if content_length > KEEPALIVE_BODY_MAX {
+        return Err(format!("请求体超过上限: {} 字节", content_length));
+    }
+
+    // 定位头/体分隔符，保留其后的字节作为 body 前缀。
+    let mut body: Vec<u8> = Vec::with_capacity(content_length.min(64 * 1024));
+    if let Some(index) = head.windows(4).position(|w| w == b"\r\n\r\n") {
+        body.extend_from_slice(&head[index + 4..]);
+    }
+    if body.len() >= content_length {
+        // 首包已含完整 body；多出的字节属于下一条请求（HTTP/1.1 无流水线，正常
+        // 情况下不会发生），截断而不报错，避免把合法请求判成错误。
+        body.truncate(content_length);
+        return Ok(body);
+    }
+
+    while body.len() < content_length {
+        let next = tokio::time::timeout(BRIDGE_IDLE_TIMEOUT, stream.next())
+            .await
+            .map_err(|_| "读取请求体超时".to_string())?
+            .ok_or_else(|| "数据通道在请求体读完前关闭".to_string())?;
+        match next {
+            Ok(Message::Binary(data)) => body.extend_from_slice(&data),
+            Ok(Message::Text(text)) => body.extend_from_slice(text.as_bytes()),
+            Ok(Message::Ping(payload)) => {
+                let _ = stream.send(Message::Pong(payload)).await;
+                continue;
+            }
+            Ok(Message::Close(_)) | Err(_) => {
+                return Err("数据通道在请求体读完前关闭".to_string());
+            }
+            _ => continue,
+        }
+    }
+    body.truncate(content_length);
+    Ok(body)
+}
+
+/// 把单条请求转发到本机 opencode，组装成 HTTP/1.1 响应字节。
+///
+/// 保留状态码、Content-Type 与响应体；其余响应头不透传（Content-Length 由本端
+/// 按实际 body 重算，避免上游分块编码/长度不一致导致网关无法判定响应边界）。
+///
+/// `body` 为已按 Content-Length 读满的请求体（GET 等无体请求为空）。同时透传
+/// Content-Type 之外的体语义不需要：opencode 以 JSON 为主，统一按 JSON 发送。
+async fn handle_keepalive_request(
+    port: u16,
+    request: &KeepAliveRequest,
+    body: &[u8],
+) -> Result<Vec<u8>, String> {
+    let url = format!("http://127.0.0.1:{}{}", port, request.path);
+    let client = local_http_client();
+
+    let method = reqwest::Method::from_bytes(request.method.as_bytes())
+        .map_err(|err| format!("非法请求方法 {}: {}", request.method, err))?;
+
+    let mut builder = client
+        .request(method, &url)
+        .header(reqwest::header::ACCEPT_ENCODING, "identity");
+    if !body.is_empty() {
+        builder = builder
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body.to_vec());
+    }
+
+    let resp = builder
+        .send()
+        .await
+        .map_err(|err| format!("请求本机 opencode 失败: {}", err))?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|err| format!("读取本机响应失败: {}", err))?;
+
+    Ok(build_http_response(status.as_u16(), &content_type, &body, &[]))
+}
+
 /// 直连本机 opencode 拉取完整消息，投影后组装成 HTTP/1.1 响应字节。
 /// 请求走 identity 编码（不压缩），响应体为投影后的 JSON。
 async fn handle_lightweight_request(port: u16, path: &str) -> Result<Vec<u8>, String> {
     let url = format!("http://127.0.0.1:{}{}", port, path);
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|err| format!("构建 HTTP 客户端失败: {}", err))?;
+    let client = local_http_client();
 
     let resp = client
         .get(&url)
@@ -968,10 +1218,339 @@ fn agent_port_stream_url(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_http_response, extract_token, listening_pid, parse_lightweight_request, probe,
-        process_resources, redact_secrets,
+        build_http_response, extract_token, handle_keepalive_request, listening_pid, parse_keepalive_request,
+        parse_lightweight_request, probe, process_resources, read_request_body, redact_secrets,
+        KEEPALIVE_BODY_MAX,
     };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use std::time::Duration;
+
+    use futures_util::{Sink, Stream};
+    use tokio_tungstenite::tungstenite::protocol::Message;
+
+    // ── keep-alive 分流：非流式走复用隧道，流式继续独占通道 ──
+
+    #[test]
+    fn keepalive_matches_plain_get_requests() {
+        let head = b"GET /mcp?directory=D%3A%2Ftmp HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: */*\r\n\r\n";
+        let req = parse_keepalive_request(head).expect("普通 GET 应命中复用隧道");
+        assert_eq!(req.method, "GET");
+        assert_eq!(req.path, "/mcp?directory=D%3A%2Ftmp");
+    }
+
+    #[test]
+    fn keepalive_matches_post_requests() {
+        let head = b"POST /session/ses_1/prompt HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n\r\n";
+        let req = parse_keepalive_request(head).expect("POST 应命中复用隧道");
+        assert_eq!(req.method, "POST");
+    }
+
+    /// SSE 是长连接，必须继续走独占通道；若误入复用隧道，复用后的连接会把
+    /// 流式响应的边界搞乱。
+    #[test]
+    fn keepalive_rejects_sse_requests() {
+        let head = b"GET /global/event HTTP/1.1\r\nHost: x\r\nAccept: text/event-stream\r\n\r\n";
+        assert!(parse_keepalive_request(head).is_none());
+    }
+
+    #[test]
+    fn keepalive_rejects_accept_event_stream_with_other_types() {
+        // 真实浏览器会发 `Accept: text/event-stream, application/json` 这类复合值
+        let head = b"GET /global/event HTTP/1.1\r\nHost: x\r\nAccept: text/event-stream, application/json\r\n\r\n";
+        assert!(parse_keepalive_request(head).is_none());
+    }
+
+    #[test]
+    fn keepalive_rejects_websocket_upgrade() {
+        let head = b"GET /pty/1 HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
+        assert!(parse_keepalive_request(head).is_none());
+    }
+
+    #[test]
+    fn keepalive_is_case_insensitive_on_headers() {
+        let head = b"GET /mcp HTTP/1.1\r\nHost: x\r\nACCEPT: TEXT/EVENT-STREAM\r\n\r\n";
+        assert!(parse_keepalive_request(head).is_none());
+    }
+
+    /// 端到端：起一个假 opencode，把「两条请求 + 一条流式请求」写进同一对
+    /// 内存流，验证复用隧道循环能连续处理多条并把流式的分流回 None。
+    ///
+    /// 这是本次改动最需要锁住的行为：网关会复用同一条隧道连续发多个非流式
+    /// 请求，Agent 若只处理第一条就退出，复用会拿到已关闭的连接 —— 表现为
+    /// 「打开会话时大量请求失败/挂起」。
+    #[tokio::test]
+    async fn keepalive_serves_multiple_requests_on_one_tunnel() {
+        // 假 opencode：按 path 回不同 body
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let upstream = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 4096];
+                let n = socket.read(&mut buf).await.unwrap();
+                let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
+                seen.push(path.clone());
+
+                let body = format!("{{\"path\":\"{}\"}}", path);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+            }
+            seen
+        });
+
+        // 直接验证「连续解析」这一层：两条非流式都应命中，流式应落空
+        let first = b"GET /mcp?directory=x HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: */*\r\n\r\n";
+        let second = b"GET /vcs?directory=x HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: */*\r\n\r\n";
+        let stream = b"GET /global/event HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\n\r\n";
+
+        let r1 = parse_keepalive_request(first).expect("第一条应命中复用");
+        let r2 = parse_keepalive_request(second).expect("第二条应命中复用");
+        assert!(parse_keepalive_request(stream).is_none(), "流式不应进复用隧道");
+
+        // 两条请求各自转发到假 opencode 并拿到正确 body
+        let resp1 = handle_keepalive_request(port, &r1, &[]).await.unwrap();
+        let resp2 = handle_keepalive_request(port, &r2, &[]).await.unwrap();
+
+        let text1 = String::from_utf8(resp1).unwrap();
+        let text2 = String::from_utf8(resp2).unwrap();
+        assert!(text1.starts_with("HTTP/1.1 200 OK\r\n"), "转发应保留状态码: {text1}");
+        assert!(text1.contains("/mcp?directory=x"), "响应体应来自第一条请求: {text1}");
+        assert!(text2.contains("/vcs?directory=x"), "响应体应来自第二条请求: {text2}");
+        // 响应必须可判定边界，否则网关无法复用连接
+        assert!(text1.contains("Content-Length:"), "必须带精确 Content-Length");
+        assert!(text1.contains("Connection: keep-alive"), "必须声明 keep-alive");
+
+        let seen = upstream.await.unwrap();
+        assert_eq!(seen, vec!["/mcp?directory=x", "/vcs?directory=x"]);
+    }
+
+    /// 上游非 2xx 时应原样回传状态码，让客户端走原有错误路径。
+    #[tokio::test]
+    async fn keepalive_forwards_upstream_error_status() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _ = socket.read(&mut buf).await.unwrap();
+            let body = "{\"error\":\"nope\"}";
+            let resp = format!(
+                "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(resp.as_bytes()).await;
+        });
+
+        let req = parse_keepalive_request(b"GET /missing HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        let resp = handle_keepalive_request(port, &req, &[]).await.unwrap();
+        let text = String::from_utf8(resp).unwrap();
+        assert!(text.starts_with("HTTP/1.1 404"), "应保留上游状态码: {text}");
+        assert!(text.contains("nope"));
+    }
+
+    /// POST 的请求体必须被读出并转发。此前 keepalive 隧道只解析方法与路径、
+    /// 完全不读 body：POST 会以空 body 发出，且残留字节会被下一条请求头解析
+    /// 误读，导致整条复用隧道协议错位。
+    #[tokio::test]
+    async fn keepalive_forwards_post_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let upstream = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            // 先把头读完，再按 Content-Length 读满 body（模拟真实上游）
+            let n = socket.read(&mut buf).await.unwrap();
+            let text = String::from_utf8_lossy(&buf[..n]).to_string();
+            let (head, rest) = text.split_once("\r\n\r\n").unwrap();
+            let length: usize = head
+                .lines()
+                .find_map(|line| line.strip_prefix("Content-Length: "))
+                .and_then(|value| value.trim().parse().ok())
+                .unwrap_or(0);
+            let mut body = rest.as_bytes().to_vec();
+            while body.len() < length {
+                let n = socket.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                body.extend_from_slice(&buf[..n]);
+            }
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                String::from_utf8_lossy(&body)
+            );
+            let _ = socket.write_all(reply.as_bytes()).await;
+            (text, String::from_utf8_lossy(&body).to_string())
+        });
+
+        let payload = br#"{"prompt":"hello"}"#;
+        let head = format!(
+            "POST /session/ses_1/prompt HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+            payload.len()
+        );
+
+        // 首包同时带上 body 前缀，验证「分隔符之后的字节不被丢弃」
+        let mut first = head.clone().into_bytes();
+        first.extend_from_slice(&payload[..5]);
+        let request = parse_keepalive_request(&first).expect("POST 应命中复用隧道");
+        assert_eq!(request.content_length, payload.len());
+        assert_eq!(request.method, "POST");
+
+        // 剩余 body 由后续帧补齐（模拟网关把 body 分帧发送）
+        let mut stream = frame_stream(vec![payload[5..].to_vec()]);
+        let body = read_request_body(&first, request.content_length, &mut stream)
+            .await
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&body),
+            String::from_utf8_lossy(payload),
+            "body 必须等于「首包剩余 + 后续帧」的完整内容"
+        );
+
+        let resp = handle_keepalive_request(port, &request, &body).await.unwrap();
+        let text = String::from_utf8(resp).unwrap();
+        assert!(text.contains(r#"{"prompt":"hello"}"#), "上游应收到完整 body: {text}");
+
+        let (upstream_head, upstream_body) = upstream.await.unwrap();
+        assert!(upstream_head.starts_with("POST /session/ses_1/prompt"));
+        assert_eq!(upstream_body, r#"{"prompt":"hello"}"#);
+    }
+
+    /// 首包已含完整 body 时不应再去读流（否则会阻塞到空闲超时）。
+    #[tokio::test]
+    async fn keepalive_body_fully_in_first_frame() {
+        let payload = br#"{"a":1}"#;
+        let mut first = format!(
+            "POST /p HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+            payload.len()
+        )
+        .into_bytes();
+        first.extend_from_slice(payload);
+
+        // 空帧流：若实现错误地继续读，这里会挂起并被超时兜住
+        let mut stream = frame_stream(vec![]);
+        let body = tokio::time::timeout(
+            Duration::from_secs(1),
+            read_request_body(&first, payload.len(), &mut stream),
+        )
+        .await
+        .expect("首包已含完整 body 时不应阻塞")
+        .unwrap();
+        assert_eq!(String::from_utf8_lossy(&body), String::from_utf8_lossy(payload));
+    }
+
+    /// Content-Length 为 0（或缺失）时不读 body，且不得阻塞。
+    #[tokio::test]
+    async fn keepalive_without_body_returns_empty() {
+        let head = b"POST /session/ses_1/abort HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n";
+        let request = parse_keepalive_request(head).unwrap();
+        assert_eq!(request.content_length, 0);
+
+        let mut stream = frame_stream(vec![]);
+        // 流上没有任何字节：若实现错误地去读，这里会挂起
+        let body = tokio::time::timeout(
+            Duration::from_secs(1),
+            read_request_body(head, request.content_length, &mut stream),
+        )
+        .await
+        .expect("无 body 的请求不应阻塞")
+        .unwrap();
+        assert!(body.is_empty());
+    }
+
+    /// 伪造的超大 Content-Length 必须被拒绝，避免无限缓冲。
+    #[tokio::test]
+    async fn keepalive_rejects_oversized_content_length() {
+        let head = format!(
+            "POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+            KEEPALIVE_BODY_MAX + 1
+        );
+        let request = parse_keepalive_request(head.as_bytes()).unwrap();
+        let mut stream = frame_stream(vec![]);
+        let result = read_request_body(head.as_bytes(), request.content_length, &mut stream).await;
+        assert!(result.is_err(), "超大 Content-Length 应被拒绝");
+    }
+
+    /// Content-Length 必须被解析出来：漏解析会让 POST 以空 body 转发。
+    #[test]
+    fn keepalive_parses_content_length() {
+        let head = b"POST /p HTTP/1.1\r\nHost: x\r\nContent-Length: 42\r\n\r\n";
+        assert_eq!(parse_keepalive_request(head).unwrap().content_length, 42);
+
+        // 大小写不敏感
+        let head = b"POST /p HTTP/1.1\r\nHost: x\r\nCONTENT-LENGTH: 7\r\n\r\n";
+        assert_eq!(parse_keepalive_request(head).unwrap().content_length, 7);
+
+        // GET 无该头时为 0
+        let head = b"GET /p HTTP/1.1\r\nHost: x\r\n\r\n";
+        assert_eq!(parse_keepalive_request(head).unwrap().content_length, 0);
+    }
+
+    /// 构造一个只吐出给定二进制帧的内存流，用于在不起真实 WebSocket 的前提下
+    /// 覆盖请求体读取路径。发送端丢弃。
+    /// 测试用帧源：按顺序吐出给定二进制帧，并接受（丢弃）Pong 等出站帧。
+    ///
+    /// 实现 Sink 是必需的：`read_request_body` 在读到 Ping 时会回 Pong，真实
+    /// `AgentWsStream` 既是 Stream 也是 Sink。
+    struct FrameStream {
+        frames: std::collections::VecDeque<Result<Message, tokio_tungstenite::tungstenite::Error>>,
+    }
+
+    impl Stream for FrameStream {
+        type Item = Result<Message, tokio_tungstenite::tungstenite::Error>;
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            std::task::Poll::Ready(self.frames.pop_front())
+        }
+    }
+
+    impl Sink<Message> for FrameStream {
+        type Error = tokio_tungstenite::tungstenite::Error;
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+        fn start_send(
+            self: std::pin::Pin<&mut Self>,
+            _item: Message,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    fn frame_stream(frames: Vec<Vec<u8>>) -> FrameStream {
+        FrameStream {
+            frames: frames.into_iter().map(|data| Ok(Message::Binary(data.into()))).collect(),
+        }
+    }
 
     #[test]
     fn matches_lightweight_message_request() {
