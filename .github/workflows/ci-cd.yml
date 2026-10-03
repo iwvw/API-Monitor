@@ -198,11 +198,58 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/dev" ]; then
             AGENT="${{ steps.changed.outputs.agent }}"
             RELAY="${{ steps.changed.outputs.relay }}"
-            # 若仓库还没有滚动 release 且本次又无二进制变更，强制全流程以完成首次发布
+            # 若仓库还没有滚动 release 且本次又无二进制变更，强制全流程以完成首次发布。
+            # 另外：滚动 release 若**产物不齐**（例如某平台上次构建被并发取消，而后续
+            # 推送又因无 delta 一直跳过 build-agent），会永久停留在「新旧混装」状态，
+            # 缺失平台再也不会被重建。这里检测到不齐即强制全流程，使流水线自愈。
             if [ "${AGENT}" != "true" ] && [ "${RELAY}" != "true" ]; then
               if ! gh release view built-agents --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
                 echo "Rolling release built-agents not found; forcing full agent build to bootstrap."
                 AGENT="true"
+              else
+                ASSETS="$(gh release view built-agents --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+                missing=""
+                for name in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do
+                  if ! grep -qx "$name" <<< "$ASSETS"; then
+                    missing="$missing $name"
+                  fi
+                done
+                if [ -n "$missing" ]; then
+                  echo "::warning::滚动 release 缺少产物:$missing —— 强制重新构建三平台 Agent"
+                  AGENT="true"
+                fi
+
+                # 产物齐全但**版本不一致**同样必须重建。这种情况不会被「文件是否存在」
+                # 发现：某平台上次构建被并发取消后，publish 只覆盖了构建成功的平台，
+                # 而后续推送因 agent-rust/** 无 delta 会一直跳过 build-agent，缺失版本
+                # 永远补不上（表现为该平台主机升级 Agent 永久失败）。
+                # 三平台二进制里内嵌同一版本号，用各自的 .sha256 附件无法比较版本，
+                # 因此这里比较三者的「发布时刻」：同一次 publish 写入的时间应几乎相同，
+                # 相差超过阈值即说明是不同批次的产物。
+                if [ "${AGENT}" != "true" ]; then
+                  ts_amd64="$(gh release view built-agents --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name=="agent-linux-amd64") | .updatedAt' 2>/dev/null || true)"
+                  ts_arm64="$(gh release view built-agents --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name=="agent-linux-arm64") | .updatedAt' 2>/dev/null || true)"
+                  ts_win="$(gh release view built-agents --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name=="agent-windows-amd64.exe") | .updatedAt' 2>/dev/null || true)"
+                  to_epoch() { date -u -d "$1" +%s 2>/dev/null || echo 0; }
+                  e_amd64="$(to_epoch "${ts_amd64}")"
+                  e_arm64="$(to_epoch "${ts_arm64}")"
+                  e_win="$(to_epoch "${ts_win}")"
+                  if [ "$e_amd64" -gt 0 ] && [ "$e_arm64" -gt 0 ] && [ "$e_win" -gt 0 ]; then
+                    # 取最大与最小的时间差；同一批次构建的产物时间差在分钟级。
+                    max="$e_amd64"; min="$e_amd64"
+                    for t in "$e_arm64" "$e_win"; do
+                      [ "$t" -gt "$max" ] && max="$t"
+                      [ "$t" -lt "$min" ] && min="$t"
+                    done
+                    spread=$(( max - min ))
+                    if [ "$spread" -gt 3600 ]; then
+                      echo "::warning::滚动 release 三平台产物发布时刻相差 ${spread}s（疑似新旧混装）—— 强制重建"
+                      AGENT="true"
+                    else
+                      echo "三平台产物时间差 ${spread}s，视为同一批次。"
+                    fi
+                  fi
+                fi
               fi
             fi
           else
@@ -362,6 +409,12 @@ jobs:
   # 阶段 2c: 全流程时把新编译 agent / relay 覆盖到滚动 release（built-agents）
   # 下载链接（固定 tag）稳定不变，供后续无变更推送直接复用。
   # 滚动 tag 挂在孤儿提交上，避免被 release.yml 变更日志的 git describe 命中。
+  #
+  # 完整性前提：agent 是「三平台一组」发布的多平台产物，必须整组齐全才能覆盖。
+  # 若只发布部分平台，滚动 release 会长期停留在「Linux 是新版、Windows 是旧版」
+  # 的混合状态；而后续推送因 agent-rust/** 无 delta 会一直跳过 build-agent，
+  # 缺失的平台再也不会被重建，Windows 主机的 Agent 升级会永久失败。
+  # 因此这里把「agent 变更 ⇒ 三平台全部构建成功」作为发布前置条件。
   # ==========================================
   publish-agents:
     needs: [detect-agent-changes, build-agent, build-relay]
@@ -370,8 +423,8 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/dev' &&
       needs.detect-agent-changes.outputs.binaries_changed == 'true' &&
-      needs.build-agent.result != 'failure' &&
-      needs.build-relay.result != 'failure'
+      (needs.detect-agent-changes.outputs.agent_changed != 'true' || needs.build-agent.result == 'success') &&
+      (needs.detect-agent-changes.outputs.relay_changed != 'true' || needs.build-relay.result == 'success')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -393,6 +446,40 @@ jobs:
           path: relay-assets
           pattern: api-monitor-relay-*
           merge-multiple: true
+
+      # 发布前校验本次要覆盖的每个组件都齐三平台。缺任何一个即失败，
+      # 而不是静默发布不完整产物集——静默的部分发布会让滚动 release 进入
+      # 「新旧混装」且无法自愈的状态（缺失平台不会被后续推送重建）。
+      - name: Verify asset completeness before publish
+        shell: bash
+        env:
+          AGENT_CHANGED: ${{ needs.detect-agent-changes.outputs.agent_changed }}
+          RELAY_CHANGED: ${{ needs.detect-agent-changes.outputs.relay_changed }}
+        run: |
+          set -euo pipefail
+          fail=0
+          require() {
+            local dir="$1" name="$2"
+            if [ ! -f "$dir/$name" ]; then
+              echo "::error::缺少产物 $dir/$name —— 拒绝发布不完整的滚动 release"
+              fail=1
+            fi
+          }
+          if [ "${AGENT_CHANGED}" = "true" ]; then
+            require agent-assets agent-linux-amd64
+            require agent-assets agent-linux-arm64
+            require agent-assets agent-windows-amd64.exe
+          fi
+          if [ "${RELAY_CHANGED}" = "true" ]; then
+            require relay-assets api-monitor-relay-linux-amd64
+            require relay-assets api-monitor-relay-linux-arm64
+            require relay-assets api-monitor-relay-windows-amd64.exe
+          fi
+          if [ "$fail" -ne 0 ]; then
+            echo "本次构建未产出完整三平台产物，已中止发布以保护滚动 release 的一致性。" >&2
+            exit 1
+          fi
+          ls -lh agent-assets relay-assets 2>/dev/null || true
 
       - name: Publish assets to rolling release
         shell: bash
@@ -456,12 +543,50 @@ jobs:
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "agent-*" --dir agents
           ls -lh agents/
 
+      # 完整性 + 版本一致性校验。仅检查「文件存在」不足以发现滚动 release 的
+      # 新旧混装（例如 Linux 已更新、Windows 仍是上一版）：那种状态下镜像里会
+      # 打进去一个版本不一致的 Windows Agent，且后续推送不会再重建它。
+      # 这里逐个二进制跑 --version，要求三平台版本号完全一致。
       - name: Verify agents
+        shell: bash
         run: |
+          set -euo pipefail
           ls -lh agents/
           test -f agents/agent-linux-amd64
           test -f agents/agent-linux-arm64
           test -f agents/agent-windows-amd64.exe
+
+          # Windows 二进制无法在本 job 直接执行，改用随产物发布的 .sha256 一致性
+          # 校验；Linux 两个可直接执行取版本号。
+          chmod +x agents/agent-linux-amd64 agents/agent-linux-arm64
+
+          v_amd64="$(./agents/agent-linux-amd64 --version 2>/dev/null | tr -d '\r' | awk '{print $2}')"
+          v_arm64="$(./agents/agent-linux-arm64 --version 2>/dev/null | tr -d '\r' | awk '{print $2}')"
+          if [ -z "$v_amd64" ] || [ -z "$v_arm64" ]; then
+            echo "::error::无法读取 Agent 版本号（amd64='$v_amd64', arm64='$v_arm64'）"
+            exit 1
+          fi
+          if [ "$v_amd64" != "$v_arm64" ]; then
+            echo "::error::Agent 版本不一致：amd64=$v_amd64 arm64=$v_arm64 —— 滚动 release 可能处于新旧混装状态"
+            exit 1
+          fi
+          echo "Linux Agent 版本一致：$v_amd64"
+
+          # Windows 侧用 sha256 校验产物完整性（并与 .sha256 附件比对）
+          if [ -f agents/agent-windows-amd64.exe.sha256 ]; then
+            expected="$(tr -d ' \r\n' < agents/agent-windows-amd64.exe.sha256)"
+            actual="$(sha256sum agents/agent-windows-amd64.exe | awk '{print $1}')"
+            if [ "$expected" != "$actual" ]; then
+              echo "::error::agent-windows-amd64.exe 摘要不匹配（expected=$expected actual=$actual）"
+              exit 1
+            fi
+            echo "Windows Agent 摘要校验通过"
+          else
+            echo "::warning::缺少 agent-windows-amd64.exe.sha256，跳过 Windows 摘要校验"
+          fi
+
+          # 记录 Windows 二进制的大小与 mtime，便于排查「是否被本轮重建」
+          stat -c '%n %s bytes mtime=%y' agents/agent-windows-amd64.exe
 
       - name: Upload agents bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
