@@ -991,6 +991,28 @@ func TestFilterResponseHeadersStripsUpstreamCORS(t *testing.T) {
 	}
 }
 
+// TestFilterResponseHeadersPreservesLightweightMarker 回归：主机 Agent 用
+// X-Lightweight 标记投影响应，网关必须把它继续传给 OpenCodeUI，否则客户端会
+// 把一次成功投影误判成不支持并退回慢速分页路径。
+func TestFilterResponseHeadersPreservesLightweightMarker(t *testing.T) {
+	source := http.Header{}
+	source.Set("X-Lightweight", "1")
+	source.Set("X-Next-Cursor", "cursor")
+	source.Set("Connection", "keep-alive")
+
+	filtered := filterResponseHeaders(source)
+
+	if got := filtered.Get("X-Lightweight"); got != "1" {
+		t.Fatalf("projection marker must survive response filtering, got %q", got)
+	}
+	if got := filtered.Get("X-Next-Cursor"); got != "cursor" {
+		t.Fatalf("pagination cursor must survive response filtering, got %q", got)
+	}
+	if got := filtered.Get("Connection"); got != "" {
+		t.Fatalf("hop-by-hop header must still be stripped, got %q", got)
+	}
+}
+
 // slowWriter 每次写入前短暂休眠，给读取 goroutine 覆盖复用缓冲区的机会，
 // 用于复现「发送未拷贝切片导致响应体错位」的缺陷。
 type slowWriter struct {

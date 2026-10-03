@@ -25,7 +25,19 @@ const BRIDGE_MAX_MESSAGE: usize = 8 * 1024 * 1024;
 // 与云端 gatewayStreamWriteTimeout(2 分钟) 对齐的单次写入上限。
 const BRIDGE_WRITE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 // 空闲上限：两侧长时间无数据时主动断开，避免桥接任务永不回收。
+// 用于**流式/裸透传**连接：SSE 与长连接会话可能长时间静默，需要宽裕的上限。
 const BRIDGE_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// 复用隧道（keep-alive）上的读空闲上限。
+///
+/// 必须显著小于网关连接池的 IdleConnTimeout（90s）：两侧不一致时，网关把连接
+/// 归还一段时间后主动关闭，而本端仍按 15 分钟占着这条隧道 —— 页面加载一波动辄
+/// 建立 20+ 条连接，废弃的隧道持续堆积，新请求拿不到干净连接，表现为「消息投影
+/// 时好时坏、加载风暴后长期失效」。
+///
+/// 取 60s：略小于网关的 90s，保证网关判定空闲并关闭之前，本端已经先行回收，
+/// 不会留下「网关已弃用、本端仍存活」的僵尸隧道。
+const REUSE_TUNNEL_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ProbePayload {
@@ -619,9 +631,13 @@ pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
     // 那些还没被使用的池中连接会超时退出，导致网关把该连接判死、退回裸透传路径
     // —— 表现为「并发一上来消息投影就永久失效」。
     //
-    // 因此首包等待用空闲超时（15 分钟）：连接建好后长时间没请求是复用池的正常
-    // 状态，由空闲超时统一回收，而不是按「建连超时」判定失败。
-    let first_head = match tokio::time::timeout(BRIDGE_IDLE_TIMEOUT, read_until_http_head(&mut ws_stream)).await {
+    // 因此首包等待不能按「建连超时」（8s）判定失败，而要给足时间：连接建好后
+    // 长时间没请求是复用池的正常状态。
+    //
+    // 上限取 REUSE_TUNNEL_IDLE_TIMEOUT（60s）而非流式的 15 分钟：网关连接池
+    // 90s 就回收空闲连接，本端若占着 15 分钟，页面加载风暴后会堆积大量废弃隧道，
+    // 新请求拿不到干净连接 —— 这正是「投影时好时坏、风暴后长期失效」的成因。
+    let first_head = match tokio::time::timeout(REUSE_TUNNEL_IDLE_TIMEOUT, read_until_http_head(&mut ws_stream)).await {
         Ok(Ok(head)) => head,
         Ok(Err(err)) => return Err(err),
         Err(_) => return Err("读取请求头超时".to_string()),
@@ -893,7 +909,9 @@ async fn serve_lightweight_tunnel(
         }
 
         // 读下一条请求头；空闲超时或对端关闭即结束整条隧道。
-        match tokio::time::timeout(BRIDGE_IDLE_TIMEOUT, read_until_http_head(ws_stream)).await {
+        // 用 REUSE_TUNNEL_IDLE_TIMEOUT（60s）而非流式用的 15 分钟：复用隧道要跟随
+        // 网关连接池的回收节奏，否则废弃隧道会持续堆积。
+        match tokio::time::timeout(REUSE_TUNNEL_IDLE_TIMEOUT, read_until_http_head(ws_stream)).await {
             Ok(Ok(next_head)) => head = next_head,
             Ok(Err(_)) | Err(_) => {
                 let _ = ws_stream.close(None).await;
@@ -1040,7 +1058,16 @@ async fn serve_keepalive_tunnel(
             }
         };
 
-        match handle_keepalive_request(port, &request, &body).await {
+        // 逐条请求判定是否要投影：**不能**按「隧道类型」决定。
+        //
+        // 网关的 http.Transport 按 host 复用连接，一条连接上会先后承载不同种类的
+        // 请求。隧道类型在首包就定死了，但后续请求可能是带 X-Lightweight 的
+        // /message —— 若这里无条件走透传，该请求就拿不到投影，客户端探测随之
+        // 判定「不支持」并退回分页，表现为「首屏只加载几轮、最前面几轮看不到」。
+        //
+        // 实测：页面加载一波 48 个带 X-Lightweight 的探测请求里，只有 1 个落到了
+        // 轻量隧道（其余都命中已存在的 KA 隧道），正是这里的漏判。
+        match handle_reuse_request(port, &head, &request, &body).await {
             Ok(response) => {
                 if send_framed(ws_stream, &response).await.is_err() {
                     return Ok(());
@@ -1056,7 +1083,9 @@ async fn serve_keepalive_tunnel(
         }
 
         // 读下一条请求头；空闲超时或对端关闭即结束整条隧道。
-        match tokio::time::timeout(BRIDGE_IDLE_TIMEOUT, read_until_http_head(ws_stream)).await {
+        // 用 REUSE_TUNNEL_IDLE_TIMEOUT（60s）而非流式用的 15 分钟：复用隧道要跟随
+        // 网关连接池的回收节奏，否则废弃隧道会持续堆积。
+        match tokio::time::timeout(REUSE_TUNNEL_IDLE_TIMEOUT, read_until_http_head(ws_stream)).await {
             Ok(Ok(next_head)) => head = next_head,
             Ok(Err(_)) | Err(_) => {
                 let _ = ws_stream.close(None).await;
@@ -1170,6 +1199,25 @@ async fn handle_keepalive_request(
     Ok(build_http_response(status.as_u16(), &content_type, &body, &[]))
 }
 
+/// 复用隧道上的单条请求分发：按**本条请求头**判定是投影还是透传。
+///
+/// 不能按隧道类型决定：网关按 host 复用连接，一条连接上会先后承载带与不带
+/// `X-Lightweight` 的请求。首包决定了隧道走到哪个循环，但后续每条请求都要
+/// 重新看自己的头 —— 否则带投影标记的请求落到普通隧道上就会被无条件透传，
+/// 客户端探测随之误判「不支持投影」。
+async fn handle_reuse_request(
+    port: u16,
+    head: &[u8],
+    request: &KeepAliveRequest,
+    body: &[u8],
+) -> Result<Vec<u8>, String> {
+    if parse_lightweight_request(head).is_some() {
+        // 本条请求要投影：直接投影（与普通透传共用同一本机 opencode 连接池）。
+        return handle_lightweight_request(port, &request.path).await;
+    }
+    handle_keepalive_request(port, request, body).await
+}
+
 /// 直连本机 opencode 拉取完整消息，投影后组装成 HTTP/1.1 响应字节。
 /// 请求走 identity 编码（不压缩），响应体为投影后的 JSON。
 async fn handle_lightweight_request(port: u16, path: &str) -> Result<Vec<u8>, String> {
@@ -1262,8 +1310,8 @@ fn agent_port_stream_url(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_http_response, extract_token, handle_keepalive_request, listening_pid, parse_keepalive_request,
-        parse_lightweight_request, probe, process_resources, read_request_body, redact_secrets,
+        build_http_response, extract_token, handle_keepalive_request, handle_reuse_request, listening_pid,
+        parse_keepalive_request, parse_lightweight_request, probe, process_resources, read_request_body, redact_secrets,
         KEEPALIVE_BODY_MAX,
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1331,6 +1379,76 @@ Host: 127.0.0.1:0\r\nUser-Agent: Go-http-client/1.1\r\nX-Lightweight: 1\r\nAccep
     fn keepalive_is_case_insensitive_on_headers() {
         let head = b"GET /mcp HTTP/1.1\r\nHost: x\r\nACCEPT: TEXT/EVENT-STREAM\r\n\r\n";
         assert!(parse_keepalive_request(head).is_none());
+    }
+
+    /// 回归：复用的 KA 隧道上遇到带 X-Lightweight 的请求，必须按本条请求头投影，
+    /// 而不是按隧道类型无条件透传。
+    ///
+    /// 背景：网关按 host 复用连接，一条连接上会先后承载带与不带 X-Lightweight 的
+    /// 请求。首包若命中普通隧道，后续的轻量请求若仍走透传，客户端探测就误判
+    /// 「不支持投影」并退回分页 —— 实测 48 个轻量探测中仅 1 个命中轻量隧道。
+    #[tokio::test]
+    async fn reuse_tunnel_projects_lightweight_request_on_keepalive_conn() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // 假 opencode：对每个请求回其 path。投影路径会请求本机 opencode 并裁剪，
+        // 这里用假响应验证「带 X-Lightweight 的请求确实走了投影分支」。
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _ = socket.read(&mut buf).await.unwrap();
+            // 回报一个消息列表 JSON（含 reasoning，投影会剥掉）
+            let body = r#"[{"info":{"id":"m1","role":"assistant"},"parts":[{"type":"reasoning","text":"x"},{"type":"text","text":"hi"}]}]"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(resp.as_bytes()).await;
+        });
+
+        // 带 X-Lightweight 的请求（落在这条 KA 隧道上）
+        let head = b"GET /session/ses_abc/message?limit=1 HTTP/1.1\r\nHost: x\r\nX-Lightweight: 1\r\n\r\n";
+        let req = parse_keepalive_request(head).expect("应命中普通透传判定");
+        assert!(parse_lightweight_request(head).is_some(), "该请求应同时被识别为轻量");
+
+        let resp = handle_reuse_request(port, head, &req, &[]).await.unwrap();
+        let text = String::from_utf8(resp).unwrap();
+        // 投影后：reasoning part 被剥掉，只剩 text part；lightweight 统计保留计数。
+        assert!(text.starts_with("HTTP/1.1 200 OK"), "投影响应应成功: {text}");
+        assert!(text.contains("\"text\":\"hi\""), "正文应保留: {text}");
+        assert!(
+            !text.contains("\"reasoning\":") && !text.contains(r#""type":"reasoning""#),
+            "reasoning part 应被投影剥离: {text}"
+        );
+        assert!(text.contains("reasoningCount"), "应保留推理计数统计: {text}");
+    }
+
+    /// 回归对照：不带 X-Lightweight 的请求在 KA 隧道上继续透传（不投影）。
+    #[tokio::test]
+    async fn reuse_tunnel_passthroughs_plain_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _ = socket.read(&mut buf).await.unwrap();
+            let body = r#"{"ok":true}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(resp.as_bytes()).await;
+        });
+
+        let head = b"GET /permission?directory=D HTTP/1.1\r\nHost: x\r\n\r\n";
+        let req = parse_keepalive_request(head).expect("普通请求应走透传判定");
+        let resp = handle_reuse_request(port, head, &req, &[]).await.unwrap();
+        let text = String::from_utf8(resp).unwrap();
+        assert!(text.contains("ok"), "普通请求应原样透传: {text}");
     }
 
     /// 端到端：起一个假 opencode，把「两条请求 + 一条流式请求」写进同一对
