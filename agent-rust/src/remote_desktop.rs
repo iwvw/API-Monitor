@@ -233,10 +233,15 @@ mod windows_impl {
     /// 可选的初始视频档位。面板在建会话时一并下发，使首帧就按用户选定的
     /// 分辨率/帧率/码率编码，而不是先按 Agent 兜底默认值跑一段再到
     /// `video-config` 才纠正（那会在连接初期产生与 UI 不符的分辨率）。
+    ///
+    /// 面板以 camelCase 下发（`maxLongEdge`），本结构体字段是 snake_case，因此必须
+    /// 显式 alias —— 否则该字段会被 serde 静默丢弃（解析成功但值为 None），
+    /// 表现为「初始分辨率上限被忽略」。同时保留 snake_case 以兼容既有调用方。
     #[derive(Debug, Default, Deserialize)]
     pub struct StartProfilePayload {
         pub fps: Option<u32>,
         pub bitrate: Option<u32>,
+        #[serde(alias = "maxLongEdge")]
         pub max_long_edge: Option<u32>,
     }
 
@@ -2143,6 +2148,38 @@ mod windows_impl {
             let profile = StartProfilePayload::default().to_stream_profile();
             assert_eq!(profile.fps, StreamProfile::default().fps);
             assert_eq!(profile.max_long_edge, 0);
+        }
+
+        /// 面板（Go）下发的 JSON 使用 camelCase（`maxLongEdge`），而本结构体字段是
+        /// snake_case。若不做 rename，`maxLongEdge` 会被 serde 静默丢弃、初始分辨率
+        /// 上限退回默认值——这类「字段名对不上但解析成功」的缺陷不会报错，只能靠
+        /// 用例锁住。这里同时覆盖完整 start 载荷的解析。
+        #[test]
+        fn start_payload_accepts_the_dashboard_camel_case_profile() {
+            let raw = r#"{
+                "session_id": "s1",
+                "offer": {"type": "offer", "sdp": "v=0"},
+                "profile": {"fps": 60, "bitrate": 24000000, "maxLongEdge": 2560}
+            }"#;
+            let payload: StartPayload = serde_json::from_str(raw).expect("start payload 应可解析");
+            let profile = payload
+                .profile
+                .expect("profile 字段应存在")
+                .to_stream_profile();
+            assert_eq!(profile.fps, 60);
+            assert_eq!(profile.bitrate, 24_000_000);
+            assert_eq!(
+                profile.max_long_edge, 2_560,
+                "camelCase 的 maxLongEdge 必须被解析，否则初始分辨率上限被静默忽略"
+            );
+        }
+
+        /// 缺少 profile 时不得报错（旧面板 / 兼容路径）。
+        #[test]
+        fn start_payload_without_profile_still_parses() {
+            let raw = r#"{"session_id":"s2","offer":{"type":"offer","sdp":"v=0"}}"#;
+            let payload: StartPayload = serde_json::from_str(raw).expect("无 profile 也应可解析");
+            assert!(payload.profile.is_none());
         }
 
         #[test]
