@@ -208,3 +208,28 @@ func TestBuildWebSocketUpgradeRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestIsSSEPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/global/event", true},
+		{"/global/event?directory=/w", true},
+		{"/event", true},
+		{"/event/", true},
+		{"/api/session/ses_abc/event", true},
+		{"/api/session/ses_abc/event?after=42", true},
+		{"/global/health", false},
+		{"/session/ses_abc/message", false},
+		{"/api/session", false},
+		{"/api/session/ses_abc/event/x", false},
+		{"/eventually", false},
+	}
+	for _, tc := range cases {
+		if got := isSSEPath(tc.path); got != tc.want {
+			t.Errorf("isSSEPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+

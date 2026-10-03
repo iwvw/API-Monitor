@@ -965,6 +965,20 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
     })
 }
 
+/// 判断目标路径是否为 OpenCode 事件流端点。
+///
+/// 这些端点返回无限 SSE 流。部分客户端（如 Tauri 桥）只带 Authorization、
+/// 不带 Accept: text/event-stream，若仅凭 Accept 判定会误入 keep-alive 隧道，
+/// 响应被整体缓冲后约 60s 超时。因此按路径兜底识别，强制走裸字节管道。
+fn is_sse_path(target: &str) -> bool {
+    let path = target.split('?').next().unwrap_or(target);
+    let path = path.trim_end_matches('/');
+    if path == "/global/event" || path == "/event" {
+        return true;
+    }
+    path.starts_with("/api/session/") && path.ends_with("/event")
+}
+
 /// 解析出「可复用隧道」请求：非流式的普通 HTTP 请求。
 ///
 /// 网关对非流式请求启用连接复用，因此本端不能处理一次就关隧道，而要循环处理
@@ -1004,7 +1018,7 @@ fn parse_keepalive_request(head: &[u8]) -> Option<KeepAliveRequest> {
             }
         }
     }
-    if accept.contains("text/event-stream") || upgrade.contains("websocket") {
+    if accept.contains("text/event-stream") || upgrade.contains("websocket") || is_sse_path(target) {
         return None;
     }
 

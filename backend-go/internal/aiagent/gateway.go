@@ -316,6 +316,28 @@ func isWebSocketUpgradeRequest(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket")
 }
 
+// isSSEPath 判断目标路径是否为 OpenCode 的事件流端点。
+//
+// 这些端点返回无限 SSE 流。部分客户端（典型是 Tauri 桥）只带 Authorization、
+// 不带 Accept: text/event-stream，会被下游判为非流式而走 keepalive 隧道，
+// 导致响应被整体缓冲、约 60s 后超时（表现为「消息不实时、刷新才出现」）。
+// 因此不能只依赖客户端自觉声明，需按路径兜底识别。
+func isSSEPath(path string) bool {
+	p := path
+	if q := strings.IndexByte(p, '?'); q >= 0 {
+		p = p[:q]
+	}
+	p = strings.TrimSuffix(p, "/")
+	if p == "/global/event" || p == "/event" {
+		return true
+	}
+	// V2 单会话可续接事件流：/api/session/{sessionID}/event
+	if strings.HasPrefix(p, "/api/session/") && strings.HasSuffix(p, "/event") {
+		return true
+	}
+	return false
+}
+
 // handleGatewayWebSocket 处理 WebSocket 升级请求：打开到目标主机端口的
 // 原始数据通道，把客户端升级请求原样写向目标，再把目标返回的 101 响应
 // 与后续全双工帧双向搬运。数据通道底层是字节流（agentPortConn 实现完整
@@ -698,6 +720,12 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 		if encoded := values.Encode(); encoded != "" {
 			req.Path += "?" + encoded
 		}
+	}
+	// SSE 路径兜底补 Accept：下游 runtime 与 Agent 仅凭该头判定流式，缺头会把
+	// 无限事件流当普通请求缓冲，约 60s 后超时。客户端（如 Tauri 桥）未声明时，
+	// 这里按路径补齐，保证事件流始终走流式通道。
+	if isSSEPath(req.Path) && !strings.Contains(strings.ToLower(req.Header.Get("Accept")), "text/event-stream") {
+		req.Header.Set("Accept", "text/event-stream")
 	}
 
 	// 只做取消传播，不设绝对超时：长会话（含等待用户输入的 SSE）可能远超任何
