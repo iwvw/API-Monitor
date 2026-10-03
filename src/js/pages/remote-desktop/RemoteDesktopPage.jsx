@@ -244,7 +244,9 @@ export default function RemoteDesktopPage() {
   const closeSession = useCallback(async () => {
     connectionGenerationRef.current += 1;
     stoppedRef.current = true;
-    autoReconnectRef.current = 0;
+    // 不在这里重置 autoReconnectRef：closeSession 每次 connect() 都会调用，
+    // 重置它会让「连续失败上限」永久失效。该计数由 scheduleAutoReconnect 递增、
+    // 连接成功时清零；用户主动重连走 manualReconnect 显式获得新预算。
     const sessionId = sessionRef.current;
     sessionRef.current = '';
     channelRef.current?.close?.();
@@ -284,6 +286,14 @@ export default function RemoteDesktopPage() {
     }, 500 * attempt);
   }, []);
 
+  // 用户主动重连（「重新连接」/「重新接管」按钮）：给一次全新的重试预算。
+  // 自动重连有 8 次上限，避免 Agent 长期离线时无界重试；但用户显式点击是明确
+  // 意图，不应被此前的连续失败计数挡住。
+  const manualReconnect = useCallback(() => {
+    autoReconnectRef.current = 0;
+    connectRef.current?.();
+  }, []);
+
   const connect = useCallback(async () => {
     await closeSession();
     const generation = connectionGenerationRef.current;
@@ -303,7 +313,9 @@ export default function RemoteDesktopPage() {
     lastSignalRef.current = 0;
     pendingLocalIceRef.current = [];
     pendingRemoteIceRef.current = [];
-    autoReconnectRef.current = 0;
+    // 此处不重置 autoReconnectRef：它是「连续失败次数」，由 scheduleAutoReconnect
+    // 递增、只有真正连上（connectionstate = connected）才清零。若在此重置，
+    // 自愈重连永远触达不到 8 次上限，Agent 长期离线时会无界重试。
     try {
       const server = await apiRequest(`/api/server/s/${encodeURIComponent(serverId)}`, { headers: authHeaders(), cache: 'no-store' });
       if (generation !== connectionGenerationRef.current) return;
@@ -414,9 +426,9 @@ export default function RemoteDesktopPage() {
           setState('superseded');
           setError('');
         } else {
-          skipAutoReconnectRef.current = true;
+          // 会话在建立瞬间就失效：同样交给自动重连自愈，而不是要求用户刷新。
           setState('closed');
-          setError('远程桌面会话已被回收，请刷新页面重试。');
+          setError('');
         }
       }
     } catch (err) {
@@ -458,15 +470,19 @@ export default function RemoteDesktopPage() {
             && generation === connectionGenerationRef.current;
           if (stillCurrent) {
             sessionRef.current = '';
-            skipAutoReconnectRef.current = true;
             if (supersededRef.current) {
-              // 被同主机的新连接接管：正常结果，提示但不要求刷新；页面上的
-              // 「重新接管」按钮可一键夺回。
+              // 被同主机的新连接接管：正常结果，停止轮询并提示接管，页面上的
+              // 「重新接管」按钮可一键夺回。不自动重连——两个页签自动互相抢占
+              // 会形成重连风暴。
+              skipAutoReconnectRef.current = true;
               setState('superseded');
               setError('');
             } else {
+              // 会话真的没了（后端重启、空闲回收、Agent 重连等）。这不是需要用户
+              // 手动刷新的错误：清掉失效会话并置为 closed，由监听 state 的自动
+              // 重连 effect 按退避序列重建会话，页面自行恢复。
               setState('closed');
-              setError('远程桌面会话已被回收，请刷新页面重试。');
+              setError('');
             }
             break;
           }
@@ -1171,7 +1187,7 @@ export default function RemoteDesktopPage() {
             }))}
           />
           {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}
-          <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={connect} />
+          <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={manualReconnect} />
           <Button size="sm" shape="square" variant="secondary" icon={<Maximize2 className="h-4 w-4" />} aria-label="全屏" onClick={toggleFullscreen} />
           <Button size="sm" shape="square" variant="secondary" icon={<X className="h-4 w-4" />} aria-label="关闭" onClick={() => window.close()} />
         </div>
@@ -1215,7 +1231,7 @@ export default function RemoteDesktopPage() {
                 同一主机同时只允许一个远程桌面会话。另一处（其他页签或设备）已接管该会话，本页已停止拉流。
                 点击下方按钮可夺回控制权，原页面会随即让位。
               </div>
-              <Button size="sm" variant="primary" onClick={connect}>重新接管</Button>
+              <Button size="sm" variant="primary" onClick={manualReconnect}>重新接管</Button>
             </div>
           )}
           {!videoReady && state !== 'superseded' && (
@@ -1295,7 +1311,7 @@ export default function RemoteDesktopPage() {
                   }))}
                 />
                 {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}
-                <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={connect} />
+                <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={manualReconnect} />
                 <Button size="sm" shape="square" variant="secondary" icon={<Maximize2 className="h-4 w-4" />} aria-label="退出全屏" onClick={toggleFullscreen} />
                 <Button
                   size="sm"
