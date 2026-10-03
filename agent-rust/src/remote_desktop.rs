@@ -70,9 +70,13 @@ mod windows_impl {
     // 60 fps while absorbing scheduler/网络抖动, which previously showed up as
     // dropped frames and triggered the frontend's bitrate downshift.
     const ENCODED_QUEUE_DEPTH: usize = 3;
-    // Cap the encoded long edge. 2560 keeps 2K/1440p displays sharp; the value
-    // is overridable per session from the frontend (video-config.maxLongEdge).
-    const DEFAULT_MAX_LONG_EDGE: u32 = 2560;
+    // Fallback cap on the encoded long edge, used only when the dashboard does
+    // not supply one at session start. The dashboard always sends an explicit
+    // profile (`dashboard:rd_start.profile`), so this is a safety net for older
+    // or non-standard clients rather than the product default; it is kept in
+    // sync with the frontend's `balanced` preset (1920) so a profile-less start
+    // does not silently stream at a different resolution than the UI reports.
+    const DEFAULT_MAX_LONG_EDGE: u32 = 1920;
     const MIN_MAX_LONG_EDGE: u32 = 1280;
     const MAX_MAX_LONG_EDGE: u32 = 3840;
     /// 1080p 参考码率上限；更高像素按 `native_pixels / (1920*1080)` 线性放大。
@@ -226,6 +230,16 @@ mod windows_impl {
     /// loop flips this atomic and the next `encode` call consumes it.
     static NVENC_FORCE_IDR: AtomicBool = AtomicBool::new(false);
 
+    /// 可选的初始视频档位。面板在建会话时一并下发，使首帧就按用户选定的
+    /// 分辨率/帧率/码率编码，而不是先按 Agent 兜底默认值跑一段再到
+    /// `video-config` 才纠正（那会在连接初期产生与 UI 不符的分辨率）。
+    #[derive(Debug, Default, Deserialize)]
+    pub struct StartProfilePayload {
+        pub fps: Option<u32>,
+        pub bitrate: Option<u32>,
+        pub max_long_edge: Option<u32>,
+    }
+
     #[derive(Debug, Deserialize)]
     pub struct StartPayload {
         pub session_id: String,
@@ -238,6 +252,31 @@ mod windows_impl {
         /// 可选：上述地址使用的候选类型。webrtc-rs 仅支持 host / srflx。
         #[serde(default)]
         pub nat_1to1_candidate_type: Option<RTCIceCandidateType>,
+        /// 可选：会话初始视频档位（面板当前选择的画质档 + 帧率档）。
+        #[serde(default)]
+        pub profile: Option<StartProfilePayload>,
+    }
+
+    impl StartProfilePayload {
+        /// 归一化为实际使用的 StreamProfile，复用与 `video-config` 完全相同的
+        /// 钳制规则，保证两条路径不会产生不一致的档位。
+        fn to_stream_profile(&self) -> StreamProfile {
+            let default = StreamProfile::default();
+            StreamProfile {
+                fps: self
+                    .fps
+                    .unwrap_or(default.fps)
+                    .clamp(30, TARGET_FPS),
+                bitrate: self
+                    .bitrate
+                    .unwrap_or(default.bitrate)
+                    .clamp(3_000_000, 40_000_000),
+                max_long_edge: self
+                    .max_long_edge
+                    .map(|edge| edge.clamp(MIN_MAX_LONG_EDGE, MAX_MAX_LONG_EDGE))
+                    .unwrap_or(default.max_long_edge),
+            }
+        }
     }
 
     #[derive(Debug, Deserialize)]
@@ -424,7 +463,14 @@ mod windows_impl {
             // same way (`video_remb.go`).
             let remb_limit = Arc::new(AtomicU32::new(0));
             let geometry = Arc::new(Mutex::new(DesktopGeometry::default()));
-            let stream_profile = Arc::new(Mutex::new(StreamProfile::default()));
+            // 首帧即按面板下发的档位编码；面板未带 profile 时才回落到默认档。
+            let stream_profile = Arc::new(Mutex::new(
+                payload
+                    .profile
+                    .as_ref()
+                    .map(StartProfilePayload::to_stream_profile)
+                    .unwrap_or_default(),
+            ));
             let enigo = Arc::new(Mutex::new(Enigo::new(&Settings::default()).ok()));
             let touch_contact = Arc::new(Mutex::new(None));
             let video_track = Arc::new(TrackLocalStaticRTP::new(
@@ -2023,29 +2069,80 @@ mod windows_impl {
         #[test]
         fn scaled_encode_size_caps_large_desktops_and_keeps_even_dimensions() {
             const CAP: u32 = DEFAULT_MAX_LONG_EDGE;
-            // 4K is capped to the default 2560 long edge, even, aspect-preserving.
+            // 4K is capped to the default long edge, even, aspect-preserving.
+            // DEFAULT_MAX_LONG_EDGE mirrors the dashboard's `balanced` preset so a
+            // profile-less start does not stream at a size the UI does not report.
+            assert_eq!(CAP, 1_920);
             let (w, h) = scaled_encode_size(3_840, 2_160, CAP);
-            assert_eq!((w, h), (2_560, 1_440));
+            assert_eq!((w, h), (1_920, 1_080));
             assert_eq!(w % 2, 0);
             assert_eq!(h % 2, 0);
 
             // A non-16:9 4K desktop keeps its aspect ratio under the cap.
             let (w, h) = scaled_encode_size(3_440, 1_440, CAP);
-            assert_eq!((w, h), (2_560, 1_072));
+            assert_eq!((w, h), (1_920, 804));
 
             // Below the cap the native size is preserved (still even).
-            let (w, h) = scaled_encode_size(1_920, 1_080, CAP);
-            assert_eq!((w, h), (1_920, 1_080));
+            let (w, h) = scaled_encode_size(1_280, 720, CAP);
+            assert_eq!((w, h), (1_280, 720));
+
+            // An explicit higher cap (e.g. the "sharp"/"ultra" preset) is honoured.
+            let (w, h) = scaled_encode_size(3_840, 2_160, 2_560);
+            assert_eq!((w, h), (2_560, 1_440));
+            let (w, h) = scaled_encode_size(3_840, 2_160, 3_840);
+            assert_eq!((w, h), (3_840, 2_160));
 
             // A lower per-session cap (e.g. the "smooth" preset) is honoured.
-            let (w, h) = scaled_encode_size(3_840, 2_160, 1_920);
-            assert_eq!((w, h), (1_920, 1_080));
+            let (w, h) = scaled_encode_size(3_840, 2_160, 1_280);
+            assert_eq!((w, h), (1_280, 720));
 
             // Odd desktop sizes are rounded down to even dimensions.
             let (w, h) = scaled_encode_size(1_365, 767, CAP);
             assert_eq!(w % 2, 0);
             assert_eq!(h % 2, 0);
             assert!(w <= 1_365 && h <= 767);
+        }
+
+        #[test]
+        fn start_profile_payload_is_clamped_like_video_config() {
+            // 面板下发的初始档位必须与 `video-config` 走同一套钳制规则，避免
+            // 建会话与后续改档两条路径产生不一致的分辨率/帧率。
+            let profile = StartProfilePayload {
+                fps: Some(60),
+                bitrate: Some(12_000_000),
+                max_long_edge: Some(1_920),
+            }
+            .to_stream_profile();
+            assert_eq!(profile.fps, 60);
+            assert_eq!(profile.bitrate, 12_000_000);
+            assert_eq!(profile.max_long_edge, 1_920);
+
+            // 帧率上限是 TARGET_FPS(60)，超出的请求被钳制而不是透传。
+            let profile = StartProfilePayload {
+                fps: Some(144),
+                bitrate: Some(999_000_000),
+                max_long_edge: Some(9_999),
+            }
+            .to_stream_profile();
+            assert_eq!(profile.fps, TARGET_FPS);
+            assert_eq!(profile.bitrate, 40_000_000);
+            assert_eq!(profile.max_long_edge, MAX_MAX_LONG_EDGE);
+
+            // 低于下限的请求同样被抬高，保证编码器拿到合法参数。
+            let profile = StartProfilePayload {
+                fps: Some(5),
+                bitrate: Some(1),
+                max_long_edge: Some(1),
+            }
+            .to_stream_profile();
+            assert_eq!(profile.fps, 30);
+            assert_eq!(profile.bitrate, 3_000_000);
+            assert_eq!(profile.max_long_edge, MIN_MAX_LONG_EDGE);
+
+            // 未提供 profile 时回落到默认档（max_long_edge = 0 表示用 tuning 默认）。
+            let profile = StartProfilePayload::default().to_stream_profile();
+            assert_eq!(profile.fps, StreamProfile::default().fps);
+            assert_eq!(profile.max_long_edge, 0);
         }
 
         #[test]
