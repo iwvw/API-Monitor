@@ -36,6 +36,19 @@ type fakeAgentTunnel struct {
 	mu       sync.Mutex
 	dials    int
 	requests int
+	conns    []net.Conn
+}
+
+// dropAll 强制断开所有已建立的连接，模拟 Agent 重启/网络中断：
+// 池子里残留的连接会变成「可写但读不到响应」的半死状态。
+func (f *fakeAgentTunnel) dropAll() {
+	f.mu.Lock()
+	conns := append([]net.Conn(nil), f.conns...)
+	f.conns = nil
+	f.mu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
+	}
 }
 
 func newFakeAgentTunnel(t *testing.T) *fakeAgentTunnel {
@@ -56,6 +69,12 @@ func (f *fakeAgentTunnel) dialCount() int {
 	return f.dials
 }
 
+func (f *fakeAgentTunnel) connCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.conns)
+}
+
 func (f *fakeAgentTunnel) requestCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -70,6 +89,7 @@ func (f *fakeAgentTunnel) serve() {
 		}
 		f.mu.Lock()
 		f.dials++
+		f.conns = append(f.conns, conn)
 		f.mu.Unlock()
 		go f.handle(conn)
 	}
@@ -252,4 +272,76 @@ func TestPooledTransportMixedLoad(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	wg.Wait()
+}
+
+// 池中连接失效后，RoundTrip 必须自动作废池子并重试一次，而不是把错误抛给调用方
+// 让该实例永久退化。
+//
+// 回归背景：线上表现为「并发一上来/Agent 重启后，该实例的消息投影永久失效，
+// 必须重启网关才恢复」——因为失效连接留在池里，每次请求都复用它。
+func TestRoundTripSelfHealsAfterStalePooledConnection(t *testing.T) {
+	f := newFakeAgentTunnel(t)
+	r := aiagentRuntimeWithDial(f)
+
+	// 先建立一条池中连接
+	resp, err := r.RoundTrip(context.Background(), "srv-1", 4097, agentReqForTest("/first"))
+	if err != nil {
+		t.Fatalf("首次请求失败: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if got := f.dialCount(); got != 1 {
+		t.Fatalf("首次应建 1 条连接，实际 %d", got)
+	}
+
+	// 模拟 Agent 重启：服务端强制断开所有已建立的连接。
+	f.dropAll()
+
+	// 下一次请求应自愈：作废池子 → 新建连接 → 成功
+	resp2, err := r.RoundTrip(context.Background(), "srv-1", 4097, agentReqForTest("/second"))
+	if err != nil {
+		t.Fatalf("失效连接后应自动重试成功，实际失败: %v", err)
+	}
+	defer resp2.Body.Close()
+	body, _ := io.ReadAll(resp2.Body)
+	if !strings.Contains(string(body), "/second") {
+		t.Fatalf("重试响应内容不对: %s", body)
+	}
+	if got := f.dialCount(); got < 2 {
+		t.Fatalf("自愈应新建连接，实际 dial 次数 %d", got)
+	}
+}
+
+// 流式请求（SSE/WebSocket）不做重试：重试会重复发起有副作用的请求。
+func TestStreamingRequestIsNotRetried(t *testing.T) {
+	f := newFakeAgentTunnel(t)
+	r := aiagentRuntimeWithDial(f)
+
+	req := agentReqForTest("/global/event")
+	req.Header = map[string][]string{"Accept": {"text/event-stream"}}
+
+	// 假隧道只会正常响应；这里验证的是「流式请求不会因为一次失败而被重放」。
+	// 用一个必然失败的 dial 覆盖来观察调用次数。
+	calls := 0
+	r.dialOverride = func(_ context.Context, _ string, _ int) (net.Conn, error) {
+		calls++
+		return nil, fmt.Errorf("模拟反连失败")
+	}
+
+	if _, err := r.RoundTrip(context.Background(), "srv-1", 4097, req); err == nil {
+		t.Fatal("反连失败时应返回错误")
+	}
+	if calls != 1 {
+		t.Fatalf("流式请求不应重试，dial 调用次数应为 1，实际 %d", calls)
+	}
+
+	// 对照：非流式请求应重试一次（共 2 次 dial）
+	calls = 0
+	if _, err := r.RoundTrip(context.Background(), "srv-1", 4097, agentReqForTest("/plain")); err == nil {
+		t.Fatal("反连失败时应返回错误")
+	}
+	if calls != 2 {
+		t.Fatalf("非流式请求应重试一次（共 2 次 dial），实际 %d", calls)
+	}
+	_ = f
 }

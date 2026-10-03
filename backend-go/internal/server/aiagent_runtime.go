@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 )
 
@@ -335,6 +336,25 @@ func (r *aiagentRuntime) OpenStream(ctx context.Context, serverID string, port i
 // RoundTrip 经原生流通道完成一次 HTTP 往返。使用 http.Transport 自定义
 // DialContext（每个请求一条数据通道），并通过 ReverseProxy 逐块转发以支持 SSE。
 func (r *aiagentRuntime) RoundTrip(ctx context.Context, serverID string, port int, req aiagent.AgentHTTPRequest) (aiagent.AgentHTTPResponse, error) {
+	resp, err := r.roundTripOnce(ctx, serverID, port, req)
+	if err == nil {
+		return resp, nil
+	}
+	// 复用池里的连接可能在 Agent 重启、空闲超时或并发错位后失效。这类失败是
+	// 瞬态的：作废该实例的池子并重试一次即可恢复，否则该实例会**永久**退化成
+	// 裸字节透传（实测重启网关才恢复）。
+	//
+	// 仅对非流式请求重试：流式请求每次本就独占新建通道，重试会重复发起副作用
+	// 请求（如 POST prompt）。
+	if isStreamingRequest(req.Header) || ctx.Err() != nil {
+		return resp, err
+	}
+	r.invalidatePooledTransport(serverID, port)
+	return r.roundTripOnce(ctx, serverID, port, req)
+}
+
+// roundTripOnce 执行一次往返，不含重试。
+func (r *aiagentRuntime) roundTripOnce(ctx context.Context, serverID string, port int, req aiagent.AgentHTTPRequest) (aiagent.AgentHTTPResponse, error) {
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:0"}
 
 	// 非流式请求复用长隧道（省去每次约 700-900ms 的反向握手）；流式请求
@@ -355,6 +375,17 @@ func (r *aiagentRuntime) RoundTrip(ctx context.Context, serverID string, port in
 			ResponseHeaderTimeout: 30 * time.Second,
 		}
 	}
+
+	// 分流决策与转发头记入日志：消息投影是否生效完全取决于 X-Lightweight 能否
+	// 随请求抵达主机 Agent。这条日志让「投影为何没生效」无需抓包即可定位
+	// （是网关没发头、还是 Agent 没识别）。
+	applog.Info(context.Background(), "aiagent", "gateway roundtrip",
+		"server", serverID,
+		"port", port,
+		"path", req.Path,
+		"streaming", isStreamingRequest(req.Header),
+		"lightweight", req.Header.Get("X-Lightweight"),
+		"accept", req.Header.Get("Accept"))
 
 	var statusCode int
 	var header http.Header
