@@ -71,6 +71,92 @@ func TestCreateRemoteDesktopSessionRequiresWindowsCapabilityAndForwardsOffer(t *
 	}
 }
 
+// 同一主机只允许一个远程桌面会话：新会话建立即接管，旧会话必须被标记为
+// superseded，使旧页签能明确区分「被接管」与「超时回收」，从而停在专门的
+// 接管提示而不是被当成终态错误要求刷新。
+func TestRemoteDesktopCreateSupersedesExistingSessionForSameServer(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	first := manager.create("windows-1", struct{}{})
+	if manager.isSuperseded(first.ID) {
+		t.Fatal("a freshly created session must not be marked superseded")
+	}
+
+	second := manager.create("windows-1", struct{}{})
+	if second.ID == first.ID {
+		t.Fatal("takeover must allocate a new session id")
+	}
+	if !manager.isSuperseded(first.ID) {
+		t.Fatal("the replaced session must be marked superseded")
+	}
+	if manager.isSuperseded(second.ID) {
+		t.Fatal("the new session must not be marked superseded")
+	}
+	if _, ok := manager.get(first.ID); ok {
+		t.Fatal("the replaced session must no longer be retrievable")
+	}
+	if _, ok := manager.get(second.ID); !ok {
+		t.Fatal("the new session must be retrievable")
+	}
+	// 不同主机互不影响：接管只针对同一 serverID。
+	other := manager.create("windows-2", struct{}{})
+	if manager.isSuperseded(other.ID) {
+		t.Fatal("a session on another host must not be superseded")
+	}
+	if _, ok := manager.get(second.ID); !ok {
+		t.Fatal("creating a session on another host must not evict this one")
+	}
+}
+
+// 被接管会话的 signals 端点必须返回 409 + reason=superseded，而不是含糊的 404：
+// 前端据此停止轮询并展示「重新接管」，避免落入死页。
+func TestRemoteDesktopSupersededSessionSignalsReportConflict(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	service := &Service{remoteDesktop: manager}
+	first := manager.create("windows-1", struct{}{})
+	manager.create("windows-1", struct{}{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/server/remote-desktop/sessions/"+first.ID+"/signals?wait=0", nil)
+	res := httptest.NewRecorder()
+	service.getRemoteDesktopSignals(res, req, first.ID)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d (body=%s)", res.Code, http.StatusConflict, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"reason":"superseded"`) {
+		t.Fatalf("body must carry reason=superseded: %s", res.Body.String())
+	}
+
+	// 未接管过的不存在会话仍是 404，避免把普通失效误报为接管。
+	req = httptest.NewRequest(http.MethodGet, "/api/server/remote-desktop/sessions/missing/signals?wait=0", nil)
+	res = httptest.NewRecorder()
+	service.getRemoteDesktopSignals(res, req, "missing")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("unknown session status = %d, want %d", res.Code, http.StatusNotFound)
+	}
+}
+
+// 接管记录只保留判定窗口，超窗后不得继续把普通失效当成接管。
+func TestRemoteDesktopSupersededMarkerExpires(t *testing.T) {
+	manager := newRemoteDesktopManager()
+	session := manager.create("windows-1", struct{}{})
+	manager.create("windows-1", struct{}{})
+
+	manager.mu.Lock()
+	manager.superseded[session.ID] = time.Now().Add(-remoteDesktopSupersededTTL - time.Second)
+	manager.mu.Unlock()
+	if manager.isSuperseded(session.ID) {
+		t.Fatal("superseded marker must expire after its window")
+	}
+
+	// 过期记录由 cleanupLocked 连带清理，避免无界增长。
+	manager.mu.Lock()
+	manager.cleanupLocked(time.Now())
+	_, stillThere := manager.superseded[session.ID]
+	manager.mu.Unlock()
+	if stillThere {
+		t.Fatal("expired superseded marker must be pruned")
+	}
+}
+
 func TestRemoteDesktopAgentSignalIsScopedToServer(t *testing.T) {
 	service := &Service{remoteDesktop: newRemoteDesktopManager()}
 	session := service.remoteDesktop.create("windows-1", struct{}{})

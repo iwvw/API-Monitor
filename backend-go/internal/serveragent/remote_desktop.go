@@ -46,15 +46,55 @@ type remoteDesktopSession struct {
 	Signals      []remoteDesktopSignal
 	NextSignalID int64
 	Notify       chan struct{}
+	// Superseded 标记本会话是被同一主机的「新会话」强制接管后淘汰的，而不是
+	// 空闲/绝对超时回收。前端据此区分「换页签接管」与「会话失效」：前者应当
+	// 停止轮询并提示已被接管（新页签已在接管），后者才需要用户手动刷新。
+	Superseded bool
 }
 
 type remoteDesktopManager struct {
 	mu       sync.Mutex
 	sessions map[string]*remoteDesktopSession
+	// superseded 记录被新会话接管而淘汰的会话 ID → 淘汰时刻。保留一个短暂的
+	// TTL 窗口，只为让处于在途长轮询/信令上报的旧页签能拿到明确的「已被接管」
+	// 判定；窗口过后与普通 404 无异，不长期占用内存。
+	superseded map[string]time.Time
 }
 
+// remoteDesktopSupersededTTL 被接管会话的判定窗口。前端长轮询最长 20s，
+// 加上重试与网络抖动，保留 2 分钟足够覆盖，且不会无限增长。
+const remoteDesktopSupersededTTL = 2 * time.Minute
+
 func newRemoteDesktopManager() *remoteDesktopManager {
-	return &remoteDesktopManager{sessions: make(map[string]*remoteDesktopSession)}
+	return &remoteDesktopManager{
+		sessions:   make(map[string]*remoteDesktopSession),
+		superseded: make(map[string]time.Time),
+	}
+}
+
+// markSupersededLocked 记录会话被接管。调用方需持有 m.mu。
+func (m *remoteDesktopManager) markSupersededLocked(id string) {
+	if m.superseded == nil {
+		m.superseded = make(map[string]time.Time)
+	}
+	m.superseded[id] = time.Now()
+}
+
+// isSuperseded 判断会话是否因被接管而淘汰（而非超时回收）。
+func (m *remoteDesktopManager) isSuperseded(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.superseded[id]
+	return ok && time.Since(at) <= remoteDesktopSupersededTTL
+}
+
+// pruneSupersededLocked 清理超出判定窗口的被接管记录。调用方需持有 m.mu。
+func (m *remoteDesktopManager) pruneSupersededLocked(now time.Time) {
+	for id, at := range m.superseded {
+		if now.Sub(at) > remoteDesktopSupersededTTL {
+			delete(m.superseded, id)
+		}
+	}
 }
 
 func (m *remoteDesktopManager) create(serverID string, agentSocket interface{}) *remoteDesktopSession {
@@ -64,6 +104,11 @@ func (m *remoteDesktopManager) create(serverID string, agentSocket interface{}) 
 	for id, session := range m.sessions {
 		if session.ServerID == serverID {
 			delete(m.sessions, id)
+			// 同一主机只允许一个远程桌面会话（Agent 侧 start() 会 stop_all）。
+			// 新会话创建即接管：把旧会话记入 superseded 表，使其在途的长轮询
+			// 能明确拿到「已被接管」而不是含糊的 404，避免旧页签误判为终态并
+			// 永久停留在死页。
+			m.markSupersededLocked(id)
 			// 关闭被替换会话的 Notify，让旧前端的长轮询立即返回，而不是等到超时。
 			close(session.Notify)
 			session.Notify = nil
@@ -156,7 +201,6 @@ func (m *remoteDesktopManager) waitSignals(id string, since int64, wait time.Dur
 	}
 	return m.signals(id, since)
 }
-
 func notifyRemoteDesktopSession(session *remoteDesktopSession) {
 	if session == nil || session.Notify == nil {
 		return
@@ -206,6 +250,7 @@ func (m *remoteDesktopManager) remove(id string) (*remoteDesktopSession, bool) {
 // 会话不会被误回收；标签页关闭或 Agent 断线后空闲超时即被清理，绝对上限则
 // 兜底异常客户端。
 func (m *remoteDesktopManager) cleanupLocked(now time.Time) {
+	m.pruneSupersededLocked(now)
 	for id, session := range m.sessions {
 		if now.After(session.ExpiresAt) || now.Sub(session.LastActivity) > remoteDesktopIdleTTL {
 			delete(m.sessions, id)
@@ -259,9 +304,18 @@ func (m *remoteDesktopManager) startCleanupLoop(ctx context.Context) {
 	}
 }
 
+// remoteDesktopProfile 是建会话时可选的初始视频档位。指针字段区分「未提供」
+// 与「显式 0」，未提供的字段由 Agent 侧回落到自身默认值。
+type remoteDesktopProfile struct {
+	FPS         *uint32 `json:"fps,omitempty"`
+	Bitrate     *uint32 `json:"bitrate,omitempty"`
+	MaxLongEdge *uint32 `json:"maxLongEdge,omitempty"`
+}
+
 type remoteDesktopCreateRequest struct {
-	ServerID string          `json:"serverId"`
-	Offer    json.RawMessage `json:"offer"`
+	ServerID string                `json:"serverId"`
+	Offer    json.RawMessage       `json:"offer"`
+	Profile  *remoteDesktopProfile `json:"profile,omitempty"`
 }
 
 type remoteDesktopBrowserSignalRequest struct {
@@ -327,6 +381,11 @@ func (s *Service) createRemoteDesktopSession(w http.ResponseWriter, r *http.Requ
 			{"urls": []string{"stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"}},
 		},
 	}
+	// 面板在建会话时一并下发初始视频档位（画质档 + 帧率档），使首帧就按用户
+	// 选定参数编码。缺省时不下发字段，Agent 回落到自身默认档。
+	if profile := req.Profile; profile != nil {
+		startPayload["profile"] = profile
+	}
 	// 主机侧配置的 1:1 NAT / 公网 IP 直连广播：直接下发给 Agent，使其在 TURN/打洞
 	// 之外多一条确定性直连路径。未配置时不下发字段，Agent 回落到自身环境变量配置。
 	if natIPs, natType, ok := s.remoteDesktopNatConfig(r.Context(), req.ServerID); ok {
@@ -350,6 +409,14 @@ func (s *Service) createRemoteDesktopSession(w http.ResponseWriter, r *http.Requ
 func (s *Service) getRemoteDesktopSession(w http.ResponseWriter, _ *http.Request, id string) {
 	session, ok := s.remoteDesktop.get(id)
 	if !ok {
+		if s.remoteDesktop.isSuperseded(id) {
+			response.JSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"error":   "remote desktop session superseded by a newer connection",
+				"reason":  "superseded",
+			})
+			return
+		}
 		response.Error(w, http.StatusNotFound, "remote desktop session not found")
 		return
 	}
@@ -372,6 +439,16 @@ func (s *Service) getRemoteDesktopSignals(w http.ResponseWriter, r *http.Request
 	}
 	signals, state, ok := s.remoteDesktop.waitSignals(id, since, time.Duration(waitMillis)*time.Millisecond)
 	if !ok {
+		// 会话已被同一主机的新会话接管：给出明确的 409 + reason，前端据此停止
+		// 轮询并提示「已被其他页签接管」，而不是当成终态错误要求用户刷新。
+		if s.remoteDesktop.isSuperseded(id) {
+			response.JSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"error":   "remote desktop session superseded by a newer connection",
+				"reason":  "superseded",
+			})
+			return
+		}
 		response.Error(w, http.StatusNotFound, "remote desktop session not found")
 		return
 	}
