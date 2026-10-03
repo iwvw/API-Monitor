@@ -32,6 +32,18 @@ type aiagentRuntime struct {
 
 	transportMu sync.Mutex
 	transports  map[string]*http.Transport
+
+	// dialOverride 仅供测试注入：替换真实的反连数据通道，使单测能在本进程内
+	// 起一条假隧道，覆盖「并发是否各占独立连接」「顺序是否复用」等真实行为。
+	dialOverride func(ctx context.Context, serverID string, port int) (net.Conn, error)
+}
+
+// dialAgent 统一出口：生产走真实反连流，测试可换成本地假隧道。
+func (r *aiagentRuntime) dialAgent(ctx context.Context, serverID string, port int) (net.Conn, error) {
+	if r.dialOverride != nil {
+		return r.dialOverride(ctx, serverID, port)
+	}
+	return r.server.OpenAIAgentPortStream(ctx, serverID, port)
 }
 
 // pooledTransportKey 标识一条「可复用连接池」的隧道。
@@ -76,14 +88,19 @@ func (r *aiagentRuntime) pooledTransportFor(serverID string, port int) *http.Tra
 	}
 	transport := &http.Transport{
 		DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
-			return r.server.OpenAIAgentPortStream(dialCtx, serverID, port)
+			return r.dialAgent(dialCtx, serverID, port)
 		},
-		// 并发额度与客户端一致：客户端打开会话时会并发发出多个短请求，
-		// 池子太小会让它们排队等连接，抵消复用收益。
-		DisableKeepAlives:   false,
-		MaxIdleConns:        32,
-		MaxIdleConnsPerHost: 32,
-		MaxConnsPerHost:     32,
+		DisableKeepAlives: false,
+		// 池子按「并发峰值」配置：客户端打开一个会话会同时发出 15+ 个短请求
+		// （health/mcp/permission/question/vcs/skill/file/agent...）。每个请求
+		// 必须独占一条隧道——主机 Agent 的 keep-alive 循环是「一条连接串行处理」，
+		// 不具备流水线能力，把并发请求压进同一条 conn 会让响应边界错位。
+		//
+		// 这三项保持一致（不设 MaxConnsPerHost 上限），让并发请求各自建连，
+		// 用完归还池中复用。若把 MaxConnsPerHost 设小，超出部分会排队等待，
+		// 反而把并发退化成串行。
+		MaxIdleConns:        128,
+		MaxIdleConnsPerHost: 128,
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 5 * time.Second,
 		// 响应体已是 identity 编码（Agent 侧组装好 JSON），不做传输压缩：关闭
@@ -328,7 +345,7 @@ func (r *aiagentRuntime) RoundTrip(ctx context.Context, serverID string, port in
 	} else {
 		transport = &http.Transport{
 			DialContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
-				return r.server.OpenAIAgentPortStream(dialCtx, serverID, port)
+				return r.dialAgent(dialCtx, serverID, port)
 			},
 			DisableKeepAlives:   true,
 			MaxIdleConns:        0,

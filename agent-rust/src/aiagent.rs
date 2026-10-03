@@ -1246,6 +1246,22 @@ mod tests {
         assert_eq!(req.method, "POST");
     }
 
+    /// 用「网关 Go http.Transport 实际发出的报文字节」验证轻量路径能被命中。
+    ///
+    /// 与 matches_lightweight_message_request 的差别：这里带 Host / User-Agent /
+    /// Accept-Encoding，是真实传输形态。若解析逻辑对额外头敏感，会在此暴露。
+    #[test]
+    fn matches_lightweight_request_with_real_gateway_headers() {
+        let head = b"GET /session/ses_f025d74e3ffeAFiATAbOPjoivR/message?limit=1 HTTP/1.1\r\n\
+Host: 127.0.0.1:0\r\nUser-Agent: Go-http-client/1.1\r\nX-Lightweight: 1\r\nAccept-Encoding: gzip\r\n\r\n";
+        let r = parse_lightweight_request(head);
+        assert!(r.is_some(), "网关真实形态的请求头应命中轻量路径");
+        assert_eq!(
+            r.unwrap().path,
+            "/session/ses_f025d74e3ffeAFiATAbOPjoivR/message?limit=1"
+        );
+    }
+
     /// SSE 是长连接，必须继续走独占通道；若误入复用隧道，复用后的连接会把
     /// 流式响应的边界搞乱。
     #[test]
