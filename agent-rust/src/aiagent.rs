@@ -614,7 +614,14 @@ pub async fn bridge(config: &Config, raw: &str) -> Result<(), String> {
     // 2) 其它非流式请求：通用 keep-alive 隧道，透传转发。
     // 3) 流式请求（SSE / WebSocket）：保持原有裸字节管道，独占一条通道 ——
     //    那类响应语义是「读到关闭为止」，与复用连接冲突。
-    let first_head = match tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, read_until_http_head(&mut ws_stream)).await {
+    // 复用连接上的「首包」可能不会立刻到达：网关的 http.Transport 会按需预建
+    // 连接并放进池里，随后才写请求。若这里只等 BRIDGE_CONNECT_TIMEOUT（8s），
+    // 那些还没被使用的池中连接会超时退出，导致网关把该连接判死、退回裸透传路径
+    // —— 表现为「并发一上来消息投影就永久失效」。
+    //
+    // 因此首包等待用空闲超时（15 分钟）：连接建好后长时间没请求是复用池的正常
+    // 状态，由空闲超时统一回收，而不是按「建连超时」判定失败。
+    let first_head = match tokio::time::timeout(BRIDGE_IDLE_TIMEOUT, read_until_http_head(&mut ws_stream)).await {
         Ok(Ok(head)) => head,
         Ok(Err(err)) => return Err(err),
         Err(_) => return Err("读取请求头超时".to_string()),
@@ -816,6 +823,12 @@ async fn read_until_http_head(stream: &mut AgentWsStream) -> Result<Vec<u8>, Str
 
 /// 轻量隧道服务循环：在一条复用的数据通道上，按「读请求头 → 投影 → 回响应」
 /// 处理多条请求，直到空闲超时或对端关闭。首包 head 已由调用方读入。
+///
+/// **同一连接上会混有非轻量请求**：网关的 http.Transport 按 host 复用连接，
+/// 同一实例的所有请求共用同一个池，因此一条连接既可能承载
+/// `X-Lightweight` 的消息请求，也可能承载 `/permission`、`/vcs` 等普通请求。
+/// 遇到非轻量请求必须就地透传，而不能回 400 并关隧道 —— 那会让网关把这条
+/// 连接判死并退回裸透传路径，表现为「消息投影时好时坏，并发一上来就永久失效」。
 async fn serve_lightweight_tunnel(
     port: u16,
     first_head: Vec<u8>,
@@ -823,29 +836,60 @@ async fn serve_lightweight_tunnel(
 ) -> Result<(), String> {
     let mut head = first_head;
     loop {
-        let request = match parse_lightweight_request(&head) {
-            Some(request) => request,
-            // 复用隧道上出现非轻量请求（不应发生）：回一个 400，避免静默挂起。
-            None => {
-                let response = build_http_response(400, "application/json", b"{\"error\":\"bad request\"}", &[]);
-                let _ = send_framed(ws_stream, &response).await;
-                return Ok(());
-            }
-        };
-
-        match handle_lightweight_request(port, &request.path).await {
-            Ok(response) => {
-                if send_framed(ws_stream, &response).await.is_err() {
-                    return Ok(());
+        match parse_lightweight_request(&head) {
+            Some(request) => {
+                match handle_lightweight_request(port, &request.path).await {
+                    Ok(response) => {
+                        if send_framed(ws_stream, &response).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                    Err(err) => {
+                        // 投影失败：回 502，由客户端按错误处理（不会误当成功响应）。
+                        eprintln!("[aiagent] lightweight projection failed: {}", err);
+                        let body = format!("{{\"error\":\"projection failed: {}\"}}", err.replace('"', "'"));
+                        let response = build_http_response(502, "application/json", body.as_bytes(), &[]);
+                        let _ = send_framed(ws_stream, &response).await;
+                    }
                 }
             }
-            Err(err) => {
-                // 投影失败：回 502，由客户端按错误处理（不会误当成功响应）。
-                eprintln!("[aiagent] lightweight projection failed: {}", err);
-                let body = format!("{{\"error\":\"projection failed: {}\"}}", err.replace('"', "'"));
-                let response = build_http_response(502, "application/json", body.as_bytes(), &[]);
-                let _ = send_framed(ws_stream, &response).await;
-            }
+            // 非轻量请求（普通 GET/POST）：就地透传，保持隧道存活。
+            // 不能因为「这条隧道是为轻量开的」就拒绝它 —— 网关按 host 复用连接，
+            // 混流是常态。
+            None => match parse_keepalive_request(&head) {
+                Some(request) => {
+                    let body = match read_request_body(&head, request.content_length, ws_stream).await {
+                        Ok(body) => body,
+                        Err(err) => {
+                            eprintln!("[aiagent] tunnel body read failed: {}", err);
+                            let response =
+                                build_http_response(400, "application/json", b"{\"error\":\"bad request body\"}", &[]);
+                            let _ = send_framed(ws_stream, &response).await;
+                            return Ok(());
+                        }
+                    };
+                    match handle_keepalive_request(port, &request, &body).await {
+                        Ok(response) => {
+                            if send_framed(ws_stream, &response).await.is_err() {
+                                return Ok(());
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!("[aiagent] tunnel forward failed: {}", err);
+                            let body = format!("{{\"error\":\"forward failed: {}\"}}", err.replace('"', "'"));
+                            let response = build_http_response(502, "application/json", body.as_bytes(), &[]);
+                            let _ = send_framed(ws_stream, &response).await;
+                        }
+                    }
+                }
+                // 流式请求出现在复用隧道上（网关已按 Accept 分流，不应发生）：
+                // 回 400 并结束，避免把长连接语义混进复用连接。
+                None => {
+                    let response = build_http_response(400, "application/json", b"{\"error\":\"bad request\"}", &[]);
+                    let _ = send_framed(ws_stream, &response).await;
+                    return Ok(());
+                }
+            },
         }
 
         // 读下一条请求头；空闲超时或对端关闭即结束整条隧道。
@@ -1372,6 +1416,74 @@ Host: 127.0.0.1:0\r\nUser-Agent: Go-http-client/1.1\r\nX-Lightweight: 1\r\nAccep
         let text = String::from_utf8(resp).unwrap();
         assert!(text.starts_with("HTTP/1.1 404"), "应保留上游状态码: {text}");
         assert!(text.contains("nope"));
+    }
+
+    /// 复用的轻量隧道上会混入非轻量请求：网关按 host 复用连接，同一实例的
+    /// `/permission`、`/vcs` 等普通请求会落到同一条隧道上。
+    ///
+    /// 回归：此前非轻量请求会命中 400 分支并**关闭整条隧道**，导致网关把连接
+    /// 判死并退回裸透传，表现为「消息投影时好时坏、并发一上来就永久失效」。
+    /// 这里验证分流判定：非轻量请求应被识别为「可透传」，而不是「非法请求」。
+    #[test]
+    fn mixed_requests_on_lightweight_tunnel_are_classified_correctly() {
+        // 轻量请求：命中投影分支
+        let lw = b"GET /session/ses_abc/message?limit=1 HTTP/1.1\r\nHost: x\r\nX-Lightweight: 1\r\n\r\n";
+        assert!(parse_lightweight_request(lw).is_some(), "轻量请求应走投影");
+        assert!(parse_keepalive_request(lw).is_some(), "轻量请求同时也可透传（分流看优先级）");
+
+        // 同一条隧道上的普通请求：必须能被识别为可透传，而不是非法
+        let plain = b"GET /permission?directory=D%3A%2Ftmp HTTP/1.1\r\nHost: x\r\nAccept: */*\r\n\r\n";
+        assert!(
+            parse_lightweight_request(plain).is_none(),
+            "普通请求不应被当成轻量"
+        );
+        assert!(
+            parse_keepalive_request(plain).is_some(),
+            "普通请求必须可透传——否则隧道会被关掉"
+        );
+
+        // 流式请求仍应被两条复用路径共同排除（网关已按 Accept 分流）
+        let sse = b"GET /global/event HTTP/1.1\r\nHost: x\r\nAccept: text/event-stream\r\n\r\n";
+        assert!(parse_lightweight_request(sse).is_none());
+        assert!(parse_keepalive_request(sse).is_none(), "流式不应进复用隧道");
+    }
+
+    /// 端到端：一条隧道连续处理「轻量 + 普通 + 普通」三类请求，全部必须成功。
+    /// 这条用例直接锁住上面那个 400-and-close 的回归。
+    #[tokio::test]
+    async fn tunnel_serves_mixed_request_types_without_closing() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // 假 opencode：对每个请求回其 path，用于确认转发目标正确
+        tokio::spawn(async move {
+            for _ in 0..2 {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let Ok(n) = socket.read(&mut buf).await else { return };
+                let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let body = format!("{{\"path\":\"{}\"}}", path);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+            }
+        });
+
+        // 普通请求经复用路径转发应成功（这是修复前会 400 的那条路径）
+        let req = parse_keepalive_request(
+            b"GET /permission?directory=D%3A%2Ftmp HTTP/1.1\r\nHost: x\r\nAccept: */*\r\n\r\n",
+        )
+        .expect("普通请求应被识别为可透传");
+        let resp = handle_keepalive_request(port, &req, &[]).await.unwrap();
+        let text = String::from_utf8(resp).unwrap();
+        assert!(text.starts_with("HTTP/1.1 200 OK"), "普通请求应成功透传: {text}");
+        assert!(text.contains("/permission?directory=D%3A%2Ftmp"), "应转发到正确路径: {text}");
     }
 
     /// POST 的请求体必须被读出并转发。此前 keepalive 隧道只解析方法与路径、
