@@ -106,6 +106,19 @@ describe('remote desktop touch controls', () => {
     expect(DEFAULT_DESKTOP_FPS).toBe(30);
   });
 
+  // 回归：带触摸屏的桌面设备（Windows 笔记本 / Precision Touchpad）不应被当成
+  // 移动端压缩档位。判定必须只看主指针类型，不看设备是否具备触摸能力。
+  it('does not silently downgrade desktop presets for touch-capable machines', () => {
+    const desktop = remoteDesktopProfileForPreset('sharp', false, 60);
+    expect(desktop).toEqual({ fps: 60, bitrate: 24_000_000, maxLongEdge: 2560 });
+    // 同样的选择在移动端（真实粗指针）才允许被压到 30fps / 6Mbps。
+    const mobile = remoteDesktopProfileForPreset('sharp', true, 60);
+    expect(mobile.fps).toBe(30);
+    expect(mobile.bitrate).toBe(6_000_000);
+    // 分辨率档位在两种情况下都保留，只有 fps/bitrate 被压。
+    expect(mobile.maxLongEdge).toBe(desktop.maxLongEdge);
+  });
+
   it('reduces bitrate and resolution when the link degrades', () => {
     const base = remoteDesktopProfileForPreset('sharp', false);
     const moderate = nextRemoteDesktopProfile({

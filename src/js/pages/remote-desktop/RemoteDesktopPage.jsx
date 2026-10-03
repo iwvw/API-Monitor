@@ -83,9 +83,11 @@ export default function RemoteDesktopPage() {
   const pendingLocalIceRef = useRef([]);
   const pendingRemoteIceRef = useRef([]);
   const previousVideoStatsRef = useRef(null);
-  const coarsePointerRef = useRef(
-    Boolean(window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0),
-  );
+  // 「是否以触摸为主」仅由主指针类型决定。不能用 navigator.maxTouchPoints > 0：
+  // 那表示「设备具备触摸能力」，而不是「用户在用触摸操作」——带触摸屏的 Windows
+  // 笔记本、装了 Precision Touchpad 的台式机会因此被误判为移动端，档位被静默压到
+  // 30fps / 6Mbps，用户在 UI 上选 60 FPS 也永远上不去。
+  const coarsePointerRef = useRef(Boolean(window.matchMedia?.('(pointer: coarse)').matches));
   const baseProfileRef = useRef(remoteDesktopProfileForPreset(
     desktopPreferences.preset,
     coarsePointerRef.current,
