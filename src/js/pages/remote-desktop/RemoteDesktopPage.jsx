@@ -4,7 +4,9 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Select } from '@cloudflare/kumo/components/select';
 import { ChevronUp, DesktopDisplay, Maximize2, Menu, RefreshCw, X } from '../../components/Icons.jsx';
 import {
+  DESKTOP_FPS_OPTIONS,
   DESKTOP_QUALITY_PRESETS,
+  DEFAULT_DESKTOP_FPS,
   DEFAULT_DESKTOP_PRESET,
   TOUCH_LONG_PRESS_MS,
   TOUCH_PINCH_SLOP,
@@ -17,12 +19,14 @@ import {
   nextRemoteDesktopProfile,
   normalizedTrackpadDelta,
   normalizedVideoPoint,
+  normalizedDesktopFps,
   pointDistance,
   remoteDesktopProfileForPreset,
   trackpadButtonMessage,
   trackpadPixelDelta,
 } from '../../modules/remoteDesktopTouch.js';
 import { ICE_SERVERS, SIGNAL_POLL_MS } from './constants.js';
+import { readDesktopPreferences, writeDesktopPreferences } from './preferences.js';
 import {
   apiRequest,
   authHeaders,
@@ -43,7 +47,10 @@ export default function RemoteDesktopPage() {
   const [viewTransform, setViewTransform] = useState({ scale: 1, x: 0, y: 0 });
   const [controlEnabled, setControlEnabled] = useState(true);
   const [touchInputMode, setTouchInputMode] = useState('trackpad');
-  const [qualityPreset, setQualityPreset] = useState(DEFAULT_DESKTOP_PRESET);
+  // 画质档与帧率从本地偏好恢复：刷新/重连后保持用户选择，而不是重置回默认。
+  const desktopPreferences = useMemo(readDesktopPreferences, []);
+  const [qualityPreset, setQualityPreset] = useState(desktopPreferences.preset);
+  const [fpsLimit, setFpsLimit] = useState(desktopPreferences.fps);
   const [clipboardSync, setClipboardSync] = useState(true);
   const clipboardSyncRef = useRef(true);
   clipboardSyncRef.current = clipboardSync;
@@ -79,9 +86,14 @@ export default function RemoteDesktopPage() {
   const coarsePointerRef = useRef(
     Boolean(window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0),
   );
-  const baseProfileRef = useRef(remoteDesktopProfileForPreset(DEFAULT_DESKTOP_PRESET, coarsePointerRef.current));
+  const baseProfileRef = useRef(remoteDesktopProfileForPreset(
+    desktopPreferences.preset,
+    coarsePointerRef.current,
+    desktopPreferences.fps,
+  ));
   const streamProfileRef = useRef(baseProfileRef.current);
-  const qualityPresetRef = useRef(DEFAULT_DESKTOP_PRESET);
+  const qualityPresetRef = useRef(desktopPreferences.preset);
+  const fpsLimitRef = useRef(desktopPreferences.fps);
   const healthyIntervalsRef = useRef(0);
   const pointerFrameRef = useRef(0);
   const absolutePointerFrameRef = useRef(0);
@@ -101,6 +113,9 @@ export default function RemoteDesktopPage() {
   const lastSentClipboardRef = useRef('');
   const lastReceivedClipboardRef = useRef('');
   const skipAutoReconnectRef = useRef(false);
+  // 本会话是否已被同一主机的新连接接管。接管是正常结果而非错误：停止轮询并
+  // 提供「重新接管」入口，不自动重连（自动重连会与新页签互相抢占）。
+  const supersededRef = useRef(false);
   const connectRef = useRef(null);
 
   const sendControl = useCallback((payload, { reliable = false } = {}) => {
@@ -207,6 +222,16 @@ export default function RemoteDesktopPage() {
       }
       return true;
     } catch (err) {
+      // 会话被同一主机的新连接接管：后端返回 409 + reason=superseded。这不是
+      // 错误状态，而是「另一处已接管」的正常结果——必须停止轮询并提示，同时
+      // 绝不能落入自动重连（否则两个页签会互相抢占形成重连风暴）。
+      if (err.status === 409 && err.reason === 'superseded') {
+        supersededRef.current = true;
+        skipAutoReconnectRef.current = true;
+        setState('superseded');
+        setError('');
+        return false;
+      }
       if (!stoppedRef.current && sessionRef.current === sessionId && generation === connectionGenerationRef.current) {
         setError(err.message || '信令同步失败');
       }
@@ -264,10 +289,15 @@ export default function RemoteDesktopPage() {
     const generation = connectionGenerationRef.current;
     stoppedRef.current = false;
     skipAutoReconnectRef.current = false;
+    supersededRef.current = false;
     setState('initializing');
     setError('');
     setControlAcknowledged(false);
-    baseProfileRef.current = remoteDesktopProfileForPreset(qualityPresetRef.current, coarsePointerRef.current);
+    baseProfileRef.current = remoteDesktopProfileForPreset(
+      qualityPresetRef.current,
+      coarsePointerRef.current,
+      fpsLimitRef.current,
+    );
     streamProfileRef.current = baseProfileRef.current;
     healthyIntervalsRef.current = 0;
     lastSignalRef.current = 0;
@@ -358,7 +388,13 @@ export default function RemoteDesktopPage() {
       const created = await apiRequest('/api/server/remote-desktop/sessions', {
         method: 'POST',
         headers: authHeaders(true),
-        body: JSON.stringify({ serverId, offer: peer.localDescription }),
+        // 连同初始档位一起下发，使首帧就按用户选定的画质档 + 帧率档编码，
+        // 而不是先按 Agent 默认档跑一段再由 video-config 纠正。
+        body: JSON.stringify({
+          serverId,
+          offer: peer.localDescription,
+          profile: baseProfileRef.current,
+        }),
       });
       if (generation !== connectionGenerationRef.current || peer !== peerRef.current) {
         await fetch(`/api/server/remote-desktop/sessions/${encodeURIComponent(created.sessionId)}`, {
@@ -368,19 +404,28 @@ export default function RemoteDesktopPage() {
       }
       sessionRef.current = created.sessionId;
       for (const signal of pendingLocalIceRef.current.splice(0)) await postSignal(signal, peer, generation);
-      // 首次拉取：若会话已被回收（例如同主机在另一标签页重建），进入终态并停止
-      // 自动重连，避免两个标签页互相抢占会话形成重连风暴。
+      // 首次拉取：若会话在建立瞬间就被同主机的新连接接管（另一个页签同时接管），
+      // 进入「已被接管」终态。这不是错误，也不自动重连——否则两个页签会互相
+      // 抢占形成重连风暴；页面提供一键「重新接管」入口。
       const alive = await pollSignals(created.sessionId, generation);
       if (!alive && generation === connectionGenerationRef.current) {
         sessionRef.current = '';
-        skipAutoReconnectRef.current = true;
-        setState('closed');
-        setError('远程桌面会话已被其他连接接管，请刷新页面重试。');
+        if (supersededRef.current) {
+          setState('superseded');
+          setError('');
+        } else {
+          skipAutoReconnectRef.current = true;
+          setState('closed');
+          setError('远程桌面会话已被回收，请刷新页面重试。');
+        }
       }
     } catch (err) {
       if (generation === connectionGenerationRef.current) {
-        setState('error');
-        setError(err.message || '远程桌面初始化失败');
+        // superseded 已在 pollSignals 内处理为专门状态，这里不再覆盖为通用错误。
+        if (!supersededRef.current) {
+          setState('error');
+          setError(err.message || '远程桌面初始化失败');
+        }
         // 4xx 表示请求本身被拒绝（Agent 离线 / 不支持等），重试不会改变
         // 结果；网络类错误仍在可恢复范围内，保留自动重连。
         if (err.status === 400 || err.status === 409) {
@@ -414,8 +459,15 @@ export default function RemoteDesktopPage() {
           if (stillCurrent) {
             sessionRef.current = '';
             skipAutoReconnectRef.current = true;
-            setState('closed');
-            setError('远程桌面会话已被回收，请刷新页面重试。');
+            if (supersededRef.current) {
+              // 被同主机的新连接接管：正常结果，提示但不要求刷新；页面上的
+              // 「重新接管」按钮可一键夺回。
+              setState('superseded');
+              setError('');
+            } else {
+              setState('closed');
+              setError('远程桌面会话已被回收，请刷新页面重试。');
+            }
             break;
           }
           // 会话已被新连接取代：短暂等待后由下一轮循环接管新会话。
@@ -1015,11 +1067,30 @@ export default function RemoteDesktopPage() {
     setFillMode(mode => mode === 'cover' ? 'contain' : 'cover');
   };
 
-  // 选择画质预设：更新基准档位并立即通过控制通道下发（分辨率/帧率/码率）。
+  // 选择画质档：更新基准档位并立即通过控制通道下发（分辨率 + 码率）。帧率由
+  // 独立的 fps 档位控制，这里只刷新当前组合出的完整 profile。
   const applyQualityPreset = useCallback((presetId) => {
     qualityPresetRef.current = presetId;
     setQualityPreset(presetId);
-    const profile = remoteDesktopProfileForPreset(presetId, coarsePointerRef.current);
+    writeDesktopPreferences({ preset: presetId, fps: fpsLimitRef.current });
+    const profile = remoteDesktopProfileForPreset(presetId, coarsePointerRef.current, fpsLimitRef.current);
+    baseProfileRef.current = profile;
+    streamProfileRef.current = profile;
+    healthyIntervalsRef.current = 0;
+    const controlChannel = channelRef.current;
+    if (controlChannel?.readyState === 'open') {
+      controlChannel.send(JSON.stringify({ type: 'video-config', ...profile }));
+    }
+  }, []);
+
+  // 帧率档位（30/60）。Agent 侧 video_config 会把 fps 钳制到 [30, 60]，60 是
+  // 硬上限；NVENC 走 GPU 编码，1080p60 的额外开销主要在上行带宽而非主机 CPU。
+  const applyFpsLimit = useCallback((nextFps) => {
+    const normalized = normalizedDesktopFps(nextFps);
+    fpsLimitRef.current = normalized;
+    setFpsLimit(normalized);
+    writeDesktopPreferences({ preset: qualityPresetRef.current, fps: normalized });
+    const profile = remoteDesktopProfileForPreset(qualityPresetRef.current, coarsePointerRef.current, normalized);
     baseProfileRef.current = profile;
     streamProfileRef.current = profile;
     healthyIntervalsRef.current = 0;
@@ -1087,6 +1158,18 @@ export default function RemoteDesktopPage() {
               label: `画质·${preset.label}`,
             }))}
           />
+          <Select
+            alignItemWithTrigger
+            size="sm"
+            aria-label="帧率档位"
+            value={String(fpsLimit)}
+            onValueChange={value => applyFpsLimit(Number(value))}
+            className="w-auto min-w-0 px-3 py-1.5"
+            items={DESKTOP_FPS_OPTIONS.map(option => ({
+              value: String(option.id),
+              label: option.label,
+            }))}
+          />
           {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}
           <Button size="sm" shape="square" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} aria-label="重新连接" onClick={connect} />
           <Button size="sm" shape="square" variant="secondary" icon={<Maximize2 className="h-4 w-4" />} aria-label="全屏" onClick={toggleFullscreen} />
@@ -1124,7 +1207,18 @@ export default function RemoteDesktopPage() {
               willChange: viewTransform.scale > 1 ? 'transform' : 'auto',
             }}
           />
-          {!videoReady && (
+          {!videoReady && state === 'superseded' && (
+            <div className="flex flex-col items-center gap-3 text-center text-kumo-inverse/70">
+              <DesktopDisplay className="h-12 w-12" />
+              <div className="text-sm">已被其他页面接管</div>
+              <div className="max-w-lg text-xs text-kumo-inverse/45">
+                同一主机同时只允许一个远程桌面会话。另一处（其他页签或设备）已接管该会话，本页已停止拉流。
+                点击下方按钮可夺回控制权，原页面会随即让位。
+              </div>
+              <Button size="sm" variant="primary" onClick={connect}>重新接管</Button>
+            </div>
+          )}
+          {!videoReady && state !== 'superseded' && (
             <div className="flex flex-col items-center gap-3 text-center text-kumo-inverse/70">
               <DesktopDisplay className="h-12 w-12" />
               <div className="text-sm">{stateLabel(state)}</div>
@@ -1186,6 +1280,18 @@ export default function RemoteDesktopPage() {
                   items={DESKTOP_QUALITY_PRESETS.map(preset => ({
                     value: preset.id,
                     label: `画质·${preset.label}`,
+                  }))}
+                />
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  aria-label="帧率档位"
+                  value={String(fpsLimit)}
+                  onValueChange={value => applyFpsLimit(Number(value))}
+                  className="w-auto min-w-0 px-3 py-1.5"
+                  items={DESKTOP_FPS_OPTIONS.map(option => ({
+                    value: String(option.id),
+                    label: option.label,
                   }))}
                 />
                 {viewTransform.scale > 1 && <Button size="sm" variant="secondary" onClick={resetViewTransform}>重置缩放</Button>}

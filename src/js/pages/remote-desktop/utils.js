@@ -17,6 +17,9 @@ export async function apiRequest(url, options = {}) {
   if (!response.ok || payload.success === false) {
     const error = new Error(payload.error || `请求失败 (${response.status})`);
     error.status = response.status;
+    // 后端用 reason 区分「被新连接接管」(superseded) 与其他失败；调用方据此
+    // 决定是停止轮询并提示接管，还是走自动重连。
+    if (payload.reason) error.reason = payload.reason;
     throw error;
   }
   return payload.data ?? payload;

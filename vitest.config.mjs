@@ -6,7 +6,14 @@ export default defineConfig({
         environment: 'node',
 
         // 测试文件匹配模式
-        include: ['test/**/*.test.js', 'src/js/modules/**/*.test.js', 'src/js/components/**/*.test.js'],
+        include: [
+            'test/**/*.test.js',
+            'src/js/modules/**/*.test.js',
+            'src/js/components/**/*.test.js',
+            // 页面级纯逻辑模块（如 remote-desktop 的偏好持久化）与源码同目录存放，
+            // 便于就近维护；它们不依赖 React 运行时，可在 node 环境直接测试。
+            'src/js/pages/**/*.test.js',
+        ],
 
         // 排除目录
         exclude: ['node_modules', 'dist', 'data'],

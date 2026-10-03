@@ -11,6 +11,7 @@ export const STATE_LABELS = {
   disconnected: '连接中断',
   failed: '直连失败',
   closed: '会话已结束',
+  superseded: '已被其他页面接管',
   error: '连接错误',
 };
 

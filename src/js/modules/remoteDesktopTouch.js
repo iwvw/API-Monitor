@@ -80,13 +80,26 @@ export function normalizedVideoPoint(
   };
 }
 
-// 画质预设。桌面场景下提高帧率的边际收益低于单帧清晰度，因此三档都以 30fps
-// 为基准，用分辨率与码率拉开画质差距（编码侧相应放宽了长边上限与码率档）。
+// 画质预设。桌面场景下提高帧率的边际收益低于单帧清晰度，因此画质档只描述
+// 「分辨率 + 码率」，帧率由独立的 FPS 档位控制（见 DESKTOP_FPS_OPTIONS）。
+// 编码侧 maxLongEdge 的合法区间为 [1280, 3840]（agent-rust remote_desktop.rs
+// 的 MIN/MAX_MAX_LONG_EDGE），超出会被钳制；实际输出还会被远程显示器原生
+// 分辨率封顶——缩放只降不升，所以这里的值是「上限」而非保证值。
 export const DESKTOP_QUALITY_PRESETS = [
-  { id: 'smooth', label: '流畅', fps: 30, bitrate: 6_000_000, maxLongEdge: 1280 },
-  { id: 'balanced', label: '适应', fps: 30, bitrate: 12_000_000, maxLongEdge: 1920 },
-  { id: 'sharp', label: '清晰', fps: 30, bitrate: 24_000_000, maxLongEdge: 2560 },
+  { id: 'smooth', label: '流畅', bitrate: 6_000_000, maxLongEdge: 1280 },
+  { id: 'balanced', label: '适应', bitrate: 12_000_000, maxLongEdge: 1920 },
+  { id: 'sharp', label: '清晰', bitrate: 24_000_000, maxLongEdge: 2560 },
+  { id: 'ultra', label: '超清', bitrate: 32_000_000, maxLongEdge: 3840 },
 ];
+
+// 帧率档位。Agent 侧 TARGET_FPS = 60 是硬上限（video_config 里 fps 会被
+// clamp(30, 60)），因此这里只提供 30/60 两档；30 是默认值，弱网/弱机更稳。
+export const DESKTOP_FPS_OPTIONS = [
+  { id: 30, label: '30 FPS' },
+  { id: 60, label: '60 FPS' },
+];
+
+export const DEFAULT_DESKTOP_FPS = 30;
 
 export const DEFAULT_DESKTOP_PRESET = 'balanced';
 
@@ -97,11 +110,17 @@ export function desktopPresetById(id) {
   );
 }
 
-// 预设对应的视频档位。粗指针移动端压低帧率与码率以优先流畅度与流量。
-export function remoteDesktopProfileForPreset(presetId, coarsePointer = false) {
+export function normalizedDesktopFps(fps) {
+  const value = Number(fps);
+  return value === 60 ? 60 : DEFAULT_DESKTOP_FPS;
+}
+
+// 预设 + 帧率对应的视频档位。粗指针移动端压低帧率与码率以优先流畅度与流量。
+export function remoteDesktopProfileForPreset(presetId, coarsePointer = false, fps = DEFAULT_DESKTOP_FPS) {
   const preset = desktopPresetById(presetId);
+  const requestedFps = normalizedDesktopFps(fps);
   return {
-    fps: coarsePointer ? Math.min(30, preset.fps) : preset.fps,
+    fps: coarsePointer ? Math.min(30, requestedFps) : requestedFps,
     bitrate: coarsePointer ? Math.min(6_000_000, preset.bitrate) : preset.bitrate,
     maxLongEdge: preset.maxLongEdge,
   };

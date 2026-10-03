@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DESKTOP_QUALITY_PRESETS,
+  DEFAULT_DESKTOP_FPS,
   DEFAULT_DESKTOP_PRESET,
   accelerateTrackpadDelta,
   consumeScrollDelta,
@@ -8,6 +9,7 @@ import {
   isDoubleTap,
   nextPinchTransform,
   nextRemoteDesktopProfile,
+  normalizedDesktopFps,
   normalizedVideoPoint,
   normalizedTrackpadDelta,
   remoteCursorPoint,
@@ -62,16 +64,46 @@ describe('remote desktop touch controls', () => {
   });
 
   it('exposes a quality preset ladder with resolution and bitrate', () => {
-    expect(DESKTOP_QUALITY_PRESETS.map(preset => preset.id)).toEqual(['smooth', 'balanced', 'sharp']);
+    expect(DESKTOP_QUALITY_PRESETS.map(preset => preset.id)).toEqual(['smooth', 'balanced', 'sharp', 'ultra']);
     expect(desktopPresetById('unknown').id).toBe(DEFAULT_DESKTOP_PRESET);
+    // 画质档只描述分辨率 + 码率；帧率默认 30，由独立档位控制。
     const sharpDesktop = remoteDesktopProfileForPreset('sharp', false);
     expect(sharpDesktop).toEqual({ fps: 30, bitrate: 24_000_000, maxLongEdge: 2560 });
+    // 超清档对应编码侧允许的最大长边（agent MAX_MAX_LONG_EDGE = 3840）。
+    expect(remoteDesktopProfileForPreset('ultra', false)).toEqual({
+      fps: 30,
+      bitrate: 32_000_000,
+      maxLongEdge: 3840,
+    });
     // 粗指针移动端压低帧率与码率，但仍保留所选分辨率档。
     expect(remoteDesktopProfileForPreset('sharp', true)).toEqual({
       fps: 30,
       bitrate: 6_000_000,
       maxLongEdge: 2560,
     });
+  });
+
+  it('treats fps as an independent axis capped at the agent limit of 60', () => {
+    // 60 是 Agent 侧 video_config 的硬上限（fps.clamp(30, TARGET_FPS)）。
+    expect(remoteDesktopProfileForPreset('balanced', false, 60)).toEqual({
+      fps: 60,
+      bitrate: 12_000_000,
+      maxLongEdge: 1920,
+    });
+    // 非法/未知帧率一律回落到 30，避免把 undefined 透传给编码器。
+    expect(remoteDesktopProfileForPreset('balanced', false, 144).fps).toBe(30);
+    expect(remoteDesktopProfileForPreset('balanced', false, undefined).fps).toBe(30);
+    expect(normalizedDesktopFps(60)).toBe(60);
+    // Kumo Select 以字符串回传 value，因此 '60' 必须被接受（Number 归一化）。
+    expect(normalizedDesktopFps('60')).toBe(60);
+    expect(normalizedDesktopFps('30')).toBe(30);
+    // 非 60 的任意值（含 144 / 0 / NaN）一律回落到 30。
+    expect(normalizedDesktopFps(144)).toBe(30);
+    expect(normalizedDesktopFps(0)).toBe(30);
+    expect(normalizedDesktopFps('abc')).toBe(30);
+    // 粗指针（移动端）仍封顶 30，即使请求了 60。
+    expect(remoteDesktopProfileForPreset('balanced', true, 60).fps).toBe(30);
+    expect(DEFAULT_DESKTOP_FPS).toBe(30);
   });
 
   it('reduces bitrate and resolution when the link degrades', () => {
