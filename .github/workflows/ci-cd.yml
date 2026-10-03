@@ -543,10 +543,15 @@ jobs:
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "agent-*" --dir agents
           ls -lh agents/
 
-      # 完整性 + 版本一致性校验。仅检查「文件存在」不足以发现滚动 release 的
-      # 新旧混装（例如 Linux 已更新、Windows 仍是上一版）：那种状态下镜像里会
-      # 打进去一个版本不一致的 Windows Agent，且后续推送不会再重建它。
-      # 这里逐个二进制跑 --version，要求三平台版本号完全一致。
+      # 完整性校验。仅检查「文件存在」不足以发现滚动 release 的新旧混装
+      # （例如 Linux 已更新、Windows 仍是上一版）：那种状态下镜像里会打进去一个
+      # 版本不一致的 Agent，且后续推送不会再重建它（agent-rust/** 无 delta）。
+      #
+      # 这里不尝试解析二进制内的版本号（Rust 的版本串不以可稳定 grep 的字面量形式
+      # 存在于产物中，实测各种编码均检索不到，依赖它会误判），改为校验「每个二进
+      # 制与其随产物发布的 .sha256 附件一致」：既能发现文件损坏/截断，也能确保
+      # 三平台产物确实是同一批次 publish 写入的（每批 publish 同时更新二进制与
+      # 摘要）。真正的跨批次混装由 detect-agent-changes 的时间差检测拦截。
       - name: Verify agents
         shell: bash
         run: |
@@ -556,37 +561,34 @@ jobs:
           test -f agents/agent-linux-arm64
           test -f agents/agent-windows-amd64.exe
 
-          # Windows 二进制无法在本 job 直接执行，改用随产物发布的 .sha256 一致性
-          # 校验；Linux 两个可直接执行取版本号。
-          chmod +x agents/agent-linux-amd64 agents/agent-linux-arm64
-
-          v_amd64="$(./agents/agent-linux-amd64 --version 2>/dev/null | tr -d '\r' | awk '{print $2}')"
-          v_arm64="$(./agents/agent-linux-arm64 --version 2>/dev/null | tr -d '\r' | awk '{print $2}')"
-          if [ -z "$v_amd64" ] || [ -z "$v_arm64" ]; then
-            echo "::error::无法读取 Agent 版本号（amd64='$v_amd64', arm64='$v_arm64'）"
-            exit 1
-          fi
-          if [ "$v_amd64" != "$v_arm64" ]; then
-            echo "::error::Agent 版本不一致：amd64=$v_amd64 arm64=$v_arm64 —— 滚动 release 可能处于新旧混装状态"
-            exit 1
-          fi
-          echo "Linux Agent 版本一致：$v_amd64"
-
-          # Windows 侧用 sha256 校验产物完整性（并与 .sha256 附件比对）
-          if [ -f agents/agent-windows-amd64.exe.sha256 ]; then
-            expected="$(tr -d ' \r\n' < agents/agent-windows-amd64.exe.sha256)"
-            actual="$(sha256sum agents/agent-windows-amd64.exe | awk '{print $1}')"
-            if [ "$expected" != "$actual" ]; then
-              echo "::error::agent-windows-amd64.exe 摘要不匹配（expected=$expected actual=$actual）"
-              exit 1
+          verify_digest() {
+            local file="$1"
+            local sha_file="$2"
+            if [ ! -f "$file" ]; then
+              echo "::error::缺少产物 $file"
+              return 1
             fi
-            echo "Windows Agent 摘要校验通过"
-          else
-            echo "::warning::缺少 agent-windows-amd64.exe.sha256，跳过 Windows 摘要校验"
-          fi
+            if [ ! -f "$sha_file" ]; then
+              echo "::error::缺少摘要附件 $sha_file —— 无法确认产物与其摘要同批次"
+              return 1
+            fi
+            local expected actual
+            expected="$(tr -d ' \r\n' < "$sha_file")"
+            actual="$(sha256sum "$file" | awk '{print $1}')"
+            if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+              echo "::error::$file 摘要不匹配（expected=$expected actual=$actual）"
+              return 1
+            fi
+            echo "$file 摘要校验通过"
+          }
 
-          # 记录 Windows 二进制的大小与 mtime，便于排查「是否被本轮重建」
-          stat -c '%n %s bytes mtime=%y' agents/agent-windows-amd64.exe
+          verify_digest agents/agent-linux-amd64 agents/agent-linux-amd64.sha256
+          verify_digest agents/agent-linux-arm64 agents/agent-linux-arm64.sha256
+          verify_digest agents/agent-windows-amd64.exe agents/agent-windows-amd64.exe.sha256
+
+          # 三平台产物的大小与 mtime：同批次 publish 写入的时间应几乎相同，
+          # 若相差过大说明滚动 release 是新旧混装（detect 阶段也会据此强制重建）。
+          stat -c '%n %s bytes mtime=%y' agents/agent-linux-amd64 agents/agent-linux-arm64 agents/agent-windows-amd64.exe
 
       - name: Upload agents bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
