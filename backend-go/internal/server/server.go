@@ -297,6 +297,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.qoder.StartCallStatsFlush(warmupCtx)
 	server.qoder.StartAutoRefresh(warmupCtx)
 	server.qoder.StartCheckinScheduler(warmupCtx)
+	// 启动时对账已接入端点的 models 列：旧行停在接入时的旧目录，需按当前
+	// 启用名单收敛，否则端点模型列表长期显示过期内容。
+	server.qoder.ReconcileLinkedEndpoint(warmupCtx)
 	return server, nil
 }
 

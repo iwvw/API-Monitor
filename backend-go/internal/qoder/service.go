@@ -251,8 +251,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	s.mu.RLock()
 	oldPrefix := s.settings.ModelPrefix
 	s.mu.RUnlock()
-	prefixChanged := next.ModelPrefix != oldPrefix
-	if prefixChanged {
+	if next.ModelPrefix != oldPrefix {
 		next.DisabledModels = remapNamespaceList(next.DisabledModels, next.ModelPrefix, next.ModelPrefix, oldPrefix)
 	}
 
@@ -271,10 +270,10 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	s.settings = next
 	s.mu.Unlock()
 
-	if prefixChanged {
-		s.writeLinkedEndpointModels(ctx, s.allModelIDs())
-	}
-	s.syncLinkedEndpointDisabledModels(ctx)
+	// 无条件把当前启用模型名单与停用名单同步到已接入端点：模型目录会随账号
+	// 区域变化（如只有国内版账号时是 14 个），仅在前缀变化时同步会让端点行
+	// 长期停留在旧值。
+	s.syncLinkedEndpointModels(ctx)
 	return nil
 }
 

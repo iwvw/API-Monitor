@@ -303,6 +303,46 @@ func TestAccountServesModelByRegion(t *testing.T) {
 	}
 }
 
+func TestReconcileLinkedEndpointSyncsModels(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	db, err := s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// 预置一行旧端点，models 停在过期的 2 个。
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, enabled, models, disabled_models, plugin_id)
+		VALUES (?, 'Qoder', 'http://127.0.0.1:3000/api/qoder/v1', 'sk', 1, '["dfmodel","qfmodel"]', '[]', 'qoder')`,
+		linkedEndpointID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 默认无账号 → 国内版 14 个模型，对账后端点行应更新。
+	s.ReconcileLinkedEndpoint(ctx)
+
+	db2, err := s.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+	var raw string
+	if err := db2.QueryRowContext(ctx, `SELECT models FROM openai_endpoints WHERE id = ?`, linkedEndpointID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var models []string
+	if err := json.Unmarshal([]byte(raw), &models); err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != len(cnStaticModels) {
+		t.Fatalf("reconciled models = %d, want %d (%v)", len(models), len(cnStaticModels), models)
+	}
+}
+
 func TestStrategyNormalization(t *testing.T) {
 	if normalizeStrategy("round-robin") != accountpick.RoundRobin {
 		t.Fatalf("round-robin")

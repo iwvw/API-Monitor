@@ -158,6 +158,35 @@ func (s *Service) unlinkIfDisabled(ctx context.Context) {
 	_, _ = db.ExecContext(ctx, `DELETE FROM openai_endpoints WHERE id = ?`, linkedEndpointID)
 }
 
+// syncLinkedEndpointModels 把插件当前启用模型名单同步到已接入网关端点的
+// models 列，并同时刷新 disabled_models。未接入时静默跳过。
+//
+// 为什么必须做：端点 models 列只在 linkCreate 时写过一次；若插件目录后来变化
+// （例如模型表从 2 个扩到 14 个），历史行会停留在旧值，前端端点模型列表随之
+// 显示过期内容。启动对账与保存设置时都应调用。
+func (s *Service) syncLinkedEndpointModels(ctx context.Context) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	disabled := s.Settings().DisabledModels
+	if disabled == nil {
+		disabled = []string{}
+	}
+	disabledPayload, _ := json.Marshal(disabled)
+	modelsPayload, _ := json.Marshal(s.enabledModelIDs())
+	_, _ = db.ExecContext(ctx, `
+		UPDATE openai_endpoints SET models = ?, disabled_models = ? WHERE id = ?`,
+		string(modelsPayload), string(disabledPayload), linkedEndpointID)
+}
+
+// ReconcileLinkedEndpoint 在启动时按当前启用名单对账已接入端点的 models 列。
+// 只读静态目录快照，不回源；未接入时静默跳过。
+func (s *Service) ReconcileLinkedEndpoint(ctx context.Context) {
+	s.syncLinkedEndpointModels(ctx)
+}
+
 // syncLinkedEndpointDisabledModels 把插件内停用的模型同步到已接入网关端点的
 // disabled_models 列。网关是按端点这一列做请求拦截的。未接入时静默跳过。
 func (s *Service) syncLinkedEndpointDisabledModels(ctx context.Context) {

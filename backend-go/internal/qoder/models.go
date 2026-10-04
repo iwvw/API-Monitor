@@ -232,6 +232,20 @@ func (s *Service) allModelIDs() []string {
 	return out
 }
 
+// enabledModelIDs 返回对外（带前缀）且未被停用的模型 ID 列表，
+// 作为已接入网关端点 models 列的权威值（与中继面 /v1/models 口径一致）。
+func (s *Service) enabledModelIDs() []string {
+	disabled := s.disabledSet()
+	all := s.allModelIDs()
+	out := make([]string, 0, len(all))
+	for _, id := range all {
+		if !disabled[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // disabledSet 返回被停用模型（对外名）的集合。
 func (s *Service) disabledSet() map[string]bool {
 	out := map[string]bool{}
@@ -361,17 +375,4 @@ func (s *Service) setModelsEnabled(ctx context.Context, ids []string, enabled bo
 	}
 	s.syncLinkedEndpointDisabledModels(ctx)
 	return nil
-}
-
-// writeLinkedEndpointModels 只更新已接入网关端点的 models 列。未接入时静默跳过。
-func (s *Service) writeLinkedEndpointModels(ctx context.Context, names []string) {
-	db, err := s.open(ctx)
-	if err != nil {
-		return
-	}
-	defer db.Close()
-	payload, _ := json.Marshal(names)
-	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ? WHERE id = ?`,
-		string(payload), linkedEndpointID)
 }
