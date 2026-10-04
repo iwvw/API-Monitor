@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, AntigravityBrand, DeepSeekBrand, CodeBuddyBrand, PostHogBrand } from '../../components/Icons.jsx';
+import { Globe, AntigravityBrand, DeepSeekBrand, CodeBuddyBrand, PostHogBrand, QoderBrand } from '../../components/Icons.jsx';
 import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
 import { DS2APIPlugin } from './plugins/DS2APIPlugin.jsx';
@@ -8,6 +8,7 @@ import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
 import { GeminiCliPlugin, GeminiCliBrand } from './plugins/GeminiCliPlugin.jsx';
 import { LobsterAIPlugin, LobsterAIBrand } from './plugins/LobsterAIPlugin.jsx';
 import { PostHogCodePlugin } from './plugins/PostHogCodePlugin.jsx';
+import { QoderPlugin } from './plugins/QoderPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
@@ -62,6 +63,13 @@ const PLUGINS = [
     description: 'PostHog LLM Gateway 转 API。',
     icon: PostHogBrand,
     detail: PostHogCodePlugin,
+  },
+  {
+    id: 'qoder',
+    name: 'Qoder',
+    description: 'Qoder（qoder.cn / qoder.com）账号转 API。',
+    icon: QoderBrand,
+    detail: QoderPlugin,
   },
 ];
 
