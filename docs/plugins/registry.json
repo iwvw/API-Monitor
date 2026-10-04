@@ -374,6 +374,61 @@
         "OpenAIPluginsPanel.jsx：移除 lobsterai 注册条目（含 LobsterAIBrand 图标 import 与组件 import）",
         "删除 docs/standards/模型网关插件-lobsterai方案.md"
       ]
+    },
+    "qoder": {
+      "name": "Qoder",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "Qoder（qoder.com）转 OpenAI 兼容 API：设备登录（nonce + PKCE 轮询换取 device token）、token 自动刷新（/api/v1/deviceToken/refresh）、加密 SSE 对话转发（身份 AES-CBC + RSA 包裹 + MD5 签名，POST api3.qoder.sh agent_chat_generation）、余额检测（/api/v2/quota/usage）、每日自动签到（/sash/api/v1/me/campaigns 列出并领取 CLAIM_BENEFIT，每日 100 Credits）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询，选号原语复用 internal/accountpick）、用量统计、网关端点一键接入。协议参考开源反代 qoder2api（jyao0708/qoder2api）原生实现。",
+      "backendDirs": ["backend-go/internal/qoder/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/qoder\", Module: \"qoder\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"Qoder 插件（qoder.com 转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/qoder/v1\", Module: \"qoder-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"Qoder 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/qoder\""],
+        "structField": "qoder       *qoder.Service",
+        "constructor": "qoder:       qoder.New(cfg),",
+        "injections": [
+          "server.qoder.SetProxyPoolSelector(server.proxypool)",
+          "server.qoder.StartCallStatsFlush(warmupCtx)",
+          "server.qoder.StartAutoRefresh(warmupCtx)",
+          "server.qoder.StartCheckinScheduler(warmupCtx)"
+        ],
+        "serveCases": ["case \"/api/qoder\", \"/api/qoder/v1\":"],
+        "authModules": []
+      },
+      "dbTables": ["qoder_settings", "qoder_call_stats", "qoder_usage_daily"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/QoderPlugin.jsx", "src/assets/brand-icons/qoder.png"],
+        "registrations": [
+          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "qoder" },
+          { "file": "src/js/components/Icons.jsx", "kind": "brand icon export", "id": "QoderBrand" }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": ["github.com/robfig/cron/v3"],
+      "systemContracts": [
+        "上游协议事实见 docs/standards/模型网关插件-qoder方案.md；协议层集中在 backend-go/internal/qoder/upstream.go，签到与余额在 billing.go"
+      ],
+      "docs": ["docs/standards/模型网关插件-qoder方案.md", "docs/standards/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/qoder/",
+        "manifest.go：删除 /api/qoder 与 /api/qoder/v1 前缀行",
+        "server.go：删除 import、qoder 字段、qoder.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartAutoRefresh、StartCheckinScheduler、/api/qoder case，以及 apiKeyRequiresSession 的 /api/qoder/accounts 前缀",
+        "go mod tidy（robfig/cron 若仍被其它模块使用则保留）",
+        "DB：DROP TABLE qoder_usage_daily; DROP TABLE qoder_call_stats; DROP TABLE qoder_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'qoder-internal';",
+        "删除 src/js/pages/openai/plugins/QoderPlugin.jsx",
+        "OpenAIPluginsPanel.jsx：移除 qoder 注册条目（含 QoderBrand 图标 import 与组件 import）",
+        "删除 docs/standards/模型网关插件-qoder方案.md"
+      ]
     }
   }
 }
