@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -101,23 +102,25 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 		disabled = []string{}
 	}
 	disabledJSON, _ := json.Marshal(disabled)
+	namesJSON, _ := json.Marshal(s.modelNameMap())
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO openai_endpoints
 			(id, name, base_url, api_key, headers, disabled_models, proxy_pool, proxy_batches,
 			 auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled,
-			 rate_limit_retry_wait_seconds, protocol, status, enabled, models, created_at, last_checked, sort_order, plugin_id)
-		VALUES (?, ?, ?, ?, '[]', ?, '[]', '[]', 0, 0, 0, 1, 10, 'auto', 'unknown', 1, ?, ?, ?, 100, 'qoder')
+			 rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_names, created_at, last_checked, sort_order, plugin_id)
+		VALUES (?, ?, ?, ?, '[]', ?, '[]', '[]', 0, 0, 0, 1, 10, 'auto', 'unknown', 1, ?, ?, ?, ?, 100, 'qoder')
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			base_url = excluded.base_url,
 			api_key = excluded.api_key,
 			models = excluded.models,
 			disabled_models = excluded.disabled_models,
+			model_names = excluded.model_names,
 			enabled = 1,
 			plugin_id = excluded.plugin_id`,
-		linkedEndpointID, linkedEndpointName, s.linkBaseURL(), internalKey, string(disabledJSON), string(modelsJSON), now, now)
+		linkedEndpointID, linkedEndpointName, s.linkBaseURL(), internalKey, string(disabledJSON), string(modelsJSON), string(namesJSON), now, now)
 	if err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -176,33 +179,30 @@ func (s *Service) syncLinkedEndpointModels(ctx context.Context) {
 	}
 	disabledPayload, _ := json.Marshal(disabled)
 	modelsPayload, _ := json.Marshal(s.enabledModelIDs())
+	// model_names：模型 id → 可读名称（如 dfmodel → DeepSeek-Flash），供网关端点
+	// 面板展示，不参与路由。前缀会一并加在 key 上以对齐端点 models 列。
+	namesPayload, _ := json.Marshal(s.modelNameMap())
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, disabled_models = ? WHERE id = ?`,
-		string(modelsPayload), string(disabledPayload), linkedEndpointID)
+		UPDATE openai_endpoints SET models = ?, disabled_models = ?, model_names = ? WHERE id = ?`,
+		string(modelsPayload), string(disabledPayload), string(namesPayload), linkedEndpointID)
+}
+
+// modelNameMap 返回「对外模型名 → 可读名称」映射（带前缀，与端点 models 列口径一致）。
+func (s *Service) modelNameMap() map[string]string {
+	out := map[string]string{}
+	for _, m := range s.catalog() {
+		if strings.TrimSpace(m.Name) == "" {
+			continue
+		}
+		out[s.prefixModel(m.ID)] = m.Name
+	}
+	return out
 }
 
 // ReconcileLinkedEndpoint 在启动时按当前启用名单对账已接入端点的 models 列。
 // 只读静态目录快照，不回源；未接入时静默跳过。
 func (s *Service) ReconcileLinkedEndpoint(ctx context.Context) {
 	s.syncLinkedEndpointModels(ctx)
-}
-
-// syncLinkedEndpointDisabledModels 把插件内停用的模型同步到已接入网关端点的
-// disabled_models 列。网关是按端点这一列做请求拦截的。未接入时静默跳过。
-func (s *Service) syncLinkedEndpointDisabledModels(ctx context.Context) {
-	db, err := s.open(ctx)
-	if err != nil {
-		return
-	}
-	defer db.Close()
-	disabled := s.Settings().DisabledModels
-	if disabled == nil {
-		disabled = []string{}
-	}
-	payload, _ := json.Marshal(disabled)
-	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET disabled_models = ? WHERE id = ?`,
-		string(payload), linkedEndpointID)
 }
 
 // ensureOpenAIEndpointsTable 幂等确保 openai_endpoints 表存在。
@@ -225,6 +225,7 @@ func ensureOpenAIEndpointsTable(ctx context.Context, db *sql.DB) error {
 			status TEXT DEFAULT 'unknown',
 			enabled INTEGER DEFAULT 1,
 			models TEXT,
+			model_names TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			last_used DATETIME,
 			last_checked DATETIME,

@@ -583,12 +583,24 @@ export function EndpointsTab({
                                       </div>
                                     </Table.Cell>
                                     <Table.Cell className="!px-2.5 !py-1.5">
-                                      <span
-                                        className="block truncate font-medium leading-5 text-kumo-strong"
-                                        title={modelId}
-                                      >
-                                        {modelId}
-                                      </span>
+                                      {(() => {
+                                        const modelName = endpoint.modelNames?.[modelId];
+                                        return (
+                                          <>
+                                            <span
+                                              className="block truncate font-medium leading-5 text-kumo-strong"
+                                              title={modelName ? `${modelName}（${modelId}）` : modelId}
+                                            >
+                                              {modelName || modelId}
+                                            </span>
+                                            {modelName ? (
+                                              <span className="block truncate font-mono text-[0.85em] leading-4 text-kumo-subtle" title={modelId}>
+                                                {modelId}
+                                              </span>
+                                            ) : null}
+                                          </>
+                                        );
+                                      })()}
                                     </Table.Cell>
                                     <Table.Cell className="!px-2 !py-1.5">
                                       {mappingEditKey === `${endpoint.id}:${modelId}` ? (

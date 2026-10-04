@@ -34,6 +34,9 @@ type Endpoint struct {
 	// "gemini" 表示 Google AI Studio（Generative Language API Interactions API）上游。
 	UpstreamType  string            `json:"upstreamType,omitempty"`
 	ModelMappings map[string]string `json:"modelMappings,omitempty"`
+	// ModelNames 是「模型 id → 可读名称」的展示映射（如 dfmodel → DeepSeek-Flash），
+	// 由插件写入，仅用于前端展示，不参与路由。
+	ModelNames map[string]string `json:"modelNames,omitempty"`
 	// ModelsURL 覆盖模型列表拉取地址（默认 {baseURL}/models）。用于模型列表不在
 	// 标准 /models 路径的上游（如 Cline 的 /recommended-models 独立端点）。
 	ModelsURL string `json:"modelsUrl,omitempty"`

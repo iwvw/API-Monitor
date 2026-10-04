@@ -209,6 +209,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			status TEXT DEFAULT 'unknown',
 			enabled INTEGER DEFAULT 1,
 			models TEXT,
+			model_names TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			last_used DATETIME,
 			last_checked DATETIME,
@@ -449,6 +450,11 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "upstream_type", "TEXT"); err != nil {
+		return err
+	}
+	// model_names 是纯展示用的「模型 id → 可读名称」映射（JSON 对象），
+	// 由插件写入；不参与路由（路由只认 models / model_mappings）。
+	if err := ensureSQLiteColumn(ctx, db, "openai_endpoints", "model_names", "TEXT"); err != nil {
 		return err
 	}
 	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_openai_analytics_gateway_key ON openai_gateway_analytics(gateway_key_id, timestamp)`); err != nil {

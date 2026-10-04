@@ -370,9 +370,6 @@ func (s *Service) setModelsEnabled(ctx context.Context, ids []string, enabled bo
 		st.DisabledModels = append(st.DisabledModels, k)
 	}
 	sort.Strings(st.DisabledModels)
-	if err := s.SaveSettings(ctx, st); err != nil {
-		return err
-	}
-	s.syncLinkedEndpointDisabledModels(ctx)
-	return nil
+	// SaveSettings 内部已把启用名单与停用名单同步到已接入端点，无需重复同步。
+	return s.SaveSettings(ctx, st)
 }

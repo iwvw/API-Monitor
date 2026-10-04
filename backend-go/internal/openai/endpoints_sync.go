@@ -185,7 +185,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, priority, weight, key_retry_rounds, upstream_type FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, model_names, priority, weight, key_retry_rounds, upstream_type FROM openai_endpoints ORDER BY sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -195,11 +195,11 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	endpoints := []Endpoint{}
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw, upstreamTypeRaw sql.NullString
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, modelNamesRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw, upstreamTypeRaw sql.NullString
 		var created, used, checked sql.NullString
 		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, priority, weight, keyRetryRounds int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &priority, &weight, &keyRetryRounds, &upstreamTypeRaw)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &modelNamesRaw, &priority, &weight, &keyRetryRounds, &upstreamTypeRaw)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -217,6 +217,9 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		ep.KeyRetryRounds = keyRetryRounds
 		if mappingsRaw.Valid && mappingsRaw.String != "" {
 			_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)
+		}
+		if modelNamesRaw.Valid && modelNamesRaw.String != "" {
+			_ = json.Unmarshal([]byte(modelNamesRaw.String), &ep.ModelNames)
 		}
 		if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 			_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
@@ -387,6 +390,10 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		if len(ep.ModelMappings) > 0 {
 			mappingsJSON, _ = json.Marshal(ep.ModelMappings)
 		}
+		modelNamesJSON, _ := json.Marshal(map[string]string{})
+		if len(ep.ModelNames) > 0 {
+			modelNamesJSON, _ = json.Marshal(ep.ModelNames)
+		}
 		// 扩展 key 与创建/更新端点保持同一存储格式：对整个明文 JSON 数组字符串
 		// 整串加密（读取端 SecureDecrypt 整串解密后再 Unmarshal）。若逐 key 加密
 		// 后组数组，读取端会把密文当明文解出，导入的扩展 key 全部失效（上游 401）。
@@ -412,9 +419,9 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 			rateLimitRetryWaitSeconds = 10
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, created_at, last_used, last_checked, priority, weight, key_retry_rounds, upstream_type)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight, ep.effectiveKeyRetryRounds(), normalizeUpstreamType(ep.UpstreamType))
+			INSERT OR REPLACE INTO openai_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, model_names, created_at, last_used, last_checked, priority, weight, key_retry_rounds, upstream_type)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), string(modelNamesJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight, ep.effectiveKeyRetryRounds(), normalizeUpstreamType(ep.UpstreamType))
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
