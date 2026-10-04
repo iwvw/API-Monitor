@@ -89,6 +89,8 @@ var moduleHandlers = map[string]routeHandler{
 	"emailcode-worker-callback":  func(s *Server, w http.ResponseWriter, r *http.Request) { s.emailcode.ServeHTTP(w, r) },
 	"posthogcode":                func(s *Server, w http.ResponseWriter, r *http.Request) { s.posthogcode.ServeHTTP(w, r) },
 	"posthogcode-compatible":     func(s *Server, w http.ResponseWriter, r *http.Request) { s.posthogcode.ServeHTTP(w, r) },
+	"qoder":                      func(s *Server, w http.ResponseWriter, r *http.Request) { s.qoder.ServeHTTP(w, r) },
+	"qoder-compatible":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.qoder.ServeHTTP(w, r) },
 	"prompts":                    func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
 	"prompts-collections":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
 	"prompts-drafts":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },

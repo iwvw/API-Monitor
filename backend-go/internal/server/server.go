@@ -55,6 +55,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/tencent"
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
+	"github.com/iwvw/api-monitor/backend-go/internal/qoder"
 	"github.com/iwvw/api-monitor/backend-go/internal/workbuddy"
 )
 
@@ -88,6 +89,7 @@ type Server struct {
 	lobsterai   *lobsterai.Service
 	emailcode   *emailcode.Service
 	posthogcode *posthogcode.Service
+	qoder       *qoder.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -209,6 +211,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		lobsterai:   lobsterai.New(cfg),
 		emailcode:   emailcode.New(cfg),
 		posthogcode: posthogcode.New(cfg),
+		qoder:       qoder.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -255,6 +258,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.lobsterai.SetProxyPoolSelector(server.proxypool)
 	// PostHog Code 插件可引用独立代理池作为出网出口。
 	server.posthogcode.SetProxyPoolSelector(server.proxypool)
+	// Qoder 插件可引用独立代理池作为出网出口。
+	server.qoder.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
@@ -288,6 +293,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	// PostHog Code 插件调用次数定期落盘与 access token 自动刷新。
 	server.posthogcode.StartCallStatsFlush(warmupCtx)
 	server.posthogcode.StartAutoRefresh(warmupCtx)
+	// Qoder 插件调用次数与用量定期落盘、access token 自动刷新、每日自动签到调度。
+	server.qoder.StartCallStatsFlush(warmupCtx)
+	server.qoder.StartAutoRefresh(warmupCtx)
+	server.qoder.StartCheckinScheduler(warmupCtx)
 	return server, nil
 }
 
@@ -547,6 +556,8 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/workbuddy/accounts/import",
 		"/api/lobsterai/accounts/export",
 		"/api/lobsterai/accounts/import",
+		"/api/qoder/accounts/export",
+		"/api/qoder/accounts/import",
 		"/api/antigravity/accounts/export",
 	}
 	for _, prefix := range protectedPrefixes {
