@@ -626,6 +626,8 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 		return metrics, nil
 	case "call_api":
 		return s.callAPIFromAI(r.Context(), args)
+	case "filebox_share_from_agent":
+		return s.fileboxShareFromAgent(r.Context(), args)
 	case "run_batch":
 		return s.aiRunBatch(r, args)
 	default:
@@ -1072,6 +1074,34 @@ func (s *Service) callAPIFromAI(ctx context.Context, args map[string]interface{}
 	return s.readOnlyAICall(req)
 }
 
+// fileboxShareFromAgent 是 filebox_share_from_agent 元工具的实现：把结构化参数
+// 组装成对 /api/filebox/share-from-agent 的调用，复用 callAPIFromAI 的完整约束
+// （路由匹配、写权限门槛、内部调用标记注入），避免出现绕过写开关的第二条路径。
+func (s *Service) fileboxShareFromAgent(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverID, _ := args["serverId"].(string)
+	remotePath, _ := args["remotePath"].(string)
+	if strings.TrimSpace(serverID) == "" || strings.TrimSpace(remotePath) == "" {
+		return nil, fmt.Errorf("serverId 与 remotePath 均为必填")
+	}
+	body := map[string]interface{}{
+		"serverId":   strings.TrimSpace(serverID),
+		"remotePath": strings.TrimSpace(remotePath),
+	}
+	for _, key := range []string{"storageTarget", "expiry", "max_downloads", "access_password"} {
+		if value, ok := args[key].(string); ok && strings.TrimSpace(value) != "" {
+			body[key] = value
+		}
+	}
+	if value, ok := args["burn_after_reading"]; ok && value != nil {
+		body["burn_after_reading"] = value
+	}
+	return s.callAPIFromAI(ctx, map[string]interface{}{
+		"method": http.MethodPost,
+		"path":   "/api/filebox/share-from-agent",
+		"body":   body,
+	})
+}
+
 // batchOp 表示 run_batch 中的单个操作。
 type batchOp struct {
 	name   string
@@ -1287,6 +1317,7 @@ func (s *Service) aiTools() []map[string]interface{} {
 		{"name": "get_system_status", "description": "读取本机系统运行状态（CPU/内存/磁盘）；displayTime/serverTime 为站点当前时间（本地时区），回答时间/换算 cron 必须用 displayTime 或 serverTime.local，禁止用 timestamp（UTC）", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "call_api", "description": "调用 API Monitor 内部接口，支持 GET/POST/PUT/PATCH/DELETE、请求头和 JSON 请求体；请求体结构先用 get_route 获取。强制规则：写操作（POST/PUT/PATCH/DELETE）返回后必须立即用 GET 回读验证真实生效（如列表/详情确认状态、next_run 等），且必须检查响应中的 success/error 字段，发现 success=false 或 error 非空即视为失败，绝不向用户宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true, "description": "JSON 请求体，字段以 get_route 返回的 requestSchema/requestExample 为准"}}, "required": []string{"path"}}},
 		{"name": "run_batch", "description": "一次提交 1-20 个接口调用并聚合返回结果（串行或并行），减少多轮往返；每个操作复用 call_api 的鉴权与写权限约束。强制规则：含写操作（POST/PUT/PATCH/DELETE）的批次，完成后必须回读验证真实生效并检查每个子项的 ok/error 字段，任一子项 ok=false 或业务失败即视为整体未完成，绝不宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"operations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string", "description": "操作名（便于阅读结果）"}, "method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true}}, "required": []string{"path"}}, "description": "要执行的接口调用数组"}, "mode": map[string]interface{}{"type": "string", "enum": []string{"serial", "parallel"}, "description": "执行模式（默认 serial）"}, "stopOnError": map[string]interface{}{"type": "boolean", "description": "serial 模式下遇到失败是否停止后续（默认 false）"}}, "required": []string{"operations"}}},
+		{"name": "filebox_share_from_agent", "description": "把一台 Agent 主机上的文件转成文件柜分享，返回可直接下载的分享链接与直链。这是把「某台主机上的文件给别人下载」的标准工具，无需先 list_apis/find_api。storageTarget=auto（默认）时优先把文件放到公网存储节点并让源主机直传（面板零流量），无可用节点或旧版 Agent 时自动回退为主站本地/面板中转。写操作，需管理员开启「允许写入」。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID）"}, "remotePath": map[string]interface{}{"type": "string", "description": "主机上的文件路径（受 Agent 文件沙箱约束：默认根或 API_MONITOR_FILE_ROOTS 白名单内）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "auto（默认，优先可用存储节点并让源主机直传）/ local（主站本地）/ 指定存储节点 serverId"}, "expiry": map[string]interface{}{"type": "string", "description": "有效期小时数，如 24；不传用文件柜默认值"}, "burn_after_reading": map[string]interface{}{"type": "boolean", "description": "阅后即焚（下载一次后删除）"}, "max_downloads": map[string]interface{}{"type": "string", "description": "最大下载次数，0 或不传为不限"}, "access_password": map[string]interface{}{"type": "string", "description": "分享访问密码（可选）"}}, "required": []string{"serverId", "remotePath"}}},
 	}
 }
 

@@ -1220,3 +1220,63 @@ func TestValidateAIAgentBearerKey(t *testing.T) {
 		t.Fatal("non-bearer authorization must be rejected")
 	}
 }
+
+func TestFileboxShareFromAgentTool(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var captured AICallRequest
+	service.SetAICaller(func(ctx context.Context, req AICallRequest) (AICallResponse, error) {
+		captured = req
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	// 缺 serverId / remotePath 必须报错
+	if _, err := service.fileboxShareFromAgent(context.Background(), map[string]interface{}{"serverId": "srv-1"}); err == nil {
+		t.Fatal("expected error when remotePath missing")
+	}
+
+	// 正常调用：应组装成对 share-from-agent 的 POST，并透传可选字段
+	result, err := service.fileboxShareFromAgent(context.Background(), map[string]interface{}{
+		"serverId":           "srv-1",
+		"remotePath":         "/tmp/a.txt",
+		"storageTarget":      "local",
+		"expiry":             "1",
+		"max_downloads":      "3",
+		"burn_after_reading": true,
+	})
+	if err != nil {
+		t.Fatalf("fileboxShareFromAgent err: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if captured.Method != http.MethodPost || captured.Path != "/api/filebox/share-from-agent" {
+		t.Fatalf("unexpected call: %s %s", captured.Method, captured.Path)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(captured.Body, &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["serverId"] != "srv-1" || body["remotePath"] != "/tmp/a.txt" {
+		t.Fatalf("unexpected required fields: %#v", body)
+	}
+	if body["storageTarget"] != "local" || body["expiry"] != "1" || body["max_downloads"] != "3" {
+		t.Fatalf("optional fields not passed through: %#v", body)
+	}
+	if body["burn_after_reading"] != true {
+		t.Fatalf("burn_after_reading not passed through: %#v", body)
+	}
+
+	// 工具必须出现在 MCP 工具清单里
+	found := false
+	for _, tool := range service.aiTools() {
+		if tool["name"] == "filebox_share_from_agent" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("filebox_share_from_agent not present in aiTools()")
+	}
+}
