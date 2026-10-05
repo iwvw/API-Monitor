@@ -121,6 +121,20 @@ type AgentFileDirectUploader interface {
 	UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error
 }
 
+// SupportsAgentFileUpload 判断源主机 Agent 是否具备直传能力（file_upload_url_v1）。
+// 旧版 Agent 不具备该能力，调用方应回退到面板中转而非直接失败。
+func (s *Service) SupportsAgentFileUpload(serverID string) bool {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" || s.registry == nil {
+		return false
+	}
+	conn, ok := s.registry.Get(serverID)
+	if !ok || conn == nil {
+		return false
+	}
+	return conn.GetCapabilities()["file_upload_url_v1"]
+}
+
 // UploadAgentFileToURL 指令源主机 Agent 把本地文件直接上传到面板签发的签名 URL
 // （存储节点直传，面板零字节转发）。返回 nil 表示 Agent 侧上传成功。
 func (s *Service) UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error {

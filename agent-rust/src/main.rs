@@ -56,6 +56,7 @@ fn agent_capabilities() -> Vec<String> {
         "tcp_forwarder_v1".to_string(),
         "p2p_v1".to_string(),
         "storage_node_v1".to_string(),
+        "file_upload_url_v1".to_string(),
         "aiagent_probe_v1".to_string(),
         "aiagent_stream_v1".to_string(),
         "aiagent_lifecycle_v1".to_string(),

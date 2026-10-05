@@ -239,6 +239,8 @@ type AgentFileSource interface {
 // 走此路径时字节不经面板，面板只签发 URL 并等待结果，节省面板流量。
 type AgentFileDirectUploader interface {
 	UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error
+	// SupportsAgentFileUpload 判断指定主机 Agent 是否具备直传能力（供回退决策）。
+	SupportsAgentFileUpload(serverID string) bool
 }
 
 func (s *Service) SetAgentFileSource(source AgentFileSource) {

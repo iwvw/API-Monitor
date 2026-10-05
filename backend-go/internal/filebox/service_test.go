@@ -1254,6 +1254,10 @@ func (f *fakeAgentDirectUploader) OpenAgentFile(ctx context.Context, serverID, r
 	return io.NopCloser(bytes.NewReader(f.content)), int64(len(f.content)), nil
 }
 
+func (f *fakeAgentDirectUploader) SupportsAgentFileUpload(serverID string) bool {
+	return true
+}
+
 func (f *fakeAgentDirectUploader) UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error {
 	if f.uploadErr != nil {
 		return f.uploadErr
@@ -1408,5 +1412,62 @@ func TestPersistentVoidRoomFilesSurviveReload(t *testing.T) {
 	mustDecodeFilebox(t, res, &list)
 	if !list.Success || len(list.Data) != 1 || list.Data[0].Code != share.Code {
 		t.Fatalf("mounted file did not survive reload: %#v", list)
+	}
+}
+
+type fakeIncapableUploader struct {
+	content  []byte
+	exists   bool
+	uploaded bool
+}
+
+func (f *fakeIncapableUploader) AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error) {
+	return int64(len(f.content)), f.exists, nil
+}
+
+func (f *fakeIncapableUploader) OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error) {
+	return io.NopCloser(bytes.NewReader(f.content)), int64(len(f.content)), nil
+}
+
+func (f *fakeIncapableUploader) UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error {
+	f.uploaded = true
+	return nil
+}
+
+func (f *fakeIncapableUploader) SupportsAgentFileUpload(serverID string) bool {
+	return false
+}
+
+func TestShareFromAgentFallsBackWhenAgentLacksDirectUpload(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	uploader := &fakeIncapableUploader{content: []byte("legacy-agent-bytes"), exists: true}
+	service.SetAgentFileSource(uploader)
+
+	var gotBody string
+	nodeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer nodeServer.Close()
+
+	host := strings.TrimPrefix(nodeServer.URL, "http://")
+	hostPart, portPart, _ := strings.Cut(host, ":")
+	port, _ := strconv.Atoi(portPart)
+	service.SetNodeProvider(&fakeNodeProvider{
+		nodes: []StorageNodeInfo{{ID: "node-1", Name: "Node One", Host: hostPart, StoragePort: port, Platform: "linux", Online: true}},
+		keys:  map[string]string{"node-1": "key123"},
+	})
+
+	body := `{"serverId":"srv-legacy","remotePath":"/tmp/data.bin","storageTarget":"auto"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if uploader.uploaded {
+		t.Fatalf("direct upload should not be attempted for incapable agent")
+	}
+	if gotBody != "legacy-agent-bytes" {
+		t.Fatalf("panel relay fallback did not deliver bytes, got %q", gotBody)
 	}
 }

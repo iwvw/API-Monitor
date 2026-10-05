@@ -104,13 +104,14 @@ func (s *Service) shareFromAgent(w http.ResponseWriter, r *http.Request) {
 	var storedServerID *string
 	var storedRemotePath *string
 	if target == "remote" {
-		// 优先让源主机 Agent 自己 PUT 到节点（面板零字节转发）；无上传器时退回面板中转。
-		if s.agentUploader != nil {
-			if err := s.uploadAgentFileDirectly(r.Context(), node, code, filename, size, payload.ServerID, payload.RemotePath); err != nil {
-				response.Error(w, http.StatusBadGateway, err.Error())
-				return
-			}
-		} else {
+		// 优先让源主机 Agent 自己 PUT 到节点（面板零字节转发）。仅当 Agent 明确
+		// 具备 file_upload_url_v1 时才走直传；旧版 Agent 或直传失败时回退到面板
+		// 中转，避免因 Agent 未升级/节点瞬时不可用导致整体失败。
+		directAttempted := false
+		if s.agentUploader != nil && s.agentUploader.SupportsAgentFileUpload(payload.ServerID) {
+			directAttempted = s.uploadAgentFileDirectly(r.Context(), node, code, filename, size, payload.ServerID, payload.RemotePath) == nil
+		}
+		if !directAttempted {
 			stream, _, err := s.agentFiles.OpenAgentFile(r.Context(), payload.ServerID, payload.RemotePath)
 			if err != nil {
 				response.Error(w, http.StatusBadGateway, fmt.Sprintf("failed to open agent file: %v", err))
