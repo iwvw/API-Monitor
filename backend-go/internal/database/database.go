@@ -48,6 +48,26 @@ func (s *Store) Open(ctx context.Context) (*sql.DB, error) {
 	return db, nil
 }
 
+// Pin 打开并长期持有一个逻辑句柄，使进程级物理连接池保持常暖。
+//
+// 为什么需要：connPool 在 refs 归零时会排空并关闭所有空闲物理连接
+// （见 connpool.go 的 release）。而全仓调用点都遵循「Open → defer Close」，
+// 若没有任何长期句柄，每次请求结束后 refs 都会归零，下一个请求必须重新
+// 建立物理连接并重跑 7 条 PRAGMA —— 实测每次 Open→Close 约 2.5ms。
+// 持有本函数返回的 release 不调用（进程存活期间），refs 恒 >0，后续
+// Open→Close 会把物理连接归还池中复用，跳过重连与 PRAGMA。
+//
+// 仅应由生产入口（cmd/api-monitor）在启动时调用一次：测试使用 TempDir，
+// 若在测试期 pin 会导致 refs 无法归零、临时库文件句柄不释放
+// （Windows 下 TempDir 清理依赖 refs 归零）。
+func (s *Store) Pin(ctx context.Context) (func(), error) {
+	db, err := s.Open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = db.Close() }, nil
+}
+
 func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
 	// auto_vacuum 是数据库级持久化属性：仅在库路径首次初始化时设置一次（由
 	// connPool.ensureSchema + WithSchemaLock 串行化），避免每个新物理连接在

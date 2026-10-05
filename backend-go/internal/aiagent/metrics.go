@@ -51,6 +51,7 @@ type MetricsSnapshot struct {
 	LifecycleStarts     int64    `json:"lifecycleStarts"`
 	LifecycleStops      int64    `json:"lifecycleStops"`
 	LifecycleFailures   int64    `json:"lifecycleFailures"`
+	AccessLogDrops      int64    `json:"accessLogDrops,omitempty"`
 	RecentErrors        []string `json:"recentErrors,omitempty"`
 }
 
@@ -93,5 +94,8 @@ func (m *Metrics) recordError(message string) {
 
 // Metrics 返回模块运行期计数的快照。
 func (s *Service) Metrics() MetricsSnapshot {
-	return s.metrics.Snapshot()
+	snapshot := s.metrics.Snapshot()
+	// 访问日志因队列满被丢弃的条数：异步化的观测口，非零说明写入跟不上。
+	snapshot.AccessLogDrops = s.accessLogDrops.Load()
+	return snapshot
 }

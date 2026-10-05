@@ -960,46 +960,148 @@ func (s *Service) deletePreferences(ctx context.Context, db *sql.DB, userID stri
 
 // ---------- 访问日志 ----------
 
-func (s *Service) writeAccessLog(ctx context.Context, entry AccessLog) {
+// accessLogQueueSize 是访问日志异步队列容量。队列满时丢弃新条目（见
+// writeAccessLog），审计可容忍偶发丢失，但不能让网关请求被日志写入阻塞。
+const accessLogQueueSize = 4096
+
+// accessLogBatchSize / accessLogFlushInterval 控制批量落库的触发条件。
+const (
+	accessLogBatchSize     = 64
+	accessLogFlushInterval = 500 * time.Millisecond
+)
+
+// writeAccessLog 把审计条目投递到异步队列，不阻塞请求路径。
+//
+// 此前是同步写：每个网关请求（含流式结束后）都要 Open + INSERT + WAL fsync，
+// 实测单次约 7ms，直接加在请求关键路径上。审计是最终一致即可、不参与请求决策，
+// 因此改为有界队列 + 常驻 writer 批量落库。
+//
+// 队列满时丢弃并计数：宁可丢审计也不能拖慢网关（且丢弃本身可从 drops 计数观测）。
+func (s *Service) writeAccessLog(_ context.Context, entry AccessLog) {
 	if entry.CreatedAt == "" {
 		entry.CreatedAt = nowRFC3339()
 	}
-	// 审计写入必须尽量落地：即便请求上下文已被取消（客户端中途断开、拒绝登录后
-	// 直接断流），也要把记录写进去。这里用脱离请求的短超时上下文。
-	logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	s.startAccessLogWriter()
+	select {
+	case s.accessLogCh <- entry:
+	default:
+		s.accessLogDrops.Add(1)
+	}
+}
+
+// startAccessLogWriter 幂等启动异步落库 goroutine。
+func (s *Service) startAccessLogWriter() {
+	s.accessLogStart.Do(func() {
+		s.accessLogCh = make(chan AccessLog, accessLogQueueSize)
+		s.accessLogStop = make(chan struct{})
+		s.accessLogWG.Add(1)
+		go s.accessLogLoop()
+	})
+}
+
+func (s *Service) accessLogLoop() {
+	defer s.accessLogWG.Done()
+	ticker := time.NewTicker(accessLogFlushInterval)
+	defer ticker.Stop()
+	batch := make([]AccessLog, 0, accessLogBatchSize)
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		s.persistAccessLogBatch(batch)
+		batch = batch[:0]
+	}
+	for {
+		select {
+		case <-s.accessLogStop:
+			// 排空队列后退出，尽量不丢已入队条目。
+			for {
+				select {
+				case entry := <-s.accessLogCh:
+					batch = append(batch, entry)
+					if len(batch) >= accessLogBatchSize {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
+			}
+		case entry := <-s.accessLogCh:
+			batch = append(batch, entry)
+			if len(batch) >= accessLogBatchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
+}
+
+// StopAccessLog 停止异步落库并排空队列。进程 Shutdown 时调用。
+func (s *Service) StopAccessLog() {
+	s.accessLogOnce.Do(func() {
+		// 先确保 writer 已启动：否则若 StopAccessLog 早于首次 writeAccessLog，
+		// accessLogStop 尚为 nil，之后启动的 writer 将永不退出（goroutine 泄漏）。
+		s.startAccessLogWriter()
+		close(s.accessLogStop)
+		s.accessLogWG.Wait()
+	})
+}
+
+// AccessLogDrops 返回因队列满被丢弃的审计条数（观测用）。
+func (s *Service) AccessLogDrops() int64 {
+	return s.accessLogDrops.Load()
+}
+
+// persistAccessLogBatch 单事务批量写入一批审计条目。
+func (s *Service) persistAccessLogBatch(entries []AccessLog) {
+	logCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	db, err := s.store.Open(logCtx)
 	if err != nil {
 		return
 	}
 	defer db.Close()
-	var userID, tokenID, instanceID, errorText, ip, userAgent interface{}
-	if entry.UserID != "" {
-		userID = entry.UserID
+	tx, err := db.BeginTx(logCtx, nil)
+	if err != nil {
+		return
 	}
-	if entry.TokenID != "" {
-		tokenID = entry.TokenID
-	}
-	if entry.InstanceID != "" {
-		instanceID = entry.InstanceID
-	}
-	if entry.Error != "" {
-		errorText = entry.Error
-	}
-	if entry.IP != "" {
-		ip = entry.IP
-	}
-	if entry.UserAgent != "" {
-		userAgent = entry.UserAgent
-	}
-	var statusCode interface{}
-	if entry.StatusCode != 0 {
-		statusCode = entry.StatusCode
-	}
-	_, _ = db.ExecContext(logCtx, `INSERT INTO aiagent_access_logs
+	stmt, err := tx.PrepareContext(logCtx, `INSERT INTO aiagent_access_logs
 		(user_id, token_id, instance_id, action, result, status_code, error_summary, ip, user_agent, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, tokenID, instanceID, entry.Action, entry.Result, statusCode, errorText, ip, userAgent, entry.CreatedAt)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return
+	}
+	defer stmt.Close()
+	for _, entry := range entries {
+		var userID, tokenID, instanceID, errorText, ip, userAgent, statusCode interface{}
+		if entry.UserID != "" {
+			userID = entry.UserID
+		}
+		if entry.TokenID != "" {
+			tokenID = entry.TokenID
+		}
+		if entry.InstanceID != "" {
+			instanceID = entry.InstanceID
+		}
+		if entry.Error != "" {
+			errorText = entry.Error
+		}
+		if entry.IP != "" {
+			ip = entry.IP
+		}
+		if entry.UserAgent != "" {
+			userAgent = entry.UserAgent
+		}
+		if entry.StatusCode != 0 {
+			statusCode = entry.StatusCode
+		}
+		_, _ = stmt.ExecContext(logCtx, userID, tokenID, instanceID, entry.Action, entry.Result,
+			statusCode, errorText, ip, userAgent, entry.CreatedAt)
+	}
+	_ = tx.Commit()
 
 	// 低频顺带清理过期日志（每 6 小时最多一次），避免长期运行时表无界增长。
 	s.accessLogPurgeMu.Lock()

@@ -23,6 +23,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/cloudflare"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	dockerhubmodule "github.com/iwvw/api-monitor/backend-go/internal/dockerhub"
 	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
 	"github.com/iwvw/api-monitor/backend-go/internal/ds2api"
@@ -105,6 +106,11 @@ type Server struct {
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
 	warmupCancel context.CancelFunc
+
+	// dbPin 是进程级常驻数据库句柄，使物理连接池保持常暖（见 database.Pin）。
+	// 仅在 NewChecked（生产入口）中获取；测试用 NewServer 不获取，以便
+	// refs 归零、TempDir 句柄可释放。Shutdown 时释放。
+	dbPin func()
 }
 
 func New(cfg config.Config) http.Handler {
@@ -123,7 +129,18 @@ func NewServer(cfg config.Config) *Server {
 // are fatal because serving a partially migrated subscription API only turns a
 // deterministic startup problem into repeated HTTP 500 responses.
 func NewChecked(cfg config.Config) (*Server, error) {
-	return newServer(cfg)
+	server, err := newServer(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// 生产入口持有常驻数据库句柄，使物理连接池保持常暖：否则每次请求
+	// 「Open → defer Close」结束后 refs 归零、池排空，下一个请求必须重建
+	// 物理连接并重跑 PRAGMA（实测约 2.4ms/次）。测试走 NewServer 不 pin，
+	// 以便 TempDir 句柄可释放。
+	if release, pinErr := database.New(cfg).Pin(context.Background()); pinErr == nil {
+		server.dbPin = release
+	}
+	return server, nil
 }
 
 func newServer(cfg config.Config) (*Server, error) {
@@ -304,6 +321,10 @@ func newServer(cfg config.Config) (*Server, error) {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.dbPin != nil {
+		s.dbPin()
+		s.dbPin = nil
+	}
 	if s.warmupCancel != nil {
 		s.warmupCancel()
 	}
@@ -333,6 +354,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.aiagent != nil {
 		// 停止后台收敛循环：它会定时往返主机 Agent，不应在 Shutdown 之后继续跑。
 		s.aiagent.StopConvergence()
+		// 排空异步访问日志队列，避免已入队的审计条目丢失。
+		s.aiagent.StopAccessLog()
 	}
 	if s.cron == nil {
 		return nil

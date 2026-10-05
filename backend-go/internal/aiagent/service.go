@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
@@ -62,6 +63,17 @@ type Service struct {
 	convergenceWG     sync.WaitGroup
 	// 运行期计数：观测后台收敛与进程管理的健康度。
 	metrics *Metrics
+
+	// 访问日志异步落库：网关每个请求结束都要写一条审计，同步写会占用请求
+	// 关键路径（实测单次约 7ms，含 Open/INSERT/WAL fsync）。这里改为投递到
+	// 有界 channel，由常驻 goroutine 批量写入。审计是最终一致即可，不参与
+	// 请求决策。
+	accessLogCh    chan AccessLog
+	accessLogStop  chan struct{}
+	accessLogWG    sync.WaitGroup
+	accessLogStart sync.Once
+	accessLogOnce  sync.Once
+	accessLogDrops atomic.Int64
 }
 
 // maxConcurrentGatewayStreams 是网关并发流上限。
