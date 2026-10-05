@@ -880,6 +880,15 @@ func init() {
 	})
 	routeRequestContracts["/api/filebox/shares"] = noBody
 	routeRequestContracts["/api/filebox/access-logs"] = noBody
+	routeRequestContracts["/api/filebox/share-from-agent"] = obj([]string{"serverId", "remotePath"}, map[string]prop{
+		"serverId":      {t: "string", req: true, d: "Agent 主机 ID"},
+		"remotePath":    {t: "string", req: true, d: "主机上的文件绝对路径或虚拟路径"},
+		"storageTarget": {t: "string", d: "auto（默认，优先可用节点）/ local / 指定存储节点 serverId"},
+		"expiry":        {t: "string", d: "有效期小时数，如 24"},
+		"burn_after_reading": {t: "boolean", d: "阅后即焚"},
+		"max_downloads": {t: "string", d: "最大下载次数，0 为不限"},
+		"access_password": {t: "string", d: "访问密码"},
+	})
 	routeRequestContracts["/api/m365/registrations"] = noBody
 	routeRequestContracts["/api/filebox/void/rooms"] = obj([]string{"name"}, map[string]prop{
 		"name":    {t: "string", req: true},

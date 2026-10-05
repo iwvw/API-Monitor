@@ -1108,3 +1108,134 @@ func TestDownloadDedupExpiredByWindow(t *testing.T) {
 }
 
 
+
+
+type fakeAgentFileSource struct {
+	content  []byte
+	exists   bool
+	statErr  error
+	openErr  error
+	serverID string
+	path     string
+}
+
+func (f *fakeAgentFileSource) OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error) {
+	f.serverID = serverID
+	f.path = remotePath
+	if f.openErr != nil {
+		return nil, 0, f.openErr
+	}
+	return io.NopCloser(bytes.NewReader(f.content)), int64(len(f.content)), nil
+}
+
+func (f *fakeAgentFileSource) AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error) {
+	if f.statErr != nil {
+		return 0, false, f.statErr
+	}
+	return int64(len(f.content)), f.exists, nil
+}
+
+func TestShareFromAgentLocalStorage(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{content: []byte("agent-host-file"), exists: true})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/report.txt","storageTarget":"local","expiry":"1"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("share-from-agent status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Success     bool   `json:"success"`
+		Code        string `json:"code"`
+		ShareURL    string `json:"shareUrl"`
+		DirectURL   string `json:"directUrl"`
+		StorageType string `json:"storageType"`
+	}
+	mustDecodeFilebox(t, res, &payload)
+	if !payload.Success || payload.Code == "" || payload.ShareURL == "" || payload.DirectURL == "" {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if payload.StorageType != "local" {
+		t.Fatalf("expected local storage, got %q", payload.StorageType)
+	}
+
+	entry, err := service.GetEntry(context.Background(), payload.Code, true)
+	if err != nil || entry == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if entry.Size != int64(len("agent-host-file")) {
+		t.Fatalf("size mismatch: got %d", entry.Size)
+	}
+
+	dl := performFileboxRequest(service, http.MethodGet, "/api/filebox/d/"+payload.Code, nil, "")
+	if dl.Code != http.StatusOK || dl.Body.String() != "agent-host-file" {
+		t.Fatalf("download status=%d body=%q", dl.Code, dl.Body.String())
+	}
+}
+
+func TestShareFromAgentMissingFile(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{exists: false})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/missing.bin"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestShareFromAgentRequiresFields(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{exists: true})
+
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(`{"serverId":"srv-1"}`), "application/json")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestShareFromAgentAutoTargetUsesNode(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{content: []byte("remote-bytes"), exists: true})
+
+	var gotPath string
+	nodeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != "remote-bytes" {
+			t.Errorf("node received %q", string(body))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer nodeServer.Close()
+
+	host := strings.TrimPrefix(nodeServer.URL, "http://")
+	hostPart, portPart, _ := strings.Cut(host, ":")
+	port, _ := strconv.Atoi(portPart)
+	service.SetNodeProvider(&fakeNodeProvider{
+		nodes: []StorageNodeInfo{{ID: "node-1", Name: "Node One", Host: hostPart, StoragePort: port, Platform: "linux", Online: true}},
+		keys:  map[string]string{"node-1": "key123"},
+	})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/data.bin","storageTarget":"auto"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Success     bool   `json:"success"`
+		StorageType string `json:"storageType"`
+		ServerID    string `json:"serverId"`
+	}
+	mustDecodeFilebox(t, res, &payload)
+	if payload.StorageType != "remote" || payload.ServerID != "node-1" {
+		t.Fatalf("expected remote node-1, got %#v", payload)
+	}
+	if gotPath == "" {
+		t.Fatalf("node did not receive PUT")
+	}
+}

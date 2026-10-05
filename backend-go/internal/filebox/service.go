@@ -58,6 +58,7 @@ type Service struct {
 	uploadsDir   string
 	metadataFile string
 	nodeProvider NodeStorageProvider
+	agentFiles   AgentFileSource
 	voidRooms    map[string]*voidRoom
 	voidMu       sync.Mutex
 	// downloadDedup 记录每个「ip|code」最近一次计数的时刻，用于同一逻辑下载的并发/重复请求去重。
@@ -223,6 +224,19 @@ func (s *Service) SetNodeProvider(provider NodeStorageProvider) {
 	s.nodeProvider = provider
 }
 
+// AgentFileSource 抽象「从 Agent 主机读取文件」的能力（供 filebox 调用 serveragent）。
+// 实现方必须返回文件字节流与文件元信息，供 filebox 落库或转存到存储节点。
+type AgentFileSource interface {
+	// OpenAgentFile 打开主机上的文件并返回可读流与大小（size 未知时返回 -1）。
+	OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error)
+	// AgentFileExists 判断主机文件是否存在且可读（用于提前失败与大小校验）。
+	AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error)
+}
+
+func (s *Service) SetAgentFileSource(source AgentFileSource) {
+	s.agentFiles = source
+}
+
 func (s *Service) getBackend(storageType string) StorageBackend {
 	if storageType == "remote" && s.nodeProvider != nil {
 		return NewRemoteBackend(s.nodeProvider)
@@ -328,6 +342,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.completeRemoteUpload(w, r)
+	case len(parts) == 1 && parts[0] == "share-from-agent" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.shareFromAgent(w, r)
 	case len(parts) == 3 && parts[0] == "shares" && parts[2] == "transfer" && r.Method == http.MethodPost:
 		if !s.requireAuth(w, r) {
 			return
@@ -1782,6 +1801,12 @@ func (s *Service) LogAccess(ctx context.Context, code string, action string, met
 }
 
 func (s *Service) requireAuth(w http.ResponseWriter, r *http.Request) bool {
+	// 管理 AI 内部调用由服务端注入 context 标记（见 server/ai_caller.go）。
+	// AI 调用会剥离 Cookie/Authorization，无法通过会话校验，因此内部标记
+	// 等价于面板管理员身份；context 值不可由外部 HTTP 请求伪造。
+	if isInternalAICall(r.Context()) {
+		return true
+	}
 	if s.auth == nil {
 		return true
 	}

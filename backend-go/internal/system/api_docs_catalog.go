@@ -1188,6 +1188,8 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"GET", "PUT"}}},
 	{Route: manifest.Route{Prefix: "/api/filebox/jobs/cleanup", Module: "filebox", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Filebox cleanup job run", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/filebox/share-from-agent", Module: "filebox", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Filebox share a file from an Agent host (returns download links)", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 
 	// ---- TOTP 全模块 ----
 	{Route: manifest.Route{Prefix: "/api/totp/accounts", Module: "totp", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "TOTP accounts list/create", MatchMode: manifest.MatchExact},

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
+	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
@@ -95,6 +96,11 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	// 识别为面板管理员（context 值不可由外部 HTTP 请求伪造）。
 	if route.Module == "aiagent" {
 		ctx = aiagent.WithInternalAICall(ctx)
+	}
+	// filebox 同样有模块级会话鉴权（requireAuth 查会话 Cookie），AI 调用剥离
+	// Cookie 后会被拦成 401，故注入同款内部调用标记。
+	if route.Module == "filebox" {
+		ctx = filebox.WithInternalAICall(ctx)
 	}
 
 	var body io.Reader

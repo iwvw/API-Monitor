@@ -102,6 +102,7 @@ var routeDescriptions = map[string]string{
 	"/api/filebox/void/rooms":                       "创建空房间（匿名协作）",
 	"/api/filebox/void/rooms/{roomId}":              "查询或关闭空房间",
 	"/api/filebox/void/rooms/{roomId}/participants": "查询或管理房间参与者",
+	"/api/filebox/share-from-agent":                 "把一台 Agent 主机上的文件转成文件柜分享，返回分享链接与直链（storageTarget 支持 auto/local/节点ID）",
 
 	// ===== 可用性监测 =====
 	"/api/uptime":               "可用性监测与状态页管理总入口",

@@ -243,6 +243,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	}
 	server.onepanel.SetAgentRunner(serverAgentService)
 	server.filebox.SetNodeProvider(serverAgentService)
+	server.filebox.SetAgentFileSource(serverAgentService)
 	systemService.SetAICaller(server.callAPIFromAI)
 	adminaiService.SetAICaller(server.callAPIFromAI)
 	// 管理 AI：启动审批超时清理 goroutine + 频道注册（PRD-03/04）

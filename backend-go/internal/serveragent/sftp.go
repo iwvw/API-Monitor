@@ -447,6 +447,7 @@ const (
 	agentFileRenameTask        = 35
 	agentFileChmodTask         = 37
 	agentFileDownloadChunkTask = 38
+	agentFileStatTask          = 36
 	agentFileTimeout           = 30 * time.Second
 	agentFileChunkSize         = 1024 * 1024
 )
