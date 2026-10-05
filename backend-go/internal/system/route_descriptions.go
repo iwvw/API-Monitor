@@ -102,6 +102,8 @@ var routeDescriptions = map[string]string{
 	"/api/filebox/void/rooms":                       "创建空房间（匿名协作）",
 	"/api/filebox/void/rooms/{roomId}":              "查询或关闭空房间",
 	"/api/filebox/void/rooms/{roomId}/participants": "查询或管理房间参与者",
+	"/api/filebox/void/rooms/{id}/files":            "列出或挂载房间的文件条目（房间本身不存字节，仅登记分享 code 供参与者拉取）",
+	"/api/filebox/void/rooms/{id}/files/{code}":     "从房间移除挂载的文件条目",
 	"/api/filebox/share-from-agent":                 "把一台 Agent 主机上的文件转成文件柜分享，返回分享链接与直链（storageTarget 支持 auto/local/节点ID）",
 
 	// ===== 可用性监测 =====

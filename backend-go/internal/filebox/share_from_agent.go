@@ -100,25 +100,38 @@ func (s *Service) shareFromAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stream, _, err := s.agentFiles.OpenAgentFile(r.Context(), payload.ServerID, payload.RemotePath)
-	if err != nil {
-		response.Error(w, http.StatusBadGateway, fmt.Sprintf("failed to open agent file: %v", err))
-		return
-	}
-	defer stream.Close()
-
 	var storedPath *string
 	var storedServerID *string
 	var storedRemotePath *string
 	if target == "remote" {
-		if err := s.putAgentFileToNode(r.Context(), node, code, filename, size, stream); err != nil {
-			response.Error(w, http.StatusBadGateway, err.Error())
-			return
+		// 优先让源主机 Agent 自己 PUT 到节点（面板零字节转发）；无上传器时退回面板中转。
+		if s.agentUploader != nil {
+			if err := s.uploadAgentFileDirectly(r.Context(), node, code, filename, size, payload.ServerID, payload.RemotePath); err != nil {
+				response.Error(w, http.StatusBadGateway, err.Error())
+				return
+			}
+		} else {
+			stream, _, err := s.agentFiles.OpenAgentFile(r.Context(), payload.ServerID, payload.RemotePath)
+			if err != nil {
+				response.Error(w, http.StatusBadGateway, fmt.Sprintf("failed to open agent file: %v", err))
+				return
+			}
+			defer stream.Close()
+			if err := s.putAgentFileToNode(r.Context(), node, code, filename, size, stream); err != nil {
+				response.Error(w, http.StatusBadGateway, err.Error())
+				return
+			}
 		}
 		storedServerID = &node.ID
 		rp := fmt.Sprintf("shares/%s/%s", code, filename)
 		storedRemotePath = &rp
 	} else {
+		stream, _, err := s.agentFiles.OpenAgentFile(r.Context(), payload.ServerID, payload.RemotePath)
+		if err != nil {
+			response.Error(w, http.StatusBadGateway, fmt.Sprintf("failed to open agent file: %v", err))
+			return
+		}
+		defer stream.Close()
 		if err := s.ensureDirs(); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -216,6 +229,22 @@ func (s *Service) resolveStorageTarget(ctx context.Context, requested string) (s
 		}
 		return "remote", node, nil
 	}
+}
+
+// uploadAgentFileDirectly 让源主机 Agent 自己 PUT 到节点签名 URL，面板零字节转发。
+func (s *Service) uploadAgentFileDirectly(ctx context.Context, node *StorageNodeInfo, code, filename string, size int64, sourceServerID, remotePath string) error {
+	if s.agentUploader == nil {
+		return fmt.Errorf("agent direct uploader not configured")
+	}
+	key, err := s.nodeProvider.GetStorageNodeAgentKey(ctx, node.ID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve node credential: %v", err)
+	}
+	putURL, err := BuildSignedURL("PUT", node.Host, node.StoragePort, code, filename, size, 15*time.Minute, key)
+	if err != nil {
+		return fmt.Errorf("failed to build upload URL: %v", err)
+	}
+	return s.agentUploader.UploadAgentFileToURL(ctx, sourceServerID, remotePath, putURL, 30*time.Minute)
 }
 
 func (s *Service) putAgentFileToNode(ctx context.Context, node *StorageNodeInfo, code, filename string, size int64, stream io.Reader) error {

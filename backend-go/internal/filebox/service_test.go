@@ -1107,9 +1107,6 @@ func TestDownloadDedupExpiredByWindow(t *testing.T) {
 	}
 }
 
-
-
-
 type fakeAgentFileSource struct {
 	content  []byte
 	exists   bool
@@ -1237,5 +1234,179 @@ func TestShareFromAgentAutoTargetUsesNode(t *testing.T) {
 	}
 	if gotPath == "" {
 		t.Fatalf("node did not receive PUT")
+	}
+}
+
+type fakeAgentDirectUploader struct {
+	content   []byte
+	exists    bool
+	uploaded  bool
+	gotURL    string
+	gotPath   string
+	uploadErr error
+}
+
+func (f *fakeAgentDirectUploader) AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error) {
+	return int64(len(f.content)), f.exists, nil
+}
+
+func (f *fakeAgentDirectUploader) OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error) {
+	return io.NopCloser(bytes.NewReader(f.content)), int64(len(f.content)), nil
+}
+
+func (f *fakeAgentDirectUploader) UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error {
+	if f.uploadErr != nil {
+		return f.uploadErr
+	}
+	f.uploaded = true
+	f.gotURL = uploadURL
+	f.gotPath = remotePath
+	return nil
+}
+
+func TestShareFromAgentUsesDirectUploadWhenAvailable(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	uploader := &fakeAgentDirectUploader{content: []byte("direct-bytes"), exists: true}
+	service.SetAgentFileSource(uploader)
+
+	service.SetNodeProvider(&fakeNodeProvider{
+		nodes: []StorageNodeInfo{{ID: "node-1", Name: "Node One", Host: "203.0.113.9", StoragePort: 61208, Platform: "linux", Online: true}},
+		keys:  map[string]string{"node-1": "key123"},
+	})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/big.iso","storageTarget":"auto"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !uploader.uploaded {
+		t.Fatalf("expected direct upload to be used")
+	}
+	if uploader.gotPath != "/tmp/big.iso" {
+		t.Fatalf("unexpected upload path %q", uploader.gotPath)
+	}
+	if !strings.Contains(uploader.gotURL, "203.0.113.9:61208/storage/") || !strings.Contains(uploader.gotURL, "signature=") {
+		t.Fatalf("unexpected upload URL %q", uploader.gotURL)
+	}
+	var payload struct {
+		StorageType string `json:"storageType"`
+		ServerID    string `json:"serverId"`
+	}
+	mustDecodeFilebox(t, res, &payload)
+	if payload.StorageType != "remote" || payload.ServerID != "node-1" {
+		t.Fatalf("expected remote node-1, got %#v", payload)
+	}
+}
+
+func TestVoidRoomAttachAndListFiles(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+
+	// 先建一个本地文本分享作为可挂载条目。
+	body, contentType := multipartBody(t, map[string]string{
+		"type":   "text",
+		"text":   "room-shared-content",
+		"expiry": "1",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create share status=%d body=%s", res.Code, res.Body.String())
+	}
+	var share struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &share)
+
+	// 创建房间。
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms", strings.NewReader(`{"mode":"temporary"}`), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create room status=%d body=%s", res.Code, res.Body.String())
+	}
+	var room struct {
+		Data struct {
+			RoomID string `json:"roomId"`
+		} `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &room)
+	if room.Data.RoomID == "" {
+		t.Fatalf("missing room id: %s", res.Body.String())
+	}
+	roomID := room.Data.RoomID
+
+	// 挂载分享。
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms/"+roomID+"/files", strings.NewReader(`{"code":"`+share.Code+`"}`), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("attach file status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	// 列出房间文件。
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/void/rooms/"+roomID+"/files", nil, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list files status=%d body=%s", res.Code, res.Body.String())
+	}
+	var list struct {
+		Success bool          `json:"success"`
+		Data    []PublicEntry `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &list)
+	if !list.Success || len(list.Data) != 1 || list.Data[0].Code != share.Code {
+		t.Fatalf("unexpected files: %#v", list)
+	}
+
+	// 移除挂载。
+	res = performFileboxRequest(service, http.MethodDelete, "/api/filebox/void/rooms/"+roomID+"/files/"+share.Code, nil, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("detach status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/void/rooms/"+roomID+"/files", nil, "")
+	mustDecodeFilebox(t, res, &list)
+	if len(list.Data) != 0 {
+		t.Fatalf("expected empty files after detach, got %#v", list.Data)
+	}
+}
+
+func TestPersistentVoidRoomFilesSurviveReload(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+
+	body, contentType := multipartBody(t, map[string]string{
+		"type":   "text",
+		"text":   "persist-me",
+		"expiry": "1",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	var share struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &share)
+
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms", strings.NewReader(`{"mode":"persistent"}`), "application/json")
+	var room struct {
+		Data struct {
+			RoomID string `json:"roomId"`
+		} `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &room)
+	roomID := room.Data.RoomID
+	if roomID == "" {
+		t.Fatalf("missing room id: %s", res.Body.String())
+	}
+
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms/"+roomID+"/files", strings.NewReader(`{"code":"`+share.Code+`"}`), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("attach status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	// 模拟重启：清空内存态，再从 DB 重新加载。
+	service.voidMu.Lock()
+	delete(service.voidRooms, roomID)
+	service.voidMu.Unlock()
+
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/void/rooms/"+roomID+"/files", nil, "")
+	var list struct {
+		Success bool          `json:"success"`
+		Data    []PublicEntry `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &list)
+	if !list.Success || len(list.Data) != 1 || list.Data[0].Code != share.Code {
+		t.Fatalf("mounted file did not survive reload: %#v", list)
 	}
 }

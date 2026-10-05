@@ -50,17 +50,18 @@ type Authenticator interface {
 }
 
 type Service struct {
-	cfg          config.Config
-	store        *database.Store
-	schema       database.SchemaEnsurer
-	auth         Authenticator
-	dataDir      string
-	uploadsDir   string
-	metadataFile string
-	nodeProvider NodeStorageProvider
-	agentFiles   AgentFileSource
-	voidRooms    map[string]*voidRoom
-	voidMu       sync.Mutex
+	cfg           config.Config
+	store         *database.Store
+	schema        database.SchemaEnsurer
+	auth          Authenticator
+	dataDir       string
+	uploadsDir    string
+	metadataFile  string
+	nodeProvider  NodeStorageProvider
+	agentFiles    AgentFileSource
+	agentUploader AgentFileDirectUploader
+	voidRooms     map[string]*voidRoom
+	voidMu        sync.Mutex
 	// downloadDedup 记录每个「ip|code」最近一次计数的时刻，用于同一逻辑下载的并发/重复请求去重。
 	downloadDedup map[string]int64
 	dedupMu       sync.Mutex
@@ -74,6 +75,7 @@ type voidRoom struct {
 	ExpiresAt     int64                       `json:"expiresAt"`
 	Participants  map[string]*voidParticipant `json:"-"`
 	Signals       []voidSignal                `json:"-"`
+	Files         []string                    `json:"files"`
 	NextSignalID  int64                       `json:"-"`
 	Closed        bool                        `json:"closed"`
 	LastHeartbeat int64                       `json:"lastHeartbeat"`
@@ -206,13 +208,13 @@ type sharePayload struct {
 func New(cfg config.Config, authenticator Authenticator) *Service {
 	dataDir := filepath.Join(cfg.DataDir, "filebox")
 	service := &Service{
-		cfg:          cfg,
-		store:        database.New(cfg),
-		auth:         authenticator,
-		dataDir:      dataDir,
-		uploadsDir:   filepath.Join(dataDir, "uploads"),
-		metadataFile: filepath.Join(dataDir, "metadata.json"),
-		voidRooms:    map[string]*voidRoom{},
+		cfg:           cfg,
+		store:         database.New(cfg),
+		auth:          authenticator,
+		dataDir:       dataDir,
+		uploadsDir:    filepath.Join(dataDir, "uploads"),
+		metadataFile:  filepath.Join(dataDir, "metadata.json"),
+		voidRooms:     map[string]*voidRoom{},
 		downloadDedup: map[string]int64{},
 	}
 	_ = service.ensureDirs()
@@ -233,8 +235,21 @@ type AgentFileSource interface {
 	AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error)
 }
 
+// AgentFileDirectUploader 抽象「让源主机 Agent 自己把文件 PUT 到签名 URL」的能力。
+// 走此路径时字节不经面板，面板只签发 URL 并等待结果，节省面板流量。
+type AgentFileDirectUploader interface {
+	UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error
+}
+
 func (s *Service) SetAgentFileSource(source AgentFileSource) {
 	s.agentFiles = source
+	if uploader, ok := source.(AgentFileDirectUploader); ok {
+		s.agentUploader = uploader
+	}
+}
+
+func (s *Service) SetAgentFileDirectUploader(uploader AgentFileDirectUploader) {
+	s.agentUploader = uploader
 }
 
 func (s *Service) getBackend(storageType string) StorageBackend {
@@ -278,6 +293,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.postVoidSignal(w, r, parts[2])
 	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "signals" && r.Method == http.MethodGet:
 		s.getVoidSignals(w, r, parts[2])
+	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "files" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.attachVoidRoomFile(w, r, parts[2])
+	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "files" && r.Method == http.MethodGet:
+		s.listVoidRoomFiles(w, r, parts[2])
+	case len(parts) == 5 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "files" && r.Method == http.MethodDelete:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.detachVoidRoomFile(w, r, parts[2], parts[4])
 	case len(parts) == 2 && parts[0] == "retrieve" && r.Method == http.MethodGet:
 		s.sendEntryMetadata(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "public" && r.Method == http.MethodGet:
@@ -658,6 +685,125 @@ func (s *Service) getVoidSignals(w http.ResponseWriter, r *http.Request, id stri
 	response.OK(w, map[string]interface{}{"signals": signals, "room": snapshot})
 }
 
+// attachVoidRoomFile 把一个文件柜条目挂到房间上（房间级文件列表面板）。
+// 房间本身不存字节（浏览器 P2P 传输），挂载只登记分享 code，供参与者一键拉取。
+func (s *Service) attachVoidRoomFile(w http.ResponseWriter, r *http.Request, id string) {
+	s.cleanupVoidRooms()
+	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	code := normalizeCode(payload.Code)
+	if code == "" {
+		response.Error(w, http.StatusBadRequest, "code is required")
+		return
+	}
+	entry, err := s.GetEntry(r.Context(), code, false)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entry == nil {
+		response.Error(w, http.StatusNotFound, "share not found or expired")
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	s.voidMu.Lock()
+	room := s.activeVoidRoomLocked(id)
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	alreadyAttached := false
+	for _, existing := range room.Files {
+		if existing == code {
+			alreadyAttached = true
+			break
+		}
+	}
+	if !alreadyAttached {
+		room.Files = append(room.Files, code)
+	}
+	payloadJSON, _ := json.Marshal(map[string]string{"code": code})
+	s.appendVoidSignalLocked(room, "owner", "", "file.attached", payloadJSON, now)
+	snapshot := publicVoidRoom(room, now)
+	s.voidMu.Unlock()
+	s.persistVoidRoomFiles(r.Context(), room)
+
+	response.OK(w, map[string]interface{}{
+		"room": snapshot,
+		"entry": publicEntry(entry),
+	})
+}
+
+// listVoidRoomFiles 列出房间挂载的文件条目（公开，供参与者拉取）。
+func (s *Service) listVoidRoomFiles(w http.ResponseWriter, r *http.Request, id string) {
+	s.cleanupVoidRooms()
+	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.voidMu.Lock()
+	room := s.activeVoidRoomLocked(id)
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	codes := append([]string(nil), room.Files...)
+	s.voidMu.Unlock()
+
+	entries := make([]PublicEntry, 0, len(codes))
+	for _, code := range codes {
+		entry, err := s.GetEntry(r.Context(), code, false)
+		if err != nil || entry == nil {
+			continue
+		}
+		entries = append(entries, publicEntry(entry))
+	}
+	response.OK(w, entries)
+}
+
+// detachVoidRoomFile 从房间移除挂载的文件条目。
+func (s *Service) detachVoidRoomFile(w http.ResponseWriter, r *http.Request, id, code string) {
+	s.cleanupVoidRooms()
+	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	code = normalizeCode(code)
+	now := time.Now().UnixMilli()
+	s.voidMu.Lock()
+	room := s.activeVoidRoomLocked(id)
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	next := make([]string, 0, len(room.Files))
+	for _, existing := range room.Files {
+		if existing != code {
+			next = append(next, existing)
+		}
+	}
+	room.Files = next
+	payloadJSON, _ := json.Marshal(map[string]string{"code": code})
+	s.appendVoidSignalLocked(room, "owner", "", "file.detached", payloadJSON, now)
+	snapshot := publicVoidRoom(room, now)
+	s.voidMu.Unlock()
+	s.persistVoidRoomFiles(r.Context(), room)
+	response.OK(w, map[string]interface{}{"room": snapshot})
+}
+
 func (s *Service) closeVoidRoom(w http.ResponseWriter, r *http.Request, id string) {
 	s.cleanupVoidRooms()
 	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
@@ -798,13 +944,41 @@ func (s *Service) savePersistentVoidRoom(ctx context.Context, room *voidRoom) er
 	}
 	defer db.Close()
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO filebox_void_rooms (id, owner_token, mode, created_at, expires_at, deleted_at)
-		VALUES (?, ?, ?, ?, ?, NULL)
-	`, room.ID, room.OwnerToken, room.Mode, room.CreatedAt, room.ExpiresAt)
+		INSERT INTO filebox_void_rooms (id, owner_token, mode, created_at, expires_at, files_json, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, NULL)
+	`, room.ID, room.OwnerToken, room.Mode, room.CreatedAt, room.ExpiresAt, encodeVoidRoomFiles(room.Files))
 	if err != nil {
 		return fmt.Errorf("save persistent void room: %w", err)
 	}
 	return nil
+}
+
+// persistVoidRoomFiles 更新持久房间的挂载文件列表（内存态与 DB 双写，失败仅告警不阻断）。
+func (s *Service) persistVoidRoomFiles(ctx context.Context, room *voidRoom) {
+	if room == nil || room.Mode != voidRoomModePersistent {
+		return
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_, _ = db.ExecContext(ctx, `
+		UPDATE filebox_void_rooms
+		SET files_json = ?
+		WHERE id = ? AND deleted_at IS NULL
+	`, encodeVoidRoomFiles(room.Files), room.ID)
+}
+
+func encodeVoidRoomFiles(files []string) string {
+	if len(files) == 0 {
+		return "[]"
+	}
+	encoded, err := json.Marshal(files)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }
 
 func (s *Service) markPersistentVoidRoomDeleted(ctx context.Context, id string) error {
@@ -854,7 +1028,7 @@ func (s *Service) loadPersistentVoidRooms(ctx context.Context) error {
 	}
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, owner_token, mode, created_at, expires_at
+		SELECT id, owner_token, mode, created_at, expires_at, files_json
 		FROM filebox_void_rooms
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -891,7 +1065,7 @@ func (s *Service) loadPersistentVoidRoom(ctx context.Context, id string) (*voidR
 	}
 	defer db.Close()
 	row := db.QueryRowContext(ctx, `
-		SELECT id, owner_token, mode, created_at, expires_at
+		SELECT id, owner_token, mode, created_at, expires_at, files_json
 		FROM filebox_void_rooms
 		WHERE id = ? AND deleted_at IS NULL
 	`, normalizeCode(id))
@@ -908,11 +1082,18 @@ type persistentVoidRoomScanner interface {
 
 func scanPersistentVoidRoom(scanner persistentVoidRoomScanner) (*voidRoom, error) {
 	var room voidRoom
-	if err := scanner.Scan(&room.ID, &room.OwnerToken, &room.Mode, &room.CreatedAt, &room.ExpiresAt); err != nil {
+	var filesJSON sql.NullString
+	if err := scanner.Scan(&room.ID, &room.OwnerToken, &room.Mode, &room.CreatedAt, &room.ExpiresAt, &filesJSON); err != nil {
 		return nil, err
 	}
 	room.ID = normalizeCode(room.ID)
 	room.Mode = normalizeVoidRoomMode(voidRoomRequest{Mode: room.Mode})
+	if filesJSON.Valid && filesJSON.String != "" {
+		var files []string
+		if err := json.Unmarshal([]byte(filesJSON.String), &files); err == nil {
+			room.Files = files
+		}
+	}
 	now := time.Now().UnixMilli()
 	room.Participants = map[string]*voidParticipant{
 		"owner": {
@@ -960,6 +1141,8 @@ func publicVoidRoom(room *voidRoom, now int64) map[string]interface{} {
 		return participants[i].ID < participants[j].ID
 	})
 	mode := normalizeVoidRoomMode(voidRoomRequest{Mode: room.Mode})
+	files := make([]string, 0, len(room.Files))
+	files = append(files, room.Files...)
 	return map[string]interface{}{
 		"id":           room.ID,
 		"roomId":       room.ID,
@@ -969,6 +1152,7 @@ func publicVoidRoom(room *voidRoom, now int64) map[string]interface{} {
 		"expiresAt":    room.ExpiresAt,
 		"closed":       room.Closed,
 		"lastSignalId": room.NextSignalID,
+		"files":        files,
 		"participants": participants,
 	}
 }
@@ -1030,7 +1214,8 @@ func normalizeVoidClientID(value string) string {
 
 func allowedVoidSignalType(signalType string) bool {
 	switch signalType {
-	case "participant.ready", "webrtc.offer", "webrtc.answer", "webrtc.ice":
+	case "participant.ready", "webrtc.offer", "webrtc.answer", "webrtc.ice",
+		"file.attached", "file.detached":
 		return true
 	default:
 		return false
@@ -1889,6 +2074,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			mode TEXT NOT NULL DEFAULT 'persistent',
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL DEFAULT 0,
+			files_json TEXT NOT NULL DEFAULT '[]',
 			deleted_at INTEGER
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_filebox_entries_expiry ON filebox_entries(expiry)`,
@@ -1928,6 +2114,24 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if !existingColumns["remote_path"] {
 		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_entries ADD COLUMN remote_path TEXT`)
+	}
+
+	// 迁移 filebox_void_rooms：补充 files_json 列（持久房间挂载文件列表）
+	roomColumns := make(map[string]bool)
+	if rows, err := db.QueryContext(ctx, `PRAGMA table_info(filebox_void_rooms)`); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt sql.NullString
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
+				roomColumns[strings.ToLower(name)] = true
+			}
+		}
+		_ = rows.Close()
+	}
+	if !roomColumns["files_json"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_void_rooms ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'`)
 	}
 
 	// 将历史遗留空值统一标记为 storage_type = 'local'
@@ -2598,16 +2802,16 @@ func (s *Service) initRemoteUpload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) completeRemoteUpload(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Code             string  `json:"code"`
-		Filename         string  `json:"filename"`
-		Size             int64   `json:"size"`
-		ServerID         string  `json:"serverId"`
-		MIMEType         string  `json:"mimeType"`
-		Expiry           string  `json:"expiry"`
-		BurnAfterReading any     `json:"burn_after_reading"`
-		MaxDownloads     string  `json:"max_downloads"`
-		AccessPassword   string  `json:"access_password"`
-		Password         string  `json:"password"`
+		Code             string `json:"code"`
+		Filename         string `json:"filename"`
+		Size             int64  `json:"size"`
+		ServerID         string `json:"serverId"`
+		MIMEType         string `json:"mimeType"`
+		Expiry           string `json:"expiry"`
+		BurnAfterReading any    `json:"burn_after_reading"`
+		MaxDownloads     string `json:"max_downloads"`
+		AccessPassword   string `json:"access_password"`
+		Password         string `json:"password"`
 	}
 	if !decodeJSON(w, r, &payload) {
 		return

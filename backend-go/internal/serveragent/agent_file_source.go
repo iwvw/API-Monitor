@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // agentFileStreamChunkSize 是面板从 Agent 拉取文件的分块大小（与文件管理任务一致）。
@@ -112,4 +113,36 @@ func (st *AgentFileStream) Close() error {
 	st.closed = true
 	st.buffer = nil
 	return nil
+}
+
+// AgentFileDirectUploader 抽象「让源主机 Agent 自己把文件 PUT 到签名 URL」的能力。
+// 与 AgentFileSource 分离：直传路径下字节不经面板，面板只负责签发 URL 并等待结果。
+type AgentFileDirectUploader interface {
+	UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error
+}
+
+// UploadAgentFileToURL 指令源主机 Agent 把本地文件直接上传到面板签发的签名 URL
+// （存储节点直传，面板零字节转发）。返回 nil 表示 Agent 侧上传成功。
+func (s *Service) UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"path":        normalizeRemotePath(remotePath),
+		"url":         uploadURL,
+		"method":      "PUT",
+		"contentType": "application/octet-stream",
+	})
+	if err != nil {
+		return fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	_, err = s.runAgentTaskAndWaitCtx(ctx, serverID, agentFileUploadToURLTask, string(payload), timeout)
+	return err
 }

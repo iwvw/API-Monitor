@@ -1116,6 +1116,18 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    39 => {
+                                        // FILE_UPLOAD_TO_URL（存储节点直传）
+                                        match FileManager::handle_file_upload_to_url(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
                                     40 => {
                                         // NETWORK_QUALITY_PROBE
                                         match handle_network_quality_probe(&task.data).await {

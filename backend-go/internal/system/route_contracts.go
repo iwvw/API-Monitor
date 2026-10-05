@@ -883,7 +883,7 @@ func init() {
 	routeRequestContracts["/api/filebox/share-from-agent"] = obj([]string{"serverId", "remotePath"}, map[string]prop{
 		"serverId":      {t: "string", req: true, d: "Agent 主机 ID"},
 		"remotePath":    {t: "string", req: true, d: "主机上的文件绝对路径或虚拟路径"},
-		"storageTarget": {t: "string", d: "auto（默认，优先可用节点）/ local / 指定存储节点 serverId"},
+		"storageTarget": {t: "string", d: "auto（默认，优先可用节点并用 Agent 直传）/ local / 指定存储节点 serverId"},
 		"expiry":        {t: "string", d: "有效期小时数，如 24"},
 		"burn_after_reading": {t: "boolean", d: "阅后即焚"},
 		"max_downloads": {t: "string", d: "最大下载次数，0 为不限"},
@@ -899,6 +899,9 @@ func init() {
 	})
 	routeRequestContracts["/api/filebox/void/rooms/{roomId}/participants"] = obj(nil, map[string]prop{
 		"name": {t: "string"},
+	})
+	routeRequestContracts["/api/filebox/void/rooms/{id}/files"] = obj([]string{"code"}, map[string]prop{
+		"code": {t: "string", req: true, d: "要挂载到房间的文件柜分享 code"},
 	})
 
 	// ===== 阿里云 aliyun =====

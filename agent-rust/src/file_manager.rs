@@ -94,6 +94,24 @@ pub struct FileDownloadChunkRequest {
     pub size: i32,
 }
 
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileUploadToUrlRequest {
+    pub path: String,
+    pub url: String,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FileUploadToUrlResponse {
+    pub success: bool,
+    pub status: u16,
+    pub size: i64,
+}
+
 pub struct FileManager;
 
 impl FileManager {
@@ -371,7 +389,85 @@ impl FileManager {
         let encoded = general_purpose::STANDARD.encode(&buffer[..bytes_read]);
         Ok(encoded)
     }
+
+    /// 把主机上的文件直接 PUT 到面板签发的签名 URL（存储节点直传）。
+    /// 字节由 Agent 直接发往目标节点，不经面板中转，节省面板流量。
+    pub async fn handle_file_upload_to_url(data: &str) -> Result<String, String> {
+        let req: FileUploadToUrlRequest =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+
+        if req.path.is_empty() {
+            return Err("文件路径不能为空".to_string());
+        }
+        if req.url.is_empty() {
+            return Err("上传地址不能为空".to_string());
+        }
+        let method = req
+            .method
+            .as_deref()
+            .unwrap_or("PUT")
+            .trim()
+            .to_uppercase();
+        if method != "PUT" && method != "POST" {
+            return Err("仅支持 PUT/POST 上传".to_string());
+        }
+
+        let abs_path = resolve_path(&req.path)?;
+        let meta = fs::metadata(&abs_path).map_err(|e| format!("获取文件信息失败: {}", e))?;
+        if !meta.is_file() {
+            return Err("目标不是文件".to_string());
+        }
+        let size = meta.len() as i64;
+
+        let file = tokio::fs::File::open(&abs_path)
+            .await
+            .map_err(|e| format!("打开文件失败: {}", e))?;
+        let stream = tokio_util::io::ReaderStream::new(file);
+        let body = reqwest::Body::wrap_stream(stream);
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3600))
+            .build()
+            .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+        let mut builder = client
+            .request(
+                reqwest::Method::from_bytes(method.as_bytes())
+                    .map_err(|e| format!("非法方法: {}", e))?,
+                &req.url,
+            )
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                req.content_type
+                    .clone()
+                    .unwrap_or_else(|| "application/octet-stream".to_string()),
+            )
+            .header(reqwest::header::CONTENT_LENGTH, size)
+            .body(body);
+
+        if method == "PUT" {
+            builder = builder.header("X-Agent-Upload", "filebox");
+        }
+
+        let resp = builder
+            .send()
+            .await
+            .map_err(|e| format!("上传失败: {}", e))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("存储节点拒绝上传 (HTTP {}): {}", status, text));
+        }
+
+        let payload = FileUploadToUrlResponse {
+            success: true,
+            status,
+            size,
+        };
+        serde_json::to_string(&payload).map_err(|e| e.to_string())
+    }
 }
+
 static FILES_ROOT_CACHE: OnceLock<Result<PathBuf, String>> = OnceLock::new();
 
 /// 文件沙箱根目录：确保目录存在并返回规范化绝对路径。
