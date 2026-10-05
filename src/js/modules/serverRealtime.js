@@ -23,6 +23,27 @@ export function reuseRealtimeValueIfEqual(previousValue, nextValue) {
 
 export const SERVER_METRICS_STALE_AFTER_MS = 45 * 1000;
 
+// 指标新鲜度必须只用「单一时钟」推导。服务端下发的 metrics_last_seen_at 是
+// 服务端绝对时间戳，浏览器 Date.now() 是本地时钟，二者存在未知偏移（实测可达
+// 40s+）。若直接相减，会把 ~1.5s 前刚上报的指标算成超过 45s 的陈旧值，主机状态
+// 在橙色「中断」与绿色「在线」之间抖动。因此这里以「接收时刻 + 服务端上报的
+// 相对年龄」为锚点，仅使用浏览器本地时钟推进，完全不跨时钟比较绝对时间戳。
+export function resolveMetricsAgeMs(server = {}, now = Date.now(), lastSeenAt = 0) {
+  const receivedAt = Number(server.metrics_received_at || 0);
+  const receivedAgeMs = Number(server.metrics_received_age_ms || 0);
+  if (receivedAt > 0) {
+    return Math.max(0, receivedAgeMs + Math.max(0, now - receivedAt));
+  }
+
+  const reportedAgeMs = Number(server.metrics_age_ms || server.info?.metrics_age_ms || 0);
+  if (reportedAgeMs > 0) {
+    return reportedAgeMs;
+  }
+
+  // 兜底：仅在缺少服务端相对年龄时，才退回绝对时间戳相减（要求两侧时钟一致）。
+  return lastSeenAt > 0 ? Math.max(0, now - lastSeenAt) : 0;
+}
+
 export function resolveServerMetricsHealth(server = {}, now = Date.now()) {
   const connectionStatus = String(server.status || '').toLowerCase();
   const interruptedConnection = connectionStatus === 'interrupted' || connectionStatus === 'suspect';
@@ -46,7 +67,7 @@ export function resolveServerMetricsHealth(server = {}, now = Date.now()) {
     0
   );
   const staleAfterMs = Number(server.info?.metrics_stale_after_ms || SERVER_METRICS_STALE_AFTER_MS);
-  const ageMs = lastSeenAt > 0 ? Math.max(0, now - lastSeenAt) : Number(server.metrics_age_ms || 0);
+  const ageMs = resolveMetricsAgeMs(server, now, lastSeenAt);
 
   if (interruptedConnection) {
     return {
@@ -184,6 +205,16 @@ export function mergePolledServerAccount(
   } = {},
 ) {
   const websocketActive = existing?.lastMetricUpdateTime && (Date.now() - existing.lastMetricUpdateTime) < 30000;
+  const incomingSampleAt = Number(incoming.metrics_last_seen_at || incoming.info?.metrics_last_seen_at || 0);
+  const existingSampleAt = Number(existing?.metrics_last_seen_at || existing?.info?.metrics_last_seen_at || 0);
+  const sampleUnchanged = incomingSampleAt > 0 && incomingSampleAt === existingSampleAt;
+  // 同一份样本复用既有锚点，避免每次轮询都重置锚点导致年龄被压低、并无谓触发重渲染。
+  const receivedAt = sampleUnchanged
+    ? (existing?.metrics_received_at || Date.now())
+    : Date.now();
+  const receivedAgeMs = sampleUnchanged
+    ? (existing?.metrics_received_age_ms || 0)
+    : (Number.isFinite(Number(incoming.metrics_age_ms)) ? Number(incoming.metrics_age_ms) : 0);
 
   const next = {
     ...incoming,
@@ -197,6 +228,8 @@ export function mergePolledServerAccount(
     metrics_last_seen: incoming.metrics_last_seen || existing?.metrics_last_seen || null,
     metrics_last_seen_at: incoming.metrics_last_seen_at || existing?.metrics_last_seen_at || 0,
     metrics_age_ms: incoming.metrics_age_ms ?? existing?.metrics_age_ms ?? 0,
+    metrics_received_at: incomingSampleAt > 0 ? receivedAt : (existing?.metrics_received_at || 0),
+    metrics_received_age_ms: incomingSampleAt > 0 ? receivedAgeMs : (existing?.metrics_received_age_ms || 0),
     gpuChartVisible: existing?.gpuChartVisible || false,
     gpuLoading: existing?.gpuLoading || false,
     netChartVisible: existing?.netChartVisible || false,

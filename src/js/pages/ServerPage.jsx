@@ -2591,6 +2591,8 @@ function ServerPage() {
 
         const { serverId, metrics, timestamp } = data;
         const now = timestamp || Date.now();
+        // 新鲜度与节流一律锚定浏览器本地时钟，避免与服务端绝对时间戳跨时钟相减。
+        const receivedAt = Date.now();
         const historyRecord = buildMetricHistoryRecord(metrics, server.info || null, now);
         mergeServerMetricHistory(serverId, getCachedServerMetricHistory(serverId) || [], [
           historyRecord,
@@ -2602,10 +2604,13 @@ function ServerPage() {
         const isExpanded =
           expandedServersRef.current.includes(server.id) || isTerminalStatusVisible;
         const interactionGuardUntil = expandInteractionUntilRef.current.get(String(server.id)) || 0;
-        const inExpandInteractionGuard = interactionGuardUntil > now;
-        if (lastUpdate > 0 && now - lastUpdate < SERVER_METRIC_MIN_RENDER_INTERVAL_MS) {
+        const inExpandInteractionGuard = interactionGuardUntil > receivedAt;
+        if (
+          lastUpdate > 0 &&
+          receivedAt - lastUpdate < SERVER_METRIC_MIN_RENDER_INTERVAL_MS
+        ) {
           if (!isExpanded) return server;
-          if (!isTerminalStatusVisible && now - lastUpdate < SERVER_REALTIME_SAMPLE_INTERVAL_MS)
+          if (!isTerminalStatusVisible && receivedAt - lastUpdate < SERVER_REALTIME_SAMPLE_INTERVAL_MS)
             return server;
         }
 
@@ -2830,9 +2835,11 @@ function ServerPage() {
           metricsCache: nextMetricsCache,
           metrics_health: 'fresh',
           metrics_stale: false,
-          metrics_last_seen: new Date(now).toISOString(),
-          metrics_last_seen_at: now,
+          metrics_last_seen: new Date(receivedAt).toISOString(),
+          metrics_last_seen_at: receivedAt,
           metrics_age_ms: 0,
+          metrics_received_at: receivedAt,
+          metrics_received_age_ms: 0,
           lastMetricUpdateTime: server.lastMetricUpdateTime || 0,
         };
         if (areServerSnapshotsEqual(server, nextServer)) {
@@ -2842,7 +2849,7 @@ function ServerPage() {
         changed = true;
         return {
           ...nextServer,
-          lastMetricUpdateTime: now,
+          lastMetricUpdateTime: receivedAt,
         };
       });
       if (!changed) return prev;
