@@ -11,6 +11,16 @@ import (
 var routeRequestContracts = map[string]interface{}{}
 
 // requestContractFor 返回某路由前缀对应的请求契约（schema + 示例）。
+// voidRoomCreateContract 是空房间创建接口的请求契约。
+// 实现只识别 mode/persistent（voidRoomRequest），不读取 name/expires，
+// 故这里不设必填字段，避免 AI 调用被历史漂移契约误拦。
+func voidRoomCreateContract() map[string]interface{} {
+	return obj(nil, map[string]prop{
+		"mode":       {t: "string", e: []string{"temporary", "persistent"}, d: "房间模式，默认 temporary（30 分钟）"},
+		"persistent": {t: "boolean", d: "true 等价 mode=persistent"},
+	})
+}
+
 func requestContractFor(prefix string) (map[string]interface{}, interface{}, bool) {
 	raw, ok := routeRequestContracts[prefix]
 	if !ok {
@@ -890,10 +900,7 @@ func init() {
 		"access_password": {t: "string", d: "访问密码"},
 	})
 	routeRequestContracts["/api/m365/registrations"] = noBody
-	routeRequestContracts["/api/filebox/void/rooms"] = obj([]string{"name"}, map[string]prop{
-		"name":    {t: "string", req: true},
-		"expires": {t: "integer", d: "有效期秒"},
-	})
+	routeRequestContracts["/api/filebox/void/rooms"] = voidRoomCreateContract()
 	routeRequestContracts["/api/filebox/void/rooms/{roomId}"] = obj(nil, map[string]prop{
 		"name": {t: "string"},
 	})
@@ -1930,7 +1937,7 @@ func init() {
 		"name":   {t: "string", req: true},
 		"expiry": {t: "integer", d: "过期秒"},
 	})
-	routeRequestContracts["/api/filebox/void/rooms"] = routeRequestContracts["/api/filebox/rooms"]
+	routeRequestContracts["/api/filebox/void/rooms"] = voidRoomCreateContract()
 	routeRequestContracts["/api/filebox/void/rooms/{id}/participants"] = obj([]string{"userId"}, map[string]prop{
 		"userId": {t: "string", req: true},
 	})
