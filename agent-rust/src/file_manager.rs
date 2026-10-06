@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -110,6 +110,37 @@ pub struct FileUploadToUrlResponse {
     pub success: bool,
     pub status: u16,
     pub size: i64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileFetchUrlRequest {
+    pub url: String,
+    pub path: String,
+    #[serde(default)]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Serialize)]
+pub struct FileFetchUrlResponse {
+    pub success: bool,
+    pub status: u16,
+    pub size: i64,
+    pub path: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileWriteBase64Request {
+    pub path: String,
+    /// base64 编码的字节分块
+    pub data: String,
+    /// 写入起始偏移；0 表示从文件头开始（并截断）
+    #[serde(default)]
+    pub offset: i64,
+    /// 是否在写入前截断文件（仅首块需要）
+    #[serde(default)]
+    pub truncate: bool,
 }
 
 pub struct FileManager;
@@ -465,6 +496,140 @@ impl FileManager {
             size,
         };
         serde_json::to_string(&payload).map_err(|e| e.to_string())
+    }
+
+    /// 从 URL 流式下载并写入主机本地路径。字节不经面板中转，适合把已有的
+    /// 可访问地址（文件柜直链、GitHub release 等）直接落到主机上。
+    pub async fn handle_file_fetch_url(data: &str) -> Result<String, String> {
+        let req: FileFetchUrlRequest =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+
+        if req.url.is_empty() {
+            return Err("下载地址不能为空".to_string());
+        }
+        if req.path.is_empty() {
+            return Err("目标路径不能为空".to_string());
+        }
+
+        let abs_path = resolve_path(&req.path)?;
+        if let Some(parent) = abs_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3600))
+            .build()
+            .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+        let mut builder = client.get(&req.url);
+        if let Some(headers) = &req.headers {
+            for (key, value) in headers {
+                builder = builder.header(key.as_str(), value.as_str());
+            }
+        }
+
+        let resp = builder
+            .send()
+            .await
+            .map_err(|e| format!("下载失败: {}", e))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(format!("下载源返回 HTTP {}", status));
+        }
+
+        let tmp_name = format!(
+            "{}.download.tmp.{}",
+            abs_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("download"),
+            std::process::id()
+        );
+        let tmp_path = abs_path.with_file_name(tmp_name);
+        let mut file = tokio::fs::File::create(&tmp_path)
+            .await
+            .map_err(|e| format!("创建临时文件失败: {}", e))?;
+
+        use futures_util::StreamExt;
+        use tokio::io::AsyncWriteExt;
+        let mut stream = resp.bytes_stream();
+        let mut written: i64 = 0;
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&tmp_path).await;
+                    return Err(format!("读取下载流失败: {}", e));
+                }
+            };
+            if let Err(e) = file.write_all(&chunk).await {
+                let _ = tokio::fs::remove_file(&tmp_path).await;
+                return Err(format!("写入文件失败: {}", e));
+            }
+            written += chunk.len() as i64;
+        }
+        if let Err(e) = file.flush().await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("刷新文件失败: {}", e));
+        }
+        drop(file);
+
+        if let Err(e) = tokio::fs::rename(&tmp_path, &abs_path).await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("落盘失败: {}", e));
+        }
+
+        let payload = FileFetchUrlResponse {
+            success: true,
+            status,
+            size: written,
+            path: virtual_path(&abs_path),
+        };
+        serde_json::to_string(&payload).map_err(|e| e.to_string())
+    }
+
+    /// 按 base64 分块写入文件字节，支持 offset 续写与首块截断。
+    /// 用于把二进制文件分块传到主机（绕开单帧大小与文本编码限制）。
+    pub fn handle_file_write_base64(data: &str) -> Result<String, String> {
+        let req: FileWriteBase64Request =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+
+        if req.path.is_empty() {
+            return Err("文件路径不能为空".to_string());
+        }
+
+        let bytes = general_purpose::STANDARD
+            .decode(req.data.as_bytes())
+            .map_err(|e| format!("base64 解码失败: {}", e))?;
+
+        let abs_path = resolve_path(&req.path)?;
+        if let Some(parent) = abs_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
+        }
+
+        let mut file = if req.truncate {
+            fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&abs_path)
+        } else {
+            fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(&abs_path)
+        }
+        .map_err(|e| format!("打开文件失败: {}", e))?;
+
+        if req.offset > 0 {
+            file.seek(SeekFrom::Start(req.offset as u64))
+                .map_err(|e| format!("定位写入偏移失败: {}", e))?;
+        }
+        file.write_all(&bytes)
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+        file.flush().map_err(|e| format!("刷新文件失败: {}", e))?;
+
+        Ok(format!("已写入 {} 字节", bytes.len()))
     }
 }
 

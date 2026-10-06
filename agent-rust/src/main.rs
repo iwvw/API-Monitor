@@ -1131,6 +1131,30 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    41 => {
+                                        // FILE_FETCH_URL（从 URL 拉取写入本地）
+                                        match FileManager::handle_file_fetch_url(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    42 => {
+                                        // FILE_WRITE_BASE64（分块二进制写入）
+                                        match FileManager::handle_file_write_base64(&task.data) {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
                                     40 => {
                                         // NETWORK_QUALITY_PROBE
                                         match handle_network_quality_probe(&task.data).await {
