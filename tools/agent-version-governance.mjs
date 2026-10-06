@@ -111,22 +111,24 @@ const base = resolveBase(baseArg);
 if (!base) {
   console.log('Agent version governance: base ref unavailable, skipped change-diff check (static consistency still enforced).');
 } else {
-  let changedFiles = [];
-  try {
-    changedFiles = git(['diff', '--name-only', `${base}...HEAD`])
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch {
-    changedFiles = [];
-  }
+  const changedFiles = (() => {
+    try {
+      return git(['diff', '--name-only', `${base}...HEAD`])
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  })();
 
-  let baseVersion = null;
-  try {
-    baseVersion = parseTomlVersion(git(['show', `${base}:${tomlRel}`]));
-  } catch {
-    baseVersion = null;
-  }
+  const baseVersion = (() => {
+    try {
+      return parseTomlVersion(git(['show', `${base}:${tomlRel}`]));
+    } catch {
+      return null;
+    }
+  })();
 
   const binaryChanged = changedFiles.filter(
     (file) => binaryExact.has(file) || binaryPrefixes.some((prefix) => file.startsWith(prefix)),
