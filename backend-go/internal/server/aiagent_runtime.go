@@ -213,8 +213,10 @@ func decodeDiagnoseResult(raw string) (aiagent.DiagnoseResult, error) {
 			Min int `json:"min"`
 			Max int `json:"max"`
 		} `json:"portRange"`
-		UsedPorts     []int `json:"usedPorts"`
-		SuggestedPort int    `json:"suggestedPort"`
+		UsedPorts            []int `json:"usedPorts"`
+		SameProviderPorts    []int `json:"sameProviderPorts"`
+		ForeignOccupiedPorts []int `json:"foreignOccupiedPorts"`
+		SuggestedPort        int   `json:"suggestedPort"`
 	}
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return aiagent.DiagnoseResult{}, fmt.Errorf("invalid agent diagnose response: %w", err)
@@ -227,8 +229,10 @@ func decodeDiagnoseResult(raw string) (aiagent.DiagnoseResult, error) {
 			Min: decoded.PortRange.Min,
 			Max: decoded.PortRange.Max,
 		},
-		UsedPorts:     decoded.UsedPorts,
-		SuggestedPort: decoded.SuggestedPort,
+		UsedPorts:            decoded.UsedPorts,
+		SameProviderPorts:    decoded.SameProviderPorts,
+		ForeignOccupiedPorts: decoded.ForeignOccupiedPorts,
+		SuggestedPort:        decoded.SuggestedPort,
 	}, nil
 }
 

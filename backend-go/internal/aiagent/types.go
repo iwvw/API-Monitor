@@ -98,6 +98,12 @@ type DiagnoseResult struct {
 	PortRange PortRange `json:"portRange"`
 	// UsedPorts 是区间内当前被占用的端口。
 	UsedPorts []int `json:"usedPorts,omitempty"`
+	// SameProviderPorts 是区间内被本 Provider 进程（如其它 opencode）占用的端口。
+	// 这类占用会在 start 时被自动清理并接管，不需要用户换端口。
+	SameProviderPorts []int `json:"sameProviderPorts,omitempty"`
+	// ForeignOccupiedPorts 是区间内被无关进程占用的端口。start 会明确失败，
+	// 需要用户先在主机上腾出端口。
+	ForeignOccupiedPorts []int `json:"foreignOccupiedPorts,omitempty"`
 	// SuggestedPort 是区间内第一个空闲端口（可为 0 表示区间全被占）。
 	SuggestedPort int `json:"suggestedPort,omitempty"`
 }
