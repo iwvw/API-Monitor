@@ -47,7 +47,7 @@ import {
   writeAutoRefreshPreference,
 } from '../../modules/aiagentAutoRefresh.js';
 import { sortInstances } from '../../modules/aiagentInstanceList.js';
-import { resolvePortConflict } from '../../modules/aiagentPortConflict.js';
+import { resolvePortOccupancy } from '../../modules/aiagentPortConflict.js';
 import { useVisiblePolling } from '../../modules/usePageVisibility.js';
 
 const AI_AGENT_INSTANCE_COLUMNS = [
@@ -504,11 +504,11 @@ export default function AiAgentConsole() {
   }, [providers, instanceForm.provider]);
   const selectedProviderPort = selectedProviderRange?.min;
 
-  // 端口冲突预检：结合诊断结果与当前表单值推导「是否冲突 + 建议端口」。
-  // 用户未填端口（将用默认端口）时看默认端口是否被占；已填则看该端口是否被占。
-  // 返回 null 表示无冲突或诊断未就绪。判定逻辑抽到纯函数模块便于测试锁定。
-  const portConflict = useMemo(
-    () => resolvePortConflict(serverDiagnose, instanceForm.port, selectedProviderPort),
+  // 端口占用预检：结合诊断结果与当前表单值推导占用性质。
+  // 同类（本 Provider，如别的 opencode）占用会在 start 时自动清理，不提示换端口；
+  // 无关进程占用才提示用户处理。返回 null 表示无占用或诊断未就绪。
+  const portOccupancy = useMemo(
+    () => resolvePortOccupancy(serverDiagnose, instanceForm.port, selectedProviderPort),
     [serverDiagnose, instanceForm.port, selectedProviderPort]
   );
 
@@ -1559,23 +1559,16 @@ export default function AiAgentConsole() {
                     API_MONITOR_AIAGENT_*_BIN 变量
                   </span>
                 )}
-                {portConflict && (
-                  <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-kumo-warning">
-                    端口 {portConflict.occupied} 已被占用
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        setInstanceForm(prev => ({
-                          ...prev,
-                          port: String(portConflict.suggested),
-                        }))
-                      }
-                      className="!h-6 !px-2 !text-[11px] !text-brand hover:!text-kumo-strong"
-                    >
-                      使用空闲端口 {portConflict.suggested}
-                    </Button>
+                {portOccupancy && portOccupancy.kind === 'same-provider' && (
+                  <span className="text-[11px] text-kumo-subtle">
+                    端口 {portOccupancy.port} 上有本主机的另一次 {instanceForm.provider} 运行，
+                    保存并启动时会自动接管为托管实例，无需更换端口
+                  </span>
+                )}
+                {portOccupancy && portOccupancy.kind === 'foreign' && (
+                  <span className="text-[11px] text-kumo-warning">
+                    端口 {portOccupancy.port} 已被其它进程占用，启动会失败；
+                    该进程不属于 {instanceForm.provider}，不会自动清理，请先在主机上腾出该端口
                   </span>
                 )}
               </label>
