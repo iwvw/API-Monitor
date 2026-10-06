@@ -75,6 +75,7 @@ type Service struct {
 	pendingWGAddMu                sync.Mutex
 	stopOnce                      sync.Once
 	startupErr                    error
+	aiAgentValidator              func(r *http.Request) bool
 }
 
 const defaultRealtimeMetricsPersistInterval = 30 * time.Second

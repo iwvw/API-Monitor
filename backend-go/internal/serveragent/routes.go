@@ -56,6 +56,14 @@ func (s *Service) handleAgentRoutes(w http.ResponseWriter, r *http.Request, db *
 		accountID := subparts[1]
 		s.handleAgentExecCommand(w, r, db, accountID)
 
+	// POST /api/server/agent/fetch-url
+	case len(subparts) == 1 && subparts[0] == "fetch-url" && r.Method == http.MethodPost:
+		s.handleAgentFetchURL(w, r, db)
+
+	// POST /api/server/agent/upload（Agent Key 鉴权，二进制直传）
+	case len(subparts) == 1 && subparts[0] == "upload" && r.Method == http.MethodPost:
+		s.handleAgentUpload(w, r, db)
+
 	// GET /api/server/agent/install/win/{id}/{key}
 	case len(subparts) == 4 && subparts[0] == "install" && subparts[1] == "win" && r.Method == http.MethodGet:
 		accountID := subparts[2]

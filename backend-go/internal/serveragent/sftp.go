@@ -2,6 +2,7 @@ package serveragent
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -449,6 +450,8 @@ const (
 	agentFileDownloadChunkTask = 38
 	agentFileStatTask          = 36
 	agentFileUploadToURLTask   = 39
+	agentFileFetchURLTask      = 41
+	agentFileWriteBase64Task   = 42
 	agentFileTimeout           = 30 * time.Second
 	agentFileChunkSize         = 1024 * 1024
 )
@@ -514,6 +517,61 @@ func (s *Service) handleAgentFileWrite(w http.ResponseWriter, serverID, remotePa
 		"message":   firstNonEmpty(message, "file saved"),
 		"path":      normalizeRemotePath(remotePath),
 	})
+}
+
+// FetchURLToAgentFile 让指定 Agent 主机从 URL 拉取文件并写入本地路径。
+// 字节由主机直接下载，不经面板中转；适合把已有的可访问地址落到主机上。
+func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remotePath string, timeout time.Duration) (string, error) {
+	serverID = strings.TrimSpace(serverID)
+	url = strings.TrimSpace(url)
+	remotePath = strings.TrimSpace(remotePath)
+	if serverID == "" {
+		return "", fmt.Errorf("server id is required")
+	}
+	if url == "" {
+		return "", fmt.Errorf("url is required")
+	}
+	if remotePath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return "", fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"url":  url,
+		"path": normalizeRemotePath(remotePath),
+	})
+	if err != nil {
+		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, agentFileFetchURLTask, string(payload), timeout)
+}
+
+// WriteAgentFileBase64 把一块 base64 字节写入主机文件（支持 offset 续写与首块截断）。
+func (s *Service) WriteAgentFileBase64(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration) (string, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return "", fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return "", fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = agentFileTimeout
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"path":     normalizeRemotePath(remotePath),
+		"data":     data,
+		"offset":   offset,
+		"truncate": truncate,
+	})
+	if err != nil {
+		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, agentFileWriteBase64Task, string(payload), timeout)
 }
 
 func (s *Service) handleAgentFileMkdir(w http.ResponseWriter, serverID, remotePath string) {

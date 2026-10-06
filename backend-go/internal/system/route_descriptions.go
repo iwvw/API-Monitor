@@ -623,6 +623,8 @@ var routeDescriptions = map[string]string{
 	"/api/server/agent/quick-install":                   "快速安装主机 Agent",
 	"/api/server/agent/regenerate-key":                  "重新生成主机 Agent 密钥",
 	"/api/server/agent/command/{id}":                    "在主机上执行 shell 命令并返回结果（POST，向在线 Agent 下发命令并同步等待输出）；GET 用于获取该主机的 Agent 安装命令",
+	"/api/server/agent/fetch-url":                       "让目标主机从 URL 拉取文件写入本地路径（字节由主机直接下载，不经面板中转）",
+	"/api/server/agent/upload":                          "通过 Agent Key 鉴权的二进制文件直传端点（multipart，绕开 base64 与请求体大小限制）",
 	"/api/server/agent/install/win/{id}/{key}":          "生成 Windows 安装脚本",
 	"/api/server/agent/install/linux/{id}/{key}":        "生成 Linux 安装脚本",
 	"/api/server/agent/install-script/{id}":             "获取主机 Agent 安装脚本",

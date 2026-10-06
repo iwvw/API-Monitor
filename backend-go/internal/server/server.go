@@ -47,6 +47,7 @@ import (
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
 	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
+	"github.com/iwvw/api-monitor/backend-go/internal/qoder"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	"github.com/iwvw/api-monitor/backend-go/internal/settings"
@@ -56,7 +57,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/tencent"
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
-	"github.com/iwvw/api-monitor/backend-go/internal/qoder"
 	"github.com/iwvw/api-monitor/backend-go/internal/workbuddy"
 )
 
@@ -176,6 +176,7 @@ func newServer(cfg config.Config) (*Server, error) {
 	bookmarksService := bookmarksmodule.New(cfg)
 	systemService := systemmetrics.New(cfg)
 	systemService.SetNotifier(notifyService)
+	serverAgentService.SetAIAgentValidator(systemService.ValidateAIAgentRequest)
 	backupService := backup.New(cfg)
 	backupService.SetNotifier(notifyService)
 	settingsService := settings.New(cfg)

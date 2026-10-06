@@ -701,6 +701,16 @@ func init() {
 		"timeout": {t: "integer"},
 		"confirm": {t: "boolean", d: "危险命令二次确认（敏感模式下软拦截，需带 confirm=true 才会执行）"},
 	})
+	routeRequestContracts["/api/server/agent/fetch-url"] = obj([]string{"serverId", "url", "path"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "目标 Agent 主机 ID"},
+		"url":      {t: "string", req: true, d: "文件下载地址（http/https，主机需可访问）"},
+		"path":     {t: "string", req: true, d: "主机上的目标文件路径（受 Agent 文件沙箱约束）"},
+	})
+	routeRequestContracts["/api/server/agent/upload"] = obj([]string{"serverId", "path", "file"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "目标 Agent 主机 ID"},
+		"path":     {t: "string", req: true, d: "主机上的目标文件路径（受 Agent 文件沙箱约束）"},
+		"file":     {t: "string", req: true, d: "multipart/form-data 文件字段（原始字节）"},
+	})
 	routeRequestContracts["/api/server/agent/auto-install/{id}"] = obj(nil, map[string]prop{"protocol": {t: "string"}})
 	routeRequestContracts["/api/server/monitor/collect"] = noBody
 	routeRequestContracts["/api/server/agent/batch-install"] = obj([]string{"serverIds"}, map[string]prop{

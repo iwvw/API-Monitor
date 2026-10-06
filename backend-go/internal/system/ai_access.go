@@ -202,7 +202,7 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 			"mcp":      mcpURL,
 			"openapi":  openAPIURL,
 		},
-		"guide": s.aiAccessGuide(mcpURL, manifestURL, openAPIURL, key, tools),
+		"guide": s.aiAccessGuide(mcpURL, manifestURL, openAPIURL, baseURL, key, tools),
 		"tools": tools,
 		"policy": map[string]interface{}{
 			"allowedMethods": []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
@@ -259,12 +259,12 @@ func (s *Service) rotateAIAgentKey(r *http.Request) (map[string]interface{}, err
 //
 //	所有模式都保留防自毁的两条拦截（AI 递归调用、密钥轮换）。
 const (
-	aiAgentAccessPolicyKey = "ai_agent_access_policy"
-	AIAccessPolicyMinimal  = "minimal"
+	aiAgentAccessPolicyKey  = "ai_agent_access_policy"
+	AIAccessPolicyMinimal   = "minimal"
 	AIAccessPolicySensitive = "sensitive"
-	AIAccessPolicyStandard = "standard"
-	AIAccessPolicyFull     = "full"
-	AIAccessPolicyDefault  = AIAccessPolicyStandard
+	AIAccessPolicyStandard  = "standard"
+	AIAccessPolicyFull      = "full"
+	AIAccessPolicyDefault   = AIAccessPolicyStandard
 )
 
 // aiAccessPolicies 是合法权限模式集合，供读取回退与写入校验共用。
@@ -356,6 +356,18 @@ func (s *Service) validateAIAgent(r *http.Request, db *sql.DB) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
+}
+
+// ValidateAIAgentRequest 对外暴露 AI Agent 接入校验（Agent Key 或带 ai:mcp scope
+// 的 API Key），供其它模块（如 serveragent 的二进制直传端点）复用，避免各处重复
+// 实现密钥校验逻辑。
+func (s *Service) ValidateAIAgentRequest(r *http.Request) bool {
+	db, err := s.store.Open(r.Context())
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	return s.validateAIAgent(r, db)
 }
 
 // mcpDescribePayload 返回 MCP 元数据探测的静态响应体，首次构建后缓存复用，
@@ -579,6 +591,8 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 		return s.fileboxShareFromAgent(r.Context(), args)
 	case "agent_run_command":
 		return s.agentRunCommand(r.Context(), args)
+	case "agent_fetch_url":
+		return s.agentFetchURL(r.Context(), args)
 	case "run_batch":
 		return s.aiRunBatch(r, args)
 	default:
@@ -1078,6 +1092,26 @@ func (s *Service) agentRunCommand(ctx context.Context, args map[string]interface
 	})
 }
 
+// agentFetchURL 是 agent_fetch_url 元工具的实现：让目标主机直接从 URL 拉取
+// 文件写入本地路径，字节不经面板中转，避免 base64 与 1MB 请求体限制。
+func (s *Service) agentFetchURL(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverID, _ := args["serverId"].(string)
+	url, _ := args["url"].(string)
+	path, _ := args["path"].(string)
+	if strings.TrimSpace(serverID) == "" || strings.TrimSpace(url) == "" || strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("serverId、url 与 path 均为必填")
+	}
+	return s.callAPIFromAI(ctx, map[string]interface{}{
+		"method": http.MethodPost,
+		"path":   "/api/server/agent/fetch-url",
+		"body": map[string]interface{}{
+			"serverId": strings.TrimSpace(serverID),
+			"url":      strings.TrimSpace(url),
+			"path":     strings.TrimSpace(path),
+		},
+	})
+}
+
 // batchOp 表示 run_batch 中的单个操作。
 type batchOp struct {
 	name   string
@@ -1295,10 +1329,11 @@ func (s *Service) aiTools() []map[string]interface{} {
 		{"name": "run_batch", "description": "一次提交 1-20 个接口调用并聚合返回结果（串行或并行），减少多轮往返；每个操作复用 call_api 的鉴权与写权限约束。强制规则：含写操作（POST/PUT/PATCH/DELETE）的批次，完成后必须回读验证真实生效并检查每个子项的 ok/error 字段，任一子项 ok=false 或业务失败即视为整体未完成，绝不宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"operations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string", "description": "操作名（便于阅读结果）"}, "method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true}}, "required": []string{"path"}}, "description": "要执行的接口调用数组"}, "mode": map[string]interface{}{"type": "string", "enum": []string{"serial", "parallel"}, "description": "执行模式（默认 serial）"}, "stopOnError": map[string]interface{}{"type": "boolean", "description": "serial 模式下遇到失败是否停止后续（默认 false）"}}, "required": []string{"operations"}}},
 		{"name": "filebox_share_from_agent", "description": "把一台 Agent 主机上的文件转成文件柜分享，返回可直接下载的分享链接与直链。这是把「某台主机上的文件给别人下载」的标准工具，无需先 list_apis/find_api。storageTarget=auto（默认）时优先把文件放到公网存储节点并让源主机直传（面板零流量），无可用节点或旧版 Agent 时自动回退为主站本地/面板中转。写操作，需 AI 接入权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID）"}, "remotePath": map[string]interface{}{"type": "string", "description": "主机上的文件路径（受 Agent 文件沙箱约束：默认根或 API_MONITOR_FILE_ROOTS 白名单内）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "auto（默认，优先可用存储节点并让源主机直传）/ local（主站本地）/ 指定存储节点 serverId"}, "expiry": map[string]interface{}{"type": "string", "description": "有效期小时数，如 24；不传用文件柜默认值"}, "burn_after_reading": map[string]interface{}{"type": "boolean", "description": "阅后即焚（下载一次后删除）"}, "max_downloads": map[string]interface{}{"type": "string", "description": "最大下载次数，0 或不传为不限"}, "access_password": map[string]interface{}{"type": "string", "description": "分享访问密码（可选）"}}, "required": []string{"serverId", "remotePath"}}},
 		{"name": "agent_run_command", "description": "在指定 Agent 主机上执行一条 shell 命令并同步返回 stdout/stderr 输出，无需登录 SSH。这是「在某台主机上跑命令」的标准工具，无需先 list_apis/find_api。仅对已安装 Agent 且在线的主机有效（先调 /api/server/accounts 取 serverId 并确认 agent_online=true）。返回 success=true 表示命令已执行完成（含非零退出码，如 grep 无匹配、test/diff 非零，此时 exitCode 字段给出退出码，输出照常返回），仅 spawn/超时等硬错误才 success=false。危险命令（rm -rf、dd、mkfs、shutdown/reboot、docker rm/prune、kubectl delete、DROP DATABASE/TABLE、Remove-Item -Recurse 等）会被 commandguard 拦截：standard 模式硬拦截，sensitive 模式返回 requires_confirmation 提示（确认后带 confirm=true 重新调用即可执行），full 模式直接放行。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID 并确认在线）"}, "command": map[string]interface{}{"type": "string", "description": "要执行的 shell 命令（Linux 走 sh，Windows 走 cmd /C；PowerShell 会自动改写为 -EncodedCommand）"}, "timeout": map[string]interface{}{"type": "integer", "description": "超时秒数，默认 30，上限 300"}, "confirm": map[string]interface{}{"type": "boolean", "description": "危险命令二次确认：敏感模式下首次返回 requires_confirmation，确认后带 confirm=true 重试"}}, "required": []string{"serverId", "command"}}},
+		{"name": "agent_fetch_url", "description": "让指定 Agent 主机直接从 URL 拉取文件并写入其本地路径（字节由主机直接下载，不经面板中转，无 base64 与 1MB 请求体限制）。适用于把已有的可访问地址（文件柜直链、GitHub release、软件包等）落到主机上，避免用 base64 经 call_api 传输大文件。写操作，需 AI 接入权限模式非 minimal；目标路径受 Agent 文件沙箱约束（默认根或 API_MONITOR_FILE_ROOTS 白名单内）。仅对已安装 Agent 且在线的主机有效（先调 /api/server/accounts 取 serverId 并确认 agent_online=true）。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID 并确认在线）"}, "url": map[string]interface{}{"type": "string", "description": "文件下载地址（http/https，主机需可访问）"}, "path": map[string]interface{}{"type": "string", "description": "主机上的目标文件路径（受 Agent 文件沙箱约束）"}}, "required": []string{"serverId", "url", "path"}}},
 	}
 }
 
-func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, key string, tools []map[string]interface{}) string {
+func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, baseURL, key string, tools []map[string]interface{}) string {
 	toolLines := make([]string, 0, len(tools))
 	for _, tool := range tools {
 		name, _ := tool["name"].(string)
@@ -1322,6 +1357,13 @@ func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, key string, too
 - 能力清单（manifest，GET）：%s
 - MCP 服务：%s
 - OpenAPI 文档：%s（需登录会话，也可用 MCP 工具 get_openapi 获取）
+
+## 文件传输到主机
+- 源在可访问 URL（文件柜直链、GitHub release、软件包等）：用 MCP 工具 agent_fetch_url，让主机直接下载，字节不经面板中转。
+- 源在 AI 所在本地机器：用二进制直传端点 POST %sapi/server/agent/upload（multipart/form-data，字段 serverId、path、file），以同一 Agent Key 鉴权，例如：
+  curl -H "Authorization: Bearer <key>" -F serverId=<id> -F path=/opt/x/app.bin -F file=@./app.bin %sapi/server/agent/upload
+  该端点无 base64 与 1MB JSON 请求体限制，适合传输二进制大文件；它直接用 Agent Key 鉴权，不受 AI 接入权限模式（minimal 等）约束。
+- 目标路径受 Agent 文件沙箱约束（默认根或 API_MONITOR_FILE_ROOTS 白名单内）。
 
 ## 连接流程
 1. 复制 Agent Key，客户端以 Bearer 鉴权接入。
@@ -1360,7 +1402,7 @@ func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, key string, too
 1. 写操作（POST/PUT/PATCH/DELETE）调用返回后，必须立即回读验证真实生效：用 GET 列表/详情接口确认目标资源已存在且状态正确（如 enabled、next_run 等），仅凭创建接口自身返回 2xx 不算完成。
 2. 每次调用都必须检查响应：HTTP 非 2xx、或 body 中 success=false、或 error 字段非空，均视为失败；任一失败出现时，禁止向用户宣称任务完成，必须如实报告错误。
 3. 宁可多一次回读调用，也不要在未验证生效前宣告成功；无法验证时如实说明「未能验证」。
-`, s.cfg.Version, key, key, manifestURL, mcpURL, openAPIURL, mcpURL, key, mcpURL, key, toolsText)
+`, s.cfg.Version, key, key, manifestURL, mcpURL, openAPIURL, baseURL, baseURL, mcpURL, key, mcpURL, key, toolsText)
 }
 
 func (s *Service) mcpResources() []map[string]interface{} {

@@ -422,6 +422,14 @@ var apiDocSeeds = []apiDocSeed{
 		Docs:  apiRouteDocs{Methods: []string{"GET", "POST"}},
 	},
 	{
+		Route: manifest.Route{Prefix: "/api/server/agent/fetch-url", Module: "server-agent", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Fetch a URL into a host local path (agent downloads directly)", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"POST"}},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/server/agent/upload", Module: "server-agent", Owner: manifest.OwnerGo, Auth: manifest.AuthAgent, ResponseMode: manifest.ResponseJSON, Description: "Binary file upload to a host via Agent Key (multipart)", MatchMode: manifest.MatchExact},
+		Docs:  apiRouteDocs{Methods: []string{"POST"}},
+	},
+	{
 		Route: manifest.Route{Prefix: "/api/server/tasks", Module: "server-tasks", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "List or create host task", MatchMode: manifest.MatchExact},
 		Docs:  apiRouteDocs{Methods: []string{"GET", "POST"}},
 	},

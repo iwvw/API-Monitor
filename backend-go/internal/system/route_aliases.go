@@ -153,6 +153,8 @@ var routeAliases = map[string][]string{
 	"/api/server/sftp":                {"sftp", "远程文件", "上传文件", "下载文件", "sftp 列表"},
 	"/api/server/agent/command/{id}":  {"执行命令", "运行命令", "执行 shell", "shell 命令", "远程执行", "远程命令", "命令行", "exec", "run command", "执行脚本", "跑命令"},
 	"/api/server/agent/command":       {"执行命令", "运行命令", "执行 shell", "shell 命令", "远程执行", "exec", "run command"},
+	"/api/server/agent/fetch-url":     {"从 URL 下载", "URL 拉取文件", "远程下载", "主机下载文件", "wget", "curl 下载", "拉取文件", "fetch url", "download to host"},
+	"/api/server/agent/upload":        {"上传文件到主机", "二进制上传", "直传文件", "文件传输", "upload file", "传文件", "传输文件"},
 	"/api/server/tasks":               {"主机任务", "批量任务"},
 	"/api/server/agent/proxy":         {"托管代理", "代理节点", "梯子", "节点配置"},
 	"/api/server/agent/heartbeat":     {"agent 心跳"},
