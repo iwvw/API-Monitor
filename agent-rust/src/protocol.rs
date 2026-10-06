@@ -73,6 +73,10 @@ pub struct TaskResultPayload {
     pub successful: bool,
     pub data: String,
     pub delay: i64, // milliseconds
+    /// 命令类任务的进程退出码（None 表示非进程类任务或未取到）。
+    /// 非零退出码本身不算失败：命令已执行完且可能产出有效输出。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

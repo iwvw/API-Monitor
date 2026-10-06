@@ -378,11 +378,16 @@ func New(cfg config.Config) *Service {
 					Successful bool   `json:"successful"`
 					Data       string `json:"data"`
 					Delay      int64  `json:"delay"`
+					ExitCode   *int   `json:"exit_code"`
 				}
 				if err := json.Unmarshal(data, &result); err == nil {
 					s.recordAgentSignal(serverID, "task_result", nil)
 					if result.Successful {
-						s.taskRegistry.Complete(result.ID, result.Data)
+						if result.ExitCode != nil {
+							s.taskRegistry.CompleteWithExitCode(result.ID, result.Data, *result.ExitCode)
+						} else {
+							s.taskRegistry.Complete(result.ID, result.Data)
+						}
 					} else {
 						s.taskRegistry.Fail(result.ID, result.Data)
 						// AI Agent 数据通道任务失败时唤醒等待方，返回具体错误而非空等超时。

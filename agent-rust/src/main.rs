@@ -706,6 +706,7 @@ async fn run_client(
                             tokio::spawn(async move {
                                 let start_time = Instant::now();
                                 let mut successful = false;
+                                let mut exit_code: Option<i32> = None;
                                 let res_data;
 
                                 match task.task_type {
@@ -713,8 +714,9 @@ async fn run_client(
                                         // COMMAND
                                         match execute_command(&task.data, task.timeout as u64).await
                                         {
-                                            Ok(out) => {
+                                            Ok((out, code)) => {
                                                 successful = true;
+                                                exit_code = code;
                                                 res_data = out;
                                             }
                                             Err(err) => {
@@ -1227,6 +1229,7 @@ async fn run_client(
                                             successful,
                                             data,
                                             delay: start_time.elapsed().as_millis() as i64,
+                                            exit_code: None,
                                         };
                                         let _ = tx_task
                                             .send_normal(format_event(
@@ -1342,6 +1345,7 @@ async fn run_client(
                                     successful,
                                     data: res_data,
                                     delay,
+                                    exit_code,
                                 };
                                 let _ = tx_task
                                     .send_normal(format_event(
@@ -1473,9 +1477,15 @@ async fn handle_server_action(action: &str) -> Result<String, String> {
         other => return Err(format!("不支持的动作: {}", other)),
     };
     // Linux 下 Agent 可能非 root：先直接执行，失败再尝试 sudo
-    let result = execute_command(command, 15).await;
+    let result = match execute_command(command, 15).await {
+        Ok((out, _)) => Ok(out),
+        Err(e) => Err(e),
+    };
     if result.is_err() && !cfg!(target_os = "windows") {
-        execute_command(&format!("sudo {}", command), 15).await
+        match execute_command(&format!("sudo {}", command), 15).await {
+            Ok((out, _)) => Ok(out),
+            Err(e) => Err(e),
+        }
     } else {
         result
     }
@@ -1534,7 +1544,7 @@ fn scrub_clixml(text: String) -> String {
     out
 }
 
-async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, String> {
+async fn execute_command(command: &str, timeout_secs: u64) -> Result<(String, Option<i32>), String> {
     if command.is_empty() {
         return Err("命令不能为空".to_string());
     }
@@ -1575,11 +1585,10 @@ async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, Str
                         let _ = tokio::io::AsyncReadExt::read_to_end(&mut err, &mut stderr_buf).await;
                     }
                     let combined = scrub_clixml(decode_output(&stdout_buf) + &decode_output(&stderr_buf));
-                    if status.success() {
-                        Ok(combined)
-                    } else {
-                        Err(combined)
-                    }
+                    // 非零退出码不再视为执行错误：命令确实跑完并可能产出了有效输出，
+                    // 由上层（面板/AI）依据 exit_code 自行判断。仅 spawn/wait 失败或
+                    // 超时才算硬错误。
+                    Ok((combined, status.code()))
                 }
                 Err(e) => Err(format!("Wait failed: {}", e)),
             }
@@ -2682,6 +2691,7 @@ async fn handle_docker_container_update(
                     "容器更新成功".to_string()
                 },
                 delay: 0,
+                exit_code: None,
             };
             let msg = format_event(EVENT_AGENT_TASK_RESULT, &res_payload);
             let _ = tx.send_normal(msg).await;
@@ -2737,6 +2747,7 @@ async fn send_task_error(task_id: &str, err_msg: &str, tx: OutboundQueues) {
         successful: false,
         data: err_msg.to_string(),
         delay: 0,
+        exit_code: None,
     };
     let msg = format_event(EVENT_AGENT_TASK_RESULT, &res_payload);
     let _ = tx.send_normal(msg).await;

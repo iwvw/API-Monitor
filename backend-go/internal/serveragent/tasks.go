@@ -38,6 +38,7 @@ type Task struct {
 	Progress    int
 	Result      string
 	Error       string
+	ExitCode    *int
 	CreatedAt   time.Time
 	StartedAt   *time.Time
 	CompletedAt *time.Time
@@ -326,6 +327,12 @@ func (r *TaskRegistry) UpdateProgress(taskID string, progress int, data interfac
 
 // Complete 完成任务
 func (r *TaskRegistry) Complete(taskID string, result string) {
+	r.CompleteWithExitCode(taskID, result, 0)
+}
+
+// CompleteWithExitCode 完成任务并记录进程退出码。非零退出码不代表执行错误：
+// 命令已跑完且可能产出有效输出，由调用方依据退出码自行判断。
+func (r *TaskRegistry) CompleteWithExitCode(taskID string, result string, exitCode int) {
 	task, exists := r.Get(taskID)
 	if !exists {
 		return
@@ -335,6 +342,7 @@ func (r *TaskRegistry) Complete(taskID string, result string) {
 	task.Status = TaskCompleted
 	task.Progress = 100
 	task.Result = result
+	task.ExitCode = &exitCode
 	now := time.Now()
 	task.CompletedAt = &now
 	task.mu.Unlock()
@@ -706,10 +714,17 @@ const (
 
 // waitAgentTaskResult 等待任务到达终态并返回执行结果。
 // 返回 status 为 "success"/"failed"；timedOut 为 true 表示等待超时（任务已被标记失败）。
+// exitCode 为进程退出码（非命令类任务或未取到时为 nil）。
 // 事件通道提前关闭时回退到任务快照，保证已完成任务也能拿到终态结果。
-func waitAgentTaskResult(registry *TaskRegistry, task *Task, eventCh <-chan TaskEvent, timeout time.Duration) (output, status string, timedOut bool) {
+func waitAgentTaskResult(registry *TaskRegistry, task *Task, eventCh <-chan TaskEvent, timeout time.Duration) (output, status string, exitCode *int, timedOut bool) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+
+	readExit := func() *int {
+		task.mu.RLock()
+		defer task.mu.RUnlock()
+		return task.ExitCode
+	}
 
 	for {
 		select {
@@ -717,19 +732,19 @@ func waitAgentTaskResult(registry *TaskRegistry, task *Task, eventCh <-chan Task
 			if !ok {
 				snap := task.Snapshot()
 				if snap.Status == TaskCompleted {
-					return fmt.Sprintf("%v", snap.Data), "success", false
+					return fmt.Sprintf("%v", snap.Data), "success", readExit(), false
 				}
-				return snap.Error, "failed", false
+				return snap.Error, "failed", nil, false
 			}
 			if event.Status == TaskCompleted {
-				return fmt.Sprintf("%v", event.Data), "success", false
+				return fmt.Sprintf("%v", event.Data), "success", readExit(), false
 			}
 			if event.Status == TaskFailed {
-				return event.Error, "failed", false
+				return event.Error, "failed", nil, false
 			}
 		case <-timer.C:
 			registry.Fail(task.ID, "task timeout")
-			return "", "failed", true
+			return "", "failed", nil, true
 		}
 	}
 }

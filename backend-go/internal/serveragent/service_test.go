@@ -3492,6 +3492,49 @@ func TestAgentExecCommandFailed(t *testing.T) {
 	}
 }
 
+type exitCodeReplySocket struct {
+	t        *testing.T
+	service  *Service
+	exitCode int
+}
+
+func (s *exitCodeReplySocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		s.t.Fatalf("decode socket frame: %v frame=%s", err, raw)
+	}
+	payload, _ := frame[1].(map[string]interface{})
+	taskID, _ := payload["id"].(string)
+	go s.service.taskRegistry.CompleteWithExitCode(taskID, "matched output\n", s.exitCode)
+	return nil
+}
+
+// TestAgentExecCommandNonZeroExitIsSuccess 验证：命令已执行完成但退出码非零时，
+// 面板返回 success=true 并透出 exitCode，不再误报「命令执行失败」。
+func TestAgentExecCommandNonZeroExitIsSuccess(t *testing.T) {
+	service, _ := testService(t)
+	service.registry.Register("server-1", &exitCodeReplySocket{t: t, service: service, exitCode: 1})
+
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1", `{"command":"grep foo /tmp/x"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["success"] != true {
+		t.Fatalf("success=%v, want true for nonzero-exit completed command: %s", payload["success"], rec.Body.String())
+	}
+	if payload["output"] != "matched output\n" {
+		t.Fatalf("output=%v, want preserved output", payload["output"])
+	}
+	if payload["exitCode"] != float64(1) {
+		t.Fatalf("exitCode=%v, want 1", payload["exitCode"])
+	}
+	if payload["error"] != nil {
+		t.Fatalf("error should be absent for nonzero-exit success: %v", payload["error"])
+	}
+}
+
 func TestAgentExecCommandDangerous(t *testing.T) {
 	service, _ := testService(t)
 	// 不注册 socket：危险检测必须先于在线检查返回 400

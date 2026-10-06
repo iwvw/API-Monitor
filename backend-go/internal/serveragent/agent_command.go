@@ -149,7 +149,7 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	output, status, timedOut := waitAgentTaskResult(s.taskRegistry, task, eventCh, timeout)
+	output, status, exitCode, timedOut := waitAgentTaskResult(s.taskRegistry, task, eventCh, timeout)
 	if timedOut {
 		// 任务已下发且不可取消：超时后 Agent 端命令仍会继续执行到完成，
 		// 记录超时历史并提示调用方用 task_id 跟踪后续终态。
@@ -165,13 +165,17 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 	// 记录命令历史（复用片段历史写入逻辑，executionMode=api）
 	s.recordExecCommandHistory(r.Context(), db, serverID, command, status, output)
 
-	// 失败时把实际输出塞进 error，避免 AI 工具层 EnvelopeError 只看到 info 为空的
-	// "success:false" 而误判为「未知业务错误」，导致无法诊断命令为何失败。
+	// 命令已执行完成即视为成功，即使退出码非零：非零退出码对 echo/grep/test/diff
+	// 等是正常结果，命令仍可能产出了有效输出。真实失败只发生在 spawn/wait 失败或超时
+	// （此时 status != "success"），把输出塞进 error 便于 AI 诊断。
 	resp := map[string]interface{}{
 		"success": status == "success",
 		"output":  output,
 		"task_id": task.ID,
 		"status":  status,
+	}
+	if exitCode != nil {
+		resp["exitCode"] = *exitCode
 	}
 	if status != "success" {
 		reason := strings.TrimSpace(output)

@@ -106,6 +106,15 @@ func (s *Service) runAgentTaskAndWaitMode(serverID string, taskType int, command
 				return "", fmt.Errorf("task channel closed")
 			}
 			if event.Status == TaskCompleted {
+				// 命令类任务由 Agent 回传进程退出码；非零退出码对内部编排调用
+				// （nginx -t && reload、定时任务命令等）仍视为失败，保持既有严格语义。
+				// 面向用户的 handleAgentExecCommand 不走这里，另按 exitCode 宽松处理。
+				if code := taskExitCode(task); code != nil && *code != 0 {
+					if str, ok := event.Data.(string); ok {
+						return str, fmt.Errorf("command exited with code %d", *code)
+					}
+					return fmt.Sprintf("%v", event.Data), fmt.Errorf("command exited with code %d", *code)
+				}
 				if str, ok := event.Data.(string); ok {
 					return str, nil
 				}
@@ -119,6 +128,13 @@ func (s *Service) runAgentTaskAndWaitMode(serverID string, taskType int, command
 			return "", fmt.Errorf("task timeout")
 		}
 	}
+}
+
+// taskExitCode 读取任务的进程退出码（非命令类任务为 nil）。
+func taskExitCode(task *Task) *int {
+	task.mu.RLock()
+	defer task.mu.RUnlock()
+	return task.ExitCode
 }
 
 func (s *Service) RunCommandTaskAndWait(serverID string, command string, timeout time.Duration) (string, error) {
