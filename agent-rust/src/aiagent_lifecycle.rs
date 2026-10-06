@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use crate::aiagent::listening_pid;
+use crate::aiagent::{listening_pid, process_name_matches};
 
 /// 单个实例的托管进程记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -418,9 +418,16 @@ pub async fn start(raw: &str) -> Result<String, String> {
         }
     }
 
-    // 端口必须空闲：已被其它进程占用时明确失败，不静默抢占（ADR-0006 第 7.3 条）。
-    // 例外：占用者是本 Agent 托管表里记录过的残留进程（上一次 stop 未及清理就发生
-    // Agent 重启等），先终止它再启动——否则自己的残留会把自己挡在门外。
+    // 每台主机只保留一个本 Provider 服务：先清理端口区间内所有同类（opencode）
+    // 监听进程，再在目标端口拉起。这样 OpenCodeUI 自行拉起的、上次残留的、重复
+    // 实例的同类进程都会被清掉，端口不会被同类进程挡在门外。
+    //
+    // 安全边界（ADR-0006 第 6/7 条修订）：只终止**进程名或命令行命中 Provider
+    // 匹配规则**的监听进程，绝不触碰无关进程；区间外端口不扫描。
+    terminate_provider_occupants(template, &[]).await;
+
+    // 清理后目标端口仍被占用，说明占用者不是本 Provider 进程：明确失败，
+    // 不静默抢占他人端口。
     if let Some(occupant) = listening_pid(payload.port) {
         if !terminate_managed_occupant(payload.port).await {
             return Err(format!(
@@ -660,13 +667,34 @@ pub fn diagnose(raw: &str) -> Result<String, String> {
     // 扫描允许区间内的占用情况：逐个查监听 PID。区间上界 99 个端口，
     // listening_pid 在 Windows 走 GetExtendedTcpTable、Linux 遍历 /proc，
     // 单端口开销很小，诊断是低频操作，顺序扫描可接受。
+    //
+    // 区分「同类占用（opencode）」与「无关占用」：同类占用会被 start 自动清理，
+    // 前端不该为此建议换端口（换端口也只是换个地方被清理）；无关占用才需要提醒。
+    let match_terms: Vec<String> = template
+        .process_match
+        .iter()
+        .map(|term| term.trim().to_lowercase())
+        .filter(|term| !term.is_empty())
+        .collect();
     let mut used_ports: Vec<u16> = Vec::new();
+    let mut same_provider_ports: Vec<u16> = Vec::new();
+    let mut foreign_ports: Vec<u16> = Vec::new();
     let mut suggested_port: Option<u16> = None;
     for port in template.default_port..=max_port {
-        if listening_pid(port).is_some() {
-            used_ports.push(port);
-        } else if suggested_port.is_none() {
-            suggested_port = Some(port);
+        match listening_pid(port) {
+            Some(pid) => {
+                used_ports.push(port);
+                if process_name_matches(pid, &match_terms) {
+                    same_provider_ports.push(port);
+                } else {
+                    foreign_ports.push(port);
+                }
+            }
+            None => {
+                if suggested_port.is_none() {
+                    suggested_port = Some(port);
+                }
+            }
         }
     }
 
@@ -681,6 +709,10 @@ pub fn diagnose(raw: &str) -> Result<String, String> {
             "max": max_port,
         },
         "usedPorts": used_ports,
+        // 同类（本 Provider）占用端口：start 时会自动清理，不需要换端口。
+        "sameProviderPorts": same_provider_ports,
+        // 无关进程占用端口：start 会明确失败，需要用户处理。
+        "foreignOccupiedPorts": foreign_ports,
         "suggestedPort": suggested_port,
     })
     .to_string())
@@ -821,9 +853,15 @@ async fn supervise_once() {
             continue;
         };
 
-        // 端口被占用时不要盲目拉起。若占用者是我们自己的残留（父进程已死、子进程
-        // 仍持端口），先清理再拉起；否则记一次失败并累计重启次数，避免与占用者
-        // 形成「反复抢端口」的循环（ADR-0006 第 7.3 条：不静默杀掉他人进程）。
+        // 端口被占用时不要盲目拉起。先清理区间内同类（opencode）占用进程——覆盖
+        // 「OpenCodeUI 自行拉起」「自己的残留」「其它实例」几种情况；但保留本 Agent
+        // 当前存活的托管进程，避免误杀另一条健康实例。清理后端口仍被非同类进程
+        // 占用则记一次失败并累计重启次数，避免与占用者形成「反复抢端口」的循环
+        // （ADR-0006 第 7.3 条：不静默杀掉他人进程）。
+        if listening_pid(port).is_some() {
+            let keep = alive_managed_pids();
+            terminate_provider_occupants(template, &keep).await;
+        }
         if let Some(occupant) = listening_pid(port) {
             if !terminate_managed_occupant(port).await {
                 let mut table = process_table().lock().unwrap();
@@ -1032,6 +1070,70 @@ async fn terminate_managed_occupant(port: u16) -> bool {
         return false;
     }
     terminate(occupant).await
+}
+
+/// 终止该 Provider 端口区间内**所有**同类监听进程。
+///
+/// 用于「每台主机只留一个本 Provider 服务」：OpenCodeUI 自行拉起的、上次遗留的、
+/// 重复实例的 opencode 监听进程都会被清理，避免它们在目标端口上互相挡路。
+///
+/// 安全边界（ADR-0006 第 6/7 条修订）：只终止监听 PID 命中 Provider 匹配规则
+/// （进程名/命令行含 `opencode`）的进程；区间内其它进程与区间外端口一概不碰。
+/// 命中后按进程树终止（`taskkill /T` / 进程组信号），覆盖 shim 拉子进程的场景。
+///
+/// `keep_pids`：不清理这些 PID（通常是本 Agent 托管且当前存活的进程），
+/// 避免启动/守护一条实例时误杀另一条健康实例。
+async fn terminate_provider_occupants(template: &ProviderTemplate, keep_pids: &[u32]) {
+    let match_terms: Vec<String> = template
+        .process_match
+        .iter()
+        .map(|term| term.trim().to_lowercase())
+        .filter(|term| !term.is_empty())
+        .collect();
+    if match_terms.is_empty() {
+        return;
+    }
+
+    let default_port = template.default_port;
+    let max_port = default_port.saturating_add(MAX_PORT_OFFSET);
+    let keep: Vec<u32> = keep_pids.to_vec();
+    // 端口枚举与进程名查询都是阻塞式系统调用，放到 blocking 线程池收集候选 PID，
+    // 避免占用 Tokio worker；终止动作在 async 上下文逐个执行。
+    let candidates = tokio::task::spawn_blocking(move || {
+        let mut pids: Vec<u32> = Vec::new();
+        for port in default_port..=max_port {
+            if let Some(pid) = listening_pid(port) {
+                if keep.contains(&pid) {
+                    continue;
+                }
+                if process_name_matches(pid, &match_terms) && !pids.contains(&pid) {
+                    pids.push(pid);
+                }
+            }
+        }
+        pids
+    })
+    .await
+    .unwrap_or_default();
+
+    for pid in candidates {
+        if terminate(pid).await {
+            eprintln!(
+                "[aiagent] 已清理同类占用进程 PID {}（Provider {}）",
+                pid, template.id
+            );
+        }
+    }
+}
+
+/// 托管表中当前存活的 PID（作为「不要清理」的白名单）。
+fn alive_managed_pids() -> Vec<u32> {
+    let table = process_table().lock().unwrap();
+    table
+        .values()
+        .filter(|process| process.pid != 0 && process_alive(process.pid))
+        .map(|process| process.pid)
+        .collect()
 }
 
 /// Agent 主动退出时终止所有托管进程，避免留下孤儿进程占用端口（ADR-0006 第 4.3 条）。
@@ -1911,6 +2013,9 @@ mod tests {
         }
         // executable 字段必须存在（found 可能为 false，但结构要完整）。
         assert!(parsed["executable"]["path"].is_string());
+        // 占用端口必须按「同类 / 无关」分类，供前端决定是否提示换端口。
+        assert!(parsed["sameProviderPorts"].is_array(), "应返回同类占用端口列表");
+        assert!(parsed["foreignOccupiedPorts"].is_array(), "应返回无关占用端口列表");
     }
 
     // 未知 Provider 必须明确报错，而不是给一个空诊断让云端猜。
