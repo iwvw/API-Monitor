@@ -67,6 +67,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js 20.x
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -88,6 +90,10 @@ jobs:
 
       - name: Three-side governance check
         run: npm run governance:check
+        env:
+          # 本次 push 前的提交（PR 用 base sha）：agent-version-governance 需要它
+          # 才能判断「agent 二进制输入变了但版本没 bump」。fetch-depth: 0 已保证可达。
+          AGENT_VERSION_BASE: ${{ github.event.before || github.event.pull_request.base.sha }}
 
       - name: Install drawio assets
         run: npm run drawio:install

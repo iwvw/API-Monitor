@@ -67,6 +67,12 @@
   `cubic-bezier(...)`；循环动画周期（`infinite`）与 `animation-delay` 不在此列。
   `tools/motion-governance-check.mjs`（含在 `governance:check`）把守，其余区域先以 warning
   增量迁移。
+- Agent 版本与二进制输入绑定：凡改动 `agent-rust/src/**`、`agent-rust/vendor/**`、
+  `agent-rust/Cargo.toml`、`agent-rust/Cargo.lock`，必须同步递增 `[package].version`
+  （`Cargo.toml` 与 `Cargo.lock` 保持一致）。滚动 release（built-agents）与各主机
+  `batch-upgrade` 都按版本号识别新旧，只改代码不 bump 会导致「二进制已重建、版本不变、
+  主机永远升不上去」。`tools/agent-version-governance.mjs`（含在 `governance:check`，
+  CI 中由 `AGENT_VERSION_BASE` 传入 push 前 SHA）把守。
 
 ## AI 维护命令
 
