@@ -151,6 +151,8 @@ var routeAliases = map[string][]string{
 	"/api/server/credentials":         {"凭据", "连接凭据", "ssh 密钥"},
 	"/api/server/network-quality":     {"网络测速", "测速", "网络质量"},
 	"/api/server/sftp":                {"sftp", "远程文件", "上传文件", "下载文件", "sftp 列表"},
+	"/api/server/agent/command/{id}":  {"执行命令", "运行命令", "执行 shell", "shell 命令", "远程执行", "远程命令", "命令行", "exec", "run command", "执行脚本", "跑命令"},
+	"/api/server/agent/command":       {"执行命令", "运行命令", "执行 shell", "shell 命令", "远程执行", "exec", "run command"},
 	"/api/server/tasks":               {"主机任务", "批量任务"},
 	"/api/server/agent/proxy":         {"托管代理", "代理节点", "梯子", "节点配置"},
 	"/api/server/agent/heartbeat":     {"agent 心跳"},

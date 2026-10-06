@@ -186,10 +186,6 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 	manifestURL := baseURL + "/api/ai/manifest"
 	openAPIURL := baseURL + "/api/openapi.json"
 	tools := s.aiTools()
-	writeEnabled, err := s.getAIAgentWriteEnabled(r.Context(), db)
-	if err != nil {
-		return nil, err
-	}
 	accessPolicy, err := s.getAIAgentAccessPolicy(r.Context(), db)
 	if err != nil {
 		return nil, err
@@ -213,9 +209,8 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 			"blockedPaths":   []string{"/api/ai/*", "/api/system/ai-access/key/*", "/api/ai-access/key/*"},
 			"blockedModes":   []string{string(manifest.ResponseStream), string(manifest.ResponseWebSocket)},
 			"bodyLimitBytes": 1024 * 1024,
-			"writeEnabled":   writeEnabled,
 			"accessPolicy":   accessPolicy,
-			"auth":           "Agent Key 作为系统级接入密钥使用；默认只读，写入需在设置中开启，所有调用都会写入审计记录。",
+			"auth":           "Agent Key 作为系统级接入密钥使用；权限由上方模式决定，所有调用都会写入审计记录。",
 		},
 		"mcpServers": mcpServers,
 		"skills":     skills,
@@ -255,21 +250,30 @@ func (s *Service) rotateAIAgentKey(r *http.Request) (map[string]interface{}, err
 	return s.aiAccessOverview(r)
 }
 
-const aiAgentWriteEnabledKey = "ai_agent_write_enabled"
-
-// AI 接入权限模式：
-// minimal  - 只读（写方法一律拒绝）
-// standard - 默认：写操作需显式开关，管理 AI 路由（admin-ai）不可达
-// full     - 单用户自用最高权限：放开全部管理面与写操作，
+// AI 接入权限模式（四档，逐级放开）：
 //
-//	仅保留防自毁的两条拦截（AI 递归调用、密钥轮换）
+//	minimal   - 只读：写方法（POST/PUT/PATCH/DELETE）一律拒绝
+//	sensitive - 敏感：允许写入；危险命令软拦截，调用方显式确认后才执行
+//	standard  - 标准：允许写入；危险命令硬拦截（直接拒绝）
+//	full      - 全部权限：等同 SSH root，放开全部管理面与危险操作
+//
+//	所有模式都保留防自毁的两条拦截（AI 递归调用、密钥轮换）。
 const (
 	aiAgentAccessPolicyKey = "ai_agent_access_policy"
 	AIAccessPolicyMinimal  = "minimal"
+	AIAccessPolicySensitive = "sensitive"
 	AIAccessPolicyStandard = "standard"
 	AIAccessPolicyFull     = "full"
 	AIAccessPolicyDefault  = AIAccessPolicyStandard
 )
+
+// aiAccessPolicies 是合法权限模式集合，供读取回退与写入校验共用。
+var aiAccessPolicies = map[string]bool{
+	AIAccessPolicyMinimal:   true,
+	AIAccessPolicySensitive: true,
+	AIAccessPolicyStandard:  true,
+	AIAccessPolicyFull:      true,
+}
 
 // AIAgentAccessPolicy 读取当前 AI 接入权限模式，缺省 standard。
 func (s *Service) AIAgentAccessPolicy(ctx context.Context) (string, error) {
@@ -284,12 +288,11 @@ func (s *Service) AIAgentAccessPolicy(ctx context.Context) (string, error) {
 func (s *Service) getAIAgentAccessPolicy(ctx context.Context, db *sql.DB) (string, error) {
 	var value string
 	_ = db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = ?", aiAgentAccessPolicyKey).Scan(&value)
-	switch strings.TrimSpace(value) {
-	case AIAccessPolicyMinimal, AIAccessPolicyStandard, AIAccessPolicyFull:
-		return strings.TrimSpace(value), nil
-	default:
-		return AIAccessPolicyDefault, nil
+	trimmed := strings.TrimSpace(value)
+	if aiAccessPolicies[trimmed] {
+		return trimmed, nil
 	}
+	return AIAccessPolicyDefault, nil
 }
 
 func (s *Service) setAIAgentAccessPolicy(r *http.Request) (map[string]interface{}, error) {
@@ -299,10 +302,8 @@ func (s *Service) setAIAgentAccessPolicy(r *http.Request) (map[string]interface{
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		return nil, err
 	}
-	switch payload.Policy {
-	case AIAccessPolicyMinimal, AIAccessPolicyStandard, AIAccessPolicyFull:
-	default:
-		return nil, fmt.Errorf("policy 必须是 minimal / standard / full 之一")
+	if !aiAccessPolicies[payload.Policy] {
+		return nil, fmt.Errorf("policy 必须是 minimal / sensitive / standard / full 之一")
 	}
 	db, err := s.store.Open(r.Context())
 	if err != nil {
@@ -334,58 +335,6 @@ func (s *Service) getOrCreateAIAgentKey(ctx context.Context, db *sql.DB) (string
 		('ai_agent_key', ?, 'AI access bearer key', ?),
 		('ai_agent_key_created_at', ?, 'AI access bearer key creation time', ?)`, key, now, now, now)
 	return key, now, err
-}
-
-func (s *Service) getAIAgentWriteEnabled(ctx context.Context, db *sql.DB) (bool, error) {
-	var value string
-	err := db.QueryRowContext(ctx, "SELECT value FROM system_config WHERE key = ?", aiAgentWriteEnabledKey).Scan(&value)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return value == "1" || strings.EqualFold(value, "true"), nil
-}
-
-func (s *Service) AIAgentWriteAllowed(ctx context.Context) (bool, error) {
-	db, err := s.store.Open(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer db.Close()
-	return s.getAIAgentWriteEnabled(ctx, db)
-}
-
-func (s *Service) setAIAgentWriteEnabled(r *http.Request) (map[string]interface{}, error) {
-	var payload struct {
-		WriteEnabled bool `json:"writeEnabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-	db, err := s.store.Open(r.Context())
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	now := time.Now().UTC().Format(time.RFC3339)
-	value := "0"
-	if payload.WriteEnabled {
-		value = "1"
-	}
-	if _, err := db.ExecContext(r.Context(), `INSERT OR REPLACE INTO system_config (key, value, description, updated_at) VALUES (?, ?, ?, ?)`,
-		aiAgentWriteEnabledKey, value, "AI agent write access toggle", now); err != nil {
-		return nil, err
-	}
-	status := "disabled"
-	detail := "AI 写入已关闭"
-	if payload.WriteEnabled {
-		status = "enabled"
-		detail = "AI 写入已开启"
-	}
-	_ = s.insertAIAudit(r.Context(), db, "admin", "toggle_write", aiAgentWriteEnabledKey, status, 0, detail, s.clientIP(r), r.UserAgent())
-	return s.aiAccessOverview(r)
 }
 
 func (s *Service) validateAIAgent(r *http.Request, db *sql.DB) bool {
@@ -628,6 +577,8 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 		return s.callAPIFromAI(r.Context(), args)
 	case "filebox_share_from_agent":
 		return s.fileboxShareFromAgent(r.Context(), args)
+	case "agent_run_command":
+		return s.agentRunCommand(r.Context(), args)
 	case "run_batch":
 		return s.aiRunBatch(r, args)
 	default:
@@ -1102,6 +1053,31 @@ func (s *Service) fileboxShareFromAgent(ctx context.Context, args map[string]int
 	})
 }
 
+// agentRunCommand 是 agent_run_command 元工具的实现：组装对
+// /api/server/agent/command/{id} 的 POST 调用，复用 callAPIFromAI 的完整约束
+// （写权限门槛、危险命令门控由下游 serveragent 处理）。
+func (s *Service) agentRunCommand(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverID, _ := args["serverId"].(string)
+	command, _ := args["command"].(string)
+	if strings.TrimSpace(serverID) == "" || strings.TrimSpace(command) == "" {
+		return nil, fmt.Errorf("serverId 与 command 均为必填")
+	}
+	body := map[string]interface{}{
+		"command": command,
+	}
+	if timeout, ok := args["timeout"].(float64); ok && timeout > 0 {
+		body["timeout"] = int(timeout)
+	}
+	if confirm, ok := args["confirm"].(bool); ok && confirm {
+		body["confirm"] = true
+	}
+	return s.callAPIFromAI(ctx, map[string]interface{}{
+		"method": http.MethodPost,
+		"path":   "/api/server/agent/command/" + strings.TrimSpace(serverID),
+		"body":   body,
+	})
+}
+
 // batchOp 表示 run_batch 中的单个操作。
 type batchOp struct {
 	name   string
@@ -1218,7 +1194,7 @@ func (s *Service) aiRunBatch(r *http.Request, args map[string]interface{}) (inte
 		"total":  len(items),
 		"ok":     len(items) - failed,
 		"failed": failed,
-		"note":   "run_batch 逐个复用 call_api 的鉴权与只读约束；写操作需全局开启「允许写入」。",
+		"note":   "run_batch 逐个复用 call_api 的鉴权与权限模式约束；写操作是否允许由 AI 接入权限模式决定。",
 		"items":  items,
 	}, nil
 }
@@ -1317,7 +1293,8 @@ func (s *Service) aiTools() []map[string]interface{} {
 		{"name": "get_system_status", "description": "读取本机系统运行状态（CPU/内存/磁盘）；displayTime/serverTime 为站点当前时间（本地时区），回答时间/换算 cron 必须用 displayTime 或 serverTime.local，禁止用 timestamp（UTC）", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "call_api", "description": "调用 API Monitor 内部接口，支持 GET/POST/PUT/PATCH/DELETE、请求头和 JSON 请求体；请求体结构先用 get_route 获取。强制规则：写操作（POST/PUT/PATCH/DELETE）返回后必须立即用 GET 回读验证真实生效（如列表/详情确认状态、next_run 等），且必须检查响应中的 success/error 字段，发现 success=false 或 error 非空即视为失败，绝不向用户宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true, "description": "JSON 请求体，字段以 get_route 返回的 requestSchema/requestExample 为准"}}, "required": []string{"path"}}},
 		{"name": "run_batch", "description": "一次提交 1-20 个接口调用并聚合返回结果（串行或并行），减少多轮往返；每个操作复用 call_api 的鉴权与写权限约束。强制规则：含写操作（POST/PUT/PATCH/DELETE）的批次，完成后必须回读验证真实生效并检查每个子项的 ok/error 字段，任一子项 ok=false 或业务失败即视为整体未完成，绝不宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"operations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string", "description": "操作名（便于阅读结果）"}, "method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true}}, "required": []string{"path"}}, "description": "要执行的接口调用数组"}, "mode": map[string]interface{}{"type": "string", "enum": []string{"serial", "parallel"}, "description": "执行模式（默认 serial）"}, "stopOnError": map[string]interface{}{"type": "boolean", "description": "serial 模式下遇到失败是否停止后续（默认 false）"}}, "required": []string{"operations"}}},
-		{"name": "filebox_share_from_agent", "description": "把一台 Agent 主机上的文件转成文件柜分享，返回可直接下载的分享链接与直链。这是把「某台主机上的文件给别人下载」的标准工具，无需先 list_apis/find_api。storageTarget=auto（默认）时优先把文件放到公网存储节点并让源主机直传（面板零流量），无可用节点或旧版 Agent 时自动回退为主站本地/面板中转。写操作，需管理员开启「允许写入」。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID）"}, "remotePath": map[string]interface{}{"type": "string", "description": "主机上的文件路径（受 Agent 文件沙箱约束：默认根或 API_MONITOR_FILE_ROOTS 白名单内）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "auto（默认，优先可用存储节点并让源主机直传）/ local（主站本地）/ 指定存储节点 serverId"}, "expiry": map[string]interface{}{"type": "string", "description": "有效期小时数，如 24；不传用文件柜默认值"}, "burn_after_reading": map[string]interface{}{"type": "boolean", "description": "阅后即焚（下载一次后删除）"}, "max_downloads": map[string]interface{}{"type": "string", "description": "最大下载次数，0 或不传为不限"}, "access_password": map[string]interface{}{"type": "string", "description": "分享访问密码（可选）"}}, "required": []string{"serverId", "remotePath"}}},
+		{"name": "filebox_share_from_agent", "description": "把一台 Agent 主机上的文件转成文件柜分享，返回可直接下载的分享链接与直链。这是把「某台主机上的文件给别人下载」的标准工具，无需先 list_apis/find_api。storageTarget=auto（默认）时优先把文件放到公网存储节点并让源主机直传（面板零流量），无可用节点或旧版 Agent 时自动回退为主站本地/面板中转。写操作，需 AI 接入权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID）"}, "remotePath": map[string]interface{}{"type": "string", "description": "主机上的文件路径（受 Agent 文件沙箱约束：默认根或 API_MONITOR_FILE_ROOTS 白名单内）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "auto（默认，优先可用存储节点并让源主机直传）/ local（主站本地）/ 指定存储节点 serverId"}, "expiry": map[string]interface{}{"type": "string", "description": "有效期小时数，如 24；不传用文件柜默认值"}, "burn_after_reading": map[string]interface{}{"type": "boolean", "description": "阅后即焚（下载一次后删除）"}, "max_downloads": map[string]interface{}{"type": "string", "description": "最大下载次数，0 或不传为不限"}, "access_password": map[string]interface{}{"type": "string", "description": "分享访问密码（可选）"}}, "required": []string{"serverId", "remotePath"}}},
+		{"name": "agent_run_command", "description": "在指定 Agent 主机上执行一条 shell 命令并同步返回 stdout/stderr 输出，无需登录 SSH。这是「在某台主机上跑命令」的标准工具，无需先 list_apis/find_api。仅对已安装 Agent 且在线的主机有效（先调 /api/server/accounts 取 serverId 并确认 agent_online=true）。危险命令（rm -rf、dd、mkfs、shutdown/reboot、docker rm/prune、kubectl delete、DROP DATABASE/TABLE、Remove-Item -Recurse 等）会被 commandguard 拦截：standard 模式硬拦截，sensitive 模式返回 requires_confirmation 提示（确认后带 confirm=true 重新调用即可执行），full 模式直接放行。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID 并确认在线）"}, "command": map[string]interface{}{"type": "string", "description": "要执行的 shell 命令（Linux 走 sh，Windows 走 cmd /C；PowerShell 会自动改写为 -EncodedCommand）"}, "timeout": map[string]interface{}{"type": "integer", "description": "超时秒数，默认 30，上限 300"}, "confirm": map[string]interface{}{"type": "boolean", "description": "危险命令二次确认：敏感模式下首次返回 requires_confirmation，确认后带 confirm=true 重试"}}, "required": []string{"serverId", "command"}}},
 	}
 }
 
@@ -1339,7 +1316,7 @@ func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, key string, too
 - 版本：%s
 - 接入密钥（Agent Key）：%s
 - 鉴权头：Authorization: Bearer %s
-- 权限：默认只读；写操作需管理员在「API 文档 → AI 接入」开启「允许写入」
+- 权限：由「API 文档 → AI 接入」的权限模式决定（minimal 只读 / sensitive 敏感 / standard 标准 / full 全部权限）
 
 ## 端点
 - 能力清单（manifest，GET）：%s
@@ -1376,7 +1353,7 @@ func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, key string, too
 2. 用 list_apis 扫目录（可按 group / module / search 过滤，先只看目标模块，省 token）。
 3. 确定要调用的接口后，用 get_route <path> 获取该接口的完整契约（路径参数、请求体 schema、示例、鉴权）。
 4. 按契约用 call_api 调用；请求体字段以 get_route 返回的 requestSchema / requestExample 为准，不要猜。
-5. 默认只读；写操作（POST/PUT/PATCH/DELETE）会返回「写入未启用」提示，需管理员在「API 文档 → AI 接入」开启「允许写入」。
+5. 写操作（POST/PUT/PATCH/DELETE）是否允许由权限模式决定：minimal 只读时写操作会被拒绝；sensitive/standard/full 允许写入。危险命令在 standard 下硬拦截、sensitive 下需二次确认、full 下放行。
 6. 密钥可随时在「API 文档 → AI 接入」页面轮换；请勿将密钥写入公开仓库。
 
 ## 强制验证规则（不可省略）

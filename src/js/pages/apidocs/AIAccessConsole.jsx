@@ -1,16 +1,41 @@
 import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { ClipboardText, Switch } from '@cloudflare/kumo';
+import { ClipboardText } from '@cloudflare/kumo';
 import { AppCard, EmptyState, SectionCard, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Bot, Copy, Eye, EyeOff, Key, Plug, Shield } from '../../components/Icons.jsx';
+import { AlertTriangle, Bot, Copy, Eye, EyeOff, Key, Plug, Shield } from '../../components/Icons.jsx';
 import { SnippetBox } from './components.jsx';
 import { fixedPanelClass } from './constants.js';
 
 const POLICY_CARDS = [
-  { value: 'minimal', title: '只读', Icon: Eye },
-  { value: 'standard', title: '标准', Icon: Shield },
-  { value: 'full', title: '全部权限', Icon: Key },
+  {
+    value: 'minimal',
+    title: '只读',
+    Icon: Eye,
+    summary: '仅允许读取与查询',
+    detail: '拒绝一切写操作（POST/PUT/PATCH/DELETE），最安全，适合只作查询的客户端。',
+  },
+  {
+    value: 'sensitive',
+    title: '敏感',
+    Icon: AlertTriangle,
+    summary: '写入放行，危险操作需确认',
+    detail: '允许写入；危险命令（rm -rf、dd、shutdown 等）软拦截，Agent 需显式确认一次才执行。',
+  },
+  {
+    value: 'standard',
+    title: '标准',
+    Icon: Shield,
+    summary: '写入放行，危险操作硬拦截',
+    detail: '允许写入；危险命令直接拒绝，管理 AI 路由（admin-ai）不可达。默认模式。',
+  },
+  {
+    value: 'full',
+    title: '全部权限',
+    Icon: Key,
+    summary: '等同 SSH root',
+    detail: '放开全部管理面与危险操作，仅保留防自毁拦截（AI 递归调用、密钥轮换）。',
+  },
 ];
 
 export default function AIAccessConsole({
@@ -21,7 +46,6 @@ export default function AIAccessConsole({
   setKeyVisible,
   onRefresh,
   onRotateKey,
-  onToggleWrite,
   onSetPolicy,
   onCopy,
 }) {
@@ -97,8 +121,8 @@ export default function AIAccessConsole({
           </div>
         </SectionCard>
 
-        <SectionCard title="调用策略" icon={<Shield className="h-4 w-4 text-brand" />}>
-          <div className="grid gap-2 text-xs text-kumo-subtle">
+        <SectionCard title="权限模式" icon={<Shield className="h-4 w-4 text-brand" />}>
+          <div className="grid gap-3 text-xs text-kumo-subtle">
             <div className="flex items-center justify-between gap-2 rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2">
               <span>允许方法</span>
               <span className="font-mono text-kumo-strong">
@@ -111,21 +135,8 @@ export default function AIAccessConsole({
                 {policy.bodyLimitBytes ? `${Math.round(policy.bodyLimitBytes / 1024)} KB` : '-'}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-2 rounded-md border border-kumo-line/80 bg-kumo-recessed/25 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span>允许写入</span>
-                <span className="hidden text-[10px] text-kumo-subtle cq-sm:inline">
-                  开启后 Agent 才能执行 POST/PUT/PATCH/DELETE，全部写入都会审计
-                </span>
-              </div>
-              <Switch
-                checked={policy.writeEnabled === true}
-                onCheckedChange={checked => onToggleWrite(Boolean(checked))}
-                aria-label="允许 AI Agent 写入操作"
-              />
-            </div>
-            <div className="grid gap-2 cq-md:grid-cols-3">
-              {POLICY_CARDS.map(({ value, title, Icon }) => {
+            <div className="grid gap-2 cq-sm:grid-cols-2">
+              {POLICY_CARDS.map(({ value, title, Icon, summary, detail }) => {
                 const active = (policy.accessPolicy || 'standard') === value;
                 return (
                   <button
@@ -134,15 +145,24 @@ export default function AIAccessConsole({
                     onClick={() => onSetPolicy(value)}
                     aria-pressed={active}
                     aria-label={`切换到 ${title} 权限模式`}
-className={cx(
-                      'flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3',
+                    className={cx(
+                      'selectable-policy-card flex flex-col items-start gap-2 rounded-lg border px-3 py-3 text-left',
                       active
-                        ? 'border-(--text-color-brand) bg-kumo-tint text-brand'
-                        : 'border-kumo-line bg-kumo-recessed/25 text-kumo-strong hover:bg-kumo-recessed/50'
+                        ? 'border-(--text-color-brand) bg-kumo-tint'
+                        : 'border-kumo-line bg-kumo-recessed/25 hover:bg-kumo-recessed/50'
                     )}
                   >
-                    <Icon className={cx('h-4 w-4', active ? 'text-brand' : 'text-kumo-strong')} />
-                    <span className="text-xs font-medium">{title}</span>
+                    <div className="flex items-center gap-2">
+                      <Icon className={cx('h-4 w-4', active ? 'text-brand' : 'text-kumo-strong')} />
+                      <span className={cx('text-xs font-semibold', active ? 'text-brand' : 'text-kumo-strong')}>
+                        {title}
+                      </span>
+                      {active && <span className="ml-auto text-[10px] font-semibold text-brand">当前</span>}
+                    </div>
+                    <div className={cx('text-[11px] font-medium', active ? 'text-brand' : 'text-kumo-strong')}>
+                      {summary}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-kumo-subtle">{detail}</p>
                   </button>
                 );
               })}
@@ -179,7 +199,7 @@ className={cx(
               {
                 step: '3',
                 title: '按契约调用',
-                text: '先用 get_route 取接口请求体 schema 与示例，再 call_api 调用，减少试错；写入需开启「允许写入」。',
+                text: '先用 get_route 取接口请求体 schema 与示例，再 call_api 调用，减少试错；写操作是否允许由权限模式决定。',
               },
             ].map(item => (
               <div

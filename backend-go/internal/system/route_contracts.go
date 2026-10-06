@@ -221,9 +221,7 @@ func init() {
 	routeRequestContracts["/api/ai-access/skills/{id}"] = routeRequestContracts["/api/ai-access/skills"]
 	routeRequestContracts["/api/system/ai-access/skills"] = routeRequestContracts["/api/ai-access/skills"]
 	routeRequestContracts["/api/system/ai-access/skills/{id}"] = routeRequestContracts["/api/ai-access/skills"]
-	routeRequestContracts["/api/ai-access/write"] = obj([]string{"writeEnabled"}, map[string]prop{"writeEnabled": {t: "boolean", req: true, d: "是否允许 AI 写操作"}})
-	routeRequestContracts["/api/system/ai-access/write"] = routeRequestContracts["/api/ai-access/write"]
-	routeRequestContracts["/api/ai-access/policy"] = obj([]string{"policy"}, map[string]prop{"policy": {t: "string", req: true, e: []string{"minimal", "standard", "full"}, d: "AI 接入权限模式"}})
+	routeRequestContracts["/api/ai-access/policy"] = obj([]string{"policy"}, map[string]prop{"policy": {t: "string", req: true, e: []string{"minimal", "sensitive", "standard", "full"}, d: "AI 接入权限模式：minimal 只读 / sensitive 敏感（危险命令软拦截）/ standard 标准（硬拦截）/ full 全部权限"}})
 	routeRequestContracts["/api/system/ai-access/policy"] = routeRequestContracts["/api/ai-access/policy"]
 	routeRequestContracts["/api/api-keys"] = obj([]string{"name"}, map[string]prop{
 		"name":      {t: "string", req: true, d: "密钥名称"},
@@ -701,6 +699,7 @@ func init() {
 	routeRequestContracts["/api/server/agent/command/{id}"] = obj([]string{"command"}, map[string]prop{
 		"command": {t: "string", req: true},
 		"timeout": {t: "integer"},
+		"confirm": {t: "boolean", d: "危险命令二次确认（敏感模式下软拦截，需带 confirm=true 才会执行）"},
 	})
 	routeRequestContracts["/api/server/agent/auto-install/{id}"] = obj(nil, map[string]prop{"protocol": {t: "string"}})
 	routeRequestContracts["/api/server/monitor/collect"] = noBody

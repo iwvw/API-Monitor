@@ -93,6 +93,9 @@ function isAllowedRawControl(tag, line, lines, index) {
   if (tag === 'button' && /\bflex flex-col items-center gap-1\.5 rounded-lg border/.test(block)) {
     return 'icon+label selectable card';
   }
+  if (tag === 'button' && /\bselectable-policy-card\b/.test(block)) {
+    return 'AI 接入权限模式选择卡（多行说明 + aria-pressed）';
+  }
   if (tag === 'label' && /\bapp-file-dropzone\b/.test(block)) {
     return 'file dropzone label overlay';
   }

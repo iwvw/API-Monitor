@@ -442,17 +442,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response.OK(w, payload)
-	case "/api/system/ai-access/write":
-		if r.Method != http.MethodPut {
-			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		payload, err := s.setAIAgentWriteEnabled(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.OK(w, payload)
 	case "/api/system/ai-access/policy":
 		if r.Method != http.MethodPut {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")

@@ -72,6 +72,7 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 	var req struct {
 		Command string `json:"command"`
 		Timeout int    `json:"timeout"` // 秒，可选
+		Confirm bool   `json:"confirm"` // 危险命令二次确认（敏感模式下软拦截要求）
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
@@ -83,19 +84,35 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// 危险命令拦截（对原始明文检测，防 base64 绕过）
-	// 完全批准放行：仅当请求由管理 AI 内部调用发出（X-AI-Agent 头由服务端
-	// ai_caller 注入，外部不可伪造）且携带完全批准标记时才跳过拦截，
-	// 否则任何调用方一律在危险命令前被拒。
+	// 危险命令门控（对原始明文检测，防 base64 绕过）。判定依据调用来源：
+	//   full / 管理 AI 完全批准 → 放行
+	//   sensitive（敏感模式）   → 软拦截：未显式确认时返回确认提示，确认后放行
+	//   standard（标准模式）及其他来源 → 硬拦截
 	danger := DetectDangerousCommand(command)
-	if danger.Dangerous && !s.allowDangerousFromAdminAI(r) {
-		response.JSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success":       false,
-			"error":         "dangerous command rejected: " + strings.Join(danger.Reasons, ", "),
-			"dangerous":     true,
-			"dangerReasons": danger.Reasons,
-		})
-		return
+	if danger.Dangerous {
+		switch s.dangerousCommandDecision(r) {
+		case dangerousAllow:
+			// 放行
+		case dangerousConfirm:
+			if !req.Confirm {
+				response.JSON(w, http.StatusOK, map[string]interface{}{
+					"success":               false,
+					"requires_confirmation": true,
+					"dangerous":             true,
+					"dangerReasons":         danger.Reasons,
+					"error":                 "该命令被判定为危险操作（" + strings.Join(danger.Reasons, "、") + "）。当前为敏感模式：如确认执行，请带 confirm=true 重新调用；如不需要，请改用更安全的命令。",
+				})
+				return
+			}
+		default:
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success":       false,
+				"error":         "dangerous command rejected: " + strings.Join(danger.Reasons, ", "),
+				"dangerous":     true,
+				"dangerReasons": danger.Reasons,
+			})
+			return
+		}
 	}
 
 	// PowerShell 命令改写为 -EncodedCommand 形式：Agent 端经 cmd /C 执行，
@@ -267,9 +284,34 @@ func utf16LEBytes(s string) []byte {
 	return out
 }
 
-// allowDangerousFromAdminAI 判断危险命令放行是否成立：请求必须由管理 AI 引擎在
-// 「完全批准模式」下发起（通过 server 内部 ai_caller 注入到 request context，
-// HTTP 客户端无法伪造 context 值），否则一律在危险命令前拦截。
+// dangerousDecision 危险命令的处理决策。
+type dangerousDecision int
+
+const (
+	dangerousReject  dangerousDecision = iota // 硬拦截
+	dangerousConfirm                          // 软拦截：需调用方显式确认
+	dangerousAllow                            // 直接放行
+)
+
+// dangerousCommandDecision 依据调用来源决定危险命令的处理方式。
+// 判定优先级：管理 AI 完全批准 > 会话内 AI 接入权限模式 > 默认硬拦截。
+// 权限模式标记只能由服务端内部（server/ai_caller.go）注入到 request context，
+// 外部 HTTP 请求无法伪造，因此不会成为绕过拦截的路径。
+func (s *Service) dangerousCommandDecision(r *http.Request) dangerousDecision {
+	if AdminAIFullApprove(r.Context()) {
+		return dangerousAllow
+	}
+	switch AIPolicyMode(r.Context()) {
+	case aiPolicyFull:
+		return dangerousAllow
+	case aiPolicySensitive:
+		return dangerousConfirm
+	default:
+		return dangerousReject
+	}
+}
+
+// allowDangerousFromAdminAI 保留旧语义：仅「管理 AI 完全批准」时放行危险命令。
 func (s *Service) allowDangerousFromAdminAI(r *http.Request) bool {
 	return AdminAIFullApprove(r.Context())
 }
@@ -288,4 +330,31 @@ func WithAdminAIFullApprove(ctx context.Context) context.Context {
 func AdminAIFullApprove(ctx context.Context) bool {
 	v, _ := ctx.Value(adminAIFullApproveKey{}).(bool)
 	return v
+}
+
+// aiPolicyMode 是 AI 接入权限模式在本模块的镜像值，避免反向依赖 system 包。
+type aiPolicyMode string
+
+const (
+	aiPolicyMinimal   aiPolicyMode = "minimal"
+	aiPolicySensitive aiPolicyMode = "sensitive"
+	aiPolicyStandard  aiPolicyMode = "standard"
+	aiPolicyFull      aiPolicyMode = "full"
+)
+
+// aiPolicyModeKey 是 AI 接入权限模式的 context key 类型。
+type aiPolicyModeKey struct{}
+
+// WithAIPolicyMode 把当前 AI 接入权限模式写入 context。仅由服务端内部
+// （server/ai_caller.go）在转发 AI 调用时注入；外部请求无法伪造。
+func WithAIPolicyMode(ctx context.Context, mode string) context.Context {
+	return context.WithValue(ctx, aiPolicyModeKey{}, aiPolicyMode(mode))
+}
+
+// AIPolicyMode 读取 context 中的 AI 接入权限模式，缺省视为 standard（最保守）。
+func AIPolicyMode(ctx context.Context) aiPolicyMode {
+	if v, ok := ctx.Value(aiPolicyModeKey{}).(aiPolicyMode); ok {
+		return v
+	}
+	return aiPolicyStandard
 }

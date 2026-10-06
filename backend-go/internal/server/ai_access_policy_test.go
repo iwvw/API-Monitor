@@ -113,16 +113,6 @@ func TestAIAccessPolicyMinimalBlocksWrites(t *testing.T) {
 	overview := keyPayload["data"].(map[string]interface{})
 	agentKey := overview["agentKey"].(map[string]interface{})["value"].(string)
 
-	// 开启写开关也无济于事：minimal 由调用侧强制只读
-	writeReq := httptest.NewRequest(http.MethodPut, "/api/system/ai-access/write", strings.NewReader(`{"writeEnabled":true}`))
-	writeReq.AddCookie(cookie)
-	writeReq.Header.Set("Content-Type", "application/json")
-	writeRes := httptest.NewRecorder()
-	handler.ServeHTTP(writeRes, writeReq)
-	if writeRes.Code != http.StatusOK {
-		t.Fatalf("enable write status = %d", writeRes.Code)
-	}
-
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"call_api","arguments":{"method":"POST","path":"/api/backup/run"}}}`
 	req := httptest.NewRequest(http.MethodPost, "/api/ai/mcp", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+agentKey)

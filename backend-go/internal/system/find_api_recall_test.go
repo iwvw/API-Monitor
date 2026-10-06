@@ -89,3 +89,34 @@ func anyHit(routes []map[string]interface{}, want string) bool {
 }
 
 var _ = manifest.OwnerGo
+
+func TestFindAPIRecallsAgentCommand(t *testing.T) {
+	s := New(config.Config{Version: "test", DataDir: t.TempDir(), DBName: "data.db", Host: "127.0.0.1", Port: 0})
+	intents := []string{
+		"在主机上执行 shell 命令",
+		"远程执行命令",
+		"运行一个 shell 命令",
+		"exec command on host",
+	}
+	for _, intent := range intents {
+		res, err := s.aiFindAPIs(map[string]interface{}{"intent": intent, "limit": 5})
+		if err != nil {
+			t.Fatalf("intent %q err: %v", intent, err)
+		}
+		routes := res.(map[string]interface{})["routes"].([]map[string]interface{})
+		found := false
+		for _, r := range routes {
+			if r["path"] == "/api/server/agent/command/{id}" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			paths := make([]string, 0, len(routes))
+			for _, r := range routes {
+				paths = append(paths, r["path"].(string))
+			}
+			t.Fatalf("intent %q did not recall agent command; got %v", intent, paths)
+		}
+	}
+}

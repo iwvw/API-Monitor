@@ -418,7 +418,7 @@ var apiDocSeeds = []apiDocSeed{
 	// （「发送命令执行（POST）」标注可覆盖，此处显式登记双保险；
 	// 修复前契约只暴露 GET，导致 AI 无法向 Agent 下发命令执行）。
 	{
-		Route: manifest.Route{Prefix: "/api/server/agent/command/{id}", Module: "server-agent", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Get agent install command or send command execution to agent", MatchMode: manifest.MatchPattern},
+		Route: manifest.Route{Prefix: "/api/server/agent/command/{id}", Module: "server-agent", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Run a shell command on a host and return output (POST); GET returns the Agent install command", MatchMode: manifest.MatchPattern},
 		Docs:  apiRouteDocs{Methods: []string{"GET", "POST"}},
 	},
 	{
@@ -557,8 +557,6 @@ var apiDocSeeds = []apiDocSeed{
 	// ---- system/ai-access（修正方法 + 补密钥管理）----
 	{Route: manifest.Route{Prefix: "/api/system/ai-access/audit/clear", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Clear AI access audit records", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/system/ai-access/write", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Toggle AI agent write permission", MatchMode: manifest.MatchExact},
-		Docs: apiRouteDocs{Methods: []string{"PUT"}}},
 	{Route: manifest.Route{Prefix: "/api/system/ai-access/policy", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Set AI agent access policy", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"PUT"}}},
 	{Route: manifest.Route{Prefix: "/api/system/ai-access/mcp-servers", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Add/update AI MCP server config（列表见 overview）", MatchMode: manifest.MatchExact},
@@ -575,8 +573,6 @@ var apiDocSeeds = []apiDocSeed{
 	// ai-access 别名路径（/api/ai-access/*，与 /api/system/ai-access/* 同 handler 不同前缀）
 	{Route: manifest.Route{Prefix: "/api/ai-access/audit/clear", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Clear AI access audit records", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/ai-access/write", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Toggle AI agent write permission", MatchMode: manifest.MatchExact},
-		Docs: apiRouteDocs{Methods: []string{"PUT"}}},
 	{Route: manifest.Route{Prefix: "/api/ai-access/policy", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Set AI agent access policy", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"PUT"}}},
 	{Route: manifest.Route{Prefix: "/api/ai-access/mcp-servers", Module: "system-ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Add/update AI MCP server config（列表见 overview）", MatchMode: manifest.MatchExact},

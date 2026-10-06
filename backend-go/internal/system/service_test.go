@@ -1280,3 +1280,48 @@ func TestFileboxShareFromAgentTool(t *testing.T) {
 		t.Fatal("filebox_share_from_agent not present in aiTools()")
 	}
 }
+
+
+func TestAgentRunCommandTool(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var captured AICallRequest
+	service.SetAICaller(func(ctx context.Context, req AICallRequest) (AICallResponse, error) {
+		captured = req
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentRunCommand(context.Background(), map[string]interface{}{"serverId": "srv-1"}); err == nil {
+		t.Fatal("expected error when command missing")
+	}
+
+	if _, err := service.agentRunCommand(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"command":  "uname -a",
+		"timeout":  float64(15),
+	}); err != nil {
+		t.Fatalf("agentRunCommand err: %v", err)
+	}
+	if captured.Method != http.MethodPost || captured.Path != "/api/server/agent/command/srv-1" {
+		t.Fatalf("unexpected call: %s %s", captured.Method, captured.Path)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(captured.Body, &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["command"] != "uname -a" || body["timeout"] != float64(15) {
+		t.Fatalf("unexpected body: %#v", body)
+	}
+
+	found := false
+	for _, tool := range service.aiTools() {
+		if tool["name"] == "agent_run_command" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("agent_run_command not present in aiTools()")
+	}
+}

@@ -3508,6 +3508,41 @@ func TestAgentExecCommandDangerous(t *testing.T) {
 	}
 }
 
+func TestAgentExecCommandPolicyModes(t *testing.T) {
+	service, _ := testService(t)
+
+	// 无策略标记（默认 standard）→ 危险命令硬拦截
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1", `{"command":"rm -rf /tmp/x"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("standard: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	makeReq := func(mode string, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/server/agent/command/server-1", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(WithAIPolicyMode(req.Context(), mode))
+		res := httptest.NewRecorder()
+		service.ServeHTTP(res, req)
+		return res
+	}
+
+	// sensitive → 软拦截：未确认返回 requires_confirmation
+	rec = makeReq("sensitive", `{"command":"rm -rf /tmp/x"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sensitive: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["requires_confirmation"] != true || payload["dangerous"] != true {
+		t.Fatalf("sensitive should soft-block with confirmation: %s", rec.Body.String())
+	}
+
+	// full → 放行危险命令，随后落入在线检查（此处离线 → 502）
+	rec = makeReq("full", `{"command":"rm -rf /tmp/x"}`)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("full should bypass dangerous gate and hit offline check, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAgentExecCommandOffline(t *testing.T) {
 	service, _ := testService(t)
 	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1", `{"command":"echo hi"}`)

@@ -41,7 +41,11 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 		return systemmetrics.AICallResponse{}, fmt.Errorf("密钥管理接口不允许通过 Agent 调用")
 	}
 
-	// 权限模式：minimal 只读 / standard 写需开关且管理 AI 路由不可达 / full 全放开（单用户自用）
+	// 权限模式（四档，逐级放开）：
+	//   minimal   只读，写方法一律拒绝
+	//   sensitive 允许写入，危险命令软拦截（调用方确认后执行）
+	//   standard  允许写入，危险命令硬拦截
+	//   full      等同 SSH root，全部放开
 	accessPolicy, err := s.system.AIAgentAccessPolicy(ctx)
 	if err != nil {
 		return systemmetrics.AICallResponse{}, err
@@ -49,18 +53,9 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	if accessPolicy == systemmetrics.AIAccessPolicyMinimal && isWriteAIMethod(method) {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("AI 接入处于只读模式（minimal），写操作已禁用")
 	}
-	if accessPolicy == systemmetrics.AIAccessPolicyStandard {
+	if accessPolicy == systemmetrics.AIAccessPolicyStandard || accessPolicy == systemmetrics.AIAccessPolicySensitive {
 		if strings.HasPrefix(targetPath, "/api/admin-ai/") {
 			return systemmetrics.AICallResponse{}, fmt.Errorf("管理 AI 路由不允许通过 Agent 调用")
-		}
-		if isWriteAIMethod(method) {
-			writeAllowed, err := s.system.AIAgentWriteAllowed(ctx)
-			if err != nil {
-				return systemmetrics.AICallResponse{}, err
-			}
-			if !writeAllowed {
-				return systemmetrics.AICallResponse{}, fmt.Errorf("Agent 写入操作未启用；请在「AI 接入」设置中开启允许写入")
-			}
 		}
 	}
 	if len(call.Body) > 1024*1024 {
@@ -102,6 +97,9 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	if route.Module == "filebox" {
 		ctx = filebox.WithInternalAICall(ctx)
 	}
+	// 把当前 AI 接入权限模式下传给模块（serveragent 危险命令门控依赖它区分
+	// 硬拦截/软拦截/放行）；context 值不可由外部 HTTP 请求伪造。
+	ctx = serveragent.WithAIPolicyMode(ctx, accessPolicy)
 
 	var body io.Reader
 	if len(call.Body) > 0 {

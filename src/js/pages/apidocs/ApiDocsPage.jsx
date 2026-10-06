@@ -275,19 +275,6 @@ function ApiDocsPage() {
     }
   };
 
-  const toggleAIWrite = async enabled => {
-    try {
-      const payload = await apiRequest(`${AI_ACCESS_BASE}/write`, {
-        method: 'PUT',
-        body: JSON.stringify({ writeEnabled: enabled }),
-      });
-      setAiAccess(payload);
-      toast.success(enabled ? '已开启 AI 写入，写操作将受到审计' : '已关闭 AI 写入，Agent 仅可读');
-    } catch (error) {
-      toast.error(error.message || '切换失败');
-    }
-  };
-
   const setAIAccessPolicy = async policy => {
     try {
       const payload = await apiRequest(`${AI_ACCESS_BASE}/policy`, {
@@ -295,7 +282,12 @@ function ApiDocsPage() {
         body: JSON.stringify({ policy }),
       });
       setAiAccess(payload);
-      const label = { minimal: '只读（minimal）', standard: '标准（standard）', full: '全部权限（full）' }[policy] || policy;
+      const label = {
+        minimal: '只读（minimal）',
+        sensitive: '敏感（sensitive）',
+        standard: '标准（standard）',
+        full: '全部权限（full）',
+      }[policy] || policy;
       toast.success(`AI 接入权限模式已切换为 ${label}`);
     } catch (error) {
       toast.error(error.message || '切换失败');
@@ -614,7 +606,6 @@ function ApiDocsPage() {
             setKeyVisible={setKeyVisible}
             onRefresh={refreshAIAccess}
             onRotateKey={rotateAIKey}
-            onToggleWrite={toggleAIWrite}
             onSetPolicy={setAIAccessPolicy}
             onCopy={copyText}
           />

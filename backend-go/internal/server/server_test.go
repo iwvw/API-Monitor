@@ -200,7 +200,7 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 	handler := testServer(t)
 	cookie := loginServerForTest(t, handler)
 
-	getAgentKey := func() (string, bool) {
+	getAgentKey := func() (string, string) {
 		keyReq := httptest.NewRequest(http.MethodGet, "/api/system/ai-access", nil)
 		keyReq.AddCookie(cookie)
 		keyRes := httptest.NewRecorder()
@@ -214,13 +214,13 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 		}
 		overview := keyPayload["data"].(map[string]interface{})
 		policy := overview["policy"].(map[string]interface{})
-		writeEnabled := policy["writeEnabled"].(bool)
-		return overview["agentKey"].(map[string]interface{})["value"].(string), writeEnabled
+		accessPolicy, _ := policy["accessPolicy"].(string)
+		return overview["agentKey"].(map[string]interface{})["value"].(string), accessPolicy
 	}
 
-	agentKey, writeEnabled := getAgentKey()
-	if writeEnabled {
-		t.Fatal("expected write access to default to disabled")
+	agentKey, accessPolicy := getAgentKey()
+	if accessPolicy != "standard" {
+		t.Fatalf("expected default policy standard, got %q", accessPolicy)
 	}
 
 	callTools := func(name string, args map[string]interface{}) map[string]interface{} {
@@ -246,43 +246,21 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 		return payload
 	}
 
-	// 写入方法在未开启时被拒绝
+	// standard 模式允许写操作（写开关已移除，由权限模式统一治理）
 	payload := callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/backup/run"})
-	if payload["error"] == nil {
-		t.Fatalf("expected write call to be rejected, got %#v", payload)
+	if payload["error"] != nil {
+		t.Fatalf("standard policy should allow writes, got %#v", payload["error"])
 	}
-	if !strings.Contains(payload["error"].(map[string]interface{})["message"].(string), "写入") {
-		t.Fatalf("unexpected rejection message: %#v", payload["error"])
+	result := payload["result"].(map[string]interface{})
+	callResult := result["structuredContent"].(map[string]interface{})
+	if callResult["statusCode"].(float64) != 200 {
+		t.Fatalf("expected proxied status 200, got %#v", callResult)
 	}
 
 	// 密钥轮换别名路径必须始终被屏蔽
 	payload = callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/ai-access/key/rotate"})
 	if payload["error"] == nil {
 		t.Fatalf("expected key rotate alias to be blocked, got %#v", payload)
-	}
-
-	// 开启写入后允许写操作
-	writeReq := httptest.NewRequest(http.MethodPut, "/api/system/ai-access/write", strings.NewReader(`{"writeEnabled":true}`))
-	writeReq.AddCookie(cookie)
-	writeReq.Header.Set("Content-Type", "application/json")
-	writeRes := httptest.NewRecorder()
-	handler.ServeHTTP(writeRes, writeReq)
-	if writeRes.Code != http.StatusOK {
-		t.Fatalf("enable write status = %d, body=%s", writeRes.Code, writeRes.Body.String())
-	}
-
-	if _, writeEnabled := getAgentKey(); !writeEnabled {
-		t.Fatal("expected write access to be enabled after toggle")
-	}
-
-	payload = callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/backup/run"})
-	if payload["error"] != nil {
-		t.Fatalf("expected write call to succeed after enabling, got %#v", payload)
-	}
-	result := payload["result"].(map[string]interface{})
-	callResult := result["structuredContent"].(map[string]interface{})
-	if callResult["statusCode"].(float64) != 200 {
-		t.Fatalf("expected proxied status 200, got %#v", callResult)
 	}
 }
 
@@ -300,16 +278,6 @@ func TestAIMCPCannotSelfApproveAdminRoutes(t *testing.T) {
 	}
 	overview := keyPayload["data"].(map[string]interface{})
 	agentKey := overview["agentKey"].(map[string]interface{})["value"].(string)
-
-	// 启用写入，确保 admin-ai 屏蔽不是写开关的副作用
-	writeReq := httptest.NewRequest(http.MethodPut, "/api/system/ai-access/write", strings.NewReader(`{"writeEnabled":true}`))
-	writeReq.AddCookie(cookie)
-	writeReq.Header.Set("Content-Type", "application/json")
-	writeRes := httptest.NewRecorder()
-	handler.ServeHTTP(writeRes, writeReq)
-	if writeRes.Code != http.StatusOK {
-		t.Fatalf("enable write status = %d, body=%s", writeRes.Code, writeRes.Body.String())
-	}
 
 	callTools := func(name string, args map[string]interface{}) map[string]interface{} {
 		body := map[string]interface{}{

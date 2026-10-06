@@ -449,7 +449,7 @@ func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request)
 		strings.HasPrefix(path, "/api/system/api-keys") ||
 		path == "/api/ai-access" ||
 		path == "/api/ai-access/key/rotate" ||
-		path == "/api/ai-access/write" ||
+		path == "/api/ai-access/policy" ||
 		path == "/api/ai-access/audit" ||
 		path == "/api/ai-access/audit/clear" ||
 		path == "/api/ai-access/mcp-servers" ||
@@ -458,7 +458,7 @@ func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request)
 		strings.HasPrefix(path, "/api/ai-access/skills/") ||
 		path == "/api/system/ai-access" ||
 		path == "/api/system/ai-access/key/rotate" ||
-		path == "/api/system/ai-access/write" ||
+		path == "/api/system/ai-access/policy" ||
 		path == "/api/system/ai-access/audit" ||
 		path == "/api/system/ai-access/audit/clear" ||
 		path == "/api/system/ai-access/mcp-servers" ||
