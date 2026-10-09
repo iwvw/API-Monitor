@@ -421,20 +421,18 @@ pub async fn start(raw: &str) -> Result<String, String> {
     // 每台主机只保留一个本 Provider 服务：先清理端口区间内所有同类（opencode）
     // 监听进程，再在目标端口拉起。这样 OpenCodeUI 自行拉起的、上次残留的、重复
     // 实例的同类进程都会被清掉，端口不会被同类进程挡在门外。
-    //
-    // 安全边界（ADR-0006 第 6/7 条修订）：只终止**进程名或命令行命中 Provider
-    // 匹配规则**的监听进程，绝不触碰无关进程；区间外端口不扫描。
     terminate_provider_occupants(template, &[]).await;
 
-    // 清理后目标端口仍被占用，说明占用者不是本 Provider 进程：明确失败，
-    // 不静默抢占他人端口。
-    if let Some(occupant) = listening_pid(payload.port) {
-        if !terminate_managed_occupant(payload.port).await {
-            return Err(format!(
-                "端口 {} 已被 PID {} 占用，无法启动",
-                payload.port, occupant
-            ));
-        }
+    // 同类已清、目标端口仍被占用：直接强制清理监听该端口的进程，不再按
+    // 「是否属于本 Provider」区分（ADR-0006 第 7.5 条修订）。清理限定在本次
+    // 指定的目标端口（入口已做 port_allowed 区间校验），不扫描其它端口。
+    // 强杀后端口仍被占（如权限不足）才明确失败。
+    if !force_free_port(payload.port, &[]).await {
+        let occupant = listening_pid(payload.port).unwrap_or(0);
+        return Err(format!(
+            "端口 {} 仍被 PID {} 占用，无法启动",
+            payload.port, occupant
+        ));
     }
 
     let pid = spawn_process(template, payload.port)?;
@@ -668,8 +666,8 @@ pub fn diagnose(raw: &str) -> Result<String, String> {
     // listening_pid 在 Windows 走 GetExtendedTcpTable、Linux 遍历 /proc，
     // 单端口开销很小，诊断是低频操作，顺序扫描可接受。
     //
-    // 区分「同类占用（opencode）」与「无关占用」：同类占用会被 start 自动清理，
-    // 前端不该为此建议换端口（换端口也只是换个地方被清理）；无关占用才需要提醒。
+    // 区分「同类占用（opencode）」与「无关占用」：两类占用都会被 start 自动清理
+    // （无关占用同样强制清理，ADR-0006 第 7.5 条修订）；前端仅做提示，不拦启动。
     let match_terms: Vec<String> = template
         .process_match
         .iter()
@@ -711,7 +709,7 @@ pub fn diagnose(raw: &str) -> Result<String, String> {
         "usedPorts": used_ports,
         // 同类（本 Provider）占用端口：start 时会自动清理，不需要换端口。
         "sameProviderPorts": same_provider_ports,
-        // 无关进程占用端口：start 会明确失败，需要用户处理。
+        // 无关进程占用端口：start 时同样会被强制清理（仅做提示，不拦启动）。
         "foreignOccupiedPorts": foreign_ports,
         "suggestedPort": suggested_port,
     })
@@ -855,27 +853,27 @@ async fn supervise_once() {
 
         // 端口被占用时不要盲目拉起。先清理区间内同类（opencode）占用进程——覆盖
         // 「OpenCodeUI 自行拉起」「自己的残留」「其它实例」几种情况；但保留本 Agent
-        // 当前存活的托管进程，避免误杀另一条健康实例。清理后端口仍被非同类进程
-        // 占用则记一次失败并累计重启次数，避免与占用者形成「反复抢端口」的循环
-        // （ADR-0006 第 7.3 条：不静默杀掉他人进程）。
+        // 当前存活的托管进程，避免误杀另一条健康实例。同类已清、目标端口仍被占
+        // 用时一并强制清理（无关进程也不例外，ADR-0006 第 7.5 条修订），仅白名单
+        // 内 keep 的不动。清理后端口仍被占（白名单或强杀失败）则记一次失败并累计
+        // 重启次数，避免与占用者形成「反复抢端口」的循环；重启上限与退避照常兜底。
+        let keep = alive_managed_pids();
         if listening_pid(port).is_some() {
-            let keep = alive_managed_pids();
             terminate_provider_occupants(template, &keep).await;
         }
-        if let Some(occupant) = listening_pid(port) {
-            if !terminate_managed_occupant(port).await {
-                let mut table = process_table().lock().unwrap();
-                if let Some(process) = table.get_mut(&instance_id) {
-                    process.restarts = process.restarts.saturating_add(1);
-                    process.pid = 0;
-                    persist(&table);
-                }
-                eprintln!(
-                    "[aiagent] instance {} 重启失败：端口 {} 被 PID {} 占用",
-                    instance_id, port, occupant
-                );
-                continue;
+        if !force_free_port(port, &keep).await {
+            let occupant = listening_pid(port).unwrap_or(0);
+            let mut table = process_table().lock().unwrap();
+            if let Some(process) = table.get_mut(&instance_id) {
+                process.restarts = process.restarts.saturating_add(1);
+                process.pid = 0;
+                persist(&table);
             }
+            eprintln!(
+                "[aiagent] instance {} 重启失败：端口 {} 仍被 PID {} 占用",
+                instance_id, port, occupant
+            );
+            continue;
         }
 
         match spawn_process(template, port) {
@@ -1070,6 +1068,25 @@ async fn terminate_managed_occupant(port: u16) -> bool {
         return false;
     }
     terminate(occupant).await
+}
+
+/// 强制释放指定端口：终止当前监听该端口的进程，**不论其是否属于本 Provider**
+///（ADR-0006 第 7.5 条修订）。调用方保证端口落在 Provider 允许区间内；
+/// 白名单 `keep_pids`（其它存活托管实例的 PID）绝不触碰。
+/// 返回端口是否已释放（从未被占用也返回 true）。
+async fn force_free_port(port: u16, keep_pids: &[u32]) -> bool {
+    let Some(occupant) = listening_pid(port) else {
+        return true;
+    };
+    if keep_pids.contains(&occupant) {
+        return false;
+    }
+    eprintln!(
+        "[aiagent] 端口 {} 被 PID {} 占用，强制清理",
+        port, occupant
+    );
+    terminate(occupant).await;
+    listening_pid(port).is_none()
 }
 
 /// 终止该 Provider 端口区间内**所有**同类监听进程。
