@@ -505,8 +505,8 @@ export default function AiAgentConsole() {
   const selectedProviderPort = selectedProviderRange?.min;
 
   // 端口占用预检：结合诊断结果与当前表单值推导占用性质。
-  // 同类（本 Provider，如别的 opencode）占用会在 start 时自动清理，不提示换端口；
-  // 无关进程占用才提示用户处理。返回 null 表示无占用或诊断未就绪。
+  // 同类（本 Provider，如别的 opencode）与无关进程占用都会在 start 时自动清理，
+  // 仅做提示，不拦启动。返回 null 表示无占用或诊断未就绪。
   const portOccupancy = useMemo(
     () => resolvePortOccupancy(serverDiagnose, instanceForm.port, selectedProviderPort),
     [serverDiagnose, instanceForm.port, selectedProviderPort]
@@ -1567,8 +1567,7 @@ export default function AiAgentConsole() {
                 )}
                 {portOccupancy && portOccupancy.kind === 'foreign' && (
                   <span className="text-[11px] text-kumo-warning">
-                    端口 {portOccupancy.port} 已被其它进程占用，启动会失败；
-                    该进程不属于 {instanceForm.provider}，不会自动清理，请先在主机上腾出该端口
+                    端口 {portOccupancy.port} 已被其它进程占用；保存并启动时会自动强制清理占用该端口的进程，无需手动腾出
                   </span>
                 )}
               </label>

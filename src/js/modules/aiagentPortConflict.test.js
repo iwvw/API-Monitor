@@ -44,7 +44,7 @@ describe('resolvePortOccupancy', () => {
     expect(resolvePortOccupancy(diagnose, '', 4096)).toEqual({ port: 4096, kind: 'same-provider' });
   });
 
-  it('无关进程占用标记为 foreign（需要用户处理）', () => {
+  it('无关进程占用标记为 foreign（启动时会被强制清理，仅提示）', () => {
     const diagnose = {
       usedPorts: [4100],
       sameProviderPorts: [],

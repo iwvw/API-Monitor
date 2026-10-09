@@ -10,7 +10,9 @@ const API = '/api/opencode';
 const OPENCODE_MODEL_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'model', role: 'primary', grow: 1 },
-  { id: 'capability', role: 'status' },
+  // 能力列单行并排最多两个徽标（推理+工具），约需 104px：status 角色默认 88px
+  // 会被压溢出，这里定宽 120（同步抬 maxWidth，否则会被钳制回 112 并告警）。
+  { id: 'capability', role: 'status', width: 120, maxWidth: 144 },
 ];
 
 // 会话身份字段（键与 opencode-proxy 的 session.json 保持一致，便于直接粘贴）。
