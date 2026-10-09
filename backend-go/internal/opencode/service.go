@@ -92,8 +92,11 @@ type Service struct {
 }
 
 // ProxyPoolSelector 复用独立代理池选择器（由 server 注入）。
+// 与 openai 网关保持同构：SelectProxy 选出口，ReportResult 回写健康，让插件转发
+// 也能冻结坏出口（403/429/5xx），避免坏 slot 被反复轮询命中。
 type ProxyPoolSelector interface {
 	SelectProxy(ctx context.Context, poolID, sessionKey string) (string, error)
+	ReportResult(ctx context.Context, poolID, proxy string, ok, ratelimit bool, retryAfter *time.Duration) error
 }
 
 // SetProxyPoolSelector 注入独立代理池选择器。
@@ -380,24 +383,22 @@ func sharedHTTPClient() *http.Client {
 	return ocSharedClient
 }
 
-// httpClientFor 返回本次出网要用的客户端：配置了代理池时经 ProxyPoolSelector 选出口，
-// 否则用共享客户端（仍受 HTTPS_PROXY 环境变量影响）。选路失败时静默回退。
-func (s *Service) httpClientFor(sessionKey string) *http.Client {
-	poolID := strings.TrimSpace(s.Settings().ProxyPoolID)
+// selectProxyAndClient 选择本次出网出口：配置了代理池且已注入选择器时经池选出口，
+// 返回该出口 URL（直连为空串）与对应客户端；选路失败静默回退直连。
+func (s *Service) selectProxyAndClient(ctx context.Context, poolID, sessionKey string) (string, *http.Client) {
+	poolID = strings.TrimSpace(poolID)
 	if poolID == "" || s.externalPool == nil {
-		return sharedHTTPClient()
+		return "", sharedHTTPClient()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	raw, err := s.externalPool.SelectProxy(ctx, poolID, sessionKey)
 	if err != nil || strings.TrimSpace(raw) == "" {
-		return sharedHTTPClient()
+		return "", sharedHTTPClient()
 	}
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
-		return sharedHTTPClient()
+		return "", sharedHTTPClient()
 	}
-	return &http.Client{
+	return strings.TrimSpace(raw), &http.Client{
 		Timeout: 5 * time.Minute,
 		Transport: &http.Transport{
 			Proxy:               http.ProxyURL(u),
@@ -406,4 +407,17 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 			MaxIdleConnsPerHost: 5,
 		},
 	}
+}
+
+// reportPoolResult 把一次出口使用结果回写给独立代理池：失败（403/429/5xx/网络错）
+// 会按 ratelimit 分别冻结为 429/cool，成功清除健康状态。fire-and-forget，不阻塞请求。
+func (s *Service) reportPoolResult(poolID, proxy string, ok, ratelimit bool, retryAfter *time.Duration) {
+	poolID = strings.TrimSpace(poolID)
+	proxy = strings.TrimSpace(proxy)
+	if poolID == "" || proxy == "" || s.externalPool == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.externalPool.ReportResult(ctx, poolID, proxy, ok, ratelimit, retryAfter)
 }

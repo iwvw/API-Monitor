@@ -20,6 +20,10 @@ const maxChatBodyBytes = 16 << 20
 // upstreamTimeout 是到 Zen 上游的单次请求总超时（长输出按 100 tok/s 约需 300s）。
 const upstreamTimeout = 5 * time.Minute
 
+// upstreamRetryAttempts 是上游 403/429/5xx/网络错误时经新出口重试的最大次数。
+// 代理池 slot 质量不均（区域封禁/限流），失败后换出口重试可显著降低偶发失败率。
+const upstreamRetryAttempts = 3
+
 // upstreamBodyLimit 是非流式组装时上游响应体读取上限（对齐网关 relay_loop 的 64MB）。
 const upstreamBodyLimit int64 = 64 << 20
 
@@ -119,20 +123,45 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), upstreamTimeout)
 	defer cancel()
-	resp, err := s.zenUpstream(ctx, upstreamPath, st.APIKey, st.Session, reqBody)
-	if err != nil {
-		writeOpenAIError(w, http.StatusBadGateway, "上游请求失败: "+err.Error(), "upstream_error")
+
+	// 经代理池出口时，失败（403/429/5xx/网络错）回写池冻结该出口并经新出口重试：
+	// 池内 slot 出口质量不均（区域封禁/限流），换出口可显著降低偶发失败与慢尾。
+	poolID := strings.TrimSpace(st.ProxyPoolID)
+	maxAttempts := 1
+	if poolID != "" && s.externalPool != nil {
+		maxAttempts = upstreamRetryAttempts
+	}
+	var resp *http.Response
+	endStatus := http.StatusBadGateway
+	endErrBody := ""
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		proxy, client := s.selectProxyAndClient(ctx, poolID, "")
+		up, upErr := s.zenUpstream(ctx, client, upstreamPath, st.APIKey, st.Session, reqBody)
+		if upErr != nil {
+			s.reportPoolResult(poolID, proxy, false, false, nil)
+			endStatus = http.StatusBadGateway
+			endErrBody = upErr.Error()
+			continue
+		}
+		if up.StatusCode >= 200 && up.StatusCode < 300 {
+			s.reportPoolResult(poolID, proxy, true, false, nil)
+			resp = up
+			break
+		}
+		errBody, _ := io.ReadAll(io.LimitReader(up.Body, 2<<20))
+		up.Body.Close()
+		is429 := up.StatusCode == http.StatusTooManyRequests || up.StatusCode == 439
+		s.reportPoolResult(poolID, proxy, false, is429, responseRetryAfter(up))
+		endStatus = up.StatusCode
+		endErrBody = string(errBody)
+	}
+	if resp == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(endStatus)
+		_ = json.NewEncoder(w).Encode(normalizeUpstreamError(endStatus, endErrBody))
 		return
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(resp.StatusCode)
-		_ = json.NewEncoder(w).Encode(normalizeUpstreamError(resp.StatusCode, string(errBody)))
-		return
-	}
 
 	if translate {
 		if clientWantsStream {
@@ -151,7 +180,8 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 // zenUpstream 向 https://opencode.ai/zen/v1 发起一次流式 POST。
-func (s *Service) zenUpstream(ctx context.Context, upstreamPath, apiKey string, session SessionIdentity, body []byte) (*http.Response, error) {
+// client 由调用方按本次出口选择（直连共享客户端或经代理池出口的客户端）。
+func (s *Service) zenUpstream(ctx context.Context, client *http.Client, upstreamPath, apiKey string, session SessionIdentity, body []byte) (*http.Response, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		apiKey = freeKey
 	}
@@ -168,7 +198,23 @@ func (s *Service) zenUpstream(ctx context.Context, upstreamPath, apiKey string, 
 			req.Header.Set(k, vs[0])
 		}
 	}
-	return s.httpClientFor("").Do(req)
+	return client.Do(req)
+}
+
+// responseRetryAfter 从响应头提取 Retry-After 秒数（供 429 冻结时长参考）。
+func responseRetryAfter(resp *http.Response) *time.Duration {
+	if resp == nil {
+		return nil
+	}
+	ra := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if ra == "" {
+		return nil
+	}
+	if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
+		d := time.Duration(secs) * time.Second
+		return &d
+	}
+	return nil
 }
 
 // identityHeaders 还原 OpenCode 客户端身份头（User-Agent + x-opencode-* / x-session-*）。
