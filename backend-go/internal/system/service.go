@@ -33,6 +33,12 @@ type Notifier interface {
 	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
 }
 
+// AgentFileUploader 把整块字节写入某台 Agent 主机的文件，供 AI 侧直传工具复用。
+// 由 server 装配层注入 serveragent 的实现，避免 system 反向依赖 serveragent。
+type AgentFileUploader interface {
+	WriteAgentFileBytes(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error)
+}
+
 type alertState struct {
 	cpuHigh    bool
 	memoryHigh bool
@@ -52,6 +58,7 @@ type Service struct {
 	wg         sync.WaitGroup
 	notifier   Notifier
 	aiCaller   AICaller
+	agentFiles AgentFileUploader
 	apiKeys    *apikeys.Manager
 	alertState alertState
 	statusHub  *statusHub
@@ -102,6 +109,11 @@ func (s *Service) SetNotifier(n Notifier) {
 
 func (s *Service) SetAICaller(caller AICaller) {
 	s.aiCaller = caller
+}
+
+// SetAgentFileUploader 注入 Agent 主机字节写入能力，供 agent_upload_file 工具复用。
+func (s *Service) SetAgentFileUploader(uploader AgentFileUploader) {
+	s.agentFiles = uploader
 }
 
 func New(cfg config.Config) *Service {

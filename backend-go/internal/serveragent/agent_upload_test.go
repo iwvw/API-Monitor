@@ -1,6 +1,7 @@
 package serveragent
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,5 +40,14 @@ func TestAgentFetchURLValidatesParams(t *testing.T) {
 	s.handleAgentFetchURL(rec, req, nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("缺少 url/path 应返回 400，实际 %d", rec.Code)
+	}
+}
+
+// TestWriteAgentFileBytesValidatesParams 验证字节写入在缺少必填字段时直接失败，
+// 不会静默丢弃。
+func TestWriteAgentFileBytesValidatesParams(t *testing.T) {
+	s := &Service{}
+	if _, err := s.WriteAgentFileBytes(context.Background(), "", "/tmp/a.bin", []byte("data"), 0); err == nil {
+		t.Fatal("空 serverID 写入应返回错误")
 	}
 }

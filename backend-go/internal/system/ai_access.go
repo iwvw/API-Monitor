@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -593,6 +594,10 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 		return s.agentRunCommand(r.Context(), args)
 	case "agent_fetch_url":
 		return s.agentFetchURL(r.Context(), args)
+	case "agent_transfer_file":
+		return s.agentTransferFile(r.Context(), args)
+	case "agent_upload_file":
+		return s.agentUploadFile(r.Context(), args)
 	case "run_batch":
 		return s.aiRunBatch(r, args)
 	default:
@@ -1112,6 +1117,150 @@ func (s *Service) agentFetchURL(ctx context.Context, args map[string]interface{}
 	})
 }
 
+// agentTransferFile 是 agent_transfer_file 元工具的实现：把一台 Agent 主机上的文件
+// 搬到另一台 Agent 主机，全程字节不经 AI、也不经面板中转。步骤：
+//  1. 对源主机调 /api/filebox/share-from-agent，源主机 Agent 自己 PUT 到存储节点
+//     （storageTarget=auto 优先节点直传），拿到一次性直链 directUrl；
+//  2. 对目标主机调 /api/server/agent/fetch-url，目标主机自己从直链拉取落盘；
+//  3. 删除临时分享，避免直链残留。
+//
+// AI 全程只传两个路径字符串，无 base64、无 1MB 限制、无分块。适合大文件
+// （5~30MB 及以上）主机间搬运；源或目标任一方离线时对应步骤会返回可读错误。
+func (s *Service) agentTransferFile(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	sourceServerID, _ := args["sourceServerId"].(string)
+	sourcePath, _ := args["sourcePath"].(string)
+	targetServerID, _ := args["targetServerId"].(string)
+	targetPath, _ := args["targetPath"].(string)
+	if strings.TrimSpace(sourceServerID) == "" || strings.TrimSpace(sourcePath) == "" ||
+		strings.TrimSpace(targetServerID) == "" || strings.TrimSpace(targetPath) == "" {
+		return nil, fmt.Errorf("sourceServerId、sourcePath、targetServerId、targetPath 均为必填")
+	}
+	sourceServerID = strings.TrimSpace(sourceServerID)
+	sourcePath = strings.TrimSpace(sourcePath)
+	targetServerID = strings.TrimSpace(targetServerID)
+	targetPath = strings.TrimSpace(targetPath)
+
+	shareBody := map[string]interface{}{
+		"serverId":      sourceServerID,
+		"remotePath":    sourcePath,
+		"storageTarget": "auto",
+	}
+	if target, ok := args["storageTarget"].(string); ok && strings.TrimSpace(target) != "" {
+		shareBody["storageTarget"] = strings.TrimSpace(target)
+	}
+	shareResult, err := s.callAPIFromAI(ctx, map[string]interface{}{
+		"method": http.MethodPost,
+		"path":   "/api/filebox/share-from-agent",
+		"body":   shareBody,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("源主机文件分享失败: %w", err)
+	}
+	shareResponse, ok := shareResult.(AICallResponse)
+	if !ok {
+		return nil, fmt.Errorf("源主机文件分享返回异常: %v", shareResult)
+	}
+	directURL, code := transferShareURL(shareResponse)
+	if directURL == "" {
+		return nil, fmt.Errorf("源主机文件分享未返回可下载直链: %v", shareResponse.Body)
+	}
+
+	fetchResult, fetchErr := s.callAPIFromAI(ctx, map[string]interface{}{
+		"method": http.MethodPost,
+		"path":   "/api/server/agent/fetch-url",
+		"body": map[string]interface{}{
+			"serverId": targetServerID,
+			"url":      directURL,
+			"path":     targetPath,
+		},
+	})
+	// 无论成败都清理临时分享，避免直链长期可用。
+	if code != "" {
+		_, _ = s.callAPIFromAI(ctx, map[string]interface{}{
+			"method": http.MethodDelete,
+			"path":   "/api/filebox/" + code,
+		})
+	}
+	if fetchErr != nil {
+		return nil, fmt.Errorf("目标主机拉取文件失败: %w", fetchErr)
+	}
+
+	fetchBody := interface{}(nil)
+	if fetchResponse, ok := fetchResult.(AICallResponse); ok {
+		fetchBody = fetchResponse.Body
+	}
+	return map[string]interface{}{
+		"success":        true,
+		"transport":      "agent-to-agent",
+		"sourceServerId": sourceServerID,
+		"sourcePath":     sourcePath,
+		"targetServerId": targetServerID,
+		"targetPath":     targetPath,
+		"fetch":          fetchBody,
+		"note":           "字节由源主机直传存储节点、目标主机直链拉取，全程未经 AI 与面板中转。",
+	}, nil
+}
+
+// transferShareURL 从 share-from-agent 的响应体中提取直链与分享 code。
+func transferShareURL(result AICallResponse) (directURL, code string) {
+	body, ok := result.Body.(map[string]interface{})
+	if !ok {
+		return "", ""
+	}
+	directURL, _ = body["directUrl"].(string)
+	code, _ = body["code"].(string)
+	return strings.TrimSpace(directURL), strings.TrimSpace(code)
+}
+
+// agentUploadFile 是 agent_upload_file 元工具的实现：把 base64 编码的文件内容
+// 一次性直传到目标 Agent 主机（面板按分块经 socket 下发，绕开 call_api 的 JSON
+// 1MB 限制）。适用于纯 MCP 客户端（无 shell、无法用 agent_transfer_file 的
+// 主机↔主机路径）把本地小文件交给主机。大文件仍应优先 agent_transfer_file。
+func (s *Service) agentUploadFile(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverID, _ := args["serverId"].(string)
+	path, _ := args["path"].(string)
+	contentB64, _ := args["content_base64"].(string)
+	if strings.TrimSpace(serverID) == "" || strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("serverId 与 path 均为必填")
+	}
+	if strings.TrimSpace(contentB64) == "" {
+		return nil, fmt.Errorf("content_base64 为必填（文件的 base64 编码）")
+	}
+	// base64 文本上限（约 64MB 原始字节），避免超大内容一次性解码占满内存。
+	// 更大文件应走 agent_transfer_file（主机↔主机零中转）。
+	const maxUploadB64Bytes = 88 * 1024 * 1024
+	if len(contentB64) > maxUploadB64Bytes {
+		return nil, fmt.Errorf("content_base64 过大（上限约 64MB 原始文件）；更大文件请用 agent_transfer_file")
+	}
+	if s.agentFiles == nil {
+		return nil, fmt.Errorf("Agent 文件直传能力未配置")
+	}
+	// 与 call_api 的写门槛一致：minimal 只读模式下拒绝写操作。
+	policy, err := s.AIAgentAccessPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if policy == AIAccessPolicyMinimal {
+		return nil, fmt.Errorf("AI 接入处于只读模式（minimal），写操作已禁用")
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(contentB64))
+	if err != nil {
+		return nil, fmt.Errorf("content_base64 不是合法 base64: %w", err)
+	}
+	written, err := s.agentFiles.WriteAgentFileBytes(ctx, strings.TrimSpace(serverID), strings.TrimSpace(path), data, 10*time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("写入主机文件失败: %w", err)
+	}
+	return map[string]interface{}{
+		"success":   true,
+		"transport": "agent-direct",
+		"serverId":  strings.TrimSpace(serverID),
+		"path":      strings.TrimSpace(path),
+		"size":      written,
+		"note":      "字节由面板按分块经 Agent 通道下发，绕开 call_api 的 JSON 与 1MB 限制；大文件请优先 agent_transfer_file。",
+	}, nil
+}
+
 // batchOp 表示 run_batch 中的单个操作。
 type batchOp struct {
 	name   string
@@ -1330,6 +1479,8 @@ func (s *Service) aiTools() []map[string]interface{} {
 		{"name": "filebox_share_from_agent", "description": "把一台 Agent 主机上的文件转成文件柜分享，返回可直接下载的分享链接与直链。这是把「某台主机上的文件给别人下载」的标准工具，无需先 list_apis/find_api。storageTarget=auto（默认）时优先把文件放到公网存储节点并让源主机直传（面板零流量），无可用节点或旧版 Agent 时自动回退为主站本地/面板中转。写操作，需 AI 接入权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID）"}, "remotePath": map[string]interface{}{"type": "string", "description": "主机上的文件路径（受 Agent 文件沙箱约束：默认根或 API_MONITOR_FILE_ROOTS 白名单内）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "auto（默认，优先可用存储节点并让源主机直传）/ local（主站本地）/ 指定存储节点 serverId"}, "expiry": map[string]interface{}{"type": "string", "description": "有效期小时数，如 24；不传用文件柜默认值"}, "burn_after_reading": map[string]interface{}{"type": "boolean", "description": "阅后即焚（下载一次后删除）"}, "max_downloads": map[string]interface{}{"type": "string", "description": "最大下载次数，0 或不传为不限"}, "access_password": map[string]interface{}{"type": "string", "description": "分享访问密码（可选）"}}, "required": []string{"serverId", "remotePath"}}},
 		{"name": "agent_run_command", "description": "在指定 Agent 主机上执行一条 shell 命令并同步返回 stdout/stderr 输出，无需登录 SSH。这是「在某台主机上跑命令」的标准工具，无需先 list_apis/find_api。仅对已安装 Agent 且在线的主机有效（先调 /api/server/accounts 取 serverId 并确认 agent_online=true）。返回 success=true 表示命令已执行完成（含非零退出码，如 grep 无匹配、test/diff 非零，此时 exitCode 字段给出退出码，输出照常返回），仅 spawn/超时等硬错误才 success=false。危险命令（rm -rf、dd、mkfs、shutdown/reboot、docker rm/prune、kubectl delete、DROP DATABASE/TABLE、Remove-Item -Recurse 等）会被 commandguard 拦截：standard 模式硬拦截，sensitive 模式返回 requires_confirmation 提示（确认后带 confirm=true 重新调用即可执行），full 模式直接放行。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID 并确认在线）"}, "command": map[string]interface{}{"type": "string", "description": "要执行的 shell 命令（Linux 走 sh，Windows 走 cmd /C；PowerShell 会自动改写为 -EncodedCommand）"}, "timeout": map[string]interface{}{"type": "integer", "description": "超时秒数，默认 30，上限 300"}, "confirm": map[string]interface{}{"type": "boolean", "description": "危险命令二次确认：敏感模式下首次返回 requires_confirmation，确认后带 confirm=true 重试"}}, "required": []string{"serverId", "command"}}},
 		{"name": "agent_fetch_url", "description": "让指定 Agent 主机直接从 URL 拉取文件并写入其本地路径（字节由主机直接下载，不经面板中转，无 base64 与 1MB 请求体限制）。适用于把已有的可访问地址（文件柜直链、GitHub release、软件包等）落到主机上，避免用 base64 经 call_api 传输大文件。写操作，需 AI 接入权限模式非 minimal；目标路径受 Agent 文件沙箱约束（默认根或 API_MONITOR_FILE_ROOTS 白名单内）。仅对已安装 Agent 且在线的主机有效（先调 /api/server/accounts 取 serverId 并确认 agent_online=true）。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID 并确认在线）"}, "url": map[string]interface{}{"type": "string", "description": "文件下载地址（http/https，主机需可访问）"}, "path": map[string]interface{}{"type": "string", "description": "主机上的目标文件路径（受 Agent 文件沙箱约束）"}}, "required": []string{"serverId", "url", "path"}}},
+		{"name": "agent_transfer_file", "description": "把一台 Agent 主机上的文件搬到另一台 Agent 主机（主机↔主机直传，字节由源主机直传存储节点、目标主机直链拉取，全程不经 AI、不经面板中转）。【传输大文件（如 5~30MB 脚本）到主机的首选方式，绝不要用 call_api + base64 分块】。本机若已注册为 Agent 主机（在 /api/server/accounts 中可查到），先在本机把文件放到 Agent 沙箱路径，再用本工具搬运。写操作，需 AI 接入权限模式非 minimal；源与目标路径均受 Agent 文件沙箱约束。仅对两端都已安装 Agent 且在线的主机有效。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"sourceServerId": map[string]interface{}{"type": "string", "description": "源 Agent 主机 ID（文件所在主机，先调 /api/server/accounts 确认在线）"}, "sourcePath": map[string]interface{}{"type": "string", "description": "源主机上的文件路径（受 Agent 文件沙箱约束）"}, "targetServerId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（先调 /api/server/accounts 确认在线）"}, "targetPath": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径（受 Agent 文件沙箱约束）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "可选，中转存储目标：auto（默认，优先可用存储节点）/ local / 指定存储节点 serverId"}}, "required": []string{"sourceServerId", "sourcePath", "targetServerId", "targetPath"}}},
+		{"name": "agent_upload_file", "description": "把文件的 base64 内容一次性直传到指定 Agent 主机（面板按分块经 Agent 通道下发，绕开 call_api 的 JSON 与 1MB 限制）。这是【纯 MCP 客户端、且源文件不在任何 Agent 主机上】时的兜底路径：无需先把文件放到某台主机，也无需手工分块。大文件（5MB+）或文件已在某台 Agent 主机上时，优先用 agent_transfer_file。写操作，需 AI 接入权限模式非 minimal；目标路径受 Agent 文件沙箱约束。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（先调 /api/server/accounts 确认在线）"}, "path": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径（受 Agent 文件沙箱约束）"}, "content_base64": map[string]interface{}{"type": "string", "description": "文件的 base64 标准编码（含 padding）"}}, "required": []string{"serverId", "path", "content_base64"}}},
 	}
 }
 
@@ -1359,8 +1510,9 @@ func (s *Service) aiAccessGuide(mcpURL, manifestURL, openAPIURL, baseURL, key st
 - OpenAPI 文档：%s（需登录会话，也可用 MCP 工具 get_openapi 获取）
 
 ## 文件传输到主机
+- 主机 ↔ 主机（含「本机已注册为 Agent」的情况）：用 MCP 工具 agent_transfer_file，字节由源主机直传存储节点、目标主机直链拉取，全程不经 AI、不经面板中转。**这是把大文件（脚本、二进制、5~30MB 及以上）传到主机的首选方式，绝不要用 call_api + base64 分块。**
 - 源在可访问 URL（文件柜直链、GitHub release、软件包等）：用 MCP 工具 agent_fetch_url，让主机直接下载，字节不经面板中转。
-- 源在 AI 所在本地机器：用二进制直传端点 POST %sapi/server/agent/upload（multipart/form-data，字段 serverId、path、file），以同一 Agent Key 鉴权，例如：
+- 源在 AI 所在本地机器且本机未注册为 Agent：优先用 MCP 工具 agent_upload_file（传 base64，面板按分块下发，绕开 call_api 的 1MB 限制，无需手工分块）；若宿主能执行 shell，也可用二进制直传端点 POST %sapi/server/agent/upload（multipart/form-data，字段 serverId、path、file），以同一 Agent Key 鉴权，例如：
   curl -H "Authorization: Bearer <key>" -F serverId=<id> -F path=/opt/x/app.bin -F file=@./app.bin %sapi/server/agent/upload
   该端点无 base64 与 1MB JSON 请求体限制，适合传输二进制大文件；它直接用 Agent Key 鉴权，不受 AI 接入权限模式（minimal 等）约束。
 - 目标路径受 Agent 文件沙箱约束（默认根或 API_MONITOR_FILE_ROOTS 白名单内）。

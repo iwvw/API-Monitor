@@ -3,6 +3,7 @@ package system
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1281,6 +1282,138 @@ func TestFileboxShareFromAgentTool(t *testing.T) {
 	}
 }
 
+func TestAgentTransferFileTool(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var calls []AICallRequest
+	service.SetAICaller(func(ctx context.Context, req AICallRequest) (AICallResponse, error) {
+		calls = append(calls, req)
+		switch {
+		case req.Path == "/api/filebox/share-from-agent":
+			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{
+				"success":   true,
+				"code":      "ABC123",
+				"directUrl": "https://node.example.com/api/filebox/d/ABC123",
+			}}, nil
+		case req.Path == "/api/server/agent/fetch-url":
+			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+		default:
+			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+		}
+	})
+
+	// 必填缺失必须报错
+	if _, err := service.agentTransferFile(context.Background(), map[string]interface{}{
+		"sourceServerId": "srv-a", "sourcePath": "/tmp/a.sh", "targetServerId": "srv-b",
+	}); err == nil {
+		t.Fatal("expected error when targetPath missing")
+	}
+
+	result, err := service.agentTransferFile(context.Background(), map[string]interface{}{
+		"sourceServerId": "srv-a",
+		"sourcePath":     "/tmp/a.sh",
+		"targetServerId": "srv-b",
+		"targetPath":     "/opt/a.sh",
+	})
+	if err != nil {
+		t.Fatalf("agentTransferFile err: %v", err)
+	}
+	payload, ok := result.(map[string]interface{})
+	if !ok || payload["success"] != true || payload["transport"] != "agent-to-agent" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	// 期望调用序列：share-from-agent -> fetch-url -> DELETE 清理临时分享
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].Path != "/api/filebox/share-from-agent" || calls[0].Method != http.MethodPost {
+		t.Fatalf("first call should be share-from-agent: %#v", calls[0])
+	}
+	if calls[1].Path != "/api/server/agent/fetch-url" || calls[1].Method != http.MethodPost {
+		t.Fatalf("second call should be fetch-url: %#v", calls[1])
+	}
+	var fetchBody map[string]interface{}
+	if err := json.Unmarshal(calls[1].Body, &fetchBody); err != nil {
+		t.Fatalf("decode fetch body: %v", err)
+	}
+	if fetchBody["url"] != "https://node.example.com/api/filebox/d/ABC123" ||
+		fetchBody["serverId"] != "srv-b" || fetchBody["path"] != "/opt/a.sh" {
+		t.Fatalf("fetch-url not wired from share result: %#v", fetchBody)
+	}
+	if calls[2].Method != http.MethodDelete || calls[2].Path != "/api/filebox/ABC123" {
+		t.Fatalf("third call should clean up share: %#v", calls[2])
+	}
+
+	found := false
+	for _, tool := range service.aiTools() {
+		if tool["name"] == "agent_transfer_file" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("agent_transfer_file not present in aiTools()")
+	}
+}
+
+func TestAgentUploadFileTool(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotServerID, gotPath string
+	var gotData []byte
+	service.SetAgentFileUploader(uploaderFunc(func(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error) {
+		gotServerID, gotPath, gotData = serverID, remotePath, data
+		return int64(len(data)), nil
+	}))
+
+	// 必填缺失必须报错
+	if _, err := service.agentUploadFile(context.Background(), map[string]interface{}{"serverId": "srv-1"}); err == nil {
+		t.Fatal("expected error when path and content missing")
+	}
+	if _, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId": "srv-1", "path": "/opt/a.bin", "content_base64": "!!!not-base64!!!",
+	}); err == nil {
+		t.Fatal("expected error for invalid base64")
+	}
+
+	payload := []byte("hello world")
+	encoded := base64.StdEncoding.EncodeToString(payload)
+	result, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.bin",
+		"content_base64": encoded,
+	})
+	if err != nil {
+		t.Fatalf("agentUploadFile err: %v", err)
+	}
+	out, ok := result.(map[string]interface{})
+	if !ok || out["success"] != true || out["size"] != int64(len(payload)) {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if gotServerID != "srv-1" || gotPath != "/opt/a.bin" || string(gotData) != "hello world" {
+		t.Fatalf("uploader not called correctly: server=%q path=%q data=%q", gotServerID, gotPath, string(gotData))
+	}
+
+	found := false
+	for _, tool := range service.aiTools() {
+		if tool["name"] == "agent_upload_file" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("agent_upload_file not present in aiTools()")
+	}
+}
+
+type uploaderFunc func(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error)
+
+func (f uploaderFunc) WriteAgentFileBytes(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error) {
+	return f(ctx, serverID, remotePath, data, timeout)
+}
 
 func TestAgentRunCommandTool(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}

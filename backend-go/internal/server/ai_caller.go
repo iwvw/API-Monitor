@@ -82,6 +82,9 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	}
 	// 密钥鉴权路由（AuthAPIKey/AuthAgent）不允许 Agent 调用：serveGoRoute 不再
 	// 重新鉴权，这类端点（如 agent heartbeat）凭据语义与 Agent 会话不同，放行即越权。
+	// 注意：二进制直传端点 /api/server/agent/upload 虽为 AuthAgent，但要求 multipart
+	// 请求体，而 call_api 只发 JSON，经此通道放行也传不了字节；AI 侧的大文件直传
+	// 统一走 agent_upload_file 工具（不经 callAPIFromAI），故此处保持一律拦截。
 	if route.Auth == manifest.AuthAPIKey || route.Auth == manifest.AuthAgent {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("接口需要专用密钥鉴权，不允许通过 Agent 调用")
 	}

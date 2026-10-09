@@ -574,6 +574,40 @@ func (s *Service) WriteAgentFileBase64(ctx context.Context, serverID, remotePath
 	return s.runAgentTaskAndWaitCtx(ctx, serverID, agentFileWriteBase64Task, string(payload), timeout)
 }
 
+// WriteAgentFileBytes 把整块字节分块写入 Agent 主机文件，返回写入字节数。
+// 供 AI 侧直传工具复用：绕开 call_api 的 JSON + 1MB 限制与手工 base64 分块。
+func (s *Service) WriteAgentFileBytes(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return 0, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return 0, fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	total := int64(len(data))
+	if total == 0 {
+		if _, err := s.WriteAgentFileBase64(ctx, serverID, remotePath, "", 0, true, timeout); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	for offset := int64(0); offset < total; {
+		end := offset + int64(agentFileChunkSize)
+		if end > total {
+			end = total
+		}
+		encoded := base64.StdEncoding.EncodeToString(data[offset:end])
+		if _, err := s.WriteAgentFileBase64(ctx, serverID, remotePath, encoded, offset, offset == 0, timeout); err != nil {
+			return offset, err
+		}
+		offset = end
+	}
+	return total, nil
+}
+
 func (s *Service) handleAgentFileMkdir(w http.ResponseWriter, serverID, remotePath string) {
 	message, err := s.runAgentFileTask(serverID, agentFileMkdirTask, map[string]interface{}{
 		"path": normalizeRemotePath(remotePath),
