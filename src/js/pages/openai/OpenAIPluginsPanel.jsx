@@ -9,6 +9,7 @@ import { GeminiCliPlugin, GeminiCliBrand } from './plugins/GeminiCliPlugin.jsx';
 import { LobsterAIPlugin, LobsterAIBrand } from './plugins/LobsterAIPlugin.jsx';
 import { PostHogCodePlugin } from './plugins/PostHogCodePlugin.jsx';
 import { QoderPlugin } from './plugins/QoderPlugin.jsx';
+import { OpenCodePlugin, OpenCodeBrand } from './plugins/OpenCodePlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
@@ -70,6 +71,13 @@ const PLUGINS = [
     description: 'Qoder（qoder.cn / qoder.com）账号转 API。',
     icon: QoderBrand,
     detail: QoderPlugin,
+  },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    description: 'OpenCode Zen 免费模型转 OpenAI 兼容 API。',
+    icon: OpenCodeBrand,
+    detail: OpenCodePlugin,
   },
 ];
 

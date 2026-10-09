@@ -290,6 +290,7 @@ export const AntigravityBrand = createAssetIcon(antigravityIcon, 'Antigravity');
 export const DeepSeekBrand = createAssetIcon(deepSeekIcon, 'DeepSeek');
 export const PostHogBrand = createAssetIcon(postHogIcon, 'PostHog');
 export const QoderBrand = createAssetIcon(qoderIcon, 'Qoder');
+export const OpenCodeBrand = createFontIcon('si si-opencode', 'OpenCode');
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 

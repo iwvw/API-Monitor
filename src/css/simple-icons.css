@@ -103,6 +103,8 @@
 .si-npm.si--color::before { color: #CB3837; }
 .si-okta::before { content: "\f21e"; }
 .si-okta.si--color::before { color: #007DC1; }
+.si-opencode::before { content: "\f237"; }
+.si-opencode.si--color::before { color: #000000; }
 .si-ovh::before { content: "\f270"; }
 .si-ovh.si--color::before { color: #123F6D; }
 .si-paypal::before { content: "\f29d"; }
