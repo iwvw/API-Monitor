@@ -390,6 +390,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/posthogcode/v1", Module: "posthogcode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "PostHog Code 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/qoder", Module: "qoder", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Qoder 插件（qoder.cn / qoder.com 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/qoder/v1", Module: "qoder-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Qoder 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/opencode", Module: "opencode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenCode 插件（OpenCode Zen 免费模型转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/opencode/v1", Module: "opencode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "OpenCode 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 
 		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、统计、清理）"},
 		{Prefix: "/api/emailcode/ingest", Module: "emailcode-worker-callback", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "邮件 Worker 投递回调（共享密钥校验，非会话鉴权）", MatchMode: MatchExact},

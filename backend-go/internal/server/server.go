@@ -41,6 +41,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
+	"github.com/iwvw/api-monitor/backend-go/internal/opencode"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	"github.com/iwvw/api-monitor/backend-go/internal/posthogcode"
@@ -84,6 +85,7 @@ type Server struct {
 	m365        *m365.Service
 	openai      *openai.Service
 	antigravity *antigravity.Service
+	opencode    *opencode.Service
 	ds2api      *ds2api.Service
 	workbuddy   *workbuddy.Service
 	geminicli   *geminicli.Service
@@ -223,6 +225,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		m365:        m365.New(cfg),
 		openai:      openai.New(cfg),
 		antigravity: antigravity.New(cfg),
+		opencode:    opencode.New(cfg),
 		ds2api:      ds2api.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
 		geminicli:   geminicli.New(cfg),
@@ -265,6 +268,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.openai.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件可引用独立代理池作为出网出口。
 	server.antigravity.SetProxyPoolSelector(server.proxypool)
+	// OpenCode 插件可引用独立代理池作为出网出口。
+	server.opencode.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件配额刷新检测：上报事件走统一通知中心。
 	server.antigravity.SetNotifier(notifyService)
 	// DS2API 插件可引用独立代理池作为出网出口。

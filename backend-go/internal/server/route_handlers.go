@@ -84,6 +84,8 @@ var moduleHandlers = map[string]routeHandler{
 	"onepanel-spec":              func(s *Server, w http.ResponseWriter, r *http.Request) { s.onepanel.ServeHTTP(w, r) },
 	"openai":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.openai.ServeHTTP(w, r) },
 	"openai-compatible":          (*Server).serveV1Route,
+	"opencode":                   func(s *Server, w http.ResponseWriter, r *http.Request) { s.opencode.ServeHTTP(w, r) },
+	"opencode-compatible":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.opencode.ServeHTTP(w, r) },
 	"oracle":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.oracle.ServeHTTP(w, r) },
 	"emailcode":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.emailcode.ServeHTTP(w, r) },
 	"emailcode-worker-callback":  func(s *Server, w http.ResponseWriter, r *http.Request) { s.emailcode.ServeHTTP(w, r) },
