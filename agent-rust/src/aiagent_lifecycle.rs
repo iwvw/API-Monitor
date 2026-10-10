@@ -423,11 +423,11 @@ pub async fn start(raw: &str) -> Result<String, String> {
     // 实例的同类进程都会被清掉，端口不会被同类进程挡在门外。
     terminate_provider_occupants(template, &[]).await;
 
-    // 同类已清、目标端口仍被占用：直接强制清理监听该端口的进程，不再按
+    // 同类已清、目标端口仍被占用：强制清理监听该端口的进程，不再按
     // 「是否属于本 Provider」区分（ADR-0006 第 7.5 条修订）。清理限定在本次
     // 指定的目标端口（入口已做 port_allowed 区间校验），不扫描其它端口。
     // 强杀后端口仍被占（如权限不足）才明确失败。
-    if !force_free_port(payload.port, &[]).await {
+    if !force_free_port(payload.port, &[], &provider_match_terms(template)).await {
         let occupant = listening_pid(payload.port).unwrap_or(0);
         return Err(format!(
             "端口 {} 仍被 PID {} 占用，无法启动",
@@ -861,7 +861,7 @@ async fn supervise_once() {
         if listening_pid(port).is_some() {
             terminate_provider_occupants(template, &keep).await;
         }
-        if !force_free_port(port, &keep).await {
+        if !force_free_port(port, &keep, &provider_match_terms(template)).await {
             let occupant = listening_pid(port).unwrap_or(0);
             let mut table = process_table().lock().unwrap();
             if let Some(process) = table.get_mut(&instance_id) {
@@ -974,10 +974,13 @@ async fn wait_process_exit(pid: u32) -> bool {
 /// （`taskkill /T`），与 `tcp_forwarder` / `cloudflared` 的既有做法保持一致。
 #[cfg(target_os = "windows")]
 async fn terminate(pid: u32) -> bool {
-    if !process_alive(pid) {
+    if pid == 0 {
         return true;
     }
-    // Windows 无 SIGTERM 语义，直接强杀整棵进程树（/T）。
+    // 不依赖 process_alive 短路：端口 owner 可能运行在其它会话/权限下
+    // （OpenProcess 对这类进程返回 null，会被 process_alive 误判为「已死」，
+    // 短路会导致根本不执行 taskkill、端口永不释放）。无条件按进程树强杀，
+    // 权限不足或进程已死时 taskkill 报错即可，最终以「端口是否释放」判定。
     let _ = std::process::Command::new("taskkill")
         .args(["/F", "/T", "/PID", &pid.to_string()])
         .output();
@@ -1070,23 +1073,104 @@ async fn terminate_managed_occupant(port: u16) -> bool {
     terminate(occupant).await
 }
 
-/// 强制释放指定端口：终止当前监听该端口的进程，**不论其是否属于本 Provider**
-///（ADR-0006 第 7.5 条修订）。调用方保证端口落在 Provider 允许区间内；
-/// 白名单 `keep_pids`（其它存活托管实例的 PID）绝不触碰。
-/// 返回端口是否已释放（从未被占用也返回 true）。
-async fn force_free_port(port: u16, keep_pids: &[u32]) -> bool {
-    let Some(occupant) = listening_pid(port) else {
-        return true;
-    };
-    if keep_pids.contains(&occupant) {
-        return false;
+/// Provider 的进程匹配规则归一化（去空格 / 转小写 / 滤空）。
+fn provider_match_terms(template: &ProviderTemplate) -> Vec<String> {
+    template
+        .process_match
+        .iter()
+        .map(|term| term.trim().to_lowercase())
+        .filter(|term| !term.is_empty())
+        .collect()
+}
+
+/// 强制释放指定端口（ADR-0006 第 7.5 条修订）。
+///
+/// 分四层兜底，覆盖 opencode launcher/shim 的各类占用形态：
+///   1. 按 TCP 表 owner 无条件杀进程树（不依赖 process_alive，能覆盖跨会话/权限进程）；
+///   2. 按命令行匹配该 Provider 且显式绑定目标端口（`--port <port>`）的进程——
+///      launcher 形态下真正持句柄的是子进程，TCP 表 owner 可能是已死的父进程；
+///   3. 轮询等待端口释放（taskkill 后内核回收有延迟）；
+///   4. bind 探测兜底：stale 条目不挡新监听时视为已可用。
+/// `keep_pids`（其它存活托管实例的 PID）绝不触碰；`terms` 来自 Provider 匹配规则。
+async fn force_free_port(port: u16, keep_pids: &[u32], terms: &[String]) -> bool {
+    if let Some(occupant) = listening_pid(port) {
+        if !keep_pids.contains(&occupant) {
+            eprintln!(
+                "[aiagent] 端口 {} 被 PID {} 占用，强制清理",
+                port, occupant
+            );
+            terminate(occupant).await;
+        }
     }
-    eprintln!(
-        "[aiagent] 端口 {} 被 PID {} 占用，强制清理",
-        port, occupant
-    );
-    terminate(occupant).await;
-    listening_pid(port).is_none()
+
+    for pid in pids_with_cmdline_port(port, terms) {
+        if !keep_pids.contains(&pid) {
+            eprintln!(
+                "[aiagent] 端口 {} 的 Provider 进程 PID {}（命令行绑定该端口）被强制清理",
+                port, pid
+            );
+            terminate(pid).await;
+        }
+    }
+
+    // 轮询等待端口释放：进程树终止后句柄回收与 TCP 表更新有延迟。
+    for _ in 0..20 {
+        if listening_pid(port).is_none() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if listening_pid(port).is_none() {
+        return true;
+    }
+
+    // 兜底：清理后端口仍被 TCP 表记录、但 bind 能成功（stale 条目不挡新监听）
+    // 时视为可用。真正被活进程占用时 bind 失败，返回 false 由调用方报错。
+    port_bindable(port)
+}
+
+/// 枚举命令行显式绑定 `--port <port>` 且进程名/命令行命中 Provider 规则的进程。
+///
+/// 覆盖 launcher/shim 形态：TCP 表的 OwningPid 可能是已死父进程，而真正持有
+/// 端口句柄的子进程命令行仍带着 `serve ... --port <port>`。
+fn pids_with_cmdline_port(port: u16, terms: &[String]) -> Vec<u32> {
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let mut system = sysinfo::System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    let needle = format!("--port {port}");
+    let mut out = Vec::new();
+    for (pid, process) in system.processes() {
+        let name = process.name().to_string_lossy().to_lowercase();
+        let name = name.strip_suffix(".exe").unwrap_or(&name);
+        if !terms
+            .iter()
+            .any(|term| name == term.as_str() || name.contains(term.as_str()))
+        {
+            continue;
+        }
+        let cmdline: Vec<String> = process
+            .cmd()
+            .iter()
+            .map(|part| part.to_string_lossy().to_lowercase())
+            .collect();
+        if cmdline.iter().any(|part| part.contains(&needle)) {
+            out.push(pid.as_u32());
+        }
+    }
+    out
+}
+
+/// 探测端口当前是否可被绑定（127.0.0.1）。用于 stale 监听条目的可用性兜底。
+fn port_bindable(port: u16) -> bool {
+    match std::net::TcpListener::bind(("127.0.0.1", port)) {
+        Ok(listener) => {
+            drop(listener);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// 终止该 Provider 端口区间内**所有**同类监听进程。
