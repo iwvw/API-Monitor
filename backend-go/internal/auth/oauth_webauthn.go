@@ -559,7 +559,7 @@ func (s *Service) beginWebAuthnRegistration(w http.ResponseWriter, r *http.Reque
 			protocol.PublicKeyCredentialHintClientDevice,
 			protocol.PublicKeyCredentialHintSecurityKey,
 		}),
-		wa.WithExtensions(protocol.AuthenticationExtensions{"credProps": true}),
+		wa.WithExtensions(wa.WithExtensionCredProps()),
 	)
 	if err != nil {
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "创建通行密钥挑战失败"})
