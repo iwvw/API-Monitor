@@ -37,6 +37,11 @@ export default defineConfig({
         // 全局设置
         globals: true,
 
+        // vitest 5 起 clearMocks 默认 true，会在每个测试前清空全部
+        // mock 的历史调用，导致模块顶层调用计数断言被清掉。本项目
+        // 各测试文件均手动 mockClear，保持 vitest 4 行为。
+        clearMocks: false,
+
         // 测试超时时间
         testTimeout: 10000,
 
