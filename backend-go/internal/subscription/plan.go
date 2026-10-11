@@ -499,8 +499,9 @@ func loadServerTrafficQuotaStates(ctx context.Context, db *sql.DB, serverIDs []s
 		args = append(args, id)
 	}
 	queries := []string{
-		`SELECT id, COALESCE(traffic_limit_bytes, 0), COALESCE(traffic_limit_mode, 'total'), COALESCE(cached_info, '{}') FROM server_accounts WHERE id IN (` + placeholders + `)`,
-		`SELECT id, COALESCE(traffic_limit_bytes, 0), 'total', COALESCE(cached_info, '{}') FROM server_accounts WHERE id IN (` + placeholders + `)`,
+		`SELECT id, COALESCE(traffic_limit_bytes, 0), COALESCE(traffic_limit_mode, 'total'), COALESCE(traffic_cycle_type, 'none'), COALESCE(traffic_cycle_baseline, 0), COALESCE(cached_info, '{}') FROM server_accounts WHERE id IN (` + placeholders + `)`,
+		`SELECT id, COALESCE(traffic_limit_bytes, 0), COALESCE(traffic_limit_mode, 'total'), 'none', 0, COALESCE(cached_info, '{}') FROM server_accounts WHERE id IN (` + placeholders + `)`,
+		`SELECT id, COALESCE(traffic_limit_bytes, 0), 'total', 'none', 0, COALESCE(cached_info, '{}') FROM server_accounts WHERE id IN (` + placeholders + `)`,
 	}
 	var lastErr error
 	for _, query := range queries {
@@ -514,13 +515,13 @@ func loadServerTrafficQuotaStates(ctx context.Context, db *sql.DB, serverIDs []s
 			return nil, err
 		}
 		for rows.Next() {
-			var serverID, limitMode, cachedInfo string
-			var limitBytes int64
-			if err := rows.Scan(&serverID, &limitBytes, &limitMode, &cachedInfo); err != nil {
+			var serverID, limitMode, cycleType, cachedInfo string
+			var limitBytes, cycleBaseline int64
+			if err := rows.Scan(&serverID, &limitBytes, &limitMode, &cycleType, &cycleBaseline, &cachedInfo); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			usedBytes := trafficUsedBytesFromCachedInfo(cachedInfo, limitMode)
+			usedBytes := trafficUsedForCycle(trafficUsedBytesFromCachedInfo(cachedInfo, limitMode), cycleType, cycleBaseline)
 			limitBytes = maxInt64(limitBytes, 0)
 			states[serverID] = serverTrafficQuota{
 				UsedBytes:  usedBytes,
@@ -562,4 +563,14 @@ func trafficUsedBytesFromCachedInfo(raw, mode string) int64 {
 		txTotal = value
 	}
 	return trafficUsedBytesForMode(rxTotal, txTotal, mode)
+}
+
+func trafficUsedForCycle(usedBytes int64, cycleType string, baseline int64) int64 {
+	if strings.EqualFold(strings.TrimSpace(cycleType), "none") || baseline <= 0 {
+		return usedBytes
+	}
+	if usedBytes <= baseline {
+		return 0
+	}
+	return usedBytes - baseline
 }
