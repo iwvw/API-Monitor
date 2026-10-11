@@ -16,8 +16,8 @@ export default function PlansPanel({ plans, nodes, internalNodes, isArmed, onCre
           <Table.Header sticky variant="compact"><Table.Row><Table.Head className="text-center">启用</Table.Head><Table.Head>套餐</Table.Head><Table.Head className="text-center">状态</Table.Head><Table.Head className="text-center">单订阅额度</Table.Head><Table.Head className="text-center">重置</Table.Head><Table.Head className="text-center">节点范围</Table.Head><Table.Head className="text-center">订阅</Table.Head><Table.Head className="app-table-action">操作</Table.Head></Table.Row></Table.Header>
           <Table.Body>
             {plans.map((plan) => {
-			  const externalCount = plan.selection_mode === 'all' ? (plan.include_external_nodes ? nodes.length : 0) : (plan.node_ids || []).filter((id) => nodes.some((node) => node.id === id)).length;
-			  const internalCount = plan.selection_mode === 'all' ? (plan.include_internal_nodes ? internalNodes.length : 0) : (plan.node_ids || []).filter((id) => internalNodes.some((node) => node.id === id)).length;
+			  const externalCount = plan.external_published_count ?? (plan.selection_mode === 'all' ? (plan.include_external_nodes ? nodes.length : 0) : (plan.node_ids || []).filter((id) => nodes.some((node) => node.id === id)).length);
+			  const internalCount = plan.internal_published_count ?? (plan.selection_mode === 'all' ? (plan.include_internal_nodes ? internalNodes.length : 0) : (plan.node_ids || []).filter((id) => internalNodes.some((node) => node.id === id)).length);
 			  return <Table.Row key={plan.id} onDoubleClick={() => onEdit(plan)} className="cursor-pointer">
               <Table.Cell className="text-center"><Switch size="sm" aria-label={plan.enabled ? `停用套餐 ${plan.name}` : `启用套餐 ${plan.name}`} checked={!!plan.enabled} onCheckedChange={(checked) => onToggleEnabled(plan, checked)} /></Table.Cell>
               <Table.Cell><div className="font-semibold text-kumo-strong">{plan.name}</div>{plan.remark ? <div className="mt-1 truncate text-[11px] text-kumo-subtle">{plan.remark}</div> : null}</Table.Cell>
