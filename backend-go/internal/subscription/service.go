@@ -215,22 +215,24 @@ type Settings struct {
 }
 
 type Plan struct {
-	ID                   string   `json:"id"`
-	Name                 string   `json:"name"`
-	Remark               string   `json:"remark"`
-	Enabled              bool     `json:"enabled"`
-	TotalBytes           int64    `json:"total_bytes"`
-	CycleType            string   `json:"cycle_type"`
-	CycleDay             int      `json:"cycle_day"`
-	RateLimitEnabled     bool     `json:"rate_limit_enabled"`
-	RateLimitPerMinute   int      `json:"rate_limit_per_minute"`
-	NodeIDs              []string `json:"node_ids"`
-	SelectionMode        string   `json:"selection_mode"`
-	IncludeInternalNodes bool     `json:"include_internal_nodes"`
-	IncludeExternalNodes bool     `json:"include_external_nodes"`
-	SubscriptionCount    int      `json:"subscription_count"`
-	CreatedAt            string   `json:"created_at"`
-	UpdatedAt            string   `json:"updated_at"`
+	ID                     string   `json:"id"`
+	Name                   string   `json:"name"`
+	Remark                 string   `json:"remark"`
+	Enabled                bool     `json:"enabled"`
+	TotalBytes             int64    `json:"total_bytes"`
+	CycleType              string   `json:"cycle_type"`
+	CycleDay               int      `json:"cycle_day"`
+	RateLimitEnabled       bool     `json:"rate_limit_enabled"`
+	RateLimitPerMinute     int      `json:"rate_limit_per_minute"`
+	NodeIDs                []string `json:"node_ids"`
+	SelectionMode          string   `json:"selection_mode"`
+	IncludeInternalNodes   bool     `json:"include_internal_nodes"`
+	IncludeExternalNodes   bool     `json:"include_external_nodes"`
+	SubscriptionCount      int      `json:"subscription_count"`
+	InternalPublishedCount int      `json:"internal_published_count"`
+	ExternalPublishedCount int      `json:"external_published_count"`
+	CreatedAt              string   `json:"created_at"`
+	UpdatedAt              string   `json:"updated_at"`
 }
 
 func New(cfg config.Config) *Service {

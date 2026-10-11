@@ -245,8 +245,26 @@ func loadPlans(ctx context.Context, db *sql.DB, id string) ([]Plan, error) {
 		}
 		nodeRows.Close()
 		plans[i].NodeIDs = relations
+		internal, external, err := loadPublishedNodeGroups(ctx, db, subscriptionFromPlan(plans[i]))
+		if err != nil {
+			return nil, err
+		}
+		plans[i].InternalPublishedCount = len(internal)
+		plans[i].ExternalPublishedCount = len(external)
 	}
 	return plans, nil
+}
+
+func subscriptionFromPlan(p Plan) Subscription {
+	return Subscription{
+		ID:                   p.ID,
+		ProfileID:            p.ID,
+		PlanID:               p.ID,
+		NodeFilterIDs:        append([]string(nil), p.NodeIDs...),
+		NodeSelectionMode:    p.SelectionMode,
+		IncludeInternalNodes: p.IncludeInternalNodes,
+		IncludeExternalNodes: p.IncludeExternalNodes,
+	}
 }
 
 // loadProfileInternalNodeIDs 读取节点库在 explicit 模式下授权的内部节点清单
@@ -342,39 +360,55 @@ func countPublishedSubscriptionNodes(ctx context.Context, db *sql.DB, sub Subscr
 }
 
 func loadPublishedNodesForSubscription(ctx context.Context, db *sql.DB, sub Subscription) ([]Node, error) {
-	nodes := []Node{}
+	internal, external, err := loadPublishedNodeGroups(ctx, db, sub)
+	if err != nil {
+		return nil, err
+	}
+	return append(internal, external...), nil
+}
+
+// loadPublishedNodeGroups 返回内部与外部两组「实际会发布」的节点，过滤口径与订阅
+// 下发一致（启用/运行状态、套餐节点筛选、主机流量配额）。套餐面板节点范围计数
+// 复用该函数，保证与订阅管理中的 node_count 严格一致。
+func loadPublishedNodeGroups(ctx context.Context, db *sql.DB, sub Subscription) ([]Node, []Node, error) {
+	internal := []Node{}
 	if sub.IncludeInternalNodes {
-		internal, err := loadManagedSubscriptionNodes(ctx, db, sub)
+		nodes, err := loadManagedSubscriptionNodes(ctx, db, sub)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if sub.PlanID != "" {
-			internal = filterPlanNodesByIDsForSource(internal, sub.NodeFilterIDs, sub.NodeSelectionMode)
+			nodes = filterPlanNodesByIDsForSource(nodes, sub.NodeFilterIDs, sub.NodeSelectionMode)
 		}
-		nodes = append(nodes, internal...)
+		internal = filterEnabledPublishedNodes(nodes)
 	}
+	external := []Node{}
 	if sub.IncludeExternalNodes {
 		profileID := firstNonEmpty(sub.ProfileID, sub.ID)
 		if sub.PlanID != "" {
 			profileID = ""
 		}
-		external, err := loadNodes(ctx, db, profileID, true)
+		nodes, err := loadNodes(ctx, db, profileID, true)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if sub.PlanID != "" {
-			external = filterPlanNodesByIDsForSource(external, sub.NodeFilterIDs, sub.NodeSelectionMode)
+			nodes = filterPlanNodesByIDsForSource(nodes, sub.NodeFilterIDs, sub.NodeSelectionMode)
 		} else {
-			external = filterNodesByIDsForSource(external, sub.NodeFilterIDs)
+			nodes = filterNodesByIDsForSource(nodes, sub.NodeFilterIDs)
 		}
-		nodes = append(nodes, external...)
+		external = filterEnabledPublishedNodes(nodes)
 	}
-	nodes = filterEnabledPublishedNodes(nodes)
-	nodes, err := filterNodesByAvailableHostQuota(ctx, db, nodes)
+	var err error
+	internal, err = filterNodesByAvailableHostQuota(ctx, db, internal)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return nodes, nil
+	external, err = filterNodesByAvailableHostQuota(ctx, db, external)
+	if err != nil {
+		return nil, nil, err
+	}
+	return internal, external, nil
 }
 
 func normalizePlanSelectionMode(value string) string {

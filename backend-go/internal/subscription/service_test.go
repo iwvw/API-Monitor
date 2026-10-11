@@ -2336,3 +2336,56 @@ func TestGetSubscriptionUsage(t *testing.T) {
 		t.Fatalf("hourly point mismatch: %+v", resp.Data.Points[0])
 	}
 }
+
+func TestPlanPublishedCountsMatchSubscriptionNodeCount(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for id, enabled := range map[string]int{"managed-one": 1, "managed-off": 0} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO managed_proxy_nodes(id,server_id,name,protocol,runtime,public_host,assigned_port,transport,config_encrypted,client_uri_encrypted,enabled,publishable,apply_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,'ready','accept-reject-pending')`, id, "host-"+id, "托管节点"+id, "vless-reality", "sing-box", "node.example.com", 45654, "tcp", "", "", enabled); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET publishable=1,apply_status='running' WHERE id='managed-one'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_nodes(id,subscription_id,profile_id,name,type,server,port,enabled) VALUES('ext-one','pool','pool','外部节点','vless','node.example.com',443,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_plans(id,name,enabled,total_bytes,cycle_type,cycle_day,selection_mode,include_internal_nodes,include_external_nodes) VALUES('plan','套餐',1,0,'none',1,'explicit',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_plan_nodes(plan_id,node_id,source) VALUES('plan','managed-one','internal'),('plan','ext-one','external')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,enabled) VALUES('sub','pool','plan','订阅','token',1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	plans, err := loadPlans(ctx, db, "plan")
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("load plans: len=%d err=%v", len(plans), err)
+	}
+	if plans[0].IncludeInternalNodes != true || plans[0].IncludeExternalNodes != true {
+		t.Fatalf("plan include flags = %v/%v", plans[0].IncludeInternalNodes, plans[0].IncludeExternalNodes)
+	}
+	if plans[0].InternalPublishedCount != 1 || plans[0].ExternalPublishedCount != 1 {
+		t.Fatalf("plan counts = internal %d external %d, want 1/1", plans[0].InternalPublishedCount, plans[0].ExternalPublishedCount)
+	}
+
+	items, err := loadSubscriptions(ctx, db, "sub")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("load subscriptions: len=%d err=%v", len(items), err)
+	}
+	if items[0].NodeCount != 2 {
+		t.Fatalf("subscription node_count = %d, want 2", items[0].NodeCount)
+	}
+}
