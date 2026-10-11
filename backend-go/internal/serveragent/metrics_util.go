@@ -217,6 +217,30 @@ func trafficUsedBytesFromMetrics(metrics map[string]interface{}, mode string) in
 	return trafficUsedBytesForMode(rxTotal, txTotal, mode)
 }
 
+// trafficTotalsFromMetrics 提取网卡累计接收/发送字节（不区分 limit_mode），
+// 供按方向的周期用量计算使用。
+func trafficTotalsFromMetrics(metrics map[string]interface{}) (int64, int64) {
+	if metrics == nil {
+		return 0, 0
+	}
+	network := mapValue(metrics["network"])
+	rxTotal := firstFloatValue(metrics, "net_in_transfer", "net_rx_total", "rx_total_bytes")
+	txTotal := firstFloatValue(metrics, "net_out_transfer", "net_tx_total", "tx_total_bytes")
+	if networkRx := getFloatFromMap(network, "rx_total_bytes"); networkRx > 0 {
+		rxTotal = networkRx
+	}
+	if networkTx := getFloatFromMap(network, "tx_total_bytes"); networkTx > 0 {
+		txTotal = networkTx
+	}
+	if rxTotal < 0 {
+		rxTotal = 0
+	}
+	if txTotal < 0 {
+		txTotal = 0
+	}
+	return int64(rxTotal), int64(txTotal)
+}
+
 func normalizeTrafficAlertPercent(value float64) float64 {
 	if value <= 0 {
 		return 100

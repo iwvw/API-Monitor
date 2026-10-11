@@ -88,3 +88,29 @@ func TestTrafficUsedForCycle(t *testing.T) {
 		t.Errorf("clamped: got %d want 0", got)
 	}
 }
+
+func TestTrafficTotalsFromMetricsReadsBothDirections(t *testing.T) {
+	// network.rx_total_bytes/tx_total_bytes 优先
+	rx, tx := trafficTotalsFromMetrics(map[string]interface{}{
+		"network": map[string]interface{}{"rx_total_bytes": 1500, "tx_total_bytes": 900},
+	})
+	if rx != 1500 || tx != 900 {
+		t.Fatalf("network totals = %d/%d, want 1500/900", rx, tx)
+	}
+	// 回退到顶层 net_in_transfer/net_out_transfer
+	rx2, tx2 := trafficTotalsFromMetrics(map[string]interface{}{
+		"net_in_transfer":  2000,
+		"net_out_transfer": 1000,
+	})
+	if rx2 != 2000 || tx2 != 1000 {
+		t.Fatalf("flat totals = %d/%d, want 2000/1000", rx2, tx2)
+	}
+	// 负值钳到 0
+	rx3, tx3 := trafficTotalsFromMetrics(map[string]interface{}{
+		"net_in_transfer":  -5,
+		"net_out_transfer": 0,
+	})
+	if rx3 != 0 || tx3 != 0 {
+		t.Fatalf("clamped totals = %d/%d, want 0/0", rx3, tx3)
+	}
+}

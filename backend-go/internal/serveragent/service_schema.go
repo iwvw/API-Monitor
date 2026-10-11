@@ -44,6 +44,8 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			traffic_cycle_start DATETIME,
 			traffic_cycle_end DATETIME,
 			traffic_cycle_baseline INTEGER DEFAULT 0,
+			traffic_cycle_baseline_rx INTEGER DEFAULT 0,
+			traffic_cycle_baseline_tx INTEGER DEFAULT 0,
 			order_index INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -502,6 +504,8 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 		{"traffic_cycle_start", "ALTER TABLE server_accounts ADD COLUMN traffic_cycle_start DATETIME"},
 		{"traffic_cycle_end", "ALTER TABLE server_accounts ADD COLUMN traffic_cycle_end DATETIME"},
 		{"traffic_cycle_baseline", "ALTER TABLE server_accounts ADD COLUMN traffic_cycle_baseline INTEGER DEFAULT 0"},
+		{"traffic_cycle_baseline_rx", "ALTER TABLE server_accounts ADD COLUMN traffic_cycle_baseline_rx INTEGER DEFAULT 0"},
+		{"traffic_cycle_baseline_tx", "ALTER TABLE server_accounts ADD COLUMN traffic_cycle_baseline_tx INTEGER DEFAULT 0"},
 		// 远程桌面 1:1 NAT / 公网 IP 直连广播（pion SetNAT1To1IPs 语义）。
 		// 每台主机各自不同，因此存在 server_accounts 而非全局 user_settings。
 		{"remote_desktop_nat_ips", "ALTER TABLE server_accounts ADD COLUMN remote_desktop_nat_ips TEXT"},

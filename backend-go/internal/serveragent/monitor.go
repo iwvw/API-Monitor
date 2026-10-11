@@ -74,19 +74,19 @@ func (s *Service) getMonitorStatus(w http.ResponseWriter, r *http.Request, db *s
 // 当当前时刻已越过存储的 cycle_end（或尚未初始化），把基线更新为此刻的累计用量，
 // 并把周期窗口推进到当前窗口。这样"当前周期内用量 = 累计 - 基线"即实现了每月自动归零。
 func (s *Service) syncTrafficCycleBaselines(ctx context.Context, db *sql.DB) {
-	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(traffic_cycle_type,'none'), COALESCE(traffic_cycle_day,1), COALESCE(traffic_limit_mode,'total'), COALESCE(traffic_cycle_start,''), COALESCE(traffic_cycle_end,''), COALESCE(traffic_cycle_baseline,0), COALESCE(cached_info,'{}') FROM server_accounts`)
+	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(traffic_cycle_type,'none'), COALESCE(traffic_cycle_day,1), COALESCE(traffic_limit_mode,'total'), COALESCE(traffic_cycle_start,''), COALESCE(traffic_cycle_end,''), COALESCE(traffic_cycle_baseline,0), COALESCE(traffic_cycle_baseline_rx,0), COALESCE(traffic_cycle_baseline_tx,0), COALESCE(cached_info,'{}') FROM server_accounts`)
 	if err != nil {
 		return
 	}
 	type candidate struct {
 		id, cycleType, limitMode, cycleStart, cycleEnd, cached string
-		cycleDay int
-		baseline int64
+		cycleDay                                               int
+		baseline, baselineRx, baselineTx                       int64
 	}
 	var list []candidate
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.id, &c.cycleType, &c.cycleDay, &c.limitMode, &c.cycleStart, &c.cycleEnd, &c.baseline, &c.cached); err == nil {
+		if err := rows.Scan(&c.id, &c.cycleType, &c.cycleDay, &c.limitMode, &c.cycleStart, &c.cycleEnd, &c.baseline, &c.baselineRx, &c.baselineTx, &c.cached); err == nil {
 			list = append(list, c)
 		}
 	}
@@ -96,31 +96,60 @@ func (s *Service) syncTrafficCycleBaselines(ctx context.Context, db *sql.DB) {
 	now := time.Now()
 
 	for _, c := range list {
-		if normalizeTrafficCycleType(c.cycleType) == "none" {
-			continue
-		}
-		start, end, ok := trafficCycleWindow(c.cycleType, c.cycleDay, loc, now)
-		if !ok {
-			continue
+		cycleType := normalizeTrafficCycleType(c.cycleType)
+		windowType := cycleType
+		if windowType == "none" {
+			windowType = "calendar_month"
 		}
 		var metrics map[string]interface{}
 		if err := json.Unmarshal([]byte(c.cached), &metrics); err != nil || len(metrics) == 0 {
 			continue
 		}
 		cumulative := trafficUsedBytesFromMetrics(metrics, c.limitMode)
+		rxCumulative, txCumulative := trafficTotalsFromMetrics(metrics)
+
+		// custom 周期由用户手动维护窗口，无法自动推导；仅在分方向基线缺失时
+		// 一次性初始化，使「本期」从配置时刻开始累计。
+		if cycleType == "custom" {
+			if c.baselineRx <= 0 || c.baselineTx <= 0 {
+				_, _ = db.ExecContext(ctx, `UPDATE server_accounts SET traffic_cycle_baseline_rx = ?, traffic_cycle_baseline_tx = ?, updated_at = ? WHERE id = ?`,
+					rxCumulative, txCumulative, time.Now().UTC().Format(time.RFC3339), c.id)
+			}
+			continue
+		}
+
+		start, end, ok := trafficCycleWindow(windowType, c.cycleDay, loc, now)
+		if !ok {
+			continue
+		}
 
 		// 未初始化，或已越过存储的 cycle_end，或存储窗口与当前窗口不一致 → 需要回滚
 		storedStartT, _ := time.Parse(time.RFC3339, c.cycleStart)
 		storedEndT, _ := time.Parse(time.RFC3339, c.cycleEnd)
-		needRoll := c.cycleStart == "" || c.cycleEnd == "" || c.baseline <= 0 ||
+		baselineMissing := cycleType != "none" && c.baseline <= 0
+		needRoll := c.cycleStart == "" || c.cycleEnd == "" || baselineMissing ||
 			!storedStartT.Equal(start) || now.After(storedEndT) || !now.Before(storedEndT)
-		if !needRoll {
+		nowStr := time.Now().UTC().Format(time.RFC3339)
+		if needRoll {
+			startStr := start.UTC().Format(time.RFC3339)
+			endStr := end.UTC().Format(time.RFC3339)
+			if cycleType == "none" {
+				// 未配置周期的主机仍按自然月展示「本期上下行」，但保留
+				// traffic_cycle_baseline 为 0，使配额进度条维持累计口径。
+				_, _ = db.ExecContext(ctx, `UPDATE server_accounts SET traffic_cycle_baseline_rx = ?, traffic_cycle_baseline_tx = ?, traffic_cycle_start = ?, traffic_cycle_end = ?, updated_at = ? WHERE id = ?`,
+					rxCumulative, txCumulative, startStr, endStr, nowStr, c.id)
+			} else {
+				_, _ = db.ExecContext(ctx, `UPDATE server_accounts SET traffic_cycle_baseline = ?, traffic_cycle_baseline_rx = ?, traffic_cycle_baseline_tx = ?, traffic_cycle_start = ?, traffic_cycle_end = ?, updated_at = ? WHERE id = ?`,
+					cumulative, rxCumulative, txCumulative, startStr, endStr, nowStr, c.id)
+			}
 			continue
 		}
-		startStr := start.UTC().Format(time.RFC3339)
-		endStr := end.UTC().Format(time.RFC3339)
-		_, _ = db.ExecContext(ctx, `UPDATE server_accounts SET traffic_cycle_baseline = ?, traffic_cycle_start = ?, traffic_cycle_end = ?, updated_at = ? WHERE id = ?`,
-			cumulative, startStr, endStr, time.Now().UTC().Format(time.RFC3339), c.id)
+
+		// 窗口无需回滚，但分方向基线缺失（旧库升级）→ 只补基线，不动总量基线与窗口。
+		if c.baselineRx <= 0 || c.baselineTx <= 0 {
+			_, _ = db.ExecContext(ctx, `UPDATE server_accounts SET traffic_cycle_baseline_rx = ?, traffic_cycle_baseline_tx = ?, updated_at = ? WHERE id = ?`,
+				rxCumulative, txCumulative, nowStr, c.id)
+		}
 	}
 }
 
