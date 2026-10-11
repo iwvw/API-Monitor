@@ -425,6 +425,43 @@ const getByteParts = value => {
   };
 };
 
+const resolveCycleBytes = (totalBytes, baselineBytes) => {
+  const total = toNumber(totalBytes, NaN);
+  const baseline = toNumber(baselineBytes, NaN);
+  if (!Number.isFinite(total)) return 0;
+  if (!Number.isFinite(baseline) || baseline <= 0) return Math.max(0, total);
+  return Math.max(0, total - baseline);
+};
+
+const getCycleByteParts = (totalBytes, baselineBytes) => {
+  const bytes = resolveCycleBytes(totalBytes, baselineBytes);
+  return {
+    bytes,
+    text: formatBytesValue(bytes),
+    ...parseSpeed(formatBytesValue(bytes)),
+  };
+};
+
+const resolveNetworkTotalBytes = (network, direction) => {
+  const rawBytes = toNumber(network?.[`${direction}_total_bytes`], NaN);
+  if (Number.isFinite(rawBytes)) return Math.max(0, rawBytes);
+  return Math.max(0, parseSpeedToBytes(network?.[`${direction}_total`]));
+};
+
+const getServerCycleParts = (server = {}) => {
+  const network = server?.info?.network || {};
+  return {
+    rx: getCycleByteParts(
+      resolveNetworkTotalBytes(network, 'rx'),
+      server?.traffic_cycle_baseline_rx
+    ),
+    tx: getCycleByteParts(
+      resolveNetworkTotalBytes(network, 'tx'),
+      server?.traffic_cycle_baseline_tx
+    ),
+  };
+};
+
 const TRAFFIC_QUOTA_UNITS = {
   GB: 1024 * 1024 * 1024,
   TB: 1024 * 1024 * 1024 * 1024,
@@ -8035,8 +8072,9 @@ function ServerPage() {
                           );
                         const tx = parseSpeed(server.info?.network?.tx_speed);
                         const rx = parseSpeed(server.info?.network?.rx_speed);
-                        const txTotal = getByteParts(server.info?.network?.tx_total);
-                        const rxTotal = getByteParts(server.info?.network?.rx_total);
+                        const cycleParts = getServerCycleParts(server);
+                        const txTotal = cycleParts.tx;
+                        const rxTotal = cycleParts.rx;
                         const trafficQuota = getTrafficQuota(server);
                         const disk = server.info?.disk?.[0] || {};
                         const diskUsage = clampPercent(toNumber(disk.usage, 0));
@@ -8689,8 +8727,9 @@ function ServerPage() {
                   const lifecycle = getServerLifecycle(server);
                   const canDrag =
                     !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
-                  const txTotal = getByteParts(server.info?.network?.tx_total);
-                  const rxTotal = getByteParts(server.info?.network?.rx_total);
+                  const cycleParts = getServerCycleParts(server);
+                  const txTotal = cycleParts.tx;
+                  const rxTotal = cycleParts.rx;
                   const trafficQuota = getTrafficQuota(server);
                   const chartLoading = !!server.metricsLoading && records.length === 0;
                   const terminalProtocol = resolveTerminalProtocol(server);
@@ -9070,12 +9109,12 @@ function ServerPage() {
                                           inline
                                         />
                                         <ExpandedInfoChip
-                                          label="累计上行"
+                                          label="本期上行"
                                           value={txTotal.text}
                                           valueClassName="text-kumo-info"
                                         />
                                         <ExpandedInfoChip
-                                          label="累计下行"
+                                          label="本期下行"
                                           value={rxTotal.text}
                                           valueClassName="text-kumo-success"
                                         />
@@ -12180,8 +12219,9 @@ function ServerPage() {
               : `${terminalPhysicalCores || '-'} 核`;
           const terminalGpuModel = getGpuModelText(activeInfo.gpu);
           const terminalHasGpu = !!terminalGpuModel || terminalGpuUsage > 0 || terminalGpuTemp > 0;
-          const terminalTxTotal = getByteParts(activeInfo.network?.tx_total);
-          const terminalRxTotal = getByteParts(activeInfo.network?.rx_total);
+          const terminalCycleParts = getServerCycleParts(activeServer);
+          const terminalTxTotal = terminalCycleParts.tx;
+          const terminalRxTotal = terminalCycleParts.rx;
           return (
             <AppCard
               padding="none"
@@ -12489,13 +12529,13 @@ function ServerPage() {
                                       tone="success"
                                     />
                                     <ExpandedInfoChip
-                                      label="累计上行"
+                                      label="本期上行"
                                       value={terminalTxTotal.text}
                                       valueClassName="text-kumo-info"
                                       className="col-span-2"
                                     />
                                     <ExpandedInfoChip
-                                      label="累计下行"
+                                      label="本期下行"
                                       value={terminalRxTotal.text}
                                       valueClassName="text-kumo-success"
                                       className="col-span-2"
