@@ -251,13 +251,17 @@ type relayLoopResult struct {
 	clientCancelled   bool // 客户端已断开（请求上下文被取消）：应静默收尾，不记账、不回写错误
 	firstChunk        []byte
 	firstWritten      bool
-	ttfbMs            int64
-	lastProxy         string
-	lastKeyIndex      int
-	stepKeyIndex      int // 本候选最近一次尝试实际使用的 key 序号（含失败尝试），供 failover 路径每步展示
-	attempt           int
-	egressIP          string // 请求实际从哪个出口/代理发出（随循环内选中的代理更新）
-	startTime         time.Time
-	cancel            context.CancelFunc
-	retryBody         []byte // 最近一次 429 的响应体，供 rateLimitRetryWaitFor 解析 Google RetryInfo 延迟
+	// upstreamErrBody 是本候选最后一次可重试失败时捕获的上游错误体片段。
+	// 端点级 failover 聚合错误文案时据此透传上游真实原因（如业务码/安全策略原文），
+	// 否则只剩网关合成的「所有端点均返回 HTTP N」，根因被吞掉。
+	upstreamErrBody string
+	ttfbMs          int64
+	lastProxy       string
+	lastKeyIndex    int
+	stepKeyIndex    int // 本候选最近一次尝试实际使用的 key 序号（含失败尝试），供 failover 路径每步展示
+	attempt         int
+	egressIP        string // 请求实际从哪个出口/代理发出（随循环内选中的代理更新）
+	startTime       time.Time
+	cancel          context.CancelFunc
+	retryBody       []byte // 最近一次 429 的响应体，供 rateLimitRetryWaitFor 解析 Google RetryInfo 延迟
 }

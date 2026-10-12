@@ -11,6 +11,27 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
+// captureUpstreamErrBody 从上游错误响应体中提取一段用于透传的根因文本：
+// 优先取 JSON 错误体里的 error.message（或上游信封的 msg），否则回退原始正文。
+// 结果按 relayErrorBodyLimit 截断，避免把上游大 body 写进日志与错误文案。
+func captureUpstreamErrBody(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	return truncateForLog(strings.TrimSpace(upstreamErrorMessage(body)), relayErrorBodyLimit)
+}
+
+// aggregatedUnavailableMessage 在「全部候选端点失败」时组装错误文案：
+// 基础文案之外，附加最后一次失败捕获到的上游真实原因，避免只报网关合成的
+// 「所有端点均返回 HTTP N」而把根因（业务码/安全策略原文等）吞掉。
+func aggregatedUnavailableMessage(base, detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return base
+	}
+	return base + "；上游返回：" + detail
+}
+
 // isRateLimitResponse 判断上游响应是否命中限流（429/439 或正文含限流关键词）。
 // 注意：503/529 是上游过载/停机信号，不属于客户端限流，不应计入「连续 429 冻结
 // 代理」的累计（否则瞬时过载会把一个健康代理冻结 30 分钟）；正文关键词仍能覆盖
@@ -80,8 +101,11 @@ func unavailableStatusCode(model string, failCodes []int) int {
 //   - 所有端点失败码一致（如全部 429）→ 透传该码，并说明网关无可用渠道。
 //   - 失败码不一致或不在 4xx/5xx 内 → 返回 503 网关无可用渠道。
 //
+// detail 为最后一次失败捕获到的上游真实原因（可为空），会附加在文案里，
+// 使调用方直接看到根因而非只有网关合成文案。
+//
 // 这类「所有渠道耗尽」属于网关自身状态，不额外写入调用日志（各尝试已在 relayLoop 内记录）。
-func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int) {
+func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int, detail string) {
 	if len(failCodes) > 0 {
 		first := failCodes[0]
 		allSame := true
@@ -92,7 +116,7 @@ func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int)
 			}
 		}
 		if allSame && first >= 400 && first < 600 {
-			msg := fmt.Sprintf("网关无可用渠道（模型 %s）：所有端点均返回 HTTP %d", model, first)
+			msg := aggregatedUnavailableMessage(fmt.Sprintf("网关无可用渠道（模型 %s）：所有端点均返回 HTTP %d", model, first), detail)
 			response.JSON(w, first, map[string]interface{}{
 				"error": map[string]string{"message": msg, "type": "service_unavailable"},
 			})
@@ -101,7 +125,7 @@ func writeRelayUnavailable(w http.ResponseWriter, model string, failCodes []int)
 	}
 	response.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 		"error": map[string]string{
-			"message": fmt.Sprintf("网关无可用渠道（模型 %s）", model),
+			"message": aggregatedUnavailableMessage(fmt.Sprintf("网关无可用渠道（模型 %s）", model), detail),
 			"type":    "service_unavailable",
 		},
 	})

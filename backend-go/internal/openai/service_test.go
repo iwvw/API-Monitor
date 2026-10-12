@@ -2821,6 +2821,74 @@ func TestMixedEndpointErrorsReturns503(t *testing.T) {
 	}
 }
 
+// TestAggregatedUnavailableCarriesUpstreamDetail 验证「全部候选端点失败」时，
+// 客户端错误文案与调用日志都会带上最后一次失败的上游真实原因，而不是只有
+// 网关合成的「所有端点均返回 HTTP N」。这是本次修复的核心：上游业务码/安全
+// 策略原文（如 WorkBuddy 的 code 11128）必须透传，否则根因被吞。
+func TestAggregatedUnavailableCarriesUpstreamDetail(t *testing.T) {
+	// 上游返回 502 + 业务信封：网关应把 msg 原文透传到聚合文案。
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(`{"error":{"message":"上游 HTTP 400: {\"code\":11128,\"msg\":\"first message is not system prompt\"}"}}`))
+	}))
+	defer upstream.Close()
+
+	service := newOpenAIService(t)
+
+	w := httptest.NewRecorder()
+	body := fmt.Sprintf(`{"name":"wb","baseUrl":%q,"apiKey":"k","skipVerify":true}`, upstream.URL)
+	r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(body))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create endpoint status = %d body=%s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, w.Body.String(), &out)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, out.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "11128") {
+		t.Fatalf("client error body should carry upstream detail, got body=%s", wChat.Body.String())
+	}
+
+	// 调用日志（analytics）同样应记录上游原文。
+	service.flushAnalyticsQueue(5 * time.Second)
+	logsW := httptest.NewRecorder()
+	logsR, _ := http.NewRequest("GET", "/api/openai/analytics/logs?page=1&pageSize=5", nil)
+	service.ServeHTTP(logsW, logsR)
+	if !strings.Contains(logsW.Body.String(), "11128") {
+		t.Fatalf("analytics log should carry upstream detail, got body=%s", logsW.Body.String())
+	}
+
+	// relay-errors 明细的 upstream 字段也应带上原文。
+	relayW := httptest.NewRecorder()
+	relayR, _ := http.NewRequest("GET", "/api/openai/relay-errors", nil)
+	service.ServeHTTP(relayW, relayR)
+	if !strings.Contains(relayW.Body.String(), "11128") {
+		t.Fatalf("relay-errors should carry upstream detail, got body=%s", relayW.Body.String())
+	}
+}
+
 // TestRetryRoundRecoversOnSubsequentRound 验证对齐 New API RetryTimes 的多轮重试：
 // 全部候选在第一轮都返回 429，但重试轮内上游恢复，最终请求成功返回 200，
 // 客户端无需感知（期间保持等待）。

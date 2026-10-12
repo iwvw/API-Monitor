@@ -920,6 +920,12 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			failStatus = first
 			msg = fmt.Sprintf("网关无可用渠道（模型 %s）：所有端点均返回 HTTP %d", model, first)
 		}
+		// 透传最后一次失败捕获到的上游真实原因，避免根因被网关合成文案吞掉。
+		var upstreamDetail string
+		if res != nil {
+			upstreamDetail = res.upstreamErrBody
+		}
+		msg = aggregatedUnavailableMessage(msg, upstreamDetail)
 		errBody, _ := json.Marshal(map[string]interface{}{
 			"error": map[string]string{"message": msg, "type": "service_unavailable"},
 		})
@@ -943,6 +949,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			Attempts:   attempts,
 			ElapsedMs:  time.Since(requestStarted).Milliseconds(),
 			StatusCode: failStatus,
+			Upstream:   upstreamDetail,
 			Error:      msg,
 		})
 		s.recordAnalyticsKey(ctx, "responses", lastEpID, model, failStatus, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
@@ -950,7 +957,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			Message:  msg,
 			Response: errorResponseForLog(errBody, failStatus),
 		}, res.realModel)
-		writeRelayUnavailable(w, model, failCodes)
+		writeRelayUnavailable(w, model, failCodes, upstreamDetail)
 		return
 	}
 	if lastRes != nil && lastRes.resp != nil {

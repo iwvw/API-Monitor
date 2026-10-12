@@ -398,6 +398,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			resp.Body.Close()
 			cancel()
 			if readErr != nil || isRetryableUpstreamResponse(resp, bodyBytesRead) {
+				res.upstreamErrBody = captureUpstreamErrBody(bodyBytesRead)
 				is429 := isRateLimitResponse(resp, bodyBytesRead)
 				if is429 {
 					res.retryBody = bodyBytesRead
@@ -558,6 +559,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				// 429/5xx 错误体不是 SSE 首块，不设 firstWritten。
 				if isRetryableUpstreamResponse(resp, nil) {
 					res.retryableUpstream = true
+					// 流式无切换机会时读到的是上游错误体（非 SSE）：捕获用于透传根因。
+					if res.upstreamErrBody == "" {
+						res.upstreamErrBody = captureUpstreamErrBody(tmp[:n])
+					}
 					if lastErr == nil {
 						lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误，无切换机会）", resp.StatusCode)
 					}
@@ -658,6 +663,14 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	// 或直连无切换机会），在此补齐一条，保证「最终导致失败的那一跳」也能排障追溯。
 	if resp != nil && !firstWritten && isRetryableUpstreamResponse(resp, nil) {
 		res.retryableUpstream = true
+		// 非流式且尚未读过正文（如未开启 AutoSwitch 的端点直接走到这里）：
+		// 读一次上游错误体并重建，既用于透传根因，也保证调用方仍可消费。
+		if !stream && res.upstreamErrBody == "" {
+			if bodyBytesRead, readErr := readUpstreamBodyLimited(resp.Body); readErr == nil {
+				res.upstreamErrBody = captureUpstreamErrBody(bodyBytesRead)
+				resp.Body = io.NopCloser(bytes.NewReader(bodyBytesRead))
+			}
+		}
 		if lastErr == nil {
 			lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误）", resp.StatusCode)
 		}

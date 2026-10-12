@@ -563,6 +563,12 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
 		status := unavailableStatusCode(model, failCodes)
 		msg := fmt.Sprintf("网关无可用渠道（模型 %s）", model)
+		// 透传最后一次失败捕获到的上游真实原因，避免根因被网关合成文案吞掉。
+		upstreamDetail := ""
+		if res != nil {
+			upstreamDetail = res.upstreamErrBody
+			msg = aggregatedUnavailableMessage(msg, upstreamDetail)
+		}
 		// 整链失败：切换过程不落日志，这里按「最终结果」聚合为一条，
 		// 端点取最后一次真实转发的候选（而非 unknown），模型与状态码齐备。
 		lastEpID, lastEpName := "", ""
@@ -583,6 +589,7 @@ func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyByte
 			Attempts:   attempts,
 			ElapsedMs:  time.Since(requestStarted).Milliseconds(),
 			StatusCode: status,
+			Upstream:   upstreamDetail,
 			Error:      msg,
 		})
 		errBody, _ := json.Marshal(map[string]interface{}{
