@@ -328,7 +328,7 @@ func isSSEPath(path string) bool {
 		p = p[:q]
 	}
 	p = strings.TrimSuffix(p, "/")
-	if p == "/global/event" || p == "/event" {
+	if p == "/global/event" || p == "/event" || p == "/api/event" {
 		return true
 	}
 	// V2 单会话可续接事件流：/api/session/{sessionID}/event
@@ -385,7 +385,12 @@ func (s *Service) handleGatewayWebSocket(
 			targetPath += "?" + encoded
 		}
 	}
-	upgradeReq, err := buildWebSocketUpgradeRequest(r, targetPath)
+	upgradeReq, err := buildWebSocketUpgradeRequest(r, targetPath, func() string {
+		if provider.InjectGatewayAuth {
+			return BasicAuthHeader(instance.ID)
+		}
+		return ""
+	}())
 	if err != nil {
 		s.writeAccessLog(r.Context(), AccessLog{
 			UserID:     auth.UserID,
@@ -541,7 +546,7 @@ func (s *Service) handleGatewayWebSocket(
 
 // buildWebSocketUpgradeRequest 把客户端 HTTP 升级请求重写为发往目标 Agent 的
 // HTTP/1.1 请求字节。保留 WebSocket 握手必需头，剥离面板专用鉴权/转发头。
-func buildWebSocketUpgradeRequest(r *http.Request, targetPath string) ([]byte, error) {
+func buildWebSocketUpgradeRequest(r *http.Request, targetPath string, injectAuth string) ([]byte, error) {
 	var buf bytes.Buffer
 
 	buf.WriteString(r.Method)
@@ -589,6 +594,12 @@ func buildWebSocketUpgradeRequest(r *http.Request, targetPath string) ([]byte, e
 	}
 	if !hasConnectionUpgrade {
 		buf.WriteString("Connection: Upgrade\r\n")
+	}
+	// v2 服务的 /api/* 强制 Basic 鉴权：为升级请求注入派生凭据。
+	if injectAuth != "" {
+		buf.WriteString("Authorization: ")
+		buf.WriteString(injectAuth)
+		buf.WriteString("\r\n")
 	}
 	buf.WriteString("\r\n")
 	return buf.Bytes(), nil
@@ -713,6 +724,11 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 		Path:   buildTargetPath(provider, rest),
 		Header: filterRequestHeaders(r.Header),
 		Body:   body,
+	}
+	// v2（opencode 2.x）的 /api/* 强制 Basic 鉴权：网关按实例 ID 派生凭据注入。
+	// 客户端与 Agent 用同一规则，云端无需存储密钥。
+	if provider.InjectGatewayAuth {
+		req.Header.Set("Authorization", BasicAuthHeader(instance.ID))
 	}
 	// 透传查询参数（去掉网关自用的一次性令牌 st），否则依赖 query 的 Agent 接口会失效。
 	if values := r.URL.Query(); len(values) > 0 {

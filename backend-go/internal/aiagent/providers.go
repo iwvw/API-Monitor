@@ -1,5 +1,30 @@
 package aiagent
 
+import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+)
+
+// gatewayAuthUser 是注入 v2 Basic 鉴权时使用的用户名（与 opencode v2 约定一致）。
+const gatewayAuthUser = "opencode"
+
+// GatewayPassword 按实例 ID 派生 v2 服务的 Basic 密码。
+//
+// 云端不额外存储密钥：Agent 启动 opencode-v2 时用同一规则设置
+// OPENCODE_SERVER_PASSWORD，网关转发时用同一规则注入 Basic 头，两端无需协商。
+// 派生值取自实例 ID 的 SHA-256，实例 ID 本身是随机不可猜的。
+func GatewayPassword(instanceID string) string {
+	sum := sha256.Sum256([]byte("aiagent-v2:" + instanceID))
+	return hex.EncodeToString(sum[:])
+}
+
+// BasicAuthHeader 返回注入 v2 服务的 Authorization 头值。
+func BasicAuthHeader(instanceID string) string {
+	cred := gatewayAuthUser + ":" + GatewayPassword(instanceID)
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(cred))
+}
+
 // Provider 描述一种 AI 编码 Agent 的接入参数。网关、探测与实例校验全部读取本
 // 注册表，不写死具体 Provider 分支；新增一种 Agent 只需要增加一个条目。
 type Provider struct {
@@ -18,8 +43,13 @@ type Provider struct {
 	BasePath  string `json:"basePath"`
 	Streaming string `json:"streaming"`
 	// Verified 表示该 Provider 的端口与进程规则是否经过实测确认。
-	Verified bool   `json:"verified"`
+	Verified bool `json:"verified"`
 	Notes    string `json:"notes,omitempty"`
+	// InjectGatewayAuth 为真时，网关转发前注入 Basic 鉴权头
+	// （用户名 opencode，密码由实例 ID 派生）。opencode v2（2.0.x）的
+	// /api/* 强制鉴权，而客户端/Agent 用同一实例 ID 派生同一密码，
+	// 无需在云端额外存储密钥。
+	InjectGatewayAuth bool `json:"injectGatewayAuth,omitempty"`
 }
 
 // providerRegistry 是内置 Provider 清单。第一版 opencode 已实测；其余为占位登记，
@@ -34,6 +64,20 @@ var providerRegistry = []Provider{
 		BasePath:      "",
 		Streaming:     "sse",
 		Verified:      true,
+	},
+	{
+		// opencode 2.0.x：API 挂 /api/* 且强制 Basic 鉴权。Agent 以实例 ID
+		// 派生 OPENCODE_SERVER_PASSWORD 启动，网关按同一规则注入 Basic。
+		ID:                "opencode-v2",
+		Label:             "OpenCode (v2)",
+		DefaultPort:       4096,
+		PortRangeSize:     99,
+		ProcessMatch:      []string{"opencode"},
+		BasePath:          "",
+		Streaming:         "sse",
+		Verified:          true,
+		InjectGatewayAuth: true,
+		Notes:             "opencode 2.x（/api/* 前缀 + Basic 鉴权）",
 	},
 	{
 		ID:            "pi",

@@ -166,7 +166,7 @@ func TestBuildWebSocketUpgradeRequest(t *testing.T) {
 	req.Header.Set("Cookie", "session=abc")
 	req.Header.Set("X-Forwarded-For", "203.0.113.1")
 
-	raw, err := buildWebSocketUpgradeRequest(req, "/pty/p1/connect?cursor=0")
+	raw, err := buildWebSocketUpgradeRequest(req, "/pty/p1/connect?cursor=0", "")
 	if err != nil {
 		t.Fatalf("buildWebSocketUpgradeRequest: %v", err)
 	}

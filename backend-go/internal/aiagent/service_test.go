@@ -663,6 +663,18 @@ func TestValidDesiredState(t *testing.T) {
 	}
 }
 
+// 锁定 opencode-v2 的网关 Basic 凭据派生值：Agent 侧（Rust）用同一规则派生
+// OPENCODE_SERVER_PASSWORD，这里锁死具体值，任何一端改规则都会让本用例失败。
+func TestGatewayPasswordMatchesAgentDerivation(t *testing.T) {
+	if got := GatewayPassword("inst_abc"); got != "3a05f31371e60bb90561b3703dc826f49c228d0a2e6fe3fd0e629f297f308430" {
+		t.Fatalf("unexpected password derivation: %s", got)
+	}
+	header := BasicAuthHeader("inst_abc")
+	if !strings.HasPrefix(header, "Basic ") {
+		t.Fatalf("expected Basic header, got %q", header)
+	}
+}
+
 // 区间边界：默认端口与上界都合法，超出上界一个即拒绝。
 func TestProviderPortAllowedBoundaries(t *testing.T) {
 	provider, ok := LookupProvider("opencode")

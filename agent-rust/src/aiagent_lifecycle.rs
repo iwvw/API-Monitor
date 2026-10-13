@@ -122,16 +122,33 @@ struct ProviderTemplate {
     /// 绝对路径。这同时满足 ADR-0006 第 6.1 条「路径来自 Agent 本地配置」：
     /// 云端仍然只能传 Provider ID，无法指定路径。
     executable_env: &'static str,
+    /// 为真时，启动前按实例 ID 派生并注入 OPENCODE_SERVER_PASSWORD。
+    /// opencode v2（2.0.x）的 /api/* 强制 Basic 鉴权，密码由此派生；
+    /// 云端网关用同一规则注入 Basic 头，两端无需存储密钥。
+    inject_server_password: bool,
 }
 
-const PROVIDER_TEMPLATES: &[ProviderTemplate] = &[ProviderTemplate {
-    id: "opencode",
-    default_port: 4096,
-    executable: "opencode",
-    args: &["serve", "--hostname", "127.0.0.1", "--port", "{port}"],
-    process_match: &["opencode"],
-    executable_env: "API_MONITOR_AIAGENT_OPENCODE_BIN",
-}];
+const PROVIDER_TEMPLATES: &[ProviderTemplate] = &[
+    ProviderTemplate {
+        id: "opencode",
+        default_port: 4096,
+        executable: "opencode",
+        args: &["serve", "--hostname", "127.0.0.1", "--port", "{port}"],
+        process_match: &["opencode"],
+        executable_env: "API_MONITOR_AIAGENT_OPENCODE_BIN",
+        inject_server_password: false,
+    },
+    ProviderTemplate {
+        // opencode 2.0.x：API 挂 /api/* 且强制 Basic 鉴权。
+        id: "opencode-v2",
+        default_port: 4096,
+        executable: "opencode",
+        args: &["serve", "--hostname", "127.0.0.1", "--port", "{port}"],
+        process_match: &["opencode"],
+        executable_env: "API_MONITOR_AIAGENT_OPENCODE_BIN",
+        inject_server_password: true,
+    },
+];
 
 fn lookup_template(provider: &str) -> Option<&'static ProviderTemplate> {
     let id = if provider.is_empty() {
@@ -140,6 +157,18 @@ fn lookup_template(provider: &str) -> Option<&'static ProviderTemplate> {
         provider
     };
     PROVIDER_TEMPLATES.iter().find(|template| template.id == id)
+}
+
+/// 按实例 ID 派生 opencode v2 的 OPENCODE_SERVER_PASSWORD。
+///
+/// 与云端网关的派生规则保持一致（sha256("aiagent-v2:" + instance_id)），
+/// 使网关注入的 Basic 头能被本机服务接受，两端无需存储或协商密钥。
+fn derive_server_password(instance_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"aiagent-v2:");
+    hasher.update(instance_id.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// 去掉路径两侧可能残留的引号与空白。
@@ -334,7 +363,7 @@ fn persist(table: &HashMap<String, ManagedProcess>) {
 ///
 /// 参数模板化 + 可执行文件来自本地配置，是 ADR-0006 第 6.1/6.2 条的安全约束：
 /// 云端只能传 Provider ID 与端口，无法指定路径或注入参数。
-fn spawn_process(template: &ProviderTemplate, port: u16) -> Result<u32, String> {
+fn spawn_process(template: &ProviderTemplate, port: u16, instance_id: &str) -> Result<u32, String> {
     let args: Vec<String> = template
         .args
         .iter()
@@ -358,6 +387,10 @@ fn spawn_process(template: &ProviderTemplate, port: u16) -> Result<u32, String> 
     }
     let mut command = std::process::Command::new(&executable);
     command.args(&args);
+    // v2 服务强制 Basic 鉴权：按实例 ID 派生并注入密码，与云端网关同规则。
+    if template.inject_server_password {
+        command.env("OPENCODE_SERVER_PASSWORD", derive_server_password(instance_id));
+    }
     // Unix：把子进程放进独立进程组（PGID = 子 PID），让 terminate 能按组终止
     // 整棵进程树。否则父进程退出后子进程被 reparent 到 init，父链断开，残留
     // 子进程仍持端口却再也追溯不到归属。
@@ -435,7 +468,7 @@ pub async fn start(raw: &str) -> Result<String, String> {
         ));
     }
 
-    let pid = spawn_process(template, payload.port)?;
+    let pid = spawn_process(template, payload.port, &payload.instance_id)?;
     let started_at = chrono::Utc::now().timestamp();
 
     // 先落表再等待：锁不能在 await 期间持有（MutexGuard 非 Send）。
@@ -876,7 +909,7 @@ async fn supervise_once() {
             continue;
         }
 
-        match spawn_process(template, port) {
+        match spawn_process(template, port, &instance_id) {
             Ok(pid) => {
                 let mut table = process_table().lock().unwrap();
                 if let Some(process) = table.get_mut(&instance_id) {
@@ -1286,6 +1319,20 @@ mod tests {
         assert!(lookup_template("opencode").is_some());
         // 空字符串回退到默认 Provider。
         assert!(lookup_template("").is_some());
+    }
+
+    /// opencode-v2 模板必须声明注入服务密码，且派生规则稳定（与云端网关一致）。
+    #[test]
+    fn opencode_v2_injects_server_password() {
+        let v1 = lookup_template("opencode").expect("opencode template");
+        assert!(!v1.inject_server_password, "v1 不应注入服务密码");
+        let v2 = lookup_template("opencode-v2").expect("opencode-v2 template");
+        assert!(v2.inject_server_password, "v2 必须注入服务密码");
+        // 派生值稳定且非空（具体值由 Go 侧用例锁定跨语言一致性）。
+        let password = derive_server_password("inst_abc");
+        assert_eq!(password, derive_server_password("inst_abc"));
+        assert_eq!(password.len(), 64);
+        assert_ne!(password, derive_server_password("inst_xyz"));
     }
 
     #[test]
