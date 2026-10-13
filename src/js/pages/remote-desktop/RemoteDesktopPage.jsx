@@ -82,6 +82,11 @@ export default function RemoteDesktopPage() {
   const lastSignalRef = useRef(0);
   const pendingLocalIceRef = useRef([]);
   const pendingRemoteIceRef = useRef([]);
+  // 同一会话同一 generation 的在途信令轮询。connect() 的首次短轮询与常驻长轮询
+  // 循环可能同时读同一批信号（两次都从同一 since 游标拉取，会重复应用 answer/ICE）。
+  // 并发调用直接复用同一个在途 Promise（而非各发一次请求），按 sessionId+generation
+  // 作用域，使重连时新会话的轮询不被旧会话的在途长轮询挡住。
+  const signalPollInFlightRef = useRef(null);
   const previousVideoStatsRef = useRef(null);
   // 「是否以触摸为主」仅由主指针类型决定。不能用 navigator.maxTouchPoints > 0：
   // 那表示「设备具备触摸能力」，而不是「用户在用触摸操作」——带触摸屏的 Windows
@@ -195,6 +200,10 @@ export default function RemoteDesktopPage() {
     const peer = peerRef.current;
     if (!peer || !signal) return;
     if (signal.kind === 'answer') {
+      // 重复/回放的 answer 会在 stable 状态下再次 setRemoteDescription，抛
+      // "Called in wrong state: stable"（首次 poll 与常驻长轮询循环可能竞争同一批
+      // 信号，双方都读到同一个 answer）。只有仍持有本地 offer 时才应用，重复的直接忽略。
+      if (peer.signalingState !== 'have-local-offer') return;
       await peer.setRemoteDescription(signal.sdp);
       for (const candidate of pendingRemoteIceRef.current.splice(0)) {
         await peer.addIceCandidate(candidate).catch(() => {});
@@ -208,39 +217,48 @@ export default function RemoteDesktopPage() {
     }
   }, []);
 
-  const pollSignals = useCallback(async (sessionId, generation, longPoll = false) => {
-    if (!sessionId || stoppedRef.current || sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return true;
-    try {
-      const data = await apiRequest(`/api/server/remote-desktop/sessions/${encodeURIComponent(sessionId)}/signals?since=${lastSignalRef.current}&wait=${longPoll ? 15000 : 0}`, {
-        headers: authHeaders(),
-        cache: 'no-store',
-      });
-      if (sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return true;
-      if (data.state) setState(data.state);
-      for (const item of data.signals || []) {
+  const pollSignals = useCallback((sessionId, generation, longPoll = false) => {
+    if (!sessionId || stoppedRef.current || sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return Promise.resolve(true);
+    const pollKey = `${generation}:${sessionId}`;
+    const inFlight = signalPollInFlightRef.current;
+    if (inFlight && inFlight.key === pollKey) return inFlight.promise;
+    const promise = (async () => {
+      try {
+        const data = await apiRequest(`/api/server/remote-desktop/sessions/${encodeURIComponent(sessionId)}/signals?since=${lastSignalRef.current}&wait=${longPoll ? 15000 : 0}`, {
+          headers: authHeaders(),
+          cache: 'no-store',
+        });
         if (sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return true;
-        lastSignalRef.current = Math.max(lastSignalRef.current, Number(item.id) || 0);
-        await applyRemoteSignal(item.payload, sessionId, generation);
+        if (data.state) setState(data.state);
+        for (const item of data.signals || []) {
+          if (sessionRef.current !== sessionId || generation !== connectionGenerationRef.current) return true;
+          lastSignalRef.current = Math.max(lastSignalRef.current, Number(item.id) || 0);
+          await applyRemoteSignal(item.payload, sessionId, generation);
+        }
+        return true;
+      } catch (err) {
+        // 会话被同一主机的新连接接管：后端返回 409 + reason=superseded。这不是
+        // 错误状态，而是「另一处已接管」的正常结果——必须停止轮询并提示，同时
+        // 绝不能落入自动重连（否则两个页签会互相抢占形成重连风暴）。
+        if (err.status === 409 && err.reason === 'superseded') {
+          supersededRef.current = true;
+          skipAutoReconnectRef.current = true;
+          setState('superseded');
+          setError('');
+          return false;
+        }
+        if (!stoppedRef.current && sessionRef.current === sessionId && generation === connectionGenerationRef.current) {
+          setError(err.message || '信令同步失败');
+        }
+        // 会话已不存在（404/409）：让调用方停止轮询该会话，避免对已失效的会话
+        // 无延迟死循环重试（例如同一主机在另一标签页被重新创建时旧会话会被回收）。
+        return err.status !== 404 && err.status !== 409;
+      } finally {
+        if (signalPollInFlightRef.current?.key === pollKey) signalPollInFlightRef.current = null;
       }
-      return true;
-    } catch (err) {
-      // 会话被同一主机的新连接接管：后端返回 409 + reason=superseded。这不是
-      // 错误状态，而是「另一处已接管」的正常结果——必须停止轮询并提示，同时
-      // 绝不能落入自动重连（否则两个页签会互相抢占形成重连风暴）。
-      if (err.status === 409 && err.reason === 'superseded') {
-        supersededRef.current = true;
-        skipAutoReconnectRef.current = true;
-        setState('superseded');
-        setError('');
-        return false;
-      }
-      if (!stoppedRef.current && sessionRef.current === sessionId && generation === connectionGenerationRef.current) {
-        setError(err.message || '信令同步失败');
-      }
-      // 会话已不存在（404/409）：让调用方停止轮询该会话，避免对已失效的会话
-      // 无延迟死循环重试（例如同一主机在另一标签页被重新创建时旧会话会被回收）。
-      return err.status !== 404 && err.status !== 409;
-    }
+    })();
+    signalPollInFlightRef.current = { key: pollKey, promise };
+    return promise;
   }, [applyRemoteSignal]);
 
   const closeSession = useCallback(async () => {
