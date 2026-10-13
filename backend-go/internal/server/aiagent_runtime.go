@@ -389,7 +389,8 @@ func (r *aiagentRuntime) roundTripOnce(ctx context.Context, serverID string, por
 		"path", req.Path,
 		"streaming", isStreamingRequest(req.Header),
 		"lightweight", req.Header.Get("X-Lightweight"),
-		"accept", req.Header.Get("Accept"))
+		"accept", req.Header.Get("Accept"),
+		"has_auth", req.Header.Get("Authorization") != "")
 
 	var statusCode int
 	var header http.Header

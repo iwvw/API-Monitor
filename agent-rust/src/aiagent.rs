@@ -1000,6 +1000,10 @@ fn parse_keepalive_request(head: &[u8]) -> Option<KeepAliveRequest> {
     let mut accept = String::new();
     let mut upgrade = String::new();
     let mut content_length: usize = 0;
+    // 需要转发到本机 opencode 的请求头（除逐跳头与由 reqwest 自行管理的头）。
+    // 尤其 Authorization：opencode v2 的 /api/* 强制 Basic 鉴权，网关注入的
+    // 凭据必须原样带到本机，否则 v2 实例一律 401。
+    let mut forward_headers: Vec<(String, String)> = Vec::new();
     for line in lines {
         if line.is_empty() {
             break;
@@ -1016,6 +1020,26 @@ fn parse_keepalive_request(head: &[u8]) -> Option<KeepAliveRequest> {
                 // 否则 POST 会以空 body 发出，且残留字节会被当成下一条请求头。
                 content_length = value.parse::<usize>().unwrap_or(0);
             }
+            // 逐跳头与 reqwest 自行管理的头（host/content-length/accept-encoding/
+            // content-type）不转发：前者语义仅限单跳，后者由本端重设。
+            let lower = name.to_ascii_lowercase();
+            let skip = matches!(
+                lower.as_str(),
+                "host"
+                    | "connection"
+                    | "keep-alive"
+                    | "proxy-connection"
+                    | "transfer-encoding"
+                    | "te"
+                    | "trailer"
+                    | "upgrade"
+                    | "content-length"
+                    | "accept-encoding"
+                    | "content-type"
+            );
+            if !skip {
+                forward_headers.push((name.to_string(), value.to_string()));
+            }
         }
     }
     if accept.contains("text/event-stream") || upgrade.contains("websocket") || is_sse_path(target) {
@@ -1026,14 +1050,17 @@ fn parse_keepalive_request(head: &[u8]) -> Option<KeepAliveRequest> {
         method: method.to_string(),
         path: target.to_string(),
         content_length,
+        headers: forward_headers,
     })
 }
 
-/// 可复用隧道上的单条请求：方法 + 路径（含 query）+ 待读取的请求体长度。
+/// 可复用隧道上的单条请求：方法 + 路径（含 query）+ 待读取的请求体长度
+/// + 需转发的请求头（如 Authorization）。
 struct KeepAliveRequest {
     method: String,
     path: String,
     content_length: usize,
+    headers: Vec<(String, String)>,
 }
 
 /// 可复用隧道服务循环：在一条复用的数据通道上，按「读请求头 → 本地请求 →
@@ -1187,6 +1214,11 @@ async fn handle_keepalive_request(
     let mut builder = client
         .request(method, &url)
         .header(reqwest::header::ACCEPT_ENCODING, "identity");
+    // 透传客户端/网关注入的请求头（如 Authorization）：v2 的 /api/* 依赖
+    // Basic 鉴权，逐跳头与由本端重设的头已在 parse 阶段过滤。
+    for (name, value) in &request.headers {
+        builder = builder.header(name.as_str(), value.as_str());
+    }
     if !body.is_empty() {
         builder = builder
             .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -1350,6 +1382,35 @@ mod tests {
         let head = b"POST /session/ses_1/prompt HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n\r\n";
         let req = parse_keepalive_request(head).expect("POST 应命中复用隧道");
         assert_eq!(req.method, "POST");
+    }
+
+    /// Authorization 等业务头必须原样转发到本机 opencode（v2 的 /api/* 依赖
+    /// Basic 鉴权）；逐跳头与由本端重设的头必须过滤掉。
+    #[test]
+    fn keepalive_forwards_auth_and_filters_hop_by_hop_headers() {
+        let head = b"GET /api/info HTTP/1.1\r\n\
+Host: 127.0.0.1:4098\r\n\
+Authorization: Basic b3BlbmNvZGU6c2VjcmV0\r\n\
+Accept-Encoding: identity\r\n\
+Connection: keep-alive\r\n\
+User-Agent: Go-http-client/1.1\r\n\r\n";
+        let req = parse_keepalive_request(head).expect("GET 应命中复用隧道");
+        let has_auth = req
+            .headers
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("authorization") && v == "Basic b3BlbmNvZGU6c2VjcmV0");
+        assert!(has_auth, "Authorization 必须被保留转发");
+        assert!(
+            req.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")),
+            "User-Agent 应转发"
+        );
+        for (k, _) in &req.headers {
+            let lower = k.to_ascii_lowercase();
+            assert!(
+                !matches!(lower.as_str(), "host" | "connection" | "accept-encoding" | "content-length"),
+                "逐跳/由本端重设的头不应转发: {k}"
+            );
+        }
     }
 
     /// 用「网关 Go http.Transport 实际发出的报文字节」验证轻量路径能被命中。

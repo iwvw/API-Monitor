@@ -28,6 +28,8 @@ type dialRuntime struct {
 	online         bool
 	supportsStream bool
 	dialAddr       string
+	// captured 记录最近一次 RoundTrip 收到的请求（断言网关注入头用）。
+	captured *AgentHTTPRequest
 }
 
 func (r *dialRuntime) AgentOnline(string) bool { return r.online }
@@ -56,8 +58,10 @@ func (r *dialRuntime) Diagnose(context.Context, string, string) (DiagnoseResult,
 	return DiagnoseResult{}, nil
 }
 
-func (r *dialRuntime) RoundTrip(context.Context, string, int, AgentHTTPRequest) (AgentHTTPResponse, error) {
-	return AgentHTTPResponse{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(nil)}, nil
+func (r *dialRuntime) RoundTrip(_ context.Context, _ string, _ int, req AgentHTTPRequest) (AgentHTTPResponse, error) {
+	c := req
+	r.captured = &c
+	return AgentHTTPResponse{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}, nil
 }
 
 func (r *dialRuntime) OpenStream(_ context.Context, _ string, _ int) (io.ReadWriteCloser, error) {
@@ -152,8 +156,55 @@ func TestGatewayWebSocketTunnel(t *testing.T) {
 	}
 }
 
+// TestGatewayInjectsV2BasicAuth 验证 opencode-v2 实例的网关转发会注入
+// 派生 Basic 鉴权头；v1 实例不注入。
+func TestGatewayInjectsV2BasicAuth(t *testing.T) {
+	service := newTestService(t)
+	runtime := &dialRuntime{online: true, supportsStream: true}
+	service.SetAgentRuntime(runtime)
+
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	user, err := service.createUser(ctx, db, "v2-user", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	plain, _, err := service.issueToken(ctx, db, user.ID, "", "203.0.113.10")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-v2",
+		Provider: "opencode-v2",
+		Label:    "v2-host",
+	})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+	if err := service.setGrantsForUser(ctx, db, user.ID, []string{instance.ID}); err != nil {
+		t.Fatalf("setGrantsForUser: %v", err)
+	}
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/aiagent/gw/"+instance.ID+"/api/info", nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	service.ServeHTTP(rec, req)
+
+	if runtime.captured == nil {
+		t.Fatal("RoundTrip was not called")
+	}
+	got := runtime.captured.Header.Get("Authorization")
+	want := BasicAuthHeader(instance.ID)
+	if got != want {
+		t.Fatalf("injected Authorization = %q, want %q", got, want)
+	}
+}
+
 // TestBuildWebSocketUpgradeRequest 验证升级请求字节的构造：
-// 保留握手必需头，剥离面板鉴权/逐跳头，Host 指向目标。
 func TestBuildWebSocketUpgradeRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://panel.example.com/api/aiagent/gw/inst_1/pty/p1/connect?cursor=0&st=short-token", nil)
 	req.Header.Set("Connection", "Upgrade")
