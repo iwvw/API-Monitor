@@ -164,14 +164,14 @@ func init() {
 	})
 	routeRequestContracts["/api/aiagent/instances"] = obj([]string{"serverId", "label"}, map[string]prop{
 		"serverId": {t: "string", req: true, d: "主机 ID（复用主机实例模块）"},
-		"provider": {t: "string", e: []string{"opencode", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
+		"provider": {t: "string", e: []string{"opencode", "opencode-v2", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
 		"label":    {t: "string", req: true, d: "实例名称"},
 		"port":     {t: "integer", d: "本地服务端口，缺省取 Provider 默认端口"},
 		"enabled":  {t: "boolean", d: "是否启用"},
 	})
 	routeRequestContracts["/api/aiagent/instances/{id}"] = obj(nil, map[string]prop{
 		"serverId": {t: "string", d: "主机 ID"},
-		"provider": {t: "string", e: []string{"opencode", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
+		"provider": {t: "string", e: []string{"opencode", "opencode-v2", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
 		"label":    {t: "string", d: "实例名称"},
 		"port":     {t: "integer", d: "本地服务端口"},
 		"enabled":  {t: "boolean", d: "是否启用"},
