@@ -2075,7 +2075,82 @@ func (s *Service) probeInstance(ctx context.Context, instance Instance) Instance
 			state.Error = "process or port not reachable on host"
 		}
 	}
+
+	// 在线时对实例端口做一次版本探测：对比实测 opencode 主版本与实例的
+	// Provider 标签（opencode=v1 / opencode-v2=v2），版本不符时给出修正建议。
+	// 这消除「v2 实例误标成 v1 → 网关不注入 Basic → 401」这类静默失败。
+	if state.Online {
+		state = s.detectProviderVersion(ctx, state, instance, provider)
+	}
 	return state
+}
+
+// detectProviderVersion 经 Agent 数据通道探测实例端口的 opencode 主版本。
+//
+// 判定信号（无需知道可执行文件路径，只靠 HTTP 探活）：
+//   - v2（2.0.x）：/api/* 前缀，GET /api/info 返回 200 且 body.version 为 2.x；
+//   - v1（1.x）：根路径 API，GET /global/health 返回 200 且 body.version 为 1.x。
+//
+// 探测失败（超时/非预期响应）只清空 DetectedVersion，不把实例判为离线。
+func (s *Service) detectProviderVersion(ctx context.Context, state InstanceState, instance Instance, provider Provider) InstanceState {
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	version := s.roundTripProbeVersion(probeCtx, instance.ServerID, instance.Port, "/api/info", "2")
+	if version == "" {
+		version = s.roundTripProbeVersion(probeCtx, instance.ServerID, instance.Port, "/global/health", "1")
+	}
+	if version == "" {
+		return state // 探测失败：保留已确认的在线状态，只是无法判定版本
+	}
+	state.DetectedVersion = version
+
+	expected := "1"
+	if provider.ID == "opencode-v2" {
+		expected = "2"
+	}
+	if version != expected {
+		state.VersionMismatch = true
+		if version == "2" {
+			state.VersionSuggestion = "opencode-v2"
+		} else {
+			state.VersionSuggestion = "opencode"
+		}
+	}
+	return state
+}
+
+// roundTripProbeVersion 发起一次经 Agent 数据通道的 HTTP GET，从响应体解析
+// version 字段，返回其主版本（wantMajor 匹配时）。失败或主版本不符返回空串。
+func (s *Service) roundTripProbeVersion(ctx context.Context, serverID string, port int, path, wantMajor string) string {
+	resp, err := s.runtime.RoundTrip(ctx, serverID, port, AgentHTTPRequest{
+		Method: http.MethodGet,
+		Path:   path,
+		Header: http.Header{},
+	})
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.Version == "" {
+		return ""
+	}
+	// 主版本取首个数字段（如 "2.0.28" → "2"）。
+	major := strings.SplitN(strings.TrimSpace(payload.Version), ".", 2)[0]
+	if major == wantMajor {
+		return major
+	}
+	return ""
 }
 
 // gatewayURL 生成客户端可用的网关绝对地址。优先使用请求上下文中的公开地址不可得，

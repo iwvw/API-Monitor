@@ -158,6 +158,13 @@ type InstanceState struct {
 	CPUPercent float32        `json:"cpuPercent,omitempty"`
 	ProbedAt   string         `json:"probedAt,omitempty"`
 	Error      string         `json:"error,omitempty"`
+	// DetectedVersion 是实测 opencode 的主版本（"1" / "2"），探测失败时为空。
+	// 由版本探测对实例端口发起 /api/info（v2）与 /global/health（v1）判定。
+	DetectedVersion string `json:"detectedVersion,omitempty"`
+	// VersionMismatch 为真表示实测版本与实例的 Provider 标签不一致。
+	VersionMismatch bool `json:"versionMismatch,omitempty"`
+	// VersionSuggestion 是版本不一致时建议的正确 Provider ID（opencode / opencode-v2）。
+	VersionSuggestion string `json:"versionSuggestion,omitempty"`
 }
 
 // ProbeResult 是主机 Agent 返回的运行时探测结果。
