@@ -53,7 +53,7 @@ import { useVisiblePolling } from '../../modules/usePageVisibility.js';
 const AI_AGENT_INSTANCE_COLUMNS = [
   { id: 'check', role: 'check' },
   { id: 'name', role: 'primary', minWidth: 200, grow: 1 },
-  { id: 'provider', role: 'type' },
+  { id: 'provider', role: 'meta', minWidth: 96, idealWidth: 128, maxWidth: 176, align: 'center' },
   { id: 'host', role: 'content', minWidth: 150, grow: 1, verticalAlign: 'middle' },
   { id: 'port', role: 'number', align: 'right' },
   { id: 'status', role: 'status' },

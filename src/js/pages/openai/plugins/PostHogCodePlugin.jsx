@@ -12,7 +12,9 @@ const POSTHOG_ACCOUNT_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'account', role: 'primary', grow: 1 },
   { id: 'calls', role: 'count', align: 'center' },
-  { id: 'status', role: 'status' },
+  // 状态列展示「有效 5天3小时」这类较长文本，status 角色太窄会被遮挡，
+  // 改用更宽的 meta 角色并放宽上限。
+  { id: 'status', role: 'meta', minWidth: 96, idealWidth: 128, maxWidth: 176, align: 'center' },
   { id: 'actions', role: 'actions-lg' },
 ];
 
@@ -20,8 +22,6 @@ const POSTHOG_USAGE_COLUMNS = [
   { id: 'account', role: 'primary', grow: 1 },
   { id: 'remaining', role: 'content', grow: 2, verticalAlign: 'middle' },
   { id: 'used', role: 'count', align: 'right' },
-  { id: 'burst', role: 'count', align: 'center' },
-  { id: 'sustained', role: 'count', align: 'center' },
   { id: 'period', role: 'date', align: 'center' },
 ];
 
@@ -686,12 +686,22 @@ export function PostHogCodePlugin() {
     }
   };
 
+  // 仅显示免费层：由持久化设置 freeTierOnly 驱动（后端据此只对网关暴露免费层模型），
+  // 同时过滤下表视图。免费层由上游标记 m.freeTier 决定。
+  // 批量开关、已启用计数都以「可见模型」为准，避免筛掉后误操作不可见的模型。
+  const visibleModels = useMemo(
+    () => (settings?.freeTierOnly ? models.filter(m => m.freeTier) : models),
+    [models, settings?.freeTierOnly],
+  );
+  const enabledModelCount = useMemo(() => visibleModels.filter(m => m.enabled).length, [visibleModels]);
+  const allEnabled = visibleModels.length > 0 && enabledModelCount === visibleModels.length;
+
   const toggleAllModels = async enabled => {
     try {
       const res = await fetch(`${API}/models/toggle-batch`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ enabled, ids: models.map(m => m.id) }),
+        body: JSON.stringify({ enabled, ids: visibleModels.map(m => m.id) }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
@@ -719,9 +729,6 @@ export function PostHogCodePlugin() {
       setLinkBusy(false);
     }
   };
-
-  const enabledModelCount = useMemo(() => models.filter(m => m.enabled).length, [models]);
-  const allEnabled = models.length > 0 && enabledModelCount === models.length;
 
   if (loading) {
     return (
@@ -764,7 +771,7 @@ export function PostHogCodePlugin() {
               }}
             />
           </FieldRow>
-          <FieldRow title={<span title="PostHog Cloud 区域：us（gateway.us.posthog.com）或 eu（gateway.eu.posthog.com）。切换后需重新授权">区域</span>}>
+          <FieldRow title={<span title="PostHog Cloud 区域：us（ai-gateway.us.posthog.com）或 eu（ai-gateway.eu.posthog.com）。切换后需重新授权">区域</span>}>
             <Select
               alignItemWithTrigger
               size="sm"
@@ -777,9 +784,6 @@ export function PostHogCodePlugin() {
               ]}
               disabled={saving}
             />
-          </FieldRow>
-          <FieldRow title={<span title="PostHog 免费层模型（无需绑定付款方式）：GLM-5.2、DeepSeek V4 Flash、Kimi K3。开启后只暴露这些模型，高级模型（Claude Fable/Opus、GPT-6 等）需要 PostHog 付费计划">仅免费层模型</span>}>
-            <Switch checked={!!settings?.freeTierOnly} onCheckedChange={v => update({ freeTierOnly: v })} />
           </FieldRow>
           <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 phc-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
             <Input
@@ -1014,8 +1018,6 @@ export function PostHogCodePlugin() {
                       <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
                       <Table.Head className="!px-2.5 !py-1.5">剩余额度</Table.Head>
                       <Table.Head className="!px-2 !py-1.5 text-right">已用</Table.Head>
-                      <Table.Head className="!px-2 !py-1.5 text-center" title="日窗口用量占比，超过会被网关限流">日窗口</Table.Head>
-                      <Table.Head className="!px-2 !py-1.5 text-center" title="月窗口用量占比，超过会被网关限流">月窗口</Table.Head>
                       <Table.Head className="!px-2 !py-1.5 text-center" title="各账号额度互相独立，周期结束日按各自计费周期">计费周期</Table.Head>
                     </Table.Row>
                   </Table.Header>
@@ -1026,16 +1028,6 @@ export function PostHogCodePlugin() {
                       const rowRemain = row.limitCredits != null ? Math.max(0, rowLimit - rowUsed) : null;
                       const pct = rowLimit > 0 ? Math.min(100, (rowRemain / rowLimit) * 100) : null;
                       const tone = pct == null ? '' : pct <= 10 ? 'bg-kumo-danger' : pct <= 30 ? 'bg-kumo-warning' : 'bg-kumo-success';
-                      const burst = row.usage ? Number(row.usage.burst?.used_percent ?? 0) : null;
-                      const sustained = row.usage ? Number(row.usage.sustained?.used_percent ?? 0) : null;
-                      const windowTone = p => (p == null ? '' : p >= 90 ? 'text-kumo-danger' : p >= 70 ? 'text-kumo-warning' : 'text-kumo-subtle');
-                      const windowTip = row.usage
-                        ? `日窗口 ${Number(row.usage.burst?.used_percent ?? 0).toFixed(1)}%${
-                            row.usage.burst?.resets_in_seconds ? `（${fmtLeft(row.usage.burst.resets_in_seconds)}后重置）` : ''
-                          } · 月窗口 ${Number(row.usage.sustained?.used_percent ?? 0).toFixed(1)}%${
-                            row.usage.sustained?.resets_in_seconds ? `（${fmtLeft(row.usage.sustained.resets_in_seconds)}后重置）` : ''
-                          }`
-                        : '';
                       return (
                         <Table.Row key={row.id} className="h-12">
                           <Table.Cell className="!px-2.5 !py-1.5">
@@ -1070,12 +1062,6 @@ export function PostHogCodePlugin() {
                           <Table.Cell className="!px-2 !py-1.5 text-right font-mono text-kumo-subtle">
                             {row.usedCredits != null ? `$${(rowUsed * usdPerCredit).toFixed(2)}` : '—'}
                           </Table.Cell>
-                          <Table.Cell className={`!px-2 !py-1.5 text-center font-mono ${windowTone(burst)}`} title={windowTip}>
-                            {burst != null ? `${burst.toFixed(1)}%` : '—'}
-                          </Table.Cell>
-                          <Table.Cell className={`!px-2 !py-1.5 text-center font-mono ${windowTone(sustained)}`} title={windowTip}>
-                            {sustained != null ? `${sustained.toFixed(1)}%` : '—'}
-                          </Table.Cell>
                           <Table.Cell className="!px-2 !py-1.5 text-center">
                             <span className="font-mono text-kumo-subtle">
                               {row.usage?.billing_period_end
@@ -1105,7 +1091,13 @@ export function PostHogCodePlugin() {
           icon={<SettingsIcon className="h-4 w-4 text-brand" />}
           bodyPadding="none"
           actions={
-            <span className="text-xs text-kumo-subtle">{enabledModelCount}/{models.length} 已启用</span>
+            <div className="flex items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-kumo-subtle">
+                <Switch size="sm" checked={!!settings?.freeTierOnly} onCheckedChange={v => update({ freeTierOnly: v })} aria-label="仅显示免费层" />
+                仅显示免费层
+              </label>
+              <span className="text-xs text-kumo-subtle">{enabledModelCount}/{models.length} 已启用</span>
+            </div>
           }
         >
           {models.length ? (
@@ -1127,7 +1119,7 @@ export function PostHogCodePlugin() {
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {models.map(m => (
+                  {visibleModels.map(m => (
                     <Table.Row key={m.id} className="h-9">
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         <div className="flex justify-center">
@@ -1162,10 +1154,8 @@ export function PostHogCodePlugin() {
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         {m.freeTier ? (
                           <Badge variant="success" className="text-xs">免费</Badge>
-                        ) : m.allowed ? (
-                          <Badge variant="info" className="text-xs">可用</Badge>
                         ) : (
-                          <Badge variant="warning" className="text-xs">受限</Badge>
+                          <Badge variant="info" className="text-xs">付费</Badge>
                         )}
                       </Table.Cell>
                     </Table.Row>
