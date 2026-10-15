@@ -42,21 +42,30 @@ type UsageInfo struct {
 	BillingPeriodEnd    string       `json:"billing_period_end"`
 }
 
-// usageURL 构造指定账号的上游用量地址。注意：该端点不带产品路径段前缀，
-// 产品名放在末段（与 /{product}/v1/* 的排布不同）。
-func (s *Service) usageURL(acc Account) string {
-	return gatewayBaseURL(s.accountRegion(acc)) + "/v1/usage/" + s.accountProduct()
+// usageURL 构造指定账号项目的用量地址。
+// PostHog 已下线 Python 网关的 `/{product}/v1/usage` 路径，现由 Django 主站的
+// `desktop/usage/` 提供同一份数据（结构一致），需账号的项目 ID 与 pha_ 凭据。
+func (s *Service) usageURL(acc Account, projectID string) string {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return ""
+	}
+	return cloudBaseURL(s.accountRegion(acc)) + "/api/projects/" + projectID + "/desktop/usage/"
 }
 
-// fetchUsage 拉取指定账号的上游用量与限额状态。
-func (s *Service) fetchUsage(ctx context.Context, acc Account, accessToken string) (*UsageInfo, error) {
+// fetchUsage 拉取指定账号的用量与限额状态。
+func (s *Service) fetchUsage(ctx context.Context, acc Account, projectID, accessToken string) (*UsageInfo, error) {
+	url := s.usageURL(acc, projectID)
+	if url == "" {
+		return nil, errors.New("账号未记录项目 ID，无法查询用量")
+	}
 	if strings.TrimSpace(accessToken) == "" {
 		return nil, errMissingToken
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, s.usageURL(acc), nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -243,16 +252,16 @@ func (s *Service) collectOneAccountUsage(ctx context.Context, acc Account) Accou
 		row.Error = err.Error()
 		return row
 	}
-	// 速率窗口：网关按 token 归属用户统计。
-	if u, err := s.fetchUsage(ctx, acc, token); err == nil {
-		row.Usage = u
-	}
-	// 组织额度：必须用该账号自己的区域与项目 ID。
+	// 组织额度与用量都按项目结算，先解析项目 ID。
 	projectID := s.resolveProjectID(ctx, &acc, token)
 	row.Project = projectID
 	if projectID == "" {
 		row.Error = "账号未记录项目 ID（凭据可能缺少 project:read）"
 		return row
+	}
+	// 速率窗口：用量端点按账号 token 归属用户统计。
+	if u, err := s.fetchUsage(ctx, acc, projectID, token); err == nil {
+		row.Usage = u
 	}
 	quota, err := s.fetchQuotaLimits(ctx, acc, projectID, token)
 	if err != nil {

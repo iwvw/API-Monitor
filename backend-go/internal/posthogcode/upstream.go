@@ -12,38 +12,42 @@ import (
 )
 
 // ModelPricing 是上游返回的按 token 计价表，单位为 USD/token。
+// Go 网关的键为 cache_read/cache_write（旧 Python 网关为 input_cache_read/input_cache_write）。
 type ModelPricing struct {
 	Prompt          string `json:"prompt"`
 	Completion      string `json:"completion"`
-	InputCacheRead  string `json:"input_cache_read"`
-	InputCacheWrite string `json:"input_cache_write"`
+	InputCacheRead  string `json:"cache_read"`
+	InputCacheWrite string `json:"cache_write"`
 }
 
-// ModelInfo 是上游 /v1/models 返回的单个模型条目。
+// ModelInfo 是 Go AI 网关 /v1/models 返回的单个模型条目。
+// 该目录公开（无需鉴权），字段与旧 Python 网关不同：无 allowed/restriction_reason，
+// 计价键为 cache_read/cache_write。
 type ModelInfo struct {
 	ID            string `json:"id"`
-	DisplayName   string `json:"display_name"`
+	Name          string `json:"name"`
+	Canonical     string `json:"canonical"`
 	OwnedBy       string `json:"owned_by"`
 	ContextWindow int    `json:"context_window"`
-	// Allowed 是上游给出的免费层可用标记（false 表示需付费计划）。
-	Allowed bool `json:"allowed"`
-	// RestrictionReason 是受限原因（如 paid_plan_required）。
-	RestrictionReason string `json:"restriction_reason"`
+	// APIshapes 是该模型可用的请求形状（openai-chat-completions 等）。
+	APIshapes []string `json:"api_shapes"`
 	// Pricing 是计价表；上游未收录时为 null。
 	Pricing *ModelPricing `json:"pricing"`
 }
 
-// freeTierModels 是 PostHog 免费层模型（未绑定付款方式的组织可用）。
-// 来源：services/llm-gateway/src/llm_gateway/config.py 的 posthog_code_free_tier_models。
+// freeTierModels 是 PostHog Desktop 免费层模型（未绑定付款方式的组织可用），
+// 取 Go 网关的写法（Go 不认 `@cf/` 别名）。来源：
+// products/tasks/backend/logic/services/gateway_model_pin.py 的 FREE_TIER_MODELS。
 var freeTierModels = []string{
-	"@cf/zai-org/glm-5.2",
+	"zai-org/glm-5.2",
 	"deepseek-ai/deepseek-v4-flash-0731",
 	"moonshotai/kimi-k3",
+	"zai-org/glm-5.3-flash",
 }
 
 // isFreeTierModel 判断模型名是否属于免费层（前缀匹配，与上游一致）。
 func isFreeTierModel(id string) bool {
-	lower := strings.ToLower(strings.TrimSpace(id))
+	lower := strings.ToLower(strings.TrimSpace(goModelName(id)))
 	for _, m := range freeTierModels {
 		if strings.HasPrefix(lower, strings.ToLower(m)) {
 			return true
@@ -52,16 +56,13 @@ func isFreeTierModel(id string) bool {
 	return false
 }
 
-// modelsURL 构造指定账号的上游模型列表地址。
+// modelsURL 构造指定账号区域的 Go 网关模型目录地址（公开，无产品路径段）。
 func (s *Service) modelsURL(acc Account) string {
-	return gatewayBaseURL(s.accountRegion(acc)) + "/" + s.accountProduct() + "/v1/models"
+	return goGatewayBaseURL(s.accountRegion(acc)) + "/v1/models"
 }
 
-// fetchModels 从上游拉取模型目录。失败时返回错误，由调用方决定兜底。
-func (s *Service) fetchModels(ctx context.Context, acc Account, accessToken string) ([]ModelInfo, error) {
-	if strings.TrimSpace(accessToken) == "" {
-		return nil, fmt.Errorf("缺少 access token")
-	}
+// fetchModels 从 Go 网关拉取模型目录。该端点无需鉴权，失败时返回错误由调用方兜底。
+func (s *Service) fetchModels(ctx context.Context, acc Account) ([]ModelInfo, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -69,7 +70,6 @@ func (s *Service) fetchModels(ctx context.Context, acc Account, accessToken stri
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -87,7 +87,6 @@ func (s *Service) fetchModels(ctx context.Context, acc Account, accessToken stri
 		return nil, fmt.Errorf("模型列表返回 %d: %s", resp.StatusCode, msg)
 	}
 
-	// 上游同时返回 data 与 models 两个等价数组，取其一。
 	var parsed struct {
 		Data []ModelInfo `json:"data"`
 	}
@@ -114,11 +113,7 @@ func (s *Service) catalog(ctx context.Context) []ModelInfo {
 		s.modelMu.Unlock()
 		return out
 	}
-	token, err := s.ensureFreshToken(ctx, &acc)
-	if err != nil {
-		return nil
-	}
-	models, err := s.fetchModels(ctx, acc, token)
+	models, err := s.fetchModels(ctx, acc)
 	if err != nil || len(models) == 0 {
 		s.modelMu.Lock()
 		out := append([]ModelInfo(nil), s.modelCache...)
@@ -195,9 +190,9 @@ type relayTarget struct {
 	url     string
 }
 
-// chatCompletionsURL 构造指定账号的上游 chat/completions 地址。
-func (s *Service) chatCompletionsURL(acc Account) string {
-	return gatewayBaseURL(s.accountRegion(acc)) + "/" + s.accountProduct() + "/v1/chat/completions"
+// chatCompletionsURL 由铸造返回的 gateway_url 构造对话地址（无产品路径段）。
+func chatCompletionsURL(gatewayURL string) string {
+	return strings.TrimRight(gatewayURL, "/") + "/v1/chat/completions"
 }
 
 // upstreamError 是一次上游失败的分类结果。

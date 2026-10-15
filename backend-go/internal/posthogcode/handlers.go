@@ -146,7 +146,7 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleTest 探测上游可达性（拉一次模型列表）。
+// handleTest 探测上游可达性（拉一次 Go 网关模型目录）。目录端点公开、无需鉴权。
 func (s *Service) handleTest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
@@ -157,12 +157,7 @@ func (s *Service) handleTest(w http.ResponseWriter, r *http.Request) {
 		responseJSON(w, map[string]interface{}{"success": false, "error": "没有可用账号，请先完成授权"})
 		return
 	}
-	token, err := s.ensureFreshToken(r.Context(), &acc)
-	if err != nil {
-		responseJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
-		return
-	}
-	models, err := s.fetchModels(r.Context(), acc, token)
+	models, err := s.fetchModels(r.Context(), acc)
 	if err != nil {
 		responseJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -181,18 +176,19 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	models := s.catalog(r.Context())
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {
-		id := s.prefixModel(m.ID)
+		raw := goModelName(m.ID)
+		id := s.prefixModel(raw)
 		entry := map[string]interface{}{
-			"id":                id,
-			"rawId":             m.ID,
-			"displayName":       firstNonEmpty(m.DisplayName, m.ID),
-			"ownedBy":           m.OwnedBy,
-			"contextWindow":     m.ContextWindow,
-			"enabled":           !disabled[id] && !disabled[m.ID],
-			"allowed":           m.Allowed,
-			"restrictionReason": m.RestrictionReason,
-			"freeTier":          isFreeTierModel(m.ID),
+			"id":            id,
+			"rawId":         raw,
+			"displayName":   firstNonEmpty(m.Name, m.ID),
+			"ownedBy":       m.OwnedBy,
+			"contextWindow": m.ContextWindow,
+			"enabled":       !disabled[id] && !disabled[raw],
+			"freeTier":      isFreeTierModel(raw),
 		}
+		// Go 目录不提供 allowed/restriction_reason：付费计划是否可用由免费层标记表达。
+		entry["allowed"] = true
 		if price := priceInfoFor(m.Pricing); price != nil {
 			entry["price"] = price
 		}

@@ -78,14 +78,6 @@ func cloudBaseURL(region string) string {
 	return "https://us.posthog.com"
 }
 
-// gatewayBaseURL 返回指定区域的 LLM 网关地址。
-func gatewayBaseURL(region string) string {
-	if strings.EqualFold(strings.TrimSpace(region), "eu") {
-		return "https://gateway.eu.posthog.com"
-	}
-	return "https://gateway.us.posthog.com"
-}
-
 // clientIDForRegion 返回指定区域的 OAuth client_id。
 func clientIDForRegion(region string) string {
 	if strings.EqualFold(strings.TrimSpace(region), "eu") {
@@ -94,9 +86,8 @@ func clientIDForRegion(region string) string {
 	return clientIDUS
 }
 
-// productSlug 归一化产品路径段，仅允许 posthog_code。
-// 其他产品（llm_gateway / ci / django 等）要么不对 OAuth 应用开放，
-// 要么不接受 OAuth 鉴权，故此处收敛到唯一可用值。
+// productSlug 归一化产品标识，供前端展示与设置持久化使用。网关侧 Path 已不再拼接产品段
+// （Go 网关把产品钉在铸造的 token 里），故此处仅收敛到唯一值 posthog_code。
 func productSlug(v string) string {
 	if strings.EqualFold(strings.TrimSpace(v), "posthog_code") {
 		return "posthog_code"

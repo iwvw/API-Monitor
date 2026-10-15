@@ -1,13 +1,14 @@
 // Package posthogcode 实现模型网关「插件中心」的 PostHog Code 插件：把 PostHog
-// LLM Gateway（gateway.us.posthog.com / gateway.eu.posthog.com）的 posthog_code 产品
-// 封装成 OpenAI 兼容上游，管理面挂在 /api/posthogcode，中继面挂在 /api/posthogcode/v1
-// （仅本机回环，供网关转发）。
+// Desktop 的 LLM 网关封装成 OpenAI 兼容上游。PostHog 已把旧的 Python 网关产品
+// posthog_code 整条下线，现架构为「服务端铸造短时 phe_ token + Go AI 网关
+// （ai-gateway.{region}.posthog.com）根路径」，详见 mint.go。
+// 管理面挂在 /api/posthogcode，中继面挂在 /api/posthogcode/v1（仅本机回环）。
 //
-// 鉴权走 PostHog OAuth 2.0 PKCE：PostHog 的 llm_gateway:read 是 privileged scope，
-// 自建个人 API Key 无法获得，只有 OAuth 授权（Desktop 同款应用白名单）能拿到，
-// 故本插件内嵌授权码流程与 refresh token 自动轮换。
+// 鉴权走 PostHog OAuth 2.0 PKCE（llm_gateway:read 是 privileged scope，
+// 自建个人 API Key 无法获得，只有 OAuth 授权（Desktop 同款应用白名单）能拿到），
+// 故本插件内嵌授权码流程与 refresh token 自动轮换；对话前再用 pha_ 凭据铸 phe_。
 //
-// 上游协议细节集中在 upstream.go，OAuth 流程在 oauth.go，其余文件只做本地编排。
+// 上游协议细节集中在 upstream.go，铸造流程在 mint.go，OAuth 流程在 oauth.go。
 // 目录结构、表命名、link/前缀语义与同类插件（antigravity / workbuddy）保持一致。
 package posthogcode
 
@@ -197,6 +198,12 @@ type Service struct {
 	// quotaRefreshedAt 记录各账号上次快照刷新时刻，用于转发后刷新的节流。
 	quotaRefreshedAt map[string]time.Time
 
+	// Go 网关短时 token（phe_）缓存：accountID → 铸造结果。由 Django 的
+	// desktop/gateway_token/ 用账号的 pha_ OAuth 凭据铸造，TTL 很短（默认 300s），
+	// 到期前重铸。存内存即可，重启后按需重铸。
+	mintMu    sync.Mutex
+	mintCache map[string]*gatewayToken
+
 	// 轮询游标：round-robin 策略用，记录上次选中的账号在完整列表中的下标。
 	// 用原始下标而非候选集下标锚定，避免候选集长度变化时游标回绕导致分配不均。
 	// 初值 -1 使首次选取落在列表第一个候选上。
@@ -248,6 +255,7 @@ func New(cfg config.Config) *Service {
 		cooldownUntil:    map[string]time.Time{},
 		quotaSnap:        map[string]float64{},
 		quotaRefreshedAt: map[string]time.Time{},
+		mintCache:        map[string]*gatewayToken{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -324,11 +332,33 @@ func normalizeSettings(cfg Settings) Settings {
 	if cfg.DisabledModels == nil {
 		cfg.DisabledModels = []string{}
 	}
+	// 迁移：模型名改为 Go 网关写法（去 @cf/ 别名）后，旧停用名单里的 @cf/ 写法
+	// 会与新目录的模型 id 对不上，导致用户已停用的模型「复活」。这里按 Go 写法
+	// 归一化并去重（幂等），保住用户的启停选择。
+	cfg.DisabledModels = normalizeDisabledModels(cfg.DisabledModels)
 	if cfg.Accounts == nil {
 		cfg.Accounts = []Account{}
 	}
 	cfg.AccountStrategy = normalizeStrategy(cfg.AccountStrategy)
 	return cfg
+}
+
+// normalizeDisabledModels 把停用模型名归一化为 Go 网关写法并去重，保持原顺序。
+func normalizeDisabledModels(models []string) []string {
+	if len(models) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(models))
+	seen := make(map[string]bool, len(models))
+	for _, m := range models {
+		name := goModelName(m)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 // accountRegion 返回账号所属区域：优先账号级记录，为空时回落全局设置。
@@ -352,7 +382,8 @@ func normalizeRegion(v string) string {
 	}
 }
 
-// accountProduct 返回账号使用的网关产品段。目前所有账号都是 posthog_code。
+// accountProduct 返回账号使用的产品标识（仅用于展示与设置持久化）。
+// 网关侧路径不再拼接产品段：Go 网关把产品钉在铸造的 phe_ token 里。
 func (s *Service) accountProduct() string {
 	return productSlug(s.Settings().Product)
 }

@@ -67,13 +67,13 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	// 停用模型先判、且不依赖是否有可用账号：这是最廉价也最准确的一道闸，
 	// 也覆盖了直连 /api/posthogcode/v1（绕过网关）的情况。
-	if s.disabledSet()[requested] {
+	model := goModelName(s.stripModelPrefix(requested))
+	if s.disabledSet()[requested] || s.disabledSet()[model] {
 		writeOpenAIError(w, http.StatusNotFound,
 			"模型 "+requested+" 已在 PostHog Code 插件中停用", "model_not_found")
 		return
 	}
 
-	model := s.stripModelPrefix(requested)
 	st := s.Settings()
 	if st.FreeTierOnly && !isFreeTierModel(model) {
 		writeOpenAIError(w, http.StatusForbidden, fmt.Sprintf(
@@ -98,14 +98,14 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		tried[acc.ID] = true
 		attempted = true
 
-		token, err := s.ensureFreshToken(r.Context(), &acc)
+		gt, err := s.ensureGatewayToken(r.Context(), &acc)
 		if err != nil {
 			lastLocal = err
 			s.markCooldown(acc.ID, err.Error())
 			continue
 		}
 
-		target := relayTarget{account: acc, token: token, url: s.chatCompletionsURL(acc)}
+		target := relayTarget{account: acc, token: gt.Token, url: chatCompletionsURL(gt.GatewayURL)}
 		err = s.forwardOnce(r.Context(), w, target, payload, stream)
 		if err == nil {
 			s.recordCall(acc.ID)
