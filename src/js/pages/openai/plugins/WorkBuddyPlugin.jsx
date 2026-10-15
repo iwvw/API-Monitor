@@ -299,6 +299,18 @@ export function WorkBuddyPlugin() {
   // （办公版桌面端登录页含企业微信渠道），需在浏览器打开授权链接完成登录，故不生成二维码。
   const regionNeedsQR = region => regionMeta(region).qr;
 
+  // 复制登录链接：办公版企微登录必须把链接在「企业微信内置浏览器」里打开
+  // （UA 含 wxwork 才会走企微 OAuth），故提供一键复制，方便转发到企业微信。
+  const copyLoginUrl = async () => {
+    if (!login.url) return;
+    try {
+      await navigator.clipboard.writeText(login.url);
+      toast.success('登录链接已复制，请在企业微信中打开');
+    } catch {
+      toast.error('复制失败，请手动选择链接复制');
+    }
+  };
+
   const startLogin = async (region = loginRegion) => {
     const target = region || 'cn';
     setLogin({ phase: 'loading', state: '', url: '', image: '', error: '' });
@@ -853,7 +865,7 @@ export function WorkBuddyPlugin() {
                   {accountGroups.map(group => (
                     <Fragment key={group.region}>
                       <Table.Row className="h-7 bg-kumo-recessed/40">
-                        <Table.Cell colSpan={9} className="!px-2.5 !py-1 font-medium text-kumo-subtle">
+                        <Table.Cell colSpan={9} className="!px-2.5 !py-1 !text-left font-medium text-kumo-subtle">
                           {group.label}（{group.items.length}）
                         </Table.Cell>
                       </Table.Row>
@@ -1468,7 +1480,7 @@ export function WorkBuddyPlugin() {
               {loginRegion === 'cn'
                 ? '用 CodeBuddy 客户端扫描二维码完成授权。'
                 : loginRegion === 'wb'
-                  ? '办公版为网页登录：点击授权链接在浏览器完成登录（支持企业微信渠道）。'
+                  ? '办公版为网页登录：复制链接在企业微信中打开完成授权（企微渠道）。'
                   : '国际版为网页登录：点击授权链接在浏览器完成登录即可。'}
               国内版、办公版与国际版是独立账号、额度不互通，可分别添加。
             </Dialog.Description>
@@ -1501,7 +1513,7 @@ export function WorkBuddyPlugin() {
                 <div className="flex w-full flex-col items-center gap-3 rounded border border-kumo-line px-4 py-6 text-center">
                   <span className="text-xs text-kumo-subtle">
                     {loginRegion === 'wb'
-                      ? '办公版需在浏览器中完成登录（可选企业微信扫码），请点击下方链接授权后返回本页。'
+                      ? '办公版企微登录：请复制下方链接，在企业微信中打开完成授权（桌面浏览器无企微入口，须在企微内置浏览器打开）。'
                       : '国际版需在浏览器中完成登录，请点击下方链接授权后返回本页。'}
                   </span>
                   <a
@@ -1513,6 +1525,11 @@ export function WorkBuddyPlugin() {
                   >
                     {login.url}
                   </a>
+                  {loginRegion === 'wb' ? (
+                    <Button size="sm" variant="secondary" onClick={copyLoginUrl}>
+                      复制链接
+                    </Button>
+                  ) : null}
                 </div>
               ) : (
                 <div className="flex h-[220px] w-[220px] items-center justify-center rounded border border-kumo-line px-4 text-center text-xs text-kumo-subtle">
