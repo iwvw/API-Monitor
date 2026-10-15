@@ -1,5 +1,5 @@
 ---
-description: 无人值守：OCR 审查并修复，全部未提交改动按域提交推送 dev，等 CI 通过后按 SSH-Docker 约定部署生产
+description: 无人值守：OCR 审查并修复，全部未提交改动按域提交推送 dev，等 CI 通过后经 am MCP（agent_run_command）部署生产
 agent: build
 ---
 
@@ -49,7 +49,13 @@ agent: build
 
 1. 用 `gh run watch` 监听最新推送触发的 Actions 运行，直到全部通过。
 2. 若 CI 失败：查看失败日志、修复问题、重新提交推送，再回到阶段 6。
-3. 全部通过后执行 SSH-Docker 部署约定：用新构建的 `iwvw/api-monitor:dev` 镜像更新生产服务器上的 Docker 容器 `api-monitor`。连接信息（服务器/凭据/主机键指纹）与完整命令见本机 `~/.config/opencode/instructions.md`「SSH-Docker 部署约定（API-Monitor）」，**禁止把任何凭据写入本仓库**。
+3. 全部通过后通过 **am（api-monitor）MCP** 部署：本机没有 SSH，一切主机操作走 MCP 工具 `agent_run_command`，禁止把任何凭据写入本仓库。
+   - 生产服务器 = am MCP 中名为「香港」的 Agent 主机（先调 `/api/server/accounts` 取真实 serverId 并确认 `agent_online=true`；当前为 `23b3f7e7-dd63-48e1-bb1a-f8eeff774147`）。生产容器 `api-monitor` 由 docker compose 管理，配置在 `/opt/1panel/docker/compose/api-monitor/docker-compose.yml`，镜像 `iwvw/api-monitor:dev`。
+   - 更新步骤（在 serverId 上执行，目录用 compose 工作目录）：
+     ```bash
+     cd /opt/1panel/docker/compose/api-monitor && docker compose pull api-monitor && docker compose up -d api-monitor
+     ```
+   - 部署后验证：再执行 `docker ps --filter name=api-monitor --format '{{.Names}} {{.Image}} {{.Status}}'`，确认状态为 `Up ... (healthy)` 且镜像是新推的 `iwvw/api-monitor:dev`；如有必要再调用 `/api/system/health` 或等面板页面可访问确认。
 
 ## 阶段 7：关闭本次改动对应的 GitHub Issues
 
@@ -57,7 +63,7 @@ agent: build
 
 **常见坑（必须避免）：只 `gh issue close` 而不换标签，会导致已关闭的 issue 仍挂着 `backlog`/`in-progress`。**
 
-```powershell
+```bash
 # 1) 加 done 标签
 gh issue edit <编号> --repo iwvw/API-Monitor --add-label done
 
@@ -68,13 +74,13 @@ gh issue edit <编号> --repo iwvw/API-Monitor --remove-label backlog
 # 3) 关闭，comment 写清实现要点 + 涉及 commit + 验证命令
 gh issue close <编号> --repo iwvw/API-Monitor -r completed -c "实现要点与涉及 commit；验证：npm run audit:fast、npm run lint、go test ./...、cargo build；CI Security Baseline + CI/CD Pipeline 均 success；生产容器已更新为 iwvw/api-monitor:dev"
 
-# 批量用 PowerShell 循环（本机是 pwsh，勿用 bash 的 for ...; do）
-foreach ($n in 41,42,43,44,45,46) {
-  gh issue edit $n --repo iwvw/API-Monitor --add-label done
-  gh issue edit $n --repo iwvw/API-Monitor --remove-label in-progress
-  gh issue edit $n --repo iwvw/API-Monitor --remove-label backlog
-  gh issue close $n --repo iwvw/API-Monitor -r completed -c "..."
-}
+# 批量用 bash 循环（本机是 Linux/bash）
+for n in 41 42 43 44 45 46; do
+  gh issue edit "$n" --repo iwvw/API-Monitor --add-label done
+  gh issue edit "$n" --repo iwvw/API-Monitor --remove-label in-progress
+  gh issue edit "$n" --repo iwvw/API-Monitor --remove-label backlog
+  gh issue close "$n" --repo iwvw/API-Monitor -r completed -c "..."
+done
 ```
 
 注意：`gh issue close` 没有 `--label` 参数，标签必须用 `gh issue edit` 单独管理。批量操作若遇 `Post ... EOF` 网络抖动导致单个 issue 未更新，需回查该 issue 标签并补处理。
@@ -84,5 +90,5 @@ foreach ($n in 41,42,43,44,45,46) {
 - OCR 覆盖率 100%，Critical/High 全部修复
 - 工作区干净，提交按域分类、无无关文件
 - dev 已推送，Actions 全部通过
-- 生产容器已按 SSH-Docker 约定更新并验证可访问
+- 生产容器已通过 am MCP（`agent_run_command`）更新为 `iwvw/api-monitor:dev` 并验证 healthy/可访问
 - 本次改动对应的 issue 已闭环（标签为 `done`、非 `backlog`/`in-progress`，且已关闭附验证命令）
