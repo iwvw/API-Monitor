@@ -921,18 +921,34 @@ func renderFilePart(part map[string]any) string {
 	return strings.Join(fields, " ")
 }
 
-// normalizeModelKey 归一化模型 key。
+// nameToKey 是「官方模型名 → 上游短 key」映射（合并两区域静态表，忽略大小写）。
+// 作为 normalizeModelKey 的兜底：无论调用方传官方名还是短 key，都能落到上游 key。
+var nameToKey = func() map[string]string {
+	out := map[string]string{}
+	for _, m := range append(append([]ModelInfo{}, cnStaticModels...), intlStaticModels...) {
+		if m.ID != "" && m.Key != "" {
+			out[strings.ToLower(m.ID)] = m.Key
+		}
+	}
+	return out
+}()
+
+// normalizeModelKey 把模型标识归一化为上游 model key。
+// 接受官方模型名（如 "Qwen3.8-Max"）、上游短 key（如 "qmodel_38max"）与若干历史别名。
 func normalizeModelKey(model string) string {
-	switch strings.ToLower(strings.TrimSpace(model)) {
+	trimmed := strings.TrimSpace(model)
+	switch strings.ToLower(trimmed) {
 	case "", "auto", "default":
 		return "auto"
 	case "lite":
 		return "lite"
 	case "claude-sonnet-4.5", "claude_sonnet_4_5", "sonnet", "claude":
 		return "auto"
-	default:
-		return strings.TrimSpace(model)
 	}
+	if key, ok := nameToKey[strings.ToLower(trimmed)]; ok {
+		return key
+	}
+	return trimmed
 }
 
 // newLegacyTemplate 返回 Qoder 请求模板（字段照抄官方客户端）。

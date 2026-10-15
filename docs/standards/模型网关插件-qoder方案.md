@@ -78,26 +78,34 @@ Qoder 无公开动态模型目录接口（`/algo/api/v2/model/list` 需 COSY 签
 **按区域各自维护的静态表**为准，取自官方客户端目录缓存 `catalog-v6`
 （HKDF-SHA256(uid) + AES-256-GCM 解密）实测记录，含 `price_factor` 倍率：
 
-- 国内版 14 个：`auto`/`qmodel_38max`(Qwen3.8-Max)/`qfmodel`(Qwen3.8-Flash)/
-  `qmodel_latest`(Qwen3.7-Max)/`qmodel`(Qwen3.7-Plus)/`q37fmodel`(Qwen3.7-Flash)/
-  `dmodel`(DeepSeek-V4-Pro)/`dfmodel`(DeepSeek-Flash)/`gmodel`(GLM-5.3)/
-  `gfmodel`(GLM-5.3-Flash)/`gm51model`(GLM-5.2)/`kmodel_latest`(Kimi-K3)/
-  `kmodel`(Kimi-K2.8-Preview)/`mmodel`(MiniMax-M2.7)。
-- 国际版 17 个：额外有 `ultimate`/`performance`/`efficient`/`smodel`(Sonus)/
-  `cmodel`(Cantus)，无 `gm51model`/`q37fmodel`。
+- 国内版 14 个：`Auto`/`Qwen3.8-Max`/`Qwen3.8-Flash`/`Qwen3.7-Max`/`Qwen3.7-Plus`/
+  `Qwen3.7-Flash`/`DeepSeek-V4-Pro`/`DeepSeek-Flash`/`GLM-5.3`/`GLM-5.3-Flash`/
+  `GLM-5.2`/`Kimi-K3`/`Kimi-K2.8-Preview`/`MiniMax-M2.7`。
+- 国际版 17 个：额外有 `Ultimate`/`Performance`/`Efficient`/`Sonus`/`Cantus`，
+  无 `GLM-5.2`/`Qwen3.7-Flash`。
 
-参考 workbuddy 的设计：`mergeCatalogs` 把两区域目录合并成一份对外视图（按 id 去重，
-国内版打底、国际版独有 id 追加），每个模型标记型号级可用区域 `regions` 与 id 级
-`idRegions`，仅国际版提供的标 `internationalOnly`。
+**模型标识分两个命名空间（不可混用）**：`ModelInfo.ID` 是**官方模型名**（如
+`Qwen3.8-Max`），作为对外模型名——中继 `/v1/models`、网关端点 `models` 列、停用名单
+都用它，与官方桌面版选择器一致（参考实现 `qoder2api-hub` 约定）；`ModelInfo.Key`
+是**上游短 key**（如 `qmodel_38max`），只在构造上游请求时写入 `model_config.key`
+/ `x-model-key`。转发时经 `lookupModelKey` / `normalizeModelKey` 把对外名（或短 key）
+解析回上游 key。
+
+参考 workbuddy 的设计：`mergeCatalogs` 把两区域目录合并成一份对外视图（按对外
+官方名去重，国内版打底、国际版独有项追加），每个模型标记型号级可用区域 `regions`
+与 id 级 `idRegions`，仅国际版提供的标 `internationalOnly`。
 
 **模型列表按实际账号区域过滤**（`catalog`）：只存在国内版账号时仅返回国内版模型，
 只有国际版账号时仅返回国际版模型，两区域都有才返回合并视图（带区域标记）；
 无账号时默认国内版。因此前端模型表不会把两区域盲目混在一起。
 
-前端模型表：第一行显示模型名，第二行显示模型标识（id）；按 `regions` 显示
-「通用/国内/国际」徽标，并展示 `price_factor` 倍率列。选号按 `accountServesModel`
-过滤：账号所属区域不提供目标模型时跳过。模型 key 直接透传给上游
-`model_config.key` / `x-model-key`。
+前端模型表：第一行显示官方模型名（对外 id），第二行显示上游短 key；按 `regions`
+显示「通用/国内/国际」徽标，并展示 `price_factor` 倍率列。选号按 `accountServesModel`
+过滤：账号所属区域不提供目标模型时跳过（官方名与短 key 均可命中）。
+
+**停用名单迁移**：模型对外 id 由短 key 改为官方名后，加载/保存设置时经
+`migrateDisabledModels` 把旧名单里的短 key 归一化为官方名（保持前缀），避免用户
+已停用的模型「复活」。
 
 ### 3.6 错峰折扣（`offpeak.go`）
 

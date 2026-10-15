@@ -20,9 +20,17 @@ import (
 )
 
 // ModelInfo 是模型目录里的一项。
+//
+// ID 与 Key 是两个不同命名空间，**不要混用**：
+//   - ID 是官方模型名（如 "Qwen3.8-Max"），作为对外模型名（客户端唯一需要填的值，
+//     与官方桌面版选择器一致）；网关端点 models 列、停用名单、中继 /v1/models 都用它。
+//   - Key 是上游短 key（如 "qmodel_38max"），只在构造上游请求时写入
+//     `model_config.key` / `x-model-key`。转发时把 ID 解析回 Key。
 type ModelInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	// ID 是官方模型名（对外 id）。
+	ID string `json:"id"`
+	// Key 是上游短 key（model_config.key / x-model-key 用）。
+	Key string `json:"key,omitempty"`
 	// Provider 是厂商标识（qwen/deepseek/zhipu/...）。
 	Provider string `json:"provider,omitempty"`
 	// CreditsMultiplier 是标准积分倍率（price_factor），Qoder 计费体系内的相对
@@ -46,42 +54,44 @@ type ModelInfo struct {
 }
 
 // cnStaticModels 是国内版目录（取自本机 .qoder-cn catalog-v6）。
+// ID=官方模型名、Key=上游短 key；CreditsMultiplier 是**标准倍率**（错峰折扣前的
+// price_factor），与 offpeak.go 的 Standard 一致。
 var cnStaticModels = []ModelInfo{
-	{ID: "auto", Name: "Auto（自动选择）", Provider: "qoder", CreditsMultiplier: 0.5, CreditsParsed: true},
-	{ID: "qmodel_38max", Name: "Qwen3.8-Max", Provider: "qwen", CreditsMultiplier: 0.2, CreditsParsed: true},
-	{ID: "qfmodel", Name: "Qwen3.8-Flash", Provider: "qwen", CreditsMultiplier: 0, CreditsParsed: true},
-	{ID: "qmodel_latest", Name: "Qwen3.7-Max", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
-	{ID: "qmodel", Name: "Qwen3.7-Plus", Provider: "qwen", CreditsMultiplier: 0.04, CreditsParsed: true},
-	{ID: "q37fmodel", Name: "Qwen3.7-Flash", Provider: "qwen", CreditsMultiplier: 0.1, CreditsParsed: true},
-	{ID: "dmodel", Name: "DeepSeek-V4-Pro", Provider: "deepseek", CreditsMultiplier: 0.5, CreditsParsed: true},
-	{ID: "dfmodel", Name: "DeepSeek-Flash", Provider: "deepseek", CreditsMultiplier: 0.1, CreditsParsed: true},
-	{ID: "gmodel", Name: "GLM-5.3", Provider: "zhipu", CreditsMultiplier: 0.8, CreditsParsed: true},
-	{ID: "gfmodel", Name: "GLM-5.3-Flash", Provider: "zhipu", CreditsMultiplier: 0.1, CreditsParsed: true},
-	{ID: "gm51model", Name: "GLM-5.2", Provider: "zhipu", CreditsMultiplier: 0.6, CreditsParsed: true},
-	{ID: "kmodel_latest", Name: "Kimi-K3", Provider: "moonshot", CreditsMultiplier: 1.4, CreditsParsed: true},
-	{ID: "kmodel", Name: "Kimi-K2.8-Preview", Provider: "moonshot", CreditsMultiplier: 0.8, CreditsParsed: true},
-	{ID: "mmodel", Name: "MiniMax-M2.7", Provider: "minimax", CreditsMultiplier: 0.2, CreditsParsed: true},
+	{ID: "Auto", Key: "auto", Provider: "qoder", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "Qwen3.8-Max", Key: "qmodel_38max", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "Qwen3.8-Flash", Key: "qfmodel", Provider: "qwen", CreditsMultiplier: 0, CreditsParsed: true},
+	{ID: "Qwen3.7-Max", Key: "qmodel_latest", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "Qwen3.7-Plus", Key: "qmodel", Provider: "qwen", CreditsMultiplier: 0.1, CreditsParsed: true},
+	{ID: "Qwen3.7-Flash", Key: "q37fmodel", Provider: "qwen", CreditsMultiplier: 0.1, CreditsParsed: true},
+	{ID: "DeepSeek-V4-Pro", Key: "dmodel", Provider: "deepseek", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "DeepSeek-Flash", Key: "dfmodel", Provider: "deepseek", CreditsMultiplier: 0.1, CreditsParsed: true},
+	{ID: "GLM-5.3", Key: "gmodel", Provider: "zhipu", CreditsMultiplier: 0.8, CreditsParsed: true},
+	{ID: "GLM-5.3-Flash", Key: "gfmodel", Provider: "zhipu", CreditsMultiplier: 0.1, CreditsParsed: true},
+	{ID: "GLM-5.2", Key: "gm51model", Provider: "zhipu", CreditsMultiplier: 0.6, CreditsParsed: true},
+	{ID: "Kimi-K3", Key: "kmodel_latest", Provider: "moonshot", CreditsMultiplier: 1.4, CreditsParsed: true},
+	{ID: "Kimi-K2.8-Preview", Key: "kmodel", Provider: "moonshot", CreditsMultiplier: 0.8, CreditsParsed: true},
+	{ID: "MiniMax-M2.7", Key: "mmodel", Provider: "minimax", CreditsMultiplier: 0.2, CreditsParsed: true},
 }
 
 // intlStaticModels 是国际版目录（取自本机 .qoder catalog-v6，仅 chat 相关档位）。
 var intlStaticModels = []ModelInfo{
-	{ID: "auto", Name: "Auto（自动选择）", Provider: "qoder", CreditsMultiplier: 0.5, CreditsParsed: true},
-	{ID: "ultimate", Name: "Ultimate", Provider: "qoder", CreditsMultiplier: 2.0, CreditsParsed: true},
-	{ID: "performance", Name: "Performance", Provider: "qoder", CreditsMultiplier: 1.1, CreditsParsed: true},
-	{ID: "efficient", Name: "Efficient", Provider: "qoder", CreditsMultiplier: 0.3, CreditsParsed: true},
-	{ID: "smodel", Name: "Sonus", Provider: "qoder", CreditsMultiplier: 8.0, CreditsParsed: true},
-	{ID: "cmodel", Name: "Cantus", Provider: "qoder", CreditsMultiplier: 4.0, CreditsParsed: true},
-	{ID: "qmodel_38max", Name: "Qwen3.8-Max", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
-	{ID: "qfmodel", Name: "Qwen3.8-Flash", Provider: "qwen", CreditsMultiplier: 0, CreditsParsed: true},
-	{ID: "qmodel_latest", Name: "Qwen3.7-Max", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
-	{ID: "qmodel", Name: "Qwen3.7-Plus", Provider: "qwen", CreditsMultiplier: 0.1, CreditsParsed: true},
-	{ID: "kmodel_latest", Name: "Kimi-K3", Provider: "moonshot", CreditsMultiplier: 1.4, CreditsParsed: true},
-	{ID: "kmodel", Name: "Kimi-K2.8-Preview", Provider: "moonshot", CreditsMultiplier: 0.8, CreditsParsed: true},
-	{ID: "gmodel", Name: "GLM-5.3", Provider: "zhipu", CreditsMultiplier: 0.8, CreditsParsed: true},
-	{ID: "gfmodel", Name: "GLM-5.3-Flash", Provider: "zhipu", CreditsMultiplier: 0.1, CreditsParsed: true},
-	{ID: "dmodel", Name: "DeepSeek-V4-Pro", Provider: "deepseek", CreditsMultiplier: 0.5, CreditsParsed: true},
-	{ID: "dfmodel", Name: "DeepSeek-Flash", Provider: "deepseek", CreditsMultiplier: 0.1, CreditsParsed: true},
-	{ID: "mmodel", Name: "MiniMax-M3", Provider: "minimax", CreditsMultiplier: 0.2, CreditsParsed: true},
+	{ID: "Auto", Key: "auto", Provider: "qoder", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "Ultimate", Key: "ultimate", Provider: "qoder", CreditsMultiplier: 2.0, CreditsParsed: true},
+	{ID: "Performance", Key: "performance", Provider: "qoder", CreditsMultiplier: 1.1, CreditsParsed: true},
+	{ID: "Efficient", Key: "efficient", Provider: "qoder", CreditsMultiplier: 0.3, CreditsParsed: true},
+	{ID: "Sonus", Key: "smodel", Provider: "qoder", CreditsMultiplier: 8.0, CreditsParsed: true},
+	{ID: "Cantus", Key: "cmodel", Provider: "qoder", CreditsMultiplier: 4.0, CreditsParsed: true},
+	{ID: "Qwen3.8-Max", Key: "qmodel_38max", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "Qwen3.8-Flash", Key: "qfmodel", Provider: "qwen", CreditsMultiplier: 0, CreditsParsed: true},
+	{ID: "Qwen3.7-Max", Key: "qmodel_latest", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "Qwen3.7-Plus", Key: "qmodel", Provider: "qwen", CreditsMultiplier: 0.1, CreditsParsed: true},
+	{ID: "Kimi-K3", Key: "kmodel_latest", Provider: "moonshot", CreditsMultiplier: 1.4, CreditsParsed: true},
+	{ID: "Kimi-K2.8-Preview", Key: "kmodel", Provider: "moonshot", CreditsMultiplier: 0.8, CreditsParsed: true},
+	{ID: "GLM-5.3", Key: "gmodel", Provider: "zhipu", CreditsMultiplier: 0.8, CreditsParsed: true},
+	{ID: "GLM-5.3-Flash", Key: "gfmodel", Provider: "zhipu", CreditsMultiplier: 0.1, CreditsParsed: true},
+	{ID: "DeepSeek-V4-Pro", Key: "dmodel", Provider: "deepseek", CreditsMultiplier: 0.5, CreditsParsed: true},
+	{ID: "DeepSeek-Flash", Key: "dfmodel", Provider: "deepseek", CreditsMultiplier: 0.1, CreditsParsed: true},
+	{ID: "MiniMax-M3", Key: "mmodel", Provider: "minimax", CreditsMultiplier: 0.2, CreditsParsed: true},
 }
 
 // staticModelsFor 返回区域的静态目录。
@@ -97,10 +107,12 @@ func normalizeModelName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
-// mergeCatalogs 把两区域目录合并成一份对外视图（按模型 id 去重）：
-//   - 国内版为基，保留其元数据（显示名/倍率）；
+// mergeCatalogs 把两区域目录合并成一份对外视图（按对外 id 去重）：
+//   - 国内版为基，保留其元数据（倍率）；
 //   - 仅国际版有的 id 追加进来（元数据取国际版）；
-//   - 每个模型标记型号级可用区域 Regions（按 displayName 判定）与该 id 级 IDRegions。
+//   - 每个模型标记型号级可用区域 Regions 与该 id 级 IDRegions。
+//
+// 对外 id 就是官方模型名，两区域对同一型号用同一官方名，故按 ID 直接合并即可。
 func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 	cn := byRegion[regionCN]
 	intl := byRegion[regionIntl]
@@ -108,7 +120,7 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 	nameRegions := map[string]map[string]bool{}
 	mark := func(models []ModelInfo, region string) {
 		for _, m := range models {
-			key := normalizeModelName(firstNonEmpty(m.Name, m.ID))
+			key := normalizeModelName(m.ID)
 			if key == "" {
 				continue
 			}
@@ -122,7 +134,7 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 	mark(intl, regionIntl)
 
 	regionsFor := func(m ModelInfo) []string {
-		set := nameRegions[normalizeModelName(firstNonEmpty(m.Name, m.ID))]
+		set := nameRegions[normalizeModelName(m.ID)]
 		out := make([]string, 0, len(set))
 		if set[regionCN] {
 			out = append(out, regionCN)
@@ -204,17 +216,79 @@ func withRegion(models []ModelInfo, region string) []ModelInfo {
 	return out
 }
 
-// regionModelSetFor 返回某区域的模型 id 集合（供选号过滤）。
+// keyToNames 是「上游短 key → 官方模型名集合」映射（忽略大小写）。
+// 同一短 key 跨区域可能对应不同型号（如 mmodel = MiniMax-M2.7 国内 / MiniMax-M3
+// 国际），故一个 key 可能映射到多个官方名；迁移时全部保留，避免任一侧被误开。
+var keyToNames = func() map[string][]string {
+	out := map[string][]string{}
+	seen := map[string]map[string]bool{}
+	for _, m := range append(append([]ModelInfo{}, cnStaticModels...), intlStaticModels...) {
+		if m.Key == "" || m.ID == "" {
+			continue
+		}
+		k := strings.ToLower(m.Key)
+		if seen[k] == nil {
+			seen[k] = map[string]bool{}
+		}
+		if seen[k][m.ID] {
+			continue
+		}
+		seen[k][m.ID] = true
+		out[k] = append(out[k], m.ID)
+	}
+	return out
+}()
+
+// migrateDisabledModels 把旧停用名单里的**上游短 key** 写法迁移为**官方模型名**写法：
+// 模型对外 id 由短 key 改为官方名后，旧名单若原样保留会让用户已停用的模型「复活」。
+// 入参带当前前缀，迁移保持前缀不变；短 key 同时命中多区域型号时全部写入。
+// 未知条目（含已是官方名或自定义）原样保留；结果去重并排序。
+func migrateDisabledModels(names []string, prefix string) []string {
+	if len(names) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(names))
+	seen := map[string]bool{}
+	appendName := func(n string) {
+		if n == "" || seen[n] {
+			return
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		bare := strings.TrimPrefix(name, prefix)
+		if official, ok := keyToNames[strings.ToLower(bare)]; ok {
+			for _, o := range official {
+				appendName(prefix + o)
+			}
+			continue
+		}
+		appendName(name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// regionModelSetFor 返回某区域的模型名集合（供选号过滤）。
+// 同时收录对外官方名（ID）与上游短 key（Key），客户端用任一种写法都能命中。
 func (s *Service) regionModelSetFor(region string) map[string]bool {
 	set := map[string]bool{}
 	for _, m := range staticModelsFor(region) {
 		set[m.ID] = true
+		if m.Key != "" {
+			set[m.Key] = true
+		}
 	}
 	return set
 }
 
 // accountServesModel 报告账号所属区域是否提供该模型（选号过滤）。
-// model 为空时放行；目录按静态表判定（始终已知）。
+// model 为空时放行；目录按静态表判定（始终已知）。接受官方名或上游短 key。
 func (s *Service) accountServesModel(acc Account, model string) bool {
 	if model == "" {
 		return true
@@ -222,7 +296,7 @@ func (s *Service) accountServesModel(acc Account, model string) bool {
 	return s.regionModelSetFor(acc.Region)[model]
 }
 
-// allModelIDs 返回对外（带前缀）的模型 ID 列表。
+// allModelIDs 返回对外（带前缀）的模型名列表（官方模型名 ID）。
 func (s *Service) allModelIDs() []string {
 	models := s.catalog()
 	out := make([]string, 0, len(models))
@@ -230,6 +304,24 @@ func (s *Service) allModelIDs() []string {
 		out = append(out, s.prefixModel(m.ID))
 	}
 	return out
+}
+
+// lookupModelKey 把对外模型名（官方名或上游短 key，可带前缀）解析为上游短 key。
+// 未命中时原样返回，保证自定义/直通模型仍然可用。
+func (s *Service) lookupModelKey(model string) string {
+	name := strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(model)))
+	if name == "" {
+		return ""
+	}
+	for _, m := range s.catalog() {
+		if strings.EqualFold(m.ID, name) || strings.EqualFold(m.Key, name) {
+			if m.Key != "" {
+				return m.Key
+			}
+			return m.ID
+		}
+	}
+	return name
 }
 
 // enabledModelIDs 返回对外（带前缀）且未被停用的模型 ID 列表，
@@ -255,16 +347,24 @@ func (s *Service) disabledSet() map[string]bool {
 	return out
 }
 
-// isModelEnabled 判断给定模型名（对外或裸名）是否启用。
+// isModelEnabled 判断给定模型名（对外名或上游短 key，可带前缀）是否启用。
+// 停用名单以对外名为准；兼容旧名单里的上游短 key 写法。
 func (s *Service) isModelEnabled(model string) bool {
 	disabled := s.disabledSet()
-	if disabled[model] {
+	model = strings.TrimSpace(model)
+	if disabled[model] || disabled[s.prefixModel(model)] {
 		return false
 	}
-	return !disabled[s.prefixModel(model)]
+	if key := s.lookupModelKey(model); key != "" && key != model {
+		if disabled[key] || disabled[s.prefixModel(key)] {
+			return false
+		}
+	}
+	return true
 }
 
 // handleModels 返回模型目录（带对外前缀、区域标记与倍率）与逐项启停状态。
+// id 是官方模型名（对外 id），key 是上游短 key（副标识）。
 func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
@@ -276,11 +376,11 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {
 		id := s.prefixModel(m.ID)
-		eff, offPeak := effectiveMultiplier(m.ID, m.CreditsMultiplier, now)
-		_, hasOffPeak := offPeakDiscounts[m.ID]
+		eff, offPeak := effectiveMultiplier(m.Key, m.CreditsMultiplier, now)
+		_, hasOffPeak := offPeakDiscounts[m.Key]
 		out = append(out, map[string]interface{}{
 			"id":                  id,
-			"name":                m.Name,
+			"key":                 m.Key,
 			"provider":            m.Provider,
 			"creditsMultiplier":   m.CreditsMultiplier,
 			"creditsParsed":       m.CreditsParsed,

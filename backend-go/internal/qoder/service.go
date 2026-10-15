@@ -211,6 +211,9 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	if cfg.Accounts == nil {
 		cfg.Accounts = []Account{}
 	}
+	// 迁移：模型对外 id 由上游短 key 改为官方模型名后，旧停用名单里的短 key
+	// 会与新目录对不上，导致用户已停用的模型「复活」。这里按官方名归一化。
+	cfg.DisabledModels = migrateDisabledModels(cfg.DisabledModels, cfg.ModelPrefix)
 	cfg.AccountStrategy = normalizeStrategy(cfg.AccountStrategy)
 	s.mu.Lock()
 	s.settings = cfg
@@ -251,9 +254,12 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	s.mu.RLock()
 	oldPrefix := s.settings.ModelPrefix
 	s.mu.RUnlock()
+	// 先归一化前缀命名空间（旧名单可能挂在旧前缀下），再把旧的上游短 key 写法
+	// 迁移为官方模型名（幂等）。顺序不能反：反了会因前缀不匹配跳过迁移。
 	if next.ModelPrefix != oldPrefix {
 		next.DisabledModels = remapNamespaceList(next.DisabledModels, next.ModelPrefix, next.ModelPrefix, oldPrefix)
 	}
+	next.DisabledModels = migrateDisabledModels(next.DisabledModels, next.ModelPrefix)
 
 	db, err := s.open(ctx)
 	if err != nil {

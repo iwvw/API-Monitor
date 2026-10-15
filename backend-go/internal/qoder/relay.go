@@ -79,11 +79,12 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, "缺少 model", "invalid_request_error")
 		return
 	}
-	upstreamModel := s.stripModelPrefix(model)
-	if !s.isModelEnabled(model) && !s.isModelEnabled(upstreamModel) {
+	if !s.isModelEnabled(model) {
 		writeOpenAIError(w, http.StatusBadRequest, "模型已停用: "+model, "invalid_request_error")
 		return
 	}
+	// 对外名（官方模型名或短 key）解析为上游短 key，转发时写进 model_config.key。
+	upstreamModel := s.lookupModelKey(model)
 	payload["model"] = upstreamModel
 	normalized, err := json.Marshal(payload)
 	if err != nil {

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -102,7 +101,6 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 		disabled = []string{}
 	}
 	disabledJSON, _ := json.Marshal(disabled)
-	namesJSON, _ := json.Marshal(s.modelNameMap())
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = db.ExecContext(ctx, `
@@ -110,7 +108,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 			(id, name, base_url, api_key, headers, disabled_models, proxy_pool, proxy_batches,
 			 auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled,
 			 rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_names, created_at, last_checked, sort_order, plugin_id)
-		VALUES (?, ?, ?, ?, '[]', ?, '[]', '[]', 0, 0, 0, 1, 10, 'auto', 'unknown', 1, ?, ?, ?, ?, 100, 'qoder')
+		VALUES (?, ?, ?, ?, '[]', ?, '[]', '[]', 0, 0, 0, 1, 10, 'auto', 'unknown', 1, ?, '{}', ?, ?, 100, 'qoder')
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			base_url = excluded.base_url,
@@ -120,7 +118,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 			model_names = excluded.model_names,
 			enabled = 1,
 			plugin_id = excluded.plugin_id`,
-		linkedEndpointID, linkedEndpointName, s.linkBaseURL(), internalKey, string(disabledJSON), string(modelsJSON), string(namesJSON), now, now)
+		linkedEndpointID, linkedEndpointName, s.linkBaseURL(), internalKey, string(disabledJSON), string(modelsJSON), now, now)
 	if err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -179,24 +177,11 @@ func (s *Service) syncLinkedEndpointModels(ctx context.Context) {
 	}
 	disabledPayload, _ := json.Marshal(disabled)
 	modelsPayload, _ := json.Marshal(s.enabledModelIDs())
-	// model_names：模型 id → 可读名称（如 dfmodel → DeepSeek-Flash），供网关端点
-	// 面板展示，不参与路由。前缀会一并加在 key 上以对齐端点 models 列。
-	namesPayload, _ := json.Marshal(s.modelNameMap())
+	// 对外 id 就是官方模型名（人类可读），端点列表直接显示即可，无需 model_names
+	// 补充映射；显式写空对象，清掉历史的「短 key → 官方名」旧映射。
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, disabled_models = ?, model_names = ? WHERE id = ?`,
-		string(modelsPayload), string(disabledPayload), string(namesPayload), linkedEndpointID)
-}
-
-// modelNameMap 返回「对外模型名 → 可读名称」映射（带前缀，与端点 models 列口径一致）。
-func (s *Service) modelNameMap() map[string]string {
-	out := map[string]string{}
-	for _, m := range s.catalog() {
-		if strings.TrimSpace(m.Name) == "" {
-			continue
-		}
-		out[s.prefixModel(m.ID)] = m.Name
-	}
-	return out
+		UPDATE openai_endpoints SET models = ?, disabled_models = ?, model_names = '{}' WHERE id = ?`,
+		string(modelsPayload), string(disabledPayload), linkedEndpointID)
 }
 
 // ReconcileLinkedEndpoint 在启动时按当前启用名单对账已接入端点的 models 列。

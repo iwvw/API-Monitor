@@ -132,11 +132,61 @@ func TestNormalizeModelKey(t *testing.T) {
 		"claude-sonnet-4.5": "auto",
 		"sonnet":            "auto",
 		"qwen-max":          "qwen-max",
+		// 官方模型名 → 上游短 key（大小写不敏感）。
+		"Qwen3.8-Max":    "qmodel_38max",
+		"qwen3.8-max":    "qmodel_38max",
+		"DeepSeek-Flash": "dfmodel",
+		// 短 key 原样透传。
+		"qmodel_38max": "qmodel_38max",
 	}
 	for in, want := range cases {
 		if got := normalizeModelKey(in); got != want {
 			t.Fatalf("normalizeModelKey(%q)=%q want %q", in, got, want)
 		}
+	}
+}
+
+// TestMigrateDisabledModelsShortKeyToName 旧停用名单里的短 key 应迁移为官方模型名。
+func TestMigrateDisabledModelsShortKeyToName(t *testing.T) {
+	got := migrateDisabledModels([]string{"dfmodel", "qmodel_38max", "DeepSeek-V4-Pro"}, "")
+	want := map[string]bool{"DeepSeek-Flash": true, "Qwen3.8-Max": true, "DeepSeek-V4-Pro": true}
+	if len(got) != len(want) {
+		t.Fatalf("migrated = %v", got)
+	}
+	for _, n := range got {
+		if !want[n] {
+			t.Fatalf("unexpected migrated name %q", n)
+		}
+	}
+	// 带前缀时保持前缀。
+	prefixed := migrateDisabledModels([]string{"qoder-dfmodel"}, "qoder-")
+	if len(prefixed) != 1 || prefixed[0] != "qoder-DeepSeek-Flash" {
+		t.Fatalf("prefixed migrate = %v", prefixed)
+	}
+	// 跨区域同名短 key（mmodel = MiniMax-M2.7 国内 / MiniMax-M3 国际）应两侧都保留。
+	both := migrateDisabledModels([]string{"mmodel"}, "")
+	wantBoth := map[string]bool{"MiniMax-M2.7": true, "MiniMax-M3": true}
+	if len(both) != 2 {
+		t.Fatalf("cross-region migrate = %v", both)
+	}
+	for _, n := range both {
+		if !wantBoth[n] {
+			t.Fatalf("unexpected cross-region name %q", n)
+		}
+	}
+}
+
+// TestLookupModelKeyResolvesOfficialName 对外官方名应解析回上游短 key。
+func TestLookupModelKeyResolvesOfficialName(t *testing.T) {
+	s := newTestService(t)
+	if got := s.lookupModelKey("DeepSeek-Flash"); got != "dfmodel" {
+		t.Fatalf("lookup official name = %q", got)
+	}
+	if got := s.lookupModelKey("dfmodel"); got != "dfmodel" {
+		t.Fatalf("lookup short key = %q", got)
+	}
+	if got := s.lookupModelKey("custom-model"); got != "custom-model" {
+		t.Fatalf("unknown should pass through, got %q", got)
 	}
 }
 
@@ -227,20 +277,20 @@ func TestMergeCatalogsMarksRegions(t *testing.T) {
 		byID[m.ID] = m
 	}
 	// auto 两区域都有 → 通用。
-	if m := byID["auto"]; len(m.Regions) != 2 {
-		t.Fatalf("auto should be in both regions, got %v", m.Regions)
+	if m := byID["Auto"]; len(m.Regions) != 2 {
+		t.Fatalf("Auto should be in both regions, got %v", m.Regions)
 	}
 	// ultimate 仅国际版。
-	if m := byID["ultimate"]; !m.InternationalOnly {
-		t.Fatalf("ultimate should be internationalOnly")
+	if m := byID["Ultimate"]; !m.InternationalOnly {
+		t.Fatalf("Ultimate should be internationalOnly")
 	}
-	// gm51model（GLM-5.2）仅国内版。
-	if m := byID["gm51model"]; len(m.Regions) != 1 || m.Regions[0] != regionCN {
-		t.Fatalf("gm51model should be cn-only, got %v", m.Regions)
+	// GLM-5.2 仅国内版。
+	if m := byID["GLM-5.2"]; len(m.Regions) != 1 || m.Regions[0] != regionCN {
+		t.Fatalf("GLM-5.2 should be cn-only, got %v", m.Regions)
 	}
-	// 倍率透传。
-	if m := byID["kmodel_latest"]; m.CreditsMultiplier != 1.4 || !m.CreditsParsed {
-		t.Fatalf("kmodel_latest multiplier = %v parsed=%v", m.CreditsMultiplier, m.CreditsParsed)
+	// 倍率与上游 key 透传。
+	if m := byID["Kimi-K3"]; m.CreditsMultiplier != 1.4 || !m.CreditsParsed || m.Key != "kmodel_latest" {
+		t.Fatalf("Kimi-K3 = %+v", m)
 	}
 }
 
@@ -249,7 +299,7 @@ func TestCatalogFiltersByActiveRegion(t *testing.T) {
 	// 无账号：默认国内版。
 	got := s.catalog()
 	for _, m := range got {
-		if m.ID == "ultimate" {
+		if m.ID == "Ultimate" {
 			t.Fatalf("no-account catalog should not include intl-only model")
 		}
 		if len(m.Regions) != 1 || m.Regions[0] != regionCN {
@@ -261,8 +311,8 @@ func TestCatalogFiltersByActiveRegion(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range s.catalog() {
-		if m.ID == "ultimate" {
-			t.Fatalf("cn-only catalog should not include ultimate")
+		if m.ID == "Ultimate" {
+			t.Fatalf("cn-only catalog should not include Ultimate")
 		}
 	}
 	// 加国际版账号：出现国际版模型。
@@ -273,12 +323,12 @@ func TestCatalogFiltersByActiveRegion(t *testing.T) {
 	}
 	found := false
 	for _, m := range s.catalog() {
-		if m.ID == "ultimate" {
+		if m.ID == "Ultimate" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("mixed catalog should include intl-only ultimate")
+		t.Fatalf("mixed catalog should include intl-only Ultimate")
 	}
 }
 
@@ -286,17 +336,17 @@ func TestAccountServesModelByRegion(t *testing.T) {
 	s := newTestService(t)
 	cn := Account{ID: "cn1", Region: regionCN}
 	intl := Account{ID: "intl1", Region: regionIntl}
-	if !s.accountServesModel(cn, "gm51model") {
-		t.Fatalf("cn account should serve gm51model")
+	if !s.accountServesModel(cn, "GLM-5.2") {
+		t.Fatalf("cn account should serve GLM-5.2")
 	}
-	if s.accountServesModel(intl, "gm51model") {
-		t.Fatalf("intl account should not serve gm51model")
+	if s.accountServesModel(intl, "GLM-5.2") {
+		t.Fatalf("intl account should not serve GLM-5.2")
 	}
-	if !s.accountServesModel(intl, "ultimate") {
-		t.Fatalf("intl account should serve ultimate")
+	if !s.accountServesModel(intl, "Ultimate") {
+		t.Fatalf("intl account should serve Ultimate")
 	}
-	if s.accountServesModel(cn, "ultimate") {
-		t.Fatalf("cn account should not serve ultimate")
+	if s.accountServesModel(cn, "Ultimate") {
+		t.Fatalf("cn account should not serve Ultimate")
 	}
 	if !s.accountServesModel(cn, "") {
 		t.Fatalf("empty model should be allowed")
@@ -316,7 +366,7 @@ func TestReconcileLinkedEndpointSyncsModels(t *testing.T) {
 	// 预置一行旧端点，models 停在过期的 2 个。
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO openai_endpoints (id, name, base_url, api_key, enabled, models, disabled_models, plugin_id)
-		VALUES (?, 'Qoder', 'http://127.0.0.1:3000/api/qoder/v1', 'sk', 1, '["dfmodel","qfmodel"]', '[]', 'qoder')`,
+		VALUES (?, 'Qoder', 'http://127.0.0.1:3000/api/qoder/v1', 'sk', 1, '["DeepSeek-Flash","Qwen3.8-Flash"]', '[]', 'qoder')`,
 		linkedEndpointID); err != nil {
 		t.Fatal(err)
 	}
